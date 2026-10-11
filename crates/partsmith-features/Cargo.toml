@@ -1,0 +1,15 @@
+[package]
+name = "partsmith-features"
+description = "Feature trait, registry and built-in modeling features for Partsmith."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[dependencies]
+
+[lints]
+workspace = true

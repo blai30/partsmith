@@ -1,0 +1,15 @@
+[package]
+name = "partsmith-engine"
+description = "Partsmith session engine: documents, commands, undo, recompute, tessellation and export."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[dependencies]
+
+[lints]
+workspace = true

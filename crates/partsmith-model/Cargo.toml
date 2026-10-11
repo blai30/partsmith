@@ -1,0 +1,15 @@
+[package]
+name = "partsmith-model"
+description = "Document recipe model for Partsmith: ids, units, expressions, edits and undo, and canonical .ptsm serialization."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[dependencies]
+
+[lints]
+workspace = true

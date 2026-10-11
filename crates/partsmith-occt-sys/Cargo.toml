@@ -1,0 +1,19 @@
+[package]
+name = "partsmith-occt-sys"
+description = "Safe Rust facade over a C++ shim around the OCCT geometry kernel."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[dependencies]
+
+# The FFI crate is the one place allowed to use unsafe code.
+[lints.rust]
+missing_docs = "warn"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }

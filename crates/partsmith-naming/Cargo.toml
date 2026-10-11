@@ -1,0 +1,15 @@
+[package]
+name = "partsmith-naming"
+description = "Topological naming for Partsmith: element names, references, fingerprints and the resolver."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[dependencies]
+
+[lints]
+workspace = true
