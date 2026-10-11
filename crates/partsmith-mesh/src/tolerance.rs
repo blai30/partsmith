@@ -10,9 +10,11 @@ use crate::MeshError;
 /// Tessellation accuracy: how far triangles may deviate from the exact surface.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct TessellationTolerance {
-    /// Maximum distance between a triangle and the surface, in mm.
+    // Each field's documentation stays on one line: it becomes the field's description in the
+    // generated JSON Schema, which keeps line breaks, and matches spec section 2.4 word for word.
+    /// Chord deflection (OCCT `Deflection`, absolute): maximum distance between a triangle or segment and the exact surface or curve, in mm.
     pub chord_deviation: f64,
-    /// Maximum angle between adjacent triangle normals along a curved surface, in radians.
+    /// Angular deflection (OCCT `Angle`): maximum angle between consecutive segments along curves and between adjacent triangle normals, in radians.
     pub angular_deviation: f64,
 }
 
@@ -86,6 +88,23 @@ mod tests {
     fn zero_and_nan_angles_are_rejected() {
         assert!(TessellationTolerance::new(0.05, 0.0).is_err());
         assert!(TessellationTolerance::new(0.05, f64::NAN).is_err());
+    }
+
+    #[test]
+    fn schema_describes_the_fields_in_the_words_of_the_spec() {
+        let schema = schemars::schema_for!(TessellationTolerance);
+        let properties = &schema.as_value()["properties"];
+
+        assert_eq!(
+            properties["chord_deviation"]["description"],
+            "Chord deflection (OCCT `Deflection`, absolute): maximum distance between a triangle \
+             or segment and the exact surface or curve, in mm."
+        );
+        assert_eq!(
+            properties["angular_deviation"]["description"],
+            "Angular deflection (OCCT `Angle`): maximum angle between consecutive segments along \
+             curves and between adjacent triangle normals, in radians."
+        );
     }
 
     #[test]

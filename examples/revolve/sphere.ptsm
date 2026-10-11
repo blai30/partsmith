@@ -1,0 +1,42 @@
+{
+  "format": "partsmith",
+  "format_version": 1,
+  "units": "mm",
+  "parameters": [],
+  "bodies": [
+    {"id": "b-1", "name": "Body 1"}
+  ],
+  "features": [
+    {
+      "id": "f-sk1",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XZ"},
+      "entities": [
+        {
+          "id": "e-1",
+          "type": "arc",
+          "center": [0, 0],
+          "radius": 10,
+          "start_angle": -1.5707963267948966,
+          "end_angle": 1.5707963267948966
+        },
+        {"id": "e-2", "type": "line", "start": [0, 10], "end": [0, -10]}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-rev1",
+      "type": "revolve",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk1",
+        "regions": [
+          {"key": "e-1,e-2", "fp": "c=4.244132,0|a=157.079633"}
+        ]
+      },
+      "axis": {"kind": "origin", "axis": "Z"},
+      "extent": {"kind": "full"},
+      "op": "new"
+    }
+  ]
+}

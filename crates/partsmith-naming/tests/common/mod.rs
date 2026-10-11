@@ -340,8 +340,8 @@ pub fn assert_close(actual: f64, expected: f64, tolerance: f64) {
 /// Raw values for random fingerprints (spec test 27), every magnitude below 1e9.
 #[derive(Debug, Clone)]
 pub struct FingerprintValues {
-    /// A non-zero direction. Its components are integers before normalization, so no normalized
-    /// component lies between 0 and the 6-decimal text precision.
+    /// A direction long enough to normalize, with components that may be far below the 6-decimal
+    /// text precision after normalization.
     pub direction: [f64; 3],
     /// Centroid or position in millimeters.
     pub centroid: [f64; 3],
@@ -390,16 +390,29 @@ pub fn magnitude() -> impl Strategy<Value = f64> {
     ]
 }
 
-/// A non-zero direction with integer components, often axis aligned or diagonal.
-pub fn direction() -> impl Strategy<Value = [f64; 3]> {
+/// A direction component: unit or integral (axis aligned and diagonal directions), any real, or a
+/// tiny real that normalizes to a component near or below the text precision.
+fn direction_component() -> impl Strategy<Value = f64> {
     prop_oneof![
-        prop::array::uniform3(-1_i32..=1),
-        prop::array::uniform3(-1000_i32..=1000),
+        (-1_i32..=1).prop_map(f64::from),
+        (-1000_i32..=1000).prop_map(f64::from),
+        -1000.0..1000.0_f64,
+        -1e-5..1e-5_f64,
     ]
-    .prop_filter("a direction must not be zero", |components| {
-        *components != [0, 0, 0]
-    })
-    .prop_map(|components| components.map(f64::from))
+}
+
+/// A direction long enough for `Fingerprint::new` to normalize (at least 1e-12).
+pub fn direction() -> impl Strategy<Value = [f64; 3]> {
+    prop::array::uniform3(direction_component()).prop_filter(
+        "a direction must be long enough to normalize",
+        |components| {
+            components
+                .iter()
+                .map(|component| component * component)
+                .sum::<f64>()
+                >= 1e-24
+        },
+    )
 }
 
 /// Random values for fingerprints of every kind.

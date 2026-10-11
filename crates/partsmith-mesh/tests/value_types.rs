@@ -3,8 +3,8 @@
 use std::f64::consts::FRAC_PI_2;
 
 use partsmith_mesh::{
-    BoundingBox, DEGENERATE_HEIGHT, MAX_ELEMENTS, MeshError, Point3, TessellationTolerance, Transform,
-    WELD_TOLERANCE,
+    BoundingBox, DEGENERATE_HEIGHT, MAX_ELEMENTS, MeshError, Point3, TessellationTolerance,
+    Transform, WELD_TOLERANCE,
 };
 
 #[test]

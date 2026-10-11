@@ -294,8 +294,9 @@ fn adjacency_descends(adjacency: &[ElementName], terms: &[ElementName]) -> bool 
     if adjacency.len() != terms.len() {
         return false;
     }
-    // When a pairing exists, a name is never longer than its term, so the pairing is all equal
-    // exactly when both lists hold the same names; otherwise at least one pair is strict.
+    // A paired name is never shorter than its term and is longer exactly when it is a strict
+    // descendant. Both lists have the same total length when they hold the same names, so every
+    // pairing is then all equal; when they differ, no pairing is all equal.
     let mut sorted_adjacency: Vec<&ElementName> = adjacency.iter().collect();
     sorted_adjacency.sort_unstable();
     let mut sorted_terms: Vec<&ElementName> = terms.iter().collect();
@@ -405,9 +406,18 @@ mod tests {
 
     #[test]
     fn matching_moves_earlier_pairings() {
-        // f-a/x#1 fits both terms; only pairing it with f-a/x leaves f-a/x#1 for f-a/x#1#2.
+        // f-a/x#1 fits both terms and is paired with f-a/x first; f-a/x#2 fits only f-a/x, so the
+        // only valid pairing moves f-a/x#1 over to its equal term. First come, first served fails.
         assert!(adjacency_descends(
-            &names(&["f-a/x#1", "f-a/x#1#2"]),
+            &names(&["f-a/x#1", "f-a/x#2"]),
+            &names(&["f-a/x", "f-a/x#1"])
+        ));
+    }
+
+    #[test]
+    fn matching_fails_when_two_names_need_one_term() {
+        assert!(!adjacency_descends(
+            &names(&["f-a/x#2", "f-a/x#3"]),
             &names(&["f-a/x", "f-a/x#1"])
         ));
     }

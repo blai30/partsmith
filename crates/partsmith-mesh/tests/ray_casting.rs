@@ -72,7 +72,10 @@ fn t071_hit_beyond_max_distance_is_ignored() {
     let mesh = cube(10.0);
     let hierarchy = BoundingVolumeHierarchy::new(&mesh);
 
-    assert_eq!(hierarchy.first_hit(&ray([5.0, 5.0, 20.0], DOWN), 0.0, 5.0), None);
+    assert_eq!(
+        hierarchy.first_hit(&ray([5.0, 5.0, 20.0], DOWN), 0.0, 5.0),
+        None
+    );
 }
 
 #[test]
@@ -167,7 +170,10 @@ fn nan_distance_bound_yields_no_hits() {
     let hierarchy = BoundingVolumeHierarchy::new(&mesh);
     let downward = ray([5.0, 5.0, 20.0], DOWN);
 
-    assert_eq!(hierarchy.first_hit(&downward, f64::NAN, f64::INFINITY), None);
+    assert_eq!(
+        hierarchy.first_hit(&downward, f64::NAN, f64::INFINITY),
+        None
+    );
     assert!(hierarchy.all_hits(&downward, 0.0, f64::NAN).is_empty());
 }
 
@@ -415,7 +421,10 @@ fn grazing_ray_from_far_away_finds_every_hit() {
         .collect();
 
     assert_eq!(
-        expected.iter().map(|hit| hit.triangle).collect::<Vec<u32>>(),
+        expected
+            .iter()
+            .map(|hit| hit.triangle)
+            .collect::<Vec<u32>>(),
         vec![804, 806, 934]
     );
     assert_eq!(triangles, vec![804, 806, 934]);
@@ -442,8 +451,10 @@ fn hierarchy_matches_brute_force_on_grazing_rays_from_far_away() {
         failure_persistence: None,
         ..Config::default()
     };
-    let mut runner =
-        TestRunner::new_with_rng(config, TestRng::from_seed(RngAlgorithm::ChaCha, &GRAZING_SEED));
+    let mut runner = TestRunner::new_with_rng(
+        config,
+        TestRng::from_seed(RngAlgorithm::ChaCha, &GRAZING_SEED),
+    );
     let rays = (
         0..triangle_count,
         (0.0..=1.0_f64, 0.0..=1.0_f64),
@@ -454,7 +465,13 @@ fn hierarchy_matches_brute_force_on_grazing_rays_from_far_away() {
 
     let outcome = runner.run(
         &rays,
-        |(triangle, (first_weight, second_weight), wobble, (tilt_exponent, distance_exponent), bounded)| {
+        |(
+            triangle,
+            (first_weight, second_weight),
+            wobble,
+            (tilt_exponent, distance_exponent),
+            bounded,
+        )| {
             let [corner_a, corner_b, corner_c] = mesh.triangle_points(triangle as usize);
             let edge_one = subtract(corner_b, corner_a);
             let edge_two = subtract(corner_c, corner_a);
@@ -483,7 +500,10 @@ fn hierarchy_matches_brute_force_on_grazing_rays_from_far_away() {
             };
             let expected = brute_force_hits(&mesh, &ray, min_distance, max_distance);
 
-            check_same_hits(&hierarchy.all_hits(&ray, min_distance, max_distance), &expected)?;
+            check_same_hits(
+                &hierarchy.all_hits(&ray, min_distance, max_distance),
+                &expected,
+            )?;
             let first_hit: Vec<RayHit> = hierarchy
                 .first_hit(&ray, min_distance, max_distance)
                 .into_iter()

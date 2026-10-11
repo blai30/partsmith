@@ -418,8 +418,14 @@ mod tests {
         let grid = WeldGrid::new(1e-6);
 
         assert_eq!(grid.cell_of(1e20), 1e20_f64.to_bits() as i64);
-        assert_eq!(grid.search_span(1e20), grid.cell_of(1e20)..=grid.cell_of(1e20));
-        assert_eq!(grid.search_span(f64::MIN), grid.cell_of(f64::MIN)..=grid.cell_of(f64::MIN));
+        assert_eq!(
+            grid.search_span(1e20),
+            grid.cell_of(1e20)..=grid.cell_of(1e20)
+        );
+        assert_eq!(
+            grid.search_span(f64::MIN),
+            grid.cell_of(f64::MIN)..=grid.cell_of(f64::MIN)
+        );
     }
 
     #[test]

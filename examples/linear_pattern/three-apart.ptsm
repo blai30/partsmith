@@ -1,0 +1,19 @@
+{
+  "format": "partsmith",
+  "format_version": 1,
+  "units": "mm",
+  "parameters": [],
+  "bodies": [
+    {"id": "b-1", "name": "Body 1"},
+    {"id": "b-2", "name": "Body 2"}
+  ],
+  "features": [
+    {"id": "f-box1", "type": "box", "body": "b-1", "size": ["10", "10", "10"], "op": "new"},
+    {
+      "id": "f-lp1",
+      "type": "linear_pattern",
+      "body": "b-1",
+      "direction": {"axis": {"kind": "origin", "axis": "X"}, "count": "3", "spacing": "20"}
+    }
+  ]
+}

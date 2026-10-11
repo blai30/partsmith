@@ -1,0 +1,22 @@
+{
+  "format": "partsmith",
+  "format_version": 1,
+  "units": "mm",
+  "parameters": [],
+  "bodies": [
+    {"id": "b-1", "name": "Body 1"},
+    {"id": "b-2", "name": "Body 2"}
+  ],
+  "features": [
+    {"id": "f-box1", "type": "box", "body": "b-1", "size": ["30", "10", "10"], "op": "new"},
+    {"id": "f-box2", "type": "box", "body": "b-1", "size": ["10", "10", "8"], "position": ["0", "0", "2"], "op": "cut"},
+    {"id": "f-dp1", "type": "datum_plane", "base": {"kind": "origin", "plane": "XY"}, "offset": "5"},
+    {
+      "id": "f-split1",
+      "type": "split_body",
+      "body": "b-1",
+      "plane": {"kind": "datum", "feature": "f-dp1"},
+      "target": "b-2"
+    }
+  ]
+}

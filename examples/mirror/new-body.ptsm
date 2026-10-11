@@ -1,0 +1,28 @@
+{
+  "format": "partsmith",
+  "format_version": 1,
+  "units": "mm",
+  "parameters": [],
+  "bodies": [
+    {"id": "b-1", "name": "Body 1"},
+    {"id": "b-2", "name": "Body 2"}
+  ],
+  "features": [
+    {
+      "id": "f-box1",
+      "type": "box",
+      "body": "b-1",
+      "size": ["10", "10", "10"],
+      "position": ["10", "0", "0"],
+      "op": "new"
+    },
+    {
+      "id": "f-mir1",
+      "type": "mirror",
+      "body": "b-1",
+      "plane": {"kind": "origin", "plane": "YZ"},
+      "op": "new",
+      "target": "b-2"
+    }
+  ]
+}

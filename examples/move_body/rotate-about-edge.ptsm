@@ -1,0 +1,25 @@
+{
+  "format": "partsmith",
+  "format_version": 1,
+  "units": "mm",
+  "parameters": [],
+  "bodies": [
+    {"id": "b-1", "name": "Body 1"}
+  ],
+  "features": [
+    {"id": "f-box1", "type": "box", "body": "b-1", "size": ["10", "10", "10"], "op": "new"},
+    {
+      "id": "f-mv1",
+      "type": "move_body",
+      "body": "b-1",
+      "rotation": {
+        "axis": {
+          "kind": "edge",
+          "body": "b-1",
+          "edge": {"q": "edge(f-box1/right|f-box1/top)", "fp": "line|n=0,1,0|c=5,0,10|l=10"}
+        },
+        "angle": "180 deg"
+      }
+    }
+  ]
+}

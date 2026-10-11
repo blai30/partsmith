@@ -1,0 +1,20 @@
+{
+  "format": "partsmith",
+  "format_version": 1,
+  "units": "mm",
+  "parameters": [],
+  "bodies": [
+    {"id": "b-1", "name": "Body 1"}
+  ],
+  "features": [
+    {
+      "id": "f-tor1",
+      "type": "torus",
+      "body": "b-1",
+      "major_radius": "20",
+      "minor_radius": "5",
+      "position": ["0", "0", "5"],
+      "op": "new"
+    }
+  ]
+}

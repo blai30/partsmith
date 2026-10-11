@@ -1,6 +1,6 @@
 //! Display buffers in the protocol's layout.
 
-use crate::mesh::to_u32;
+use crate::hash::FastHashMap;
 use crate::{Mesh, Point3};
 
 /// Display arrays in the protocol's layout (protocol spec, `MeshBuffers`).
@@ -60,29 +60,30 @@ impl Mesh {
             vertex_ids: Vec::with_capacity(self.vertex_markers().len()),
             source_vertices: Vec::with_capacity(expected_vertices),
         };
-        // The render vertices copying each mesh vertex form a linked list: the most recent copy,
-        // then each copy's predecessor.
+        // The most recent render vertex copying each mesh vertex. Most mesh vertices get one copy
+        // (kernel meshes give every face its own vertices), so that copy is checked first.
         let mut latest_copy: Vec<Option<u32>> = vec![None; self.vertex_count()];
-        let mut previous_copy: Vec<Option<u32>> = Vec::with_capacity(expected_vertices);
+        // Every copy of a mesh vertex that has copies for two or more face ids, by (mesh vertex,
+        // face id), so finding one takes the same time however many face ids meet at a vertex.
+        // It is only looked up, never iterated.
+        let mut shared_copies: FastHashMap<(u32, u32), u32> = FastHashMap::default();
         for (corners, &face_id) in self.triangles().iter().zip(self.face_ids()) {
-            for vertex in corners.map(|vertex| vertex as usize) {
-                let existing = std::iter::successors(latest_copy[vertex], |&copy| {
-                    previous_copy[copy as usize]
-                })
-                .find(|&copy| buffers.face_ids[copy as usize] == face_id);
+            for &vertex in corners {
+                let latest = latest_copy[vertex as usize];
+                let existing = match latest {
+                    None => None,
+                    Some(copy) if buffers.face_ids[copy as usize] == face_id => Some(copy),
+                    Some(_) => shared_copies.get(&(vertex, face_id)).copied(),
+                };
                 let render_vertex = existing.unwrap_or_else(|| {
-                    let created = u32::try_from(buffers.source_vertices.len())
-                        .expect("render vertex count fits in u32; see the panics section");
-                    buffers.source_vertices.push(to_u32(vertex));
-                    buffers.face_ids.push(face_id);
-                    buffers
-                        .positions
-                        .extend_from_slice(&to_f32(self.positions()[vertex]));
-                    if let Some(normals) = self.normals() {
-                        buffers.normals.extend_from_slice(&to_f32(normals[vertex]));
+                    let created = buffers.add_render_vertex(self, vertex, face_id);
+                    if let Some(previous) = latest {
+                        // Keying the previous copy again is harmless: it maps to itself.
+                        shared_copies
+                            .insert((vertex, buffers.face_ids[previous as usize]), previous);
+                        shared_copies.insert((vertex, face_id), created);
                     }
-                    previous_copy.push(latest_copy[vertex]);
-                    latest_copy[vertex] = Some(created);
+                    latest_copy[vertex as usize] = Some(created);
                     created
                 });
                 buffers.indices.push(render_vertex);
@@ -102,6 +103,28 @@ impl Mesh {
             buffers.vertex_ids.push(marker.vertex_id);
         }
         buffers
+    }
+}
+
+impl RenderBuffers {
+    /// Appends the render vertex copying mesh vertex `vertex` for face `face_id` and returns its
+    /// index.
+    ///
+    /// # Panics
+    ///
+    /// Panics when the index does not fit in `u32` (see [`Mesh::render_buffers`]).
+    fn add_render_vertex(&mut self, mesh: &Mesh, vertex: u32, face_id: u32) -> u32 {
+        let created = u32::try_from(self.source_vertices.len())
+            .expect("render vertex count fits in u32; see the panics section");
+        self.source_vertices.push(vertex);
+        self.face_ids.push(face_id);
+        self.positions
+            .extend_from_slice(&to_f32(mesh.positions()[vertex as usize]));
+        if let Some(normals) = mesh.normals() {
+            self.normals
+                .extend_from_slice(&to_f32(normals[vertex as usize]));
+        }
+        created
     }
 }
 
@@ -173,6 +196,78 @@ mod tests {
 
         assert_eq!(buffers.source_vertices, vec![0, 1, 2, 0, 2, 3, 3]);
         assert_eq!(buffers.indices, vec![0, 1, 2, 3, 4, 5, 0, 6, 1]);
+    }
+
+    /// Render indices, source vertices and face ids by the specification's procedure: each
+    /// (mesh vertex, face id) pair gets the next index at its first occurrence.
+    fn reference_numbering(mesh: &Mesh) -> (Vec<u32>, Vec<u32>, Vec<u32>) {
+        let mut pairs: Vec<(u32, u32)> = Vec::new();
+        let mut indices = Vec::new();
+        for (corners, &face_id) in mesh.triangles().iter().zip(mesh.face_ids()) {
+            for &vertex in corners {
+                let index = pairs
+                    .iter()
+                    .position(|&pair| pair == (vertex, face_id))
+                    .unwrap_or_else(|| {
+                        pairs.push((vertex, face_id));
+                        pairs.len() - 1
+                    });
+                indices.push(u32::try_from(index).expect("test meshes are small"));
+            }
+        }
+        let (source_vertices, face_ids) = pairs.into_iter().unzip();
+        (indices, source_vertices, face_ids)
+    }
+
+    /// A fan of `count` triangles around vertex 0 with the given face id per triangle.
+    fn fan(count: u32, face_id: impl Fn(u32) -> u32) -> Mesh {
+        let mut positions = vec![[0.0, 0.0, 0.0]];
+        for i in 0..=count {
+            let angle = std::f64::consts::TAU * f64::from(i) / f64::from(count + 1);
+            positions.push([angle.cos(), angle.sin(), 0.0]);
+        }
+        Mesh::new(
+            positions,
+            (0..count).map(|i| [0, i + 1, i + 2]).collect(),
+            (0..count).map(face_id).collect(),
+            None,
+            Vec::new(),
+            Vec::new(),
+        )
+        .expect("valid mesh")
+    }
+
+    #[test]
+    fn many_face_ids_meeting_at_a_vertex_match_reference_numbering() {
+        // The center vertex sees seven face ids in an irregular order, returning to each of
+        // them many times, and neighboring triangles share rim vertices across face ids.
+        let mesh = fan(200, |i| (i * i + 3 * i) % 7);
+
+        let buffers = mesh.render_buffers();
+
+        let (indices, source_vertices, face_ids) = reference_numbering(&mesh);
+        assert_eq!(buffers.indices, indices);
+        assert_eq!(buffers.source_vertices, source_vertices);
+        assert_eq!(buffers.face_ids, face_ids);
+    }
+
+    #[test]
+    fn distinct_face_ids_around_a_vertex_give_one_copy_each() {
+        // Every triangle has its own face id, so the center vertex needs one copy per triangle.
+        // Its copies used to be searched one by one, which took quadratic time.
+        let count = 2_000;
+        let mesh = fan(count, |i| i);
+
+        let buffers = mesh.render_buffers();
+
+        let center_copies = buffers
+            .source_vertices
+            .iter()
+            .filter(|&&vertex| vertex == 0)
+            .count();
+        assert_eq!(center_copies, count as usize);
+        assert_eq!(buffers.source_vertices.len(), 3 * count as usize);
+        assert_eq!(buffers.indices, reference_numbering(&mesh).0);
     }
 
     #[test]

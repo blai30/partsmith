@@ -307,13 +307,17 @@ fn position(index: u32) -> usize {
 /// Fails with `InvalidName` unless `name` is of `kind`.
 fn check_kind(name: &ElementName, kind: ElementKind) -> Result<(), NamingError> {
     if name.kind() == kind {
-        Ok(())
-    } else {
-        Err(NamingError::InvalidName {
-            text: name.to_string(),
-            reason: format!("it is not a {kind} name"),
-        })
+        return Ok(());
     }
+    let reason = match kind {
+        ElementKind::Face => "it is not a face name",
+        ElementKind::Edge => "it is not an edge name",
+        ElementKind::Vertex => "it is not a vertex name",
+    };
+    Err(NamingError::InvalidName {
+        text: name.to_string(),
+        reason: reason.to_owned(),
+    })
 }
 
 /// Indices of the named elements, sorted by name, after checking their kind and uniqueness.
@@ -697,6 +701,21 @@ mod tests {
                 text: "f-a/x".to_owned(),
                 reason: "it is not a vertex name".to_owned()
             })
+        );
+    }
+
+    #[test]
+    fn deserializing_face_name_in_edges_says_an_edge() {
+        let result = serde_json::from_str::<NamingMap>(
+            r#"{"faces": ["f-a/x"], "edges": ["f-a/x"], "vertices": []}"#,
+        );
+
+        let error = result.expect_err("a face name in the edge list must be rejected");
+        assert!(
+            error
+                .to_string()
+                .starts_with("\"f-a/x\" is not a valid element name: it is not an edge name."),
+            "{error}"
         );
     }
 

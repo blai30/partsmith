@@ -1,0 +1,13 @@
+{
+  "format": "partsmith",
+  "format_version": 1,
+  "units": "mm",
+  "parameters": [],
+  "bodies": [
+    {"id": "b-1", "name": "Body 1"}
+  ],
+  "features": [
+    {"id": "f-box1", "type": "box", "body": "b-1", "size": ["80", "50", "30"], "op": "new"},
+    {"id": "f-sh1", "type": "shell", "body": "b-1", "thickness": "2"}
+  ]
+}

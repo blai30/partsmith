@@ -58,7 +58,6 @@ impl BoundingBox {
             max: [0, 1, 2].map(|axis| self.max[axis].max(point[axis])),
         }
     }
-
 }
 
 #[cfg(test)]
@@ -83,8 +82,9 @@ mod tests {
 
     #[test]
     fn box_around_points_takes_extremes_per_axis() {
-        let bounds = BoundingBox::from_points([[1.0, 5.0, -1.0], [-2.0, 0.0, 4.0], [0.0, 7.0, 0.0]])
-            .expect("three points give a box");
+        let bounds =
+            BoundingBox::from_points([[1.0, 5.0, -1.0], [-2.0, 0.0, 4.0], [0.0, 7.0, 0.0]])
+                .expect("three points give a box");
 
         assert_eq!(bounds.min, [-2.0, 0.0, -1.0]);
         assert_eq!(bounds.max, [1.0, 7.0, 4.0]);
@@ -134,6 +134,12 @@ mod tests {
     #[test]
     fn union_with_itself_is_unchanged() {
         assert_eq!(unit_box().union(&unit_box()), unit_box());
+    }
+
+    #[test]
+    fn schema_is_named_bounding_box() {
+        // The protocol schema and the UI types take this name (spec decision E8).
+        assert_eq!(BoundingBox::schema_name(), "BoundingBox");
     }
 
     #[test]

@@ -1,0 +1,20 @@
+{
+  "format": "partsmith",
+  "format_version": 1,
+  "units": "mm",
+  "parameters": [],
+  "bodies": [
+    {"id": "b-1", "name": "Body 1"}
+  ],
+  "features": [
+    {
+      "id": "f-cone1",
+      "type": "cone",
+      "body": "b-1",
+      "bottom_radius": "10",
+      "top_radius": "0",
+      "height": "10",
+      "op": "new"
+    }
+  ]
+}

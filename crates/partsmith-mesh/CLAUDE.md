@@ -15,8 +15,8 @@ Spec: `docs/spec/mesh.md` (the definition of done). Acceptance tests in `tests/`
 
 ## Internals
 
-- `src/mesh.rs` type and invariants; `metrics.rs` (compensated sums); `transform.rs`; `combine.rs` (concat, remap, normals); `weld.rs` (spatial hash grid, provably the same result as the sequential procedure); `validity.rs` (half-edges bucketed by low vertex, disjoint sets for shells); `ray.rs` (triangle test); `bounding_volume_hierarchy.rs` (median split, 32-byte nodes with `f32` boxes rounded outward, sibling pairs adjacent, boxes padded per query so pruning never drops an accepted hit); `slice.rs` (segments keyed by mesh edge, chaining per spec 3.9, `slice_many` buckets triangles by height once); `render.rs`.
-- `ValidityReport` has one private field (`has_triangles`) because `is_watertight` needs "at least one triangle"; it cannot be built with a struct literal outside the crate.
+- `src/mesh.rs` type and invariants; `metrics.rs` (compensated sums); `transform.rs`; `combine.rs` (concat, remap, normals); `weld.rs` (uniform grid with cells 64 tolerances wide, independent of the mesh's extent, so a far-away vertex cannot crowd the cells; provably the same result as the sequential procedure); `validity.rs` (half-edges bucketed by low vertex, disjoint sets for shells); `ray.rs` (triangle test); `bounding_volume_hierarchy.rs` (binned surface area heuristic, 48-byte nodes with `f32` boxes rounded outward and a cone of the directions that may graze their triangles, sibling pairs adjacent; boxes are padded per query by a bound on the triangle test's rounding, wide only for nearly grazing rays, so pruning never drops an accepted hit: the module documentation has the error analysis); `slice.rs` (segments keyed by mesh edge, chaining per spec 3.9, `slice_many` buckets triangles by height once); `render.rs` (latest copy per mesh vertex, plus a map by (mesh vertex, face id) for vertices shared by several face ids); `hash.rs` (a fast deterministic hasher for maps that are only looked up).
+- `ValidityReport` has one private field (`has_triangles`) because `is_watertight` needs "at least one triangle", which the spec's five public fields cannot express (an empty mesh and two coincident, oppositely wound triangles give the same five values); it cannot be built with a struct literal outside the crate. This deviation from spec 2.5 awaits a spec amendment.
 - No hash-map iteration anywhere; every result is deterministic.
 
 ## Commands
@@ -25,11 +25,13 @@ Spec: `docs/spec/mesh.md` (the definition of done). Acceptance tests in `tests/`
 cargo test -p partsmith-mesh
 cargo clippy -p partsmith-mesh --all-targets -- -D warnings
 cargo fmt -p partsmith-mesh
+cargo bench -p partsmith-mesh --bench budgets            # spec section 5 budgets, all of them
+cargo bench -p partsmith-mesh --bench budgets -- weld    # only the operations whose names contain a word
 ```
 
-`tests/ray_casting.rs` checks 10,000 random rays against brute force and takes about 10 s in a debug build.
+`tests/ray_casting.rs` checks 10,000 random rays and 2,000 grazing rays from up to 1 km away against brute force and takes about 10 s in a debug build. The benchmark exits with a failure when a median time is over its budget.
 
 ## Rules
 
 - Pure Rust, no kernel dependency, dependencies limited to `serde`, `schemars` and `thiserror`.
-- No `unsafe`, no global state, no panics on user input (only the documented per-triangle accessors, and `render_buffers` beyond `u32::MAX` render vertices).
+- No `unsafe`, no global state, no panics on user input (only the documented per-triangle accessors, and `render_buffers` beyond `u32::MAX` render vertices, which spec section 4 does not list yet and which awaits a spec amendment).

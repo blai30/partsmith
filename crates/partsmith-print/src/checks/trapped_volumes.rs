@@ -1,0 +1,69 @@
+//! Trapped volumes: sealed cavities that print as hollows and trap liquid resin (spec section
+//! 3.9.8).
+
+use crate::body::Body;
+use crate::format::format_one_decimal;
+use crate::profile::Technology;
+use crate::report::{CheckKind, CheckResult, Finding, FindingCode, Severity, Suggestion};
+
+/// A closed shell counts as a hollow when its signed volume is below minus this many mm³.
+const MIN_HOLLOW_VOLUME: f64 = 1e-9;
+
+/// Runs the check on a body with triangles. Findings follow shell order.
+pub(crate) fn check(body: &Body, technology: Technology) -> CheckResult {
+    let print = body.print();
+    if print.signed_volume() <= 0.0 {
+        return CheckResult::new(CheckKind::TrappedVolumes, Vec::new(), 0);
+    }
+    let hollows: Vec<_> = print
+        .shells()
+        .into_iter()
+        .filter(|shell| shell.closed && shell.signed_volume < -MIN_HOLLOW_VOLUME)
+        .collect();
+    CheckResult::capped(CheckKind::TrappedVolumes, hollows, |shell| {
+        let volume = -shell.signed_volume;
+        let location = body.triangles_location(&shell.triangles);
+        let finding = match technology {
+            Technology::Fdm => Finding::new(
+                CheckKind::TrappedVolumes,
+                FindingCode::EnclosedHollow,
+                Severity::Info,
+                format!(
+                    "An enclosed hollow of {} mm³ will print as a sealed cavity.",
+                    format_one_decimal(volume)
+                ),
+                location,
+            ),
+            Technology::Resin => Finding::new(
+                CheckKind::TrappedVolumes,
+                FindingCode::EnclosedHollow,
+                Severity::Warning,
+                format!(
+                    "An enclosed hollow of {} mm³ will trap liquid resin. Add a drain hole near its lowest point.",
+                    format_one_decimal(volume)
+                ),
+                location,
+            )
+            .with_suggestion(Some(Suggestion::DrainHole {
+                at: body.model_position(lowest_vertex(body, &shell.triangles)),
+            })),
+        };
+        finding
+            .with_value(volume)
+            .with_affected(body.affected(shell.triangles))
+    })
+}
+
+/// The lowest vertex of the triangles: smallest print z, then smallest index.
+fn lowest_vertex(body: &Body, triangles: &[u32]) -> usize {
+    triangles
+        .iter()
+        .flat_map(|&triangle| body.corners(triangle as usize))
+        .map(|vertex| vertex as usize)
+        .min_by(|&first, &second| {
+            body.print_z(first)
+                .total_cmp(&body.print_z(second))
+                .then(first.cmp(&second))
+        })
+        .expect("a shell has at least one triangle")
+}

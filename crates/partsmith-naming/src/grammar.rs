@@ -87,7 +87,9 @@ impl fmt::Display for NameDefect {
                 formatter.write_str("a role must start with a lowercase letter")
             }
             NameDefect::InvalidSplit => formatter.write_str("split numbers start at 1"),
-            NameDefect::InvalidInstance => formatter.write_str("instance numbers start at 1"),
+            NameDefect::InvalidInstance => formatter.write_str(
+                "instance numbers are n, n.m or 0.m, with n and m of 1 or more and no leading zeros",
+            ),
             NameDefect::NumberTooLarge => formatter.write_str("a number is too large"),
             NameDefect::UnsortedFaces => {
                 formatter.write_str("edge and vertex face lists must be sorted and distinct")
@@ -545,6 +547,14 @@ mod tests {
         ] {
             assert_eq!(validate(text), Err(NameDefect::InvalidInstance), "{text}");
         }
+    }
+
+    #[test]
+    fn instance_reason_names_every_valid_form() {
+        assert_eq!(
+            NameDefect::InvalidInstance.to_string(),
+            "instance numbers are n, n.m or 0.m, with n and m of 1 or more and no leading zeros"
+        );
     }
 
     #[test]

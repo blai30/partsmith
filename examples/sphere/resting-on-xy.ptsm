@@ -1,0 +1,12 @@
+{
+  "format": "partsmith",
+  "format_version": 1,
+  "units": "mm",
+  "parameters": [],
+  "bodies": [
+    {"id": "b-1", "name": "Body 1"}
+  ],
+  "features": [
+    {"id": "f-sph1", "type": "sphere", "body": "b-1", "radius": "10", "position": ["0", "0", "10"], "op": "new"}
+  ]
+}

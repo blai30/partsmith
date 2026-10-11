@@ -1,0 +1,14 @@
+{
+  "format": "partsmith",
+  "format_version": 1,
+  "units": "mm",
+  "parameters": [
+    {"id": "p-w", "name": "w", "expr": "8 mm"}
+  ],
+  "bodies": [
+    {"id": "b-1", "name": "Body 1"}
+  ],
+  "features": [
+    {"id": "f-box1", "type": "box", "body": "b-1", "size": ["w", "2 * w", "w / 2"], "op": "new"}
+  ]
+}

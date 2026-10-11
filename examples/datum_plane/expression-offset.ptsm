@@ -1,0 +1,12 @@
+{
+  "format": "partsmith",
+  "format_version": 1,
+  "units": "mm",
+  "parameters": [
+    {"id": "p-wall", "name": "wall", "expr": "2 mm"}
+  ],
+  "bodies": [],
+  "features": [
+    {"id": "f-dp1", "type": "datum_plane", "base": {"kind": "origin", "plane": "XY"}, "offset": "2 * wall"}
+  ]
+}

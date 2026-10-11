@@ -1,0 +1,20 @@
+{
+  "format": "partsmith",
+  "format_version": 1,
+  "units": "mm",
+  "parameters": [],
+  "bodies": [
+    {"id": "b-1", "name": "Body 1"}
+  ],
+  "features": [
+    {"id": "f-box1", "type": "box", "body": "b-1", "size": ["10", "10", "10"], "op": "new"},
+    {
+      "id": "f-box2",
+      "type": "box",
+      "body": "b-1",
+      "size": ["10", "10", "10"],
+      "position": ["5", "0", "0"],
+      "op": "join"
+    }
+  ]
+}

@@ -9,12 +9,20 @@ let uninstallPopovers: () => void
 
 beforeEach(() => {
   vi.useFakeTimers()
+  // Testing Library's asyncWrapper, which user-event calls, waits for a setTimeout(0) and advances
+  // fake timers only through a `jest` global; without it every user-event call hangs.
+  vi.stubGlobal('jest', {
+    advanceTimersByTime: (milliseconds: number) => {
+      vi.advanceTimersByTime(milliseconds)
+    },
+  })
   uninstallPopovers = installPopoverPolyfill()
 })
 
 afterEach(() => {
   cleanup()
   uninstallPopovers()
+  vi.unstubAllGlobals()
   vi.useRealTimers()
 })
 

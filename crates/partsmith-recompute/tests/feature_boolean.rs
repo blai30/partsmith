@@ -1,0 +1,273 @@
+//! Acceptance tests of the `boolean` feature (docs/spec/features/boolean.md section 6), run as
+//! documents through recompute (features.md section 6.1). Geometry documents are the examples in
+//! `examples/boolean/`.
+
+mod feature_support;
+
+use std::time::Duration;
+
+use feature_support::{
+    Run, assert_bounding_box, assert_canonical_example, assert_empty, assert_error_field,
+    assert_face_count, assert_face_kind, assert_face_position, assert_solid_count,
+    assert_unchanged, assert_volume, body_changes, example_paths, face, face_index, link_ids,
+    load_example, median_build_time,
+};
+use partsmith_occt_sys::GeometryKind;
+
+/// The bodies of every boolean test.
+const BODIES: [&str; 3] = ["b-1", "b-2", "b-3"];
+
+/// The `BOX1` fixture: b-1 spanning [-10,-10,0]-[10,10,20].
+const BOX1: &str =
+    r#"{"id": "f-box1", "type": "box", "body": "b-1", "size": ["20", "20", "20"], "op": "new"}"#;
+
+/// The `BOX2` fixture: b-2 spanning [0,-10,0]-[20,10,20].
+const BOX2: &str = r#"{"id": "f-box2", "type": "box", "body": "b-2", "size": ["20", "20", "20"], "position": ["10", "0", "0"], "op": "new"}"#;
+
+/// The `BOX2` fixture moved to x = 50, so it does not touch `BOX1` (tests 11 and 12).
+const BOX2_APART: &str = r#"{"id": "f-box2", "type": "box", "body": "b-2", "size": ["20", "20", "20"], "position": ["50", "0", "0"], "op": "new"}"#;
+
+/// The `BOOL(tools, op)` fixture, with `tools` given as a JSON array.
+fn boolean(tools: &str, op: &str) -> String {
+    format!(
+        r#"{{"id": "f-bool1", "type": "boolean", "target": "b-1", "tools": {tools}, "op": "{op}"}}"#
+    )
+}
+
+#[test]
+fn examples_are_canonical() {
+    let paths = example_paths("boolean");
+    assert!(!paths.is_empty(), "examples/boolean has examples");
+    for path in paths {
+        assert_canonical_example(&path);
+    }
+}
+
+#[test]
+fn t001_join_volume_faces_and_bounds() {
+    let run = Run::example("boolean/join.ptsm");
+
+    run.assert_all_ok();
+    let shape = run.shape("b-1");
+    assert_volume(shape, 12000.0);
+    assert_face_count(shape, 6);
+    assert_bounding_box(shape, [-10.0, -10.0, 0.0], [20.0, 10.0, 20.0]);
+}
+
+#[test]
+fn t001_join_keeps_target_and_tool_face_names() {
+    let run = Run::example("boolean/join.ptsm");
+
+    let target = run.body("b-1");
+    assert!(
+        face_index(target, "f-box1/left").is_some(),
+        "f-box1/left exists"
+    );
+    assert!(
+        face_index(target, "f-box2/right").is_some(),
+        "f-box2/right exists"
+    );
+}
+
+#[test]
+fn t001_join_consumes_the_tool() {
+    let run = Run::example("boolean/join.ptsm");
+
+    assert_empty(&run, "b-2");
+    assert_eq!(body_changes(&run, "f-bool1"), ["b-1 Join", "b-2 Clear"]);
+}
+
+#[test]
+fn t002_join_keeping_tools_leaves_the_tool() {
+    let run = Run::example("boolean/join-keep-tools.ptsm");
+
+    run.assert_all_ok();
+    assert_volume(run.shape("b-1"), 12000.0);
+    assert_volume(run.shape("b-2"), 8000.0);
+    assert_unchanged(&run, "f-bool1", "b-2");
+    assert_eq!(body_changes(&run, "f-bool1"), ["b-1 Join"]);
+}
+
+#[test]
+fn t002_join_keeping_tools_reads_the_tool() {
+    let run = Run::example("boolean/join-keep-tools.ptsm");
+
+    let dependencies = run.dependencies("f-bool1");
+    assert_eq!(link_ids(&dependencies.bodies_read), ["b-2"]);
+    assert_eq!(link_ids(&dependencies.bodies_written), ["b-1"]);
+}
+
+#[test]
+fn t003_cut_volume_faces_and_bounds() {
+    let run = Run::example("boolean/cut.ptsm");
+
+    run.assert_all_ok();
+    let shape = run.shape("b-1");
+    assert_volume(shape, 4000.0);
+    assert_face_count(shape, 6);
+    assert_bounding_box(shape, [-10.0, -10.0, 0.0], [0.0, 10.0, 20.0]);
+    assert_empty(&run, "b-2");
+}
+
+#[test]
+fn t003_cut_names_the_new_wall_after_the_tool_face() {
+    let run = Run::example("boolean/cut.ptsm");
+
+    let wall = face(run.body("b-1"), "f-box2/left");
+    assert_face_kind(&wall, GeometryKind::Plane);
+    assert_face_position(&wall, 0, 0.0);
+}
+
+#[test]
+fn t004_intersect() {
+    let run = Run::example("boolean/intersect.ptsm");
+
+    run.assert_all_ok();
+    let shape = run.shape("b-1");
+    assert_volume(shape, 4000.0);
+    assert_face_count(shape, 6);
+    assert_bounding_box(shape, [0.0, -10.0, 0.0], [10.0, 10.0, 20.0]);
+}
+
+#[test]
+fn t005_cut_with_two_tools() {
+    let run = Run::example("boolean/cut-two-tools.ptsm");
+
+    run.assert_all_ok();
+    let shape = run.shape("b-1");
+    assert_volume(shape, 3750.0);
+    assert_face_count(shape, 10);
+    assert_bounding_box(shape, [-10.0, -10.0, 0.0], [0.0, 10.0, 20.0]);
+    assert_empty(&run, "b-2");
+    assert_empty(&run, "b-3");
+}
+
+#[test]
+fn t006_intersect_with_two_tools_keeps_what_is_inside_every_tool() {
+    let run = Run::example("boolean/intersect-two-tools.ptsm");
+
+    run.assert_all_ok();
+    let shape = run.shape("b-1");
+    assert_volume(shape, 250.0);
+    assert_face_count(shape, 6);
+    assert_bounding_box(shape, [0.0, -5.0, 15.0], [5.0, 5.0, 20.0]);
+}
+
+#[test]
+fn t007_tool_is_the_target() {
+    let run = Run::records(&BODIES, &[BOX1, &boolean(r#"["b-1"]"#, "join")]);
+
+    let error = run.assert_error("f-bool1", "same_body");
+    assert_error_field(error, "tools[0]");
+    assert_eq!(
+        run.messages("f-bool1"),
+        ["Body 'Body 1' cannot be used twice here. Pick a different body for Tool bodies."]
+    );
+}
+
+#[test]
+fn t008_repeated_tool() {
+    let run = Run::records(
+        &BODIES,
+        &[BOX1, BOX2, &boolean(r#"["b-2", "b-2"]"#, "join")],
+    );
+
+    let error = run.assert_error("f-bool1", "same_body");
+    assert_error_field(error, "tools[1]");
+}
+
+#[test]
+fn t009_empty_tool() {
+    let run = Run::records(&BODIES, &[BOX1, &boolean(r#"["b-2"]"#, "join")]);
+
+    run.assert_error("f-bool1", "tool_empty");
+    assert_eq!(
+        run.messages("f-bool1"),
+        [
+            "Body 'Body 2' is empty at this point, so it cannot be used as a tool. Pick a body that has a solid."
+        ]
+    );
+    assert_unchanged(&run, "f-bool1", "b-1");
+}
+
+#[test]
+fn t010_empty_target() {
+    let run = Run::records(&BODIES, &[BOX2, &boolean(r#"["b-2"]"#, "join")]);
+
+    run.assert_error("f-bool1", "body_empty");
+    assert_unchanged(&run, "f-bool1", "b-2");
+}
+
+#[test]
+fn t011_disjoint_join() {
+    let run = Run::example("boolean/join-disjoint.ptsm");
+
+    run.assert_all_ok();
+    let shape = run.shape("b-1");
+    assert_volume(shape, 16000.0);
+    assert_face_count(shape, 12);
+    assert_solid_count(shape, 2);
+    assert_bounding_box(shape, [-10.0, -10.0, 0.0], [60.0, 10.0, 20.0]);
+}
+
+#[test]
+fn t012_cut_that_misses() {
+    let run = Run::records(&BODIES, &[BOX1, BOX2_APART, &boolean(r#"["b-2"]"#, "cut")]);
+
+    run.assert_warnings("f-bool1", &["no_effect"]);
+    assert_unchanged(&run, "f-bool1", "b-1");
+    assert_volume(run.shape("b-1"), 8000.0);
+    assert_empty(&run, "b-2");
+}
+
+#[test]
+fn t013_cut_everything() {
+    let run = Run::records(
+        &BODIES,
+        &[
+            BOX1,
+            r#"{"id": "f-box2", "type": "box", "body": "b-2", "size": ["30", "30", "30"], "position": ["0", "0", "-5"], "op": "new"}"#,
+            &boolean(r#"["b-2"]"#, "cut"),
+        ],
+    );
+
+    run.assert_error("f-bool1", "empty_result");
+    assert_unchanged(&run, "f-bool1", "b-1");
+    assert_unchanged(&run, "f-bool1", "b-2");
+}
+
+#[test]
+fn t014_no_tools() {
+    let run = Run::records(&BODIES, &[BOX1, &boolean("[]", "join")]);
+
+    run.assert_error("f-bool1", "empty_selection");
+    assert_eq!(
+        run.messages("f-bool1"),
+        ["Select at least one body for Tool bodies."]
+    );
+}
+
+#[test]
+fn t015_tool_names_survive_for_a_later_fillet() {
+    let run = Run::example("boolean/cut-then-fillet.ptsm");
+
+    run.assert_ok("f-fil1");
+    let shape = run.shape("b-1");
+    assert_volume(shape, 3982.831853);
+    assert_face_count(shape, 7);
+}
+
+#[test]
+#[cfg_attr(
+    debug_assertions,
+    ignore = "performance budgets hold for release builds: run with cargo test --release"
+)]
+fn t016_join_builds_within_15_ms() {
+    let document = load_example("boolean/join.ptsm");
+
+    let duration = median_build_time(&document, "f-bool1", 21);
+    assert!(
+        duration < Duration::from_millis(15),
+        "the join took {duration:?} to build (median of 21 runs), over the 15 ms budget",
+    );
+}

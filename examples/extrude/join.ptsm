@@ -1,0 +1,41 @@
+{
+  "format": "partsmith",
+  "format_version": 1,
+  "units": "mm",
+  "parameters": [],
+  "bodies": [
+    {"id": "b-1", "name": "Body 1"}
+  ],
+  "features": [
+    {
+      "id": "f-box1",
+      "type": "box",
+      "body": "b-1",
+      "size": ["40", "40", "10"],
+      "position": ["0", "0", "-10"],
+      "op": "new"
+    },
+    {
+      "id": "f-sk1",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XY"},
+      "entities": [
+        {"id": "e-5", "type": "circle", "center": [0, 0], "radius": 5}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-ext1",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk1",
+        "regions": [
+          {"key": "e-5", "fp": "c=0,0|a=78.539816"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "5"},
+      "op": "join"
+    }
+  ]
+}

@@ -1,0 +1,33 @@
+{
+  "format": "partsmith",
+  "format_version": 1,
+  "units": "mm",
+  "parameters": [],
+  "bodies": [
+    {"id": "b-1", "name": "Body 1"}
+  ],
+  "features": [
+    {"id": "f-box1", "type": "box", "body": "b-1", "size": ["30", "20", "10"], "op": "new"},
+    {
+      "id": "f-fil1",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-box1/front|f-box1/left)", "fp": "line|n=0,0,1|c=-15,-10,5|l=10"},
+        {"q": "edge(f-box1/front|f-box1/right)", "fp": "line|n=0,0,1|c=15,-10,5|l=10"},
+        {"q": "edge(f-box1/back|f-box1/left)", "fp": "line|n=0,0,1|c=-15,10,5|l=10"},
+        {"q": "edge(f-box1/back|f-box1/right)", "fp": "line|n=0,0,1|c=15,10,5|l=10"}
+      ],
+      "radius": "3"
+    },
+    {
+      "id": "f-fil2",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-box1/front|f-fil1/fillet/edge(f-box1/front|f-box1/left))", "fp": "line|n=0,0,1|c=-12,-10,5|l=10"}
+      ],
+      "radius": "1"
+    }
+  ]
+}

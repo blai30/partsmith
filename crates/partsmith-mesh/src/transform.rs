@@ -13,6 +13,13 @@ type Matrix3 = [[f64; 3]; 3];
 /// A linear part whose determinant's magnitude is below this is treated as singular.
 const SINGULAR_DETERMINANT: f64 = 1e-12;
 
+/// True when a linear part with this determinant is treated as singular: its magnitude is below
+/// `SINGULAR_DETERMINANT`, or it is NaN because products of opposite sign overflowed, which
+/// leaves both the rank and the orientation unknown.
+fn is_singular(determinant: f64) -> bool {
+    determinant.is_nan() || determinant.abs() < SINGULAR_DETERMINANT
+}
+
 /// An affine map `p' = rows · p + translation`. Rows are the rows of the 3 × 3 linear part.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct Transform {
@@ -130,7 +137,7 @@ impl Transform {
     /// transform is singular.
     fn normal_matrix(&self) -> Option<Matrix3> {
         let determinant = self.determinant();
-        if determinant.is_nan() || determinant.abs() < SINGULAR_DETERMINANT {
+        if is_singular(determinant) {
             return None;
         }
         // Row i of the inverse transpose is the cross product of the other two rows over the
@@ -168,14 +175,15 @@ impl Mesh {
     /// change.
     ///
     /// Returns [`MeshError::InvalidTransform`] when an entry is not finite,
-    /// [`MeshError::SingularTransform`] when the determinant's magnitude is below `1e-12`, and
-    /// the matching construction error when a mapped coordinate overflows to infinity.
+    /// [`MeshError::SingularTransform`] when the determinant's magnitude is below `1e-12` or the
+    /// determinant is NaN (as [`Transform::inverse`] treats it), and the matching construction
+    /// error when a mapped coordinate overflows to infinity.
     pub fn transformed(&self, transform: &Transform) -> Result<Mesh, MeshError> {
         if !transform.is_finite() {
             return Err(MeshError::InvalidTransform);
         }
         let determinant = transform.determinant();
-        if determinant.abs() < SINGULAR_DETERMINANT {
+        if is_singular(determinant) {
             return Err(MeshError::SingularTransform { determinant });
         }
         let positions = self
@@ -455,5 +463,41 @@ mod tests {
             .expect_err("x overflows");
 
         assert_eq!(error, MeshError::NonFinitePosition { vertex: 0 });
+    }
+
+    #[test]
+    fn transformed_rejects_flattening_transform_whose_determinant_overflows_to_nan() {
+        // Rank 2: the first two rows are equal. The determinant's products overflow to
+        // infinities of opposite sign, so it is NaN rather than 0.
+        let flattening = Transform {
+            rows: [[1e200, 1e200, 0.0], [1e200, 1e200, 0.0], [0.0, 0.0, 1.0]],
+            translation: [0.0, 0.0, 0.0],
+        };
+        let mesh = Mesh::from_triangles(
+            vec![[1e-190, 0.0, 0.0], [0.0, 1e-190, 0.0], [0.0, 0.0, 1.0]],
+            vec![[0, 1, 2]],
+        )
+        .expect("valid mesh");
+
+        let error = mesh
+            .transformed(&flattening)
+            .expect_err("the transform flattens the mesh");
+
+        assert!(flattening.determinant().is_nan());
+        assert_eq!(flattening.inverse(), None);
+        assert!(
+            matches!(error, MeshError::SingularTransform { determinant } if determinant.is_nan()),
+            "got {error:?}"
+        );
+    }
+
+    #[test]
+    fn nan_and_tiny_determinants_are_singular() {
+        assert!(is_singular(f64::NAN));
+        assert!(is_singular(0.0));
+        assert!(is_singular(-9e-13));
+        assert!(!is_singular(1e-12));
+        assert!(!is_singular(-2.0));
+        assert!(!is_singular(f64::INFINITY));
     }
 }

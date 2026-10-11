@@ -141,7 +141,7 @@ impl<'mesh> BoundingVolumeHierarchy<'mesh> {
     /// never hit. An empty mesh gives a hierarchy with no hits.
     pub fn new(mesh: &'mesh Mesh) -> BoundingVolumeHierarchy<'mesh> {
         let mut scale = 0.0_f64;
-        let mut center_bounds = Bounds::EMPTY;
+        let mut bounds = Bounds::EMPTY;
         let mut items: Vec<BuildItem> = mesh
             .triangles()
             .iter()
@@ -152,8 +152,7 @@ impl<'mesh> BoundingVolumeHierarchy<'mesh> {
                     scale = scale.max(largest_magnitude(point));
                 }
                 let item = BuildItem::new(to_u32(triangle), points);
-                let center = item.center();
-                center_bounds.grow(center, center);
+                bounds.grow(item.min, item.max);
                 item
             })
             .collect();
@@ -161,10 +160,11 @@ impl<'mesh> BoundingVolumeHierarchy<'mesh> {
             mesh,
             nodes: Vec::new(),
             unbounded: false,
+            item_bins: vec![0; items.len()],
         };
         if !items.is_empty() {
             builder.nodes.push(RESERVED_NODE);
-            builder.build(0, &mut items, 0, center_bounds);
+            builder.build(0, &mut items, 0, bounds);
         }
         BoundingVolumeHierarchy {
             mesh,
@@ -202,7 +202,9 @@ impl<'mesh> BoundingVolumeHierarchy<'mesh> {
         // Nodes still to search with the distance at which the ray enters them. The nearer
         // child is searched next without a round trip through the stack.
         let mut stack: Vec<(usize, f64)> = Vec::new();
-        let mut next = probe.entry(root, min_distance, limit).map(|entry| (0, entry));
+        let mut next = probe
+            .entry(root, min_distance, limit)
+            .map(|entry| (0, entry));
         while let Some((index, entry)) = next.take().or_else(|| stack.pop()) {
             // A closer hit found since this node was queued may put it out of reach. Ties stay
             // in reach because a lower triangle index can still win them.
@@ -425,8 +427,9 @@ impl GrazingCone {
         let difference = subtract(self.axis, other_axis);
         let sum_length = length(sum);
         // Both axes are unit length and at most 90 degrees apart, so the sum is at least
-        // sqrt(2) long; anything else means rounding went wrong, and every direction is safe.
-        if !(sum_length >= 1.0) {
+        // sqrt(2) long; anything else (NaN included) means rounding went wrong, and every
+        // direction is safe.
+        if sum_length.is_nan() || sum_length < 1.0 {
             return GrazingCone::EVERY_DIRECTION;
         }
         GrazingCone {
@@ -531,8 +534,9 @@ fn leaf_cone(mesh: &Mesh, items: &[BuildItem], unbounded: &mut bool) -> Option<G
         sum = [0, 1, 2].map(|axis| sum[axis] + normal[axis]);
     }
     let sum_length = length(sum);
-    // Aligned unit normals sum to at least length 1.
-    if !(sum_length >= 1.0) {
+    // Aligned unit normals sum to at least length 1; anything else (NaN included) means
+    // rounding went wrong, and every direction is safe.
+    if sum_length.is_nan() || sum_length < 1.0 {
         return Some(GrazingCone::EVERY_DIRECTION);
     }
     let axis = sum.map(|component| component / sum_length);
@@ -556,6 +560,8 @@ struct BuildItem {
     min: [f32; 3],
     /// Largest corner of the triangle's box, rounded up to `f32`.
     max: [f32; 3],
+    /// Center of the box, which every level of the build reads.
+    center: [f32; 3],
     /// Index of the triangle in the mesh.
     triangle: u32,
 }
@@ -563,21 +569,14 @@ struct BuildItem {
 impl BuildItem {
     /// The item for a triangle with these corners.
     fn new(triangle: u32, [first, second, third]: [Point3; 3]) -> BuildItem {
+        let min = [0, 1, 2].map(|axis| round_down(first[axis].min(second[axis]).min(third[axis])));
+        let max = [0, 1, 2].map(|axis| round_up(first[axis].max(second[axis]).max(third[axis])));
         BuildItem {
-            min: [0, 1, 2].map(|axis| round_down(first[axis].min(second[axis]).min(third[axis]))),
-            max: [0, 1, 2].map(|axis| round_up(first[axis].max(second[axis]).max(third[axis]))),
+            min,
+            max,
+            center: [0, 1, 2].map(|axis| 0.5 * min[axis] + 0.5 * max[axis]),
             triangle,
         }
-    }
-
-    /// Center of the box.
-    fn center(&self) -> [f32; 3] {
-        [0, 1, 2].map(|axis| self.center_along(axis))
-    }
-
-    /// Center of the box along one axis.
-    fn center_along(&self, axis: usize) -> f32 {
-        0.5 * self.min[axis] + 0.5 * self.max[axis]
     }
 }
 
@@ -621,16 +620,13 @@ impl Bounds {
         x * y + y * z + z * x
     }
 
-    /// The axis along which the box is widest (lowest axis on ties).
-    fn widest_axis(&self) -> usize {
+    /// The axes from the widest to the narrowest extent of the box (lower axis first on ties).
+    fn axes_by_extent(&self) -> [usize; 3] {
         let size = [0, 1, 2].map(|axis| self.max[axis] - self.min[axis]);
-        let mut widest = 0;
-        for axis in 1..3 {
-            if size[axis] > size[widest] {
-                widest = axis;
-            }
-        }
-        widest
+        let mut axes = [0, 1, 2];
+        // A stable sort keeps the lower axis first on ties.
+        axes.sort_by(|&first, &second| size[second].total_cmp(&size[first]));
+        axes
     }
 }
 
@@ -642,47 +638,44 @@ struct Builder<'mesh> {
     nodes: Vec<Node>,
     /// True once a triangle's error turned out not to be bounded.
     unbounded: bool,
+    /// Room for the bin of every item of one split, which each split reuses.
+    item_bins: Vec<u8>,
 }
 
 impl Builder<'_> {
     /// Fills the reserved node `index` with the subtree over `items`, which start at entry
-    /// `first` of the final triangle order and whose box centers lie in `center_bounds`, and
-    /// returns the subtree's box and grazing cone. `items` must not be empty.
+    /// `first` of the final triangle order and whose boxes `bounds` surrounds exactly, and
+    /// returns the subtree's grazing cone. `items` must not be empty.
     fn build(
         &mut self,
         index: usize,
         items: &mut [BuildItem],
         first: usize,
-        center_bounds: Bounds,
-    ) -> (Bounds, Option<GrazingCone>) {
+        bounds: Bounds,
+    ) -> Option<GrazingCone> {
         if items.len() <= LEAF_SIZE {
-            let bounds = items.iter().fold(Bounds::EMPTY, |mut bounds, item| {
-                bounds.grow(item.min, item.max);
-                bounds
-            });
             let cone = leaf_cone(self.mesh, items, &mut self.unbounded);
             self.nodes[index] = node(&bounds, first, items.len(), cone);
-            return (bounds, cone);
+            return cone;
         }
-        let split = split(items, center_bounds);
+        let split = split(items, &mut self.item_bins[..items.len()], bounds);
         let (lower, upper) = items.split_at_mut(split.middle);
         // Both children sit next to each other.
         let first_child = self.nodes.len();
         self.nodes.extend([RESERVED_NODE, RESERVED_NODE]);
-        let (lower_bounds, lower_cone) = self.build(first_child, lower, first, split.lower_centers);
-        let (upper_bounds, upper_cone) = self.build(
+        let lower_cone = self.build(first_child, lower, first, split.lower_bounds);
+        let upper_cone = self.build(
             first_child + 1,
             upper,
             first + split.middle,
-            split.upper_centers,
+            split.upper_bounds,
         );
-        let bounds = lower_bounds.union(&upper_bounds);
         let cone = match (lower_cone, upper_cone) {
             (Some(lower_cone), Some(upper_cone)) => Some(lower_cone.union(upper_cone)),
             (lower_cone, upper_cone) => lower_cone.or(upper_cone),
         };
         self.nodes[index] = node(&bounds, first_child, 0, cone);
-        (bounds, cone)
+        cone
     }
 }
 
@@ -699,14 +692,14 @@ fn node(bounds: &Bounds, first: usize, count: usize, cone: Option<GrazingCone>) 
     }
 }
 
-/// Where a group of items was split, and the bounds of the box centers on each side.
+/// Where a group of items was split, and the box around each side's items.
 struct Split {
     /// Items before this index form the lower child.
     middle: usize,
-    /// Bounds of the lower child's box centers.
-    lower_centers: Bounds,
-    /// Bounds of the upper child's box centers.
-    upper_centers: Bounds,
+    /// Box around the lower child's items.
+    lower_bounds: Bounds,
+    /// Box around the upper child's items.
+    upper_bounds: Bounds,
 }
 
 /// Running totals of the items in one bin.
@@ -714,53 +707,69 @@ struct Split {
 struct Bin {
     /// Box around the items.
     bounds: Bounds,
-    /// Box around their centers.
-    centers: Bounds,
     /// How many there are.
     count: usize,
 }
 
 /// Splits more than `LEAF_SIZE` items into two groups of at least two, reordering them so the
-/// lower group comes first.
+/// lower group comes first. `bounds` is the box around their boxes, and `item_bins` holds one
+/// byte per item for the split to work in.
 ///
-/// Items are binned by box center along the widest axis of `center_bounds`, and the split
-/// between bins with the lowest surface area cost wins. When the centers coincide along that
-/// axis, or no split leaves two items on each side, the items are split at the median center.
-fn split(items: &mut [BuildItem], center_bounds: Bounds) -> Split {
-    let axis = center_bounds.widest_axis();
-    let low = center_bounds.min[axis];
-    let extent = center_bounds.max[axis] - low;
+/// Items are binned by box center along the widest axis of `bounds`, and the split between bins
+/// with the lowest surface area cost wins. When no split along that axis leaves two items on
+/// each side (for example when every center lies at the middle of long triangles, as on the side
+/// of a cylinder), the narrower axes are tried in turn, and as a last resort the items are split
+/// at the median center along the widest axis.
+fn split(items: &mut [BuildItem], item_bins: &mut [u8], bounds: Bounds) -> Split {
+    let axes = bounds.axes_by_extent();
+    axes.iter()
+        .find_map(|&axis| split_along(items, item_bins, &bounds, axis))
+        .unwrap_or_else(|| split_at_median(items, axes[0]))
+}
+
+/// The surface area split of `split` along one axis, or `None` (leaving the items in place)
+/// when no split along it leaves two items on each side.
+fn split_along(
+    items: &mut [BuildItem],
+    item_bins: &mut [u8],
+    bounds: &Bounds,
+    axis: usize,
+) -> Option<Split> {
+    let low = bounds.min[axis];
+    let extent = bounds.max[axis] - low;
     if !(extent > 0.0 && extent.is_finite()) {
-        return split_at_median(items, axis);
+        return None;
     }
     let bins_per_unit = BIN_COUNT as f32 / extent;
-    let bin_of = |center: f32| (((center - low) * bins_per_unit) as usize).min(BIN_COUNT - 1);
 
     let mut bins = [Bin {
         bounds: Bounds::EMPTY,
-        centers: Bounds::EMPTY,
         count: 0,
     }; BIN_COUNT];
-    for item in items.iter() {
-        let center = item.center();
-        let bin = &mut bins[bin_of(center[axis])];
+    for (item, item_bin) in items.iter().zip(item_bins.iter_mut()) {
+        // Centers lie in `low..=low + extent`, so the scaled offset lies in `0..=BIN_COUNT` up
+        // to rounding (and is 0 for a NaN center). Converting through `i32` costs less than
+        // through `usize`.
+        let scaled = ((item.center[axis] - low) * bins_per_unit) as i32;
+        let index = scaled.clamp(0, BIN_COUNT as i32 - 1) as usize;
+        let bin = &mut bins[index];
         bin.bounds.grow(item.min, item.max);
-        bin.centers.grow(center, center);
         bin.count += 1;
+        *item_bin = index as u8;
     }
 
     // Splitting before bin `i` puts bins `i..` in the upper group.
-    let mut upper_areas = [0.0_f32; BIN_COUNT];
+    let mut upper_bounds = [Bounds::EMPTY; BIN_COUNT];
     let mut upper_counts = [0_usize; BIN_COUNT];
     let mut upper = Bounds::EMPTY;
     let mut upper_count = 0;
     for split_bin in (1..BIN_COUNT).rev() {
         upper = upper.union(&bins[split_bin].bounds);
         upper_count += bins[split_bin].count;
-        upper_areas[split_bin] = upper.half_area();
+        upper_bounds[split_bin] = upper;
         upper_counts[split_bin] = upper_count;
     }
-    let mut best: Option<(f32, usize)> = None;
+    let mut best: Option<(f32, usize, Bounds)> = None;
     let mut lower = Bounds::EMPTY;
     let mut lower_count = 0;
     for split_bin in 1..BIN_COUNT {
@@ -770,40 +779,35 @@ fn split(items: &mut [BuildItem], center_bounds: Bounds) -> Split {
             continue;
         }
         let cost = lower.half_area() * lower_count as f32
-            + upper_areas[split_bin] * upper_counts[split_bin] as f32;
-        if best.is_none_or(|(best_cost, _)| cost < best_cost) {
-            best = Some((cost, split_bin));
+            + upper_bounds[split_bin].half_area() * upper_counts[split_bin] as f32;
+        if best.is_none_or(|(best_cost, _, _)| cost < best_cost) {
+            best = Some((cost, split_bin, lower));
         }
     }
-    let Some((_, split_bin)) = best else {
-        return split_at_median(items, axis);
-    };
+    let (_, split_bin, lower_bounds) = best?;
 
-    // Partition from both ends.
+    // Partition from both ends, moving each item's bin along with it.
+    let is_lower = |item_bin: u8| usize::from(item_bin) < split_bin;
     let mut lower_end = 0;
     let mut upper_start = items.len();
     loop {
-        while lower_end < upper_start && bin_of(items[lower_end].center_along(axis)) < split_bin {
+        while lower_end < upper_start && is_lower(item_bins[lower_end]) {
             lower_end += 1;
         }
-        while lower_end < upper_start && bin_of(items[upper_start - 1].center_along(axis)) >= split_bin
-        {
+        while lower_end < upper_start && !is_lower(item_bins[upper_start - 1]) {
             upper_start -= 1;
         }
         if lower_end == upper_start {
             break;
         }
         items.swap(lower_end, upper_start - 1);
+        item_bins.swap(lower_end, upper_start - 1);
     }
-    let centers_of = |bins: &[Bin]| {
-        bins.iter()
-            .fold(Bounds::EMPTY, |centers, bin| centers.union(&bin.centers))
-    };
-    Split {
+    Some(Split {
         middle: lower_end,
-        lower_centers: centers_of(&bins[..split_bin]),
-        upper_centers: centers_of(&bins[split_bin..]),
-    }
+        lower_bounds,
+        upper_bounds: upper_bounds[split_bin],
+    })
 }
 
 /// Splits the items in half at the median box center along `axis`.
@@ -812,23 +816,23 @@ fn split_at_median(items: &mut [BuildItem], axis: usize) -> Split {
     // Ordering by center, then triangle index, makes the split independent of the input order
     // of equal centers.
     items.select_nth_unstable_by(middle, |first, second| {
-        first
-            .center_along(axis)
-            .total_cmp(&second.center_along(axis))
+        first.center[axis]
+            .total_cmp(&second.center[axis])
             .then(first.triangle.cmp(&second.triangle))
     });
-    let centers_of = |items: &[BuildItem]| {
-        items.iter().fold(Bounds::EMPTY, |mut centers, item| {
-            let center = item.center();
-            centers.grow(center, center);
-            centers
-        })
-    };
     Split {
         middle,
-        lower_centers: centers_of(&items[..middle]),
-        upper_centers: centers_of(&items[middle..]),
+        lower_bounds: bounds_of(&items[..middle]),
+        upper_bounds: bounds_of(&items[middle..]),
     }
+}
+
+/// The box around the boxes of `items`.
+fn bounds_of(items: &[BuildItem]) -> Bounds {
+    items.iter().fold(Bounds::EMPTY, |mut bounds, item| {
+        bounds.grow(item.min, item.max);
+        bounds
+    })
 }
 
 /// The largest `f32` that is at most `value`.
@@ -1011,6 +1015,39 @@ mod tests {
                     }
                 }
             }
+        }
+    }
+
+    #[test]
+    fn every_box_is_the_box_around_its_triangles() {
+        // Boxes are handed down from the split rather than recomputed, so check they are tight.
+        let mesh = floor_grid(9, 1.5);
+        let hierarchy = BoundingVolumeHierarchy::new(&mesh);
+        // The entries below each node. Children follow their parents, so walking backwards
+        // sees every child first.
+        let mut subtree_entries = vec![0..0; hierarchy.nodes.len()];
+        for index in (0..hierarchy.nodes.len()).rev() {
+            let node = &hierarchy.nodes[index];
+            let entries = match node.contents() {
+                Contents::Triangles(entries) => entries,
+                Contents::Children(first_child) => {
+                    subtree_entries[first_child].start..subtree_entries[first_child + 1].end
+                }
+            };
+            subtree_entries[index] = entries.clone();
+            let expected =
+                hierarchy.entries[entries]
+                    .iter()
+                    .fold(Bounds::EMPTY, |mut bounds, entry| {
+                        let item = BuildItem::new(
+                            entry.triangle,
+                            mesh.triangle_points(entry.triangle as usize),
+                        );
+                        bounds.grow(item.min, item.max);
+                        bounds
+                    });
+
+            assert_eq!((node.min, node.max), (expected.min, expected.max));
         }
     }
 
@@ -1396,7 +1433,11 @@ mod tests {
         let level = cone([0.0, 1.0, 0.0], 0.5);
 
         assert!(tilted.union(level).is_every_direction());
-        assert!(tilted.union(GrazingCone::EVERY_DIRECTION).is_every_direction());
+        assert!(
+            tilted
+                .union(GrazingCone::EVERY_DIRECTION)
+                .is_every_direction()
+        );
     }
 
     #[test]
@@ -1417,25 +1458,68 @@ mod tests {
         let mut items: Vec<BuildItem> = (0..9)
             .map(|i| {
                 let x = if i == 8 { 100.0 } else { f64::from(i) * 0.1 };
-                BuildItem::new(
-                    i,
-                    [[x, 0.0, 0.0], [x + 0.05, 0.0, 0.0], [x, 0.05, 0.0]],
-                )
+                BuildItem::new(i, [[x, 0.0, 0.0], [x + 0.05, 0.0, 0.0], [x, 0.05, 0.0]])
             })
             .collect();
-        let centers = items.iter().fold(Bounds::EMPTY, |mut centers, item| {
-            let center = item.center();
-            centers.grow(center, center);
-            centers
-        });
+        let bounds = bounds_of(&items);
 
-        let split = split(&mut items, centers);
+        let split = split(&mut items, &mut [0; 9], bounds);
 
         assert!(split.middle >= 2 && items.len() - split.middle >= 2);
         let (lower, upper) = items.split_at(split.middle);
-        let highest_lower = lower.iter().map(|item| item.center_along(0)).fold(f32::MIN, f32::max);
-        let lowest_upper = upper.iter().map(|item| item.center_along(0)).fold(f32::MAX, f32::min);
+        let highest_lower = lower
+            .iter()
+            .map(|item| item.center[0])
+            .fold(f32::MIN, f32::max);
+        let lowest_upper = upper
+            .iter()
+            .map(|item| item.center[0])
+            .fold(f32::MAX, f32::min);
         assert!(highest_lower <= lowest_upper);
+    }
+
+    #[test]
+    fn axes_are_ordered_from_widest_to_narrowest() {
+        let tall = Bounds {
+            min: [0.0, 0.0, 0.0],
+            max: [2.0, 1.0, 9.0],
+        };
+        let square = Bounds {
+            min: [0.0, 0.0, 0.0],
+            max: [3.0, 3.0, 1.0],
+        };
+
+        assert_eq!(tall.axes_by_extent(), [2, 0, 1]);
+        assert_eq!(square.axes_by_extent(), [0, 1, 2]);
+    }
+
+    #[test]
+    fn centers_coinciding_along_the_widest_axis_split_along_a_narrower_one() {
+        // Eight tall triangles side by side along x, as on the side of a cylinder, with triangle
+        // indices out of x order: every center lies at z = 50, so z cannot separate them, and
+        // splitting by triangle index would give two overlapping halves.
+        let mut items: Vec<BuildItem> = [5_u32, 2, 7, 0, 3, 6, 1, 4]
+            .into_iter()
+            .zip(0..)
+            .map(|(slot, triangle)| {
+                let x = f64::from(slot);
+                BuildItem::new(
+                    triangle,
+                    [[x, 0.0, 0.0], [x + 1.0, 0.0, 0.0], [x + 0.5, 0.0, 100.0]],
+                )
+            })
+            .collect();
+        let bounds = bounds_of(&items);
+
+        let split = split(&mut items, &mut [0; 8], bounds);
+
+        let (lower, upper) = items.split_at(split.middle);
+        assert!(lower.len() >= 2 && upper.len() >= 2);
+        let rightmost_lower = lower.iter().map(|item| item.center[0]).fold(f32::MIN, f32::max);
+        let leftmost_upper = upper.iter().map(|item| item.center[0]).fold(f32::MAX, f32::min);
+        assert!(rightmost_lower < leftmost_upper);
+        assert_eq!(split.lower_bounds, bounds_of(&items[..split.middle]));
+        assert_eq!(split.upper_bounds, bounds_of(&items[split.middle..]));
     }
 
     #[test]
@@ -1443,13 +1527,9 @@ mod tests {
         let mut items: Vec<BuildItem> = (0..6)
             .map(|i| BuildItem::new(i, [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]))
             .collect();
-        let center = items[0].center();
-        let centers = Bounds {
-            min: center,
-            max: center,
-        };
+        let bounds = bounds_of(&items);
 
-        let split = split(&mut items, centers);
+        let split = split(&mut items, &mut [0; 6], bounds);
 
         assert_eq!(split.middle, 3);
         let mut lower: Vec<u32> = items[..3].iter().map(|item| item.triangle).collect();

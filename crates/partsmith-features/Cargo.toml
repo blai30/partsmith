@@ -11,5 +11,14 @@ publish = false
 
 [dependencies]
 
+[dev-dependencies]
+partsmith-model.workspace = true
+partsmith-occt-sys.workspace = true
+partsmith-sketch.workspace = true
+proptest.workspace = true
+schemars.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
 [lints]
 workspace = true

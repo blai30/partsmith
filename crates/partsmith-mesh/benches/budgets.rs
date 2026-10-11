@@ -55,7 +55,11 @@ impl Selection {
 
     /// True when the operation runs.
     fn includes(&self, operation: &str) -> bool {
-        self.words.is_empty() || self.words.iter().any(|word| operation.contains(word.as_str()))
+        self.words.is_empty()
+            || self
+                .words
+                .iter()
+                .any(|word| operation.contains(word.as_str()))
     }
 }
 
@@ -119,7 +123,11 @@ impl Random {
     fn next_point_in_ball(&mut self, radius: f64) -> Point3 {
         loop {
             let point = [0, 1, 2].map(|_| self.next_between(-radius, radius));
-            if point.iter().map(|coordinate| coordinate * coordinate).sum::<f64>() < radius * radius
+            if point
+                .iter()
+                .map(|coordinate| coordinate * coordinate)
+                .sum::<f64>()
+                < radius * radius
             {
                 return point;
             }
@@ -152,6 +160,16 @@ fn per_triangle_vertices(mesh: &Mesh) -> Mesh {
     .expect("the benchmark mesh is valid")
 }
 
+/// A duration in milliseconds, or in microseconds when below one millisecond, so the
+/// `first_hit` mean keeps its digits.
+fn readable(duration: Duration) -> String {
+    if duration < Duration::from_millis(1) {
+        format!("{:.3} µs", duration.as_secs_f64() * 1e6)
+    } else {
+        format!("{:.3} ms", duration.as_secs_f64() * 1e3)
+    }
+}
+
 /// Milliseconds as a duration.
 fn milliseconds(count: u64) -> Duration {
     Duration::from_millis(count)
@@ -164,9 +182,9 @@ fn main() -> ExitCode {
         if selection.includes(operation) {
             let time = time();
             println!(
-                "{operation:<44} {:>10.3} ms   budget {:>8.3} ms",
-                time.as_secs_f64() * 1e3,
-                budget.as_secs_f64() * 1e3
+                "{operation:<48} {:>12}   budget {:>12}",
+                readable(time),
+                readable(budget)
             );
             measurements.push(Measurement {
                 operation,
@@ -204,10 +222,14 @@ fn main() -> ExitCode {
     measure("center_of_mass, 1M triangles", milliseconds(15), &|| {
         median_time_of(|| large.center_of_mass())
     });
-    measure("weld, 3M vertices, 1M triangles", milliseconds(300), &|| {
-        let duplicated = per_triangle_vertices(&large);
-        median_time_of(|| duplicated.weld(WELD_TOLERANCE))
-    });
+    measure(
+        "weld, 3M vertices, 1M triangles",
+        milliseconds(300),
+        &|| {
+            let duplicated = per_triangle_vertices(&large);
+            median_time_of(|| duplicated.weld(WELD_TOLERANCE))
+        },
+    );
     measure("validity, 1M triangles", milliseconds(250), &|| {
         median_time_of(|| large.validity())
     });

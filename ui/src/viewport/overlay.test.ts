@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { orientElement, positionElement } from './overlay'
+import { orientElement, placeElement, positionElement } from './overlay'
 
 // The declarations of the element's style attribute, read through the attribute so this file has no style property access.
 function declarations(element: HTMLElement): string[] {
@@ -57,5 +57,23 @@ describe('orientElement', () => {
     expect(declared).toHaveLength(1)
     const values = (/matrix3d\((.*)\)/.exec(declared[0] ?? '')?.[1] ?? '').split(',').map(Number)
     expect(values).toEqual(Array.from(identity))
+  })
+})
+
+describe('placeElement', () => {
+  it('positions an element that has a position and shows it', () => {
+    const element = document.createElement('div')
+    element.hidden = true
+    placeElement(element, { x: 3, y: 4 })
+    expect(element.hidden).toBe(false)
+    expect(declarations(element)).toEqual(['translate: 3px 4px'])
+  })
+
+  it('hides an element without a position and keeps its last position', () => {
+    const element = document.createElement('div')
+    placeElement(element, { x: 3, y: 4 })
+    placeElement(element, null)
+    expect(element.hidden).toBe(true)
+    expect(declarations(element)).toEqual(['translate: 3px 4px'])
   })
 })

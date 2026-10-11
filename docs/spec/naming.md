@@ -216,7 +216,7 @@ pub struct Fingerprint {
 
 impl Fingerprint {
     /// Builds a fingerprint from computed geometry: drops fields the kind does not allow, normalizes and
-    /// canonicalizes the direction, rounds every value, and leaves `adjacency` as `None`.
+    /// rounds every value, canonicalizes the rounded direction, and leaves `adjacency` as `None`.
     pub fn new(
         kind: GeometryKind,
         direction: Option<[f64; 3]>,
@@ -750,7 +750,7 @@ A feature that creates faces with no semantic generator names them `New(f/face)`
 | `bspline_curve`, `bezier_curve`, `offset_curve`, `other_curve` | no | yes | `l` | no |
 | `point` | no | yes (position) | no | no |
 
-Every kind also has `adj` (section 3.7.2). `Fingerprint::new` drops the fields a kind does not allow, requires `centroid` (always) and `size` (surface and curve kinds), requires `direction` for `plane` and `line`, fails on any non-finite value, on negative `size` or `radius`, and on a direction shorter than 1e-12. It normalizes the direction to unit length, then canonicalizes it for every kind except `plane`: the first component whose absolute value exceeds 1e-9 is made positive by negating the vector if needed. Then every value is rounded to the text precision (section 3.7.3), so the struct always equals its parsed text form.
+Every kind also has `adj` (section 3.7.2). `Fingerprint::new` drops the fields a kind does not allow, requires `centroid` (always) and `size` (surface and curve kinds), requires `direction` for `plane` and `line`, fails on any non-finite value, on negative `size` or `radius`, and on a direction shorter than 1e-12. It normalizes the direction to unit length and rounds every value to the text precision (section 3.7.3); then, for every kind except `plane`, it canonicalizes the rounded direction: the first nonzero component is made positive by negating the vector if needed. Canonicalizing after rounding means the struct always equals its parsed text form (for example `[4e-7, -1, 0]` rounds to `[0, -1, 0]` and becomes `[0, 1, 0]`, exactly as parsing its text does).
 
 Centroids are the area centroid of a face, the length centroid of an edge, and the position of a vertex (kernel spec, element geometry). Degenerated edges get kind `other_curve` with `l=0`; they are never named and never referenced.
 
@@ -891,7 +891,7 @@ Names:
 5. `split_base` of `f-x/top#2@f-p:1#1#3` is `f-x/top#2@f-p:1`; of `edge(f-a/x|f-b/y)#2` is `edge(f-a/x|f-b/y)`; of `f-a/x` is `f-a/x`.
 6. `f-a/x#1#2` is a strict split descendant of `f-a/x` and of `f-a/x#1`, not of itself and not of `f-a/x#2`; `f-a/x@f-p:1` is not a split descendant of `f-a/x`.
 7. `is_order_dependent` is true for `f-a/x#1` and for `edge(f-a/x#1|f-b/y)`, false for `f-a/x@f-p:1`.
-8. `face_terms` of `edge(f-fil1/fillet/edge(f-a/x|f-b/y)|f-c/z)` is `["f-fil1/fillet/edge(f-a/x|f-b/y)", "f-c/z"]`; of `f-a/x` is empty.
+8. `face_terms` of `edge(f-c/z|f-fil1/fillet/edge(f-a/x|f-b/y))` is `["f-c/z", "f-fil1/fillet/edge(f-a/x|f-b/y)"]` (the pair is in byte order, section 3.1 rule 3); of `f-a/x` is empty.
 9. `ElementName::generated(f-ext1, "lateral", Some(Generator::Sketch("e-9e12")))` is `f-ext1/lateral/e-9e12`; with `None` and role `end-cap` it is `f-ext1/end-cap`; role `"Lateral"` fails with `InvalidRole`; generator `Sketch("e 1")` fails with `InvalidGenerator`.
 10. `ElementName::generated(f-fil1, "fillet", Some(Generator::Element(&edge(f-ext1/end-cap|f-ext1/lateral/e-1))))` is `f-fil1/fillet/edge(f-ext1/end-cap|f-ext1/lateral/e-1)`.
 11. `ElementName::edge(&[f-box1/top, f-box1/front, f-box1/top])` is `edge(f-box1/front|f-box1/top)`; `ElementName::vertex(&[f-box1/top, f-box1/left, f-box1/front])` is `vertex(f-box1/front|f-box1/left|f-box1/top)`.

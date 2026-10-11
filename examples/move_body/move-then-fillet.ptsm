@@ -1,0 +1,22 @@
+{
+  "format": "partsmith",
+  "format_version": 1,
+  "units": "mm",
+  "parameters": [],
+  "bodies": [
+    {"id": "b-1", "name": "Body 1"}
+  ],
+  "features": [
+    {"id": "f-box1", "type": "box", "body": "b-1", "size": ["10", "10", "10"], "op": "new"},
+    {"id": "f-mv1", "type": "move_body", "body": "b-1", "translation": ["50", "0", "0"]},
+    {
+      "id": "f-fil1",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-box1/front|f-box1/top)", "fp": "line|n=1,0,0|c=0,-5,10|l=10"}
+      ],
+      "radius": "2"
+    }
+  ]
+}

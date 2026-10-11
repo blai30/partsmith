@@ -288,11 +288,20 @@ fn length(vector: [f64; 3]) -> f64 {
 /// which keeps `parse(display(fp)) == fp` even when a component smaller than the text precision
 /// would otherwise decide the sign.
 fn unit_direction(direction: [f64; 3], kind: GeometryKind) -> Option<[f64; 3]> {
-    let direction_length = length(direction);
-    if direction_length < MIN_DIRECTION_LENGTH {
+    let largest = direction
+        .iter()
+        .fold(0.0_f64, |largest, component| largest.max(component.abs()));
+    if largest == 0.0 {
         return None;
     }
-    let unit = direction.map(|component| round_to_text(component / direction_length));
+    // Dividing by the largest component first keeps the squares of the length in range, so a
+    // direction with huge components does not overflow to an infinite length.
+    let scaled = direction.map(|component| component / largest);
+    let scaled_length = length(scaled);
+    if largest * scaled_length < MIN_DIRECTION_LENGTH {
+        return None;
+    }
+    let unit = scaled.map(|component| round_to_text(component / scaled_length));
     Some(if kind.keeps_direction_sign() {
         unit
     } else {
@@ -740,6 +749,47 @@ mod tests {
     #[test]
     fn unit_direction_rejects_tiny_vectors() {
         assert_eq!(unit_direction([1e-13, 0.0, 0.0], GeometryKind::Line), None);
+        assert_eq!(unit_direction([5e-324, 0.0, 0.0], GeometryKind::Line), None);
+    }
+
+    /// A component of a diagonal unit vector at text precision (0.707107).
+    fn diagonal() -> f64 {
+        round_to_text(std::f64::consts::FRAC_1_SQRT_2)
+    }
+
+    #[test]
+    fn unit_direction_keeps_vectors_just_long_enough() {
+        let direction = unit_direction([9e-13, 9e-13, 0.0], GeometryKind::Line);
+
+        assert_eq!(direction, Some([diagonal(), diagonal(), 0.0]));
+    }
+
+    #[test]
+    fn unit_direction_of_huge_vectors_is_unit() {
+        assert_eq!(
+            unit_direction([1e200, 0.0, 0.0], GeometryKind::Line),
+            Some([1.0, 0.0, 0.0])
+        );
+        assert_eq!(
+            unit_direction([f64::MAX, -f64::MAX, 0.0], GeometryKind::Plane),
+            Some([diagonal(), -diagonal(), 0.0])
+        );
+    }
+
+    #[test]
+    fn new_with_huge_direction_round_trips() {
+        let built = Fingerprint::new(
+            GeometryKind::Line,
+            Some([1e200, 0.0, 0.0]),
+            [0.0; 3],
+            Some(1.0),
+            None,
+        )
+        .expect("a huge direction is still a direction");
+        let text = built.to_string();
+
+        assert_eq!(text, "line|n=1,0,0|c=0,0,0|l=1");
+        assert_eq!(Fingerprint::parse(&text), Ok(built));
     }
 
     #[test]

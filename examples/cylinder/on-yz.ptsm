@@ -1,0 +1,20 @@
+{
+  "format": "partsmith",
+  "format_version": 1,
+  "units": "mm",
+  "parameters": [],
+  "bodies": [
+    {"id": "b-1", "name": "Body 1"}
+  ],
+  "features": [
+    {
+      "id": "f-cyl1",
+      "type": "cylinder",
+      "body": "b-1",
+      "radius": "5",
+      "height": "10",
+      "plane": {"kind": "origin", "plane": "YZ"},
+      "op": "new"
+    }
+  ]
+}

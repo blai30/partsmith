@@ -1,0 +1,18 @@
+{
+  "format": "partsmith",
+  "format_version": 1,
+  "units": "mm",
+  "parameters": [],
+  "bodies": [
+    {"id": "b-1", "name": "Body 1"}
+  ],
+  "features": [
+    {
+      "id": "f-imp1",
+      "type": "import",
+      "body": "b-1",
+      "asset": "0000000000000000000000000000000000000000000000000000000000000000.step",
+      "op": "new"
+    }
+  ]
+}

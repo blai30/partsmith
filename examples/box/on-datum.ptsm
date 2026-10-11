@@ -1,0 +1,20 @@
+{
+  "format": "partsmith",
+  "format_version": 1,
+  "units": "mm",
+  "parameters": [],
+  "bodies": [
+    {"id": "b-1", "name": "Body 1"}
+  ],
+  "features": [
+    {"id": "f-dp1", "type": "datum_plane", "base": {"kind": "origin", "plane": "XY"}, "offset": "5"},
+    {
+      "id": "f-box1",
+      "type": "box",
+      "body": "b-1",
+      "size": ["10", "20", "30"],
+      "plane": {"kind": "datum", "feature": "f-dp1"},
+      "op": "new"
+    }
+  ]
+}

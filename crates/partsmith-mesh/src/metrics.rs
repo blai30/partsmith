@@ -33,16 +33,22 @@ impl Mesh {
     pub fn bounding_box(&self) -> Option<BoundingBox> {
         let &[first_vertex, _, _] = self.triangles().first()?;
         let first_point = self.positions()[first_vertex as usize];
-        let mut bounds = BoundingBox {
-            min: first_point,
-            max: first_point,
-        };
+        let (mut min, mut max) = (first_point, first_point);
         for &corners in self.triangles() {
             for point in self.corner_points(corners) {
-                bounds = bounds.including(point);
+                // Plain comparisons take a quarter of the time of `f64::min` and `max`, whose NaN
+                // handling mesh positions never need: they are finite.
+                for axis in 0..3 {
+                    if point[axis] < min[axis] {
+                        min[axis] = point[axis];
+                    }
+                    if point[axis] > max[axis] {
+                        max[axis] = point[axis];
+                    }
+                }
             }
         }
-        Some(bounds)
+        Some(BoundingBox { min, max })
     }
 
     /// Center of mass of the enclosed solid at uniform density, or `None` when there are no
@@ -140,6 +146,31 @@ mod tests {
         for axis in 0..3 {
             assert!((center[axis] - expected[axis]).abs() < 1e-9);
         }
+    }
+
+    #[test]
+    fn bounding_box_takes_each_extreme_from_whichever_corner_has_it() {
+        // The first corner is extreme on no axis, and the unreferenced vertex 5 is ignored.
+        let mesh = Mesh::from_triangles(
+            vec![
+                [0.5, 0.5, 0.5],
+                [-3.0, 2.0, 1.0],
+                [4.0, -1.0, 0.0],
+                [1.0, 6.0, -2.0],
+                [0.0, 0.0, 7.0],
+                [100.0, 100.0, 100.0],
+            ],
+            vec![[0, 1, 2], [0, 3, 4]],
+        )
+        .expect("valid mesh");
+
+        assert_eq!(
+            mesh.bounding_box(),
+            Some(BoundingBox {
+                min: [-3.0, -1.0, -2.0],
+                max: [4.0, 6.0, 7.0],
+            })
+        );
     }
 
     #[test]

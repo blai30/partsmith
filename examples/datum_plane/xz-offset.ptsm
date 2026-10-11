@@ -1,0 +1,10 @@
+{
+  "format": "partsmith",
+  "format_version": 1,
+  "units": "mm",
+  "parameters": [],
+  "bodies": [],
+  "features": [
+    {"id": "f-dp1", "type": "datum_plane", "base": {"kind": "origin", "plane": "XZ"}, "offset": "10"}
+  ]
+}

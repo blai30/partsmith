@@ -108,10 +108,9 @@ mod tests {
     fn chase_stops_on_a_cycle() {
         let cycle = aliases(&[("f-a/x", "f-b/y"), ("f-b/y", "f-a/x")]);
 
-        let end = cycle.chase(&name("f-a/x"));
-
-        assert!(end == name("f-a/x") || end == name("f-b/y"));
-        assert_eq!(cycle.chase(&name("f-a/x")), end);
+        // One step per key: f-a/x to f-b/y, then back to f-a/x.
+        assert_eq!(cycle.chase(&name("f-a/x")), name("f-a/x"));
+        assert_eq!(cycle.chase(&name("f-b/y")), name("f-b/y"));
     }
 
     #[test]

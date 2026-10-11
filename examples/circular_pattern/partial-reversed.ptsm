@@ -1,0 +1,30 @@
+{
+  "format": "partsmith",
+  "format_version": 1,
+  "units": "mm",
+  "parameters": [],
+  "bodies": [
+    {"id": "b-1", "name": "Body 1"},
+    {"id": "b-2", "name": "Body 2"}
+  ],
+  "features": [
+    {
+      "id": "f-cyl1",
+      "type": "cylinder",
+      "body": "b-1",
+      "radius": "2",
+      "height": "5",
+      "position": ["20", "0", "0"],
+      "op": "new"
+    },
+    {
+      "id": "f-cp1",
+      "type": "circular_pattern",
+      "body": "b-1",
+      "axis": {"kind": "origin", "axis": "Z"},
+      "count": "3",
+      "angle": "90 deg",
+      "reverse": true
+    }
+  ]
+}
