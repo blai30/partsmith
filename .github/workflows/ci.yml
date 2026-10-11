@@ -32,6 +32,45 @@ jobs:
           sudo apt-get update && sudo apt-get install -y ninja-build
           scripts/build-occt.sh native "$OCCT_ROOT"
 
+  occt-wasm:
+    name: OCCT (WebAssembly)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - id: cache
+        uses: actions/cache@v6
+        with:
+          path: .occt/wasm
+          key: occt-wasm-${{ hashFiles('scripts/build-occt.sh', 'scripts/occt-version.sh', 'scripts/emsdk-version.sh') }}
+      - if: steps.cache.outputs.cache-hit != 'true'
+        uses: mymindstorm/setup-emsdk@v16
+        with:
+          version: 4.0.15
+      - if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update && sudo apt-get install -y ninja-build
+          scripts/build-occt.sh wasm "$GITHUB_WORKSPACE/.occt/wasm"
+
+  kernel-wasm:
+    name: Kernel tests (WebAssembly)
+    needs: occt-wasm
+    runs-on: ubuntu-24.04
+    env:
+      OCCT_ROOT_WASM32_UNKNOWN_EMSCRIPTEN: ${{ github.workspace }}/.occt/wasm
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/cache/restore@v6
+        with:
+          path: .occt/wasm
+          key: occt-wasm-${{ hashFiles('scripts/build-occt.sh', 'scripts/occt-version.sh', 'scripts/emsdk-version.sh') }}
+          fail-on-cache-miss: true
+      - uses: mymindstorm/setup-emsdk@v16
+        with:
+          version: 4.0.15
+      - run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2.9.2
+      - run: cargo test -p partsmith-occt-sys --target wasm32-unknown-emscripten
+
   rust:
     name: Rust
     needs: occt-native
