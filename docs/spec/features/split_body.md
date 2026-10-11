@@ -57,7 +57,7 @@ Label `Split body`, category `modify`, icon `split-body`, version 1.
 | --- | --- | --- | --- | --- | --- |
 | `body` | Body | yes | | `body` | |
 | `plane` | Split plane | yes | | `plane` | |
-| `target` | Body for the other part | yes | | `body` | |
+| `target` | Target body | yes | | `body` | |
 | `flip` | Flip | yes | | | |
 
 ### Python
@@ -104,7 +104,7 @@ All other faces keep their names in whichever part they end up in; faces cut by 
 
 | Condition | Variant | Example message |
 | --- | --- | --- |
-| Target is the body | `SameBody` | `Body 'Body 1' cannot be used twice here. Pick a different body for Body for the other part.` |
+| Target is the body | `SameBody` | `Body 'Body 1' cannot be used twice here. Pick a different body for Target body.` |
 | Body empty | `BodyEmpty` | `Body 'Body 1' is empty at this point, so this feature has nothing to work on. Pick a body that has a solid.` |
 | Plane does not cross the body | `PlaneMissesBody` | `The split plane does not pass through body 'Body 1'. Move the plane so it cuts through the body.` |
 | Target has a solid | `BodyNotEmpty` | features.md section 4.1 |
@@ -137,4 +137,4 @@ Conventions from features.md section 6.1. Bodies `[b-1, b-2]`. Fixtures:
 
 ## Open issues
 
-1. The label "Body for the other part" reads awkwardly inside the generic `SameBody` message ("Pick a different body for Body for the other part."). The UI copy can be tuned when the inspector is built; the behavior does not change.
+None beyond features.md.
