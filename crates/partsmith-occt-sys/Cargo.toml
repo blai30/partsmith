@@ -9,7 +9,15 @@ repository.workspace = true
 authors.workspace = true
 publish = false
 
+links = "occt"
+build = "build.rs"
+
 [dependencies]
+cxx.workspace = true
+thiserror.workspace = true
+
+[build-dependencies]
+cxx-build.workspace = true
 
 # The FFI crate is the one place allowed to use unsafe code.
 [lints.rust]
