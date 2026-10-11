@@ -334,11 +334,19 @@ Sketch and datum events are not emitted for features whose status is `suppressed
 ### 3.6 Sketch solve and drag
 
 - Sketch commands fail with `unknown_feature` for a missing id and `not_a_sketch` for a feature of another type.
-- `solve_sketch` solves the stored params, or the `candidate` params in their place (validated by the registry, `invalid_params` otherwise), with the sketch plane resolved against the state before the sketch. It records nothing and changes no state. The result is the sketch crate's solve report projected into `SketchSolution` (protocol.md 2.6).
-- `drag_sketch` fails with `unknown_point` when `point` does not address a point of the sketch. The first frame of a drag starts from the current solved geometry of the sketch (stored params plus uncommitted edits); later frames start from the previous frame's solution. The solver weakly pins `point` to `to` (ADR 0004). If a frame does not converge, the result is the previous frame's solution with `status: failed`, and the drag state is unchanged.
-- A drag state exists per (document, sketch) from the first successful frame until `end_sketch_drag`, `close_document`, or any recipe change of that document.
+- `solve_sketch` solves the stored params, or the `candidate` params in their place (validated by the registry, `invalid_params` otherwise), with `NativeSolver::solve`, the driving dimension values evaluated in the document's context, and the sketch plane resolved against the state before the sketch. It records nothing and changes no state.
+- `drag_sketch` fails with `unknown_point` when `point` does not address a point of the sketch. The first frame of a drag calls `Solver::begin_drag` with `DragTarget::Point { point }` on the current params (stored params plus uncommitted edits) and keeps the returned `DragSession`; every frame calls `DragSession::update(to)`, which starts from the previous frame (sketch.md). A `drag_sketch` naming another point than the active drag of that sketch discards the active drag and begins a new one. If a frame's components do not converge (`failed`), the result is still returned (with status `failed`), the failed components keep their previous geometry, and the drag continues.
+- A drag state (the `DragSession` and the last frame's result) exists per (document, sketch) from the first frame until `end_sketch_drag`, `close_document`, or any recipe change of that document.
 - `end_sketch_drag` fails with `no_drag` when no drag state exists for the sketch. With `commit: false` it discards the drag state. With `commit: true` it applies one `update_feature` whose record equals the stored record with the last frame's solved entity geometry (constraints and every other field unchanged), recorded per 3.3, and discards the drag state. If the geometry equals the stored geometry exactly, no edit is applied and the revision is unchanged.
 - No recompute runs during a drag; downstream features update after the commit.
+- **Projection into `SketchSolution`** (protocol.md 2.6), from sketch.md's `SolveResult`, `build_profile` and the resolved placement:
+  - `status`: `failed` when `SolveResult::failed`; else `over_constrained` when the sketch status is `conflicting`; else `fully_constrained` when `dof` is 0; else `under_constrained`. Redundancy is reported through `redundant`, not the status.
+  - `dof`, `redundant` and `conflicting` are copied.
+  - `entities` are the solved entities in stored order, each with `constrained` from `entity_states`: `under_constrained` to `under`, `fully_constrained` to `full`, `conflicting` to `conflicting`.
+  - `points` lists every point address of every entity in stored order: a point entity, then `start`, `end`, `center` roles as the entity type has them (line: start, end; circle: center; arc: center, start, end), with solved positions.
+  - `constraints` lists every constraint in stored order with `state` `conflicting` when listed in `conflicting`, else `redundant` when listed in `redundant`, else `unsatisfied` when it belongs to a failed component, else `satisfied`, and `value` from `measured` for dimensional constraints.
+  - `regions` are `build_profile`'s regions in its order, each as `{reference: region.reference(), area, centroid}`; `profile_findings` are `build_profile`'s findings.
+  - `placement` is the resolved sketch placement; `display` (display sessions) holds the curve and region-fill buffers of protocol.md 2.6, with region fills triangulated from each region's loops at the same angular step as the curves.
 
 ### 3.7 Tessellation tolerances
 
@@ -354,10 +362,10 @@ Sketch and datum events are not emitted for features whose status is `suppressed
 For each body with geometry at the display state, the engine takes from recompute the body's shape, its `NamingMap` and its `ElementInfo` list, and builds the **element table**:
 
 - **Faces:** every face, sorted by element name (byte order). The display face id is the position in this list.
-- **Edges:** every edge except seam edges (both adjacent face entries are the same face) and degenerate edges (zero length), sorted by element name. The display edge id is the position.
+- **Edges:** every named edge except seam edges (edges with one distinct adjacent face, named `edge(<face>)` by naming.md), sorted by element name. Degenerate edges are unnamed and never displayed. The display edge id is the position.
 - **Vertices:** every vertex that bounds at least one displayed edge, sorted by element name. The display vertex id is the position.
 
-The kernel tessellates the shape with the tolerance from 3.7 (kernel.md). The engine then builds `MeshBuffers` (protocol.md 2.7 and 3.4): vertices are duplicated per face so no mesh vertex is shared by two faces; `face_ids` maps each mesh vertex to the display id of its face; triangles wind counter-clockwise seen from outside; normals are the kernel's unit surface normals oriented outward; each displayed edge contributes its polyline as consecutive segments with its display edge id; each displayed vertex contributes its point. Positions are the `f64` coordinates rounded to the nearest `f32`. `bounding_box` is the kernel's exact bounding box of the shape (not of the mesh).
+The kernel tessellates the shape with the tolerance from 3.7 into a `partsmith_mesh::Mesh` whose face, edge and vertex ids are kernel indices (kernel.md). The engine drops the polylines of seam edges and the markers of undisplayed vertices, maps the remaining kernel ids to display ids with `Mesh::remap_ids`, orders vertex markers by display id, and converts with `Mesh::render_buffers` (mesh.md 3.11), whose layout is `MeshBuffers` (protocol.md 2.7 and 3.4): no mesh vertex is shared by two faces, `face_ids` gives each mesh vertex its face's display id, triangles wind counter-clockwise seen from outside with outward unit normals, each displayed edge contributes its polyline as consecutive segments, and the display vertex id of each `vertex_positions` entry is its index. `bounding_box` is the kernel's exact bounding box of the shape (not of the mesh).
 
 Element names are unique per kind within one body state (naming.md). A duplicate is an internal error reported as an `error` diagnostic with code `duplicate_element_name` on the feature that produced the body state; the engine then orders duplicates by kernel index so the output stays deterministic.
 
@@ -366,7 +374,7 @@ The engine keeps the element table of the latest model-layer mesh of each body. 
 ### 3.9 Picks, element listing and reference resolution
 
 - `list_elements` fails with `unknown_body` or `body_empty`. It returns `ElementDescriptor`s in element-table order: faces, then edges, then vertices, filtered by `kind` when given. Element `i` of a kind has display id `i` in the body's current model-layer mesh.
-- Each descriptor holds the element name, its `Reference` (built by partsmith-naming from the name and the fingerprint of the element at the display state), and the geometry fields of protocol.md 2.4 from the kernel's element queries: `centroid`, `area` or `length`, `surface` or `curve`, `normal` (outward, planar faces), `direction` (line edges, first vertex to last), `axis` and `radius` (cylinder, cone, torus and sphere faces, circle edges), `placement` (planar faces, computed by the sketch crate's face-placement rule), and `adjacent` names (faces: their displayed edges; edges: their faces then their displayed vertices; vertices: their displayed edges; each group sorted by name).
+- Each descriptor holds the element name, its `Reference` (built by partsmith-naming from the name and the fingerprint of the element at the display state), and the geometry fields of protocol.md 2.4 from the kernel's element queries: `centroid`, `area` or `length`, `surface` or `curve`, `normal` (outward, planar faces), `direction` (line edges, first vertex to last), `axis` and `radius` (cylinder, cone, torus and sphere faces, circle edges), `placement` (planar faces: `Placement::on_plane(centroid, normal, &OriginPlane::Xy.placement())` from sketch.md, so a sketch on the top face of a box standing on XY has its origin above the model origin and its x axis along +X), and `adjacent` names (faces: their displayed edges; edges: their faces then their displayed vertices; vertices: their displayed edges; each group sorted by name).
 - `pick_reference` fails with `preview_not_pickable` when `mesh_id` names a preview mesh, `stale_pick` when it names any mesh that is not the latest model-layer mesh of its body (or was never issued), and `invalid_pick` when `index` is not below the mesh's count for `kind`. Otherwise it returns the descriptor of that element, identical to the corresponding `list_elements` entry.
 - `resolve_references` resolves each reference with the partsmith-naming resolver against the element sets of every body with geometry at the display state. One match over all bodies gives `resolved`; several give `ambiguous`; none gives `missing`. Each match is reported as a `MeshElement` with the body's current model-layer `mesh_id` and the element's display id; in headless sessions `mesh_id` is 0 and `index` is the element's position in `list_elements` order. Matches are sorted by body order, then kind, then index.
 
@@ -390,21 +398,20 @@ Targets are resolved at the display state: `{"body": id}` needs an existing body
 
 ### 3.12 Print analysis
 
-1. **Profile.** `profile` names a session or built-in profile (`unknown_printer_profile` otherwise). When absent, the document's `printer` is used; if that id is unknown, `unknown_printer_profile`; if `printer` is `None`, the default FDM profile.
-2. **Bodies.** `bodies` lists existing bodies (`unknown_body`) with geometry at the display state (`body_empty`); duplicates are ignored after their first occurrence. When absent: every body with role `part`, `visible: true` and geometry, in document order. With no body to analyze, the report has empty `bodies` and `findings` and health `ok`.
-3. **Rotation `R`.** `as_modeled`: identity. `matrix`: the rows as given, accepted when every entry of `R·Rᵀ - I` is within 1e-9 of 0 and `det(R)` is within 1e-9 of 1 (`invalid_orientation` otherwise). `face_down`: the face reference must resolve uniquely (`reference_unresolved`) to a planar face (`invalid_orientation`); with outward normal `n`, `R` is the identity when `n = (0, 0, -1)`, the rotation by π about +X when `n = (0, 0, 1)`, and otherwise the rotation about `normalize(n × (0, 0, -1))` by `acos(n · (0, 0, -1))`.
-4. **Transforms.** Each analyzed body `b` is rotated by `R`. Let `U` be the union bounding box of all rotated analyzed bodies and `c` the center of the profile's bed in bed coordinates (print.md). The body transform is `T_b = translate(c.x - U.center.x, c.y - U.center.y, -minz_b) · R`, where `minz_b` is the minimum z of rotated body `b`, so every body rests on z = 0 and the group is centered on the bed. `BodyPrint.transform` is `T_b` as a column-major 4 × 4 matrix.
-5. **Meshes.** Checks run on each body's mesh transformed by `T_b`: in display sessions the body's current model-layer display mesh (so the overhang map aligns with it); in headless sessions a mesh at `standard` quality.
-6. **Checks.** Every M1 check of print.md runs with the profile: overhangs, bed fit, first-layer contact, thin walls, small features, islands, trapped volumes, mesh validity. Findings keep print.md's messages, values and limits; the engine adds `body` and sorts findings by body order, then check order (the order listed here), then location (lexicographic x, y, z, absent first).
-7. **Health.** Per body and overall: `error` if any finding is an error, else `warning` if any is a warning, else `ok`.
-8. **Overhang map** (display sessions). For mesh vertex `i` with normal `n_i`, let `m = R · n_i` and `z_i` the vertex's z after `T_b`. The value is 0 when `m.z >= 0` or `z_i <= 1e-6` mm, else `asin(-m.z)` (the overhang angle from vertical: π/2 for a downward horizontal face, 0 for a vertical wall), stored as `f32`.
-9. The command emits one `print_health` event with the report and returns `{health}`. It changes no state.
+1. **Profile.** `profile` names a session or built-in profile (`unknown_printer_profile` otherwise). When absent, the document's `printer` is used; if that id is unknown, `unknown_printer_profile`; if `printer` is `None`, `partsmith_print::DEFAULT_PROFILE_ID` (`generic-fdm`).
+2. **Bodies.** `bodies` lists existing bodies (`unknown_body`) with geometry at the display state (`body_empty`); duplicates are ignored after their first occurrence. When absent: every body with role `part`, `visible: true` and geometry, in document order. With no body to analyze, the report has empty `bodies`, and `summary` is `summarize(&[])` (health `ok`, label `Ready to print`).
+3. **Rotation.** `as_modeled` is the identity; `matrix` is `partsmith_print::Rotation::new(rows)`; `face_down` resolves the face reference uniquely at the display state (`reference_unresolved` otherwise), requires a planar face (`invalid_orientation`, "Only flat faces can be laid on the bed."), and is `Rotation::face_down(outward normal)`. A rotation the print crate rejects is `invalid_orientation` ("The orientation is not a rotation.").
+4. **Meshes.** Each body's mesh is, in display sessions, its current model-layer display mesh with display face ids (so findings' `triangles` and `faces` index that mesh and the overhang map aligns with it); in headless sessions, a mesh at the document's `standard` tolerance.
+5. **Checks.** For each body, `partsmith_print::analyze(mesh, profile, &AnalysisOptions { rotation, checks: CheckKind::ALL.to_vec() })`. Its `BodyReport` becomes `BodyPrint.report` unchanged. `summary` is `partsmith_print::summarize` over the body reports in body order. An `AnalysisError` (for example an empty mesh) is an internal error for that body and fails the command with `internal_error`.
+6. **Transforms.** Let `R` be the rotation, `U` the union bounding box of all analyzed bodies' meshes rotated by `R`, and `c` the profile bed's center in bed coordinates (`(width / 2, depth / 2)` for a rectangular bed, print.md). The body transform is `T_b = translate(c.x - U.center.x, c.y - U.center.y, -minz_b) · R`, where `minz_b` is the minimum z of body `b`'s rotated mesh, so every body rests on z = 0 (matching print.md's print frame) and the group is centered on the bed. `BodyPrint.transform` is `T_b` as a column-major 4 × 4 matrix.
+7. **Overhang map** (display sessions). The `overhangs` overlay of the analysis, converted with `Overlay::per_vertex(render indices, render vertex count)` for the body's display buffers: one `f32` per mesh vertex, the worst overhang angle of the triangles using it, 0 where not overhanging.
+8. The command emits one `print_health` event with the report and returns `{health: summary.health}`. It changes no state.
 
 ### 3.13 Export
 
 1. **State and bodies.** Export uses the model state (3.5). `bodies` entries must exist (`unknown_body`) and have geometry (`body_empty`); duplicates are ignored after their first occurrence. When absent: every body with geometry and `visible: true` whose role is `part`, plus, for 3MF only, visible modifier bodies. No qualifying body gives `nothing_to_export`. Bodies are exported in document order.
 2. **Tolerance.** Mesh formats tessellate with the explicit `tolerance` or the document's `standard` tolerance (3.7). STEP writes the exact B-rep.
-3. **Orientation.** When given, each body is transformed by `T_b` from 3.12 step 4, computed with the document's resolved profile; otherwise bodies stay in model coordinates.
+3. **Orientation.** When given, each body is transformed by `T_b` from 3.12 step 6, computed with the document's resolved profile; otherwise bodies stay in model coordinates.
 4. **Writers.** partsmith-io writes the bytes (io.md): STL binary or ASCII; 3MF with one object per body (name, color, material, modifier role); OBJ with one `o` group per body; STEP AP242 with one solid per body, named after the body, with its color.
 5. **Files.** `per_body: false` (and 3MF, STEP): one file named `model.<ext>`. `per_body: true`: one file per body named `<name>.<ext>`, where `<name>` is the body name with every character outside `[A-Za-z0-9 ._-]` replaced by `_` and surrounding spaces trimmed (the body id when that leaves nothing); a repeated name gets ` (2)`, ` (3)` in body order. Extensions and media types: `stl` `model/stl`, `3mf` `model/3mf`, `obj` `model/obj`, `step` `model/step`.
 6. **Warnings.** For mesh formats, each body's mesh validity is checked (mesh.md); every problem adds a `warning` diagnostic naming the body ("Body \"Block\" is not watertight: 2 open edges. Slicers may repair it."). An unknown document printer adds the `unknown_printer_profile` warning. Export never fails because of warnings.
@@ -454,7 +461,7 @@ Targets are resolved at the display state: `{"body": id}` needs an existing body
 3. Expression errors in parameters and feature params (codes from expressions.md, error), including cycles.
 4. Feature references to bodies, features and sketch entities that do not exist or come later in the timeline (codes from model.md and features.md, error).
 5. `unknown_printer_profile` (warning) when `printer` is not installed.
-6. Each sketch is solved: conflicting constraints (`sketch_conflicting`, error, listing the ids), redundant constraints (`sketch_redundant`, warning), no convergence (`sketch_failed`, error).
+6. Each sketch is solved: conflicting constraints (`sketch_conflicting`, error, listing the ids), redundant constraints (`sketch_redundant`, warning), no convergence (`sketch_not_converged`, error), with sketch.md's `SolveIssue` messages.
 7. Referenced assets missing from `assets` (`missing_asset`, error).
 8. With `rebuild`: full recompute; every feature error (`feature_error`, error) and warning (`feature_warning`, warning), with the feature id in the message and the JSON Pointer `/features/<index>`.
 9. With `canonical`: `not_canonical` (error) when the text differs from the canonical serialization of the loaded document, with the line of the first differing byte.
@@ -467,16 +474,16 @@ Acceptance tests in this spec, cli.md and python-api.md use these documents, sto
 
 | File | Content | Known values |
 | --- | --- | --- |
-| `box.ptsm` | Parameter `p-h` named `height`, expression `40 mm`. Body `b-1` "Block". Feature `f-box1`: box primitive in `b-1`, op `new`, size expressions `20 mm` (X), `30 mm` (Y) and `height` (Z), minimum corner at the origin (the default position). | Volume 24000 mm³, area 5200 mm², center of mass (10, 15, 20), bounding box (0, 0, 0) to (20, 30, 40), 6 faces, 12 edges, 8 vertices; standard tessellation has 12 triangles and 24 mesh vertices |
+| `box.ptsm` | Parameter `p-h` named `height`, expression `40 mm`. Body `b-1` "Block". Feature `f-box1`: box primitive in `b-1`, op `new`, `size` expressions `20 mm` (X), `30 mm` (Y) and `height` (Z), on the default plane and `position` (standing on XY, centered on the origin in x and y, features/box.md). | Volume 24000 mm³, area 5200 mm², center of mass (0, 0, 20), bounding box (-10, -15, 0) to (10, 15, 40), 6 faces, 12 edges, 8 vertices; standard tessellation has 12 triangles and 24 mesh vertices |
 | `plate.ptsm` | Body `b-1` "Plate". Sketch `f-sk1` on XY: lines `e-1` (0, 0) to (80, 0), `e-2` (80, 0) to (80, 50), `e-3` (80, 50) to (0, 50), `e-4` (0, 50) to (0, 0), none construction; constraints `c-1` to `c-4` coincident (`e-1.end`, `e-2.start`), (`e-2.end`, `e-3.start`), (`e-3.end`, `e-4.start`), (`e-4.end`, `e-1.start`); `c-5` horizontal `e-1`, `c-6` horizontal `e-3`, `c-7` vertical `e-2`, `c-8` vertical `e-4`. Extrude `f-ext1` of all of the sketch's regions (its single region) by distance expression `10 mm` into `b-1`, op `new`, no other options. | Sketch DOF 4, one region of area 4000 mm² with centroid (40, 25); volume 40000 mm³, area 10600 mm², 6 faces |
-| `fillet.ptsm` | `box.ptsm` plus `f-fil1`: fillet of radius 2 mm in `b-1` on one edge, the reference returned by `list_elements` on `box.ptsm` for the edge with direction ±Z and centroid (0, 0, 20). | Volume 23840 + 40π = 23965.663706143592 mm³, area 5032 + 42π = 5163.946891450771 mm², 7 faces, 15 edges, 10 vertices |
-| `two-bodies.ptsm` | Bodies `b-1` "Block" and `b-2` "Peg". `f-box1` as in `box.ptsm` with a literal height of 40 mm and no parameters. `f-cyl1`: cylinder primitive in `b-2`, op `new`, radius 5 mm, height 10 mm, base center (50, 0, 0), axis +Z. | `b-2` volume 250π = 785.3981633974483 mm³, 3 faces, 2 displayed edges, 2 displayed vertices |
+| `fillet.ptsm` | `box.ptsm` plus `f-fil1`: fillet of radius 2 mm in `b-1` on one edge, the reference returned by `list_elements` on `box.ptsm` for the edge `edge(f-box1/front|f-box1/left)` (direction ±Z, centroid (-10, -15, 20)). | Volume 23840 + 40π = 23965.663706143592 mm³, area 5032 + 42π = 5163.946891450771 mm², 7 faces, 15 edges, 10 vertices |
+| `two-bodies.ptsm` | Bodies `b-1` "Block" and `b-2` "Peg". `f-box1` as in `box.ptsm` with a literal height of 40 mm and no parameters. `f-cyl1`: cylinder primitive in `b-2`, op `new`, radius 5 mm, height 10 mm, `position` (50, 0, 0) on the default plane (base center (50, 0, 0), axis +Z). | `b-2` volume 250π = 785.3981633974483 mm³, 3 faces, 2 displayed edges, 2 displayed vertices |
 | `circle.ptsm` | Body `b-1` "Disc". Sketch `f-sk1` on XY: circle `e-1` center (0, 0) radius 5, constraint `c-1` radius of `e-1` = `5 mm`. Extrude `f-ext1` by 10 mm, op `new`. | Volume 785.3981633974483 mm³, area 150π = 471.23889803846896 mm², 3 faces |
 | `drag.ptsm` | Sketch `f-sk1` on XY: line `e-1` (0, 0) to (10, 0); `c-1` fix on `e-1.start`; `c-2` horizontal `e-1`. No bodies. | DOF 1, status `under_constrained` |
 | `conflict.ptsm` | Sketch `f-sk1` on XY: line `e-1` (0, 0) to (10, 0); `c-1` horizontal `e-1`; `c-2` vertical `e-1`; `c-3` fix on `e-1.start`; `c-4` distance between `e-1.start` and `e-1.end` = `10 mm`. | Status `over_constrained`, `conflicting` non-empty and a subset of {`c-1`, `c-2`, `c-4`} |
 | `datum.ptsm` | Datum plane `f-dp1` offset 10 mm from the XY origin plane. | Placement origin (0, 0, 10), x axis (1, 0, 0), normal (0, 0, 1) |
 
-The default FDM profile, the built-in resin profile and the bed center used below are those of print.md; tests read the profile values through `printer_profiles()` rather than hard-coding them, except where a value is stated.
+Profiles are print.md's built-ins: `generic-fdm` (the default; layer height 0.2 mm, bed 256 × 256 mm, so the bed center is (128, 128)) and `generic-resin` (layer height 0.05 mm).
 
 ## 4. Errors
 
@@ -560,7 +567,7 @@ Tests live in `crates/partsmith-engine/tests/`. "Session" means `Session::new(Se
 1. `new_document {}` on a fresh session returns doc 1 and emits exactly `document_changed` (revision 0, dirty false, document units `mm`, no parameters, bodies or features, `transaction_open` false, no `undo`) then `recomputed` (empty `features`, `parameters`, `diagnostics`).
 2. A second `new_document` returns doc 2; after `close_document` 2, a third returns doc 3.
 3. `open_document` of `box.ptsm` emits, in order, `document_changed`, `recomputed` (`f-box1` ok, `p-h` value 40 dimension length), `body_mesh` (`b-1`, layer `model`, `mesh_id` 1), then the response with doc 1.
-4. That `body_mesh` has `face_count` 6, `edge_count` 12, `vertex_count` 8, 24 mesh vertices, 12 triangles, 12 edge segments, 8 vertex positions, and bounding box (0, 0, 0) to (20, 30, 40) within 1e-6.
+4. That `body_mesh` has `face_count` 6, `edge_count` 12, `vertex_count` 8, 24 mesh vertices, 12 triangles, 12 edge segments, 8 vertex positions, and bounding box (-10, -15, 0) to (10, 15, 40) within 1e-6.
 5. In that mesh, the three vertices of every triangle share a face id, every face id 0 to 5 occurs on exactly 4 vertices, and every normal has length 1 within 1e-6 and equals the outward normal of its face.
 6. In that mesh, every edge id 0 to 11 occurs on exactly one segment, and each segment's endpoints are two box corners.
 7. `save_document` right after opening `box.ptsm` returns text byte-identical to the file and no assets.
@@ -626,8 +633,8 @@ Tests live in `crates/partsmith-engine/tests/`. "Session" means `Session::new(Se
 
 **Tessellation**
 
-55. On `box.ptsm` (no printer), `set_tessellation` `standard` returns chord 0.05 (the default profile's layer height divided by 4, with the default layer height 0.2 mm) and angle 0.08726646259971647.
-56. On `box.ptsm` with `set_printer` to the built-in resin profile (layer height 0.05 mm), `standard` returns chord 0.0125.
+55. On `box.ptsm` (no printer, so `generic-fdm`), `set_tessellation` `standard` returns chord 0.05 and angle 0.08726646259971647.
+56. On `box.ptsm` after `set_printer` `generic-resin`, `standard` returns chord 0.0125.
 57. `draft` returns 4 times and `fine` half the standard chord; angles 0.17453292519943295 and 0.04363323129985824.
 58. On `circle.ptsm`, the triangle count at `fine` is greater than at `standard`, which is greater than at `draft`.
 59. `set_tessellation` emits one `body_mesh` per body with a mesh, each with a new `mesh_id`; `pick_reference` with the previous mesh id then fails with `stale_pick`.
@@ -636,7 +643,7 @@ Tests live in `crates/partsmith-engine/tests/`. "Session" means `Session::new(Se
 
 60. `list_elements` on `box.ptsm` `b-1` returns 6 faces, then 12 edges, then 8 vertices, each group sorted by name.
 61. For each face index `i` from 0 to 5, `pick_reference {mesh_id, kind: face, index: i}` returns the same descriptor as `list_elements` face `i`.
-62. The face with centroid (10, 15, 40) has `surface` `plane`, `normal` (0, 0, 1), `area` 600 within 1e-9, a `placement` with normal (0, 0, 1), and 4 `adjacent` edge names.
+62. The face named `f-box1/top` has centroid (0, 0, 40), `surface` `plane`, `normal` (0, 0, 1), `area` 600 within 1e-9, `placement` origin (0, 0, 40), x axis (1, 0, 0) and normal (0, 0, 1), and `adjacent` exactly [`edge(f-box1/back|f-box1/top)`, `edge(f-box1/front|f-box1/top)`, `edge(f-box1/left|f-box1/top)`, `edge(f-box1/right|f-box1/top)`].
 63. `pick_reference` with `index` 6 and kind face fails with `invalid_pick`.
 64. After any `apply_edits` that changes `b-1`, `pick_reference` with the old `mesh_id` fails with `stale_pick`.
 65. `resolve_references` with the top face's reference returns `resolved` with one match whose `index` equals the top face's display id and whose `mesh_id` is the current model mesh.
@@ -645,10 +652,10 @@ Tests live in `crates/partsmith-engine/tests/`. "Session" means `Session::new(Se
 
 **Measure and evaluate**
 
-68. `measure` of `{"body": "b-1"}` on `box.ptsm` returns volume 24000, area 5200, center of mass (10, 15, 20), bounding box (0, 0, 0) to (20, 30, 40), face, edge and vertex counts 6, 12 and 8, and no other fields.
+68. `measure` of `{"body": "b-1"}` on `box.ptsm` returns volume 24000, area 5200, center of mass (0, 0, 20), bounding box (-10, -15, 0) to (10, 15, 40), face, edge and vertex counts 6, 12 and 8, and no other fields.
 69. `measure` of the top and bottom face references returns `distance` 40, `angle` 0, and closest points whose z values are 40 and 0.
 70. `measure` of the top face and the front face (normal (0, -1, 0)) returns `distance` 0 and `angle` π/2 within 1e-12.
-71. `measure` of the edge with centroid (10, 0, 40) returns length 20, `curve` `line` and direction (±1, 0, 0).
+71. `measure` of `edge(f-box1/front|f-box1/top)` returns length 20, centroid (0, -15, 40), `curve` `line` and direction (±1, 0, 0).
 72. `measure` of `fillet.ptsm` `b-1` returns volume 23965.663706143592 and area 5163.946891450771 within 1e-6 relative.
 73. `measure` with no targets, and with three targets, fails with `invalid_measure`.
 74. `evaluate` of `2 * height` on `box.ptsm` returns 80 with dimension length; `evaluate` of `height + 30 deg` fails with `expression_error`.
@@ -657,9 +664,9 @@ Tests live in `crates/partsmith-engine/tests/`. "Session" means `Session::new(Se
 
 75. `printer_profiles()` contains at least one profile with technology `fdm` and one with technology `resin`; built-in profiles come first, sorted by id.
 76. `put_printer_profile` with the id of a built-in profile fails with `profile_id_reserved`.
-77. `analyze_print` on `box.ptsm` with orientation `as_modeled` returns `health` `ok` and emits one `print_health` event whose report has profile equal to the default FDM profile id, one body, no findings, an `overhang` buffer with 24 elements all equal to 0, and `mesh_id` equal to `b-1`'s current model mesh.
-78. In that report, the transform is the identity rotation plus the translation (bed center x minus 10, bed center y minus 15, 0).
-79. `analyze_print` on `box.ptsm` with orientation `matrix` rotating 30 degrees about +X (`rows` [[1, 0, 0], [0, cos 30°, -sin 30°], [0, sin 30°, cos 30°]]) reports at least one finding with check `overhangs` and health not `ok`; overhang values are π/3 for vertices of the bottom face and π/6 for vertices of the front face whose transformed z exceeds 1e-6, and 0 for all other vertices.
+77. `analyze_print` on `box.ptsm` with orientation `as_modeled` returns `health` `ok` and emits one `print_health` event whose report has profile `generic-fdm`, summary label `Ready to print`, one body whose `report` has 8 checks all with status `ok`, an `overhang` buffer with 24 elements all equal to 0, and `mesh_id` equal to `b-1`'s current model mesh.
+78. In that report, the transform is the identity rotation plus the translation (128, 128, 0).
+79. `analyze_print` on `box.ptsm` with orientation `matrix` rotating 30 degrees about +X (`rows` [[1, 0, 0], [0, cos 30°, -sin 30°], [0, sin 30°, cos 30°]]) reports a finding in the `overhangs` check and summary health not `ok`; the overhang buffer is π/3 at every vertex of the face `f-box1/bottom`, π/6 at every vertex of `f-box1/front`, and 0 at every other vertex (vertices identified through `face_ids` and `list_elements`).
 80. `analyze_print` with `profile` `nope` fails with `unknown_printer_profile`.
 81. `analyze_print` with a matrix whose determinant is -1 fails with `invalid_orientation` and message `The orientation is not a rotation.`
 82. `analyze_print` with `face_down` on the top face of `box.ptsm` reports a transform whose rotation maps (0, 0, 1) to (0, 0, -1).
@@ -701,9 +708,8 @@ Tests live in `crates/partsmith-engine/tests/`. "Session" means `Session::new(Se
 4. **Print analysis mesh.** In display sessions, checks run on the display mesh so the overhang map aligns with it; findings therefore depend slightly on display quality. The CLI and Python always use `standard`.
 5. **Undo limit.** `UndoLog` capacity belongs to model.md; this spec sets the default at 1000 transactions in `SessionOptions`.
 6. **Deterministic id format.** `SequentialIds` (`f-000000000001`) is defined here because Python determinism depends on it; model.md may own the generator, in which case the format must match.
-7. **Bed geometry.** The transform centers bodies on "the center of the profile's bed". print.md must define bed coordinates (assumed: rectangular bed with its front-left corner at the origin).
-8. **`import` feature and asset dependencies.** Saving assets relies on the registry's dependency extraction reporting asset names. features.md must define the `import` feature and include assets in `Dependencies`.
-9. **Fixture params.** The fixtures are described semantically; their exact JSON depends on features.md and sketch.md params, which test authors must use.
-10. **Reference benchmark part.** `examples/bench/fifty-features/model.ptsm` does not exist yet and must be authored with the examples.
-11. **Export state versus display state.** Export uses the model state (rollback marker) while interactive queries use the display state (which differs only during a focus). The UI spec should not offer export while a focus transaction is open, or must accept that export ignores the focus.
-12. **Profile values in tests.** Tests 55 to 57 assume the default FDM profile has a 0.2 mm layer height and that a built-in resin profile has 0.05 mm, per the technical design's typical values; print.md must ship such profiles or the tests must read the values.
+7. **`import` feature and asset dependencies.** Saving assets relies on the registry's dependency extraction reporting asset names. features.md must define the `import` feature and include assets in `Dependencies`.
+8. **Fixture params.** The fixtures are described semantically; their exact JSON depends on features.md and sketch.md params, which test authors must use.
+9. **Reference benchmark part.** `examples/bench/fifty-features/model.ptsm` does not exist yet and must be authored with the examples.
+10. **Export state versus display state.** Export uses the model state (rollback marker) while interactive queries use the display state (which differs only during a focus). The UI spec should not offer export while a focus transaction is open, or must accept that export ignores the focus.
+11. **Sketch and print projections.** The protocol's `SketchSolution` is projected from sketch.md's `SolveResult` (3.6) and the print report embeds print.md's types (3.12); see protocol.md Open issues 5 and 6.

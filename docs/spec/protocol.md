@@ -231,7 +231,7 @@ impl FrameError {
 
 `FrameError::code` maps `VersionMismatch` to `protocol_version_mismatch`, `InvalidMessage` to `malformed_request`, and every other variant to `malformed_frame`.
 
-The protocol crate reuses these types from other crates without redefining them: `partsmith_model::{Id, Units, Expr, Document, Edit, Dimension}`, `partsmith_sketch::{SketchParams, SketchEntity, PointRef, RegionKey}`, `partsmith_naming::Reference`, `partsmith_print::PrinterProfile`, and the feature manifest type from `partsmith-features` re-exported through `partsmith_model` or passed as `serde_json::Value` (see Open issues). Their JSON forms are defined by their own specs; examples below show them only for orientation.
+The protocol crate reuses these types from other crates without redefining them: `partsmith_model::{Id, Units, Expr, Document, Edit, Dimension}`, `partsmith_sketch::{SketchParams, SketchEntity, PointRef, RegionRef, ProfileFinding}`, `partsmith_naming::Reference`, `partsmith_print::{PrinterProfile, Health, HealthSummary, BodyReport}` (and the types they contain), and the feature manifest as a `serde_json::Value` (see Open issues). Their JSON forms are defined by their own specs (model.md, expressions.md, sketch.md, naming.md, print.md, features.md); examples below follow those specs.
 
 ### 2.2 Frame layout
 
@@ -337,15 +337,8 @@ pub type Vec3 = [f64; 3];
 /// A 2D point in sketch coordinates, millimeters.
 pub type Vec2 = [f64; 2];
 
-/// A coordinate frame for a plane; `y_axis = normal × x_axis`.
-pub struct Placement {
-    /// Plane origin in model coordinates.
-    pub origin: Vec3,
-    /// Unit x direction in the plane.
-    pub x_axis: Vec3,
-    /// Unit plane normal.
-    pub normal: Vec3,
-}
+/// A plane frame `{origin, x_axis, normal}` with `y_axis = normal × x_axis` (sketch.md).
+pub use partsmith_sketch::Placement;
 
 /// Axis-aligned bounding box.
 pub struct BoundingBox { pub min: Vec3, pub max: Vec3 }
@@ -462,13 +455,13 @@ JSON examples:
 
 ```json
 {"origin": [0.0, 0.0, 10.0], "x_axis": [1.0, 0.0, 0.0], "normal": [0.0, 0.0, 1.0]}
-{"min": [0.0, 0.0, 0.0], "max": [20.0, 30.0, 40.0]}
+{"min": [-10.0, -15.0, 0.0], "max": [10.0, 15.0, 40.0]}
 {"origin": [0.0, 0.0, 0.0], "direction": [0.0, 0.0, 1.0]}
 {"mesh_id": 12, "kind": "face", "index": 3}
 {"body": "b-1", "mesh_id": 12, "kind": "edge", "index": 4}
 {"kind": "as_modeled"}
 {"kind": "matrix", "rows": [[1.0, 0.0, 0.0], [0.0, 0.0, -1.0], [0.0, 1.0, 0.0]]}
-{"kind": "face_down", "face": {"q": "f-box1/top", "fp": "plane|n=0,0,1|c=10,15,40|a=600"}}
+{"kind": "face_down", "face": {"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,40|a=600|adj=4,4"}}
 "standard"
 {"chord_deviation": 0.05, "angular_deviation": 0.08726646259971647}
 {"severity": "warning", "code": "unknown_printer_profile", "message": "Printer profile \"my-printer\" is not installed, so the default FDM profile is used."}
@@ -479,8 +472,8 @@ JSON examples:
 An `ElementDescriptor` for the top face of the box fixture and for one of its top edges (element names and fingerprint text are produced by partsmith-naming and are shown for orientation only):
 
 ```json
-{"name": "f-box1/top", "kind": "face", "body": "b-1", "reference": {"q": "f-box1/top", "fp": "plane|n=0,0,1|c=10,15,40|a=600"}, "surface": "plane", "centroid": [10.0, 15.0, 40.0], "area": 600.0, "normal": [0.0, 0.0, 1.0], "placement": {"origin": [10.0, 15.0, 40.0], "x_axis": [1.0, 0.0, 0.0], "normal": [0.0, 0.0, 1.0]}, "adjacent": ["edge(f-box1/back|f-box1/top)", "edge(f-box1/front|f-box1/top)", "edge(f-box1/left|f-box1/top)", "edge(f-box1/right|f-box1/top)"]}
-{"name": "edge(f-box1/front|f-box1/top)", "kind": "edge", "body": "b-1", "reference": {"q": "edge(f-box1/front|f-box1/top)", "fp": "line|d=1,0,0|c=10,0,40|l=20"}, "curve": "line", "centroid": [10.0, 0.0, 40.0], "length": 20.0, "direction": [1.0, 0.0, 0.0], "adjacent": ["f-box1/front", "f-box1/top", "vertex(f-box1/front|f-box1/left|f-box1/top)", "vertex(f-box1/front|f-box1/right|f-box1/top)"]}
+{"name": "f-box1/top", "kind": "face", "body": "b-1", "reference": {"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,40|a=600|adj=4,4"}, "surface": "plane", "centroid": [0.0, 0.0, 40.0], "area": 600.0, "normal": [0.0, 0.0, 1.0], "placement": {"origin": [0.0, 0.0, 40.0], "x_axis": [1.0, 0.0, 0.0], "normal": [0.0, 0.0, 1.0]}, "adjacent": ["edge(f-box1/back|f-box1/top)", "edge(f-box1/front|f-box1/top)", "edge(f-box1/left|f-box1/top)", "edge(f-box1/right|f-box1/top)"]}
+{"name": "edge(f-box1/front|f-box1/top)", "kind": "edge", "body": "b-1", "reference": {"q": "edge(f-box1/front|f-box1/top)", "fp": "line|n=1,0,0|c=0,-15,40|l=20|adj=2,2"}, "curve": "line", "centroid": [0.0, -15.0, 40.0], "length": 20.0, "direction": [1.0, 0.0, 0.0], "adjacent": ["f-box1/front", "f-box1/top", "vertex(f-box1/front|f-box1/left|f-box1/top)", "vertex(f-box1/front|f-box1/right|f-box1/top)"]}
 ```
 
 ### 2.5 Commands
@@ -510,7 +503,7 @@ Each command below lists its fields (Rust types), a request example, and the res
 
 ```json
 {"type": "feature_catalog"}
-{"type": "feature_catalog", "features": [{"type": "box", "manifest": {"label": "Box", "category": "primitive", "version": 1}, "params_schema": {"type": "object", "properties": {"body": {"type": "string"}}, "required": ["body"]}}]}
+{"type": "feature_catalog", "features": [{"type": "box", "manifest": {"label": "Box", "category": "create", "icon": "box", "version": 1, "fields": []}, "params_schema": {"type": "object", "properties": {"body": {"type": "string"}}, "required": ["body"]}}]}
 ```
 
 3. `list_printer_profiles {}`: built-in profiles, then session profiles, each group sorted by `id`. Result `{profiles: Vec<PrinterProfile>}`; the profile JSON is defined in print.md.
@@ -556,7 +549,7 @@ Each command below lists its fields (Rust types), a request example, and the res
 
 ```json
 {"type": "get_document", "doc": 1}
-{"type": "get_document", "revision": 3, "document": {"format": "partsmith", "format_version": 1, "units": "mm", "parameters": [{"id": "p-h", "name": "height", "expr": "40 mm"}], "bodies": [{"id": "b-1", "name": "Block"}], "features": [{"id": "f-box1", "type": "box", "body": "b-1", "op": "new", "size": ["20 mm", "30 mm", "height"]}]}}
+{"type": "get_document", "revision": 3, "document": {"format": "partsmith", "format_version": 1, "units": "mm", "parameters": [{"id": "p-h", "name": "height", "expr": "40 mm"}], "bodies": [{"id": "b-1", "name": "Block"}], "features": [{"id": "f-box1", "type": "box", "body": "b-1", "size": ["20 mm", "30 mm", "height"], "op": "new"}]}}
 ```
 
 **Edits, transactions, undo**
@@ -605,7 +598,7 @@ Each command below lists its fields (Rust types), a request example, and the res
 
 ```json
 {"type": "drag_sketch", "doc": 1, "feature": "f-sk1", "point": "e-1.end", "to": [20.0, 5.0]}
-{"type": "drag_sketch", "solution": {"feature": "f-sk1", "status": "under_constrained", "dof": 1, "redundant": [], "conflicting": [], "placement": {"origin": [0.0, 0.0, 0.0], "x_axis": [1.0, 0.0, 0.0], "normal": [0.0, 0.0, 1.0]}, "entities": [{"id": "e-1", "type": "line", "start": [0.0, 0.0], "end": [20.0, 0.0], "constrained": "under"}], "points": [{"point": "e-1.start", "at": [0.0, 0.0]}, {"point": "e-1.end", "at": [20.0, 0.0]}], "constraints": [{"id": "c-1", "state": "satisfied"}, {"id": "c-2", "state": "satisfied"}], "regions": [], "profile_issues": [{"kind": "open_loop", "entities": ["e-1"]}], "display": {"curve_positions": 0, "curve_entities": 1, "region_positions": 2, "region_indices": 3, "region_ids": 4}}}
+{"type": "drag_sketch", "solution": {"feature": "f-sk1", "status": "under_constrained", "dof": 1, "redundant": [], "conflicting": [], "placement": {"origin": [0.0, 0.0, 0.0], "x_axis": [1.0, 0.0, 0.0], "normal": [0.0, 0.0, 1.0]}, "entities": [{"id": "e-1", "type": "line", "start": [0.0, 0.0], "end": [20.0, 0.0], "constrained": "under"}], "points": [{"point": "e-1.start", "at": [0.0, 0.0]}, {"point": "e-1.end", "at": [20.0, 0.0]}], "constraints": [{"id": "c-1", "state": "satisfied"}, {"id": "c-2", "state": "satisfied"}], "regions": [], "profile_findings": [{"type": "open_endpoint", "entity": "e-1", "point": [0.0, 0.0]}, {"type": "open_endpoint", "entity": "e-1", "point": [20.0, 0.0]}], "display": {"curve_positions": 0, "curve_entities": 1, "region_positions": 2, "region_indices": 3, "region_ids": 4}}}
 ```
 
 19. `end_sketch_drag {doc, feature: Id, commit: bool}`: ends the drag; with `commit`, writes the last drag solution into the sketch as one `update_feature` edit. Result `{revision: u64}`. Emits like `apply_edits` when committed, nothing otherwise.
@@ -623,7 +616,7 @@ Each command below lists its fields (Rust types), a request example, and the res
 
 ```json
 {"type": "evaluate", "doc": 1, "expr": "2 * height"}
-{"type": "evaluate", "value": 80.0, "dimension": "length"}
+{"type": "evaluate", "value": 80.0, "dimension": {"length": 1, "angle": 0}}
 ```
 
 22. `list_elements {doc, body: Id, kind: Option<ElementKind>}`: every displayable element of the body at the display state, sorted by name within each kind, faces then edges then vertices. Result `{elements: Vec<ElementDescriptor>}`.
@@ -636,13 +629,13 @@ Each command below lists its fields (Rust types), a request example, and the res
 
 ```json
 {"type": "pick_reference", "doc": 1, "pick": {"mesh_id": 12, "kind": "face", "index": 3}}
-{"type": "pick_reference", "element": {"name": "f-box1/top", "kind": "face", "body": "b-1", "reference": {"q": "f-box1/top", "fp": "plane|n=0,0,1|c=10,15,40|a=600"}, "surface": "plane", "centroid": [10.0, 15.0, 40.0], "area": 600.0, "normal": [0.0, 0.0, 1.0], "placement": {"origin": [10.0, 15.0, 40.0], "x_axis": [1.0, 0.0, 0.0], "normal": [0.0, 0.0, 1.0]}, "adjacent": []}}
+{"type": "pick_reference", "element": {"name": "f-box1/top", "kind": "face", "body": "b-1", "reference": {"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,40|a=600|adj=4,4"}, "surface": "plane", "centroid": [0.0, 0.0, 40.0], "area": 600.0, "normal": [0.0, 0.0, 1.0], "placement": {"origin": [0.0, 0.0, 40.0], "x_axis": [1.0, 0.0, 0.0], "normal": [0.0, 0.0, 1.0]}, "adjacent": []}}
 ```
 
 24. `resolve_references {doc, references: Vec<Reference>}`: resolves each reference against the display state and returns the matching mesh elements for highlighting. Result `{results: Vec<Resolution>}` with `Resolution { status: ResolutionStatus, matches: Vec<MeshElement> }` and `ResolutionStatus` one of `resolved`, `ambiguous`, `missing`.
 
 ```json
-{"type": "resolve_references", "doc": 1, "references": [{"q": "f-box1/top", "fp": "plane|n=0,0,1|c=10,15,40|a=600"}]}
+{"type": "resolve_references", "doc": 1, "references": [{"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,40|a=600|adj=4,4"}]}
 {"type": "resolve_references", "results": [{"status": "resolved", "matches": [{"body": "b-1", "mesh_id": 12, "kind": "face", "index": 3}]}]}
 ```
 
@@ -661,8 +654,8 @@ pub struct Measurement {
 
 ```json
 {"type": "measure", "doc": 1, "targets": [{"body": "b-1"}]}
-{"type": "measure", "volume": 24000.0, "area": 5200.0, "center_of_mass": [10.0, 15.0, 20.0], "bounding_box": {"min": [0.0, 0.0, 0.0], "max": [20.0, 30.0, 40.0]}, "face_count": 6, "edge_count": 12, "vertex_count": 8}
-{"type": "measure", "doc": 1, "targets": [{"reference": {"q": "f-box1/top", "fp": "plane|n=0,0,1|c=10,15,40|a=600"}}, {"reference": {"q": "f-box1/bottom", "fp": "plane|n=0,0,-1|c=10,15,0|a=600"}}]}
+{"type": "measure", "volume": 24000.0, "area": 5200.0, "center_of_mass": [0.0, 0.0, 20.0], "bounding_box": {"min": [-10.0, -15.0, 0.0], "max": [10.0, 15.0, 40.0]}, "face_count": 6, "edge_count": 12, "vertex_count": 8}
+{"type": "measure", "doc": 1, "targets": [{"reference": {"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,40|a=600|adj=4,4"}}, {"reference": {"q": "f-box1/bottom", "fp": "plane|n=0,0,-1|c=0,0,0|a=600|adj=4,4"}}]}
 {"type": "measure", "distance": 40.0, "closest_points": [[0.0, 0.0, 40.0], [0.0, 0.0, 0.0]], "angle": 0.0}
 ```
 
@@ -737,10 +730,10 @@ pub struct SketchSolution {
     pub points: Vec<SolvedPoint>,
     /// Every constraint's state, in stored order.
     pub constraints: Vec<ConstraintState>,
-    /// Closed regions available as profiles, sorted by key.
+    /// Closed regions available as profiles, in `build_profile` order (sketch.md).
     pub regions: Vec<RegionInfo>,
-    /// Open loops, overlaps and self-intersections.
-    pub profile_issues: Vec<ProfileIssue>,
+    /// Open endpoints, overlaps, self-intersections and zero-length curves (`partsmith_sketch::ProfileFinding`).
+    pub profile_findings: Vec<ProfileFinding>,
     /// Display buffers; absent when the session has display off.
     pub display: Option<SketchDisplay>,
 }
@@ -769,17 +762,14 @@ pub struct ConstraintState {
     pub value: Option<f64>,
 }
 
-/// A closed region and its fingerprint data.
-pub struct RegionInfo { pub key: RegionKey, pub area: f64, pub centroid: Vec2 }
-
-/// A profile problem shown before leaving the sketch.
-pub struct ProfileIssue {
-    /// `open_loop`, `overlap` or `self_intersection`.
-    pub kind: ProfileIssueKind,
-    /// Entities involved, sorted.
-    pub entities: Vec<Id>,
-    /// Location in sketch coordinates, when a single point describes it.
-    pub at: Option<Vec2>,
+/// A closed region: the reference a profile param stores, plus its area and centroid.
+pub struct RegionInfo {
+    /// `{"key": <RegionKey text>, "fp": <RegionFingerprint text>}` (`partsmith_sketch::RegionRef`).
+    pub reference: RegionRef,
+    /// Area in mm².
+    pub area: f64,
+    /// Area centroid in sketch coordinates.
+    pub centroid: Vec2,
 }
 
 /// Buffer indices of the sketch display data (all coordinates are sketch 2D, mm).
@@ -832,7 +822,7 @@ DocumentChanged {
 ```
 
 ```json
-{"kind": "event", "type": "document_changed", "doc": 1, "revision": 4, "document": {"format": "partsmith", "format_version": 1, "units": "mm", "parameters": [{"id": "p-h", "name": "height", "expr": "50 mm"}], "bodies": [{"id": "b-1", "name": "Block"}], "features": [{"id": "f-box1", "type": "box", "body": "b-1", "op": "new", "size": ["20 mm", "30 mm", "height"]}]}, "dirty": true, "undo": "Change height", "transaction_open": false}
+{"kind": "event", "type": "document_changed", "doc": 1, "revision": 4, "document": {"format": "partsmith", "format_version": 1, "units": "mm", "parameters": [{"id": "p-h", "name": "height", "expr": "50 mm"}], "bodies": [{"id": "b-1", "name": "Block"}], "features": [{"id": "f-box1", "type": "box", "body": "b-1", "size": ["20 mm", "30 mm", "height"], "op": "new"}]}, "dirty": true, "undo": "Change height", "transaction_open": false}
 ```
 
 2. `recomputed`: status of every feature in timeline order, every parameter value, and document diagnostics.
@@ -873,7 +863,7 @@ pub struct ParameterValue {
 ```
 
 ```json
-{"kind": "event", "type": "recomputed", "doc": 1, "revision": 4, "features": [{"id": "f-box1", "status": "ok", "messages": [], "repairs": []}, {"id": "f-fil1", "status": "warning", "messages": [{"severity": "warning", "code": "reference_ambiguous", "message": "Edge 2 of Fillet 1 matches 2 edges. Pick it again in the repair panel."}], "repairs": [{"path": "/edges/1", "reference": {"q": "edge(f-box1/front|f-box1/left)", "fp": "line|d=0,0,1|c=0,0,20|l=40"}, "resolution": "ambiguous", "centroid": [0.0, 0.0, 20.0]}]}], "parameters": [{"id": "p-h", "value": 50.0, "dimension": "length"}], "diagnostics": []}
+{"kind": "event", "type": "recomputed", "doc": 1, "revision": 4, "features": [{"id": "f-box1", "status": "ok", "messages": [], "repairs": []}, {"id": "f-fil1", "status": "warning", "messages": [{"severity": "warning", "code": "reference_ambiguous", "message": "Edge 2 of Fillet 1 matches 2 edges. Pick it again in the repair panel."}], "repairs": [{"path": "/edges/1", "reference": {"q": "edge(f-box1/front|f-box1/left)", "fp": "line|n=0,0,1|c=-10,-15,20|l=40|adj=2,2"}, "resolution": "ambiguous", "centroid": [-10.0, -15.0, 20.0]}]}], "parameters": [{"id": "p-h", "value": 50.0, "dimension": {"length": 1, "angle": 0}}], "diagnostics": []}
 ```
 
 3. `sketch_solved`: `{doc, revision, solution: SketchSolution}` for a sketch whose solution changed.
@@ -916,11 +906,11 @@ pub struct MeshBuffers {
 ```
 
 ```json
-{"kind": "event", "type": "body_mesh", "doc": 1, "revision": 0, "body": "b-1", "layer": "model", "mesh_id": 1, "mesh": {"positions": 0, "normals": 1, "indices": 2, "face_ids": 3, "edge_positions": 4, "edge_ids": 5, "vertex_positions": 6, "face_count": 6, "edge_count": 12, "vertex_count": 8, "bounding_box": {"min": [0.0, 0.0, 0.0], "max": [20.0, 30.0, 40.0]}}}
+{"kind": "event", "type": "body_mesh", "doc": 1, "revision": 0, "body": "b-1", "layer": "model", "mesh_id": 1, "mesh": {"positions": 0, "normals": 1, "indices": 2, "face_ids": 3, "edge_positions": 4, "edge_ids": 5, "vertex_positions": 6, "face_count": 6, "edge_count": 12, "vertex_count": 8, "bounding_box": {"min": [-10.0, -15.0, 0.0], "max": [10.0, 15.0, 40.0]}}}
 {"kind": "event", "type": "body_mesh", "doc": 1, "revision": 5, "body": "b-1", "layer": "preview", "mesh_id": 9}
 ```
 
-6. `print_health`: the report of one `analyze_print`.
+6. `print_health`: the report of one `analyze_print`. The per-body reports, findings and summary are partsmith-print's own types (print.md 2.6 and 2.7); the protocol adds the body, the bed transform and the overhang map.
 
 ```rust
 PrintHealth { doc: DocHandle, revision: u64, report: PrintReport }
@@ -930,47 +920,27 @@ pub struct PrintReport {
     pub profile: String,
     /// Orientation the checks used.
     pub orientation: Orientation,
-    /// Worst severity over all findings: `ok`, `warning` or `error`.
-    pub health: Health,
+    /// The status bar badge over all analyzed bodies (`partsmith_print::HealthSummary`).
+    pub summary: HealthSummary,
     /// One entry per analyzed body, in document order.
     pub bodies: Vec<BodyPrint>,
-    /// Findings sorted by body order, then check order, then location.
-    pub findings: Vec<Finding>,
 }
 
 pub struct BodyPrint {
     pub body: Id,
-    /// Worst severity for this body.
-    pub health: Health,
     /// Column-major 4 × 4 matrix from model to bed coordinates.
     pub transform: [f64; 16],
-    /// The model-layer mesh the overhang map is aligned with (display sessions only).
+    /// The model-layer mesh that the overhang map and the findings' `triangles` and `faces` refer to (display sessions only).
     pub mesh_id: Option<u64>,
-    /// `f32`, 1 per mesh vertex of `mesh_id`: overhang angle from vertical in radians, 0 where not overhanging.
+    /// `f32`, 1 per mesh vertex of `mesh_id`: overhang angle from vertical in radians, 0 where not overhanging (`Overlay::per_vertex`).
     pub overhang: Option<BufferIndex>,
+    /// The print crate's report: health, and per check its status, findings and omitted count (`partsmith_print::BodyReport`).
+    pub report: BodyReport,
 }
-
-pub struct Finding {
-    /// `overhangs`, `bed_fit`, `first_layer_contact`, `thin_walls`, `small_features`, `islands`, `trapped_volumes` or `mesh_validity`.
-    pub check: CheckKind,
-    /// `warning` or `error`.
-    pub severity: Severity,
-    pub body: Id,
-    /// Plain sentence naming the problem and the fix.
-    pub message: String,
-    /// A representative point in model coordinates, for zooming.
-    pub location: Option<Vec3>,
-    /// The measured value (mm, mm², radians or a ratio, per check).
-    pub value: Option<f64>,
-    /// The profile limit the value was compared with.
-    pub limit: Option<f64>,
-}
-
-#[serde(rename_all = "snake_case")] pub enum Health { Ok, Warning, Error }
 ```
 
 ```json
-{"kind": "event", "type": "print_health", "doc": 1, "revision": 4, "report": {"profile": "generic-fdm", "orientation": {"kind": "as_modeled"}, "health": "ok", "bodies": [{"body": "b-1", "health": "ok", "transform": [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 100.0, 95.0, 0.0, 1.0], "mesh_id": 3, "overhang": 0}], "findings": []}}
+{"kind": "event", "type": "print_health", "doc": 1, "revision": 4, "report": {"profile": "generic-fdm", "orientation": {"kind": "as_modeled"}, "summary": {"health": "ok", "errors": 0, "warnings": 0, "infos": 0, "label": "Ready to print"}, "bodies": [{"body": "b-1", "transform": [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 128.0, 128.0, 0.0, 1.0], "mesh_id": 3, "overhang": 0, "report": {"profile": "generic-fdm", "rotation": {"rows": [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]}, "health": "ok", "checks": [{"check": "mesh_validity", "status": "ok", "findings": [], "omitted": 0}, {"check": "bed_fit", "status": "ok", "findings": [], "omitted": 0}, {"check": "first_layer_contact", "status": "ok", "findings": [], "omitted": 0}, {"check": "islands", "status": "ok", "findings": [], "omitted": 0}, {"check": "overhangs", "status": "ok", "findings": [], "omitted": 0}, {"check": "thin_walls", "status": "ok", "findings": [], "omitted": 0}, {"check": "small_features", "status": "ok", "findings": [], "omitted": 0}, {"check": "trapped_volumes", "status": "ok", "findings": [], "omitted": 0}]}}]}}
 ```
 
 ### 2.8 Errors on the wire
@@ -1311,12 +1281,13 @@ Rust tests live in `crates/partsmith-protocol/tests/` and `crates/partsmith-wasm
 1. **`unsafe` in `partsmith-wasm`.** The architecture allows `unsafe` only in `partsmith-occt-sys`, but C ABI exports need `#[unsafe(no_mangle)]` (which the `unsafe_code` lint covers) and raw pointer reads. This spec lets `partsmith-wasm` opt out of the workspace lint table with `unsafe_code = "deny"` and an `#[allow(unsafe_code)]` module containing only the three exports, each with a `// SAFETY:` comment. Needs an ADR.
 2. **Print health as an event.** Architecture lists print health among events. This spec keeps it an event (`print_health`), emitted only by `analyze_print`, and does not run analysis automatically after edits, so a slow analysis can be superseded in the worker queue instead of blocking modeling. Background analysis with unsolicited events is later.
 3. **Session state in the wasm host.** `ps_call` has no session parameter (ADR 0009), so the wasm host holds its single `Session` in a `thread_local!`. The core stays free of global state; the host is outside the core. Reviewer to confirm this reading of the "no global mutable state" rule.
-4. **Types owned elsewhere.** The JSON of `Edit`, `Document`, `Dimension`, `SketchEntity`, `SketchParams`, `PointRef`, `RegionKey`, `Reference`, `PrinterProfile` and `FeatureManifest` comes from model.md, sketch.md, naming.md, print.md and features.md. Examples here show assumed shapes (for example `Edit` as `{"type": "update_parameter", "parameter": {...}}`, `Dimension` as `"length"`, a box with `"size"`). The reviewer should align the examples. `FeatureManifest` lives in `partsmith-features`, which `partsmith-protocol` does not depend on; this spec carries it as a `serde_json::Value` in `CatalogEntry.manifest` unless the manifest type moves to a crate the protocol depends on.
-5. **Sketch solution fields.** `SketchStatus`, `Constrainedness`, `ConstraintSolveState`, `ProfileIssue` and the per-point list are this spec's projection of the sketch crate's report; names should match sketch.md once both are reviewed.
-6. **Feature status and repairs.** `FeatureState` adds `rolled_back` and `suppressed` to the architecture's ok, warning and error, and `Repair` assumes features report the JSON Pointer of each unresolved reference param. features.md and recompute.md must provide that data.
-7. **Focus transactions.** `set_focus` (show the state before a feature as the pickable model, and its output as a preview) is new. It is how the inspector edits a feature whose inputs are picked references while keeping the live preview. The UI spec must use it.
-8. **Import feature type.** `import_step` adds a feature of type `import` with params `{"asset": "<blake3 hex>.step", "bodies": [...]}`. features.md does not list an `import` feature in the M1 slice; it must be added, or STEP import must be redefined.
-9. **Measure distance and angle.** Two-target measurement assumes the kernel facade offers minimum distance between elements (`BRepExtrema_DistShapeShape`); kernel.md must include it.
-10. **Placement shape.** `Placement` is `{origin, x_axis, normal}` with `y_axis = normal × x_axis`, matching the origin plane conventions in the architecture. sketch.md may define its own placement type for sketch-on-face fallbacks; one type should be shared.
-11. **Built-in profile ids.** Examples use `generic-fdm`; print.md defines the actual built-in ids.
-12. **Generated TypeScript location.** This spec assumes `ui/src/core/` for the bridge, worker and codec and leaves the generated types file location to ui.md.
+4. **Types owned elsewhere.** Examples follow model.md (`Edit`, `Document`), expressions.md (`Dimension` as `{"length": 1, "angle": 0}`), sketch.md (entities, `RegionRef`, `ProfileFinding`, `Placement`), naming.md (element names and fingerprint text) and print.md (profiles, reports) as written at the time of this spec. `FeatureManifest` lives in `partsmith-features`, which `partsmith-protocol` does not depend on, so `CatalogEntry.manifest` is a `serde_json::Value` (with features.md's JSON form: `label`, `category`, `icon`, `version`, `fields`) unless the manifest type moves to a crate the protocol depends on.
+5. **Sketch solution projection.** `SketchSolution` is a projection of sketch.md's `SolveResult` (whose `SketchStatus` values are `under_constrained`, `fully_constrained`, `redundant`, `conflicting` plus a `failed` flag, and whose per-entity states and measured values are maps). The protocol keeps its own `SketchStatus`, `Constrainedness` and `ConstraintState` because ui.md already builds on them; engine.md 3.6 defines the mapping. The reviewer may instead expose `SolveResult` directly and update ui.md.
+6. **Print report shape.** `PrintReport` now embeds partsmith-print's `BodyReport` and `HealthSummary`, so findings live under `bodies[].report.checks[].findings` with print's `Location` (bounds or point). ui.md reads a flat `report.findings` with a point `location`; it must be updated to this shape (the engine orders bodies, and print orders checks and findings, as print.md 3.10 describes).
+7. **Entity drags.** sketch.md's `DragTarget` also allows dragging a whole entity; M1's `drag_sketch` exposes point drags only (what ui.md uses). Entity drags can be added later as an optional field without a version bump.
+8. **Feature status and repairs.** `FeatureState` adds `rolled_back` and `suppressed` to the architecture's ok, warning and error, and `Repair` assumes features report the JSON Pointer of each unresolved reference param. features.md and recompute.md must provide that data.
+9. **Focus transactions.** `set_focus` (show the state before a feature as the pickable model, and its output as a preview) is new. It is how the inspector edits a feature whose inputs are picked references while keeping the live preview. The UI spec must use it.
+10. **Import feature type.** `import_step` adds a feature of type `import` with params `{"asset": "<blake3 hex>.step", "bodies": [...]}`. features.md does not list an `import` feature in the M1 slice; it must be added, or STEP import must be redefined.
+11. **Measure distance and angle.** Two-target measurement assumes the kernel facade offers minimum distance between elements (`BRepExtrema_DistShapeShape`); kernel.md must include it.
+12. **Feature codegen ownership.** See python-api.md Open issues: features.md defines per-feature Python calls with raw params, while python-api.md defines readable calls; `export_python`'s output format depends on that decision.
+13. **Generated TypeScript location.** This spec assumes `ui/src/core/` for the bridge, worker and codec and leaves the generated types file location to ui.md.

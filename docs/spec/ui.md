@@ -1493,3 +1493,706 @@ New features are created without a `name`; their label comes from `featureLabel`
 | `ps:palette` | measure | Palette keystroke | Result list rendered |
 
 Each measure name keeps at most the last 500 entries (`performance.clearMeasures` drops older ones).
+
+## 3. Behavior
+
+### 3.1 Startup
+
+1. `main.tsx` checks capabilities before anything else: `typeof WebAssembly === 'object'` and a non-null `document.createElement('canvas').getContext('webgl2')`. If either fails it renders only the unsupported page (`data-testid="unsupported"`) with the message from 4.3 and starts nothing else.
+2. It loads settings, applies the resolved theme and UI scale to `<html>`, creates the transport with `chooseTransport(window)`, the stores and services, calls `createApp`, installs the shortcut dispatcher, and renders `App`.
+3. The shell renders at once. The viewport shows the loading overlay (`data-testid="core-overlay"`, text "Loading the geometry core") while `app.store.getState().core.status` is `loading`.
+4. `startCore` runs `transport.start()`, then `featureCatalog()` and `listPrinterProfiles()` in parallel, registers the feature commands, and sets the core status to `ready`. A failure sets it to `failed` and shows the fatal state (4.4).
+5. It reads the recovery store. An entry produces the recovery notification (3.19); the app does not open it automatically.
+6. It opens a new document (`newDocument('mm')`) named "Untitled". The `app` root element gets `data-core-status="ready"` only after this document's first `document_changed` is applied.
+7. When the first viewport frame renders with that document, `ps:usable` is marked.
+
+### 3.2 Layout regions
+
+The window is a fixed layout with no page scroll:
+
+| Region | Element | Size | Content |
+| --- | --- | --- | --- |
+| Top bar | `<header>`, `data-testid="top-bar"` | full width, 48 px | Browser toggle, document name and save state, context switcher, context toolbar, palette button, Export button |
+| Browser | `<nav aria-label="Browser">`, `data-testid="browser"` | 264 px wide, left | Tree (3.10) |
+| Viewport | `<main aria-label="3D view">`, `data-testid="viewport"` | remaining space | Canvas, DOM overlay, view cube, viewport controls, sketch header, legends, inspector, notifications |
+| Side panel | `<aside>`, `data-testid="side-panel"` | 360 px wide, right, only while open | Parameters, Print health or Problems (one at a time) |
+| Timeline | `<section aria-label="Timeline">`, `data-testid="timeline"` | full width, 56 px (28 px collapsed) | Timeline (3.9) |
+| Status bar | `<footer>`, `data-testid="status-bar"` | full width, 28 px | Status items (3.21) |
+
+Top bar, left to right:
+
+- Browser toggle: icon button "Toggle browser" (`panel-left`), `aria-pressed` reflecting the browser state.
+- Document name: a button (`data-testid="document-name"`, text the document name, `data-dirty="true|false"`) that opens the Document menu. Next to it, `data-testid="save-state"` shows "Edited" in `fg-muted` while the document is dirty (core `dirty` or `localUnsaved`) and is empty otherwise.
+- Context switcher: `role="radiogroup"` with `aria-label="Context"` and three radios "Model", "Sketch", "Print" (segmented control, one tab stop, arrow keys move).
+- Context toolbar: `role="toolbar"` with `aria-label` "Model tools", "Sketch tools" or "Print tools" (3.3).
+- Palette button: "Search" with the formatted `Mod+K` hint (`data-testid="palette-button"`).
+- Export button: "Export" (`download` icon) opening the export popover (3.18).
+
+Document menu (`role="menu"`, `data-testid="document-menu"`), in order: New (desktop shortcut shown), Open..., Open recent (submenu, 3.19), Save, Save as..., Export..., separator, Theme (submenu of radio items System, Light, Dark), Navigation (submenu: Fusion, FreeCAD), UI scale (submenu: 100%, 125%, 150%, 200%, 300%).
+
+Responsive rules:
+
+- When the window is narrower than 1024 CSS px at startup, the browser starts closed. Below 1024 px the browser and side panel open as overlays above the viewport (they do not resize it) and close on Esc or on a pointer press outside them.
+- Toolbar buttons show icon and label at window widths of 1280 px and above, and icon only below (the label stays the accessible name and appears in the tooltip).
+- The minimum supported window is 800 by 600 CSS px at 100 percent scale.
+
+Floating elements: the inspector (3.7, 3.8) inside the viewport; the notifications stack at the viewport's bottom-right (3.22); the palette centered horizontally, 15 percent from the top of the window, 560 px wide; menus and popovers anchored to their buttons (native Popover API, light dismiss).
+
+### 3.3 Contexts and toolbars
+
+`TOOLBARS` (labels are command titles; feature titles are manifest labels):
+
+| Context | Entries in order |
+| --- | --- |
+| Model | Sketch (`feature.sketch`), Extrude, Revolve, Hole, Fillet, Chamfer, Shell, group "Primitive" (`cuboid` icon: Box, Cylinder, Sphere, Cone, Torus), group "Pattern" (`grid-3x3` icon: Linear pattern, Circular pattern), Mirror, Boolean |
+| Sketch | Line, group "Rectangle" (`rectangle-horizontal`: 2-point rectangle, Center rectangle), Circle, Arc, Point, Construction, Dimension, group "Constrain" (`magnet`: the 13 constraint commands in the order of 3.16.6), separator, Finish sketch (primary style) |
+| Print | Printer (menu button showing "Printer: {name}"), Overhangs (toggle), Checks (popover), Health (opens the health panel; shows the finding count), separator, Export 3MF (primary style), group "Export" (`file-output`: STL, OBJ, STEP) |
+
+Datum plane, Move body and Split body are in the palette only. A group button opens a menu (`role="menu"`) of its commands with icon, title and shortcut. Disabled toolbar commands render with `aria-disabled="true"` and show the reason in their tooltip.
+
+Context rules:
+
+- The app starts in Model. `data-context` on the `app` root mirrors the context.
+- Model to Print, or Print to Model: an active feature command is cancelled first (`cancel_transaction`). The selection is kept.
+- Choosing the Sketch radio outside sketch mode runs `startNewSketch` (3.16.1). In sketch mode, choosing Model or Print finishes the sketch (3.16.11) and then switches.
+- A feature command run from Sketch finishes the sketch, switches to Model and starts the command. If the finished sketch has exactly one closed region and the command has a `sketch_region` field, that region is preselected. Run from Print, it switches to Model first.
+- Print commands are listed and active in Print only. Sketch tools are listed and active in Sketch only, and only while a sketch is being edited (not during plane picking).
+
+### 3.4 Command palette
+
+- Opens with `Mod+K` (from anywhere, including text fields) or `S` (when focus is not editable), or the palette button. `Mod+K` while open closes it.
+- Layout: a container `role="dialog"` with `aria-label="Command palette"` and `data-testid="palette"`, holding a `role="combobox"` input (`data-testid="palette-input"`, placeholder "Search commands, bodies and parameters") with `aria-controls` pointing at a `role="listbox"`. Options (`role="option"`, `data-testid="palette-option"`, `data-item-id`, `data-kind`) show icon, title, detail (muted), a kind tag for non-commands ("Feature", "Body", "Parameter", "Recent file"), and the formatted shortcut (`data-testid="palette-shortcut"`).
+- Items (`paletteItems`): every registered command whose availability is not `hidden` in the current context; every feature in the document ("{label}", kind feature, runs: select it in the timeline and scroll it into view); every body ("{name}", kind body, runs: select it and frame it); every parameter ("{name} = {expr}", kind parameter, runs: open the Parameters panel with that row's expression input focused); recent files ("Open recent: {name}", kind recent). Settings are ordinary commands of category Settings: "Theme: System", "Theme: Light", "Theme: Dark", "Navigation: Fusion", "Navigation: FreeCAD", "UI scale: 100%" to "UI scale: 300%", each with `checked` showing the current value.
+- Ranking: `rankPaletteItems` with `settings.paletteRecent` (2.10). The first option is active when the list changes.
+- Keys: ArrowDown and ArrowUp move the active option and wrap; PageDown and PageUp move by 8; Enter runs the active option and closes the palette; Esc closes it. Focus stays in the input. Tab is ignored.
+- Mouse: hovering an option makes it active; clicking runs it.
+- A disabled option is dimmed with its reason as the detail; Enter on it shows the reason in the palette footer (`role="status"`) and keeps the palette open.
+- Running any item records its id at the front of `settings.paletteRecent`.
+- Closing returns focus to the element that had it before the palette opened. A pointer press outside closes it.
+- Each keystroke re-ranks synchronously; `ps:palette` measures it.
+
+### 3.5 Keyboard shortcuts
+
+Registry shortcuts (displayed with `formatShortcut`; `Mod` is Cmd on macOS and Ctrl elsewhere):
+
+| Command id | Title | Shortcut | Contexts |
+| --- | --- | --- | --- |
+| `app.palette` | Command palette | Mod+K, S | all |
+| `edit.undo` | Undo | Mod+Z | all |
+| `edit.redo` | Redo | Mod+Shift+Z, Mod+Y | all |
+| `file.new` | New | Mod+N (desktop only) | all |
+| `file.open` | Open | Mod+O | all |
+| `file.save` | Save | Mod+S | all |
+| `file.save_as` | Save as | Mod+Shift+S | all |
+| `file.export` | Export | Mod+Shift+E | all |
+| `edit.delete` | Delete | Delete, Backspace | all |
+| `edit.rename` | Rename | F2 | all |
+| `view.browser` | Toggle browser | Mod+B | all |
+| `view.fit` | Fit to view | F6, Shift+F | all |
+| `view.home` | Home view | Shift+H | all |
+| `view.look_at` | Look at | Shift+L | all |
+| `view.projection` | Orthographic | Shift+P | all |
+| `view.section` | Section view | Shift+X | all |
+| `view.visibility` | Show or hide selection | V | model, print |
+| `feature.extrude` | Extrude | E | all |
+| `feature.hole` | Hole | H | model, print |
+| `feature.fillet` | Fillet | F | model, print |
+| `feature.move_body` | Move body | M | model, print |
+| `sketch.line` | Line | L | sketch |
+| `sketch.rectangle_2point` | 2-point rectangle | R | sketch |
+| `sketch.circle` | Circle | C | sketch |
+| `sketch.dimension` | Dimension | D | sketch |
+| `sketch.construction` | Construction | X | sketch |
+| `sketch.constrain_coincident` | Coincident | I | sketch |
+| `sketch.constrain_horizontal` | Horizontal | H | sketch |
+| `sketch.constrain_vertical` | Vertical | V | sketch |
+| `sketch.select_all` | Select all | Mod+A | sketch |
+| `sketch.finish` | Finish sketch | Mod+Enter | sketch |
+
+`FEATURE_SHORTCUTS` holds the four feature entries above; other commands have no shortcut. Letters follow Fusion where Fusion has a default (E, H, F, M, L, R, C, D, X, S); `Mod+N` is desktop only because browsers reserve Ctrl+N. Unit test U-22 asserts `conflicts()` is empty for the built-in registry with the test catalog on every platform.
+
+Keys handled by components, not the registry:
+
+| Key | Where | Effect |
+| --- | --- | --- |
+| Esc | anywhere | The Esc ladder below |
+| Enter | inspector fields, inline editors, line tool | The Enter ladder below |
+| Arrow keys | focused viewport | Orbit 15 degrees per press (Left and Right about world Z, Up and Down about the camera right axis) |
+| Shift+arrow keys | focused viewport | Pan by 10 percent of the viewport height |
+| `=` or `+`, `-` | focused viewport | Zoom in or out by 1.25 at the viewport center |
+| Arrow keys, Home, End | toolbars, timeline, tree, menus, segmented controls | Move focus (roving tab index) |
+| Shift+F10, ContextMenu | timeline item, browser row | Open the context menu |
+| Space | timeline item, browser row | Select (with Mod: toggle) |
+| Tab | sketch draw inputs | Cycle between the inputs |
+| Hold Ctrl (Windows, Linux) or Cmd (macOS) | sketch drawing | Suppress inference (3.16.5) |
+| Shift or Mod with click | viewport, timeline, browser | Toggle the item in the selection |
+
+Esc ladder: each press does the first step that applies: (1) close the innermost open menu, popover, palette, inline rename or inline editor; (2) in sketch mode, cancel the in-progress drawing, drag or box selection (the tool stays active); (3) exit the active sketch tool or constraint pick mode; (4) cancel the active feature command; (5) cancel the plane pick of a new sketch (back to Model); (6) clear the selection. Esc never leaves sketch mode once a sketch is being edited.
+
+Enter ladder: (1) commit the focused inline editor (rename, dimension editor, draw inputs); (2) in the line tool with a chain in progress and no draw input focused, end the chain; (3) when focus is in the inspector (not on a button) or on the viewport and a feature command is active, confirm it if it is complete. Enter on a focused button activates that button only.
+
+### 3.6 Selection, hover and picking
+
+Pick classes and priority (`choosePick`): `point` (vertex, sketch point, origin point) candidates within the radius win over `curve` (edge, sketch curve, origin axis) candidates within the radius, which win over `area` (face, sketch region, origin plane, datum plane) candidates at distance 0. Within a class the smallest distance wins; ties go to the smallest pick id. The radius is 4 CSS px times the UI scale. In the ID pass, edges and sketch curves are drawn 7 px wide, vertices as 9 px squares and sketch points as 11 px squares (times the UI scale), all depth-tested; faces use a polygon offset so coplanar edges win.
+
+Hover:
+
+- On `pointermove` with no button pressed and no camera gesture, at most once per animation frame, the controller calls `backend.pick` and `choosePick` with the accepted kinds, sets the hover target, and updates highlights. The viewport element mirrors it in `data-hover-kind` (`none` or a `SelectionKind`) and `data-hover-key`.
+- Mesh hover keys are `mesh:{meshId}:{face|edge|vertex}:{index}` and need no core call. The cursor is `pointer` over a pickable target.
+- Hovered faces are tinted with `accent` at 20 percent, hovered edges drawn 2.5 px in `accent` at 70 percent, hovered vertices as 7 px `accent` dots, hovered sketch items in `accent`.
+
+Accepted kinds:
+
+- Model and Print contexts, no command: the selection filter (viewport control) has Bodies, Faces, Edges and Vertices; default Faces, Edges and Vertices on and Bodies off. With Faces off and Bodies on, a face candidate becomes its body. Sketch curves, points and regions of visible sketches, visible datum planes and visible origin items are always accepted. Locked bodies are not drawn into the ID pass.
+- With a feature command: only what the active selection field accepts (2.12 table); with no active selection field, nothing (camera only).
+- Sketch mode: sketch items of the active sketch (curves, points, constraint glyphs and dimension labels through the DOM) and the origin point and axes.
+
+Click (pointer down and up within 4 px and 400 ms, primary button):
+
+- Mesh picks call `pickReference(doc, { mesh_id, kind, index })` to get the `ElementDescriptor`; the resulting item has key `element:{body}:{name}`. A `stale_pick` or `preview_not_pickable` error ignores the click silently.
+- No modifier: the selection becomes that item, or empty when nothing was hit. Shift or Mod: the item is toggled in the selection.
+- During a feature command, clicks go to `capturePick` instead (3.7).
+
+Double-click:
+
+- Face: edits the feature named by the first path segment of the face's element name (the text before the first `/`, features.md 3.9) when that is a feature id in the document; otherwise nothing.
+- Sketch curve, point or region in Model context: `enterSketch` for its sketch. Datum plane: `editFeature`. Anything else: nothing.
+
+Selection keys: faces, edges and vertices `element:{body id}:{element name}`; bodies `body:{id}`; features (timeline, sketches, datums in the browser) `feature:{id}`; datum planes picked in the viewport `feature:{id}` with kind `datum_plane`; sketch curves `sketch:{sketch id}:{entity id}`; sketch points `point:{sketch id}:{point ref}`; regions `region:{sketch id}:{key joined by "|" and ","}`; constraints `constraint:{sketch id}:{constraint id}`; origin items `origin:XY`, `origin:XZ`, `origin:YZ`, `origin:X`, `origin:Y`, `origin:Z`, `origin:O`; parameters `parameter:{id}`.
+
+Selection after rebuilds: when model-layer meshes change, the UI calls `resolveReferences` for the references of selected faces, edges and vertices. Resolved items keep their selection and are highlighted at the matched display ids; missing or ambiguous items leave the selection silently. Features, bodies and sketch items leave the selection when they no longer exist in the recipe or solution.
+
+Selected faces are tinted with `accent` at 35 percent; selected edges drawn 2.5 px in `accent`; selected vertices as 7 px `accent` dots. The viewport element mirrors the selection size in `data-selection-count`. A polite live region announces "{label} selected", "{n} items selected" or "Selection cleared", debounced by 500 ms.
+
+### 3.7 Feature commands, inspector and live preview
+
+Starting a new feature (`startFeatureCommand(type)`):
+
+1. Cancel an active command; finish sketch mode (remembering the finished sketch); switch to Model.
+2. `beginTransaction(doc, manifest.label)`.
+3. Generate the feature id (`f-`), set `params = defaultParams(feature, context)` where `lastTargetBody` is the `body` param of the latest active feature in timeline order that has a string `body` param naming a body with model-layer geometry, and `bodiesWithGeometry` comes from the model-layer meshes.
+4. Preselection: walk the selection fields in manifest order; each takes the app selection items it accepts (in selection order; one item when not `multiple`) that no earlier field took. The finished-sketch rule of 3.3 applies when the app selection is empty. The app selection is cleared.
+5. The active field is the first selection field that is required and empty; if none, focus goes to the first essential expression field with its text selected.
+6. The inspector opens (placement below). If the params are complete, the first preview is applied at once.
+
+Editing an existing feature (`editFeature(id)`): a `sketch` feature enters sketch mode instead. Otherwise: cancel an active command, `beginTransaction(doc, 'Edit {label}')`, `setFocus(doc, id)`, take `params` from the record, mark the command `applied`, and open the inspector titled with the feature label. Selection fields show `itemsFromValue` and their references are highlighted through `resolveReferences` on the model layer (which shows the state before the feature). If `setFocus` fails with `focus_inactive`, the transaction is cancelled and the core's message is shown as an error notification with the action "Unsuppress" (suppressed feature: unsuppresses it and retries the edit) or "Move marker to the end" (rolled-back feature: sets the rollback to the end and retries).
+
+Preview cycle: every field change recomputes local field errors (expression states, selection minimums). When the params are complete (every required field set, no field error, no expression pending), the UI submits a preview through a `LatestOnly` over `applyEdits(doc, null, edits)`:
+
+- First application: `add_body` (when op is `new` and the body field is empty: a new body with a `b-` id and `nextBodyName`; the `body` param is set to it), then `add_feature` with the record `{ id, type, ...params }` (no name) at index `features.length` when `rollback` is null, else at the rollback feature's index plus 1 followed by `set_rollback` to the new id; then `setFocus(doc, id)`.
+- Later applications: `update_feature` with the full record. Switching op away from `new` removes the body this command created (`remove_body`) and sets `body` to `lastTargetBody`; switching back to `new` adds a fresh body.
+- The response's events update the store: `recomputed` gives the feature's status; `body_mesh` events with layer `preview` carry the preview geometry, shown as normal shaded bodies; the model layer shows the state before the feature and stays pickable.
+- Incomplete or invalid params after an application hide the preview layer (nothing applied); the next complete state applies again.
+- `ps:preview` measures from the change to the drawn preview.
+
+The inspector shows the focused feature's status messages in a banner (`data-testid="inspector-error"`): errors with `role="alert"` and `danger` styling, warnings with `warning` styling. Each message is followed by the fix actions in 4.2.
+
+Confirming (Enter ladder, or the OK button): allowed only when complete. A waiting preview is applied first (awaited). Then `commitTransaction(doc)`, the inspector closes, the command clears and focus returns to where it was before the command. A sketch referenced by the committed params through a `sketch` key is hidden for the session (3.10). If the committed feature's status is `error`, the failure notification of 4.2 appears.
+
+Cancelling (Esc ladder, the Cancel button or the close button): `cancelTransaction(doc)`, the inspector closes, nothing is recorded.
+
+`Mod+Z` during a command cancels the command and does nothing else.
+
+Inspector panel (`role="dialog"`, `aria-modal="false"`, `aria-labelledby` its title, `data-testid="inspector"`, `data-mode="command"`), 320 px wide, maximum height the viewport height minus 32 px with internal scrolling:
+
+- Header: feature icon, title (manifest label for a new feature, feature label when editing), close button "Cancel". The header is the drag handle.
+- Status banner as above.
+- Essential fields, then a disclosure button "More options" / "Fewer options" (`data-testid="inspector-more"`, `aria-expanded`) when there are more fields. Its state is remembered per feature type in `settings.moreExpanded`. `forceMore` opens it.
+- Footer: "Cancel" and "OK" (`data-testid="inspector-ok"`, primary). OK is `aria-disabled` while incomplete, with the tooltip "Fill in the highlighted fields first."; required empty selection fields get a dashed `accent` border and invalid fields a `danger` border.
+- Each field is a container with `data-testid="inspector-field"` and `data-path`.
+
+Field controls:
+
+- Expression: `ExpressionInput` (2.13) labeled with the hint label. To its right, `data-testid="expression-result"` shows the unit symbol when `isPlainNumber(text)` holds and the text has no unit word (`mm`, `°`), otherwise `= {formatQuantity(value)}` (`= 10 mm`), or nothing while empty or pending. Below it, `data-testid="field-error"` (`aria-live="polite"`, referenced by `aria-describedby`) shows the message of an invalid state. ArrowUp and ArrowDown step plain numbers (`stepExpression`; Shift coarse, Alt fine) and do nothing otherwise.
+- Selection: a box (`data-testid="selection-field"`, `role="button"`, `data-active`, `data-count`) showing the placeholder `Select {noun}` (`Select edges`, `Select a plane`, `Select regions`, `Select a body`, `Select bodies`, `Select a sketch`, `Select points`, `Select faces`, `Select an axis`), one item's label, or `{n} {plural noun}` (`3 edges`). Clicking it makes it the active field (`accent` border); a clear button "Clear {label}" empties it. For `body`, `sketch`, `plane` and `axis` fields and for `sketch_region` fields, a "Choose" menu button lists the enumerable candidates (bodies with geometry; sketches; origin planes and datum planes; origin axes; regions of the current profile's sketch, or of every visible sketch when empty, as "Region {n} ({area})") so these fields work without a pointer. Hovering an item's entry in the box highlights it in the viewport.
+- Choice: a segmented control (`role="radiogroup"`) for up to 4 options, else a native `<select>`, with the hint's option labels.
+- Switch: `role="switch"`. Text and number: text inputs; number fields reject non-numeric text with "{label} must be a number."
+- Unsupported: read-only compact JSON with the help "Edit this value in the .ptsm file."
+
+Selection capture (`capturePick(item)`): when the active field accepts the item (`acceptsTarget`; geometry checks such as a flat face use the item's `ElementDescriptor`), the item is toggled in the field: added (replacing the single value when not `multiple`) or removed when already present. A refused item shows a hint under the field ("Pick a flat face, a datum plane or an origin plane." for `plane`; "Pick a straight edge, a sketch line, a round face or an origin axis." for `axis`; "Pick {plural noun}." otherwise) for 3 s. When a non-multiple field receives its item, the active field advances to the next required empty selection field, if any. The sibling `body` rule of 2.12 applies.
+
+Placement: when the inspector opens, it is placed with `placeInspector` where `anchor` is the screen rectangle of the preselected items (or null) and `bounds` the viewport rectangle; it then stays put while open. Dragging the header moves it within the viewport, and the dragged position (`panels.inspectorPosition`) is used for every inspector until reload.
+
+### 3.8 Selection inspector
+
+With no feature command active and a non-empty app selection (Model and Print contexts), or a non-empty sketch selection with no tool active (sketch mode), the inspector shows the selection (`data-mode="selection"`, accessible name "Selection"). It uses the same panel, placement and dragging rules, and closes when the selection empties.
+
+| Selection | Title (`data-testid="selection-title"`) | Rows and actions |
+| --- | --- | --- |
+| One body | Body name | Size (`data-testid="body-size"`, `formatSize` of the model-layer bounding box, or "Empty"), Center (`data-testid="body-center"`, `formatPoint` of the box center), Color (swatch button), Material (combobox with suggestions PLA, PETG, ABS, ASA, TPU, Resin; Enter commits "Change material"; empty clears), Visible (switch) |
+| One feature, sketch or datum | Feature label | Type (manifest label), status messages with fix actions (4.2), buttons "Edit" and "Suppress" or "Unsuppress" |
+| Faces, edges and vertices | "1 face", "3 edges", "2 vertices", or "{n} items" when kinds mix | Body name(s); for one face its surface ("Flat face", "Cylindrical face", "Conical face", "Spherical face", "Toroidal face", "Freeform face", "Face") and area (`formatNumber` in the document unit followed by `{unit}²`); for one edge its curve ("Straight edge", "Circular edge", ...) and length; for one vertex its position. Suggested commands: edges: Fillet, Chamfer; one flat face: Sketch, Hole, Shell; other faces: Shell |
+| Regions | "1 region", "{n} regions" | Suggested commands: Extrude, Revolve |
+| One origin plane or datum plane | "XY plane" or the datum label | Suggested command: Sketch |
+| Anything else mixed | "{n} items" | none |
+| Sketch entities and points | "1 line", "2 lines", "1 circle", "1 arc", "1 point", "{n} items" | Constraint suggestions (`applicableConstraints`, each a button with glyph, title and shortcut), Construction (switch, for entities), Delete |
+| One sketch constraint | Constraint title ("Horizontal", "Distance") | For dimensions: an expression field with the stored expression (Enter commits "Change dimension") and a Reference switch; Delete |
+
+Suggested commands run the command with the selection preselected.
+
+### 3.9 Timeline
+
+Layout, left to right: collapse button ("Collapse timeline" / "Expand timeline"); the items in timeline order with the rollback marker in the gap after the last active feature; at the right end, the problems button (`data-testid="timeline-problems"`, text "1 problem" or "{n} problems", hidden when there are none). The item strip scrolls horizontally; a newly added item and the marker scroll into view.
+
+Items (`data-testid="timeline-item"`, `data-feature-id`, `data-status` `ok|warning|error|suppressed|rolled_back|pending`, `data-suppressed`, `data-rolled-back`):
+
+- A 40 by 40 px button with the feature icon (20 px). Its accessible name is the feature label; `aria-describedby` points at a hidden text with the status ("Error: {first message}", "Warning: {first message}", "Suppressed", "Rolled back").
+- A status badge at the bottom-right: `triangle-alert` in `warning` for warnings, `circle-x` in `danger` for errors. The tooltip shows the label and every message.
+- Suppressed items draw their icon at 40 percent opacity with a diagonal strike. Items after the marker draw at 40 percent opacity. While a feature is being edited, it gets an `accent` outline and items after it draw at 40 percent; the sketch being edited gets an `accent` outline.
+- Selected items have an `accent-subtle` background.
+
+Interactions:
+
+- Click selects the feature (Shift or Mod toggles). Double-click or Enter edits it (`editFeature`). F2 renames inline: a text field over the item; Enter commits `update_feature` with the new `name` (label "Rename"); an empty name removes `name` (the default label returns); Esc cancels.
+- Context menu (right-click, Shift+F10, ContextMenu key; `role="menu"`, `data-testid="context-menu"`): Edit, Rename, Suppress or Unsuppress, Roll back to here, Delete.
+- Suppress: `update_feature` with `suppressed: true` (label "Suppress {label}"); unsuppress likewise ("Unsuppress {label}"). Several selected features change in one edit.
+- Delete (Delete key or menu): one `apply_edits` labeled "Delete {label}" or "Delete {n} features" with `remove_feature` edits; when the rollback feature is among them, a `set_rollback` to the nearest earlier active feature that is not deleted (or the end, when none) comes first. An info notification "Deleted {label}." offers "Undo".
+- Reorder: pressing an item and moving more than 4 px horizontally starts a drag: a ghost follows the pointer and an insertion bar marks the nearest gap. Dropping at gap g (0 to N) moves the feature to index g when g is less than its current index, else g minus 1; the same position does nothing. The edit is `move_feature` labeled "Reorder". Esc cancels the drag. The core does not check dependencies when moving (model.md 3.9); a feature that now comes before something it uses fails and triggers the failure notification of 4.2, whose "Undo" restores the order.
+- Rollback marker (`data-testid="timeline-marker"`): an 8 px handle with a 2 px `accent` line, `role="slider"`, `aria-label="Rollback marker"`, `aria-valuemin="1"`, `aria-valuemax` the feature count, `aria-valuenow` the number of active features, `aria-valuetext` "After {label}" or "At the end". Position p (1 to N) means features 1 to p are active; p = N writes `set_rollback` with no id (the end of the timeline), p < N writes the id of feature p.
+  - Dragging: `beginTransaction(doc, 'Roll back')`, then on every gap change a `LatestOnly` `apply_edits` with the `set_rollback`, so the model updates live; dropping commits; Esc cancels the transaction. Dropping at the starting gap cancels.
+  - Keys: ArrowLeft and ArrowRight move by one gap, Home to position 1, End to the end; each key press applies its own edit labeled "Roll back".
+- Collapsed (28 px): only the expand button, the text "{n} features" and the problems button remain.
+- Keyboard: the strip is a toolbar with one tab stop; Left and Right move focus between items and the marker; Space selects; Mod+Space toggles.
+
+Problems panel (side panel `problems`, `data-testid="problems-panel"`), opened by the problems button or the palette command "Problems": every feature whose status is warning or error, in timeline order, then document diagnostics. Each row shows the status icon, the feature label (a button that selects it), its messages, and an "Edit" button (`editFeature`). Empty: "No problems."
+
+### 3.10 Browser
+
+A tree (`role="tree"`, `aria-label="Browser"`) with these groups (`role="treeitem"` with children; expansion kept for the session):
+
+| Group | Rows (`data-testid="browser-row"`, `data-kind`, `data-id`) | Default |
+| --- | --- | --- |
+| Origin | XY, XZ, YZ (kind `origin_plane`); X, Y, Z (kind `origin_axis`); Origin (kind `origin_point`) | collapsed; items hidden |
+| Bodies | One per `Document.bodies`, in order (kind `body`) | expanded |
+| Sketches | One per `sketch` feature, in timeline order (kind `sketch`) | expanded |
+| Construction | One per `datum_plane` feature (kind `datum`) | expanded |
+| Parameters | One per parameter, in order (kind `parameter`) | expanded |
+
+Row content:
+
+- Body: color swatch button ("Color of {name}"), name, "(empty)" in `fg-muted` when the body has no model-layer geometry, lock button ("Lock {name}" / "Unlock {name}", `aria-pressed`), eye button ("Hide {name}" / "Show {name}").
+- Sketch and datum: icon, feature label, status badge as in the timeline, eye button ("Hide {label}" / "Show {label}").
+- Origin item: icon, name ("XY plane", "X axis", "Origin"), eye button.
+- Parameter: "{name} = {expr}" and the evaluated value in `fg-muted` when the expression is not a plain number; the group header has an icon button "Edit parameters" (`sliders-horizontal`).
+
+Behavior:
+
+- Click selects (Shift or Mod toggles). While a feature command is active, clicking a row whose kind the active field accepts captures it instead (origin planes and datums for `plane`, origin axes for `axis`, bodies for `body`, sketches for `sketch`).
+- Double-click or Enter: sketch: `enterSketch`; datum: `editFeature`; body: inline rename; parameter: opens the Parameters panel focused on it.
+- F2 renames bodies (`update_body`, label "Rename") and features (as in the timeline). Delete removes selected sketches and datums (`deleteFeatures`) and selected bodies (`remove_body`, label "Delete {name}"; the core does not check use, so dependent features fail and the failure notification offers Undo). V toggles visibility of selected rows.
+- Body eye: `update_body` with `visible` flipped (labels "Hide {name}" / "Show {name}"; undoable). Hidden bodies are not drawn or picked.
+- Sketch, datum and origin eyes change `view.sessionVisible` only (not saved, not undoable). On opening a document, a sketch starts hidden when another feature's params contain an object whose `sketch` key equals its id (the `ProfileRef`, `AxisRef` and hole shapes of features.md 2.5), and visible otherwise; datum planes start visible; origin items start hidden. Origin planes are always shown while a plane is being picked.
+- Lock: `view.locked` only (session); locked bodies are drawn but not pickable.
+- Color: a popover (`data-testid="color-popover"`) with swatch buttons named Default (removes `color`), White `#f4f4f5`, Black `#27272a`, Gray `#9ca3af`, Red `#dc2626`, Orange `#ea580c`, Yellow `#eab308`, Green `#16a34a`, Teal `#0d9488`, Blue `#2563eb`, Purple `#7c3aed`, Pink `#db2777`, Brown `#92400e`, and a hex field accepting `#rrggbb`. Choosing commits `update_body` with the color (label "Change color").
+- Keyboard: WAI-ARIA tree pattern (Up, Down, Right expands or enters, Left collapses or goes to the parent, Home, End), no type-ahead (letters stay global shortcuts). Row buttons are not tab stops; their actions are V (visibility), the selection inspector (color, material, visibility) and the palette commands "Lock selection" and "Unlock selection".
+
+### 3.11 Parameters panel
+
+The side panel `parameters` (`data-testid="parameters-panel"`, title "Parameters", close button) opens from the browser's "Edit parameters" button, a parameter row, or the palette command "Parameters".
+
+- One row per parameter (`data-testid="parameter-row"`, `data-id`): name field ("Name of {name}"), expression field (`ExpressionInput` with unit `any`, "Expression of {name}"), value (`data-testid="parameter-value"`: the `recomputed` value formatted by its dimension, or the error message in `danger-fg` with a `circle-x` icon), comment field ("Comment of {name}"), delete button ("Delete {name}").
+- `ExpressionInput` with unit `any` accepts every dimension and shows `= {value}` formatted by the returned dimension: length and angle as in 2.13, dimensionless as a scalar, any other dimension as `{value} ({dimension})` in internal units.
+- Name: Enter or blur commits `update_parameter` (label "Rename parameter {old} to {new}") when changed. Locally, a name that does not match `^[A-Za-z_][A-Za-z0-9_]*$` or is longer than 64 characters shows "Names start with a letter or _ and use only letters, digits and _." and is not sent; other rules (reserved names, uniqueness) come back as the core's error message under the field. Esc reverts.
+- Expression: Enter or blur commits `update_parameter` (label "Change {name}") when valid and changed; Esc reverts.
+- Comment: Enter or blur commits (label "Change comment of {name}"); empty removes the comment.
+- "Add parameter" appends a draft row whose name field is focused; Enter in the name moves to the expression (default text empty); Enter in a valid expression commits `add_parameter` at the end (label "Add parameter {name}"); Esc discards the draft.
+- Delete commits `remove_parameter` (label "Delete parameter {name}"). Expressions that used it then fail; the failure notification offers Undo.
+
+### 3.12 Viewport rendering
+
+- The canvas fills the viewport region; its drawing buffer is the CSS size times `min(devicePixelRatio, 2)`. Rendering is on demand: a frame is drawn only after a change to the camera, scene data, highlights, theme, size, section or analysis, batched with `requestAnimationFrame`. Nothing renders while idle.
+- Shading is computed in linear space and written as sRGB.
+
+Passes, in order:
+
+1. Background: vertical gradient from `viewport-top` to `viewport-bottom`.
+2. Opaque bodies (model layer, and preview layer during a command): matcap-style shading from the view-space normal `n`: `k = 0.32 + 0.50 × max(dot(n, L), 0) + 0.18 × max(n.z, 0)` with `L = normalize(0.3, 0.6, 0.74)`, color `base × k + 0.06 × (1 - max(n.z, 0))^3` (rim). `base` is `Body.color` or `body`. Element states mix the result toward `accent` (hover 0.20, selected 0.35) or `danger` (problem 0.5). Faces use a polygon offset (factor 1, units 1). With a section, back faces are drawn flat in `base × 0.55` (the cut cap). Bodies whose role is not `part` draw at 40 percent opacity in the translucent pass.
+3. Overhang map (Print context, 3.17): for a vertex value `v` (radians from vertical) above the limit `a`, `t = clamp((v - a) / (π/2 - a), 0, 1)` and the color becomes `mix(shaded, mix(analysis-low, analysis-high, t) × k, 0.85)`.
+4. Edges: B-rep edges from `edge_positions` as screen-space quads (instanced per segment), 1.25 CSS px wide (times the UI scale), anti-aliased with a 1 px smoothstep falloff, depth-tested against the faces, in `#18181b` or `#e4e4e7` per body (2.16). Selected and hovered edges as in 3.6.
+5. Vertices: only hovered and selected vertices are drawn.
+6. Translucent: datum and origin planes as squares with `datum` fill at 15 percent and outline at 60 percent; non-part bodies.
+7. Overlay (no depth test): sketch curves, points and region fills (3.16.2); in Model context visible sketches draw in `sketch-reference` at 1.25 px with no region fill, except hovered or selected regions (`accent` at 20 or 35 percent).
+8. Print bed outline (depth-tested, 3.17).
+
+- Datum and origin planes are drawn as squares of side `max(50 mm, 1.2 × the diagonal of the visible bounds)` centered at the projection of the visible bounds center onto the plane. Origin axes are drawn as dashed lines of the same length through the origin in `sketch-reference`, with DOM labels "X", "Y", "Z" at their positive ends.
+- The DOM overlay (absolutely positioned over the canvas, `pointer-events: none` except on interactive children) holds sketch dimension labels, constraint glyphs, draw inputs, inference glyphs, axis labels, finding markers and the box selection rectangle. Overlay positions update in the same animation frame as the canvas.
+- WebGL context loss: `preventDefault` on `webglcontextlost`, a status overlay "Restoring the 3D view" (`role="status"`), and on restore `scene.restore()` re-uploads every drawable and renders.
+
+### 3.13 Navigation
+
+| Action | Fusion preset (default) | FreeCAD preset |
+| --- | --- | --- |
+| Select | Left click | Left click |
+| Pan | Middle drag | Middle drag |
+| Orbit | Shift + middle drag | Middle + left drag, or middle + right drag (press middle first) |
+| Zoom | Wheel at the cursor | Wheel at the cursor |
+| Zoom (trackpad pinch: wheel with `ctrlKey`) | At the cursor | At the cursor |
+| Fit to view | Middle double-click | none |
+| Orbit with the view cube | Left drag on the cube | Left drag on the cube |
+| Box selection | Left drag on empty space, sketch mode only | same |
+
+- A gesture starts after 3 px of motion; below that, a press and release is a click. Orbit rate 0.4 degrees per px about the pivot: the world point under the cursor at the gesture start (from the ID pass depth) or the target when nothing is there or the backend cannot read depth.
+- Wheel uses `wheelZoomFactor`; one notch of 100 px zooms out by 1.0015^100 ≈ 1.162 (wheel back) or in by the inverse (wheel forward). Wheel listeners are non-passive and call `preventDefault`.
+- Middle-button `pointerdown` and `mousedown` call `preventDefault` (no browser autoscroll). The canvas `contextmenu` event calls `preventDefault` and opens nothing in M1.
+- During a gesture hover picking pauses; the ID pass is re-rendered on the next pick after the camera has been still for 100 ms.
+- The viewport is focusable (`tabindex="0"`, `role="application"`, `aria-roledescription="3D view"`) and takes the keys of 3.5.
+- The navigation preset is a setting (`settings.navigation`), mirrored on the viewport as `data-nav-preset` (`fusion` or `freecad`).
+- The viewport mirrors the camera in `data-view` (`classifyView`), `data-projection`, and `data-camera-target` (`"{x},{y},{z}"` with each coordinate rounded to 2 decimals, trailing zeros trimmed, `-0` as `0`).
+
+### 3.14 View cube and viewport controls
+
+- The view cube (`data-testid="view-cube"`, `role="group"`, `aria-label="View cube"`) is a DOM element with CSS 3D transforms, 96 px (times the UI scale), 16 px from the viewport's top-right corner, rotated every frame to match the camera. Its 6 faces are buttons labeled "Top", "Bottom", "Front", "Back", "Left", "Right" with accessible names "{Face} view"; its 12 edges are buttons named "{Face} {face} edge view" (pairs in the order Front, Back, Left, Right, Top, Bottom: "Front top edge view", "Front left edge view", "Right bottom edge view", ...); its 8 corners are buttons named "{Front or Back} {Left or Right} {Top or Bottom} corner view".
+- Clicking a face sets that standard view; an edge sets the view looking from the normalized sum of its two face directions; a corner from the sum of three (Front right top is `iso`). Up is the projection of +Z onto the view plane, except views looking straight down or up (top and bottom faces) which use the up vectors of 2.11. The target, distance and projection are kept; the change animates.
+- Dragging on the cube orbits about the target at the same rate as the navigation orbit.
+- A "Home view" button (`house` icon) at the cube's top-left corner sets `iso` and fits the visible bounds.
+- Viewport controls (`data-testid="viewport-controls"`), a vertical stack of 32 px icon buttons under the cube: "Fit to view" (`maximize`), "Orthographic" (`cuboid`, `aria-pressed` true in orthographic), "Section view" (`scan-line`, `aria-pressed`; turning it on opens the section popover), "Selection filter" (`mouse-pointer-2`, a menu of `menuitemcheckbox` items Bodies, Faces, Edges, Vertices; hidden in sketch mode).
+- Fit to view frames `scene.visibleBounds` with `fitBounds` (margin 0.1), animated; with nothing visible it frames a 100 mm cube at the origin.
+- Look at (`view.look_at`): with one flat face (its `placement`), origin plane or datum plane selected, or in sketch mode (the sketch placement), the camera looks along the negated normal from the front side with the plane's y-axis up, target the plane point (face centroid, plane origin), distance and projection kept. Otherwise the command is disabled with "Select a flat face or a plane first."
+- Orthographic toggle uses `withProjection`.
+
+### 3.15 Section view
+
+- Toggled by the "Section view" control or Shift+X. When turned on, the section popover (`data-testid="section-popover"`) opens anchored to the control: Plane (segmented XY, XZ, YZ; default XY), Offset (`ExpressionInput`, unit length, default the center of the visible bounds along the plane normal formatted with `formatNumber`), Flip (switch).
+- The section removes the half-space where `dot(n, p) > offset`, with `n` the plane normal (XY +Z, XZ -Y, YZ +X; Flip negates both `n` and `offset`). It clips bodies, edges, vertices and the ID pass (removed parts cannot be picked). Sketches, datum and origin planes and the bed are not clipped.
+- The section is a view setting: not saved, not undoable, kept across context changes until turned off. `data-section` on the viewport is `on` or `off`.
+
+### 3.16 Sketch mode
+
+#### 3.16.1 Entering
+
+- `startNewSketch`: when the selection is exactly one plane-like item (origin plane, datum plane, or a face whose `surface` is `plane`), `createSketchOn(item)`. Otherwise the app enters plane picking: context Sketch with `sketchId` null, the sketch header reading "Pick a plane or a flat face", origin planes shown, and only origin planes, datum planes and faces accepted. A face that is not flat shows the hint "Pick a flat face, a datum plane or an origin plane." Clicking a browser origin plane or datum row works too. Esc returns to Model.
+- `createSketchOn(item)`: commits one `apply_edits` labeled "New sketch" with `add_feature` of a `sketch` record whose `plane` is the `PlaneRef` for the item (`selectionValue('plane', ...)`), plus the fallback frame from the face's `ElementDescriptor.placement` for faces, in sketch.md's shape, with empty entities and constraints; inserted by the marker rule of 3.7 (with `set_rollback` when the marker is set). Then `enterSketch(new id)`.
+- `enterSketch(id)`: cancels an active command, sets context Sketch, shows the sketch for the session, gets its solution (`sketch_solved` events or `solveSketch(doc, id)`), and moves the camera: `lookAlong` the placement normal with the placement y-axis up, then, when the sketch has entities, frames their bounds in the sketch plane (`fitBounds`, margin 0.1); an empty sketch keeps the visible height and targets the placement origin. The projection is kept. The camera before entering is pushed as a sketch view entry (3.20). Downstream features stay visible and recompute after each sketch edit.
+
+#### 3.16.2 Display
+
+- Active sketch curves: overlay lines 1.5 px (times the UI scale) colored by `SolvedEntity.constrained`: `under` `sketch-under`, `full` `sketch-full`, `conflicting` `sketch-conflict`. Construction entities are dashed (6 px dash, 4 px gap). Hovered and selected curves are 2.5 px in `accent`. Circles and arcs are tessellated by the UI from entity data with a chord tolerance of 0.25 CSS px, re-tessellated when the scale changes by more than a factor 1.5.
+- Points: line ends and arc ends as 5 px squares and centers as 5 px crosses in their entity's color; point entities as 6 px filled circles; points shared by a coincident constraint as filled squares; hovered and selected points 7 px in `accent`.
+- The origin point (9 px cross) and the X and Y axes (dashed lines across the view) in `sketch-reference`, pickable for snapping and constraints.
+- Closed regions filled with `sketch-region` at 12 percent from the solution's display buffers; hovered regions at 20 percent.
+- Profile issues: each issue with `at` gets a 12 px ring in `danger` (DOM, `data-testid="profile-issue"`, title "Open end", "Overlapping curves" or "Curves cross" for `open_loop`, `overlap`, `self_intersection`); the entities of every issue get a 4 px `danger` halo at 30 percent.
+- Other visible sketches draw in `sketch-reference` and are not pickable in sketch mode.
+- Constraint glyphs (when "Show constraints" is on, the default; palette command "Show constraints" toggles it): one DOM button per geometric constraint except `coincident` and `point_on_object` (which have no glyph; the shared point is drawn filled), 18 px (times the UI scale), `data-testid="constraint-glyph"`, `data-constraint-id`, `data-type`, `data-state` (`satisfied`, `redundant`, `conflicting`, `unsatisfied`), accessible name the constraint title. Placement: anchored at the midpoint of the first constrained curve (lines), the point at 45 degrees on circles and arcs, or the point itself, offset 14 px perpendicular to the curve on screen; further glyphs on the same anchor stack 20 px apart along the curve. Style: icon in `fg-muted` on a `surface-raised` pill at 90 percent opacity; `warning` when redundant, `danger` when conflicting. Hovering highlights the constrained items; clicking selects the constraint.
+- Dimensions: dimension geometry (extension lines, dimension line with 8 px arrowheads, radius or diameter leader, angle arc) in `sketch-reference` at 1 px, plus a DOM label button (`data-testid="sketch-dimension"`, `data-constraint-id`, `data-type`, `data-driving`) at the label position (stored by sketch.md if it stores one, else `defaultLabelPosition`). Label text: `formatNumber` of the solved value without unit; prefixed `⌀` for diameter and `R` for radius; suffixed `°` for angles; a non-plain-number expression is prefixed `fx ` (`fx 40`); reference dimensions are wrapped in parentheses (`(40)`). Pill `surface-raised` at 90 percent with `fg` text; `danger-fg` when conflicting, `warning-fg` when redundant. Double-click or Enter opens the dimension editor.
+
+#### 3.16.3 Tools and commits
+
+- Tools are activated by the toolbar, shortcuts or the palette. Activating another tool cancels the current operation. The active tool's toolbar button has `aria-pressed="true"`. The cursor is a crosshair while a drawing tool is active.
+- The pointer maps to sketch coordinates by intersecting the camera ray with the sketch plane; when the ray is within 1e-6 of parallel to the plane, pointer input is ignored.
+- `commitSketchChange(label, change)`:
+  1. Builds candidate params: current entities and constraints plus the change.
+  2. Calls `solveSketch(doc, sketch, candidate)`. When a `requested` constraint id is in `conflicting` or `redundant`, returns `over_constrained` and applies nothing. When `inferred` ids are, removes them and solves once more.
+  3. Calls `applyEdits(doc, label, [update_feature])` with the candidate params whose entities carry the solved geometry (each `SolvedEntity` without `constrained`).
+  4. A `failed` status, or a `sketch_failed` error, returns `failed` with the solver's message; nothing is applied.
+- Labels: "Line", "Rectangle", "Circle", "Arc", "Point", the constraint title, "Dimension", "Change dimension", "Construction", "Delete". Drags are committed by `end_sketch_drag` (the core labels them).
+
+#### 3.16.4 Drawing tools
+
+Each tool's output is fixed (unit tests U-50 to U-55 check `recipes.ts`); "inferred" constraints come from 3.16.5; everything else is requested.
+
+- **Line / polyline** (`line`, L). Click 1 sets the start S. A rubber band follows the cursor. Click 2 sets the end E and commits a line S to E; segments shorter than 2 CSS px are ignored. The chain continues from E: the next line starts at E with an inferred `coincident` between the previous line's end and the new line's start. The chain ends on Esc (the rubber band is discarded, the tool stays), Enter with no draw input focused, a double-click (which commits the segment to the clicked point first), or a click on the chain's first point (committing a closing segment with `coincident` to it).
+- **2-point rectangle** (`rectangle_2point`, R). Click 1 sets corner C1, click 2 the opposite corner C2; a width or height under 2 CSS px is ignored. Output: lines L1 C1 to (C2.x, C1.y), L2 (C2.x, C1.y) to C2, L3 C2 to (C1.x, C2.y), L4 (C1.x, C2.y) to C1; `coincident` L1.end-L2.start, L2.end-L3.start, L3.end-L4.start, L4.end-L1.start; `horizontal` L1 and L3; `vertical` L2 and L4. Snaps at C1 apply to L1.start and at C2 to L2.end (inferred).
+- **Center rectangle** (`rectangle_center`). Click 1 sets the center P, click 2 a corner K. Output: the 2-point rectangle with C1 = 2P - K and C2 = K, plus a construction line D from L1.start to L2.end with `coincident` D.start-L1.start and D.end-L2.end, and a construction point Q at P with `midpoint` (Q, D). Snaps at P apply to Q and at K to L2.end (inferred).
+- **Circle** (`circle`, C). Click 1 sets the center, click 2 a point on the circle (radius under 2 CSS px is ignored). Output: one circle. A snap at the center applies to its center point; a point snap at click 2 adds `point_on_object` (that point, the circle) (inferred).
+- **3-point arc** (`arc_3point`). Click 1 sets A, click 2 sets B, then the arc follows the cursor T through A, B and T; click 3 commits. When `circleThroughThreePoints` returns null or a radius above 1e6 mm, the rubber band is a straight segment, click 3 is ignored, and the sketch hint (`data-testid="sketch-hint"`, `role="status"`) says "These three points are in a line. Move the last point off the line to make an arc." Arcs are stored counterclockwise: when T lies on the clockwise path from A to B, the arc runs from B to A. Snaps at A and B apply to the arc's ends; a tangent inference at A applies.
+- **Point** (`point`). Each click adds a point entity at the (snapped) location.
+- **Construction** (`construction`, X). With entities selected and no drawing tool active, toggles their `construction` flag in one commit labeled "Construction". With a drawing tool active, toggles construction mode for new entities (`aria-pressed` on the button). The mode resets when sketch mode ends.
+
+Dimension as you draw (draw inputs: DOM text inputs next to the rubber band's midpoint, `data-testid="draw-input"`, accessible names as listed):
+
+- Line: "Length" (unit length) and "Angle" (unit angle, counterclockwise from the sketch +X axis). Rectangles: "Width" (along X) and "Height" (along Y). Circle: "Diameter". Arc, after click 2: "Radius".
+- While a shape is rubber-banding, typing a digit, `.`, `-` or `(` focuses the first draw input and inserts the character; Tab focuses the first input, then cycles between the inputs. A valid typed value locks that quantity (the rubber band follows it; the other quantity still follows the cursor). Esc in a draw input clears the inputs and returns focus to the canvas.
+- Enter commits the shape with the typed values: the end point is computed from them (line: `S + L(cos a, sin a)`; rectangles: the corner sign from the cursor's quadrant; circle: diameter; arc: radius on the cursor's side), and each typed value adds a driving dimension with the typed expression: Length a `distance` on the line; Angle: `horizontal` when the angle is a multiple of 180 degrees, `vertical` for 90 plus a multiple of 180, otherwise an `angle` between the line and the sketch X axis (`X_AXIS`); Width a `distance` on L1; Height a `distance` on L4; Diameter a `diameter`; Radius a `radius`. Without a typed angle, direction inference applies as usual.
+
+#### 3.16.5 Inference while drawing
+
+- Snap targets within 8 CSS px (times the UI scale) of the cursor: every solved point of the active sketch and the origin point (`point`), the midpoints of lines (`midpoint`), and, within 6 px, curves including the origin axes (`curve`, at the closest point). Priority point, then midpoint, then curve; nearest first within a class.
+- Direction inference for line segments with a start S: `horizontal` when the segment's angle to the sketch X axis is within 3 degrees modulo 180, `vertical` likewise to the Y axis; `tangent` when S is the end of an arc (or, for a 3-point arc, A is the end of a line or arc) and the directions differ by at most 5 degrees. When tangent applies, horizontal and vertical do not. Without a snap at the end, a horizontal or vertical inference moves the end exactly onto the horizontal or vertical through S.
+- Constraints from snaps (all inferred): point: `coincident` (new point, target point; the origin point is `ORIGIN_POINT`); midpoint: `midpoint` (new point, line); curve: `point_on_object` (new point, curve; the axes are `X_AXIS` and `Y_AXIS`). Direction: `horizontal`, `vertical` or `tangent` on the new curve.
+- While inferring, an inference glyph (`data-testid="inference-glyph"`, `data-type` the inferred constraint type) shows 16 px to the right and below the cursor and the snap target is highlighted in `accent`.
+- Suppression: while Ctrl (Windows and Linux) or Cmd (macOS) is held, there are no snaps, no direction inference and no glyphs; the raw cursor is used. The key state is read from each pointer event, including the click.
+
+#### 3.16.6 Constraint tools
+
+Commands `sketch.constrain_<type>` in this order: Coincident, Point on object, Horizontal, Vertical, Parallel, Perpendicular, Tangent, Collinear, Concentric, Equal, Symmetric, Midpoint, Fix.
+
+- If the sketch selection is a valid operand set for the constraint, it is applied at once (`commitSketchChange` with the new id requested) and the selection is cleared. Otherwise the tool enters pick mode: the sketch hint shows `constraintRequirement(type)`, clicks add accepted items to the tool's pick list (refused items flash the hint), and when the list forms a valid set the constraint is applied and the list clears. The tool stays active until Esc or another tool.
+- Operands (`applicableConstraints` returns every constraint whose operand rule the selection satisfies exactly; axes count as lines; the origin counts as a point):
+
+| Constraint | Operands | Requirement text |
+| --- | --- | --- |
+| Coincident | two points; a point and a curve gives Point on object | "Select two points, or a point and a curve." |
+| Point on object | a point and a curve | "Select a point and a curve." |
+| Horizontal | one line, or two points | "Select a line or two points." |
+| Vertical | one line, or two points | "Select a line or two points." |
+| Parallel | two lines | "Select two lines." |
+| Perpendicular | two lines | "Select two lines." |
+| Tangent | a line and a circle or arc, or two circles or arcs | "Select a line and a circle or arc, or two circles or arcs." |
+| Collinear | two lines | "Select two lines." |
+| Concentric | two circles or arcs | "Select two circles or arcs." |
+| Equal | two lines, or two circles or arcs | "Select two lines, or two circles or arcs." |
+| Symmetric | two points and a line (the axis) | "Select two points and a line." |
+| Midpoint | a point and a line | "Select a point and a line." |
+| Fix | one or more points or curves | "Select points or curves." |
+
+- Over-constrained (requested id conflicting): a warning notification "{Title} would over-constrain the sketch: it conflicts with {list}." where the list names the other conflicting constraints by title (dimensions as "Distance 40"), joined with ", " and " and "; actions "Replace them" (one commit labeled with the title that removes those constraints and adds the new one) and "Cancel". Redundant: an info notification "{Title} is already implied by other constraints, so it was not added."
+
+#### 3.16.7 Dimension tool
+
+- `sketch.dimension` (D). Click a curve or point; for a circle or arc the label follows the cursor and the next click places it. For a line, the next click on empty space places its length dimension; a click on a point or line instead adds the second operand, then the next click places the label. For a point, the next click must be a point or a line.
+- `dimensionTypeFor`: two points (a line's ends count) not axis-aligned (both coordinate differences above 1e-9 mm): label x within the points' x range and y outside the y range gives `horizontal_distance`; y within and x outside gives `vertical_distance`; otherwise `distance`. Axis-aligned pairs give `distance`. A point and a line: `distance`. Two parallel lines (within 1e-6 rad): `distance`. Two other lines: `angle`, measuring the sector between them that contains the label. A circle: `diameter`. An arc: `radius`. Anything else: unsupported, with "Partsmith cannot dimension {a} and {b}." (`a point and a circle`).
+- While placing, the dimension draws with its measured value. The placing click opens the dimension editor (`data-testid="dimension-editor"`): a text input "Dimension value" prefilled with `formatNumber(measuredValue)` (selected), a toggle button "Reference" (`aria-pressed`), and for circles and arcs a segmented "Diameter | Radius". Enter commits a dimension with the text as its expression and `driving` true unless Reference is pressed; the text is validated live as an expression of the dimension's unit (length or angle) and an invalid text keeps the editor open with the message.
+- When the probe finds the new driving dimension redundant or conflicting, the editor stays open and shows, with `role="alert"`, "This dimension would over-constrain the sketch. Add it as a reference dimension that only measures?" and the buttons "Add reference" (commits it with `driving` false) and "Cancel".
+- The tool stays active after a commit. Esc closes the editor without adding anything.
+- Editing an existing dimension (double-click its label, Enter on the focused label, or the selection inspector) opens the editor prefilled with the stored expression text; Enter commits a replacement labeled "Change dimension". When the probe reports status `over_constrained` or `failed`, the editor keeps the text and shows "The sketch cannot be solved with this value. Check for dimensions that cannot all be true at once."
+
+#### 3.16.8 DOF display
+
+- Entity colors come from `SolvedEntity.constrained` (3.16.2).
+- The sketch header (`data-testid="sketch-header"`, a button at the viewport's top center, `data-state`, `data-dof`) shows the sketch label and a status: `empty` "No geometry yet"; `under` "{n} DOF"; `full` "Fully constrained"; `conflict` "{n} conflicting constraints" in `danger-fg`; `failed` "Cannot solve" in `danger-fg`. When the solution has redundant constraints, " · {n} redundant" follows in `warning-fg`. During plane picking it shows "Pick a plane or a flat face" with `data-state="picking"`.
+- Clicking the header opens a popover (`data-testid="sketch-problems"`) listing conflicting and redundant constraints (title and a "Delete" button each) and profile issues (text and a "Show" button that frames the issue).
+- The status bar shows `status-dof` (3.21).
+
+#### 3.16.9 Drag and box selection
+
+- With no tool active, pressing on a point of the active sketch and moving more than 3 px drags it. Points only in M1; pressing on a curve starts nothing.
+- Each pointer move maps the cursor to sketch coordinates (no inference) and submits `dragSketch(doc, sketch, pointRef, to)` through a `LatestOnly`. Each non-null solution redraws the sketch in the next frame (`ps:sketch-drag`).
+- Release: when at least one drag request was sent, `endSketchDrag(doc, sketch, true)` through the mutation queue (one undo entry); otherwise nothing. Esc during the drag: `endSketchDrag(doc, sketch, false)` and the stored geometry is redrawn.
+- Over a point whose entity is `full`, the cursor is `not-allowed`.
+- Pressing on empty space and moving more than 3 px draws a selection rectangle (`data-testid="box-selection"`). Dragging right (end x at or above start x) is a window selection: entities whose every point and tessellation vertex lie inside. Dragging left is a crossing selection (dashed border): entities with any part inside. Shift or Mod toggles the result into the sketch selection; otherwise it replaces it.
+
+#### 3.16.10 Sketch selection and deletion
+
+- Clicks select one entity, point, glyph or dimension label (Shift or Mod toggles; a click on empty space clears). `Mod+A` selects every entity.
+- Delete removes the selected entities and constraints, plus every constraint that references a removed entity or one of its points, in one commit labeled "Delete".
+
+#### 3.16.11 Finishing
+
+- Finish sketch (toolbar, `Mod+Enter`), the Model or Print radio, or a feature command ends sketch mode: the context becomes Model (or the chosen one), the sketch session clears, the camera stays, and the sketch stays visible for the session.
+- When the solution has profile issues, an info notification "{label} has {n} profile problems, so some regions may not extrude." offers "Back to sketch".
+
+### 3.17 Print context
+
+- Printer: the toolbar menu button "Printer: {profile name}" ("Printer: none" without one) opens `data-testid="printer-menu"` (`role="menu"`): radio items for every profile from `listPrinterProfiles`, under the headings "FDM" and "Resin" by technology, then "No printer". Choosing one commits `set_printer` (label "Change printer"). The status bar printer button opens the same menu.
+- Overhangs: a toggle (`aria-pressed`, default on, session state) that shows the overhang color map and legend.
+- Checks: a popover (`data-testid="checks-popover"`) with one switch per check in this order and wording: Overhangs (`overhangs`), Bed fit (`bed_fit`), First layer contact (`first_layer_contact`), Thin walls (`thin_walls`), Small features (`small_features`), Islands (`islands`), Trapped volumes (`trapped_volumes`), Mesh validity (`mesh_validity`, always on and disabled, help "Always checked before export"). The core runs every check (protocol.md `analyze_print`); a switched-off check only hides its findings from the badge counts, the list and, for Overhangs, the color map. The choice persists in `settings.hiddenChecks`.
+- Health: the toolbar button "Health" (with the shown finding count) opens the side panel `health`.
+
+Analysis runs:
+
+- In Print context, 300 ms after the document revision last changed with no transaction open, and on entering Print when the report is stale: `analyzePrint(doc, { orientation: { kind: 'as_modeled' } })` through a `LatestOnly` (a `null` superseded result is ignored). `print.running` is true meanwhile.
+- Outside Print, analysis never runs on its own. The badge shows the last report as stale; clicking the badge runs the analysis and opens the health panel.
+
+Health badge (`data-testid="health-badge"`, a button in the status bar, `data-state`, accessible name as listed):
+
+| State | When | Icon and text | Accessible name |
+| --- | --- | --- | --- |
+| `none` | No report yet | `circle-dashed`, "Check print" | "Print health: not checked" |
+| `running` | Analysis in flight | `loader-circle` (spinning unless reduced motion), "Checking" | "Print health: checking" |
+| `ok` | No shown findings | `circle-check` in `success`, "Ready to print" | "Print health: no problems" |
+| `warning` | Shown warnings, no shown errors | `triangle-alert` in `warning`, "1 warning" or "{n} warnings" | "Print health: {n} warning(s)" |
+| `error` | Shown errors | `circle-x` in `danger`, "1 error" or "{n} errors" | "Print health: {e} error(s), {w} warning(s)" |
+
+A report whose revision differs from the document revision is stale: the badge keeps its state, draws at 50 percent opacity, sets `data-stale="true"`, appends " (out of date)" to its text and ", out of date" to its name. Clicking the badge in any state runs the analysis when stale or absent, and opens the health panel.
+
+Health panel (side panel `health`, `data-testid="health-list"`):
+
+- Header: the profile name and a "Check again" button.
+- Rows (`data-testid="health-item"`, `data-check`, `data-severity`): severity icon, the finding's message verbatim, the body name in `fg-muted`. Sorted by severity (errors first), then by the check order above, then report order. Hidden checks are left out.
+- Clicking a row or pressing Enter on it focuses the finding: with a `location`, the camera frames a cube of side `max(20 mm, 0.25 × the body's bounding-box diagonal)` centered there (`zoomToBounds`, margin 0.3) and a 16 px `danger` ring marker (`data-testid="finding-marker"`) is drawn at the location; without one, the body's bounding box is framed. The marker stays until another row is chosen, the panel closes or the document changes.
+- Empty: "No problems found with {profile name}." With no body that has geometry: "Add a body to check it for printing."
+
+Overhang map and legend:
+
+- Shown in Print context while Overhangs is on and the overhangs check is not hidden. For each `BodyPrint` whose `mesh_id` equals the body's current model-layer mesh id, its overhang buffer is set as the body's scalar field (3.12 pass 3); a body whose mesh changed since the report shows no map until the next report.
+- The limit `a` is the `limit` of the report's `overhangs` findings when present, else the profile's maximum overhang angle (print.md).
+- Legend (`data-testid="overhang-legend"`, bottom-left of the viewport): title "Overhangs", a gradient from `analysis-low` to `analysis-high`, labels "{a}°" and "90°" (degrees with `formatNumber`), and the caption "Faces steeper than {a}° from vertical need support."
+
+Bed outline: in Print context, after a report, the bed rectangle of the report's profile (print.md bed size) at z = 0 in bed coordinates, mapped into model coordinates by the inverse of the first `BodyPrint.transform`, drawn 1.5 px in `bed`, depth-tested.
+
+### 3.18 Export
+
+- The top-bar Export button, `Mod+Shift+E` and the Document menu open the export popover (`data-testid="export-popover"`): Format (radio group 3MF, STL, OBJ, STEP; default 3MF), Bodies (radio group "All visible bodies", "Selected bodies"; the second is disabled unless bodies are selected), and an "Export" button.
+- The Print toolbar's "Export 3MF" exports 3MF of all visible bodies directly; its Export group exports STL, OBJ or STEP of all visible bodies directly.
+- `exportModel(request)`: the bodies are the visible bodies with model-layer geometry, or the selected bodies. With none, the error notification "There is no visible body with geometry to export." appears and the core is not called. Otherwise `exportBodies(doc, format, bodies)` with `{"format": "3mf"}`, `{"format": "stl", "binary": true, "per_body": false}`, `{"format": "obj", "per_body": false}` or `{"format": "step"}`.
+- The single returned file is saved with `files.chooseSaveTarget('{document name}.{3mf|stl|obj|step}', kind)` and `files.write`. A cancelled picker does nothing. Success shows the info notification "Exported {file name}." Each warning diagnostic shows a warning notification with its message. A `CoreError` shows its message as an error notification.
+
+### 3.19 Files
+
+- Document name: the file name without the `.ptsm` extension (case-insensitive); a new document is "Untitled".
+- Replacing a dirty document (New, Open, Open recent, a recovery Open): before closing it, the UI writes a recovery entry (`reason: 'replaced'`, text `JSON.stringify(recipe, null, 2)`, its file handle) and, after the new document is open, shows the info notification "{name} had unsaved changes. They are kept for you." with the action "Reopen" (opens the entry as in the recovery flow below).
+- New (`file.new`, Document menu): closes the current document (`closeDocument`), opens `newDocument('mm')` named "Untitled", resets selection, context (Model), panels' command state and camera (`DEFAULT_CAMERA`).
+- Open (`Mod+O`, Document menu, palette): `files.pickToOpen()`, then `openFile`. Dropping a file on the window shows the overlay `data-testid="drop-overlay"` ("Drop a .ptsm file to open it") while dragging and opens the first file on drop.
+- `openFile(file)`:
+  1. A name not ending in `.ptsm` (case-insensitive) shows the error "{file} is not a Partsmith model. Partsmith opens .ptsm files." and stops.
+  2. The bytes decode as UTF-8 with `fatal: true`; failure shows "{file} could not be read as text." and stops.
+  3. `openDocument(text)`. A `CoreError` shows "Could not open {file}. {core message}" and the current document stays.
+  4. On success: stash the old document if dirty (above), close it, adopt the new handle and name, remember the file in recent files (handle, or text when there is no handle), switch to Model, set the camera to `iso` and fit the visible bounds, mark `ps:open`. With `migratedFrom`, the info notification "{file} was updated from format version {n}. Saving writes the current format."
+- Save (`Mod+S`): with a file handle, `saveDocument(doc)` and `files.write({ kind: 'handle', ... }, 'ptsm', utf8)`; without one, Save as. Success sets `localUnsaved` false and clears the recovery store. A `FileServiceError` sets `localUnsaved` true and shows: permission: "Could not save {file} because Partsmith no longer has permission to write it." (action "Save as"); not_found: "{file} was moved or deleted. Save it again to choose a location." (action "Save as"); io: "Could not save {file}: {reason}" (action "Save as").
+- Save as (`Mod+Shift+S`): `files.chooseSaveTarget('{name}.ptsm', 'ptsm')` first (a cancel stops with nothing changed), then `saveDocument(doc)` and `files.write`. A handle target becomes the document's file (name from the handle) and is remembered in recent files; a download target clears the handle, and the first download in a session shows the info notification "This browser saves by downloading. {file name} is in your downloads folder."
+- Open recent (Document menu submenu, palette items): up to 10 entries, newest first, each showing the name and its open time (`toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })`). An entry with a handle reads it (`readHandle`, which may prompt for permission on this click): permission denied shows "Partsmith needs permission to open {file}. Choose it again to grant access." (action "Open..."); not found shows "{file} has moved or been deleted, so it was removed from recent files." and forgets it. An entry with text opens that text (no handle; Save goes to Save as).
+- Recovery copy: while the document is dirty, 2 s after the last `document_changed` (debounced), the UI writes a recovery entry (`reason: 'autosave'`, `JSON.stringify(recipe, null, 2)`, the handle). A successful save, a New without changes, or Discard clears it. `beforeunload` calls `preventDefault()` while the document is dirty so the browser asks before leaving.
+- At startup a recovery entry shows the info notification (persistent until acted on) "Partsmith kept unsaved changes to {name} from {time}." with actions "Open" (opens the text as a document named {name}, attaches the stored handle, sets `localUnsaved` true) and "Discard" (clears the store).
+- The desktop host replaces `FileService` with native dialogs (open issue 9); every behavior above stays.
+
+### 3.20 Undo and redo
+
+- `edit.undo` and `edit.redo` call the core's `undo` and `redo` through the mutation queue. Their palette details are "Undo {undoLabel}" and "Redo {redoLabel}"; with nothing to undo or redo they are disabled with "Nothing to undo." or "Nothing to redo." After either, a polite live region announces "Undid {label}" or "Redid {label}".
+- With a feature command active, `Mod+Z` cancels the command and nothing else; `Mod+Shift+Z` is disabled with "Finish or cancel {title} first."
+- In sketch mode with an operation in progress (rubber band, drag, box selection, open editor), `Mod+Z` cancels that operation only.
+- Sketch view history (technical design 13, principle 6): during a sketch session the UI keeps a stack of entries, each either `view` (a camera) or `document` (a marker for a committed sketch edit). Entering the sketch pushes the camera from before entering; each completed orbit or pan gesture, each wheel burst (ended by 300 ms without wheel events), view cube click, fit, home and look at pushes the camera from before it; each committed sketch edit pushes a `document` marker. In sketch mode, `Mod+Z` pops the top entry: a `view` entry restores its camera (animated) and moves to a redo stack with the camera it replaced; a `document` entry calls the core's `undo`. With the stack empty, `Mod+Z` calls the core's `undo` directly. `Mod+Shift+Z` mirrors this with the redo stack. A new view change or edit clears the redo stack. Leaving sketch mode discards both stacks.
+
+### 3.21 Status bar
+
+Left to right (`data-testid` in parentheses):
+
+- Core status (`status-core`), shown only when not idle: "Loading core" with a spinner, "Rebuilding" with a spinner when a mutating request has been pending for more than 300 ms, or "Core stopped" in `danger-fg`.
+- Sketch DOF (`status-dof`, sketch mode with a sketch only): "{n} DOF", with `data-dof` and `data-state` as the sketch header.
+- Rebuild time (`status-recompute`): "Rebuilt in {n} ms" (integer) or "Rebuilt in {s} s" (one decimal) for durations of 1000 ms or more, measured from sending the last mutating request to receiving its response; tooltip "Time the last change took to rebuild".
+- Units (`status-units`): a button with the unit ("mm") opening a menu of radio items mm, cm, m, in. Choosing one commits `set_units` (label "Change units to {unit}") and shows the info notification "Units are now {unit}. Numbers typed without a unit now mean {unit}." (model.md 3.12).
+- Printer (`status-printer`): a button with the profile name or "No printer" opening the printer menu.
+- Print health badge (`health-badge`, 3.17).
+
+### 3.22 Notifications
+
+- Stack at the viewport's bottom-right, 16 px from its edges, 360 px wide, newest at the bottom, at most 3 shown. A fourth removes the oldest non-error notification (or the oldest when all are errors).
+- Each (`data-testid="notification"`, `data-severity`) has a severity icon (`info`, `circle-check`, `triangle-alert`, `circle-x`), the message, action buttons, and a "Dismiss" button. Running an action dismisses the notification.
+- Info and success dismiss after 5 s, warnings after 8 s; errors stay until dismissed. Timers pause while the pointer is over the notification or focus is inside it.
+- Errors are announced through a `role="alert"` region; the others through a `role="status"` region.
+- A notification with the same message as a visible one does not appear again; the visible one restarts its timer.
+
+### 3.23 Visual design
+
+- Neutral gray chrome from the zinc-based tokens, one accent (violet), generous spacing. Color appears only with meaning: `accent` for focus, selection, active tools and the primary action; `danger`, `warning` and `success` for status; sketch DOF colors; the analysis map.
+- Type: the Tailwind sans stack (system UI fonts, no web fonts). Body text 0.875rem (14 px), secondary text and captions 0.75rem (12 px, the minimum anywhere), panel titles 1rem semibold. Numbers in inputs, labels and the status bar use tabular figures.
+- Spacing on a 4 px grid: panel padding 16 px, rows and controls 32 px high, toolbar buttons 48 by 40 px with labels and 36 by 36 px icon-only, gaps of 8, 12 and 16 px.
+- Corner radius 6 px for controls and 10 px for panels and popovers. Floating panels cast `--ps-shadow`: `0 8px 24px rgb(0 0 0 / 0.12)` (light) and `0 8px 24px rgb(0 0 0 / 0.5)` (dark).
+- Icons: lucide-react line icons, stroke width 1.75, 20 px in toolbars and 16 px in lists and fields, in `currentColor` (`fg` or `fg-muted`).
+- Motion: popovers and panels fade and slide 4 px over 150 ms with ease-out; camera moves 250 ms; none under `prefers-reduced-motion`.
+- Focus: a 2 px `accent` outline with a 2 px offset on `:focus-visible`, on every interactive element.
+
+### 3.24 Accessibility
+
+- Contrast: the tokens in 2.16 meet WCAG 2.2 AA (text 4.5:1, large text and non-text 3:1) in both themes; unit test U-70 enforces the listed pairs. Text drawn over the viewport always sits on a `surface-raised` pill.
+- Keyboard: every function is reachable without a pointer except picking faces, edges and vertices in the viewport, drawing sketch geometry, dragging sketch points and dragging the inspector (later). Selection fields for bodies, sketches, planes, axes and regions offer the "Choose" menu.
+- Tab order: top bar (document name, context radios, toolbar, palette button, Export), browser (one stop), viewport (one stop), the inspector when open, timeline (one stop), side panel, status bar buttons, notifications. Opening the inspector moves focus into it; closing it returns focus.
+- Roving tab index with arrow keys in toolbars, segmented controls, the timeline, the tree and menus. Menus close on Esc and return focus to their button.
+- Tooltips appear after 500 ms of hover and immediately on keyboard focus, close on Esc, are referenced by `aria-describedby`, and show the command title and formatted shortcut.
+- Every interactive target is at least 24 by 24 CSS px. Every icon-only button has an accessible name.
+- Color is never the only signal: status has icons and text, DOF has the header text, selection has thicker strokes, the analysis map has a legend.
+- At 200 percent UI scale on a 1280 by 720 CSS px window every region stays usable (toolbars go icon-only, panels scroll).
+- Live regions: selection, undo and redo announcements, notifications, sketch hints.
+
+## 4. Errors
+
+### 4.1 Message rules
+
+Every message the user sees follows the architecture's error rule:
+
+- Plain sentences a maker understands, starting with what happened, naming the cause in the user's terms (feature labels, body names, file names, values with units), and naming the fix when one exists.
+- No "Error:" prefix, no exclamation marks, no blame, no stack traces, no error codes in the visible text (codes go to `console` and `data-code` on the notification).
+- At most two sentences plus action buttons. Action labels start with a verb ("Save as", "Undo", "Edit", "Replace them").
+- Core messages (`CoreError.message`, `Diagnostic.message`, finding messages) are shown verbatim; the core already follows these rules (features.md section 4, protocol.md section 4). The UI only wraps them in the templates of 4.3.
+- File names are quoted as given, without quotation marks; feature and body names appear in single quotes only where the core puts them.
+
+### 4.2 Where errors appear and the fixes they offer
+
+| Error | Where | Fix actions |
+| --- | --- | --- |
+| Invalid expression in a field | Under the field (`field-error`), field border `danger`; OK disabled | Edit the field |
+| Invalid sketch dimension value | In the dimension editor | Edit the value, "Add reference" when over-constraining |
+| Feature status during a command (preview) | Inspector banner (`inspector-error`) | Errors and warnings about a field the message names: the field is highlighted and focused by clicking the message |
+| Feature status after a user change: a feature goes from not-error to error | One notification: for one feature "{label} failed. {message}" with "Edit" and "Undo"; for several "{n} features failed after this change." with "Show problems" and "Undo" | As listed |
+| Feature warnings and errors at rest | Timeline and browser badges, tooltips, Problems panel, selection inspector | "Edit" opens the inspector, where repairs re-pick the reference (the field named by `Repair.path` becomes the active selection field) |
+| Sketch over-constraint while adding | Notification (3.16.6) or dimension editor (3.16.7) | "Replace them", "Add reference", "Cancel" |
+| Sketch conflicts and redundancy at rest | Sketch header, glyph and label colors, sketch problems popover | "Delete" per constraint |
+| Profile issues | Rings and halos in sketch mode; notification on finishing | "Back to sketch" |
+| Command failed in the core (`CoreError`) | Error notification with the core message | "Undo" when the error followed an edit that was applied; otherwise none |
+| `focus_inactive` when editing | Error notification with the core message | "Unsuppress" or "Move marker to the end" |
+| File, export and permission errors | Error notification (4.3) | "Save as", "Open..." |
+| Core fatal | Fatal state (4.4) | "Restart core", "Reload" |
+| Unsupported browser | Unsupported page | none |
+
+`Diagnostic` has no structured fix value (protocol.md `Diagnostic` is severity, code and message), so M1 fixes are navigational ("Edit", "Undo") rather than one-click value changes; see open issue 4.
+
+### 4.3 UI-owned messages
+
+`src/messages.ts` exports each of these as a function of its placeholders; tests compare exact text.
+
+| Id | Text | Severity | Actions |
+| --- | --- | --- | --- |
+| `unsupported_webgl2` | Partsmith needs WebGL2 to draw the 3D view, and this browser does not provide it. Turn on hardware acceleration in your browser settings, or use a current version of Chrome, Edge, Firefox or Safari. | page | none |
+| `unsupported_wasm` | Partsmith needs WebAssembly, and this browser does not provide it. Use a current version of Chrome, Edge, Firefox or Safari. | page | none |
+| `core_load_failed` | The geometry core did not load: {reason}. Check your connection and reload the page. | fatal | Reload |
+| `core_stopped` | The geometry core stopped: {reason}. Restart it to keep working; your latest changes are kept. | fatal | Restart core |
+| `not_ptsm` | {file} is not a Partsmith model. Partsmith opens .ptsm files. | error | none |
+| `not_text` | {file} could not be read as text. | error | none |
+| `open_failed` | Could not open {file}. {core message} | error | none |
+| `migrated` | {file} was updated from format version {n}. Saving writes the current format. | info | none |
+| `save_permission` | Could not save {file} because Partsmith no longer has permission to write it. | error | Save as |
+| `save_not_found` | {file} was moved or deleted. Save it again to choose a location. | error | Save as |
+| `save_io` | Could not save {file}: {reason} | error | Save as |
+| `download_hint` | This browser saves by downloading. {file} is in your downloads folder. | info | none |
+| `recent_permission` | Partsmith needs permission to open {file}. Choose it again to grant access. | error | Open... |
+| `recent_missing` | {file} has moved or been deleted, so it was removed from recent files. | warning | none |
+| `stashed` | {name} had unsaved changes. They are kept for you. | info | Reopen |
+| `recovered` | Partsmith kept unsaved changes to {name} from {time}. | info (persistent) | Open, Discard |
+| `nothing_to_export` | There is no visible body with geometry to export. | error | none |
+| `exported` | Exported {file}. | success | none |
+| `deleted` | Deleted {label}. | info | Undo |
+| `feature_failed` | {label} failed. {message} | error | Edit, Undo |
+| `features_failed` | {n} features failed after this change. | error | Show problems, Undo |
+| `over_constrained` | {title} would over-constrain the sketch: it conflicts with {list}. | warning | Replace them, Cancel |
+| `redundant_constraint` | {title} is already implied by other constraints, so it was not added. | info | none |
+| `dimension_over_constrained` | This dimension would over-constrain the sketch. Add it as a reference dimension that only measures? | inline | Add reference, Cancel |
+| `dimension_unsolvable` | The sketch cannot be solved with this value. Check for dimensions that cannot all be true at once. | inline | none |
+| `cannot_dimension` | Partsmith cannot dimension {a} and {b}. | hint | none |
+| `arc_collinear` | These three points are in a line. Move the last point off the line to make an arc. | hint | none |
+| `profile_problems` | {label} has {n} profile problems, so some regions may not extrude. | info | Back to sketch |
+| `units_changed` | Units are now {unit}. Numbers typed without a unit now mean {unit}. | info | none |
+| `pick_plane` | Pick a flat face, a datum plane or an origin plane. | hint | none |
+| `pick_axis` | Pick a straight edge, a sketch line, a round face or an origin axis. | hint | none |
+| `pick_kind` | Pick {plural noun}. | hint | none |
+| `pick_same_body` | Pick {kind}s of '{body}', or clear Body first. | hint | none |
+| `parameter_name` | Names start with a letter or _ and use only letters, digits and _. | inline | none |
+| `field_required` | {label} needs a value. | inline | none |
+| `field_not_number` | {label} must be a number. | inline | none |
+| `look_at_disabled` | Select a flat face or a plane first. | disabled reason | none |
+| `nothing_to_undo` | Nothing to undo. | disabled reason | none |
+| `nothing_to_redo` | Nothing to redo. | disabled reason | none |
+| `finish_command_first` | Finish or cancel {title} first. | disabled reason | none |
+| `fill_fields` | Fill in the highlighted fields first. | disabled reason | none |
+
+### 4.4 Fatal states
+
+- Core load failure (`transport.start()` rejects, including a protocol version mismatch reported by the worker host): the viewport shows a panel (`data-testid="core-fatal"`, `role="alert"`) with `core_load_failed` and a "Reload" button (`location.reload()`); the rest of the shell stays but every core-dependent command is disabled with "The geometry core is not running."
+- Core stopped later (fatal listener): the same panel with `core_stopped` and "Restart core". `app.restartCore()` creates a new transport and client, starts it, reloads the catalog and printers, and reopens the last recipe with `openDocument(JSON.stringify(recipe, null, 2))`, keeping the document name and handle and setting `localUnsaved` true. Undo history is lost; selection, command and sketch session are cleared.
+- A `CoreError` with code `internal_error` or `document_poisoned` is shown verbatim as an error notification with no other change; the core's message already tells the user to save and reopen.
+- Uncaught exceptions in UI code are caught by a React error boundary around each region (top bar, browser, viewport, side panel, timeline, status bar). A crashed region shows "This part of the window hit a problem. Reload to restore it." with "Reload"; the other regions keep working and `console.error` gets the details.
+
+## 5. Performance budgets
+
+Release gates from technical design section 14, measured on the reference machine (a 2022 mid-range laptop) in Chrome for web and in the desktop app, with the User Timing names of 2.18. Performance tests (6.7) run on the fixed hardware runner and are tagged `@perf`.
+
+| Interaction | Desktop | Web | Measured as |
+| --- | --- | --- | --- |
+| Sketch drag, 500 constraints | 16 ms per frame | 16 ms per frame | 95th percentile of `ps:sketch-drag` over a 2 s drag |
+| Feature preview after a value change | 100 ms typical | 250 ms typical | Median of `ps:preview` over 20 changes |
+| Full rebuild, 50-feature part | 1 s | 3 s | `ps:rebuild` of a change to the first feature's driving parameter |
+| Open a 50-feature file, warm cache | 300 ms | 1 s | `ps:open`, second open of the same file in the session |
+| Viewport orbit, 2 M triangles | 60 fps | 60 fps | 95th percentile of `ps:frame` at most 16.7 ms over a 3 s orbit |
+| Cold start to usable | 2 s | 4 s | `ps:usable` relative to `performance.timeOrigin`, on a reload with the core module in the HTTP cache |
+
+UI budgets derived from them (same runner):
+
+| Interaction | Budget | Measured as |
+| --- | --- | --- |
+| Pick query with a current ID pass | 1 ms | 95th percentile of `ps:pick` |
+| Hover highlight | next animation frame | `ps:pick` plus one frame |
+| Palette re-rank per keystroke, 2,000 items | 8 ms | 95th percentile of `ps:palette` |
+| Expression validation round trip (web) | 50 ms | from keystroke to `expression-result` update, median |
+| Main-thread long tasks during orbit, drag or preview typing | none over 50 ms | `PerformanceObserver` of `longtask` |
+| Applying a `document_changed` plus `recomputed` for 50 features | 8 ms | profiler mark around the store update |
+| Initial JavaScript (excluding the core module) | 250 KB gzipped | build output check |
+
+Rules that make these reachable: hot paths bypass React; meshes are never copied on the main thread (frame views go straight to `upload`); picks read a small block of the ID pass; previews and drags are latest-only; analysis never runs automatically outside Print.
