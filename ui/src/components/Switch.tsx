@@ -23,11 +23,13 @@ export function Switch({
   className,
 }: SwitchProps) {
   const id = useId()
+  const labelId = `${id}-label`
   const descriptionId = `${id}-description`
   return (
     <div className={clsx('flex flex-col gap-1', className)}>
       <div className="flex min-h-8 items-center justify-between gap-3">
         <label
+          id={labelId}
           htmlFor={id}
           className={clsx(
             'text-sm',
@@ -41,6 +43,7 @@ export function Switch({
           type="button"
           role="switch"
           aria-checked={checked}
+          aria-labelledby={labelId}
           aria-describedby={description === undefined ? undefined : descriptionId}
           disabled={disabled}
           onClick={() => {
