@@ -3,7 +3,13 @@
 /** Attribute locations of surface (triangles, fill) and point programs, fixed so one vertex array serves both passes. */
 export const SURFACE_ATTRIBUTES = { position: 0, normal: 1, elementId: 2, scalar: 3 } as const
 /** Attribute locations of line programs: one instance per segment, plus the shared quad corner. */
-export const LINE_ATTRIBUTES = { start: 0, end: 1, elementId: 2, startDistance: 3, corner: 4 } as const
+export const LINE_ATTRIBUTES = {
+  start: 0,
+  end: 1,
+  elementId: 2,
+  startDistance: 3,
+  corner: 4,
+} as const
 /** Attribute locations of point programs: one instance per point, plus the shared quad corner. */
 export const POINT_ATTRIBUTES = { center: 0, elementId: 2, corner: 4 } as const
 

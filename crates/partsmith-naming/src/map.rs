@@ -218,20 +218,22 @@ impl NamingMap {
             return Err(NamingError::TopologyMismatch);
         }
         topology.validate()?;
-        let mut infos = Vec::new();
+        let named = self.sorted.faces.len() + self.sorted.edges.len() + self.sorted.vertices.len();
+        let mut infos = Vec::with_capacity(named);
         for kind in kinds {
             for (index, name) in self.names(kind) {
-                let mut adjacency: Vec<ElementName> = topology
-                    .adjacent_faces(kind, index)?
+                let (adjacent_faces, counts) = topology.adjacency(kind, index)?;
+                let mut adjacency: Vec<ElementName> = adjacent_faces
                     .iter()
                     .filter_map(|&face| self.name(ElementKind::Face, face).cloned())
                     .collect();
                 adjacency.sort_unstable();
                 adjacency.dedup();
+                let fingerprint = topology.given_fingerprint(kind, index)?;
                 infos.push(ElementInfo {
                     name: name.clone(),
                     kind,
-                    fingerprint: topology.fingerprint(kind, index)?,
+                    fingerprint: fingerprint.clone().with_adjacency(counts),
                     adjacency,
                 });
             }
@@ -387,7 +389,7 @@ fn list_name(
 ) -> Result<ElementName, NamingError> {
     let names = faces
         .iter()
-        .map(|&face| face_names[position(face)].as_str())
+        .map(|&face| &face_names[position(face)])
         .collect();
     ElementName::from_faces(prefix, names)
 }

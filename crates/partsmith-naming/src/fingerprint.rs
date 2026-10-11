@@ -188,7 +188,7 @@ impl Fingerprint {
             text: text.to_owned(),
             reason,
         };
-        let mut tokens = text.split('|');
+        let mut tokens = split_ascii(text, b'|');
         let kind_token = tokens.next().unwrap_or_default();
         let kind = GeometryKind::from_token(kind_token)
             .ok_or_else(|| invalid(format!("unknown kind \"{kind_token}\"")))?;
@@ -202,7 +202,7 @@ impl Fingerprint {
         };
         let mut next_rank = 0;
         for token in tokens {
-            let (name, value) = token.split_once('=').unwrap_or((token, ""));
+            let (name, value) = split_once_ascii(token, b'=').unwrap_or((token, ""));
             let field = Field::from_token(name)
                 .ok_or_else(|| invalid(format!("unknown field \"{name}\"")))?;
             if field.rank() < next_rank {
@@ -335,29 +335,56 @@ pub(crate) fn format_number(value: f64) -> String {
 
 /// Writes `value` in the text number format. Equivalent to the literal procedure of
 /// `format_number_by_formatting`, without its slow fixed-point formatting for every value whose
-/// magnitude is below 2^107.
+/// magnitude is below 2^64.
 fn write_number(output: &mut impl fmt::Write, value: f64) -> fmt::Result {
-    let Some(scaled) = scaled_magnitude(value) else {
+    let parts = scaled_magnitude(value).and_then(|scaled| {
+        let whole = u64::try_from(scaled / DECIMAL_SCALE).ok()?;
+        let fraction = u32::try_from(scaled % DECIMAL_SCALE).ok()?;
+        Some((whole, fraction))
+    });
+    let Some((whole, fraction)) = parts else {
         return output.write_str(&format_number_by_formatting(value));
     };
-    if scaled == 0 {
-        return output.write_str("0");
-    }
-    if value.is_sign_negative() {
+    if value.is_sign_negative() && (whole, fraction) != (0, 0) {
         output.write_char('-')?;
     }
-    let whole = scaled / DECIMAL_SCALE;
-    let mut fraction = scaled % DECIMAL_SCALE;
-    write!(output, "{whole}")?;
+    write_integer(output, whole)?;
     if fraction != 0 {
-        let mut digits = DECIMALS;
-        while fraction % 10 == 0 {
-            fraction /= 10;
-            digits -= 1;
+        let mut digits = [b'0'; DECIMALS];
+        let mut rest = fraction;
+        for digit in digits.iter_mut().rev() {
+            *digit = b'0' + (rest % 10) as u8;
+            rest /= 10;
         }
-        write!(output, ".{fraction:0digits$}")?;
+        let kept = digits
+            .iter()
+            .rposition(|digit| *digit != b'0')
+            .map_or(0, |last| last + 1);
+        output.write_char('.')?;
+        output.write_str(digits_text(&digits[..kept]))?;
     }
     Ok(())
+}
+
+/// Writes the decimal digits of `value`.
+fn write_integer(output: &mut impl fmt::Write, mut value: u64) -> fmt::Result {
+    // u64::MAX has 20 digits.
+    let mut digits = [b'0'; 20];
+    let mut start = digits.len();
+    loop {
+        start -= 1;
+        digits[start] = b'0' + (value % 10) as u8;
+        value /= 10;
+        if value == 0 {
+            break;
+        }
+    }
+    output.write_str(digits_text(&digits[start..]))
+}
+
+/// ASCII decimal digits as text.
+fn digits_text(digits: &[u8]) -> &str {
+    std::str::from_utf8(digits).expect("decimal digits are ASCII")
 }
 
 /// The literal number format of section 3.7.3: `format!("{:.6}")`, trailing zeros and a trailing
@@ -415,7 +442,7 @@ fn round_to_text(value: f64) -> f64 {
 /// Parses `COUNT` comma-separated reals of the form `["-"] 1*DIGIT ["." 1*DIGIT]`.
 fn parse_reals<const COUNT: usize>(field: Field, value: &str) -> Result<[f64; COUNT], String> {
     let mut reals = [0.0; COUNT];
-    let mut components = value.split(',');
+    let mut components = split_ascii(value, b',');
     for real in &mut reals {
         let component = components
             .next()
@@ -430,9 +457,7 @@ fn parse_reals<const COUNT: usize>(field: Field, value: &str) -> Result<[f64; CO
 
 /// Parses `F,X` adjacency counts, each `1*DIGIT` fitting in `u32`.
 fn parse_counts(field: Field, value: &str) -> Result<[u32; 2], String> {
-    let (faces, edges) = value
-        .split_once(',')
-        .ok_or_else(|| values_needed(field, 2))?;
+    let (faces, edges) = split_once_ascii(value, b',').ok_or_else(|| values_needed(field, 2))?;
     let parse_count = |count: &str| {
         let digits_only = !count.is_empty() && count.bytes().all(|byte| byte.is_ascii_digit());
         digits_only
@@ -440,10 +465,36 @@ fn parse_counts(field: Field, value: &str) -> Result<[u32; 2], String> {
             .flatten()
             .ok_or_else(|| not_a_number(count))
     };
-    if edges.contains(',') {
+    if edges.bytes().any(|byte| byte == b',') {
         return Err(values_needed(field, 2));
     }
     Ok([parse_count(faces)?, parse_count(edges)?])
+}
+
+/// `text` split at the first `separator`, an ASCII character. A byte scan is cheaper than a `char`
+/// pattern on the short pieces of a fingerprint.
+fn split_once_ascii(text: &str, separator: u8) -> Option<(&str, &str)> {
+    let position = text.bytes().position(|byte| byte == separator)?;
+    // An ASCII separator lies between character boundaries.
+    Some((text.get(..position)?, text.get(position + 1..)?))
+}
+
+/// `text` split at every `separator`, an ASCII character, like `str::split`.
+fn split_ascii(text: &str, separator: u8) -> impl Iterator<Item = &str> {
+    let mut rest = Some(text);
+    std::iter::from_fn(move || {
+        let current = rest?;
+        match split_once_ascii(current, separator) {
+            Some((piece, remainder)) => {
+                rest = Some(remainder);
+                Some(piece)
+            }
+            None => {
+                rest = None;
+                Some(current)
+            }
+        }
+    })
 }
 
 /// Reason for a field with the wrong number of values.
@@ -455,7 +506,7 @@ fn values_needed(field: Field, count: usize) -> String {
 fn parse_real(text: &str) -> Result<f64, String> {
     let is_digits = |part: &str| !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_digit());
     let unsigned = text.strip_prefix('-').unwrap_or(text);
-    let well_formed = match unsigned.split_once('.') {
+    let well_formed = match split_once_ascii(unsigned, b'.') {
         Some((whole, fraction)) => is_digits(whole) && is_digits(fraction),
         None => is_digits(unsigned),
     };
@@ -470,7 +521,9 @@ fn parse_real(text: &str) -> Result<f64, String> {
 
 /// Writes `|<field>=<x>,<y>,...` with each value in the text number format.
 fn write_reals(formatter: &mut fmt::Formatter<'_>, field: Field, values: &[f64]) -> fmt::Result {
-    write!(formatter, "|{}=", field.token())?;
+    formatter.write_char('|')?;
+    formatter.write_str(field.token())?;
+    formatter.write_char('=')?;
     for (position, value) in values.iter().enumerate() {
         if position > 0 {
             formatter.write_str(",")?;
@@ -497,7 +550,10 @@ impl fmt::Display for Fingerprint {
             write_reals(formatter, Field::Radius, &[radius])?;
         }
         if let Some([faces, edges]) = self.adjacency {
-            write!(formatter, "|adj={faces},{edges}")?;
+            formatter.write_str("|adj=")?;
+            write_integer(formatter, u64::from(faces))?;
+            formatter.write_char(',')?;
+            write_integer(formatter, u64::from(edges))?;
         }
         Ok(())
     }
@@ -617,6 +673,31 @@ mod tests {
         fn format_number_matches_on_part_sized_values(value in -1e9..1e9_f64) {
             proptest::prop_assert_eq!(format_number(value), format_number_by_formatting(value));
         }
+    }
+
+    #[test]
+    fn split_ascii_matches_str_split() {
+        for text in ["", "a", "a|b", "|a||b|", "plane|n=0,0,1"] {
+            let pieces: Vec<&str> = split_ascii(text, b'|').collect();
+
+            assert_eq!(pieces, text.split('|').collect::<Vec<&str>>(), "{text:?}");
+        }
+    }
+
+    #[test]
+    fn split_once_ascii_splits_at_first_separator() {
+        assert_eq!(split_once_ascii("a=b=c", b'='), Some(("a", "b=c")));
+        assert_eq!(split_once_ascii("abc", b'='), None);
+    }
+
+    #[test]
+    fn write_integer_writes_extremes() {
+        let mut text = String::new();
+        write_integer(&mut text, 0).expect("writing to a String does not fail");
+        text.push(' ');
+        write_integer(&mut text, u64::MAX).expect("writing to a String does not fail");
+
+        assert_eq!(text, "0 18446744073709551615");
     }
 
     #[test]

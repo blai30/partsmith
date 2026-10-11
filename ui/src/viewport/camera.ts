@@ -321,7 +321,11 @@ export function zoomAt(
     return { ...camera, distance, target }
   }
   const orthographicHeight = clampZoomExtent(camera.orthographicHeight * factor)
-  const target = addScaled(camera.target, offset, 1 - orthographicHeight / camera.orthographicHeight)
+  const target = addScaled(
+    camera.target,
+    offset,
+    1 - orthographicHeight / camera.orthographicHeight,
+  )
   return { ...camera, orthographicHeight, target }
 }
 
@@ -360,8 +364,7 @@ export function fitBounds(
   if (camera.projection === 'orthographic') {
     return { ...camera, target: center, orthographicHeight: visibleHeight }
   }
-  const distance =
-    visibleHeight / (2 * Math.tan(camera.verticalFieldOfView / 2)) + extent(2) / 2
+  const distance = visibleHeight / (2 * Math.tan(camera.verticalFieldOfView / 2)) + extent(2) / 2
   return { ...camera, target: center, distance }
 }
 

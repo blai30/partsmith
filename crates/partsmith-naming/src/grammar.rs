@@ -122,6 +122,27 @@ pub(crate) fn validate(text: &str) -> Result<(), NameDefect> {
     }
 }
 
+/// Checks only the length and nesting limits, for a name composed from valid parts.
+pub(crate) fn check_limits(text: &str) -> Result<(), NameDefect> {
+    if text.len() > MAX_NAME_LENGTH {
+        return Err(NameDefect::TooLong);
+    }
+    let mut depth = 0_usize;
+    for byte in text.bytes() {
+        match byte {
+            b'(' => {
+                depth += 1;
+                if depth > MAX_NAME_DEPTH {
+                    return Err(NameDefect::TooDeep);
+                }
+            }
+            b')' => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
 /// True when `text` matches `word`: a lowercase letter, then lowercase letters, digits and hyphens.
 pub(crate) fn is_word(text: &str) -> bool {
     let mut parser = Parser::new(text);
@@ -606,6 +627,24 @@ mod tests {
             validate("edge(f-a/x#1|f-a/x)"),
             Err(NameDefect::UnsortedFaces)
         );
+    }
+
+    #[test]
+    fn check_limits_accepts_names_within_limits() {
+        assert_eq!(check_limits("vertex(f-a/r/edge(f-a/x))"), Ok(()));
+    }
+
+    #[test]
+    fn check_limits_rejects_long_and_deep_names() {
+        let long = "x".repeat(MAX_NAME_LENGTH + 1);
+        let deep = format!(
+            "{}f-a/x{}",
+            "edge(f-a/r/".repeat(MAX_NAME_DEPTH + 1),
+            ")".repeat(MAX_NAME_DEPTH + 1)
+        );
+
+        assert_eq!(check_limits(&long), Err(NameDefect::TooLong));
+        assert_eq!(check_limits(&deep), Err(NameDefect::TooDeep));
     }
 
     #[test]

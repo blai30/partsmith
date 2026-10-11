@@ -3,6 +3,7 @@
 use std::borrow::Cow;
 use std::fmt;
 use std::str::FromStr;
+use std::sync::Arc;
 
 use partsmith_model::Id;
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
@@ -14,9 +15,12 @@ use crate::kind::ElementKind;
 
 /// A validated element name such as `f-ext1/end-cap#2` or `edge(f-ext1/end-cap|f-ext1/lateral/e-9e12)`.
 /// Ordering, equality and hashing are those of the underlying string (byte order).
+///
+/// The text is shared, so cloning a name (as naming maps, element infos and resolutions do for
+/// every element) does not copy it.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize)]
 #[serde(try_from = "String")]
-pub struct ElementName(String);
+pub struct ElementName(Arc<str>);
 
 /// What a generated face was made from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -51,7 +55,7 @@ impl ElementName {
     /// Parses and validates a name against the grammar in section 3.1.
     pub fn parse(text: &str) -> Result<ElementName, NamingError> {
         grammar::validate(text).map_err(|defect| invalid_name(text, &defect))?;
-        Ok(ElementName(text.to_owned()))
+        Ok(ElementName(Arc::from(text)))
     }
 
     /// The name as text.
@@ -77,7 +81,12 @@ impl ElementName {
 
     /// The name with every trailing split suffix (`#n`) removed.
     pub fn split_base(&self) -> ElementName {
-        ElementName(split_base_of(&self.0).to_owned())
+        let base = split_base_of(&self.0);
+        if base.len() == self.0.len() {
+            self.clone()
+        } else {
+            ElementName(Arc::from(base))
+        }
     }
 
     /// True when `self` is `ancestor` followed by one or more split suffixes.
@@ -91,7 +100,7 @@ impl ElementName {
             parts
                 .terms
                 .into_iter()
-                .map(|term| ElementName(term.to_owned()))
+                .map(|term| ElementName(Arc::from(term)))
                 .collect()
         })
     }
@@ -133,38 +142,49 @@ impl ElementName {
             }
             Some(Generator::Element(name)) => format!("{feature}/{role}/{name}"),
         };
-        ElementName::assembled(text)
+        ElementName::composed(text)
     }
 
     /// The edge name for the given adjacent face names (sorted and deduplicated here).
     pub fn edge(faces: &[ElementName]) -> Result<ElementName, NamingError> {
-        ElementName::from_faces(EDGE_PREFIX, faces.iter().map(ElementName::as_str).collect())
+        ElementName::from_faces(EDGE_PREFIX, faces.iter().collect())
     }
 
     /// The vertex name for the given adjacent face names (sorted and deduplicated here).
     pub fn vertex(faces: &[ElementName]) -> Result<ElementName, NamingError> {
-        ElementName::from_faces(
-            VERTEX_PREFIX,
-            faces.iter().map(ElementName::as_str).collect(),
-        )
+        ElementName::from_faces(VERTEX_PREFIX, faces.iter().collect())
     }
 
     /// The edge (`EDGE_PREFIX`) or vertex (`VERTEX_PREFIX`) name of these face names, sorted and
     /// deduplicated here.
     pub(crate) fn from_faces(
         prefix: &str,
-        mut faces: Vec<&str>,
+        mut faces: Vec<&ElementName>,
     ) -> Result<ElementName, NamingError> {
         faces.sort_unstable();
         faces.dedup();
-        ElementName::assembled(format!("{prefix}{})", faces.join("|")))
+        let length = prefix.len() + faces.iter().map(|face| face.0.len() + 1).sum::<usize>();
+        let mut text = String::with_capacity(length);
+        text.push_str(prefix);
+        for (position, face) in faces.iter().enumerate() {
+            if position > 0 {
+                text.push('|');
+            }
+            text.push_str(&face.0);
+        }
+        text.push(')');
+        if faces.is_empty() || faces.iter().any(|face| face.kind() != ElementKind::Face) {
+            // Not a list of face names: the grammar reports what is wrong.
+            return ElementName::assembled(text);
+        }
+        ElementName::composed(text)
     }
 
     /// The name with an instance suffix from `Instance::suffix` applied: appended to a face name,
     /// or to every face term of an edge or vertex name, which are then sorted again.
     pub(crate) fn with_instance_suffix(&self, suffix: &str) -> Result<ElementName, NamingError> {
         let Some(parts) = list_parts(&self.0) else {
-            return ElementName::assembled(format!("{self}{suffix}"));
+            return ElementName::composed(format!("{self}{suffix}"));
         };
         let mut terms: Vec<String> = parts
             .terms
@@ -172,7 +192,7 @@ impl ElementName {
             .map(|term| format!("{term}{suffix}"))
             .collect();
         terms.sort_unstable();
-        ElementName::assembled(format!(
+        ElementName::composed(format!(
             "{}{}{}",
             parts.prefix,
             terms.join("|"),
@@ -185,16 +205,30 @@ impl ElementName {
         split_base_of(&self.0)
     }
 
-    /// Validates a name this crate assembled from valid parts. Exceeding the length or nesting
-    /// limit is `NameTooLong`; any other defect is `InvalidName`.
+    /// Validates a name this crate assembled. Exceeding the length or nesting limit is
+    /// `NameTooLong`; any other defect is `InvalidName`.
     fn assembled(text: String) -> Result<ElementName, NamingError> {
         match grammar::validate(&text) {
-            Ok(()) => Ok(ElementName(text)),
+            Ok(()) => Ok(ElementName(Arc::from(text))),
             Err(defect) if defect.is_limit() => {
                 Err(NamingError::NameTooLong { length: text.len() })
             }
             Err(defect) => Err(invalid_name(&text, &defect)),
         }
+    }
+
+    /// Wraps a name this crate composed from valid parts in a way the grammar always accepts,
+    /// checking only the length and nesting limits a composition can exceed (`NameTooLong`).
+    fn composed(text: String) -> Result<ElementName, NamingError> {
+        if grammar::check_limits(&text).is_err() {
+            return Err(NamingError::NameTooLong { length: text.len() });
+        }
+        debug_assert_eq!(
+            grammar::validate(&text),
+            Ok(()),
+            "{text} is composed from valid parts"
+        );
+        Ok(ElementName(Arc::from(text)))
     }
 }
 
@@ -286,7 +320,7 @@ impl TryFrom<String> for ElementName {
 
     fn try_from(text: String) -> Result<ElementName, NamingError> {
         match grammar::validate(&text) {
-            Ok(()) => Ok(ElementName(text)),
+            Ok(()) => Ok(ElementName(Arc::from(text))),
             Err(defect) => Err(invalid_name(&text, &defect)),
         }
     }
@@ -294,7 +328,7 @@ impl TryFrom<String> for ElementName {
 
 impl From<ElementName> for String {
     fn from(name: ElementName) -> String {
-        name.0
+        name.0.to_string()
     }
 }
 

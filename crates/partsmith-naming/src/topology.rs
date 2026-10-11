@@ -1,5 +1,7 @@
 //! Naming inputs: face sources and the topology of one output shape (naming.md sections 2.5 and 3.7.2).
 
+use std::borrow::Cow;
+
 use crate::error::NamingError;
 use crate::fingerprint::Fingerprint;
 use crate::kind::ElementKind;
@@ -83,34 +85,9 @@ impl TopologyInfo {
 
     /// The element's fingerprint with adjacency counts filled in (section 3.7.2).
     pub fn fingerprint(&self, kind: ElementKind, index: u32) -> Result<Fingerprint, NamingError> {
-        let (fingerprint, adjacency) = match kind {
-            ElementKind::Face => {
-                let face = element(&self.faces, kind, index)?;
-                let neighbors = self.face_neighbors(index)?;
-                let bounding = self.non_degenerate_count(&face.edges)?;
-                (
-                    &face.fingerprint,
-                    [element_count(neighbors.len()), bounding],
-                )
-            }
-            ElementKind::Edge => {
-                let edge = element(&self.edges, kind, index)?;
-                let counts = [
-                    element_count(edge.faces.len()),
-                    element_count(edge.vertices.len()),
-                ];
-                (&edge.fingerprint, counts)
-            }
-            ElementKind::Vertex => {
-                let vertex = element(&self.vertices, kind, index)?;
-                let edges = self.non_degenerate_count(&vertex.edges)?;
-                (
-                    &vertex.fingerprint,
-                    [element_count(vertex.faces.len()), edges],
-                )
-            }
-        };
-        Ok(fingerprint.clone().with_adjacency(adjacency))
+        let (_, counts) = self.adjacency(kind, index)?;
+        let given = self.given_fingerprint(kind, index)?;
+        Ok(given.clone().with_adjacency(counts))
     }
 
     /// Number of elements of `kind`.
@@ -137,28 +114,43 @@ impl TopologyInfo {
         }
     }
 
-    /// The 1-based indices of the faces adjacent to element `index` of `kind`, ascending and
-    /// distinct: the other faces sharing a non-degenerate edge (a face), or the faces containing it
-    /// (an edge or vertex).
-    pub(crate) fn adjacent_faces(
+    /// The faces adjacent to element `index` of `kind`, as ascending distinct 1-based indices, and
+    /// its adjacency counts (section 3.7.2). The adjacent faces of a face are the other faces
+    /// sharing a non-degenerate edge with it; those of an edge or vertex are the faces containing it.
+    pub(crate) fn adjacency(
         &self,
         kind: ElementKind,
         index: u32,
-    ) -> Result<Vec<u32>, NamingError> {
+    ) -> Result<(Cow<'_, [u32]>, [u32; 2]), NamingError> {
         match kind {
-            ElementKind::Face => self.face_neighbors(index),
-            ElementKind::Edge => element(&self.edges, kind, index).map(|edge| edge.faces.clone()),
+            ElementKind::Face => {
+                let face = element(&self.faces, kind, index)?;
+                let neighbors = self.face_neighbors(face, index)?;
+                let bounding = self.non_degenerate_count(&face.edges)?;
+                let counts = [element_count(neighbors.len()), bounding];
+                Ok((Cow::Owned(neighbors), counts))
+            }
+            ElementKind::Edge => {
+                let edge = element(&self.edges, kind, index)?;
+                let counts = [
+                    element_count(edge.faces.len()),
+                    element_count(edge.vertices.len()),
+                ];
+                Ok((Cow::Borrowed(&edge.faces), counts))
+            }
             ElementKind::Vertex => {
-                element(&self.vertices, kind, index).map(|vertex| vertex.faces.clone())
+                let vertex = element(&self.vertices, kind, index)?;
+                let edges = self.non_degenerate_count(&vertex.edges)?;
+                let counts = [element_count(vertex.faces.len()), edges];
+                Ok((Cow::Borrowed(&vertex.faces), counts))
             }
         }
     }
 
     /// The 1-based indices of the other faces sharing a non-degenerate edge with face `index`,
     /// ascending and distinct.
-    fn face_neighbors(&self, index: u32) -> Result<Vec<u32>, NamingError> {
-        let face = element(&self.faces, ElementKind::Face, index)?;
-        let mut neighbors = Vec::new();
+    fn face_neighbors(&self, face: &FaceInfo, index: u32) -> Result<Vec<u32>, NamingError> {
+        let mut neighbors = Vec::with_capacity(face.edges.len());
         for &edge_index in &face.edges {
             let edge = element(&self.edges, ElementKind::Edge, edge_index)?;
             if !edge.degenerate {
@@ -434,36 +426,35 @@ mod tests {
     }
 
     #[test]
-    fn face_neighbors_are_distinct_and_exclude_the_face() {
-        assert_eq!(small_topology().face_neighbors(1), Ok(vec![2]));
-    }
-
-    #[test]
-    fn adjacent_faces_of_a_face_are_its_neighbors() {
-        assert_eq!(
-            small_topology().adjacent_faces(ElementKind::Face, 2),
-            Ok(vec![1])
-        );
-    }
-
-    #[test]
-    fn adjacent_faces_of_edges_and_vertices_contain_them() {
+    fn adjacency_of_a_face_lists_its_neighbors() {
         let topology = small_topology();
 
-        assert_eq!(topology.adjacent_faces(ElementKind::Edge, 3), Ok(vec![1]));
-        assert_eq!(
-            topology.adjacent_faces(ElementKind::Vertex, 1),
-            Ok(vec![1, 2])
-        );
+        let (faces, counts) = topology
+            .adjacency(ElementKind::Face, 1)
+            .expect("face 1 exists");
+
+        assert_eq!(faces.as_ref(), [2]);
+        assert_eq!(counts, [1, 2]);
     }
 
     #[test]
-    fn adjacent_faces_of_missing_element_is_out_of_range() {
-        assert!(
-            small_topology()
-                .adjacent_faces(ElementKind::Edge, 4)
-                .is_err()
-        );
+    fn adjacency_of_edges_and_vertices_lists_containing_faces() {
+        let topology = small_topology();
+
+        let (edge_faces, _) = topology
+            .adjacency(ElementKind::Edge, 3)
+            .expect("edge 3 exists");
+        let (vertex_faces, _) = topology
+            .adjacency(ElementKind::Vertex, 1)
+            .expect("vertex 1 exists");
+
+        assert_eq!(edge_faces.as_ref(), [1]);
+        assert_eq!(vertex_faces.as_ref(), [1, 2]);
+    }
+
+    #[test]
+    fn adjacency_of_missing_element_is_out_of_range() {
+        assert!(small_topology().adjacency(ElementKind::Edge, 4).is_err());
     }
 
     #[test]

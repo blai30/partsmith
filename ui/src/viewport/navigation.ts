@@ -69,7 +69,12 @@ const ARROW_DIRECTIONS: Readonly<Record<string, readonly [number, number]>> = {
  */
 export function keyNavigation(
   key: string,
-  modifiers: { readonly shift: boolean; readonly control: boolean; readonly meta: boolean; readonly alt: boolean },
+  modifiers: {
+    readonly shift: boolean
+    readonly control: boolean
+    readonly meta: boolean
+    readonly alt: boolean
+  },
 ): KeyNavigation | null {
   if (modifiers.control || modifiers.meta || modifiers.alt) {
     return null

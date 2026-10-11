@@ -244,10 +244,11 @@ fn brute_force_hits(mesh: &Mesh, ray: &Ray, min_distance: f64, max_distance: f64
             });
         }
     }
+    // Distances compare as numbers (spec section 2.6), so -0.0 ties with 0.0 and the lower
+    // triangle index comes first. Adding zero turns -0.0 into 0.0 for `total_cmp`.
     hits.sort_by(|first, second| {
-        first
-            .distance
-            .total_cmp(&second.distance)
+        (first.distance + 0.0)
+            .total_cmp(&(second.distance + 0.0))
             .then(first.triangle.cmp(&second.triangle))
     });
     hits
@@ -368,5 +369,131 @@ proptest! {
 
         prop_assert_eq!(hierarchy.first_hit(&ray, min_distance, max_distance), None);
         prop_assert!(hierarchy.all_hits(&ray, min_distance, max_distance).is_empty());
+    }
+}
+
+// Regressions found in review; not numbered in spec section 6.9.
+
+#[test]
+fn hits_at_negative_zero_tie_with_hits_at_zero() {
+    // The ray starts on the edge between the bottom (triangle 0) and the front (triangle 4) and
+    // meets both at distance zero, one of them computed as -0.0.
+    let mesh = cube(10.0);
+    let hierarchy = BoundingVolumeHierarchy::new(&mesh);
+    let along_edge = ray([5.0, 0.0, 0.0], [0.0, -1.0, 1.0]);
+
+    let first = hierarchy
+        .first_hit(&along_edge, 0.0, f64::INFINITY)
+        .expect("the ray starts on two faces");
+    let all: Vec<u32> = hierarchy
+        .all_hits(&along_edge, 0.0, f64::INFINITY)
+        .iter()
+        .map(|hit| hit.triangle)
+        .collect();
+
+    assert_eq!(first.triangle, 0);
+    assert_eq!(first.distance, 0.0);
+    assert_eq!(all, vec![0, 4]);
+}
+
+#[test]
+fn grazing_ray_from_far_away_finds_every_hit() {
+    // A ray from 1.4 m away that grazes triangle 806. Rounding moves that hit by far more than
+    // the hierarchy used to widen its boxes, so the hit was pruned.
+    let mesh = sphere(10.0, 64, 32);
+    let hierarchy = BoundingVolumeHierarchy::new(&mesh);
+    let grazing = ray(
+        [-1325.1828947780054, -17.31720731641814, -331.83023063999264],
+        [0.9714367981872827, 0.008382123463841557, 0.2371503471089118],
+    );
+    let expected = brute_force_hits(&mesh, &grazing, 0.0, f64::INFINITY);
+
+    let triangles: Vec<u32> = hierarchy
+        .all_hits(&grazing, 0.0, f64::INFINITY)
+        .iter()
+        .map(|hit| hit.triangle)
+        .collect();
+
+    assert_eq!(
+        expected.iter().map(|hit| hit.triangle).collect::<Vec<u32>>(),
+        vec![804, 806, 934]
+    );
+    assert_eq!(triangles, vec![804, 806, 934]);
+    assert_eq!(
+        hierarchy
+            .first_hit(&grazing, 0.0, f64::INFINITY)
+            .map(|hit| hit.triangle),
+        Some(804)
+    );
+}
+
+/// Seed of the grazing rays below, fixed so every run checks the same rays.
+const GRAZING_SEED: [u8; 32] = *b"partsmith-mesh grazing rays 2026";
+
+#[test]
+fn hierarchy_matches_brute_force_on_grazing_rays_from_far_away() {
+    // Rays aimed at a random point of a random triangle, tilted out of its plane by 1e-12 to 1
+    // and starting up to 1 km away, where rounding in the triangle test is largest.
+    let mesh = sphere(10.0, 64, 32);
+    let hierarchy = BoundingVolumeHierarchy::new(&mesh);
+    let triangle_count = u32::try_from(mesh.triangle_count()).expect("the fixture is small");
+    let config = Config {
+        cases: 2_000,
+        failure_persistence: None,
+        ..Config::default()
+    };
+    let mut runner =
+        TestRunner::new_with_rng(config, TestRng::from_seed(RngAlgorithm::ChaCha, &GRAZING_SEED));
+    let rays = (
+        0..triangle_count,
+        (0.0..=1.0_f64, 0.0..=1.0_f64),
+        uniform3(-1.0..=1.0_f64),
+        (0.0..=12.0_f64, 0.0..=6.0_f64),
+        any::<bool>(),
+    );
+
+    let outcome = runner.run(
+        &rays,
+        |(triangle, (first_weight, second_weight), wobble, (tilt_exponent, distance_exponent), bounded)| {
+            let [corner_a, corner_b, corner_c] = mesh.triangle_points(triangle as usize);
+            let edge_one = subtract(corner_b, corner_a);
+            let edge_two = subtract(corner_c, corner_a);
+            let second_weight = second_weight * (1.0 - first_weight);
+            let target: Point3 = std::array::from_fn(|axis| {
+                corner_a[axis] + first_weight * edge_one[axis] + second_weight * edge_two[axis]
+            });
+            let normal = cross(edge_one, edge_two);
+            let along = cross(normal, wobble);
+            let (normal_length, along_length) = (length(normal), length(along));
+            if along_length == 0.0 {
+                return Ok(());
+            }
+            let tilt = 10_f64.powf(-tilt_exponent);
+            let direction: Vector3 = std::array::from_fn(|axis| {
+                along[axis] / along_length + tilt * normal[axis] / normal_length
+            });
+            let back = 10_f64.powf(distance_exponent) / length(direction);
+            let origin: Point3 = std::array::from_fn(|axis| target[axis] - back * direction[axis]);
+            let ray = Ray::new(origin, direction)
+                .map_err(|error| TestCaseError::fail(error.to_string()))?;
+            let (min_distance, max_distance) = if bounded {
+                (0.5 * back, 1.001 * back)
+            } else {
+                (0.0, f64::INFINITY)
+            };
+            let expected = brute_force_hits(&mesh, &ray, min_distance, max_distance);
+
+            check_same_hits(&hierarchy.all_hits(&ray, min_distance, max_distance), &expected)?;
+            let first_hit: Vec<RayHit> = hierarchy
+                .first_hit(&ray, min_distance, max_distance)
+                .into_iter()
+                .collect();
+            let expected_first: Vec<RayHit> = expected.first().copied().into_iter().collect();
+            check_same_hits(&first_hit, &expected_first)
+        },
+    );
+
+    if let Err(failure) = outcome {
+        panic!("{failure}");
     }
 }

@@ -20,10 +20,7 @@ const DEGREE = Math.PI / 180
 function multiply(first: Matrix3, second: Matrix3): Matrix3 {
   return [0, 1, 2].map((row) => {
     const values = [0, 1, 2].map((column) =>
-      [0, 1, 2].reduce(
-        (sum, i) => sum + (first[row]?.[i] ?? 0) * (second[i]?.[column] ?? 0),
-        0,
-      ),
+      [0, 1, 2].reduce((sum, i) => sum + (first[row]?.[i] ?? 0) * (second[i]?.[column] ?? 0), 0),
     )
     return [values[0] ?? 0, values[1] ?? 0, values[2] ?? 0] as const
   })
@@ -106,6 +103,18 @@ function partNamed(label: string): ViewCubePart {
   return found
 }
 
+function countOf(kind: ViewCubePart['kind']): number {
+  return VIEW_CUBE_PARTS.filter((cubePart) => cubePart.kind === kind).length
+}
+
+function partOfFace(face: CubeFace): ViewCubePart {
+  const found = partForFaces([face])
+  if (found === null) {
+    throw new Error(`No part for the ${face} face.`)
+  }
+  return found
+}
+
 function orientationOf(cubePart: ViewCubePart): { forward: Vector3; up: Vector3 } {
   const camera = { ...DEFAULT_CAMERA, rotation: viewCubeRotation(cubePart) }
   return { forward: forward(camera), up: up(camera) }
@@ -113,9 +122,7 @@ function orientationOf(cubePart: ViewCubePart): { forward: Vector3; up: Vector3 
 
 describe('view cube parts', () => {
   it('has 6 faces, 12 edges and 8 corners with distinct names', () => {
-    const count = (kind: ViewCubePart['kind']) =>
-      VIEW_CUBE_PARTS.filter((cubePart) => cubePart.kind === kind).length
-    expect([count('face'), count('edge'), count('corner')]).toEqual([6, 12, 8])
+    expect([countOf('face'), countOf('edge'), countOf('corner')]).toEqual([6, 12, 8])
     expect(new Set(VIEW_CUBE_PARTS.map((cubePart) => cubePart.label)).size).toBe(26)
     expect(new Set(VIEW_CUBE_PARTS.map((cubePart) => cubePart.id)).size).toBe(26)
   })
@@ -123,14 +130,7 @@ describe('view cube parts', () => {
   it('names faces "{Face} view"', () => {
     expect(
       VIEW_CUBE_PARTS.filter((cubePart) => cubePart.kind === 'face').map(({ label }) => label),
-    ).toEqual([
-      'Front view',
-      'Back view',
-      'Left view',
-      'Right view',
-      'Top view',
-      'Bottom view',
-    ])
+    ).toEqual(['Front view', 'Back view', 'Left view', 'Right view', 'Top view', 'Bottom view'])
   })
 
   it('names edges with their faces in the order Front, Back, Left, Right, Top, Bottom', () => {
@@ -175,11 +175,8 @@ describe('view cube parts', () => {
 
 describe('viewCubeRotation', () => {
   it.each(CUBE_FACES)('the %s face sets its standard view', (face) => {
-    const cubePart = partForFaces([face])
-    expect(cubePart).not.toBeNull()
-    if (cubePart !== null) {
-      expect(classifyView({ ...DEFAULT_CAMERA, rotation: viewCubeRotation(cubePart) })).toBe(face)
-    }
+    const rotation = viewCubeRotation(partOfFace(face))
+    expect(classifyView({ ...DEFAULT_CAMERA, rotation })).toBe(face)
   })
 
   it('the front right top corner is the iso view', () => {
@@ -298,7 +295,7 @@ describe('faceCells', () => {
     }
   })
 
-  it('puts a part button on the part first face', () => {
+  it('puts the button of each part on its first face', () => {
     const buttons = faceCells('front').filter((cell) => cell.primary)
     expect(buttons).toHaveLength(9)
     const back = faceCells('top').filter((cell) => cell.primary)

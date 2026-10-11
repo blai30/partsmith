@@ -21,7 +21,11 @@ export function scale(vector: Vector3, factor: number): Vector3 {
 
 /** `first + second × factor`. */
 export function addScaled(first: Vector3, second: Vector3, factor: number): Vector3 {
-  return [first[0] + second[0] * factor, first[1] + second[1] * factor, first[2] + second[2] * factor]
+  return [
+    first[0] + second[0] * factor,
+    first[1] + second[1] * factor,
+    first[2] + second[2] * factor,
+  ]
 }
 
 export function dot(first: Vector3, second: Vector3): number {
@@ -202,7 +206,10 @@ export function transformPoint(
 }
 
 /** The product `first × second` of two column-major 4 × 4 matrices. */
-export function multiplyMatrices(first: ArrayLike<number>, second: ArrayLike<number>): Float32Array {
+export function multiplyMatrices(
+  first: ArrayLike<number>,
+  second: ArrayLike<number>,
+): Float32Array {
   const product = new Float32Array(16)
   for (let column = 0; column < 4; column++) {
     for (let row = 0; row < 4; row++) {

@@ -1,11 +1,4 @@
-import type {
-  DrawCall,
-  Geometry,
-  PickSample,
-  RenderBackend,
-  RenderFrame,
-  Rgb,
-} from '../backend'
+import type { DrawCall, Geometry, PickSample, RenderBackend, RenderFrame, Rgb } from '../backend'
 import {
   DASH_GAP,
   DASH_LENGTH,
@@ -427,7 +420,7 @@ export function createWebGl2Backend(canvas: HTMLCanvasElement): RenderBackend | 
     return size?.pixelRatio ?? frame.pixelRatio
   }
 
-  function use(program: Program): (name: string) => WebGLUniformLocation | null {
+  function activate(program: Program): (name: string) => WebGLUniformLocation | null {
     gl.useProgram(program.program)
     return (name) => {
       if (!program.uniforms.has(name)) {
@@ -441,23 +434,32 @@ export function createWebGl2Backend(canvas: HTMLCanvasElement): RenderBackend | 
     gl.uniform3f(location, color[0], color[1], color[2])
   }
 
-  function elementColorTexture(current: Resources, draw: DrawCall, elementCount: number): WebGLTexture {
-    if (draw.elementColors === null) {
+  function elementColorTexture(
+    current: Resources,
+    drawCall: DrawCall,
+    elementCount: number,
+  ): WebGLTexture {
+    if (drawCall.elementColors === null) {
       return current.noElementColors
     }
-    const cached = colorTextures.get(draw.id)
-    if (cached !== undefined && cached.source === draw.elementColors) {
+    const cached = colorTextures.get(drawCall.id)
+    if (cached !== undefined && cached.source === drawCall.elementColors) {
       return cached.texture
     }
     const texture = cached?.texture ?? nearestTexture(gl)
-    uploadColors(gl, texture, draw.elementColors, elementCount)
-    colorTextures.set(draw.id, { source: draw.elementColors, texture })
+    uploadColors(gl, texture, drawCall.elementColors, elementCount)
+    colorTextures.set(drawCall.id, { source: drawCall.elementColors, texture })
     return texture
   }
 
-  function setDrawState(draw: DrawCall, geometry: GpuGeometry, frame: RenderFrame, pass: Pass): void {
-    const sectionCut = frame.section !== null && draw.clipped
-    if (draw.depthTest) {
+  function setDrawState(
+    drawCall: DrawCall,
+    geometry: GpuGeometry,
+    frame: RenderFrame,
+    pass: Pass,
+  ): void {
+    const sectionCut = frame.section !== null && drawCall.clipped
+    if (drawCall.depthTest) {
       gl.enable(gl.DEPTH_TEST)
     } else {
       gl.disable(gl.DEPTH_TEST)
@@ -467,13 +469,14 @@ export function createWebGl2Backend(canvas: HTMLCanvasElement): RenderBackend | 
       gl.disable(gl.BLEND)
       gl.depthMask(true)
     } else {
-      const opaqueSurface = geometry.kind === 'triangles' && draw.layer === 'opaque' && draw.opacity >= 1
+      const opaqueSurface =
+        geometry.kind === 'triangles' && drawCall.layer === 'opaque' && drawCall.opacity >= 1
       if (opaqueSurface) {
         gl.disable(gl.BLEND)
       } else {
         gl.enable(gl.BLEND)
       }
-      gl.depthMask(surface && draw.layer === 'opaque')
+      gl.depthMask(surface && drawCall.layer === 'opaque')
     }
     if (geometry.kind === 'triangles' && !sectionCut) {
       gl.enable(gl.CULL_FACE)
@@ -487,7 +490,7 @@ export function createWebGl2Backend(canvas: HTMLCanvasElement): RenderBackend | 
     }
   }
 
-  function draw(
+  function renderDraw(
     current: Resources,
     drawCall: DrawCall,
     frame: RenderFrame,
@@ -502,7 +505,7 @@ export function createWebGl2Backend(canvas: HTMLCanvasElement): RenderBackend | 
     if (program === null) {
       return
     }
-    const uniform = use(program)
+    const uniform = activate(program)
     setDrawState(drawCall, geometry, frame, pass)
     gl.uniformMatrix4fv(uniform('u_view'), false, frame.view)
     gl.uniformMatrix4fv(uniform('u_projection'), false, frame.projection)
@@ -571,7 +574,7 @@ export function createWebGl2Backend(canvas: HTMLCanvasElement): RenderBackend | 
     for (const layer of LAYERS) {
       for (const drawCall of frame.draws) {
         if (drawCall.layer === layer && (pass === 'color' || drawCall.pickBase !== null)) {
-          draw(current, drawCall, frame, pass, viewportSize)
+          renderDraw(current, drawCall, frame, pass, viewportSize)
         }
       }
     }
@@ -582,7 +585,7 @@ export function createWebGl2Backend(canvas: HTMLCanvasElement): RenderBackend | 
     if (program === null) {
       return
     }
-    const uniform = use(program)
+    const uniform = activate(program)
     setRgb(uniform('u_backgroundTop'), frame.theme.backgroundTop)
     setRgb(uniform('u_backgroundBottom'), frame.theme.backgroundBottom)
     gl.disable(gl.DEPTH_TEST)
@@ -643,7 +646,15 @@ export function createWebGl2Backend(canvas: HTMLCanvasElement): RenderBackend | 
   ): Uint8Array {
     const pixels = new Uint8Array(block.width * block.height * 4)
     gl.readBuffer(gl.COLOR_ATTACHMENT0 + attachment)
-    gl.readPixels(block.left, block.bottom, block.width, block.height, gl.RGBA, gl.UNSIGNED_BYTE, pixels)
+    gl.readPixels(
+      block.left,
+      block.bottom,
+      block.width,
+      block.height,
+      gl.RGBA,
+      gl.UNSIGNED_BYTE,
+      pixels,
+    )
     return pixels
   }
 
@@ -652,7 +663,7 @@ export function createWebGl2Backend(canvas: HTMLCanvasElement): RenderBackend | 
     event.preventDefault()
     lost = true
     forgetResources()
-    for (const listener of [...lostListeners]) {
+    for (const listener of lostListeners) {
       listener()
     }
   }
@@ -660,7 +671,7 @@ export function createWebGl2Backend(canvas: HTMLCanvasElement): RenderBackend | 
   const handleContextRestored = (): void => {
     lost = false
     forgetResources()
-    for (const listener of [...restoredListeners]) {
+    for (const listener of restoredListeners) {
       listener()
     }
   }
