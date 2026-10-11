@@ -65,7 +65,14 @@ Label `Mirror`, category `pattern`, icon `mirror`, version 1.
 Dedicated form: `mirror(plane, part=<body>)` (python-api.md section 2.7) for op join; op new uses the generic form until python-api.md adds it. Generic form of the second JSON above:
 
 ```python
-feature("mirror", id="f-mir2", body="b-1", plane={"kind": "datum", "feature": "f-dp1"}, op="new", target="b-2")
+feature(
+    "mirror",
+    id="f-mir2",
+    body="b-1",
+    plane={"kind": "datum", "feature": "f-dp1"},
+    op="new",
+    target="b-2",
+)
 ```
 
 ## 3. Behavior

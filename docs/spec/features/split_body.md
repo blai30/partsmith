@@ -62,7 +62,17 @@ Label `Split body`, category `modify`, icon `split-body`, version 1.
 
 ### Python
 
-Dedicated form: `split(plane, into=<target>, part=<body>)` (python-api.md section 2.7). Generic form of the JSON above: `feature("split_body", id="f-split1", body="b-1", plane={"kind": "datum", "feature": "f-dp1"}, target="b-2")`.
+Dedicated form: `split(plane, into=<target>, part=<body>)` (python-api.md section 2.7). Generic form of the JSON above (longer than 100 characters, so one argument per line):
+
+```python
+feature(
+    "split_body",
+    id="f-split1",
+    body="b-1",
+    plane={"kind": "datum", "feature": "f-dp1"},
+    target="b-2",
+)
+```
 
 ## 3. Behavior
 

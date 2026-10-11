@@ -49,11 +49,11 @@ Every public type derives `Debug` and `Clone`. Types stored in documents or sent
 partsmith_features
   feature      Feature, FEATURE_API_VERSION
   manifest     FeatureManifest, Category, FieldHint, FieldUnit, SelectionKind, OptionHint
-  deps         Dependencies, ExprUse, ValueKind
+  deps         Dependencies, Link, ExprUse, ValueKind
   params       BodyOp, CopyOp, ProfileRef, PlaneRef, AxisRef, OriginAxis, PlacementExt
   context      BuildContext, BuildInputs, Values, BodyState, Resolved, ResolvedProfile, CancelToken
   output       FeatureOutput, OutputData, BodyUpdate, BodyChange, SketchResult, DatumResult, Tool, apply_op
-  error        FeatureError, FeatureWarning, FieldRef, Bound, Noun, IgnoredReason, Repair, Names, DocumentNames, format_value
+  error        FeatureError, FeatureWarning, FieldRef, Bound, Noun, IgnoredReason, FallbackReason, Repair, Names, DocumentNames, format_value
   registry     Registry, DynFeature, Canonical, Validated, RegistryError, register_builtins
   python       PythonCall, PythonValue
   builtin      one module per built-in feature type (sketch, extrude, ...)
@@ -97,7 +97,7 @@ Params structs follow these rules:
 - A field with a default uses `#[serde(default, skip_serializing_if = "...")]` so it is omitted when equal to its default.
 - No `deny_unknown_fields` at the params root: unknown keys are kept by the registry (section 3.2), never passed to the feature. The params schema therefore never sets `additionalProperties: false` at its root (file-format.md).
 - Field names `id`, `type`, `name` and `suppressed` are reserved for the record and are rejected at registration.
-- Every numeric input a user can type is an `Expr`. Enumerations are snake_case strings. Tagged unions inside params use `#[serde(tag = "kind", rename_all = "snake_case")]`, and their primary value field is named `expr`.
+- Every numeric input a user can type is an `Expr` (sketch geometry, which sketch.md stores as plain numbers in millimeters, is the exception). Enumerations are snake_case strings. Tagged unions inside params use `#[serde(tag = "kind", rename_all = "snake_case")]`, and their primary value field is named `expr`.
 - `JsonSchema` definition names are unique across all registered features unless the schemas are identical (built-ins prefix them with the feature name, for example `ExtrudeExtent`).
 
 ### 2.3 Manifest
@@ -204,16 +204,24 @@ Each feature spec lists its complete manifest as a table.
 ```rust
 /// Everything a feature reads, declared before it builds. The context refuses undeclared reads.
 pub struct Dependencies {
-    /// Features whose output is read directly (sketches, datums), in params order, without duplicates.
-    pub features: Vec<Id>,
-    /// Bodies whose state is read but not written, in params order, without duplicates.
-    pub bodies_read: Vec<Id>,
-    /// Bodies this feature may replace. Their prior state is also readable. Disjoint from `bodies_read`.
-    pub bodies_written: Vec<Id>,
+    /// Features whose output is read directly (sketches, datums), in params order, without duplicate ids.
+    pub features: Vec<Link>,
+    /// Bodies whose state is read but not written, in params order, without duplicate ids.
+    pub bodies_read: Vec<Link>,
+    /// Bodies this feature may replace. Their prior state is also readable. No id appears in both lists.
+    pub bodies_written: Vec<Link>,
     /// Every expression the feature evaluates, with its field path and value kind, in params order.
     pub expressions: Vec<ExprUse>,
     /// Ids the params define (sketch entity and constraint ids), in params order. Empty for most features.
     pub declared_ids: Vec<Id>,
+}
+
+/// A feature or body a feature refers to, with the field that names it (for messages and highlighting).
+pub struct Link {
+    /// The feature or body id.
+    pub id: Id,
+    /// Path of the first params field that names it, for example "profile.sketch" or "body".
+    pub field: String,
 }
 
 /// One expression a feature evaluates.
@@ -246,7 +254,7 @@ Rules:
 - A `PlaneRef::Datum` adds the datum feature to `features`. A `ProfileRef`, an `AxisRef::SketchLine` or a hole's sketch adds the sketch feature.
 - Parameters are not listed; recompute derives them from `expressions` with `Expr::references`.
 
-Example for the extrude in [features/extrude.md](features/extrude.md) test 1: `features = ["f-sk1"]`, `bodies_read = []`, `bodies_written = ["b-1"]`, `expressions = [ExprUse { field: "extent.expr", expr: "30 mm", kind: Length }]`, `declared_ids = []`.
+Example for the extrude in [features/extrude.md](features/extrude.md) test 1: `features = [Link { id: "f-sk1", field: "profile.sketch" }]`, `bodies_read = []`, `bodies_written = [Link { id: "b-1", field: "body" }]`, `expressions = [ExprUse { field: "extent.expr", expr: "30 mm", kind: Length }]`, `declared_ids = []`.
 
 ### 2.5 Shared param types
 
@@ -306,7 +314,7 @@ pub enum AxisRef {
 /// The origin axes. Serialized "X", "Y", "Z".
 pub enum OriginAxis { X, Y, Z }
 
-/// Frame helpers on the sketch crate's `Placement` (origin, x_axis, normal; y_axis = normal × x_axis).
+/// Helpers on the sketch crate's `Placement` (origin, x_axis, normal; y_axis = normal × x_axis).
 pub trait PlacementExt {
     /// The same placement moved by `distance` along its normal.
     fn offset(&self, distance: f64) -> Placement;
@@ -575,6 +583,9 @@ pub enum Noun { Body, Sketch, DatumPlane, Region, Point, Line, Face, Edge }
 /// Why a feature ignored part of its input.
 pub enum IgnoredReason { SmoothEdge, TipAngleThroughAll }
 
+/// Why a sketch on a face used its fallback placement.
+pub enum FallbackReason { Missing, Ambiguous, NotPlanar }
+
 /// Data the repair panel needs to show a lost reference and re-pick it.
 pub enum Repair {
     /// A face, edge or vertex reference. `pointer` is the JSON Pointer of the reference in the record.
@@ -800,9 +811,9 @@ Guarantees:
 - Expressions are not parsed or evaluated here. Expression errors surface when the feature is built (`Expression`), so a document with a typo still loads.
 - Loading never consults the registry (file-format.md). The engine canonicalizes after loading and before saving; a record whose params fail validation is kept exactly as loaded, and recompute reports the error on that feature.
 
-Field path grammar (used in `FieldHint::path`, `ExprUse::field`, `FieldRef::path`): `path = name ( "." name | "[" index "]" )*`, where `name` is a params key and `index` a 0-based decimal array index. Examples: `body`, `extent.expr`, `size[2]`, `direction.count`, `edges[1]`. `FieldRef::pointer` turns `.name` and `[index]` into `/name` and `/index` segments: `extent.expr` is `/extent/expr`, `edges[1]` is `/edges/1`, `profile.regions[0]` is `/profile/regions/0`.
+Field path grammar (used in `FieldHint::path`, `ExprUse::field`, `FieldRef::path`): `path = name ( "." name | "[" index "]" )*`, where `name` is a params key and `index` a 0-based decimal array index. Examples: `body`, `extent.expr`, `size[2]`, `direction.count`, `edges[1]`. A `FieldHint::path` may also use `[*]` for "any index" (`constraints[*].expr`). A `FieldRef`'s label is the label of the hint whose path equals the field path, else of the hint whose path equals it with every index replaced by `[*]`, else the path itself. `FieldRef::pointer` turns `.name` and `[index]` into `/name` and `/index` segments: `extent.expr` is `/extent/expr`, `edges[1]` is `/edges/1`, `profile.regions[0]` is `/profile/regions/0`.
 
-`impl FeatureInspector for Registry`: `inspect` runs `validate_and_canonicalize` and `dependencies`, then returns `FeatureLinks { declared_ids, bodies: bodies_written followed by bodies_read, features, expressions: each ExprUse::expr }`. On failure it returns `Err(message)`, the error's `Display` text.
+`impl FeatureInspector for Registry`: `inspect` runs `validate_and_canonicalize` and `dependencies`, then returns `FeatureLinks { declared_ids, bodies: the ids of bodies_written followed by those of bodies_read, features: the ids of features, expressions: each ExprUse::expr }`. On failure it returns `Err(message)`, the error's `Display` text.
 
 ### 3.3 Params schemas
 
@@ -813,7 +824,7 @@ Registration checks, so a bad feature fails at startup rather than at schema gen
 - The root is `"type": "object"` and does not set `additionalProperties` or `unevaluatedProperties` to `false` (`NotOpenObject`).
 - No root property is reserved (`ReservedField`).
 - Every `$defs` name already registered by another type has an identical schema (`SchemaConflict`); identical definitions are shared.
-- The manifest matches the schema (`ManifestMismatch`): every hint path exists; every top-level property is covered by a hint whose path is the property or starts with it followed by `.` or `[`; every hint with `unit` points at an `Expr`; every hint with `options` points at a string enumeration or tag field and lists exactly its values.
+- The manifest matches the schema (`ManifestMismatch`): every hint path exists (`[*]` and `[index]` match array items); every top-level property is covered by a hint whose path is the property or starts with it followed by `.` or `[`; every hint with `unit` points at an `Expr`; every hint with `options` points at a string enumeration or tag field and lists exactly its values.
 
 ### 3.4 Expression evaluation
 
@@ -906,7 +917,7 @@ Element names never contain kernel indices.
 
 ### 3.10 Kernel results
 
-- Kernel booleans (`fuse`, `cut`, `common`) unify adjacent coplanar faces and collinear edges in the same call (kernel.md section 3.4.5). Features that combine several solids (several regions, pattern instances, holes, a joined mirror image) always do it with one multi-argument kernel boolean, so their results are refined. Face counts in acceptance tests assume this.
+- Kernel booleans (`fuse`, `cut`, `common`) unify adjacent coplanar faces and collinear edges in the same call (kernel.md section 3.4.5). Features that combine several solids (pattern instances, holes, a joined mirror image) always do it with one multi-argument kernel boolean, so their results are refined; several profile regions are merged in 2D before the sweep (section 3.7). Face counts in acceptance tests assume this.
 - The kernel checks every solid result and heals it once; a result that stays invalid, or a solid operation that produces no solid, is a `KernelError` (kinds `InvalidResult` and `EmptyResult`). Features report kernel errors as `Kernel { error }`, except fillet, chamfer and shell, which run the "too large" search (section 4.3).
 - Every solid has positive volume (correct orientation), including mirrored copies.
 - Features check their own preconditions (ranges, axis in plane, profile side) before calling the kernel, so the kernel's `InvalidInput` errors are not the normal way users see these problems.
@@ -1069,7 +1080,7 @@ Examples: `Counterbore depth must be less than the hole depth (5 mm), but it is 
 | `region_remapped` | `RegionRemapped { field: FieldRef, position: usize, sketch: Id, region: RegionRef }` | `A profile region of '{sketch}' changed, so the closest matching region was used. Check the result, or re-pick the profile.` |
 | `region_ambiguous` | `RegionAmbiguous { field: FieldRef, position: usize, sketch: Id, region: RegionRef }` | `A profile region of '{sketch}' now matches several regions, so it was skipped. Re-pick the profile.` |
 | `region_missing` | `RegionMissing { field: FieldRef, position: usize, sketch: Id, region: RegionRef }` | `A profile region of '{sketch}' can no longer be found, so it was skipped. Re-pick the profile.` |
-| `plane_fallback` | `PlaneFallback { field: FieldRef, body: Id, reference: Reference }` | `The face this sketch is on can no longer be found, so the sketch stays at its last position. Re-attach it in the repair panel.` |
+| `plane_fallback` | `PlaneFallback { field: FieldRef, body: Id, reference: Reference, reason: FallbackReason }` | per reason (`missing`, `ambiguous`, `not_planar`), listed in [features/sketch.md](features/sketch.md) section 3.5; `missing`: `The face this sketch is on can no longer be found, so the sketch stays at its last position. Re-attach it in the repair panel.` |
 | `no_effect` | `NoEffect { body: Id }` | `This feature does not change body '{body}'. Check its position, size and direction.` |
 | `hole_misses_body` | `HoleMissesBody { point: String, body: Id }` | `The hole at point '{point}' does not touch body '{body}'. Move the point, or turn on Reverse.` |
 | `ignored` | `Ignored { field: FieldRef, reason: IgnoredReason }` | per reason, below |
@@ -1142,6 +1153,8 @@ with `units` changed only where a test says so. Bodies used throughout: `{"id": 
 
 **Measurements** use the kernel facade on `BodyReport` shapes (kernel.md): `volume()`, `area()`, `bounding_box()` (tight), `count(SubShapeKind::Face)`, `solids()`, and `element(Face, i)` for a face found by name through the body's `NamingMap::index`. Tolerances unless a test says otherwise: volume and area relative 1e-6; bounding box absolute 1e-5 mm per coordinate; placements and axes absolute 1e-9; face counts exact. "bbox [a,b,c]-[d,e,f]" lists minimum then maximum corner. "Unchanged" means the body state is identical to the state before the feature (same shape volume, face count and element names).
 
+**Dependencies in tests.** `features == ["f-dp1"]`, `bodies_read == ["b-1"]` and similar compare the ids of the `Link`s in order; a test that names fields writes pairs such as `[("f-sk1", "profile.sketch")]`.
+
 **Box primitive frame.** A `box` with `size [sx, sy, sz]` and no placement spans x in [-sx/2, sx/2], y in [-sy/2, sy/2], z in [0, sz], with faces `bottom` (-Z), `top` (+Z), `front` (-Y), `back` (+Y), `left` (-X), `right` (+X) ([features/box.md](features/box.md)).
 
 ### 6.2 Registry tests
@@ -1161,7 +1174,7 @@ with `units` changed only where a test says so. Bodies used throughout: `{"id": 
 13. A fillet record with `"edges": []` returns `EmptySelection` with field path `edges`; rendered: `Select at least one edge for Edges.`
 14. An extrude record with `"extent": {"kind": "distance", "expr": "30 mmm"}` canonicalizes successfully; the error appears only when it is built.
 15. `params_schemas()` returns 19 entries sorted by `kind`; each schema is an object schema without `additionalProperties: false`, with `title` equal to the manifest label. `partsmith_model::ptsm_schema(&registry.params_schemas())` succeeds, every feature record in every acceptance test of every feature spec validates against the resulting document schema, and the record of test 12 does not.
-16. `dependencies` of the extrude record of [features/extrude.md](features/extrude.md) test 1 is `features ["f-sk1"]`, `bodies_read []`, `bodies_written ["b-1"]`, `expressions [("extent.expr", "30 mm", Length)]`, `declared_ids []`. `FeatureInspector::inspect` of the same record returns `FeatureLinks { declared_ids: [], bodies: ["b-1"], features: ["f-sk1"], expressions: ["30 mm"] }`. For the sketch record of [features/sketch.md](features/sketch.md) test 1, `declared_ids` is `["e-1", "e-2", "e-3", "e-4"]`.
+16. `dependencies` of the extrude record of [features/extrude.md](features/extrude.md) test 1 is `features [("f-sk1", "profile.sketch")]`, `bodies_read []`, `bodies_written [("b-1", "body")]`, `expressions [("extent.expr", "30 mm", Length)]`, `declared_ids []`. `FeatureInspector::inspect` of the same record returns `FeatureLinks { declared_ids: [], bodies: ["b-1"], features: ["f-sk1"], expressions: ["30 mm"] }`. For the sketch record of [features/sketch.md](features/sketch.md) test 1, `declared_ids` is `["e-1", "e-2", "e-3", "e-4"]`.
 17. `python(record).render(0)` of the extrude record of [features/extrude.md](features/extrude.md) test 1 with `"name": "Base"` is exactly:
 
     ```python
@@ -1228,3 +1241,4 @@ Run as documents (section 6.1).
 10. **`import` feature.** engine.md and protocol.md assume an `import` feature with asset dependencies (engine.md open issue 8). It is not in this M1 feature slice; when it is specified, `Dependencies` needs an `assets` list.
 11. **Examples layout.** Each document test is meant to double as an example under `examples/<type>/`; the file layout (model, Python twin, `expected.json`) belongs to the engine and CI specs.
 12. **Region union.** The union of selected regions (section 3.7) is computed by `partsmith-features` from sketch.md's `ProfileLoop`s because sketch.md lists a region-union helper as later. Moving it into the sketch crate later would not change behavior.
+13. **Examples in other specs to align.** protocol.md shows a box record with keys in the order `body`, `op`, `size` (canonical order here is `body`, `size`, `plane`, `position`, `op`), a manifest with category `primitive` (the categories here are `sketch`, `create`, `modify`, `pattern`, `construct`), a reference fingerprint `line|d=...` (naming.md's text uses `n=`), and a warning text that differs from section 4.2; engine.md quotes an unknown-type message that differs from `UnknownType`'s. Tests in those specs check only codes or substrings, but the reviewer should make the examples match.
