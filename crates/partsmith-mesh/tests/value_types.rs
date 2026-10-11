@@ -3,7 +3,7 @@
 use std::f64::consts::FRAC_PI_2;
 
 use partsmith_mesh::{
-    Aabb, DEGENERATE_HEIGHT, MAX_ELEMENTS, MeshError, Point3, TessellationTolerance, Transform,
+    BoundingBox, DEGENERATE_HEIGHT, MAX_ELEMENTS, MeshError, Point3, TessellationTolerance, Transform,
     WELD_TOLERANCE,
 };
 
@@ -77,8 +77,8 @@ fn t085_right_angle_is_accepted() {
 }
 
 /// The box from `(0, 0, 0)` to `max`.
-fn box_from_origin(max: Point3) -> Aabb {
-    Aabb {
+fn box_from_origin(max: Point3) -> BoundingBox {
+    BoundingBox {
         min: [0.0, 0.0, 0.0],
         max,
     }
@@ -88,13 +88,13 @@ fn box_from_origin(max: Point3) -> Aabb {
 fn t086_box_around_no_points_is_none() {
     let no_points: [Point3; 0] = [];
 
-    assert_eq!(Aabb::from_points(no_points), None);
+    assert_eq!(BoundingBox::from_points(no_points), None);
 }
 
 #[test]
 fn t086_touching_boxes_intersect() {
     let first = box_from_origin([1.0, 1.0, 1.0]);
-    let second = Aabb {
+    let second = BoundingBox {
         min: [1.0, 0.0, 0.0],
         max: [2.0, 1.0, 1.0],
     };
@@ -105,7 +105,7 @@ fn t086_touching_boxes_intersect() {
 #[test]
 fn t086_union_covers_both_boxes() {
     let first = box_from_origin([1.0, 1.0, 1.0]);
-    let second = Aabb {
+    let second = BoundingBox {
         min: [1.0, 0.0, 0.0],
         max: [2.0, 1.0, 1.0],
     };
@@ -130,7 +130,7 @@ fn t086_box_center() {
 }
 
 #[test]
-fn t087_aabb_json() {
+fn t087_bounding_box_json() {
     let json =
         serde_json::to_string(&box_from_origin([10.0, 20.0, 30.0])).expect("a box serializes");
 
@@ -138,11 +138,11 @@ fn t087_aabb_json() {
 }
 
 #[test]
-fn t087_aabb_json_round_trips() {
+fn t087_bounding_box_json_round_trips() {
     let original = box_from_origin([10.0, 20.0, 30.0]);
     let json = serde_json::to_string(&original).expect("a box serializes");
 
-    let parsed: Aabb = serde_json::from_str(&json).expect("the serialized box parses");
+    let parsed: BoundingBox = serde_json::from_str(&json).expect("the serialized box parses");
 
     assert_eq!(parsed, original);
 }
@@ -181,7 +181,7 @@ fn require_json_schema<T: schemars::JsonSchema>() {}
 
 #[test]
 fn value_types_derive_json_schema() {
-    require_json_schema::<Aabb>();
+    require_json_schema::<BoundingBox>();
     require_json_schema::<Transform>();
     require_json_schema::<TessellationTolerance>();
 }

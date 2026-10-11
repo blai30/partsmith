@@ -16,6 +16,7 @@ use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::{Deserialize, Serialize};
 
 pub use dimension::{Dimension, Quantity};
+pub(crate) use error::join_names;
 pub use error::{ExprError, ExprErrorKind, MismatchOperation, RenameError};
 pub use evaluate::{EmptyContext, EvaluationContext, Scope};
 pub use function::{Arity, Function};
@@ -73,14 +74,24 @@ impl Expr {
         let mut copied_up_to = 0;
         parsed.root.visit_leaves(&mut |node| {
             if matches!(&node.kind, ExprNodeKind::Parameter(name) if name == from) {
-                renamed.push_str(&self.0[copied_up_to..node.span.start]);
+                let name = name_span(&self.0, node.span);
+                renamed.push_str(&self.0[copied_up_to..name.start]);
                 renamed.push_str(to);
-                copied_up_to = node.span.end;
+                copied_up_to = name.end;
             }
         });
         renamed.push_str(&self.0[copied_up_to..]);
         Ok(Expr(renamed))
     }
+}
+
+/// The name inside the span of a name node, which also covers any parentheses around it.
+fn name_span(source: &str, span: Span) -> Span {
+    let is_wrapping = |character: char| matches!(character, '(' | ')' | ' ' | '\t' | '\n' | '\r');
+    let text = &source[span.start..span.end];
+    let leading = text.len() - text.trim_start_matches(is_wrapping).len();
+    let trailing = text.len() - text.trim_end_matches(is_wrapping).len();
+    Span::new(span.start + leading, span.end - trailing)
 }
 
 impl From<&str> for Expr {
@@ -303,8 +314,8 @@ mod tests {
     #[test]
     fn rename_keeps_dotted_names_and_longer_identifiers() {
         assert_eq!(
-            Expr::new("a.wall + wall2 + (wall)").rename_parameter("wall", "w"),
-            Ok(Expr::new("a.wall + wall2 + (w)"))
+            Expr::new("a.wall + wall2 + ( (wall) )").rename_parameter("wall", "w"),
+            Ok(Expr::new("a.wall + wall2 + ( (w) )"))
         );
     }
 

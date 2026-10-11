@@ -7,7 +7,7 @@ use common::{
     TOLERANCE, assert_close, assert_vector_close, box_mesh, cube_with, inside_out,
     mesh_with_face_ids, open_box, tetra, void_box,
 };
-use partsmith_mesh::{Aabb, Mesh};
+use partsmith_mesh::{BoundingBox, Mesh};
 
 #[test]
 fn t014_box_signed_volume() {
@@ -29,7 +29,7 @@ fn t014_box_bounding_box() {
 
     assert_eq!(
         mesh.bounding_box(),
-        Some(Aabb {
+        Some(BoundingBox {
             min: [0.0, 0.0, 0.0],
             max: [10.0, 20.0, 30.0]
         })
@@ -107,7 +107,7 @@ fn t018_bounding_box_ignores_unreferenced_vertices() {
 
     assert_eq!(
         mesh.bounding_box(),
-        Some(Aabb {
+        Some(BoundingBox {
             min: [0.0, 0.0, 0.0],
             max: [10.0, 10.0, 10.0]
         })

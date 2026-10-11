@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use crate::mesh::{repeats_index, to_u32};
 use crate::vector::{largest_magnitude, length, subtract};
-use crate::{Aabb, Mesh, MeshError, Point3};
+use crate::{BoundingBox, Mesh, MeshError, Point3};
 
 /// The result of [`Mesh::weld`].
 #[derive(Clone, Debug, PartialEq)]
@@ -175,7 +175,7 @@ fn cell_key(cell: [i64; 3]) -> u64 {
 
 /// Cells per millimeter for welding `positions` at `tolerance`.
 fn cells_per_millimeter(positions: &[Point3], tolerance: f64) -> f64 {
-    let Some(bounds) = Aabb::from_points(positions.iter().copied()) else {
+    let Some(bounds) = BoundingBox::from_points(positions.iter().copied()) else {
         return 1.0;
     };
     // At least four tolerances wide, so a search spans at most three cells per axis.

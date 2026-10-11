@@ -253,7 +253,13 @@ mod tests {
     #[test]
     fn square_roots_halve_even_exponents() {
         assert_eq!(Dimension::AREA.square_root(), Some(Dimension::LENGTH));
-        assert_eq!(PER_ANGLE.square_root(), Some(Dimension { length: 0, angle: -1 }));
+        assert_eq!(
+            PER_ANGLE.square_root(),
+            Some(Dimension {
+                length: 0,
+                angle: -1
+            })
+        );
         assert_eq!(Dimension::VOLUME.square_root(), None);
     }
 

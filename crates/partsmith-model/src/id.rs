@@ -358,10 +358,7 @@ mod tests {
         let schema = schemars::schema_for!(Id);
 
         assert_eq!(schema.get("type"), Some(&serde_json::json!("string")));
-        assert_eq!(
-            schema.get("pattern"),
-            Some(&serde_json::json!(ID_PATTERN))
-        );
+        assert_eq!(schema.get("pattern"), Some(&serde_json::json!(ID_PATTERN)));
         assert_eq!(Id::schema_name(), "Id");
     }
 

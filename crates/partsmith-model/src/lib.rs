@@ -34,7 +34,7 @@ mod validation;
 
 pub use canonical::CanonicalError;
 pub use document::{Body, Document, FeatureRecord, Parameter};
-pub use edit::{EditError, Edit, RecordKind, Step, Transaction, TransactionError};
+pub use edit::{Edit, EditError, RecordKind, Step, Transaction, TransactionError};
 pub use expr::{
     Arity, BinaryOperator, Dimension, EmptyContext, EvaluationContext, Expr, ExprError,
     ExprErrorKind, ExprNode, ExprNodeKind, Function, MAX_EXPRESSION_DEPTH, MAX_EXPRESSION_LENGTH,
@@ -46,13 +46,9 @@ pub use file::{
     MigrationStep, OLDEST_FORMAT_VERSION, SaveError, SchemaError, load, load_bytes, migrate,
     migrate_with, ptsm_schema, ptsm_schema_text, save,
 };
-pub use id::{
-    Id, IdError, IdGenerator, IdKind, MAX_ID_ATTEMPTS, RandomIdGenerator, SequentialIds,
-};
+pub use id::{Id, IdError, IdGenerator, IdKind, MAX_ID_ATTEMPTS, RandomIdGenerator, SequentialIds};
 pub use inspect::{ExprLink, FeatureInspector, FeatureLinks, OpaqueFeatures};
-pub use manifest::{
-    Category, FeatureManifest, FieldHint, FieldUnit, OptionHint, SelectionKind,
-};
+pub use manifest::{Category, FeatureManifest, FieldHint, FieldUnit, OptionHint, SelectionKind};
 pub use names::{
     LabelError, LabelField, MAX_FEATURE_TYPE_LENGTH, MAX_LABEL_LENGTH, MAX_PARAMETER_NAME_LENGTH,
     NameError, RESERVED_NAMES, is_valid_feature_type, validate_label, validate_parameter_name,

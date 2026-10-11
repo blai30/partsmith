@@ -3,7 +3,7 @@
 use crate::mesh::cross_product;
 use crate::sum::CompensatedSum;
 use crate::vector::{dot, length};
-use crate::{Aabb, Mesh, Point3};
+use crate::{BoundingBox, Mesh, Point3};
 
 /// A signed volume whose magnitude is at most this many mm³ has no meaningful center of mass.
 const SMALLEST_MASS_VOLUME: f64 = 1e-12;
@@ -30,10 +30,10 @@ impl Mesh {
     /// Bounding box of the vertices used by triangles, or `None` when there are no triangles.
     ///
     /// Unreferenced vertices, edge polylines and markers are ignored.
-    pub fn bounding_box(&self) -> Option<Aabb> {
+    pub fn bounding_box(&self) -> Option<BoundingBox> {
         let &[first_vertex, _, _] = self.triangles().first()?;
         let first_point = self.positions()[first_vertex as usize];
-        let mut bounds = Aabb {
+        let mut bounds = BoundingBox {
             min: first_point,
             max: first_point,
         };

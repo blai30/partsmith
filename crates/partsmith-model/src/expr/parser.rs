@@ -343,8 +343,18 @@ impl Parser<'_> {
             .map(|argument| argument.depth)
             .max()
             .unwrap_or(0);
-        let arguments = arguments.into_iter().map(|argument| argument.node).collect();
-        self.push_node(ExprNodeKind::Call { function, arguments }, span, depth)
+        let arguments = arguments
+            .into_iter()
+            .map(|argument| argument.node)
+            .collect();
+        self.push_node(
+            ExprNodeKind::Call {
+                function,
+                arguments,
+            },
+            span,
+            depth,
+        )
     }
 
     /// Builds the pending operators of the innermost parenthesis that bind before `incoming`, or all
@@ -477,7 +487,9 @@ mod tests {
     fn non_lexical_whitespace_is_not_empty() {
         assert_eq!(
             error_kind("\u{a0}"),
-            ExprErrorKind::UnexpectedCharacter { character: '\u{a0}' }
+            ExprErrorKind::UnexpectedCharacter {
+                character: '\u{a0}'
+            }
         );
     }
 
@@ -631,8 +643,9 @@ mod tests {
 
     #[test]
     fn tree_depth_counts_calls() {
-        let nested = format!("{}1{}", "abs(".repeat(64), ")".repeat(64));
-        let too_nested = format!("{}1{}", "abs(".repeat(65), ")".repeat(65));
+        // 63 calls around a leaf make a tree 64 deep.
+        let nested = format!("{}1{}", "abs(".repeat(63), ")".repeat(63));
+        let too_nested = format!("{}1{}", "abs(".repeat(64), ")".repeat(64));
 
         assert!(parse(&nested).is_ok());
         assert_eq!(error_kind(&too_nested), ExprErrorKind::TooDeep);

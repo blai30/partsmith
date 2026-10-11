@@ -167,7 +167,10 @@ fn number_value(text: &str) -> f64 {
 /// by `.identifier` while a `.` is immediately followed by a letter or `_`.
 fn name_end(bytes: &[u8], start: usize) -> (usize, bool) {
     let identifier_end = |mut position: usize| {
-        while bytes.get(position).is_some_and(|byte| is_identifier_part(*byte)) {
+        while bytes
+            .get(position)
+            .is_some_and(|byte| is_identifier_part(*byte))
+        {
             position += 1;
         }
         position

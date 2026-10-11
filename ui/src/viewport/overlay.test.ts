@@ -1,0 +1,61 @@
+import { describe, expect, it } from 'vitest'
+import { orientElement, positionElement } from './overlay'
+
+// The declarations of the element's style attribute, read through the attribute so this file has no style property access.
+function declarations(element: HTMLElement): string[] {
+  return (element.getAttribute('style') ?? '')
+    .split(';')
+    .map((declaration) => declaration.trim().replaceAll(/\s+/g, ' '))
+    .filter((declaration) => declaration !== '')
+}
+
+describe('positionElement', () => {
+  it('U-91 positionElement(element, 12.5, 40) leaves a style attribute that declares only translate: 12.5px 40px and sets data-positioned', () => {
+    const element = document.createElement('div')
+    positionElement(element, 12.5, 40)
+    expect(declarations(element)).toEqual(['translate: 12.5px 40px'])
+    expect(element.hasAttribute('data-positioned')).toBe(true)
+  })
+
+  it('replaces the earlier position', () => {
+    const element = document.createElement('div')
+    positionElement(element, 1, 2)
+    positionElement(element, -3.25, 7)
+    expect(declarations(element)).toEqual(['translate: -3.25px 7px'])
+  })
+
+  it('leaves the classes and other attributes alone', () => {
+    const element = document.createElement('div')
+    element.className = 'absolute left-0 top-0'
+    element.dataset.testid = 'sketch-dimension'
+    positionElement(element, 5, 6)
+    expect(element.className).toBe('absolute left-0 top-0')
+    expect(element.dataset.testid).toBe('sketch-dimension')
+  })
+})
+
+describe('orientElement', () => {
+  it('leaves a style attribute that declares only the matrix3d transform of the column-major matrix and sets data-positioned', () => {
+    const element = document.createElement('div')
+    const matrix = new Float32Array([1, 0.5, 0, 0, -0.5, 1, 0, 0, 0, 0, 1, 0, 13.5, -14, 15, 1])
+    orientElement(element, matrix)
+    const declared = declarations(element)
+    expect(declared).toHaveLength(1)
+    const match = /^transform: matrix3d\((.*)\)$/.exec(declared[0] ?? '')
+    expect(match).not.toBeNull()
+    const values = (match?.[1] ?? '').split(',').map((value) => Number(value.trim()))
+    expect(values).toEqual(Array.from(matrix))
+    expect(element.hasAttribute('data-positioned')).toBe(true)
+  })
+
+  it('replaces the earlier orientation', () => {
+    const element = document.createElement('div')
+    orientElement(element, new Float32Array([2, 0, 0, 0, 0, 2, 0, 0, 0, 0, 2, 0, 0, 0, 0, 1]))
+    const identity = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1])
+    orientElement(element, identity)
+    const declared = declarations(element)
+    expect(declared).toHaveLength(1)
+    const values = (/matrix3d\((.*)\)/.exec(declared[0] ?? '')?.[1] ?? '').split(',').map(Number)
+    expect(values).toEqual(Array.from(identity))
+  })
+})

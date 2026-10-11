@@ -6,7 +6,7 @@ use common::{
     TOLERANCE, assert_close, box_mesh, cube, cube_with, fin, flipped_one, inside_out, open_box,
     void_box,
 };
-use partsmith_mesh::{Aabb, Mesh, WELD_TOLERANCE};
+use partsmith_mesh::{BoundingBox, Mesh, WELD_TOLERANCE};
 
 #[test]
 fn t043_cube_is_valid() {
@@ -118,7 +118,7 @@ fn t051_cube_is_one_closed_shell() {
     assert_close(shell.signed_volume, 1000.0, TOLERANCE);
     assert_eq!(
         shell.bounding_box,
-        Aabb {
+        BoundingBox {
             min: [0.0, 0.0, 0.0],
             max: [10.0, 10.0, 10.0]
         }
@@ -140,7 +140,7 @@ fn t052_void_box_has_outer_shell_then_cavity_shell() {
     assert_close(cavity.signed_volume, -1000.0, TOLERANCE);
     assert_eq!(
         cavity.bounding_box,
-        Aabb {
+        BoundingBox {
             min: [5.0, 5.0, 5.0],
             max: [15.0, 15.0, 15.0]
         }

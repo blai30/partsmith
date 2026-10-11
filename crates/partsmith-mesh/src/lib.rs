@@ -10,8 +10,8 @@
 //!
 //! The behavior is specified in `docs/spec/mesh.md`.
 
-mod aabb;
-mod bvh;
+mod bounding_box;
+mod bounding_volume_hierarchy;
 mod combine;
 mod error;
 mod mesh;
@@ -26,8 +26,8 @@ mod validity;
 mod vector;
 mod weld;
 
-pub use aabb::Aabb;
-pub use bvh::Bvh;
+pub use bounding_box::BoundingBox;
+pub use bounding_volume_hierarchy::BoundingVolumeHierarchy;
 pub use error::{IdKind, MeshError};
 pub use mesh::{EdgePolyline, Mesh, VertexMarker};
 pub use ray::{Ray, RayHit};

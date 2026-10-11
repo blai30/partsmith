@@ -6,7 +6,7 @@ use std::ops::Range;
 use crate::mesh::to_u32;
 use crate::ray::intersect_triangle;
 use crate::vector::largest_magnitude;
-use crate::{Aabb, Mesh, Point3, Ray, RayHit, Vector3};
+use crate::{BoundingBox, Mesh, Point3, Ray, RayHit, Vector3};
 
 /// Leaves hold at most this many triangles.
 const LEAF_SIZE: usize = 4;
@@ -26,7 +26,7 @@ const BOX_PADDING: f64 = 1e-9;
 /// ray cannot reach. It takes 32 bytes per node, with fewer nodes than triangles, plus 4 bytes
 /// per triangle.
 #[derive(Clone, Debug)]
-pub struct Bvh<'mesh> {
+pub struct BoundingVolumeHierarchy<'mesh> {
     /// The mesh the hierarchy was built over.
     mesh: &'mesh Mesh,
     /// The root is node 0; the two children of an inner node are adjacent, so a query reads
@@ -46,7 +46,7 @@ struct Node {
     min: [f32; 3],
     /// Largest corner of that box, rounded up to `f32`.
     max: [f32; 3],
-    /// For a leaf, the index of its first entry in `Bvh::triangles`; for an inner node, the
+    /// For a leaf, the index of its first entry in `BoundingVolumeHierarchy::triangles`; for an inner node, the
     /// index of its first child, whose sibling follows it.
     first: u32,
     /// For a leaf, its number of triangles (at least one); 0 for an inner node.
@@ -66,23 +66,23 @@ const RESERVED_NODE: Node = Node {
 enum Contents {
     /// An inner node's two children: this node index and the next.
     Children(usize),
-    /// A leaf's range of entries in `Bvh::triangles`.
+    /// A leaf's range of entries in `BoundingVolumeHierarchy::triangles`.
     Triangles(Range<usize>),
 }
 
 impl Node {
     /// A leaf over `count` entries of the triangle order starting at `first`.
-    fn leaf(bounds: &Aabb, first: usize, count: usize) -> Node {
+    fn leaf(bounds: &BoundingBox, first: usize, count: usize) -> Node {
         Node::with_bounds(bounds, to_u32(first), to_u32(count))
     }
 
     /// An inner node whose children are `first_child` and the node after it.
-    fn inner(bounds: &Aabb, first_child: usize) -> Node {
+    fn inner(bounds: &BoundingBox, first_child: usize) -> Node {
         Node::with_bounds(bounds, to_u32(first_child), 0)
     }
 
     /// A node whose `f32` box contains `bounds`.
-    fn with_bounds(bounds: &Aabb, first: u32, count: u32) -> Node {
+    fn with_bounds(bounds: &BoundingBox, first: u32, count: u32) -> Node {
         Node {
             min: bounds.min.map(round_down),
             max: bounds.max.map(round_up),
@@ -102,11 +102,11 @@ impl Node {
     }
 }
 
-impl<'mesh> Bvh<'mesh> {
+impl<'mesh> BoundingVolumeHierarchy<'mesh> {
     /// Builds the hierarchy by splitting triangles at the median of their box centers along
     /// the widest axis. Degenerate triangles are included but triangles without area are never
     /// hit. An empty mesh gives a hierarchy with no hits.
-    pub fn new(mesh: &'mesh Mesh) -> Bvh<'mesh> {
+    pub fn new(mesh: &'mesh Mesh) -> BoundingVolumeHierarchy<'mesh> {
         let mut items: Vec<BuildItem> = mesh
             .triangles()
             .iter()
@@ -126,7 +126,7 @@ impl<'mesh> Bvh<'mesh> {
             builder.nodes.push(RESERVED_NODE);
             builder.build(0, &mut items, 0).largest_magnitude()
         };
-        Bvh {
+        BoundingVolumeHierarchy {
             mesh,
             nodes: builder.nodes,
             triangles: items.iter().map(|item| item.triangle).collect(),
@@ -309,7 +309,7 @@ impl Builder<'_> {
     /// Fills the reserved node `index` with the subtree over `items`, which start at entry
     /// `first` of the final triangle order, and returns the subtree's exact box. `items` must
     /// not be empty.
-    fn build(&mut self, index: usize, items: &mut [BuildItem], first: usize) -> Aabb {
+    fn build(&mut self, index: usize, items: &mut [BuildItem], first: usize) -> BoundingBox {
         if items.len() <= LEAF_SIZE {
             let bounds = items
                 .iter()
@@ -345,7 +345,7 @@ impl Builder<'_> {
 
 /// The axis along which the items' centers spread the most (lowest axis on ties).
 fn widest_center_axis(items: &[BuildItem]) -> usize {
-    let spread = Aabb::from_points(items.iter().map(|item| item.center))
+    let spread = BoundingBox::from_points(items.iter().map(|item| item.center))
         .map_or([0.0; 3], |centers| centers.size());
     let mut widest = 0;
     for axis in 1..3 {
@@ -357,8 +357,8 @@ fn widest_center_axis(items: &[BuildItem]) -> usize {
 }
 
 /// The box around a triangle's corners.
-fn triangle_box([first, second, third]: [Point3; 3]) -> Aabb {
-    Aabb {
+fn triangle_box([first, second, third]: [Point3; 3]) -> BoundingBox {
+    BoundingBox {
         min: first,
         max: first,
     }
@@ -445,8 +445,8 @@ mod tests {
     }
 
     /// The leaf entry ranges of a hierarchy.
-    fn leaf_ranges(bvh: &Bvh<'_>) -> Vec<Range<usize>> {
-        bvh.nodes
+    fn leaf_ranges(hierarchy: &BoundingVolumeHierarchy<'_>) -> Vec<Range<usize>> {
+        hierarchy.nodes
             .iter()
             .filter_map(|node| match node.contents() {
                 Contents::Triangles(entries) => Some(entries),
@@ -457,7 +457,7 @@ mod tests {
 
     /// The unit cube box as a node.
     fn unit_node() -> Node {
-        let bounds = Aabb {
+        let bounds = BoundingBox {
             min: [0.0, 0.0, 0.0],
             max: [1.0, 1.0, 1.0],
         };
@@ -476,11 +476,11 @@ mod tests {
     #[test]
     fn leaves_cover_every_triangle_once() {
         let mesh = floor_grid(9, 0.0);
-        let bvh = Bvh::new(&mesh);
+        let hierarchy = BoundingVolumeHierarchy::new(&mesh);
 
-        let mut covered: Vec<u32> = leaf_ranges(&bvh)
+        let mut covered: Vec<u32> = leaf_ranges(&hierarchy)
             .into_iter()
-            .flat_map(|entries| bvh.triangles[entries].to_vec())
+            .flat_map(|entries| hierarchy.triangles[entries].to_vec())
             .collect();
         covered.sort_unstable();
 
@@ -490,11 +490,11 @@ mod tests {
     #[test]
     fn leaf_boxes_contain_their_triangles() {
         let mesh = floor_grid(6, 2.0);
-        let bvh = Bvh::new(&mesh);
+        let hierarchy = BoundingVolumeHierarchy::new(&mesh);
 
-        for node in &bvh.nodes {
+        for node in &hierarchy.nodes {
             if let Contents::Triangles(entries) = node.contents() {
-                for &triangle in &bvh.triangles[entries] {
+                for &triangle in &hierarchy.triangles[entries] {
                     for point in mesh.triangle_points(triangle as usize) {
                         let inside = (0..3).all(|axis| {
                             f64::from(node.min[axis]) <= point[axis]
@@ -510,11 +510,11 @@ mod tests {
     #[test]
     fn inner_boxes_contain_their_children() {
         let mesh = floor_grid(7, -3.0);
-        let bvh = Bvh::new(&mesh);
+        let hierarchy = BoundingVolumeHierarchy::new(&mesh);
 
-        for node in &bvh.nodes {
+        for node in &hierarchy.nodes {
             if let Contents::Children(first_child) = node.contents() {
-                for child in &bvh.nodes[first_child..first_child + 2] {
+                for child in &hierarchy.nodes[first_child..first_child + 2] {
                     for axis in 0..3 {
                         assert!(node.min[axis] <= child.min[axis]);
                         assert!(child.max[axis] <= node.max[axis]);
@@ -527,9 +527,9 @@ mod tests {
     #[test]
     fn every_node_but_the_root_is_a_child_exactly_once() {
         let mesh = floor_grid(5, 0.0);
-        let bvh = Bvh::new(&mesh);
+        let hierarchy = BoundingVolumeHierarchy::new(&mesh);
 
-        let mut children: Vec<usize> = bvh
+        let mut children: Vec<usize> = hierarchy
             .nodes
             .iter()
             .filter_map(|node| match node.contents() {
@@ -540,56 +540,56 @@ mod tests {
             .collect();
         children.sort_unstable();
 
-        assert_eq!(children, (1..bvh.nodes.len()).collect::<Vec<usize>>());
+        assert_eq!(children, (1..hierarchy.nodes.len()).collect::<Vec<usize>>());
     }
 
     #[test]
     fn hierarchy_has_fewer_nodes_than_triangles() {
         let mesh = floor_grid(10, 0.0);
-        let bvh = Bvh::new(&mesh);
+        let hierarchy = BoundingVolumeHierarchy::new(&mesh);
 
-        assert!(bvh.nodes.len() < mesh.triangle_count());
-        assert!(leaf_ranges(&bvh).iter().all(|entries| entries.len() >= 2));
+        assert!(hierarchy.nodes.len() < mesh.triangle_count());
+        assert!(leaf_ranges(&hierarchy).iter().all(|entries| entries.len() >= 2));
     }
 
     #[test]
     fn small_mesh_is_a_single_leaf() {
         let mesh = floor_grid(1, 0.0);
-        let bvh = Bvh::new(&mesh);
+        let hierarchy = BoundingVolumeHierarchy::new(&mesh);
 
-        assert_eq!(bvh.nodes.len(), 1);
-        assert_eq!(bvh.nodes[0].contents(), Contents::Triangles(0..2));
+        assert_eq!(hierarchy.nodes.len(), 1);
+        assert_eq!(hierarchy.nodes[0].contents(), Contents::Triangles(0..2));
     }
 
     #[test]
     fn empty_mesh_has_no_nodes() {
         let mesh = Mesh::empty();
-        let bvh = Bvh::new(&mesh);
+        let hierarchy = BoundingVolumeHierarchy::new(&mesh);
 
-        assert!(bvh.nodes.is_empty());
-        assert_eq!(bvh.scale, 0.0);
+        assert!(hierarchy.nodes.is_empty());
+        assert_eq!(hierarchy.scale, 0.0);
     }
 
     #[test]
     fn scale_is_the_largest_corner_coordinate() {
         let mesh = floor_grid(3, -7.0);
 
-        assert_eq!(Bvh::new(&mesh).scale, 7.0);
+        assert_eq!(BoundingVolumeHierarchy::new(&mesh).scale, 7.0);
     }
 
     #[test]
     fn rays_through_shared_grid_edges_match_brute_force() {
         let mesh = floor_grid(8, 1.0);
-        let bvh = Bvh::new(&mesh);
+        let hierarchy = BoundingVolumeHierarchy::new(&mesh);
 
         for x in 0..=16 {
             for y in 0..=16 {
                 let origin = [f64::from(x) * 0.5, f64::from(y) * 0.5, 5.0];
                 let downward = ray(origin, [0.0, 0.0, -1.0]);
                 let expected = brute_force(&mesh, &downward, 0.0, f64::INFINITY);
-                assert_eq!(bvh.all_hits(&downward, 0.0, f64::INFINITY), expected);
+                assert_eq!(hierarchy.all_hits(&downward, 0.0, f64::INFINITY), expected);
                 assert_eq!(
-                    bvh.first_hit(&downward, 0.0, f64::INFINITY),
+                    hierarchy.first_hit(&downward, 0.0, f64::INFINITY),
                     expected.first().copied()
                 );
             }
@@ -599,12 +599,12 @@ mod tests {
     #[test]
     fn grazing_rays_in_the_plane_of_the_grid_match_brute_force() {
         let mesh = floor_grid(5, 0.0);
-        let bvh = Bvh::new(&mesh);
+        let hierarchy = BoundingVolumeHierarchy::new(&mesh);
 
         for step in 0..=10 {
             let sideways = ray([-1.0, f64::from(step) * 0.5, 0.0], [1.0, 0.0, 0.0]);
             assert_eq!(
-                bvh.all_hits(&sideways, f64::NEG_INFINITY, f64::INFINITY),
+                hierarchy.all_hits(&sideways, f64::NEG_INFINITY, f64::INFINITY),
                 brute_force(&mesh, &sideways, f64::NEG_INFINITY, f64::INFINITY)
             );
         }
@@ -623,13 +623,13 @@ mod tests {
             vec![[0, 1, 2], [2, 1, 3]],
         )
         .expect("valid mesh");
-        let bvh = Bvh::new(&mesh);
+        let hierarchy = BoundingVolumeHierarchy::new(&mesh);
 
         for step in 0..=10 {
             let offset = f64::from(step) * 0.001;
             let downward = ray([1e6 + offset, 1e6 + 0.005, 1.0], [0.0, 0.0, -1.0]);
             assert_eq!(
-                bvh.all_hits(&downward, 0.0, f64::INFINITY),
+                hierarchy.all_hits(&downward, 0.0, f64::INFINITY),
                 brute_force(&mesh, &downward, 0.0, f64::INFINITY)
             );
         }
@@ -643,9 +643,9 @@ mod tests {
             vec![[0, 1, 2], [0, 1, 2]],
         )
         .expect("valid mesh");
-        let bvh = Bvh::new(&mesh);
+        let hierarchy = BoundingVolumeHierarchy::new(&mesh);
 
-        let hit = bvh
+        let hit = hierarchy
             .first_hit(&ray([0.2, 0.2, 1.0], [0.0, 0.0, -1.0]), 0.0, f64::INFINITY)
             .expect("the ray hits both copies");
 
@@ -655,10 +655,10 @@ mod tests {
     #[test]
     fn hits_behind_the_origin_count_with_negative_minimum() {
         let mesh = floor_grid(2, 0.0);
-        let bvh = Bvh::new(&mesh);
+        let hierarchy = BoundingVolumeHierarchy::new(&mesh);
         let upward = ray([0.5, 0.25, 3.0], [0.0, 0.0, 1.0]);
 
-        let hit = bvh
+        let hit = hierarchy
             .first_hit(&upward, -10.0, 10.0)
             .expect("the floor is 3 mm behind the origin");
 
@@ -677,10 +677,10 @@ mod tests {
     #[test]
     fn padding_grows_with_coordinate_magnitudes() {
         let mesh = floor_grid(2, 0.0);
-        let bvh = Bvh::new(&mesh);
+        let hierarchy = BoundingVolumeHierarchy::new(&mesh);
 
-        let near = bvh.probe(&ray([0.0, 0.0, 1.0], [0.0, 0.0, -1.0])).padding;
-        let far = bvh
+        let near = hierarchy.probe(&ray([0.0, 0.0, 1.0], [0.0, 0.0, -1.0])).padding;
+        let far = hierarchy
             .probe(&ray([0.0, 0.0, 1000.0], [0.0, 0.0, -1.0]))
             .padding;
 

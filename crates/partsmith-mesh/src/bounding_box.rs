@@ -8,23 +8,23 @@ use crate::{Point3, Vector3};
 
 /// Axis-aligned bounding box.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
-pub struct Aabb {
+pub struct BoundingBox {
     /// Smallest x, y and z.
     pub min: Point3,
     /// Largest x, y and z.
     pub max: Point3,
 }
 
-impl Aabb {
+impl BoundingBox {
     /// The box around a set of points, or `None` when the set is empty.
-    pub fn from_points<I: IntoIterator<Item = Point3>>(points: I) -> Option<Aabb> {
+    pub fn from_points<I: IntoIterator<Item = Point3>>(points: I) -> Option<BoundingBox> {
         let mut points = points.into_iter();
         let first = points.next()?;
-        let start = Aabb {
+        let start = BoundingBox {
             min: first,
             max: first,
         };
-        Some(points.fold(start, Aabb::including))
+        Some(points.fold(start, BoundingBox::including))
     }
 
     /// `max - min` per axis.
@@ -39,21 +39,21 @@ impl Aabb {
     }
 
     /// The smallest box containing both.
-    pub fn union(&self, other: &Aabb) -> Aabb {
-        Aabb {
+    pub fn union(&self, other: &BoundingBox) -> BoundingBox {
+        BoundingBox {
             min: [0, 1, 2].map(|axis| self.min[axis].min(other.min[axis])),
             max: [0, 1, 2].map(|axis| self.max[axis].max(other.max[axis])),
         }
     }
 
     /// True when the closed boxes share at least one point.
-    pub fn intersects(&self, other: &Aabb) -> bool {
+    pub fn intersects(&self, other: &BoundingBox) -> bool {
         (0..3).all(|axis| self.min[axis] <= other.max[axis] && other.min[axis] <= self.max[axis])
     }
 
     /// The smallest box containing this box and `point`.
-    pub(crate) fn including(self, point: Point3) -> Aabb {
-        Aabb {
+    pub(crate) fn including(self, point: Point3) -> BoundingBox {
+        BoundingBox {
             min: [0, 1, 2].map(|axis| self.min[axis].min(point[axis])),
             max: [0, 1, 2].map(|axis| self.max[axis].max(point[axis])),
         }
@@ -72,8 +72,8 @@ impl Aabb {
 mod tests {
     use super::*;
 
-    fn unit_box() -> Aabb {
-        Aabb {
+    fn unit_box() -> BoundingBox {
+        BoundingBox {
             min: [0.0, 0.0, 0.0],
             max: [1.0, 1.0, 1.0],
         }
@@ -81,7 +81,7 @@ mod tests {
 
     #[test]
     fn box_around_one_point_has_zero_size() {
-        let bounds = Aabb::from_points([[1.0, -2.0, 3.0]]).expect("one point gives a box");
+        let bounds = BoundingBox::from_points([[1.0, -2.0, 3.0]]).expect("one point gives a box");
 
         assert_eq!(bounds.min, [1.0, -2.0, 3.0]);
         assert_eq!(bounds.max, [1.0, -2.0, 3.0]);
@@ -90,7 +90,7 @@ mod tests {
 
     #[test]
     fn box_around_points_takes_extremes_per_axis() {
-        let bounds = Aabb::from_points([[1.0, 5.0, -1.0], [-2.0, 0.0, 4.0], [0.0, 7.0, 0.0]])
+        let bounds = BoundingBox::from_points([[1.0, 5.0, -1.0], [-2.0, 0.0, 4.0], [0.0, 7.0, 0.0]])
             .expect("three points give a box");
 
         assert_eq!(bounds.min, [-2.0, 0.0, -1.0]);
@@ -99,7 +99,7 @@ mod tests {
 
     #[test]
     fn center_of_box_around_origin() {
-        let bounds = Aabb {
+        let bounds = BoundingBox {
             min: [-4.0, -2.0, -6.0],
             max: [4.0, 2.0, 0.0],
         };
@@ -109,7 +109,7 @@ mod tests {
 
     #[test]
     fn center_of_huge_box_does_not_overflow() {
-        let bounds = Aabb {
+        let bounds = BoundingBox {
             min: [f64::MAX, 0.0, 0.0],
             max: [f64::MAX, 0.0, 0.0],
         };
@@ -119,7 +119,7 @@ mod tests {
 
     #[test]
     fn separated_boxes_do_not_intersect() {
-        let other = Aabb {
+        let other = BoundingBox {
             min: [1.5, 0.0, 0.0],
             max: [2.0, 1.0, 1.0],
         };
@@ -130,7 +130,7 @@ mod tests {
 
     #[test]
     fn nested_boxes_intersect() {
-        let inner = Aabb {
+        let inner = BoundingBox {
             min: [0.25, 0.25, 0.25],
             max: [0.5, 0.5, 0.5],
         };
@@ -158,7 +158,7 @@ mod tests {
 
     #[test]
     fn largest_magnitude_looks_at_both_corners() {
-        let bounds = Aabb {
+        let bounds = BoundingBox {
             min: [-7.0, 0.0, 0.0],
             max: [3.0, 2.0, 1.0],
         };

@@ -113,7 +113,9 @@ impl FromStr for Color {
     fn from_str(text: &str) -> Result<Color, ColorError> {
         let rgb = text
             .strip_prefix('#')
-            .filter(|digits| digits.len() == 6 && digits.bytes().all(|byte| byte.is_ascii_hexdigit()))
+            .filter(|digits| {
+                digits.len() == 6 && digits.bytes().all(|byte| byte.is_ascii_hexdigit())
+            })
             .and_then(|digits| u32::from_str_radix(digits, 16).ok())
             .ok_or_else(|| ColorError::Invalid {
                 text: text.to_string(),
@@ -172,9 +174,7 @@ pub enum ColorError {
 }
 
 /// What a body is for when it is printed.
-#[derive(
-    Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema,
-)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum BodyRole {
     /// A printed part (default, omitted when saved).

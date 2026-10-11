@@ -1,7 +1,7 @@
 //! Topology and degeneracy analysis: edge use, orientation and shells.
 
 use crate::mesh::{repeats_index, to_u32};
-use crate::{Aabb, Mesh};
+use crate::{BoundingBox, Mesh};
 
 /// Topology and degeneracy findings for a mesh, by vertex index.
 #[derive(Clone, Debug, PartialEq)]
@@ -61,7 +61,7 @@ pub struct Shell {
     /// Signed volume of the shell's triangles in mm³ (meaningful when closed).
     pub signed_volume: f64,
     /// Bounding box of the shell's vertices.
-    pub bounding_box: Aabb,
+    pub bounding_box: BoundingBox,
 }
 
 impl Mesh {
@@ -151,7 +151,7 @@ impl Mesh {
                         .map(|&triangle| self.triangles()[triangle as usize])
                 };
                 let signed_volume = self.volume_of(shell_corners());
-                let bounding_box = Aabb::from_points(
+                let bounding_box = BoundingBox::from_points(
                     shell_corners().flat_map(|corners| self.corner_points(corners)),
                 )
                 .expect("every shell has at least one triangle");
@@ -467,7 +467,7 @@ mod tests {
         assert_eq!(shells[1].triangles, vec![1]);
         assert_eq!(
             shells[1].bounding_box,
-            Aabb {
+            BoundingBox {
                 min: [5.0, 5.0, 0.0],
                 max: [6.0, 6.0, 0.0]
             }

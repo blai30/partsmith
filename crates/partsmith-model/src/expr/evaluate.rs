@@ -115,7 +115,14 @@ fn evaluate_node(node: &ExprNode, scope: &Scope<'_>) -> Result<Quantity, ExprErr
         } => {
             let left_value = evaluate_node(left, scope)?;
             let right_value = evaluate_node(right, scope)?;
-            binary(*operator, left_value, right_value, node.span, right.span, scope.units)?
+            binary(
+                *operator,
+                left_value,
+                right_value,
+                node.span,
+                right.span,
+                scope.units,
+            )?
         }
         ExprNodeKind::Call {
             function,
@@ -417,4 +424,227 @@ fn unify(
         *operand = operand.promoted(dimension, units);
     }
     Ok(dimension)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Expr;
+
+    fn evaluate_in(
+        units: Units,
+        source: &str,
+        context: &dyn EvaluationContext,
+    ) -> Result<Quantity, ExprError> {
+        let parameters = ParameterValues::default();
+        let scope = Scope {
+            units,
+            parameters: &parameters,
+            context,
+        };
+        Expr::new(source).evaluate(&scope, None)
+    }
+
+    fn evaluate_source(source: &str) -> Result<Quantity, ExprError> {
+        evaluate_in(Units::Mm, source, &EmptyContext)
+    }
+
+    fn kind(source: &str) -> ExprErrorKind {
+        evaluate_source(source)
+            .expect_err("the evaluation fails")
+            .kind
+    }
+
+    #[test]
+    fn unify_promotes_every_plain_operand() {
+        let mut operands = [
+            Quantity::plain(1.0),
+            Quantity::length(2.0),
+            Quantity::plain(3.0),
+        ];
+
+        let dimension = unify(
+            &mut operands,
+            MismatchOperation::Min,
+            Span::new(0, 1),
+            Units::Cm,
+        );
+
+        assert_eq!(dimension, Ok(Dimension::LENGTH));
+        assert_eq!(
+            operands,
+            [
+                Quantity::length(10.0),
+                Quantity::length(2.0),
+                Quantity::length(30.0)
+            ]
+        );
+    }
+
+    #[test]
+    fn unify_of_plain_numbers_changes_nothing() {
+        let mut operands = [Quantity::plain(1.0), Quantity::plain(2.0)];
+
+        let dimension = unify(
+            &mut operands,
+            MismatchOperation::Add,
+            Span::new(0, 1),
+            Units::In,
+        );
+
+        assert_eq!(dimension, Ok(Dimension::NONE));
+        assert_eq!(operands, [Quantity::plain(1.0), Quantity::plain(2.0)]);
+    }
+
+    #[test]
+    fn rounding_lengths_uses_document_units() {
+        assert_eq!(
+            rounded(Quantity::length(26.0), f64::round, Units::Cm),
+            Quantity::length(30.0)
+        );
+        assert_eq!(
+            rounded(Quantity::plain(-2.5), f64::ceil, Units::Cm),
+            Quantity::plain(-2.0)
+        );
+    }
+
+    #[test]
+    fn non_finite_context_values_are_rejected() {
+        let context = std::collections::BTreeMap::from([(
+            "printer.x".to_string(),
+            Quantity::length(f64::INFINITY),
+        )]);
+
+        let result = evaluate_in(Units::Mm, "1 + printer.x", &context);
+
+        assert_eq!(
+            result,
+            Err(ExprError::new(ExprErrorKind::NotFinite, Span::new(4, 13)))
+        );
+    }
+
+    #[test]
+    fn promotion_to_the_expected_dimension_must_stay_finite() {
+        let parameters = ParameterValues::default();
+        let scope = Scope {
+            units: Units::M,
+            parameters: &parameters,
+            context: &EmptyContext,
+        };
+
+        let result = Expr::new("1e306").evaluate(&scope, Some(Dimension::VOLUME));
+
+        assert_eq!(
+            result,
+            Err(ExprError::new(ExprErrorKind::NotFinite, Span::new(0, 5)))
+        );
+    }
+
+    #[test]
+    fn powers_scale_angle_exponents() {
+        assert_eq!(
+            evaluate_source("rad ^ 2").map(|quantity| quantity.dimension),
+            Ok(Dimension {
+                length: 0,
+                angle: 2
+            })
+        );
+    }
+
+    #[test]
+    fn a_zero_power_of_a_length_is_plain() {
+        assert_eq!(evaluate_source("(3 mm) ^ 0"), Ok(Quantity::plain(1.0)));
+    }
+
+    #[test]
+    fn fractional_powers_are_checked_before_overflow() {
+        assert_eq!(
+            kind("(mm * rad ^ 2) ^ 20.5"),
+            ExprErrorKind::FractionalDimension {
+                found: Dimension {
+                    length: 1,
+                    angle: 2
+                }
+            }
+        );
+    }
+
+    #[test]
+    fn division_by_negative_zero_is_division_by_zero() {
+        assert_eq!(kind("1 / -0"), ExprErrorKind::DivisionByZero);
+    }
+
+    #[test]
+    fn quotient_dimensions_overflow() {
+        assert_eq!(kind("mm ^ -16 / mm"), ExprErrorKind::DimensionOverflow);
+    }
+
+    #[test]
+    fn square_root_of_negative_zero_is_negative_zero() {
+        let root = evaluate_source("sqrt(-0)").expect("sqrt(-0) is defined");
+
+        assert!(root.value == 0.0 && root.value.is_sign_negative());
+    }
+
+    #[test]
+    fn square_roots_of_angles_need_even_exponents() {
+        assert_eq!(
+            kind("sqrt(1 deg)"),
+            ExprErrorKind::FractionalDimension {
+                found: Dimension::ANGLE
+            }
+        );
+    }
+
+    #[test]
+    fn trigonometry_rejects_areas() {
+        assert_eq!(
+            kind("cos(mm ^ 2)"),
+            ExprErrorKind::ArgumentDimension {
+                function: Function::Cos,
+                expected: Dimension::ANGLE,
+                found: Dimension::AREA
+            }
+        );
+    }
+
+    #[test]
+    fn hand_built_calls_with_the_wrong_count_are_errors() {
+        let call = ExprNode {
+            kind: ExprNodeKind::Call {
+                function: Function::Atan2,
+                arguments: vec![ExprNode {
+                    kind: ExprNodeKind::Pi,
+                    span: Span::new(6, 8),
+                }],
+            },
+            span: Span::new(0, 9),
+        };
+        let parameters = ParameterValues::default();
+        let scope = Scope {
+            units: Units::Mm,
+            parameters: &parameters,
+            context: &EmptyContext,
+        };
+
+        assert_eq!(
+            evaluate(&call, &scope, None),
+            Err(ExprError::new(
+                ExprErrorKind::ArgumentCount {
+                    function: Function::Atan2,
+                    arity: Function::Atan2.arity(),
+                    found: 1
+                },
+                Span::new(0, 9)
+            ))
+        );
+    }
+
+    #[test]
+    fn max_of_mixed_plain_and_lengths_reads_plain_numbers_in_document_units() {
+        assert_eq!(
+            evaluate_in(Units::Cm, "max(1, 5 mm)", &EmptyContext),
+            Ok(Quantity::length(10.0))
+        );
+    }
 }

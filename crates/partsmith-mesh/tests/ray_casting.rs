@@ -3,7 +3,7 @@
 mod common;
 
 use common::{TOLERANCE, assert_close, assert_vector_close, cube, sphere};
-use partsmith_mesh::{Bvh, Mesh, MeshError, Point3, Ray, RayHit, Vector3};
+use partsmith_mesh::{BoundingVolumeHierarchy, Mesh, MeshError, Point3, Ray, RayHit, Vector3};
 use proptest::array::uniform3;
 use proptest::prelude::*;
 use proptest::test_runner::{Config, RngAlgorithm, TestCaseError, TestRng, TestRunner};
@@ -19,8 +19,8 @@ fn ray(origin: Point3, direction: Vector3) -> Ray {
 /// The first hit on `cube(10)` with no lower and no upper distance limit.
 fn first_cube_hit(origin: Point3, direction: Vector3) -> Option<RayHit> {
     let mesh = cube(10.0);
-    let bvh = Bvh::new(&mesh);
-    bvh.first_hit(&ray(origin, direction), 0.0, f64::INFINITY)
+    let hierarchy = BoundingVolumeHierarchy::new(&mesh);
+    hierarchy.first_hit(&ray(origin, direction), 0.0, f64::INFINITY)
 }
 
 #[test]
@@ -36,9 +36,9 @@ fn t067_first_hit_from_above_is_top_face() {
 #[test]
 fn t068_all_hits_are_sorted_by_distance_then_triangle() {
     let mesh = cube(10.0);
-    let bvh = Bvh::new(&mesh);
+    let hierarchy = BoundingVolumeHierarchy::new(&mesh);
 
-    let hits = bvh.all_hits(&ray([5.0, 5.0, 20.0], DOWN), 0.0, f64::INFINITY);
+    let hits = hierarchy.all_hits(&ray([5.0, 5.0, 20.0], DOWN), 0.0, f64::INFINITY);
 
     let triangles: Vec<u32> = hits.iter().map(|hit| hit.triangle).collect();
     assert_eq!(triangles, vec![2, 3, 0, 1]);
@@ -60,27 +60,27 @@ fn t069_hit_reports_barycentric_weights() {
 #[test]
 fn t070_ray_missing_the_mesh_has_no_hits() {
     let mesh = cube(10.0);
-    let bvh = Bvh::new(&mesh);
+    let hierarchy = BoundingVolumeHierarchy::new(&mesh);
     let miss = ray([20.0, 20.0, 20.0], DOWN);
 
-    assert_eq!(bvh.first_hit(&miss, 0.0, f64::INFINITY), None);
-    assert!(bvh.all_hits(&miss, 0.0, f64::INFINITY).is_empty());
+    assert_eq!(hierarchy.first_hit(&miss, 0.0, f64::INFINITY), None);
+    assert!(hierarchy.all_hits(&miss, 0.0, f64::INFINITY).is_empty());
 }
 
 #[test]
 fn t071_hit_beyond_max_distance_is_ignored() {
     let mesh = cube(10.0);
-    let bvh = Bvh::new(&mesh);
+    let hierarchy = BoundingVolumeHierarchy::new(&mesh);
 
-    assert_eq!(bvh.first_hit(&ray([5.0, 5.0, 20.0], DOWN), 0.0, 5.0), None);
+    assert_eq!(hierarchy.first_hit(&ray([5.0, 5.0, 20.0], DOWN), 0.0, 5.0), None);
 }
 
 #[test]
 fn t071_hit_at_max_distance_is_included() {
     let mesh = cube(10.0);
-    let bvh = Bvh::new(&mesh);
+    let hierarchy = BoundingVolumeHierarchy::new(&mesh);
 
-    let hit = bvh
+    let hit = hierarchy
         .first_hit(&ray([5.0, 5.0, 20.0], DOWN), 0.0, 10.0)
         .expect("the range is inclusive");
 
@@ -100,9 +100,9 @@ fn t072_hit_from_inside_is_back_face() {
 #[test]
 fn t073_hits_closer_than_min_distance_are_ignored() {
     let mesh = cube(10.0);
-    let bvh = Bvh::new(&mesh);
+    let hierarchy = BoundingVolumeHierarchy::new(&mesh);
 
-    let hit = bvh
+    let hit = hierarchy
         .first_hit(&ray([2.0, 3.0, 20.0], DOWN), 15.0, f64::INFINITY)
         .expect("the bottom is 20 mm away");
 
@@ -113,9 +113,9 @@ fn t073_hits_closer_than_min_distance_are_ignored() {
 #[test]
 fn t074_ray_in_face_plane_hits_side_edges_only() {
     let mesh = cube(10.0);
-    let bvh = Bvh::new(&mesh);
+    let hierarchy = BoundingVolumeHierarchy::new(&mesh);
 
-    let hits = bvh.all_hits(&ray([-5.0, 5.0, 10.0], [1.0, 0.0, 0.0]), 0.0, f64::INFINITY);
+    let hits = hierarchy.all_hits(&ray([-5.0, 5.0, 10.0], [1.0, 0.0, 0.0]), 0.0, f64::INFINITY);
 
     let triangles: Vec<u32> = hits.iter().map(|hit| hit.triangle).collect();
     assert_eq!(triangles, vec![9, 11]);
@@ -154,31 +154,31 @@ fn ray_keeps_its_origin() {
 }
 
 #[test]
-fn bvh_returns_the_mesh_it_was_built_over() {
+fn hierarchy_returns_the_mesh_it_was_built_over() {
     let mesh = cube(10.0);
-    let bvh = Bvh::new(&mesh);
+    let hierarchy = BoundingVolumeHierarchy::new(&mesh);
 
-    assert!(std::ptr::eq(bvh.mesh(), &mesh));
+    assert!(std::ptr::eq(hierarchy.mesh(), &mesh));
 }
 
 #[test]
 fn nan_distance_bound_yields_no_hits() {
     let mesh = cube(10.0);
-    let bvh = Bvh::new(&mesh);
+    let hierarchy = BoundingVolumeHierarchy::new(&mesh);
     let downward = ray([5.0, 5.0, 20.0], DOWN);
 
-    assert_eq!(bvh.first_hit(&downward, f64::NAN, f64::INFINITY), None);
-    assert!(bvh.all_hits(&downward, 0.0, f64::NAN).is_empty());
+    assert_eq!(hierarchy.first_hit(&downward, f64::NAN, f64::INFINITY), None);
+    assert!(hierarchy.all_hits(&downward, 0.0, f64::NAN).is_empty());
 }
 
 #[test]
 fn inverted_distance_range_yields_no_hits() {
     let mesh = cube(10.0);
-    let bvh = Bvh::new(&mesh);
+    let hierarchy = BoundingVolumeHierarchy::new(&mesh);
     let downward = ray([5.0, 5.0, 20.0], DOWN);
 
-    assert_eq!(bvh.first_hit(&downward, 30.0, 0.0), None);
-    assert!(bvh.all_hits(&downward, 30.0, 0.0).is_empty());
+    assert_eq!(hierarchy.first_hit(&downward, 30.0, 0.0), None);
+    assert!(hierarchy.all_hits(&downward, 30.0, 0.0).is_empty());
 }
 
 /// `first - second`.
@@ -314,9 +314,9 @@ fn distance_range() -> impl Strategy<Value = (f64, f64)> {
 const RAY_SEED: [u8; 32] = *b"partsmith-mesh bvh brute force!!";
 
 #[test]
-fn t076_bvh_matches_brute_force_on_random_rays() {
+fn t076_hierarchy_matches_brute_force_on_random_rays() {
     let mesh = sphere(10.0, 64, 32);
-    let bvh = Bvh::new(&mesh);
+    let hierarchy = BoundingVolumeHierarchy::new(&mesh);
     let config = Config {
         cases: 10_000,
         failure_persistence: None,
@@ -337,10 +337,10 @@ fn t076_bvh_matches_brute_force_on_random_rays() {
                 .map_err(|error| TestCaseError::fail(error.to_string()))?;
             let expected = brute_force_hits(&mesh, &ray, min_distance, max_distance);
 
-            let all_hits = bvh.all_hits(&ray, min_distance, max_distance);
+            let all_hits = hierarchy.all_hits(&ray, min_distance, max_distance);
             check_same_hits(&all_hits, &expected)?;
 
-            let first_hit: Vec<RayHit> = bvh
+            let first_hit: Vec<RayHit> = hierarchy
                 .first_hit(&ray, min_distance, max_distance)
                 .into_iter()
                 .collect();
@@ -362,11 +362,11 @@ proptest! {
         (min_distance, max_distance) in distance_range(),
     ) {
         let empty = Mesh::empty();
-        let bvh = Bvh::new(&empty);
+        let hierarchy = BoundingVolumeHierarchy::new(&empty);
         let ray = Ray::new(origin, direction)
             .map_err(|error| TestCaseError::fail(error.to_string()))?;
 
-        prop_assert_eq!(bvh.first_hit(&ray, min_distance, max_distance), None);
-        prop_assert!(bvh.all_hits(&ray, min_distance, max_distance).is_empty());
+        prop_assert_eq!(hierarchy.first_hit(&ray, min_distance, max_distance), None);
+        prop_assert!(hierarchy.all_hits(&ray, min_distance, max_distance).is_empty());
     }
 }

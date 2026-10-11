@@ -11,5 +11,12 @@ publish = false
 
 [dependencies]
 
+[dev-dependencies]
+partsmith-mesh.workspace = true
+partsmith-model.workspace = true
+partsmith-occt-sys.workspace = true
+pretty_assertions.workspace = true
+zip.workspace = true
+
 [lints]
 workspace = true

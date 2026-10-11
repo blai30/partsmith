@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Viewport backend test page</title>
+  </head>
+  <body>
+    <canvas></canvas>
+    <script type="module">
+      import * as backend from '/src/viewport/backend.ts'
+      import * as camera from '/src/viewport/camera.ts'
+
+      window.partsmithViewport = { backend, camera }
+      document.body.dataset.ready = 'true'
+    </script>
+  </body>
+</html>
