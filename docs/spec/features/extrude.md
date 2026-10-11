@@ -90,7 +90,7 @@ Label `Extrude`, category `create`, icon `extrude`, version 1. Fields in display
 
 ### Python
 
-Dedicated form: `extrude(profile, distance, symmetric=..., reverse=..., through_all=..., op=...)` (python-api.md section 2.7), produced by the `Feature::python` hook with the shared rules of features.md section 3.11:
+Dedicated form: `extrude(profile, distance, regions=..., symmetric=..., reverse=..., through_all=..., op=...)` (python-api.md section 2.7), produced by the `Feature::python` hook with the shared rules of features.md section 3.11:
 
 - `profile`: the sketch's variable, plus `regions=[Region("<key>", "<fp>"), ...]` when the stored regions are not all of the sketch's regions in solved order.
 - `distance` extent: `distance` is `extent.expr`. `symmetric`: the same plus `symmetric=True`. `through_all`: no `distance`, and `through_all=True`.
@@ -225,4 +225,4 @@ Unless stated, bodies are `[b-1]` and the features are `SK-RECT` then `EXT(P-REC
 
 ## Open issues
 
-2. A symmetric extrusion silently ignores `reverse`. The UI should hide Reverse for the symmetric extent.
+1. A symmetric extrusion silently ignores `reverse`. The UI should hide Reverse for the symmetric extent.

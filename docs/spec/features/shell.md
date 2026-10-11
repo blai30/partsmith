@@ -145,4 +145,4 @@ Bodies `[b-1]`.
 ## Open issues
 
 1. Test 5 bounds the suggestion (the true limit is just under 25 mm, half the 50 mm width) instead of fixing it, because the exact point where the kernel's offset stops succeeding is a kernel property.
-2. The rim naming relies on kernel.md section 3.4.9 (removed faces list their rim faces in `modified`), which naming.md open issue 11 asks to verify against OCCT 7.9.3.
+2. The rim naming relies on kernel.md section 3.4.9 (removed faces list their rim faces in `modified`), which naming.md open issue 7 asks to verify against OCCT 7.9.3.

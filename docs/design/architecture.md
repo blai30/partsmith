@@ -8,7 +8,7 @@ All core code is Rust in one Cargo workspace. Arrows point at dependencies.
 
 ```text
 partsmith-model     ids, units, expressions, document recipe, edits and undo log, canonical JSON
-partsmith-mesh      triangle mesh type, metrics, validity, BVH ray queries, planar slicing
+partsmith-mesh      triangle mesh type, metrics, validity, ray queries, planar slicing
 partsmith-naming    -> model             element names, references, fingerprints, resolver
 partsmith-sketch    -> model, naming     sketch entities, constraints, solver, DOF, profile regions
 partsmith-occt-sys  -> mesh              C++ shim over OCCT (cxx) plus a safe Rust facade
@@ -18,7 +18,7 @@ partsmith-recompute -> model, features   dependency graph, dirty tracking, resul
 partsmith-print     -> model, mesh       printer profiles, fit classes, printability checks
 partsmith-io        -> model, mesh, occt-sys
                                          STL, 3MF, OBJ, STEP import and export
-partsmith-protocol  -> model, sketch, naming, print
+partsmith-protocol  -> model, mesh, sketch, naming, print
                                          commands, events, binary framing, JSON Schema
 partsmith-engine    -> everything above  Session: documents, commands, undo, recompute,
                                          tessellation, export, analysis, Python codegen
@@ -173,9 +173,9 @@ The UI and every host talk to the engine through one message protocol.
 
 - `Request { id: u64, command: Command }` in; `Response { id, result }` and unsolicited `Event`s out.
 - Commands cover documents (new, open, save, mark saved, close), edits with labels, parameter rename, undo and redo, rollback, sketch solve and drag (not recorded until committed), tessellation settings, export (STL, 3MF, OBJ, STEP), import, measure, printability analysis and Python export.
-- Events cover document snapshots, per-feature status (ok, warning, error, with messages and repair info; a message can name the params field it is about and suggest a fix), body meshes (each face, edge and vertex with the feature that created it), sketch solve results, and print health.
-- The protocol reuses the core's own data types (documents, edits, sketch results, feature manifests, print reports), so they reach the UI typed. Only feature params and their schemas travel as generic JSON.
-- Wire format: a binary frame `PSM1`, a little-endian `u32` header length, a UTF-8 JSON header, padding to 8 bytes, then raw buffers (positions `f32`, normals `f32`, indices `u32`, element ids `u32`). The header lists each buffer's offset, length and element type. The web worker transfers the buffers as `ArrayBuffer`s; Tauri returns the frame as a binary IPC response.
+- Events cover document snapshots, per-feature status (ok, warning, error, with messages and repair info; a message can name the params field it is about and suggest a fix), body meshes with per-element display ids, sketch solve results, datum planes, and print health. Element queries (listing, picking) describe each face, edge and vertex with the feature that created it, so the UI never parses element names.
+- The protocol reuses the core's own data types (documents, edits, sketch results, feature manifests, bounding boxes and tessellation tolerances, print reports), so they reach the UI typed. Only feature params and their schemas travel as generic JSON.
+- Wire format: a binary frame `PSM1`, a little-endian `u32` header length, a UTF-8 JSON header, padding to 8 bytes, then raw buffers (positions `f32`, normals `f32`, indices `u32`, element ids `u32`, file contents `u8`). The header lists each buffer's offset, length and element type. The web worker transfers the buffers as `ArrayBuffer`s; Tauri returns the frame as a binary IPC response.
 - The protocol JSON Schema is generated to `docs/format/protocol.schema.json`. The UI generates its TypeScript types from it. CI fails on drift.
 - `PROTOCOL_VERSION` is bumped on any breaking change.
 

@@ -802,4 +802,4 @@ Release build on the reference desktop (2022 mid-range laptop); web budgets are 
 8. **Spans are UTF-8 byte offsets.** The UI works in UTF-16 code units; the protocol spec must say who converts.
 9. **Unknown functions and units are parse errors; unknown names are evaluation errors.** So `Document::validate` reports `wall(2)` as an invalid expression but `wal` as an unknown parameter.
 10. **No suggestions in messages.** "Did you mean" hints are left for later so that messages stay exact and testable now.
-13. **Number text for the Python API.** The features spec says Python records an `int` or `float` as "the canonical number text". The function for that is `canonical::format_number` (file-format.md), applied to `serde_json::Number::from_f64(value)`.
+11. **Number text for the Python API.** The features spec says Python records an `int` or `float` as "the canonical number text". The function for that is `canonical::format_number` (file-format.md), applied to `serde_json::Number::from_f64(value)`.

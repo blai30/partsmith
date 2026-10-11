@@ -471,7 +471,7 @@ JSON examples:
 {"kind": "face_down", "body": "b-1", "face": {"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,40|a=600|adj=4,4"}}
 "standard"
 {"chord_deviation": 0.05, "angular_deviation": 0.08726646259971647}
-{"severity": "warning", "code": "unknown_printer_profile", "message": "Printer profile \"my-printer\" is not installed, so the default FDM profile is used."}
+{"severity": "warning", "code": "unknown_printer_profile", "message": "Printer profile \"my-printer\" is not installed, so the default FDM profile is used. Install it or pick another printer."}
 {"severity": "error", "code": "fillet_too_large", "message": "Fillet radius 3 mm is too large for the selected edges. The largest radius that works is about 2.3 mm. Try 2.3 mm or less.", "field": "/radius", "suggestion": "2.3 mm"}
 {"name": "9f2c0e5b7a1d4e3f8a6b2c1d0e9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f.step", "data": 0}
 {"name": "model.stl", "media_type": "model/stl", "data": 0}
@@ -610,7 +610,7 @@ Each command below lists its fields (Rust types), a request example, and the res
 
 **Sketch**
 
-17. `solve_sketch {doc, feature: Id, sketch: Option<SketchParams>}`: solves the stored sketch, or the given candidate params in its place, without recording anything. Result `{solution: SketchSolution}`. Emits nothing.
+17. `solve_sketch {doc, feature: Id, candidate: Option<SketchParams>}`: solves the stored sketch, or the `candidate` params in its place, without recording anything. Result `{solution: SketchSolution}`. Emits nothing.
 
 ```json
 {"type": "solve_sketch", "doc": 1, "feature": "f-sk1"}
@@ -710,9 +710,9 @@ pub enum ExportFormat {
     #[serde(rename = "stl")] Stl { binary: bool, per_body: bool },
     /// 3MF with every exported body as an object.
     #[serde(rename = "3mf")] ThreeMf,
-    /// Wavefront OBJ; one file with one object per body, or one file per body.
-    #[serde(rename = "obj")] Obj { per_body: bool },
-    /// STEP AP242 B-rep with body names and colors.
+    /// Wavefront OBJ; one file with one object per body.
+    #[serde(rename = "obj")] Obj,
+    /// STEP AP214 B-rep with body names and colors.
     #[serde(rename = "step")] Step,
 }
 ```
@@ -790,10 +790,23 @@ pub struct SolvedPoint { pub point: PointRef, pub at: Vec2 }
 /// One constraint's state and, for dimensions, its current value.
 pub struct ConstraintState {
     pub id: Id,
-    /// `satisfied`, `redundant`, `conflicting` or `unsatisfied`.
+    /// The constraint's state after the solve (engine.md 3.6).
     pub state: ConstraintSolveState,
     /// Measured value in mm or radians (dimensional constraints only).
     pub value: Option<f64>,
+}
+
+/// State of one constraint, for constraint glyph coloring.
+#[serde(rename_all = "snake_case")]
+pub enum ConstraintSolveState {
+    /// Holds in the solved geometry.
+    Satisfied,
+    /// Listed in `SolveResult::redundant`.
+    Redundant,
+    /// Listed in `SolveResult::conflicting`.
+    Conflicting,
+    /// Belongs to a component that did not converge.
+    Unsatisfied,
 }
 
 /// A closed region: the reference a profile param stores, plus its area and centroid.
@@ -880,7 +893,7 @@ pub struct FeatureStatus {
     pub repairs: Vec<Repair>,
 }
 
-/// A reference or region that did not resolve uniquely. Mirrors features.md `Repair::Element` and `Repair::Region`.
+/// A reference or region that did not resolve uniquely: the engine's projection of features.md `Repair` (engine.md 3.4).
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Repair {
     /// A face, edge or vertex reference.
@@ -1245,8 +1258,8 @@ Clients choose request ids from 1 to `MAX_SAFE_INTEGER` and may reuse them; the 
 | `invalid_profile` | The print crate rejected a profile | The print crate's validation message |
 | `invalid_orientation` | Matrix not orthonormal with determinant +1 within 1e-9, or `face_down` on a non-planar face | "The orientation is not a rotation." or "Only flat faces can be laid on the bed." |
 | `nothing_to_export` | No body qualifies for export | "There is no visible body with geometry to export." |
-| `export_failed` | The writer or kernel failed | "Export failed: {detail}" |
-| `import_failed` | The STEP file could not be read or has no solids | "The STEP file could not be imported: {detail}" |
+| `export_failed` | The writer or kernel failed | "Export failed. {detail}" (`detail` is the io error's complete sentence, engine.md section 4) |
+| `import_failed` | The STEP file could not be read or has no solids | "Import failed. {detail}" (for example "Import failed. The STEP file contains no solid bodies.") |
 | `invalid_tolerance` | A `TessellationTolerance` value is not finite and positive, or `angular_deviation` exceeds π/2 | "Tessellation tolerances must be positive (angle at most 90 degrees)." |
 
 The full Rust-side variants and the mapping from engine errors are in engine.md section 4.
@@ -1311,8 +1324,8 @@ Rust tests live in `crates/partsmith-protocol/tests/` and `crates/partsmith-wasm
 35. For every command, the `CommandResult` variant with the same `type` string exists, and no other result variants exist.
 36. The set of `Event` type strings equals exactly: `document_changed`, `recomputed`, `sketch_solved`, `datum_plane`, `body_mesh`, `print_health`.
 37. The set of `ErrorCode` strings equals exactly the codes in section 4.
-38. `{"kind":"3mf"}` deserializes as `ExportFormat::ThreeMf`; `{"kind":"stl","binary":false,"per_body":true}` as `Stl { binary: false, per_body: true }`.
-39. `{"kind":"body","body":"b-1"}` and `{"kind":"element","body":"b-1","reference":{"q":"f-box1/top","fp":"plane|n=0,0,1|c=10,15,40|a=600"}}` deserialize as the two `MeasureTarget` variants.
+38. `{"kind":"3mf"}` deserializes as `ExportFormat::ThreeMf`, `{"kind":"obj"}` as `ExportFormat::Obj`, and `{"kind":"stl","binary":false,"per_body":true}` as `Stl { binary: false, per_body: true }`.
+39. `{"kind":"body","body":"b-1"}` and `{"kind":"element","body":"b-1","reference":{"q":"f-box1/top","fp":"plane|n=0,0,1|c=0,0,40|a=600|adj=4,4"}}` deserialize as the two `MeasureTarget` variants.
 40. The three `Orientation` examples in 2.4 (the `face_down` one with its `body`) round-trip through serde unchanged.
 41. Every JSON example in sections 2.3 to 2.7 whose top level is a message validates against `protocol_schema()` (examples of single types validate against their `$defs` entry).
 42. `PROTOCOL_VERSION == 1` and `MAGIC == *b"PSM1"`.
@@ -1360,5 +1373,5 @@ Rust tests live in `crates/partsmith-protocol/tests/` and `crates/partsmith-wasm
 
 ## 7. Open issues
 
-2. **Print health as an event.** Architecture lists print health among events. This spec keeps it an event (`print_health`), emitted only by `analyze_print`, and does not run analysis automatically after edits, so a slow analysis can be superseded in the worker queue instead of blocking modeling. Background analysis with unsolicited events is later.
-7. **Entity drags.** sketch.md's `DragTarget` also allows dragging a whole entity; M1's `drag_sketch` exposes point drags only (what ui.md uses). Entity drags can be added later as an optional field without a version bump.
+1. **Print health as an event.** Architecture lists print health among events. This spec keeps it an event (`print_health`), emitted only by `analyze_print`, and does not run analysis automatically after edits, so a slow analysis can be superseded in the worker queue instead of blocking modeling. Background analysis with unsolicited events is later.
+2. **Entity drags.** sketch.md's `DragTarget` also allows dragging a whole entity; M1's `drag_sketch` exposes point drags only (what ui.md uses). Entity drags can be added later as an optional field without a version bump.

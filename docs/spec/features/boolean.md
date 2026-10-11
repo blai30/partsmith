@@ -154,4 +154,4 @@ Conventions from features.md section 6.1. Bodies `[b-1, b-2, b-3]`. Fixtures:
 
 ## Open issues
 
-1. Intersect with several tools keeps what lies inside every tool, as kernel.md defines `common` (kernel.md open issue 4), while join and cut use the union of the tools. The inspector should say so for intersect.
+1. Intersect with several tools keeps what lies inside every tool, as kernel.md section 3.4.5 defines `common`, while join and cut use the union of the tools. The inspector should say so for intersect.

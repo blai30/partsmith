@@ -55,7 +55,7 @@ partsmith schema [--write | --check] [--out-dir <DIR>] [<NAME>]
 | `-o`, `--output <PATH>` | `export` | Output file, or output directory with `--per-body`. Required. |
 | `--format <FORMAT>` | `export` | `stl`, `3mf`, `obj`, `step` or `py`. Default: from the output extension. |
 | `--body <BODY>` | `export` | Export only this body, by exact id or else exact name. Repeatable. |
-| `--per-body` | `export` | One file per body (STL and OBJ only). |
+| `--per-body` | `export` | One file per body (STL only). |
 | `--ascii` | `export` | ASCII STL (STL only). |
 | `--chord <MM>` | `export` | Chord deviation in mm, positive (mesh formats only). |
 | `--angle <DEGREES>` | `export` | Angular deviation in degrees, greater than 0 and at most 90 (mesh formats only). |
@@ -216,7 +216,7 @@ One line per feature in timeline order: `  <id> <type> <status>`, followed by on
 ### 3.4 `export`
 
 1. Format: `--format`, else the output extension (case-insensitive): `.stl`, `.3mf`, `.obj`, `.step` or `.stp`, `.py`. Neither gives exit 2: `error: Cannot tell the export format from "<path>". Use --format.`
-2. Option checks (exit 2): `--ascii` only with STL; `--per-body` only with STL and OBJ; `--chord`, `--angle` only with mesh formats; `--body`, `--chord`, `--angle`, `--rotate`, `--per-body` and `--ascii` are invalid with `py`. Invalid numbers: `--chord` not finite and positive, `--angle` not in (0, 90].
+2. Option checks (exit 2): `--ascii` only with STL; `--per-body` only with STL; `--chord`, `--angle` only with mesh formats; `--body`, `--chord`, `--angle`, `--rotate`, `--per-body` and `--ascii` are invalid with `py`. Invalid numbers: `--chord` not finite and positive, `--angle` not in (0, 90].
 3. Opens the file with its assets, applies `--printer` as in `rebuild`, and recomputes. If any feature has status `error` and `--allow-errors` is absent, prints `error: <path>: <n> feature(s) failed (<ids, comma-separated>). Fix them or pass --allow-errors to export anyway.` and exits 1.
 4. `--body` values are matched to bodies by exact id, else by exact name. No match: `error: There is no body named or with id "<value>".`; two bodies with that name: `error: Two bodies are named "<value>". Use the body id.`; both exit 1.
 5. Calls `Session::export` (mesh and STEP formats) with `ExportRequest { format, bodies, tolerance, orientation }`, where `tolerance` is present when `--chord` or `--angle` is given (the other value from `Session::tolerance(doc, Standard)`) and `orientation` is present when `--rotate` is given. For `py`, calls `export_python`.
@@ -344,7 +344,7 @@ Tests live in `crates/partsmith-cli/tests/` and run the built binary (`env!("CAR
 41. `partsmith export box.ptsm -o out.step`, then a new document importing it (engine `import_step`), measures volume 24000 within 1e-6 relative.
 42. `partsmith export box.ptsm -o out.py` writes exactly the script of python-api.md section 6, test 1.
 43. `partsmith export box.ptsm -o out.dat` exits 2 with the format message; `--format stl` makes it succeed.
-44. `partsmith export box.ptsm -o out.3mf --ascii` exits 2.
+44. `partsmith export box.ptsm -o out.3mf --ascii` exits 2, and so does `partsmith export two-bodies.ptsm -o parts --per-body --format obj` (OBJ always writes one file with one object per body).
 45. Exporting `fillet.ptsm` with the fillet radius set to `30 mm` (so it fails) exits 1 with a message naming `f-fil1`; adding `--allow-errors` exits 0 and writes the unfilleted box.
 46. `partsmith export circle.ptsm -o coarse.stl --chord 0.5` writes a smaller file than `partsmith export circle.ptsm -o default.stl`; for `box.ptsm` both give 684 bytes, because planar faces do not depend on the chord.
 47. `partsmith export box.ptsm -o missing-dir/out.stl` exits 3.

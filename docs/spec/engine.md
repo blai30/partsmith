@@ -315,7 +315,7 @@ Typed methods convert `Quantity` (model.md) for `evaluate`; `execute` serializes
 
 **Recompute.** After any recipe change, focus change or change of a document's resolved printer profile, the engine runs `partsmith-recompute` on the current recipe with the registry, the evaluation context (parameters and the resolved profile's `printer.*` values) and the stop point (3.5). Recompute is incremental (only dirty features and their transitive dependents run) and sequential in M1. A failing feature records its error and recompute continues (recompute.md).
 
-**Feature status.** `FeatureStatus.status` is `suppressed` for suppressed features, `rolled_back` for the rollback marker feature and every later feature, and, while a focus `F` is set, every feature after `F`; otherwise `error` if the feature failed, `warning` if it built with warnings, and `ok`. The engine passes recompute a `CancelToken` that is never canceled in M1, so recompute's `NotRun` status never occurs. `messages` holds recompute's rendered messages (error first, then warnings), each with `field` from `Message::pointer` and `suggestion` from `Message::suggestion`. `repairs` holds one `Repair` per message with `repair` data: `element` from `Repair::Element` (with its body, and the centroid parsed from the fingerprint when it has one), `region` from `Repair::Region`; `resolution` is `ambiguous` or `missing`.
+**Feature status.** `FeatureStatus.status` is `suppressed` for suppressed features, `rolled_back` for the rollback marker feature and every later feature, and, while a focus `F` is set, every feature after `F`; otherwise `error` if the feature failed, `warning` if it built with warnings, and `ok`. The engine passes recompute a `CancelToken` that is never canceled in M1, so recompute's `NotRun` status never occurs. `messages` holds recompute's rendered messages (error first, then warnings), each with `field` from `Message::pointer` and `suggestion` from `Message::suggestion`. `repairs` holds one `Repair` per message with `repair` data: `element` from `Repair::Element` (with its body, and the centroid parsed from the fingerprint when it has one), `region` from `Repair::Region`; `path` is the repair's `pointer`, and `resolution` is `ambiguous` when the repair's `ambiguous` is true, else `missing`. Candidate names are not sent.
 
 **Parameter values.** Every parameter is evaluated (regardless of rollback) and reported in document order with its value and dimension, or its error message.
 
@@ -426,16 +426,16 @@ The target is resolved at the display state: `{"kind": "body", "body"}` needs an
 1. **State and bodies.** Export uses the model state (3.5). `bodies` entries must exist (`unknown_body`) and have geometry (`body_empty`); duplicates are ignored after their first occurrence. When absent: every body with geometry and `visible: true` whose role is `part`, plus, for 3MF only, visible modifier bodies. No qualifying body gives `nothing_to_export`. Bodies are exported in document order.
 2. **Tolerance.** Mesh formats tessellate with the explicit `tolerance` or the document's `standard` tolerance (3.7). STEP writes the exact B-rep.
 3. **Orientation.** When given, each body is transformed by `T_b` from 3.12 step 6, computed with the document's resolved profile; otherwise bodies stay in model coordinates.
-4. **Writers.** partsmith-io writes the bytes (io.md): STL binary or ASCII; 3MF with one object per body (name, color, material, modifier role); OBJ with one `o` group per body; STEP AP242 with one solid per body, named after the body, with its color.
-5. **Files.** `per_body: false` (and 3MF, STEP): one file named `model.<ext>`. `per_body: true`: one file per body named `<name>.<ext>`, where `<name>` is the body name with every character outside `[A-Za-z0-9 ._-]` replaced by `_` and surrounding spaces trimmed (the body id when that leaves nothing); a repeated name gets ` (2)`, ` (3)` in body order. Extensions and media types: `stl` `model/stl`, `3mf` `model/3mf`, `obj` `model/obj`, `step` `model/step`.
-6. **Warnings.** For mesh formats, each body's mesh validity is checked (mesh.md); every problem adds a `warning` diagnostic naming the body ("Body \"Block\" is not watertight: 2 open edges. Slicers may repair it."). An unknown document printer adds the `unknown_printer_profile` warning. Export never fails because of warnings.
+4. **Writers.** partsmith-io writes the bytes (io.md section 1.4): STL binary or ASCII; 3MF with one object per part body (name, plus color and material as a base material; modifier bodies are left out with io's `modifier_omitted` warning) and a `Title` metadata entry that is the body's name when the export has exactly one body and is omitted otherwise (documents have no title); OBJ with one `o` object per body; STEP AP214 with one product per body, named after the body, with its color.
+5. **Files.** STL with `per_body: false`, 3MF, OBJ and STEP: one file named `model.<ext>`. STL with `per_body: true`: one file per body named `<name>.<ext>`, where `<name>` is the body name with every character outside `[A-Za-z0-9 ._-]` replaced by `_` and surrounding spaces trimmed (the body id when that leaves nothing); a repeated name gets ` (2)`, ` (3)` in body order. Extensions and media types: `stl` `model/stl`, `3mf` `model/3mf`, `obj` `model/obj`, `step` `model/step`.
+6. **Warnings.** For mesh formats, partsmith-io checks each written body's welded mesh (io.md section 3.2), and each `ExportWarning` becomes a `warning` diagnostic with io's code and message unchanged (`open_edges`: "Body \"Block\" is not watertight: 2 open edges. Slicers may repair it."). Degenerate and collapsed triangles are not export warnings: OCCT produces them at poles and degenerated edges, 3MF and OBJ drop them while welding, and slicers ignore them. The print checks report them as `degenerate_triangles` findings (print.md section 3.9.1). An unknown document printer adds the `unknown_printer_profile` warning. Export never fails because of warnings.
 7. **Determinism.** Exporting the same recipe with the same request gives byte-identical files.
 
 ### 3.14 STEP import and assets
 
-- `import_step` reads the bytes with partsmith-io. Unreadable data or a file without solids gives `import_failed` ("The STEP file could not be imported: the file contains no solid bodies.").
+- `import_step` reads the bytes with partsmith-io. Unreadable data or a file without solids gives `import_failed` with the kernel's sentence as its detail ("Import failed. The STEP file contains no solid bodies.", section 4).
 - The asset name is the lowercase hex BLAKE3 hash of the bytes (the `blake3` crate, ADR 0012) followed by `.step`. The bytes are stored in the document's asset store under that name.
-- One body record named `name`, else the STEP product name of the first solid, else `Imported`, with the first solid's color when present; every solid goes into it (features/import.md). The body id, then the feature id, come from `SessionOptions::id_generator`.
+- One body record named `name` when it is given, else the product name of the first solid when it is not empty (io and the kernel return an empty name for a part without one), else `Imported`, with the first solid's color when present; every solid goes into it (features/import.md). The body id, then the feature id, come from `SessionOptions::id_generator`.
 - The edits are: `add_body` at the end of `bodies`; `add_feature` of type `import` with params `{"body": "<id>", "asset": "<name>", "op": "new"}` (features/import.md) at the end of the timeline when the marker is `None`, else at the marker feature's index (so it is active). They are recorded per 3.3. The result has the feature id and the body id.
 - `open_document` accepts assets. Supplied assets that no feature of the loaded document references are ignored. Each referenced one must be named `<64 lowercase hex>.<ext>` and equal the BLAKE3 hash of its bytes with that extension (`asset_mismatch` otherwise); it is stored per document. This lets hosts pass every file of a shared `assets/` folder. A referenced asset that was not supplied makes the `import` feature fail at recompute with `asset_missing` ("The imported file assets/{asset} is missing. Put it next to the document in the assets folder.", features.md).
 - `save_document` returns every stored asset that a feature of the current recipe references (`Dependencies::assets`), sorted by name. Unreferenced assets stay stored, so undo and redo of an import keep working.
@@ -448,7 +448,7 @@ The target is resolved at the display state: `{"kind": "body", "body"}` needs an
 
 ### 3.16 Python export
 
-`export_python` returns the script defined by python-api.md section 3.8 for the current recipe, including uncommitted edits. For each feature the generator calls `Registry::python(record, names)` with a `PythonNames` (features.md 2.10) that supplies the document units and the script variables of bodies, features, sketch entities and parameters; the registry returns the feature's dedicated call from its `Feature::python` hook, else the generic `feature(...)` call (`Registry::python_generic`). The generator owns sketch `with` blocks, variable assignment and appending the `name=`, `suppressed=True` and `id=` keywords. It never fails for a recipe that loads.
+`export_python` returns the script defined by python-api.md section 3.8 for the current recipe, including uncommitted edits. For each feature the generator calls `Registry::python(record, names)` with a `PythonNames` (features.md 2.10) whose seven lookups supply the document units, the script variables of bodies, features, sketch entities and parameters, every region of a sketch in solved order, and the default op of a body at that point of the timeline. The registry returns the feature's dedicated call from its `Feature::python` hook with the `name=`, `suppressed=True` and `id=` keywords already appended, else the generic `feature(...)` call (`Registry::python_generic`), which carries the same keywords. The generator owns only the script layout: part and sketch `with` blocks (the `sketch` type has no hook) and variables; it emits each call unchanged. It never fails for a recipe that loads.
 
 ### 3.17 Caching and memory
 
@@ -539,8 +539,8 @@ pub enum EngineError {
     #[error("{message}")] InvalidOrientation { message: String },
     #[error("Tessellation tolerances must be positive (angle at most 90 degrees).")] InvalidTolerance,
     #[error("There is no visible body with geometry to export.")] NothingToExport,
-    #[error("Export failed: {detail}")] ExportFailed { detail: String },
-    #[error("The STEP file could not be imported: {detail}")] ImportFailed { detail: String },
+    #[error("Export failed. {detail}")] ExportFailed { detail: String },
+    #[error("Import failed. {detail}")] ImportFailed { detail: String },
     #[error("Something went wrong inside Partsmith ({detail}). Save your work and reload. Please report this.")] Internal { detail: String },
 }
 
@@ -551,6 +551,8 @@ impl EngineError {
     pub fn edit_index(&self) -> Option<u32>;
 }
 ```
+
+`ExportFailed` and `ImportFailed` embed a partsmith-io error: `detail` is its `Display` text unchanged (io.md section 4, which passes kernel messages through), always one or more complete sentences ending with a period, so the message reads as a short lead sentence followed by the cause, for example `Export failed. Body "Ghost" has no triangles to export.` and `Import failed. The file is not a valid STEP file.` The engine never lowercases, trims or rewords `detail`.
 
 `code()` maps each variant to the snake_case code of its name (`EditRejected` to `edit_rejected`, `Parse` to `parse_error`, `Expression` to `expression_error`, `Internal` to `internal_error`, `MalformedRequest` to `malformed_request`). `InvalidOrientation` messages are "The orientation is not a rotation." for matrices and "Only flat faces can be laid on the bed." for non-planar faces.
 
@@ -690,20 +692,20 @@ Tests live in `crates/partsmith-engine/tests/`. "Session" means `Session::new(Se
 
 85. `export` of `box.ptsm` as binary STL returns one file named `model.stl`, media type `model/stl`, 684 bytes long (84 + 50 × 12), and no warnings.
 86. Exporting `two-bodies.ptsm` as STL with `per_body` true returns `Block.stl` then `Peg.stl`.
-87. `export` as 3MF returns `model.3mf` whose bytes start with `50 4b 03 04`.
+87. `export` of `box.ptsm` as 3MF returns `model.3mf` whose bytes start with `50 4b 03 04` and whose model part has the line ` <metadata name="Title">Block</metadata>`; exporting `two-bodies.ptsm` as 3MF gives a model part with no `Title` metadata.
 88. Two identical `export` requests (STL, 3MF, OBJ and STEP each) return byte-identical files.
-89. Exporting `box.ptsm` as STEP, then `new_document` and `import_step` with those bytes, returns a result with one `feature` and one `body`; `measure` of that body gives volume 24000 within 1e-6 relative.
+89. Exporting `box.ptsm` as STEP, then `new_document` and `import_step` with those bytes, returns a result with one `feature` and one `body`; the body is named `Block` (the STEP product name); `measure` of that body gives volume 24000 within 1e-6 relative. With `name` `Bracket`, the body is named `Bracket`.
 90. `save_document` after test 89 returns one asset whose name is the BLAKE3 hex of the STEP bytes plus `.step` and whose bytes equal them; reopening the saved text with that asset gives the same volume.
 91. Reopening the saved text of test 89 without the asset succeeds, and `recomputed` reports the import feature as `error` with a message containing `is missing`.
 92. Opening the saved text of test 89 with its asset name paired with the bytes `hello` fails with `asset_mismatch`; opening `box.ptsm` with that same mismatched asset succeeds, because `box.ptsm` does not reference it.
-93. `import_step` with bytes `hello` fails with `import_failed`.
+93. `import_step` with bytes `hello` fails with `import_failed` and message `Import failed. The file is not a valid STEP file.`
 94. `export` on an empty document fails with `nothing_to_export`; `export` with `bodies` [`b-9`] fails with `unknown_body`.
 95. On `two-bodies.ptsm` after `set_rollback` `f-cyl1` (so `f-cyl1` is rolled back), `export` with `bodies` [`b-2`] fails with `body_empty` and message `Body "Peg" has no geometry yet.`
 
 **Python, catalog, determinism, frames**
 
 96. `export_python` of `box.ptsm` returns exactly the script given in python-api.md section 6, test 1.
-97. `feature_catalog` lists exactly the types of features.md 3.13 plus `import`, sorted by type, each with a `manifest` and an object `params_schema`.
+97. `feature_catalog` lists exactly the types of features.md 3.13 (including `import`), sorted by type, each with a `manifest` and an object `params_schema`.
 98. This request sequence, sent through `Session::call` with ids 1 to 13 in two fresh sessions with `SequentialIds`, yields byte-identical response frames: open `fillet.ptsm` (doc 1); `apply_edits` `Change height` to `45 mm`; `begin_transaction` `Edit fillet`; `set_focus` `f-fil1`; `commit_transaction`; open `drag.ptsm` (doc 2); `drag_sketch` doc 2 `e-1.end` to (20, 5); `end_sketch_drag` doc 2 commit true; `measure` doc 1 body `b-1`; `analyze_print` doc 1 `as_modeled`; `export` doc 1 binary STL; `export` doc 1 STEP; `export_python` doc 1.
 99. Running that script with `cache_budget` 0 yields the same response frames as with the default budget.
 100. `close_document` then `open_document` of the same text in one session produces events equal to the first open's events except for `doc` and `mesh_id` values.
@@ -718,12 +720,12 @@ Tests live in `crates/partsmith-engine/tests/`. "Session" means `Session::new(Se
 109. On `conflict.ptsm`, `f-sk1` has status `error` and `sketch_solved` is still emitted for it.
 110. `format` of `box.ptsm` re-indented with 4 spaces returns the canonical fixture text; `format` of the `wedge_v9` document of test 11 keeps that feature's params as loaded; `format` of `{"format": "partsmith",` fails with `parse_error`.
 111. On `box.ptsm`, `tolerance(doc, Standard)` returns chord 0.05 and angle 0.08726646259971647, equal to what `set_tessellation` `standard` returns, and emits nothing.
-112. On `two-bodies.ptsm` with `set_rollback` `f-cyl1`, `import_step` of the STEP bytes of test 89 inserts the `import` feature at index 1 (before `f-cyl1`) with params `asset`, `body` and `op` `new`; the rollback stays `f-cyl1`, the import feature's status is `ok` and `f-cyl1` is `rolled_back`.
+112. On `two-bodies.ptsm` with `set_rollback` `f-cyl1`, `import_step` of the STEP bytes of test 89 inserts the `import` feature at index 1 (before `f-cyl1`) with params `body`, `asset` and `op` `new`, in that order; the rollback stays `f-cyl1`, the import feature's status is `ok` and `f-cyl1` is `rolled_back`.
 
 ## 7. Open issues
 
-3. **Seam edges.** This spec hides seam edges (and unnamed degenerate edges) from display, picking and `list_elements`, matching kernel.md's tessellation, which emits no seam polylines. naming.md still names seams (`edge(f-cyl1/side)`); the reviewer should confirm that no M1 feature needs to reference one (kernel.md already rejects filleting a seam).
-4. **Print analysis mesh.** In display sessions, checks run on the display mesh so the overhang map aligns with it; findings therefore depend slightly on display quality. The CLI and Python always use `standard`.
-7. **Fixture params.** The fixtures are described semantically; their exact JSON depends on features.md and sketch.md params, which test authors must use.
-8. **Reference benchmark part.** `examples/bench/fifty-features/model.ptsm` does not exist yet and must be authored with the examples.
-10. **Sketch and print projections.** The protocol's `SketchSolution` (protocol.md 2.6) and `PrintReport` (protocol.md 2.7) are the contract: 3.6 projects sketch.md's `SolveResult` into the first and 3.12 embeds print.md's `BodyReport` and `HealthSummary` in the second. Changes to sketch.md or print.md types reach the UI through them, so they need the protocol's versioning rules (protocol.md 2.9).
+1. **Seam edges.** This spec hides seam edges (and unnamed degenerate edges) from display, picking and `list_elements`, matching kernel.md's tessellation, which emits no seam polylines. naming.md still names seams (`edge(f-cyl1/side)`); the reviewer should confirm that no M1 feature needs to reference one (kernel.md already rejects filleting a seam).
+2. **Print analysis mesh.** In display sessions, checks run on the display mesh so the overhang map aligns with it; findings therefore depend slightly on display quality. The CLI and Python always use `standard`.
+3. **Fixture params.** The fixtures are described semantically; their exact JSON depends on features.md and sketch.md params, which test authors must use.
+4. **Reference benchmark part.** `examples/bench/fifty-features/model.ptsm` does not exist yet and must be authored with the examples.
+5. **Sketch and print projections.** The protocol's `SketchSolution` (protocol.md 2.6) and `PrintReport` (protocol.md 2.7) are the contract: 3.6 projects sketch.md's `SolveResult` into the first and 3.12 embeds print.md's `BodyReport` and `HealthSummary` in the second. Changes to sketch.md or print.md types reach the UI through them, so they need the protocol's versioning rules (protocol.md 2.9).

@@ -759,5 +759,4 @@ Tests build these meshes through the public API. Unless a test says otherwise, c
 
 ## 7. Open issues
 
-1. **Protocol copies of shared types.** protocol.md defines `Tolerance { chord_deviation, angular_deviation }` and `BoundingBox { min, max }` with the same JSON as `TessellationTolerance` and `BoundingBox` here. Section 1.1 makes the mesh types the shared ones, so the protocol should reuse them (`partsmith-protocol` reaches this crate through `partsmith-print`) instead of defining copies; a protocol type also named `BoundingBox` would clash with this one in the generated schema.
-2. **`WELD_TOLERANCE` duplicates `LINEAR_TOLERANCE`.** `partsmith-mesh` has no dependency on `partsmith-model` (architecture crate graph), so the value `1e-6` is repeated here; a test in `partsmith-print` (which depends on both) asserts they are equal.
+1. **`WELD_TOLERANCE` duplicates `LINEAR_TOLERANCE`.** `partsmith-mesh` has no dependency on `partsmith-model` (architecture crate graph), so the value `1e-6` is repeated here; a test in `partsmith-print` (which depends on both) asserts they are equal.

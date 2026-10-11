@@ -177,5 +177,5 @@ Conventions from features.md section 6.1. `SK-RECT` is the JSON in section 2 (id
 
 ## Open issues
 
-2. A conflicting sketch is an error, so every feature that uses it reports `upstream_failed`. Keeping the last good geometry with a warning would let downstream features build, but would make results depend on history; this spec keeps results a pure function of the document.
-3. The `PlaneFallback` reasons and messages (section 3.5) are defined here because only the sketch feature falls back; features.md section 4.2 lists the variant with its `reason` field.
+1. A conflicting sketch is an error, so every feature that uses it reports `upstream_failed`. Keeping the last good geometry with a warning would let downstream features build, but would make results depend on history; this spec keeps results a pure function of the document.
+2. The `PlaneFallback` reasons and messages (section 3.5) are defined here because only the sketch feature falls back; features.md section 4.2 lists the variant with its `reason` field.

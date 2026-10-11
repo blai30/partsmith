@@ -20,7 +20,7 @@ The crate is pure Rust except for STEP, which it delegates to `partsmith-occt-sy
 
 ### 1.2 Later (not in M1)
 
-- Mesh import: STL, 3MF and OBJ as mesh bodies (technical design section 12). The engine and protocol list mesh import as later, and it needs mesh bodies in the feature pipeline (technical design section 8). The 3MF reader will be the first user of the workspace's `quick-xml`.
+- Mesh import: STL, 3MF and OBJ as mesh bodies (technical design section 12). The engine and protocol list mesh import as later, and it needs mesh bodies in the feature pipeline (technical design section 8). The 3MF reader will need an XML crate, which needs its own ADR (ADR 0012).
 - Slicer project metadata in 3MF: Bambu Studio and OrcaSlicer (`Metadata/model_settings.config`, `Metadata/project_settings.config`) and PrusaSlicer (`Metadata/Slic3r_PE_model.config`), carrying filament or extruder slots and modifier volumes (`negative_part`, `modifier_part`, `support_blocker`, `support_enforcer` in Bambu and Orca; `NegativeVolume`, `ParameterModifier`, `SupportBlocker`, `SupportEnforcer` in PrusaSlicer) attached to the part object they act on, plus per-object settings for settings modifiers.
 - Multi-plate 3MF, thumbnails (`Metadata/thumbnail.png`), build item transforms, instances (copies of one object) and components.
 - Painted per-triangle colors (Materials and Properties extension `colorgroup`, v1.1).
@@ -48,11 +48,11 @@ The crate is pure Rust except for STEP, which it delegates to `partsmith-occt-sy
 | `{"kind": "stl", "binary": true, "per_body": false}` | `write_stl_binary(&all)` |
 | `{"kind": "stl", "binary": true, "per_body": true}` | `write_stl_binary(&[body])` once per body |
 | `{"kind": "stl", "binary": false, ...}` | `write_stl_ascii`, merged or once per body as above |
-| `{"kind": "3mf"}` | `write_3mf(&all, &options)` |
-| `{"kind": "obj"}` | `write_obj(&all)` (see Open issue 10) |
+| `{"kind": "3mf"}` | `write_3mf(&all, &options)`, with `options.title` the body's name when `all` holds one body, else `None` (engine.md section 3.13) |
+| `{"kind": "obj"}` | `write_obj(&all)` |
 | `{"kind": "step"}` | `write_step(&all)` |
 
-The engine turns each `ExportWarning` into a protocol `Diagnostic { severity: warning, code: warning.code.as_str(), message: warning.message }`, and each `IoError` into `export_failed` or `import_failed` (engine.md section 4). `import_step` calls `read_step`.
+The engine turns each `ExportWarning` into a protocol `Diagnostic { severity: warning, code: warning.code.as_str(), message: warning.message }`, and each `IoError` into `export_failed` or `import_failed`, whose messages are `Export failed. {detail}` and `Import failed. {detail}` with this crate's message as `detail`, unchanged (engine.md section 4). `import_step` calls `read_step` and names the new body itself: the request's name, else the first solid's name when it is not empty, else `Imported` (engine.md section 3.14). Degenerate and collapsed triangles are not export warnings (section 3.2); the print checks report them.
 
 ## 2. Public API
 
@@ -175,7 +175,7 @@ pub struct StepExportBody<'a> {
 /// One solid read from a STEP file.
 #[derive(Clone, Debug)]
 pub struct ImportedSolid {
-    /// Name of its part in the file, or `Body <n>` when the file has none (kernel.md section 3.8.1).
+    /// Name of its part in the file, trimmed; empty when the part has none (kernel.md section 3.8.1).
     pub name: String,
     /// Its color in the file, if any.
     pub color: Option<Color>,
@@ -481,7 +481,7 @@ zip::write::SimpleFileOptions::DEFAULT
 `read_step(bytes)`:
 
 1. Calls `partsmith_occt_sys::read_step(bytes)`; a kernel error becomes `IoError::Kernel` (`The file is not a valid STEP file.`, `The STEP file contains no solid bodies.`, kernel.md section 4.3).
-2. Each kernel body becomes an `ImportedSolid` in the same order, with the kernel's name unchanged (already trimmed, `Body <n>` when missing) and its color converted per channel: a NaN channel becomes 0, the value is clamped to `[0, 1]`, then `(c * 255.0).round() as u8`. Kernel warnings are passed through unchanged.
+2. Each kernel body becomes an `ImportedSolid` in the same order, with the kernel's name unchanged (already trimmed, empty when the part has none) and its color converted per channel: a NaN channel becomes 0, the value is clamped to `[0, 1]`, then `(c * 255.0).round() as u8`. Kernel warnings are passed through unchanged.
 3. Shapes are in millimeters whatever unit the file uses (the kernel converts). The order equals the kernel's, so the `import` feature, which reads the same asset through the kernel at recompute, sees the same solids in the same order.
 
 Every 8-bit color survives `read_step(write_step(...))` exactly, because the round trip changes a channel by far less than half of 1/255.
@@ -651,7 +651,7 @@ Tests live in `crates/partsmith-io/tests/` and use only public APIs (this crate,
 53. `write_step` of `BOX` named `Bracket` with color `#3b82f6` returns bytes starting with `ISO-10303-21;`; `read_step` of them returns one solid named `Bracket` with color exactly `Color::new(0x3b, 0x82, 0xf6)`, volume 6000 within 1e-6 relative, and no warnings.
 54. `BOX` named `First` without color and `CYLINDER` named `Second` with `#ff8000` read back in that order with colors `None` and `Some(Color::new(0xff, 0x80, 0x00))`.
 55. The colors `#000000`, `#ffffff`, `#010203`, `#fefdfc`, `#808080` and `#3b82f6` each survive `read_step(write_step(...))` exactly.
-56. A body with an empty name reads back as `Body 1`; a body named `A\nB` reads back as `A_B`.
+56. A body with an empty name reads back as `Body 1` (the display name it was written with); a body named `A\nB` reads back as `A_B`. The bytes of kernel.md test 82 with every `'Body 1'` replaced by `''` read back as one solid with an empty name.
 57. Two `write_step` calls with the same bodies return identical bytes.
 58. `read_step(b"not a step file")` returns `Kernel(_)` with message `The file is not a valid STEP file.`; the empty but valid file of kernel.md test 83 returns `Kernel(_)` with message `The STEP file contains no solid bodies.`; `write_step` of `Shape::empty()` named `Empty` returns `Kernel(_)` with message `Body "Empty" has no solid to export.`
 
@@ -668,11 +668,4 @@ Tests live in `crates/partsmith-io/tests/` and use only public APIs (this crate,
 3. **Default display color.** `DEFAULT_DISPLAY_COLOR` (`#b4b4bc`) copies ui.md's light-theme `body` token. It is a design-system value and needs human review.
 4. **`f32` coordinates in every format** (decision 5). Text formats could carry full `f64` precision instead (about 40% larger files). The reviewer should confirm `f32`.
 5. **Dependency versions and golden bytes.** The pinned zip header values (test 21) and compressed bytes depend on `zip` 9 and its deflate backend (`zlib-rs` through `flate2`). The workspace's `deflate` feature also pulls in `zopfli`, which level 6 never uses; switching the workspace dependency to `deflate-flate2-zlib-rs` would drop it (a dependency change, needs human review).
-6. **STEP schema.** engine.md section 3.13 step 4 and the protocol's `ExportFormat::Step` doc comment say AP242; kernel.md writes AP214 and lists AP242 as later. They should say AP214.
-7. **STEP names on import.** engine.md section 3.14 names the imported body after the request `name`, else the first solid's product name, else `Imported`. The kernel replaces an empty product name with `Body <n>` (and this crate passes names through), so the `Imported` fallback never triggers and an unnamed part arrives as `Body 1`. Suggest the kernel return empty names and let the engine apply its fallback; `ImportedSolid::name` would then document an empty name.
-8. **STEP color space.** Model colors are sRGB. This crate passes `channel / 255` to the kernel; the kernel must write and read those values as sRGB (`Quantity_TOC_sRGB` in OCCT), not as linear RGB, or other CAD programs show different colors. Kernel test 78 checks only the round trip.
-9. **3MF title.** Documents have no title, so the engine has nothing to pass in `ThreeMfOptions::title`. Suggest the body's name when one body is exported, else none, until documents gain a title.
-10. **OBJ per body.** Section 1.4 assumes OBJ is always one file (`{"kind": "obj"}`), but protocol.md command 27 still has `Obj { per_body }` and cli.md allows `--per-body` with OBJ. This crate works either way (per-body files are one `write_obj` call per body); protocol.md, cli.md and engine.md should settle on one.
-11. **Degenerate triangles are not an export warning.** engine.md section 3.13 step 6 says every mesh validity problem adds a warning; this spec excludes degenerate and collapsed triangles (section 3.2) because OCCT produces them at every pole and slicers ignore them. The print checks still report them as info.
-12. **Engine error wrapping.** The engine wraps io messages as `Export failed: {detail}` and `The STEP file could not be imported: {detail}`, which joins two full sentences (`Export failed: Body "Ghost" has no triangles to export.`), and engine.md's example detail (`the file contains no solid bodies.`) does not match the kernel's sentence. engine.md should say how io and kernel messages are embedded.
-13. **Memory for large text exports.** Writers return `Vec<u8>`; an ASCII STL of 1,000,000 triangles is about 200 MB, which the web build may not afford. Streaming writers are later; the UI could steer large exports to binary STL or 3MF.
+6. **Memory for large text exports.** Writers return `Vec<u8>`; an ASCII STL of 1,000,000 triangles is about 200 MB, which the web build may not afford. Streaming writers are later; the UI could steer large exports to binary STL or 3MF.

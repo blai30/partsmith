@@ -1098,7 +1098,7 @@ Tests in this section call `run_only(mesh, profile, ["bed_fit"])` unless they st
 108. The Kossel input example of section 2.2 deserializes as `ProfileInput`, and `serde_json::to_string` of it is `{"id":"kossel","name":"Kossel","technology":"fdm","bed":{"kind":"circle","diameter":170.0,"height":240.0},"nozzle_diameter":0.6,"layer_height":0.3,"fit":{"slip":0.3}}`; `PrinterProfile::try_from` of that value equals `from_json` of the example text.
 109. The first input example of section 2.2 re-serialized as `ProfileInput` has exactly the keys `id`, `name`, `technology`, `layer_height`; input with `"fit": {"slack": 0.3}` and input with `"bed": {"kind": "rectangle", "width": 200, "depth": 200, "height": 200, "x": 1}` fail to deserialize as `ProfileInput`.
 110. A copy of `FDM` with `layer_height = f64::NAN` returns `Err(OutOfRange { field: LayerHeight, .. })` from `to_json()`.
-111. `partsmith_mesh::WELD_TOLERANCE == partsmith_model::LINEAR_TOLERANCE` (mesh.md open issue 2).
+111. `partsmith_mesh::WELD_TOLERANCE == partsmith_model::LINEAR_TOLERANCE` (mesh.md open issue 1).
 
 ## 7. Open issues
 

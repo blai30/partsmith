@@ -795,7 +795,9 @@ JSON form (the extrude manifest, as the host receives it in the protocol's featu
     {"path": "profile", "label": "Profile", "essential": true, "selection": "sketch_region"},
     {"path": "extent.kind", "label": "Extent", "essential": true, "options": [{"value": "distance", "label": "Distance"}, {"value": "symmetric", "label": "Symmetric"}, {"value": "two_sides", "label": "Two sides"}, {"value": "through_all", "label": "Through all"}]},
     {"path": "extent.expr", "label": "Distance", "essential": true, "unit": "length"},
+    {"path": "extent.opposite_expr", "label": "Opposite distance", "essential": true, "unit": "length"},
     {"path": "op", "label": "Operation", "essential": true, "options": [{"value": "new", "label": "New body"}, {"value": "join", "label": "Join"}, {"value": "cut", "label": "Cut"}, {"value": "intersect", "label": "Intersect"}]},
+    {"path": "reverse", "label": "Reverse"},
     {"path": "body", "label": "Body", "selection": "body"}
   ]
 }
@@ -1228,9 +1230,9 @@ Conventions: `id("x")` means `Id::new("x").unwrap()`. Unless a test says otherwi
 ## 7. Open issues
 
 1. **Structural rules are enforced at load.** Architecture lists the validation rules but not which are hard. This spec makes the rules in section 3.6 hard (load fails, `apply` refuses edits that would break them) so that every inverse edit is guaranteed to apply. References, declared ids, expressions and cycles stay soft (reported, tolerated). A file with, for example, a duplicate id after a bad merge will not open in the app until fixed by hand; `partsmith validate` still lists every problem.
-5. **Printer id syntax.** Treated as a label (any non-blank text up to 128 characters without control characters). The print spec may define profile ids more strictly.
-6. **`BodyRole` values.** Architecture says "part (default, omitted) | modifier kinds". This spec names the four modifier kinds from technical design section 11: `negative_volume`, `support_blocker`, `support_enforcer`, `settings_modifier`. The settings themselves come later; the IO spec owns how each exports to 3MF.
-7. **`Units` variant names.** Architecture writes `mm | cm | m | in`; the Rust variants are `Mm`, `Cm`, `M`, `In` with lowercase serialization.
-8. **Normalization of params numbers.** `FeatureRecord::params` stays a public `serde_json::Map` as in architecture, so a record built in code may hold `80.0` as a float while a loaded one holds the integer `80`. `apply` and `load` normalize, `Document::normalize` is public, and the round-trip equality `load(save(doc)) == doc` is stated for normalized documents (file-format.md section 3.8).
-9. **Default undo depth and open transactions.** The default of 1000 matches the engine spec's `undo_limit`. Update edits hold full copies of records, so a long history of large sketch edits costs memory; the engine may lower the limit through `with_max_depth`. The engine's open transactions (edits applied over several commands, then committed) use `UndoLog::record`; coalescing of repeated updates is engine behavior, not part of this crate in M1.
-10. **No reference checks in `apply`.** Removing a body that features use, or a parameter that expressions use, succeeds. The engine and UI decide whether to warn or to offer a cascading change.
+2. **Printer id syntax.** Treated as a label (any non-blank text up to 128 characters without control characters). The print spec may define profile ids more strictly.
+3. **`BodyRole` values.** Architecture says "part (default, omitted) | modifier kinds". This spec names the four modifier kinds from technical design section 11: `negative_volume`, `support_blocker`, `support_enforcer`, `settings_modifier`. The settings themselves come later; the IO spec owns how each exports to 3MF.
+4. **`Units` variant names.** Architecture writes `mm | cm | m | in`; the Rust variants are `Mm`, `Cm`, `M`, `In` with lowercase serialization.
+5. **Normalization of params numbers.** `FeatureRecord::params` stays a public `serde_json::Map` as in architecture, so a record built in code may hold `80.0` as a float while a loaded one holds the integer `80`. `apply` and `load` normalize, `Document::normalize` is public, and the round-trip equality `load(save(doc)) == doc` is stated for normalized documents (file-format.md section 3.8).
+6. **Default undo depth and open transactions.** The default of 1000 matches the engine spec's `undo_limit`. Update edits hold full copies of records, so a long history of large sketch edits costs memory; the engine may lower the limit through `with_max_depth`. The engine's open transactions (edits applied over several commands, then committed) use `UndoLog::record`; coalescing of repeated updates is engine behavior, not part of this crate in M1.
+7. **No reference checks in `apply`.** Removing a body that features use, or a parameter that expressions use, succeeds. The engine and UI decide whether to warn or to offer a cascading change.

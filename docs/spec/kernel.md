@@ -136,7 +136,7 @@ impl Transform {
     pub fn apply_vector(&self, vector: Vector) -> Vector;
 }
 
-/// An RGB color, each component in [0, 1].
+/// An sRGB color, each component in [0, 1] (the encoded sRGB value, not linear light).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Color { pub red: f64, pub green: f64, pub blue: f64 }
 ```
@@ -754,14 +754,14 @@ After every operation that returns a solid result (profiles, sweeps, booleans, f
 `write_step(bodies)`:
 
 1. Requirements: at least one body; every body contains a solid; color components in [0, 1].
-2. Uses `STEPCAFControl_Writer` on an XCAF document with length unit millimeter: one free shape (product) per body, in input order, named `name` (an empty name is written as `Body <n>`, 1-based in input order), with its color set as surface color. Parameters through `DESTEP_Parameters`: schema AP214 IS, unit millimeter, names and colors on. Nothing is read from or written to `Interface_Static`.
+2. Uses `STEPCAFControl_Writer` on an XCAF document with length unit millimeter: one free shape (product) per body, in input order, named `name` (an empty name is written as `Body <n>`, 1-based in input order), with its color set as surface color. Colors are sRGB: the file's `COLOUR_RGB` values are the components as given. OCCT's `Quantity_Color` stores linear RGB, so the shim converts with `Quantity_TOC_sRGB` (never `Quantity_TOC_RGB`) wherever a color enters or leaves OCCT, and other CAD programs show the model's colors. Parameters through `DESTEP_Parameters`: schema AP214 IS, unit millimeter, names and colors on. Nothing is read from or written to `Interface_Static`.
 3. Header, set on the model before writing: `FILE_NAME` name `partsmith`, time stamp `1970-01-01T00:00:00`, author `('')`, organization `('')`, originating system `Partsmith`, authorization `''`; OCCT's default preprocessor version. The output is deterministic: identical input gives identical bytes.
 4. Output is the STEP text as UTF-8 bytes, written to a memory stream (`WriteStream`); no temporary files.
 
 `read_step(bytes)`:
 
 1. Parses from a memory stream (`ReadStream` with `DESTEP_Parameters`, names and colors on) into an XCAF document whose length unit is millimeter, so all coordinates arrive in millimeters whatever the file unit.
-2. Walks the free shapes depth first in document order, applying assembly locations, and returns one `StepBody` per solid in that order. `name` is the name of the nearest labeled ancestor (the part), trimmed; an empty or missing name becomes `Body <n>` (1-based in output order). `color` is the solid's surface color, else its generic color, else its part's surface or generic color, else `None`.
+2. Walks the free shapes depth first in document order, applying assembly locations, and returns one `StepBody` per solid in that order. `name` is the name of the nearest labeled ancestor (the part), trimmed; an empty or missing name stays empty (the engine names the imported body, engine.md section 3.14). `color` is the solid's surface color, else its generic color, else its part's surface or generic color, else `None`; its components are read with `Quantity_Color::Values(Quantity_TOC_sRGB)`, so a color written by `write_step` reads back unchanged.
 3. Each solid is repaired with `ShapeFix_Shape` (precision `LINEAR`). A solid still invalid is kept and adds the warning `Solid <n> is not valid after repair; booleans with it may fail.` Closed shells that are not solids are turned into solids (`BRepBuilderAPI_MakeSolid` plus `ShapeFix_Solid`); open shells, free faces, wires and points are skipped with one warning `Skipped <k> shapes that are not closed solids.`
 4. Bytes that do not parse give `ReadFailed`; a file with no solid gives `EmptyResult`.
 5. Round trip: `read_step(write_step(bodies))` returns the same number of bodies in order, with names and colors preserved and volumes within 1e-6 relative error.
@@ -1056,11 +1056,11 @@ Tessellation (`OPT` is `TessellationTolerance { chord_deviation: 0.01, angular_d
 
 STEP:
 
-78. `write_step(&[StepBody { shape: BOX, name: "Bracket", color: Some(Color { red: 0.231, green: 0.510, blue: 0.965 }) }])` then `read_step`: one body named `Bracket`, color within 1e-6 per component, volume 6000 relative 1e-6, 6 faces, no warnings.
+78. `write_step(&[StepBody { shape: BOX, name: "Bracket", color: Some(Color { red: 0.231, green: 0.510, blue: 0.965 }) }])` then `read_step`: one body named `Bracket`, color within 1e-6 per component, volume 6000 relative 1e-6, 6 faces, no warnings. The STEP text holds the sRGB components unchanged: its `COLOUR_RGB` entity has the values 0.231, 0.51 and 0.965 within 1e-6, not their linear-light conversions.
 79. Two bodies (BOX named `First`, the cylinder named `Second`, no colors) round trip in order with their names, no colors, and volumes relative 1e-6.
 80. Writing the same bodies twice gives byte-identical output; the output contains `'1970-01-01T00:00:00'` and `'Partsmith'`.
 81. Unit conversion: writing a 10 x 10 x 10 box, replacing the text `SI_UNIT(.MILLI.,.METRE.)` with `SI_UNIT($,.METRE.)` in the bytes, and reading gives volume 1e12 relative 1e-6 (the file now says meters).
-82. A body with an empty name is written and read back as `Body 1`.
+82. A body with an empty name is written and read back as `Body 1`. The written bytes with every `'Body 1'` replaced by `''` read back as one body with an empty name.
 83. `read_step(b"not a step file")` fails with `ReadFailed` and user message `The file is not a valid STEP file.`; the following valid but empty file fails with `EmptyResult` and `The STEP file contains no solid bodies.`:
 
 ```text

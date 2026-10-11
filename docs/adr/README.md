@@ -17,5 +17,5 @@ Format: title, status (proposed, accepted, superseded by NNNN), context, decisio
 | [0009](0009-emscripten-c-abi-bridge.md) | Web core as an Emscripten module with a C ABI | Accepted |
 | [0010](0010-unsafe-c-abi-exports-in-partsmith-wasm.md) | `unsafe` on the three C ABI exports of `partsmith-wasm` | Accepted, needs human review |
 | [0011](0011-feature-contract-extensions.md) | Feature contract extensions and manifests in the model crate | Accepted, needs human review |
-| [0012](0012-dependency-log-m1.md) | New dependencies for M1: blake3, zip, quick-xml and faer | Accepted, needs human review |
+| [0012](0012-dependency-log-m1.md) | New dependencies for M1: blake3, zip and faer | Accepted, needs human review |
 | [0013](0013-oxc-tooling-and-theme-stylesheet.md) | oxlint and oxfmt for the UI, and a minimal theme stylesheet | Accepted |

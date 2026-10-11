@@ -479,6 +479,6 @@ Document `DOC-A` (bodies `b-1` named Body 1, `b-2` named Body 2; parameters `{"i
 
 ## Open issues
 
-2. **`NotRun` status.** Protocol's feature states are ok, warning, error, suppressed and rolled back. Cancellation adds `NotRun`; engine.md lists cancellation as later, so the engine never sees it in M1, but the protocol will need it when cancellation ships.
-3. **Failed writers stay providers.** A feature that fails still counts as the provider of the bodies it declares, so downstream keys depend on it even though it changed nothing. This keeps keys a pure function of the timeline at the cost of rebuilding downstream features when a failing feature's params change.
-5. **Test 30** depends on wall-clock waits (50 ms and 100 ms against a 10 s ceiling). The margins are wide, but CI on slow runners may need them scaled.
+1. **`NotRun` status.** Protocol's feature states are ok, warning, error, suppressed and rolled back. Cancellation adds `NotRun`; engine.md lists cancellation as later, so the engine never sees it in M1, but the protocol will need it when cancellation ships.
+2. **Failed writers stay providers.** A feature that fails still counts as the provider of the bodies it declares, so downstream keys depend on it even though it changed nothing. This keeps keys a pure function of the timeline at the cost of rebuilding downstream features when a failing feature's params change.
+3. **Test 30** depends on wall-clock waits (50 ms and 100 ms against a 10 s ceiling). The margins are wide, but CI on slow runners may need them scaled.

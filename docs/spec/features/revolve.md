@@ -85,7 +85,7 @@ Label `Revolve`, category `create`, icon `revolve`, version 1.
 
 ### Python
 
-Dedicated form: `revolve(profile, axis, angle=None, reverse=..., op=...)` (python-api.md section 2.7), produced by the `Feature::python` hook with the shared rules of features.md section 3.11. An omitted angle maps to `{"kind": "full"}` and a given angle to `{"kind": "angle", "expr"}`:
+Dedicated form: `revolve(profile, axis, angle=None, regions=..., reverse=..., op=...)` (python-api.md section 2.7), produced by the `Feature::python` hook with the shared rules of features.md section 3.11. An omitted angle maps to `{"kind": "full"}` and a given angle to `{"kind": "angle", "expr"}`:
 
 - `profile`: as for extrude (the sketch's variable, plus `regions=` when needed).
 - `axis`: `PythonValue::axis` (`Axis.Z`, a sketch line's variable, or `Ref(..., part=...)`).

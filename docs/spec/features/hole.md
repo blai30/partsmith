@@ -151,7 +151,7 @@ feature(
    - Distance extent: L > 0.
    - Tip angle, when set: 0 < tip < 180 deg. With a through-all extent the tip is ignored with an `Ignored { field: "tip_angle", reason: TipAngleThroughAll }` warning.
 3. Direction d: the negated sketch normal (into the material when the sketch sits on an outward face); the sketch normal when `reverse` is true.
-4. For each point, in `points` order: look it up with `SketchResult::point` (unknown: `UnknownEntity { field: "points[i]", noun: point }`) and map it to world p. Build its tool by revolving a half cross-section about the line through p along d (kernel `revolve`, naming.md open issue 10), with curves tagged by role. The half cross-section lies in the plane through p spanned by d and the sketch placement's x_axis, on the side of +x_axis, so the seam placement is deterministic. Its curves:
+4. For each point, in `points` order: look it up with `SketchResult::point` (unknown: `UnknownEntity { field: "points[i]", noun: point }`) and map it to world p. Build its tool by revolving a half cross-section about the line through p along d (kernel `revolve`, naming.md section 3.6.8), with curves tagged by role. The half cross-section lies in the plane through p spanned by d and the sketch placement's x_axis, on the side of +x_axis, so the seam placement is deterministic. Its curves:
    - `entry`: the segment closing the tool on the sketch plane, at the radius of the widest part.
    - Simple: `bore` at radius D/2 from 0 to L.
    - Counterbore: `counterbore` at the head radius from 0 to the counterbore depth, `counterbore-floor` stepping in to D/2, then `bore` to L.
@@ -232,4 +232,4 @@ Bodies `[b-1]`; features `BOX-BELOW`, `SK-PTS`, then the hole, unless stated. Th
 
 ## Open issues
 
-2. Depth is measured to the shoulder (the end of the full-diameter cylinder), with any tip beyond it, as Fusion does by default.
+1. Depth is measured to the shoulder (the end of the full-diameter cylinder), with any tip beyond it, as Fusion does by default.
