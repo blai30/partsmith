@@ -20,7 +20,7 @@ The protocol is the only boundary between the UI (and any other host) and the co
 **Later (not in M1)**
 
 - Unsolicited events (frames with events and no response), for background analysis on desktop.
-- Cancelling a request that is already running (M1 only supersedes queued requests).
+- Canceling a request that is already running (M1 only supersedes queued requests).
 - Delta document updates instead of full snapshots.
 - SharedArrayBuffer transport and multiple core workers.
 - Commands for components, joints, configurations, script features and Pyodide.

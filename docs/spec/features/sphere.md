@@ -1,6 +1,6 @@
 # Feature: sphere
 
-Status: M1 spec. Type name `sphere`. Shared contracts: [features.md](../features.md), primitive placement in features.md section 3.14.
+Status: M1 spec. Type name `sphere`. Shared contracts: [features.md](../features.md), primitive placement in features.md section 3.14. Naming rule: [naming.md](../naming.md) section 3.6.4.
 
 ## 1. Purpose and scope
 
@@ -62,7 +62,7 @@ Label `Sphere`, category `create`, icon `sphere`, version 1.
 
 ### Python
 
-`sphere(id="f-sph1", body="b-1", radius=10, position=[0, 0, 10], op="new")`.
+Dedicated form: `sphere(radius, at=..., part=..., op=...)` (python-api.md section 2.7). Generic form: `feature("sphere", id="f-sph1", body="b-1", radius="10", position=["0", "0", "10"], op="new")`.
 
 ## 3. Behavior
 
@@ -74,7 +74,7 @@ Label `Sphere`, category `create`, icon `sphere`, version 1.
 ### 3.2 Build
 
 1. radius > 0, else `OutOfRange` (`GreaterThan(0)`).
-2. The sphere is centered on the local origin. Its poles lie on the local z-axis (this fixes where the kernel puts the face's seam and poles).
+2. Kernel `make_sphere` centered on the local origin, poles on the local z-axis.
 3. Name the face, then `apply_op`.
 
 ### 3.3 Element names
@@ -88,7 +88,7 @@ Label `Sphere`, category `create`, icon `sphere`, version 1.
 | Condition | Variant | Example message |
 | --- | --- | --- |
 | Radius ≤ 0 | `OutOfRange` | `Radius must be greater than 0 mm, but it is 0 mm. Use a value greater than 0 mm.` |
-| Placement, body and kernel errors | as in [box.md](box.md) section 4 | |
+| Expression, placement, body and kernel errors | as in [box.md](box.md) section 4 | |
 
 ## 5. Performance
 
@@ -103,8 +103,7 @@ Conventions from features.md section 6.1. Bodies `[b-1]`. `CUBE20`: `{"id": "f-b
 3. **Dome on a box.** `CUBE20`, `{"id": "f-sph1", "type": "sphere", "body": "b-1", "radius": "5", "position": ["0", "0", "20"], "op": "join"}`. Expected: volume 8261.799388, 7 faces, bbox [-10,-10,0]-[10,10,25].
 4. **Dimple in a box.** As 3 with op cut. Expected: volume 7738.200612, 7 faces, bbox [-10,-10,0]-[10,10,20].
 5. **Zero radius.** As 1 with `"radius": "0"`. Expected: error `out_of_range`, field `radius`.
-6. **Python.** `Registry::python` of the JSON in section 2 renders `sphere(id="f-sph1", body="b-1", radius=10, position=[0, 0, 10], op="new")`.
-7. **Performance.** Test 1 builds in under 2 ms (desktop, release).
+6. **Performance.** Test 1 builds in under 2 ms (desktop, release).
 
 ## Open issues
 

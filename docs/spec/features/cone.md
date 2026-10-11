@@ -1,6 +1,6 @@
 # Feature: cone
 
-Status: M1 spec. Type name `cone`. Shared contracts: [features.md](../features.md), primitive placement in features.md section 3.14.
+Status: M1 spec. Type name `cone`. Shared contracts: [features.md](../features.md), primitive placement in features.md section 3.14. Naming rule: [naming.md](../naming.md) section 3.6.4.
 
 ## 1. Purpose and scope
 
@@ -69,7 +69,7 @@ Label `Cone`, category `create`, icon `cone`, version 1.
 
 ### Python
 
-`cone(id="f-cone1", body="b-1", bottom_radius=10, top_radius=5, height=10, op="new")`.
+Dedicated form: `cone(bottom_radius, top_radius, height, at=..., part=..., op=...)` (python-api.md section 2.7). Generic form: `feature("cone", id="f-cone1", body="b-1", bottom_radius="10", top_radius="5", height="10", op="new")`.
 
 ## 3. Behavior
 
@@ -81,7 +81,7 @@ Label `Cone`, category `create`, icon `cone`, version 1.
 ### 3.2 Build
 
 1. Checks in order: bottom_radius ≥ 0 and top_radius ≥ 0 (`OutOfRange`, `AtLeast(0)`); not both 0 (`ConeRadiiZero`); height > 0 (`OutOfRange`, `GreaterThan(0)`).
-2. In the local frame the axis is local z; the circle of `bottom_radius` is at z = 0 and the circle of `top_radius` at z = height. A zero radius is a point (apex). Equal radii build a cylinder.
+2. In the local frame the axis is local z; the circle of `bottom_radius` is at z = 0 and the circle of `top_radius` at z = height. A zero radius is a point (apex). With different radii the tool is kernel `make_cone`; with equal radii (within 1e-9 mm) it is kernel `make_cylinder`, because the kernel's cone needs different radii.
 3. Name the faces, then `apply_op`.
 
 ### 3.3 Element names
@@ -99,7 +99,7 @@ Label `Cone`, category `create`, icon `cone`, version 1.
 | A radius < 0 | `OutOfRange` | `Top radius must be at least 0 mm, but it is -1 mm. Use 0 mm or more.` |
 | Both radii 0 | `ConeRadiiZero` | `Cone bottom and top radius cannot both be 0. Give one of them a size.` |
 | Height ≤ 0 | `OutOfRange` | `Height must be greater than 0 mm, but it is 0 mm. Use a value greater than 0 mm.` |
-| Placement, body and kernel errors | as in [box.md](box.md) section 4 | |
+| Expression, placement, body and kernel errors | as in [box.md](box.md) section 4 | |
 
 ## 5. Performance
 
@@ -116,8 +116,7 @@ Conventions from features.md section 6.1. Bodies `[b-1]`. `CONE(r1, r2, h)`: `{"
 5. **Both zero.** `CONE("0", "0", "10")`. Expected: error `cone_radii_zero` rendered `Cone bottom and top radius cannot both be 0. Give one of them a size.`
 6. **Negative radius.** `CONE("10", "-1", "10")`. Expected: error `out_of_range`, field `top_radius`, rendered `Top radius must be at least 0 mm, but it is -1 mm. Use 0 mm or more.`
 7. **Zero height.** `CONE("10", "5", "0")`. Expected: error `out_of_range`, field `height`.
-8. **Python.** `Registry::python` of test 1's record renders `cone(id="f-cone1", body="b-1", bottom_radius=10, top_radius=5, height=10, op="new")`.
-9. **Performance.** Test 1 builds in under 2 ms (desktop, release).
+8. **Performance.** Test 1 builds in under 2 ms (desktop, release).
 
 ## Open issues
 

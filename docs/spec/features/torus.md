@@ -1,6 +1,6 @@
 # Feature: torus
 
-Status: M1 spec. Type name `torus`. Shared contracts: [features.md](../features.md), primitive placement in features.md section 3.14.
+Status: M1 spec. Type name `torus`. Shared contracts: [features.md](../features.md), primitive placement in features.md section 3.14. Naming rule: [naming.md](../naming.md) section 3.6.4.
 
 ## 1. Purpose and scope
 
@@ -65,7 +65,7 @@ Label `Torus`, category `create`, icon `torus`, version 1.
 
 ### Python
 
-`torus(id="f-tor1", body="b-1", major_radius=20, minor_radius=5, op="new")`.
+Dedicated form: `torus(major_radius, minor_radius, at=..., part=..., op=...)` (python-api.md section 2.7). Generic form: `feature("torus", id="f-tor1", body="b-1", major_radius="20", minor_radius="5", op="new")`.
 
 ## 3. Behavior
 
@@ -77,7 +77,7 @@ Label `Torus`, category `create`, icon `torus`, version 1.
 ### 3.2 Build
 
 1. Checks in order: major_radius > 0 (`GreaterThan(0)`); minor_radius > 0 (`GreaterThan(0)`); minor_radius < major_radius (`OutOfRange` on `minor_radius`, `LessThan(major)`, bound name `the ring radius`).
-2. The torus is centered on the local origin with its axis on local z; it spans z in [-minor, minor].
+2. Kernel `make_torus` centered on the local origin with its axis on local z; it spans z in [-minor, minor].
 3. Name the face, then `apply_op`.
 
 ### 3.3 Element names
@@ -93,7 +93,7 @@ Label `Torus`, category `create`, icon `torus`, version 1.
 | Ring radius ≤ 0 | `OutOfRange` | `Ring radius must be greater than 0 mm, but it is 0 mm. Use a value greater than 0 mm.` |
 | Tube radius ≤ 0 | `OutOfRange` | `Tube radius must be greater than 0 mm, but it is 0 mm. Use a value greater than 0 mm.` |
 | Tube not smaller than ring | `OutOfRange` | `Tube radius must be less than the ring radius (20 mm), but it is 20 mm. Use a value less than 20 mm.` |
-| Placement, body and kernel errors | as in [box.md](box.md) section 4 | |
+| Expression, placement, body and kernel errors | as in [box.md](box.md) section 4 | |
 
 ## 5. Performance
 
@@ -108,8 +108,7 @@ Conventions from features.md section 6.1. Bodies `[b-1]`. `TOR`: `{"id": "f-tor1
 3. **On XZ.** `TOR` with `"plane": {"kind": "origin", "plane": "XZ"}`. Expected: bbox [-25,-5,-25]-[25,5,25] (axis along Y).
 4. **Tube as large as the ring.** `TOR` with `"minor_radius": "20"`. Expected: error `out_of_range`, field `minor_radius`, rendered `Tube radius must be less than the ring radius (20 mm), but it is 20 mm. Use a value less than 20 mm.`
 5. **Zero tube.** `TOR` with `"minor_radius": "0"`. Expected: error `out_of_range`, field `minor_radius`, bound `GreaterThan(0)`.
-6. **Python.** `Registry::python` of `TOR` renders `torus(id="f-tor1", body="b-1", major_radius=20, minor_radius=5, op="new")`.
-7. **Performance.** Test 1 builds in under 2 ms (desktop, release).
+6. **Performance.** Test 1 builds in under 2 ms (desktop, release).
 
 ## Open issues
 

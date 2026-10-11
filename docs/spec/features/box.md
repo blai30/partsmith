@@ -1,10 +1,10 @@
 # Feature: box
 
-Status: M1 spec. Type name `box`. Shared contracts: [features.md](../features.md), primitive placement in features.md section 3.14. Why primitives are separate types: features.md section 3.13.
+Status: M1 spec. Type name `box`. Shared contracts: [features.md](../features.md), primitive placement in features.md section 3.14. Why primitives are separate types: features.md section 3.13. Naming rule: [naming.md](../naming.md) section 3.6.4.
 
 ## 1. Purpose and scope
 
-Box makes a rectangular block standing on a plane, centered on the plane origin in x and y, and combines it with a body.
+Box makes a rectangular block standing on a plane, centered on the placement origin in x and y, and combines it with a body.
 
 ### In M1
 
@@ -71,18 +71,7 @@ Label `Box`, category `create`, icon `box`, version 1.
 
 ### Python
 
-`box(id="f-box1", body="b-1", size=[80, 50, 30], op="new")`. With placement:
-
-```python
-box(
-    id="f-box2",
-    body="b-1",
-    size=[10, 10, "5 mm"],
-    plane={"kind": "datum", "feature": "f-dp1"},
-    position=[20, 0, 0],
-    op="cut",
-)
-```
+Dedicated form: `box(length, width, height, at=..., part=..., op=...)` (python-api.md section 2.7). Generic form of the first JSON above: `feature("box", id="f-box1", body="b-1", size=["80", "50", "30"], op="new")`.
 
 ## 3. Behavior
 
@@ -94,8 +83,8 @@ box(
 ### 3.2 Build
 
 1. Each size must be greater than 0, else `OutOfRange` (`GreaterThan(0)`) on `size[i]`.
-2. In the local frame the box spans x in [-sx/2, sx/2], y in [-sy/2, sy/2], z in [0, sz].
-3. Name the faces, then `apply_op`.
+2. In the local frame the box spans x in [-sx/2, sx/2], y in [-sy/2, sy/2], z in [0, sz]: kernel `make_box` (corner-anchored) with the local frame moved by (-sx/2, -sy/2, 0).
+3. Name the faces from the kernel's `PrimitiveFace` roles, then `apply_op`.
 
 ### 3.3 Element names
 
@@ -113,11 +102,12 @@ box(
 | Condition | Variant | Example message |
 | --- | --- | --- |
 | A size ≤ 0 | `OutOfRange` | `Length must be greater than 0 mm, but it is 0 mm. Use a value greater than 0 mm.` |
-| A size is not a length | `WrongDimension` | `Height must be a length, but '5 deg' is an angle. Use a value such as 10 mm.` |
+| Expression or dimension error | `Expression` | `Height: Expected a length, but this expression gives an angle.` |
 | Placement face not flat | `NotPlanar` | `The face selected for Plane is not flat. Pick a flat face, a datum plane or an origin plane.` |
 | Placement face lost | `ReferenceNotFound` | `The face selected for Plane can no longer be found. Re-pick it in the repair panel.` |
+| Placement datum is not a datum | `WrongFeatureType` | `'Sketch 1' is not a datum plane. Pick a datum plane for Plane.` |
 | Body rules | `BodyNotEmpty`, `BodyEmpty`, `EmptyResult`, warning `NoEffect` | features.md sections 3.5 and 4 |
-| Kernel failure | `Kernel { operation: Primitive or Boolean }` | features.md section 4.1 |
+| Kernel failure | `Kernel` | the kernel's message |
 
 ## 5. Performance
 
@@ -133,12 +123,11 @@ Conventions from features.md section 6.1. Bodies `[b-1]` unless stated.
 4. **On a datum.** Features `{"id": "f-dp1", "type": "datum_plane", "base": {"kind": "origin", "plane": "XY"}, "offset": "5"}` and test 1's box with `"plane": {"kind": "datum", "feature": "f-dp1"}`. Expected: bbox [-5,-10,5]-[5,10,35]; dependencies `features == ["f-dp1"]`.
 5. **On a face of another body.** Bodies `[b-1, b-2]`; test 1's box; `{"id": "f-box2", "type": "box", "body": "b-2", "size": ["4", "4", "4"], "plane": {"kind": "face", "body": "b-1", "face": {"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,30|a=200"}}, "op": "new"}`. Expected: b-2 bbox [-2,-2,30]-[2,2,34]; f-box2 dependencies `bodies_read == ["b-1"]`, `bodies_written == ["b-2"]`.
 6. **Zero size.** `"size": ["0", "20", "30"]`. Expected: error `out_of_range`, field `size[0]`, rendered `Length must be greater than 0 mm, but it is 0 mm. Use a value greater than 0 mm.`
-7. **Join overlapping.** `{"id": "f-box1", "type": "box", "body": "b-1", "size": ["10", "10", "10"], "op": "new"}`, `{"id": "f-box2", "type": "box", "body": "b-1", "size": ["10", "10", "10"], "position": ["5", "0", "0"], "op": "join"}`. Expected: volume 1500, 6 faces (coplanar faces merged), bbox [-5,-5,0]-[10,5,10].
+7. **Join overlapping.** `{"id": "f-box1", "type": "box", "body": "b-1", "size": ["10", "10", "10"], "op": "new"}`, `{"id": "f-box2", "type": "box", "body": "b-1", "size": ["10", "10", "10"], "position": ["5", "0", "0"], "op": "join"}`. Expected: volume 1500, 6 faces (coplanar faces merged by the kernel boolean), bbox [-5,-5,0]-[10,5,10].
 8. **Cut a square hole.** `{"id": "f-box1", "type": "box", "body": "b-1", "size": ["40", "40", "10"], "op": "new"}`, `{"id": "f-box2", "type": "box", "body": "b-1", "size": ["10", "10", "20"], "position": ["0", "0", "-5"], "op": "cut"}`. Expected: volume 15000, 10 faces, bbox [-20,-20,0]-[20,20,10].
 9. **Expressions.** Parameters `[{"id": "p-w", "name": "w", "expr": "8 mm"}]`; `"size": ["w", "2 * w", "w / 2"]`. Expected: volume 512, bbox [-4,-8,0]-[4,8,4].
-10. **Python.** `Registry::python` of test 1's box renders `box(id="f-box1", body="b-1", size=[10, 20, 30], op="new")`; of the second JSON in section 2 renders exactly the multi-line Python in section 2.
-11. **Performance.** Test 1 builds in under 2 ms (desktop, release).
+10. **Performance.** Test 1 builds in under 2 ms (desktop, release).
 
 ## Open issues
 
-None beyond features.md.
+1. naming.md section 3.6.4 describes the box as spanning `[0, length]` locally (the kernel's `make_box`); the box feature centers it in x and y, which changes positions, not face roles. The reviewer should align the description.

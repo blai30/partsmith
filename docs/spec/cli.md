@@ -310,7 +310,7 @@ Tests live in `crates/partsmith-cli/tests/` and run the built binary (`env!("CAR
 
 26. `partsmith rebuild box.ptsm` prints exactly the human example of 3.3 and exits 0.
 27. `partsmith rebuild --json box.ptsm` prints exactly the JSON example of 3.3.
-28. `partsmith rebuild --json fillet.ptsm` reports `b-1` volume 23965.663706143592 and area 5163.946891450771 within 1e-6 relative, 7 faces, 15 edges, 10 vertices.
+28. `partsmith rebuild --json fillet.ptsm` reports `b-1` volume 23965.66370614359 and area 5163.946891450772 within 1e-6 relative, 7 faces, 15 edges, 10 vertices.
 29. `partsmith rebuild` of `box.ptsm` with the box length set to `-5 mm` exits 1; its JSON has `f-box1` status `error` and `b-1` with `"empty": true`.
 30. `partsmith rebuild --printer nope box.ptsm` exits 1 with `error: Printer profile "nope" is not installed.`
 31. `partsmith rebuild --checks --json box.ptsm` has `checks.summary.health` `ok`, `checks.summary.label` `Ready to print` and `checks.orientation` `{"kind": "as_modeled"}`.

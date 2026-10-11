@@ -25,7 +25,7 @@ Crate: `partsmith-engine`. Wire shapes are in [protocol.md](protocol.md); Python
 - Parallel recompute of independent branches on desktop (the determinism rules below already apply to it).
 - Persistent `.ptsm-cache/` disk cache.
 - Background print analysis and unsolicited events.
-- Cancelling a running recompute or preview.
+- Canceling a running recompute or preview.
 - Cache eviction policy for off-screen components (components are later).
 - Mesh import, `.scad`, `.FCStd`, `.ptsz`, slicer handoff, auto-orient, arrange.
 - Mass with material density, interference and clearance analysis.
@@ -261,7 +261,7 @@ Typed methods convert `Quantity` (model.md) for `evaluate`; `execute` serializes
 1. Outside a transaction `label` is required (`label_required`); inside one it must be absent (`label_not_allowed`).
 2. The batch is applied to a working copy. For each edit in order: if it adds or updates a feature, the registry validates and canonicalizes the record's params (`invalid_params` with `edit_index`, naming the feature type and id); then `Document::apply` applies it and returns its inverse (`edit_rejected` with `edit_index` and the model's `EditError` message on failure). On any failure the working copy is discarded.
 3. On success the working copy becomes the document, the revision increments once, and the `(edit, inverse)` pairs are recorded: outside a transaction as one new undo entry with `label`; inside a transaction appended to it.
-4. Any new undo entry clears the redo stack. When the undo stack exceeds `undo_limit`, its oldest entry is dropped.
+4. Any new undo entry clears the redo stack. When the undo stack exceeds `undo_limit`, its oldest entry is dropped (the engine uses model.md's `UndoLog::with_max_depth(undo_limit)`; the default 1000 equals `UndoLog::new()`).
 5. An empty `edits` list is valid: outside a transaction it is a no-op that creates no undo entry and does not change the revision; inside a transaction it does nothing.
 6. Any successful recipe change discards every drag state of that document (3.6).
 
@@ -476,9 +476,9 @@ Acceptance tests in this spec, cli.md and python-api.md use these documents, sto
 | --- | --- | --- |
 | `box.ptsm` | Parameter `p-h` named `height`, expression `40 mm`. Body `b-1` "Block". Feature `f-box1`: box primitive in `b-1`, op `new`, `size` expressions `20 mm` (X), `30 mm` (Y) and `height` (Z), on the default plane and `position` (standing on XY, centered on the origin in x and y, features/box.md). | Volume 24000 mm³, area 5200 mm², center of mass (0, 0, 20), bounding box (-10, -15, 0) to (10, 15, 40), 6 faces, 12 edges, 8 vertices; standard tessellation has 12 triangles and 24 mesh vertices |
 | `plate.ptsm` | Body `b-1` "Plate". Sketch `f-sk1` on XY: lines `e-1` (0, 0) to (80, 0), `e-2` (80, 0) to (80, 50), `e-3` (80, 50) to (0, 50), `e-4` (0, 50) to (0, 0), none construction; constraints `c-1` to `c-4` coincident (`e-1.end`, `e-2.start`), (`e-2.end`, `e-3.start`), (`e-3.end`, `e-4.start`), (`e-4.end`, `e-1.start`); `c-5` horizontal `e-1`, `c-6` horizontal `e-3`, `c-7` vertical `e-2`, `c-8` vertical `e-4`. Extrude `f-ext1` of all of the sketch's regions (its single region) by distance expression `10 mm` into `b-1`, op `new`, no other options. | Sketch DOF 4, one region of area 4000 mm² with centroid (40, 25); volume 40000 mm³, area 10600 mm², 6 faces |
-| `fillet.ptsm` | `box.ptsm` plus `f-fil1`: fillet of radius 2 mm in `b-1` on one edge, the reference returned by `list_elements` on `box.ptsm` for the edge `edge(f-box1/front|f-box1/left)` (direction ±Z, centroid (-10, -15, 20)). | Volume 23840 + 40π = 23965.663706143592 mm³, area 5032 + 42π = 5163.946891450771 mm², 7 faces, 15 edges, 10 vertices |
-| `two-bodies.ptsm` | Bodies `b-1` "Block" and `b-2` "Peg". `f-box1` as in `box.ptsm` with a literal height of 40 mm and no parameters. `f-cyl1`: cylinder primitive in `b-2`, op `new`, radius 5 mm, height 10 mm, `position` (50, 0, 0) on the default plane (base center (50, 0, 0), axis +Z). | `b-2` volume 250π = 785.3981633974483 mm³, 3 faces, 2 displayed edges, 2 displayed vertices |
-| `circle.ptsm` | Body `b-1` "Disc". Sketch `f-sk1` on XY: circle `e-1` center (0, 0) radius 5, constraint `c-1` radius of `e-1` = `5 mm`. Extrude `f-ext1` by 10 mm, op `new`. | Volume 785.3981633974483 mm³, area 150π = 471.23889803846896 mm², 3 faces |
+| `fillet.ptsm` | `box.ptsm` plus `f-fil1`: fillet of radius 2 mm in `b-1` on one edge, the reference returned by `list_elements` on `box.ptsm` for the edge `edge(f-box1/front|f-box1/left)` (direction ±Z, centroid (-10, -15, 20)). | Volume 23840 + 40π = 23965.66370614359 mm³, area 5032 + 42π = 5163.946891450772 mm², 7 faces, 15 edges, 10 vertices |
+| `two-bodies.ptsm` | Bodies `b-1` "Block" and `b-2` "Peg". `f-box1` as in `box.ptsm` with a literal height of 40 mm and no parameters. `f-cyl1`: cylinder primitive in `b-2`, op `new`, radius 5 mm, height 10 mm, `position` (50, 0, 0) on the default plane (base center (50, 0, 0), axis +Z). | `b-2` volume 250π = 785.3981633974482 mm³, 3 faces, 2 displayed edges, 2 displayed vertices |
+| `circle.ptsm` | Body `b-1` "Disc". Sketch `f-sk1` on XY: circle `e-1` center (0, 0) radius 5, constraint `c-1` radius of `e-1` = `5 mm`. Extrude `f-ext1` by 10 mm, op `new`. | Volume 785.3981633974482 mm³, area 150π = 471.23889803846896 mm², 3 faces |
 | `drag.ptsm` | Sketch `f-sk1` on XY: line `e-1` (0, 0) to (10, 0); `c-1` fix on `e-1.start`; `c-2` horizontal `e-1`. No bodies. | DOF 1, status `under_constrained` |
 | `conflict.ptsm` | Sketch `f-sk1` on XY: line `e-1` (0, 0) to (10, 0); `c-1` horizontal `e-1`; `c-2` vertical `e-1`; `c-3` fix on `e-1.start`; `c-4` distance between `e-1.start` and `e-1.end` = `10 mm`. | Status `over_constrained`, `conflicting` non-empty and a subset of {`c-1`, `c-2`, `c-4`} |
 | `datum.ptsm` | Datum plane `f-dp1` offset 10 mm from the XY origin plane. | Placement origin (0, 0, 10), x axis (1, 0, 0), normal (0, 0, 1) |
@@ -656,7 +656,7 @@ Tests live in `crates/partsmith-engine/tests/`. "Session" means `Session::new(Se
 69. `measure` of the top and bottom face references returns `distance` 40, `angle` 0, and closest points whose z values are 40 and 0.
 70. `measure` of the top face and the front face (normal (0, -1, 0)) returns `distance` 0 and `angle` π/2 within 1e-12.
 71. `measure` of `edge(f-box1/front|f-box1/top)` returns length 20, centroid (0, -15, 40), `curve` `line` and direction (±1, 0, 0).
-72. `measure` of `fillet.ptsm` `b-1` returns volume 23965.663706143592 and area 5163.946891450771 within 1e-6 relative.
+72. `measure` of `fillet.ptsm` `b-1` returns volume 23965.66370614359 and area 5163.946891450772 within 1e-6 relative.
 73. `measure` with no targets, and with three targets, fails with `invalid_measure`.
 74. `evaluate` of `2 * height` on `box.ptsm` returns 80 with dimension length; `evaluate` of `height + 30 deg` fails with `expression_error`.
 
@@ -703,13 +703,12 @@ Tests live in `crates/partsmith-engine/tests/`. "Session" means `Session::new(Se
 ## 7. Open issues
 
 1. **Recompute capabilities.** The engine needs from partsmith-recompute: a stop point (rollback marker, or a focus feature inclusive), the body states immediately before a given feature and that feature's own output, per-feature status with the JSON Pointer of each unresolved reference, sketch and datum results, parameter values, result hashes for change detection, and a cache shareable across documents. recompute.md must expose these.
-2. **Element data.** Building descriptors needs `ElementInfo` (name, kind, fingerprint, adjacency) plus kernel geometry queries (normal, axis, radius, direction) for every element of a body state. features.md or kernel.md must say which crate exposes them to the engine; the engine must not touch kernel indices beyond mapping tessellation ids.
-3. **Seam edges.** This spec hides seam and degenerate edges from display, picking and `list_elements`. naming.md still names them; the reviewer should confirm that no feature needs to reference a seam edge.
+2. **Element data.** Building descriptors needs, for every element of a body state, its `ElementInfo` (naming.md) and kernel.md's element geometry and topology queries (which exist). Recompute must hand the engine each displayed body state's `Shape` and `NamingMap`, so the engine can map kernel indices to names without storing indices anywhere else.
+3. **Seam edges.** This spec hides seam edges (and unnamed degenerate edges) from display, picking and `list_elements`, matching kernel.md's tessellation, which emits no seam polylines. naming.md still names seams (`edge(f-cyl1/side)`); the reviewer should confirm that no M1 feature needs to reference one (kernel.md already rejects filleting a seam).
 4. **Print analysis mesh.** In display sessions, checks run on the display mesh so the overhang map aligns with it; findings therefore depend slightly on display quality. The CLI and Python always use `standard`.
-5. **Undo limit.** `UndoLog` capacity belongs to model.md; this spec sets the default at 1000 transactions in `SessionOptions`.
-6. **Deterministic id format.** `SequentialIds` (`f-000000000001`) is defined here because Python determinism depends on it; model.md may own the generator, in which case the format must match.
-7. **`import` feature and asset dependencies.** Saving assets relies on the registry's dependency extraction reporting asset names. features.md must define the `import` feature and include assets in `Dependencies`.
-8. **Fixture params.** The fixtures are described semantically; their exact JSON depends on features.md and sketch.md params, which test authors must use.
-9. **Reference benchmark part.** `examples/bench/fifty-features/model.ptsm` does not exist yet and must be authored with the examples.
-10. **Export state versus display state.** Export uses the model state (rollback marker) while interactive queries use the display state (which differs only during a focus). The UI spec should not offer export while a focus transaction is open, or must accept that export ignores the focus.
-11. **Sketch and print projections.** The protocol's `SketchSolution` is projected from sketch.md's `SolveResult` (3.6) and the print report embeds print.md's types (3.12); see protocol.md Open issues 5 and 6.
+5. **Deterministic id format.** model.md defines `DeterministicIdGenerator` (seeded SplitMix64, ids like `f-e220a8397b1d`); this spec adds `SequentialIds` (per-prefix counters, `f-000000000001`) by overriding `IdGenerator::generate`, because readable, stable ids matter for Python scripts and tests. The reviewer decides whether both stay (model.md Open issue 11).
+6. **`import` feature and asset dependencies.** Saving assets relies on the registry's dependency extraction reporting asset names. features.md must define the `import` feature and include assets in `Dependencies`.
+7. **Fixture params.** The fixtures are described semantically; their exact JSON depends on features.md and sketch.md params, which test authors must use.
+8. **Reference benchmark part.** `examples/bench/fifty-features/model.ptsm` does not exist yet and must be authored with the examples.
+9. **Export state versus display state.** Export uses the model state (rollback marker) while interactive queries use the display state (which differs only during a focus). The UI spec should not offer export while a focus transaction is open, or must accept that export ignores the focus.
+10. **Sketch and print projections.** The protocol's `SketchSolution` is projected from sketch.md's `SolveResult` (3.6) and the print report embeds print.md's types (3.12); see protocol.md Open issues 5 and 6.

@@ -1,6 +1,6 @@
 # Feature: cylinder
 
-Status: M1 spec. Type name `cylinder`. Shared contracts: [features.md](../features.md), primitive placement in features.md section 3.14.
+Status: M1 spec. Type name `cylinder`. Shared contracts: [features.md](../features.md), primitive placement in features.md section 3.14. Naming rule: [naming.md](../naming.md) section 3.6.4.
 
 ## 1. Purpose and scope
 
@@ -66,7 +66,7 @@ Label `Cylinder`, category `create`, icon `cylinder`, version 1.
 
 ### Python
 
-`cylinder(id="f-cyl1", body="b-1", radius=5, height=10, op="new")`.
+Dedicated form: `cylinder(radius, height, at=..., part=..., op=...)` (python-api.md section 2.7). Generic form: `feature("cylinder", id="f-cyl1", body="b-1", radius="5", height="10", op="new")`.
 
 ## 3. Behavior
 
@@ -78,7 +78,7 @@ Label `Cylinder`, category `create`, icon `cylinder`, version 1.
 ### 3.2 Build
 
 1. radius > 0 and height > 0, else `OutOfRange` (`GreaterThan(0)`) on that field, in field order.
-2. In the local frame the cylinder has its axis on local z, base circle of `radius` at z = 0, top at z = `height`.
+2. Kernel `make_cylinder` in the local frame: axis on local z, base circle of `radius` at z = 0, top at z = `height`.
 3. Name the faces, then `apply_op`.
 
 ### 3.3 Element names
@@ -95,7 +95,7 @@ Label `Cylinder`, category `create`, icon `cylinder`, version 1.
 | --- | --- | --- |
 | Radius ≤ 0 | `OutOfRange` | `Radius must be greater than 0 mm, but it is 0 mm. Use a value greater than 0 mm.` |
 | Height ≤ 0 | `OutOfRange` | `Height must be greater than 0 mm, but it is -2 mm. Use a value greater than 0 mm.` |
-| Placement, body and kernel errors | as in [box.md](box.md) section 4 | |
+| Expression, placement, body and kernel errors | as in [box.md](box.md) section 4 | |
 
 ## 5. Performance
 
@@ -111,9 +111,8 @@ Conventions from features.md section 6.1. Bodies `[b-1]`. `CYL`: `{"id": "f-cyl1
 4. **Zero radius.** `CYL` with `"radius": "0"`. Expected: error `out_of_range`, field `radius`.
 5. **Negative height.** `CYL` with `"height": "-2"`. Expected: error `out_of_range`, field `height`, rendered `Height must be greater than 0 mm, but it is -2 mm. Use a value greater than 0 mm.`
 6. **Cut a round hole.** `{"id": "f-box1", "type": "box", "body": "b-1", "size": ["40", "40", "10"], "position": ["0", "0", "-10"], "op": "new"}`, `{"id": "f-cyl1", "type": "cylinder", "body": "b-1", "radius": "3", "height": "10", "position": ["0", "0", "-10"], "op": "cut"}`. Expected: volume 15717.256661, 7 faces, bbox [-20,-20,-10]-[20,20,0]; `f-cyl1/side` exists in b-1.
-7. **Python.** `Registry::python` of `CYL` renders `cylinder(id="f-cyl1", body="b-1", radius=5, height=10, op="new")`.
-8. **Performance.** Test 1 builds in under 2 ms (desktop, release).
+7. **Performance.** Test 1 builds in under 2 ms (desktop, release).
 
 ## Open issues
 
-1. Radius rather than diameter matches build123d and the fillet feature; makers often think in diameters, so the inspector may later offer a diameter input that writes `radius` as `d / 2`.
+1. Radius rather than diameter matches build123d, python-api.md and the fillet feature; makers often think in diameters, so the inspector may later offer a diameter input that writes `radius` as `d / 2`.

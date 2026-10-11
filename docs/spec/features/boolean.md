@@ -1,22 +1,22 @@
 # Feature: boolean
 
-Status: M1 spec. Type name `boolean`. Shared contracts: [features.md](../features.md).
+Status: M1 spec. Type name `boolean`. Shared contracts: [features.md](../features.md). Naming rule: [naming.md](../naming.md) section 3.6.9. Kernel operations: [kernel.md](../kernel.md) section 3.4.5.
 
 ## 1. Purpose and scope
 
-Boolean combines a target body with one or more tool bodies: join (union), cut (difference) or intersect. Tools are consumed unless kept.
+Boolean combines a target body with one or more tool bodies: join (union), cut (difference) or intersect (common volume). Tools are consumed unless kept.
 
 ### In M1
 
 - One target, one or more tools, op `join`, `cut` or `intersect`.
-- Tools are combined as their union before the op.
+- Join adds every tool; cut removes the union of the tools; intersect keeps what lies inside the target and every tool.
 - `keep_tools` to leave the tool bodies unchanged.
 
 ### Later
 
 - Per-tool ops in one feature.
 - Booleans with mesh bodies.
-- Booleans that create a new body from the result (use op `new` copies plus a boolean in M1).
+- Booleans that put the result into a new body (use a copy feature with op `new` plus a boolean in M1).
 
 ## 2. Public API
 
@@ -43,11 +43,11 @@ pub struct BooleanParams {
 
 /// The operation of a boolean feature.
 pub enum BooleanOp {
-    /// Target ∪ tools.
+    /// Target ∪ every tool (kernel `fuse`).
     Join,
-    /// Target − tools.
+    /// Target minus the union of the tools (kernel `cut`).
     Cut,
-    /// Target ∩ (union of tools).
+    /// Target ∩ every tool (kernel `common`).
     Intersect,
 }
 ```
@@ -71,7 +71,7 @@ Label `Boolean`, category `modify`, icon `boolean`, version 1.
 
 ### Python
 
-`boolean(id="f-bool1", target="b-1", tools=["b-2", "b-3"], op="cut", keep_tools=True)`.
+Dedicated form: `boolean(tools, op=..., keep_tools=..., part=<target>)` (python-api.md section 2.7). Generic form: `feature("boolean", id="f-bool1", target="b-1", tools=["b-2", "b-3"], op="cut", keep_tools=True)`.
 
 ## 3. Behavior
 
@@ -90,14 +90,13 @@ Label `Boolean`, category `modify`, icon `boolean`, version 1.
 
 1. The target must hold a solid, else `BodyEmpty { use_new: false }`.
 2. Each tool, in order, must hold a solid, else `ToolEmpty { body }`.
-3. The tool shape is the union of the tool bodies' shapes; its naming is the union of their naming maps (names are unique across bodies because they start with the creating feature's id).
-4. `apply_op(ctx, target, op, tool)` with `Join`, `Cut` or `Intersect`, with the shared semantics: `EmptyResult` when nothing is left, `NoEffect` when the volume does not change.
-5. When `keep_tools` is false, each tool gets a `BodyUpdate` with `shape: None`, an empty naming map and change `Clear`, even when the op had no effect.
-6. Updates are returned in `bodies_written` order.
+3. One kernel call with the target and the tool shapes: `fuse`, `cut` or `common` (kernel.md section 3.4.5). The result naming follows the boolean rule over the target map and every tool map. The shared semantics of features.md section 3.5 apply: `EmptyResult` when nothing is left, `NoEffect` when the volume does not change (the target keeps its previous shape and naming).
+4. When `keep_tools` is false, each tool gets a `BodyUpdate` with `shape: None`, an empty naming map and change `Clear`, even when the op had no effect.
+5. Updates are returned in `bodies_written` order.
 
 ### 3.4 Element names
 
-A boolean creates no names. Faces from the target and from the tools keep their names through the boolean's history (modified, split with `#n`, merged, or deleted).
+A boolean creates no names. Faces from the target and from the tools keep their names through the kernel history (modified, split with `#n`, merged, or deleted). With `keep_tools`, a tool body and the target may hold faces with the same name; names are unique per body.
 
 ## 4. Errors and warnings
 
@@ -109,7 +108,7 @@ A boolean creates no names. Faces from the target and from the tools keep their 
 | A tool empty | `ToolEmpty` | `Body 'Body 2' is empty at this point, so it cannot be used as a tool. Pick a body that has a solid.` |
 | Nothing left | `EmptyResult` | features.md section 4.1 |
 | Unknown body | `UnknownBody` (reported by recompute) | `Body 'b-9' does not exist in this document. Pick an existing body for Tool bodies.` |
-| Kernel failure | `Kernel { operation: Boolean }` | `The boolean failed in the geometry kernel (...). Try moving the shapes slightly so faces do not exactly touch.` |
+| Kernel failure | `Kernel` | for example `Cutting failed. Bodies that touch only along an edge or at a point, or faces that almost coincide, often cause this. Move the tool slightly and try again.` |
 | Volume unchanged | warning `NoEffect` | features.md section 4.2 |
 
 ## 5. Performance
@@ -130,19 +129,18 @@ Conventions from features.md section 6.1. Bodies `[b-1, b-2, b-3]`. Fixtures:
 3. **Cut.** `BOX1`, `BOX2`, `BOOL(["b-2"], "cut")`. Expected: b-1 volume 4000, 6 faces, bbox [-10,-10,0]-[0,10,20]; the face at x=0 is named `f-box2/left`; b-2 empty.
 4. **Intersect.** `BOX1`, `BOX2`, `BOOL(["b-2"], "intersect")`. Expected: b-1 volume 4000, 6 faces, bbox [0,-10,0]-[10,10,20].
 5. **Cut with two tools.** `BOX1`, `BOX2`, `BOX3`, `BOOL(["b-2", "b-3"], "cut")`. Expected: b-1 volume 3750, 10 faces, bbox [-10,-10,0]-[0,10,20]; b-2 and b-3 empty.
-6. **Intersect with two tools uses their union.** `BOX1`, `BOX2`, `BOX3`, `BOOL(["b-2", "b-3"], "intersect")`. Expected: b-1 volume 4250, 10 faces, bbox [-5,-10,0]-[10,10,20].
+6. **Intersect with two tools keeps what is inside every tool.** `BOX1`, `BOX2`, `BOX3`, `BOOL(["b-2", "b-3"], "intersect")`. Expected: b-1 volume 250, 6 faces, bbox [0,-5,15]-[5,5,20].
 7. **Tool is the target.** `BOX1`, `BOOL(["b-1"], "join")`. Expected: error `same_body`, field `tools[0]`, rendered `Body 'Body 1' cannot be used twice here. Pick a different body for Tool bodies.`
 8. **Repeated tool.** `BOX1`, `BOX2`, `BOOL(["b-2", "b-2"], "join")`. Expected: error `same_body`, field `tools[1]`.
 9. **Empty tool.** `BOX1`, `BOOL(["b-2"], "join")`. Expected: error `tool_empty` rendered `Body 'Body 2' is empty at this point, so it cannot be used as a tool. Pick a body that has a solid.`; b-1 unchanged.
 10. **Empty target.** `BOX2`, `BOOL(["b-2"], "join")`. Expected: error `body_empty`; b-2 unchanged.
-11. **Disjoint join.** `BOX1`, `BOX2` with `"position": ["50", "0", "0"]`, `BOOL(["b-2"], "join")`. Expected: b-1 volume 16000, 12 faces, bbox [-10,-10,0]-[60,10,20].
+11. **Disjoint join.** `BOX1`, `BOX2` with `"position": ["50", "0", "0"]`, `BOOL(["b-2"], "join")`. Expected: b-1 volume 16000, 12 faces, 2 solids, bbox [-10,-10,0]-[60,10,20].
 12. **Cut that misses.** As 11 with op cut. Expected: warning `no_effect`; b-1 unchanged (volume 8000); b-2 empty.
 13. **Cut everything.** `BOX1`, `{"id": "f-box2", "type": "box", "body": "b-2", "size": ["30", "30", "30"], "position": ["0", "0", "-5"], "op": "new"}`, `BOOL(["b-2"], "cut")`. Expected: error `empty_result`; b-1 and b-2 unchanged.
 14. **No tools.** `BOX1`, `BOOL([], "join")`. Expected: error `empty_selection` rendered `Select at least one body for Tool bodies.`
-15. **Tool names survive.** As 3, then `{"id": "f-fil1", "type": "fillet", "body": "b-1", "edges": [{"q": "edge(f-box1/top|f-box2/left)", "fp": "line|d=0,1,0|c=0,0,20|l=20"}], "radius": "2"}`. Expected: fillet ok; b-1 volume 3982.831853, 7 faces.
-16. **Python.** `Registry::python` of the JSON in section 2 renders `boolean(id="f-bool1", target="b-1", tools=["b-2", "b-3"], op="cut", keep_tools=True)`.
-17. **Performance.** Test 1 builds in under 15 ms (desktop, release).
+15. **Tool names survive.** As 3, then `{"id": "f-fil1", "type": "fillet", "body": "b-1", "edges": [{"q": "edge(f-box1/top|f-box2/left)", "fp": "line|n=0,1,0|c=0,0,20|l=20"}], "radius": "2"}`. Expected: fillet ok; b-1 volume 3982.831853, 7 faces.
+16. **Performance.** Test 1 builds in under 15 ms (desktop, release).
 
 ## Open issues
 
-1. Intersect with several tools uses the union of the tools, consistent with join and cut. Fusion's documentation is ambiguous here; sequential intersection can be added later as its own option if users need it.
+1. Intersect with several tools keeps what lies inside every tool, as kernel.md defines `common` (kernel.md open issue 4), while join and cut use the union of the tools. The inspector should say so for intersect.

@@ -630,10 +630,10 @@ Mapping onto feature params (features/<type>.md). `AxisLike` values become featu
 3. **Parameters.** One line per parameter in document order: `<var> = param("<name>", <expr>, comment="<comment>", id="<id>")`, with `comment` only when set.
 4. **Parts.** One line per body in document order: `<var> = Part("<name>", material=..., color=..., visible=False, role="<role>", id="<id>")`, each keyword only when it differs from its default.
 5. **Timeline blocks.** Each feature has a block part: the body it changes (its `body` param, or `target` for `boolean`) for solid features; for features without a body, the block part of the next feature in the timeline that has a body, or none when there is none. Maximal runs of consecutive features with the same block part become one `with <part var>:` block; features without a block part are emitted at top level.
-6. **Feature statements.** In timeline order, each feature is one statement in the form of the table in 3.5 (sketches are a `with Sketch(...) as <var>:` block containing their entities, then their constraints, in stored order). Positional arguments follow the signature; then keyword arguments in signature order, each only when it differs from its default (`op` per the static rule of 3.3); then `name="<name>"`, `suppressed=True` and `id="<id>"`, in that order, `id` always present. Feature types without a dedicated form, and records whose params do not fit their form (for example invalid params), use the generic form `feature("<type>", <name/suppressed/id keywords>, <param>=<value>, ...)` with every stored param in stored order; a param whose name is not a valid Python identifier, or is a keyword, is passed through a trailing `**{"<name>": <value>}`.
+6. **Feature statements.** In timeline order, each feature is one statement in the form of the table in 3.5 (sketches are a `with Sketch(...) as <var>:` block containing their entities, then their constraints, in stored order, or `pass` when they have neither). Positional arguments follow the signature; then keyword arguments in signature order, each only when it differs from its default (`op` per the static rule of 3.3); then `name="<name>"`, `suppressed=True` and `id="<id>"`, in that order, `id` always present. Feature types without a dedicated form, and records whose params do not fit their form (for example invalid params), use the generic form `feature("<type>", <name/suppressed/id keywords>, <param>=<value>, ...)` with every stored param in stored order; a param whose name is not a valid Python identifier, or is a keyword, is passed through a trailing `**{"<name>": <value>}`.
 7. **Variables.** A feature or sketch entity gets a variable (`<var> = ...`, or `as <var>` for sketches) only when a later statement refers to it; parameters and parts always get one. A name comes from the object's `name` field converted to snake case (lowercase; each run of characters outside `[a-z0-9]` becomes `_`; leading and trailing `_` removed; a result that starts with a digit or has a single character gets the prefix `<kind>_`); objects without a usable name get `<kind>_<n>`, where `<kind>` is `part`, `sketch`, `plane` (datum planes), the feature type for other features, or the entity type for entities (numbered per sketch), and `<n>` counts objects of that kind from 1 in emission order. Parameters use their name. A name that is a Python keyword or soft keyword, is in `partsmith.__all__`, is `doc`, or is already taken gets the first free suffix `_2`, `_3`, ...
 8. **Expressions.** An expression param with source `s` is emitted as: a bare number when `s` is a short canonical number (below); `<number>*<unit>` when `s` is `<short canonical number> <unit>` with exactly one space and `<unit>` one of `mm`, `cm`, `m`, `in`, `deg`, `rad` (emitted as `mm`, `cm`, `meter`, `inch`, `deg`, `rad`); the parameter's variable when `s` equals a parameter name exactly; `s` itself when it matches `printer(\.[A-Za-z_][A-Za-z0-9_]*)+`; otherwise a string literal of `s`. A short canonical number matches `-?(0|[1-9][0-9]*)(\.[0-9]*[1-9])?`, is not `-0`, has at most 15 significant digits, and, when it has a fractional part, has magnitude at least 0.0001. These are exactly the texts that 3.2 renders back unchanged.
-9. **Other values.** In dedicated forms: references are `Ref("<q>", "<fp>")`; body ids become the part's variable; feature ids become the feature's variable; sketch points become `<entity var>.<role>` (or the point entity's variable); regions are `Region("<key>", "<fp>")` with the stored `RegionRef` texts, and `regions=` is emitted only when the stored list differs from all of the sketch's regions (their references, in solved order); placements are `Placement((x, y, z), (x, y, z), (x, y, z))`; `AxisRef` and `PlaneRef` values are `Axis.X`, `Axis.Y`, `Axis.Z`, `Plane.XY`, `Plane.XZ`, `Plane.YZ`, a datum plane's variable, a sketch line's variable, or, for face and edge forms, `Ref("<q>", "<fp>", part=<part var>)`. Raw numbers are written in canonical JSON number form (model.md), which is valid Python, except that raw angles are always written as `<number>*rad`, and in documents whose units are not `mm` raw lengths are written as `<number>*mm`; both are quantity literals, so 3.2's conversion is exact. In the generic form, every param value is written as a Python literal of its stored JSON, without substitutions: objects as `{"k": v}` with `": "` and `", "`, arrays as `[a, b]`, strings per rule 10, numbers in canonical JSON form, `true`, `false`, `null` as `True`, `False`, `None`.
+9. **Other values.** In dedicated forms: references are `Ref("<q>", "<fp>")`, and a list of references with one element is written as that element alone (lists of two or more as `[a, b]`); body ids become the part's variable; feature ids become the feature's variable; sketch points become `<entity var>.<role>` (or the point entity's variable); regions are `Region("<key>", "<fp>")` with the stored `RegionRef` texts, and `regions=` is emitted only when the stored list differs from all of the sketch's regions (their references, in solved order); placements are `Placement((x, y, z), (x, y, z), (x, y, z))`; `AxisRef` and `PlaneRef` values are `Axis.X`, `Axis.Y`, `Axis.Z`, `Plane.XY`, `Plane.XZ`, `Plane.YZ`, a datum plane's variable, a sketch line's variable, or, for face and edge forms, `Ref("<q>", "<fp>", part=<part var>)`. Raw numbers are written in canonical JSON number form (model.md), which is valid Python, except that raw angles are always written as `<number>*rad`, and in documents whose units are not `mm` raw lengths are written as `<number>*mm`; both are quantity literals, so 3.2's conversion is exact. In the generic form, every param value is written as a Python literal of its stored JSON, without substitutions: objects as `{"k": v}` with `": "` and `", "`, arrays as `[a, b]`, strings per rule 10, numbers in canonical JSON form, `true`, `false`, `null` as `True`, `False`, `None`.
 10. **Strings.** Double-quoted; `\` and `"` are escaped with a backslash; `\n`, `\r`, `\t` are written as such; other characters below U+0020 as `\u00XX` (lowercase hex); everything else literally (UTF-8), as in features.md 3.11.
 11. **Line length.** When a statement on one line would exceed 88 characters including indentation (the limit features.md 3.11 uses), it is written with one argument per line, indented 4 spaces more than the statement, each followed by a comma, and the closing parenthesis on its own line at the statement's indentation. Nested calls are not split.
 12. **Rollback.** When `rollback` is set, the last line is `rollback("<feature id>")`.
@@ -757,7 +757,17 @@ with plate:
 ```
 
 3. The round trip of 3.9 holds for `box.ptsm`, `plate.ptsm`, `fillet.ptsm`, `two-bodies.ptsm`, `circle.ptsm`, `drag.ptsm` and `datum.ptsm`.
-4. `export_python` of `fillet.ptsm` contains the line `    fillet(Ref("<q>", "<fp>"), 2*mm, id="f-fil1")` with the stored reference's `q` and `fp`.
+4. `export_python` of `fillet.ptsm` ends with these lines inside `with block:`, where `<q>` and `<fp>` are the stored reference's texts (the one-line form exceeds 88 characters, so rule 11 splits it):
+
+```python
+    box(20*mm, 30*mm, height, id="f-box1")
+    fillet(
+        Ref("<q>", "<fp>"),
+        2*mm,
+        id="f-fil1",
+    )
+```
+
 5. Expression emission for a parameter `x` with source: `40` gives `40`; `2 mm` gives `2*mm`; `1.5 in` gives `1.5*inch`; `10 m` gives `10*meter`; `30 deg` gives `30*deg`; `printer.fit.slip` gives `printer.fit.slip`; `height` (another parameter's name) gives `height`; `2*height + 1` gives `"2*height + 1"`; `0.30` gives `"0.30"`; `-0` gives `"-0"`; `0.00001` gives `"0.00001"`; `2mm` gives `"2mm"`; `0.1` gives `0.1`.
 6. Each emitted parameter line of test 5, run, stores exactly the original source.
 7. A part named `He said "hi"\` is emitted as `Part("He said \"hi\"\\", id="b-1")`.
@@ -767,7 +777,17 @@ with plate:
 11. A document with parts `b-1` named `Base` and `b-2` named `Lid`, and features [`f-a` targeting `b-1`, sketch `f-s`, `f-b` targeting `b-2` using `f-s`, `f-c` targeting `b-1`] emits the blocks `with base:` (`f-a`), `with lid:` (`f-s`, `f-b`), `with base:` (`f-c`), in that order.
 12. A document with rollback `f-box1` ends with the line `rollback("f-box1")`.
 13. A suppressed feature is emitted with `suppressed=True` before `id=`, and a named one with `name="..."` before that.
-14. A sketch on the top face of `box.ptsm` is emitted as `with Sketch(Ref("<q>", "<fp>"), fallback=Placement((...), (...), (...)), id="...") as sketch_1:`.
+14. `box.ptsm` plus a final sketch `f-sk2` on the top face (fallback placement origin (0, 0, 40), x axis (1, 0, 0), normal (0, 0, 1)) holding one point entity `e-p1` at (0, 0) ends with these lines at top level (no later feature targets a body, and nothing refers to the sketch), where `<fp>` is the stored fingerprint text:
+
+```python
+with Sketch(
+    Ref("f-box1/top", "<fp>"),
+    fallback=Placement((0, 0, 40), (1, 0, 0), (0, 0, 1)),
+    id="f-sk2",
+):
+    Point(0, 0, id="e-p1")
+```
+
 15. A document with units `in` emits raw sketch coordinates as `<number>*mm` and round-trips.
 16. `export_python` of the same document twice returns identical strings.
 
@@ -782,12 +802,12 @@ with plate:
 23. `revolve` of a sketch on `Plane.XZ` containing `Rectangle(5, 20, center=(12.5, 10))` about `Axis.Z` (full turn by default) gives volume 2500π = 7853.981633974483; with `angle=90*deg` it gives 625π = 1963.4954084936207.
 24. `box(20, 30, 40)` gives volume 24000 and bounding box (-10, -15, 0) to (10, 15, 40) (standing on XY, centered in x and y); `box(20, 30, 40, position=(5, 0, 0))` moves the bounding box to x from -5 to 15.
 25. `cylinder(5, 10)` gives 250π; `sphere(10)` gives 4000π/3 = 4188.790204786391; `cone(5, 0, 10)` gives 250π/3 = 261.79938779914943; `torus(10, 2)` gives 80π² = 789.5683520871486.
-26. On `box(20, 30, 40)`: `fillet(edges().parallel_to(Axis.Z), 2)` gives 24000 - 640 + 160π = 23862.654824574367.
+26. On `box(20, 30, 40)`: `fillet(edges().parallel_to(Axis.Z), 2)` gives 24000 - 640 + 160π = 23862.654824574365.
 27. On `box(20, 30, 40)`: `chamfer(edges().top(), 1)` gives 24000 - 146/3 = 23951.333333333332.
 28. On `box(20, 30, 40)`: `shell(faces().top(), 2)` gives 24000 - 16 × 26 × 38 = 8192.
-29. On `box(20, 30, 40)`: a sketch on `datum_plane(Plane.XY, offset=40)` with `Point(0, 0)`, then `hole(sketch, 5, 10)`, gives 24000 - 62.5π = 23803.650459150638.
-30. On `box(20, 30, 40)`: a sketch on `Plane.XY` with `Circle(5)`, then `extrude(sketch, through_all=True, op="cut")`, gives 24000 - 1000π = 20858.407346410207.
-31. Part `base` with `box(20, 30, 40)` and part `tool` with `cylinder(5, 50, position=(0, 0, -5))`, then `boolean(tool, part=base)` (op `cut`), gives `base.volume()` 20858.407346410207, and `tool.volume()` raises `EngineError` with code `body_empty`.
+29. On `box(20, 30, 40)`: a sketch on `datum_plane(Plane.XY, offset=40)` with `Point(0, 0)`, then `hole(sketch, 5, 10)`, gives 24000 - 62.5π = 23803.65045915064.
+30. On `box(20, 30, 40)`: a sketch on `Plane.XY` with `Circle(5)`, then `extrude(sketch, through_all=True, op="cut")`, gives 24000 - 1000π = 20858.407346410208.
+31. Part `base` with `box(20, 30, 40)` and part `tool` with `cylinder(5, 50, position=(0, 0, -5))`, then `boolean(tool, part=base)` (op `cut`), gives `base.volume()` 20858.407346410208, and `tool.volume()` raises `EngineError` with code `body_empty`.
 32. `mirror(Plane.YZ)` after `box(20, 30, 40, position=(10, 0, 0))` (x from 0 to 20) gives volume 48000 and bounding box x from -20 to 20.
 33. `linear_pattern(Axis.X, 3, 30)` after `box(20, 30, 40)` gives volume 72000 and bounding box x from -10 to 70.
 34. `circular_pattern(Axis.Z, 4)` after `cylinder(2, 5, position=(10, 0, 0))` gives volume 80π = 251.32741228718345.
