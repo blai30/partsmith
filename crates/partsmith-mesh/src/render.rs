@@ -42,21 +42,28 @@ impl Mesh {
     /// Panics if the mesh needs more than `u32::MAX` render vertices, which takes more than
     /// 1.4 billion triangles.
     pub fn render_buffers(&self) -> RenderBuffers {
+        // Kernel meshes need exactly one render vertex per mesh vertex, so reserve that much.
+        let expected_vertices = self.vertex_count();
+        let normal_capacity = if self.normals().is_some() {
+            3 * expected_vertices
+        } else {
+            0
+        };
         let mut buffers = RenderBuffers {
-            positions: Vec::new(),
-            normals: Vec::new(),
+            positions: Vec::with_capacity(3 * expected_vertices),
+            normals: Vec::with_capacity(normal_capacity),
             indices: Vec::with_capacity(3 * self.triangle_count()),
-            face_ids: Vec::new(),
+            face_ids: Vec::with_capacity(expected_vertices),
             edge_positions: Vec::new(),
             edge_ids: Vec::new(),
             vertex_positions: Vec::with_capacity(3 * self.vertex_markers().len()),
             vertex_ids: Vec::with_capacity(self.vertex_markers().len()),
-            source_vertices: Vec::new(),
+            source_vertices: Vec::with_capacity(expected_vertices),
         };
         // The render vertices copying each mesh vertex form a linked list: the most recent copy,
         // then each copy's predecessor.
         let mut latest_copy: Vec<Option<u32>> = vec![None; self.vertex_count()];
-        let mut previous_copy: Vec<Option<u32>> = Vec::new();
+        let mut previous_copy: Vec<Option<u32>> = Vec::with_capacity(expected_vertices);
         for (corners, &face_id) in self.triangles().iter().zip(self.face_ids()) {
             for vertex in corners.map(|vertex| vertex as usize) {
                 let existing = std::iter::successors(latest_copy[vertex], |&copy| {
@@ -68,9 +75,11 @@ impl Mesh {
                         .expect("render vertex count fits in u32; see the panics section");
                     buffers.source_vertices.push(to_u32(vertex));
                     buffers.face_ids.push(face_id);
-                    buffers.positions.extend(to_f32(self.positions()[vertex]));
+                    buffers
+                        .positions
+                        .extend_from_slice(&to_f32(self.positions()[vertex]));
                     if let Some(normals) = self.normals() {
-                        buffers.normals.extend(to_f32(normals[vertex]));
+                        buffers.normals.extend_from_slice(&to_f32(normals[vertex]));
                     }
                     previous_copy.push(latest_copy[vertex]);
                     latest_copy[vertex] = Some(created);
@@ -81,13 +90,15 @@ impl Mesh {
         }
         for edge in self.edges() {
             for pair in edge.points.windows(2) {
-                buffers.edge_positions.extend(to_f32(pair[0]));
-                buffers.edge_positions.extend(to_f32(pair[1]));
+                buffers.edge_positions.extend_from_slice(&to_f32(pair[0]));
+                buffers.edge_positions.extend_from_slice(&to_f32(pair[1]));
                 buffers.edge_ids.push(edge.edge_id);
             }
         }
         for marker in self.vertex_markers() {
-            buffers.vertex_positions.extend(to_f32(marker.position));
+            buffers
+                .vertex_positions
+                .extend_from_slice(&to_f32(marker.position));
             buffers.vertex_ids.push(marker.vertex_id);
         }
         buffers

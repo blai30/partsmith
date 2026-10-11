@@ -75,24 +75,28 @@ impl Mesh {
     }
 }
 
-/// `2^50`: cells are sized so that cell coordinates stay below this, where `f64` still resolves
-/// fractions of a cell, so the cells a search spans stay few.
-const LARGEST_CELL_COORDINATE: f64 = 1_125_899_906_842_624.0;
+/// Cell coordinates are clamped to `-CELL_LIMIT..=CELL_LIMIT`, so three of them pack into one
+/// `u64` key, and cells are sized so that mesh coordinates stay within that range.
+const CELL_LIMIT: i64 = 1 << 19;
+/// Bits per packed cell coordinate: enough for `0..=2 * CELL_LIMIT`.
+const CELL_BITS: u32 = 21;
 
 /// Weld representatives bucketed in a uniform grid of cubic cells, so finding the
 /// representatives near a vertex only measures the few in nearby cells.
 ///
 /// The result does not depend on the cell size: the cells searched always include every
 /// representative that [`within_tolerance`] accepts, and the lowest-indexed accepted one wins.
+/// That holds for any cell coordinate function that never decreases as the value grows, which
+/// lets [`WeldGrid::cell_coordinate`] use a multiplication and a truncation.
 struct WeldGrid {
     /// The weld distance in millimeters.
     tolerance: f64,
-    /// Edge length of a cell in millimeters, positive (possibly infinite).
-    cell_size: f64,
+    /// Cells per millimeter: the inverse of the cell size, finite and not negative.
+    cells_per_millimeter: f64,
     /// Representative positions, in welded vertex order.
     representatives: Vec<Point3>,
-    /// The most recently added representative of each occupied cell.
-    cell_heads: HashMap<[i64; 3], u32>,
+    /// The most recently added representative of each occupied cell, by packed cell key.
+    cell_heads: HashMap<u64, u32>,
     /// For each representative, the previously added representative in the same cell.
     next_in_cell: Vec<Option<u32>>,
 }
@@ -102,7 +106,7 @@ impl WeldGrid {
     fn new(positions: &[Point3], tolerance: f64) -> WeldGrid {
         WeldGrid {
             tolerance,
-            cell_size: cell_size(positions, tolerance),
+            cells_per_millimeter: cells_per_millimeter(positions, tolerance),
             representatives: Vec::new(),
             cell_heads: HashMap::new(),
             next_in_cell: Vec::new(),
@@ -111,9 +115,9 @@ impl WeldGrid {
 
     /// The lowest-indexed representative within the tolerance of `position`, if any.
     fn lowest_representative_near(&self, position: Point3) -> Option<u32> {
-        // Any accepted representative differs by at most the tolerance per axis (up to one
-        // rounding), so it lies within twice the tolerance, and rounding is monotonic, so its
-        // cell lies between the cells of these bounds.
+        // An accepted representative differs from `position` by at most the tolerance on each
+        // axis, up to one rounding, so it lies within these bounds at twice the tolerance. Cell
+        // coordinates never decrease, so its cell lies between the bounds' cells.
         let reach = 2.0 * self.tolerance;
         let [x_cells, y_cells, z_cells] = [0, 1, 2].map(|axis| {
             let low = (position[axis] - reach).max(f64::MIN);
@@ -124,7 +128,7 @@ impl WeldGrid {
         for x in x_cells {
             for y in y_cells.clone() {
                 for z in z_cells.clone() {
-                    let mut candidate = self.cell_heads.get(&[x, y, z]).copied();
+                    let mut candidate = self.cell_heads.get(&cell_key([x, y, z])).copied();
                     while let Some(representative) = candidate {
                         let near = within_tolerance(
                             self.representatives[representative as usize],
@@ -145,33 +149,47 @@ impl WeldGrid {
     /// Adds `position` as the next representative and returns its welded index.
     fn add_representative(&mut self, position: Point3) -> u32 {
         let index = to_u32(self.representatives.len());
-        let cell = position.map(|coordinate| self.cell_coordinate(coordinate));
+        let cell = cell_key(position.map(|coordinate| self.cell_coordinate(coordinate)));
         self.representatives.push(position);
         self.next_in_cell.push(self.cell_heads.insert(cell, index));
         index
     }
 
-    /// The cell coordinate of a value along one axis. Out-of-range values saturate.
+    /// The cell coordinate of a value along one axis.
+    ///
+    /// Truncation toward zero and clamping never decrease as the value grows, which is all
+    /// correctness needs; truncation makes the cell around zero twice as wide.
     fn cell_coordinate(&self, value: f64) -> i64 {
-        (value / self.cell_size).floor() as i64
+        ((value * self.cells_per_millimeter) as i64).clamp(-CELL_LIMIT, CELL_LIMIT)
     }
 }
 
-/// The cell size for welding `positions` at `tolerance`.
-fn cell_size(positions: &[Point3], tolerance: f64) -> f64 {
-    // At least four tolerances wide, so a search spans at most two or three cells per axis.
+/// Packs three clamped cell coordinates into one key.
+fn cell_key(cell: [i64; 3]) -> u64 {
+    cell.into_iter().fold(0, |key, coordinate| {
+        // Offsetting by the limit makes the coordinate a `CELL_BITS`-bit unsigned number.
+        let field = (coordinate + CELL_LIMIT) as u64;
+        (key << CELL_BITS) | field
+    })
+}
+
+/// Cells per millimeter for welding `positions` at `tolerance`.
+fn cells_per_millimeter(positions: &[Point3], tolerance: f64) -> f64 {
+    let Some(bounds) = Aabb::from_points(positions.iter().copied()) else {
+        return 1.0;
+    };
+    // At least four tolerances wide, so a search spans at most three cells per axis.
     let tolerance_size = 4.0 * tolerance;
     // About one vertex per cell for a surface mesh, so cells hold few representatives.
-    let spacing = Aabb::from_points(positions.iter().copied()).map_or(0.0, |bounds| {
-        largest_magnitude(bounds.size()) / (positions.len() as f64).sqrt()
-    });
-    // Large enough that cell coordinates stay below `LARGEST_CELL_COORDINATE`.
-    let largest_coordinate = positions.iter().fold(0.0_f64, |largest, &position| {
-        largest.max(largest_magnitude(position))
-    });
-    let resolution = largest_coordinate / LARGEST_CELL_COORDINATE;
-    let size = tolerance_size.max(spacing).max(resolution);
-    if size > 0.0 { size } else { 1.0 }
+    let spacing = largest_magnitude(bounds.size()) / (positions.len() as f64).sqrt();
+    // Large enough that mesh coordinates stay within `CELL_LIMIT` cells of zero.
+    let resolution = bounds.largest_magnitude() / CELL_LIMIT as f64;
+    // At least the smallest normal number, so the inverse is finite.
+    let size = tolerance_size
+        .max(spacing)
+        .max(resolution)
+        .max(f64::MIN_POSITIVE);
+    1.0 / size
 }
 
 /// True when `first` and `second` are at most `tolerance` apart.
@@ -241,28 +259,74 @@ mod tests {
     }
 
     #[test]
-    fn cell_size_is_positive_for_a_single_point_at_zero_tolerance() {
-        assert_eq!(cell_size(&[[0.0, 0.0, 0.0]], 0.0), 1.0);
-        assert_eq!(cell_size(&[], 0.0), 1.0);
+    fn cell_density_is_finite_for_points_at_the_origin() {
+        assert_eq!(
+            cells_per_millimeter(&[[0.0, 0.0, 0.0]], 0.0),
+            1.0 / f64::MIN_POSITIVE
+        );
+        assert_eq!(cells_per_millimeter(&[], 0.0), 1.0);
     }
 
     #[test]
-    fn cell_size_is_at_least_four_tolerances() {
-        assert!(cell_size(&[[0.0, 0.0, 0.0], [1e-9, 0.0, 0.0]], 0.5) >= 2.0);
+    fn cells_are_at_least_four_tolerances_wide() {
+        assert!(cells_per_millimeter(&[[0.0, 0.0, 0.0], [1e-9, 0.0, 0.0]], 0.5) <= 0.5);
     }
 
     #[test]
-    fn cell_size_follows_vertex_spacing() {
+    fn cells_follow_vertex_spacing() {
         let positions: Vec<Point3> = (0..100).map(|i| [f64::from(i), 0.0, 0.0]).collect();
 
-        assert_eq!(cell_size(&positions, 1e-6), 99.0 / 10.0);
+        assert_eq!(cells_per_millimeter(&positions, 1e-6), 10.0 / 99.0);
     }
 
     #[test]
-    fn cell_size_keeps_far_coordinates_resolvable() {
+    fn cells_keep_far_coordinates_within_the_limit() {
         let positions = [[1e20, 0.0, 0.0], [1e20, 1e-3, 0.0]];
 
-        assert!(cell_size(&positions, 1e-6) >= 1e20 / LARGEST_CELL_COORDINATE);
+        assert!(1e20 * cells_per_millimeter(&positions, 1e-6) <= CELL_LIMIT as f64);
+    }
+
+    #[test]
+    fn cell_coordinates_are_clamped_to_the_limit() {
+        let grid = WeldGrid::new(&[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]], 0.0);
+
+        assert_eq!(grid.cell_coordinate(f64::MAX), CELL_LIMIT);
+        assert_eq!(grid.cell_coordinate(f64::MIN), -CELL_LIMIT);
+    }
+
+    #[test]
+    fn cell_keys_are_distinct_for_distinct_cells() {
+        let corners = [-CELL_LIMIT, 0, CELL_LIMIT];
+        let mut keys = Vec::new();
+        for x in corners {
+            for y in corners {
+                for z in corners {
+                    keys.push(cell_key([x, y, z]));
+                }
+            }
+        }
+        keys.sort_unstable();
+        keys.dedup();
+
+        assert_eq!(keys.len(), 27);
+    }
+
+    #[test]
+    fn huge_tolerance_puts_everything_in_one_cell() {
+        let grid = WeldGrid::new(&[[f64::MAX, 0.0, 0.0], [f64::MIN, 0.0, 0.0]], f64::MAX);
+
+        assert_eq!(grid.cell_coordinate(f64::MAX), 0);
+        assert_eq!(grid.cell_coordinate(f64::MIN), 0);
+    }
+
+    #[test]
+    fn cell_coordinates_never_decrease() {
+        let grid = WeldGrid::new(&[[-3.0, 0.0, 0.0], [3.0, 0.0, 0.0]], 0.1);
+        let values = [-3.0, -1.5, -0.4, -0.0, 0.0, 0.4, 1.5, 3.0];
+
+        let coordinates: Vec<i64> = values.map(|value| grid.cell_coordinate(value)).to_vec();
+
+        assert!(coordinates.windows(2).all(|pair| pair[0] <= pair[1]));
     }
 
     #[test]

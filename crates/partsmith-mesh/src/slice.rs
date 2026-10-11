@@ -258,7 +258,7 @@ fn chain_segments(segments: &[Segment]) -> (Vec<SliceLoop>, Vec<SliceLoop>) {
                 front = previous;
             }
         }
-        let polyline = polyline(segments, &chain, closed);
+        let polyline = polyline_of_chain(segments, &chain, closed);
         match polyline {
             Some(polyline) if closed => loops.push(polyline),
             Some(polyline) => open_chains.push(polyline),
@@ -272,7 +272,11 @@ fn chain_segments(segments: &[Segment]) -> (Vec<SliceLoop>, Vec<SliceLoop>) {
 ///
 /// A zero-length segment (start equals end) loses its start point and triangle entry. Loops
 /// left with fewer than 3 points and open chains with fewer than 2 are discarded (`None`).
-fn polyline(segments: &[Segment], chain: &VecDeque<usize>, closed: bool) -> Option<SliceLoop> {
+fn polyline_of_chain(
+    segments: &[Segment],
+    chain: &VecDeque<usize>,
+    closed: bool,
+) -> Option<SliceLoop> {
     let kept = chain
         .iter()
         .map(|&index| &segments[index])

@@ -385,6 +385,11 @@ dependencies = [
 [[package]]
 name = "partsmith-naming"
 version = "0.1.0"
+dependencies = [
+ "partsmith-model",
+ "proptest",
+ "serde_json",
+]
 
 [[package]]
 name = "partsmith-occt-sys"
@@ -398,6 +403,13 @@ dependencies = [
 [[package]]
 name = "partsmith-print"
 version = "0.1.0"
+dependencies = [
+ "partsmith-mesh",
+ "partsmith-model",
+ "proptest",
+ "serde",
+ "serde_json",
+]
 
 [[package]]
 name = "partsmith-protocol"

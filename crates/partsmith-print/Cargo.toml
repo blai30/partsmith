@@ -11,5 +11,12 @@ publish = false
 
 [dependencies]
 
+[dev-dependencies]
+partsmith-mesh.workspace = true
+partsmith-model.workspace = true
+proptest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
 [lints]
 workspace = true

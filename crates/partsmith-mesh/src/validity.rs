@@ -145,14 +145,14 @@ impl Mesh {
             .into_iter()
             .zip(closed)
             .map(|(triangles, closed)| {
-                let corners = || {
+                let shell_corners = || {
                     triangles
                         .iter()
                         .map(|&triangle| self.triangles()[triangle as usize])
                 };
-                let signed_volume = self.volume_of(corners());
+                let signed_volume = self.volume_of(shell_corners());
                 let bounding_box = Aabb::from_points(
-                    corners().flat_map(|corners| self.corner_points(corners)),
+                    shell_corners().flat_map(|corners| self.corner_points(corners)),
                 )
                 .expect("every shell has at least one triangle");
                 Shell {

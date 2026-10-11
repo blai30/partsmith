@@ -115,7 +115,9 @@ fn t024_parameter_names_use_letters_digits_and_underscores() {
     assert!(
         matches!(
             validate_parameter_name("wäll"),
-            Err(NameError::InvalidCharacter { character: 'ä', .. })
+            Err(NameError::InvalidCharacter {
+                character: 'ä', ..
+            })
         ),
         "{:?}",
         validate_parameter_name("wäll")
@@ -143,9 +145,7 @@ fn t025_reserved_words_are_not_parameter_names() {
 
 #[test]
 fn t026_reserved_name_message_suggests_a_name() {
-    let error = NameError::Reserved {
-        name: "pi".into(),
-    };
+    let error = NameError::Reserved { name: "pi".into() };
 
     assert_eq!(
         error.to_string(),
@@ -160,7 +160,10 @@ fn t027_label_rules() {
     assert_eq!(validate_label(field, "Enclosure"), Ok(()));
     assert_eq!(validate_label(field, " Lid "), Ok(()));
     assert_eq!(validate_label(field, ""), Err(LabelError::Empty { field }));
-    assert_eq!(validate_label(field, "   "), Err(LabelError::Empty { field }));
+    assert_eq!(
+        validate_label(field, "   "),
+        Err(LabelError::Empty { field })
+    );
     assert_eq!(validate_label(field, &"x".repeat(128)), Ok(()));
     assert!(
         matches!(

@@ -34,7 +34,7 @@ pub const E8_OUTPUT: &str = include_str!("../fixtures/e8_normalized.ptsm");
 /// Lines of the non-canonical E8 input; the file ends every line with CR LF.
 pub const E8_INPUT_LINES: [&str; 3] = [
     r#"{"units":"mm","format_version":1.0,"format":"partsmith","#,
-    r#" "bodies":[{"name":"Lid","id":"b-1","visible":true,"role":"part","color":"#3B82F6","material":null}],"#,
+    r##" "bodies":[{"name":"Lid","id":"b-1","visible":true,"role":"part","color":"#3B82F6","material":null}],"##,
     r#" "features":[{"type":"box","id":"f-1","suppressed":false,"name":null,"size":["10 mm","10 mm","2 mm"],"x":1.0,"label":"café \/ bar"}]}"#,
 ];
 

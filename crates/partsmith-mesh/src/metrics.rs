@@ -80,7 +80,7 @@ impl Mesh {
 ///
 /// Computed as `A · ((B - A) × (C - A)) / 6`, which is mathematically equal (the extra terms are
 /// `A · (A × …) = 0`) and loses far fewer digits for small triangles far from the origin.
-pub(crate) fn tetrahedron_volume(points: [Point3; 3]) -> f64 {
+fn tetrahedron_volume(points: [Point3; 3]) -> f64 {
     dot(points[0], cross_product(points)) / 6.0
 }
 
