@@ -1,0 +1,372 @@
+//! Acceptance tests for rays and the bounding volume hierarchy (spec section 6.9).
+
+mod common;
+
+use common::{TOLERANCE, assert_close, assert_vector_close, cube, sphere};
+use partsmith_mesh::{Bvh, Mesh, MeshError, Point3, Ray, RayHit, Vector3};
+use proptest::array::uniform3;
+use proptest::prelude::*;
+use proptest::test_runner::{Config, RngAlgorithm, TestCaseError, TestRng, TestRunner};
+
+/// Straight down, as most tests in this file shoot.
+const DOWN: Vector3 = [0.0, 0.0, -1.0];
+
+/// A ray, panicking on a test mistake.
+fn ray(origin: Point3, direction: Vector3) -> Ray {
+    Ray::new(origin, direction).expect("test rays have a finite origin and a nonzero direction")
+}
+
+/// The first hit on `cube(10)` with no lower and no upper distance limit.
+fn first_cube_hit(origin: Point3, direction: Vector3) -> Option<RayHit> {
+    let mesh = cube(10.0);
+    let bvh = Bvh::new(&mesh);
+    bvh.first_hit(&ray(origin, direction), 0.0, f64::INFINITY)
+}
+
+#[test]
+fn t067_first_hit_from_above_is_top_face() {
+    let hit = first_cube_hit([5.0, 5.0, 20.0], DOWN).expect("the ray hits the top of the cube");
+
+    assert_eq!(hit.triangle, 2);
+    assert_close(hit.distance, 10.0, TOLERANCE);
+    assert_vector_close(hit.point, [5.0, 5.0, 10.0], TOLERANCE);
+    assert!(hit.front_face);
+}
+
+#[test]
+fn t068_all_hits_are_sorted_by_distance_then_triangle() {
+    let mesh = cube(10.0);
+    let bvh = Bvh::new(&mesh);
+
+    let hits = bvh.all_hits(&ray([5.0, 5.0, 20.0], DOWN), 0.0, f64::INFINITY);
+
+    let triangles: Vec<u32> = hits.iter().map(|hit| hit.triangle).collect();
+    assert_eq!(triangles, vec![2, 3, 0, 1]);
+    for (hit, distance) in hits.iter().zip([10.0, 10.0, 20.0, 20.0]) {
+        assert_close(hit.distance, distance, TOLERANCE);
+    }
+    let front_faces: Vec<bool> = hits.iter().map(|hit| hit.front_face).collect();
+    assert_eq!(front_faces, vec![true, true, false, false]);
+}
+
+#[test]
+fn t069_hit_reports_barycentric_weights() {
+    let hit = first_cube_hit([2.0, 3.0, 20.0], DOWN).expect("the ray hits the top of the cube");
+
+    assert_eq!(hit.triangle, 2);
+    assert_vector_close(hit.barycentric, [0.5, 0.2, 0.3], 1e-12);
+}
+
+#[test]
+fn t070_ray_missing_the_mesh_has_no_hits() {
+    let mesh = cube(10.0);
+    let bvh = Bvh::new(&mesh);
+    let miss = ray([20.0, 20.0, 20.0], DOWN);
+
+    assert_eq!(bvh.first_hit(&miss, 0.0, f64::INFINITY), None);
+    assert!(bvh.all_hits(&miss, 0.0, f64::INFINITY).is_empty());
+}
+
+#[test]
+fn t071_hit_beyond_max_distance_is_ignored() {
+    let mesh = cube(10.0);
+    let bvh = Bvh::new(&mesh);
+
+    assert_eq!(bvh.first_hit(&ray([5.0, 5.0, 20.0], DOWN), 0.0, 5.0), None);
+}
+
+#[test]
+fn t071_hit_at_max_distance_is_included() {
+    let mesh = cube(10.0);
+    let bvh = Bvh::new(&mesh);
+
+    let hit = bvh
+        .first_hit(&ray([5.0, 5.0, 20.0], DOWN), 0.0, 10.0)
+        .expect("the range is inclusive");
+
+    assert_eq!(hit.triangle, 2);
+}
+
+#[test]
+fn t072_hit_from_inside_is_back_face() {
+    let hit =
+        first_cube_hit([2.0, 3.0, 5.0], [0.0, 0.0, 1.0]).expect("the ray hits the top from inside");
+
+    assert_eq!(hit.triangle, 2);
+    assert_close(hit.distance, 5.0, TOLERANCE);
+    assert!(!hit.front_face);
+}
+
+#[test]
+fn t073_hits_closer_than_min_distance_are_ignored() {
+    let mesh = cube(10.0);
+    let bvh = Bvh::new(&mesh);
+
+    let hit = bvh
+        .first_hit(&ray([2.0, 3.0, 20.0], DOWN), 15.0, f64::INFINITY)
+        .expect("the bottom is 20 mm away");
+
+    assert_eq!(hit.triangle, 0);
+    assert_close(hit.distance, 20.0, TOLERANCE);
+}
+
+#[test]
+fn t074_ray_in_face_plane_hits_side_edges_only() {
+    let mesh = cube(10.0);
+    let bvh = Bvh::new(&mesh);
+
+    let hits = bvh.all_hits(&ray([-5.0, 5.0, 10.0], [1.0, 0.0, 0.0]), 0.0, f64::INFINITY);
+
+    let triangles: Vec<u32> = hits.iter().map(|hit| hit.triangle).collect();
+    assert_eq!(triangles, vec![9, 11]);
+    assert_close(hits[0].distance, 5.0, TOLERANCE);
+    assert_close(hits[1].distance, 15.0, TOLERANCE);
+}
+
+#[test]
+fn t075_zero_direction_is_rejected() {
+    assert_eq!(
+        Ray::new([0.0, 0.0, 0.0], [0.0, 0.0, 0.0]),
+        Err(MeshError::InvalidRay)
+    );
+}
+
+#[test]
+fn t075_non_finite_origin_is_rejected() {
+    assert_eq!(
+        Ray::new([f64::NAN, 0.0, 0.0], [0.0, 0.0, 1.0]),
+        Err(MeshError::InvalidRay)
+    );
+}
+
+#[test]
+fn t075_direction_is_normalized() {
+    let downward = ray([0.0, 0.0, 0.0], [0.0, 0.0, -5.0]);
+
+    assert_eq!(downward.direction(), [0.0, 0.0, -1.0]);
+}
+
+// The tests below are not numbered in spec section 6.9; they cover the rest of section 2.6.
+
+#[test]
+fn ray_keeps_its_origin() {
+    assert_eq!(ray([1.0, 2.0, 3.0], DOWN).origin(), [1.0, 2.0, 3.0]);
+}
+
+#[test]
+fn bvh_returns_the_mesh_it_was_built_over() {
+    let mesh = cube(10.0);
+    let bvh = Bvh::new(&mesh);
+
+    assert!(std::ptr::eq(bvh.mesh(), &mesh));
+}
+
+#[test]
+fn nan_distance_bound_yields_no_hits() {
+    let mesh = cube(10.0);
+    let bvh = Bvh::new(&mesh);
+    let downward = ray([5.0, 5.0, 20.0], DOWN);
+
+    assert_eq!(bvh.first_hit(&downward, f64::NAN, f64::INFINITY), None);
+    assert!(bvh.all_hits(&downward, 0.0, f64::NAN).is_empty());
+}
+
+#[test]
+fn inverted_distance_range_yields_no_hits() {
+    let mesh = cube(10.0);
+    let bvh = Bvh::new(&mesh);
+    let downward = ray([5.0, 5.0, 20.0], DOWN);
+
+    assert_eq!(bvh.first_hit(&downward, 30.0, 0.0), None);
+    assert!(bvh.all_hits(&downward, 30.0, 0.0).is_empty());
+}
+
+/// `first - second`.
+fn subtract(first: Vector3, second: Vector3) -> Vector3 {
+    [
+        first[0] - second[0],
+        first[1] - second[1],
+        first[2] - second[2],
+    ]
+}
+
+/// The cross product `first × second`.
+fn cross(first: Vector3, second: Vector3) -> Vector3 {
+    [
+        first[1] * second[2] - first[2] * second[1],
+        first[2] * second[0] - first[0] * second[2],
+        first[0] * second[1] - first[1] * second[0],
+    ]
+}
+
+/// The dot product.
+fn dot(first: Vector3, second: Vector3) -> f64 {
+    first[0] * second[0] + first[1] * second[1] + first[2] * second[2]
+}
+
+/// Euclidean length.
+fn length(vector: Vector3) -> f64 {
+    dot(vector, vector).sqrt()
+}
+
+/// Every hit in range, found by testing every triangle with Möller-Trumbore exactly as spec
+/// section 3.10 states it, sorted by distance, then triangle index.
+fn brute_force_hits(mesh: &Mesh, ray: &Ray, min_distance: f64, max_distance: f64) -> Vec<RayHit> {
+    let origin = ray.origin();
+    let direction = ray.direction();
+    let mut hits = Vec::new();
+    for triangle in 0..mesh.triangle_count() {
+        let [corner_a, corner_b, corner_c] = mesh.triangle_points(triangle);
+        let edge_one = subtract(corner_b, corner_a);
+        let edge_two = subtract(corner_c, corner_a);
+        let direction_cross_edge_two = cross(direction, edge_two);
+        let determinant = dot(edge_one, direction_cross_edge_two);
+        if determinant.abs() <= 1e-12 * length(edge_one) * length(edge_two) {
+            continue;
+        }
+        let offset = subtract(origin, corner_a);
+        let weight_b = dot(offset, direction_cross_edge_two) / determinant;
+        let offset_cross_edge_one = cross(offset, edge_one);
+        let weight_c = dot(direction, offset_cross_edge_one) / determinant;
+        let distance = dot(edge_two, offset_cross_edge_one) / determinant;
+        let inside = weight_b >= -1e-12 && weight_c >= -1e-12 && weight_b + weight_c <= 1.0 + 1e-12;
+        if inside && min_distance <= distance && distance <= max_distance {
+            hits.push(RayHit {
+                triangle: u32::try_from(triangle).expect("fixture triangle indices fit in u32"),
+                distance,
+                point: [
+                    origin[0] + distance * direction[0],
+                    origin[1] + distance * direction[1],
+                    origin[2] + distance * direction[2],
+                ],
+                barycentric: [1.0 - weight_b - weight_c, weight_b, weight_c],
+                front_face: dot(cross(edge_one, edge_two), direction) < 0.0,
+            });
+        }
+    }
+    hits.sort_by(|first, second| {
+        first
+            .distance
+            .total_cmp(&second.distance)
+            .then(first.triangle.cmp(&second.triangle))
+    });
+    hits
+}
+
+/// Tolerance for hit distances, points and weights from the hierarchy versus the reference loop.
+const HIT_TOLERANCE: f64 = 1e-9;
+
+/// True when every component differs by at most `HIT_TOLERANCE`.
+fn vectors_close(first: [f64; 3], second: [f64; 3]) -> bool {
+    first
+        .iter()
+        .zip(&second)
+        .all(|(left, right)| (left - right).abs() <= HIT_TOLERANCE)
+}
+
+/// Checks that two hit lists name the same triangles in the same order with matching hit data.
+fn check_same_hits(actual: &[RayHit], expected: &[RayHit]) -> Result<(), TestCaseError> {
+    let actual_triangles: Vec<u32> = actual.iter().map(|hit| hit.triangle).collect();
+    let expected_triangles: Vec<u32> = expected.iter().map(|hit| hit.triangle).collect();
+    prop_assert_eq!(actual_triangles, expected_triangles);
+    for (hit, reference) in actual.iter().zip(expected) {
+        prop_assert_eq!(hit.front_face, reference.front_face);
+        prop_assert!(
+            (hit.distance - reference.distance).abs() <= HIT_TOLERANCE,
+            "distance {} differs from {}",
+            hit.distance,
+            reference.distance
+        );
+        prop_assert!(
+            vectors_close(hit.point, reference.point),
+            "point {:?} differs from {:?}",
+            hit.point,
+            reference.point
+        );
+        prop_assert!(
+            vectors_close(hit.barycentric, reference.barycentric),
+            "barycentric {:?} differs from {:?}",
+            hit.barycentric,
+            reference.barycentric
+        );
+    }
+    Ok(())
+}
+
+/// Uniformly distributed unit directions.
+fn unit_direction() -> impl Strategy<Value = Vector3> {
+    (0.0..std::f64::consts::TAU, -1.0..=1.0_f64).prop_map(|(azimuth, z)| {
+        let radius = (1.0 - z * z).max(0.0).sqrt();
+        [radius * azimuth.cos(), radius * azimuth.sin(), z]
+    })
+}
+
+/// Distance ranges: mostly unbounded, sometimes a finite window, to exercise pruning.
+fn distance_range() -> impl Strategy<Value = (f64, f64)> {
+    prop_oneof![
+        Just((0.0, f64::INFINITY)),
+        (0.0..10.0_f64, 0.0..40.0_f64)
+            .prop_map(|(min_distance, extra)| (min_distance, min_distance + extra)),
+    ]
+}
+
+/// Seed of the random rays in test 76, fixed so every run checks the same rays.
+const RAY_SEED: [u8; 32] = *b"partsmith-mesh bvh brute force!!";
+
+#[test]
+fn t076_bvh_matches_brute_force_on_random_rays() {
+    let mesh = sphere(10.0, 64, 32);
+    let bvh = Bvh::new(&mesh);
+    let config = Config {
+        cases: 10_000,
+        failure_persistence: None,
+        ..Config::default()
+    };
+    let mut runner =
+        TestRunner::new_with_rng(config, TestRng::from_seed(RngAlgorithm::ChaCha, &RAY_SEED));
+
+    let rays = (
+        uniform3(-15.0..=15.0_f64),
+        unit_direction(),
+        distance_range(),
+    );
+    let outcome = runner.run(
+        &rays,
+        |(origin, direction, (min_distance, max_distance))| {
+            let ray = Ray::new(origin, direction)
+                .map_err(|error| TestCaseError::fail(error.to_string()))?;
+            let expected = brute_force_hits(&mesh, &ray, min_distance, max_distance);
+
+            let all_hits = bvh.all_hits(&ray, min_distance, max_distance);
+            check_same_hits(&all_hits, &expected)?;
+
+            let first_hit: Vec<RayHit> = bvh
+                .first_hit(&ray, min_distance, max_distance)
+                .into_iter()
+                .collect();
+            let expected_first: Vec<RayHit> = expected.first().copied().into_iter().collect();
+            check_same_hits(&first_hit, &expected_first)
+        },
+    );
+
+    if let Err(failure) = outcome {
+        panic!("{failure}");
+    }
+}
+
+proptest! {
+    #[test]
+    fn t077_empty_mesh_hierarchy_has_no_hits(
+        origin in uniform3(-1000.0..=1000.0_f64),
+        direction in unit_direction(),
+        (min_distance, max_distance) in distance_range(),
+    ) {
+        let empty = Mesh::empty();
+        let bvh = Bvh::new(&empty);
+        let ray = Ray::new(origin, direction)
+            .map_err(|error| TestCaseError::fail(error.to_string()))?;
+
+        prop_assert_eq!(bvh.first_hit(&ray, min_distance, max_distance), None);
+        prop_assert!(bvh.all_hits(&ray, min_distance, max_distance).is_empty());
+    }
+}
