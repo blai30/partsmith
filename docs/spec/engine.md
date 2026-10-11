@@ -503,14 +503,13 @@ pub enum EngineError {
     #[error("{id} is a {feature_type} feature, not a sketch.")] NotASketch { id: Id, feature_type: String },
     #[error("The sketch has no point {point}.")] UnknownPoint { point: String },
     #[error("No drag is in progress in {name}.")] NoDrag { name: String },
-    #[error("{message}")] SketchFailed { message: String },
     #[error("The picked geometry changed since it was displayed. Pick again.")] StalePick,
     #[error("Preview geometry cannot be picked. Pick the model instead.")] PreviewNotPickable,
     #[error("The pick does not name a {kind} of this mesh.")] InvalidPick { kind: ElementKind },
     #[error("There is no body with id {id}.")] UnknownBody { id: Id },
     #[error("Body \"{name}\" has no geometry yet.")] BodyEmpty { name: String },
     #[error("The selected {kind} no longer exists. Pick it again.")] ReferenceUnresolved { kind: String },
-    #[error("Measure takes one body or element, or two elements.")] InvalidMeasure,
+    #[error("Measure takes one or two bodies or elements.")] InvalidMeasure,
     #[error("{message}")] Expression { message: String },
     #[error("Printer profile \"{id}\" is not installed.")] UnknownPrinterProfile { id: String },
     #[error("\"{id}\" is a built-in profile. Save your changes under a new name.")] ProfileIdReserved { id: String },
@@ -707,3 +706,4 @@ Tests live in `crates/partsmith-engine/tests/`. "Session" means `Session::new(Se
 9. **Fixture params.** The fixtures are described semantically; their exact JSON depends on features.md and sketch.md params, which test authors must use.
 10. **Reference benchmark part.** `examples/bench/fifty-features/model.ptsm` does not exist yet and must be authored with the examples.
 11. **Export state versus display state.** Export uses the model state (rollback marker) while interactive queries use the display state (which differs only during a focus). The UI spec should not offer export while a focus transaction is open, or must accept that export ignores the focus.
+12. **Profile values in tests.** Tests 55 to 57 assume the default FDM profile has a 0.2 mm layer height and that a built-in resin profile has 0.05 mm, per the technical design's typical values; print.md must ship such profiles or the tests must read the values.

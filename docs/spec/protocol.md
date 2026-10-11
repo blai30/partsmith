@@ -136,7 +136,7 @@ pub enum Message {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Request {
-    /// Client-chosen id, echoed in the response; 1 to `MAX_SAFE_INTEGER`.
+    /// Client-chosen id, echoed in the response; at most `MAX_SAFE_INTEGER` (0 is reserved for the worker's own calls).
     pub id: u64,
     /// The command.
     pub command: Command,
@@ -576,13 +576,13 @@ Each command below lists its fields (Rust types), a request example, and the res
 {"type": "begin_transaction"}
 ```
 
-12. `set_focus {doc, feature: Option<Id>}`: inside a transaction, shows the state before `feature` as the pickable model layer and the feature's own output as the preview layer; `None` clears the focus. Result `{}`. Emits `document_changed`, `recomputed`, `body_mesh`, `sketch_solved`, `datum_plane`.
+12. `set_focus {doc, feature: Option<Id>}`: inside a transaction, shows the state before `feature` as the pickable model layer and the feature's own output as the preview layer; `None` clears the focus. Result `{}`. Emits `document_changed`, `recomputed`, `sketch_solved`, `datum_plane`, `body_mesh`.
 
 ```json
 {"type": "set_focus", "doc": 1, "feature": "f-fil1"}
 ```
 
-13. `commit_transaction {doc}`: records the transaction as one undo entry (none if it applied no edits) and clears the focus. Result `{revision: u64, recorded: bool}`. Emits `document_changed`, `recomputed`, `body_mesh`, `sketch_solved`, `datum_plane`.
+13. `commit_transaction {doc}`: records the transaction as one undo entry (none if it applied no edits) and clears the focus. Result `{revision: u64, recorded: bool}`. Emits `document_changed`, and `recomputed`, `sketch_solved`, `datum_plane`, `body_mesh` when a focus was set.
 
 ```json
 {"type": "commit_transaction", "doc": 1}
@@ -1188,14 +1188,13 @@ Clients choose request ids from 1 to `MAX_SAFE_INTEGER` and may reuse them; the 
 | `not_a_sketch` | A sketch command names a non-sketch feature | "{id} is a {type} feature, not a sketch." |
 | `unknown_point` | `drag_sketch` names a point that does not exist | "The sketch has no point {point}." |
 | `no_drag` | `end_sketch_drag` without a drag in progress for that sketch | "No drag is in progress in {feature name}." |
-| `sketch_failed` | The sketch could not be solved at all (no candidate geometry) | The solver's message |
 | `stale_pick` | `pick_reference` names a mesh that is no longer displayed | "The picked geometry changed since it was displayed. Pick again." |
 | `preview_not_pickable` | `pick_reference` names a preview mesh | "Preview geometry cannot be picked. Pick the model instead." |
 | `invalid_pick` | `index` is not below the mesh's element count for `kind` | "The pick does not name a {kind} of this mesh." |
 | `unknown_body` | A command names a body that does not exist | "There is no body with id {id}." |
 | `body_empty` | A body named in `export`, `measure` or `list_elements` has no geometry at the display state | "Body \"{name}\" has no geometry yet." |
 | `reference_unresolved` | A reference given to `measure` or a `face_down` orientation does not resolve uniquely | "The selected {kind} no longer exists. Pick it again." |
-| `invalid_measure` | `measure` has zero or more than two targets, or two body targets | "Measure takes one body or element, or two elements." |
+| `invalid_measure` | `measure` has zero or more than two targets | "Measure takes one or two bodies or elements." |
 | `expression_error` | `evaluate` failed | The expression evaluator's message |
 | `unknown_printer_profile` | `analyze_print` or `export` names an unknown profile | "Printer profile \"{id}\" is not installed." |
 | `profile_id_reserved` | `put_printer_profile` uses a built-in id | "\"{id}\" is a built-in profile. Save your changes under a new name." |

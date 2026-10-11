@@ -452,7 +452,10 @@ export interface DocumentState {
   readonly file: FileRef | null
   readonly revision: number
   readonly recipe: Document
+  /** The core's dirty flag from document_changed. */
   readonly dirty: boolean
+  /** Set when the UI knows the latest text is not on disk although the core considers it saved (3.19). */
+  readonly localUnsaved: boolean
   readonly undoLabel: string | null
   readonly redoLabel: string | null
   readonly transactionOpen: boolean
@@ -1309,16 +1312,19 @@ export type SketchCommitResult =
 ```ts
 export type FileKind = 'ptsm' | '3mf' | 'stl' | 'obj' | 'step'
 export interface OpenedFile { readonly name: string; readonly bytes: Uint8Array; readonly handle: FileSystemFileHandle | null }
-export type SavedFile = { readonly name: string; readonly handle: FileSystemFileHandle | null }
+export type SaveTarget =
+  | { readonly kind: 'handle'; readonly name: string; readonly handle: FileSystemFileHandle }
+  | { readonly kind: 'download'; readonly name: string }
 export class FileServiceError extends Error { readonly reason: 'permission' | 'not_found' | 'io' }
 export interface FileService {
   readonly fileSystemAccess: boolean
   /** Null when the user cancels. */
   pickToOpen(): Promise<OpenedFile | null>
   readHandle(handle: FileSystemFileHandle): Promise<OpenedFile>
-  writeHandle(handle: FileSystemFileHandle, bytes: Uint8Array): Promise<void>
-  /** Null when the user cancels. Without the File System Access API it downloads and returns a null handle. */
-  saveAs(suggestedName: string, kind: FileKind, bytes: Uint8Array): Promise<SavedFile | null>
+  /** Asks where to save. Null when the user cancels. Without the File System Access API it returns a download target at once. */
+  chooseSaveTarget(suggestedName: string, kind: FileKind): Promise<SaveTarget | null>
+  /** Writes the bytes to the target (a download for download targets). */
+  write(target: SaveTarget, kind: FileKind, bytes: Uint8Array): Promise<void>
 }
 export function createWebFileService(environment: Window & typeof globalThis): FileService
 export const FILE_TYPES: Readonly<Record<FileKind, { readonly description: string; readonly mediaType: string; readonly extensions: readonly string[] }>>
@@ -1328,8 +1334,9 @@ export const FILE_TYPES: Readonly<Record<FileKind, { readonly description: strin
 
 - `fileSystemAccess` is true when `showOpenFilePicker` and `showSaveFilePicker` are functions.
 - `pickToOpen` uses `showOpenFilePicker({ types: [ptsm], excludeAcceptAllOption: false, multiple: false })`; without the API it clicks a hidden `<input type="file" accept=".ptsm">` and resolves on `change` (null when the input reports no file). An `AbortError` resolves null.
-- `writeHandle` checks `queryPermission({ mode: 'readwrite' })`, calls `requestPermission` when it is `prompt`, and throws `FileServiceError('permission')` when not granted; then `createWritable()`, `write(bytes)`, `close()`. A `NotFoundError` throws `FileServiceError('not_found')`; anything else `FileServiceError('io')` with the original message.
-- `saveAs` uses `showSaveFilePicker({ suggestedName, types: [FILE_TYPES[kind]] })` then `writeHandle`; without the API it creates a `Blob` of the bytes with the kind's media type, an object URL, and an `<a download="{suggestedName}">`, clicks it, and revokes the URL after the click.
+- `readHandle` checks `queryPermission({ mode: 'read' })`, calls `requestPermission` when it is `prompt`, and throws `FileServiceError('permission')` when not granted, then reads `getFile()`. A `NotFoundError` throws `FileServiceError('not_found')`.
+- `chooseSaveTarget` uses `showSaveFilePicker({ suggestedName, types: [FILE_TYPES[kind]] })` and returns `{ kind: 'handle', name: handle.name, handle }`; an `AbortError` returns null. Without the API it returns `{ kind: 'download', name: suggestedName }`.
+- `write` to a handle checks `queryPermission({ mode: 'readwrite' })`, calls `requestPermission` when it is `prompt`, and throws `FileServiceError('permission')` when not granted; then `createWritable()`, `write(bytes)`, `close()`. A `NotFoundError` throws `FileServiceError('not_found')`; anything else `FileServiceError('io')` with the original message. `write` to a download target creates a `Blob` of the bytes with the kind's media type, an object URL and an `<a download="{name}">`, clicks it, and revokes the URL after the click.
 
 The desktop file service (Tauri dialogs) implements the same interface and is specified with the desktop host (open issue).
 
