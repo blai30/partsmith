@@ -1,6 +1,6 @@
 # Feature: move_body
 
-Status: M1 spec. Type name `move_body`. Shared contracts: [features.md](../features.md).
+Status: M1 spec. Type name `move_body`. Shared contracts: [features.md](../features.md). Naming rule: [naming.md](../naming.md) section 3.6.12.
 
 ## 1. Purpose and scope
 
@@ -71,11 +71,14 @@ Label `Move body`, category `modify`, icon `move-body`, version 1.
 
 ### Python
 
+Dedicated form: `move(part, translate=..., rotate=(axis, angle))` (python-api.md section 2.7). Generic form of the JSON above:
+
 ```python
-move_body(
+feature(
+    "move_body",
     id="f-mv1",
     body="b-1",
-    translation=[5, 0, 0],
+    translation=["5", "0", "0"],
     rotation={"axis": {"kind": "origin", "axis": "Z"}, "angle": "90 deg"},
 )
 ```
@@ -91,9 +94,9 @@ move_body(
 
 1. The body must hold a solid, else `BodyEmpty { use_new: false }`.
 2. Resolve the rotation axis (if any) against the state before the move, so an edge of the moved body itself may be the axis.
-3. The transform is T(translation) ∘ R(axis, angle): rotate about the axis line, then translate.
+3. The transform is kernel `Transform::rotation(axis, angle).then(&Transform::translation(t))`: rotate about the axis line, then translate.
 4. If the translation is zero (each component abs ≤ 1e-12 mm) and there is no rotation or the angle is a multiple of 2π within 1e-12 rad, the body is unchanged with a `NoEffect` warning.
-5. Apply the transform to the shape. The naming map is carried over unchanged: every element keeps its name. Change `Modify`.
+5. Apply kernel `transform` (index-preserving). The naming map is carried over unchanged: every element keeps its name, and the map is not rebuilt (naming.md section 3.6.12). Change `Modify`.
 
 ### 3.3 Element names
 
@@ -104,15 +107,14 @@ No new names; all names are kept.
 | Condition | Variant | Example message |
 | --- | --- | --- |
 | Body empty | `BodyEmpty` | `Body 'Body 1' is empty at this point, so this feature has nothing to work on. Pick a body that has a solid.` |
-| Translation not a length | `WrongDimension` | `Move X must be a length, but '5 deg' is an angle. Use a value such as 10 mm.` |
-| Angle not an angle | `WrongDimension` | `Rotation angle must be an angle, but '5 mm' is a length. Use a value such as 45 deg.` |
+| Expression or dimension error | `Expression` | `Rotation angle: Expected an angle, but this expression gives a length.` |
 | Axis errors | `NotStraight`, `NoAxis`, `UnknownEntity`, `NotALine`, `ReferenceNotFound` | features.md section 4.1 |
-| Kernel failure | `Kernel { operation: Transform }` | features.md section 4.1 |
+| Kernel failure | `Kernel` | `Moving the body failed.` |
 | Nothing moves | warning `NoEffect` | features.md section 4.2 |
 
 ## 5. Performance
 
-- Any body: 5 ms (a transform does not rebuild geometry).
+- Any body: 5 ms (a rotation or translation shares the geometry).
 
 ## 6. Acceptance tests
 
@@ -121,13 +123,12 @@ Conventions from features.md section 6.1. Bodies `[b-1]`. Fixtures: `BOX123`: `{
 1. **Translate.** `BOX123`, `MV("translation": ["5", "0", "0"])`. Expected: ok; volume 6000, 6 faces, bbox [0,-10,0]-[10,10,30]; `f-box1/top` planar at z=30 spanning x 0..10; change `Modify`.
 2. **Rotate.** `BOX123`, `MV("rotation": ROT-Z("90 deg"))`. Expected: bbox [-10,-5,0]-[10,5,30]; `f-box1/front` (previously y=-10) is the plane x=10 with outward normal (1,0,0).
 3. **Rotate, then translate.** `BOX123`, `MV("translation": ["5", "0", "0"], "rotation": ROT-Z("90 deg"))`. Expected: bbox [-5,-5,0]-[15,5,30].
-4. **Rotate about its own edge.** `{"id": "f-box1", "type": "box", "body": "b-1", "size": ["10", "10", "10"], "op": "new"}`, `MV("rotation": {"axis": {"kind": "edge", "body": "b-1", "edge": {"q": "edge(f-box1/right|f-box1/top)", "fp": "line|d=0,1,0|c=5,0,10|l=10"}}, "angle": "180 deg"})`. Expected: volume 1000, bbox [5,-5,10]-[15,5,20].
-5. **References survive a move.** `{"id": "f-box1", "type": "box", "body": "b-1", "size": ["10", "10", "10"], "op": "new"}`, `MV("translation": ["50", "0", "0"])`, `{"id": "f-fil1", "type": "fillet", "body": "b-1", "edges": [{"q": "edge(f-box1/front|f-box1/top)", "fp": "line|d=1,0,0|c=0,-5,10|l=10"}], "radius": "2"}`. Expected: fillet ok with no warnings; volume 991.415927, 7 faces, bbox [45,-5,0]-[55,5,10].
+4. **Rotate about its own edge.** `{"id": "f-box1", "type": "box", "body": "b-1", "size": ["10", "10", "10"], "op": "new"}`, `MV("rotation": {"axis": {"kind": "edge", "body": "b-1", "edge": {"q": "edge(f-box1/right|f-box1/top)", "fp": "line|n=0,1,0|c=5,0,10|l=10"}}, "angle": "180 deg"})`. Expected: volume 1000, bbox [5,-5,10]-[15,5,20].
+5. **References survive a move.** `{"id": "f-box1", "type": "box", "body": "b-1", "size": ["10", "10", "10"], "op": "new"}`, `MV("translation": ["50", "0", "0"])`, `{"id": "f-fil1", "type": "fillet", "body": "b-1", "edges": [{"q": "edge(f-box1/front|f-box1/top)", "fp": "line|n=1,0,0|c=0,-5,10|l=10"}], "radius": "2"}`. Expected: fillet ok with no warnings (exact name match); volume 991.415927, 7 faces, bbox [45,-5,0]-[55,5,10].
 6. **Nothing moves.** `BOX123`, `MV("translation": ["0", "0", "0"], "rotation": ROT-Z("360 deg"))`. Expected: warning `no_effect`; b-1 unchanged.
 7. **Empty body.** `MV("translation": ["5", "0", "0"])` alone. Expected: error `body_empty`.
-8. **Wrong angle dimension.** `BOX123`, `MV("rotation": ROT-Z("5 mm"))`. Expected: error `wrong_dimension`, field `rotation.angle`, rendered `Rotation angle must be an angle, but '5 mm' is a length. Use a value such as 45 deg.`
-9. **Python.** `Registry::python` of the JSON in section 2 renders exactly the Python in section 2; of `MV("translation": ["5", "0", "0"])` renders `move_body(id="f-mv1", body="b-1", translation=[5, 0, 0])`.
-10. **Performance.** Test 3 builds in under 5 ms (desktop, release).
+8. **Wrong angle dimension.** `BOX123`, `MV("rotation": ROT-Z("5 mm"))`. Expected: error `expression`, field `rotation.angle`, rendered `Rotation angle: Expected an angle, but this expression gives a length.`
+9. **Performance.** Test 3 builds in under 5 ms (desktop, release).
 
 ## Open issues
 

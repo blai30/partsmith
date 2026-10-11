@@ -1,6 +1,6 @@
 # Feature: circular_pattern
 
-Status: M1 spec. Type name `circular_pattern`. Shared contracts: [features.md](../features.md), copy features in features.md section 3.5.
+Status: M1 spec. Type name `circular_pattern`. Shared contracts: [features.md](../features.md), copy features in features.md section 3.5. Naming rule: [naming.md](../naming.md) section 3.6.11.
 
 ## 1. Purpose and scope
 
@@ -73,7 +73,7 @@ Label `Circular pattern`, category `pattern`, icon `circular-pattern`, version 1
 
 ### Python
 
-`circular_pattern(id="f-cp1", body="b-1", axis={"kind": "origin", "axis": "Z"}, count=6)`.
+Dedicated form: `circular_pattern(axis, count, angle, part=<body>)` (python-api.md section 2.7) for op join without reverse; other cases use the generic form, for example `feature("circular_pattern", id="f-cp1", body="b-1", axis={"kind": "origin", "axis": "Z"}, count="6")`.
 
 ## 3. Behavior
 
@@ -90,17 +90,17 @@ As [mirror.md](mirror.md) section 3.1 for `op` and `target`.
 
 1. The source body must hold a solid, else `BodyEmpty { use_new: false }`.
 2. n = count ≥ 1 (`AtLeast(1)`); n > 10000 gives `TooManyInstances`. θ = angle in (0, 2π] (`GreaterThan(0)`; above 2π + 1e-9 `AtMost(2π)`, rendered `360 deg`).
-3. Instance k (0 ≤ k < n; 0 is the original) is the source rotated about the axis by φ_k, positive by the right-hand rule about the axis direction (negative when `reverse`):
+3. Instance k (0 ≤ k < n; 0 is the original) is the source rotated about the axis by φ_k (kernel `transform`, index-preserving), positive by the right-hand rule about the axis direction (negative when `reverse`), named with `source_map.with_instance(<id>, Instance { first: k, second: 0 })`:
    - Full turn (abs(θ - 2π) ≤ 1e-9): φ_k = k·2π/n.
    - Partial: φ_k = k·θ/(n - 1) for n ≥ 2, so the first and last instances sit at the ends of the angle.
 4. Cancellation is checked before each instance as in linear_pattern.
-5. n = 1 gives a `NoEffect` warning with the body unchanged. Otherwise the copies are fused, named and applied as in linear_pattern.
+5. n = 1 gives a `NoEffect` warning with the body unchanged. Otherwise the copies are combined and applied as in linear_pattern.
 
 ### 3.4 Element names
 
 | Name | Face |
 | --- | --- |
-| `<id>/instance-<k>/<face name>` | The copy of source face `<face name>` in instance k (1 ≤ k < n). |
+| `<face name>@<id>:<k>` | The copy of source face `<face name>` in instance k (1 ≤ k < n), for example `f-cyl1/top@f-cp1:3`. |
 
 ## 4. Errors and warnings
 
@@ -125,29 +125,16 @@ Conventions from features.md section 6.1. Bodies `[b-1, b-2]`. Fixtures:
 - `PEG`: `{"id": "f-cyl1", "type": "cylinder", "body": "b-1", "radius": "2", "height": "5", "position": ["20", "0", "0"], "op": "new"}` (axis at x=20, y=0).
 - `CP(extra)`: `{"id": "f-cp1", "type": "circular_pattern", "body": "b-1", "axis": {"kind": "origin", "axis": "Z"}, <extra>}`.
 
-1. **Six around.** `PEG`, `CP("count": "6")`. Expected: ok; volume 376.991118, 18 faces, bbox [-22,-19.320508,0]-[22,19.320508,5]; `f-cp1/instance-3/f-cyl1/top` is a disc centered at (-20,0,5); change `Join`.
-2. **Partial angle.** `PEG`, `CP("count": "3", "angle": "90 deg")`. Expected: volume 188.495559, 9 faces, bbox [-2,-2,0]-[22,22,5]; `f-cp1/instance-1/f-cyl1/top` centered at (14.142136,14.142136,5); `f-cp1/instance-2/f-cyl1/top` centered at (0,20,5).
+1. **Six around.** `PEG`, `CP("count": "6")`. Expected: ok; volume 376.991118, 18 faces, 6 solids, bbox [-22,-19.320508,0]-[22,19.320508,5]; `f-cyl1/top@f-cp1:3` is a disc centered at (-20,0,5); change `Join`.
+2. **Partial angle.** `PEG`, `CP("count": "3", "angle": "90 deg")`. Expected: volume 188.495559, 9 faces, bbox [-2,-2,0]-[22,22,5]; `f-cyl1/top@f-cp1:1` centered at (14.142136,14.142136,5); `f-cyl1/top@f-cp1:2` centered at (0,20,5).
 3. **Partial, reversed.** As 2 with `"reverse": true`. Expected: bbox [-2,-22,0]-[22,2,5].
 4. **Four around a full turn.** `PEG`, `CP("count": "4")`. Expected: volume 251.327412, 12 faces, bbox [-22,-22,0]-[22,22,5] (instances at 0, 90, 180 and 270 deg, not at 360).
 5. **Count 1.** `PEG`, `CP("count": "1")`. Expected: warning `no_effect`; b-1 unchanged.
 6. **Angle above 360.** `PEG`, `CP("count": "3", "angle": "400 deg")`. Expected: error `out_of_range`, field `angle`, rendered `Total angle must be at most 360 deg, but it is 400 deg. Use 360 deg or less.`
 7. **Zero angle.** `PEG`, `CP("count": "3", "angle": "0")`. Expected: error `out_of_range`, field `angle`.
-8. **Axis from a hub face.** `PEG`; `{"id": "f-cyl2", "type": "cylinder", "body": "b-2", "radius": "5", "height": "5", "op": "new"}`; `{"id": "f-cp1", "type": "circular_pattern", "body": "b-1", "axis": {"kind": "face", "body": "b-2", "face": {"q": "f-cyl2/side", "fp": "cylinder|a=0,0,1|c=0,0,2.5|r=5"}}, "count": "6"}`. Expected: b-1 identical to test 1; dependencies `bodies_read == ["b-2"]`; b-2 unchanged.
+8. **Axis from a hub face.** `PEG`; `{"id": "f-cyl2", "type": "cylinder", "body": "b-2", "radius": "5", "height": "5", "op": "new"}`; `{"id": "f-cp1", "type": "circular_pattern", "body": "b-1", "axis": {"kind": "face", "body": "b-2", "face": {"q": "f-cyl2/side", "fp": "cylinder|n=0,0,1|c=0,0,2.5|a=157.079633|r=5"}}, "count": "6"}`. Expected: b-1 identical to test 1; dependencies `bodies_read == ["b-2"]`; b-2 unchanged.
 9. **New body.** `PEG`, `CP("count": "6", "op": "new", "target": "b-2")`. Expected: b-1 unchanged (volume 62.831853); b-2 volume 314.159265, 15 faces.
-10. **Python.** `Registry::python` of the first JSON in section 2 renders `circular_pattern(id="f-cp1", body="b-1", axis={"kind": "origin", "axis": "Z"}, count=6)`; of the second renders:
-
-    ```python
-    circular_pattern(
-        id="f-cp2",
-        body="b-1",
-        axis={"kind": "origin", "axis": "Z"},
-        count=3,
-        angle="90 deg",
-        reverse=True,
-    )
-    ```
-
-11. **Performance.** Test 1 builds in under 40 ms (desktop, release).
+10. **Performance.** Test 1 builds in under 40 ms (desktop, release).
 
 ## Open issues
 
