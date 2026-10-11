@@ -1784,7 +1784,7 @@ Suggested commands run the command with the selection preselected.
 
 Layout, left to right: collapse button ("Collapse timeline" / "Expand timeline"); the items in timeline order with the rollback marker in the gap after the last active feature; at the right end, the problems button (`data-testid="timeline-problems"`, text "1 problem" or "{n} problems", hidden when there are none). The item strip scrolls horizontally; a newly added item and the marker scroll into view.
 
-Items (`data-testid="timeline-item"`, `data-feature-id`, `data-status` `ok|warning|error|suppressed|rolled_back|pending`, `data-suppressed`, `data-rolled-back`):
+Items (`data-testid="timeline-item"`, `data-feature-id`, `data-status` from the latest `recomputed` status (`ok`, `warning`, `error`, `suppressed`, `rolled_back`), or `pending` before the first status for a new feature, `data-suppressed`, `data-rolled-back`):
 
 - A 40 by 40 px button with the feature icon (20 px). Its accessible name is the feature label; `aria-describedby` points at a hidden text with the status ("Error: {first message}", "Warning: {first message}", "Suppressed", "Rolled back").
 - A status badge at the bottom-right: `triangle-alert` in `warning` for warnings, `circle-x` in `danger` for errors. The tooltip shows the label and every message.
@@ -1827,6 +1827,7 @@ Row content:
 
 Behavior:
 
+- Rows map to selection items: body rows to kind `body`, sketch rows to `feature`, datum rows to `datum_plane` (key `feature:{id}`), origin rows to `origin_plane`, `origin_axis` or `origin_point`, parameter rows to `parameter`.
 - Click selects (Shift or Mod toggles). While a feature command is active, clicking a row whose kind the active field accepts captures it instead (origin planes and datums for `plane`, origin axes for `axis`, bodies for `body`, sketches for `sketch`).
 - Double-click or Enter: sketch: `enterSketch`; datum: `editFeature`; body: inline rename; parameter: opens the Parameters panel focused on it.
 - F2 renames bodies (`update_body`, label "Rename") and features (as in the timeline). Delete removes selected sketches and datums (`deleteFeatures`) and selected bodies (`remove_body`, label "Delete {name}"; the core does not check use, so dependent features fail and the failure notification offers Undo). V toggles visibility of selected rows.
