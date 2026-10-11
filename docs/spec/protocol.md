@@ -1031,10 +1031,15 @@ pub struct ErrorInfo {
     pub message: String,
     /// Index of the offending edit in an `apply_edits` batch.
     pub edit_index: Option<u32>,
+    /// For `expression_error`: the UTF-8 byte range of the problem in the expression text (expressions.md spans). The UI converts it to string indices.
+    pub span: Option<Span>,
 }
+
+/// A half-open UTF-8 byte range `[start, end)` into an expression's source text.
+pub struct Span { pub start: u32, pub end: u32 }
 ```
 
-`ErrorCode` is a `snake_case` enum with the codes in section 4. Example: `{"kind": "error", "code": "edit_rejected", "message": "There is no feature with id f-x.", "edit_index": 1}`.
+`ErrorCode` is a `snake_case` enum with the codes in section 4. Absent optional fields are omitted. Examples: `{"kind": "error", "code": "edit_rejected", "message": "There is no feature with id f-x.", "edit_index": 1}` and `{"kind": "error", "code": "expression_error", "message": "Unknown name 'wal'.", "span": {"start": 4, "end": 7}}`.
 
 ### 2.9 Schema, TypeScript types and versioning
 

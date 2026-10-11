@@ -70,8 +70,8 @@ Everything below is exported from the crate root. Lengths are millimeters (archi
 pub const STL_HEADER: [u8; 80];
 /// The 3MF `Application` metadata value.
 pub const APPLICATION: &str = "Partsmith";
-/// Display color of a 3MF base material for a body that has a material but no color (`#b4b4bc`).
-pub const DEFAULT_DISPLAY_COLOR: Color = Color { red: 0xb4, green: 0xb4, blue: 0xbc };
+/// Display color of a 3MF base material for a body that has a material but no color (`#9f9fa9`, ui.md's `body` role, zinc-400).
+pub const DEFAULT_DISPLAY_COLOR: Color = Color { red: 0x9f, green: 0x9f, blue: 0xa9 };
 /// Deflate level for every 3MF package part.
 pub const DEFLATE_LEVEL: i64 = 6;
 ```
@@ -355,7 +355,7 @@ Bodies with role `Part` become objects of type `model`. Every other body is left
 A written body has a **base** when it has a color or a material (section 3.1.2). Its base has:
 
 - `name`: the material when present, otherwise the color as `#RRGGBB` with uppercase hex digits (`#3B82F6`).
-- `displaycolor`: the color as `#RRGGBB` with uppercase hex digits, or `DEFAULT_DISPLAY_COLOR` (`#B4B4BC`) when the body has a material but no color.
+- `displaycolor`: the color as `#RRGGBB` with uppercase hex digits, or `DEFAULT_DISPLAY_COLOR` (`#9F9FA9`) when the body has a material but no color.
 
 Bases with equal `name` and `displaycolor` are one entry. Entries are listed in order of first use by the written bodies; a body's `pindex` is its entry's 0-based position. When at least one base exists, they form one `<basematerials id="1">` resource, and objects take ids `2, 3, ...` in written body order; otherwise there is no `basematerials` element and objects take ids `1, 2, ...`. Every object with a base has `pid="1"` and its `pindex`; an object without one has neither attribute. Triangles never carry their own properties.
 
@@ -611,7 +611,7 @@ Tests live in `crates/partsmith-io/tests/` and use only public APIs (this crate,
 
 25. One body `Cube` with material `PETG`, color `#3b82f6` and mesh `cube(10)`, with title `Cube test`: `3D/3dmodel.model` equals the 1303 bytes of section 3.6.4 exactly.
 26. Test 20's model has no line containing `basematerials`, `pid=` or `name="Title"`; its object line is exactly `  <object id="1" type="model" name="Cube">`, its item line `  <item objectid="1"/>`, and its third line is ` <metadata name="Application">Partsmith</metadata>`.
-27. Six `cube(10)` bodies A (`PLA`, `#ff0000`), B (`PLA`, `#ff0000`), C (`PLA`, `#0000ff`), D (no material, `#00ff00`), E (`PETG`, no color), F (neither): the base lines are, in order, `<base name="PLA" displaycolor="#FF0000"/>`, `<base name="PLA" displaycolor="#0000FF"/>`, `<base name="#00FF00" displaycolor="#00FF00"/>`, `<base name="PETG" displaycolor="#B4B4BC"/>`; objects A to F have ids 2 to 7 with `pindex` 0, 0, 1, 2, 3 and F has no `pid`; the items reference 2 to 7 in order.
+27. Six `cube(10)` bodies A (`PLA`, `#ff0000`), B (`PLA`, `#ff0000`), C (`PLA`, `#0000ff`), D (no material, `#00ff00`), E (`PETG`, no color), F (neither): the base lines are, in order, `<base name="PLA" displaycolor="#FF0000"/>`, `<base name="PLA" displaycolor="#0000FF"/>`, `<base name="#00FF00" displaycolor="#00FF00"/>`, `<base name="PETG" displaycolor="#9F9FA9"/>`; objects A to F have ids 2 to 7 with `pindex` 0, 0, 1, 2, 3 and F has no `pid`; the items reference 2 to 7 in order.
 28. `faceted_box([0,0,0],[10,10,10])`: the object has 8 vertex lines in the order of test 16 and the triangle lines `0 1 2`, `2 1 3`, `4 5 6`, `5 7 6`, `0 2 4`, `2 5 4`, `1 6 3`, `3 6 7`, `0 4 1`, `1 4 6`, `2 3 5`, `3 7 5` (as `v1`, `v2`, `v3`), and there are no warnings.
 29. Two parts `A` (`cube(10)`) and `B` (`box([20,0,0],[30,10,10])`): object ids 1 and 2 in that order, items 1 then 2, and B's first triangle is `v1="0" v2="2" v3="1"` (indices are per object).
 30. Round trip: for `sphere(10, 64, 32)`, `read_model` gives one object whose vertex count equals the number of vertices of `welded(sphere)` used by its triangles, whose triangle count equals `welded(sphere).triangle_count()`, and whose triangle `k` has the corners of `welded(sphere)`'s triangle `k` converted to `f32`, in order.
@@ -665,7 +665,7 @@ Tests live in `crates/partsmith-io/tests/` and use only public APIs (this crate,
 
 1. **Modifier bodies in 3MF.** Technical design section 11 says modifier bodies "export as slicer modifier volumes". Core 3MF cannot express them, so M1 leaves them out with a `modifier_omitted` warning (decision 2). engine.md section 3.13 step 1 includes visible modifier bodies in 3MF exports by default, so every such export warns until slicer project metadata lands; the engine may prefer to exclude them by default in M1. The later metadata also needs a rule for which part object each modifier belongs to (slicers attach modifiers to one object).
 2. **Slicer reading of `basematerials`.** Technical design section 11 names the Materials and Properties extension; this spec uses the core `basematerials` (decision 1). How each slicer shows base material colors and names, and whether it maps them to filament slots, varies and should be checked by per-slicer corpus tests; slot assignment needs the later slicer metadata.
-3. **Default display color.** `DEFAULT_DISPLAY_COLOR` (`#b4b4bc`) copies ui.md's light-theme `body` token. It is a design-system value and needs human review.
+3. **Default display color.** `DEFAULT_DISPLAY_COLOR` (`#9f9fa9`) follows ui.md's `body` role (zinc-400). It is a design-system value and needs human review.
 4. **`f32` coordinates in every format** (decision 5). Text formats could carry full `f64` precision instead (about 40% larger files). The reviewer should confirm `f32`.
 5. **Dependency versions and golden bytes.** The pinned zip header values (test 21) and compressed bytes depend on `zip` 9 and its deflate backend (`zlib-rs` through `flate2`). The workspace's `deflate` feature also pulls in `zopfli`, which level 6 never uses; switching the workspace dependency to `deflate-flate2-zlib-rs` would drop it (a dependency change, needs human review).
 6. **Memory for large text exports.** Writers return `Vec<u8>`; an ASCII STL of 1,000,000 triangles is about 200 MB, which the web build may not afford. Streaming writers are later; the UI could steer large exports to binary STL or 3MF.

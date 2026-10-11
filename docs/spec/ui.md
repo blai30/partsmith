@@ -1,6 +1,6 @@
 # UI specification
 
-Status: M1 spec. Package: `ui/` (React 19, TypeScript strict, Vite, Tailwind CSS 4, zustand, lucide-react). Read with [architecture.md](../design/architecture.md) (section "UI"), [technical design](../design/technical-design.md) sections 7, 8, 11, 13 and 14, ADRs [0002](../adr/0002-react-for-the-ui.md), [0006](../adr/0006-protocol-framing-and-schema.md), [0007](../adr/0007-webgl2-renderer-first.md) and [0009](../adr/0009-emscripten-c-abi-bridge.md), and the specs this one consumes: [protocol.md](protocol.md) (wire, commands, events, worker host, frame codec), [features.md](features.md) (manifests, shared param types, labels, messages), [model.md](model.md) (edits, ids, labels) and sketch.md and print.md (sketch and printer JSON).
+Status: M1 spec. Package: `ui/` (React 19, TypeScript strict, Vite, Tailwind CSS 4, zustand, lucide-react, clsx; linted with oxlint and formatted with oxfmt). Read with [architecture.md](../design/architecture.md) (section "UI"), [technical design](../design/technical-design.md) sections 7, 8, 11, 13 and 14, ADRs [0002](../adr/0002-react-for-the-ui.md), [0006](../adr/0006-protocol-framing-and-schema.md), [0007](../adr/0007-webgl2-renderer-first.md), [0009](../adr/0009-emscripten-c-abi-bridge.md) and [0013](../adr/0013-oxc-tooling-and-theme-stylesheet.md), the guidelines in [docs/guidelines/](../guidelines/README.md) ([TypeScript](../guidelines/typescript.md), [Tailwind CSS](../guidelines/tailwind-css.md), [frontend design](../guidelines/frontend-design.md) and the Partsmith design direction), and the specs this one consumes: [protocol.md](protocol.md) (wire, commands, events, worker host, frame codec), [features.md](features.md) (manifests, shared param types, labels, messages), [model.md](model.md) (edits, ids, labels) and sketch.md and print.md (sketch and printer JSON).
 
 This spec is the definition of done for the UI in M1. Test authors write the tests in section 6 from it without seeing the implementation; implementers make them pass without weakening them. Where this spec quotes another spec's JSON or names, the other spec is authoritative and a mismatch is a bug in this spec.
 
@@ -10,7 +10,7 @@ The UI is the single front end for web and desktop. It renders the model, edits 
 
 ### 1.1 In M1 (the "M1 slice")
 
-- App shell: top bar, collapsible browser, viewport, timeline, floating inspector, right side panel, status bar, notifications, light and dark themes from one token set, UI scale 100 to 300 percent.
+- App shell: top bar, collapsible browser, viewport, timeline, floating inspector, right side panel, status bar, notifications, light and dark themes from one role-to-color mapping toggled with the `dark` class on the root element (2.16), UI scale 100 to 300 percent.
 - Three contexts (Model, Sketch, Print), each with one short toolbar, and one command registry shared by toolbars, the command palette and keyboard shortcuts.
 - Command palette (Ctrl/Cmd+K) with fuzzy search over commands, features, bodies, parameters, recent files and settings, showing each command's shortcut.
 - Timeline: rollback marker drag, drag to reorder, suppress, status icons, double-click to edit, rename, delete, basic Problems list.
@@ -71,6 +71,7 @@ The UI is the single front end for web and desktop. It renders the model, edits 
 ui/
   scripts/generate-protocol-types.mjs   protocol types generator (2.2)
   src/
+    index.css                font import, Tailwind import, dark variant (ADR 0013; nothing else, 2.16)
     main.tsx                 capability check, theme bootstrap, createApp, render
     App.tsx                  layout shell (regions of section 3.2)
     app/
@@ -117,9 +118,10 @@ ui/
       evaluate.ts            convertForField
       format.ts              formatNumber, formatQuantity, formatSize, formatPoint
       step.ts                stepExpression, isPlainNumber
+      span.ts                utf16Range
       ExpressionInput.tsx, useExpression.ts
     viewport/
-      math.ts                Vec3, Mat4, Quat helpers
+      math.ts                Vector3, Matrix4, Quaternion helpers
       camera.ts              Camera and camera functions
       navigation.ts          NAVIGATION_PRESETS, gestureFor
       backend.ts             RenderBackend and its types
@@ -127,6 +129,7 @@ ui/
       picking.ts             encodePickId, decodePickId, choosePick
       scene.ts               Scene, createScene
       controller.ts          ViewportController, ViewportHandle
+      overlay.ts             positionElement, orientElement (runtime positions, 3.12)
       Viewport.tsx, ViewCube.tsx, ViewportControls.tsx, SectionPopover.tsx
     sketch/
       refs.ts                sketch origin and axis references (sketch.md)
@@ -149,11 +152,12 @@ ui/
       recovery.ts            RecoveryStore, createIndexedDbRecovery, createMemoryRecovery
     settings/ settings.ts    Settings, loadSettings, saveSettings
     theme/
-      theme.css              tokens and Tailwind theme variables (2.16)
-      theme.ts               resolveTheme, applyTheme, readViewportTheme
+      roles.ts               the role-to-color mapping, palette hex values, viewport colors,
+                             font and UI scale classes (2.16)
+      theme.ts               resolveTheme, applyTheme, applyUiScale, toggledTheme
     layout/ TopBar.tsx, StatusBar.tsx, SidePanel.tsx, Notifications.tsx, DocumentMenu.tsx
     components/              Button, IconButton, Menu, Popover, Tooltip, Switch, SegmentedControl, TextField
-    perf/ marks.ts           PERF_NAMES, perfMark, perfMeasure
+    performance/marks.ts     TIMING_NAMES, markTiming, measureTiming
     messages.ts              UI-owned message catalog (section 4.3)
     test/ setup.ts, fakes/   FakeTransport, FakeCoreApi, FakeBackend, catalog and documents fixtures
   e2e/
@@ -167,19 +171,21 @@ Module rules:
 - Only `src/core/api.ts` names protocol commands and only `src/core/events.ts` names protocol events. Every other module uses `CoreApi` and `CoreEvent`.
 - React components never call `CoreApi`; they call actions (2.9). Actions are plain functions taking the `App`, so they are unit-testable with fakes.
 - The viewport and sketch drag bypass React (ADR 0002): `ViewportController` subscribes to the store with `store.subscribe` and draws on demand. React renders only DOM chrome and DOM overlays.
-- Runtime dependencies are exactly those in `ui/package.json` (`react`, `react-dom`, `zustand`, `lucide-react`). Menus, popovers, tooltips and the fuzzy matcher are written in-house; popovers use the native Popover API. Adding a dependency needs human review (CLAUDE.md).
+- Runtime dependencies are exactly those in `ui/package.json` (`react`, `react-dom`, `zustand`, `lucide-react`, `clsx`). Menus, popovers, tooltips and the fuzzy matcher are written in-house; popovers use the native Popover API. Icons come from `lucide-react` only; there are no charts in M1. Motion uses Tailwind transition utilities only; the `motion` library is not a dependency (adding it, like any dependency, needs human review, CLAUDE.md).
 - Hand-written code never redeclares a type that exists in `src/generated/protocol.ts`. The only mirror types are for protocol values the schema carries as untyped JSON (feature params schemas only), and they are validated at runtime (2.12).
+- TypeScript follows [typescript.md](../guidelines/typescript.md): `type`, never `interface` (oxlint's `typescript/consistent-type-definitions` enforces it); names are words, not abbreviations (`documentHandle`, `millimetersPerPixel`, `Rectangle`), with single letters only for `i` and the coordinates `x`, `y`, `z`. Names that come from the protocol schema or other specs keep their spelling (`DocHandle`, `PointRef`, `params`, `expr` in JSON). Every signature in this spec follows these rules.
+- Styling follows [tailwind-css.md](../guidelines/tailwind-css.md): Tailwind utility classes only, written inline on the element; conditional classes with `clsx` imported from `clsx/lite` (never template literals or `+`); no `style` prop or attribute, with the one documented exception for runtime positions (3.12); no `px` values (Tailwind's rem scale; arbitrary values only where this spec names them, never in px); no CSS beyond `src/index.css` (2.16). Colors, the two font families and the UI scale come from the role mapping in `src/theme/roles.ts` (2.16); components never name a palette step themselves. Layout classes are not abstracted: repeated layout classes stay inline.
 
 ### 2.2 Generated protocol types
 
 `ui/scripts/generate-protocol-types.mjs`, run by `pnpm -C ui generate:protocol`:
 
 1. Reads `../docs/format/protocol.schema.json` relative to `ui/`. A missing or unparsable file exits with status 1 and prints `Cannot read docs/format/protocol.schema.json: <reason>`.
-2. Compiles it with `json-schema-to-typescript` `compile(schema, 'Protocol', options)` where `options` are `{ bannerComment: '/* Generated from docs/format/protocol.schema.json by ui/scripts/generate-protocol-types.mjs. Do not edit. */', unreachableDefinitions: true, additionalProperties: false, strictIndexSignatures: true, declareExternallyReferenced: true, enableConstEnums: false, format: true, style: <ui/.prettierrc.json> }`. Every `$defs` entry becomes an exported type with its definition name (`Command`, `CommandResult`, `Event`, `Message`, `MeshBuffers`, `SketchSolution`, `PrintReport`, ...).
+2. Compiles it with `json-schema-to-typescript` `compile(schema, 'Protocol', options)` where `options` are `{ bannerComment: '/* Generated from docs/format/protocol.schema.json by ui/scripts/generate-protocol-types.mjs. Do not edit. */', unreachableDefinitions: true, additionalProperties: false, strictIndexSignatures: true, declareExternallyReferenced: true, enableConstEnums: false, format: false }`. The output is not reformatted (oxfmt ignores `src/generated`, and `format: false` keeps the formatter bundled in `json-schema-to-typescript` out of the build). Every `$defs` entry becomes an exported type with its definition name (`Command`, `CommandResult`, `Event`, `Message`, `MeshBuffers`, `SketchSolution`, `PrintReport`, ...).
 3. Appends `export const PROTOCOL_VERSION = <n> as const` where `n` is the schema's top-level `x-protocol-version` (protocol.md 2.9). A schema without it exits with status 1.
 4. Writes `ui/src/generated/protocol.ts` with LF line endings and one trailing newline. The output is a pure function of the schema file: running it twice gives byte-identical files.
 
-The generated file is checked in. CI runs `pnpm -C ui generate:protocol && git diff --exit-code ui/src/generated` and fails on drift. `src/generated` is excluded from ESLint and Prettier (already configured).
+The generated file is checked in. CI runs `pnpm -C ui generate:protocol && git diff --exit-code ui/src/generated` and fails on drift. `src/generated` is excluded from oxlint and oxfmt (`ignorePatterns` in `ui/.oxlintrc.json` and `ui/.oxfmtrc.json`, already configured), so the `interface` declarations `json-schema-to-typescript` emits are machine output outside the `type` rule, which applies to hand-written code. CI runs `pnpm -C ui lint` (`oxlint --deny-warnings`, then `oxfmt --check`), `pnpm -C ui typecheck` and `pnpm -C ui test` on every change; type-aware checks come from `tsc -b` (ADR 0013).
 
 ### 2.3 Frame codec, bridge and worker host
 
@@ -194,13 +200,13 @@ The generated file is checked in. CI runs `pnpm -C ui generate:protocol && git d
 
 ```ts
 /** What the core reported when it became ready. */
-export interface CoreReady {
+export type CoreReady = {
   readonly protocolVersion: number
   readonly engineVersion: string
 }
 
 /** A byte pipe to the core: one request frame in, its response frame out. */
-export interface Transport {
+export type Transport = {
   readonly kind: 'worker' | 'tauri'
   /** Starts the core. Resolves once it accepts calls; rejects with CoreFatalError. */
   start(): Promise<CoreReady>
@@ -216,7 +222,7 @@ export interface Transport {
 export class CoreFatalError extends Error {}
 
 /** Creates the web transport. `createWorker` is injectable for tests. */
-export function createWorkerTransport(options?: { createWorker?: () => Worker; startTimeoutMs?: number }): Transport
+export function createWorkerTransport(options?: { createWorker?: () => Worker; startTimeoutMilliseconds?: number }): Transport
 
 /** Picks the Tauri transport when the Tauri global is present, else the worker transport. */
 export function chooseTransport(environment: { readonly __TAURI__?: TauriGlobal }): Transport
@@ -224,7 +230,7 @@ export function chooseTransport(environment: { readonly __TAURI__?: TauriGlobal 
 
 Worker transport behavior:
 
-1. `start()` creates the worker and resolves with `{ protocolVersion, engineVersion }` from the worker's `ready` message. A `fatal` message, a worker `error` event, or no `ready` within `startTimeoutMs` (default 30,000) rejects with `CoreFatalError`; the timeout message is "The geometry core did not start within {startTimeoutMs / 1000} seconds." ("... within 30 seconds." by default).
+1. `start()` creates the worker and resolves with `{ protocolVersion, engineVersion }` from the worker's `ready` message. A `fatal` message, a worker `error` event, or no `ready` within `startTimeoutMilliseconds` (default 30,000) rejects with `CoreFatalError`; the timeout message is "The geometry core did not start within {startTimeoutMilliseconds / 1000} seconds." ("... within 30 seconds." by default).
 2. `send(request)` posts `{ type: 'call', frame: request }` with `[request]` as the transfer list and appends a resolver to a FIFO list. Each `{ type: 'frame', frame }` message resolves the oldest resolver (the worker answers in request order, protocol.md 2.11 rule 5).
 3. A `fatal` message, `error` event or `messageerror` event after start rejects every pending resolver with `CoreFatalError(message)`, notifies the fatal listeners once, and makes later sends reject immediately.
 4. `stop()` terminates the worker and rejects pending sends with `CoreFatalError('The geometry core was stopped.')`.
@@ -233,7 +239,7 @@ Worker transport behavior:
 
 ```ts
 /** The part of `window.__TAURI__` the UI uses (requires `app.withGlobalTauri` in the desktop config). */
-export interface TauriGlobal {
+export type TauriGlobal = {
   readonly core: { invoke(command: string, payload: ArrayBuffer): Promise<ArrayBuffer> }
 }
 export function createTauriTransport(tauri: TauriGlobal): Transport
@@ -255,7 +261,7 @@ Tauri transport behavior (protocol.md 2.12):
 import type { Command, CommandResult, ErrorCode } from '../generated/protocol'
 
 /** A successful response with the frame's buffers (views alias the frame). */
-export interface Reply {
+export type Reply = {
   readonly result: CommandResult
   readonly buffers: readonly (Uint8Array | Uint32Array | Float32Array)[]
 }
@@ -264,9 +270,11 @@ export interface Reply {
 export class CoreError extends Error {
   readonly code: ErrorCode
   readonly editIndex: number | null
+  /** UTF-8 byte offsets of an `expression_error`'s span when the core reports one (2.13, open issue 9), else null. */
+  readonly span: { readonly start: number; readonly end: number } | null
 }
 
-export interface CoreClient {
+export type CoreClient = {
   /** Sends one command. Events in the response frame are dispatched before the promise settles. */
   request(command: Command): Promise<Reply>
   onEvent(listener: (event: CoreEvent) => void): () => void
@@ -289,26 +297,26 @@ Behavior:
 
 ```ts
 /** Runs tasks strictly one after another, in submission order. */
-export interface MutationQueue {
-  run<T>(task: () => Promise<T>): Promise<T>
+export type MutationQueue = {
+  run<Result>(task: () => Promise<Result>): Promise<Result>
   readonly pending: number
 }
 export function createMutationQueue(): MutationQueue
 
 /** Sends at most one input at a time; while one is in flight, newer inputs replace the waiting one. */
-export interface LatestOnly<I> {
-  submit(input: I): void
+export type LatestOnly<Input> = {
+  submit(input: Input): void
   /** Drops the waiting input and ignores the result of the one in flight. */
   cancel(): void
   /** Sends a waiting input now if idle and resolves when nothing is waiting or in flight. */
   flush(): Promise<void>
   readonly busy: boolean
 }
-export function createLatestOnly<I, O>(
-  send: (input: I) => Promise<O>,
-  onResult: (output: O, input: I) => void,
-  onError: (error: unknown, input: I) => void,
-): LatestOnly<I>
+export function createLatestOnly<Input, Output>(
+  send: (input: Input) => Promise<Output>,
+  onResult: (output: Output, input: Input) => void,
+  onError: (error: unknown, input: Input) => void,
+): LatestOnly<Input>
 ```
 
 `createLatestOnly` semantics: when an in-flight send settles and a newer input is waiting, the settled result is discarded (neither callback runs) and the waiting input is sent; otherwise the matching callback runs. `flush()` resolves after the last callback has run, so a caller that awaits it never overtakes the last submitted input. A task that fails in `MutationQueue` rejects its own promise and does not block later tasks.
@@ -321,43 +329,44 @@ Every document-mutating `CoreApi` call (apply, rename parameter, transaction, fo
 
 ```ts
 import type {
-  CatalogEntry, DocHandle, Edit, ElementDescriptor, ElementRef, ExportFormat, Diagnostic,
+  CatalogEntry, DocHandle, Edit, ElementDescriptor, ElementKind, ElementRef, ExportFormat, Diagnostic,
   Health, Pick, PointRef, PrinterProfile, Resolution, SketchParams, SketchSolution,
   Units, Dimension, Orientation,
 } from '../generated/protocol'
 
-export interface CoreApi {
+export type CoreApi = {
   engineInfo(): Promise<{ protocolVersion: number; engineVersion: string; formatVersion: number; kernel: string }>
   featureCatalog(): Promise<readonly CatalogEntry[]>
   listPrinterProfiles(): Promise<readonly PrinterProfile[]>
   newDocument(units?: Units): Promise<DocHandle>
-  openDocument(text: string): Promise<{ doc: DocHandle; migratedFrom: number | null }>
-  saveDocument(doc: DocHandle): Promise<{ text: string; revision: number }>
-  markSaved(doc: DocHandle, revision: number): Promise<void>
-  closeDocument(doc: DocHandle): Promise<void>
-  applyEdits(doc: DocHandle, label: string | null, edits: readonly Edit[]): Promise<number>
-  renameParameter(doc: DocHandle, parameter: string, name: string): Promise<number>
-  beginTransaction(doc: DocHandle, label: string): Promise<void>
-  setFocus(doc: DocHandle, feature: string | null): Promise<void>
-  commitTransaction(doc: DocHandle): Promise<{ revision: number; recorded: boolean }>
-  cancelTransaction(doc: DocHandle): Promise<number>
-  undo(doc: DocHandle): Promise<{ revision: number; label: string }>
-  redo(doc: DocHandle): Promise<{ revision: number; label: string }>
-  solveSketch(doc: DocHandle, feature: string, candidate?: SketchParams): Promise<SolvedSketch | null>
-  dragSketch(doc: DocHandle, feature: string, point: PointRef, to: readonly [number, number]): Promise<SolvedSketch | null>
-  endSketchDrag(doc: DocHandle, feature: string, commit: boolean): Promise<number>
-  evaluate(doc: DocHandle, expression: string): Promise<{ value: number; dimension: Dimension }>
-  pickReference(doc: DocHandle, pick: Pick): Promise<ElementDescriptor>
-  resolveReferences(doc: DocHandle, references: readonly ElementRef[]): Promise<readonly Resolution[]>
-  analyzePrint(doc: DocHandle, options: { profile?: string; orientation: Orientation }): Promise<Health | null>
-  exportBodies(doc: DocHandle, format: ExportFormat, bodies?: readonly string[]): Promise<{ files: readonly ExportedFile[]; warnings: readonly Diagnostic[] }>
+  openDocument(text: string): Promise<{ documentHandle: DocHandle; migratedFrom: number | null }>
+  saveDocument(documentHandle: DocHandle): Promise<{ text: string; revision: number }>
+  markSaved(documentHandle: DocHandle, revision: number): Promise<void>
+  closeDocument(documentHandle: DocHandle): Promise<void>
+  applyEdits(documentHandle: DocHandle, label: string | null, edits: readonly Edit[]): Promise<number>
+  renameParameter(documentHandle: DocHandle, parameter: string, name: string): Promise<number>
+  beginTransaction(documentHandle: DocHandle, label: string): Promise<void>
+  setFocus(documentHandle: DocHandle, feature: string | null): Promise<void>
+  commitTransaction(documentHandle: DocHandle): Promise<{ revision: number; recorded: boolean }>
+  cancelTransaction(documentHandle: DocHandle): Promise<number>
+  undo(documentHandle: DocHandle): Promise<{ revision: number; label: string }>
+  redo(documentHandle: DocHandle): Promise<{ revision: number; label: string }>
+  solveSketch(documentHandle: DocHandle, feature: string, candidate?: SketchParams): Promise<SolvedSketch | null>
+  dragSketch(documentHandle: DocHandle, feature: string, point: PointRef, to: readonly [number, number]): Promise<SolvedSketch | null>
+  endSketchDrag(documentHandle: DocHandle, feature: string, commit: boolean): Promise<number>
+  evaluate(documentHandle: DocHandle, expression: string): Promise<{ value: number; dimension: Dimension }>
+  listElements(documentHandle: DocHandle, body: string, kind?: ElementKind): Promise<readonly ElementDescriptor[]>
+  pickReference(documentHandle: DocHandle, pick: Pick): Promise<ElementDescriptor>
+  resolveReferences(documentHandle: DocHandle, references: readonly ElementRef[]): Promise<readonly Resolution[]>
+  analyzePrint(documentHandle: DocHandle, options: { profile?: string; orientation: Orientation }): Promise<Health | null>
+  exportBodies(documentHandle: DocHandle, format: ExportFormat, bodies?: readonly string[]): Promise<{ files: readonly ExportedFile[]; warnings: readonly Diagnostic[] }>
 }
 
 /** A sketch solution with its region fill buffers (2.7). */
-export interface SolvedSketch { readonly solution: SketchSolution; readonly display: SketchDisplayData | null }
+export type SolvedSketch = { readonly solution: SketchSolution; readonly display: SketchDisplayData | null }
 
 /** An export file with its bytes resolved from the frame buffer. */
-export interface ExportedFile { readonly name: string; readonly mediaType: string; readonly bytes: Uint8Array }
+export type ExportedFile = { readonly name: string; readonly mediaType: string; readonly bytes: Uint8Array }
 
 export function createCoreApi(client: CoreClient): CoreApi
 ```
@@ -366,7 +375,7 @@ Rules:
 
 - `solveSketch`, `dragSketch` and `analyzePrint` resolve with `null` when the core answers `superseded`; every other method rejects with that `CoreError`.
 - `exportBodies` copies each file's `u8` buffer into a new `Uint8Array` (the frame is not retained).
-- The UI uses no other command in M1. `get_document`, `list_elements`, `measure`, `set_tessellation`, `put_printer_profile`, `import_step` and `export_python` are unused.
+- The UI uses no other command in M1. `get_document`, `measure`, `set_tessellation`, `put_printer_profile`, `import_step` and `export_python` are unused.
 
 ### 2.7 Core events
 
@@ -374,15 +383,15 @@ Rules:
 
 ```ts
 export type CoreEvent =
-  | { readonly type: 'document_changed'; readonly doc: DocHandle; readonly revision: number; readonly document: Document; readonly dirty: boolean; readonly undo: string | null; readonly redo: string | null; readonly transactionOpen: boolean; readonly transaction: string | null; readonly focus: string | null }
-  | { readonly type: 'recomputed'; readonly doc: DocHandle; readonly revision: number; readonly features: readonly FeatureStatus[]; readonly parameters: readonly ParameterValue[]; readonly diagnostics: readonly Diagnostic[] }
-  | { readonly type: 'sketch_solved'; readonly doc: DocHandle; readonly revision: number; readonly solution: SketchSolution; readonly display: SketchDisplayData | null }
-  | { readonly type: 'datum_plane'; readonly doc: DocHandle; readonly revision: number; readonly feature: string; readonly placement: Placement | null }
-  | { readonly type: 'body_mesh'; readonly doc: DocHandle; readonly revision: number; readonly body: string; readonly layer: 'model' | 'preview'; readonly meshId: number; readonly mesh: BodyMeshData | null }
-  | { readonly type: 'print_health'; readonly doc: DocHandle; readonly revision: number; readonly report: PrintReport; readonly overhang: Readonly<Record<string, Float32Array>> }
+  | { readonly type: 'document_changed'; readonly documentHandle: DocHandle; readonly revision: number; readonly document: Document; readonly dirty: boolean; readonly undo: string | null; readonly redo: string | null; readonly transactionOpen: boolean; readonly transaction: string | null; readonly focus: string | null }
+  | { readonly type: 'recomputed'; readonly documentHandle: DocHandle; readonly revision: number; readonly features: readonly FeatureStatus[]; readonly parameters: readonly ParameterValue[]; readonly diagnostics: readonly Diagnostic[] }
+  | { readonly type: 'sketch_solved'; readonly documentHandle: DocHandle; readonly revision: number; readonly solution: SketchSolution; readonly display: SketchDisplayData | null }
+  | { readonly type: 'datum_plane'; readonly documentHandle: DocHandle; readonly revision: number; readonly feature: string; readonly placement: Placement | null }
+  | { readonly type: 'body_mesh'; readonly documentHandle: DocHandle; readonly revision: number; readonly body: string; readonly layer: 'model' | 'preview'; readonly meshId: number; readonly mesh: BodyMeshData | null }
+  | { readonly type: 'print_health'; readonly documentHandle: DocHandle; readonly revision: number; readonly report: PrintReport; readonly overhang: Readonly<Record<string, Float32Array>> }
 
 /** Mesh buffers of one body in one layer (protocol.md MeshBuffers, 3.4 invariants). */
-export interface BodyMeshData {
+export type BodyMeshData = {
   readonly positions: Float32Array
   readonly normals: Float32Array
   readonly indices: Uint32Array
@@ -399,7 +408,7 @@ export interface BodyMeshData {
 }
 
 /** Region fill buffers of a sketch solution (protocol.md SketchDisplay). */
-export interface SketchDisplayData {
+export type SketchDisplayData = {
   readonly regionPositions: Float32Array
   readonly regionIndices: Uint32Array
   readonly regionIds: Uint32Array
@@ -419,7 +428,7 @@ Revision rule: the store keeps the highest `revision` seen per document. A `docu
 ```ts
 export type AppContext = 'model' | 'sketch' | 'print'
 
-export interface AppState {
+export type AppState = {
   readonly core: CoreState
   readonly catalog: Catalog | null
   readonly printers: readonly PrinterProfile[]
@@ -436,7 +445,7 @@ export interface AppState {
   readonly notifications: readonly Notification[]
 }
 
-export interface CoreState {
+export type CoreState = {
   readonly status: 'loading' | 'ready' | 'failed'
   readonly engineVersion: string | null
   readonly fatal: string | null
@@ -444,21 +453,21 @@ export interface CoreState {
   readonly pendingMutations: number
 }
 
-export interface Catalog {
+export type Catalog = {
   /** Entries in protocol order (sorted by type). */
   readonly features: readonly CatalogFeature[]
   readonly byType: Readonly<Record<string, CatalogFeature>>
 }
-export interface CatalogFeature {
+export type CatalogFeature = {
   readonly type: string
   readonly manifest: FeatureManifest
   readonly paramsSchema: JsonSchema
 }
 
-export interface DocumentState {
-  readonly doc: DocHandle
+export type DocumentState = {
+  readonly documentHandle: DocHandle
   readonly name: string
-  readonly file: FileRef | null
+  readonly file: FileReference | null
   readonly revision: number
   readonly recipe: Document
   /** The core's dirty flag from document_changed. */
@@ -475,18 +484,18 @@ export interface DocumentState {
   readonly sketches: Readonly<Record<string, SolvedSketch>>
   readonly datums: Readonly<Record<string, Placement | null>>
   /** Model-layer mesh metadata by body id; buffers live in the scene, not the store. */
-  readonly meshes: Readonly<Record<string, MeshInfo>>
-  readonly lastRebuildMs: number | null
+  readonly meshes: Readonly<Record<string, MeshSummary>>
+  readonly lastRebuildMilliseconds: number | null
 }
-export interface MeshInfo { readonly meshId: number; readonly boundingBox: BoundingBox; readonly faceCount: number; readonly edgeCount: number; readonly vertexCount: number }
-export interface FileRef { readonly name: string; readonly handle: FileSystemFileHandle | null }
+export type MeshSummary = { readonly meshId: number; readonly boundingBox: BoundingBox; readonly faceCount: number; readonly edgeCount: number; readonly vertexCount: number }
+export type FileReference = { readonly name: string; readonly handle: FileSystemFileHandle | null }
 
 export type SelectionItemKind =
   | 'face' | 'edge' | 'vertex' | 'body' | 'feature' | 'parameter'
   | 'sketch_region' | 'sketch_curve' | 'sketch_point' | 'sketch_constraint'
   | 'origin_plane' | 'origin_axis' | 'origin_point' | 'datum_plane'
 
-export interface SelectionItem {
+export type SelectionItem = {
   /** Stable key (3.6), equal for the same thing across rebuilds. */
   readonly key: string
   readonly kind: SelectionItemKind
@@ -498,23 +507,23 @@ export interface SelectionItem {
   /** Element data for faces, edges and vertices (from pick_reference). */
   readonly element: ElementDescriptor | null
   /** Sketch data: the entity id, point ref, constraint id or region info. */
-  readonly sketchItem: SketchItemRef | null
+  readonly sketchItem: SketchItemReference | null
   /** Origin item name: XY, XZ, YZ, X, Y, Z or O. */
   readonly origin: OriginName | null
 }
 
 export type OriginName = 'XY' | 'XZ' | 'YZ' | 'X' | 'Y' | 'Z' | 'O'
 
-export type SketchItemRef =
+export type SketchItemReference =
   | { readonly kind: 'entity'; readonly sketch: string; readonly entity: string; readonly entityType: 'point' | 'line' | 'circle' | 'arc' }
   | { readonly kind: 'point'; readonly sketch: string; readonly point: PointRef }
   | { readonly kind: 'constraint'; readonly sketch: string; readonly constraint: string }
   | { readonly kind: 'region'; readonly sketch: string; readonly region: RegionInfo }
   | { readonly kind: 'origin'; readonly sketch: string; readonly which: 'point' | 'x_axis' | 'y_axis' }
 
-export interface HoverTarget { readonly key: string; readonly kind: SelectionItemKind }
+export type HoverTarget = { readonly key: string; readonly kind: SelectionItemKind }
 
-export interface ActiveCommand {
+export type ActiveCommand = {
   readonly featureType: string
   /** Feature id: the new record's id, or the edited record's id. */
   readonly featureId: string
@@ -531,7 +540,7 @@ export interface ActiveCommand {
   readonly preview: 'none' | 'pending' | 'shown' | 'failed'
 }
 
-export interface SketchSession {
+export type SketchSession = {
   /** Null while picking the plane for a new sketch. */
   readonly sketchId: string | null
   readonly tool: SketchToolId | null
@@ -542,7 +551,7 @@ export interface SketchSession {
   readonly dragging: boolean
 }
 
-export interface PrintState {
+export type PrintState = {
   readonly report: PrintReport | null
   /** Revision the report describes; the badge is stale when it differs from the document revision. */
   readonly reportRevision: number | null
@@ -552,9 +561,9 @@ export interface PrintState {
 }
 
 /** A finding of the print report: the `BodyPrint.body` id, the check, and the finding's index in that check's `findings`. */
-export interface FindingKey { readonly body: string; readonly check: string; readonly index: number }
+export type FindingKey = { readonly body: string; readonly check: string; readonly index: number }
 
-export interface ViewState {
+export type ViewState = {
   readonly projection: 'perspective' | 'orthographic'
   readonly named: StandardView | 'custom'
   readonly section: SectionState | null
@@ -564,9 +573,9 @@ export interface ViewState {
   /** Session-only locked bodies (not pickable). */
   readonly locked: readonly string[]
 }
-export interface SectionState { readonly plane: 'XY' | 'XZ' | 'YZ'; readonly offset: string; readonly flipped: boolean }
+export type SectionState = { readonly plane: 'XY' | 'XZ' | 'YZ'; readonly offset: string; readonly flipped: boolean }
 
-export interface PanelsState {
+export type PanelsState = {
   readonly browserOpen: boolean
   readonly timelineCollapsed: boolean
   readonly paletteOpen: boolean
@@ -574,7 +583,7 @@ export interface PanelsState {
   readonly inspectorPosition: { readonly x: number; readonly y: number } | null
 }
 
-export interface Notification {
+export type Notification = {
   readonly id: string
   readonly severity: 'info' | 'success' | 'warning' | 'error'
   readonly message: string
@@ -596,12 +605,12 @@ export function createAppStore(overrides?: Partial<AppState>): AppStore
 `src/app/createApp.ts`:
 
 ```ts
-export interface Platform {
-  readonly os: 'mac' | 'windows' | 'linux' | 'other'
+export type Platform = {
+  readonly operatingSystem: 'mac' | 'windows' | 'linux' | 'other'
   readonly host: 'web' | 'desktop'
 }
 
-export interface App {
+export type App = {
   readonly store: AppStore
   readonly core: CoreApi
   readonly mutations: MutationQueue
@@ -617,7 +626,7 @@ export interface App {
   restartCore(): Promise<void>
 }
 
-export interface CreateAppOptions {
+export type CreateAppOptions = {
   readonly transport: Transport
   readonly files: FileService
   readonly recent: RecentFilesStore
@@ -692,9 +701,9 @@ export function setLocked(app: App, bodyId: string, locked: boolean): void
 export function setSessionVisible(app: App, key: string, visible: boolean): void
 
 // parameters.ts
-export function addParameter(app: App, name: string, expr: string): Promise<boolean>
+export function addParameter(app: App, name: string, expression: string): Promise<boolean>
 export function renameParameter(app: App, id: string, name: string): Promise<boolean>
-export function updateParameter(app: App, id: string, change: { expr?: string; comment?: string | null }): Promise<boolean>
+export function updateParameter(app: App, id: string, change: { expression?: string; comment?: string | null }): Promise<boolean>
 export function deleteParameter(app: App, id: string): Promise<boolean>
 
 // print.ts
@@ -727,7 +736,7 @@ export type Availability =
 
 export type InvocationSource = 'toolbar' | 'palette' | 'shortcut' | 'menu' | 'inspector'
 
-export interface CommandDefinition {
+export type CommandDefinition = {
   /** Unique id, for example 'file.save' or 'feature.extrude'. */
   readonly id: string
   readonly title: string
@@ -750,9 +759,9 @@ export interface CommandDefinition {
   run(app: App, source: InvocationSource): void | Promise<void>
 }
 
-export interface ShortcutConflict { readonly chord: string; readonly context: AppContext; readonly commands: readonly string[] }
+export type ShortcutConflict = { readonly chord: string; readonly context: AppContext; readonly commands: readonly string[] }
 
-export interface CommandRegistry {
+export type CommandRegistry = {
   /** Throws Error(`Command ${id} is already registered.`) on a duplicate id. */
   register(definition: CommandDefinition): () => void
   get(id: string): CommandDefinition | undefined
@@ -771,16 +780,16 @@ export function createCommandRegistry(): CommandRegistry
 
 ```ts
 /** A parsed chord. `key` is normalized (2.10). */
-export interface Chord { readonly mod: boolean; readonly ctrl: boolean; readonly alt: boolean; readonly shift: boolean; readonly key: string }
-export function parseShortcut(spec: string): Chord
+export type Chord = { readonly primaryModifier: boolean; readonly control: boolean; readonly alt: boolean; readonly shift: boolean; readonly key: string }
+export function parseShortcut(shortcut: string): Chord
 export function chordToString(chord: Chord): string
-export function formatShortcut(spec: string, platform: Platform): string
+export function formatShortcut(shortcut: string, platform: Platform): string
 export function chordFromEvent(event: KeyboardEvent, platform: Platform): Chord | null
 ```
 
-Shortcut grammar: `spec = (modifier "+")* key`, modifiers in the order `Mod`, `Ctrl`, `Alt`, `Shift`, each at most once. `Mod` is Cmd (`metaKey`) on macOS and Ctrl elsewhere; `Ctrl` is the Control key on every platform and is not used together with `Mod`. `key` is an uppercase letter `A` to `Z`, a digit, `F1` to `F12`, or one of `Enter`, `Escape`, `Delete`, `Backspace`, `Tab`, `Space`, `ArrowUp`, `ArrowDown`, `ArrowLeft`, `ArrowRight`, `Home`, `End`, `=`, `-`. `parseShortcut` throws `Error('Invalid shortcut "<spec>".')` for anything else, including an empty key, a repeated modifier or a wrong modifier order.
+Shortcut grammar: `shortcut = (modifier "+")* key`, modifiers in the order `Mod`, `Ctrl`, `Alt`, `Shift`, each at most once. `Mod` is Cmd (`metaKey`) on macOS and Ctrl elsewhere; `Ctrl` is the Control key on every platform and is not used together with `Mod`. `key` is an uppercase letter `A` to `Z`, a digit, `F1` to `F12`, or one of `Enter`, `Escape`, `Delete`, `Backspace`, `Tab`, `Space`, `ArrowUp`, `ArrowDown`, `ArrowLeft`, `ArrowRight`, `Home`, `End`, `=`, `-`. `parseShortcut` throws `Error('Invalid shortcut "<shortcut>".')` for anything else, including an empty key, a repeated modifier or a wrong modifier order.
 
-`chordFromEvent` normalizes the key: a single letter `event.key` is uppercased; when `event.key` is not an ASCII letter but `event.code` is `KeyA` to `KeyZ` (non-Latin layouts), the letter from `event.code` is used; `' '` becomes `Space`; other keys use `event.key` as is. It returns `null` for a lone modifier press. On macOS `mod` is `metaKey` and `ctrl` is `ctrlKey`; elsewhere `mod` is `ctrlKey` and `ctrl` is always false.
+`chordFromEvent` normalizes the key: a single letter `event.key` is uppercased; when `event.key` is not an ASCII letter but `event.code` is `KeyA` to `KeyZ` (non-Latin layouts), the letter from `event.code` is used; `' '` becomes `Space`; other keys use `event.key` as is. It returns `null` for a lone modifier press. On macOS `primaryModifier` is `metaKey` and `control` is `ctrlKey`; elsewhere `primaryModifier` is `ctrlKey` and `control` is always false.
 
 `formatShortcut` renders macOS chords as modifier symbols in Apple's order `⌃` (Ctrl), `⌥` (Alt), `⇧` (Shift), `⌘` (Mod), followed by the key, with no separators (`Mod+Shift+S` is `⇧⌘S`), and other platforms as words joined by `+` (`Ctrl+Shift+S`, with `Mod` written `Ctrl`). Keys: letters, digits and `F1` to `F12` as is; `Enter` is `↩` on macOS and `Enter` elsewhere; `Delete` is `⌦` and `Del`; `Backspace` is `⌫` and `Backspace`; `Escape` is `Esc`; `Space` is `Space`; arrows are `↑`, `↓`, `←`, `→` everywhere; `=` and `-` as is.
 
@@ -793,7 +802,7 @@ export function installShortcutDispatcher(app: App, target: Window): () => void
 Dispatch rules, applied to every `keydown` on `window` in the bubbling phase:
 
 1. Ignore the event when `event.defaultPrevented`, `event.isComposing` or `event.repeat` is true, or `chordFromEvent` returns null.
-2. When the event target is editable (an `input` of a text-like type, a `textarea`, a `select`, or an element with `isContentEditable`), only chords with `mod` are considered, and never `Mod+Z`, `Mod+Shift+Z`, `Mod+Y`, `Mod+A`, `Mod+C`, `Mod+X` or `Mod+V` (native text editing keeps them).
+2. When the event target is editable (an `input` of a text-like type, a `textarea`, a `select`, or an element with `isContentEditable`), only chords with `primaryModifier` are considered, and never `Mod+Z`, `Mod+Shift+Z`, `Mod+Y`, `Mod+A`, `Mod+C`, `Mod+X` or `Mod+V` (native text editing keeps them).
 3. When the palette, a menu or a popover is open, only `Mod+K` is considered (it closes the palette).
 4. Find `app.commands.forChord(app, chord, context)`. If found: `preventDefault()`, then run it with source `shortcut`. A disabled command shows its reason (info notification, 3 s) instead of running.
 
@@ -805,7 +814,7 @@ Components that handle keys themselves (inspector Enter and Esc, sketch dimensio
 /** Best score of query against text, or null when query is not a subsequence of text. */
 export function fuzzyScore(query: string, text: string): number | null
 
-export interface PaletteItem {
+export type PaletteItem = {
   readonly id: string
   readonly kind: 'command' | 'feature' | 'body' | 'parameter' | 'recent' | 'setting'
   readonly title: string
@@ -842,72 +851,75 @@ The exact entries are in section 3.3. A toolbar entry whose command is not regis
 
 `src/commands/features.ts` registers one command per catalog entry: id `feature.<type>`, title the manifest label, category from the manifest category (`create` Create, `modify` Modify, `pattern` Pattern, `construct` Construct, `sketch` Create), icon from `FEATURE_ICONS[manifest.icon]` (fallback `Shapes`), keywords from `FEATURE_KEYWORDS[type]`, shortcuts from `FEATURE_SHORTCUTS[type]` (3.5), contexts `model`, `sketch` and `print` (running it from Sketch or Print switches to Model first, 3.3). The `sketch` type's command runs `startNewSketch` instead of the inspector. The `import` type gets no command (STEP import UI is later). Its timeline item can be selected, renamed, suppressed and deleted; Edit is disabled with `import_not_editable` (4.3).
 
-`src/commands/icons.ts` maps manifest icon names (features.md 3.13) to lucide icons: `sketch` PencilRuler, `extrude` ArrowUpFromLine, `revolve` Rotate3d, `hole` CircleDot, `box` Box, `cylinder` Cylinder, `sphere` Globe, `cone` Cone, `torus` Torus, `fillet` SquareRoundCorner, `chamfer` Octagon, `shell` PackageOpen, `boolean` Combine, `move-body` Move3d, `split-body` SquareSplitVertical, `mirror` FlipHorizontal2, `linear-pattern` Columns3, `circular-pattern` Orbit, `datum-plane` Layers2, `import` FileInput. Constraint glyphs are an in-house set of 24 by 24 line icons drawn in the lucide style (2 px stroke, round caps and joins), one per constraint type, because lucide has no parallel, perpendicular or coincident symbols.
+`src/commands/icons.ts` maps manifest icon names (features.md 3.13) to lucide icons: `sketch` PencilRuler, `extrude` ArrowUpFromLine, `revolve` Rotate3d, `hole` CircleDot, `box` Box, `cylinder` Cylinder, `sphere` Globe, `cone` Cone, `torus` Torus, `fillet` SquareRoundCorner, `chamfer` Octagon, `shell` PackageOpen, `boolean` Combine, `move-body` Move3d, `split-body` SquareSplitVertical, `mirror` FlipHorizontal2, `linear-pattern` Columns3, `circular-pattern` Orbit, `datum-plane` Layers2, `import` FileInput. Constraint glyphs are an in-house set of line icons drawn in the lucide style (24 by 24 `viewBox`, stroke width 2, round caps and joins, `currentColor`), one per constraint type, because lucide has no parallel, perpendicular or coincident symbols.
 
 `FEATURE_KEYWORDS`: `extrude` pad, pocket, extrusion; `revolve` revolution, groove, lathe; `hole` drill, counterbore, countersink; `fillet` round, radius; `chamfer` bevel; `shell` hollow, thickness; `boolean` combine, union, subtract, intersect, join, cut; `mirror` mirrored, symmetry; `linear_pattern` array, rectangular pattern; `circular_pattern` polar pattern, array; `datum_plane` construction plane, offset plane, work plane; `move_body` placement, translate, rotate; `split_body` slice, cut body; `box` cube, block; `cylinder` rod, pin; `sphere` ball; `cone` taper; `torus` ring, donut; `sketch` drawing, profile.
 
 ### 2.11 Viewport: camera, render backend, picking, scene
 
-`src/viewport/camera.ts` (pure functions; lengths in mm, angles in radians):
+`src/viewport/camera.ts` (pure functions; lengths in mm, angles in radians, pixel arguments in CSS pixels):
 
 ```ts
-export type Vec3 = readonly [number, number, number]
+export type Vector3 = readonly [number, number, number]
 /** Components x, y, z, w. */
-export type Quat = readonly [number, number, number, number]
+export type Quaternion = readonly [number, number, number, number]
 export type StandardView = 'top' | 'bottom' | 'front' | 'back' | 'left' | 'right' | 'iso'
 
-export interface Camera {
-  readonly target: Vec3
+export type Camera = {
+  readonly target: Vector3
   /** Camera-to-world rotation. The camera looks along its local -Z; local +Y is up; local +X is right. */
-  readonly rotation: Quat
+  readonly rotation: Quaternion
   /** Eye distance from the target. */
   readonly distance: number
   readonly projection: 'perspective' | 'orthographic'
   /** Vertical field of view, perspective only. */
-  readonly fovY: number
+  readonly verticalFieldOfView: number
   /** Visible height at the target, orthographic only. */
-  readonly orthoHeight: number
+  readonly orthographicHeight: number
 }
 
 /** 30 degrees. */
-export const DEFAULT_FOV_Y: number
-/** The iso view, target [0, 0, 0], distance 200, perspective, orthoHeight 2 × 200 × tan(15°). */
+export const DEFAULT_VERTICAL_FIELD_OF_VIEW: number
+/** The iso view, target [0, 0, 0], distance 200, perspective, orthographicHeight 2 × 200 × tan(15°). */
 export const DEFAULT_CAMERA: Camera
-export function eye(camera: Camera): Vec3
-export function forward(camera: Camera): Vec3
-export function up(camera: Camera): Vec3
+export function eye(camera: Camera): Vector3
+export function forward(camera: Camera): Vector3
+export function up(camera: Camera): Vector3
 export function viewMatrix(camera: Camera): Float32Array
 export function projectionMatrix(camera: Camera, aspect: number, near: number, far: number): Float32Array
-export function depthRange(camera: Camera, sceneCenter: Vec3, sceneRadius: number): { near: number; far: number }
+export function depthRange(camera: Camera, sceneCenter: Vector3, sceneRadius: number): { near: number; far: number }
 export function visibleHeightAtTarget(camera: Camera): number
-export function standardViewRotation(view: StandardView): Quat
-export function rotationLookingAlong(direction: Vec3, upHint: Vec3): Quat
+export function standardViewRotation(view: StandardView): Quaternion
+export function rotationLookingAlong(direction: Vector3, upHint: Vector3): Quaternion
 export function classifyView(camera: Camera): StandardView | 'custom'
-export function orbit(camera: Camera, deltaXPx: number, deltaYPx: number, pivot: Vec3): Camera
-export function pan(camera: Camera, deltaXPx: number, deltaYPx: number, viewportHeightPx: number): Camera
-export function zoomAt(camera: Camera, factor: number, cursorNdc: readonly [number, number], aspect: number): Camera
+export function orbit(camera: Camera, deltaXPixels: number, deltaYPixels: number, pivot: Vector3): Camera
+export function pan(camera: Camera, deltaXPixels: number, deltaYPixels: number, viewportHeightPixels: number): Camera
+/** `cursorNormalized` is the cursor in normalized device coordinates, each -1 to 1. */
+export function zoomAt(camera: Camera, factor: number, cursorNormalized: readonly [number, number], aspect: number): Camera
 export function fitBounds(camera: Camera, bounds: BoundingBox, aspect: number, margin?: number): Camera
 export function withProjection(camera: Camera, projection: 'perspective' | 'orthographic'): Camera
-export function wheelZoomFactor(event: { deltaY: number; deltaMode: number; ctrlKey: boolean }, viewportHeightPx: number): number
+export function wheelZoomFactor(event: { deltaY: number; deltaMode: number; ctrlKey: boolean }, viewportHeightPixels: number): number
 ```
 
 Definitions:
 
 - Standard views (camera position relative to the target, up vector): `front` from -Y, up +Z; `back` from +Y, up +Z; `right` from +X, up +Z; `left` from -X, up +Z; `top` from +Z, up +Y; `bottom` from -Z, up -Y; `iso` from the direction (1, -1, 1), up the projection of +Z onto the view plane. With these, +X points right in the front, top and bottom views, and the origin plane sketches (architecture.md) are seen from their front: XY gives `top`, XZ gives `front`, YZ gives `right`.
 - `classifyView` returns the standard view whose forward and up vectors are both within 1e-6 rad of the camera's, else `custom`.
-- `orbit`: horizontal motion rotates about the world +Z axis through `pivot` by `-deltaXPx × 0.4°`; vertical motion then rotates about the camera's right axis through `pivot` by `-deltaYPx × 0.4°`. There is no elevation clamp. Target and rotation both change so `pivot` stays fixed on screen.
-- `pan` moves the target so the point at the target depth under the cursor follows the cursor exactly: millimeters per pixel are `visibleHeightAtTarget / viewportHeightPx`.
-- `zoomAt` with factor f > 1 zooms out, f < 1 zooms in: perspective multiplies `distance` by f, orthographic multiplies `orthoHeight` by f; the target moves so that the world point at the target depth under `cursorNdc` stays under the cursor. Distance and orthoHeight are clamped to [0.01, 1e7].
-- `wheelZoomFactor`: the pixel delta is `deltaY` for `deltaMode` 0, `deltaY × 16` for mode 1, `deltaY × viewportHeightPx` for mode 2; the factor is `1.0015 ^ pixels`, or `1.01 ^ pixels` when `ctrlKey` is true (trackpad pinch).
-- `fitBounds`: keeps the rotation; sets the target to the box center; transforms the 8 corners into camera space; with `w` and `h` the camera-space x and y extents, the required visible height is `max(h, w / aspect) / (1 - 2 × margin)` (margin default 0.1, so the content fills 80 percent of the limiting dimension). Orthographic sets `orthoHeight` to it; perspective sets `distance = visibleHeight / (2 tan(fovY / 2)) + d / 2`, where `d` is the camera-space z extent. An empty or degenerate box (all extents below 1e-9) is treated as a 100 mm cube around its center.
-- `withProjection` preserves the apparent size at the target: switching to orthographic sets `orthoHeight = 2 × distance × tan(fovY / 2)`; switching to perspective sets `distance = orthoHeight / (2 tan(fovY / 2))`.
+- `orbit`: horizontal motion rotates about the world +Z axis through `pivot` by `-deltaXPixels × 0.4°`; vertical motion then rotates about the camera's right axis through `pivot` by `-deltaYPixels × 0.4°`. There is no elevation clamp. Target and rotation both change so `pivot` stays fixed on screen.
+- `pan` moves the target so the point at the target depth under the cursor follows the cursor exactly: millimeters per pixel are `visibleHeightAtTarget / viewportHeightPixels`.
+- `zoomAt` with factor f > 1 zooms out, f < 1 zooms in: perspective multiplies `distance` by f, orthographic multiplies `orthographicHeight` by f; the target moves so that the world point at the target depth under `cursorNormalized` stays under the cursor. Distance and orthographicHeight are clamped to [0.01, 1e7].
+- `wheelZoomFactor`: the pixel delta is `deltaY` for `deltaMode` 0, `deltaY × 16` for mode 1, `deltaY × viewportHeightPixels` for mode 2; the factor is `1.0015 ^ pixels`, or `1.01 ^ pixels` when `ctrlKey` is true (trackpad pinch).
+- `fitBounds`: keeps the rotation; sets the target to the box center; transforms the 8 corners into camera space; with `w` and `h` the camera-space x and y extents, the required visible height is `max(h, w / aspect) / (1 - 2 × margin)` (margin default 0.1, so the content fills 80 percent of the limiting dimension). Orthographic sets `orthographicHeight` to it; perspective sets `distance = visibleHeight / (2 tan(verticalFieldOfView / 2)) + d / 2`, where `d` is the camera-space z extent. An empty or degenerate box (all extents below 1e-9) is treated as a 100 mm cube around its center.
+- `withProjection` preserves the apparent size at the target: switching to orthographic sets `orthographicHeight = 2 × distance × tan(verticalFieldOfView / 2)`; switching to perspective sets `distance = orthographicHeight / (2 tan(verticalFieldOfView / 2))`.
 - `depthRange` covers the scene's bounding sphere with 10 percent slack: with `c` the distance of the sphere center along the forward axis, perspective uses `near = max(c - 1.1 × r, 0.001 × (c + 1.1 × r), 0.01)` and `far = c + 1.1 × r`; orthographic uses `near = c - 1.1 × r`, `far = c + 1.1 × r` (near may be negative).
 
 `src/viewport/backend.ts` (ADR 0007):
 
 ```ts
-/** Linear RGB, each 0 to 1. */
+/** Linear RGB, each 0 to 1: the space shading is computed in. */
 export type Rgb = readonly [number, number, number]
+/** sRGB-encoded RGB, each 0 to 1: a '#rrggbb' value divided by 255. */
+export type EncodedRgb = readonly [number, number, number]
 
 export type Geometry =
   | { readonly kind: 'triangles'; readonly positions: Float32Array; readonly normals: Float32Array; readonly indices: Uint32Array; readonly elementIds: Uint32Array; readonly elementCount: number }
@@ -915,14 +927,14 @@ export type Geometry =
   | { readonly kind: 'points'; readonly positions: Float32Array; readonly elementIds: Uint32Array; readonly elementCount: number }
   | { readonly kind: 'fill'; readonly positions: Float32Array; readonly indices: Uint32Array; readonly elementIds: Uint32Array; readonly elementCount: number }
 
-export interface DrawSpec {
+export type DrawCall = {
   readonly id: string
   readonly layer: 'opaque' | 'translucent' | 'overlay'
   readonly color: Rgb
   /** Optional per-element color, 3 floats per element (sketch DOF colors). */
   readonly elementColors: Float32Array | null
   readonly opacity: number
-  /** Lines: width in CSS px; points: size in CSS px. */
+  /** Lines: width in CSS pixels; points: size in CSS pixels. */
   readonly size: number
   /** Lines only: dashed (construction geometry). */
   readonly dashed: boolean
@@ -931,46 +943,49 @@ export interface DrawSpec {
   readonly clipped: boolean
   /** First pick id of this draw, or null when not pickable. Element i has pick id pickBase + i. */
   readonly pickBase: number | null
-  /** Pick footprint in CSS px for lines and points in the ID pass. */
+  /** Pick footprint in CSS pixels for lines and points in the ID pass. */
   readonly pickSize: number
-  /** Whether this draw colors its scalar field with FrameSpec.analysis. */
+  /** Whether this draw colors its scalar field with RenderFrame.analysis. */
   readonly analysis: boolean
 }
 
-export interface FrameSpec {
+export type RenderFrame = {
   readonly view: Float32Array
   readonly projection: Float32Array
-  readonly eye: Vec3
+  readonly eye: Vector3
   readonly orthographic: boolean
   readonly pixelRatio: number
   readonly uiScale: number
   readonly theme: ViewportTheme
-  readonly draws: readonly DrawSpec[]
-  readonly section: { readonly normal: Vec3; readonly offset: number } | null
-  readonly analysis: { readonly low: Rgb; readonly high: Rgb; readonly threshold: number; readonly max: number } | null
+  readonly draws: readonly DrawCall[]
+  readonly section: { readonly normal: Vector3; readonly offset: number } | null
+  /** The analysis ramp ends are sRGB-encoded because the ramp is interpolated before linearizing (3.12 pass 3). */
+  readonly analysis: { readonly low: EncodedRgb; readonly high: EncodedRgb; readonly threshold: number; readonly maximum: number } | null
 }
 
-export interface ViewportTheme {
+/** The theme colors the backend itself uses, linearized from the viewport roles of 2.16.4 by `viewportTheme`. */
+export type ViewportTheme = {
   readonly backgroundTop: Rgb
   readonly backgroundBottom: Rgb
-  readonly hover: Rgb
-  readonly selection: Rgb
+  /** Hover and selection tint. */
+  readonly highlight: Rgb
   readonly problem: Rgb
   readonly edgeDark: Rgb
   readonly edgeLight: Rgb
 }
 
-export interface PickSample {
+export type PickSample = {
   readonly pickId: number
-  /** Distance from the queried point in CSS px. */
+  /** Distance from the queried point in CSS pixels. */
   readonly distance: number
   /** View-space distance in mm when the backend can read it, else null. */
   readonly depth: number | null
 }
 
-export interface RenderBackend {
+export type RenderBackend = {
   readonly kind: 'webgl2'
-  resize(widthCss: number, heightCss: number, pixelRatio: number): void
+  /** Sets the canvas size in CSS pixels and the device pixel ratio. */
+  resize(width: number, height: number, pixelRatio: number): void
   /** Uploads geometry under an id, replacing earlier geometry with that id. */
   upload(id: string, geometry: Geometry): void
   remove(id: string): void
@@ -978,9 +993,9 @@ export interface RenderBackend {
   setElementStates(id: string, states: Uint8Array): void
   /** One float per vertex, or null to clear. */
   setScalarField(id: string, values: Float32Array | null): void
-  render(frame: FrameSpec): void
-  /** Renders the ID pass if stale and reads every pick id within radiusCss of the point. */
-  pick(frame: FrameSpec, xCss: number, yCss: number, radiusCss: number): readonly PickSample[]
+  render(frame: RenderFrame): void
+  /** Renders the ID pass if stale and reads every pick id within `radius` CSS pixels of the point (x, y) in CSS pixels. */
+  pick(frame: RenderFrame, x: number, y: number, radius: number): readonly PickSample[]
   onContextLost(listener: () => void): () => void
   onContextRestored(listener: () => void): () => void
   dispose(): void
@@ -993,34 +1008,34 @@ export function createWebGl2Backend(canvas: HTMLCanvasElement): RenderBackend | 
 `src/viewport/picking.ts`:
 
 ```ts
-/** RGBA8 encoding of a 32-bit pick id: r = bits 0-7, g = 8-15, b = 16-23, a = 24-31. 0 means nothing. */
+/** RGBA8 encoding of a 32-bit pick id: red = bits 0-7, green = 8-15, blue = 16-23, alpha = 24-31. 0 means nothing. */
 export function encodePickId(id: number): readonly [number, number, number, number]
-export function decodePickId(r: number, g: number, b: number, a: number): number
+export function decodePickId(red: number, green: number, blue: number, alpha: number): number
 
 export type PickClass = 'point' | 'curve' | 'area'
-export interface PickCandidate { readonly key: string; readonly kind: SelectionItemKind; readonly pickClass: PickClass; readonly distance: number }
+export type PickCandidate = { readonly key: string; readonly kind: SelectionItemKind; readonly pickClass: PickClass; readonly distance: number }
 
-/** The candidate the pointer means (section 3.6), or null. */
-export function choosePick(candidates: readonly PickCandidate[], accepts: (kind: SelectionItemKind) => boolean, radiusCss: number): PickCandidate | null
+/** The candidate the pointer means (section 3.6), or null. `radius` is in CSS pixels. */
+export function choosePick(candidates: readonly PickCandidate[], accepts: (kind: SelectionItemKind) => boolean, radius: number): PickCandidate | null
 
 /** What a pick resolved to before any core round trip. */
 export type PickResult =
-  | { readonly kind: 'mesh'; readonly body: string; readonly meshId: number; readonly element: 'face' | 'edge' | 'vertex'; readonly index: number; readonly key: string; readonly world: Vec3 | null }
-  | { readonly kind: 'item'; readonly item: SelectionItem; readonly world: Vec3 | null }
+  | { readonly kind: 'mesh'; readonly body: string; readonly meshId: number; readonly element: 'face' | 'edge' | 'vertex'; readonly index: number; readonly key: string; readonly world: Vector3 | null }
+  | { readonly kind: 'item'; readonly item: SelectionItem; readonly world: Vector3 | null }
 ```
 
-`src/viewport/scene.ts` keeps every drawable's CPU-side data (so a lost WebGL context can be restored), allocates pick id ranges (consecutive, starting at 1, each draw's range is its element count), maps pick ids back to pick targets, and builds the `FrameSpec` for a camera and the store state:
+`src/viewport/scene.ts` keeps every drawable's CPU-side data (so a lost WebGL context can be restored), allocates pick id ranges (consecutive, starting at 1, each draw's range is its element count), maps pick ids back to pick targets, and builds the `RenderFrame` for a camera and the store state:
 
 ```ts
-export interface Scene {
+export type Scene = {
   applyEvent(event: CoreEvent): void
   /** The pick target for a pick id, or null. */
   targetFor(pickId: number): { readonly result: PickResult; readonly pickClass: PickClass } | null
   /** Bounds of visible model geometry, sketches and datum planes; null when nothing is visible. */
   visibleBounds(state: AppState): BoundingBox | null
-  /** Screen rectangle (CSS px) covering selection items, or null. */
-  screenRect(items: readonly SelectionItem[], camera: Camera, size: { width: number; height: number }): Rect | null
-  frame(state: AppState, camera: Camera, size: { width: number; height: number; pixelRatio: number }): FrameSpec
+  /** Screen rectangle (CSS pixels) covering selection items, or null. */
+  screenRectangle(items: readonly SelectionItem[], camera: Camera, size: { width: number; height: number }): Rectangle | null
+  frame(state: AppState, camera: Camera, size: { width: number; height: number; pixelRatio: number }): RenderFrame
   restore(): void
 }
 export function createScene(backend: RenderBackend): Scene
@@ -1029,19 +1044,20 @@ export function createScene(backend: RenderBackend): Scene
 `src/viewport/controller.ts`:
 
 ```ts
-export interface ViewportHandle {
+export type ViewportHandle = {
   getCamera(): Camera
   setCamera(camera: Camera, options?: { animate?: boolean; record?: boolean }): void
   fit(bounds?: BoundingBox): void
   setStandardView(view: StandardView): void
   toggleProjection(): void
   /** Puts the eye on the `normal` side of `target`, looking along -normal, with up from `upHint`. */
-  lookAlong(normal: Vec3, upHint: Vec3, target: Vec3): void
+  lookAlong(normal: Vector3, upHint: Vector3, target: Vector3): void
   zoomToBounds(bounds: BoundingBox, margin: number): void
-  screenRect(items: readonly SelectionItem[]): Rect | null
+  screenRectangle(items: readonly SelectionItem[]): Rectangle | null
   requestRender(): void
 }
-export interface ViewportController extends ViewportHandle { dispose(): void }
+export type ViewportController = ViewportHandle & { dispose(): void }
+/** `overlay` is the overlay layer of 3.12 whose positioned children the controller moves each frame. */
 export function createViewportController(options: { app: App; canvas: HTMLCanvasElement; overlay: HTMLElement; backend: RenderBackend; scene: Scene }): ViewportController
 ```
 
@@ -1069,14 +1085,14 @@ export type JsonSchema = Readonly<Record<string, unknown>>
 
 export type FieldControl =
   | { readonly type: 'expression'; readonly unit: FieldUnit }
-  | { readonly type: 'selection'; readonly accepts: SelectionKind; readonly multiple: boolean; readonly min: number }
+  | { readonly type: 'selection'; readonly accepts: SelectionKind; readonly multiple: boolean; readonly minimum: number }
   | { readonly type: 'choice'; readonly options: readonly { value: string; label: string }[]; readonly presentation: 'segmented' | 'select' }
   | { readonly type: 'switch' }
   | { readonly type: 'text' }
   | { readonly type: 'number'; readonly integer: boolean }
   | { readonly type: 'unsupported' }
 
-export interface InspectorField {
+export type InspectorField = {
   readonly path: string
   readonly label: string
   readonly help: string | null
@@ -1087,7 +1103,7 @@ export interface InspectorField {
   readonly error: string | null
 }
 
-export interface InspectorModel {
+export type InspectorModel = {
   readonly essential: readonly InspectorField[]
   readonly more: readonly InspectorField[]
   /** True when a field in `more` has an error, which forces the More section open. */
@@ -1104,7 +1120,7 @@ export function buildInspectorModel(input: {
 export function defaultParams(feature: CatalogFeature, context: DefaultsContext): Record<string, unknown>
 export function setParam(feature: CatalogFeature, params: Readonly<Record<string, unknown>>, path: string, value: unknown): Record<string, unknown>
 export function getParam(params: Readonly<Record<string, unknown>>, path: string): unknown
-export interface DefaultsContext { readonly bodies: readonly Body[]; readonly bodiesWithGeometry: readonly string[]; readonly lastTargetBody: string | null }
+export type DefaultsContext = { readonly bodies: readonly Body[]; readonly bodiesWithGeometry: readonly string[]; readonly lastTargetBody: string | null }
 ```
 
 Schema subset (draft 2020-12 as schemars 1 emits it). `buildInspectorModel` resolves `$ref` against the schema's `$defs`, then maps each manifest field hint, in manifest order, to a control:
@@ -1112,7 +1128,7 @@ Schema subset (draft 2020-12 as schemars 1 emits it). `buildInspectorModel` reso
 | Schema at the hint's path | Hint | Control |
 | --- | --- | --- |
 | `$ref` to the `Expr` definition, or a string schema whose title is `Expr` | `unit` set | `expression` with that unit |
-| any | `selection` set | `selection`; `multiple` is true when the schema at the path is an array, or for `sketch_region` (a `ProfileRef` holds a list); `min` is 1 when the path is required, else 0 |
+| any | `selection` set | `selection`; `multiple` is true when the schema at the path is an array, or for `sketch_region` (a `ProfileRef` holds a list); `minimum` is 1 when the path is required, else 0 |
 | string `enum`, or `oneOf` of `const` strings, or the tag property (`kind`) of a tagged union | `options` set | `choice`, `segmented` for at most 4 options, else `select`, with the hint's labels in the hint's order |
 | `boolean` | none | `switch` |
 | `string` | none | `text` |
@@ -1157,11 +1173,11 @@ When a `face` or `edge` field's parent object also has a `body` field (selection
 `src/inspector/placement.ts`:
 
 ```ts
-export interface Rect { readonly x: number; readonly y: number; readonly width: number; readonly height: number }
-export function placeInspector(input: { readonly anchor: Rect | null; readonly panel: { width: number; height: number }; readonly bounds: Rect; readonly gap?: number }): { x: number; y: number }
+export type Rectangle = { readonly x: number; readonly y: number; readonly width: number; readonly height: number }
+export function placeInspector(input: { readonly anchor: Rectangle | null; readonly panel: { width: number; height: number }; readonly bounds: Rectangle; readonly gap?: number }): { x: number; y: number }
 ```
 
-With `gap` default 16: if `anchor` is null, return `(bounds.x + gap, bounds.y + gap)`. Otherwise try the right side: `x = anchor.x + anchor.width + gap`; if `x + panel.width + gap <= bounds.x + bounds.width`, use it; else try the left side: `x = anchor.x - gap - panel.width`; if `x >= bounds.x + gap`, use it; else return the null-anchor position. On either side `y = clamp(anchor.y, bounds.y + gap, bounds.y + bounds.height - panel.height - gap)`, and if the panel is taller than the bounds minus two gaps, `y = bounds.y + gap`.
+All values are CSS pixels. With `gap` default 16: if `anchor` is null, return `(bounds.x + gap, bounds.y + gap)`. Otherwise try the right side: `x = anchor.x + anchor.width + gap`; if `x + panel.width + gap <= bounds.x + bounds.width`, use it; else try the left side: `x = anchor.x - gap - panel.width`; if `x >= bounds.x + gap`, use it; else return the null-anchor position. On either side `y = clamp(anchor.y, bounds.y + gap, bounds.y + bounds.height - panel.height - gap)`, and if the panel is taller than the bounds minus two gaps, `y = bounds.y + gap`.
 
 ### 2.13 Expression input
 
@@ -1194,7 +1210,7 @@ Messages, using features.md 4.1 wording: wrong dimension: `{label} must be {expe
 export function formatNumber(value: number, unit: FieldUnit, units: Units): string
 export function formatQuantity(value: number, unit: FieldUnit, units: Units): string
 export function formatSize(bounds: BoundingBox, units: Units): string
-export function formatPoint(point: Vec3, units: Units): string
+export function formatPoint(point: Vector3, units: Units): string
 ```
 
 - Length: converted from mm to the document unit, rounded to 3 decimals (mm), 4 (cm, in) or 6 (m), trailing zeros and a trailing point removed, `-0` written `0`, no digit grouping, `.` as decimal separator. `formatQuantity` appends a space and the unit (`12.5 mm`, `0.0945 in`).
@@ -1220,9 +1236,10 @@ export type ExpressionState =
   | { readonly state: 'empty' }
   | { readonly state: 'pending' }
   | { readonly state: 'valid'; readonly value: number; readonly dimension: Dimension }
-  | { readonly state: 'invalid'; readonly message: string }
+  /** `range` is the offending part of the text in UTF-16 indices (from `utf16Range`), or null when the core gave no span. */
+  | { readonly state: 'invalid'; readonly message: string; readonly range: { readonly start: number; readonly end: number } | null }
 
-export interface ExpressionInputProps {
+export type ExpressionInputProps = {
   readonly id: string
   readonly label: string
   readonly value: string
@@ -1241,6 +1258,19 @@ export function useExpression(text: string, unit: FieldUnit | 'any', label: stri
 
 `useExpression` evaluates through `app.core.evaluate` with `createLatestOnly`, converts the result with `convertForField` (for `any`, the value and dimension are kept as returned) (results for an older text never show), re-evaluates when the document revision changes, and returns `pending` while waiting. Empty text is `empty`: valid for optional fields, otherwise `invalid` with the message `{label} needs a value.`
 
+Pressing Enter in an `invalid` state with a non-null `range` keeps the input focused and selects that range (`setSelectionRange(range.start, range.end)`), so the user can retype the offending part; the message stays in `field-error`.
+
+`src/expression/span.ts` converts expression error spans. expressions.md reports a span as UTF-8 byte offsets into the expression source (`Span { start, end }`, end exclusive), while JavaScript strings, `setSelectionRange` and the DOM index UTF-16 code units, so the UI converts every span against the exact source string it sent:
+
+```ts
+/** A span as expressions.md reports it: UTF-8 byte offsets into the source, end exclusive. */
+export type Utf8Span = { readonly start: number; readonly end: number }
+/** The same range as UTF-16 indices into `source`, or null when a bound is past the end or inside a character's UTF-8 encoding. */
+export function utf16Range(source: string, span: Utf8Span): { readonly start: number; readonly end: number } | null
+```
+
+`utf16Range` walks `source` by code points, counting 1 UTF-8 byte below U+0080, 2 below U+0800, 3 below U+10000 and 4 above (a code point above U+FFFF is 2 UTF-16 units); a lone surrogate counts 3 bytes, the length of the U+FFFD that `TextEncoder` writes for it. A byte offset maps to the UTF-16 index of the code point that starts there; the offset equal to the source's UTF-8 length maps to `source.length`. For `2 * Ø + x` (10 bytes, 9 UTF-16 units) the span 9..10 of `x` is 8..9, the span 4..6 of `Ø` is 4..5, and an offset of 5 (inside `Ø`) gives null. Spans reach the UI only when the core reports them with an `expression_error` (open issue 9); `CoreError` then carries the span and `useExpression` converts it, otherwise `range` is null.
+
 ### 2.14 Sketch module
 
 ```ts
@@ -1254,40 +1284,40 @@ export const X_AXIS: string
 export const Y_AXIS: string
 
 // src/sketch/geometry.ts
-export type Vec2 = readonly [number, number]
-export function circleThroughThreePoints(a: Vec2, b: Vec2, c: Vec2): { center: Vec2; radius: number } | null
-export function tessellateArc(center: Vec2, radius: number, start: number, end: number, toleranceMm: number): Float32Array
-export function distancePointToSegment(point: Vec2, a: Vec2, b: Vec2): number
-export function distancePointToArc(point: Vec2, center: Vec2, radius: number, start: number, end: number): number
+export type Vector2 = readonly [number, number]
+export function circleThroughThreePoints(first: Vector2, second: Vector2, third: Vector2): { center: Vector2; radius: number } | null
+export function tessellateArc(center: Vector2, radius: number, start: number, end: number, toleranceMillimeters: number): Float32Array
+export function distancePointToSegment(point: Vector2, start: Vector2, end: Vector2): number
+export function distancePointToArc(point: Vector2, center: Vector2, radius: number, start: number, end: number): number
 
 // src/sketch/recipes.ts
-export interface IdSource { next(prefix: 'e' | 'c'): string }
-export interface SketchAddition { readonly entities: readonly SketchEntity[]; readonly constraints: readonly SketchConstraint[] }
-export function lineRecipe(input: { start: Vec2; end: Vec2; construction: boolean; ids: IdSource }): SketchAddition | null
-export function rectangleTwoPointRecipe(input: { corner: Vec2; opposite: Vec2; construction: boolean; ids: IdSource }): SketchAddition | null
-export function rectangleCenterRecipe(input: { center: Vec2; corner: Vec2; construction: boolean; ids: IdSource }): SketchAddition | null
-export function circleRecipe(input: { center: Vec2; radius: number; construction: boolean; ids: IdSource }): SketchAddition | null
-export function arcThreePointRecipe(input: { start: Vec2; end: Vec2; through: Vec2; construction: boolean; ids: IdSource }): SketchAddition | null
-export function pointRecipe(input: { at: Vec2; construction: boolean; ids: IdSource }): SketchAddition
+export type IdSource = { next(prefix: 'e' | 'c'): string }
+export type SketchAddition = { readonly entities: readonly SketchEntity[]; readonly constraints: readonly SketchConstraint[] }
+export function lineRecipe(input: { start: Vector2; end: Vector2; construction: boolean; ids: IdSource }): SketchAddition | null
+export function rectangleTwoPointRecipe(input: { corner: Vector2; opposite: Vector2; construction: boolean; ids: IdSource }): SketchAddition | null
+export function rectangleCenterRecipe(input: { center: Vector2; corner: Vector2; construction: boolean; ids: IdSource }): SketchAddition | null
+export function circleRecipe(input: { center: Vector2; radius: number; construction: boolean; ids: IdSource }): SketchAddition | null
+export function arcThreePointRecipe(input: { start: Vector2; end: Vector2; through: Vector2; construction: boolean; ids: IdSource }): SketchAddition | null
+export function pointRecipe(input: { at: Vector2; construction: boolean; ids: IdSource }): SketchAddition
 
 // src/sketch/inference.ts
 export type SnapTarget =
-  | { readonly kind: 'point'; readonly ref: PointRef; readonly at: Vec2 }
-  | { readonly kind: 'midpoint'; readonly line: string; readonly at: Vec2 }
-  | { readonly kind: 'curve'; readonly entity: string; readonly at: Vec2 }
+  | { readonly kind: 'point'; readonly point: PointRef; readonly at: Vector2 }
+  | { readonly kind: 'midpoint'; readonly line: string; readonly at: Vector2 }
+  | { readonly kind: 'curve'; readonly entity: string; readonly at: Vector2 }
 export type DirectionInference = { readonly kind: 'horizontal' } | { readonly kind: 'vertical' } | { readonly kind: 'tangent'; readonly entity: string }
-export interface InferenceInput {
-  readonly cursor: Vec2
+export type InferenceInput = {
+  readonly cursor: Vector2
   /** Sketch millimeters per CSS pixel at the cursor. */
-  readonly mmPerPixel: number
+  readonly millimetersPerPixel: number
   readonly solution: SketchSolution
   /** Start of the segment being drawn, for direction inference. */
-  readonly anchor: { readonly at: Vec2; readonly ref: PointRef | null } | null
+  readonly anchor: { readonly at: Vector2; readonly point: PointRef | null } | null
   /** Tool being drawn, which decides which direction inferences apply. */
   readonly tool: SketchToolId
   readonly suppressed: boolean
 }
-export interface InferenceResult { readonly point: Vec2; readonly snap: SnapTarget | null; readonly direction: DirectionInference | null }
+export type InferenceResult = { readonly point: Vector2; readonly snap: SnapTarget | null; readonly direction: DirectionInference | null }
 export function infer(input: InferenceInput): InferenceResult
 
 // src/sketch/constraints.ts
@@ -1298,14 +1328,14 @@ export function constraintFor(type: ConstraintType, selection: readonly Selectio
 export function constraintRequirement(type: ConstraintType): string
 
 // src/sketch/dimensions.ts
-export function dimensionTypeFor(selection: readonly SelectionItem[], labelAt: Vec2, solution: SketchSolution): DimensionType | { readonly unsupported: string }
-export function measuredValue(type: DimensionType, selection: readonly SelectionItem[], labelAt: Vec2, solution: SketchSolution): number
-export function dimensionFor(type: DimensionType, selection: readonly SelectionItem[], expr: string, driving: boolean, labelAt: Vec2, ids: IdSource): SketchConstraint
-export function defaultLabelPosition(constraint: SketchConstraint, solution: SketchSolution, mmPerPixel: number): Vec2
+export function dimensionTypeFor(selection: readonly SelectionItem[], labelAt: Vector2, solution: SketchSolution): DimensionType | { readonly unsupported: string }
+export function measuredValue(type: DimensionType, selection: readonly SelectionItem[], labelAt: Vector2, solution: SketchSolution): number
+export function dimensionFor(type: DimensionType, selection: readonly SelectionItem[], expression: string, driving: boolean, labelAt: Vector2, ids: IdSource): SketchConstraint
+export function defaultLabelPosition(constraint: SketchConstraint, solution: SketchSolution, millimetersPerPixel: number): Vector2
 
 // src/sketch/session.ts
 export type SketchToolId = 'line' | 'rectangle_2point' | 'rectangle_center' | 'circle' | 'arc_3point' | 'point' | 'dimension' | `constrain_${ConstraintType}`
-export interface SketchChange {
+export type SketchChange = {
   readonly add?: SketchAddition
   readonly removeEntities?: readonly string[]
   readonly removeConstraints?: readonly string[]
@@ -1330,12 +1360,12 @@ export type SketchCommitResult =
 
 ```ts
 export type FileKind = 'ptsm' | '3mf' | 'stl' | 'obj' | 'step'
-export interface OpenedFile { readonly name: string; readonly bytes: Uint8Array; readonly handle: FileSystemFileHandle | null }
+export type OpenedFile = { readonly name: string; readonly bytes: Uint8Array; readonly handle: FileSystemFileHandle | null }
 export type SaveTarget =
   | { readonly kind: 'handle'; readonly name: string; readonly handle: FileSystemFileHandle }
   | { readonly kind: 'download'; readonly name: string }
 export class FileServiceError extends Error { readonly reason: 'permission' | 'not_found' | 'io' }
-export interface FileService {
+export type FileService = {
   readonly fileSystemAccess: boolean
   /** Null when the user cancels. */
   pickToOpen(): Promise<OpenedFile | null>
@@ -1357,13 +1387,13 @@ export const FILE_TYPES: Readonly<Record<FileKind, { readonly description: strin
 - `chooseSaveTarget` uses `showSaveFilePicker({ suggestedName, types: [FILE_TYPES[kind]] })` and returns `{ kind: 'handle', name: handle.name, handle }`; an `AbortError` returns null. Without the API it returns `{ kind: 'download', name: suggestedName }`.
 - `write` to a handle checks `queryPermission({ mode: 'readwrite' })`, calls `requestPermission` when it is `prompt`, and throws `FileServiceError('permission')` when not granted; then `createWritable()`, `write(bytes)`, `close()`. A `NotFoundError` throws `FileServiceError('not_found')`; anything else `FileServiceError('io')` with the original message. `write` to a download target creates a `Blob` of the bytes with the kind's media type, an object URL and an `<a download="{name}">`, clicks it, and revokes the URL after the click.
 
-The desktop file service (Tauri dialogs) implements the same interface and is specified with the desktop host (open issue).
+The desktop file service (Tauri dialogs) implements the same `FileService` type and is specified with the desktop host (open issue 2).
 
 `src/files/recent.ts` and `src/files/recovery.ts`:
 
 ```ts
-export interface RecentFile { readonly id: string; readonly name: string; readonly openedAt: number; readonly handle: FileSystemFileHandle | null; readonly text: string | null }
-export interface RecentFilesStore {
+export type RecentFile = { readonly id: string; readonly name: string; readonly openedAt: number; readonly handle: FileSystemFileHandle | null; readonly text: string | null }
+export type RecentFilesStore = {
   list(): Promise<readonly RecentFile[]>
   remember(file: { readonly name: string; readonly handle: FileSystemFileHandle | null; readonly text: string }): Promise<void>
   forget(id: string): Promise<void>
@@ -1371,8 +1401,8 @@ export interface RecentFilesStore {
 export function createIndexedDbRecentFiles(factory: IDBFactory, now?: () => number): RecentFilesStore
 export function createMemoryRecentFiles(now?: () => number): RecentFilesStore
 
-export interface RecoveryEntry { readonly name: string; readonly text: string; readonly savedAt: number; readonly handle: FileSystemFileHandle | null; readonly reason: 'autosave' | 'replaced' }
-export interface RecoveryStore { read(): Promise<RecoveryEntry | null>; write(entry: RecoveryEntry): Promise<void>; clear(): Promise<void> }
+export type RecoveryEntry = { readonly name: string; readonly text: string; readonly savedAt: number; readonly handle: FileSystemFileHandle | null; readonly reason: 'autosave' | 'replaced' }
+export type RecoveryStore = { read(): Promise<RecoveryEntry | null>; write(entry: RecoveryEntry): Promise<void>; clear(): Promise<void> }
 export function createIndexedDbRecovery(factory: IDBFactory): RecoveryStore
 export function createMemoryRecovery(): RecoveryStore
 ```
@@ -1384,7 +1414,7 @@ export function createMemoryRecovery(): RecoveryStore
 `src/settings/settings.ts`:
 
 ```ts
-export interface Settings {
+export type Settings = {
   readonly theme: 'system' | 'light' | 'dark'
   readonly uiScale: 1 | 1.25 | 1.5 | 2 | 3
   readonly navigation: 'fusion' | 'freecad'
@@ -1397,81 +1427,304 @@ export function loadSettings(storage: Storage | null): Settings
 export function saveSettings(storage: Storage | null, settings: Settings): void
 ```
 
-Stored as JSON under `localStorage` key `partsmith.settings.v1`. `DEFAULT_SETTINGS`: theme `system`, scale 1, navigation `fusion`, empty lists and map. Reading wraps every access in `try`/`catch`; malformed or partial JSON yields defaults for the missing or invalid members. `paletteRecent` keeps at most 20 ids.
+Stored as JSON under `localStorage` key `partsmith.settings.v1`; every change to the settings is saved at once. `DEFAULT_SETTINGS`: theme `system`, scale 1, navigation `fusion`, empty lists and map. Reading and writing wrap every access in `try`/`catch`; malformed or partial JSON yields defaults for the missing or invalid members. `paletteRecent` keeps at most 20 ids.
 
-### 2.16 Theme
+### 2.16 Theme: stylesheet, role-to-color mapping, fonts and UI scale
 
-`src/theme/theme.css` is the single token set, imported by `src/index.css` in place of the bare Tailwind import:
+The visual direction is the Partsmith direction in [docs/guidelines/README.md](../guidelines/README.md), applied in 3.23. Everything visual is a Tailwind utility class; the stylesheet adds nothing of its own.
+
+#### 2.16.1 Stylesheet
+
+`src/index.css` is exactly the maintainer-approved block of ADR 0013:
 
 ```css
+@import url('https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap');
 @import 'tailwindcss';
-@custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
-@theme inline {
-  --color-*: initial;
-  --color-surface: var(--ps-surface);
-  /* one --color-<name>: var(--ps-<name>) line per UI token in the table below */
-}
-:root, [data-theme=light] { color-scheme: light; --ps-surface: #ffffff; /* ... */ }
-[data-theme=dark] { color-scheme: dark; --ps-surface: #18181b; /* ... */ }
+
+@custom-variant dark (&:where(.dark, .dark *));
 ```
 
-`--color-*: initial` removes Tailwind's default palette, so components can only use the tokens below (color is reserved for meaning). Tokens and values (every value is exactly this in the file). Contrast claims are WCAG 2.2 ratios; "on every surface" and an unqualified claim mean on `surface`, `surface-muted` and `surface-raised`; unit test U-70 checks each claim in both themes:
+There is no other CSS file, no CSS variable defined by the app and no `@theme` block: Tailwind's default theme and palette stay as Tailwind 4.3.3 ships them, and the `dark:` variant matches inside an element with the `dark` class. Changing this file needs human approval (ADR 0013, tailwind-css.md rule 2). U-91 checks it.
 
-| Token | Light | Dark | Use |
+#### 2.16.2 The mapping module
+
+`src/theme/roles.ts` is the single source of the role-to-color mapping, the font classes and the UI scale classes. It is the documented design-system mapping that tailwind-css.md allows to be single-sourced; it holds color, font and scale classes only, never layout. Every class string in it is a complete literal, so Tailwind's scanner finds it; nothing composes class names. Components combine the facets with their own inline layout classes through `clsx/lite`, for example `clsx('flex h-8 items-center gap-2 px-3', COLOR_CLASSES.text.foreground, COLOR_CLASSES.hover.background, selected && COLOR_CLASSES.selection.background)`.
+
+```ts
+export type ThemeName = 'light' | 'dark'
+export type Facet = 'background' | 'active' | 'foreground' | 'border' | 'outline' | 'stroke' | 'fill'
+
+/** sRGB '#rrggbb' of every Tailwind palette step the mapping uses (2.16.5), declared `as const`. */
+export const PALETTE_HEX: { readonly white: '#ffffff'; readonly 'zinc-50': '#fafafa' /* ...one entry per row of 2.16.5 */ }
+/** A palette step the mapping uses, such as 'zinc-900' or 'white'. */
+export type PaletteStep = keyof typeof PALETTE_HEX
+
+/** Interface roles and their facets as literal class strings (2.16.3), declared `as const`. */
+export const COLOR_CLASSES: { readonly surface: { readonly background: 'bg-zinc-100 dark:bg-zinc-950' } /* ...one entry per role of 2.16.3 */ }
+export type ColorRole = keyof typeof COLOR_CLASSES
+
+export type ViewportRole =
+  | 'viewportTop' | 'viewportBottom' | 'body' | 'edgeDark' | 'edgeLight' | 'highlight' | 'problem'
+  | 'sketchUnder' | 'sketchFull' | 'sketchOver' | 'sketchConstruction' | 'sketchRegion' | 'sketchReference'
+  | 'datum' | 'bed' | 'analysisLow' | 'analysisHigh'
+/** Palette step of each viewport role per theme (2.16.4). */
+export const VIEWPORT_STEPS: Readonly<Record<ViewportRole, Readonly<Record<ThemeName, PaletteStep>>>>
+/** '#rrggbb' of each viewport role per theme: PALETTE_HEX[VIEWPORT_STEPS[role][theme]]. */
+export const VIEWPORT_COLORS: Readonly<Record<ThemeName, Readonly<Record<ViewportRole, string>>>>
+
+/** Body color swatches of the color popover (3.10), in order; `hex` null is Default (removes `Body.color`). */
+export const BODY_SWATCHES: readonly { readonly name: string; readonly step: PaletteStep; readonly background: string; readonly hex: string | null }[]
+
+/** Font family classes (2.16.7). */
+export const FONT_CLASSES: { readonly interfaceText: 'font-[Inter,ui-sans-serif,system-ui,sans-serif]'; readonly values: "font-['JetBrains_Mono',ui-monospace,monospace]" }
+/** Root font-size class of each UI scale (2.16.9). */
+export const UI_SCALE_CLASSES: Readonly<Record<Settings['uiScale'], string>>
+/** Classes the root element always carries: native controls and scrollbars follow the theme. */
+export const ROOT_CLASSES: 'scheme-light dark:scheme-dark'
+
+/** '#rrggbb' to linear RGB (sRGB decoding), for shading. */
+export function linearFromHex(hex: string): Rgb
+/** '#rrggbb' to sRGB-encoded channels divided by 255. */
+export function encodedFromHex(hex: string): EncodedRgb
+/** WCAG 2.2 contrast ratio of two '#rrggbb' colors (relative luminance with the 0.04045 sRGB threshold). */
+export function contrastRatio(first: string, second: string): number
+/** The backend's theme colors for one theme, linearized from VIEWPORT_COLORS. */
+export function viewportTheme(theme: ThemeName): ViewportTheme
+```
+
+#### 2.16.3 Interface color roles
+
+Each role names its Tailwind classes for the light theme and, with the `dark:` variant, for the dark theme; a role whose dark step equals its light step has no `dark:` class. Tailwind's `border` and `outline` utilities default to `currentColor`, so every border or outline also takes a color facet from this table.
+
+| Role | Facet | Classes | Use |
 | --- | --- | --- | --- |
-| `surface` | `#ffffff` | `#18181b` | Top bar, browser, timeline, status bar, panels |
-| `surface-muted` | `#f4f4f5` | `#27272a` | Hovered rows, inputs, segmented track |
-| `surface-raised` | `#ffffff` | `#27272a` | Inspector, popovers, menus, palette, notifications |
-| `border` | `#e4e4e7` | `#3f3f46` | Dividers (decorative) |
-| `border-control` | `#8c8c95` | `#7a7a83` | Input and control boundaries (≥ 3:1 on surface, surface-muted, surface-raised) |
-| `fg` | `#18181b` | `#f4f4f5` | Primary text and icons (≥ 4.5:1 on every surface) |
-| `fg-muted` | `#52525b` | `#a1a1aa` | Secondary text (≥ 4.5:1 on every surface) |
-| `fg-disabled` | `#a1a1aa` | `#71717a` | Disabled text (exempt) |
-| `accent` | `#7c3aed` | `#a78bfa` | Primary buttons, focus ring, selection, active tool (≥ 3:1 on every surface) |
-| `accent-hover` | `#6d28d9` | `#c4b5fd` | Primary button hover |
-| `on-accent` | `#ffffff` | `#18181b` | Text on accent fills (≥ 4.5:1) |
-| `accent-fg` | `#6d28d9` | `#c4b5fd` | Accent-colored text on surfaces (≥ 4.5:1) |
-| `accent-subtle` | `#ede9fe` | `#2e1065` | Selected rows (fg ≥ 4.5:1 on it) |
-| `danger` | `#dc2626` | `#f87171` | Error icons and borders (≥ 3:1) |
-| `danger-fg` | `#b91c1c` | `#fca5a5` | Error text (≥ 4.5:1 on surfaces and danger-subtle) |
-| `danger-subtle` | `#fee2e2` | `#450a0a` | Error banner background |
-| `warning` | `#b45309` | `#fbbf24` | Warning icons (≥ 3:1) |
-| `warning-fg` | `#b45309` | `#fcd34d` | Warning text (≥ 4.5:1 on surfaces and warning-subtle) |
-| `warning-subtle` | `#fef3c7` | `#451a03` | Warning banner background |
-| `success` | `#15803d` | `#4ade80` | Success icons (≥ 3:1) |
-| `success-fg` | `#15803d` | `#86efac` | Success text (≥ 4.5:1) |
+| `surface` | background | `bg-zinc-100 dark:bg-zinc-950` | App root, top bar, browser, timeline, status bar, side panel |
+| `surfaceRaised` | background | `bg-white dark:bg-zinc-900` | Inspector, menus, popovers, palette, tooltips, notifications, the sketch header, the legend and the chips over the viewport |
+| `field` | background | `bg-white dark:bg-zinc-950` | Text inputs, selects, selection boxes, segmented control tracks |
+| `hover` | background | `hover:bg-zinc-200 dark:hover:bg-zinc-800` | Hovered rows, menu items, toolbar and icon buttons |
+| | active | `bg-zinc-200 dark:bg-zinc-800` | The palette's active option and a menu's keyboard-active item |
+| `selection` | background | `bg-orange-100 dark:bg-orange-950` | Selected rows and timeline items, pressed toggle buttons, the active tool, the checked segment of segmented controls (none of these change on hover) |
+| `border` | border | `border-zinc-200 dark:border-zinc-800` | Hairline (`border`, 1 CSS pixel by Tailwind's default) dividers and outlines of panels, popovers and chips; decorative |
+| `borderControl` | border | `border-zinc-500` | Boundaries of inputs, selects, switches, swatches and selection boxes |
+| `text` | foreground | `text-zinc-900 dark:text-zinc-100` | Primary text and icons |
+| `textMuted` | foreground | `text-zinc-600 dark:text-zinc-400` | Secondary text, captions, units, palette details, idle icons, the info notification icon |
+| `textDisabled` | foreground | `text-zinc-400 dark:text-zinc-600` | Disabled text and icons (incidental, exempt from contrast) |
+| `accent` | background | `bg-orange-600 dark:bg-orange-500` | Primary button fill (OK, Finish sketch, Export 3MF, Export), the rollback marker line |
+| | foreground | `text-zinc-950` | Text and icons on the accent fill |
+| | border | `border-orange-600 dark:border-orange-500` | The active selection field; required empty selection fields (with `border-dashed`) |
+| | outline | `outline-orange-600 dark:outline-orange-500` | The timeline item of the feature being edited and of the sketch being edited (with `outline-2`) |
+| | stroke | `stroke-orange-600 dark:stroke-orange-500` | The box selection rectangle (SVG overlay) |
+| `accentHover` | background | `hover:bg-orange-500 dark:hover:bg-orange-400` | Primary button hover |
+| `focusRing` | outline | `focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-600 dark:focus-visible:outline-orange-500` | Keyboard focus on every interactive element |
+| `errorMark` | foreground | `text-red-700 dark:text-red-500` | Error icons (`circle-x`) |
+| | border | `border-red-700 dark:border-red-500` | Invalid field borders |
+| | stroke | `stroke-red-700 dark:stroke-red-500` | Profile issue rings and finding markers (SVG overlay) |
+| `errorText` | foreground | `text-red-700 dark:text-red-300` | Error messages, error states of the sketch header, parameter values and status bar |
+| `errorSubtle` | background | `bg-red-50 dark:bg-red-950` | Error banners (`inspector-error` with an error) |
+| `errorFill` | background | `bg-red-600` | Chips of conflicting constraint glyphs and dimension labels |
+| | foreground | `text-white` | Text and icons on the error fill |
+| `warningMark` | fill | `fill-yellow-400` | Fill of the `triangle-alert` icon, drawn as a hazard sign |
+| | foreground | `text-zinc-950` | Outline and exclamation mark of that icon (lucide strokes use `currentColor`) |
+| `warningText` | foreground | `text-yellow-800 dark:text-yellow-300` | Warning text (" · {n} redundant" in the sketch header) |
+| `warningSubtle` | background | `bg-yellow-50 dark:bg-yellow-950` | Warning banners (`inspector-error` with warnings only) |
+| `warningFill` | background | `bg-yellow-400` | Chips of redundant constraint glyphs and dimension labels |
+| | foreground | `text-zinc-950` | Text and icons on the warning fill |
+| `successMark` | foreground | `text-green-700 dark:text-green-400` | Success icons (`circle-check`) |
+| `analysis` | background | `bg-linear-to-r/srgb from-sky-200 to-violet-700` | The overhang legend gradient, interpolated in sRGB like the viewport ramp (3.12 pass 3) |
 
-Viewport tokens (read by `readViewportTheme`, not Tailwind utilities):
+Color carries meaning and nothing else: orange (`accent`, `selection`, `highlight`) means selection, focus, the current tool and the primary action; blue means under-constrained sketch geometry and closed regions; red means errors and conflicts; a yellow hazard sign means a warning; green means success; sky to violet is the analysis ramp. Warnings never use orange, and errors never use the accent's steps. The values need human review at the gate (open issue 13).
 
-| Token | Light | Dark | Use |
+#### 2.16.4 Viewport color roles
+
+The WebGL viewport needs numbers. `VIEWPORT_STEPS` holds the steps below and `VIEWPORT_COLORS` their hex values from `PALETTE_HEX`, so DOM and viewport draw from the same palette steps. Roles shared with the interface use its steps: `highlight` is `accent`, `problem` and `sketchOver` are `errorMark`, `body` is the Default swatch.
+
+| Role | Light | Dark | Use |
 | --- | --- | --- | --- |
-| `viewport-top` | `#fafafa` | `#27272a` | Background gradient top |
-| `viewport-bottom` | `#e4e4e7` | `#18181b` | Background gradient bottom |
-| `body` | `#b4b4bc` | `#8a8a93` | Default body color (no `Body.color`) |
-| `sketch-under` | `#2563eb` | `#60a5fa` | Under-constrained sketch geometry (≥ 3:1 on both viewport backgrounds) |
-| `sketch-full` | `#18181b` | `#fafafa` | Fully constrained sketch geometry |
-| `sketch-conflict` | `#dc2626` | `#f87171` | Conflicting sketch geometry |
-| `sketch-region` | `#3b82f6` | `#60a5fa` | Closed region fill, drawn at 12 percent opacity |
-| `sketch-reference` | `#71717a` | `#a1a1aa` | Origin axes, other sketches, dimension lines |
-| `datum` | `#a1a1aa` | `#71717a` | Datum and origin plane fill at 15 percent, edges at 60 percent |
-| `bed` | `#71717a` | `#a1a1aa` | Printer bed outline |
-| `analysis-low` | `#fde68a` | `#fde68a` | Overhang color map at the limit angle |
-| `analysis-high` | `#b91c1c` | `#ef4444` | Overhang color map at 90 degrees |
+| `viewportTop` | `white` `#ffffff` | `zinc-800` `#27272a` | Background gradient top |
+| `viewportBottom` | `zinc-100` `#f4f4f5` | `zinc-900` `#18181b` | Background gradient bottom |
+| `body` | `zinc-400` `#9f9fa9` | `zinc-400` `#9f9fa9` | Default body color (no `Body.color`) |
+| `edgeDark` | `zinc-900` `#18181b` | `zinc-900` `#18181b` | Edges on light bodies |
+| `edgeLight` | `zinc-200` `#e4e4e7` | `zinc-200` `#e4e4e7` | Edges on dark bodies |
+| `highlight` | `orange-600` `#f54900` | `orange-500` `#ff6900` | Hover and selection tints, hovered and selected sketch items, snap targets |
+| `problem` | `red-700` `#c10007` | `red-500` `#fb2c36` | Problem tints and profile issue halos |
+| `sketchUnder` | `blue-600` `#155dfc` | `blue-400` `#51a2ff` | Under-constrained sketch geometry |
+| `sketchFull` | `zinc-900` `#18181b` | `zinc-50` `#fafafa` | Fully constrained sketch geometry |
+| `sketchOver` | `red-700` `#c10007` | `red-500` `#fb2c36` | Over-constrained (conflicting) sketch geometry |
+| `sketchConstruction` | `zinc-600` `#52525c` | `zinc-300` `#d4d4d8` | Fully constrained construction geometry, dashed (3.16.2) |
+| `sketchRegion` | `blue-500` `#2b7fff` | `blue-400` `#51a2ff` | Closed region fill, at 12 percent opacity |
+| `sketchReference` | `zinc-500` `#71717b` | `zinc-400` `#9f9fa9` | Origin axes, other sketches, dimension lines |
+| `datum` | `zinc-400` `#9f9fa9` | `zinc-500` `#71717b` | Datum and origin plane fill at 15 percent, outline at 60 percent |
+| `bed` | `zinc-500` `#71717b` | `zinc-400` `#9f9fa9` | Printer bed outline |
+| `analysisLow` | `sky-200` `#b8e6fe` | `sky-200` `#b8e6fe` | Overhang color map at the limit angle |
+| `analysisHigh` | `violet-700` `#7008e7` | `violet-700` `#7008e7` | Overhang color map at 90 degrees |
 
-Hover and selection use `accent`; problem highlights use `danger`. Edges are drawn in `#18181b` or `#e4e4e7`, whichever has the higher contrast ratio against the body's base color, so edges stay visible on any body color in either theme.
+The viewport is the brightest surface in the light theme and lighter than the chrome in the dark theme, so the model sits on a lit stage and the chrome recedes. Edges are drawn in `edgeDark` or `edgeLight`, whichever has the higher contrast ratio against the body's base color, so they stay visible on any body color. The analysis ramp is cool because orange, yellow and red already mean selection, warnings and errors; both of its ends lie inside the sRGB gamut, so the legend and the viewport show the same colors.
 
-Token values, the violet accent (chosen so selection stays distinct from the blue of under-constrained sketch geometry), the gray scale and the body swatches (3.10) need human review at the gate (technical design 17).
+`viewportTheme(theme)` returns `linearFromHex` of `viewportTop`, `viewportBottom`, `highlight`, `problem`, `edgeDark` and `edgeLight`; the scene converts the body, sketch, datum and bed colors with `linearFromHex` for each draw, and passes `encodedFromHex` of the analysis ends in `RenderFrame.analysis`.
+
+#### 2.16.5 Palette steps and body swatches
+
+Tailwind 4.3.3 defines its palette in OKLCH. The hex of a step is the CSS Color 4 conversion of its OKLCH value (OKLCH to OKLab to linear sRGB), each channel clipped to [0, 1], sRGB-encoded and rounded to 8 bits. Steps marked clipped lie partly outside the sRGB gamut; on wide-gamut displays the DOM shows them a little more saturated than the hex the viewport draws (open issue 11). U-90 recomputes every value from `tailwindcss/colors`.
+
+| Step | Tailwind 4.3.3 value | sRGB hex | In sRGB gamut |
+| --- | --- | --- | --- |
+| `white` | `#fff` | `#ffffff` | yes |
+| `zinc-50` | `oklch(98.5% 0 none)` | `#fafafa` | yes |
+| `zinc-100` | `oklch(96.7% 0.001 286.375)` | `#f4f4f5` | yes |
+| `zinc-200` | `oklch(92% 0.004 286.32)` | `#e4e4e7` | yes |
+| `zinc-300` | `oklch(87.1% 0.006 286.286)` | `#d4d4d8` | yes |
+| `zinc-400` | `oklch(70.5% 0.015 286.067)` | `#9f9fa9` | yes |
+| `zinc-500` | `oklch(55.2% 0.016 285.938)` | `#71717b` | yes |
+| `zinc-600` | `oklch(44.2% 0.017 285.786)` | `#52525c` | yes |
+| `zinc-800` | `oklch(27.4% 0.006 286.033)` | `#27272a` | yes |
+| `zinc-900` | `oklch(21% 0.006 285.885)` | `#18181b` | yes |
+| `zinc-950` | `oklch(14.1% 0.005 285.823)` | `#09090b` | yes |
+| `orange-100` | `oklch(95.4% 0.038 75.164)` | `#ffedd4` | no, clipped |
+| `orange-400` | `oklch(75% 0.183 55.934)` | `#ff8904` | no, clipped |
+| `orange-500` | `oklch(70.5% 0.213 47.604)` | `#ff6900` | no, clipped |
+| `orange-600` | `oklch(64.6% 0.222 41.116)` | `#f54900` | no, clipped |
+| `orange-950` | `oklch(26.6% 0.079 36.259)` | `#441306` | yes |
+| `yellow-50` | `oklch(98.7% 0.026 102.212)` | `#fefce8` | yes |
+| `yellow-300` | `oklch(90.5% 0.182 98.111)` | `#ffdf20` | no, clipped |
+| `yellow-400` | `oklch(85.2% 0.199 91.936)` | `#fdc700` | no, clipped |
+| `yellow-800` | `oklch(47.6% 0.114 61.907)` | `#894b00` | no, clipped |
+| `yellow-950` | `oklch(28.6% 0.066 53.813)` | `#432004` | yes |
+| `red-50` | `oklch(97.1% 0.013 17.38)` | `#fef2f2` | yes |
+| `red-300` | `oklch(80.8% 0.114 19.571)` | `#ffa2a2` | no, clipped |
+| `red-500` | `oklch(63.7% 0.237 25.331)` | `#fb2c36` | yes |
+| `red-600` | `oklch(57.7% 0.245 27.325)` | `#e7000b` | no, clipped |
+| `red-700` | `oklch(50.5% 0.213 27.518)` | `#c10007` | no, clipped |
+| `red-950` | `oklch(25.8% 0.092 26.042)` | `#460809` | yes |
+| `green-400` | `oklch(79.2% 0.209 151.711)` | `#05df72` | yes |
+| `green-600` | `oklch(62.7% 0.194 149.214)` | `#00a63e` | no, clipped |
+| `green-700` | `oklch(52.7% 0.154 150.069)` | `#008236` | no, clipped |
+| `teal-600` | `oklch(60% 0.118 184.704)` | `#009689` | no, clipped |
+| `sky-200` | `oklch(90.1% 0.058 230.902)` | `#b8e6fe` | yes |
+| `blue-400` | `oklch(70.7% 0.165 254.624)` | `#51a2ff` | no, clipped |
+| `blue-500` | `oklch(62.3% 0.214 259.815)` | `#2b7fff` | no, clipped |
+| `blue-600` | `oklch(54.6% 0.245 262.881)` | `#155dfc` | yes |
+| `violet-700` | `oklch(49.1% 0.27 292.581)` | `#7008e7` | yes |
+| `purple-600` | `oklch(55.8% 0.288 302.321)` | `#9810fa` | yes |
+| `pink-600` | `oklch(59.2% 0.249 0.584)` | `#e60076` | no, clipped |
+| `amber-800` | `oklch(47.3% 0.137 46.201)` | `#973c00` | no, clipped |
+
+Body color swatches (3.10), `BODY_SWATCHES` in this order; each swatch button has the background class `bg-{step}` with a `borderControl` border, and choosing it stores the hex in `Body.color`:
+
+| Name | Step | Stored `Body.color` |
+| --- | --- | --- |
+| Default | `zinc-400` (the `body` role) | none: removes `color` |
+| White | `zinc-100` | `#f4f4f5` |
+| Black | `zinc-800` | `#27272a` |
+| Gray | `zinc-500` | `#71717b` |
+| Red | `red-600` | `#e7000b` |
+| Orange | `orange-500` | `#ff6900` |
+| Yellow | `yellow-400` | `#fdc700` |
+| Green | `green-600` | `#00a63e` |
+| Teal | `teal-600` | `#009689` |
+| Blue | `blue-600` | `#155dfc` |
+| Purple | `purple-600` | `#9810fa` |
+| Pink | `pink-600` | `#e60076` |
+| Brown | `amber-800` | `#973c00` |
+
+#### 2.16.6 Contrast and distinctness
+
+WCAG 2.2 AA: text at least 4.5:1 (every text pair is held to 4.5:1, large or not) and non-text at least 3:1 (control boundaries, focus indicators, meaningful icons and viewport geometry). The ratios are computed from the hex values of 2.16.5 with the WCAG relative luminance, truncated to two decimals; U-70 recomputes each pair and checks that it equals the table and meets the threshold.
+
+Text:
+
+| Text role | On | Required | Light | Dark |
+| --- | --- | --- | --- | --- |
+| `text` | `surface` | 4.5 | 16.11 | 18.10 |
+| `text` | `surfaceRaised` | 4.5 | 17.71 | 16.11 |
+| `text` | `field` | 4.5 | 17.71 | 18.10 |
+| `text` | `hover` | 4.5 | 13.96 | 13.55 |
+| `text` | `selection` | 4.5 | 15.45 | 14.24 |
+| `text` | `errorSubtle` | 4.5 | 16.19 | 14.70 |
+| `text` | `warningSubtle` | 4.5 | 17.12 | 13.20 |
+| `textMuted` | `surface` | 4.5 | 7.02 | 7.58 |
+| `textMuted` | `surfaceRaised` | 4.5 | 7.71 | 6.75 |
+| `textMuted` | `field` | 4.5 | 7.71 | 7.58 |
+| `textMuted` | `hover` | 4.5 | 6.08 | 5.67 |
+| `textMuted` | `selection` | 4.5 | 6.73 | 5.96 |
+| `errorText` | `surface` | 4.5 | 5.84 | 10.36 |
+| `errorText` | `surfaceRaised` | 4.5 | 6.42 | 9.23 |
+| `errorText` | `errorSubtle` | 4.5 | 5.86 | 8.42 |
+| `warningText` | `surface` | 4.5 | 6.22 | 14.99 |
+| `warningText` | `surfaceRaised` | 4.5 | 6.84 | 13.35 |
+| `warningText` | `warningSubtle` | 4.5 | 6.61 | 10.93 |
+| `onAccent` | `accent` | 4.5 | 5.52 | 6.89 |
+| `onAccent` | `accentHover` | 4.5 | 6.89 | 8.36 |
+| `onWarningFill` | `warningFill` | 4.5 | 12.64 | 12.64 |
+| `onErrorFill` | `errorFill` | 4.5 | 4.76 | 4.76 |
+
+Non-text (`warningMark` is measured on its `zinc-950` outline in the light theme and on its `yellow-400` fill in the dark theme, the part that contrasts with the surface; `accent` on `selection` is the focus ring of a selected row):
+
+| Mark role | Against | Required | Light | Dark |
+| --- | --- | --- | --- | --- |
+| `borderControl` | `surface` | 3 | 4.39 | 4.12 |
+| `borderControl` | `surfaceRaised` | 3 | 4.82 | 3.67 |
+| `borderControl` | `field` | 3 | 4.82 | 4.12 |
+| `accent` | `surface` | 3 | 3.27 | 6.89 |
+| `accent` | `surfaceRaised` | 3 | 3.59 | 6.13 |
+| `accent` | `selection` | 3 | 3.13 | 5.42 |
+| `accent` | `viewportTop` | 3 | 3.59 | 5.15 |
+| `accent` | `viewportBottom` | 3 | 3.27 | 6.13 |
+| `errorMark` | `surface` | 3 | 5.84 | 5.22 |
+| `errorMark` | `surfaceRaised` | 3 | 6.42 | 4.65 |
+| `errorMark` | `viewportTop` | 3 | 6.42 | 3.91 |
+| `errorMark` | `viewportBottom` | 3 | 5.84 | 4.65 |
+| `successMark` | `surface` | 3 | 4.49 | 11.18 |
+| `successMark` | `surfaceRaised` | 3 | 4.94 | 9.95 |
+| `warningMark` | `surface` | 3 | 18.10 | 12.64 |
+| `warningMark` | `surfaceRaised` | 3 | 19.89 | 11.25 |
+| `warningMark` | `hover` | 3 | 15.67 | 9.46 |
+| `warningMark` | `selection` | 3 | 17.35 | 9.94 |
+| `sketchUnder` | `viewportTop` | 3 | 5.24 | 5.64 |
+| `sketchUnder` | `viewportBottom` | 3 | 4.77 | 6.71 |
+| `sketchFull` | `viewportTop` | 3 | 17.71 | 14.27 |
+| `sketchFull` | `viewportBottom` | 3 | 16.11 | 16.97 |
+| `sketchOver` | `viewportTop` | 3 | 6.42 | 3.91 |
+| `sketchOver` | `viewportBottom` | 3 | 5.84 | 4.65 |
+| `sketchConstruction` | `viewportTop` | 3 | 7.71 | 10.07 |
+| `sketchConstruction` | `viewportBottom` | 3 | 7.02 | 11.98 |
+| `sketchReference` | `viewportTop` | 3 | 4.82 | 5.67 |
+| `sketchReference` | `viewportBottom` | 3 | 4.39 | 6.75 |
+| `bed` | `viewportTop` | 3 | 4.82 | 5.67 |
+| `bed` | `viewportBottom` | 3 | 4.39 | 6.75 |
+
+The lowest ratios are the light theme's `accent` marks (3.13 to 3.59); they use `orange-600` because the brighter `orange-500` falls below 3:1 on white (2.89). Distinctness, as OKLab distances from the OKLCH values (about 0.02 is one just-noticeable difference): `accent` and `errorMark` 0.150 light and 0.113 dark (hues 14 and 22 degrees apart, and the light red is darker); `accent` and the warning yellow 0.275 and 0.214 (51 and 44 degrees apart); `errorText` and `warningText` 0.138 and 0.217; `accent` and `sketchUnder` 0.448 and 0.368. Hue is never the only signal (3.24).
+
+#### 2.16.7 Fonts
+
+`FONT_CLASSES.interfaceText` (`font-[Inter,ui-sans-serif,system-ui,sans-serif]`) and `FONT_CLASSES.values` (`font-['JetBrains_Mono',ui-monospace,monospace]`) are arbitrary font-family values, because no `@theme` defines font tokens; Tailwind emits `font-family: Inter,ui-sans-serif,system-ui,sans-serif` and `font-family: 'JetBrains Mono',ui-monospace,monospace`. Both families come from the Google Fonts import in `src/index.css`.
+
+- `interfaceText` is on the app root element and on the unsupported page's root, so all interface text inherits Inter.
+- `values` is on values only: expression inputs and `expression-result`, draw inputs, the dimension editor's input, sketch dimension labels, parameter expressions and `parameter-value`, `body-size`, `body-center` and the area, length and position values of the selection inspector, the number in `status-recompute` and `status-dof`, and the hex field of the color popover. Labels, headings, buttons, menus, tooltips and shortcut hints stay in Inter (the frontend guideline's avoid list names monospace labels).
+- When the fonts cannot load (offline), the stacks fall back to the system UI and monospace fonts (open issue 10).
+
+#### 2.16.8 Theme switching
 
 `src/theme/theme.ts`:
 
 ```ts
-export function resolveTheme(setting: Settings['theme'], prefersDark: boolean): 'light' | 'dark'
-export function applyTheme(root: HTMLElement, theme: 'light' | 'dark'): void
-export function readViewportTheme(root: HTMLElement): ViewportTheme
-export function contrastRatio(a: string, b: string): number
+export function resolveTheme(setting: Settings['theme'], prefersDark: boolean): ThemeName
+/** Adds the `dark` class to the root element for 'dark' and removes it for 'light'. */
+export function applyTheme(root: HTMLElement, theme: ThemeName): void
+/** Replaces the root element's UI scale class with UI_SCALE_CLASSES[scale]. */
+export function applyUiScale(root: HTMLElement, scale: Settings['uiScale']): void
+/** The explicit theme the toggle switches to: the opposite of the resolved theme. */
+export function toggledTheme(resolved: ThemeName): ThemeName
 ```
 
-`applyTheme` sets `data-theme` on `<html>`. `main.tsx` applies the resolved theme before the first render, and the app re-applies it when the setting or `prefers-color-scheme` changes. UI scale sets `html { font-size: calc(16px * scale) }`; all chrome sizes are in rem (Tailwind spacing), and viewport pixel sizes (line widths, pick radii, glyph sizes) are multiplied by the scale.
+- The root element is `document.documentElement`. Before the first render `main.tsx` adds `ROOT_CLASSES` to it and applies the resolved theme and the UI scale; `index.html` declares `<meta name="color-scheme" content="light dark">` so the page before the bundle runs follows the OS too.
+- Default: `settings.theme` is `system`, which follows `matchMedia('(prefers-color-scheme: dark)')`, including changes while the app runs (a `change` listener).
+- Toggle: the top bar's "Dark theme" button (3.2) and the palette command "Toggle dark theme" set `settings.theme` to `toggledTheme(resolved)`. The Document menu's Theme submenu and the palette commands "Theme: System", "Theme: Light" and "Theme: Dark" choose any of the three; System returns to following the OS.
+- Persistence: every settings change is saved at once with `saveSettings` under the localStorage key `partsmith.settings.v1` (2.15), so the choice survives reloads. When localStorage fails, the choice stays in effect for the session.
+- A change of the resolved theme re-renders the viewport with `viewportTheme(theme)`.
+
+#### 2.16.9 UI scale
+
+`UI_SCALE_CLASSES` maps `1` to `text-[100%]`, `1.25` to `text-[125%]`, `1.5` to `text-[150%]`, `2` to `text-[200%]` and `3` to `text-[300%]`; `applyUiScale` puts the class on `<html>`, setting the root font size as a percentage of the browser default. These are arbitrary values because Tailwind has no root font-size utility, and they are percentages, never pixels. All chrome sizes are Tailwind rem classes, so they follow the scale; container queries in rem (the top bar's `@7xl`, 3.2) follow it too, while media query breakpoints do not (CSS evaluates rem in media queries against the initial font size). Viewport quantities this spec gives in CSS pixels (line widths, pick radii, snap distances, overlay offsets) are multiplied by the scale in code.
 
 ### 2.17 Ids and labels
 
@@ -1500,7 +1753,7 @@ New features are created without a `name`; their label comes from `featureLabel`
 
 ### 2.18 Performance marks
 
-`src/perf/marks.ts` records User Timing entries that performance tests read; they are cheap and stay in production builds.
+`src/performance/marks.ts` records User Timing entries that performance tests read; they are cheap and stay in production builds.
 
 | Name | Type | Start | End |
 | --- | --- | --- | --- |
@@ -1519,8 +1772,8 @@ Each measure name keeps at most the last 500 entries (`performance.clearMeasures
 
 ### 3.1 Startup
 
-1. `main.tsx` checks capabilities before anything else: `typeof WebAssembly === 'object'` and a non-null `document.createElement('canvas').getContext('webgl2')`. If either fails it renders only the unsupported page (`data-testid="unsupported"`) with the message from 4.3 and starts nothing else.
-2. It loads settings, applies the resolved theme and UI scale to `<html>`, creates the transport with `chooseTransport(window)`, the stores and services, calls `createApp`, installs the shortcut dispatcher, and renders `App`.
+1. `main.tsx` checks capabilities before anything else: `typeof WebAssembly === 'object'` and a non-null `document.createElement('canvas').getContext('webgl2')`. If either fails it renders only the unsupported page (`data-testid="unsupported"`, with the interface font and the `surface` and `text` roles of 2.16) with the message from 4.3 and starts nothing else.
+2. It loads settings, adds `ROOT_CLASSES` to `<html>` and applies the resolved theme (the `dark` class) and the UI scale class to it (2.16.8, 2.16.9), creates the transport with `chooseTransport(window)`, the stores and services, calls `createApp`, installs the shortcut dispatcher, and renders `App`.
 3. The shell renders at once. The viewport shows the loading overlay (`data-testid="core-overlay"`, text "Loading the geometry core") while `app.store.getState().core.status` is `loading`.
 4. `startCore` runs `transport.start()`, then `featureCatalog()` and `listPrinterProfiles()` in parallel, registers the feature commands, and sets the core status to `ready`. A failure sets it to `failed` and shows the fatal state (4.4).
 5. It reads the recovery store. An entry produces the recovery notification (3.19); the app does not open it automatically.
@@ -1529,35 +1782,36 @@ Each measure name keeps at most the last 500 entries (`performance.clearMeasures
 
 ### 3.2 Layout regions
 
-The window is a fixed layout with no page scroll:
+The window is a fixed layout with no page scroll. The app root element (`data-testid="app"`) is `h-dvh w-dvw overflow-hidden` with `FONT_CLASSES.interfaceText`, `surface` and `text` (2.16), and `antialiased`. Sizes are Tailwind classes on the rem scale (at 100 percent UI scale, 1rem is 16 CSS pixels):
 
 | Region | Element | Size | Content |
 | --- | --- | --- | --- |
-| Top bar | `<header>`, `data-testid="top-bar"` | full width, 48 px | Browser toggle, document name and save state, context switcher, context toolbar, palette button, Export button |
-| Browser | `<nav aria-label="Browser">`, `data-testid="browser"` | 264 px wide, left | Tree (3.10) |
+| Top bar | `<header>`, `data-testid="top-bar"` | full width, `h-12` | Browser toggle, document name and save state, context switcher, context toolbar, palette button, Export button, theme toggle |
+| Browser | `<nav aria-label="Browser">`, `data-testid="browser"` | `w-66`, left | Tree (3.10) |
 | Viewport | `<main aria-label="3D view">`, `data-testid="viewport"` | remaining space | Canvas, DOM overlay, view cube, viewport controls, sketch header, legends, inspector, notifications |
-| Side panel | `<aside>`, `data-testid="side-panel"` | 360 px wide, right, only while open | Parameters, Print health or Problems (one at a time) |
-| Timeline | `<section aria-label="Timeline">`, `data-testid="timeline"` | full width, 56 px (28 px collapsed) | Timeline (3.9) |
-| Status bar | `<footer>`, `data-testid="status-bar"` | full width, 28 px | Status items (3.21) |
+| Side panel | `<aside>`, `data-testid="side-panel"` | `w-90`, right, only while open | Parameters, Print health or Problems (one at a time) |
+| Timeline | `<section aria-label="Timeline">`, `data-testid="timeline"` | full width, `h-14` (`h-7` collapsed) | Timeline (3.9) |
+| Status bar | `<footer>`, `data-testid="status-bar"` | full width, `h-7` | Status items (3.21) |
 
 Top bar, left to right:
 
 - Browser toggle: icon button "Toggle browser" (`panel-left`), `aria-pressed` reflecting the browser state.
-- Document name: a button (`data-testid="document-name"`, text the document name, `data-dirty="true|false"`) that opens the Document menu. Next to it, `data-testid="save-state"` shows "Edited" in `fg-muted` while the document is dirty (core `dirty` or `localUnsaved`) and is empty otherwise.
+- Document name: a button (`data-testid="document-name"`, text the document name, `data-dirty="true|false"`) that opens the Document menu. Next to it, `data-testid="save-state"` shows "Edited" in `textMuted` while the document is dirty (core `dirty` or `localUnsaved`) and is empty otherwise.
 - Context switcher: `role="radiogroup"` with `aria-label="Context"` and three radios "Model", "Sketch", "Print" (segmented control, one tab stop, arrow keys move).
 - Context toolbar: `role="toolbar"` with `aria-label` "Model tools", "Sketch tools" or "Print tools" (3.3).
 - Palette button: "Search" with the formatted `Mod+K` hint (`data-testid="palette-button"`).
 - Export button: "Export" (`download` icon) opening the export popover (3.18).
+- Theme toggle (`data-testid="theme-toggle"`): icon button "Dark theme" (`moon` icon), `aria-pressed` true while the resolved theme is dark; it switches to the opposite theme and persists the choice (2.16.8).
 
 Document menu (`role="menu"`, `data-testid="document-menu"`), in order: New (desktop shortcut shown), Open..., Open recent (submenu, 3.19), Save, Save as..., Export..., separator, Theme (submenu of radio items System, Light, Dark), Navigation (submenu: Fusion, FreeCAD), UI scale (submenu: 100%, 125%, 150%, 200%, 300%).
 
 Responsive rules:
 
-- When the window is narrower than 1024 CSS px at startup, the browser starts closed. Below 1024 px the browser and side panel open as overlays above the viewport (they do not resize it) and close on Esc or on a pointer press outside them.
-- Toolbar buttons show icon and label at window widths of 1280 px and above, and icon only below (the label stays the accessible name and appears in the tooltip).
-- The minimum supported window is 800 by 600 CSS px at 100 percent scale.
+- When the window is narrower than 1024 CSS pixels at startup (`window.innerWidth < 1024`), the browser starts closed. Below the `lg` breakpoint (64rem, 1024 CSS pixels) the browser and side panel open as overlays above the viewport (`max-lg:absolute`; they do not resize it) and close on Esc or on a pointer press outside them.
+- The top bar is a container (`@container`). Toolbar buttons show icon and label when it is at least 80rem wide (`@7xl:`, 1280 CSS pixels at 100 percent UI scale and proportionally more at larger scales) and icon only below (the label stays the accessible name and appears in the tooltip).
+- The minimum supported window is 800 by 600 CSS pixels at 100 percent scale.
 
-Floating elements: the inspector (3.7, 3.8) inside the viewport; the notifications stack at the viewport's bottom-right (3.22); the palette centered horizontally, 15 percent from the top of the window, 560 px wide; menus and popovers anchored to their buttons (native Popover API, light dismiss).
+Floating elements (all `surfaceRaised` with a `border` hairline, `rounded-md` and `shadow-lg`): the inspector (3.7, 3.8) inside the viewport; the notifications stack at the viewport's bottom-right (3.22); the palette, `w-140 max-w-full`, centered in a layer `fixed inset-x-4 top-1/6 flex justify-center` (so it keeps 1rem from the window's sides at any UI scale); menus, popovers and tooltips anchored to their triggers (native Popover API, light dismiss), positioned at runtime (3.12).
 
 ### 3.3 Contexts and toolbars
 
@@ -1582,7 +1836,7 @@ Context rules:
 ### 3.4 Command palette
 
 - Opens with `Mod+K` (from anywhere, including text fields) or `S` (when focus is not editable), or the palette button. `Mod+K` while open closes it.
-- Layout: a container `role="dialog"` with `aria-label="Command palette"` and `data-testid="palette"`, holding a `role="combobox"` input (`data-testid="palette-input"`, placeholder "Search commands, bodies and parameters") with `aria-controls` pointing at a `role="listbox"`. Options (`role="option"`, `data-testid="palette-option"`, `data-item-id`, `data-kind`) show icon, title, detail (muted), a kind tag for non-commands ("Feature", "Body", "Parameter", "Recent file"), and the formatted shortcut (`data-testid="palette-shortcut"`).
+- Layout: a container `role="dialog"` with `aria-label="Command palette"` and `data-testid="palette"`, holding a `role="combobox"` input (`data-testid="palette-input"`, placeholder "Search commands, bodies and parameters") with `aria-controls` pointing at a `role="listbox"`. Options (`role="option"`, `data-testid="palette-option"`, `data-item-id`, `data-kind`) show icon, title, detail (`textMuted`), a kind tag for non-commands ("Feature", "Body", "Parameter", "Recent file", `text-xs` in `textMuted`), and the formatted shortcut (`data-testid="palette-shortcut"`, `textMuted`, Inter). The active option has the `hover` role's `active` background.
 - Items (`paletteItems`): every registered command whose availability is not `hidden` in the current context; every feature in the document ("{label}", kind feature, runs: select it in the timeline and scroll it into view); every body ("{name}", kind body, runs: select it and frame it); every parameter ("{name} = {expr}", kind parameter, runs: open the Parameters panel with that row's expression input focused); recent files ("Open recent: {name}", kind recent). Settings are ordinary commands of category Settings: "Theme: System", "Theme: Light", "Theme: Dark", "Navigation: Fusion", "Navigation: FreeCAD", "UI scale: 100%" to "UI scale: 300%", each with `checked` showing the current value.
 - Ranking: `rankPaletteItems` with `settings.paletteRecent` (2.10). The first option is active when the list changes.
 - Keys: ArrowDown and ArrowUp move the active option and wrap; PageDown and PageUp move by 8; Enter runs the active option and closes the palette; Esc closes it. Focus stays in the input. Tab is ignored.
@@ -1651,6 +1905,7 @@ Commands without a default shortcut (ids and titles; all listed in the palette i
 | `print.export_3mf`, `print.export_stl`, `print.export_obj`, `print.export_step` | Export 3MF, Export STL, Export OBJ, Export STEP | all |
 | `document.units.mm`, `document.units.cm`, `document.units.m`, `document.units.in` | Units: mm, Units: cm, Units: m, Units: in | all |
 | `settings.theme.system`, `settings.theme.light`, `settings.theme.dark` | Theme: System, Theme: Light, Theme: Dark | all |
+| `settings.theme.toggle` | Toggle dark theme (`checked` while the resolved theme is dark, 2.16.8) | all |
 | `settings.navigation.fusion`, `settings.navigation.freecad` | Navigation: Fusion, Navigation: FreeCAD | all |
 | `settings.scale.100`, `.125`, `.150`, `.200`, `.300` | UI scale: 100%, 125%, 150%, 200%, 300% | all |
 
@@ -1678,13 +1933,13 @@ Enter ladder: (1) commit the focused inline editor (rename, dimension editor, dr
 
 ### 3.6 Selection, hover and picking
 
-Pick classes and priority (`choosePick`): `point` (vertex, sketch point, origin point) candidates within the radius win over `curve` (edge, sketch curve, origin axis) candidates within the radius, which win over `area` (face, sketch region, origin plane, datum plane) candidates at distance 0. Within a class the smallest distance wins; at equal distance, items of the active sketch and model elements win over origin items, then the smallest pick id wins. The radius is 4 CSS px times the UI scale. In the ID pass, edges and sketch curves are drawn 7 px wide, vertices as 9 px squares and sketch points as 11 px squares (times the UI scale), all depth-tested; faces use a polygon offset so coplanar edges win.
+Pick classes and priority (`choosePick`): `point` (vertex, sketch point, origin point) candidates within the radius win over `curve` (edge, sketch curve, origin axis) candidates within the radius, which win over `area` (face, sketch region, origin plane, datum plane) candidates at distance 0. Within a class the smallest distance wins; at equal distance, items of the active sketch and model elements win over origin items, then the smallest pick id wins. The radius is 4 CSS pixels times the UI scale. In the ID pass, edges and sketch curves are drawn 7 CSS pixels wide, vertices as 9-pixel squares and sketch points as 11-pixel squares (times the UI scale), all depth-tested; faces use a polygon offset so coplanar edges win.
 
 Hover:
 
 - On `pointermove` with no button pressed and no camera gesture, at most once per animation frame, the controller calls `backend.pick` and `choosePick` with the accepted kinds, sets the hover target, and updates highlights. The viewport element mirrors it in `data-hover-kind` (`none` or a `SelectionItemKind`) and `data-hover-key`.
 - Mesh hover keys are `mesh:{meshId}:{face|edge|vertex}:{index}` and need no core call. The cursor is `pointer` over a pickable target.
-- Hovered faces are tinted with `accent` at 20 percent, hovered edges drawn 2.5 px in `accent` at 70 percent, hovered vertices as 7 px `accent` dots, hovered sketch items in `accent`.
+- Hovered faces are tinted with `highlight` (2.16.4) at 20 percent, hovered edges drawn 2.5 CSS pixels wide in `highlight` at 70 percent, hovered vertices as 7-pixel `highlight` dots, hovered sketch items in `highlight`.
 
 Accepted kinds:
 
@@ -1692,9 +1947,9 @@ Accepted kinds:
 - With a feature command: only what the active selection field accepts (2.12 table); with no active selection field, nothing (camera only).
 - Sketch mode: sketch items of the active sketch (curves, points, constraint glyphs and dimension labels through the DOM) and the origin point and axes.
 
-Click (pointer down and up within 4 px and 400 ms, primary button):
+Click (pointer down and up within 4 CSS pixels and 400 ms, primary button):
 
-- Mesh picks call `pickReference(doc, { mesh_id, kind, index })` to get the `ElementDescriptor`; the resulting item has key `element:{body}:{name}`. A `stale_pick` or `preview_not_pickable` error ignores the click silently.
+- Mesh picks call `pickReference(documentHandle, { mesh_id, kind, index })` to get the `ElementDescriptor`; the resulting item has key `element:{body}:{name}`. A `stale_pick` or `preview_not_pickable` error ignores the click silently.
 - No modifier: the selection becomes that item, or empty when nothing was hit. Shift or Mod: the item is toggled in the selection.
 - During a feature command, clicks go to `capturePick` instead (3.7).
 
@@ -1707,56 +1962,58 @@ Selection keys: faces, edges and vertices `element:{body id}:{element name}`; bo
 
 Selection after rebuilds: when model-layer meshes change, the UI calls `resolveReferences` with `{body, reference}` of each selected face, edge and vertex (from its `ElementDescriptor`). Resolved items keep their selection and are highlighted at the matched display ids; missing or ambiguous items leave the selection silently. Features, bodies and sketch items leave the selection when they no longer exist in the recipe or solution.
 
-Selected faces are tinted with `accent` at 35 percent; selected edges drawn 2.5 px in `accent`; selected vertices as 7 px `accent` dots. The viewport element mirrors the selection size in `data-selection-count`. A polite live region announces "{label} selected", "{n} items selected" or "Selection cleared", debounced by 500 ms.
+Selected faces are tinted with `highlight` at 35 percent; selected edges drawn 2.5 CSS pixels wide in `highlight`; selected vertices as 7-pixel `highlight` dots. The viewport element mirrors the selection size in `data-selection-count`. A polite live region announces "{label} selected", "{n} items selected" or "Selection cleared", debounced by 500 ms.
+
+Feature highlighting: while the app selection holds features (timeline items, sketch and datum rows) and no feature command is active, the faces those features created are drawn in the selected state. The scene gets them from the core: for every visible body with a model-layer mesh it calls `listElements(documentHandle, body, 'face')` through a `LatestOnly` outside the mutation queue (the command changes nothing), and marks each face whose `ElementDescriptor.feature` is a selected feature id; the face's display id is its position in the returned list (protocol.md 3.4: display ids are positions in `list_elements` order). Lists are cached per body and model-layer mesh id. A list whose body got a new model-layer mesh after the request was sent is discarded and requested again; a new mesh drops that body's cached list. Features whose output has no faces at the display state (sketches, datum planes, suppressed and rolled-back features) highlight nothing.
 
 ### 3.7 Feature commands, inspector and live preview
 
 Starting a new feature (`startFeatureCommand(type)`):
 
 1. Cancel an active command; finish sketch mode (remembering the finished sketch); switch to Model.
-2. `beginTransaction(doc, manifest.label)`.
+2. `beginTransaction(documentHandle, manifest.label)`.
 3. Generate the feature id (`f-`), set `params = defaultParams(feature, context)` where `lastTargetBody` is the `body` param of the latest active feature in timeline order that has a string `body` param naming a body with model-layer geometry, and `bodiesWithGeometry` comes from the model-layer meshes.
 4. Preselection: walk the selection fields in manifest order; each takes the app selection items it accepts (in selection order; one item when not `multiple`) that no earlier field took. The finished-sketch rule of 3.3 applies when the app selection is empty. The app selection is cleared.
 5. The active field is the first selection field that is required and empty, skipping a `body` field whose parent object also has a `face` or `edge` field (the first pick fills it, 2.12); if none, focus goes to the first essential expression field with its text selected.
 6. The inspector opens (placement below). If the params are complete, the first preview is applied at once.
 
-Editing an existing feature (`editFeature(id)`): a `sketch` feature enters sketch mode instead. Otherwise: cancel an active command, `beginTransaction(doc, 'Edit {label}')`, `setFocus(doc, id)`, take `params` from the record, mark the command `applied`, and open the inspector titled with the feature label. Selection fields show `itemsFromValue` and their references are highlighted through `resolveReferences`, each reference paired with its sibling `body` param (features.md 2.5 shapes), on the model layer (which shows the state before the feature). If `setFocus` fails with `focus_inactive`, the transaction is canceled and the core's message is shown as an error notification with the action "Unsuppress" (suppressed feature: unsuppresses it and retries the edit) or "Move marker to the end" (rolled-back feature: `set_rollback` with no id, so nothing is rolled back, then retries).
+Editing an existing feature (`editFeature(id)`): a `sketch` feature enters sketch mode instead. Otherwise: cancel an active command, `beginTransaction(documentHandle, 'Edit {label}')`, `setFocus(documentHandle, id)`, take `params` from the record, mark the command `applied`, and open the inspector titled with the feature label. Selection fields show `itemsFromValue` and their references are highlighted through `resolveReferences`, each reference paired with its sibling `body` param (features.md 2.5 shapes), on the model layer (which shows the state before the feature). If `setFocus` fails with `focus_inactive`, the transaction is canceled and the core's message is shown as an error notification with the action "Unsuppress" (suppressed feature: unsuppresses it and retries the edit) or "Move marker to the end" (rolled-back feature: `set_rollback` with no id, so nothing is rolled back, then retries).
 
-Preview cycle: every field change recomputes local field errors (expression states, selection minimums). When the params are complete (every required field set, no field error, no expression pending), the UI submits a preview through a `LatestOnly` over `applyEdits(doc, null, edits)`:
+Preview cycle: every field change recomputes local field errors (expression states, selection minimums). When the params are complete (every required field set, no field error, no expression pending), the UI submits a preview through a `LatestOnly` over `applyEdits(documentHandle, null, edits)`:
 
-- First application: `add_body` at index `bodies.length` (when op is `new` and the body field is empty: a new body with a `b-` id and `nextBodyName`; the `body` param is set to it), then `add_feature` with the record `{ id, type, ...params }` (no name) at index `features.length` when `rollback` is null, else at the rollback feature's index (the new feature is active; no `set_rollback`); then `setFocus(doc, id)`.
+- First application: `add_body` at index `bodies.length` (when op is `new` and the body field is empty: a new body with a `b-` id and `nextBodyName`; the `body` param is set to it), then `add_feature` with the record `{ id, type, ...params }` (no name) at index `features.length` when `rollback` is null, else at the rollback feature's index (the new feature is active; no `set_rollback`); then `setFocus(documentHandle, id)`.
 - Later applications: `update_feature` with the full record. Switching op away from `new` removes the body this command created (`remove_body`) and sets `body` to `lastTargetBody`; switching back to `new` adds a fresh body.
 - The response's events update the store: `recomputed` gives the feature's status; `body_mesh` events with layer `preview` carry the preview geometry, shown as normal shaded bodies; the model layer shows the state before the feature and stays pickable.
 - Incomplete or invalid params after an application hide the preview layer (nothing applied); the next complete state applies again.
 - `ps:preview` measures from the change to the drawn preview.
 
-The inspector shows the focused feature's status messages in a banner (`data-testid="inspector-error"`): errors with `role="alert"` and `danger` styling, warnings with `warning` styling. Each message is followed by the fix actions in 4.2. A message whose `field` maps to a shown field is also shown as that field's `field-error`. A message with a `suggestion` adds the action "Use {suggestion}", which calls `setCommandField(path, suggestion)` with the path of the field whose pointer equals `field` (suggestions are only made for such scalar fields). Mapping rule: a hint path `a.b[1]` is the pointer `/a/b/1`; the field is the hint whose pointer equals `field`, else the hint whose pointer is the longest whole-segment prefix of it (so `/edges/1` maps to `edges`). The same rule finds the field for `Repair.path`.
+The inspector shows the focused feature's status messages in a banner (`data-testid="inspector-error"`): errors with `role="alert"` on `errorSubtle` with an `errorMark` icon and `errorText` messages, warnings (when there is no error) on `warningSubtle` with the `warningMark` hazard icon and `text` messages. Each message is followed by the fix actions in 4.2. A message whose `field` maps to a shown field is also shown as that field's `field-error`. A message with a `suggestion` adds the action "Use {suggestion}", which calls `setCommandField(path, suggestion)` with the path of the field whose pointer equals `field` (suggestions are only made for such scalar fields). Mapping rule: a hint path `a.b[1]` is the pointer `/a/b/1`; the field is the hint whose pointer equals `field`, else the hint whose pointer is the longest whole-segment prefix of it (so `/edges/1` maps to `edges`). The same rule finds the field for `Repair.path`.
 
-Confirming (Enter ladder, or the OK button): allowed only when complete. `flush()` of the preview `LatestOnly` is awaited first, so the latest params are applied. Then `commitTransaction(doc)`, the inspector closes, the command clears and focus returns to where it was before the command. A sketch referenced by the committed params through a `sketch` key is hidden for the session (3.10). If the committed feature's status is `error`, the failure notification of 4.2 appears.
+Confirming (Enter ladder, or the OK button): allowed only when complete. `flush()` of the preview `LatestOnly` is awaited first, so the latest params are applied. Then `commitTransaction(documentHandle)`, the inspector closes, the command clears and focus returns to where it was before the command. A sketch referenced by the committed params through a `sketch` key is hidden for the session (3.10). If the committed feature's status is `error`, the failure notification of 4.2 appears.
 
-Canceling (Esc ladder, the Cancel button or the close button): `cancelTransaction(doc)`, the inspector closes, nothing is recorded.
+Canceling (Esc ladder, the Cancel button or the close button): `cancelTransaction(documentHandle)`, the inspector closes, nothing is recorded.
 
 `Mod+Z` during a command cancels the command and does nothing else.
 
-Inspector panel (`role="dialog"`, `aria-modal="false"`, `aria-labelledby` its title, `data-testid="inspector"`, `data-mode="command"`, `data-preview` mirroring `ActiveCommand.preview`: `none` before anything is applied or while the params are incomplete, `pending` while a preview request is in flight, `shown` when the preview layer for the latest params is drawn, `failed` when the focused feature's status is `error`), 320 px wide, maximum height the viewport height minus 32 px with internal scrolling:
+Inspector panel (`role="dialog"`, `aria-modal="false"`, `aria-labelledby` its title, `data-testid="inspector"`, `data-mode="command"`, `data-preview` mirroring `ActiveCommand.preview`: `none` before anything is applied or while the params are incomplete, `pending` while a preview request is in flight, `shown` when the preview layer for the latest params is drawn, `failed` when the focused feature's status is `error`), `w-80`, at most the viewport height minus 2rem (`max-h-[calc(100%-2rem)]`, the inspector's one arbitrary value: its height depends on the viewport, and it is absolutely positioned at a runtime translate), `overflow-y-auto`, a `surfaceRaised` panel with a `border` hairline, `rounded-md` and `shadow-lg`:
 
 - Header: feature icon, title (manifest label for a new feature, feature label when editing), close button "Cancel". The header is the drag handle.
 - Status banner as above.
 - Essential fields, then a disclosure button "More options" / "Fewer options" (`data-testid="inspector-more"`, `aria-expanded`) when there are more fields. Its state is remembered per feature type in `settings.moreExpanded`. `forceMore` opens it.
-- Footer: "Cancel" and "OK" (`data-testid="inspector-ok"`, primary). OK is `aria-disabled` while incomplete, with the tooltip "Fill in the highlighted fields first."; required empty selection fields get a dashed `accent` border and invalid fields a `danger` border.
+- Footer: "Cancel" and "OK" (`data-testid="inspector-ok"`, primary: `accent` fill). OK is `aria-disabled` while incomplete, with the tooltip "Fill in the highlighted fields first."; required empty selection fields get a dashed `accent` border and invalid fields an `errorMark` border.
 - Each field is a container with `data-testid="inspector-field"` and `data-path`.
 
 Field controls:
 
-- Expression: `ExpressionInput` (2.13) labeled with the hint label. To its right, `data-testid="expression-result"` shows the unit symbol when `isPlainNumber(text)` holds and the text has no unit word (`mm`, `°`), otherwise `= {formatQuantity(value)}` (`= 10 mm`), or nothing while empty or pending. Below it, `data-testid="field-error"` (`aria-live="polite"`, referenced by `aria-describedby`) shows the message of an invalid state. ArrowUp and ArrowDown step plain numbers (`stepExpression`; Shift coarse, Alt fine) and do nothing otherwise.
-- Selection: a box (`data-testid="selection-field"`, `role="button"`, `data-active`, `data-count`) showing the placeholder `Select {noun}` (`Select edges`, `Select a plane`, `Select regions`, `Select a body`, `Select bodies`, `Select a sketch`, `Select points`, `Select faces`, `Select an axis`), one item's label, or `{n} {plural noun}` (`3 edges`). Clicking it makes it the active field (`accent` border); a clear button "Clear {label}" empties it. For `body`, `sketch`, `plane` and `axis` fields and for `sketch_region` fields, a "Choose" menu button lists the enumerable candidates (bodies with geometry; sketches; origin planes and datum planes; origin axes; regions of the current profile's sketch, or of every visible sketch when empty, as "Region {n} ({area})") so these fields work without a pointer. Hovering an item's entry in the box highlights it in the viewport.
+- Expression: `ExpressionInput` (2.13) labeled with the hint label. To its right, `data-testid="expression-result"` (in `FONT_CLASSES.values`, `textMuted`) shows the unit symbol when `isPlainNumber(text)` holds and the text has no unit word (`mm`, `°`), otherwise `= {formatQuantity(value)}` (`= 10 mm`), or nothing while empty or pending. Below it, `data-testid="field-error"` (`aria-live="polite"`, referenced by `aria-describedby`) shows the message of an invalid state. ArrowUp and ArrowDown step plain numbers (`stepExpression`; Shift coarse, Alt fine) and do nothing otherwise.
+- Selection: a box (`data-testid="selection-field"`, `role="button"`, `data-active`, `data-count`) showing the placeholder `Select {noun}` (`Select edges`, `Select a plane`, `Select regions`, `Select a body`, `Select bodies`, `Select a sketch`, `Select points`, `Select faces`, `Select an axis`), one item's label, or `{n} {plural noun}` (`3 edges`). Clicking it makes it the active field (`accent` border instead of `borderControl`); a clear button "Clear {label}" empties it. For `body`, `sketch`, `plane` and `axis` fields and for `sketch_region` fields, a "Choose" menu button lists the enumerable candidates (bodies with geometry; sketches; origin planes and datum planes; origin axes; regions of the current profile's sketch, or of every visible sketch when empty, as "Region {n} ({area})") so these fields work without a pointer. Hovering an item's entry in the box highlights it in the viewport.
 - Choice: a segmented control (`role="radiogroup"`) for up to 4 options, else a native `<select>`, with the hint's option labels.
 - Switch: `role="switch"`. Text and number: text inputs; number fields reject non-numeric text with "{label} must be a number."
 - Unsupported: read-only compact JSON with the help "Edit this value in the .ptsm file."
 
 Selection capture (`capturePick(item)`): when the active field accepts the item (`acceptsTarget`; geometry checks such as a flat face use the item's `ElementDescriptor`), the item is toggled in the field: added (replacing the single value when not `multiple`) or removed when already present. A refused item shows a hint under the field ("Pick a flat face, a datum plane or an origin plane." for `plane`; "Pick a straight edge, a sketch line, a round face or an origin axis." for `axis`; "Pick {plural noun}." otherwise) for 3 s. When a non-multiple field receives its item, the active field advances to the next required empty selection field, if any. The sibling `body` rule of 2.12 applies.
 
-Placement: when the inspector opens, it is placed with `placeInspector` where `anchor` is the screen rectangle of the preselected items (or null) and `bounds` the viewport rectangle; it then stays put while open. Dragging the header moves it within the viewport, and the dragged position (`panels.inspectorPosition`) is used for every inspector until reload.
+Placement: when the inspector opens, it is placed with `placeInspector` where `anchor` is the screen rectangle of the preselected items (or null) and `bounds` the viewport rectangle; it then stays put while open. Dragging the header moves it within the viewport, and the dragged position (`panels.inspectorPosition`) is used for every inspector until reload. The position is applied with `positionElement` (3.12), never through a `style` prop.
 
 ### 3.8 Selection inspector
 
@@ -1781,22 +2038,22 @@ Layout, left to right: collapse button ("Collapse timeline" / "Expand timeline")
 
 Items (`data-testid="timeline-item"`, `data-feature-id`, `data-status` from the latest `recomputed` status (`ok`, `warning`, `error`, `suppressed`, `rolled_back`), or `pending` before the first status for a new feature, `data-suppressed`, `data-rolled-back`):
 
-- A 40 by 40 px button with the feature icon (20 px). Its accessible name is the feature label; `aria-describedby` points at a hidden text with the status ("Error: {first message}", "Warning: {first message}", "Suppressed", "Rolled back").
-- A status badge at the bottom-right: `triangle-alert` in `warning` for warnings, `circle-x` in `danger` for errors. The tooltip shows the label and every message.
-- Suppressed items draw their icon at 40 percent opacity with a diagonal strike. Items after the marker draw at 40 percent opacity. While a feature is being edited, it gets an `accent` outline and items after it draw at 40 percent; the sketch being edited gets an `accent` outline.
-- Selected items have an `accent-subtle` background.
+- A `size-10` button with the feature icon (`size-5`). Its accessible name is the feature label; `aria-describedby` points at a hidden text with the status ("Error: {first message}", "Warning: {first message}", "Suppressed", "Rolled back").
+- A status badge at the bottom-right: the `triangle-alert` hazard sign (`warningMark`) for warnings, `circle-x` in `errorMark` for errors. The tooltip shows the label and every message.
+- Suppressed items draw their icon at `opacity-40` with a diagonal strike (an absolutely positioned bar `inset-x-1 top-1/2 h-0.5 -rotate-45 bg-current` in `textMuted`). Items after the marker draw at `opacity-40`. While a feature is being edited, it gets an `accent` outline (`outline-2`) and items after it draw at `opacity-40`; the sketch being edited gets an `accent` outline.
+- Selected items have the `selection` background.
 
 Interactions:
 
-- Click selects the feature (Shift or Mod toggles). Double-click or Enter edits it (`editFeature`). F2 renames inline: a text field over the item; Enter commits `update_feature` with the new `name` (label "Rename"); an empty name removes `name` (the default label returns); Esc cancels.
+- Click selects the feature (Shift or Mod toggles), which highlights the faces it created (3.6). Double-click or Enter edits it (`editFeature`). F2 renames inline: a text field over the item; Enter commits `update_feature` with the new `name` (label "Rename"); an empty name removes `name` (the default label returns); Esc cancels.
 - Context menu (right-click, Shift+F10, ContextMenu key; `role="menu"`, `data-testid="context-menu"`): Edit, Rename, Suppress or Unsuppress, Roll back to here, Delete. "Roll back to here" moves the marker to the gap after the item, so the item stays active (`setRollback` with the item's 1-based position).
 - Suppress: `update_feature` with `suppressed: true` (label "Suppress {label}"); unsuppress likewise ("Unsuppress {label}"). Several selected features change in one edit.
 - Delete (Delete key or menu): one `apply_edits` labeled "Delete {label}" or "Delete {n} features" with `remove_feature` edits; when the rollback feature is among them, a `set_rollback` to the nearest later feature that is not deleted (no id when none) comes first. An info notification "Deleted {label}." offers "Undo".
-- Reorder: pressing an item and moving more than 4 px horizontally starts a drag: a ghost follows the pointer and an insertion bar marks the nearest gap. Dropping at gap g (0 to N) moves the feature to index g when g is less than its current index, else g minus 1; the same position does nothing. The edit is `move_feature` labeled "Reorder". Esc cancels the drag. The core does not check dependencies when moving (model.md 3.9); a feature that now comes before something it uses fails and triggers the failure notification of 4.2, whose "Undo" restores the order.
-- Rollback marker (`data-testid="timeline-marker"`): an 8 px handle with a 2 px `accent` line, `role="slider"`, `aria-label="Rollback marker"`, `aria-valuemin="0"`, `aria-valuemax` the feature count, `aria-valuenow` the number of active features, `aria-valuetext` "At the start" (p = 0), "After {label}" (the label of feature p) or "At the end" (p = N). Position p (0 to N) means features 1 to p are active; p = N writes `set_rollback` with no id, p < N writes the id of feature p + 1 (the first rolled-back feature).
-  - Dragging: `beginTransaction(doc, 'Roll back')`, then on every gap change a `LatestOnly` `apply_edits` with the `set_rollback`, so the model updates live; dropping commits; Esc cancels the transaction. Dropping at the starting gap cancels.
+- Reorder: pressing an item and moving more than 4 CSS pixels horizontally starts a drag: a ghost follows the pointer and an insertion bar (`w-0.5`, `accent` background) marks the nearest gap; both are moved with `positionElement` (3.12). Dropping at gap g (0 to N) moves the feature to index g when g is less than its current index, else g minus 1; the same position does nothing. The edit is `move_feature` labeled "Reorder". Esc cancels the drag. The core does not check dependencies when moving (model.md 3.9); a feature that now comes before something it uses fails and triggers the failure notification of 4.2, whose "Undo" restores the order.
+- Rollback marker (`data-testid="timeline-marker"`): a `w-2` handle with a `w-0.5` `accent` line, `role="slider"`, `aria-label="Rollback marker"`, `aria-valuemin="0"`, `aria-valuemax` the feature count, `aria-valuenow` the number of active features, `aria-valuetext` "At the start" (p = 0), "After {label}" (the label of feature p) or "At the end" (p = N). Position p (0 to N) means features 1 to p are active; p = N writes `set_rollback` with no id, p < N writes the id of feature p + 1 (the first rolled-back feature).
+  - Dragging: `beginTransaction(documentHandle, 'Roll back')`, then on every gap change a `LatestOnly` `apply_edits` with the `set_rollback`, so the model updates live; dropping commits; Esc cancels the transaction. Dropping at the starting gap cancels.
   - Keys: ArrowLeft and ArrowRight move by one gap, Home to position 0, End to the end; each key press applies its own edit labeled "Roll back".
-- Collapsed (28 px): only the expand button, the text "{n} features" and the problems button remain.
+- Collapsed (`h-7`): only the expand button, the text "{n} features" and the problems button remain.
 - Keyboard: the strip is a toolbar with one tab stop; Left and Right move focus between items and the marker; Space selects; Mod+Space toggles.
 
 Problems panel (side panel `problems`, `data-testid="problems-panel"`), opened by the problems button or the palette command "Problems": every feature whose status is warning or error, in timeline order, then document diagnostics. Each row shows the status icon, the feature label (a button that selects it), its messages, and an "Edit" button (`editFeature`). Empty: "No problems."
@@ -1815,10 +2072,10 @@ A tree (`role="tree"`, `aria-label="Browser"`) with these groups (`role="treeite
 
 Row content:
 
-- Body: color swatch button ("Color of {name}"), name, "(empty)" in `fg-muted` when the body has no model-layer geometry, lock button ("Lock {name}" / "Unlock {name}", `aria-pressed`), eye button ("Hide {name}" / "Show {name}").
+- Body: color swatch button ("Color of {name}"), name, "(empty)" in `textMuted` when the body has no model-layer geometry, lock button ("Lock {name}" / "Unlock {name}", `aria-pressed`), eye button ("Hide {name}" / "Show {name}").
 - Sketch and datum: icon, feature label, status badge as in the timeline, eye button ("Hide {label}" / "Show {label}").
 - Origin item: icon, name ("XY plane", "X axis", "Origin"), eye button.
-- Parameter: "{name} = {expr}" and the evaluated value in `fg-muted` when the expression is not a plain number; the group header has an icon button "Edit parameters" (`sliders-horizontal`).
+- Parameter: "{name} = {expr}" and the evaluated value in `textMuted` and `FONT_CLASSES.values` when the expression is not a plain number; the group header has an icon button "Edit parameters" (`sliders-horizontal`).
 
 Behavior:
 
@@ -1829,14 +2086,14 @@ Behavior:
 - Body eye: `update_body` with `visible` flipped (labels "Hide {name}" / "Show {name}"; undoable). Hidden bodies are not drawn or picked.
 - Sketch, datum and origin eyes change `view.sessionVisible` only (not saved, not undoable). On opening a document, a sketch starts hidden when another feature's params contain an object whose `sketch` key equals its id (the `ProfileRef`, `AxisRef` and hole shapes of features.md 2.5), and visible otherwise; datum planes start visible; origin items start hidden. Origin planes are always shown while a plane is being picked.
 - Lock: `view.locked` only (session); locked bodies are drawn but not pickable.
-- Color: a popover (`data-testid="color-popover"`) with swatch buttons named Default (removes `color`), White `#f4f4f5`, Black `#27272a`, Gray `#9ca3af`, Red `#dc2626`, Orange `#ea580c`, Yellow `#eab308`, Green `#16a34a`, Teal `#0d9488`, Blue `#2563eb`, Purple `#7c3aed`, Pink `#db2777`, Brown `#92400e`, and a hex field accepting `#rrggbb`. Choosing commits `update_body` with the color (label "Change color").
+- Color: a popover (`data-testid="color-popover"`) with the swatch buttons of `BODY_SWATCHES` (2.16.5), named Default (removes `color`), White `#f4f4f5`, Black `#27272a`, Gray `#71717b`, Red `#e7000b`, Orange `#ff6900`, Yellow `#fdc700`, Green `#00a63e`, Teal `#009689`, Blue `#155dfc`, Purple `#9810fa`, Pink `#e60076` and Brown `#973c00`, and a hex field accepting `#rrggbb` (in `FONT_CLASSES.values`). Choosing commits `update_body` with the color (label "Change color"). A body's current color (in its browser row and in the selection inspector) can be any hex from the document, so it is drawn as an inline SVG square whose `rect` has the stored hex (or `body`'s hex for no color) as its `fill` attribute, inside a `borderControl` border: document data known only at runtime goes into an SVG attribute, never a `style` (3.12).
 - Keyboard: WAI-ARIA tree pattern (Up, Down, Right expands or enters, Left collapses or goes to the parent, Home, End), no type-ahead (letters stay global shortcuts). Row buttons are not tab stops; their actions are V (visibility), the selection inspector (color, material, visibility) and the palette commands "Lock selection" and "Unlock selection".
 
 ### 3.11 Parameters panel
 
 The side panel `parameters` (`data-testid="parameters-panel"`, title "Parameters", close button) opens from the browser's "Edit parameters" button, a parameter row, or the palette command "Parameters".
 
-- One row per parameter (`data-testid="parameter-row"`, `data-id`): name field ("Name of {name}"), expression field (`ExpressionInput` with unit `any`, "Expression of {name}"), value (`data-testid="parameter-value"`: the `recomputed` value formatted by its dimension, or the error message in `danger-fg` with a `circle-x` icon), comment field ("Comment of {name}"), delete button ("Delete {name}").
+- One row per parameter (`data-testid="parameter-row"`, `data-id`): name field ("Name of {name}"), expression field (`ExpressionInput` with unit `any`, "Expression of {name}"), value (`data-testid="parameter-value"`: the `recomputed` value formatted by its dimension, in `FONT_CLASSES.values`, or the error message in `errorText` with a `circle-x` icon in `errorMark`), comment field ("Comment of {name}"), delete button ("Delete {name}").
 - `ExpressionInput` with unit `any` accepts every dimension and shows `= {value}` formatted by the returned dimension: length and angle as in 2.13, dimensionless as a scalar, any other dimension as `{value} mm^l rad^a` in internal units (zero exponents omitted, exponent 1 without `^`).
 - Name: Enter or blur calls `renameParameter` when changed; the core rewrites every expression that uses the old name and labels the undo entry "Rename parameter {old} to {new}". Locally, a name that does not match `^[A-Za-z_][A-Za-z0-9_]*$` or is longer than 64 characters shows "Names start with a letter or _ and use only letters, digits and _." and is not sent; other rules (reserved names, uniqueness) come back as the core's error message under the field. Esc reverts.
 - Expression: Enter or blur commits `update_parameter` (label "Change {name}") when valid and changed; Esc reverts.
@@ -1851,18 +2108,35 @@ The side panel `parameters` (`data-testid="parameters-panel"`, title "Parameters
 
 Passes, in order:
 
-1. Background: vertical gradient from `viewport-top` to `viewport-bottom`.
-2. Opaque bodies (model layer, and preview layer during a command): matcap-style shading from the view-space normal `n`: `k = 0.32 + 0.50 × max(dot(n, L), 0) + 0.18 × max(n.z, 0)` with `L = normalize(0.3, 0.6, 0.74)`, color `base × k + 0.06 × (1 - max(n.z, 0))^3` (rim). `base` is `Body.color` or `body`. Element states mix the result toward `accent` (hover 0.20, selected 0.35) or `danger` (problem 0.5). Faces use a polygon offset (factor 1, units 1). With a section, back faces are drawn flat in `base × 0.55` (the cut cap). Bodies whose role is not `part` draw at 40 percent opacity in the translucent pass.
-3. Overhang map (Print context, 3.17): for a vertex value `v` (radians from vertical) above the limit `a`, `t = clamp((v - a) / (π/2 - a), 0, 1)` and the color becomes `mix(shaded, mix(analysis-low, analysis-high, t) × k, 0.85)`.
-4. Edges: B-rep edges from `edge_positions` as screen-space quads (instanced per segment), 1.25 CSS px wide (times the UI scale), anti-aliased with a 1 px smoothstep falloff, depth-tested against the faces, in `#18181b` or `#e4e4e7` per body (2.16). Selected and hovered edges as in 3.6.
+1. Background: vertical gradient from `viewportTop` to `viewportBottom` (2.16.4).
+2. Opaque bodies (model layer, and preview layer during a command): matcap-style shading from the view-space normal `n`: `k = 0.32 + 0.50 × max(dot(n, L), 0) + 0.18 × max(n.z, 0)` with `L = normalize(0.3, 0.6, 0.74)`, color `base × k + 0.06 × (1 - max(n.z, 0))^3` (rim). `base` is `Body.color` or `body`. Element states mix the result toward `highlight` (hover 0.20, selected 0.35) or `problem` (problem 0.5). Faces use a polygon offset (factor 1, units 1). With a section, back faces are drawn flat in `base × 0.55` (the cut cap). Bodies whose role is not `part` draw at 40 percent opacity in the translucent pass.
+3. Overhang map (Print context, 3.17): for a vertex value `v` (radians from vertical) above the limit `a`, `t = clamp((v - a) / (π/2 - a), 0, 1)` the ramp color is `ramp = linearize(mix(analysisLow, analysisHigh, t))`, mixing the sRGB-encoded ends (as the legend's `bg-linear-to-r/srgb` gradient does) and linearizing the result, and the color becomes `mix(shaded, ramp × k, 0.85)`.
+4. Edges: B-rep edges from `edge_positions` as screen-space quads (instanced per segment), 1.25 CSS pixels wide (times the UI scale), anti-aliased with a 1-pixel smoothstep falloff, depth-tested against the faces, in `edgeDark` or `edgeLight` per body (2.16.4). Selected and hovered edges as in 3.6.
 5. Vertices: only hovered and selected vertices are drawn.
 6. Translucent: datum and origin planes as squares with `datum` fill at 15 percent and outline at 60 percent; non-part bodies.
-7. Overlay (no depth test): sketch curves, points and region fills (3.16.2); in Model context visible sketches draw in `sketch-reference` at 1.25 px with no region fill, except hovered or selected regions (`accent` at 20 or 35 percent).
+7. Overlay (no depth test): sketch curves, points and region fills (3.16.2); in Model context visible sketches draw in `sketchReference` at 1.25 CSS pixels with no region fill, except hovered or selected regions (`highlight` at 20 or 35 percent).
 8. Print bed outline (depth-tested, 3.17).
 
-- Datum and origin planes are drawn as squares of side `max(50 mm, 1.2 × the diagonal of the visible bounds)` centered at the projection of the visible bounds center onto the plane. Origin axes are drawn as dashed lines of the same length through the origin in `sketch-reference`, with DOM labels "X", "Y", "Z" at their positive ends.
-- The DOM overlay (absolutely positioned over the canvas, `pointer-events: none` except on interactive children) holds sketch dimension labels, constraint glyphs, draw inputs, inference glyphs, axis labels, finding markers and the box selection rectangle. Overlay positions update in the same animation frame as the canvas.
+- Datum and origin planes are drawn as squares of side `max(50 mm, 1.2 × the diagonal of the visible bounds)` centered at the projection of the visible bounds center onto the plane. Origin axes are drawn as dashed lines of the same length through the origin in `sketchReference`, with DOM labels "X", "Y", "Z" (`textMuted`) at their positive ends.
+- The overlay layer (`absolute inset-0 overflow-hidden pointer-events-none` over the canvas; interactive children `pointer-events-auto`) holds an SVG (`absolute inset-0 size-full`) for the box selection rectangle, profile issue rings and finding markers, and HTML elements for sketch dimension labels, constraint glyphs, draw inputs, the dimension editor, inference glyphs and axis labels. Their positions follow the runtime positions rule below and update in the same animation frame as the canvas.
 - WebGL context loss: `preventDefault` on `webglcontextlost`, a status overlay "Restoring the 3D view" (`role="status"`), and on restore `scene.restore()` re-uploads every drawable and renders.
+
+Runtime positions, the one exception to the no-inline-style rule (its scope: open issue 14):
+
+- Which: the overlay's HTML elements above; the inspector (3.7); the timeline's drag ghost and insertion bar (3.9); menus, popovers and tooltips anchored to their triggers (the native Popover API places them in the top layer, and Tailwind 4.3.3 has no anchor positioning utilities); and the view cube's rotation (3.14). The overlay's SVG marks use SVG geometry attributes instead (`x`, `y`, `width`, `height`, `cx`, `cy`, `r`), with colors from stroke classes (`accent`, `errorMark`) and the crossing selection's dashes as the static attribute `stroke-dasharray="4 3"`.
+- Why: these values come from projecting 3D geometry through the camera every frame (or from the pointer during a drag, or from a trigger's measured rectangle), so no class known at build time can express them, and re-rendering React every frame would break the rule that the viewport bypasses React (ADR 0002).
+- How: React renders each element once with its classes, test ids and accessible names and never passes a `style` prop. The viewport controller, or the owning component through a ref, writes the position imperatively, through the two functions of `src/viewport/overlay.ts`, which are the only code in `src/` that touches `element.style`:
+
+```ts
+/** Moves an element to (x, y) CSS pixels from its layer's origin: sets only `element.style.translate` (`${x}px ${y}px`) and marks the element `data-positioned`. */
+export function positionElement(element: HTMLElement, x: number, y: number): void
+/** Sets only `element.style.transform` to the CSS `matrix3d` of a column-major 4 × 4 matrix and marks the element `data-positioned`. */
+export function orientElement(element: HTMLElement, matrix: Float32Array): void
+```
+
+- Positioned elements sit at `absolute left-0 top-0` of their layer. The inline `translate` replaces any translate class on the same element, so an element centered on its anchor wraps its content in an inner element with `-translate-x-1/2 -translate-y-1/2`. An element whose anchor is behind the camera or outside the canvas gets the `hidden` attribute instead of a position. SVG geometry attributes are written with `setAttribute` in the same frame.
+- Document data drawn in the DOM (a body's current color, 3.10) uses SVG presentation attributes (`fill`), not styles.
+- No other element has a `style` attribute: U-91 checks the source and E-61 the rendered app.
 
 ### 3.13 Navigation
 
@@ -1877,8 +2151,8 @@ Passes, in order:
 | Orbit with the view cube | Left drag on the cube | Left drag on the cube |
 | Box selection | Left drag on empty space, sketch mode only | same |
 
-- A gesture starts after 3 px of motion; below that, a press and release is a click. Orbit rate 0.4 degrees per px about the pivot: the world point under the cursor at the gesture start (from the ID pass depth) or the target when nothing is there or the backend cannot read depth.
-- Wheel uses `wheelZoomFactor`; one notch of 100 px zooms out by 1.0015^100 ≈ 1.162 (wheel back) or in by the inverse (wheel forward). Wheel listeners are non-passive and call `preventDefault`.
+- A gesture starts after 3 CSS pixels of motion; below that, a press and release is a click. Orbit rate 0.4 degrees per CSS pixel about the pivot: the world point under the cursor at the gesture start (from the ID pass depth) or the target when nothing is there or the backend cannot read depth.
+- Wheel uses `wheelZoomFactor`; one notch with a pixel delta of 100 zooms out by 1.0015^100 ≈ 1.162 (wheel back) or in by the inverse (wheel forward). Wheel listeners are non-passive and call `preventDefault`.
 - Middle-button `pointerdown` and `mousedown` call `preventDefault` (no browser autoscroll). The canvas `contextmenu` event calls `preventDefault` and opens nothing in M1.
 - During a gesture hover picking pauses; the ID pass is re-rendered on the next pick after the camera has been still for 100 ms.
 - The viewport is focusable (`tabindex="0"`, `role="application"`, `aria-roledescription="3D view"`) and takes the keys of 3.5.
@@ -1887,11 +2161,11 @@ Passes, in order:
 
 ### 3.14 View cube and viewport controls
 
-- The view cube (`data-testid="view-cube"`, `role="group"`, `aria-label="View cube"`) is a DOM element with CSS 3D transforms, 96 px (times the UI scale), 16 px from the viewport's top-right corner, rotated every frame to match the camera. Its 6 faces are buttons labeled "Top", "Bottom", "Front", "Back", "Left", "Right" with accessible names "{Face} view"; its 12 edges are buttons named "{Face} {face} edge view" (pairs in the order Front, Back, Left, Right, Top, Bottom: "Front top edge view", "Front left edge view", "Right bottom edge view", ...); its 8 corners are buttons named "{Front or Back} {Left or Right} {Top or Bottom} corner view".
+- The view cube (`data-testid="view-cube"`, `role="group"`, `aria-label="View cube"`) is a DOM element, `size-24` (6rem, so it follows the UI scale) at `top-4 right-4` of the viewport. Its static 3D layout uses Tailwind's 3D transform utilities only (`perspective-*`, `transform-3d`, `backface-hidden`, `rotate-x-*`, `rotate-y-*`, `translate-x-*`, `translate-y-*`, `translate-z-12`; translations are in the parent's frame, since Tailwind applies `translate` before `transform`), and an inner rotor turns every frame to match the camera through `orientElement` (3.12). Faces are `surfaceRaised` with `border` hairlines and `textMuted` labels, and turn `hover` on hover. Its 6 faces are buttons labeled "Top", "Bottom", "Front", "Back", "Left", "Right" with accessible names "{Face} view"; its 12 edges are buttons named "{Face} {face} edge view" (pairs in the order Front, Back, Left, Right, Top, Bottom: "Front top edge view", "Front left edge view", "Right bottom edge view", ...); its 8 corners are buttons named "{Front or Back} {Left or Right} {Top or Bottom} corner view".
 - Clicking a face sets that standard view; an edge sets the view looking from the normalized sum of its two face directions; a corner from the sum of three (Front right top is `iso`). Up is the projection of +Z onto the view plane, except views looking straight down or up (top and bottom faces) which use the up vectors of 2.11. The target, distance and projection are kept; the change animates.
 - Dragging on the cube orbits about the target at the same rate as the navigation orbit.
 - A "Home view" button (`house` icon) at the cube's top-left corner sets `iso` and fits the visible bounds.
-- Viewport controls (`data-testid="viewport-controls"`), a vertical stack of 32 px icon buttons under the cube: "Fit to view" (`maximize`), "Orthographic" (`cuboid`, `aria-pressed` true in orthographic), "Section view" (`scan-line`, `aria-pressed`; turning it on opens the section popover), "Selection filter" (`mouse-pointer-2`, a menu of `menuitemcheckbox` items Bodies, Faces, Edges, Vertices; hidden in sketch mode).
+- Viewport controls (`data-testid="viewport-controls"`), a vertical stack of `size-8` icon buttons under the cube: "Fit to view" (`maximize`), "Orthographic" (`cuboid`, `aria-pressed` true in orthographic), "Section view" (`scan-line`, `aria-pressed`; turning it on opens the section popover), "Selection filter" (`mouse-pointer-2`, a menu of `menuitemcheckbox` items Bodies, Faces, Edges, Vertices; hidden in sketch mode).
 - Fit to view frames `scene.visibleBounds` with `fitBounds` (margin 0.1), animated; with nothing visible it frames a 100 mm cube at the origin.
 - Look at (`view.look_at`): with one flat face (its `placement`), origin plane or datum plane selected, or in sketch mode (the sketch placement), the camera looks along the negated normal from the front side with the plane's y-axis up, target the plane point (face centroid, plane origin), distance and projection kept. Otherwise the command is disabled with "Select a flat face or a plane first."
 - Orthographic toggle uses `withProjection`.
@@ -1908,18 +2182,18 @@ Passes, in order:
 
 - `startNewSketch`: when the selection is exactly one plane-like item (origin plane, datum plane, or a face whose `surface` is `plane`), `createSketchOn(item)`. Otherwise the app enters plane picking: context Sketch with `sketchId` null, the sketch header reading "Pick a plane or a flat face", origin planes shown, and only origin planes, datum planes and faces accepted. A face that is not flat shows the hint "Pick a flat face, a datum plane or an origin plane." Clicking a browser origin plane or datum row works too. Esc returns to Model.
 - `createSketchOn(item)`: commits one `apply_edits` labeled "New sketch" with `add_feature` of a `sketch` record whose `plane` is sketch.md's `SketchPlane` for the item: `{"kind": "origin", "plane": "XY"}`, `{"kind": "datum", "feature": id}` or, for a face, `{"kind": "face", "body": id, "face": <Reference>, "fallback": <Placement>}` with the fallback from the face's `ElementDescriptor.placement`; empty entities and constraints; inserted by the marker rule of 3.7. Then `enterSketch(new id)`.
-- `enterSketch(id)`: cancels an active command, sets context Sketch, shows the sketch for the session, gets its solution (`sketch_solved` events or `solveSketch(doc, id)`), and moves the camera: `lookAlong` the placement normal with the placement y-axis up, then, when the sketch has entities, frames their bounds in the sketch plane (`fitBounds`, margin 0.1); an empty sketch keeps the visible height and targets the placement origin. The projection is kept. The camera before entering is pushed as a sketch view entry (3.20). Downstream features stay visible and recompute after each sketch edit.
+- `enterSketch(id)`: cancels an active command, sets context Sketch, shows the sketch for the session, gets its solution (`sketch_solved` events or `solveSketch(documentHandle, id)`), and moves the camera: `lookAlong` the placement normal with the placement y-axis up, then, when the sketch has entities, frames their bounds in the sketch plane (`fitBounds`, margin 0.1); an empty sketch keeps the visible height and targets the placement origin. The projection is kept. The camera before entering is pushed as a sketch view entry (3.20). Downstream features stay visible and recompute after each sketch edit.
 
 #### 3.16.2 Display
 
-- Active sketch curves: overlay lines 1.5 px (times the UI scale) colored by `SolvedEntity.constrained` (sketch.md `EntityState`): `under_constrained` `sketch-under`, `fully_constrained` `sketch-full`, `conflicting` `sketch-conflict`. Construction entities are dashed (6 px dash, 4 px gap). Hovered and selected curves are 2.5 px in `accent`. Circles and arcs are tessellated by the UI from entity data with a chord tolerance of 0.25 CSS px, re-tessellated when the scale changes by more than a factor 1.5.
-- Points: line ends and arc ends as 5 px squares and centers as 5 px crosses in their entity's color; point entities as 6 px filled circles; points shared by a coincident constraint as filled squares; hovered and selected points 7 px in `accent`.
-- The origin point (9 px cross) and the X and Y axes (dashed lines across the view) in `sketch-reference`, pickable for snapping and constraints, which refer to them by sketch.md's reserved references `origin`, `x_axis` and `y_axis` (2.14).
-- Closed regions filled with `sketch-region` at 12 percent from the solution's display buffers; hovered regions at 20 percent.
-- Profile issues: each `profile_findings` entry gets a 12 px `danger` ring (DOM, `data-testid="profile-issue"`): `open_endpoint` at `point` ("Open end"), `overlap` at the midpoint of `start` and `end` ("Overlapping curves"), `self_intersection` at `point` ("Curves cross"); `zero_length` gets no ring; the entities named by `entity` or `entities` get a 4 px `danger` halo at 30 percent.
-- Other visible sketches draw in `sketch-reference` and are not pickable in sketch mode.
-- Constraint glyphs (when "Show constraints" is on, the default; palette command "Show constraints" toggles it): one DOM button per geometric constraint except `coincident` and `point_on_object` (which have no glyph; the shared point is drawn filled), 18 px (times the UI scale), `data-testid="constraint-glyph"`, `data-constraint-id`, `data-type`, `data-state` (`satisfied`, `redundant`, `conflicting`, `unsatisfied`), accessible name the constraint title. Placement: anchored at the midpoint of the first constrained curve (lines), the point at 45 degrees on circles and arcs, or the point itself, offset 14 px perpendicular to the curve on screen; further glyphs on the same anchor stack 20 px apart along the curve. Style: icon in `fg-muted` on a `surface-raised` pill at 90 percent opacity; `warning` when redundant, `danger` when conflicting. Hovering highlights the constrained items; clicking selects the constraint.
-- Dimensions: dimension geometry (extension lines, dimension line with 8 px arrowheads, radius or diameter leader, angle arc) in `sketch-reference` at 1 px, plus a DOM label button (`data-testid="sketch-dimension"`, `data-constraint-id`, `data-type`, `data-driving`) at the label position (stored by sketch.md if it stores one, else `defaultLabelPosition`). Label text: `formatNumber` of the solved value without unit; prefixed `⌀` for diameter and `R` for radius; suffixed `°` for angles; a non-plain-number expression is prefixed `fx ` (`fx 40`); reference dimensions are wrapped in parentheses (`(40)`). Pill `surface-raised` at 90 percent with `fg` text; `danger-fg` when conflicting, `warning-fg` when redundant. Double-click or Enter opens the dimension editor.
+- Active sketch curves: overlay lines 1.5 CSS pixels wide (times the UI scale) colored by `SolvedEntity.constrained` (sketch.md `EntityState`): `under_constrained` `sketchUnder`, `fully_constrained` `sketchFull`, `conflicting` `sketchOver` (2.16.4). Construction entities are dashed (6-pixel dashes, 4-pixel gaps) and drawn in `sketchConstruction` instead of `sketchFull` when fully constrained, so finished construction geometry recedes behind the profile; under-constrained and conflicting construction entities keep `sketchUnder` and `sketchOver`. Hovered and selected curves are 2.5 CSS pixels wide in `highlight`. Circles and arcs are tessellated by the UI from entity data with a chord tolerance of 0.25 CSS pixels, re-tessellated when the scale changes by more than a factor 1.5.
+- Points: line ends and arc ends as 5-pixel squares and centers as 5-pixel crosses in their entity's color; point entities as 6-pixel filled circles; points shared by a coincident constraint as filled squares; hovered and selected points 7 pixels in `highlight`.
+- The origin point (9-pixel cross) and the X and Y axes (dashed lines across the view) in `sketchReference`, pickable for snapping and constraints, which refer to them by sketch.md's reserved references `origin`, `x_axis` and `y_axis` (2.14).
+- Closed regions filled with `sketchRegion` at 12 percent from the solution's display buffers; hovered regions at 20 percent.
+- Profile issues: each `profile_findings` entry gets a ring of 12 CSS pixels diameter stroked in `errorMark` (an SVG `circle` in the overlay, `data-testid="profile-issue"`, with an SVG `title` naming the issue): `open_endpoint` at `point` ("Open end"), `overlap` at the midpoint of `start` and `end` ("Overlapping curves"), `self_intersection` at `point` ("Curves cross"); `zero_length` gets no ring; the entities named by `entity` or `entities` get a 4-pixel `problem` halo at 30 percent in the WebGL overlay pass.
+- Other visible sketches draw in `sketchReference` and are not pickable in sketch mode.
+- Constraint glyphs (when "Show constraints" is on, the default; palette command "Show constraints" toggles it): one DOM button per geometric constraint except `coincident` and `point_on_object` (which have no glyph; the shared point is drawn filled), `size-4.5` (so it follows the UI scale), `data-testid="constraint-glyph"`, `data-constraint-id`, `data-type`, `data-state` (`satisfied`, `redundant`, `conflicting`, `unsatisfied`), accessible name the constraint title. Placement (runtime positions, 3.12): anchored at the midpoint of the first constrained curve (lines), the point at 45 degrees on circles and arcs, or the point itself, offset 14 CSS pixels (times the UI scale) perpendicular to the curve on screen; further glyphs on the same anchor stack 20 pixels apart along the curve. Style: a `rounded-sm` chip with a `border` hairline; `satisfied` and `unsatisfied`: icon in `textMuted` on `surfaceRaised` at `opacity-90`; `redundant`: `warningFill`; `conflicting`: `errorFill`. Hovering highlights the constrained items; clicking selects the constraint.
+- Dimensions: dimension geometry (extension lines, dimension line with 8-pixel arrowheads, radius or diameter leader, angle arc) in `sketchReference` at 1 CSS pixel, plus a DOM label button (`data-testid="sketch-dimension"`, `data-constraint-id`, `data-type`, `data-driving`) at the label position (stored by sketch.md if it stores one, else `defaultLabelPosition`; positioned per 3.12). Label text, in `FONT_CLASSES.values`: `formatNumber` of the solved value without unit; prefixed `⌀` for diameter and `R` for radius; suffixed `°` for angles; a non-plain-number expression is prefixed `fx ` (`fx 40`); reference dimensions are wrapped in parentheses (`(40)`). A `rounded-sm` chip: `surfaceRaised` at `opacity-90` with `text`; `errorFill` when conflicting, `warningFill` when redundant. Double-click or Enter opens the dimension editor.
 
 #### 3.16.3 Tools and commits
 
@@ -1927,8 +2201,8 @@ Passes, in order:
 - The pointer maps to sketch coordinates by intersecting the camera ray with the sketch plane; when the ray is within 1e-6 of parallel to the plane, pointer input is ignored.
 - `commitSketchChange(label, change)`:
   1. Builds candidate params: current entities and constraints plus the change.
-  2. Calls `solveSketch(doc, sketch, candidate)`. When a `requested` constraint id is in `conflicting` or `redundant`, returns `over_constrained` and applies nothing. When `inferred` ids are, removes them and solves once more.
-  3. Calls `applyEdits(doc, label, [update_feature])` with the candidate params whose entities carry the solved geometry (each `SolvedEntity` without `constrained`); for a sketch on a face, `plane.fallback` is set to `solution.placement`.
+  2. Calls `solveSketch(documentHandle, sketch, candidate)`. When a `requested` constraint id is in `conflicting` or `redundant`, returns `over_constrained` and applies nothing. When `inferred` ids are, removes them and solves once more.
+  3. Calls `applyEdits(documentHandle, label, [update_feature])` with the candidate params whose entities carry the solved geometry (each `SolvedEntity` without `constrained`); for a sketch on a face, `plane.fallback` is set to `solution.placement`.
   4. A solution with `failed` true, or an `invalid_params` or `expression_error` `CoreError`, returns `failed` with the solver's or the core's message; nothing is applied.
 - Labels: "Line", "Rectangle", "Circle", "Arc", "Point", the constraint title, "Dimension", "Change dimension", "Construction", "Delete". Drags are committed by `end_sketch_drag` (the core labels them).
 
@@ -1936,10 +2210,10 @@ Passes, in order:
 
 Each tool's output is fixed (unit tests U-50 to U-54 check `recipes.ts`); "inferred" constraints come from 3.16.5; everything else is requested.
 
-- **Line / polyline** (`line`, L). Click 1 sets the start S. A rubber band follows the cursor. Click 2 sets the end E and commits a line S to E; segments shorter than 2 CSS px are ignored. The chain continues from E: the next line starts at E with an inferred `coincident` between the previous line's end and the new line's start. The chain ends on Esc (the rubber band is discarded, the tool stays), Enter with no draw input focused, a double-click (which commits the segment to the clicked point first), or a click on the chain's first point (committing a closing segment with `coincident` to it).
-- **2-point rectangle** (`rectangle_2point`, R). Click 1 sets corner C1, click 2 the opposite corner C2; a width or height under 2 CSS px is ignored. Output: lines L1 C1 to (C2.x, C1.y), L2 (C2.x, C1.y) to C2, L3 C2 to (C1.x, C2.y), L4 (C1.x, C2.y) to C1; `coincident` L1.end-L2.start, L2.end-L3.start, L3.end-L4.start, L4.end-L1.start; `horizontal` L1 and L3; `vertical` L2 and L4. Snaps at C1 apply to L1.start and at C2 to L2.end (inferred).
+- **Line / polyline** (`line`, L). Click 1 sets the start S. A rubber band follows the cursor. Click 2 sets the end E and commits a line S to E; segments shorter than 2 CSS pixels are ignored. The chain continues from E: the next line starts at E with an inferred `coincident` between the previous line's end and the new line's start. The chain ends on Esc (the rubber band is discarded, the tool stays), Enter with no draw input focused, a double-click (which commits the segment to the clicked point first), or a click on the chain's first point (committing a closing segment with `coincident` to it).
+- **2-point rectangle** (`rectangle_2point`, R). Click 1 sets corner C1, click 2 the opposite corner C2; a width or height under 2 CSS pixels is ignored. Output: lines L1 C1 to (C2.x, C1.y), L2 (C2.x, C1.y) to C2, L3 C2 to (C1.x, C2.y), L4 (C1.x, C2.y) to C1; `coincident` L1.end-L2.start, L2.end-L3.start, L3.end-L4.start, L4.end-L1.start; `horizontal` L1 and L3; `vertical` L2 and L4. Snaps at C1 apply to L1.start and at C2 to L2.end (inferred).
 - **Center rectangle** (`rectangle_center`). Click 1 sets the center P, click 2 a corner K. Output: the 2-point rectangle with C1 = 2P - K and C2 = K, plus a construction line D from L1.start to L2.end with `coincident` D.start-L1.start and D.end-L2.end, and a construction point Q at P with `midpoint` (Q, D). Snaps at P apply to Q and at K to L2.end (inferred).
-- **Circle** (`circle`, C). Click 1 sets the center, click 2 a point on the circle (radius under 2 CSS px is ignored). Output: one circle. A snap at the center applies to its center point; a point snap at click 2 adds `point_on_object` (that point, the circle) (inferred).
+- **Circle** (`circle`, C). Click 1 sets the center, click 2 a point on the circle (radius under 2 CSS pixels is ignored). Output: one circle. A snap at the center applies to its center point; a point snap at click 2 adds `point_on_object` (that point, the circle) (inferred).
 - **3-point arc** (`arc_3point`). Click 1 sets A, click 2 sets B, then the arc follows the cursor T through A, B and T; click 3 commits. When `circleThroughThreePoints` returns null or a radius above 1e6 mm, the rubber band is a straight segment, click 3 is ignored, and the sketch hint (`data-testid="sketch-hint"`, `role="status"`) says "These three points are in a line. Move the last point off the line to make an arc." Arcs are stored counterclockwise: when T lies on the clockwise path from A to B, the arc runs from B to A. Snaps at A and B apply to the arc's ends; a tangent inference at A applies.
 - **Point** (`point`). Each click adds a point entity at the (snapped) location.
 - **Construction** (`construction`, X). With entities selected and no drawing tool active, toggles their `construction` flag in one commit labeled "Construction". With a drawing tool active, toggles construction mode for new entities (`aria-pressed` on the button). The mode resets when sketch mode ends.
@@ -1952,10 +2226,10 @@ Dimension as you draw (draw inputs: DOM text inputs next to the rubber band's mi
 
 #### 3.16.5 Inference while drawing
 
-- Snap targets within 8 CSS px (times the UI scale) of the cursor: every solved point of the active sketch and the origin point (`point`), the midpoints of lines (`midpoint`), and, within 6 px, curves including the origin axes (`curve`, at the closest point). Priority point, then midpoint, then curve; nearest first within a class.
+- Snap targets within 8 CSS pixels (times the UI scale) of the cursor: every solved point of the active sketch and the origin point (`point`), the midpoints of lines (`midpoint`), and, within 6 pixels, curves including the origin axes (`curve`, at the closest point). Priority point, then midpoint, then curve; nearest first within a class.
 - Direction inference for line segments with a start S: `horizontal` when the segment's angle to the sketch X axis is within 3 degrees modulo 180, `vertical` likewise to the Y axis; `tangent` when S is the end of an arc (or, for a 3-point arc, A is the end of a line or arc) and the directions differ by at most 5 degrees. When tangent applies, horizontal and vertical do not. Without a snap at the end, a horizontal or vertical inference moves the end exactly onto the horizontal or vertical through S.
 - Constraints from snaps (all inferred): point: `coincident` (new point, target point; the origin point is `ORIGIN_POINT`); midpoint: `midpoint` (new point, line); curve: `point_on_object` (new point, curve; the axes are `X_AXIS` and `Y_AXIS`). Direction: `horizontal`, `vertical` or `tangent` on the new curve.
-- While inferring, one inference glyph per inferred constraint (`data-testid="inference-glyph"`, `data-type` the constraint type; snap first, then direction, side by side) shows 16 px to the right of and below the cursor, and the snap target is highlighted in `accent`.
+- While inferring, one inference glyph per inferred constraint (`data-testid="inference-glyph"`, `data-type` the constraint type; snap first, then direction, side by side) shows 16 CSS pixels (times the UI scale) to the right of and below the cursor (positioned per 3.12), and the snap target is highlighted in `highlight`.
 - Suppression: while Ctrl (Windows and Linux) or Cmd (macOS) is held, there are no snaps, no direction inference and no glyphs; the raw cursor is used. The key state is read from each pointer event, including the click.
 
 #### 3.16.6 Constraint tools
@@ -1995,17 +2269,17 @@ Commands `sketch.constrain_<type>` in this order: Coincident, Point on object, H
 #### 3.16.8 DOF display
 
 - Entity colors come from `SolvedEntity.constrained` (3.16.2).
-- The sketch header (`data-testid="sketch-header"`, a button at the viewport's top center, `data-state`, `data-dof`) shows the sketch label and a status. `data-state` is the first that applies: `empty` "No geometry yet" (no entities); `conflict` "{n} conflicting constraints" in `danger-fg` (`conflicting` non-empty); `failed` "Cannot solve" in `danger-fg` (`failed` true); `full` "Fully constrained" (`dof` 0); `under` "{n} DOF". A `status` of `redundant` maps by the same rules. When the solution has redundant constraints, " · {n} redundant" follows in `warning-fg`. During plane picking it shows "Pick a plane or a flat face" with `data-state="picking"`.
+- The sketch header (`data-testid="sketch-header"`, a `surfaceRaised` chip button at the viewport's top center, `data-state`, `data-dof`) shows the sketch label and a status. `data-state` is the first that applies: `empty` "No geometry yet" (no entities); `conflict` "{n} conflicting constraints" in `errorText` (`conflicting` non-empty); `failed` "Cannot solve" in `errorText` (`failed` true); `full` "Fully constrained" (`dof` 0); `under` "{n} DOF". A `status` of `redundant` maps by the same rules. When the solution has redundant constraints, " · {n} redundant" follows in `warningText`. During plane picking it shows "Pick a plane or a flat face" with `data-state="picking"`.
 - Clicking the header opens a popover (`data-testid="sketch-problems"`) listing conflicting and redundant constraints (title and a "Delete" button each) and profile issues (text and a "Show" button that frames the issue).
 - The status bar shows `status-dof` (3.21).
 
 #### 3.16.9 Drag and box selection
 
-- With no tool active, pressing on a point of the active sketch and moving more than 3 px drags it. Points only in M1; pressing on a curve starts nothing.
-- Each pointer move maps the cursor to sketch coordinates (no inference) and submits `dragSketch(doc, sketch, pointRef, to)` through a `LatestOnly`. Each non-null solution redraws the sketch in the next frame (`ps:sketch-drag`).
-- Release: when at least one drag request was sent, the UI awaits the drag `LatestOnly`'s `flush()`, then `endSketchDrag(doc, sketch, true)` through the mutation queue (one undo entry); otherwise nothing. Esc during the drag: `endSketchDrag(doc, sketch, false)` and the stored geometry is redrawn.
+- With no tool active, pressing on a point of the active sketch and moving more than 3 CSS pixels drags it. Points only in M1; pressing on a curve starts nothing.
+- Each pointer move maps the cursor to sketch coordinates (no inference) and submits `dragSketch(documentHandle, sketch, point, to)` through a `LatestOnly`. Each non-null solution redraws the sketch in the next frame (`ps:sketch-drag`).
+- Release: when at least one drag request was sent, the UI awaits the drag `LatestOnly`'s `flush()`, then `endSketchDrag(documentHandle, sketch, true)` through the mutation queue (one undo entry); otherwise nothing. Esc during the drag: `endSketchDrag(documentHandle, sketch, false)` and the stored geometry is redrawn.
 - Over a point whose entity is `fully_constrained`, the cursor is `not-allowed`.
-- Pressing on empty space and moving more than 3 px draws a selection rectangle (`data-testid="box-selection"`). Dragging right (end x at or above start x) is a window selection: entities whose every point and tessellation vertex lie inside. Dragging left is a crossing selection (dashed border): entities with any part inside. Shift or Mod toggles the result into the sketch selection; otherwise it replaces it.
+- Pressing on empty space and moving more than 3 CSS pixels draws a selection rectangle (`data-testid="box-selection"`, an SVG `rect` in the overlay stroked in `accent`, 3.12). Dragging right (end x at or above start x) is a window selection: entities whose every point and tessellation vertex lie inside. Dragging left is a crossing selection (dashed stroke): entities with any part inside. Shift or Mod toggles the result into the sketch selection; otherwise it replaces it.
 
 #### 3.16.10 Sketch selection and deletion
 
@@ -2026,7 +2300,7 @@ Commands `sketch.constrain_<type>` in this order: Coincident, Point on object, H
 
 Analysis runs:
 
-- In Print context, 300 ms after the document revision last changed with no transaction open, and on entering Print when the report is stale: `analyzePrint(doc, { orientation: { kind: 'as_modeled' } })` through a `LatestOnly` (a `null` superseded result is ignored). `print.running` is true meanwhile.
+- In Print context, 300 ms after the document revision last changed with no transaction open, and on entering Print when the report is stale: `analyzePrint(documentHandle, { orientation: { kind: 'as_modeled' } })` through a `LatestOnly` (a `null` superseded result is ignored). `print.running` is true meanwhile.
 - Outside Print, analysis never runs on its own. The badge shows the last report as stale; clicking the badge runs the analysis and opens the health panel.
 
 Health badge (`data-testid="health-badge"`, a button in the status bar, `data-state`, accessible name as listed):
@@ -2034,34 +2308,34 @@ Health badge (`data-testid="health-badge"`, a button in the status bar, `data-st
 | State | When | Icon and text | Accessible name |
 | --- | --- | --- | --- |
 | `none` | No report yet | `circle-dashed`, "Check print" | "Print health: not checked" |
-| `running` | Analysis in flight | `loader-circle` (spinning unless reduced motion), "Checking" | "Print health: checking" |
-| `ok` | No shown errors or warnings | `circle-check` in `success`, "Ready to print" | "Print health: no problems" |
-| `warning` | Shown warnings, no shown errors | `triangle-alert` in `warning`, "1 warning" or "{n} warnings" | "Print health: {n} warning(s)" |
-| `error` | Shown errors | `circle-x` in `danger`, "1 error" or "{n} errors" | "Print health: {e} error(s), {w} warning(s)" |
+| `running` | Analysis in flight | `loader-circle` (`animate-spin motion-reduce:animate-none`), "Checking" | "Print health: checking" |
+| `ok` | No shown errors or warnings | `circle-check` in `successMark`, "Ready to print" | "Print health: no problems" |
+| `warning` | Shown warnings, no shown errors | `triangle-alert` hazard sign (`warningMark`), "1 warning" or "{n} warnings" | "Print health: {n} warning(s)" |
+| `error` | Shown errors | `circle-x` in `errorMark`, "1 error" or "{n} errors" | "Print health: {e} error(s), {w} warning(s)" |
 
-The badge counts the errors and warnings of non-hidden checks over every `report.bodies[i].report.checks[j]`, adding each check's `omitted` to the count of its listed findings' severity; info findings never change the badge. A report whose revision differs from the document revision is stale: the badge keeps its state, draws at 50 percent opacity, sets `data-stale="true"`, appends " (out of date)" to its text and ", out of date" to its name. Clicking the badge in any state runs the analysis when stale or absent, and opens the health panel.
+The badge counts the errors and warnings of non-hidden checks over every `report.bodies[i].report.checks[j]`, adding each check's `omitted` to the count of its listed findings' severity; info findings never change the badge. A report whose revision differs from the document revision is stale: the badge keeps its state, draws at `opacity-50`, sets `data-stale="true"`, appends " (out of date)" to its text and ", out of date" to its name. Clicking the badge in any state runs the analysis when stale or absent, and opens the health panel.
 
 Health panel (side panel `health`, `data-testid="health-list"`):
 
 - Header: the profile name and a "Check again" button.
-- Rows (`data-testid="health-item"`, `data-check`, `data-severity`): rows come from `report.bodies[i].report.checks[j].findings[k]`; the body name comes from `bodies[i].body`, `data-check` from `checks[j].check`, and `data-severity` from the finding (`info`, `warning`, `error`; info rows use the `info` icon). Each row shows the severity icon, the finding's message verbatim and the body name in `fg-muted`. Sorted by severity (errors first), then by the check order above, then report order. Hidden checks are left out.
-- Clicking a row or pressing Enter on it focuses the finding (`focusFinding` with its `FindingKey`): the camera frames a cube of side `max(20 mm, 0.25 × the body's bounding-box diagonal)` centered at `location.at` (a point location) or the center of `location.min` to `location.max` (a bounds location) (`zoomToBounds`, margin 0.3), and a 16 px `danger` ring marker (`data-testid="finding-marker"`) is drawn there. Print findings always have a location. The marker stays until another row is chosen, the panel closes or the document changes.
+- Rows (`data-testid="health-item"`, `data-check`, `data-severity`): rows come from `report.bodies[i].report.checks[j].findings[k]`; the body name comes from `bodies[i].body`, `data-check` from `checks[j].check`, and `data-severity` from the finding (`info`, `warning`, `error`; info rows use the `info` icon in `textMuted`, warning rows the `warningMark` hazard sign, error rows `circle-x` in `errorMark`). Each row shows the severity icon, the finding's message verbatim and the body name in `textMuted`. Sorted by severity (errors first), then by the check order above, then report order. Hidden checks are left out.
+- Clicking a row or pressing Enter on it focuses the finding (`focusFinding` with its `FindingKey`): the camera frames a cube of side `max(20 mm, 0.25 × the body's bounding-box diagonal)` centered at `location.at` (a point location) or the center of `location.min` to `location.max` (a bounds location) (`zoomToBounds`, margin 0.3), and a ring of 16 CSS pixels diameter stroked in `errorMark` (`data-testid="finding-marker"`, an SVG `circle` in the overlay, 3.12) is drawn there. Print findings always have a location. The marker stays until another row is chosen, the panel closes or the document changes.
 - Empty: "No problems found with {profile name}." With no body that has geometry: "Add a body to check it for printing."
 
 Overhang map and legend:
 
 - Shown in Print context while Overhangs is on and the overhangs check is not hidden. For each `BodyPrint` whose `mesh_id` equals the body's current model-layer mesh id, its overhang buffer is set as the body's scalar field (3.12 pass 3); a body whose mesh changed since the report shows no map until the next report.
 - The limit `a` is the `limit` of the first finding of an `overhangs` check in the report when present, else the profile's `max_overhang_angle` (print.md).
-- Legend (`data-testid="overhang-legend"`, bottom-left of the viewport): title "Overhangs", a gradient from `analysis-low` to `analysis-high`, labels "{a}°" and "90°" (degrees with `formatNumber`), and the caption "Faces steeper than {a}° from vertical need support."
+- Legend (`data-testid="overhang-legend"`, bottom-left of the viewport): title "Overhangs", a `h-2` bar with the `analysis` gradient (2.16.3; `analysisLow` to `analysisHigh`), labels "{a}°" and "90°" (degrees with `formatNumber`), and the caption "Faces steeper than {a}° from vertical need support."
 
-Bed outline: in Print context, after a report, the bed outline of the report's profile (the `printers` entry with id `report.profile`): the rectangle [0, width] × [0, depth], or the circle of `diameter` around the bed origin, at z = 0 in bed coordinates, mapped into model coordinates by the inverse of the first `BodyPrint.transform`, drawn 1.5 px in `bed`, depth-tested.
+Bed outline: in Print context, after a report, the bed outline of the report's profile (the `printers` entry with id `report.profile`): the rectangle [0, width] × [0, depth], or the circle of `diameter` around the bed origin, at z = 0 in bed coordinates, mapped into model coordinates by the inverse of the first `BodyPrint.transform`, drawn 1.5 CSS pixels wide in `bed`, depth-tested.
 
 ### 3.18 Export
 
 - While a feature command is active, the export commands are disabled with `finish_command_first` (export uses the model state, which ignores the focus).
 - The top-bar Export button, `Mod+Shift+E` and the Document menu open the export popover (`data-testid="export-popover"`): Format (radio group 3MF, STL, OBJ, STEP; default 3MF), Bodies (radio group "All visible bodies", "Selected bodies"; the second is disabled unless bodies are selected), and an "Export" button.
 - The Print toolbar's "Export 3MF" exports 3MF of all visible bodies directly; its Export group exports STL, OBJ or STEP of all visible bodies directly.
-- `exportModel(request)`: the bodies are the visible bodies with model-layer geometry, or the selected bodies. With none, the error notification "There is no visible body with geometry to export." appears and the core is not called. Otherwise `exportBodies(doc, format, bodies)` with `{"kind": "3mf"}`, `{"kind": "stl", "binary": true, "per_body": false}`, `{"kind": "obj", "per_body": false}` or `{"kind": "step"}`.
+- `exportModel(request)`: the bodies are the visible bodies with model-layer geometry, or the selected bodies. With none, the error notification "There is no visible body with geometry to export." appears and the core is not called. Otherwise `exportBodies(documentHandle, format, bodies)` with `{"kind": "3mf"}`, `{"kind": "stl", "binary": true, "per_body": false}`, `{"kind": "obj"}` or `{"kind": "step"}`.
 - The single returned file is saved with `files.chooseSaveTarget('{document name}.{3mf|stl|obj|step}', kind)` and `files.write`. A canceled picker does nothing. Success shows the info notification "Exported {file name}." Each warning diagnostic shows a warning notification with its message. A `CoreError` shows its message as an error notification.
 
 ### 3.19 Files
@@ -2075,12 +2349,12 @@ Bed outline: in Print context, after a report, the bed outline of the report's p
   2. The bytes decode as UTF-8 with `fatal: true`; failure shows "{file} could not be read as text." and stops.
   3. `openDocument(text)`. A `CoreError` shows "Could not open {file}. {core message}" and the current document stays.
   4. On success: stash the old document if dirty (above), close it, adopt the new handle and name, remember the file in recent files (handle, or text when there is no handle), switch to Model, set the camera to `iso` and fit the visible bounds, mark `ps:open`. With `migratedFrom`, the info notification "{file} was updated from format version {n}. Saving writes the current format."
-- Save (`Mod+S`): with a file handle, `saveDocument(doc)` and `files.write({ kind: 'handle', ... }, 'ptsm', utf8)`; without one, Save as. On a successful write, `markSaved(doc, revision)` with the revision `saveDocument` returned, then `localUnsaved` false and the recovery store cleared. A `FileServiceError` sends no `markSaved` (the core stays dirty) and shows: permission: "Could not save {file} because Partsmith no longer has permission to write it." (action "Save as"); not_found: "{file} was moved or deleted. Save it again to choose a location." (action "Save as"); io: "Could not save {file}: {reason}" (action "Save as").
-- Save as (`Mod+Shift+S`): `files.chooseSaveTarget('{name}.ptsm', 'ptsm')` first (a cancel stops with nothing changed), then `saveDocument(doc)`, `files.write` and, on success, `markSaved(doc, revision)` as in Save (a failed write sends no `markSaved`). A handle target becomes the document's file (name from the handle) and is remembered in recent files; a download target clears the handle, and the first download in a session shows the info notification "This browser saves by downloading. {file name} is in your downloads folder."
+- Save (`Mod+S`): with a file handle, `saveDocument(documentHandle)` and `files.write({ kind: 'handle', ... }, 'ptsm', utf8)`; without one, Save as. On a successful write, `markSaved(documentHandle, revision)` with the revision `saveDocument` returned, then `localUnsaved` false and the recovery store cleared. A `FileServiceError` sends no `markSaved` (the core stays dirty) and shows: permission: "Could not save {file} because Partsmith no longer has permission to write it." (action "Save as"); not_found: "{file} was moved or deleted. Save it again to choose a location." (action "Save as"); io: "Could not save {file}: {reason}" (action "Save as").
+- Save as (`Mod+Shift+S`): `files.chooseSaveTarget('{name}.ptsm', 'ptsm')` first (a cancel stops with nothing changed), then `saveDocument(documentHandle)`, `files.write` and, on success, `markSaved(documentHandle, revision)` as in Save (a failed write sends no `markSaved`). A handle target becomes the document's file (name from the handle) and is remembered in recent files; a download target clears the handle, and the first download in a session shows the info notification "This browser saves by downloading. {file name} is in your downloads folder."
 - Open recent (Document menu submenu, palette items): up to 10 entries, newest first, each showing the name and its open time (`toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })`). An entry with a handle reads it (`readHandle`, which may prompt for permission on this click): permission denied shows "Partsmith needs permission to open {file}. Choose it again to grant access." (action "Open..."); not found shows "{file} has moved or been deleted, so it was removed from recent files." and forgets it. An entry with text opens that text (no handle; Save goes to Save as).
 - Recovery copy: while the document is dirty, 2 s after the last `document_changed` (debounced), the UI writes a recovery entry (`reason: 'autosave'`, `JSON.stringify(recipe, null, 2)`, the handle). A successful save, a New without changes, or Discard clears it. `beforeunload` calls `preventDefault()` while the document is dirty so the browser asks before leaving.
 - At startup a recovery entry shows the info notification (persistent until acted on) "Partsmith kept unsaved changes to {name} from {time}." with actions "Open" (opens the text as a document named {name}, attaches the stored handle, sets `localUnsaved` true) and "Discard" (clears the store).
-- The desktop host replaces `FileService` with native dialogs (open issue 9); every behavior above stays.
+- The desktop host replaces `FileService` with native dialogs (open issue 2); every behavior above stays.
 
 ### 3.20 Undo and redo
 
@@ -2093,41 +2367,43 @@ Bed outline: in Print context, after a report, the bed outline of the report's p
 
 Left to right (`data-testid` in parentheses):
 
-- Core status (`status-core`), shown only when not idle: "Loading core" with a spinner, "Rebuilding" with a spinner when a mutating request has been pending for more than 300 ms, or "Core stopped" in `danger-fg`.
-- Sketch DOF (`status-dof`, sketch mode with a sketch only): "{n} DOF", with `data-dof` and `data-state` as the sketch header.
-- Rebuild time (`status-recompute`): "Rebuilt in {n} ms" (integer) or "Rebuilt in {s} s" (one decimal) for durations of 1000 ms or more, measured from sending the last mutating request to receiving its response; tooltip "Time the last change took to rebuild".
+- Core status (`status-core`), shown only when not idle: "Loading core" with a spinner, "Rebuilding" with a spinner when a mutating request has been pending for more than 300 ms, or "Core stopped" in `errorText`. Spinners are `loader-circle` with `animate-spin motion-reduce:animate-none`.
+- Sketch DOF (`status-dof`, sketch mode with a sketch only): "{n} DOF" (the number in `FONT_CLASSES.values`), with `data-dof` and `data-state` as the sketch header.
+- Rebuild time (`status-recompute`): "Rebuilt in {n} ms" (the duration in `FONT_CLASSES.values`; integer) or "Rebuilt in {s} s" (one decimal) for durations of 1000 ms or more, measured from sending the last mutating request to receiving its response; tooltip "Time the last change took to rebuild".
 - Units (`status-units`): a button with the unit ("mm") opening a menu of radio items mm, cm, m, in. Choosing one commits `set_units` (label "Change units to {unit}") and shows the info notification "Units are now {unit}. Numbers typed without a unit now mean {unit}." (model.md 3.12).
 - Printer (`status-printer`): a button with the profile name or "No printer" opening the printer menu.
 - Print health badge (`health-badge`, 3.17).
 
 ### 3.22 Notifications
 
-- Stack at the viewport's bottom-right, 16 px from its edges, 360 px wide, newest at the bottom, at most 3 shown. A fourth removes the oldest non-error notification (or the oldest when all are errors).
-- Each (`data-testid="notification"`, `data-severity`) has a severity icon (`info`, `circle-check`, `triangle-alert`, `circle-x`), the message, action buttons, and a "Dismiss" button. Running an action dismisses the notification.
+- Stack at the viewport's bottom-right (`bottom-4 right-4`), `w-90`, newest at the bottom, at most 3 shown; each is a `surfaceRaised` panel with a `border` hairline, `rounded-md` and `shadow-lg`. A fourth removes the oldest non-error notification (or the oldest when all are errors).
+- Each (`data-testid="notification"`, `data-severity`) has a severity icon (`info` in `textMuted`, `circle-check` in `successMark`, the `triangle-alert` hazard sign of `warningMark`, `circle-x` in `errorMark`), the message (left-aligned, `text`), action buttons, and a "Dismiss" button. Running an action dismisses the notification.
 - Info and success dismiss after 5 s, warnings after 8 s; errors stay until dismissed. Timers pause while the pointer is over the notification or focus is inside it.
 - Errors are announced through a `role="alert"` region; the others through a `role="status"` region.
 - A notification with the same message as a visible one does not appear again; the visible one restarts its timer.
 
 ### 3.23 Visual design
 
-- Neutral gray chrome from the zinc-based tokens, one accent (violet), generous spacing. Color appears only with meaning: `accent` for focus, selection, active tools and the primary action; `danger`, `warning` and `success` for status; sketch DOF colors; the analysis map.
-- Type: the Tailwind sans stack (system UI fonts, no web fonts). Body text 0.875rem (14 px), secondary text and captions 0.75rem (12 px, the minimum anywhere), panel titles 1rem semibold. Numbers in inputs, labels and the status bar use tabular figures.
-- Spacing on a 4 px grid: panel padding 16 px, rows and controls 32 px high, toolbar buttons 48 by 40 px with labels and 36 by 36 px icon-only, gaps of 8, 12 and 16 px.
-- Corner radius 6 px for controls and 10 px for panels and popovers. Floating panels cast `--ps-shadow`: `0 8px 24px rgb(0 0 0 / 0.12)` (light) and `0 8px 24px rgb(0 0 0 / 0.5)` (dark).
-- Icons: lucide-react line icons, stroke width 1.75, 20 px in toolbars and 16 px in lists and fields, in `currentColor` (`fg` or `fg-muted`).
-- Motion: popovers and panels fade and slide 4 px over 150 ms with ease-out; camera moves 250 ms; none under `prefers-reduced-motion`.
-- Focus: a 2 px `accent` outline with a 2 px offset on `:focus-visible`, on every interactive element.
+- Direction: a precision instrument used for hours at a time ([docs/guidelines/README.md](../guidelines/README.md)). Graphite and zinc surfaces, hairline `border` dividers, generous spacing and restrained motion; the model in the viewport is the hero and the chrome recedes (the viewport is lighter than the chrome in both themes, 2.16.4). It avoids the frontend guideline's generic looks: no decorative gradients (the only gradients are the viewport background and the analysis legend), no cream or off-white backgrounds (surfaces are neutral zinc), no pill-shaped buttons, no monospace labels, no numbered section labels and no italic accent words.
+- Color: by role only (2.16.3, 2.16.4). One signal orange for selection, focus, the current tool and the primary action; blue only for under-constrained sketch geometry; red only for errors and conflicts; yellow hazard signs for warnings; green checks for success; the sky-to-violet ramp for analysis. Everything else is zinc.
+- Type: Inter (`FONT_CLASSES.interfaceText`) for all interface text and JetBrains Mono (`FONT_CLASSES.values`) for values (2.16.7). Body text `text-sm` (0.875rem), secondary text and captions `text-xs` (0.75rem, the minimum anywhere), panel titles `text-base font-semibold`. Inter text that shows changing counts (badges, "3 edges", "{n} features") uses `tabular-nums`.
+- Alignment: left by default (text, rows, panel headers, field labels, notifications, empty states). Centered only where this spec says so: the palette's position, the sketch header at the viewport's top center, the loading and fatal overlays and the view cube's face labels.
+- Spacing on Tailwind's 0.25rem scale: panel padding `p-4`, panel sections separated by `gap-4` and a `border` hairline, rows and controls `h-8`, toolbar buttons `h-10` with labels (`px-3 gap-2`) and `size-9` icon-only, gaps `gap-2`, `gap-3` and `gap-4`.
+- Shape: `rounded-sm` (0.25rem) for controls, chips and swatches; `rounded-md` (0.375rem) for panels, popovers and menus; never `rounded-full` on a button. Floating panels are `surfaceRaised` with a `border` hairline and `shadow-lg`.
+- Icons: lucide-react line icons with `strokeWidth={1.75}` (a component prop, not a style), sized with `size-5` in toolbars and `size-4` in lists and fields, colored through `currentColor` from the element's foreground role (`text`, `textMuted`, or a status role for status icons).
+- Motion, restrained and with Tailwind utilities only: menus, popovers, tooltips, the palette and the inspector fade in over 150 ms (`transition-opacity duration-150 ease-out` with `starting:opacity-0`, or `starting:open:opacity-0` for popovers, which stay in the DOM while closed); hover color changes use `transition-colors duration-150`; spinners use `animate-spin`. Nothing slides or bounces. `motion-reduce:transition-none` and `motion-reduce:animate-none` remove all of it under `prefers-reduced-motion`, and camera animations (250 ms, 2.11) become instant. There is no animation library in M1.
+- Focus: `focusRing` (a 2-pixel `accent` outline offset by 2 pixels on `:focus-visible`, Tailwind's `outline-2` and `outline-offset-2`) on every interactive element.
 
 ### 3.24 Accessibility
 
-- Contrast: the tokens in 2.16 meet WCAG 2.2 AA (text 4.5:1, large text and non-text 3:1) in both themes; unit test U-70 enforces the listed pairs. Text drawn over the viewport always sits on a `surface-raised` pill.
+- Contrast: every text and non-text pair of 2.16.6 meets WCAG 2.2 AA (text 4.5:1, non-text 3:1) in both themes; U-70 enforces them. Text drawn over the viewport always sits on a `surfaceRaised`, `warningFill` or `errorFill` chip.
 - Keyboard: every function is reachable without a pointer except picking faces, edges and vertices in the viewport, drawing sketch geometry, dragging sketch points and dragging the inspector (later). Selection fields for bodies, sketches, planes, axes and regions offer the "Choose" menu.
-- Tab order: top bar (document name, context radios, toolbar, palette button, Export), browser (one stop), viewport (one stop), the inspector when open, timeline (one stop), side panel, status bar buttons, notifications. Opening the inspector moves focus into it; closing it returns focus.
+- Tab order: top bar (document name, context radios, toolbar, palette button, Export, theme toggle), browser (one stop), viewport (one stop), the inspector when open, timeline (one stop), side panel, status bar buttons, notifications. Opening the inspector moves focus into it; closing it returns focus.
 - Roving tab index with arrow keys in toolbars, segmented controls, the timeline, the tree and menus. Menus close on Esc and return focus to their button.
 - Tooltips appear after 500 ms of hover and immediately on keyboard focus, close on Esc, are referenced by `aria-describedby`, and show the command title and formatted shortcut.
-- Every interactive target is at least 24 by 24 CSS px. Every icon-only button has an accessible name.
-- Color is never the only signal: status has icons and text, DOF has the header text, selection has thicker strokes, the analysis map has a legend.
-- At 200 percent UI scale on a 1280 by 720 CSS px window every region stays usable (toolbars go icon-only, panels scroll).
+- Every interactive target is at least `size-6` (1.5rem, 24 CSS pixels at 100 percent scale). Every icon-only button has an accessible name.
+- Color is never the only signal: status has icons and text (warnings a hazard shape, errors a crossed circle), DOF has the header text, selection has thicker strokes, the analysis map has a legend.
+- At 200 percent UI scale on a 1280 by 720 CSS-pixel window every region stays usable (toolbars go icon-only, panels scroll).
 - Live regions: selection, undo and redo announcements, notifications, sketch hints.
 
 ## 4. Errors
@@ -2146,7 +2422,7 @@ Every message the user sees follows the architecture's error rule:
 
 | Error | Where | Fix actions |
 | --- | --- | --- |
-| Invalid expression in a field | Under the field (`field-error`), field border `danger`; OK disabled | Edit the field |
+| Invalid expression in a field | Under the field (`field-error`, `errorText`), field border `errorMark`; OK disabled | Edit the field |
 | Invalid sketch dimension value | In the dimension editor | Edit the value, "Add reference" when over-constraining |
 | Feature status during a command (preview) | Inspector banner (`inspector-error`), and the mapped field's `field-error` (3.7) | Errors and warnings whose `field` maps to a field: the field is highlighted and focused by clicking the message; "Use {suggestion}" when the message has a `suggestion` |
 | Feature status after a user change: a feature goes from not-error to error | One notification: for one feature "{label} failed. {message}" with "Edit" and "Undo"; for several "{n} features failed after this change." with "Show problems" and "Undo" | As listed |
@@ -2247,7 +2523,7 @@ Rules that make these reachable: hot paths bypass React; meshes are never copied
 
 ## 6. Acceptance tests
 
-Vitest unit tests live next to the code as `src/**/*.test.ts(x)` (jsdom; no WebGL; fakes from `src/test/fakes`). Playwright end-to-end tests live in `ui/e2e/*.spec.ts` and run against the production build with the real WebAssembly core in `ui/public/core/` (`pnpm -C ui e2e`; the project is Desktop Chrome, viewport 1280 by 720, device scale factor 1, Linux, so `Mod` is Control; use Playwright's `ControlOrMeta`). Protocol-level codec, bridge and worker host tests are protocol.md tests 53 to 66 and are not repeated here.
+Vitest unit tests live next to the code as `src/**/*.test.ts(x)` (jsdom; no WebGL; fakes from `src/test/fakes`). Playwright end-to-end tests live in `ui/e2e/*.spec.ts` and run against the production build with the real WebAssembly core in `ui/public/core/` (`pnpm -C ui e2e`; the project is Desktop Chrome, viewport 1280 by 720, device scale factor 1, Linux, so `Mod` is Control; use Playwright's `ControlOrMeta`). Protocol-level codec, bridge and worker host tests are protocol.md tests 53 to 66 and are not repeated here. Next to the tests, every change passes `pnpm -C ui lint` (`oxlint --deny-warnings`, then `oxfmt --check`) and `pnpm -C ui typecheck` (`tsc -b`); test files are linted like other code (oxlint's `vitest` plugin), and `src/generated` is excluded from both tools.
 
 ### 6.1 Selectors
 
@@ -2256,9 +2532,10 @@ Tests use these stable selectors only (plus accessible roles and names given in 
 | `data-testid` | Element | Attributes |
 | --- | --- | --- |
 | `app` | Root | `data-core-status` (`loading`, `ready`, `failed`), `data-context` (`model`, `sketch`, `print`) |
+| (none; `html` element) | Document root | class `dark` in the dark theme (2.16.8) |
 | `unsupported` | Unsupported page | |
 | `core-overlay`, `core-fatal` | Loading overlay, fatal panel | |
-| `top-bar`, `document-name`, `save-state`, `document-menu`, `palette-button` | Top bar parts | `document-name`: `data-dirty` |
+| `top-bar`, `document-name`, `save-state`, `document-menu`, `palette-button`, `theme-toggle` | Top bar parts | `document-name`: `data-dirty`; `theme-toggle`: `aria-pressed` |
 | `palette`, `palette-input`, `palette-option`, `palette-shortcut` | Palette | option: `data-item-id`, `data-kind` |
 | `browser`, `browser-row` | Browser | row: `data-kind`, `data-id` |
 | `color-popover` | Body color popover | |
@@ -2276,6 +2553,7 @@ Tests use these stable selectors only (plus accessible roles and names given in 
 | `status-bar`, `status-core`, `status-dof`, `status-recompute`, `status-units`, `status-printer`, `health-badge` | Status bar | dof: `data-dof`, `data-state`; badge: `data-state`, `data-stale` |
 | `printer-menu`, `checks-popover`, `overhang-legend`, `finding-marker`, `export-popover`, `drop-overlay` | Print and export | |
 | `notification` | Notification | `data-severity`, `data-code` |
+| (any) | Element positioned at runtime (3.12) | `data-positioned`; its `style` attribute holds only `translate` (the view cube rotor: only `transform`) |
 
 ### 6.2 Fixtures
 
@@ -2307,7 +2585,7 @@ Tests use these stable selectors only (plus accessible roles and names given in 
 - `dropFile(page, name)`: reads the fixture, builds a `DataTransfer` with a `File` in the page, and dispatches `dragenter`, `dragover` and `drop` on the app root; waits for `document-name` to equal the name without extension (or for a notification).
 - `canvas(page)`: the canvas bounding box `{ x, y, width, height }`, its center `(cx, cy)` and `H = height`.
 - `fitView(page, view)`: clicks "{View} view" on the cube, turns "Orthographic" on, clicks "Fit to view", and waits for `data-view` and `data-projection`.
-- `toScreen(box, bounds, view)`: maps model millimeters to page pixels using the fit rule of 2.11 (content extents scaled to 80 percent of the limiting dimension, bounds center at the canvas center). For the cube in the front view: `s = 0.04 × H` px per mm, `x_px = cx + x × s`, `y_px = cy - (z - 10) × s`; the top edge of the front face is at `top = cy - 0.4 H`.
+- `toScreen(box, bounds, view)`: maps model millimeters to page pixels using the fit rule of 2.11 (content extents scaled to 80 percent of the limiting dimension, bounds center at the canvas center). For the cube in the front view: `s = 0.04 × H` pixels per mm, `pageX = cx + x × s`, `pageY = cy - (z - 10) × s`; the top edge of the front face is at `top = cy - 0.4 H`.
 - `sketchToScreen(box, contentMin, contentMax)`: the same mapping for a sketch on XY just entered (top view, content framed with margin 0.1).
 - `expectHover(page, x, y, kind)`: moves the mouse and polls `data-hover-kind`.
 - `download(page, action)`: waits for the `download` event during `action` and returns the suggested name and bytes.
@@ -2323,7 +2601,7 @@ Core and transports:
 4. U-4. Two `send` calls post `{type: 'call', frame}` messages whose transfer lists contain each frame; two `{type: 'frame'}` replies resolve them in order.
 5. U-5. A worker `error` event after start rejects both pending sends with `CoreFatalError`, calls a fatal listener exactly once, and a later `send` rejects immediately.
 6. U-6. `createTauriTransport` with a fake `invoke`: `start()` calls `invoke('call', frame)` with an `engine_info` request frame of id 0 and resolves the versions; a reply with `protocol_version` 2 rejects with "This app and its core speak different protocol versions. Reinstall Partsmith."
-7. U-7. Tauri transport: three `drag_sketch` frames for doc 1 and `f-sk1` sent while the first `invoke` is pending: `invoke` runs for the first and third only; the second resolves with a `superseded` error frame for its id.
+7. U-7. Tauri transport: three `drag_sketch` frames for document handle 1 and `f-sk1` sent while the first `invoke` is pending: `invoke` runs for the first and third only; the second resolves with a `superseded` error frame for its id.
 8. U-8. Tauri transport: an `invoke` rejection with `Error('boom')` resolves the send with an error response frame of code `internal_error` for that request id.
 9. U-9. `chooseTransport({ __TAURI__: { core: { invoke } } })` has kind `tauri`; `chooseTransport({})` has kind `worker`.
 10. U-10. `createCoreClient`: three requests carry ids 1, 2 and 3, and the first frame's header equals `{protocol_version: 1, messages: [{kind: 'request', id: 1, command}], buffers: []}`.
@@ -2373,11 +2651,11 @@ Expression input:
 Viewport math and picking:
 
 44. U-44. `standardViewRotation` forward and up vectors match 2.11 for all seven views; `classifyView` returns each view for its own rotation and `custom` after a 1e-3 rad perturbation.
-45. U-45. `fitBounds` orthographic, front view, bounds (-10, -10, 0) to (10, 10, 20): aspect 2 gives `orthoHeight` 25 and target (0, 0, 10); aspect 0.5 gives 50.
+45. U-45. `fitBounds` orthographic, front view, bounds (-10, -10, 0) to (10, 10, 20): aspect 2 gives `orthographicHeight` 25 and target (0, 0, 10); aspect 0.5 gives 50.
 46. U-46. `fitBounds` perspective, top view, bounds (0, 0, 0) to (40, 20, 0), aspect 1.6: `distance` equals `31.25 / (2 tan 15°)` within 1e-9.
-47. U-47. `zoomAt` keeps the world point under the cursor at the same NDC position within 1e-9 for both projections; distance and orthoHeight clamp to [0.01, 1e7].
+47. U-47. `zoomAt` keeps the world point under the cursor at the same NDC position within 1e-9 for both projections; distance and orthographicHeight clamp to [0.01, 1e7].
 48. U-48. `withProjection` round trip keeps `visibleHeightAtTarget`; `orbit(c, 100, 0, target)` rotates about world Z by -40°; `pan` moves the target by exactly the pixel delta times mm per pixel; `wheelZoomFactor({deltaY: 100, deltaMode: 0, ctrlKey: false}, 600)` is 1.0015^100, with `deltaMode: 1, deltaY: 3` it is 1.0015^48, and with `ctrlKey` 1.01^100.
-49. U-49. `encodePickId` and `decodePickId` round-trip 1, 255, 256, 65536, 16777216 and 4294967295; `choosePick` prefers a vertex at 3 px over an edge at 1 px over a face at 0 px; with vertices not accepted it picks the edge; an edge at 5 px with radius 4 loses to the face; a face at 1 px is ignored; a sketch curve and an origin axis both at 0 px give the sketch curve.
+49. U-49. `encodePickId` and `decodePickId` round-trip 1, 255, 256, 65536, 16777216 and 4294967295; `choosePick` prefers a vertex at 3 pixels over an edge at 1 pixel over a face at 0 pixels; with vertices not accepted it picks the edge; an edge at 5 pixels with radius 4 loses to the face; a face at 1 pixel is ignored; a sketch curve and an origin axis both at 0 pixels give the sketch curve.
 
 Sketch:
 
@@ -2398,14 +2676,14 @@ Sketch:
 
 Store and actions:
 
-64. U-64. `startFeatureCommand('extrude')` with a preselected region and no bodies: `beginTransaction(doc, 'Extrude')`, then one `applyEdits(doc, null, [add_body "Body 1", add_feature])` with the body id in the record, then `setFocus(doc, featureId)`.
+64. U-64. `startFeatureCommand('extrude')` with a preselected region and no bodies: `beginTransaction(documentHandle, 'Extrude')`, then one `applyEdits(documentHandle, null, [add_body "Body 1", add_feature])` with the body id in the record, then `setFocus(documentHandle, featureId)`.
 65. U-65. With `rollback` set to the second of 3 features (index 1), the first preview's `add_feature` has index 1 and no `set_rollback` follows.
 66. U-66. `confirmCommand` calls `commitTransaction`; `cancelCommand` calls `cancelTransaction`; `Mod+Z` with a command active cancels it and calls no `undo`.
-67. U-67. `editFeature('f-ext1')` calls `beginTransaction(doc, 'Edit Extrude 1')` and `setFocus(doc, 'f-ext1')`; a `focus_inactive` error on a suppressed feature calls `cancelTransaction` and shows an error notification with the action "Unsuppress".
+67. U-67. `editFeature('f-ext1')` calls `beginTransaction(documentHandle, 'Edit Extrude 1')` and `setFocus(documentHandle, 'f-ext1')`; a `focus_inactive` error on a suppressed feature calls `cancelTransaction` and shows an error notification with the action "Unsuppress".
 68. U-68. Timeline edits: deleting the rollback feature sends `set_rollback` to the nearest later remaining feature (no id when none) before `remove_feature`; dropping feature index 3 at gap 1 sends `move_feature` index 1, at gap 4 index 3 (no edit); `setRollback(N)` sends `set_rollback` without an id, `setRollback(2)` the id of the third feature and `setRollback(0)` the id of the first.
 69. U-69. Esc ladder: with an open popover, a sketch drawing in progress, an active tool, a command and a selection, successive Esc presses close the popover, cancel the drawing, exit the tool, cancel the command, then clear the selection.
-70. U-70. Theme tokens: `theme.css` (imported `?raw`) defines every token of 2.16 with exactly the listed value in both the light and the dark block, and no other `--ps-` color tokens; `contrastRatio` of every pair stated in the 2.16 table meets its threshold in both themes.
-71. U-71. `resolveTheme('system', true)` is `dark`; `applyTheme` sets `data-theme`; `loadSettings` of malformed JSON returns `DEFAULT_SETTINGS`, and of `{"theme": "dark", "uiScale": 7}` returns theme dark with scale 1.
+70. U-70. Contrast: for every row of both tables in 2.16.6 and each theme, `contrastRatio` of the two roles' hex values (`PALETTE_HEX` of the steps in 2.16.3 and 2.16.4; `warningMark` is `zinc-950` light and `yellow-400` dark) truncated to two decimals equals the table's value and is at least 4.5 for text rows and 3 for non-text rows; `contrastRatio('#ffffff', '#000000')` is 21.
+71. U-71. `resolveTheme('system', true)` is `dark` and `resolveTheme('light', true)` is `light`; `applyTheme(root, 'dark')` adds the class `dark` and `applyTheme(root, 'light')` removes it, leaving the root's other classes untouched; `applyUiScale(root, 1.5)` leaves exactly one scale class, `text-[150%]`, after `applyUiScale(root, 2)`; `loadSettings` of malformed JSON returns `DEFAULT_SETTINGS`, and of `{"theme": "dark", "uiScale": 7}` returns theme dark with scale 1.
 72. U-72. Notifications with fake timers: info disappears after 5 s, warnings after 8 s, errors stay; a fourth notification removes the oldest non-error; a duplicate message restarts the existing timer instead of adding one.
 73. U-73. Every message id of 4.3 renders exactly its text for sample placeholders (table-driven).
 74. U-74. Web file service with mocked File System Access: `pickToOpen` returns name, bytes and handle; an `AbortError` returns null; `chooseSaveTarget` returns a handle target; `write` calls `requestPermission` when `queryPermission` is `prompt` and throws `FileServiceError` `permission` when it is denied; a `NotFoundError` becomes `not_found`.
@@ -2414,7 +2692,7 @@ Store and actions:
 77. U-77. Recovery: a dirty `document_changed` writes an entry after 2 s (fake timers); another change within 2 s postpones it; a successful save clears the store.
 78. U-78. Save as canceled at the picker never calls `saveDocument`; Save to a handle whose write fails with `permission` calls no `markSaved`, leaves `data-dirty` true and shows `save_permission` with the action "Save as".
 79. U-79. `openFile`: `model.stl` shows `not_ptsm`; invalid UTF-8 shows `not_text`; a `parse_error` shows `open_failed` with the core message and keeps the current document; with a dirty current document the stash is written before `closeDocument`.
-80. U-80. `exportModel` with no visible bodies shows `nothing_to_export` and calls no `exportBodies`; formats map to `{"kind": "3mf"}`, `{"kind": "stl", "binary": true, "per_body": false}`, `{"kind": "obj", "per_body": false}` and `{"kind": "step"}`; the suggested name is `{document name}.3mf`.
+80. U-80. `exportModel` with no visible bodies shows `nothing_to_export` and calls no `exportBodies`; formats map to `{"kind": "3mf"}`, `{"kind": "stl", "binary": true, "per_body": false}`, `{"kind": "obj"}` and `{"kind": "step"}`; the suggested name is `{document name}.3mf`.
 81. U-81. Print: badge states derive as in 3.17, hidden checks are excluded from counts, a report for an older revision is stale; in Print context a revision change schedules `analyzePrint` after 300 ms (fake timers) and a `null` result changes nothing; in Model context no analysis is scheduled.
 82. U-82. After a mesh change, a selected face whose reference resolves `missing` leaves the selection and one that resolves is kept.
 83. U-83. Rendering `App` with fakes produces the landmarks banner, navigation "Browser", main "3D view", region "Timeline" and contentinfo, and every `button` has a non-empty accessible name.
@@ -2424,6 +2702,14 @@ Store and actions:
 87. U-87. During an edit, a status message `{severity: 'error', code: 'fillet_too_large', field: '/radius', suggestion: '2.3 mm'}` shows under the `radius` field and its action "Use 2.3 mm" sets `radius` to `2.3 mm`; a message with `field: '/edges/1'` maps to the `edges` field.
 88. U-88. Double-click on a face whose descriptor has `feature: 'f-ext1'` calls `editFeature('f-ext1')`.
 89. U-89. With an active feature command, the export commands are disabled with `finish_command_first`; the timeline item of an `import` feature offers Rename, Suppress and Delete, and its Edit is disabled with `import_not_editable`.
+
+Theme, styling and cross-spec helpers:
+
+90. U-90. Mapping table and viewport values agree: (1) every `PALETTE_HEX` value equals the conversion of 2.16.5 (CSS Color 4 OKLCH to linear sRGB, per-channel clip, sRGB encoding, 8-bit rounding) of that step's OKLCH string from `tailwindcss/colors` (`white` from `#fff`); (2) `COLOR_CLASSES` equals the table of 2.16.3, held in the test as data (role, facet, class string), and every color class in it names a step of `PALETTE_HEX`; (3) `VIEWPORT_STEPS` equals the table of 2.16.4, and `VIEWPORT_COLORS[theme][role]` equals both `PALETTE_HEX[VIEWPORT_STEPS[role][theme]]` and the table's hex; (4) `highlight` has the steps of `accent`'s background, `problem` and `sketchOver` those of `errorMark`'s foreground, `body` the Default swatch's step, and the `analysis` classes name the steps of `analysisLow` and `analysisHigh`; (5) `BODY_SWATCHES` equals the swatch table of 2.16.5, each `background` is `bg-{step}` and each non-null `hex` is `PALETTE_HEX[step]`; (6) `viewportTheme('dark').highlight` equals `linearFromHex('#ff6900')` within 1e-12; `FONT_CLASSES`, `UI_SCALE_CLASSES` and `ROOT_CLASSES` equal 2.16.7, 2.16.9 and 2.16.2.
+91. U-91. Styles in source: `src/index.css` equals the block of 2.16.1 byte for byte and is the only `.css` file under `src/`; no `.tsx` file under `src/` has a `style` JSX attribute; outside `src/viewport/overlay.ts` no file under `src/` (excluding `src/generated`) contains `.style.` or `.style[`; no string under `src/` contains `px]` or `[#`; rendering `App` with fakes (no viewport controller) produces no element with a `style` attribute; `positionElement(element, 12.5, 40)` leaves a `style` attribute that declares only `translate: 12.5px 40px` and sets `data-positioned`.
+92. U-92. `utf16Range('2 * Ø + x', ...)`: span 9..10 gives 8..9, 4..6 gives 4..5, 0..10 gives 0..9, an offset of 5 (inside `Ø`) gives null and an end of 11 gives null; for `a😀b` span 5..6 gives 3..4. `ExpressionInput` with a fake `evaluate` that rejects `2 * Ø + x` with a `CoreError` of span 9..10 shows the message in `field-error`, and Enter selects the range 8..9 of the input.
+93. U-93. Feature highlighting with the `cube.ptsm` state and a fake core: selecting the timeline item `f-ext1` calls `listElements(documentHandle, 'b-cube', 'face')` once and gives the selected state to exactly the faces whose descriptor has `feature` `f-ext1`, at their positions in the list; selecting it again with the same mesh id sends no request; a `body_mesh` with a new mesh id for `b-cube` arriving before the response discards it and requests again; selecting `f-sk1` marks no face.
+94. U-94. Theme toggle: with `settings.theme` `system`, a light OS and a fake `Storage`, clicking `theme-toggle` sets `settings.theme` to `dark`, adds the class `dark` to the root element and stores JSON with `"theme":"dark"` under `partsmith.settings.v1`; clicking again sets `light` and removes the class; `toggledTheme('dark')` is `light`.
 
 ### 6.5 Playwright end-to-end tests
 
@@ -2451,13 +2737,13 @@ Sketching:
 12. E-12. Click "Sketch" in the toolbar: `data-context="sketch"`, `sketch-header` `data-state="picking"`. Expand "Origin" in the browser and click "XY plane": a timeline item "Sketch 1", `data-view="top"`, header `data-state="empty"`. Press R, move to `(cx, cy)`: an `inference-glyph[data-type=coincident]` is visible. Click there, click `(cx + 200, cy - 100)`: header `data-state="under"`, `data-dof="2"`, `status-dof` `data-dof="2"`. Press D, click `(cx + 100, cy)`, click `(cx + 100, cy + 40)`: `dimension-editor` visible; type "40", Enter: a `sketch-dimension` with text "40" and `data-dof="1"`. Click `(cx, cy - 50)`, click `(cx - 40, cy - 50)`, type "20", Enter: `data-dof="0"`, `data-state="full"`, header text contains "Fully constrained".
 13. E-13. Continue from E-12 (or open `rect-sketch.ptsm` and double-click "Sketch 1"). Press E: `data-context="model"`; the inspector "Extrude"; the `selection-field` in `inspector-field[data-path=profile]` has `data-count="1"`; the Distance input is focused. Type "10": `expression-result` reads "mm". Enter: timeline items "Sketch 1" and "Extrude 1", both `data-status="ok"`; a body row "Body 1"; clicking it shows `body-size` "40 × 20 × 10 mm" and `body-center` "20, 10, 5 mm".
 14. E-14. Drop `rect-sketch.ptsm`, `fitView(page, 'Top')`, press E, click `(cx, cy)`: the profile field has `data-count="1"`. Fill Distance with "10 deg": `field-error` visible containing "must be a length", `inspector-ok` `aria-disabled="true"`. Fill "2 * 5": `expression-result` "= 10 mm", no `field-error`, OK enabled.
-15. E-15. New sketch on XY (as in E-12). Press L, click `(cx, cy)`, move to `(cx + 200, cy - 10)` (2.9 degrees, outside the 6 px axis snap): `inference-glyph[data-type=horizontal]` visible. Click, Escape, Escape: `data-dof="1"`. Press L, hold Control, click `(cx, cy - 100)`, move to `(cx + 200, cy - 103)`: no `inference-glyph`; click, release Control, Escape, Escape: `data-dof="5"`.
+15. E-15. New sketch on XY (as in E-12). Press L, click `(cx, cy)`, move to `(cx + 200, cy - 10)` (2.9 degrees, outside the 6-pixel axis snap): `inference-glyph[data-type=horizontal]` visible. Click, Escape, Escape: `data-dof="1"`. Press L, hold Control, click `(cx, cy - 100)`, move to `(cx + 200, cy - 103)`: no `inference-glyph`; click, release Control, Escape, Escape: `data-dof="5"`.
 16. E-16. New sketch on XY. Press L, click `(cx, cy)`, move to `(cx + 150, cy)`, type "25": `draw-input` named "Length" has value "25". Enter: a `sketch-dimension` with text "25". Escape, Escape: `data-dof="0"`, `data-state="full"`.
 17. E-17. Draw the horizontal line of E-15 and leave the tool. Click `(cx + 100, cy)`: `selection-title` "1 line" and a button "Vertical". Press V: a `notification[data-severity=warning]` reads "Vertical would over-constrain the sketch: it conflicts with Horizontal."; `data-dof="1"`. Click "Replace them": one `constraint-glyph[data-type=vertical]`, none of type horizontal, `data-dof="1"`.
 18. E-18. Drop `rect-sketch.ptsm`, double-click the timeline item "Sketch 1": `data-state="full"`. With `s = sketchToScreen` for content (0, 0) to (40, 20): press D, click the top line at `(cx, cy - 10 s)`, click `(cx, cy - 10 s - 30)`, type "40", Enter: the editor shows the `dimension_over_constrained` text in a `role=alert`. Click "Add reference": a new `sketch-dimension` with `data-driving="false"` and text "(40)".
 19. E-19. New sketch on XY. Holding Control, draw line A from `(cx - 150, cy + 60)` to `(cx + 150, cy + 60)` and line B from `(cx - 100, cy - 60)` to `(cx + 100, cy - 140)`, leaving the tool after each: `data-dof="8"`. Click A at `(cx, cy + 60)`, Shift+click B at `(cx, cy - 100)`: the selection inspector has buttons Parallel, Perpendicular, Collinear, Equal. Click "Perpendicular": `data-dof="7"` and one `constraint-glyph[data-type=perpendicular]`.
 20. E-20. Drop `underconstrained.ptsm`, double-click "Sketch 1": `data-dof="7"`. With the mapping for content (0, -5) to (55, 5), the line end (30, 0) is a `sketch_point` on hover. Drag it in 10 steps to (30, 10) mm and release: `data-dof="7"`; hovering the new position gives `sketch_point`, the old one does not. ControlOrMeta+Z: hovering the old position gives `sketch_point` again.
-21. E-21. Drop `rect-sketch.ptsm`, enter the sketch. Drag on empty space from 30 px above and left of the rectangle's top-left corner to 30 px below and right of its bottom-right corner: `selection-title` "4 lines". Drag from right to left across only the bottom line's middle: `selection-title` "1 line".
+21. E-21. Drop `rect-sketch.ptsm`, enter the sketch. Drag on empty space from 30 pixels above and left of the rectangle's top-left corner to 30 pixels below and right of its bottom-right corner: `selection-title` "4 lines". Drag from right to left across only the bottom line's middle: `selection-title` "1 line".
 22. E-22. In sketch mode press ControlOrMeta+Enter: `data-context="model"`; the browser shows a button "Hide Sketch 1" (the sketch stays visible).
 
 Inspector, timeline and browser:
@@ -2476,17 +2762,17 @@ Inspector, timeline and browser:
 34. E-34. Drop `cube.ptsm`, front fit: click `(cx, cy)`: `selection-title` "1 face". Shift+click `(cx, cy - 0.4 H)`: "2 items". Click `(cx, cy + 0.45 H)`: `data-selection-count="0"` and no inspector.
 35. E-35. Drop `cube.ptsm`, front fit, double-click `(cx, cy)`: the inspector "Extrude 1".
 36. E-36. Drop `cube.ptsm`, front fit. Click "Hide Cube": hover `(cx, cy)` gives `none`. Click "Show Cube": `face`. Click "Lock Cube": `none`. Click "Unlock Cube": `face`.
-37. E-37. Without File System Access, drop `cube.ptsm`; click "Color of Cube", click "Red" in `color-popover`; ControlOrMeta+S: the download contains `"color": "#dc2626"`.
+37. E-37. Without File System Access, drop `cube.ptsm`; click "Color of Cube", click "Red" in `color-popover`; ControlOrMeta+S: the download contains `"color": "#e7000b"`.
 38. E-38. Drop `cube.ptsm`; press Tab until a `timeline-item` has focus (at most 30 presses): it is named "Sketch 1". ArrowRight: "Extrude 1" has focus. Enter: the inspector "Extrude 1" opens with focus inside it. Escape: it closes and "Extrude 1" has focus again.
 39. E-39. Drop `cube.ptsm`; rename the body to "Box"; ControlOrMeta+Z: the body row reads "Cube"; ControlOrMeta+Shift+Z: "Box". Run "Parameters", click "Add parameter", type "abc", press ControlOrMeta+Z: the body row still reads "Box".
 40. E-40. Drop `cube.ptsm`: every visible `button` and `[role=button]` has a non-empty accessible name (`aria-label`, `aria-labelledby` text, or text content).
 
 Viewport:
 
-41. E-41. Drop `cube.ptsm`. Click "Top view": `data-view="top"`; "Front view": `front`; "Front right top corner view": `iso`; "Home view": `iso`. Shift+middle-drag 100 px on the canvas: `custom`.
+41. E-41. Drop `cube.ptsm`. Click "Top view": `data-view="top"`; "Front view": `front`; "Front right top corner view": `iso`; "Home view": `iso`. Shift+middle-drag 100 pixels on the canvas: `custom`.
 42. E-42. Click "Orthographic": `aria-pressed="true"` and `data-projection="orthographic"`. Press Shift+P: `perspective`.
 43. E-43. Drop `cube.ptsm`, front fit. Middle-drag from `(cx, cy)` to `(cx + 0.6 H, cy)`: `data-camera-target` changed, hover `(cx, cy)` gives `none` and `(cx + 0.6 H, cy)` gives `face`. Press F6, then five wheel events of `deltaY: -100` at `(cx, cy)`: hover `(cx, cy + 0.45 H)` gives `face`.
-44. E-44. Run "Navigation: FreeCAD": `data-nav-preset="freecad"`. Front fit; press the middle button, then the left button, move 100 px, release both: `data-view="custom"`. Click "Front view"; middle-drag 100 px: `data-view` stays `front` and `data-camera-target` changes.
+44. E-44. Run "Navigation: FreeCAD": `data-nav-preset="freecad"`. Front fit; press the middle button, then the left button, move 100 pixels, release both: `data-view="custom"`. Click "Front view"; middle-drag 100 pixels: `data-view` stays `front` and `data-camera-target` changes.
 45. E-45. Drop `cube.ptsm`, front fit, press Shift+X: `section-popover` visible; fill Offset with "10", Enter: `data-section="on"`; hover `(cx, cy - 0.2 H)` gives `none` and `(cx, cy + 0.2 H)` gives `face`. Shift+X: `data-section="off"` and `(cx, cy - 0.2 H)` gives `face`.
 46. E-46. Drop `cube.ptsm`, front fit; ten wheel events of `deltaY: 100`: hover `(cx, cy - 0.39 H)` gives `none`. Press F6: `(cx, cy - 0.38 H)` gives `face` and `(cx, cy - 0.42 H)` gives `none`.
 
@@ -2504,7 +2790,7 @@ Print and export:
 
 Themes:
 
-56. E-56. Run "Theme: Dark": `html[data-theme=dark]`; reload: still dark. Run "Theme: Light": light. With `page.emulateMedia({ colorScheme: 'dark' })`, run "Theme: System": dark.
+56. E-56. Run "Theme: Dark": `html` has the class `dark`; reload: still dark. Run "Theme: Light": `html` has no `dark` class. With `page.emulateMedia({ colorScheme: 'dark' })`, run "Theme: System": `html` has the class `dark`.
 
 Feature coverage (E-57, one test per row, parametrized). Fields are found by the labels in each feature's manifest table (`docs/spec/features/<type>.md`); selection fields are filled by the clicks listed. Each test ends with Enter and expects a new timeline item with the feature's default label and `data-status="ok"`, plus the listed result.
 
@@ -2535,15 +2821,22 @@ Fixes and renames:
 58. E-58. Drop `fillet-error.ptsm`; open the problems panel and click "Edit" on "Fillet 1": `inspector-error` has a button whose name starts with "Use "; click it, wait for `data-preview="shown"`, press Enter: "Fillet 1" has `data-status="ok"`.
 59. E-59. Drop `parametric.ptsm`; run "Parameters"; set "Name of size" to "side", Enter: every `timeline-item` has `data-status="ok"`; ControlOrMeta+Z restores the name "size".
 
+Theme, styles and fonts:
+
+60. E-60. Theme toggle: with `page.emulateMedia({ colorScheme: 'light' })`, `openApp`: `html` has no `dark` class and `theme-toggle` has `aria-pressed="false"`. Click it: `html` has the class `dark`, `aria-pressed="true"`, `localStorage.getItem('partsmith.settings.v1')` parses to an object with `theme` `dark`, and the computed `background-color` of `top-bar` differs from its value before the click. Reload: `html` has the class `dark` as soon as `app` is ready. Click it again: no `dark` class and the stored `theme` is `light`. Emulate `colorScheme: 'dark'` and reload: still no `dark` class (the explicit choice wins). Run "Theme: System": `html` has the class `dark`.
+61. E-61. No inline styles except runtime positions: in each of these states, every element matching `[style]` has `data-positioned`, and its `style` attribute declares only `translate`, except the view cube rotor, which declares only `transform`: (a) right after `openApp`; (b) `rect-sketch.ptsm` dropped and "Sketch 1" double-clicked, with at least one `sketch-dimension` and one `constraint-glyph` visible, each with `data-positioned`; (c) `cube.ptsm` dropped, "Extrude 1" double-clicked (the `inspector` has `data-positioned`) and the Document menu open; (d) `overhang.ptsm` dropped, Print context with `overhang-legend` visible.
+62. E-62. Fonts: drop `rect-sketch.ptsm` and double-click "Sketch 1": the computed `font-family` of `document-name`, of `status-units` and of `sketch-header` starts with `Inter`; that of the first `sketch-dimension` starts with `"JetBrains Mono"` (Chrome keeps the quotes). Finish the sketch, press E: that of `expression-result` starts with `"JetBrains Mono"` and that of the `inspector-field` label starts with `Inter`.
+
 ### 6.6 Visual tests
 
-Tagged `@visual`, using `expect(page).toHaveScreenshot` with `animations: 'disabled'` and `maxDiffPixelRatio: 0.002`. Baselines are reviewed and approved by a human at the gate (technical design 16 and 17); a changed baseline needs reviewer approval.
+Tagged `@visual`, using `expect(page).toHaveScreenshot` with `animations: 'disabled'` and `maxDiffPixelRatio: 0.002`. Themes are chosen with `page.emulateMedia({ colorScheme })` before `openApp` (settings stay `system`). Before each screenshot the test awaits `document.fonts.ready` and fails unless `document.fonts.check('14px Inter')` and `document.fonts.check('14px "JetBrains Mono"')` are true, so baselines never capture fallback fonts (the runner needs access to Google Fonts, open issue 10). Baselines are reviewed and approved by a human at the gate (technical design 16 and 17); a changed baseline needs reviewer approval.
 
 1. V-1. Empty app, light theme. V-2. Empty app, dark theme.
 2. V-3. `cube.ptsm` with "Home view", light. V-4. The same, dark.
 3. V-5. `rect-sketch.ptsm` in sketch mode (fully constrained colors, dimensions), light. V-6. `underconstrained.ptsm` in sketch mode, dark.
 4. V-7. `overhang.ptsm` in Print with the overhang map and legend, light.
 5. V-8. `cube.ptsm` with the Extrude inspector open in edit mode, light. V-9. `cube.ptsm` with the front face selected and the top edge hovered, light.
+6. V-10. `fillet-error.ptsm` with the Problems panel open and the inspector of "Fillet 1" showing its error banner, light. V-11. The same, dark.
 
 ### 6.7 Performance tests
 
@@ -2560,12 +2853,17 @@ Tagged `@perf`, skipped unless `PARTSMITH_PERF=1`, run on the fixed hardware run
 
 ## 7. Open issues
 
-3. **Dimension label positions.** Nothing in the drafts stores a dimension's label position. The UI computes `defaultLabelPosition` and uses a stored position if sketch.md adds one; dragging labels is later.
-9. **Desktop host pieces.** The Tauri transport reads `window.__TAURI__` (requires `app.withGlobalTauri: true`) to avoid adding `@tauri-apps/api`, and the desktop `FileService` needs the Tauri dialog and fs plugins. These belong in the desktop spec and need human review as dependencies. The superseding logic both transports share is protocol.md's `isSuperseded` (2.11).
-10. **Session-only view state.** Sketch, datum and origin visibility and body locks are not saved, because the document has no fields for them. Persisting them is a format change (ADR and human review).
-11. **When print analysis runs.** The technical design runs checks after every recompute. With one web worker, `analyze_print` would delay edits, so this spec runs it automatically only in the Print context and shows a stale badge elsewhere. Revisit with desktop background analysis (protocol.md "later").
-12. **Check toggles.** `analyze_print` always runs every check, so the UI's switches only hide findings. An optional check list on the command would save work.
-18. **Inference hold key on macOS.** This spec suppresses inference with Cmd on macOS (Fusion's convention) because Ctrl-click is a secondary click there.
-19. **Dragging sketch curves.** `drag_sketch` pins one point, so M1 drags points only; translating lines and resizing circles by drag needs multi-point drags.
-21. **Feature highlighting.** Selecting a timeline feature does not highlight the faces it made, because the protocol has no feature-to-element mapping short of listing every element; M1 shows the selection inspector only.
-22. **Fixtures depend on unfinished JSON.** The e2e fixtures need sketch.md, print.md and the per-feature specs; they are written with `partsmith fmt` once those exist, and E-57's field labels come from those manifests.
+1. **Dimension label positions.** Nothing in the drafts stores a dimension's label position. The UI computes `defaultLabelPosition` and uses a stored position if sketch.md adds one; dragging labels is later.
+2. **Desktop host pieces.** The Tauri transport reads `window.__TAURI__` (requires `app.withGlobalTauri: true`) to avoid adding `@tauri-apps/api`, and the desktop `FileService` needs the Tauri dialog and fs plugins. These belong in the desktop spec and need human review as dependencies. The superseding logic both transports share is protocol.md's `isSuperseded` (2.11).
+3. **Session-only view state.** Sketch, datum and origin visibility and body locks are not saved, because the document has no fields for them. Persisting them is a format change (ADR and human review).
+4. **When print analysis runs.** The technical design runs checks after every recompute. With one web worker, `analyze_print` would delay edits, so this spec runs it automatically only in the Print context and shows a stale badge elsewhere. Revisit with desktop background analysis (protocol.md "later").
+5. **Check toggles.** `analyze_print` always runs every check, so the UI's switches only hide findings. An optional check list on the command would save work.
+6. **Inference hold key on macOS.** This spec suppresses inference with Cmd on macOS (Fusion's convention) because Ctrl-click is a secondary click there.
+7. **Dragging sketch curves.** `drag_sketch` pins one point, so M1 drags points only; translating lines and resizing circles by drag needs multi-point drags.
+8. **Fixtures depend on unfinished JSON.** The e2e fixtures need sketch.md, print.md and the per-feature specs; they are written with `partsmith fmt` once those exist, and E-57's field labels come from those manifests.
+9. **Expression error spans on the wire.** Resolved: protocol.md `ErrorInfo` carries an optional UTF-8 `span`, which the UI converts with `utf16Range` (2.13).
+10. **Google Fonts dependency.** `src/index.css` loads Inter and JetBrains Mono from Google Fonts (ADR 0013). Offline (the desktop app without a network, air-gapped use, sandboxed CI) the font stacks fall back to system fonts, so the app looks different and the visual tests (6.6) cannot run; every launch sends the user's IP address to Google, a privacy question for a local CAD tool (and a GDPR question in the EU); the CSS `@import` adds a request chain before the fonts apply, which counts against the cold start budget (5); and the desktop content security policy must allow `fonts.googleapis.com` and `fonts.gstatic.com`. Self-hosting the variable fonts (for example the OFL-1.1 packages `@fontsource-variable/inter` and `@fontsource-variable/jetbrains-mono`) removes all four, but adds dependencies, a font license to the license policy and a change to `src/index.css`, so it needs human approval.
+11. **Wide-gamut colors.** Many Tailwind 4 palette steps lie outside sRGB (2.16.5), the accent's `orange-500` and `orange-600` among them. The DOM renders their OKLCH values, so on Display P3 screens the interface's orange and red are more saturated than the same roles in the viewport, which draws the sRGB-clipped hex, and than stored body colors. Matching them needs a P3 WebGL drawing buffer (`drawingBufferColorSpace = 'display-p3'`) with P3 values in `roles.ts`, or sRGB arbitrary colors in the DOM, which the Tailwind guideline discourages.
+12. **Default display color in io.md.** Resolved: io.md now uses the `body` role value `#9f9fa9`.
+13. **Design-system values need human review.** The mapping of 2.16.3 to 2.16.5 is a design decision for the gate: the zinc steps of surfaces and text, `orange-600` and `orange-500` as the accent (light marks need `orange-600` to reach 3:1 on white), the yellow hazard-sign treatment of warnings, `red-700` and `red-500` for errors, the cool analysis ramp in place of a warm one, the default body color and the swatches. An orange body hides the orange hover and selection tints of its faces; its edges and the selection inspector still show the selection. The visual baselines V-1 to V-11 are the review material.
+14. **Scope of the runtime style exception.** The guidelines name the floating inspector and dimension labels as runtime positions. This spec applies the same exception, only through `positionElement` and `orientElement`, to constraint glyphs, draw inputs, inference glyphs, axis labels, the timeline's drag ghost, menus, popovers and tooltips anchored to their triggers (Tailwind 4.3.3 has no anchor positioning utilities, and the Popover API's top layer ignores ancestor positioning) and the view cube's rotation, and uses SVG attributes for overlay marks and body color swatches. It also uses three kinds of arbitrary values: the two font families, the UI scale percentages and the inspector's `max-h-[calc(100%-2rem)]`. The maintainer should confirm this scope.
