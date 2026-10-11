@@ -80,7 +80,7 @@ pub trait Feature: Send + Sync + 'static {
 
     /// Static description used by the UI, the schema and the registry.
     fn manifest() -> FeatureManifest;
-    /// Everything `build` reads: features, bodies and expressions, plus the ids the params declare.
+    /// Everything `build` reads: features, bodies, expressions and assets, plus the ids the params declare.
     fn dependencies(params: &Self::Params) -> Dependencies;
     /// Builds the output from params and the read-only context. Pure and deterministic.
     fn build(params: &Self::Params, ctx: &BuildContext<'_>) -> Result<FeatureOutput, FeatureError>;
@@ -99,7 +99,7 @@ pub trait Feature: Send + Sync + 'static {
 }
 ```
 
-The first five items are the architecture contract; `validate` and `python` are provided methods (architecture.md, ADR 0011).
+This is the architecture contract; `validate` and `python` are provided methods with defaults (ADR 0011).
 
 Params structs follow these rules:
 
@@ -356,7 +356,7 @@ impl<'a> BuildContext<'a> {
 }
 
 /// Evaluated values of one feature's declared expressions.
-pub struct Values { /* private: field path -> (ExprUse, Result<f64, FeatureError>) */ }
+pub struct Values { /* private: the uses in declaration order, each with its converted value or error */ }
 
 impl Values {
     /// Evaluates each use with `expr.evaluate(scope, Some(expected))` and converts it (section 3.4).
@@ -518,6 +518,8 @@ pub struct FieldRef {
 }
 
 impl FieldRef {
+    /// The field at `path` with its label from `manifest` (section 3.2).
+    pub fn new(path: &str, manifest: &FeatureManifest) -> FieldRef;
     /// The path as a JSON Pointer into the feature record, for example "edges[1]" gives "/edges/1".
     pub fn pointer(&self) -> String;
 }
@@ -871,7 +873,7 @@ Solid features (extrude, revolve, primitives, import) name a target `body` and a
 
 ### 3.7 Profiles and regions
 
-`ctx.profile(field, profile)` resolves each `RegionRef` with `partsmith_sketch::match_region(&sketch.profile.regions, region_ref)` (sketch.md section 3.14):
+`ctx.profile(field, profile)` reads the sketch with `ctx.sketch("<field>.sketch", &profile.sketch)` and resolves each `RegionRef` with `partsmith_sketch::match_region(&sketch.profile.regions, region_ref)` (sketch.md section 3.14):
 
 | Match | Effect |
 | --- | --- |
@@ -910,7 +912,7 @@ Element names never contain kernel indices.
 
 ### 3.10 Kernel results
 
-- Kernel booleans (`fuse`, `cut`, `common`) unify adjacent coplanar faces and collinear edges in the same call (kernel.md section 3.4.5). Features that combine several solids (pattern instances, holes, a joined mirror image) always do it with one multi-argument kernel boolean, so their results are refined; several profile regions are merged in 2D before the sweep (section 3.7). Face counts in acceptance tests assume this.
+- Kernel booleans (`fuse`, `cut`, `common`) unify adjacent coplanar faces and collinear edges in the same call (kernel.md section 3.4.5). Features that combine several solids (pattern instances, holes, a joined mirror image) always do it with one multi-argument kernel boolean (`apply_op` with several tools), so their results are refined; several profile regions are merged in 2D before the sweep (section 3.7). Face counts in acceptance tests assume this.
 - The kernel checks every solid result and heals it once; a result that stays invalid, or a solid operation that produces no solid, is a `KernelError` (kinds `InvalidResult` and `EmptyResult`). Features report kernel errors as `Kernel { error }`, except fillet, chamfer and shell, which run the "too large" search (section 4.3).
 - Every solid has positive volume (correct orientation), including mirrored copies.
 - Features check their own preconditions (ranges, axis in plane, profile side) before calling the kernel, so the kernel's `InvalidInput` errors are not the normal way users see these problems.
@@ -919,21 +921,33 @@ Element names never contain kernel indices.
 
 Every feature has two Python forms:
 
-- The **dedicated form** of each built-in type (for example `extrude(profile, distance, ...)`), defined by python-api.md and emitted by the engine's script generator, which knows the script's variables. Its arguments map onto the params defined in the feature specs; the feature specs are authoritative for param names and meanings.
-- The **generic form**, produced by `Registry::python(record)` for any record, registered or not, valid or not. The engine uses it for types without a dedicated form and for records whose params do not fit their form (python-api.md section 3.8 rule 6).
+- The **dedicated form** of each built-in type (for example `extrude(sketch_1, 30*mm)`), a call of a function that python-api.md section 2.7 defines. The feature's `Feature::python` hook builds it from the params and the `PythonNames` that the engine's script generator supplies. Its arguments map onto the params defined in the feature specs; the feature specs are authoritative for param names and meanings, and each one states its mapping in its Python section.
+- The **generic form** `feature("<type>", ...)`, produced by `Registry::python_generic(record)` for any record, registered or not, valid or not.
 
-`Registry::python(record)` returns `PythonCall { function: "feature", positional: [Str(record.kind)], keywords, extra }` where `keywords` are, in order: `name` (only when set), `suppressed=True` (only when true), `id` (always), then every stored param in stored order as `PythonValue::from_json(value)`. A param whose key is not a Python identifier (`[A-Za-z_][A-Za-z0-9_]*`) or is a Python keyword or soft keyword goes to `extra` instead, in stored order. No values are substituted: expressions stay strings, references stay dicts.
+`Registry::python(record, names)` returns the dedicated form when the type is registered, `validate_and_canonicalize` accepts the record and the hook returns `Some`, with `name="<name>"` (only when set), `suppressed=True` (only when true) and `id="<id>"` (always) appended to the hook's keywords in that order; otherwise it returns `python_generic(record)`. A hook returns `None` for params its function cannot express (each feature spec lists them) and whenever a `PythonNames` lookup it needs returns `None`. The engine's script generator (python-api.md section 3.8) emits these calls as they are: it puts them into part and sketch `with` blocks, emits sketches itself (the sketch hook returns `None`), assigns variables, and gives a variable to every object whose name a hook asked for (rule 7).
+
+Rules every built-in hook follows (python-api.md section 3.8 rules 6, 8 and 9):
+
+- Positional arguments follow the function's signature; a trailing positional argument that equals its default is omitted. Keyword arguments follow in signature order, each only when it differs from its default.
+- Expression params use `PythonValue::expression`; raw sketch numbers use `PythonValue::length` and `PythonValue::angle`.
+- The feature's own `body` (the `target` of `boolean`) is not an argument: the generator places the call in a `with <part>:` block (rule 5). Other body ids become part variables (`names.body`).
+- `op` of a feature with a `BodyOp` is written as `op="<op>"` only when it differs from `names.default_op(body)`.
+- References are `Ref("<q>", "<fp>")`. A reference list with one element is written as that element alone, a longer list as a list. Planes and axes use `PythonValue::plane` and `PythonValue::axis`, whose face and edge forms carry `part=<part>`.
+- A sketch point is `<entity variable>.<role>` (`line_1.start`, `circle_1.center`), or the entity's variable for a point entity.
+- A profile is the sketch's variable, followed by the keyword `regions=[Region("<key>", "<fp>"), ...]` only when the stored regions differ from `names.regions(sketch)`.
+
+`Registry::python_generic(record)` returns `PythonCall { function: "feature", positional: [Str(record.kind)], keywords, extra }` where `keywords` are, in order: `name` (only when set), `suppressed=True` (only when true), `id` (always), then every stored param in stored order as `PythonValue::from_json(value)`. A param whose key is not a Python identifier (`[A-Za-z_][A-Za-z0-9_]*`) or is a Python keyword (`keyword.kwlist`; soft keywords such as `type` and `match` are ordinary identifiers) goes to `extra` instead, in stored order. No values are substituted: expressions stay strings, references stay dicts.
 
 `PythonValue::from_json`: string to `Str`, number to `Number` (canonical JSON number form, `partsmith_model::canonical::format_number`), `true`/`false` to `Bool`, `null` to `None`, array to `List`, object to `Dict` with keys in stored order.
 
 Rendering (`PythonValue::render`, `PythonCall::render(indent)`), matching python-api.md section 3.8 rules 9 to 11:
 
 - Strings are double-quoted; `\` and `"` are escaped with a backslash; `\n`, `\r` and `\t` are written as such; other characters below U+0020 and U+007F as `\xNN` (two lowercase hex digits); everything else literally.
-- `True`, `False`, `None`; lists `[a, b]`; dicts `{"key": value, "key": value}`; separators `", "` and `": "`.
+- `True`, `False`, `None`; lists `[a, b]`; dicts `{"key": value, "key": value}`; tuples `(a, b)`, a one-element tuple `(a,)`; separators `", "` and `": "`. `Name` is written verbatim. A `Call` is written `function(arguments)` on one line with the same separators.
 - `extra` renders as a trailing argument `**{"key": value, ...}`.
-- If the statement on one line (indentation included) is at most 100 characters, it is one line. Otherwise each argument goes on its own line, indented 4 spaces more than the statement and followed by a comma, and the closing parenthesis goes on its own line at the statement's indentation. Values are never wrapped.
+- If the statement on one line (indentation included) is at most 88 characters (python-api.md section 3.8 rule 11), it is one line. Otherwise each argument goes on its own line, indented 4 spaces more than the statement and followed by a comma, and the closing parenthesis goes on its own line at the statement's indentation. Values, including nested calls, are never wrapped.
 
-Example: `feature("box", id="f-box1", body="b-1", size=["10", "20", "30"], op="new")`.
+Examples: the generic form `feature("box", id="f-box1", body="b-1", size=["10", "20", "30"], op="new")`; the dedicated form of the same record in a script where `b-1` is the first part's body, `box(10, 20, 30, id="f-box1")`.
 
 ### 3.12 Labels and message rendering
 
@@ -941,7 +955,7 @@ Example: `feature("box", id="f-box1", body="b-1", size=["10", "20", "30"], op="n
 - A body's display name is `Body::name`.
 - Messages name bodies and features in single quotes with their current names, for example `body 'Bracket'`. An id with no current name renders as the id.
 - `format_value(kind, value, units)`: Length and Angle render as `Quantity::length(value).display(units)` and `Quantity::angle(value).display(units)` (expressions.md section 3.16: 6 decimals, trimmed, `2.4 mm`, `0.094488 in`, `90 deg`); Scalar as `Quantity::plain(value).display(units)`; Count as the integer.
-- Suggested limits (fillet, chamfer, shell) render the stored value converted to display units and rounded down to 2 significant digits, then formatted as above, so the text never suggests more than what worked. Example: 2.396 mm renders `2.3 mm`, and `0.094 in` in an inch document.
+- Suggested limits (fillet, chamfer, shell) render the stored value converted to display units and rounded down to 2 significant digits, then formatted as above, so the text never suggests more than what worked. Example: 2.396 mm renders `2.3 mm`, and `0.094 in` in an inch document. The same text is the error's `suggestion` (section 4.4).
 
 ### 3.13 Built-in feature catalog
 
@@ -951,6 +965,7 @@ Example: `feature("box", id="f-box1", body="b-1", size=["10", "20", "30"], op="n
 | `extrude` | Extrude | create | `extrude` | Bodies | [features/extrude.md](features/extrude.md) |
 | `revolve` | Revolve | create | `revolve` | Bodies | [features/revolve.md](features/revolve.md) |
 | `hole` | Hole | create | `hole` | Bodies | [features/hole.md](features/hole.md) |
+| `import` | Import | create | `import` | Bodies | [features/import.md](features/import.md) |
 | `box` | Box | create | `box` | Bodies | [features/box.md](features/box.md) |
 | `cylinder` | Cylinder | create | `cylinder` | Bodies | [features/cylinder.md](features/cylinder.md) |
 | `sphere` | Sphere | create | `sphere` | Bodies | [features/sphere.md](features/sphere.md) |
@@ -991,7 +1006,7 @@ pub position: [Expr; 3],
 - The primitive's local frame is `ctx.plane("plane", plane)` with its origin moved to `local_to_world(position)`. Each primitive spec defines its shape in this local frame and passes the matching kernel placement (for example the centered box offsets the kernel's corner-anchored `make_box`).
 - Dependencies: a datum plane adds its feature to `features`; a face plane adds its body to `bodies_read` (or leaves it in `bodies_written` when it is the target body); `position[0]`, `position[1]`, `position[2]` are `Length` uses.
 - Manifest hints shared by all primitives (not essential): `plane` labeled Plane with selection `plane`; `position[0]`, `position[1]`, `position[2]` labeled Position X, Position Y, Position Z with unit length.
-- Each primitive builds its tool, names its faces from the kernel `PrimitiveFace` roles and calls `apply_op(ctx, body, op, tool)`. All size fields are checked (in field order) before any kernel work.
+- Each primitive builds its tool, names its faces from the kernel `PrimitiveFace` roles and calls `apply_op(ctx, body, op, vec![tool])`. All size fields are checked (in field order) before any kernel work.
 
 JSON: `"plane": {"kind": "origin", "plane": "XZ"}, "position": ["10", "0", "5 mm"]`.
 
@@ -1010,7 +1025,7 @@ Messages below are templates. `{label}` is the field's manifest label; `{body}` 
 | `target_not_allowed` | `TargetNotAllowed { field: FieldRef }` | `{label} is only used with op new. Remove it, or set the op to new.` |
 | `same_body` | `SameBody { field: FieldRef, body: Id }` | `Body '{body}' cannot be used twice here. Pick a different body for {label}.` |
 | `expression` | `Expression { field: FieldRef, source: Expr, error: ExprError }` | `{label}: {error}` (the evaluator's message, which names the fix) |
-| `out_of_range` | `OutOfRange { field: FieldRef, kind: ValueKind, value: f64, bound: Bound, bound_name: Option<String> }` | see below |
+| `out_of_range` | `OutOfRange { field: FieldRef, kind: FieldUnit, value: f64, bound: Bound, bound_name: Option<String> }` | see below |
 | `not_whole_number` | `NotWholeNumber { field: FieldRef, value: f64 }` | `{label} must be a whole number, but it is {value}. Use {floor} or {ceil}.` |
 | `undeclared_dependency` | `UndeclaredDependency { what: String }` | `This feature read {what} without declaring it. This is a bug in the feature; please report it.` |
 | `unknown_body` | `UnknownBody { field: FieldRef, body: Id }` | `Body '{body}' does not exist in this document. Pick an existing body for {label}.` |
@@ -1019,6 +1034,7 @@ Messages below are templates. `{label}` is the field's manifest label; `{body}` 
 | `forward_reference` | `ForwardReference { field: FieldRef, feature: Id }` | `'{feature}' comes later in the timeline than this feature. Move it above this feature, or pick something earlier for {label}.` |
 | `upstream_failed` | `UpstreamFailed { feature: Id }` | `'{feature}' has an error, so this feature cannot use it. Fix '{feature}' first.` |
 | `upstream_suppressed` | `UpstreamSuppressed { feature: Id }` | `'{feature}' is suppressed, so this feature cannot use it. Unsuppress '{feature}', or pick something else.` |
+| `asset_missing` | `AssetMissing { field: FieldRef, asset: String }` | `The imported file assets/{asset} is missing. Put it next to the document in the assets folder.` |
 | `body_not_empty` | `BodyNotEmpty { body: Id }` | `Body '{body}' already has a solid at this point, so op new cannot start it. Use join, cut or intersect, or pick an empty body.` |
 | `body_empty` | `BodyEmpty { body: Id, use_new: bool }` | use_new: `Body '{body}' is empty at this point. Use op new to start it.` otherwise: `Body '{body}' is empty at this point, so this feature has nothing to work on. Pick a body that has a solid.` |
 | `tool_empty` | `ToolEmpty { body: Id }` | `Body '{body}' is empty at this point, so it cannot be used as a tool. Pick a body that has a solid.` |
@@ -1046,10 +1062,10 @@ Messages below are templates. `{label}` is the field's manifest label; `{body}` 
 | `cone_radii_zero` | `ConeRadiiZero` | `Cone bottom and top radius cannot both be 0. Give one of them a size.` |
 | `plane_misses_body` | `PlaneMissesBody { body: Id }` | `The split plane does not pass through body '{body}'. Move the plane so it cuts through the body.` |
 | `too_many_instances` | `TooManyInstances { count: u64, limit: u64 }` | `This pattern would make {count} instances; the limit is {limit}. Use fewer instances.` |
-| `cancelled` | `Cancelled` | `Recompute was cancelled before this feature finished.` |
+| `canceled` | `Canceled` | `Recompute was canceled before this feature finished.` |
 | `internal` | `Internal { message: String }` | `Partsmith hit an internal error in this feature ({message}). Please report it; the rest of the model was still rebuilt.` |
 
-`Noun` renders `body`, `sketch`, `datum plane`, `region`, `point`, `line`, `face`, `edge`. `ElementKind` renders `face`, `edge`, `vertex`.
+Recompute raises `AssetMissing` before building when an asset link names no asset the host supplied (recompute.md section 3.3). `Noun` renders `body`, `sketch`, `datum plane`, `region`, `point`, `line`, `face`, `edge`. `ElementKind` renders `face`, `edge`, `vertex`.
 
 `OutOfRange` messages, where `{b}` is the formatted bound, and `{name}` is the bound name followed by the bound in parentheses when `bound_name` is set (`the hole diameter (6 mm)`), else just `{b}`:
 
@@ -1079,6 +1095,7 @@ Examples: `Counterbore depth must be less than the hole depth (5 mm), but it is 
 | `ignored` | `Ignored { field: FieldRef, reason: IgnoredReason }` | per reason, below |
 | `unknown_params` | `UnknownParams { keys: Vec<String> }` | `This feature has settings this version of Partsmith does not know ({keys}). They are ignored and kept in the file.` |
 | `redundant_constraints` | `RedundantConstraints { issues: Vec<SolveIssue> }` | the messages of each `SolveIssue::Redundant` (sketch.md section 4.2), joined with a space |
+| `import_warning` | `ImportWarning { message: String }` | `{message}`, the kernel's warning text for skipped or repaired STEP content (kernel.md section 3.8.1) |
 
 `IgnoredReason` (serialized snake_case) and its messages:
 
@@ -1093,9 +1110,20 @@ Lists render comma separated (`c-3, c-9`; keys in single quotes: `'taper_angle',
 
 When a fillet, chamfer or shell kernel operation fails (any `KernelError` except `InvalidInput`), the feature searches for the largest working value before reporting `FilletTooLarge`, `ChamferTooLarge` or `ShellTooThick` with the first failure as `cause`:
 
-- Bisection on (0, requested): `lo = 0`, `hi = requested`; for at most 10 attempts, `mid = (lo + hi) / 2`; if the operation succeeds at `mid`, `lo = mid` and `max = mid`, else `hi = mid`. Stop early after 1 s of total search time. For a two-distance chamfer both distances are scaled by the same factor and the larger scaled distance is reported.
+- Bisection on (0, requested): `lo = 0`, `hi = requested`; for at most 10 attempts, `mid = (lo + hi) / 2`; if the operation succeeds at `mid`, `lo = mid` and `max = mid`, else `hi = mid`. There is no time limit, because a limit would make the result depend on the machine. For a two-distance chamfer both distances are scaled by the same factor and the larger scaled distance is reported.
 - `max` is the largest attempted value that succeeded, or None if none did.
 - The attempt sequence is fixed, so the error is deterministic and cached like any result.
+
+### 4.4 Suggested fixes
+
+`suggestion(units)` gives a replacement expression for the field of `field()`, in display units, which a host can apply in one step ("Use 2.3 mm"). It is `Some` only in these cases; everything else gives `None`:
+
+| Variant | Suggestion |
+| --- | --- |
+| `FilletTooLarge`, `ShellTooThick` with `max` set; `ChamferTooLarge` with `max` set and an equal distance | the suggested-limit text of section 3.12, the same text as `{max}` in the message (`2.3 mm`) |
+| `OutOfRange` with `AtLeast(b)` or `AtMost(b)` | `format_value(kind, b, units)` (`1`, `360 deg`) |
+
+A two-distance chamfer gets no suggestion, because its limit scales both distances. Strict bounds (`GreaterThan`, `LessThan`) have no value that satisfies them exactly, so they get none. No M1 warning has a suggestion. Recompute passes the suggestion to hosts with each message (recompute.md section 3.6).
 
 ## 5. Performance budgets
 
@@ -1116,6 +1144,7 @@ Measured in release builds on the reference machine of technical design section 
 | Fillet or chamfer of 12 edges of a box | 100 ms |
 | Shell of a 20-face body | 100 ms |
 | Hole feature with 10 holes in a 200-face body | 80 ms |
+| Import of a STEP asset, op new, excluding kernel `read_step` (kernel.md section 5) | 10 ms |
 | Boolean of two 200-face bodies | 100 ms |
 | Mirror of a 200-face body with join | 80 ms |
 | Linear or circular pattern of 100 instances of a 6-face body with join | 500 ms |
@@ -1130,7 +1159,7 @@ Measured in release builds on the reference machine of technical design section 
 
 **Where tests live.** Registry and context tests (this file) live in `crates/partsmith-features/tests/`. Document tests in the per-feature specs need the timeline runner and live in `crates/partsmith-recompute/tests/features/<type>.rs`. Every geometry test document is also an example under `examples/<type>/`.
 
-**Running a document.** Parse the document JSON with `partsmith_model`, create `Recompute::new(Arc::new(Registry::with_builtins()))`, run it with an empty evaluation context and a new `CancelToken`, and inspect the `Report` (recompute.md). "Status ok" means `Status::Ok`; "status warning (codes)" means `Status::Warning` with exactly the listed warning codes; "status error (code)" means `Status::Error` with that error code. "Rendered" compares `messages` text exactly.
+**Running a document.** Parse the document JSON with `partsmith_model`, create `Recompute::new(Arc::new(Registry::with_builtins()))`, run it with an empty evaluation context, an empty asset map (`Input::assets`) and a new `CancelToken`, and inspect the `Report` (recompute.md). "Status ok" means `Status::Ok`; "status warning (codes)" means `Status::Warning` with exactly the listed warning codes; "status error (code)" means `Status::Error` with that error code. "Rendered" compares `messages` text exactly.
 
 **Document skeleton.** Each test lists its `parameters` (when any), `bodies` and `features`. The full document is:
 
@@ -1140,9 +1169,9 @@ Measured in release builds on the reference machine of technical design section 
 
 with `units` changed only where a test says so. Bodies used throughout: `{"id": "b-1", "name": "Body 1"}`, `{"id": "b-2", "name": "Body 2"}`, `{"id": "b-3", "name": "Body 3"}`.
 
-**Sketch records** follow sketch.md: `{"id": "f-sk1", "type": "sketch", "plane": {"type": "origin", "name": "XY"}, "entities": [...]}` (constraints omitted when there are none) with entities such as `{"id": "e-1", "type": "line", "start": [x, y], "end": [x, y]}`, `{"id": "e-5", "type": "circle", "center": [x, y], "radius": r}`, `{"id": "e-6", "type": "arc", "center": [x, y], "radius": r, "start_angle": a, "end_angle": b}` and `{"id": "e-p1", "type": "point", "position": [x, y]}`, coordinates in millimeters. Unconstrained geometry stays where it is drawn. `RECT(x0, y0, x1, y1)` means four lines `e-1` (x0,y0)-(x1,y0), `e-2` (x1,y0)-(x1,y1), `e-3` (x1,y1)-(x0,y1), `e-4` (x0,y1)-(x0,y0), drawn counterclockwise, whose region key is `e-1,e-2,e-3,e-4` and whose fingerprint is `c=<center x>,<center y>|a=<area>`.
+**Sketch records** follow sketch.md: `{"id": "f-sk1", "type": "sketch", "plane": {"kind": "origin", "plane": "XY"}, "entities": [...]}` (`constraints` may be omitted in test input; canonical output writes `"constraints": []`) with entities such as `{"id": "e-1", "type": "line", "start": [x, y], "end": [x, y]}`, `{"id": "e-5", "type": "circle", "center": [x, y], "radius": r}`, `{"id": "e-6", "type": "arc", "center": [x, y], "radius": r, "start_angle": a, "end_angle": b}` and `{"id": "e-p1", "type": "point", "position": [x, y]}`, coordinates in millimeters. Unconstrained geometry stays where it is drawn. `RECT(x0, y0, x1, y1)` means four lines `e-1` (x0,y0)-(x1,y0), `e-2` (x1,y0)-(x1,y1), `e-3` (x1,y1)-(x0,y1), `e-4` (x0,y1)-(x0,y0), drawn counterclockwise, whose region key is `e-1,e-2,e-3,e-4` and whose fingerprint is `c=<center x>,<center y>|a=<area>`.
 
-**References** use the element names of naming.md section 3.6 and fingerprints in its text form (naming.md section 3.7.3; partial fingerprints such as `line|n=1,0,0|c=0,-10,20|l=20` are valid). When the name matches exactly, the fingerprint content does not affect the result. References meant to be lost use a far-away fingerprint such as `line|n=0,0,1|c=500,500,500|l=1`.
+**References** use the element names of naming.md section 3.6 and fingerprints in its text form (naming.md section 3.7.3; partial fingerprints such as `line|n=1,0,0|c=0,-10,20|l=20` are valid). When a name without `#` matches exactly, the fingerprint content does not affect the result (names with `#` are confirmed by fingerprint, naming.md section 3.9). References meant to be lost use a far-away fingerprint such as `line|n=0,0,1|c=500,500,500|l=1`.
 
 **Measurements** use the kernel facade on `BodyReport` shapes (kernel.md): `volume()`, `area()`, `bounding_box()` (tight), `count(SubShapeKind::Face)`, `solids()`, and `element(Face, i)` for a face found by name through the body's `NamingMap::index`. Tolerances unless a test says otherwise: volume and area relative 1e-6; bounding box absolute 1e-5 mm per coordinate; placements and axes absolute 1e-9; face counts exact. "bbox [a,b,c]-[d,e,f]" lists minimum then maximum corner. "Unchanged" means the body state is identical to the state before the feature (same shape volume, face count and element names).
 
@@ -1152,8 +1181,8 @@ with `units` changed only where a test says so. Bodies used throughout: `{"id": 
 
 ### 6.2 Registry tests
 
-1. `Registry::with_builtins().types()` yields exactly these 19 names, in this order: `boolean`, `box`, `chamfer`, `circular_pattern`, `cone`, `cylinder`, `datum_plane`, `extrude`, `fillet`, `hole`, `linear_pattern`, `mirror`, `move_body`, `revolve`, `shell`, `sketch`, `sphere`, `split_body`, `torus`.
-2. Registering a second feature with `TYPE = "extrude"` on a builtin registry returns `RegistryError::DuplicateType { type_name: "extrude" }` and leaves the registry unchanged (19 types).
+1. `Registry::with_builtins().types()` yields exactly these 20 names, in this order: `boolean`, `box`, `chamfer`, `circular_pattern`, `cone`, `cylinder`, `datum_plane`, `extrude`, `fillet`, `hole`, `import`, `linear_pattern`, `mirror`, `move_body`, `revolve`, `shell`, `sketch`, `sphere`, `split_body`, `torus`.
+2. Registering a second feature with `TYPE = "extrude"` on a builtin registry returns `RegistryError::DuplicateType { type_name: "extrude" }` and leaves the registry unchanged (20 types).
 3. Registering a test feature with `TYPE = "Extrude!"` returns `InvalidTypeName`. With `TYPE = "a"` it succeeds. With a 65-character name it returns `InvalidTypeName`.
 4. Registering a test feature whose params struct has a field `name` returns `ReservedField { field: "name" }`. One whose params struct uses `deny_unknown_fields` returns `NotOpenObject`.
 5. Registering a test feature whose manifest has a hint path `depth` that its params do not have returns `ManifestMismatch` with path `depth`. A test feature whose top-level field `size` has no hint returns `ManifestMismatch` with path `size`.
@@ -1166,9 +1195,9 @@ with `units` changed only where a test says so. Bodies used throughout: `{"id": 
 12. An extrude record with `"op": "merge"` returns `InvalidParams` whose detail is `'merge' is not a valid choice for 'op'`.
 13. A fillet record with `"edges": []` returns `EmptySelection` with field path `edges`; rendered: `Select at least one edge for Edges.`
 14. An extrude record with `"extent": {"kind": "distance", "expr": "30 mmm"}` canonicalizes successfully; the error appears only when it is built.
-15. `params_schemas()` returns 19 entries sorted by `kind`; each schema is an object schema without `additionalProperties: false`, with `title` equal to the manifest label. `partsmith_model::ptsm_schema(&registry.params_schemas())` succeeds, every feature record in every acceptance test of every feature spec validates against the resulting document schema, and the record of test 12 does not.
-16. `dependencies` of the extrude record of [features/extrude.md](features/extrude.md) test 1 is `features [("f-sk1", "profile.sketch")]`, `bodies_read []`, `bodies_written [("b-1", "body")]`, `expressions [("extent.expr", "30 mm", Length)]`, `declared_ids []`. `FeatureInspector::inspect` of the same record returns `FeatureLinks { declared_ids: [], bodies: ["b-1"], features: ["f-sk1"], expressions: ["30 mm"] }`. For the sketch record of [features/sketch.md](features/sketch.md) test 1, `declared_ids` is `["e-1", "e-2", "e-3", "e-4"]`.
-17. `python(record).render(0)` of the extrude record of [features/extrude.md](features/extrude.md) test 1 with `"name": "Base"` is exactly:
+15. `params_schemas()` returns 20 entries sorted by `kind`; each schema is an object schema without `additionalProperties: false`, with `title` equal to the manifest label. `partsmith_model::ptsm_schema(&registry.params_schemas())` succeeds, and its `/$defs/feature.extrude/properties` contains `body`, `profile`, `extent` and `op`.
+16. `dependencies` of the extrude record of [features/extrude.md](features/extrude.md) test 1 is `features [("f-sk1", "profile.sketch")]`, `bodies_read []`, `bodies_written [("b-1", "body")]`, `expressions [("extent.expr", "30 mm", Length)]`, `declared_ids []`, `assets []`. `FeatureInspector::inspect` of the same record returns `FeatureLinks { declared_ids: [], bodies: ["b-1"], features: ["f-sk1"], expressions: [ExprLink { pointer: "/extent/expr", expr: "30 mm" }] }`. For the sketch record of [features/sketch.md](features/sketch.md) test 1, `declared_ids` is `["e-1", "e-2", "e-3", "e-4"]`.
+17. `python_generic(record).render(0)` of the extrude record of [features/extrude.md](features/extrude.md) test 1 with `"name": "Base"` is exactly:
 
     ```python
     feature(
@@ -1182,10 +1211,25 @@ with `units` changed only where a test says so. Bodies used throughout: `{"id": 
     )
     ```
 
-18. `python` of `{"id": "f-box1", "type": "box", "body": "b-1", "size": ["40", "40", "10"], "op": "new"}` renders `feature("box", id="f-box1", body="b-1", size=["40", "40", "10"], op="new")`. With `"suppressed": true` it renders `feature("box", suppressed=True, id="f-box1", body="b-1", size=["40", "40", "10"], op="new")`. With `render(8)` the first form is the same text preceded by 8 spaces.
-19. `python` of a record of unregistered type `gear_demo` with params `{"teeth": 12, "class": "spur", "2nd": null}` renders `feature("gear_demo", id="f-g1", teeth=12, **{"class": "spur", "2nd": None})`.
+18. `python_generic` of `{"id": "f-box1", "type": "box", "body": "b-1", "size": ["40", "40", "10"], "op": "new"}` renders `feature("box", id="f-box1", body="b-1", size=["40", "40", "10"], op="new")` (74 characters). With `render(8)` it is the same text preceded by 8 spaces (82 characters, still one line). With `"suppressed": true` the one-line form would be 91 characters, so it renders:
+
+    ```python
+    feature(
+        "box",
+        suppressed=True,
+        id="f-box1",
+        body="b-1",
+        size=["40", "40", "10"],
+        op="new",
+    )
+    ```
+
+19. `python_generic` of a record of unregistered type `gear_demo` with params `{"teeth": 12, "class": "spur", "2nd": null}` renders `feature("gear_demo", id="f-g1", teeth=12, **{"class": "spur", "2nd": None})`.
 20. `PythonValue::Str("a\"b\\c\nd\u{1}\u{7f}é")` renders `"a\"b\\c\nd\x01\x7fé"`. `PythonValue::Dict([("k", Bool(true)), ("n", None)])` renders `{"k": True, "n": None}`. `PythonValue::from_json` of the JSON number `2.50` (normalized to 2.5) is `Number("2.5")`.
 21. `Registry::label` on a document with features `[sketch f-sk1, extrude f-ext1, extrude f-ext2 named "Lid", extrude f-ext3]` returns `Sketch 1`, `Extrude 1`, `Lid`, `Extrude 3`.
+22. Dedicated form. A test `PythonNames` with units mm, body `b-1` as `block`, parameter `height` as `height`, and default op new for `b-1`. `python(record, &names).render(0)` of `{"id": "f-box1", "type": "box", "body": "b-1", "size": ["20 mm", "30 mm", "height"], "op": "new"}` is `box(20*mm, 30*mm, height, id="f-box1")`. With `"op": "join"` it is `box(20*mm, 30*mm, height, op="join", id="f-box1")`. With `"name": "Base"` and `"suppressed": true` it is `box(20*mm, 30*mm, height, name="Base", suppressed=True, id="f-box1")`.
+23. Fallback to the generic form. With the names of test 22, `python(record, &names)` equals `python_generic(record)` for: an extrude with a `two_sides` extent (no dedicated form), a box with `"size": ["1", "2"]` (invalid params), a record of unregistered type `gear_demo`, and a sketch record (the generator emits sketches).
+24. `Tuple([Name("Axis.Z"), Str("90 deg")])` renders `(Axis.Z, "90 deg")`; `Tuple([Number("1")])` renders `(1,)`; `Call(PythonCall { function: "Ref", positional: [Str("f-box1/top"), Str("plane|n=0,0,1|c=0,0,10|a=100")], keywords: [("part", Name("block"))], extra: [] })` renders `Ref("f-box1/top", "plane|n=0,0,1|c=0,0,10|a=100", part=block)`. `PythonValue::expression` with the names of test 22 gives `Number("40")` for `40`, `Name("2*mm")` for `2 mm`, `Name("height")` for `height`, `Name("printer.fit.slip")` for `printer.fit.slip` and `Str("2*height + 1")` for `2*height + 1`. `PythonValue::length(25.4, In)` renders `25.4*mm`; `PythonValue::angle(1.5)` renders `1.5*rad`.
 
 ### 6.3 Build context tests
 
@@ -1196,15 +1240,19 @@ These construct a `BuildContext` directly with `BuildInputs` and a test feature 
 3. Declared use `("count", "3.0000000001", Count)` gives 3. `("count", "2.5", Count)` gives `NotWholeNumber` rendered `Count must be a whole number, but it is 2.5. Use 2 or 3.` `("count", "-1", Count)` gives `OutOfRange` with bound `AtLeast(0)`. `("count", "2 mm", Count)` gives `Expression` rendered `Count: Expected a plain number, but this expression gives a length.`
 4. Declared use `("distance", "30 deg", Length)` gives `Expression` rendered `Distance: Expected a length, but this expression gives an angle.`
 5. `eval_length("distance", "5 mm")` when the declared use at `distance` is `"30 mm"` returns `UndeclaredDependency`. `eval_length("other", "30 mm")` with no use at `other` returns `UndeclaredDependency`. `eval_angle` on a field declared as `Length` returns `UndeclaredDependency`.
-6. `ctx.body("b-9")` where `b-9` was not declared returns `UndeclaredDependency`. `ctx.sketch("f-sk9")` where `f-sk9` was not declared returns `UndeclaredDependency`.
-7. `ctx.datum("f-sk1")` where `f-sk1` is declared and produced a sketch returns `WrongFeatureType` with noun `datum plane`.
+6. `ctx.body("b-9")` where `b-9` was not declared returns `UndeclaredDependency`. `ctx.sketch("profile.sketch", "f-sk9")` where `f-sk9` was not declared returns `UndeclaredDependency`.
+7. `ctx.datum("plane", "f-sk1")` where `f-sk1` is declared and produced a sketch returns `WrongFeatureType` with noun `datum plane` and field path `plane`.
 8. `ctx.plane("plane", Origin XZ)` returns origin (0,0,0), x_axis (1,0,0), normal (0,-1,0), and `y_axis()` (0,0,1). For YZ: x_axis (0,1,0), normal (1,0,0), `y_axis()` (0,0,1).
 9. `OriginPlane::Xy.placement().offset(10).flipped()` has origin (0,0,10), x_axis (1,0,0), normal (0,0,-1), `y_axis()` (0,-1,0). `local_to_world([1, 2, 3])` of the XZ placement is (1, -3, 2).
 10. `format_value(Length, 2.4, In)` is `0.094488 in`; `format_value(Length, -1e-7, Mm)` is `0 mm`; `format_value(Angle, π/4, Mm)` is `45 deg`; `format_value(Length, 1500, M)` is `1.5 m`; `format_value(Count, 3, Mm)` is `3`.
 11. `FilletTooLarge { radius: 3.0, max: Some(2.396), .. }` renders in an `mm` document: `Fillet radius 3 mm is too large for the selected edges. The largest radius that works is about 2.3 mm. Try 2.3 mm or less.` and in an `in` document: `Fillet radius 0.11811 in is too large for the selected edges. The largest radius that works is about 0.094 in. Try 0.094 in or less.`
 12. `BodyNotEmpty { body: "b-1" }` renders `Body 'Bracket' already has a solid at this point, so op new cannot start it. Use join, cut or intersect, or pick an empty body.` with `DocumentNames` for a document where `b-1` is named `Bracket`, and with `b-1` in place of `Bracket` through `Display`.
 13. `FieldRef { path: "profile.regions[0]", .. }.pointer()` is `/profile/regions/0`; `size[2]` gives `/size/2`.
-14. `CancelToken`: a clone sees `cancel()` called on the original; `is_cancelled()` is false on a new token.
+14. `CancelToken`: a clone sees `cancel()` called on the original; `is_canceled()` is false on a new token.
+15. Suggestions. `FilletTooLarge { field: radius, radius: 3.0, max: Some(2.396), .. }` has `field().unwrap().pointer() == "/radius"`, `suggestion(Mm) == Some("2.3 mm")` and `suggestion(In) == Some("0.094 in")`. `OutOfRange { kind: Angle, bound: AtMost(2π), .. }` gives `Some("360 deg")`; `OutOfRange { kind: Length, bound: AtMost(5), .. }` gives `Some("5 mm")` in an mm document; `OutOfRange { bound: GreaterThan(0), .. }` gives `None`; `BodyEmpty` gives `None`; `ChamferTooLarge` of a two-distance chamfer gives `None`.
+16. Constants. `partsmith_occt_sys::LINEAR_TOLERANCE == partsmith_model::LINEAR_TOLERANCE`; `partsmith_features::OCCT_VERSION == partsmith_occt_sys::OCCT_VERSION`; `partsmith_features::VERSION` equals the crate's `CARGO_PKG_VERSION`.
+17. Assets. With `BuildInputs::assets` holding `{"a.step": b"abc"}`, `ctx.asset("asset", "a.step")` returns `b"abc"` and `ctx.asset("asset", "b.step")` returns `UndeclaredDependency`.
+18. Field labels (section 3.2). `FieldRef::new("points[0]", &hole_manifest).label` is `Points`; `FieldRef::new("profile.sketch", &extrude_manifest).label` is `Profile`; `FieldRef::new("constraints[2].expr", &sketch_manifest).label` is `Dimension`; `FieldRef::new("depth", &extrude_manifest).label` is `depth`. The manifests are those of [features/hole.md](features/hole.md), [features/extrude.md](features/extrude.md) and [features/sketch.md](features/sketch.md).
 
 ### 6.4 Body semantics tests
 
@@ -1219,19 +1267,15 @@ Run as documents (section 6.1).
 7. As 3 with f-box2 size 10,10,10, `"position": ["20", "0", "0"]`, op join (disjoint). Expected: ok; b-1 volume 2000, 12 faces, 2 solids, bbox [-5,-5,0]-[25,5,10].
 8. Bodies b-1, b-2; `f-box1` in b-1 size 20,20,20 op new; `{"id": "f-box2", "type": "box", "body": "b-2", "size": ["20", "20", "20"], "position": ["10", "0", "0"], "op": "new"}`; `{"id": "f-bool1", "type": "boolean", "target": "b-1", "tools": ["b-2"], "op": "join"}`; `{"id": "f-box3", "type": "box", "body": "b-2", "size": ["5", "5", "5"], "op": "new"}`. Expected: all ok; b-1 volume 12000; b-2 volume 125 (a consumed body can be started again with op new).
 9. Bodies b-1; `f-box1` size 10,10,10 op new; `{"id": "f-fil1", "type": "fillet", "body": "b-2", "edges": [{"q": "edge(f-box1/front|f-box1/top)", "fp": "line|n=1,0,0|c=0,-5,10|l=10"}], "radius": "1"}`. Expected: f-fil1 error `unknown_body` with field `body`.
+10. Bodies b-1; `{"id": "f-box1", "type": "box", "body": "b-1", "size": ["0", "10", "10"], "op": "new"}`, `{"id": "f-box2", "type": "box", "suppressed": true, "body": "b-1", "size": ["10", "10", "10"], "op": "new"}`, `{"id": "f-box3", "type": "box", "body": "b-1", "size": ["10", "10", "10"], "op": "new"}`. Expected: f-box1 error `out_of_range`; f-box2 suppressed; f-box3 ok (b-1 is still empty at that point); b-1 volume 1000.
 
 ## Open issues
 
-1. **Trait addition.** The architecture lists `TYPE`, `Params`, `manifest`, `dependencies` and `build`. This spec adds the provided method `validate` (static rules beyond serde). It has a default, so the architecture contract still holds; an ADR should record it. The per-feature Python hook of the architecture ("generates the Python call for each feature") is the registry's generic form; dedicated forms live in python-api.md and the engine, because they need script-level context (variables of parts and sketches).
+1. **Contract additions need ADR 0011.** The architecture's trait has `TYPE`, `Params`, `manifest`, `dependencies` and `build`. This spec adds the provided methods `validate` (static rules beyond serde) and `python` (dedicated Python forms), `Dependencies::declared_ids` and `assets`, and `BodyChange::Modify` and `Clear` (issues 2 and 3). architecture.md lists them; ADR 0011 must record them (CLAUDE.md requires an ADR for contract changes).
 2. **`BodyChange` extends "the boolean op applied".** `BodyUpdate` needs `Modify` (fillet, shell, move) and `Clear` (consumed boolean tools) besides new, join, cut and intersect.
-3. **`Dependencies::declared_ids`.** Added so the registry can implement model.md's `FeatureInspector` (model.md open issue 3). Not in the architecture's list ("features, bodies and expressions it reads").
-4. **Protocol cannot see feature types.** The crate graph has `partsmith-protocol` depend on model, sketch, naming and print, not on features or recompute. Manifests travel as untyped JSON in the catalog (protocol.md open issue 4) and statuses through engine-side conversion. Protocol's `Repair { path, reference, resolution, centroid }` is filled from `Repair::Element` (pointer, reference, ambiguous, and the centroid of the reference's fingerprint); region repairs have no protocol shape yet.
-5. **Two tag styles for planes.** This spec's `PlaneRef` and `AxisRef` use `kind` (matching the technical design's `extent` example, file-format.md and ui.md), while sketch.md's `SketchPlane` uses `{"type": "origin", "name": "XY"}`. Architecture.md prefers `type` unless taken. The reviewer should pick one style for nested params tags; the contents here are unaffected.
-6. **Sketch planes on faces need a body.** naming.md open issue 6 requires every reference to have a body context, but sketch.md's `SketchPlane::Face` has only `face` and `fallback`. `dependencies` must name the body without reading the document, so this spec assumes `SketchPlane::Face` gains `body: Id` (see [features/sketch.md](features/sketch.md)).
+3. **`Dependencies::declared_ids`.** Added so the registry can implement model.md's `FeatureInspector` (document-wide id uniqueness). `assets` was added for the `import` feature.
 7. **Expression conversion.** Count fields evaluate with expected dimension `NONE` and then require a whole number; this spec adds the 1e-9 integer tolerance and the `u32` range, which expressions.md does not define.
-8. **Boolean intersect with several tools.** kernel.md defines `common` as the intersection with every tool, and this spec follows it for the boolean feature; join and cut use the union of the tools.
-9. **python-api.md param mapping.** python-api.md section 3.5 maps its functions onto params it assumed; features.md wins and these entries must be updated: revolve `extent {kind, expr}` (not `angle`); shell has no `outward` in M1; hole uses `sketch`, `points`, `diameter`, `hole_type`, `extent`, `tip_angle`, `reverse`; primitives use `plane` and `position` (not `at`); boolean uses `target` (not `body`); mirror and patterns add `op` and `target`; linear_pattern uses `direction {axis, count, spacing, reverse}` and `second_direction`; move_body uses `translation` and `rotation {axis, angle}`; split_body uses `target` and `flip` (not `new_body`); extrude adds `two_sides`.
-10. **`import` feature.** engine.md and protocol.md assume an `import` feature with asset dependencies (engine.md open issue 8). It is not in this M1 feature slice; when it is specified, `Dependencies` needs an `assets` list.
 11. **Examples layout.** Each document test is meant to double as an example under `examples/<type>/`; the file layout (model, Python twin, `expected.json`) belongs to the engine and CI specs.
 12. **Region union.** The union of selected regions (section 3.7) is computed by `partsmith-features` from sketch.md's `ProfileLoop`s because sketch.md lists a region-union helper as later. Moving it into the sketch crate later would not change behavior.
-13. **Examples in other specs to align.** protocol.md shows a box record with keys in the order `body`, `op`, `size` (canonical order here is `body`, `size`, `plane`, `position`, `op`), a manifest with category `primitive` (the categories here are `sketch`, `create`, `modify`, `pattern`, `construct`), a reference fingerprint `line|d=...` (naming.md's text uses `n=`), and a warning text that differs from section 4.2; engine.md quotes an unknown-type message that differs from `UnknownType`'s. Tests in those specs check only codes or substrings, but the reviewer should make the examples match.
+13. **Examples in other specs to align.** engine.md quotes an unknown-type message and a code (`unknown_feature_type`) that differ from `UnknownType` (`unknown_type`, section 4.1), and python-api.md test 55 uses a fingerprint field `d=` that naming.md does not define. Those specs should use this spec's text and code and a valid fingerprint.
+14. **Two `PythonNames` lookups beyond the agreed five.** The review settled on `units`, `body`, `feature`, `entity` and `parameter`. This spec adds `regions`, which lets a hook omit `regions=` when a profile uses every region of its sketch (python-api.md section 3.8 rule 9), and `default_op`, which lets it omit `op` when it equals python-api.md's static default (section 3.3). Both need timeline knowledge that only the script generator has; the reviewer should confirm them. python-api.md section 2.7 should also list the `regions` keyword of `extrude` and `revolve`, which rule 9 emits.

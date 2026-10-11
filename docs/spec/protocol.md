@@ -724,7 +724,7 @@ pub enum ExportFormat {
 {"type": "export", "doc": 1, "format": {"kind": "step"}}
 ```
 
-28. `import_step {doc, data: BufferIndex, name: Option<String>}`: stores the bytes as an asset and adds one body and one `import` feature (features/import.md: params `asset`, `body`, `op: new`); every solid of the file goes into that body. Result `{feature: Id, body: Id}`. Emits like `apply_edits`.
+28. `import_step {doc, data: BufferIndex, name: Option<String>}`: stores the bytes as an asset and adds one body and one `import` feature (features/import.md: params `body`, `asset`, `op: new`); every solid of the file goes into that body. Result `{feature: Id, body: Id}`. Emits like `apply_edits`.
 
 ```json
 {"type": "import_step", "doc": 1, "data": 0, "name": "Bracket"}

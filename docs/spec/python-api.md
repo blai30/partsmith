@@ -203,7 +203,7 @@ class Document:
     def to_text(self) -> str: ...                # canonical .ptsm text
     def save(self, path: str | os.PathLike[str]) -> None: ...
     def to_python(self) -> str: ...              # export_python
-    def import_step(self, path: str | os.PathLike[str], *, name: str | None = None) -> list["Part"]: ...
+    def import_step(self, path: str | os.PathLike[str], *, name: str | None = None) -> "Part": ...
     def check(self, *, printer: str | None = None, rotate: Sequence[tuple["Axis", float]] = (),
               face_down: "Element | None" = None, parts: Sequence["Part"] | None = None) -> "PrintReport": ...
     def close(self) -> None: ...
@@ -237,7 +237,7 @@ class Param(Expr):
 
 def param(name: str, value: Value, *, comment: str | None = None, id: str | None = None) -> Param: ...
 def rollback(feature: "Feature | str | None") -> None:
-    """Sets the current document's rollback marker (None: end of the timeline)."""
+    """Sets the rollback marker: `feature` and every later feature are rolled back (None: nothing rolled back)."""
 ```
 
 ### 2.5 Parts
@@ -363,7 +363,7 @@ class Angle:
 
 ### 2.7 Features
 
-Every feature function also takes the keyword arguments `name: str | None = None`, `suppressed: bool = False`, `id: str | None = None`, and solid features take `part: Part | None = None` (default: the current part) and `op: str | None = None` (`"new"`, `"join"`, `"cut"`, `"intersect"`; default per 3.3). They return a `Feature` (or `DatumPlane`).
+Every feature function also takes the keyword arguments `name: str | None = None`, `suppressed: bool = False`, `id: str | None = None`, and solid features take `part: Part | None = None` (default: the current part). `extrude`, `revolve` and the primitives also take `op: str | None = None` (`"new"`, `"join"`, `"cut"`, `"intersect"`; default per 3.3); `boolean` takes `op: str = "cut"`; `mirror` and the patterns take `into` instead of `op` (3.5). They return a `Feature` (or `DatumPlane`).
 
 ```python
 class Feature:
@@ -383,11 +383,12 @@ class DatumPlane(Feature):
 
 def extrude(profile: Sketch | Region | Sequence[Region], distance: Value | None = None, *,
             symmetric: bool = False, reverse: bool = False, through_all: bool = False, **common) -> Feature: ...
-def revolve(profile: Sketch | Region | Sequence[Region], axis: AxisLike, angle: Value | None = None, **common) -> Feature: ...
+def revolve(profile: Sketch | Region | Sequence[Region], axis: AxisLike, angle: Value | None = None, *,
+            reverse: bool = False, **common) -> Feature: ...
 def fillet(edges: Edges, radius: Value, **common) -> Feature: ...
 def chamfer(edges: Edges, distance: Value, **common) -> Feature: ...
-def shell(faces: Faces, thickness: Value, **common) -> Feature: ...
-def hole(points: Sketch | Point | Sequence[Point], diameter: Value, depth: Value | None = None, *,
+def shell(faces: Faces | None, thickness: Value, **common) -> Feature: ...
+def hole(points: Sketch | PointLike | Sequence[PointLike], diameter: Value, depth: Value | None = None, *,
          counterbore: tuple[Value, Value] | None = None, countersink: tuple[Value, Value] | None = None,
          tip_angle: Value | None = None, reverse: bool = False, **common) -> Feature: ...
 def box(length: Value, width: Value, height: Value, *, plane: PlaneLike = Plane.XY,
@@ -538,7 +539,7 @@ python -m partsmith --version
 - The current document and current part live in `contextvars.ContextVar`s, so threads and asyncio tasks are independent. There is no module-level mutable state besides these variables.
 - `Document(...)` sends `new_document` on a new `_core.Session(display=False, deterministic_ids=True)` owned by the document, and becomes current (replacing any previous current document of the context). `with Document(...) as doc:` additionally restores the previous current document on exit.
 - `Document.open(path)` reads the text (`FileNotFoundError` and other `OSError`s propagate) and every file in `path.parent / "assets"` whose name matches `^[0-9a-f]{64}\.[a-z0-9]+$`, sends `open_document`, and becomes current.
-- `save(path)` sends `save_document`, writes the text to `path` atomically (temporary file in the same directory, then `os.replace`), and writes each returned asset to `path.parent / "assets" / name` unless a file with that name already exists (names are content hashes).
+- `save(path)` sends `save_document`, writes the text to `path` atomically (temporary file in the same directory, then `os.replace`), writes each returned asset to `path.parent / "assets" / name` unless a file with that name already exists (names are content hashes), and then sends `mark_saved` with the returned revision. A failed write raises the `OSError` and sends no `mark_saved`.
 - `to_text()` returns `save_document`'s text. `close()` sends `close_document`; later use of the document or its parts raises `PartsmithError("This document is closed.")`.
 - The document keeps the latest `document_changed` snapshot and `recomputed` statuses from response events; properties read them without extra requests.
 - `current_document()` creates `Document()` when the context has none.
@@ -557,14 +558,14 @@ python -m partsmith --version
 - `Part(...)` generates an id unless given and sends `add_body` at the end of `Document.bodies` (label `Part`). Optional fields that equal their defaults are omitted from the record.
 - `with part:` makes it the current part; nested blocks stack; exiting restores the previous part.
 - Solid feature functions target `part`, else the current part, else raise `PartsmithError("<function>() needs a part: call it inside 'with Part(...)' or pass part=...")`.
-- **Default `op`.** `"new"` when no feature already in the document's timeline targets the part's body (regardless of suppression or status), else `"join"`. Code generation uses the same static rule, so omitting `op` is exact.
+- **Default `op`.** For `extrude`, `revolve` and the primitives (the `BodyOp` features): `"new"` when no feature already in the document's timeline targets the part's body (regardless of suppression or status), else `"join"`. Code generation uses the same static rule, so omitting `op` is exact. This holds because a body whose earlier writers all failed, are suppressed or are rolled back is empty when the feature builds, so `new` builds on it (features.md 3.5). `boolean` defaults to `"cut"`.
 - `Part.volume()`, `area()`, `center_of_mass()` and `bounding_box()` send `measure` with the body target at the current state; a part without geometry raises `EngineError` with code `body_empty`.
 
 ### 3.4 Sketches
 
 - Calling an entity, shape or constraint constructor outside a `with Sketch(...)` block raises `PartsmithError("<Name>() must be called inside 'with Sketch(...)'.")`. Calling a feature function inside an open sketch block raises `PartsmithError("Finish the sketch before calling <function>().")`.
 - Entities and constraints are collected in creation order. On normal exit of the block, Python sends one `apply_edits` (label `Sketch`) with `add_feature` of type `sketch` holding the plane, entities and constraints. If the block raised, nothing is sent.
-- **Plane.** `Plane.XY`, `Plane.XZ`, `Plane.YZ` give the origin planes; a `DatumPlane` gives the datum reference; an `Element`, single-element `Selection` or `Ref` gives a face reference, with `fallback` as the fallback placement, defaulting to the element's `placement` (a `Ref` requires `fallback`). A non-planar face raises `SelectionError("A sketch needs a flat face; the selected face is <surface>.")`; a selection with more than one element raises `SelectionError("Expected exactly one face, got <n>.")`.
+- **Plane.** `Plane.XY`, `Plane.XZ`, `Plane.YZ` give the origin planes; a `DatumPlane` gives the datum reference; an `Element`, single-element `Selection` or `Ref` gives a face reference on its part's body (`{"kind": "face", "body", "face", "fallback"}`, sketch.md), with `fallback` as the fallback placement, defaulting to the element's `placement` (a `Ref` requires `fallback` and `part=`, the face's body). A non-planar face raises `SelectionError("A sketch needs a flat face; the selected face is <surface>.")`; a selection with more than one element raises `SelectionError("Expected exactly one face, got <n>.")`.
 - `Point`, `Line`, `Circle`, `Arc` create one entity each with the given geometry (raw numbers, 3.2). They add no constraints, except that `Circle` and `Arc` whose radius is a `str` or an `Expr` other than a number or a quantity literal (a `Param`, an arithmetic expression, an `expr()` result) add a driving `Radius` constraint with that expression after the entity, placing the geometry at the evaluated value. So `Circle(wall)` follows the parameter, while `Circle(5)` and `Circle(5*mm)` add nothing.
 - `Rectangle(width, height, center=(cx, cy))` creates 4 lines counter-clockwise from the bottom-left corner: bottom `(x0, y0)` to `(x1, y0)`, right to `(x1, y1)`, top to `(x0, y1)`, left back to `(x0, y0)`, where `x0 = cx - w/2`, `x1 = cx + w/2`, `y0 = cy - h/2`, `y1 = cy + h/2` with `w` and `h` the evaluated sizes. It adds, in order: 4 `Coincident` (bottom end with right start, right end with top start, top end with left start, left end with bottom start), `Horizontal(bottom)`, `Horizontal(top)`, `Vertical(right)`, `Vertical(left)`, `HorizontalDistance(bottom.start, bottom.end, width)`, `VerticalDistance(right.start, right.end, height)`. The sketch has 2 degrees of freedom from a rectangle (its position).
 - `Polygon(p0, ..., pn)` needs at least 3 points (`ValueError` otherwise) and creates lines `p_i` to `p_(i+1 mod n+1)` with one `Coincident` per corner (line `i` end with line `i+1` start). No dimensions.
@@ -580,25 +581,26 @@ python -m partsmith --version
   - any other status: the feature is kept silently.
 - Element arguments must not be empty (`SelectionError("<function>() needs at least one <kind>; the selection is empty.")`) and must have the kind the parameter needs (`SelectionError("<function>() takes edges, got faces.")`). `Ref` literals carry no kind and are accepted as given.
 - `extrude(profile)` without explicit regions uses every region of the sketch in the order of its `sketch_solved` event; a `Region` or list of regions selects those. Exactly one of `distance` and `through_all=True` must be given (`ValueError` otherwise).
+- Stored records without a dedicated form use the generic `feature(...)` form in generated code: an extrude with a `two_sides` extent, a linear pattern direction with `reverse: true`, and every `import` feature (features/import.md).
 
 Mapping onto feature params (features/<type>.md). `AxisLike` values become features.md `AxisRef`s: `Axis.X`, `Axis.Y`, `Axis.Z` give `{"kind": "origin", "axis": "X"}` and so on, a `Line` of a finished sketch gives `{"kind": "sketch_line", "sketch", "line"}`, a straight edge `Element` gives `{"kind": "edge", "body", "edge"}`, a round face `Element` gives `{"kind": "face", "body", "face"}`, and a `Ref` with `part` gives the edge form (the face form when its fingerprint text starts with a surface type) on that part's body; any other `Axis` raises `ValueError("Only Axis.X, Axis.Y, Axis.Z, sketch lines, straight edges and round faces can be used as axes.")`. `PlaneLike` values become `PlaneRef`s: origin planes, `DatumPlane`s (`{"kind": "datum", "feature"}`) and planar face `Element`s or `Ref`s with `part` (`{"kind": "face", "body", "face"}`). Where features.md and this table differ, features.md wins.
 
 | Python | Feature type | Params set |
 | --- | --- | --- |
 | `extrude(profile, distance, symmetric, reverse, through_all)` | `extrude` | `body`, `profile` `{sketch, regions: [RegionRef]}`, `extent` (`{"kind": "distance", "expr"}`, `{"kind": "symmetric", "expr"}` or `{"kind": "through_all"}`), `reverse` when true, `op` |
-| `revolve(profile, axis, angle)` | `revolve` | `body`, `profile`, `axis` (`AxisRef`), `extent` (`{"kind": "full"}` when `angle` is `None`, else `{"kind": "angle", "expr"}`), `op` |
+| `revolve(profile, axis, angle, reverse)` | `revolve` | `body`, `profile`, `axis` (`AxisRef`), `extent` (`{"kind": "full"}` when `angle` is `None`, else `{"kind": "angle", "expr"}`), `reverse` when true, `op` |
 | `fillet(edges, radius)` | `fillet` | `body`, `edges` (references), `radius` |
 | `chamfer(edges, distance)` | `chamfer` | `body`, `edges`, `distance` `{"kind": "equal", "expr"}` |
-| `shell(faces, thickness)` | `shell` | `body`, `thickness`, `remove_faces` |
+| `shell(faces, thickness)` | `shell` | `body`, `thickness`, `remove_faces` (omitted when `faces` is `None`: a closed hollow) |
 | `hole(points, diameter, depth, counterbore, countersink, tip_angle, reverse)` | `hole` | `body`, `sketch`, `points` (point addresses; a `Sketch` argument gives all its point entities in stored order), `diameter`, `hole_type` (simple, counterbore with diameter and depth, or countersink with diameter and angle), `extent` (through all when `depth` is `None`, else to `depth`), `tip_angle` when given, `reverse` when true |
 | `box`, `cylinder`, `sphere`, `cone`, `torus` | same name | `body`, the size params (`size` as `[length, width, height]` for a box; `radius`, `height`, `bottom_radius`, `top_radius`, `major_radius`, `minor_radius` as named), `plane` (`PlaneRef`) when not `Plane.XY`, `position` when not zero, `op` |
 | `boolean(tools, op, keep_tools)` | `boolean` | `target` (the part's body), `tools` (body ids), `op`, `keep_tools` when true |
-| `mirror(plane, into)` | `mirror` | `body`, `plane` (`PlaneRef`), `op`, `target` when `into` is given |
-| `linear_pattern(direction, count, spacing, second, into)` | `linear_pattern` | `body`, `direction` `{axis, count, spacing}`, `second_direction` when given, `op`, `target` when given |
-| `circular_pattern(axis, count, angle, reverse, into)` | `circular_pattern` | `body`, `axis`, `count`, `angle`, `reverse` when true, `op`, `target` when given |
+| `mirror(plane, into)` | `mirror` | `body`, `plane` (`PlaneRef`); `op` `new` and `target` exactly when `into` is given, neither otherwise (join, the default) |
+| `linear_pattern(direction, count, spacing, second, into)` | `linear_pattern` | `body`, `direction` `{axis, count, spacing}`, `second_direction` when given; `op` `new` and `target` exactly when `into` is given |
+| `circular_pattern(axis, count, angle, reverse, into)` | `circular_pattern` | `body`, `axis`, `count`, `angle`, `reverse` when true; `op` `new` and `target` exactly when `into` is given |
 | `datum_plane(base, offset, flip)` | `datum_plane` | `base` (`PlaneRef`), `offset`, `flip` when true |
 | `move(part, translate, rotate)` | `move_body` | `body`, `translation`, `rotation` `{axis, angle}` when given |
-| `split(plane, into, flip)` | `split_body` | `body`, `plane`, `flip` when true, `target` (a `Part`, or a new part with the given name, or `<part name> (2)`) |
+| `split(plane, into, flip)` | `split_body` | `body`, `plane`, `flip` when true, `target`: the part's body when `into` is a `Part`, a new part with that name when it is a `str`, omitted when `into` is `None` (the other side is discarded) |
 | `feature(type, **params)` | `type` | `params` exactly, converted to JSON (3.8 rule 9) |
 
 ### 3.6 Selectors
@@ -618,8 +620,8 @@ Mapping onto feature params (features/<type>.md). `AxisLike` values become featu
 
 - All export functions require parts of one document (`ValueError("All parts must belong to the same document.")`) and at least one part. They send `export` with `bodies` set to the parts' ids, `tolerance` when `chord` or `angle` is given (`angle` in degrees, converted; the missing value from the standard tolerance), and `orientation` as a `matrix` composed from `rotate` (each `(axis, degrees)` rotation applied after the previous ones about fixed model axes; axes must be `Axis.X`, `Axis.Y` or `Axis.Z`) when `rotate` is non-empty.
 - Without `per_part`, the single engine file is written to `path` and `[Path(path)]` is returned. With `per_part`, `path` is a directory (created with parents), each engine file is written inside it under its engine name, and the paths are returned in body order. Writes are atomic. Engine warnings become `PartsmithWarning`s.
-- `Document.import_step(path, name=None)` reads the file and sends `import_step`; it returns the new parts in body order.
-- `Document.check(...)` sends `analyze_print` with `printer`, an orientation (`face_down` with the element's reference, else the `rotate` matrix, else `as_modeled`; giving both raises `ValueError`), and the parts' ids, then returns a `PrintReport` built from the `print_health` event: `health` and `label` from its summary, and every finding of every body's report in body order, then check order, then the check's own order, with `location` the center of the finding's bounds or its point.
+- `Document.import_step(path, name=None)` reads the file and sends `import_step`; it returns the new part, which holds every solid of the file.
+- `Document.check(...)` sends `analyze_print` with `printer`, an orientation (`face_down` with the element's part body and reference, else the `rotate` matrix, else `as_modeled`; giving both raises `ValueError`), and the parts' ids, then returns a `PrintReport` built from the `print_health` event: `health` and `label` from its summary, and every finding of every body's report in body order, then check order, then the check's own order, with `location` the center of the finding's bounds or its point.
 
 ### 3.8 Python code generation
 
@@ -629,12 +631,12 @@ Mapping onto feature params (features/<type>.md). `AxisLike` values become featu
 2. **Document line.** `doc = Document(units="<units>")`, with `, printer="<id>"` appended when `printer` is set.
 3. **Parameters.** One line per parameter in document order: `<var> = param("<name>", <expr>, comment="<comment>", id="<id>")`, with `comment` only when set.
 4. **Parts.** One line per body in document order: `<var> = Part("<name>", material=..., color=..., visible=False, role="<role>", id="<id>")`, each keyword only when it differs from its default.
-5. **Timeline blocks.** Each feature has a block part: the body it changes (its `body` param, or `target` for `boolean`) for solid features; for features without a body, the block part of the next feature in the timeline that has a body, or none when there is none. Maximal runs of consecutive features with the same block part become one `with <part var>:` block; features without a block part are emitted at top level.
-6. **Feature statements.** In timeline order, each feature is one statement in the form of the table in 3.5 (sketches are a `with Sketch(...) as <var>:` block containing their entities, then their constraints, in stored order, or `pass` when they have neither). Positional arguments follow the signature; then keyword arguments in signature order, each only when it differs from its default (`op` per the static rule of 3.3); then `name="<name>"`, `suppressed=True` and `id="<id>"`, in that order, `id` always present. Feature types without a dedicated form, and records whose params do not fit their form (for example invalid params), use the generic form `feature("<type>", <name/suppressed/id keywords>, <param>=<value>, ...)` with every stored param in stored order; a param whose name is not a valid Python identifier, or is a keyword, is passed through a trailing `**{"<name>": <value>}`.
+5. **Timeline blocks.** Each feature has a block part: its `body` param (`target` for `boolean`) for solid features; for features without a body, the block part of the next feature in the timeline that has a body, or none when there is none. Maximal runs of consecutive features with the same block part become one `with <part var>:` block; features without a block part are emitted at top level.
+6. **Feature statements.** In timeline order, each feature is one statement in the form of the table in 3.5 (sketches are a `with Sketch(...) as <var>:` block containing their entities, then their constraints, in stored order, or `pass` when they have neither). Each built-in feature emits its dedicated form through its `Feature::python(params, names)` hook (features.md 2.10): the generator passes a `PythonNames` that supplies the document units and the variables of bodies, features, sketch entities and parameters, and calls `Registry::python(record, names)`, which returns the hook's `PythonCall`, or the generic form when the type has no hook, the params do not validate or the hook returns `None`. The generator, not the hook, owns sketch `with` blocks (the `sketch` type has no hook), variable assignment (rule 7) and the trailing keywords. Positional arguments follow the signature; then keyword arguments in signature order, each only when it differs from its default (`op` of `extrude`, `revolve` and the primitives per the static rule of 3.3; `op` of `boolean` defaults to `cut`); then `name="<name>"`, `suppressed=True` and `id="<id>"`, in that order, `id` always present. Feature types without a dedicated form (plugins, `import`), and records whose params do not fit their form (for example invalid params, 3.5), use the generic form `feature("<type>", <name/suppressed/id keywords>, <param>=<value>, ...)` from `Registry::python_generic` with every stored param in stored order; a param whose name is not a valid Python identifier, or is a keyword (`keyword.kwlist`; soft keywords such as `type` and `match` are ordinary identifiers), is passed through a trailing `**{"<name>": <value>}`.
 7. **Variables.** A feature or sketch entity gets a variable (`<var> = ...`, or `as <var>` for sketches) only when a later statement refers to it; parameters and parts always get one. A name comes from the object's `name` field converted to snake case (lowercase; each run of characters outside `[a-z0-9]` becomes `_`; leading and trailing `_` removed; a result that starts with a digit or has a single character gets the prefix `<kind>_`); objects without a usable name get `<kind>_<n>`, where `<kind>` is `part`, `sketch`, `plane` (datum planes), the feature type for other features, or the entity type for entities (numbered per sketch), and `<n>` counts objects of that kind from 1 in emission order. Parameters use their name. A name that is a Python keyword or soft keyword, is in `partsmith.__all__`, is `doc`, or is already taken gets the first free suffix `_2`, `_3`, ...
 8. **Expressions.** An expression param with source `s` is emitted as: a bare number when `s` is a short canonical number (below); `<number>*<unit>` when `s` is `<short canonical number> <unit>` with exactly one space and `<unit>` one of `mm`, `cm`, `m`, `in`, `deg`, `rad` (emitted as `mm`, `cm`, `meter`, `inch`, `deg`, `rad`); the parameter's variable when `s` equals a parameter name exactly; `s` itself when it matches `printer(\.[A-Za-z_][A-Za-z0-9_]*)+`; otherwise a string literal of `s`. A short canonical number matches `-?(0|[1-9][0-9]*)(\.[0-9]*[1-9])?`, is not `-0`, has at most 15 significant digits, and, when it has a fractional part, has magnitude at least 0.0001. These are exactly the texts that 3.2 renders back unchanged.
-9. **Other values.** In dedicated forms: references are `Ref("<q>", "<fp>")`, and a list of references with one element is written as that element alone (lists of two or more as `[a, b]`); body ids become the part's variable; feature ids become the feature's variable; sketch points become `<entity var>.<role>` (or the point entity's variable); regions are `Region("<key>", "<fp>")` with the stored `RegionRef` texts, and `regions=` is emitted only when the stored list differs from all of the sketch's regions (their references, in solved order); placements are `Placement((x, y, z), (x, y, z), (x, y, z))`; `AxisRef` and `PlaneRef` values are `Axis.X`, `Axis.Y`, `Axis.Z`, `Plane.XY`, `Plane.XZ`, `Plane.YZ`, a datum plane's variable, a sketch line's variable, or, for face and edge forms, `Ref("<q>", "<fp>", part=<part var>)`. Raw numbers are written in canonical JSON number form (model.md), which is valid Python, except that raw angles are always written as `<number>*rad`, and in documents whose units are not `mm` raw lengths are written as `<number>*mm`; both are quantity literals, so 3.2's conversion is exact. In the generic form, every param value is written as a Python literal of its stored JSON, without substitutions: objects as `{"k": v}` with `": "` and `", "`, arrays as `[a, b]`, strings per rule 10, numbers in canonical JSON form, `true`, `false`, `null` as `True`, `False`, `None`.
-10. **Strings.** Double-quoted; `\` and `"` are escaped with a backslash; `\n`, `\r`, `\t` are written as such; other characters below U+0020 as `\u00XX` (lowercase hex); everything else literally (UTF-8), as in features.md 3.11.
+9. **Other values.** In dedicated forms: references are `Ref("<q>", "<fp>")`, and a list of references with one element is written as that element alone (lists of two or more as `[a, b]`); body ids become the part's variable; feature ids become the feature's variable; sketch points become `<entity var>.<role>` (or the point entity's variable); regions are `Region("<key>", "<fp>")` with the stored `RegionRef` texts, and `regions=` is emitted only when the stored list differs from all of the sketch's regions (their references, in solved order); placements are `Placement((x, y, z), (x, y, z), (x, y, z))`; `AxisRef`, `PlaneRef` and sketch plane values are `Axis.X`, `Axis.Y`, `Axis.Z`, `Plane.XY`, `Plane.XZ`, `Plane.YZ`, a datum plane's variable, a sketch line's variable, or, for face and edge forms (including a sketch on a face), `Ref("<q>", "<fp>", part=<part var>)`. Raw numbers are written in canonical JSON number form (model.md), which is valid Python, except that raw angles are always written as `<number>*rad`, and in documents whose units are not `mm` raw lengths are written as `<number>*mm`; both are quantity literals, so 3.2's conversion is exact. In the generic form, every param value is written as a Python literal of its stored JSON, without substitutions: objects as `{"k": v}` with `": "` and `", "`, arrays as `[a, b]`, strings per rule 10, numbers in canonical JSON form, `true`, `false`, `null` as `True`, `False`, `None`.
+10. **Strings.** Double-quoted; `\` and `"` are escaped with a backslash; `\n`, `\r`, `\t` are written as such; other characters below U+0020 and U+007F as `\xNN` (two lowercase hex digits, as Python's `repr` writes them); everything else literally (UTF-8), as in features.md 3.11.
 11. **Line length.** When a statement on one line would exceed 88 characters including indentation (the limit features.md 3.11 uses), it is written with one argument per line, indented 4 spaces more than the statement, each followed by a comma, and the closing parenthesis on its own line at the statement's indentation. Nested calls are not split.
 12. **Rollback.** When `rollback` is set, the last line is `rollback("<feature id>")`.
 
@@ -665,7 +667,8 @@ CI runs the first form for every engine fixture and every `examples/**/model.pts
 | Selectors | `list_elements` |
 | `Part.volume` and friends | `measure` |
 | `rollback`, `Document.printer = ...` | `apply_edits` (`set_rollback`, `set_printer`) |
-| `save`, `to_text` | `save_document` |
+| `save` | `save_document`, then `mark_saved` after the file is written |
+| `to_text` | `save_document` |
 | `to_python` | `export_python` |
 | `check` | `analyze_print` |
 | `export_*` | `export` |
@@ -676,7 +679,7 @@ Every error response raises `EngineError` with the response's `code` and `messag
 
 ### 3.11 Ids
 
-Ids given with `id=` are used as is. Otherwise Python generates them with the engine's `SequentialIds` format (engine.md 3.18): `<prefix><n as 12 lowercase hex digits>` with a per-prefix counter starting at 1, skipping ids present in the document snapshot or pending in the open sketch block. Prefixes: `p-` parameters, `b-` parts, `f-` features, `e-` sketch entities, `c-` constraints. A given id that is already used raises `EngineError` with code `edit_rejected`.
+Ids given with `id=` are used as is. Otherwise Python generates them in the `SequentialIds` format (model.md): `<prefix><n as 12 lowercase hex digits>` with a per-prefix counter starting at 1, skipping ids present in the document snapshot or pending in the open sketch block. Prefixes: `p-` parameters, `b-` parts, `f-` features, `e-` sketch entities, `c-` constraints. A given id that is already used raises `EngineError` with code `edit_rejected`.
 
 ### 3.12 Running scripts
 
@@ -781,7 +784,7 @@ with plate:
 
 ```python
 with Sketch(
-    Ref("f-box1/top", "<fp>"),
+    Ref("f-box1/top", "<fp>", part=block),
     fallback=Placement((0, 0, 40), (1, 0, 0), (0, 0, 1)),
     id="f-sk2",
 ):
@@ -813,7 +816,7 @@ with Sketch(
 34. `circular_pattern(Axis.Z, 4)` after `cylinder(2, 5, position=(10, 0, 0))` gives volume 80π = 251.32741228718345.
 35. `datum_plane(Plane.XY, offset=10).placement` has origin (0, 0, 10) and normal (0, 0, 1).
 36. `move(translate=(10, 0, 0))` after `box(20, 30, 40)` gives a bounding box x from 0 to 20.
-37. `split(datum_plane(Plane.XY, offset=10), into="Top")` after `box(20, 30, 40)` leaves two parts whose volumes are 6000 and 18000 in some order, summing to 24000.
+37. `split(datum_plane(Plane.XY, offset=10), into="Top")` after `box(20, 30, 40)`: `p` keeps 18000 (the side the plane normal points to, z from 10 to 40) and the new part `Top` has 6000.
 38. `extrude` without `op` on a part that already has a feature stores `op` `join`; the first one stores `new`.
 
 **Selectors**
@@ -837,7 +840,7 @@ with Sketch(
 52. `fillet(edges().top(), 30)` on `box(20, 30, 40)` raises `FeatureError` with `feature_type` `fillet`; afterwards `len(doc.features)` is 1 and `p.volume()` is 24000.
 53. `fillet(faces().top(), 1)` raises `SelectionError` with message `fillet() takes edges, got faces.`
 54. `fillet(edges().top().filter(lambda element: False), 1)` raises `SelectionError` with message `fillet() needs at least one edge; the selection is empty.`
-55. `fillet([edges().top()[0], Ref("f-nope/x", "line|d=1,0,0|c=999,0,0|l=1")], 1)` emits a `PartsmithWarning` and keeps the feature with status `warning`.
+55. `fillet([edges().top()[0], Ref("edge(f-nope/x|f-nope/y)", "line|n=1,0,0|c=999,0,0|l=1")], 1)` emits a `PartsmithWarning` and keeps the feature with status `warning`.
 56. `param("h", "nope * 2")` (an unknown name) raises `ExpressionError` whose message names `nope`, and the document has no parameter afterwards.
 57. `box(20, 30, 40, id="f-x")` twice raises `EngineError` with code `edit_rejected` on the second call.
 58. `Document.open("missing.ptsm")` raises `FileNotFoundError`; opening a file containing `{` raises `EngineError` with code `parse_error`.
@@ -850,7 +853,7 @@ with Sketch(
 62. `export_stl(p, tmp / "a.stl")` on `box(20, 30, 40)` writes 684 bytes and returns `[tmp / "a.stl"]`.
 63. For parts `base` named `Base` and `lid` named `Lid`, each with a box, `export_3mf([base, lid], tmp / "both.3mf")` writes a file starting with `PK\x03\x04`, and `export_stl([base, lid], tmp / "parts", per_part=True)` writes `tmp/parts/Base.stl` and `tmp/parts/Lid.stl` and returns them in that order.
 64. Exporting parts from two documents raises `ValueError("All parts must belong to the same document.")`.
-65. `export_step(p, tmp / "a.step")`, then in a new document `import_step(tmp / "a.step")` returns one part with volume 24000 within 1e-6 relative; saving that document writes `assets/<64 hex>.step` next to it, and `Document.open` of the saved file restores the same volume.
+65. `export_step(p, tmp / "a.step")`, then in a new document `import_step(tmp / "a.step")` returns one `Part` with volume 24000 within 1e-6 relative; saving that document writes `assets/<64 hex>.step` next to it, and `Document.open` of the saved file restores the same volume.
 66. `doc.check()` on `box(20, 30, 40)` returns health `ok` and no findings; `doc.check(rotate=[(Axis.X, 30)])` returns a finding with check `overhangs`.
 67. `doc.check(rotate=[(Axis.X, 30)], face_down=faces().top()[0])` raises `ValueError`.
 
@@ -867,15 +870,18 @@ with Sketch(
 76. `maturin build --release` in `python/` produces exactly one wheel named `partsmith-0.1.0-cp312-abi3-<platform>.whl`, which installs and imports on CPython 3.12 and 3.13.
 77. `partsmith.__all__` equals the list in 2.3, and every name in it is importable.
 
+**Added code generation and feature mapping**
+
+78. A part named `a` + tab + `b` + U+0001 + U+007F + `é` is emitted as `Part("a\tb\x01\x7fé", id="b-1")`, and the round trip of 3.9 holds.
+79. On `box(20, 30, 40)`, `shell(None, 2)` stores no `remove_faces` and gives volume 24000 - 16 × 26 × 36 = 9024; `export_python` emits it as `shell(None, 2, id="<id>")` (rule 8: the stored expression is `2`).
+80. `revolve` of the sketch of test 23 with `reverse=True` stores `"reverse": true`, gives volume 2500π, and `export_python` emits `reverse=True` before `id=`.
+81. A `boolean` record with op `cut` is emitted without `op`; with op `join` it is emitted with `op="join"`.
+82. An extrude with extent `{"kind": "two_sides", "expr": "20 mm", "opposite_expr": "10 mm"}` is emitted in the generic form `feature("extrude", ...)` with every stored param, and the round trip of 3.9 holds.
+
 ## 7. Open issues
 
-1. **Per-feature codegen contract.** features.md 3.11 defines `Registry::python(record)` as a `PythonCall` named after the feature type with keyword arguments only, holding the raw canonical params (for example `extrude(id="f-ext1", body="b-1", profile={...}, extent={...}, op="new")`), and says this package accepts those keywords. This spec instead generates readable build123d-style calls (positional sizes, variables for parts, sketches and entities, `Ref(...)`, `10*mm`, friendly names `move` and `split`). Both round-trip exactly, but they cannot both be the generated form. Recommended: extend `PythonCall` with positional arguments and a variable-name value so each feature's `python_arguments` emits the readable form while the engine supplies variable names (the technical design asks for a readable script). Tests 1, 2, 4 and 9 to 15, and engine.md test 96, assume this spec's form; if the raw form is chosen, they must be rewritten and every feature function must also accept its raw keywords.
 2. **`param` ranges.** The technical design's `param("wall", 2*mm, min=..., max=...)` needs `min` and `max` fields on `Parameter`, which the architecture does not have; deferred.
 3. **Ids in generated code.** Exact round trips require every id in the script (`id="..."`), which costs some readability. Dropping them would need a deterministic mapping of GUI ids, which ADR 0008's random ids do not allow.
 4. **Rollback position in generated code.** `rollback(...)` is emitted last, so every feature runs during the script, including features after the marker; the round trip therefore requires that all features build with the marker cleared.
-5. **Static default `op`.** The default operation depends only on whether an earlier feature targets the body, not on whether the body has geometry, so that code generation can omit `op` exactly. features.md should confirm that `new` on a body that is empty only because earlier features failed or are suppressed builds normally.
-6. **Split side.** Test 37 does not assume which side `split` keeps; features/split_body.md decides.
-7. **Imported STEP in scripts.** There is no `import` feature in features.md yet (protocol.md Open issues), and no protocol command adds an asset without importing, so generated code for documents with imported geometry (generic `feature("import", ...)` form) fails with a missing-asset error. Round trips exclude such documents in M1.
+7. **Imported STEP in scripts.** No protocol command adds an asset without importing, so generated code for a document with an `import` feature (generic form `feature("import", id=..., body=..., asset="<name>", op="new")`, features/import.md) fails with `asset_missing` when run in a fresh document. Round trips exclude such documents in M1.
 8. **Default regions.** `extrude(sketch)` stores every region of the sketch. When the sketch has a hole region and an outer region, both are stored and the hole is filled; build123d users may expect the outer region only. Code generation omits `regions` only when the stored list equals all regions in solved order.
-9. **Region reference forms.** sketch.md serializes `RegionKey` as text (`e-1,e-2,e-3,e-4`) and fingerprints as `c=40,25|a=4000`, while features/extrude.md's examples show `{"key": [["e-1", ...]], "fp": "region|a=4000|c=40,25"}`. Python stores exactly what the engine reports in `sketch_solved` (sketch.md's form); the two specs must agree.
-10. **Short canonical numbers.** features.md's `PythonValue::expr` emits a bare number whenever the source equals the model's canonical number text, which for values below 1e-4 or above 2^53 uses exponent forms (`1e-5`) that Python's `repr` writes differently (`1e-05`), so those would not round-trip; this spec's rule (3.8 rule 8) restricts bare numbers to texts that do.

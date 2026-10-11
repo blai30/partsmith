@@ -41,7 +41,7 @@ Everything below is exported from the crate root. Lengths are millimeters and an
 ```rust
 /// Id of the profile used when a document names none.
 pub const DEFAULT_PROFILE_ID: &str = "generic-fdm";
-/// A triangle rests on the bed when all its vertices are at most this high, in mm.
+/// A triangle rests on the bed when all its vertices are at most this high, in mm (needs human review, section 8).
 pub const BED_CONTACT_TOLERANCE: f64 = 0.01;
 /// Vertices whose heights differ by at most this many mm along an edge form one plateau (islands).
 pub const PLATEAU_TOLERANCE: f64 = 1e-6;
@@ -49,9 +49,9 @@ pub const PLATEAU_TOLERANCE: f64 = 1e-6;
 pub const ANGLE_TOLERANCE: f64 = 1e-4;
 /// Rays for wall thickness ignore hits closer than this many mm to their start.
 pub const THICKNESS_RAY_START: f64 = 1e-5;
-/// Overhang and thin wall regions smaller than this many mm² are shown in the overlay but not reported.
+/// Overhang and thin wall regions smaller than this many mm² are shown in the overlay but not reported (needs human review, section 8).
 pub const MIN_REPORTED_AREA: f64 = 1.0;
-/// At most this many findings are listed per check; the rest are counted in `omitted`.
+/// At most this many findings are listed per check; the rest are counted in `omitted` (needs human review, section 8).
 pub const MAX_FINDINGS_PER_CHECK: usize = 50;
 /// Overlay value meaning "no measurement here".
 pub const OVERLAY_NO_VALUE: f32 = -1.0;
@@ -72,7 +72,7 @@ pub enum Technology {
 
 /// Build plate shape and build volume height. Bed coordinates: a rectangle spans `[0, width] × [0, depth]`; a circle is centered on the origin.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
-#[serde(tag = "type", rename_all = "snake_case")]
+#[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Bed {
     /// Rectangular plate.
     Rectangle { width: f64, depth: f64, height: f64 },
@@ -143,17 +143,57 @@ pub struct PrinterProfile {
 }
 
 /// The accepted JSON input: `id`, `name` and `technology` are required, every other field is optional, and `fit` may name only some classes.
-#[derive(Clone, Debug, Deserialize, JsonSchema)]
+/// The protocol's `put_printer_profile` carries this type; `PrinterProfile::try_from` turns it into a valid profile (section 3.1).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
-pub struct ProfileInput { /* same field names, all optional except id, name, technology */ }
+pub struct ProfileInput {
+    /// Profile id; validated as a `partsmith_model::Id` by the conversion (`InvalidId`).
+    pub id: String,
+    /// Display name.
+    pub name: String,
+    /// FDM or resin; selects the generic profile that fills omitted fields.
+    pub technology: Technology,
+    /// Replaces the whole bed when present.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bed: Option<Bed>,
+    /// Nozzle diameter in mm (FDM only).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nozzle_diameter: Option<f64>,
+    /// Layer height in mm.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub layer_height: Option<f64>,
+    /// Steepest printable overhang from vertical, in radians.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_overhang_angle: Option<f64>,
+    /// Longest unsupported horizontal span in mm.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_bridge_length: Option<f64>,
+    /// Replaces only the fit classes it names.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fit: Option<FitInput>,
+}
+
+/// Fit clearances in a profile input, in mm; each class is optional.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct FitInput {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub press: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub snug: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub slip: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub loose: Option<f64>,
+}
 
 impl TryFrom<ProfileInput> for PrinterProfile { type Error = ProfileError; /* section 3.1 */ }
 
 impl PrinterProfile {
     /// Parses profile JSON, fills defaults and validates.
     pub fn from_json(text: &str) -> Result<PrinterProfile, ProfileError>;
-    /// Canonical JSON text (partsmith-model's canonical writer), with every field written.
-    pub fn to_json(&self) -> String;
+    /// Validates (section 3.1), then returns the canonical JSON text with every field written.
+    pub fn to_json(&self) -> Result<String, ProfileError>;
     /// Checks every rule of section 3.1 on a profile built or edited in code.
     pub fn validate(&self) -> Result<(), ProfileError>;
     /// Base display and export tessellation tolerance (section 3.4).
@@ -172,14 +212,14 @@ pub fn generic_fdm() -> PrinterProfile;
 pub fn generic_resin() -> PrinterProfile;
 ```
 
-Built-in profiles, exactly as `to_json` writes them:
+Built-in profiles, exactly as `to_json` writes them (needs human review, section 8):
 
 ```json
 {
   "id": "generic-fdm",
   "name": "Generic FDM 0.4 mm",
   "technology": "fdm",
-  "bed": {"type": "rectangle", "width": 256, "depth": 256, "height": 256},
+  "bed": {"kind": "rectangle", "width": 256, "depth": 256, "height": 256},
   "nozzle_diameter": 0.4,
   "layer_height": 0.2,
   "max_overhang_angle": 0.7853981633974483,
@@ -193,7 +233,7 @@ Built-in profiles, exactly as `to_json` writes them:
   "id": "generic-resin",
   "name": "Generic resin MSLA",
   "technology": "resin",
-  "bed": {"type": "rectangle", "width": 130, "depth": 80, "height": 160},
+  "bed": {"kind": "rectangle", "width": 130, "depth": 80, "height": 160},
   "layer_height": 0.05,
   "max_overhang_angle": 0.5235987755982988,
   "max_bridge_length": 5,
@@ -205,7 +245,7 @@ Accepted input examples (both valid):
 
 ```json
 {"id": "my-mk4", "name": "My MK4", "technology": "fdm", "layer_height": 0.15}
-{"id": "kossel", "name": "Kossel", "technology": "fdm", "bed": {"type": "circle", "diameter": 170, "height": 240}, "nozzle_diameter": 0.6, "layer_height": 0.3, "fit": {"slip": 0.3}}
+{"id": "kossel", "name": "Kossel", "technology": "fdm", "bed": {"kind": "circle", "diameter": 170, "height": 240}, "nozzle_diameter": 0.6, "layer_height": 0.3, "fit": {"slip": 0.3}}
 ```
 
 The first becomes `generic-fdm` with that id, name and layer height. The second keeps the generic FDM overhang angle and bridge length and fit `{"press": 0.05, "snug": 0.1, "slip": 0.3, "loose": 0.4}`.
@@ -341,7 +381,7 @@ pub enum FindingCode {
 
 /// Where the viewport zooms for a finding, in model coordinates.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
-#[serde(tag = "type", rename_all = "snake_case")]
+#[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Location {
     /// An axis-aligned box.
     Bounds { min: Point3, max: Point3 },
@@ -359,7 +399,7 @@ pub struct Plane { pub origin: Point3, pub normal: Vector3 }
 
 /// A suggested fix with geometry the UI can show.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
-#[serde(tag = "type", rename_all = "snake_case")]
+#[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Suggestion {
     /// Split the part along these planes, in order.
     Split { planes: Vec<Plane> },
@@ -481,17 +521,17 @@ pub struct Analysis {
 JSON examples:
 
 ```json
-{"type": "bounds", "min": [0.0, 0.0, 10.0], "max": [8.0, 10.0, 10.0]}
-{"type": "point", "at": [0.0, 0.0, -10.0]}
+{"kind": "bounds", "min": [0.0, 0.0, 10.0], "max": [8.0, 10.0, 10.0]}
+{"kind": "point", "at": [0.0, 0.0, -10.0]}
 {"start": 12, "end": 14}
-{"type": "split", "planes": [{"origin": [150.0, 50.0, 5.0], "normal": [1.0, 0.0, 0.0]}]}
-{"type": "drain_hole", "at": [5.0, 5.0, 5.0]}
+{"kind": "split", "planes": [{"origin": [150.0, 50.0, 5.0], "normal": [1.0, 0.0, 0.0]}]}
+{"kind": "drain_hole", "at": [5.0, 5.0, 5.0]}
 ```
 
 A finding, a check result and a body report (the T fixture of section 6.1 on `generic-fdm`; triangle indices depend on the fixture's triangulation):
 
 ```json
-{"check": "overhangs", "code": "overhang", "severity": "warning", "message": "Overhang steeper than 45 degrees over 80 mm². Add supports, add a chamfer, or reorient the part.", "location": {"type": "bounds", "min": [0.0, 0.0, 10.0], "max": [8.0, 10.0, 10.0]}, "value": 1.5707963267948966, "limit": 0.7853981633974483, "triangles": [{"start": 12, "end": 14}], "faces": [6]}
+{"check": "overhangs", "code": "overhang", "severity": "warning", "message": "Overhang steeper than 45 degrees over 80 mm². Add supports, add a chamfer, or reorient the part.", "location": {"kind": "bounds", "min": [0.0, 0.0, 10.0], "max": [8.0, 10.0, 10.0]}, "value": 1.5707963267948966, "limit": 0.7853981633974483, "triangles": [{"start": 12, "end": 14}], "faces": [6]}
 ```
 
 ```json
@@ -593,7 +633,7 @@ Deserializing a `PrinterProfile` (through `from_json`, serde, or the protocol's 
 4. Every other field present in the input replaces the base value. `bed` replaces the whole bed (there is no partial bed). `fit` replaces only the classes it names. A resin input that names `nozzle_diameter` is `NozzleNotAllowed`.
 5. The result is validated as below.
 
-`validate()` applies these rules in order and returns the first failure. Ranges are inclusive. A non-finite value fails its range check.
+`validate()` applies these rules in order and returns the first failure (needs human review, section 8). Ranges are inclusive. A non-finite value fails its range check.
 
 | Order | Rule | Error |
 | --- | --- | --- |
@@ -609,11 +649,11 @@ Deserializing a `PrinterProfile` (through `from_json`, serde, or the protocol's 
 | 10 | `press`, `snug`, `slip`, `loose`, in that order, each in `[-1, 5]` mm | `OutOfRange` (`Fit(class)`) |
 | 11 | `press <= snug <= slip <= loose`; the first adjacent pair that decreases is reported | `FitOrder` |
 
-Negative clearances are allowed (an interference press fit). `to_json` writes every field in declaration order with partsmith-model's canonical writer (`partsmith_model::canonical::to_string`): 2-space indent, the `bed` and `fit` objects on one line, numbers in canonical form, trailing newline. Resin profiles omit `nozzle_diameter`. `from_json(p.to_json()) == p` for every valid profile, and `to_json` of a parsed canonical text reproduces it byte for byte.
+Negative clearances are allowed (an interference press fit). `to_json` first runs `validate()` and returns its error, so a profile edited in code into an invalid state (for example a non-finite value) is reported, never written. It then writes `canonical::to_string(&value)` with `value = canonical::to_value(self)`, partsmith-model's canonical writer (file-format.md: `to_value` turns any `Serialize` value into a normalized `serde_json::Value`, and `to_string` takes that value); `to_value` fails only on a non-finite number, which a valid profile cannot hold. The text has every field in declaration order, 2-space indent, the `bed` and `fit` objects on one line, numbers in canonical form, trailing newline. Resin profiles omit `nozzle_diameter`. For every valid profile `p`, `from_json` of the text `p.to_json()` returns equals `p`, and `to_json` of a parsed canonical text reproduces it byte for byte.
 
 ### 3.2 Fit classes
 
-A clearance is the gap per side between mating surfaces: a pin of diameter `d` goes into a hole of diameter `d + 2c`, and a lid lip is offset inward by `c`. Defaults (mm), chosen so FDM matches common calibration results for a 0.4 mm nozzle and resin is tighter (technical design section 11):
+A clearance is the gap per side between mating surfaces: a pin of diameter `d` goes into a hole of diameter `d + 2c`, and a lid lip is offset inward by `c`. Defaults (mm), chosen so FDM matches common calibration results for a 0.4 mm nozzle and resin is tighter (technical design section 11) (needs human review, section 8):
 
 | Technology | press | snug | slip | loose |
 | --- | --- | --- | --- | --- |
@@ -647,7 +687,7 @@ Every other name, including `printer`, `printer.fit` and `printer.fit.SLIP`, res
 
 ### 3.6 Check thresholds
 
-`thresholds()` derives the limits from the profile. FDM values come from technical design section 11; resin values replace the nozzle-based rules, because a resin printer has no nozzle.
+`thresholds()` derives the limits from the profile (needs human review, section 8). FDM values come from technical design section 11; resin values replace the nozzle-based rules, because a resin printer has no nozzle.
 
 | Field | FDM | Resin |
 | --- | --- | --- |
@@ -796,7 +836,7 @@ Because islands are found from the exact mesh topology rather than from sampled 
 
 #### 3.9.6 Thin walls (`thin_walls`)
 
-1. Build a `Bvh` over `W` in the print frame.
+1. Build a `BoundingVolumeHierarchy` (mesh.md section 2.6) over `W` in the print frame.
 2. For each triangle `t` with normal `n` and centroid `c`: cast a ray from `c` in direction `-n` and take `first_hit` with `min_distance = THICKNESS_RAY_START` and `max_distance = ∞`. When there is a hit and it is not a front face (the ray leaves the solid through it), the thickness `w_t` is the hit distance; otherwise (no hit, a front face, or no normal) `w_t = OVERLAY_NO_VALUE`.
 3. `t` is flagged when `w_t` is not `OVERLAY_NO_VALUE` and `w_t < T.min_wall - ε`.
 4. Regions of flagged triangles with area `>= MIN_REPORTED_AREA` each give a `thin_wall` finding: `A wall {len(w)} mm thick is thinner than {len(limit)} mm and may not print. Make it at least {len(limit)} mm thick.` with `w` the smallest `w_t` in the region (also the value). Order: region order. Capped.
@@ -873,7 +913,7 @@ Release build on the reference 2022 mid-range laptop (technical design section 1
 | Operation | Input | Budget |
 | --- | --- | --- |
 | `analyze`, all checks | 200,000-triangle body with per-face vertices, 50 mm tall, `generic-fdm` (250 layers) | 250 ms |
-| of which `thin_walls` (BVH build plus one ray per triangle) | same | 120 ms |
+| of which `thin_walls` (bounding volume hierarchy build plus one ray per triangle) | same | 120 ms |
 | of which `small_features` (250 slices) | same | 50 ms |
 | `analyze`, `overhangs` only | same | 40 ms (including the weld) |
 | `PrinterProfile::from_json` | a full profile | 0.1 ms |
@@ -904,9 +944,9 @@ Tests assert only triangulation-independent facts for the prism fixtures (counts
 
 ### 6.2 Profiles
 
-1. `generic_fdm().to_json()` is exactly the first JSON block of section 2.2 followed by a newline; `generic_resin().to_json()` is exactly the second.
+1. `generic_fdm().to_json()` is `Ok` with exactly the first JSON block of section 2.2 followed by a newline; `generic_resin().to_json()` is `Ok` with exactly the second.
 2. `builtin_profiles()` ids are `["generic-fdm", "generic-resin"]`; `DEFAULT_PROFILE_ID == "generic-fdm"`; `builtin_profile("generic-resin")` is `generic_resin()`; `builtin_profile("x")` is `None`.
-3. `PrinterProfile::from_json(&p.to_json())` equals `p` for both built-ins, and `to_json` of the parsed text reproduces the text.
+3. `PrinterProfile::from_json(&p.to_json().unwrap())` equals `p` for both built-ins, and `to_json` of the parsed text reproduces the text.
 4. `from_json(r#"{"id": "my-mk4", "name": "My MK4", "technology": "fdm", "layer_height": 0.15}"#)` equals `generic_fdm()` with `id` `my-mk4`, `name` `My MK4` and `layer_height` 0.15.
 5. `from_json(r#"{"id": "r", "name": "R", "technology": "resin"}"#)` equals `generic_resin()` with id `r` and name `R`; its `nozzle_diameter` is `None`.
 6. The second input example of section 2.2 parses to a circle bed with diameter 170 and height 240, nozzle 0.6, layer height 0.3, and fit `{0.05, 0.1, 0.3, 0.4}`.
@@ -920,8 +960,8 @@ Tests assert only triangulation-independent facts for the prism fixtures (counts
 14. Input with `"max_overhang_angle": 1.6` returns `Maximum overhang angle 91.7 degrees is out of range. Use a value from 0 to 89 degrees.`
 15. Input with `"fit": {"snug": 0.3}` (FDM) returns `FitOrder { class: Snug, value: 0.3, next: Slip, next_value: 0.2 }` with message `Fit clearances must not shrink from press to loose, but snug (0.3 mm) is larger than slip (0.2 mm). Make slip at least 0.3 mm.`
 16. Input with `"fit": {"press": -0.05}` is valid (interference fit).
-17. Input with `"bed": {"type": "rectangle", "width": 0, "depth": 200, "height": 200}` returns `Bed width 0 mm is out of range. Use a value from 1 to 2000 mm.`
-18. Input with `"bed": {"type": "rectangle", "width": 200}` returns `ProfileError::Json` (a bed is replaced whole).
+17. Input with `"bed": {"kind": "rectangle", "width": 0, "depth": 200, "height": 200}` returns `Bed width 0 mm is out of range. Use a value from 1 to 2000 mm.`
+18. Input with `"bed": {"kind": "rectangle", "width": 200}` returns `ProfileError::Json` (a bed is replaced whole).
 19. Id `my printer` returns `Printer profile id "my printer" is not valid. Use 1 to 64 letters, digits, - or _.`; name `"   "` returns `The printer profile needs a name of 1 to 100 characters.`
 20. `Bed::Rectangle { width: 256, depth: 256, height: 256 }.center() == [128, 128]`; `Bed::Circle { diameter: 170, height: 240 }.center() == [0, 0]` and `.height() == 240`.
 21. `serde_json::from_str::<PrinterProfile>` applies the same defaults and validation as `from_json` (test 4 and test 12 inputs give the same results).
@@ -974,11 +1014,11 @@ Tests in this section call `run_only(mesh, profile, ["bed_fit"])` unless they st
 51. `run_only(&box([0,0,0],[300,100,10]), &FDM, ["bed_fit"])`: one finding `footprint_too_large`, error, message `The part footprint is 300 x 100 mm, larger than the 256 x 256 mm bed. Split the part or scale it down.`, value 300, limit 256, suggestion `split` with one plane `{origin: (150,50,5), normal: (1,0,0)}`, no triangles, no faces, location bounds `(0,0,0)` to `(300,100,10)`.
 52. `box([0,0,0],[600,100,10])`: the split planes are at x = 200 and x = 400, in that order.
 53. `box([0,0,0],[256,10,10])` fits (no finding); `box([0,0,0],[256.001,10,10])` gives `footprint_too_large`.
-54. With profile `{"id": "wide", "name": "Wide", "technology": "fdm", "bed": {"type": "rectangle", "width": 300, "depth": 200, "height": 200}}`, `box([0,0,0],[150,250,10])` gives one finding `fits_rotated`, severity `info`, message `The part fits the bed only when turned 90 degrees about Z. Turn it in the slicer.`, no value, limit or suggestion; health `ok`.
+54. With profile `{"id": "wide", "name": "Wide", "technology": "fdm", "bed": {"kind": "rectangle", "width": 300, "depth": 200, "height": 200}}`, `box([0,0,0],[150,250,10])` gives one finding `fits_rotated`, severity `info`, message `The part fits the bed only when turned 90 degrees about Z. Turn it in the slicer.`, no value, limit or suggestion; health `ok`.
 55. `box([0,0,0],[10,10,300])`: one finding `too_tall`, message `The part is 300 mm tall, taller than the 256 mm build height. Split the part or lay it on its side.`, value 300, limit 256, split plane `{origin: (5,5,150), normal: (0,0,1)}`.
 56. The same box with rotation `about_axis((1,0,0), π/2)`: one finding `footprint_too_large` with message `The part footprint is 10 x 300 mm, larger than the 256 x 256 mm bed. Split the part or scale it down.`, value 300, limit 256, split plane `{origin: (5,5,150), normal: (0,0,-1)}` in model coordinates.
 57. `box([0,0,0],[300,10,300])`: findings `footprint_too_large` then `too_tall`.
-58. With profile `{"id": "round", "name": "Round", "technology": "resin", "bed": {"type": "circle", "diameter": 100, "height": 160}}`: `box([0,0,0],[60,60,10])` fits; `box([0,0,0],[80,80,10])` gives `footprint_too_large` with message `The part footprint needs a 113.137 mm circle, larger than the 100 mm round bed. Split the part or scale it down.`, value `80 × sqrt(2)` within `1e-9`, limit 100, no suggestion.
+58. With profile `{"id": "round", "name": "Round", "technology": "resin", "bed": {"kind": "circle", "diameter": 100, "height": 160}}`: `box([0,0,0],[60,60,10])` fits; `box([0,0,0],[80,80,10])` gives `footprint_too_large` with message `The part footprint needs a 113.137 mm circle, larger than the 100 mm round bed. Split the part or scale it down.`, value `80 × sqrt(2)` within `1e-9`, limit 100, no suggestion.
 
 ### 6.8 First-layer contact
 
@@ -1053,19 +1093,32 @@ Tests in this section call `run_only(mesh, profile, ["bed_fit"])` unless they st
 106. `summarize` of the COMB report counts omitted findings: `{warning, 0, 121, 0, "121 warnings"}` (60 overhangs, 60 islands, 1 low bed contact).
 107. `summarize` of the report of `flipped_one` (FDM) is `{error, 1, 1, 0, "1 error, 1 warning"}` (the misoriented edges, and the flipped top triangle facing down over 50 mm²).
 
+### 6.16 Profile input and constants
+
+108. The Kossel input example of section 2.2 deserializes as `ProfileInput`, and `serde_json::to_string` of it is `{"id":"kossel","name":"Kossel","technology":"fdm","bed":{"kind":"circle","diameter":170.0,"height":240.0},"nozzle_diameter":0.6,"layer_height":0.3,"fit":{"slip":0.3}}`; `PrinterProfile::try_from` of that value equals `from_json` of the example text.
+109. The first input example of section 2.2 re-serialized as `ProfileInput` has exactly the keys `id`, `name`, `technology`, `layer_height`; input with `"fit": {"slack": 0.3}` and input with `"bed": {"kind": "rectangle", "width": 200, "depth": 200, "height": 200, "x": 1}` fail to deserialize as `ProfileInput`.
+110. A copy of `FDM` with `layer_height = f64::NAN` returns `Err(OutOfRange { field: LayerHeight, .. })` from `to_json()`.
+111. `partsmith_mesh::WELD_TOLERANCE == partsmith_model::LINEAR_TOLERANCE` (mesh.md open issue 2).
+
 ## 7. Open issues
 
 1. **No reason channel in `EvaluationContext`.** The model's trait returns `Option<Quantity>`, so `printer.nozzle` on a resin profile surfaces as the generic `Unknown value 'printer.nozzle'. Check the spelling; printer values look like printer.fit.slip.` A clearer message ("Resin printers have no nozzle...") needs the trait to return a reason; left to the model spec's owner.
-2. **Protocol `Finding` is a projection.** The protocol's `Finding` has `body`, a point `location`, `value` and `limit`, and lists severity as `warning` or `error`. This spec's finding also has `code`, bounds locations, triangles, faces and suggestions, and uses `info` for `degenerate_triangles`, `fits_rotated` and FDM `enclosed_hollow`. The reviewer should either extend the protocol type or define the engine's mapping (for example, location to the bounds center, and whether info findings are shipped). `CheckKind` names here match the protocol's (`first_layer_contact`).
-3. **Engine acceptance test 79 conflicts.** It expects per-vertex overhang values of 0 for front-face vertices on the bed and π/3 for all bottom-face vertices of a box rotated 30° about +X. This spec computes per-triangle values and takes the worst per vertex (section 3.8), which gives π/6 for all four front-face vertices and π/3 for all four bottom-face vertices (test 99 here). The engine test should follow this spec.
-4. **Placement belongs to the engine.** The engine computes the bed transform `T_b` (group centered on the bed, each body dropped to z = 0). This crate uses only the rotation and drops the body to z = 0 itself; no check depends on horizontal placement, so results agree. The crate exposes `Bed::center()` for the engine.
-5. **Values not given by the technical design** that need human review and the monthly print validation: fit class defaults (FDM 0.05, 0.1, 0.2, 0.4 mm; resin 0.02, 0.05, 0.1, 0.2 mm), resin thresholds (min wall 0.5 mm, min feature 0.2 mm, min hole 0.5 mm, max overhang 30°), the generic resin printer (130 × 80 × 160 mm, 0.05 mm layers, 5 mm bridges), the FDM 10 mm bridge length, the tall-and-thin slenderness limit 10, `BED_CONTACT_TOLERANCE` 0.01 mm, `MIN_REPORTED_AREA` 1 mm², the 50-finding cap, and the profile value ranges of section 3.1.
-6. **Angles in profile JSON are radians** (`max_overhang_angle`), following the architecture convention and the protocol's `angular_deviation`. Hand-edited profiles would be friendlier in degrees; the UI shows degrees.
-7. **Thin walls ignore direction.** Section 11's rule (below 2 × nozzle) applies to every direction, so FDM floors and roofs thinner than 0.8 mm (for example 0.6 mm, three 0.2 mm layers) are flagged. A layer-based limit for near-horizontal walls is listed as later.
-8. **Islands are found topologically** (local minima of the mesh) rather than by slicing layers as the technical design's resin "layer-island check" describes. For exact meshes the two agree, and this avoids missing islands between sampled layers; planar slicing is still used for small features.
-9. **Profiles live only by id in documents.** A shared document whose printer is a custom profile falls back to `generic-fdm` with the engine's `unknown_printer_profile` warning, silently changing `printer.fit.*` values. Embedding the profile (or its fit values) in the document would need a file-format decision.
-10. **Messages use millimeters** regardless of the document's display units; findings carry `value` and `limit` so a host can reformat them.
-11. **Triangle indices in findings** refer to the analyzed mesh, which must be the mesh the engine ships for display (same triangle order) for highlights and overlays to line up. They are transient display data tied to a `mesh_id`, not stored references (CLAUDE.md invariant).
-12. **Canonical writer for profiles.** `to_json` assumes `partsmith_model::canonical::to_string` accepts any `Serialize` value; if it only writes documents, the model crate needs a generic entry point.
-13. **`Rotation::face_down`** repeats the engine spec's `face_down` rule so every host shares one implementation; the engine should call it rather than reimplement it.
-14. **Protocol examples** show trimmed profiles (`{"id": "generic-fdm", "name": "Generic FDM 0.4 mm", "technology": "fdm", "layer_height": 0.2}`); the full JSON is in section 2.2. Because omitted input fields take the technology's defaults, the protocol's `put_printer_profile` example is a valid input.
+2. **Placement belongs to the engine.** The engine computes the bed transform `T_b` (group centered on the bed, each body dropped to z = 0). This crate uses only the rotation and drops the body to z = 0 itself; no check depends on horizontal placement, so results agree. The crate exposes `Bed::center()` for the engine.
+3. **Angles in profile JSON are radians** (`max_overhang_angle`), following the architecture convention and the protocol's `angular_deviation`. Hand-edited profiles would be friendlier in degrees; the UI shows degrees.
+4. **Thin walls ignore direction.** Section 11's rule (below 2 × nozzle) applies to every direction, so FDM floors and roofs thinner than 0.8 mm (for example 0.6 mm, three 0.2 mm layers) are flagged. A layer-based limit for near-horizontal walls is listed as later.
+5. **Islands are found topologically** (local minima of the mesh) rather than by slicing layers as the technical design's resin "layer-island check" describes. For exact meshes the two agree, and this avoids missing islands between sampled layers; planar slicing is still used for small features.
+6. **Profiles live only by id in documents.** A shared document whose printer is a custom profile falls back to `generic-fdm` with the engine's `unknown_printer_profile` warning, silently changing `printer.fit.*` values. Embedding the profile (or its fit values) in the document would need a file-format decision.
+7. **Messages use millimeters** regardless of the document's display units; findings carry `value` and `limit` so a host can reformat them.
+8. **Triangle indices in findings** refer to the analyzed mesh, which must be the mesh the engine ships for display (same triangle order) for highlights and overlays to line up. They are transient display data tied to a `mesh_id`, not stored references (CLAUDE.md invariant).
+
+## 8. Needs human review
+
+The technical design does not give these values. They are the M1 defaults and stay as specified until a reviewer confirms or changes them at the next gate; the monthly print validation checks them against real prints. Each place that uses them is marked "needs human review, section 8".
+
+- Fit class defaults: FDM 0.05, 0.1, 0.2, 0.4 mm; resin 0.02, 0.05, 0.1, 0.2 mm (section 3.2).
+- Resin check thresholds: minimum wall 0.5 mm, minimum feature 0.2 mm, minimum hole 0.5 mm, maximum overhang 30° (section 3.6).
+- The generic resin printer: 130 × 80 × 160 mm bed, 0.05 mm layers, 5 mm bridges (section 2.2).
+- The generic FDM bridge length of 10 mm (section 2.2).
+- The tall-and-thin slenderness limit 10 (section 3.6).
+- `BED_CONTACT_TOLERANCE` 0.01 mm, `MIN_REPORTED_AREA` 1 mm² and `MAX_FINDINGS_PER_CHECK` 50 (section 2.1).
+- The profile value ranges of section 3.1.

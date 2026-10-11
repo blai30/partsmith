@@ -22,7 +22,7 @@ The UI is the single front end for web and desktop. It renders the model, edits 
 - Print context: printer profile picker, check toggles, overhang color map with legend, print health badge and list with zoom to problem, bed outline.
 - Export to 3MF, STL (binary), OBJ and STEP.
 - Files: new, open, save, save as with the File System Access API and a download fallback, drag-and-drop open, recent files and a recovery copy in IndexedDB.
-- Feature types covered through the generic inspector: `sketch`, `extrude`, `revolve`, `hole`, `box`, `cylinder`, `sphere`, `cone`, `torus`, `fillet`, `chamfer`, `shell`, `boolean`, `move_body`, `split_body`, `mirror`, `linear_pattern`, `circular_pattern`, `datum_plane` (features.md section 3.13).
+- Feature types covered through the generic inspector: `sketch`, `extrude`, `revolve`, `hole`, `box`, `cylinder`, `sphere`, `cone`, `torus`, `fillet`, `chamfer`, `shell`, `boolean`, `move_body`, `split_body`, `mirror`, `linear_pattern`, `circular_pattern`, `datum_plane` (features.md section 3.13). The `import` type has no command in M1 (2.10); its timeline items are shown and managed like any other feature.
 - Accessibility: WCAG 2.2 AA text and non-text contrast, full keyboard operation of every panel, landmarks, live regions.
 - Worker and Tauri transports, the core client, and the generated protocol types.
 
@@ -84,6 +84,7 @@ ui/
       bridge.ts              CoreModule, callCore, wrapEmscriptenModule (protocol.md 2.10)
       core.worker.ts         worker entry using createWorkerHost (protocol.md 2.11)
       worker-host.ts         createWorkerHost (protocol.md 2.11)
+      superseding.ts         isSuperseded (protocol.md 2.11), shared by both transports
       transport.ts           Transport, createWorkerTransport, chooseTransport
       tauri-transport.ts     createTauriTransport
       client.ts              createCoreClient
@@ -108,7 +109,6 @@ ui/
       toolbars.ts            TOOLBARS
       icons.ts               FEATURE_ICONS, constraint glyph icons
     inspector/
-      manifest.ts            FeatureManifest (mirror of features.md 2.3), normalizeManifest
       model.ts               buildInspectorModel, defaultParams, setParam, getParam
       selection-values.ts    selectionValue, acceptsTarget, itemsFromValue
       placement.ts           placeInspector
@@ -168,7 +168,7 @@ Module rules:
 - React components never call `CoreApi`; they call actions (2.9). Actions are plain functions taking the `App`, so they are unit-testable with fakes.
 - The viewport and sketch drag bypass React (ADR 0002): `ViewportController` subscribes to the store with `store.subscribe` and draws on demand. React renders only DOM chrome and DOM overlays.
 - Runtime dependencies are exactly those in `ui/package.json` (`react`, `react-dom`, `zustand`, `lucide-react`). Menus, popovers, tooltips and the fuzzy matcher are written in-house; popovers use the native Popover API. Adding a dependency needs human review (CLAUDE.md).
-- Hand-written code never redeclares a type that exists in `src/generated/protocol.ts`. The only mirror types are for protocol values the schema carries as untyped JSON (feature manifests and params schemas, features.md 2.3), and they are validated at runtime (2.12).
+- Hand-written code never redeclares a type that exists in `src/generated/protocol.ts`. The only mirror types are for protocol values the schema carries as untyped JSON (feature params schemas only), and they are validated at runtime (2.12).
 
 ### 2.2 Generated protocol types
 
@@ -242,7 +242,7 @@ export function createTauriTransport(tauri: TauriGlobal): Transport
 Tauri transport behavior (protocol.md 2.12):
 
 1. `start()` sends an `engine_info` request frame (request id 0) through `invoke('call', frame)`, checks that `protocol_version` equals the generated `PROTOCOL_VERSION`, and resolves with the versions. A mismatch rejects with `CoreFatalError('This app and its core speak different protocol versions. Reinstall Partsmith.')`.
-2. `send(request)` queues the frame and applies the same FIFO, one-at-a-time and superseding rules as the worker host (protocol.md 2.11 rules 3 and 4), reusing the worker host's queue logic; a superseded request resolves with the synthesized `superseded` error frame. Each step calls `invoke('call', frame)` with the frame as the raw body and resolves with the returned `ArrayBuffer`.
+2. `send(request)` queues the frame and applies the same FIFO, one-at-a-time and superseding rules as the worker host (protocol.md 2.11 rules 3 and 4), deciding superseding with the shared `isSuperseded` (protocol.md 2.11); a superseded request resolves with the synthesized `superseded` error frame. Each step calls `invoke('call', frame)` with the frame as the raw body and resolves with the returned `ArrayBuffer`.
 3. An `invoke` rejection resolves the pending send with an error response frame for that request (`internal_error`, the rejection message), built with the same encoder; the desktop core lives in the app process, so `onFatal` is never called.
 
 `chooseTransport` returns `createTauriTransport(environment.__TAURI__)` when `environment.__TAURI__?.core.invoke` is a function, else `createWorkerTransport()`.
@@ -300,6 +300,8 @@ export interface LatestOnly<I> {
   submit(input: I): void
   /** Drops the waiting input and ignores the result of the one in flight. */
   cancel(): void
+  /** Sends a waiting input now if idle and resolves when nothing is waiting or in flight. */
+  flush(): Promise<void>
   readonly busy: boolean
 }
 export function createLatestOnly<I, O>(
@@ -309,9 +311,9 @@ export function createLatestOnly<I, O>(
 ): LatestOnly<I>
 ```
 
-`createLatestOnly` semantics: when an in-flight send settles and a newer input is waiting, the settled result is discarded (neither callback runs) and the waiting input is sent; otherwise the matching callback runs. A task that fails in `MutationQueue` rejects its own promise and does not block later tasks.
+`createLatestOnly` semantics: when an in-flight send settles and a newer input is waiting, the settled result is discarded (neither callback runs) and the waiting input is sent; otherwise the matching callback runs. `flush()` resolves after the last callback has run, so a caller that awaits it never overtakes the last submitted input. A task that fails in `MutationQueue` rejects its own promise and does not block later tasks.
 
-Every document-mutating `CoreApi` call (apply, transaction, focus, undo, redo, open, new, close, end of drag, save) runs through one `MutationQueue` per app, so the UI's order of edits is the core's order on both transports. Inspector previews and live rollback-marker drags (unlabeled `apply_edits` inside a transaction) go through a `LatestOnly` whose `send` enqueues on that queue, so they stay ordered with other mutations and coalesce while waiting. Sketch drags, sketch probes, evaluations and print analysis change nothing in the document; they use `LatestOnly` outside the queue.
+Every document-mutating `CoreApi` call (apply, rename parameter, transaction, focus, undo, redo, open, new, close, end of drag, save, mark saved) runs through one `MutationQueue` per app, so the UI's order of edits is the core's order on both transports. Inspector previews and live rollback-marker drags (unlabeled `apply_edits` inside a transaction) go through a `LatestOnly` whose `send` enqueues on that queue, so they stay ordered with other mutations and coalesce while waiting. Sketch drags, sketch probes, evaluations and print analysis change nothing in the document; they use `LatestOnly` outside the queue.
 
 ### 2.6 Core API
 
@@ -319,8 +321,8 @@ Every document-mutating `CoreApi` call (apply, transaction, focus, undo, redo, o
 
 ```ts
 import type {
-  CatalogEntry, DocHandle, Edit, ElementDescriptor, ExportFormat, Diagnostic,
-  Health, Pick, PointRef, PrinterProfile, Reference, Resolution, SketchParams, SketchSolution,
+  CatalogEntry, DocHandle, Edit, ElementDescriptor, ElementRef, ExportFormat, Diagnostic,
+  Health, Pick, PointRef, PrinterProfile, Resolution, SketchParams, SketchSolution,
   Units, Dimension, Orientation,
 } from '../generated/protocol'
 
@@ -330,9 +332,11 @@ export interface CoreApi {
   listPrinterProfiles(): Promise<readonly PrinterProfile[]>
   newDocument(units?: Units): Promise<DocHandle>
   openDocument(text: string): Promise<{ doc: DocHandle; migratedFrom: number | null }>
-  saveDocument(doc: DocHandle): Promise<string>
+  saveDocument(doc: DocHandle): Promise<{ text: string; revision: number }>
+  markSaved(doc: DocHandle, revision: number): Promise<void>
   closeDocument(doc: DocHandle): Promise<void>
   applyEdits(doc: DocHandle, label: string | null, edits: readonly Edit[]): Promise<number>
+  renameParameter(doc: DocHandle, parameter: string, name: string): Promise<number>
   beginTransaction(doc: DocHandle, label: string): Promise<void>
   setFocus(doc: DocHandle, feature: string | null): Promise<void>
   commitTransaction(doc: DocHandle): Promise<{ revision: number; recorded: boolean }>
@@ -344,7 +348,7 @@ export interface CoreApi {
   endSketchDrag(doc: DocHandle, feature: string, commit: boolean): Promise<number>
   evaluate(doc: DocHandle, expression: string): Promise<{ value: number; dimension: Dimension }>
   pickReference(doc: DocHandle, pick: Pick): Promise<ElementDescriptor>
-  resolveReferences(doc: DocHandle, references: readonly Reference[]): Promise<readonly Resolution[]>
+  resolveReferences(doc: DocHandle, references: readonly ElementRef[]): Promise<readonly Resolution[]>
   analyzePrint(doc: DocHandle, options: { profile?: string; orientation: Orientation }): Promise<Health | null>
   exportBodies(doc: DocHandle, format: ExportFormat, bodies?: readonly string[]): Promise<{ files: readonly ExportedFile[]; warnings: readonly Diagnostic[] }>
 }
@@ -386,6 +390,8 @@ export interface BodyMeshData {
   readonly edgePositions: Float32Array
   readonly edgeIds: Uint32Array
   readonly vertexPositions: Float32Array
+  /** Display vertex id of each vertex marker (the `index` of a vertex pick). */
+  readonly vertexIds: Uint32Array
   readonly faceCount: number
   readonly edgeCount: number
   readonly vertexCount: number
@@ -457,7 +463,7 @@ export interface DocumentState {
   readonly recipe: Document
   /** The core's dirty flag from document_changed. */
   readonly dirty: boolean
-  /** Set when the UI knows the latest text is not on disk although the core considers it saved (3.19). */
+  /** Set when the recipe was opened from a recovery copy or reopened after a core restart, so the core's baseline is not the file on disk; cleared by a successful save (3.19). */
   readonly localUnsaved: boolean
   readonly undoLabel: string | null
   readonly redoLabel: string | null
@@ -475,7 +481,7 @@ export interface DocumentState {
 export interface MeshInfo { readonly meshId: number; readonly boundingBox: BoundingBox; readonly faceCount: number; readonly edgeCount: number; readonly vertexCount: number }
 export interface FileRef { readonly name: string; readonly handle: FileSystemFileHandle | null }
 
-export type SelectionKind =
+export type SelectionItemKind =
   | 'face' | 'edge' | 'vertex' | 'body' | 'feature' | 'parameter'
   | 'sketch_region' | 'sketch_curve' | 'sketch_point' | 'sketch_constraint'
   | 'origin_plane' | 'origin_axis' | 'origin_point' | 'datum_plane'
@@ -483,11 +489,11 @@ export type SelectionKind =
 export interface SelectionItem {
   /** Stable key (3.6), equal for the same thing across rebuilds. */
   readonly key: string
-  readonly kind: SelectionKind
+  readonly kind: SelectionItemKind
   /** Display label, for example "Face of Cube" or "Line e-1a2b". */
   readonly label: string
   readonly body: string | null
-  /** Feature that owns the item: the sketch for sketch items, the datum, or the feature itself. */
+  /** Feature that owns the item: the sketch for sketch items, the datum, the feature itself, or, for faces, edges and vertices, `element.feature`. */
   readonly feature: string | null
   /** Element data for faces, edges and vertices (from pick_reference). */
   readonly element: ElementDescriptor | null
@@ -506,7 +512,7 @@ export type SketchItemRef =
   | { readonly kind: 'region'; readonly sketch: string; readonly region: RegionInfo }
   | { readonly kind: 'origin'; readonly sketch: string; readonly which: 'point' | 'x_axis' | 'y_axis' }
 
-export interface HoverTarget { readonly key: string; readonly kind: SelectionKind }
+export interface HoverTarget { readonly key: string; readonly kind: SelectionItemKind }
 
 export interface ActiveCommand {
   readonly featureType: string
@@ -542,8 +548,11 @@ export interface PrintState {
   readonly reportRevision: number | null
   readonly running: boolean
   readonly overhangMap: boolean
-  readonly focusedFinding: number | null
+  readonly focusedFinding: FindingKey | null
 }
+
+/** A finding of the print report: the `BodyPrint.body` id, the check, and the finding's index in that check's `findings`. */
+export interface FindingKey { readonly body: string; readonly check: string; readonly index: number }
 
 export interface ViewState {
   readonly projection: 'perspective' | 'orthographic'
@@ -684,14 +693,15 @@ export function setSessionVisible(app: App, key: string, visible: boolean): void
 
 // parameters.ts
 export function addParameter(app: App, name: string, expr: string): Promise<boolean>
-export function updateParameter(app: App, id: string, change: { name?: string; expr?: string; comment?: string | null }): Promise<boolean>
+export function renameParameter(app: App, id: string, name: string): Promise<boolean>
+export function updateParameter(app: App, id: string, change: { expr?: string; comment?: string | null }): Promise<boolean>
 export function deleteParameter(app: App, id: string): Promise<boolean>
 
 // print.ts
 export function setPrinter(app: App, profileId: string | null): Promise<void>
 export function setCheckHidden(app: App, check: string, hidden: boolean): void
 export function runPrintAnalysis(app: App): Promise<void>
-export function focusFinding(app: App, index: number): void
+export function focusFinding(app: App, finding: FindingKey): void
 
 // export.ts
 export function exportModel(app: App, request: ExportRequest): Promise<void>
@@ -830,9 +840,9 @@ export const TOOLBARS: Readonly<Record<AppContext, readonly ToolbarEntry[]>>
 
 The exact entries are in section 3.3. A toolbar entry whose command is not registered (a catalog without that feature type) is not rendered.
 
-`src/commands/features.ts` registers one command per catalog entry: id `feature.<type>`, title the manifest label, category from the manifest category (`create` Create, `modify` Modify, `pattern` Pattern, `construct` Construct, `sketch` Create), icon from `FEATURE_ICONS[manifest.icon]` (fallback `Shapes`), keywords from `FEATURE_KEYWORDS[type]`, shortcuts from `FEATURE_SHORTCUTS[type]` (3.5), contexts `model`, `sketch` and `print` (running it from Sketch or Print switches to Model first, 3.3). The `sketch` type's command runs `startNewSketch` instead of the inspector.
+`src/commands/features.ts` registers one command per catalog entry: id `feature.<type>`, title the manifest label, category from the manifest category (`create` Create, `modify` Modify, `pattern` Pattern, `construct` Construct, `sketch` Create), icon from `FEATURE_ICONS[manifest.icon]` (fallback `Shapes`), keywords from `FEATURE_KEYWORDS[type]`, shortcuts from `FEATURE_SHORTCUTS[type]` (3.5), contexts `model`, `sketch` and `print` (running it from Sketch or Print switches to Model first, 3.3). The `sketch` type's command runs `startNewSketch` instead of the inspector. The `import` type gets no command (STEP import UI is later). Its timeline item can be selected, renamed, suppressed and deleted; Edit is disabled with `import_not_editable` (4.3).
 
-`src/commands/icons.ts` maps manifest icon names (features.md 3.13) to lucide icons: `sketch` PencilRuler, `extrude` ArrowUpFromLine, `revolve` Rotate3d, `hole` CircleDot, `box` Box, `cylinder` Cylinder, `sphere` Globe, `cone` Cone, `torus` Torus, `fillet` SquareRoundCorner, `chamfer` Octagon, `shell` PackageOpen, `boolean` Combine, `move-body` Move3d, `split-body` SquareSplitVertical, `mirror` FlipHorizontal2, `linear-pattern` Columns3, `circular-pattern` Orbit, `datum-plane` Layers2. Constraint glyphs are an in-house set of 24 by 24 line icons drawn in the lucide style (2 px stroke, round caps and joins), one per constraint type, because lucide has no parallel, perpendicular or coincident symbols.
+`src/commands/icons.ts` maps manifest icon names (features.md 3.13) to lucide icons: `sketch` PencilRuler, `extrude` ArrowUpFromLine, `revolve` Rotate3d, `hole` CircleDot, `box` Box, `cylinder` Cylinder, `sphere` Globe, `cone` Cone, `torus` Torus, `fillet` SquareRoundCorner, `chamfer` Octagon, `shell` PackageOpen, `boolean` Combine, `move-body` Move3d, `split-body` SquareSplitVertical, `mirror` FlipHorizontal2, `linear-pattern` Columns3, `circular-pattern` Orbit, `datum-plane` Layers2, `import` FileInput. Constraint glyphs are an in-house set of 24 by 24 line icons drawn in the lucide style (2 px stroke, round caps and joins), one per constraint type, because lucide has no parallel, perpendicular or coincident symbols.
 
 `FEATURE_KEYWORDS`: `extrude` pad, pocket, extrusion; `revolve` revolution, groove, lathe; `hole` drill, counterbore, countersink; `fillet` round, radius; `chamfer` bevel; `shell` hollow, thickness; `boolean` combine, union, subtract, intersect, join, cut; `mirror` mirrored, symmetry; `linear_pattern` array, rectangular pattern; `circular_pattern` polar pattern, array; `datum_plane` construction plane, offset plane, work plane; `move_body` placement, translate, rotate; `split_body` slice, cut body; `box` cube, block; `cylinder` rod, pin; `sphere` ball; `cone` taper; `torus` ring, donut; `sketch` drawing, profile.
 
@@ -988,10 +998,10 @@ export function encodePickId(id: number): readonly [number, number, number, numb
 export function decodePickId(r: number, g: number, b: number, a: number): number
 
 export type PickClass = 'point' | 'curve' | 'area'
-export interface PickCandidate { readonly key: string; readonly kind: SelectionKind; readonly pickClass: PickClass; readonly distance: number }
+export interface PickCandidate { readonly key: string; readonly kind: SelectionItemKind; readonly pickClass: PickClass; readonly distance: number }
 
 /** The candidate the pointer means (section 3.6), or null. */
-export function choosePick(candidates: readonly PickCandidate[], accepts: (kind: SelectionKind) => boolean, radiusCss: number): PickCandidate | null
+export function choosePick(candidates: readonly PickCandidate[], accepts: (kind: SelectionItemKind) => boolean, radiusCss: number): PickCandidate | null
 
 /** What a pick resolved to before any core round trip. */
 export type PickResult =
@@ -1050,31 +1060,7 @@ export function gestureFor(preset: NavigationPreset, buttons: number, modifiers:
 
 ### 2.12 Inspector generation
 
-`src/inspector/manifest.ts` mirrors features.md 2.3 (the protocol carries manifests as untyped JSON, protocol.md open issue 4):
-
-```ts
-export type FieldUnit = 'length' | 'angle' | 'scalar' | 'count'
-export type ManifestSelection = 'body' | 'sketch' | 'sketch_region' | 'sketch_point' | 'face' | 'edge' | 'plane' | 'axis'
-export interface FieldHint {
-  readonly path: string
-  readonly label: string
-  readonly essential: boolean
-  readonly unit: FieldUnit | null
-  readonly selection: ManifestSelection | null
-  readonly options: readonly { readonly value: string; readonly label: string }[]
-}
-export interface FeatureManifest {
-  readonly label: string
-  readonly category: 'sketch' | 'create' | 'modify' | 'pattern' | 'construct'
-  readonly icon: string
-  readonly version: number
-  readonly fields: readonly FieldHint[]
-}
-/** Validates manifest JSON; missing optional members get their defaults; anything malformed throws ManifestError naming the path. */
-export function normalizeManifest(json: unknown): FeatureManifest
-```
-
-A catalog entry whose manifest or schema fails validation is left out of the catalog and reported once with `console.error`; the rest of the catalog loads.
+Feature manifests arrive typed: `FeatureManifest`, `Category`, `FieldHint`, `FieldUnit`, `SelectionKind` and `OptionHint` are the generated types of `src/generated/protocol.ts` (model.md; protocol.md 2.5 command 2), so the UI declares no mirror. Their optional members are optional properties, not `null` or `false`: the inspector treats an absent `essential` as false, an absent `unit` or `selection` as null and an absent `options` as empty. A catalog entry whose `params_schema` is not an object schema is left out of the catalog and reported once with `console.error`; the rest of the catalog loads.
 
 `src/inspector/model.ts`:
 
@@ -1083,7 +1069,7 @@ export type JsonSchema = Readonly<Record<string, unknown>>
 
 export type FieldControl =
   | { readonly type: 'expression'; readonly unit: FieldUnit }
-  | { readonly type: 'selection'; readonly accepts: ManifestSelection; readonly multiple: boolean; readonly min: number }
+  | { readonly type: 'selection'; readonly accepts: SelectionKind; readonly multiple: boolean; readonly min: number }
   | { readonly type: 'choice'; readonly options: readonly { value: string; label: string }[]; readonly presentation: 'segmented' | 'select' }
   | { readonly type: 'switch' }
   | { readonly type: 'text' }
@@ -1148,25 +1134,25 @@ Schema subset (draft 2020-12 as schemars 1 emits it). `buildInspectorModel` reso
 
 ```ts
 /** Whether a selection field accepts the item. */
-export function acceptsTarget(accepts: ManifestSelection, item: SelectionItem): boolean
+export function acceptsTarget(accepts: SelectionKind, item: SelectionItem): boolean
 /** The param value for the items, or null when they cannot form one. */
-export function selectionValue(accepts: ManifestSelection, items: readonly SelectionItem[], multiple: boolean): unknown
+export function selectionValue(accepts: SelectionKind, items: readonly SelectionItem[], multiple: boolean): unknown
 /** Selection items for an existing param value, used when editing (labels from the document). */
-export function itemsFromValue(accepts: ManifestSelection, value: unknown, state: AppState): readonly SelectionItem[]
+export function itemsFromValue(accepts: SelectionKind, value: unknown, state: AppState): readonly SelectionItem[]
 ```
 
 | Accepts | Items accepted | Value |
 | --- | --- | --- |
 | `body` | body rows; faces, edges and vertices (their body) | body id string; array of ids when `multiple` |
 | `sketch` | sketch features (timeline, browser), sketch curves and regions (their sketch) | sketch feature id |
-| `sketch_region` | regions of one sketch | `{"sketch": id, "regions": [{"key": <RegionKey>, "fp": <fingerprint>}, ...]}` in pick order; a region of another sketch replaces the list |
-| `sketch_point` | sketch points of one sketch | the point list shape defined by features/hole.md, built from `PointRef`s |
-| `face` | faces | `Reference` from `ElementDescriptor.reference`; array when `multiple` |
-| `edge` | edges | `Reference`; array when `multiple` |
+| `sketch_region` | regions of one sketch | `{"sketch": id, "regions": [RegionInfo.reference, ...]}`, each reference copied unchanged from the solution, in pick order; a region of another sketch replaces the list |
+| `sketch_point` | sketch points of one sketch | array of `PointRef` strings in pick order (features/hole.md `points`), all of one sketch; a point of another sketch replaces the list |
+| `face` | faces | `Reference` from `ElementDescriptor.reference`; array when `multiple` (the body goes in the sibling `body` field, rule below) |
+| `edge` | edges | `Reference`; array when `multiple` (body as for `face`) |
 | `plane` | origin planes, datum planes, faces whose `surface` is `plane` | `{"kind": "origin", "plane": "XY"}`, `{"kind": "datum", "feature": id}` or `{"kind": "face", "body": id, "face": <Reference>}` |
 | `axis` | origin axes, sketch lines, edges whose `curve` is `line`, faces whose `surface` is `cylinder`, `cone`, `sphere` or `torus` | `{"kind": "origin", "axis": "Z"}`, `{"kind": "sketch_line", "sketch": id, "line": id}`, `{"kind": "edge", "body": id, "edge": <Reference>}` or `{"kind": "face", "body": id, "face": <Reference>}` |
 
-When a `face` or `edge` field's parent object also has a `body` field (selection `body`) that is empty, the first accepted pick fills it with the item's body; later picks from another body are refused with the hint "Pick {kind}s of '{body name}', or clear Body first."
+When a `face` or `edge` field's parent object also has a `body` field (selection `body`) that is empty, the first accepted pick fills it with the item's body; later picks from another body are refused with the hint "Pick {kind}s of '{body name}', or clear Body first." Likewise a `sketch` field (selection `sketch`) beside a `sketch_point` field is set to the points' sketch.
 
 `src/inspector/placement.ts`:
 
@@ -1188,6 +1174,8 @@ export type FieldValue =
 /** Converts an evaluate() result for a field of the given unit, or explains why it does not fit. */
 export function convertForField(result: { value: number; dimension: Dimension }, unit: FieldUnit, units: Units, label: string, source: string): FieldValue
 ```
+
+`Dimension` is model.md's `{length, angle}` exponent pair: length is `{length: 1, angle: 0}`, angle `{length: 0, angle: 1}`, dimensionless `{length: 0, angle: 0}`, area `{length: 2, angle: 0}`; any other dimension is named `a mm^l rad^a` with zero exponents omitted and exponent 1 written without `^` (for example `a mm^3`).
 
 | Unit | Accepted | Value |
 | --- | --- | --- |
@@ -1256,9 +1244,13 @@ export function useExpression(text: string, unit: FieldUnit | 'any', label: stri
 ### 2.14 Sketch module
 
 ```ts
-// src/sketch/refs.ts: reserved references to the sketch origin and axes, as defined by sketch.md.
+// src/sketch/refs.ts: sketch.md's reserved references, fixed constants that constraints accept
+// wherever they take a point or a line (no stored entities; entity and constraint ids may not use these names).
+/** The sketch origin point, 'origin'. */
 export const ORIGIN_POINT: PointRef
+/** The sketch x axis, 'x_axis'. */
 export const X_AXIS: string
+/** The sketch y axis, 'y_axis'. */
 export const Y_AXIS: string
 
 // src/sketch/geometry.ts
@@ -1467,6 +1459,8 @@ Viewport tokens (read by `readViewportTheme`, not Tailwind utilities):
 | `analysis-high` | `#b91c1c` | `#ef4444` | Overhang color map at 90 degrees |
 
 Hover and selection use `accent`; problem highlights use `danger`. Edges are drawn in `#18181b` or `#e4e4e7`, whichever has the higher contrast ratio against the body's base color, so edges stay visible on any body color in either theme.
+
+Token values, the violet accent (chosen so selection stays distinct from the blue of under-constrained sketch geometry), the gray scale and the body swatches (3.10) need human review at the gate (technical design 17).
 
 `src/theme/theme.ts`:
 
@@ -1688,7 +1682,7 @@ Pick classes and priority (`choosePick`): `point` (vertex, sketch point, origin 
 
 Hover:
 
-- On `pointermove` with no button pressed and no camera gesture, at most once per animation frame, the controller calls `backend.pick` and `choosePick` with the accepted kinds, sets the hover target, and updates highlights. The viewport element mirrors it in `data-hover-kind` (`none` or a `SelectionKind`) and `data-hover-key`.
+- On `pointermove` with no button pressed and no camera gesture, at most once per animation frame, the controller calls `backend.pick` and `choosePick` with the accepted kinds, sets the hover target, and updates highlights. The viewport element mirrors it in `data-hover-kind` (`none` or a `SelectionItemKind`) and `data-hover-key`.
 - Mesh hover keys are `mesh:{meshId}:{face|edge|vertex}:{index}` and need no core call. The cursor is `pointer` over a pickable target.
 - Hovered faces are tinted with `accent` at 20 percent, hovered edges drawn 2.5 px in `accent` at 70 percent, hovered vertices as 7 px `accent` dots, hovered sketch items in `accent`.
 
@@ -1706,12 +1700,12 @@ Click (pointer down and up within 4 px and 400 ms, primary button):
 
 Double-click:
 
-- Face: edits the feature named by the first path segment of the face's element name (the text before the first `/`, features.md 3.9) when that is a feature id in the document; otherwise nothing.
+- Face: edits `element.feature` (protocol.md `ElementDescriptor.feature`) when it names a feature in the document; otherwise nothing.
 - Sketch curve, point or region in Model context: `enterSketch` for its sketch. Datum plane: `editFeature`. Anything else: nothing.
 
-Selection keys: faces, edges and vertices `element:{body id}:{element name}`; bodies `body:{id}`; features (timeline, sketches, datums in the browser) `feature:{id}`; datum planes picked in the viewport `feature:{id}` with kind `datum_plane`; sketch curves `sketch:{sketch id}:{entity id}`; sketch points `point:{sketch id}:{point ref}`; regions `region:{sketch id}:{key joined by "|" and ","}`; constraints `constraint:{sketch id}:{constraint id}`; origin items `origin:XY`, `origin:XZ`, `origin:YZ`, `origin:X`, `origin:Y`, `origin:Z`, `origin:O`; parameters `parameter:{id}`.
+Selection keys: faces, edges and vertices `element:{body id}:{element name}`; bodies `body:{id}`; features (timeline, sketches, datums in the browser) `feature:{id}`; datum planes picked in the viewport `feature:{id}` with kind `datum_plane`; sketch curves `sketch:{sketch id}:{entity id}`; sketch points `point:{sketch id}:{point ref}`; regions `region:{sketch id}:{RegionInfo.reference.key}`; constraints `constraint:{sketch id}:{constraint id}`; origin items `origin:XY`, `origin:XZ`, `origin:YZ`, `origin:X`, `origin:Y`, `origin:Z`, `origin:O`; parameters `parameter:{id}`.
 
-Selection after rebuilds: when model-layer meshes change, the UI calls `resolveReferences` for the references of selected faces, edges and vertices. Resolved items keep their selection and are highlighted at the matched display ids; missing or ambiguous items leave the selection silently. Features, bodies and sketch items leave the selection when they no longer exist in the recipe or solution.
+Selection after rebuilds: when model-layer meshes change, the UI calls `resolveReferences` with `{body, reference}` of each selected face, edge and vertex (from its `ElementDescriptor`). Resolved items keep their selection and are highlighted at the matched display ids; missing or ambiguous items leave the selection silently. Features, bodies and sketch items leave the selection when they no longer exist in the recipe or solution.
 
 Selected faces are tinted with `accent` at 35 percent; selected edges drawn 2.5 px in `accent`; selected vertices as 7 px `accent` dots. The viewport element mirrors the selection size in `data-selection-count`. A polite live region announces "{label} selected", "{n} items selected" or "Selection cleared", debounced by 500 ms.
 
@@ -1726,19 +1720,19 @@ Starting a new feature (`startFeatureCommand(type)`):
 5. The active field is the first selection field that is required and empty, skipping a `body` field whose parent object also has a `face` or `edge` field (the first pick fills it, 2.12); if none, focus goes to the first essential expression field with its text selected.
 6. The inspector opens (placement below). If the params are complete, the first preview is applied at once.
 
-Editing an existing feature (`editFeature(id)`): a `sketch` feature enters sketch mode instead. Otherwise: cancel an active command, `beginTransaction(doc, 'Edit {label}')`, `setFocus(doc, id)`, take `params` from the record, mark the command `applied`, and open the inspector titled with the feature label. Selection fields show `itemsFromValue` and their references are highlighted through `resolveReferences` on the model layer (which shows the state before the feature). If `setFocus` fails with `focus_inactive`, the transaction is canceled and the core's message is shown as an error notification with the action "Unsuppress" (suppressed feature: unsuppresses it and retries the edit) or "Move marker to the end" (rolled-back feature: sets the rollback to the end and retries).
+Editing an existing feature (`editFeature(id)`): a `sketch` feature enters sketch mode instead. Otherwise: cancel an active command, `beginTransaction(doc, 'Edit {label}')`, `setFocus(doc, id)`, take `params` from the record, mark the command `applied`, and open the inspector titled with the feature label. Selection fields show `itemsFromValue` and their references are highlighted through `resolveReferences`, each reference paired with its sibling `body` param (features.md 2.5 shapes), on the model layer (which shows the state before the feature). If `setFocus` fails with `focus_inactive`, the transaction is canceled and the core's message is shown as an error notification with the action "Unsuppress" (suppressed feature: unsuppresses it and retries the edit) or "Move marker to the end" (rolled-back feature: `set_rollback` with no id, so nothing is rolled back, then retries).
 
 Preview cycle: every field change recomputes local field errors (expression states, selection minimums). When the params are complete (every required field set, no field error, no expression pending), the UI submits a preview through a `LatestOnly` over `applyEdits(doc, null, edits)`:
 
-- First application: `add_body` (when op is `new` and the body field is empty: a new body with a `b-` id and `nextBodyName`; the `body` param is set to it), then `add_feature` with the record `{ id, type, ...params }` (no name) at index `features.length` when `rollback` is null, else at the rollback feature's index plus 1 followed by `set_rollback` to the new id; then `setFocus(doc, id)`.
+- First application: `add_body` at index `bodies.length` (when op is `new` and the body field is empty: a new body with a `b-` id and `nextBodyName`; the `body` param is set to it), then `add_feature` with the record `{ id, type, ...params }` (no name) at index `features.length` when `rollback` is null, else at the rollback feature's index (the new feature is active; no `set_rollback`); then `setFocus(doc, id)`.
 - Later applications: `update_feature` with the full record. Switching op away from `new` removes the body this command created (`remove_body`) and sets `body` to `lastTargetBody`; switching back to `new` adds a fresh body.
 - The response's events update the store: `recomputed` gives the feature's status; `body_mesh` events with layer `preview` carry the preview geometry, shown as normal shaded bodies; the model layer shows the state before the feature and stays pickable.
 - Incomplete or invalid params after an application hide the preview layer (nothing applied); the next complete state applies again.
 - `ps:preview` measures from the change to the drawn preview.
 
-The inspector shows the focused feature's status messages in a banner (`data-testid="inspector-error"`): errors with `role="alert"` and `danger` styling, warnings with `warning` styling. Each message is followed by the fix actions in 4.2.
+The inspector shows the focused feature's status messages in a banner (`data-testid="inspector-error"`): errors with `role="alert"` and `danger` styling, warnings with `warning` styling. Each message is followed by the fix actions in 4.2. A message whose `field` maps to a shown field is also shown as that field's `field-error`. A message with a `suggestion` adds the action "Use {suggestion}", which calls `setCommandField(path, suggestion)` with the path of the field whose pointer equals `field` (suggestions are only made for such scalar fields). Mapping rule: a hint path `a.b[1]` is the pointer `/a/b/1`; the field is the hint whose pointer equals `field`, else the hint whose pointer is the longest whole-segment prefix of it (so `/edges/1` maps to `edges`). The same rule finds the field for `Repair.path`.
 
-Confirming (Enter ladder, or the OK button): allowed only when complete. A waiting preview is applied first (awaited). Then `commitTransaction(doc)`, the inspector closes, the command clears and focus returns to where it was before the command. A sketch referenced by the committed params through a `sketch` key is hidden for the session (3.10). If the committed feature's status is `error`, the failure notification of 4.2 appears.
+Confirming (Enter ladder, or the OK button): allowed only when complete. `flush()` of the preview `LatestOnly` is awaited first, so the latest params are applied. Then `commitTransaction(doc)`, the inspector closes, the command clears and focus returns to where it was before the command. A sketch referenced by the committed params through a `sketch` key is hidden for the session (3.10). If the committed feature's status is `error`, the failure notification of 4.2 appears.
 
 Canceling (Esc ladder, the Cancel button or the close button): `cancelTransaction(doc)`, the inspector closes, nothing is recorded.
 
@@ -1783,7 +1777,7 @@ Suggested commands run the command with the selection preselected.
 
 ### 3.9 Timeline
 
-Layout, left to right: collapse button ("Collapse timeline" / "Expand timeline"); the items in timeline order with the rollback marker in the gap after the last active feature; at the right end, the problems button (`data-testid="timeline-problems"`, text "1 problem" or "{n} problems", hidden when there are none). The item strip scrolls horizontally; a newly added item and the marker scroll into view.
+Layout, left to right: collapse button ("Collapse timeline" / "Expand timeline"); the items in timeline order with the rollback marker in the gap before the rollback feature (the first rolled-back feature; at the end when nothing is rolled back); at the right end, the problems button (`data-testid="timeline-problems"`, text "1 problem" or "{n} problems", hidden when there are none). The item strip scrolls horizontally; a newly added item and the marker scroll into view.
 
 Items (`data-testid="timeline-item"`, `data-feature-id`, `data-status` from the latest `recomputed` status (`ok`, `warning`, `error`, `suppressed`, `rolled_back`), or `pending` before the first status for a new feature, `data-suppressed`, `data-rolled-back`):
 
@@ -1795,13 +1789,13 @@ Items (`data-testid="timeline-item"`, `data-feature-id`, `data-status` from the 
 Interactions:
 
 - Click selects the feature (Shift or Mod toggles). Double-click or Enter edits it (`editFeature`). F2 renames inline: a text field over the item; Enter commits `update_feature` with the new `name` (label "Rename"); an empty name removes `name` (the default label returns); Esc cancels.
-- Context menu (right-click, Shift+F10, ContextMenu key; `role="menu"`, `data-testid="context-menu"`): Edit, Rename, Suppress or Unsuppress, Roll back to here, Delete.
+- Context menu (right-click, Shift+F10, ContextMenu key; `role="menu"`, `data-testid="context-menu"`): Edit, Rename, Suppress or Unsuppress, Roll back to here, Delete. "Roll back to here" moves the marker to the gap after the item, so the item stays active (`setRollback` with the item's 1-based position).
 - Suppress: `update_feature` with `suppressed: true` (label "Suppress {label}"); unsuppress likewise ("Unsuppress {label}"). Several selected features change in one edit.
-- Delete (Delete key or menu): one `apply_edits` labeled "Delete {label}" or "Delete {n} features" with `remove_feature` edits; when the rollback feature is among them, a `set_rollback` to the nearest earlier active feature that is not deleted (or the end, when none) comes first. An info notification "Deleted {label}." offers "Undo".
+- Delete (Delete key or menu): one `apply_edits` labeled "Delete {label}" or "Delete {n} features" with `remove_feature` edits; when the rollback feature is among them, a `set_rollback` to the nearest later feature that is not deleted (no id when none) comes first. An info notification "Deleted {label}." offers "Undo".
 - Reorder: pressing an item and moving more than 4 px horizontally starts a drag: a ghost follows the pointer and an insertion bar marks the nearest gap. Dropping at gap g (0 to N) moves the feature to index g when g is less than its current index, else g minus 1; the same position does nothing. The edit is `move_feature` labeled "Reorder". Esc cancels the drag. The core does not check dependencies when moving (model.md 3.9); a feature that now comes before something it uses fails and triggers the failure notification of 4.2, whose "Undo" restores the order.
-- Rollback marker (`data-testid="timeline-marker"`): an 8 px handle with a 2 px `accent` line, `role="slider"`, `aria-label="Rollback marker"`, `aria-valuemin="1"`, `aria-valuemax` the feature count, `aria-valuenow` the number of active features, `aria-valuetext` "After {label}" or "At the end". Position p (1 to N) means features 1 to p are active; p = N writes `set_rollback` with no id (the end of the timeline), p < N writes the id of feature p.
+- Rollback marker (`data-testid="timeline-marker"`): an 8 px handle with a 2 px `accent` line, `role="slider"`, `aria-label="Rollback marker"`, `aria-valuemin="0"`, `aria-valuemax` the feature count, `aria-valuenow` the number of active features, `aria-valuetext` "At the start" (p = 0), "After {label}" (the label of feature p) or "At the end" (p = N). Position p (0 to N) means features 1 to p are active; p = N writes `set_rollback` with no id, p < N writes the id of feature p + 1 (the first rolled-back feature).
   - Dragging: `beginTransaction(doc, 'Roll back')`, then on every gap change a `LatestOnly` `apply_edits` with the `set_rollback`, so the model updates live; dropping commits; Esc cancels the transaction. Dropping at the starting gap cancels.
-  - Keys: ArrowLeft and ArrowRight move by one gap, Home to position 1, End to the end; each key press applies its own edit labeled "Roll back".
+  - Keys: ArrowLeft and ArrowRight move by one gap, Home to position 0, End to the end; each key press applies its own edit labeled "Roll back".
 - Collapsed (28 px): only the expand button, the text "{n} features" and the problems button remain.
 - Keyboard: the strip is a toolbar with one tab stop; Left and Right move focus between items and the marker; Space selects; Mod+Space toggles.
 
@@ -1843,8 +1837,8 @@ Behavior:
 The side panel `parameters` (`data-testid="parameters-panel"`, title "Parameters", close button) opens from the browser's "Edit parameters" button, a parameter row, or the palette command "Parameters".
 
 - One row per parameter (`data-testid="parameter-row"`, `data-id`): name field ("Name of {name}"), expression field (`ExpressionInput` with unit `any`, "Expression of {name}"), value (`data-testid="parameter-value"`: the `recomputed` value formatted by its dimension, or the error message in `danger-fg` with a `circle-x` icon), comment field ("Comment of {name}"), delete button ("Delete {name}").
-- `ExpressionInput` with unit `any` accepts every dimension and shows `= {value}` formatted by the returned dimension: length and angle as in 2.13, dimensionless as a scalar, any other dimension as `{value} ({dimension})` in internal units.
-- Name: Enter or blur commits `update_parameter` (label "Rename parameter {old} to {new}") when changed. Locally, a name that does not match `^[A-Za-z_][A-Za-z0-9_]*$` or is longer than 64 characters shows "Names start with a letter or _ and use only letters, digits and _." and is not sent; other rules (reserved names, uniqueness) come back as the core's error message under the field. Esc reverts.
+- `ExpressionInput` with unit `any` accepts every dimension and shows `= {value}` formatted by the returned dimension: length and angle as in 2.13, dimensionless as a scalar, any other dimension as `{value} mm^l rad^a` in internal units (zero exponents omitted, exponent 1 without `^`).
+- Name: Enter or blur calls `renameParameter` when changed; the core rewrites every expression that uses the old name and labels the undo entry "Rename parameter {old} to {new}". Locally, a name that does not match `^[A-Za-z_][A-Za-z0-9_]*$` or is longer than 64 characters shows "Names start with a letter or _ and use only letters, digits and _." and is not sent; other rules (reserved names, uniqueness) come back as the core's error message under the field. Esc reverts.
 - Expression: Enter or blur commits `update_parameter` (label "Change {name}") when valid and changed; Esc reverts.
 - Comment: Enter or blur commits (label "Change comment of {name}"); empty removes the comment.
 - "Add parameter" appends a draft row whose name field is focused; Enter in the name moves to the expression (default text empty); Enter in a valid expression commits `add_parameter` at the end (label "Add parameter {name}"); Esc discards the draft.
@@ -1913,16 +1907,16 @@ Passes, in order:
 #### 3.16.1 Entering
 
 - `startNewSketch`: when the selection is exactly one plane-like item (origin plane, datum plane, or a face whose `surface` is `plane`), `createSketchOn(item)`. Otherwise the app enters plane picking: context Sketch with `sketchId` null, the sketch header reading "Pick a plane or a flat face", origin planes shown, and only origin planes, datum planes and faces accepted. A face that is not flat shows the hint "Pick a flat face, a datum plane or an origin plane." Clicking a browser origin plane or datum row works too. Esc returns to Model.
-- `createSketchOn(item)`: commits one `apply_edits` labeled "New sketch" with `add_feature` of a `sketch` record whose `plane` is the `PlaneRef` for the item (`selectionValue('plane', ...)`), plus the fallback frame from the face's `ElementDescriptor.placement` for faces, in sketch.md's shape, with empty entities and constraints; inserted by the marker rule of 3.7 (with `set_rollback` when the marker is set). Then `enterSketch(new id)`.
+- `createSketchOn(item)`: commits one `apply_edits` labeled "New sketch" with `add_feature` of a `sketch` record whose `plane` is sketch.md's `SketchPlane` for the item: `{"kind": "origin", "plane": "XY"}`, `{"kind": "datum", "feature": id}` or, for a face, `{"kind": "face", "body": id, "face": <Reference>, "fallback": <Placement>}` with the fallback from the face's `ElementDescriptor.placement`; empty entities and constraints; inserted by the marker rule of 3.7. Then `enterSketch(new id)`.
 - `enterSketch(id)`: cancels an active command, sets context Sketch, shows the sketch for the session, gets its solution (`sketch_solved` events or `solveSketch(doc, id)`), and moves the camera: `lookAlong` the placement normal with the placement y-axis up, then, when the sketch has entities, frames their bounds in the sketch plane (`fitBounds`, margin 0.1); an empty sketch keeps the visible height and targets the placement origin. The projection is kept. The camera before entering is pushed as a sketch view entry (3.20). Downstream features stay visible and recompute after each sketch edit.
 
 #### 3.16.2 Display
 
-- Active sketch curves: overlay lines 1.5 px (times the UI scale) colored by `SolvedEntity.constrained`: `under` `sketch-under`, `full` `sketch-full`, `conflicting` `sketch-conflict`. Construction entities are dashed (6 px dash, 4 px gap). Hovered and selected curves are 2.5 px in `accent`. Circles and arcs are tessellated by the UI from entity data with a chord tolerance of 0.25 CSS px, re-tessellated when the scale changes by more than a factor 1.5.
+- Active sketch curves: overlay lines 1.5 px (times the UI scale) colored by `SolvedEntity.constrained` (sketch.md `EntityState`): `under_constrained` `sketch-under`, `fully_constrained` `sketch-full`, `conflicting` `sketch-conflict`. Construction entities are dashed (6 px dash, 4 px gap). Hovered and selected curves are 2.5 px in `accent`. Circles and arcs are tessellated by the UI from entity data with a chord tolerance of 0.25 CSS px, re-tessellated when the scale changes by more than a factor 1.5.
 - Points: line ends and arc ends as 5 px squares and centers as 5 px crosses in their entity's color; point entities as 6 px filled circles; points shared by a coincident constraint as filled squares; hovered and selected points 7 px in `accent`.
-- The origin point (9 px cross) and the X and Y axes (dashed lines across the view) in `sketch-reference`, pickable for snapping and constraints.
+- The origin point (9 px cross) and the X and Y axes (dashed lines across the view) in `sketch-reference`, pickable for snapping and constraints, which refer to them by sketch.md's reserved references `origin`, `x_axis` and `y_axis` (2.14).
 - Closed regions filled with `sketch-region` at 12 percent from the solution's display buffers; hovered regions at 20 percent.
-- Profile issues: each issue with `at` gets a 12 px ring in `danger` (DOM, `data-testid="profile-issue"`, title "Open end", "Overlapping curves" or "Curves cross" for `open_loop`, `overlap`, `self_intersection`); the entities of every issue get a 4 px `danger` halo at 30 percent.
+- Profile issues: each `profile_findings` entry gets a 12 px `danger` ring (DOM, `data-testid="profile-issue"`): `open_endpoint` at `point` ("Open end"), `overlap` at the midpoint of `start` and `end` ("Overlapping curves"), `self_intersection` at `point` ("Curves cross"); `zero_length` gets no ring; the entities named by `entity` or `entities` get a 4 px `danger` halo at 30 percent.
 - Other visible sketches draw in `sketch-reference` and are not pickable in sketch mode.
 - Constraint glyphs (when "Show constraints" is on, the default; palette command "Show constraints" toggles it): one DOM button per geometric constraint except `coincident` and `point_on_object` (which have no glyph; the shared point is drawn filled), 18 px (times the UI scale), `data-testid="constraint-glyph"`, `data-constraint-id`, `data-type`, `data-state` (`satisfied`, `redundant`, `conflicting`, `unsatisfied`), accessible name the constraint title. Placement: anchored at the midpoint of the first constrained curve (lines), the point at 45 degrees on circles and arcs, or the point itself, offset 14 px perpendicular to the curve on screen; further glyphs on the same anchor stack 20 px apart along the curve. Style: icon in `fg-muted` on a `surface-raised` pill at 90 percent opacity; `warning` when redundant, `danger` when conflicting. Hovering highlights the constrained items; clicking selects the constraint.
 - Dimensions: dimension geometry (extension lines, dimension line with 8 px arrowheads, radius or diameter leader, angle arc) in `sketch-reference` at 1 px, plus a DOM label button (`data-testid="sketch-dimension"`, `data-constraint-id`, `data-type`, `data-driving`) at the label position (stored by sketch.md if it stores one, else `defaultLabelPosition`). Label text: `formatNumber` of the solved value without unit; prefixed `⌀` for diameter and `R` for radius; suffixed `°` for angles; a non-plain-number expression is prefixed `fx ` (`fx 40`); reference dimensions are wrapped in parentheses (`(40)`). Pill `surface-raised` at 90 percent with `fg` text; `danger-fg` when conflicting, `warning-fg` when redundant. Double-click or Enter opens the dimension editor.
@@ -1934,8 +1928,8 @@ Passes, in order:
 - `commitSketchChange(label, change)`:
   1. Builds candidate params: current entities and constraints plus the change.
   2. Calls `solveSketch(doc, sketch, candidate)`. When a `requested` constraint id is in `conflicting` or `redundant`, returns `over_constrained` and applies nothing. When `inferred` ids are, removes them and solves once more.
-  3. Calls `applyEdits(doc, label, [update_feature])` with the candidate params whose entities carry the solved geometry (each `SolvedEntity` without `constrained`).
-  4. A `failed` status, or a `sketch_failed` error, returns `failed` with the solver's message; nothing is applied.
+  3. Calls `applyEdits(doc, label, [update_feature])` with the candidate params whose entities carry the solved geometry (each `SolvedEntity` without `constrained`); for a sketch on a face, `plane.fallback` is set to `solution.placement`.
+  4. A solution with `failed` true, or an `invalid_params` or `expression_error` `CoreError`, returns `failed` with the solver's or the core's message; nothing is applied.
 - Labels: "Line", "Rectangle", "Circle", "Arc", "Point", the constraint title, "Dimension", "Change dimension", "Construction", "Delete". Drags are committed by `end_sketch_drag` (the core labels them).
 
 #### 3.16.4 Drawing tools
@@ -1996,12 +1990,12 @@ Commands `sketch.constrain_<type>` in this order: Coincident, Point on object, H
 - While placing, the dimension draws with its measured value. The placing click opens the dimension editor (`data-testid="dimension-editor"`): a text input "Dimension value" prefilled with `formatNumber(measuredValue)` (selected), a toggle button "Reference" (`aria-pressed`), and for circles and arcs a segmented "Diameter | Radius". Enter commits a dimension with the text as its expression and `driving` true unless Reference is pressed; the text is validated live as an expression of the dimension's unit (length or angle) and an invalid text keeps the editor open with the message.
 - When the probe finds the new driving dimension redundant or conflicting, the editor stays open and shows, with `role="alert"`, "This dimension would over-constrain the sketch. Add it as a reference dimension that only measures?" and the buttons "Add reference" (commits it with `driving` false) and "Cancel".
 - The tool stays active after a commit. Esc closes the editor without adding anything.
-- Editing an existing dimension (double-click its label, Enter on the focused label, or the selection inspector) opens the editor prefilled with the stored expression text; Enter commits a replacement labeled "Change dimension". When the probe reports status `over_constrained` or `failed`, the editor keeps the text and shows "The sketch cannot be solved with this value. Check for dimensions that cannot all be true at once."
+- Editing an existing dimension (double-click its label, Enter on the focused label, or the selection inspector) opens the editor prefilled with the stored expression text; Enter commits a replacement labeled "Change dimension". When the probe reports a non-empty `conflicting` list or `failed` true, the editor keeps the text and shows "The sketch cannot be solved with this value. Check for dimensions that cannot all be true at once."
 
 #### 3.16.8 DOF display
 
 - Entity colors come from `SolvedEntity.constrained` (3.16.2).
-- The sketch header (`data-testid="sketch-header"`, a button at the viewport's top center, `data-state`, `data-dof`) shows the sketch label and a status: `empty` "No geometry yet"; `under` "{n} DOF"; `full` "Fully constrained"; `conflict` "{n} conflicting constraints" in `danger-fg`; `failed` "Cannot solve" in `danger-fg`. When the solution has redundant constraints, " · {n} redundant" follows in `warning-fg`. During plane picking it shows "Pick a plane or a flat face" with `data-state="picking"`.
+- The sketch header (`data-testid="sketch-header"`, a button at the viewport's top center, `data-state`, `data-dof`) shows the sketch label and a status. `data-state` is the first that applies: `empty` "No geometry yet" (no entities); `conflict` "{n} conflicting constraints" in `danger-fg` (`conflicting` non-empty); `failed` "Cannot solve" in `danger-fg` (`failed` true); `full` "Fully constrained" (`dof` 0); `under` "{n} DOF". A `status` of `redundant` maps by the same rules. When the solution has redundant constraints, " · {n} redundant" follows in `warning-fg`. During plane picking it shows "Pick a plane or a flat face" with `data-state="picking"`.
 - Clicking the header opens a popover (`data-testid="sketch-problems"`) listing conflicting and redundant constraints (title and a "Delete" button each) and profile issues (text and a "Show" button that frames the issue).
 - The status bar shows `status-dof` (3.21).
 
@@ -2009,8 +2003,8 @@ Commands `sketch.constrain_<type>` in this order: Coincident, Point on object, H
 
 - With no tool active, pressing on a point of the active sketch and moving more than 3 px drags it. Points only in M1; pressing on a curve starts nothing.
 - Each pointer move maps the cursor to sketch coordinates (no inference) and submits `dragSketch(doc, sketch, pointRef, to)` through a `LatestOnly`. Each non-null solution redraws the sketch in the next frame (`ps:sketch-drag`).
-- Release: when at least one drag request was sent, `endSketchDrag(doc, sketch, true)` through the mutation queue (one undo entry); otherwise nothing. Esc during the drag: `endSketchDrag(doc, sketch, false)` and the stored geometry is redrawn.
-- Over a point whose entity is `full`, the cursor is `not-allowed`.
+- Release: when at least one drag request was sent, the UI awaits the drag `LatestOnly`'s `flush()`, then `endSketchDrag(doc, sketch, true)` through the mutation queue (one undo entry); otherwise nothing. Esc during the drag: `endSketchDrag(doc, sketch, false)` and the stored geometry is redrawn.
+- Over a point whose entity is `fully_constrained`, the cursor is `not-allowed`.
 - Pressing on empty space and moving more than 3 px draws a selection rectangle (`data-testid="box-selection"`). Dragging right (end x at or above start x) is a window selection: entities whose every point and tessellation vertex lie inside. Dragging left is a crossing selection (dashed border): entities with any part inside. Shift or Mod toggles the result into the sketch selection; otherwise it replaces it.
 
 #### 3.16.10 Sketch selection and deletion
@@ -2041,32 +2035,33 @@ Health badge (`data-testid="health-badge"`, a button in the status bar, `data-st
 | --- | --- | --- | --- |
 | `none` | No report yet | `circle-dashed`, "Check print" | "Print health: not checked" |
 | `running` | Analysis in flight | `loader-circle` (spinning unless reduced motion), "Checking" | "Print health: checking" |
-| `ok` | No shown findings | `circle-check` in `success`, "Ready to print" | "Print health: no problems" |
+| `ok` | No shown errors or warnings | `circle-check` in `success`, "Ready to print" | "Print health: no problems" |
 | `warning` | Shown warnings, no shown errors | `triangle-alert` in `warning`, "1 warning" or "{n} warnings" | "Print health: {n} warning(s)" |
 | `error` | Shown errors | `circle-x` in `danger`, "1 error" or "{n} errors" | "Print health: {e} error(s), {w} warning(s)" |
 
-A report whose revision differs from the document revision is stale: the badge keeps its state, draws at 50 percent opacity, sets `data-stale="true"`, appends " (out of date)" to its text and ", out of date" to its name. Clicking the badge in any state runs the analysis when stale or absent, and opens the health panel.
+The badge counts the errors and warnings of non-hidden checks over every `report.bodies[i].report.checks[j]`, adding each check's `omitted` to the count of its listed findings' severity; info findings never change the badge. A report whose revision differs from the document revision is stale: the badge keeps its state, draws at 50 percent opacity, sets `data-stale="true"`, appends " (out of date)" to its text and ", out of date" to its name. Clicking the badge in any state runs the analysis when stale or absent, and opens the health panel.
 
 Health panel (side panel `health`, `data-testid="health-list"`):
 
 - Header: the profile name and a "Check again" button.
-- Rows (`data-testid="health-item"`, `data-check`, `data-severity`): severity icon, the finding's message verbatim, the body name in `fg-muted`. Sorted by severity (errors first), then by the check order above, then report order. Hidden checks are left out.
-- Clicking a row or pressing Enter on it focuses the finding: with a `location`, the camera frames a cube of side `max(20 mm, 0.25 × the body's bounding-box diagonal)` centered there (`zoomToBounds`, margin 0.3) and a 16 px `danger` ring marker (`data-testid="finding-marker"`) is drawn at the location; without one, the body's bounding box is framed. The marker stays until another row is chosen, the panel closes or the document changes.
+- Rows (`data-testid="health-item"`, `data-check`, `data-severity`): rows come from `report.bodies[i].report.checks[j].findings[k]`; the body name comes from `bodies[i].body`, `data-check` from `checks[j].check`, and `data-severity` from the finding (`info`, `warning`, `error`; info rows use the `info` icon). Each row shows the severity icon, the finding's message verbatim and the body name in `fg-muted`. Sorted by severity (errors first), then by the check order above, then report order. Hidden checks are left out.
+- Clicking a row or pressing Enter on it focuses the finding (`focusFinding` with its `FindingKey`): the camera frames a cube of side `max(20 mm, 0.25 × the body's bounding-box diagonal)` centered at `location.at` (a point location) or the center of `location.min` to `location.max` (a bounds location) (`zoomToBounds`, margin 0.3), and a 16 px `danger` ring marker (`data-testid="finding-marker"`) is drawn there. Print findings always have a location. The marker stays until another row is chosen, the panel closes or the document changes.
 - Empty: "No problems found with {profile name}." With no body that has geometry: "Add a body to check it for printing."
 
 Overhang map and legend:
 
 - Shown in Print context while Overhangs is on and the overhangs check is not hidden. For each `BodyPrint` whose `mesh_id` equals the body's current model-layer mesh id, its overhang buffer is set as the body's scalar field (3.12 pass 3); a body whose mesh changed since the report shows no map until the next report.
-- The limit `a` is the `limit` of the report's `overhangs` findings when present, else the profile's maximum overhang angle (print.md).
+- The limit `a` is the `limit` of the first finding of an `overhangs` check in the report when present, else the profile's `max_overhang_angle` (print.md).
 - Legend (`data-testid="overhang-legend"`, bottom-left of the viewport): title "Overhangs", a gradient from `analysis-low` to `analysis-high`, labels "{a}°" and "90°" (degrees with `formatNumber`), and the caption "Faces steeper than {a}° from vertical need support."
 
-Bed outline: in Print context, after a report, the bed rectangle of the report's profile (print.md bed size) at z = 0 in bed coordinates, mapped into model coordinates by the inverse of the first `BodyPrint.transform`, drawn 1.5 px in `bed`, depth-tested.
+Bed outline: in Print context, after a report, the bed outline of the report's profile (the `printers` entry with id `report.profile`): the rectangle [0, width] × [0, depth], or the circle of `diameter` around the bed origin, at z = 0 in bed coordinates, mapped into model coordinates by the inverse of the first `BodyPrint.transform`, drawn 1.5 px in `bed`, depth-tested.
 
 ### 3.18 Export
 
+- While a feature command is active, the export commands are disabled with `finish_command_first` (export uses the model state, which ignores the focus).
 - The top-bar Export button, `Mod+Shift+E` and the Document menu open the export popover (`data-testid="export-popover"`): Format (radio group 3MF, STL, OBJ, STEP; default 3MF), Bodies (radio group "All visible bodies", "Selected bodies"; the second is disabled unless bodies are selected), and an "Export" button.
 - The Print toolbar's "Export 3MF" exports 3MF of all visible bodies directly; its Export group exports STL, OBJ or STEP of all visible bodies directly.
-- `exportModel(request)`: the bodies are the visible bodies with model-layer geometry, or the selected bodies. With none, the error notification "There is no visible body with geometry to export." appears and the core is not called. Otherwise `exportBodies(doc, format, bodies)` with `{"format": "3mf"}`, `{"format": "stl", "binary": true, "per_body": false}`, `{"format": "obj", "per_body": false}` or `{"format": "step"}`.
+- `exportModel(request)`: the bodies are the visible bodies with model-layer geometry, or the selected bodies. With none, the error notification "There is no visible body with geometry to export." appears and the core is not called. Otherwise `exportBodies(doc, format, bodies)` with `{"kind": "3mf"}`, `{"kind": "stl", "binary": true, "per_body": false}`, `{"kind": "obj", "per_body": false}` or `{"kind": "step"}`.
 - The single returned file is saved with `files.chooseSaveTarget('{document name}.{3mf|stl|obj|step}', kind)` and `files.write`. A canceled picker does nothing. Success shows the info notification "Exported {file name}." Each warning diagnostic shows a warning notification with its message. A `CoreError` shows its message as an error notification.
 
 ### 3.19 Files
@@ -2080,8 +2075,8 @@ Bed outline: in Print context, after a report, the bed rectangle of the report's
   2. The bytes decode as UTF-8 with `fatal: true`; failure shows "{file} could not be read as text." and stops.
   3. `openDocument(text)`. A `CoreError` shows "Could not open {file}. {core message}" and the current document stays.
   4. On success: stash the old document if dirty (above), close it, adopt the new handle and name, remember the file in recent files (handle, or text when there is no handle), switch to Model, set the camera to `iso` and fit the visible bounds, mark `ps:open`. With `migratedFrom`, the info notification "{file} was updated from format version {n}. Saving writes the current format."
-- Save (`Mod+S`): with a file handle, `saveDocument(doc)` and `files.write({ kind: 'handle', ... }, 'ptsm', utf8)`; without one, Save as. Success sets `localUnsaved` false and clears the recovery store. A `FileServiceError` sets `localUnsaved` true and shows: permission: "Could not save {file} because Partsmith no longer has permission to write it." (action "Save as"); not_found: "{file} was moved or deleted. Save it again to choose a location." (action "Save as"); io: "Could not save {file}: {reason}" (action "Save as").
-- Save as (`Mod+Shift+S`): `files.chooseSaveTarget('{name}.ptsm', 'ptsm')` first (a cancel stops with nothing changed), then `saveDocument(doc)` and `files.write`. A handle target becomes the document's file (name from the handle) and is remembered in recent files; a download target clears the handle, and the first download in a session shows the info notification "This browser saves by downloading. {file name} is in your downloads folder."
+- Save (`Mod+S`): with a file handle, `saveDocument(doc)` and `files.write({ kind: 'handle', ... }, 'ptsm', utf8)`; without one, Save as. On a successful write, `markSaved(doc, revision)` with the revision `saveDocument` returned, then `localUnsaved` false and the recovery store cleared. A `FileServiceError` sends no `markSaved` (the core stays dirty) and shows: permission: "Could not save {file} because Partsmith no longer has permission to write it." (action "Save as"); not_found: "{file} was moved or deleted. Save it again to choose a location." (action "Save as"); io: "Could not save {file}: {reason}" (action "Save as").
+- Save as (`Mod+Shift+S`): `files.chooseSaveTarget('{name}.ptsm', 'ptsm')` first (a cancel stops with nothing changed), then `saveDocument(doc)`, `files.write` and, on success, `markSaved(doc, revision)` as in Save (a failed write sends no `markSaved`). A handle target becomes the document's file (name from the handle) and is remembered in recent files; a download target clears the handle, and the first download in a session shows the info notification "This browser saves by downloading. {file name} is in your downloads folder."
 - Open recent (Document menu submenu, palette items): up to 10 entries, newest first, each showing the name and its open time (`toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })`). An entry with a handle reads it (`readHandle`, which may prompt for permission on this click): permission denied shows "Partsmith needs permission to open {file}. Choose it again to grant access." (action "Open..."); not found shows "{file} has moved or been deleted, so it was removed from recent files." and forgets it. An entry with text opens that text (no handle; Save goes to Save as).
 - Recovery copy: while the document is dirty, 2 s after the last `document_changed` (debounced), the UI writes a recovery entry (`reason: 'autosave'`, `JSON.stringify(recipe, null, 2)`, the handle). A successful save, a New without changes, or Discard clears it. `beforeunload` calls `preventDefault()` while the document is dirty so the browser asks before leaving.
 - At startup a recovery entry shows the info notification (persistent until acted on) "Partsmith kept unsaved changes to {name} from {time}." with actions "Open" (opens the text as a document named {name}, attaches the stored handle, sets `localUnsaved` true) and "Discard" (clears the store).
@@ -2153,9 +2148,9 @@ Every message the user sees follows the architecture's error rule:
 | --- | --- | --- |
 | Invalid expression in a field | Under the field (`field-error`), field border `danger`; OK disabled | Edit the field |
 | Invalid sketch dimension value | In the dimension editor | Edit the value, "Add reference" when over-constraining |
-| Feature status during a command (preview) | Inspector banner (`inspector-error`) | Errors and warnings about a field the message names: the field is highlighted and focused by clicking the message |
+| Feature status during a command (preview) | Inspector banner (`inspector-error`), and the mapped field's `field-error` (3.7) | Errors and warnings whose `field` maps to a field: the field is highlighted and focused by clicking the message; "Use {suggestion}" when the message has a `suggestion` |
 | Feature status after a user change: a feature goes from not-error to error | One notification: for one feature "{label} failed. {message}" with "Edit" and "Undo"; for several "{n} features failed after this change." with "Show problems" and "Undo" | As listed |
-| Feature warnings and errors at rest | Timeline and browser badges, tooltips, Problems panel, selection inspector | "Edit" opens the inspector, where repairs re-pick the reference (the field named by `Repair.path` becomes the active selection field) |
+| Feature warnings and errors at rest | Timeline and browser badges, tooltips, Problems panel, selection inspector | "Edit" opens the inspector, where repairs re-pick the reference (the field `Repair.path` maps to, 3.7, becomes the active selection field); "Use {suggestion}" applies `update_feature` with the value at `field` replaced (label "Change {label}") |
 | Sketch over-constraint while adding | Notification (3.16.6) or dimension editor (3.16.7) | "Replace them", "Add reference", "Cancel" |
 | Sketch conflicts and redundancy at rest | Sketch header, glyph and label colors, sketch problems popover | "Delete" per constraint |
 | Profile issues | Rings and halos in sketch mode; notification on finishing | "Back to sketch" |
@@ -2164,8 +2159,6 @@ Every message the user sees follows the architecture's error rule:
 | File, export and permission errors | Error notification (4.3) | "Save as", "Open..." |
 | Core fatal | Fatal state (4.4) | "Restart core", "Reload" |
 | Unsupported browser | Unsupported page | none |
-
-`Diagnostic` has no structured fix value (protocol.md `Diagnostic` is severity, code and message), so M1 fixes are navigational ("Edit", "Undo") rather than one-click value changes; see open issue 4.
 
 ### 4.3 UI-owned messages
 
@@ -2213,6 +2206,7 @@ Every message the user sees follows the architecture's error rule:
 | `nothing_to_undo` | Nothing to undo. | disabled reason | none |
 | `nothing_to_redo` | Nothing to redo. | disabled reason | none |
 | `finish_command_first` | Finish or cancel {title} first. | disabled reason | none |
+| `import_not_editable` | Imported geometry has no settings to edit. | disabled reason | none |
 | `fill_fields` | Fill in the highlighted fields first. | disabled reason | none |
 | `core_not_running` | The geometry core is not running. | disabled reason | none |
 | `region_crashed` | This part of the window hit a problem. Reload to restore it. | region fallback | Reload |
@@ -2290,19 +2284,20 @@ Tests use these stable selectors only (plus accessible roles and names given in 
 | File | Content | Result |
 | --- | --- | --- |
 | `cube.ptsm` | Body `b-cube` "Cube". `f-sk1`: sketch on XY with a fully constrained 20 by 20 rectangle centered on the origin. `f-ext1`: extrude of its region, distance `20 mm`, op new, body `b-cube`. | Cube x, y in [-10, 10], z in [0, 20]; timeline "Sketch 1", "Extrude 1" |
-| `rect-sketch.ptsm` | `f-sk1`: sketch on XY: rectangle with a corner coincident with the origin, horizontal and vertical sides, driving `distance` `40 mm` on the bottom line and `20 mm` on the left line; no bodies. | Fully constrained, one region of 40 by 20 at x in [0, 40], y in [0, 20] |
+| `rect-sketch.ptsm` | `f-sk1`: sketch on XY: rectangle with a corner coincident with the origin (`coincident` with sketch.md's reserved `origin` point), horizontal and vertical sides, driving `distance` `40 mm` on the bottom line and `20 mm` on the left line; no bodies. | Fully constrained, one region of 40 by 20 at x in [0, 40], y in [0, 20] |
 | `underconstrained.ptsm` | `f-sk1`: sketch on XY with line `e-1` from (0, 0) to (30, 0) and circle `e-2` centered (50, 0) radius 5; no constraints; no bodies. | DOF 7 |
 | `parametric.ptsm` | Parameter `p-size` `size` = `20 mm`; otherwise `cube.ptsm` with every dimension and the extrude distance set to `size`. | Cube of side `size` |
 | `cube-features.ptsm` | `cube.ptsm` plus `f-fil1` fillet `2 mm` on the 4 vertical edges and `f-sh1` shell `2 mm` removing the top face. | 4 features, all ok |
 | `two-bodies.ptsm` | `cube.ptsm` plus body `b-peg` "Peg" and `f-cyl1` cylinder radius `4 mm`, height `20 mm`, base center (0, 0, 10), axis +Z, op new, body `b-peg`. | Timeline "Sketch 1", "Extrude 1", "Cylinder 1" |
-| `fillet-error.ptsm` | `cube.ptsm` plus `f-fil1` fillet `15 mm` on the 4 top edges. | "Fillet 1" fails with `fillet_too_large` |
+| `fillet-error.ptsm` | `cube.ptsm` plus `f-fil1` fillet `15 mm` on the 4 top edges. | "Fillet 1" fails with `fillet_too_large`, with `field` `/radius` and a `suggestion` |
+| `hole-cube.ptsm` | `cube.ptsm` plus `f-sk2`, a sketch on the cube's top face (`{"kind": "face", "body": "b-cube", "face": <reference of f-ext1/end-cap>, "fallback": <placement at z 20>}`) with point entity `e-p1` at (0, 0). | Timeline "Sketch 1", "Extrude 1", "Sketch 2" |
 | `revolve-sketch.ptsm` | `f-sk1`: sketch on XZ with a fully constrained rectangle at sketch x in [10, 20], y in [0, 10]; no bodies. | One region; sketch visible |
 | `offset-cube.ptsm` | As `cube.ptsm` with the rectangle at x in [10, 30], y in [-10, 10]. | Cube x in [10, 30] |
 | `overhang.ptsm` | Body "Mushroom": a 10 by 10 by 20 post centered on the origin (z 0 to 20) joined with a 30 by 30 by 5 cap (z 20 to 25); `printer` set to the default FDM profile id (print.md). | At least one `overhangs` finding |
 | `oversize.ptsm` | Body "Slab": a 400 by 400 by 10 box; `printer` the default FDM profile. | A `bed_fit` error |
 | `notes.txt` | The text `hello`. | Not a model |
 | `sketch-500.ptsm` | One sketch with at least 500 constraints in one connected component and DOF at least 2, where dragging point `e-drag.end` moves at least 100 other entities. | Perf |
-| `part-50.ptsm` | 50 features (sketches, extrudes, holes, fillets, patterns) whose first sketch is driven by parameter `base`. | Perf |
+| `part-50.ptsm` | A copy of `examples/bench/fifty-features/model.ptsm` (engine.md section 5): 50 features whose first sketch is driven by parameter `base`. | Perf |
 | `dense.ptsm` | At least 2,000,000 display triangles at standard quality (for example a 20 by 20 linear pattern of spheres). | Perf |
 | `palette-2000.ptsm` | 1,980 parameters `p0` to `p1979` and 20 features. | Perf |
 
@@ -2337,7 +2332,7 @@ Core and transports:
 13. U-13. A response with another id rejects with `CoreFatalError` and notifies fatal listeners.
 14. U-14. An event of unknown type is ignored; a listener that throws does not stop the next listener or the request.
 15. U-15. `createMutationQueue`: the second task starts only after the first settles; a rejected task does not block the next; `pending` counts queued and running tasks.
-16. U-16. `createLatestOnly`: submitting a, b and c while a is in flight sends a then c (never b); `onResult` runs once, for c; `cancel()` drops a waiting input and suppresses the in-flight result.
+16. U-16. `createLatestOnly`: submitting a, b and c while a is in flight sends a then c (never b); `onResult` runs once, for c; `cancel()` drops a waiting input and suppresses the in-flight result; `flush()` sends the waiting input and resolves after its `onResult`.
 17. U-17. `decodeEvent` of a `body_mesh` returns typed arrays whose `buffer` is the frame's `ArrayBuffer`; an out-of-range buffer index throws `CoreFatalError`; an unknown event type returns null.
 18. U-18. The store ignores a `document_changed` whose revision is lower than the stored one and applies one with an equal revision.
 19. U-19. `generateId('f', () => false, () => 0x3fa91c0e72b4)` is `f-3fa91c0e72b4`; `generateId('b', () => false, () => 1)` is `b-000000000001`; a predicate that rejects the first candidate gets the second; 64 rejections throw "Could not generate a free id after 64 attempts."
@@ -2357,7 +2352,7 @@ Commands, shortcuts and palette:
 
 Inspector:
 
-30. U-30. `normalizeManifest` accepts the extrude manifest JSON of features.md 2.3; missing `essential` becomes false and missing `options` empty; `category: 'other'` throws `ManifestError` naming `category`.
+30. U-30. The catalog store maps `feature_catalog` entries to `Catalog` with `byType` keyed by type and manifests passed through unchanged; an entry whose `params_schema` is not an object is left out.
 31. U-31. `buildInspectorModel` with the extrude test catalog entry (schema and manifest of features/extrude.md) and params `{extent: {kind: 'distance', expr: '30 mm'}, op: 'new'}`: essential paths `profile`, `extent.kind`, `extent.expr`, `op`; more paths `reverse`, `body`; `extent.opposite_expr` absent; controls: `profile` selection `sketch_region` multiple, `extent.kind` segmented choice with 4 options, `extent.expr` expression length, `op` segmented choice, `reverse` switch, `body` selection `body` not multiple. With `kind: 'two_sides'` the `extent.opposite_expr` field appears; with `through_all`, `extent.expr` disappears.
 32. U-32. `complete` is false while `profile` is missing and true once set; `forceMore` is true with `errors = {body: '...'}`.
 33. U-33. `defaultParams` for extrude: `extent` `{kind: 'distance', expr: '10 mm'}`; `op` `new` without bodies with geometry; `op` `join` and `body` equal to `lastTargetBody` with them.
@@ -2368,7 +2363,7 @@ Inspector:
 
 Expression input:
 
-38. U-38. `convertForField`: `{value: 2, dimension: 'dimensionless'}` for a length in inches is 50.8; 90 dimensionless for an angle is π/2; 3.0000000001 for a count is 3; 2.5 for a count with label Count gives "Count must be a whole number, but it is 2.5. Use 2 or 3."; an angle for a length labeled Distance with source `10 deg` gives "Distance must be a length, but '10 deg' is an angle. Use a value such as 10 mm."
+38. U-38. `convertForField`: `{value: 2, dimension: {length: 0, angle: 0}}` for a length in inches is 50.8; 90 dimensionless for an angle is π/2; 3.0000000001 for a count is 3; 2.5 for a count with label Count gives "Count must be a whole number, but it is 2.5. Use 2 or 3."; an angle for a length labeled Distance with source `10 deg` gives "Distance must be a length, but '10 deg' is an angle. Use a value such as 10 mm."
 39. U-39. Formatting: 12.5 mm "12.5 mm"; 2.4 mm in an inch document "0.0945 in"; 1/3 mm "0.333 mm"; -0 "0 mm"; 1234.5 "1234.5 mm"; 25.4 mm in cm "2.54 cm"; 1 mm in m "0.001 m"; π/4 rad "45°"; `formatSize` of (0, 0, 0) to (40, 20, 10) "40 × 20 × 10 mm"; `formatPoint` (10, 0, 10) "10, 0, 10 mm".
 40. U-40. `stepExpression`: `10` up gives `11`; `10 mm` up gives `11 mm`; `10mm` up gives `11mm`; `2.5` up coarse gives `12.5`; `2.5` up fine gives `2.6`; `-0.1` up fine gives `0`; `wall` gives null; a count `0` down gives `0`; an angle `45 deg` up gives `46 deg`.
 41. U-41. `isPlainNumber` is true for `10`, `-2.5`, `10mm`, `10 mm`, `45 deg` and false for `2*5`, `wall`, `10 mm + 1` and the empty string.
@@ -2397,17 +2392,17 @@ Sketch:
 58. U-58. `constraintFor('symmetric', ...)` uses the line as the axis whatever the selection order; `constraintFor('coincident', [point, line])` returns a `point_on_object` constraint.
 59. U-59. `dimensionTypeFor` with points (0, 0) and (10, 5): label (5, 10) `horizontal_distance`, (15, 2) `vertical_distance`, (12, 8) `distance`; points (0, 0) and (10, 0) with label (5, 5) `distance`; a circle `diameter`; an arc `radius`; lines at 90° `angle`; parallel lines `distance`; a point and a circle unsupported with "Partsmith cannot dimension a point and a circle."
 60. U-60. `measuredValue('angle', ...)` for a line along +X and a line at 60° through the origin is π/3 with the label at (cos 30°, sin 30°) and 2π/3 with the label at (-1, 0.5).
-61. U-61. `commitSketchChange` with a fake core: a requested id reported conflicting returns `over_constrained` and calls no `applyEdits`; an inferred id reported redundant is removed, the sketch is solved again, and `applyEdits` gets the params without it and with solved geometry; a `failed` status returns `failed` with the solver message.
+61. U-61. `commitSketchChange` with a fake core: a requested id reported conflicting returns `over_constrained` and calls no `applyEdits`; an inferred id reported redundant is removed, the sketch is solved again, and `applyEdits` gets the params without it and with solved geometry; a solution with `failed` true returns `failed` with the solver message, and an `invalid_params` `CoreError` returns `failed` with the core's message.
 62. U-62. Sketch view history: enter (view entry), orbit (view entry), commit an edit (document marker); three `Mod+Z` presses restore the orbit camera, call core `undo` once, and restore the pre-entry camera, in that order; `Mod+Shift+Z` replays them in reverse.
-63. U-63. Sketch header mapping: no entities `empty`; `under_constrained` with dof 3 `under` and "3 DOF"; `fully_constrained` `full`; `over_constrained` with 2 conflicting `conflict` and "2 conflicting constraints"; `failed` "Cannot solve"; one redundant appends " · 1 redundant".
+63. U-63. Sketch header mapping: no entities `empty`; `under_constrained` with dof 3 `under` and "3 DOF"; `fully_constrained` `full`; status `conflicting` with 2 conflicting ids `conflict` and "2 conflicting constraints"; `failed` true with no conflicting ids `failed` and "Cannot solve"; status `redundant` with dof 0 and one redundant id `full` with " · 1 redundant" appended.
 
 Store and actions:
 
 64. U-64. `startFeatureCommand('extrude')` with a preselected region and no bodies: `beginTransaction(doc, 'Extrude')`, then one `applyEdits(doc, null, [add_body "Body 1", add_feature])` with the body id in the record, then `setFocus(doc, featureId)`.
-65. U-65. With `rollback` `f-sk1` (index 0 of 3 features), the first preview's `add_feature` has index 1 and is followed by `set_rollback` to the new id.
+65. U-65. With `rollback` set to the second of 3 features (index 1), the first preview's `add_feature` has index 1 and no `set_rollback` follows.
 66. U-66. `confirmCommand` calls `commitTransaction`; `cancelCommand` calls `cancelTransaction`; `Mod+Z` with a command active cancels it and calls no `undo`.
 67. U-67. `editFeature('f-ext1')` calls `beginTransaction(doc, 'Edit Extrude 1')` and `setFocus(doc, 'f-ext1')`; a `focus_inactive` error on a suppressed feature calls `cancelTransaction` and shows an error notification with the action "Unsuppress".
-68. U-68. Timeline edits: deleting the rollback feature sends `set_rollback` to the nearest earlier remaining active feature before `remove_feature`; dropping feature index 3 at gap 1 sends `move_feature` index 1, at gap 4 index 3 (no edit); `setRollback(N)` sends `set_rollback` without an id and `setRollback(2)` the id of feature 2.
+68. U-68. Timeline edits: deleting the rollback feature sends `set_rollback` to the nearest later remaining feature (no id when none) before `remove_feature`; dropping feature index 3 at gap 1 sends `move_feature` index 1, at gap 4 index 3 (no edit); `setRollback(N)` sends `set_rollback` without an id, `setRollback(2)` the id of the third feature and `setRollback(0)` the id of the first.
 69. U-69. Esc ladder: with an open popover, a sketch drawing in progress, an active tool, a command and a selection, successive Esc presses close the popover, cancel the drawing, exit the tool, cancel the command, then clear the selection.
 70. U-70. Theme tokens: `theme.css` (imported `?raw`) defines every token of 2.16 with exactly the listed value in both the light and the dark block, and no other `--ps-` color tokens; `contrastRatio` of every pair stated in the 2.16 table meets its threshold in both themes.
 71. U-71. `resolveTheme('system', true)` is `dark`; `applyTheme` sets `data-theme`; `loadSettings` of malformed JSON returns `DEFAULT_SETTINGS`, and of `{"theme": "dark", "uiScale": 7}` returns theme dark with scale 1.
@@ -2417,13 +2412,18 @@ Store and actions:
 75. U-75. Without the API: `chooseSaveTarget` returns `{kind: 'download', name}`; `write` clicks an anchor whose `download` is the name and revokes its object URL; `pickToOpen` resolves from the hidden input's `change` event.
 76. U-76. `createMemoryRecentFiles`: at most 10 entries, newest first; a text entry with an existing name replaces it; a handle entry whose handle `isSameEntry` an existing one replaces it.
 77. U-77. Recovery: a dirty `document_changed` writes an entry after 2 s (fake timers); another change within 2 s postpones it; a successful save clears the store.
-78. U-78. Save as canceled at the picker never calls `saveDocument`; Save to a handle whose write fails with `permission` sets `localUnsaved` and shows `save_permission` with the action "Save as".
+78. U-78. Save as canceled at the picker never calls `saveDocument`; Save to a handle whose write fails with `permission` calls no `markSaved`, leaves `data-dirty` true and shows `save_permission` with the action "Save as".
 79. U-79. `openFile`: `model.stl` shows `not_ptsm`; invalid UTF-8 shows `not_text`; a `parse_error` shows `open_failed` with the core message and keeps the current document; with a dirty current document the stash is written before `closeDocument`.
-80. U-80. `exportModel` with no visible bodies shows `nothing_to_export` and calls no `exportBodies`; formats map to `{"format": "3mf"}`, `{"format": "stl", "binary": true, "per_body": false}`, `{"format": "obj", "per_body": false}` and `{"format": "step"}`; the suggested name is `{document name}.3mf`.
+80. U-80. `exportModel` with no visible bodies shows `nothing_to_export` and calls no `exportBodies`; formats map to `{"kind": "3mf"}`, `{"kind": "stl", "binary": true, "per_body": false}`, `{"kind": "obj", "per_body": false}` and `{"kind": "step"}`; the suggested name is `{document name}.3mf`.
 81. U-81. Print: badge states derive as in 3.17, hidden checks are excluded from counts, a report for an older revision is stale; in Print context a revision change schedules `analyzePrint` after 300 ms (fake timers) and a `null` result changes nothing; in Model context no analysis is scheduled.
 82. U-82. After a mesh change, a selected face whose reference resolves `missing` leaves the selection and one that resolves is kept.
 83. U-83. Rendering `App` with fakes produces the landmarks banner, navigation "Browser", main "3D view", region "Timeline" and contentinfo, and every `button` has a non-empty accessible name.
 84. U-84. `app.restartCore()` with fake transports: the new core receives `open_document` with `JSON.stringify(recipe, null, 2)`, the document keeps its name and handle, and `localUnsaved` is true.
+85. U-85. Committing a new name in the Parameters panel calls `renameParameter`, which sends `rename_parameter` and no `update_parameter`.
+86. U-86. Save to a handle calls `saveDocument`, `files.write`, then `markSaved` with the returned revision, in that order.
+87. U-87. During an edit, a status message `{severity: 'error', code: 'fillet_too_large', field: '/radius', suggestion: '2.3 mm'}` shows under the `radius` field and its action "Use 2.3 mm" sets `radius` to `2.3 mm`; a message with `field: '/edges/1'` maps to the `edges` field.
+88. U-88. Double-click on a face whose descriptor has `feature: 'f-ext1'` calls `editFeature('f-ext1')`.
+89. U-89. With an active feature command, the export commands are disabled with `finish_command_first`; the timeline item of an `import` feature offers Rename, Suppress and Delete, and its Edit is disabled with `import_not_editable`.
 
 ### 6.5 Playwright end-to-end tests
 
@@ -2464,7 +2464,7 @@ Inspector, timeline and browser:
 
 23. E-23. Drop `parametric.ptsm`; click the body row "Cube": `body-size` "20 × 20 × 20 mm". Run "Parameters"; fill "Expression of size" with "30 mm", Enter: `parameter-value` "30 mm" and `body-size` "30 × 30 × 30 mm". ControlOrMeta+Z: "20 × 20 × 20 mm".
 24. E-24. Drop `cube-features.ptsm`; drag `timeline-marker` to the gap between the first and second items: items 2 to 4 have `data-rolled-back="true"`, the marker's `aria-valuenow` is 1, the body row reads "Cube (empty)", and hovering `(cx, cy)` does not give `face`. ControlOrMeta+Z: `aria-valuenow` 4 and no rolled-back items.
-25. E-25. Drop `cube-features.ptsm`; focus the marker; ArrowLeft: `aria-valuenow` 3; End: 4 with `aria-valuetext` "At the end"; Home: 1.
+25. E-25. Drop `cube-features.ptsm`; focus the marker; ArrowLeft: `aria-valuenow` 3; End: 4 with `aria-valuetext` "At the end"; Home: 0 with `aria-valuetext` "At the start", and every `timeline-item` has `data-rolled-back="true"`.
 26. E-26. Drop `two-bodies.ptsm`; drag "Cylinder 1" to the first gap: item names in order "Cylinder 1", "Sketch 1", "Extrude 1", all ok. Drag "Extrude 1" to the gap between "Cylinder 1" and "Sketch 1": "Extrude 1" has `data-status="error"` and an error notification starts with "Extrude 1 failed."; click its "Undo": the order is "Cylinder 1", "Sketch 1", "Extrude 1" and "Extrude 1" is ok.
 27. E-27. Drop `cube-features.ptsm`; right-click "Fillet 1", choose "Suppress": `data-suppressed="true"`, `data-status="suppressed"`. ControlOrMeta+Z: `data-suppressed="false"`.
 28. E-28. Drop `fillet-error.ptsm`: "Fillet 1" has `data-status="error"`; `timeline-problems` reads "1 problem"; clicking it opens `problems-panel` listing "Fillet 1" with a message containing "Fillet radius"; clicking "Edit" opens the inspector "Fillet 1" whose `inspector-error` has `role=alert`.
@@ -2514,7 +2514,7 @@ Feature coverage (E-57, one test per row, parametrized). Fields are found by the
 | `fillet` | `cube.ptsm`, front fit | E-31 | Cube "20 × 20 × 20 mm" |
 | `chamfer` | `cube.ptsm`, front fit | Run Chamfer; click `(cx, cy - 0.4 H)`; distance `2` | Cube "20 × 20 × 20 mm" |
 | `shell` | `cube.ptsm`, top fit | Run Shell; click `(cx, cy)` (top face); thickness `2` | Cube "20 × 20 × 20 mm" |
-| `hole` | `cube.ptsm`, top fit | Run Hole; fill the essential fields (features/hole.md) for a 5 mm through hole at the top face center, clicking `(cx, cy)` for the placement | Cube "20 × 20 × 20 mm" |
+| `hole` | `hole-cube.ptsm`, top fit | Run Hole; click `(cx, cy)` (point `e-p1`); Diameter `5`; Extent Through all | Cube "20 × 20 × 20 mm"; hover `(cx, cy)` gives `none` |
 | `box` | new document | Primitive, Box; sizes `10`, `10`, `10`; op New body | Body 1 "10 × 10 × 10 mm" |
 | `cylinder` | new document | Primitive, Cylinder; radius `5`, height `10` | Body 1 "10 × 10 × 10 mm" |
 | `sphere` | new document | Primitive, Sphere; radius `5` | Body 1 "10 × 10 × 10 mm" |
@@ -2529,6 +2529,11 @@ Feature coverage (E-57, one test per row, parametrized). Fields are found by the
 | `datum_plane` | `cube.ptsm` | Palette "Datum plane"; plane: row "XY plane"; offset `10` | A Construction row "Datum plane 1" |
 
 `sketch` and `extrude` are covered by E-12 and E-13.
+
+Fixes and renames:
+
+58. E-58. Drop `fillet-error.ptsm`; open the problems panel and click "Edit" on "Fillet 1": `inspector-error` has a button whose name starts with "Use "; click it, wait for `data-preview="shown"`, press Enter: "Fillet 1" has `data-status="ok"`.
+59. E-59. Drop `parametric.ptsm`; run "Parameters"; set "Name of size" to "side", Enter: every `timeline-item` has `data-status="ok"`; ControlOrMeta+Z restores the name "size".
 
 ### 6.6 Visual tests
 
@@ -2555,25 +2560,12 @@ Tagged `@perf`, skipped unless `PARTSMITH_PERF=1`, run on the fixed hardware run
 
 ## 7. Open issues
 
-1. **Region fingerprint text.** `RegionInfo` in protocol.md's `SketchSolution` has `key`, `area` and `centroid` but no `fp`, which a `RegionRef` (features.md 2.5) needs. This spec has `selection-values.ts` format `region|a={area}|c={x},{y}` with the model's canonical number formatting (features.md open issue 4) until `RegionInfo` carries `fp`; the protocol should add it so the UI never builds fingerprints.
-2. **Sketch origin and axis references.** Constraints to the sketch origin and axes (inference snaps, the dimension-as-you-draw angle, symmetric about an axis) need reserved references in sketch.md. `src/sketch/refs.ts` assumes `ORIGIN_POINT`, `X_AXIS` and `Y_AXIS` exist there. The sketch `plane` field is assumed to be a `PlaneRef` plus an optional fallback `Frame` (features.md open issue 4), filled for faces from `ElementDescriptor.placement`.
 3. **Dimension label positions.** Nothing in the drafts stores a dimension's label position. The UI computes `defaultLabelPosition` and uses a stored position if sketch.md adds one; dragging labels is later.
-4. **Structured fixes and field paths in diagnostics.** `Diagnostic` is severity, code and message. Without a field path the inspector cannot attach a feature error to its field, and without a suggested value it cannot offer one-click fixes such as "Use 2.4 mm". M1 offers navigational fixes ("Edit", "Undo"). Suggested protocol addition: `field: Option<String>` and `suggestion: Option<{ path, value, label }>`.
-5. **Feature that made a face.** Double-click on a face derives the feature from the first segment of the face's element name (features.md 3.9). An explicit `feature` field in `ElementDescriptor` would be more robust.
-6. **Rolling back before the first feature.** `Document.rollback` is the last active feature, with `None` meaning the end, so "no feature active" is not representable. The marker's minimum position is therefore 1.
-7. **Renaming a parameter.** model.md says the engine composes a rename with rewritten expressions, but the protocol only offers `apply_edits` with `update_parameter`, which does not rewrite them. This spec sends `update_parameter`; expressions using the old name then fail (with Undo). engine.md or protocol.md should define rename semantics.
-8. **Saving marks the document clean before the file is written.** `save_document` clears `dirty` before the UI writes the bytes. The UI chooses the target first and tracks `localUnsaved` after a failed write; a separate "mark saved at revision" step after a successful write would be cleaner.
-9. **Desktop host pieces.** The Tauri transport reads `window.__TAURI__` (requires `app.withGlobalTauri: true`) to avoid adding `@tauri-apps/api`; the desktop `FileService` needs the Tauri dialog and fs plugins; and the desktop transport reuses the worker host's queue and superseding logic, which protocol.md keeps inside `createWorkerHost`, so that logic should be factored into its own function. These belong in the desktop spec and need human review as dependencies.
+9. **Desktop host pieces.** The Tauri transport reads `window.__TAURI__` (requires `app.withGlobalTauri: true`) to avoid adding `@tauri-apps/api`, and the desktop `FileService` needs the Tauri dialog and fs plugins. These belong in the desktop spec and need human review as dependencies. The superseding logic both transports share is protocol.md's `isSuperseded` (2.11).
 10. **Session-only view state.** Sketch, datum and origin visibility and body locks are not saved, because the document has no fields for them. Persisting them is a format change (ADR and human review).
 11. **When print analysis runs.** The technical design runs checks after every recompute. With one web worker, `analyze_print` would delay edits, so this spec runs it automatically only in the Print context and shows a stale badge elsewhere. Revisit with desktop background analysis (protocol.md "later").
 12. **Check toggles.** `analyze_print` always runs every check, so the UI's switches only hide findings. An optional check list on the command would save work.
-13. **Print profile fields.** The overhang limit, bed size and technology come from `PrinterProfile` in print.md, which was not available; this spec uses the overhang findings' `limit` first and names the profile fields generically. The overhang buffer is read as "angle from vertical, 0 where not overhanging" (protocol.md `BodyPrint`), and only values above the limit are colored. E-48 assumes print.md ships at least two built-in profiles.
-14. **Manifest types.** The protocol carries `FeatureManifest` as untyped JSON (protocol.md open issue 4), so the UI declares a mirror type with runtime validation in `inspector/manifest.ts`, against the module rule that the UI uses generated types. A typed schema definition would remove the mirror.
-15. **Hole placement value.** The `sketch_point` selection value shape is defined by features/hole.md, which was not available.
-16. **Feature insertion at the marker.** model.md says the engine commits `add_feature` after the rollback feature followed by `set_rollback`. This spec has the UI send both edits inside the transaction. If the engine does it on its own, the UI must stop sending `set_rollback`.
-17. **Design tokens need sign-off.** The accent (violet, chosen so selection stays distinct from the blue of under-constrained sketch geometry), the gray scale and the body swatches are design-system decisions, which technical design 17 reserves for human review.
 18. **Inference hold key on macOS.** This spec suppresses inference with Cmd on macOS (Fusion's convention) because Ctrl-click is a secondary click there.
 19. **Dragging sketch curves.** `drag_sketch` pins one point, so M1 drags points only; translating lines and resizing circles by drag needs multi-point drags.
-20. **Sketch curve buffers unused.** The UI draws sketch curves from `SolvedEntity` geometry with adaptive tessellation (crisp at any zoom) and uses only the region buffers of `SketchDisplay`; the fixed 72-segment `curve_positions` and `curve_entities` buffers could be dropped from the protocol.
 21. **Feature highlighting.** Selecting a timeline feature does not highlight the faces it made, because the protocol has no feature-to-element mapping short of listing every element; M1 shows the selection inspector only.
 22. **Fixtures depend on unfinished JSON.** The e2e fixtures need sketch.md, print.md and the per-feature specs; they are written with `partsmith fmt` once those exist, and E-57's field labels come from those manifests.

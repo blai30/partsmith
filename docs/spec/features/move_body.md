@@ -37,11 +37,11 @@ pub struct MoveBodyParams {
     /// Translation along world X, Y and Z, applied after the rotation. Lengths. Default ["0", "0", "0"], omitted when default.
     pub translation: [Expr; 3],
     /// Rotation applied first. Omitted when None.
-    pub rotation: Option<Rotation>,
+    pub rotation: Option<MoveBodyRotation>,
 }
 
-/// A rotation about an axis.
-pub struct Rotation {
+/// A rotation about an axis. Named with the feature prefix so its schema definition is unique (features.md section 2.2).
+pub struct MoveBodyRotation {
     /// The axis, resolved before the move.
     pub axis: AxisRef,
     /// Angle, positive by the right-hand rule about the axis direction. Any value.
@@ -71,7 +71,7 @@ Label `Move body`, category `modify`, icon `move-body`, version 1.
 
 ### Python
 
-Dedicated form: `move(part, translate=..., rotate=(axis, angle))` (python-api.md section 2.7). Generic form of the JSON above:
+Dedicated form: `move(translate=(x, y, z), rotate=(axis, angle))` (python-api.md section 2.7), produced by the `Feature::python` hook with the shared rules of features.md section 3.11: the `with <part>:` block gives `body`, so the `part` argument is not written; `translate=` is a tuple of the three `translation` expressions when it is not the default; `rotate=` is a tuple of `PythonValue::axis` and the angle when `rotation` is set. The JSON above is `move(translate=(5, 0, 0), rotate=(Axis.Z, 90*deg), id="f-mv1")`. Generic form of the JSON above:
 
 ```python
 feature(

@@ -108,7 +108,14 @@ Label `Hole`, category `create`, icon `hole`, version 1.
 
 ### Python
 
-Dedicated form: `hole(points, diameter, depth, counterbore=..., countersink=...)` (python-api.md section 2.7). Generic form of the JSON above:
+Dedicated form: `hole(points, diameter, depth=None, counterbore=..., countersink=..., tip_angle=..., reverse=...)` (python-api.md section 2.7), produced by the `Feature::python` hook with the shared rules of features.md section 3.11. The `with <part>:` block gives `body`, and Python derives `sketch` from the points:
+
+- `points`: each point ref as a sketch point (`point_1`, `line_1.start`, `circle_1.center`), one point alone, several as a list. The hook never uses the `Sketch` shorthand.
+- `diameter`: `diameter`. `depth`: `extent.expr` for a `distance` extent; omitted for `through_all`.
+- `counterbore=(diameter, depth)` or `countersink=(diameter, angle)` from `hole_type`; nothing for `simple`.
+- `tip_angle=<expr>` when set; `reverse=True` when true.
+
+With `e-p1` and `e-p2` as `point_1` and `point_2`, the JSON above is `hole([point_1, point_2], 3.4*mm, counterbore=(6.5*mm, 3.5*mm), id="f-hole1")`. Generic form:
 
 ```python
 feature(
@@ -144,7 +151,7 @@ feature(
    - Distance extent: L > 0.
    - Tip angle, when set: 0 < tip < 180 deg. With a through-all extent the tip is ignored with an `Ignored { field: "tip_angle", reason: TipAngleThroughAll }` warning.
 3. Direction d: the negated sketch normal (into the material when the sketch sits on an outward face); the sketch normal when `reverse` is true.
-4. For each point, in `points` order: look it up with `SketchResult::point` (unknown: `UnknownEntity { field: "points[i]", noun: point }`) and map it to world p. Build its tool by revolving a half cross-section about the line through p along d (kernel `revolve`, naming.md open issue 10), with curves tagged by role:
+4. For each point, in `points` order: look it up with `SketchResult::point` (unknown: `UnknownEntity { field: "points[i]", noun: point }`) and map it to world p. Build its tool by revolving a half cross-section about the line through p along d (kernel `revolve`, naming.md open issue 10), with curves tagged by role. The half cross-section lies in the plane through p spanned by d and the sketch placement's x_axis, on the side of +x_axis, so the seam placement is deterministic. Its curves:
    - `entry`: the segment closing the tool on the sketch plane, at the radius of the widest part.
    - Simple: `bore` at radius D/2 from 0 to L.
    - Counterbore: `counterbore` at the head radius from 0 to the counterbore depth, `counterbore-floor` stepping in to D/2, then `bore` to L.
@@ -152,7 +159,7 @@ feature(
    - Bottom: `bottom` (flat) at L; or `tip`, a cone of included angle `tip_angle` with its apex at L + (D / 2) / tan(tip / 2).
    - Through all: L is that point's largest signed distance (c - p) · d over the corners c of the body's tight bounding box, plus 1 mm. If that distance is ≤ 0 the point gets no tool.
 5. A point whose tool does not overlap the body (common volume ≤ 1e-9 × body volume), or that got no tool, adds a `HoleMissesBody` warning and is left out. Points with identical refs are used once.
-6. Combine the remaining tools in one multi-argument kernel cut of the body: `apply_op(ctx, body, Cut, tool)` with the tools fused. If no tool remains, the body is unchanged with a `NoEffect` warning. Change `Cut`.
+6. `apply_op(ctx, body, Cut, tools)` with one `Tool` per remaining point (one kernel `cut` call). If no tool remains, the body is unchanged with a `NoEffect` warning. Change `Cut`.
 
 ### 3.4 Element names
 
@@ -196,14 +203,14 @@ feature(
 Conventions from features.md section 6.1. Fixtures:
 
 - `BOX-BELOW`: `{"id": "f-box1", "type": "box", "body": "b-1", "size": ["40", "40", "10"], "position": ["0", "0", "-10"], "op": "new"}` (spans [-20,-20,-10]-[20,20,0], volume 16000, top face at z=0).
-- `SK-PTS`: `{"id": "f-sk1", "type": "sketch", "plane": {"type": "origin", "name": "XY"}, "entities": [{"id": "e-p1", "type": "point", "position": [0, 0]}, {"id": "e-p2", "type": "point", "position": [10, 10]}, {"id": "e-p3", "type": "point", "position": [100, 0]}]}`.
+- `SK-PTS`: `{"id": "f-sk1", "type": "sketch", "plane": {"kind": "origin", "plane": "XY"}, "entities": [{"id": "e-p1", "type": "point", "position": [0, 0]}, {"id": "e-p2", "type": "point", "position": [10, 10]}, {"id": "e-p3", "type": "point", "position": [100, 0]}]}`.
 - `HOLE(points, extra)`: `{"id": "f-hole1", "type": "hole", "body": "b-1", "sketch": "f-sk1", "points": <points>, "diameter": "6", <extra>}`.
 
 Bodies `[b-1]`; features `BOX-BELOW`, `SK-PTS`, then the hole, unless stated. The sketch normal is +Z, so holes go down into the box.
 
 1. **Simple through.** `HOLE(["e-p1"], "extent": {"kind": "through_all"})`. Expected: ok; volume 15717.256661, 7 faces, bbox [-20,-20,-10]-[20,20,0]; `f-hole1/bore/e-p1` cylindrical with radius 3 and area 188.495559; no `f-hole1/entry/e-p1`; change `Cut`.
 2. **Blind, flat.** `"extent": {"kind": "distance", "expr": "5"}`. Expected: volume 15858.628331, 8 faces; `f-hole1/bore/e-p1` area 94.247780; `f-hole1/bottom/e-p1` planar at z=-5 with area 28.274334.
-3. **Blind with a tip.** As 2 plus `"tip_angle": "118 deg"`. Expected: volume 15841.639397, 8 faces; `f-hole1/tip/e-p1` conical; no `bottom`; the tip apex at z=-6.802582.
+3. **Blind with a tip.** As 2 plus `"tip_angle": "118 deg"`. Expected: volume 15841.639397, 8 faces; `f-hole1/tip/e-p1` conical; no `bottom`; the vertex `vertex(f-hole1/tip/e-p1)` (the tip apex) is at (0, 0, -6.802582).
 4. **Counterbore.** `"hole_type": {"kind": "counterbore", "diameter": "11", "depth": "4"}, "extent": {"kind": "through_all"}`. Expected: volume 15450.221286, 9 faces; `f-hole1/counterbore/e-p1` area 138.230077; `f-hole1/counterbore-floor/e-p1` planar at z=-4 with area 66.758844; `f-hole1/bore/e-p1` area 113.097336.
 5. **Countersink.** `"hole_type": {"kind": "countersink", "diameter": "12", "angle": "90 deg"}, "extent": {"kind": "through_all"}`. Expected: volume 15604.159326, 8 faces; `f-hole1/countersink/e-p1` conical; `f-hole1/bore/e-p1` area 131.946891.
 6. **Two points.** `HOLE(["e-p1", "e-p2"], "extent": {"kind": "through_all"})`. Expected: volume 15434.513322, 8 faces; walls `f-hole1/bore/e-p1` and `f-hole1/bore/e-p2`.
@@ -220,11 +227,9 @@ Bodies `[b-1]`; features `BOX-BELOW`, `SK-PTS`, then the hole, unless stated. Th
 17. **Circle center as a point.** Sketch f-sk1 with `{"id": "e-5", "type": "circle", "center": [0, 0], "radius": 3}`; `HOLE(["e-5.center"], "extent": {"kind": "through_all"})`. Expected: geometry as 1; wall named `f-hole1/bore/e-5.center`.
 18. **Zero diameter.** As 1 with `"diameter": "0"`. Expected: error `out_of_range`, field `diameter`.
 19. **No points.** `HOLE([], "extent": {"kind": "through_all"})`. Expected: error `empty_selection` rendered `Select at least one point for Points.`
-20. **Sketch on the body's face.** `SK-PTS` with plane `{"type": "face", "body": "b-1", "face": {"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,0|a=1600"}, "fallback": {"origin": [0, 0, 0], "x_axis": [1, 0, 0], "normal": [0, 0, 1]}}`; hole as 1. Expected: geometry as 1 (the face placement has normal +Z and origin (0,0,0)).
+20. **Sketch on the body's face.** `SK-PTS` with plane `{"kind": "face", "body": "b-1", "face": {"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,0|a=1600"}, "fallback": {"origin": [0, 0, 0], "x_axis": [1, 0, 0], "normal": [0, 0, 1]}}`; hole as 1. Expected: geometry as 1 (the face placement has normal +Z and origin (0,0,0)).
 21. **Performance.** Test 6 builds in under 25 ms (desktop, release).
 
 ## Open issues
 
-1. An unknown sketch point is an error rather than a skipped hole with a warning, because sketch ids are under the user's direct control (unlike topological references). The reviewer may prefer skip-and-warn for consistency with reference lists.
 2. Depth is measured to the shoulder (the end of the full-diameter cylinder), with any tip beyond it, as Fusion does by default.
-3. Test 20 uses a sketch plane with `body`, which sketch.md's `SketchPlane::Face` does not have yet (features.md open issue 6).

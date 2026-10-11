@@ -73,7 +73,17 @@ Label `Circular pattern`, category `pattern`, icon `circular-pattern`, version 1
 
 ### Python
 
-Dedicated form: `circular_pattern(axis, count, angle, part=<body>)` (python-api.md section 2.7) for op join without reverse; other cases use the generic form, for example `feature("circular_pattern", id="f-cp1", body="b-1", axis={"kind": "origin", "axis": "Z"}, count="6")`.
+Dedicated form: `circular_pattern(axis, count, angle="360 deg", reverse=..., into=...)` (python-api.md section 2.7), produced by the `Feature::python` hook with the shared rules of features.md section 3.11: the `with <part>:` block gives `body`; `axis` is `PythonValue::axis`; `angle` is written only when the stored params set it; `reverse=True` when true; op `new` writes `into=<target part>`. The two JSON records above are `circular_pattern(Axis.Z, 6, id="f-cp1")` and `circular_pattern(Axis.Z, 3, 90*deg, reverse=True, id="f-cp2")`. Generic form of the first (longer than 88 characters, so one argument per line):
+
+```python
+feature(
+    "circular_pattern",
+    id="f-cp1",
+    body="b-1",
+    axis={"kind": "origin", "axis": "Z"},
+    count="6",
+)
+```
 
 ## 3. Behavior
 

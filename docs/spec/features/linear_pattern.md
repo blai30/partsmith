@@ -38,17 +38,17 @@ pub struct LinearPatternParams {
     /// The body to copy.
     pub body: Id,
     /// The first direction.
-    pub direction: PatternDirection,
+    pub direction: LinearPatternDirection,
     /// An optional second direction for a grid. Omitted when None.
-    pub second_direction: Option<PatternDirection>,
+    pub second_direction: Option<LinearPatternDirection>,
     /// Where the copies go. Default join, omitted when join.
     pub op: CopyOp,
     /// The empty body that receives the copies. Required with op new, not allowed with op join.
     pub target: Option<Id>,
 }
 
-/// One direction of a linear pattern.
-pub struct PatternDirection {
+/// One direction of a linear pattern. Named with the feature prefix so its schema definition is unique (features.md section 2.2).
+pub struct LinearPatternDirection {
     /// The direction (only its direction is used).
     pub axis: AxisRef,
     /// Number of instances along this direction, including the original. Count, at least 1.
@@ -88,7 +88,7 @@ Label `Linear pattern`, category `pattern`, icon `linear-pattern`, version 1.
 
 ### Python
 
-Dedicated form: `linear_pattern(direction, count, spacing, part=<body>)` (python-api.md section 2.7) for one direction with op join; other cases use the generic form:
+Dedicated form: `linear_pattern(direction, count, spacing, second=(axis, count, spacing), into=<target part>)` (python-api.md section 2.7), produced by the `Feature::python` hook with the shared rules of features.md section 3.11: the `with <part>:` block gives `body`; `direction` is `PythonValue::axis` of `direction.axis`, followed by its count and spacing; `second=` is a tuple of the second direction's axis, count and spacing when it is set; op `new` writes `into=<target part>`. A direction with `reverse` has no dedicated form: the hook returns `None` and the generic form is used. The JSON above is `linear_pattern(Axis.X, 3, 20*mm, second=(Axis.Y, 2, 15*mm), id="f-lp1")`. Generic form:
 
 ```python
 feature(
@@ -116,9 +116,9 @@ As [mirror.md](mirror.md) section 3.1 for `op` and `target`.
 1. The source body must hold a solid, else `BodyEmpty { use_new: false }`.
 2. For each direction, in order: n = count ≥ 1 (`OutOfRange`, `AtLeast(1)`); s = spacing > 0 (`OutOfRange`, `GreaterThan(0)`); d = the resolved axis direction, negated when `reverse`.
 3. Total instances N = n1 × n2 (n2 = 1 without a second direction). N > 10000 gives `TooManyInstances { count: N, limit: 10000 }`.
-4. Instances are (i, j) for i in 0..n1 and j in 0..n2; (0, 0) is the original. Each other instance is the source translated by i·s1·d1 + j·s2·d2 (kernel `transform`, index-preserving), named with `source_map.with_instance(<id>, Instance { first: i, second: j })`. Instances are built in order of j, then i. The build checks `ctx.is_cancelled()` before each instance and returns `Cancelled` when set.
+4. Instances are (i, j) for i in 0..n1 and j in 0..n2; (0, 0) is the original. Each other instance is the source translated by i·s1·d1 + j·s2·d2 (kernel `transform`, index-preserving), named with `source_map.with_instance(<id>, Instance { first: i, second: j })`. Instances are built in order of j, then i. The build checks `ctx.is_canceled()` before each instance and returns `Canceled` when set.
 5. If there are no copies (N = 1), the body (or target) is unchanged and a `NoEffect` warning is added.
-6. The copies are combined with one multi-argument kernel boolean: op join `apply_op(body, Join, copies)`; op new: the copies fused with each other into the empty `target` (`apply_op(target, New, copies)`). Copies that overlap each other or the source fuse into one solid; separate copies stay separate solids of the same body.
+6. The copies are combined with one multi-argument kernel boolean: op join `apply_op(ctx, body, Join, copies)`; op new `apply_op(ctx, target, New, copies)`, which fuses the copies with each other into the empty `target`. Copies that overlap each other or the source fuse into one solid; separate copies stay separate solids of the same body.
 
 ### 3.4 Element names
 
@@ -139,7 +139,7 @@ Source faces keep their names. Instance numbers are pattern positions, not kerne
 | Too many instances | `TooManyInstances` | `This pattern would make 20000 instances; the limit is 10000. Use fewer instances.` |
 | Axis errors | `NotStraight`, `NoAxis`, `UnknownEntity`, `NotALine`, `ReferenceNotFound` | features.md section 4.1 |
 | Op, target and body errors | as [mirror.md](mirror.md) section 4 | |
-| Cancelled during the build | `Cancelled` | `Recompute was cancelled before this feature finished.` |
+| Canceled during the build | `Canceled` | `Recompute was canceled before this feature finished.` |
 | No copies, or copies inside the source | warning `NoEffect` | features.md section 4.2 |
 
 ## 5. Performance
@@ -163,10 +163,10 @@ Conventions from features.md section 6.1. Bodies `[b-1, b-2]`. Fixtures:
 7. **Zero count.** `CUBE10`, `LP(DIR(X, "0", "20"))`. Expected: error `out_of_range` rendered `Count must be at least 1, but it is 0. Use 1 or more.`
 8. **Zero spacing.** `CUBE10`, `LP(DIR(X, "3", "0"))`. Expected: error `out_of_range`, field `direction.spacing`.
 9. **New body.** `CUBE10`, `LP(DIR(X, "3", "20"), "op": "new", "target": "b-2")`. Expected: b-1 unchanged; b-2 volume 2000, 12 faces, bbox [15,-5,0]-[45,5,10], change `New`.
-10. **Direction from a sketch line.** `CUBE10`; sketch `{"id": "f-sk1", "type": "sketch", "plane": {"type": "origin", "name": "XY"}, "entities": [{"id": "e-1", "type": "line", "start": [0, 0], "end": [3, 4], "construction": true}]}`; `LP(DIR({"kind": "sketch_line", "sketch": "f-sk1", "line": "e-1"}, "2", "50"))`. Expected: volume 2000, bbox [-5,-5,0]-[35,45,10]; dependencies `features == ["f-sk1"]`.
+10. **Direction from a sketch line.** `CUBE10`; sketch `{"id": "f-sk1", "type": "sketch", "plane": {"kind": "origin", "plane": "XY"}, "entities": [{"id": "e-1", "type": "line", "start": [0, 0], "end": [3, 4], "construction": true}]}`; `LP(DIR({"kind": "sketch_line", "sketch": "f-sk1", "line": "e-1"}, "2", "50"))`. Expected: volume 2000, bbox [-5,-5,0]-[35,45,10]; dependencies `features == ["f-sk1"]`.
 11. **Direction from an edge.** `CUBE10`, `LP(DIR({"kind": "edge", "body": "b-1", "edge": {"q": "edge(f-box1/front|f-box1/top)", "fp": "line|n=1,0,0|c=0,-5,10|l=10"}}, "2", "20"))`. The canonical direction is +X. Expected: bbox [-5,-5,0]-[25,5,10].
 12. **Too many instances.** `CUBE10`, `LP(DIR(X, "200", "20"), "second_direction": DIR(Y, "100", "20"))`. Expected: error `too_many_instances` rendered `This pattern would make 20000 instances; the limit is 10000. Use fewer instances.`; b-1 unchanged.
-13. **Cancellation.** Build test 3's pattern through `Registry::build` with a `BuildContext` whose `CancelToken` is already cancelled. Expected: `Err(Cancelled)`.
+13. **Cancellation.** Build test 3's pattern through `Registry::build` with a `BuildContext` whose `CancelToken` is already canceled. Expected: `Err(Canceled)`.
 14. **Performance.** `CUBE10` with `DIR(X, "100", "20")` builds in under 500 ms (desktop, release).
 
 ## Open issues

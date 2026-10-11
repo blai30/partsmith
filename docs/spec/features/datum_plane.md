@@ -59,7 +59,16 @@ Label `Datum plane`, category `construct`, icon `datum-plane`, version 1.
 
 ### Python
 
-Dedicated form: `datum_plane(base, offset)` (python-api.md section 2.7) without flip. Generic form of the first JSON above: `feature("datum_plane", id="f-dp1", base={"kind": "origin", "plane": "XY"}, offset="10 mm")`.
+Dedicated form: `datum_plane(base, offset=0, flip=...)` (python-api.md section 2.7), produced by the `Feature::python` hook with the shared rules of features.md section 3.11: `base` is `PythonValue::plane`; `offset` is written when the stored params set it; `flip=True` when true. With `b-1` as `block`, the two JSON records above are `datum_plane(Plane.XY, 10*mm, id="f-dp1")` and `datum_plane(Ref("f-box1/top", "plane|n=0,0,1|c=3,4,10|a=100", part=block), 5, flip=True, id="f-dp2")`. Generic form of the first (longer than 88 characters, so one argument per line):
+
+```python
+feature(
+    "datum_plane",
+    id="f-dp1",
+    base={"kind": "origin", "plane": "XY"},
+    offset="10 mm",
+)
+```
 
 ## 3. Behavior
 
@@ -110,7 +119,7 @@ Conventions from features.md section 6.1. The expected placement is the `DatumRe
 9. **On a tilted face.** `{"id": "f-box1", "type": "box", "body": "b-1", "size": ["20", "20", "20"], "op": "new"}`, `{"id": "f-cha1", "type": "chamfer", "body": "b-1", "edges": [{"q": "edge(f-box1/front|f-box1/top)", "fp": "line|n=1,0,0|c=0,-10,20|l=20"}], "distance": {"kind": "equal", "expr": "2"}}`, `DP({"kind": "face", "body": "b-1", "face": {"q": "f-cha1/chamfer/edge(f-box1/front|f-box1/top)", "fp": "plane|n=0,-0.707107,0.707107|c=0,-9,19|a=56.568542"}})`. Expected: origin (0,-14,14), normal (0,-0.70710678,0.70710678), x_axis (1,0,0).
 10. **Chained datums.** `DP({"kind": "origin", "plane": "XY"}, "offset": "10")`, then `{"id": "f-dp2", "type": "datum_plane", "base": {"kind": "datum", "feature": "f-dp1"}, "offset": "5"}`. Expected: f-dp2 origin (0,0,15), normal (0,0,1); f-dp2 dependencies `features == ["f-dp1"]`.
 11. **Curved face.** Bodies `[b-1]`; `{"id": "f-cyl1", "type": "cylinder", "body": "b-1", "radius": "5", "height": "10", "op": "new"}`; `DP({"kind": "face", "body": "b-1", "face": {"q": "f-cyl1/side", "fp": "cylinder|n=0,0,1|c=0,0,5|a=314.159265|r=5"}})`. Expected: error `not_planar` rendered `The face selected for Base plane is not flat. Pick a flat face, a datum plane or an origin plane.`
-12. **Base is a sketch.** A sketch `{"id": "f-sk1", "type": "sketch", "plane": {"type": "origin", "name": "XY"}}`, then `DP({"kind": "datum", "feature": "f-sk1"})`. Expected: error `wrong_feature_type` rendered `'Sketch 1' is not a datum plane. Pick a datum plane for Base plane.`
+12. **Base is a sketch.** A sketch `{"id": "f-sk1", "type": "sketch", "plane": {"kind": "origin", "plane": "XY"}}`, then `DP({"kind": "datum", "feature": "f-sk1"})`. Expected: error `wrong_feature_type` rendered `'Sketch 1' is not a datum plane. Pick a datum plane for Base plane.`
 13. **Lost face.** As 6 with face `{"q": "f-box1/nothing", "fp": "plane|n=0,0,1|c=500,500,500|a=1"}`. Expected: error `reference_not_found`; `repair()` is `Element` with pointer `/base/face`.
 14. **Expression offset.** Parameters `[{"id": "p-wall", "name": "wall", "expr": "2 mm"}]`, `DP({"kind": "origin", "plane": "XY"}, "offset": "2 * wall")`. Expected: origin (0,0,4).
 15. **Performance.** Test 1 builds in under 0.1 ms (desktop, release).

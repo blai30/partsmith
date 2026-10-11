@@ -77,7 +77,7 @@ Label `Chamfer`, category `modify`, icon `chamfer`, version 1.
 
 ### Python
 
-Dedicated form: `chamfer(edges, distance)` (python-api.md section 2.7) for equal distances; two distances use the generic form until python-api.md adds them. Generic form of the JSON above:
+Dedicated form: `chamfer(edges, distance)` (python-api.md section 2.7), produced by the `Feature::python` hook with the shared rules of features.md section 3.11: `edges` as references (one alone, several as a list), `distance` from `distance.expr` of an `equal` distance; the `with <part>:` block gives `body`. A `two_distances` chamfer has no dedicated form: the hook returns `None` and the generic form is used. Generic form of the JSON above:
 
 ```python
 feature(

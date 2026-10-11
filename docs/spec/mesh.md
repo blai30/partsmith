@@ -11,10 +11,10 @@
 - Combining and cleanup: concatenation, vertex welding with a vertex and triangle map, id remapping, vertex normal computation, affine transforms.
 - Metrics: signed volume, surface area, bounding box, center of mass.
 - Validity: boundary (open) edges, non-manifold edges, inconsistently oriented edges, degenerate triangles, inside-out detection, and edge-connected shells with their volumes.
-- `Bvh`: bounding volume hierarchy for ray casting (first hit and all hits).
+- `BoundingVolumeHierarchy` for ray casting (first hit and all hits).
 - Planar slicing at a given `z` into closed loops (and open chains for broken meshes), one height or many.
 - Render buffers: the `f32` and `u32` arrays the protocol frames for the UI.
-- `Aabb`, `Transform` and `TessellationTolerance` value types shared with the kernel facade, print and protocol.
+- `BoundingBox` and `TessellationTolerance` shared with the kernel facade, print and protocol; `Transform` shared with print and the engine. The kernel facade defines no bounding box or tolerance type of its own: `Shape::bounding_box` returns `BoundingBox` and `Shape::tessellate` takes `TessellationTolerance` (kernel.md sections 2.2 and 2.11).
 
 ### 1.2 Later (not in M1)
 
@@ -119,13 +119,13 @@ impl Mesh {
     /// True when the mesh has no triangles.
     pub fn is_empty(&self) -> bool;
 
-    /// The three corner points of a triangle. Panics if `triangle` is out of range.
+    /// The three corner points of a triangle. Panics when `triangle >= triangle_count()`; that is a caller bug, as with slice indexing.
     pub fn triangle_points(&self, triangle: usize) -> [Point3; 3];
-    /// Unit normal from the winding, or `None` when the cross product is zero. Panics if out of range.
+    /// Unit normal from the winding, or `None` when the cross product is zero. Panics when `triangle >= triangle_count()`; that is a caller bug, as with slice indexing.
     pub fn triangle_normal(&self, triangle: usize) -> Option<Vector3>;
-    /// Area in mm². Panics if out of range.
+    /// Area in mm². Panics when `triangle >= triangle_count()`; that is a caller bug, as with slice indexing.
     pub fn triangle_area(&self, triangle: usize) -> f64;
-    /// True when the triangle repeats a vertex index or its smallest height is at most `DEGENERATE_HEIGHT`. Panics if out of range.
+    /// True when the triangle repeats a vertex index or its smallest height is at most `DEGENERATE_HEIGHT`. Panics when `triangle >= triangle_count()`; that is a caller bug, as with slice indexing.
     pub fn is_degenerate(&self, triangle: usize) -> bool;
 
     /// Signed enclosed volume in mm³, positive for an outward-oriented closed mesh.
@@ -133,7 +133,7 @@ impl Mesh {
     /// Total triangle area in mm².
     pub fn area(&self) -> f64;
     /// Bounding box of the vertices used by triangles, or `None` when there are no triangles.
-    pub fn bounding_box(&self) -> Option<Aabb>;
+    pub fn bounding_box(&self) -> Option<BoundingBox>;
     /// Center of mass of the enclosed solid at uniform density, or `None` when the volume is too small.
     pub fn center_of_mass(&self) -> Option<Point3>;
 
@@ -179,24 +179,24 @@ pub struct Welded {
 ```rust
 /// Axis-aligned bounding box.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
-pub struct Aabb {
+pub struct BoundingBox {
     /// Smallest x, y and z.
     pub min: Point3,
     /// Largest x, y and z.
     pub max: Point3,
 }
 
-impl Aabb {
+impl BoundingBox {
     /// The box around a set of points, or `None` when the set is empty.
-    pub fn from_points<I: IntoIterator<Item = Point3>>(points: I) -> Option<Aabb>;
+    pub fn from_points<I: IntoIterator<Item = Point3>>(points: I) -> Option<BoundingBox>;
     /// `max - min` per axis.
     pub fn size(&self) -> Vector3;
     /// Midpoint of `min` and `max`.
     pub fn center(&self) -> Point3;
     /// The smallest box containing both.
-    pub fn union(&self, other: &Aabb) -> Aabb;
+    pub fn union(&self, other: &BoundingBox) -> BoundingBox;
     /// True when the closed boxes share at least one point.
-    pub fn intersects(&self, other: &Aabb) -> bool;
+    pub fn intersects(&self, other: &BoundingBox) -> bool;
 }
 
 /// An affine map `p' = rows · p + translation`. Rows are the rows of the 3 × 3 linear part.
@@ -234,9 +234,9 @@ impl Transform {
 /// Tessellation accuracy: how far triangles may deviate from the exact surface.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct TessellationTolerance {
-    /// Maximum distance between a triangle and the surface, in mm.
+    /// Chord deflection (OCCT `Deflection`, absolute): maximum distance between a triangle or segment and the exact surface or curve, in mm.
     pub chord_deviation: f64,
-    /// Maximum angle between adjacent triangle normals along a curved surface, in radians.
+    /// Angular deflection (OCCT `Angle`): maximum angle between consecutive segments along curves and between adjacent triangle normals, in radians.
     pub angular_deviation: f64,
 }
 
@@ -302,7 +302,7 @@ pub struct Shell {
     /// Signed volume of the shell's triangles in mm³ (meaningful when closed).
     pub signed_volume: f64,
     /// Bounding box of the shell's vertices.
-    pub bounding_box: Aabb,
+    pub bounding_box: BoundingBox,
 }
 ```
 
@@ -338,11 +338,11 @@ pub struct RayHit {
 }
 
 /// A bounding volume hierarchy over one mesh's triangles.
-pub struct Bvh<'mesh> { /* private */ }
+pub struct BoundingVolumeHierarchy<'mesh> { /* private */ }
 
-impl<'mesh> Bvh<'mesh> {
+impl<'mesh> BoundingVolumeHierarchy<'mesh> {
     /// Builds the hierarchy. Degenerate triangles are included but never hit.
-    pub fn new(mesh: &'mesh Mesh) -> Bvh<'mesh>;
+    pub fn new(mesh: &'mesh Mesh) -> BoundingVolumeHierarchy<'mesh>;
     /// The mesh it was built over.
     pub fn mesh(&self) -> &'mesh Mesh;
     /// The nearest hit with `min_distance <= distance <= max_distance`, ties broken by lowest triangle index.
@@ -550,7 +550,7 @@ The intersection test is Möller-Trumbore without back-face culling, with `d` th
 - `s = O - A`, `u = (s · p) / det`, `q = s × e1`, `v = (d · q) / det`, `t = (e2 · q) / det`.
 - There is a hit when `u >= -1e-12`, `v >= -1e-12`, `u + v <= 1 + 1e-12` and `min_distance <= t <= max_distance`. Then `distance = t`, `point = O + t · d`, `barycentric = [1 - u - v, u, v]`, and `front_face` is `(e1 × e2) · d < 0`.
 
-Edges and corners are inclusive, so a ray through a shared edge hits both triangles. `first_hit` and `all_hits` must return exactly what a brute-force loop over all triangles with this test returns; the hierarchy only accelerates it. `Bvh::new` never fails; an empty mesh yields a hierarchy with no hits.
+Edges and corners are inclusive, so a ray through a shared edge hits both triangles. `first_hit` and `all_hits` must return exactly what a brute-force loop over all triangles with this test returns; the hierarchy only accelerates it. `BoundingVolumeHierarchy::new` never fails; an empty mesh yields a hierarchy with no hits.
 
 ### 3.11 Render buffers
 
@@ -609,12 +609,12 @@ Release build, single thread, on the reference 2022 mid-range laptop (technical 
 | `signed_volume`, `area`, `bounding_box`, `center_of_mass` | 1,000,000 triangles | 15 ms each |
 | `weld(WELD_TOLERANCE)` | 3,000,000 vertices (per-face duplicated), 1,000,000 triangles | 300 ms |
 | `validity` and `shells` | 1,000,000 triangles | 250 ms each |
-| `Bvh::new` | 1,000,000 triangles | 400 ms |
+| `BoundingVolumeHierarchy::new` | 1,000,000 triangles | 400 ms |
 | `first_hit` | 1,000,000-triangle closed mesh, random rays from inside | 3 µs mean |
 | `slice_many` | 200,000-triangle closed mesh, 1,000 heights | 300 ms |
 | `render_buffers` | 1,000,000 triangles | 60 ms |
 
-Memory: a `Mesh` costs at most 24 bytes per vertex (48 with normals) plus 16 bytes per triangle, plus edges and markers; a `Bvh` at most 64 bytes per triangle.
+Memory: a `Mesh` costs at most 24 bytes per vertex (48 with normals) plus 16 bytes per triangle, plus edges and markers; a `BoundingVolumeHierarchy` at most 64 bytes per triangle.
 
 ## 6. Acceptance tests
 
@@ -723,7 +723,7 @@ Tests build these meshes through the public API. Unless a test says otherwise, c
 
 ### 6.9 Ray casting
 
-67. `Bvh::new(&cube(10)).first_hit(ray (5,5,20) → (0,0,-1), 0, ∞)`: triangle 2, distance 10, point `(5,5,10)`, `front_face`.
+67. `BoundingVolumeHierarchy::new(&cube(10)).first_hit(ray (5,5,20) → (0,0,-1), 0, ∞)`: triangle 2, distance 10, point `(5,5,10)`, `front_face`.
 68. `all_hits` for the same ray: triangles `[2,3,0,1]`, distances `[10,10,20,20]`, `front_face` `[true,true,false,false]`.
 69. Ray `(2,3,20)` → `(0,0,-1)`: first hit triangle 2 with `barycentric == [0.5, 0.2, 0.3]` within `1e-12`.
 70. Ray `(20,20,20)` → `(0,0,-1)`: `first_hit` is `None` and `all_hits` is empty.
@@ -733,7 +733,7 @@ Tests build these meshes through the public API. Unless a test says otherwise, c
 74. Ray `(-5,5,10)` → `(1,0,0)` (in the top face's plane): `all_hits` is triangle 9 at distance 5, then triangle 11 at distance 15.
 75. `Ray::new((0,0,0), (0,0,0))` and `Ray::new((NaN,0,0), (0,0,1))` return `InvalidRay`; `Ray::new((0,0,0), (0,0,-5)).direction()` is `(0,0,-1)`.
 76. Property test: for `sphere(10, 64, 32)` and 10,000 rays from a seeded random generator (origins in `[-15,15]³`, random directions), `first_hit` and `all_hits` equal a brute-force loop over all triangles with the test of section 3.10.
-77. `Bvh::new(&Mesh::empty())` returns no hits for any ray.
+77. `BoundingVolumeHierarchy::new(&Mesh::empty())` returns no hits for any ray.
 
 ### 6.10 Render buffers
 
@@ -748,8 +748,8 @@ Tests build these meshes through the public API. Unless a test says otherwise, c
 
 84. `TessellationTolerance::default()` is `{chord_deviation: 0.05, angular_deviation: 0.08726646259971647}` and serializes to `{"chord_deviation":0.05,"angular_deviation":0.08726646259971647}`.
 85. `TessellationTolerance::new(0.0, 0.1)`, `new(0.05, 1.6)` and `new(f64::NAN, 0.1)` return `InvalidTolerance`; `new(0.05, π/2)` succeeds.
-86. `Aabb::from_points([])` is `None`; boxes `(0,0,0)-(1,1,1)` and `(1,0,0)-(2,1,1)` intersect (touching); their union is `(0,0,0)-(2,1,1)`; `size()` of `(0,0,0)-(10,20,30)` is `(10,20,30)` and `center()` is `(5,10,15)`.
-87. `serde_json::to_string` of `Aabb { min: [0.0,0.0,0.0], max: [10.0,20.0,30.0] }` is `{"min":[0.0,0.0,0.0],"max":[10.0,20.0,30.0]}` and parses back equal.
+86. `BoundingBox::from_points([])` is `None`; boxes `(0,0,0)-(1,1,1)` and `(1,0,0)-(2,1,1)` intersect (touching); their union is `(0,0,0)-(2,1,1)`; `size()` of `(0,0,0)-(10,20,30)` is `(10,20,30)` and `center()` is `(5,10,15)`.
+87. `serde_json::to_string` of `BoundingBox { min: [0.0,0.0,0.0], max: [10.0,20.0,30.0] }` is `{"min":[0.0,0.0,0.0],"max":[10.0,20.0,30.0]}` and parses back equal.
 88. `Transform::identity()` serializes with exactly the keys `rows` then `translation` and round-trips.
 
 ### 6.12 Determinism
@@ -759,10 +759,5 @@ Tests build these meshes through the public API. Unless a test says otherwise, c
 
 ## 7. Open issues
 
-1. **Vertex markers.** The task listed face ids and edge polylines; this spec adds `VertexMarker` (B-rep vertex points with ids) because the protocol's `MeshBuffers` ships `vertex_positions` and the technical design asks for vertex picking. The kernel spec must fill them during tessellation.
-2. **Face ids per triangle versus per vertex.** The mesh stores one face id per triangle; the protocol ships one per render vertex and requires that no render vertex is shared by two faces. `render_buffers` splits shared vertices to meet that (section 3.11). The engine maps kernel ids to the protocol's display ids (positions in `list_elements` order) with `remap_ids` before calling it.
-3. **Duplicate tolerance and box types.** The protocol defines `Tolerance { chord_deviation, angular_deviation }` and `BoundingBox { min, max }` with the same JSON as `TessellationTolerance` and `Aabb`. The reviewer may make the protocol reuse the mesh types (the protocol already depends on `partsmith-print`, which depends on this crate).
-4. **`WELD_TOLERANCE` duplicates `LINEAR_TOLERANCE`.** `partsmith-mesh` has no dependency on `partsmith-model` (architecture crate graph), so the value `1e-6` is repeated here; a test in `partsmith-print` (which depends on both) asserts they are equal.
-5. **Kernel tessellation shape.** This spec assumes the kernel facade outputs one vertex set per B-rep face (vertices duplicated along face boundaries), outward winding, normals from the surface, and shared edge discretization so that welding at `WELD_TOLERANCE` closes the mesh. The kernel spec should confirm this.
-6. **Normals as `f64`.** Normals are stored as `f64` for one vector type; they are converted to `f32` only in `render_buffers`.
-7. **Panicking accessors.** `triangle_points`, `triangle_normal`, `triangle_area` and `is_degenerate` panic on an out-of-range index, as slice indexing does. If the reviewer prefers no panicking public API, they become `Option`-returning.
+1. **Protocol copies of shared types.** protocol.md defines `Tolerance { chord_deviation, angular_deviation }` and `BoundingBox { min, max }` with the same JSON as `TessellationTolerance` and `BoundingBox` here. Section 1.1 makes the mesh types the shared ones, so the protocol should reuse them (`partsmith-protocol` reaches this crate through `partsmith-print`) instead of defining copies; a protocol type also named `BoundingBox` would clash with this one in the generated schema.
+2. **`WELD_TOLERANCE` duplicates `LINEAR_TOLERANCE`.** `partsmith-mesh` has no dependency on `partsmith-model` (architecture crate graph), so the value `1e-6` is repeated here; a test in `partsmith-print` (which depends on both) asserts they are equal.

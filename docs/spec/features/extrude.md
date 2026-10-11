@@ -90,7 +90,14 @@ Label `Extrude`, category `create`, icon `extrude`, version 1. Fields in display
 
 ### Python
 
-Dedicated form: `extrude(profile, distance, symmetric=..., reverse=..., through_all=..., part=..., op=...)` (python-api.md section 2.7); `two_sides` has no dedicated form yet and uses the generic form. Generic form of the JSON above (features.md section 3.11):
+Dedicated form: `extrude(profile, distance, symmetric=..., reverse=..., through_all=..., op=...)` (python-api.md section 2.7), produced by the `Feature::python` hook with the shared rules of features.md section 3.11:
+
+- `profile`: the sketch's variable, plus `regions=[Region("<key>", "<fp>"), ...]` when the stored regions are not all of the sketch's regions in solved order.
+- `distance` extent: `distance` is `extent.expr`. `symmetric`: the same plus `symmetric=True`. `through_all`: no `distance`, and `through_all=True`.
+- `reverse=True` when `reverse` is true; `op` when it differs from the default op of `body`.
+- A `two_sides` extent has no dedicated form: the hook returns `None` and the generic form is used.
+
+With `f-sk1` as `sketch_1` and op `new` as the default, the JSON above is `extrude(sketch_1, 30*mm, id="f-ext1")`. Generic form (features.md section 3.11):
 
 ```python
 feature(
@@ -125,7 +132,7 @@ feature(
    - `two_sides`: a = `extent.expr` ≥ 0 and b = `extent.opposite_expr` ≥ 0, else `OutOfRange` (`AtLeast(0)`) on that field; a + b > 0 else `BothSidesZero`; interval [-b, a].
    - `through_all`: op `new` gives `ThroughAllNeedsBody`. An empty body gives `BodyEmpty { use_new: true }`. Otherwise let D be the largest signed distance (p - placement origin) · d over the eight corners p of the body's tight bounding box. D ≤ 0 gives `ThroughAllMisses`. Interval [0, D + 1 mm].
 4. Build the union of the resolved regions as kernel faces (`make_profile` with curves tagged by sketch entity) and sweep it with kernel `extrude(profile, d, s0, s1)`.
-5. Name the tool's faces (section 3.4) and call `apply_op(ctx, body, op, tool)`.
+5. Name the tool's faces (section 3.4) and call `apply_op(ctx, body, op, vec![tool])`.
 
 ### 3.4 Element names
 
@@ -167,9 +174,9 @@ Unknown, later, failed or suppressed sketches are reported by recompute (`Unknow
 
 Conventions from features.md section 6.1. Fixtures:
 
-- `SK-RECT`: `{"id": "f-sk1", "type": "sketch", "plane": {"type": "origin", "name": "XY"}, "entities": [{"id": "e-1", "type": "line", "start": [0, 0], "end": [80, 0]}, {"id": "e-2", "type": "line", "start": [80, 0], "end": [80, 50]}, {"id": "e-3", "type": "line", "start": [80, 50], "end": [0, 50]}, {"id": "e-4", "type": "line", "start": [0, 50], "end": [0, 0]}]}`.
+- `SK-RECT`: `{"id": "f-sk1", "type": "sketch", "plane": {"kind": "origin", "plane": "XY"}, "entities": [{"id": "e-1", "type": "line", "start": [0, 0], "end": [80, 0]}, {"id": "e-2", "type": "line", "start": [80, 0], "end": [80, 50]}, {"id": "e-3", "type": "line", "start": [80, 50], "end": [0, 50]}, {"id": "e-4", "type": "line", "start": [0, 50], "end": [0, 0]}]}`.
 - `P-RECT`: `{"sketch": "f-sk1", "regions": [{"key": "e-1,e-2,e-3,e-4", "fp": "c=40,25|a=4000"}]}`.
-- `SK-CIRCLE(cx, cy, r)`: `{"id": "f-sk1", "type": "sketch", "plane": {"type": "origin", "name": "XY"}, "entities": [{"id": "e-5", "type": "circle", "center": [cx, cy], "radius": r}]}`.
+- `SK-CIRCLE(cx, cy, r)`: `{"id": "f-sk1", "type": "sketch", "plane": {"kind": "origin", "plane": "XY"}, "entities": [{"id": "e-5", "type": "circle", "center": [cx, cy], "radius": r}]}`.
 - `P-CIRCLE(fp)`: `{"sketch": "f-sk1", "regions": [{"key": "e-5", "fp": <fp>}]}`.
 - `BOX-BELOW`: `{"id": "f-box1", "type": "box", "body": "b-1", "size": ["40", "40", "10"], "position": ["0", "0", "-10"], "op": "new"}` (spans [-20,-20,-10]-[20,20,0], volume 16000).
 - `EXT(profile, extent, op)`: `{"id": "f-ext1", "type": "extrude", "body": "b-1", "profile": <profile>, "extent": <extent>, "op": <op>}`; `reverse` added where stated.
@@ -211,13 +218,11 @@ Unless stated, bodies are `[b-1]` and the features are `SK-RECT` then `EXT(P-REC
 33. **All regions missing.** As 1 with the only region `{"key": "e-7,e-8", "fp": "c=200,200|a=100"}`. Expected: error `profile_not_found` rendered `None of the selected regions of 'Sketch 1' can be found anymore. Re-pick the profile.`
 34. **Profile from a datum.** Features `{"id": "f-dp1", "type": "datum_plane", "base": {"kind": "origin", "plane": "XY"}}`, `EXT` with profile `{"sketch": "f-dp1", "regions": [{"key": "e-1,e-2,e-3,e-4", "fp": "c=40,25|a=4000"}]}`. Expected: error `wrong_feature_type` rendered `'Datum plane 1' is not a sketch. Pick a sketch for Profile.`
 35. **Sketch later in the timeline.** Test 1 with the two features in reverse order. Expected: extrude error `forward_reference` rendered `'Sketch 1' comes later in the timeline than this feature. Move it above this feature, or pick something earlier for Profile.`; sketch ok.
-36. **Sketch on XZ.** As 1 with the sketch plane `{"type": "origin", "name": "XZ"}`. Expected: volume 120000, bbox [0,-30,0]-[80,0,50].
-37. **Sketch on a datum.** Features `{"id": "f-dp1", "type": "datum_plane", "base": {"kind": "origin", "plane": "XY"}, "offset": "10"}`, `SK-RECT` with plane `{"type": "datum", "feature": "f-dp1"}`, extrude as 1. Expected: bbox [0,0,10]-[80,50,40].
+36. **Sketch on XZ.** As 1 with the sketch plane `{"kind": "origin", "plane": "XZ"}`. Expected: volume 120000, bbox [0,-30,0]-[80,0,50].
+37. **Sketch on a datum.** Features `{"id": "f-dp1", "type": "datum_plane", "base": {"kind": "origin", "plane": "XY"}, "offset": "10"}`, `SK-RECT` with plane `{"kind": "datum", "feature": "f-dp1"}`, extrude as 1. Expected: bbox [0,0,10]-[80,50,40].
 38. **Empty profile.** As 1 with `"regions": []`. Expected: error `empty_selection` rendered `Select at least one region for Profile.`
 39. **Performance.** Test 1 builds in under 3 ms (desktop, release, build only); test 21 in under 30 ms.
 
 ## Open issues
 
-1. Through all extends 1 mm past the body's bounding box. The margin only has to exceed the modeling tolerance; 1 mm keeps the tool's cap clear of the body even for curved faces near the box corners.
 2. A symmetric extrusion silently ignores `reverse`. The UI should hide Reverse for the symmetric extent.
-3. python-api.md's dedicated `extrude` has no two-sided form; documents with `two_sides` export with the generic form until it gains one.

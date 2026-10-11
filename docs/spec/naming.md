@@ -10,13 +10,13 @@ This spec defines element names, naming maps, fingerprints, references and the r
 
 - The element name grammar, its validation, ordering and the operations on names (split base, face terms, generated names, instance renaming).
 - `NamingMap`: names for every face, edge and vertex of one output shape, built from per-face sources plus topology, with deterministic `#n` numbering for split elements and aliases for merged elements.
-- Naming rules for every M1 feature kind: sketch, extrude (distance, symmetric, two sides, through all; ops new, join, cut, intersect), revolve (angle, full; ops), fillet (constant radius), chamfer (equal distance, two distances), shell (remove faces, inward thickness), hole (simple, counterbore, countersink, at sketch points), primitives (box, cylinder, sphere, cone, torus), boolean (join, cut, intersect, keep tools), mirror (body across plane), linear and circular pattern (of bodies), datum plane, move body (translate, rotate), split body (by plane).
+- Naming rules for every M1 feature kind: sketch, extrude (distance, symmetric, two sides, through all; ops new, join, cut, intersect), revolve (angle, full; ops), fillet (constant radius), chamfer (equal distance, two distances), shell (remove faces, inward thickness), hole (simple, counterbore, countersink, at sketch points), primitives (box, cylinder, sphere, cone, torus), boolean (join, cut, intersect, keep tools), mirror (body across plane), linear and circular pattern (of bodies), datum plane, move body (translate, rotate), split body (by plane), STEP import (fallback rule, section 3.6.14).
 - `Fingerprint` with its exact text form, `Reference` (`{"q": ..., "fp": ...}`), `ElementInfo`, the resolver with scoring and confidence threshold, and `Resolution`.
 
 **Explicitly later (not in M1):**
 
 - Naming rules for sweep, loft, helix, rib, emboss, thread, draft, thicken, offset face and the other direct edits.
-- Naming rules for a STEP or mesh import feature beyond the generic fallback rule (section 3.6.14).
+- Naming rules for imported geometry beyond the fallback rule of section 3.6.14 (semantic face names for STEP imports, mesh imports).
 - Direct-generator names for edges and vertices (for example wire bodies from sketch curves); in M1 every edge and vertex is named by its adjacent faces.
 - Names for sketch geometry projected from bodies, and references from sketches to body edges.
 - Cross-document references (linked components) and assembly joint references.
@@ -271,6 +271,8 @@ JSON (exact field names, canonical key order `q` then `fp`):
 {"q": "edge(f-ext1/end-cap|f-ext1/lateral/e-1)", "fp": "line|n=1,0,0|c=40,0,30|l=80|adj=2,2"}
 ```
 
+A `Reference` carries no body, and names are unique per naming map, not per document (a kept boolean tool and the target can share names). So a stored `Reference` always sits next to a `body` field of its containing struct that names the body it is resolved in: features.md `PlaneRef::Face`, `AxisRef::Edge` and `AxisRef::Face`, sketch.md `SketchPlane::Face`, or the feature's own `body` param for reference lists such as fillet `edges` and shell `remove_faces`. There is no separate body-reference type; features resolve each reference against the elements of that one body.
+
 ### 2.5 Naming inputs (not serialized)
 
 ```rust
@@ -440,7 +442,7 @@ pub fn score(query: &Fingerprint, candidate: &Fingerprint, kind: ElementKind) ->
 
 /// Outcome of resolving one reference.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
-#[serde(tag = "type", rename_all = "snake_case")]
+#[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Resolution {
     /// The reference denotes these elements: one element, or every surviving piece of a split element. Sorted by name.
     Resolved { elements: Vec<ElementName>, method: MatchMethod, confidence: f64 },
@@ -478,23 +480,23 @@ pub enum MatchMethod {
 JSON:
 
 ```json
-{"type": "resolved", "elements": ["f-ext1/end-cap"], "method": "exact", "confidence": 1}
+{"kind": "resolved", "elements": ["f-ext1/end-cap"], "method": "exact", "confidence": 1}
 ```
 
 ```json
-{"type": "resolved", "elements": ["f-ext1/end-cap#1", "f-ext1/end-cap#2"], "method": "history", "confidence": 1}
+{"kind": "resolved", "elements": ["f-ext1/end-cap#1", "f-ext1/end-cap#2"], "method": "history", "confidence": 1}
 ```
 
 ```json
-{"type": "ambiguous", "candidates": [{"name": "f-hole1/bore/e-5#1", "score": 0.774944}, {"name": "f-hole1/bore/e-5#2", "score": 0.774944}]}
+{"kind": "ambiguous", "candidates": [{"name": "f-hole1/bore/e-5#1", "score": 0.774944}, {"name": "f-hole1/bore/e-5#2", "score": 0.774944}]}
 ```
 
 ```json
-{"type": "missing", "nearest": {"name": "f-box1/top", "score": 0.613866}}
+{"kind": "missing", "nearest": {"name": "f-box1/top", "score": 0.613866}}
 ```
 
 ```json
-{"type": "missing"}
+{"kind": "missing"}
 ```
 
 Scores in these examples are rounded for readability; the serialized value is the full `f64`.
@@ -650,13 +652,13 @@ The tool faces are named `f/<role>` from the kernel `PrimitiveFace` of each face
 
 | Primitive | Roles |
 | --- | --- |
-| box (spans `[0, length] x [0, width] x [0, height]` locally) | `left` (x = 0, normal -x), `right` (x = length, normal +x), `front` (y = 0, normal -y), `back` (y = width, normal +y), `bottom` (z = 0, normal -z), `top` (z = height, normal +z) |
+| box (centered on the local origin in x and y, z from 0 to its height; features/box.md) | `left` (normal -x), `right` (+x), `front` (-y), `back` (+y), `bottom` (-z), `top` (+z) |
 | cylinder (axis local z from z = 0 to z = height) | `side`, `bottom` (z = 0), `top` (z = height) |
 | cone (axis local z, bottom radius at z = 0, top radius at z = height) | `side`, `bottom` (absent when the bottom radius is 0), `top` (absent when the top radius is 0) |
 | sphere (center at the placement origin) | `surface` |
 | torus (center at the placement origin, axis local z) | `surface` |
 
-With the XY placement, this matches the Z-up convention of the architecture: `front` faces -Y (the side seen in the front view), `top` faces +Z. These are Partsmith's conventions, not OCCT's (`BRepPrimAPI_MakeBox::FrontFace` is the XMax face). For `op` other than `new`, the boolean rule applies afterwards.
+Box roles come from the kernel `make_box` frame, which is corner-anchored (kernel spec section 3.4.1); the box feature shifts that frame by half the length and width to center the box, which moves the faces but does not change their roles. With the XY placement, this matches the Z-up convention of the architecture: `front` faces -Y (the side seen in the front view), `top` faces +Z. These are Partsmith's conventions, not OCCT's (`BRepPrimAPI_MakeBox::FrontFace` is the XMax face). For `op` other than `new`, the boolean rule applies afterwards.
 
 Examples: a cylinder `f-cyl1` has faces `f-cyl1/side`, `f-cyl1/top`, `f-cyl1/bottom`, edges `edge(f-cyl1/side|f-cyl1/top)`, `edge(f-cyl1/side)` (the seam), `edge(f-cyl1/bottom|f-cyl1/side)`, vertices `vertex(f-cyl1/side|f-cyl1/top)`, `vertex(f-cyl1/bottom|f-cyl1/side)`. A sphere `f-sph1` has the face `f-sph1/surface`, the seam `edge(f-sph1/surface)`, two unnamed degenerated edges, and the pole vertices `vertex(f-sph1/surface)#1` (the pole with the smaller order key; for the XY placement, the south pole) and `#2`. A torus `f-tor1` has the face `f-tor1/surface`, two seams `edge(f-tor1/surface)#1` and `#2` ordered by section 3.4, and one vertex `vertex(f-tor1/surface)`.
 
@@ -710,11 +712,11 @@ The boolean rule over the target body map and every tool body map. With "keep to
 
 #### 3.6.10 Mirror (body across a plane)
 
-The mirrored copy's map is `source_map.with_instance(f, Instance { first: 1, second: 0 })`, used as is (the kernel transform keeps element indices). If the copy is joined with the source body, the boolean rule applies over the source map and the copy map. A mirror that replaces the body in place (if the features spec offers one) keeps the source map unchanged.
+The mirrored copy's map is `source_map.with_instance(f, Instance { first: 1, second: 0 })`, used as is (the kernel transform keeps element indices). If the copy is joined with the source body, the boolean rule applies over the source map and the copy map.
 
 #### 3.6.11 Linear and circular pattern (of bodies)
 
-Instance maps are `source_map.with_instance(f, instance)`. Instance numbers: for a linear pattern, `first` is the step index along the first direction (0 to count - 1) and `second` the step index along the second direction (0 when there is no second direction); for a circular pattern, `first` is the step index in the rotation direction and `second` is 0. The original is instance `(0, 0)` and keeps its names; skipped instances leave gaps (numbers are never compacted). Instances combined into one body without fusing (a compound) are named with `From([source name])` for each face; fused instances use the boolean rule. Instances placed in separate bodies use their instance maps as is.
+Instance maps are `source_map.with_instance(f, instance)`. Instance numbers: for a linear pattern, `first` is the step index along the first direction (0 to count - 1) and `second` the step index along the second direction (0 when there is no second direction); for a circular pattern, `first` is the step index in the rotation direction and `second` is 0. The original is instance `(0, 0)` and keeps its names; skipped instances leave gaps (numbers are never compacted). Copies are always combined with one multi-argument boolean (features.md section 3.10): the boolean rule applies over the source map and the instance maps (op join), or over the instance maps only (op new, into the empty target body).
 
 #### 3.6.12 Move body (translate, rotate)
 
@@ -726,7 +728,7 @@ Kernel `split` result. For each output face `j`: `From(modified_sources(j))` if 
 
 #### 3.6.14 Fallback and imported geometry
 
-A feature that creates faces with no semantic generator names them `New(f/face)`; they are numbered by section 3.4 (`f-imp1/face#1`, `f-imp1/face#2`, ...). Such names are order dependent, so references to them are confirmed by fingerprint. This is the rule an M1 STEP import would use until an import naming rule is specified.
+A feature that creates faces with no semantic generator names them `New(f/face)`; they are numbered by section 3.4 (`f-imp1/face#1`, `f-imp1/face#2`, ...). Such names are order dependent, so references to them are confirmed by fingerprint. The M1 `import` feature (features/import.md) names its faces by this rule.
 
 ### 3.7 Fingerprints
 
@@ -872,7 +874,7 @@ Measured in release builds on the reference laptop (technical design section 14)
 
 ## 6. Acceptance tests
 
-Tests live in `crates/partsmith-naming/tests/` and use only the public API. Fixtures:
+Tests live in `crates/partsmith-naming/tests/` and use only the public API, except the feature conformance tests 81 to 90 (below). Fixtures:
 
 - **BOX topology** (a 10 x 20 x 30 box at the origin). Faces 1 left `plane|n=-1,0,0|c=0,10,15|a=600`, 2 right `plane|n=1,0,0|c=10,10,15|a=600`, 3 front `plane|n=0,-1,0|c=5,0,15|a=300`, 4 back `plane|n=0,1,0|c=5,20,15|a=300`, 5 bottom `plane|n=0,0,-1|c=5,10,0|a=200`, 6 top `plane|n=0,0,1|c=5,10,30|a=200`. Edges (faces; centroid; length; vertices): E1 (3,5; 5,0,0; 10; V1,V5), E2 (3,6; 5,0,30; 10; V2,V6), E3 (4,5; 5,20,0; 10; V3,V7), E4 (4,6; 5,20,30; 10; V4,V8), E5 (1,5; 0,10,0; 20; V1,V3), E6 (1,6; 0,10,30; 20; V2,V4), E7 (2,5; 10,10,0; 20; V5,V7), E8 (2,6; 10,10,30; 20; V6,V8), E9 (1,3; 0,0,15; 30; V1,V2), E10 (1,4; 0,20,15; 30; V3,V4), E11 (2,3; 10,0,15; 30; V5,V6), E12 (2,4; 10,20,15; 30; V7,V8); edge kinds `line` with directions along x (E1 to E4), y (E5 to E8), z (E9 to E12). Vertices V1 (0,0,0), V2 (0,0,30), V3 (0,20,0), V4 (0,20,30), V5 (10,0,0), V6 (10,0,30), V7 (10,20,0), V8 (10,20,30), each with the three faces whose planes contain it and the three edges listed above. Face edge lists follow from the edges.
 - **BOX sources:** `New` names `f-box1/left`, `f-box1/right`, `f-box1/front`, `f-box1/back`, `f-box1/bottom`, `f-box1/top` for faces 1 to 6.
@@ -976,19 +978,19 @@ Resolver (scope is the BOX scope unless stated; aliases empty unless stated):
 77. Vertex by fingerprint: scope with vertices `vertex(f-a/x)` at (0,0,0), `vertex(f-b/x)` at (0,0,0.5), `vertex(f-c/x)` at (0,0,3), all `adj=3,3` and adjacency `[f-z/z]`: `{q: vertex(f-q/q), fp: point|c=0,0,0.1|adj=3,3}` resolves `Fingerprint` to `vertex(f-a/x)` with confidence 0.925985.
 78. `score` of any fingerprint against itself is 1; against a fingerprint of a different kind is 0; for the BOX top query against the six BOX faces it returns the values listed in section 3.9.1 (within 1e-6).
 79. Determinism: resolving the same reference against a scope and against the same scope in reversed order gives equal `Resolution` values.
-80. `Resolution` JSON: each example in section 2.8 deserializes and serializes back to equal values; `Missing` without `nearest` serializes as `{"type": "missing"}`.
+80. `Resolution` JSON: each example in section 2.8 deserializes and serializes back to equal values; `Missing` without `nearest` serializes as `{"kind": "missing"}`.
 
-Feature conformance (in `crates/partsmith-features/tests/`, through the feature registry; models use the ids shown):
+Feature conformance (in `crates/partsmith-recompute/tests/naming_conformance.rs`, run as documents per features.md section 6.1; models use the ids shown):
 
 81. Sketch `f-sk1` on XY with lines `e-1` (0,0)-(80,0), `e-2` (80,0)-(80,50), `e-3` (80,50)-(0,50), `e-4` (0,50)-(0,0); extrude `f-ext1` distance 30, op new. The body's faces are exactly `f-ext1/lateral/e-1` (normal -Y), `f-ext1/lateral/e-2` (+X), `f-ext1/lateral/e-3` (+Y), `f-ext1/lateral/e-4` (-X), `f-ext1/start-cap` (-Z, z = 0), `f-ext1/end-cap` (+Z, z = 30); the end cap fingerprint is `plane|n=0,0,1|c=40,25,30|a=4000|adj=4,4`; edge names include `edge(f-ext1/end-cap|f-ext1/lateral/e-1)` and `edge(f-ext1/lateral/e-1|f-ext1/lateral/e-2)`; vertex names include `vertex(f-ext1/end-cap|f-ext1/lateral/e-1|f-ext1/lateral/e-2)`.
 82. Same sketch, symmetric extrude of 30: `f-ext1/start-cap` is at z = -15 with normal -Z and `f-ext1/end-cap` at z = 15.
 83. On the model of test 81, a circle `e-5` center (40,25) radius 5 in sketch `f-sk2` on XY, extrude `f-ext2` through all, op cut: the body has 7 faces, including `f-ext2/lateral/e-5`; edges include `edge(f-ext1/end-cap|f-ext2/lateral/e-5)`, `edge(f-ext1/start-cap|f-ext2/lateral/e-5)` and the seam `edge(f-ext2/lateral/e-5)`.
 84. On the model of test 81, a slot cut through the full width (a sketch on a datum plane 30 mm above XY with the rectangle x 30 to 50, y -1 to 51, extruded 5 mm into the body, op cut) splits the end cap: `f-ext1/end-cap#1` has centroid x = 15 and `f-ext1/end-cap#2` x = 65. A fillet `f-fil1` of `edge(f-ext1/end-cap|f-ext1/lateral/e-1)` created on the model of test 81, with the slot then inserted before it in the timeline, resolves its reference to the two edges `edge(f-ext1/end-cap#1|f-ext1/lateral/e-1)` and `edge(f-ext1/end-cap#2|f-ext1/lateral/e-1)` (method `history`) and builds.
 85. Revolve `f-rev1` of the rectangle x 10 to 20, z 0 to 10 (sketch on XZ, entities `e-1` bottom, `e-2` outer, `e-3` top, `e-4` inner) about Z, full: faces exactly `f-rev1/lateral/e-1` to `f-rev1/lateral/e-4`, no cap names. With angle 90 degrees: also `f-rev1/start-cap` and `f-rev1/end-cap`.
-86. Box `f-box1` 10 x 20 x 30 on XY: face `f-box1/front` has normal -Y and centroid (5,0,15), `f-box1/right` has normal +X; cylinder, sphere, cone (radii 5 and 0) and torus give the names of section 3.6.4 (the cone has `side` and `bottom` only).
+86. Box `f-box1` 10 x 20 x 30 on XY (centered in x and y): face `f-box1/front` has normal -Y and centroid (0,-10,15), `f-box1/right` has normal +X; cylinder, sphere, cone (radii 5 and 0) and torus give the names of section 3.6.4 (the cone has `side` and `bottom` only).
 87. Fillet `f-fil1` radius 2 of `edge(f-box1/front|f-box1/top)` on the box: the new face is `f-fil1/fillet/edge(f-box1/front|f-box1/top)`, the other 6 faces keep their names.
 88. Shell `f-sh1` of the model of test 81 removing `f-ext1/end-cap`, thickness 2: faces are the 5 kept outer names, `f-sh1/inner/<each kept name>` (5 faces), and `f-sh1/rim/f-ext1/end-cap`.
-89. Linear pattern `f-pat1` of the box body, 3 instances along X, new bodies: instance 2's body has face `f-box1/top@f-pat1:2`; joined into one body with spacing 10 (touching), the merged top face is `f-box1/top` with aliases for `f-box1/top@f-pat1:1` and `f-box1/top@f-pat1:2`.
+89. Linear pattern `f-pat1` of the 10 x 20 x 30 box along X, 3 instances, spacing 20, op new into empty `b-2`: `b-2` has faces `f-box1/top@f-pat1:1` and `f-box1/top@f-pat1:2`. With op join and spacing 10 (touching), the merged top face is `f-box1/top` with aliases for `f-box1/top@f-pat1:1` and `f-box1/top@f-pat1:2`.
 90. Split body `f-split1` of the box by the plane z = 10 (normal +Z): the result faces include `f-box1/front#1` and `f-box1/front#2` (ordered by centroid z), `f-split1/split-positive` (outward normal -Z, on the upper piece) and `f-split1/split-negative` (outward normal +Z, on the lower piece).
 
 ## 7. Open issues
@@ -997,11 +999,6 @@ Feature conformance (in `crates/partsmith-features/tests/`, through the feature 
 2. **Adjacency counts format.** The architecture says "adjacency counts" without a format; this spec uses two counts per kind (`adj=F,X`, section 3.7.2).
 3. **Fingerprint text example.** Technical design section 6 shows `plane|n=0,0,1|c=40,25,30` and the architecture `plane|n=0,0,1|c=40,25,30|a=4000`; both parse under section 3.7.4 (fields are optional when parsing), but canonical output always includes every field the kind has, including `adj`.
 4. **Edges and vertices have no direct generators in M1.** The architecture says an edge "without a direct generator" is named by its faces, implying some edges have one. In M1 every edge and vertex is named by adjacent faces; seam edges use the one-face form `edge(<face>)`; degenerated edges are unnamed.
-5. **Resolved can denote several elements.** The architecture lists `Resolved`, `Ambiguous` and `Missing` without saying what a split element resolves to. This spec resolves a reference to an element that was split into every surviving piece (`Resolved` with several elements). Features that need exactly one element (for example a sketch plane) must define how they use several (all pieces of a split planar face are coplanar).
-6. **Reference scope.** `{q, fp}` carries no body. Names are unique per naming map, not per document (a kept boolean tool and the target can share names). Features must resolve each reference against one body chosen by their params (the features spec must give every reference a body context, including sketch-on-face plane references).
-7. **Merged-face aliases.** The architecture's naming map holds names and indices only. This spec adds `aliases` (former names of merged faces) to make the history-chain match work after `UnifySameDomain` merges coplanar faces in booleans.
-8. **Name growth.** Names nest generator names (fillet of a fillet edge, shell of a filleted body), so long chains grow. The hard limits are 16384 bytes and 32 levels; a feature exceeding them fails with `NameTooLong`. The corpus should report the longest name to confirm the limits are never reached in practice.
-9. **Pattern instance numbering.** The two-index instance form (`@f-pat1:2.1`) assumes the features spec may give linear patterns a second direction; if not, only the one-index form is used.
-10. **Hole roles depend on the hole tool construction.** The roles in section 3.6.8 assume the hole tool is a revolved half cross-section (kernel `revolve`); the features spec must build it that way (or produce the same roles by other means).
-11. **Shell rim history.** Rule 1 of section 3.6.7 relies on the kernel reporting rim faces in the removed face's `modified` list (kernel spec section 3.4.9 makes this a kernel contract, which must be verified against `BRepOffsetAPI_MakeThickSolid` in OCCT 7.9.3).
-12. **Profile union.** Section 3.6.2 assumes the features or sketch layer merges adjacent selected regions into one region before calling the kernel, so no lateral face comes from a shared boundary.
+5. **Merged-face aliases.** The architecture's naming map holds names and indices only. This spec adds `aliases` (former names of merged faces) to make the history-chain match work after `UnifySameDomain` merges coplanar faces in booleans.
+6. **Name growth.** Names nest generator names (fillet of a fillet edge, shell of a filleted body), so long chains grow. The hard limits are 16384 bytes and 32 levels; a feature exceeding them fails with `NameTooLong`. The corpus should report the longest name to confirm the limits are never reached in practice.
+7. **Shell rim history.** Rule 1 of section 3.6.7 relies on the kernel reporting rim faces in the removed face's `modified` list (kernel spec section 3.4.9 makes this a kernel contract, which must be verified against `BRepOffsetAPI_MakeThickSolid` in OCCT 7.9.3).

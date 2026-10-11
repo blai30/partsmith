@@ -61,7 +61,7 @@ Label `Shell`, category `modify`, icon `shell`, version 1.
 
 ### Python
 
-Dedicated form: `shell(faces, thickness)` (python-api.md section 2.7). Generic form of the JSON above:
+Dedicated form: `shell(faces, thickness)` (python-api.md section 2.7), produced by the `Feature::python` hook with the shared rules of features.md section 3.11: `faces` from `remove_faces` as references (one alone, several as a list), and `None` when `remove_faces` is empty (a closed hollow); `thickness` as an expression; the `with <part>:` block gives `body`. With the parameter `wall` as `wall`, the JSON above is `shell(Ref("f-box1/top", "plane|n=0,0,1|c=0,0,30|a=4000"), wall, id="f-sh1")`, and the closed hollow of test 3 is `shell(None, 2, id="f-sh1")`. Generic form of the JSON above:
 
 ```python
 feature(

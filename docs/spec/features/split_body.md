@@ -62,7 +62,7 @@ Label `Split body`, category `modify`, icon `split-body`, version 1.
 
 ### Python
 
-Dedicated form: `split(plane, into=<target>, part=<body>)` (python-api.md section 2.7). Generic form of the JSON above (longer than 100 characters, so one argument per line):
+Dedicated form: `split(plane, into=..., flip=...)` (python-api.md section 2.7), produced by the `Feature::python` hook with the shared rules of features.md section 3.11: the `with <part>:` block gives `body`; `plane` is `PythonValue::plane`; `into=<target part>` when `target` is set, and no `into` (None, a trim that discards the other side) otherwise; `flip=True` when true. With `f-dp1` as `plane_1` and `b-2` as `part_2`, the JSON above is `split(plane_1, into=part_2, id="f-split1")`. Generic form of the JSON above (longer than 88 characters, so one argument per line):
 
 ```python
 feature(

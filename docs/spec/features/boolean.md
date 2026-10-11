@@ -71,7 +71,18 @@ Label `Boolean`, category `modify`, icon `boolean`, version 1.
 
 ### Python
 
-Dedicated form: `boolean(tools, op=..., keep_tools=..., part=<target>)` (python-api.md section 2.7). Generic form: `feature("boolean", id="f-bool1", target="b-1", tools=["b-2", "b-3"], op="cut", keep_tools=True)`.
+Dedicated form: `boolean(tools, op="cut", keep_tools=False)` (python-api.md section 2.7), produced by the `Feature::python` hook with the shared rules of features.md section 3.11: the `with <part>:` block gives `target`; `tools` are the tool bodies' part variables (one alone, several as a list); `op="<op>"` when it is not `cut` (the function's own default, not the static default op of solid features); `keep_tools=True` when true. With `b-2` and `b-3` as `part_2` and `part_3`, the JSON above is `boolean([part_2, part_3], keep_tools=True, id="f-bool1")`. Generic form (longer than 88 characters, so one argument per line):
+
+```python
+feature(
+    "boolean",
+    id="f-bool1",
+    target="b-1",
+    tools=["b-2", "b-3"],
+    op="cut",
+    keep_tools=True,
+)
+```
 
 ## 3. Behavior
 

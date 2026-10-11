@@ -11,7 +11,7 @@ Conventions in this document:
 
 ## 1. Purpose and scope
 
-`partsmith-sketch` is pure Rust with no kernel dependency. It depends on `partsmith-model` (`Id`, `Expr`, `LINEAR_TOLERANCE`) and `partsmith-naming` (`Reference`), plus `serde`, `schemars`, `thiserror` and `faer` (MIT; sparse and dense linear algebra for the solver and diagnosis, ADR 0004; a dependency that needs human review). It does not evaluate expressions, resolve face references, read datum results, build kernel wires, record edits or define protocol messages; those belong to `partsmith-features`, `partsmith-engine` and `partsmith-protocol`, which call the API below.
+`partsmith-sketch` is pure Rust with no kernel dependency. It depends on `partsmith-model` (`Id`, `Expr`, `LINEAR_TOLERANCE`) and `partsmith-naming` (`Reference`), plus `serde`, `schemars`, `thiserror` and `faer` (MIT; sparse and dense linear algebra for the solver and diagnosis, ADR 0004; a dependency that needs human review). It does not evaluate expressions, resolve face references, read datum results, build kernel profiles, record edits or define protocol messages; those belong to `partsmith-features`, `partsmith-engine` and `partsmith-protocol`, which call the API below.
 
 ### 1.1 In M1
 
@@ -25,7 +25,7 @@ Conventions in this document:
 - Diagnosis by rank-revealing QR: degrees of freedom, redundant and conflicting constraint ids, per-entity constraint state.
 - Drag solving with a weakly pinned target.
 - Measured values of all dimensions (driving and reference).
-- Profiles: planar arrangement of the non-construction curves, closed regions with holes, `RegionKey` and region fingerprint, region matching, profile check findings, and the oriented exact-curve loops that features turn into kernel wires.
+- Profiles: planar arrangement of the non-construction curves, closed regions with holes, `RegionKey` and region fingerprint, region matching, profile check findings, and the oriented exact-curve loops that features turn into kernel profiles.
 - Performance budgets with a defined benchmark, and property tests.
 
 ### 1.2 Later (explicitly not in M1)
@@ -190,7 +190,7 @@ JSON examples:
 {"kind": "face", "body": "b-1", "face": {"q": "f-ext1/end-cap", "fp": "plane|n=0,0,1|c=40,25,30|a=4000|adj=4,4"}, "fallback": {"origin": [0, 0, 30], "x_axis": [1, 0, 0], "normal": [0, 0, 1]}}
 ```
 
-A `Placement` alone: `{"origin": [0, 0, 30], "x_axis": [1, 0, 0], "normal": [0, 0, 1]}`. The `face` field is a `partsmith_naming::Reference` (naming.md section 2.4); `body` names the body it is resolved in, as for every stored reference (naming.md section 2.4).
+A `Placement` alone: `{"origin": [0, 0, 30], "x_axis": [1, 0, 0], "normal": [0, 0, 1]}`. The `face` field is a `partsmith_naming::Reference`, and `body` names the body it is resolved in, as for every stored reference (naming.md section 2.4).
 
 ### 2.3 Entities
 
@@ -1663,7 +1663,7 @@ Known-solution generator (`tests/common/generator.rs`): builds entities one at a
 3. Requirements on `partsmith-model`: `Id` with `Ord` comparing the id strings bytewise (model.md derives it on the string, which satisfies this), `Display`, `FromStr`, a validating `Deserialize` and `JsonSchema`; `Expr` serialized as a plain string with `JsonSchema`; `LINEAR_TOLERANCE = 1e-6`. Document-wide uniqueness of ids nested in sketch params is the model's check; this crate checks uniqueness within one sketch.
 4. Solved geometry write-back. Recompute is pure, so when an upstream parameter changes a sketch dimension, the stored coordinates stay as they were and every rebuild solves from them. That is deterministic and path independent, but the file keeps stale coordinates and a large parameter jump starts far from the answer. Recommended for the engine spec: parameter edits do not rewrite sketches (they stay one-line diffs), and a sketch's solved geometry is written back only when an edit to that sketch is committed.
 5. Cross-target bitwise determinism. This spec requires bitwise determinism within a build and 1e-9 agreement across targets. Bitwise agreement between native and WebAssembly would need a portable math library (for example the `libm` crate) for `sin`, `cos` and `atan2`; decide whether corpus baselines need it.
-6. Substitution scope. ADR 0004 names coincident points and horizontal and vertical pairs; this spec also substitutes `concentric` (coincident centers) and freezes `fix` parameters. Worth a line in the ADR log.
+6. Substitution scope. ADR 0004 names coincident points and horizontal and vertical pairs; this spec also substitutes `concentric` (coincident centers), freezes `fix` parameters, and freezes coordinates made coincident with the reserved `origin` (section 3.16). Worth a line in the ADR log.
 7. Touch-point tangents. Writing tangency as a direction condition at a known touch point (section 3.6.4) is required for correct redundancy reports on slots and fillets (a prototype of the plain center-distance form reported all 100 tangents of the chain benchmark as redundant and 125 DOF instead of 25). It adds to ADR 0004's design without changing a contract; worth recording.
 8. Conflict test. ADR 0004 calls a dependent row conflicting when its residual is nonzero. This spec tests the inconsistency of the dependency (`delta`, section 3.8) instead, which is the same at a converged point and avoids misreporting rows that merely share a least-squares residual.
 9. Fix semantics. `fix` stores no coordinates and freezes the stored geometry, as in Fusion (FreeCAD stores values). Moving a fixed entity therefore means editing its coordinates directly; the engine and UI specs need such an edit, since dragging cannot move it.

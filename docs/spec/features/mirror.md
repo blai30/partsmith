@@ -62,7 +62,7 @@ Label `Mirror`, category `pattern`, icon `mirror`, version 1.
 
 ### Python
 
-Dedicated form: `mirror(plane, part=<body>)` (python-api.md section 2.7) for op join; op new uses the generic form until python-api.md adds it. Generic form of the second JSON above:
+Dedicated form: `mirror(plane, into=<target part>)` (python-api.md section 2.7), produced by the `Feature::python` hook with the shared rules of features.md section 3.11: the `with <part>:` block gives `body`; `plane` is `PythonValue::plane`; op `new` writes `into=<target part>` and op `join` writes no `into`. With `f-dp1` as `plane_1` and `b-2` as `part_2`, the two JSON records above are `mirror(Plane.YZ, id="f-mir1")` and `mirror(plane_1, into=part_2, id="f-mir2")`. Generic form of the second JSON above:
 
 ```python
 feature(
@@ -94,7 +94,7 @@ feature(
 1. The source body must hold a solid, else `BodyEmpty { use_new: false }`.
 2. Resolve the plane with `ctx.plane("plane", ...)` against the state before this feature, so a face of the source body may be the plane.
 3. The image is the source shape transformed by kernel `Transform::mirror` through the plane (index-preserving, positive volume), named with `source_map.with_instance(<id>, Instance { first: 1, second: 0 })`.
-4. Op join: `apply_op(ctx, body, Join, image)` (a body symmetric about the plane gives `NoEffect`). Op new: `apply_op(ctx, target, New, image)` (a target with a solid gives `BodyNotEmpty`).
+4. Op join: `apply_op(ctx, body, Join, vec![image])` (a body symmetric about the plane gives `NoEffect`). Op new: `apply_op(ctx, target, New, vec![image])` (a target with a solid gives `BodyNotEmpty`).
 
 ### 3.4 Element names
 

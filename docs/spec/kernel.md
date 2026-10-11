@@ -8,7 +8,8 @@ The facade turns OCCT into deterministic, thread-safe Rust functions that take p
 
 **In the M1 slice:**
 
-- Plain value types: `Point`, `Point2`, `Vector`, `Axis`, `Plane`, `Transform`, `BoundingBox`, `Color`.
+- Constants `OCCT_VERSION` and `LINEAR_TOLERANCE`.
+- Plain value types: `Point`, `Point2`, `Vector`, `Axis`, `Plane`, `Transform`, `Color`. Bounding boxes and tessellation tolerances use the shared `partsmith_mesh::BoundingBox` and `partsmith_mesh::TessellationTolerance` (mesh.md section 2.4).
 - `Shape` (opaque, cheap to clone, `Send + Sync`), `ShapeKind`, `SubShapeKind`, sub-shape indexing, solids, compounds and locating sub-shapes of one shape in another.
 - Results with history: `OpResult`, `History`, `InputHistory`, `ElementFate`; face roles for primitives (`Primitive`) and sweeps (`SweepResult`); `SplitResult`.
 - Primitives: box, cylinder, sphere, cone, torus, placed by a `Plane` frame.
@@ -20,7 +21,7 @@ The facade turns OCCT into deterministic, thread-safe Rust functions that take p
 - Split by plane and planar section.
 - Measurement: volume, area, center of mass, bounding box, validity.
 - Element geometry queries (kind, direction, location, radius, centroid, area or length) and topology (faces of an edge, edges of a face, faces and edges of a vertex, seam and degenerate flags).
-- Tessellation into `partsmith_mesh::Mesh` with per-triangle face ids and edge polylines with edge ids, from linear and angular deflection.
+- Tessellation into `partsmith_mesh::Mesh` with `f64` positions, per-triangle face ids, edge polylines with edge ids, and vertex markers with vertex ids, from a `partsmith_mesh::TessellationTolerance`.
 - STEP write to bytes and read from bytes (AP214, millimeters, body names and colors); binary BRep write and read for the result cache.
 - `KernelError` with operation, kind, C++ exception type and raw message, plus the user-facing translation.
 - Shim rules, thread safety, determinism, and the `build.rs` contract.
@@ -34,7 +35,7 @@ The facade turns OCCT into deterministic, thread-safe Rust functions that take p
 - Non-uniform scale (`gp_GTrsf`).
 - Split by face, body or sketch; split face.
 - Fuzzy booleans, glue options, user-controlled unification.
-- Vertex ids in tessellation output; per-face incremental re-tessellation.
+- Per-face incremental re-tessellation.
 - STEP AP242, PMI, assemblies preserved as assemblies, IGES and text BRep import and export, mesh-to-BRep conversion, sewing open shells into solids on import.
 - OCCT internal parallelism (`SetRunParallel`, parallel meshing).
 - Projection of edges onto planes and silhouettes (for sketch reference geometry).
@@ -42,6 +43,13 @@ The facade turns OCCT into deterministic, thread-safe Rust functions that take p
 ## 2. Public API
 
 Everything is exported from the crate root. No public type derives `serde` traits: kernel values never appear in documents or protocol messages (BRep and STEP are byte buffers). All lengths are millimeters and all angles radians, `f64`.
+
+```rust
+/// The pinned OCCT version (ADR 0003); part of recompute cache keys.
+pub const OCCT_VERSION: &str = "7.9.3";
+/// Modeling tolerance in millimeters; equal to `partsmith_model::LINEAR_TOLERANCE` (section 3.1).
+pub const LINEAR_TOLERANCE: f64 = 1e-6;
+```
 
 ### 2.1 Value types
 
@@ -128,10 +136,6 @@ impl Transform {
     pub fn apply_vector(&self, vector: Vector) -> Vector;
 }
 
-/// An axis-aligned box.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct BoundingBox { pub min: Point, pub max: Point }
-
 /// An RGB color, each component in [0, 1].
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Color { pub red: f64, pub green: f64, pub blue: f64 }
@@ -187,7 +191,7 @@ impl Shape {
     /// Volume centroid; fails for shapes without volume.
     pub fn center_of_mass(&self) -> Result<Point, KernelError>;
     /// Tight axis-aligned bounds; fails for empty shapes.
-    pub fn bounding_box(&self) -> Result<BoundingBox, KernelError>;
+    pub fn bounding_box(&self) -> Result<partsmith_mesh::BoundingBox, KernelError>;
 
     /// Geometry of one face, edge or vertex.
     pub fn element(&self, kind: SubShapeKind, index: u32) -> Result<ElementGeometry, KernelError>;
@@ -196,8 +200,8 @@ impl Shape {
     /// Adjacency of all faces, edges and vertices.
     pub fn topology(&self) -> Result<Topology, KernelError>;
 
-    /// Triangulates the shape into a mesh with face ids and edge polylines (section 3.7).
-    pub fn tessellate(&self, options: &TessellationOptions) -> Result<partsmith_mesh::Mesh, KernelError>;
+    /// Triangulates the shape into a mesh with face ids, edge polylines and vertex markers (section 3.7).
+    pub fn tessellate(&self, tolerance: &partsmith_mesh::TessellationTolerance) -> Result<partsmith_mesh::Mesh, KernelError>;
 
     /// Serializes to OCCT binary BRep (section 3.8.2).
     pub fn to_brep(&self) -> Result<Vec<u8>, KernelError>;
@@ -299,8 +303,8 @@ pub fn make_torus(placement: &Plane, major_radius: f64, minor_radius: f64) -> Re
 pub enum PlanarCurve {
     /// Segment from `start` to `end`.
     Line { start: Point2, end: Point2 },
-    /// Arc around `center`, counterclockwise (in plane coordinates) from `start` to `end`.
-    Arc { center: Point2, start: Point2, end: Point2 },
+    /// Arc of the circle (`center`, `radius`), counterclockwise (in plane coordinates) from `start` to `end`.
+    Arc { center: Point2, radius: f64, start: Point2, end: Point2 },
     /// Full circle.
     Circle { center: Point2, radius: f64 },
 }
@@ -311,15 +315,15 @@ pub struct TaggedCurve { pub tag: u32, pub curve: PlanarCurve }
 
 /// A closed chain of curves, listed in chain order; each curve may be listed in either direction.
 #[derive(Debug, Clone, PartialEq)]
-pub struct Loop { pub curves: Vec<TaggedCurve> }
+pub struct PlanarLoop { pub curves: Vec<TaggedCurve> }
 
 /// An outer loop with zero or more hole loops.
 #[derive(Debug, Clone, PartialEq)]
-pub struct Region { pub outer: Loop, pub holes: Vec<Loop> }
+pub struct PlanarRegion { pub outer: PlanarLoop, pub holes: Vec<PlanarLoop> }
 
 /// Planar faces built from regions, with the tag of every edge.
 #[derive(Debug, Clone)]
-pub struct Profile {
+pub struct PlanarProfile {
     /// A face (one region) or a compound of faces (several regions, in region order).
     pub shape: Shape,
     /// The plane the profile lies in.
@@ -327,12 +331,14 @@ pub struct Profile {
     /// Tag of edge `i + 1` of `shape`.
     pub edge_tags: Vec<u32>,
     /// The regions it was built from.
-    pub regions: Vec<Region>,
+    pub regions: Vec<PlanarRegion>,
 }
 
 /// Builds faces from regions on a plane; every face's normal is the plane normal.
-pub fn make_profile(plane: &Plane, regions: &[Region]) -> Result<Profile, KernelError>;
+pub fn make_profile(plane: &Plane, regions: &[PlanarRegion]) -> Result<PlanarProfile, KernelError>;
 ```
+
+The names carry a `Planar` prefix, like `PlanarCurve`, so they do not collide with `partsmith_sketch::Profile`, `Region` and `ProfileLoop` inside `partsmith-features`.
 
 ### 2.6 Sweeps
 
@@ -358,9 +364,9 @@ pub enum SweepFace {
 }
 
 /// Sweeps the profile from `start` to `end` millimeters along the unit `direction` (start < end).
-pub fn extrude(profile: &Profile, direction: Vector, start: f64, end: f64) -> Result<SweepResult, KernelError>;
+pub fn extrude(profile: &PlanarProfile, direction: Vector, start: f64, end: f64) -> Result<SweepResult, KernelError>;
 /// Revolves the profile about an axis in its plane by `angle` (0 < |angle| <= 2 pi; 2 pi is a full revolution).
-pub fn revolve(profile: &Profile, axis: &Axis, angle: f64) -> Result<SweepResult, KernelError>;
+pub fn revolve(profile: &PlanarProfile, axis: &Axis, angle: f64) -> Result<SweepResult, KernelError>;
 ```
 
 ### 2.7 Booleans
@@ -511,16 +517,7 @@ pub struct VertexTopology {
 
 ### 2.11 Tessellation
 
-```rust
-/// Tessellation tolerances.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct TessellationOptions {
-    /// Maximum distance between a triangle and the surface, in millimeters (absolute), greater than 0.
-    pub linear_deflection: f64,
-    /// Maximum angle between consecutive segment directions along curves, in radians, greater than 0.
-    pub angular_deflection: f64,
-}
-```
+`Shape::tessellate` takes the shared `partsmith_mesh::TessellationTolerance` (mesh.md section 2.4): `chord_deviation` is the maximum distance between a triangle and the surface in millimeters (absolute), and `angular_deviation` the maximum angle in radians between consecutive segments along curves and between adjacent triangle normals. The facade defines no tolerance type of its own; section 3.7 maps the fields to OCCT's parameters.
 
 ### 2.12 STEP
 
@@ -607,7 +604,7 @@ pub enum Operation {
 ### 3.1 Conventions
 
 1. Units: millimeters and radians. Coordinates are right-handed with Z up (architecture conventions).
-2. Tolerances: `LINEAR` = 1e-6 mm (the value of `partsmith_model::LINEAR_TOLERANCE`; this crate does not depend on `partsmith-model`, so it defines the same constant privately and a test asserts equality in `partsmith-features`), `ANGULAR` = 1e-9 rad.
+2. Tolerances: `LINEAR` is the public `LINEAR_TOLERANCE` = 1e-6 mm (the value of `partsmith_model::LINEAR_TOLERANCE`; this crate does not depend on `partsmith-model`, so it defines the same constant and a test in `partsmith-features` asserts equality), `ANGULAR` = 1e-9 rad.
 3. Immutability: no facade function modifies any input `Shape`, including tolerances, pcurves and triangulations of its sub-shapes. Where an OCCT algorithm may write to its inputs, the shim passes a copy (`BRepBuilderAPI_Copy`) and composes the copy's history. Booleans run in non-destructive mode.
 4. Validation order: every function first checks its arguments in Rust (finite values, ranges, index bounds, plane and axis validity) and returns `InvalidInput` with the exact messages of section 4.2 without calling C++; checks that need geometry run in the shim and raise `Partsmith_InvalidInput` with the same kind of message.
 5. A `Plane` is valid when `normal` and `x_axis` have length at least 1e-12 and, after normalizing, `abs(normal . x_axis) <= 1e-9`. An `Axis` is valid when its direction has length at least 1e-12. The facade normalizes both before use.
@@ -653,7 +650,7 @@ Validation: box dimensions greater than 0; cylinder radius and height greater th
 
 `make_profile(plane, regions)`:
 
-1. `regions` must be non-empty and every loop non-empty. A `Circle` must be the only curve in its loop. Lines must have length at least `LINEAR`; arcs must have `start` and `end` at distances from `center` differing by at most `LINEAR`, a radius at least `LINEAR`, and `start != end` (beyond `LINEAR`); circles must have radius at least `LINEAR`.
+1. `regions` must be non-empty and every loop non-empty. A `Circle` must be the only curve in its loop. Lines must have length at least `LINEAR`; arcs must have a radius of at least `LINEAR`, each of `start` and `end` within `LINEAR` of the circle (`abs(norm(p - center) - radius) <= LINEAR`), and `start != end` (beyond `LINEAR`); circles must have radius at least `LINEAR`. An arc's edge lies on the exact circle and its vertices get a tolerance of at least `LINEAR`, so profile vertices that sketch.md places within `PROFILE_TOLERANCE` of their curves (sketch.md section 3.13.2) build.
 2. Chain: curves are traversed in list order. The first curve's direction is chosen so its end meets the second curve (at either of the second curve's endpoints); each following curve is traversed starting at the point where the previous one ended. Consecutive curves, and the last and first, must meet within `LINEAR`; otherwise `InvalidInput` naming the two tags and the gap, which is the smaller of the distances from the end of the first curve to the two endpoints of the next. Junction vertices are shared, so a loop's edges are connected exactly.
 3. Orientation: the shim orients each outer loop counterclockwise and each hole clockwise in plane coordinates (by signed area), so every face's outward normal equals the plane normal.
 4. Output: one face per region, each curve producing exactly one edge (curves are never merged or split), so `edge_tags` has one entry per curve; `edge_tags[i]` is the tag of the curve that produced edge `i + 1`. Tags need not be unique.
@@ -739,15 +736,16 @@ After every operation that returns a solid result (profiles, sweeps, booleans, f
 
 ### 3.7 Tessellation
 
-`tessellate(options)`:
+`tessellate(tolerance)`:
 
-1. Requirements: both deflections greater than 0 and finite.
-2. Meshing: a copy of the shape is meshed with `BRepMesh_IncrementalMesh` with `IMeshTools_Parameters` `Deflection = linear_deflection`, `Angle = angular_deflection`, `Relative = false`, `InParallel = false`, other parameters at OCCT defaults. The input shape is never meshed in place, so tessellating never changes later results of the same shape.
-3. Output (`partsmith_mesh::Mesh`, field names per `docs/spec/mesh.md`): for each face in index order, its triangulation nodes as mesh vertices (positions in millimeters with the face location applied; unit normals from the surface at each node, flipped for reversed faces, so they point outward), and its triangles wound counterclockwise seen from outside (reversed faces have two indices swapped), each triangle tagged with the face's 1-based index as its face id. Vertices are not shared between faces.
-4. Shared boundaries: every node lying on an edge has bitwise identical coordinates (before conversion to the mesh's number type) in every face that contains the edge, taken from the edge's single discretization; corner nodes likewise. So welding by exact position yields a closed mesh for a closed solid.
-5. Edge polylines: one per edge, in edge index order, for every edge that is neither degenerated nor a seam and belongs to at least one face. Points are the edge's discretization from its first vertex to its last (edge orientation as stored in the edge map); a closed edge repeats its first point at the end. Its id is the edge's 1-based index. Edges without faces and vertices are not output.
-6. If a face gets no triangulation, the call fails with `Failed`.
-7. Determinism: the same shape and options give an identical mesh, regardless of which thread calls and of earlier tessellations of the same shape with other options.
+1. Requirements: `chord_deviation` finite and greater than 0; `angular_deviation` finite with `0 < angular_deviation <= pi / 2` (the rule of mesh.md section 3.12, checked again because the fields are public).
+2. Meshing: a copy of the shape is meshed with `BRepMesh_IncrementalMesh` with `IMeshTools_Parameters` `Deflection = chord_deviation`, `Angle = angular_deviation`, `Relative = false`, `InParallel = false`, other parameters at OCCT defaults. The input shape is never meshed in place, so tessellating never changes later results of the same shape.
+3. Output (`partsmith_mesh::Mesh`, field names per `docs/spec/mesh.md`): for each face in index order, its triangulation nodes as mesh vertices (`f64` positions in millimeters with the face location applied; unit normals from the surface at each node, flipped for reversed faces, so they point outward), and its triangles wound counterclockwise seen from outside (reversed faces have two indices swapped), each triangle tagged with the face's 1-based index as its face id. Vertices are not shared between faces.
+4. Shared boundaries: every node lying on an edge has bitwise identical coordinates in every face that contains the edge, taken from the edge's single discretization; corner nodes likewise. So welding by exact position yields a closed mesh for a closed solid.
+5. Edge polylines: one per edge, in edge index order, for every edge that is neither degenerated nor a seam and belongs to at least one face. Points are the edge's discretization from its first vertex to its last (edge orientation as stored in the edge map); a closed edge repeats its first point at the end. Its id is the edge's 1-based index. Edges without faces are not output.
+6. Vertex markers: one `VertexMarker` per vertex that bounds at least two distinct edges with a polyline (item 5), in vertex index order; `vertex_id` is its 1-based index and `position` its point with the location applied. A box gets 8 markers; a cylinder, sphere or torus gets none (their vertices bound only one polyline edge, or none).
+7. If a face gets no triangulation, the call fails with `Failed`.
+8. Determinism: the same shape and tolerance give an identical mesh, regardless of which thread calls and of earlier tessellations of the same shape with other tolerances.
 
 ### 3.8 Exchange formats
 
@@ -770,7 +768,7 @@ After every operation that returns a solid result (profiles, sweeps, booleans, f
 
 #### 3.8.2 BRep
 
-`to_brep` writes `BinTools::Write` format version 4 (`BinTools_FormatVersion_VERSION_4`) without triangulations and normals to a memory stream; `from_brep` reads it with `BinTools::Read`. Bytes are deterministic for a given shape. Counts, indices and element geometry survive the round trip exactly (volume of the reloaded shape equals the original bit for bit). Bytes that are not a valid stream give `ReadFailed`. These bytes are a cache format: they are only read by the same OCCT version that wrote them, and the cache key includes the OCCT version.
+`to_brep` writes `BinTools::Write` format version 4 (`BinTools_FormatVersion_VERSION_4`) without triangulations and normals to a memory stream; `from_brep` reads it with `BinTools::Read`. Bytes are deterministic for a given shape. Counts, indices and element geometry survive the round trip exactly (volume of the reloaded shape equals the original bit for bit). Bytes that are not a valid stream give `ReadFailed`. These bytes are a cache format: they are only read by the same OCCT version that wrote them, and the cache key includes the OCCT version (`OCCT_VERSION`).
 
 ### 3.9 Shim rules
 
@@ -788,7 +786,7 @@ After every operation that returns a solid result (profiles, sweeps, booleans, f
 1. `Shape` is `Send + Sync`: the C++ object is immutable after construction, OCCT's `Standard_Transient` reference counts are atomic, and no facade function writes to an input (section 3.1).
 2. Every facade function may be called concurrently from any number of threads, on distinct or shared shapes. Results do not depend on concurrency.
 3. OCCT internal parallelism is off (`SetRunParallel(false)`, `InParallel = false`), so OCCT starts no threads and results are identical on desktop and WebAssembly. Parallelism belongs to the recompute layer.
-4. OCCT's data exchange layer keeps process-wide state (controller registration, `Interface_Static`). `write_step` and `read_step` are therefore serialized by one mutex inside the shim, and the one-time data exchange initialization runs under `std::call_once`. This is the only shared mutable state in the shim; it is invisible to callers.
+4. OCCT's data exchange layer keeps process-wide state (controller registration, `Interface_Static`). `write_step` and `read_step` are therefore serialized by one mutex inside the shim, and the one-time data exchange initialization runs under `std::call_once`. This is the only shared mutable state in the shim. It belongs to OCCT, not Partsmith: it guards third-party process-wide state and is invisible to callers, so the "no global mutable state in the core" invariant holds.
 5. The shim's one-time initialization also removes the default message printers (`Message::DefaultMessenger()->RemovePrinters`) so OCCT writes nothing to standard output.
 
 ### 3.11 Determinism
@@ -804,6 +802,7 @@ On one platform build, every facade function is a deterministic function of its 
 5. **C++ flags.** The bridge and every shim source compile as C++17 (`.std("c++17")`). For targets containing `emscripten`, add `-fwasm-exceptions` (matching OCCT built by `scripts/build-occt.sh wasm` and the Rust target's native wasm exceptions, ADR 0009).
 6. **Rebuild triggers.** `cargo:rerun-if-changed=src/ffi.rs` and `cargo:rerun-if-changed=cpp`.
 7. **Crate manifest.** `links = "occt"`; dependencies `cxx`, `thiserror`, `partsmith-mesh`; build dependency `cxx-build`.
+8. **Pinned version.** `cpp/shim.h` includes `Standard_Version.hxx` and `<string_view>` and has `static_assert(std::string_view(OCC_VERSION_COMPLETE) == "7.9.3", ...)`, so an install of another version fails to compile. The Rust constant `OCCT_VERSION` holds the same text.
 
 ## 4. Errors
 
@@ -840,7 +839,7 @@ Numbers in messages use the fingerprint number format of `docs/spec/naming.md` s
 | Empty loop | `A profile loop has no curves.` |
 | Circle not alone | `Circle <tag> must be the only curve in its loop.` |
 | Zero-length curve | `Curve <tag> of the profile has zero length.` |
-| Arc radii differ | `Arc <tag> does not have its start and end at the same distance from its center.` |
+| Arc ends off its circle | `Arc <tag> does not have its start and end on its circle.` |
 | Gap | `The profile is not closed: curves <tag a> and <tag b> do not meet (gap <gap> mm).` |
 | Invalid region | `The profile region crosses itself or has a hole outside its outer boundary.` |
 | Zero extrude direction | `The extrude direction needs to be nonzero.` |
@@ -872,7 +871,7 @@ Numbers in messages use the fingerprint number format of `docs/spec/naming.md` s
 | Bounding box of empty shape | `This shape is empty, so it has no bounding box.` |
 | Element index out of range | `<Kind> <index> does not exist in this body.` (`<Kind>` is `Face`, `Edge` or `Vertex`) |
 | Element query on solids | `Only faces, edges and vertices can be queried.` |
-| Mesh tolerances | `Mesh tolerances must be greater than 0.` |
+| Mesh tolerances | `Mesh tolerances must be greater than 0, with an angle of at most 90 degrees.` |
 | Nothing to export | `There is nothing to export.` |
 | Body without solid | `Body "<name>" has no solid to export.` |
 | Color out of range | `Color components must be between 0 and 1.` |
@@ -968,7 +967,7 @@ Profiles:
 16. The same rectangle listed clockwise ((0,0)-(0,50), (0,50)-(80,50), ...) and with curves listed in reverse direction (line 1 given as (80,0)-(0,0)) gives a face whose element direction is (0,0,1).
 17. A circle tagged 7, center (3,4), radius 5 on XY gives one face with one edge tagged 7 and area 78.53981633974483 relative 1e-9.
 18. `RECT` with a hole loop of a circle tagged 5, center (40,25), radius 5 gives area 3921.460183660255 relative 1e-9 and 5 edges.
-19. A half disc (arc tagged 1 center (0,0) from (10,0) to (-10,0), line tagged 2 from (-10,0) to (10,0)) gives area 157.07963267948966 relative 1e-9.
+19. A half disc (arc tagged 1 center (0,0) radius 10 from (10,0) to (-10,0), line tagged 2 from (-10,0) to (10,0)) gives area 157.07963267948966 relative 1e-9.
 20. On `Plane::XZ`, `RECT` gives a face with direction (0,-1,0) and centroid (40,0,25).
 21. `RECT` with line 3 ending at (0,50.01) instead of (0,50) fails with `InvalidInput` and message `The profile is not closed: curves 3 and 4 do not meet (gap 0.01 mm).`
 22. A loop with a circle and a line fails with `Circle <tag> must be the only curve in its loop.`; a zero-length line fails with `Curve <tag> of the profile has zero length.`; an empty region list fails with `The profile has no regions.`
@@ -1045,15 +1044,15 @@ Queries and topology:
 69. `element(Face, 7)` on BOX fails with `Face 7 does not exist in this body.`; `element(Face, 0)` fails the same way with index 0; `element(Solid, 1)` fails with `Only faces, edges and vertices can be queried.`
 70. `elements(Face)` on BOX returns 6 entries equal to `element(Face, i)` for i = 1 to 6.
 
-Tessellation (`OPT` is linear 0.01, angular 0.5):
+Tessellation (`OPT` is `TessellationTolerance { chord_deviation: 0.01, angular_deviation: 0.5 }`):
 
-71. BOX with `OPT`: 12 triangles; each face id 1 to 6 appears on exactly 2 triangles; 12 edge polylines with 2 points each, ids 1 to 12; the signed volume of the mesh is 6000 relative 1e-6; every triangle's normal (from its winding) points away from the box center.
+71. BOX with `OPT`: 12 triangles; each face id 1 to 6 appears on exactly 2 triangles; 12 edge polylines with 2 points each, ids 1 to 12; 8 vertex markers with ids 1 to 8 at the box corners; the signed volume of the mesh is 6000 relative 1e-6; every triangle's normal (from its winding) points away from the box center.
 72. Welding BOX's mesh vertices by exact position gives 8 distinct positions, and every undirected triangle edge is used by exactly 2 triangles with opposite directions.
-73. Sphere radius 10 with `OPT`: every triangle has face id 1; no edge polylines (the seam and degenerated edges are excluded); signed mesh volume between 4176.2363963538555 and 4188.790204786391 (inclusive, plus 1e-9 relative slack); exact-position welding gives a closed mesh (every undirected edge used twice).
-74. Cylinder radius 5, height 10: 2 edge polylines (the circles), each with first point equal to last point; the seam has no polyline; triangle face ids are 1, 2, 3 only.
+73. Sphere radius 10 with `OPT`: every triangle has face id 1; no edge polylines (the seam and degenerated edges are excluded); no vertex markers; signed mesh volume between 4176.2363963538555 and 4188.790204786391 (inclusive, plus 1e-9 relative slack); exact-position welding gives a closed mesh (every undirected edge used twice).
+74. Cylinder radius 5, height 10: 2 edge polylines (the circles), each with first point equal to last point; the seam has no polyline; no vertex markers; triangle face ids are 1, 2, 3 only.
 75. The hollow box of test 52: signed mesh volume 1968 relative 1e-6 (inner faces are wound to face into the cavity).
-76. Determinism: tessellating a shape with `OPT`, then with linear 1.0, then with `OPT` again gives the first and third meshes identical; a shape reloaded with `from_brep(to_brep(s))` tessellates identically.
-77. Deflection 0 or negative, and NaN, fail with `Mesh tolerances must be greater than 0.` (NaN with the non-finite message).
+76. Determinism: tessellating a shape with `OPT`, then with chord 1.0 (angular 0.5), then with `OPT` again gives the first and third meshes identical; a shape reloaded with `from_brep(to_brep(s))` tessellates identically.
+77. A chord deviation of 0 or -1, and an angular deviation of 0 or 1.6, fail with `Mesh tolerances must be greater than 0, with an angle of at most 90 degrees.`; a NaN in either fails with the non-finite message; an angular deviation of exactly pi/2 succeeds.
 
 STEP:
 
@@ -1092,18 +1091,16 @@ Errors and concurrency:
 91. 8 threads each running `write_step` and `read_step` on different bodies concurrently all succeed, and each thread's output equals its single-threaded output.
 92. Running each operation of tests 24, 34, 44, 51 and 59 twice on equal inputs gives byte-identical `to_brep` of the results and equal histories and roles.
 
+Constants and profile tolerance:
+
+93. `OCCT_VERSION == "7.9.3"` and `LINEAR_TOLERANCE == 1e-6`.
+94. Arc ends within tolerance of the circle: the half disc of test 19 with the arc running from (10.0000009, 0) to (-9.9999991, 0) (distances from the center 10.0000009 and 9.9999991, which differ by 1.8e-6) and the line from (-9.9999991, 0) to (10.0000009, 0) builds a valid face (`is_valid()` true) with area 157.07963267948966 relative 1e-6; with the arc start at (10.000002, 0) and the line end at (10.000002, 0) it fails with `InvalidInput` and `Arc 1 does not have its start and end on its circle.`
+
 ## 7. Open issues
 
 1. **History for constructive operations.** The architecture says operations return `OpResult { shape, history }` with history per input index. For primitives and sweeps the inputs are parameters or a profile, so this spec returns explicit face roles instead (`Primitive::faces`, `SweepResult::faces`), which is what naming needs; `OpResult` is used for every operation on existing shapes.
-2. **Mesh type shape.** `docs/spec/mesh.md` is written in parallel. This spec assumes `partsmith_mesh::Mesh` holds per-face vertex positions and normals, triangles as vertex index triples with a face id per triangle, and edge polylines with an edge id each, and that face and edge ids are the kernel's 1-based indices. The exact field names and number types (`f32` or `f64` positions) come from the mesh spec; tests 71 to 76 are stated in terms of that content.
-3. **Vertex ids for picking.** The technical design mentions vertex ids in display meshes; the architecture mentions only face and edge ids. M1 tessellation outputs no vertex ids (vertices can be picked at polyline ends by the engine).
-4. **Boolean `common` with several tools.** OCCT treats the tool group as a union (target intersected with the union of tools). This spec defines `common` as the intersection with every tool (Fusion's "intersect"), implemented by chaining. The features spec must agree.
-5. **Unification after booleans.** Booleans always unify coplanar faces and collinear edges (`SimplifyResult`). This matches Fusion's behavior and the naming spec's merge aliases, but changes topology compared with plain OCCT; it is not optional in M1.
-6. **Shell rim history (section 3.4.9).** The contract that rim faces appear in the removed face's `modified` list and inner faces in the kept face's `generated` list follows `BRepOffsetAPI_MakeThickSolid` and `BRepOffset_MakeOffset` (7.9.3 sources: closing faces' images via `Modified`, offset faces via `Generated`) but must be verified on the built library; the shim augments the history if it differs.
-7. **Fillet corner history.** Test 45 requires that a vertex where three fillets meet generates the corner face. `ChFi3d_Builder::Generated` maps vertices through its internal map; this must be verified, and the shim augments the history if needed.
-8. **Shared mutable state in the shim.** The STEP mutex, `std::call_once` initialization and messenger printer removal (section 3.10) are process-wide state inside the shim, required because OCCT's data exchange layer is not reentrant. They are invisible to callers and do not break the "no global mutable state in the core" invariant in spirit, but the reviewer should confirm.
-9. **Tolerance constant.** This crate cannot depend on `partsmith-model` (architecture graph: `occt-sys -> mesh` only), so it duplicates `LINEAR_TOLERANCE` (1e-6) privately; a test in `partsmith-features` checks they are equal.
-10. **Profile regions must be disjoint.** `make_profile` does not check regions against each other (section 3.4.2, item 6); merging adjacent selected regions is the features or sketch layer's job.
-11. **Fillet radius messages.** The technical design's example ("Fillet radius 3 mm is larger than the 2.4 mm adjacent face") needs a computed limit the kernel does not report. The kernel gives a generic sentence; computing limits is left to the features layer.
-12. **STEP import feature.** The kernel reads STEP; how an imported body enters the timeline (an import feature, naming with the fallback rule of the naming spec) is for the features and engine specs.
-13. **Exceptions from OCCT classified as `Failed`.** Types such as `Standard_NullObject` or `Standard_OutOfRange` can signal OCCT bugs as well as bad geometry; this spec maps every `Standard_Failure` to `Failed` (an actionable message) and only non-OCCT exceptions to `Internal`.
+2. **Unification after booleans.** Booleans always unify coplanar faces and collinear edges (`SimplifyResult`). This matches Fusion's behavior and the naming spec's merge aliases, but changes topology compared with plain OCCT; it is not optional in M1.
+3. **Shell rim history (section 3.4.9).** The contract that rim faces appear in the removed face's `modified` list and inner faces in the kept face's `generated` list follows `BRepOffsetAPI_MakeThickSolid` and `BRepOffset_MakeOffset` (7.9.3 sources: closing faces' images via `Modified`, offset faces via `Generated`) but must be verified on the built library; the shim augments the history if it differs.
+4. **Fillet corner history.** Test 45 requires that a vertex where three fillets meet generates the corner face. `ChFi3d_Builder::Generated` maps vertices through its internal map; this must be verified, and the shim augments the history if needed.
+5. **Tolerance constant.** This crate cannot depend on `partsmith-model` (architecture graph: `occt-sys -> mesh` only), so it defines its own public `LINEAR_TOLERANCE` (1e-6); a test in `partsmith-features` checks that the two are equal.
+6. **Exceptions from OCCT classified as `Failed`.** Types such as `Standard_NullObject` or `Standard_OutOfRange` can signal OCCT bugs as well as bad geometry; this spec maps every `Standard_Failure` to `Failed` (an actionable message) and only non-OCCT exceptions to `Internal`.

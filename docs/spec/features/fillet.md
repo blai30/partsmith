@@ -63,7 +63,7 @@ Label `Fillet`, category `modify`, icon `fillet`, version 1.
 
 ### Python
 
-Dedicated form: `fillet(edges, radius)` (python-api.md section 2.7). Generic form of the JSON above:
+Dedicated form: `fillet(edges, radius)` (python-api.md section 2.7), produced by the `Feature::python` hook with the shared rules of features.md section 3.11: `edges` as references (one alone, several as a list), `radius` as an expression; the `with <part>:` block gives `body`. The JSON above is `fillet(Ref("edge(f-box1/front|f-box1/top)", "line|n=1,0,0|c=0,-10,20|l=20"), 2*mm, id="f-fil1")`, which is longer than 88 characters and so is written one argument per line. Generic form:
 
 ```python
 feature(
@@ -144,7 +144,7 @@ Bodies `[b-1]` unless stated.
 2. **Top loop of a box.** `{"id": "f-box1", "type": "box", "body": "b-1", "size": ["30", "20", "10"], "op": "new"}`, `FIL([E-FT, E-BT, E-LT, E-RT], "2")`. Expected: volume 5917.227116, 10 faces, bbox [-15,-10,0]-[15,10,10]; `f-box1/top` area 416; 4 faces named `f-fil1/fillet/...`, one per edge; no `f-fil1/corner/...` faces.
 3. **Every edge of a cube.** `CUBE20`, `FIL` with all 12 edges, radius `"2"`. Expected: volume 7804.696111, 26 faces, bbox [-10,-10,0]-[10,10,20]; 12 faces named `f-fil1/fillet/...`; 8 spherical faces named `f-fil1/corner/...`.
 4. **Concave edge adds material.** Features `{"id": "f-box1", "type": "box", "body": "b-1", "size": ["40", "20", "10"], "op": "new"}`, `{"id": "f-box2", "type": "box", "body": "b-1", "size": ["20", "20", "10"], "position": ["10", "0", "10"], "op": "join"}`, `FIL([{"q": "edge(f-box1/top|f-box2/left)", "fp": "line|n=0,1,0|c=0,0,10|l=20"}], "2")`. Expected: ok; volume 12017.168147, 9 faces, bbox [-20,-10,0]-[20,10,20].
-5. **Inch document.** Document `"units": "in"`, `CUBE20`, `FIL([E-FT], "0.1")`. Expected: volume 7972.309496 (radius 2.54 mm).
+5. **Inch document.** Document `"units": "in"`, `{"id": "f-box1", "type": "box", "body": "b-1", "size": ["20 mm", "20 mm", "20 mm"], "op": "new"}` (the size of `CUBE20`, which in an inch document would be 20 in), `FIL([E-FT], "0.1")`. Expected: volume 8000 - (1 - π/4) × 2.54² × 20 = 7972.309496 (radius 2.54 mm).
 6. **One edge lost.** `CUBE20`, `FIL([E-FT, E-LOST], "2")`. Expected: status warning (`reference_missing`, field `edges`); volume 7982.831853. The warning's `repair()` is `Element` with pointer `/edges/1` and body `b-1`.
 7. **Every edge lost.** `CUBE20`, `FIL([E-LOST], "2")`. Expected: error `references_not_found` rendered `The edge selected for Edges can no longer be found. Re-pick it in the repair panel.`; b-1 unchanged (volume 8000, 6 faces).
 8. **Radius too large.** `{"id": "f-box1", "type": "box", "body": "b-1", "size": ["20", "20", "2.4"], "op": "new"}`, `FIL([E-FT, E-BT, E-LT, E-RT], "3")`. Expected: error `fillet_too_large`, field `radius`, `radius == 3`, `max == Some(m)` with 2.0 ≤ m < 2.4 and m = 3k/1024 for an integer k (a bisection point); rendered `Fillet radius 3 mm is too large for the selected edges. The largest radius that works is about {s} mm. Try {s} mm or less.` where `{s}` is m rounded down to 2 significant digits; b-1 unchanged (volume 960). Rebuilding with radius `"{s}"` is ok.
