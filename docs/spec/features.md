@@ -9,11 +9,11 @@ This spec defines the contract every feature type implements and every caller re
 ### In M1
 
 - `Feature` trait, `FeatureManifest` with UI hints, `Dependencies`, `BuildContext`, `FeatureOutput`, `BodyUpdate`, `FeatureError`, `FeatureWarning`.
-- `Registry`: register, look up, validate and canonicalize params, supply params schemas, extract dependencies, build, generate the generic Python call, label features, and implement the model's `FeatureInspector`.
+- `Registry`: register, look up, validate and canonicalize params, supply params schemas, extract dependencies, build, generate Python (dedicated forms through each feature's hook, the generic form otherwise), label features, and implement the model's `FeatureInspector`.
 - Shared param types: `BodyOp`, `CopyOp`, `ProfileRef`, `PlaneRef`, `AxisRef`, `OriginAxis`.
 - Body semantics for `new`, `join`, `cut`, `intersect`, modifying features and copy features, including empty-body and empty-result rules.
-- Message rendering with current names and document units, and repair data with JSON Pointers.
-- 19 built-in feature types (section 3.13): `sketch`, `extrude`, `revolve`, `hole`, `box`, `cylinder`, `sphere`, `cone`, `torus`, `fillet`, `chamfer`, `shell`, `boolean`, `move_body`, `split_body`, `mirror`, `linear_pattern`, `circular_pattern`, `datum_plane`.
+- Message rendering with current names and document units, suggested replacement values for fields with a computed limit, and repair data with JSON Pointers.
+- 20 built-in feature types (section 3.13): `sketch`, `extrude`, `revolve`, `hole`, `import`, `box`, `cylinder`, `sphere`, `cone`, `torus`, `fillet`, `chamfer`, `shell`, `boolean`, `move_body`, `split_body`, `mirror`, `linear_pattern`, `circular_pattern`, `datum_plane`.
 
 ### Later (not in M1)
 
@@ -22,7 +22,7 @@ This spec defines the contract every feature type implements and every caller re
 - Surface features (patch, extend, trim, stitch, thicken, offset, ruled).
 - Components, joints, derive and shape binders, configurations.
 - Scale, wedge, prism and pipe primitives.
-- An `import` feature for STEP and mesh bodies, and asset dependencies.
+- Mesh (STL, 3MF, OBJ) import features.
 - Patterns and mirrors of features and faces (M1 patterns and mirrors act on bodies).
 - Datum axes, datum points and coordinate systems.
 - Script features and Python or WebAssembly plugins loaded at runtime (the registry API is ready for them; loading is later).
@@ -30,16 +30,16 @@ This spec defines the contract every feature type implements and every caller re
 - Print-aware feature presets (teardrop holes, heat-set inserts, elephant's-foot chamfers).
 - Modifier body roles taking part in feature semantics.
 - Fast proxy previews of expensive features during drags.
-- Per-feature dedicated Python forms supplied by plugins.
+- Dedicated Python forms for plugin features (they use the generic form in M1).
 
 ## 2. Public API
 
 All types below live in `partsmith-features` unless a path says otherwise. Types from other crates:
 
-- `partsmith_model`: `Id`, `Expr`, `Units`, `Quantity`, `Dimension`, `Scope`, `ExprError`, `Document`, `FeatureRecord`, `FeatureInspector`, `FeatureLinks`, `FeatureParamsSchema`, `canonical::format_number`.
+- `partsmith_model`: `Id`, `Expr`, `Units`, `Quantity`, `Dimension`, `Scope`, `ExprError`, `Document`, `FeatureRecord`, `FeatureInspector`, `FeatureLinks`, `ExprLink`, `FeatureParamsSchema`, `canonical::format_number`, and the manifest types `FeatureManifest`, `Category`, `FieldHint`, `FieldUnit`, `SelectionKind`, `OptionHint` (`partsmith_model::manifest`, section 2.3).
 - `partsmith_naming`: `Reference`, `ElementName`, `ElementKind`, `ElementInfo`, `NamingMap`, `FaceSource`, `Resolution`.
 - `partsmith_sketch`: `SketchParams`, `SketchPlane`, `Placement`, `OriginPlane`, `PointRef`, `RegionRef`, `SolveResult`, `SolveIssue`, `Profile`, `SketchError`, `NativeSolver`, `match_region`, `build_profile`.
-- `partsmith_occt_sys`: `Shape`, `SubShape`, `SubShapeKind`, `Axis`, `Plane`, `KernelError`.
+- `partsmith_occt_sys`: `Shape`, `SubShape`, `SubShapeKind`, `Axis`, `Plane`, `KernelError`, `OCCT_VERSION`, `LINEAR_TOLERANCE`.
 
 Every public type derives `Debug` and `Clone`. Types stored in documents or sent to hosts also derive `serde::Serialize`, `serde::Deserialize`, `schemars::JsonSchema` and `PartialEq`, with snake_case field names.
 
@@ -48,18 +48,22 @@ Every public type derives `Debug` and `Clone`. Types stored in documents or sent
 ```text
 partsmith_features
   feature      Feature, FEATURE_API_VERSION
-  manifest     FeatureManifest, Category, FieldHint, FieldUnit, SelectionKind, OptionHint
-  deps         Dependencies, Link, ExprUse, ValueKind
+  deps         Dependencies, Link, AssetLink, ExprUse
   params       BodyOp, CopyOp, ProfileRef, PlaneRef, AxisRef, OriginAxis, PlacementExt
   context      BuildContext, BuildInputs, Values, BodyState, Resolved, ResolvedProfile, CancelToken
   output       FeatureOutput, OutputData, BodyUpdate, BodyChange, SketchResult, DatumResult, Tool, apply_op
   error        FeatureError, FeatureWarning, FieldRef, Bound, Noun, IgnoredReason, FallbackReason, Repair, Names, DocumentNames, format_value
   registry     Registry, DynFeature, Canonical, Validated, RegistryError, register_builtins
-  python       PythonCall, PythonValue
+  python       PythonCall, PythonValue, PythonNames
   builtin      one module per built-in feature type (sketch, extrude, ...)
 ```
 
-The crate root re-exports every type listed above.
+The crate root re-exports every type listed above, the manifest types of `partsmith_model::manifest` (section 2.3) and `partsmith_occt_sys::OCCT_VERSION`, and defines the crate version:
+
+```rust
+/// Version of this crate. Recompute puts it and `OCCT_VERSION` into every cache key (recompute.md section 3.4).
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+```
 
 ### 2.2 The `Feature` trait
 
@@ -86,10 +90,16 @@ pub trait Feature: Send + Sync + 'static {
         let _ = params;
         Ok(())
     }
+
+    /// The dedicated Python call (python-api.md section 2.7) without the `name`, `suppressed` and `id` keywords. None uses the generic form (section 3.11).
+    fn python(params: &Self::Params, names: &dyn PythonNames) -> Option<PythonCall> {
+        let _ = (params, names);
+        None
+    }
 }
 ```
 
-The first five items are exactly the architecture contract; `validate` is a provided method added by this spec (see Open issues).
+The first five items are the architecture contract; `validate` and `python` are provided methods (architecture.md, ADR 0011).
 
 Params structs follow these rules:
 
@@ -102,82 +112,13 @@ Params structs follow these rules:
 
 ### 2.3 Manifest
 
-```rust
-/// Static description of a feature type for the UI, schema and registry.
-pub struct FeatureManifest {
-    /// Display name, for example "Extrude". Also the base of default feature labels.
-    pub label: String,
-    /// Toolbar and palette grouping.
-    pub category: Category,
-    /// Icon name in the UI icon set, kebab-case, for example "linear-pattern".
-    pub icon: String,
-    /// Params version of this type, starting at 1. Bumped only with a document migration.
-    pub version: u32,
-    /// Inspector fields in display order.
-    pub fields: Vec<FieldHint>,
-}
+`FeatureManifest`, `Category`, `FieldHint`, `FieldUnit`, `SelectionKind` and `OptionHint` are pure data defined in `partsmith_model::manifest` (model.md section 2.12), so `partsmith-protocol` carries them typed and the UI uses their generated TypeScript types. `partsmith-features` re-exports them. What this spec relies on:
 
-/// Toolbar and palette group of a feature type.
-pub enum Category {
-    /// Sketches.
-    Sketch,
-    /// Features that add or remove material from scratch or from a sketch.
-    Create,
-    /// Features that change existing bodies.
-    Modify,
-    /// Mirrors and patterns.
-    Pattern,
-    /// Construction geometry such as datum planes.
-    Construct,
-}
-
-/// How the inspector shows one params field.
-pub struct FieldHint {
-    /// Path of the field inside params, for example "extent.expr" or "size[0]" (grammar in section 3.2).
-    pub path: String,
-    /// Label shown next to the field, for example "Distance".
-    pub label: String,
-    /// Shown without the "More" toggle. Default false, omitted when false.
-    pub essential: bool,
-    /// Value kind of an `Expr` field. Omitted for non-expression fields.
-    pub unit: Option<FieldUnit>,
-    /// What the viewport picks for a reference field. Omitted for typed fields.
-    pub selection: Option<SelectionKind>,
-    /// Labels for the values of an enumeration or a tag field, in display order. Omitted when empty.
-    pub options: Vec<OptionHint>,
-}
-
-/// Value kind of an expression field, which sets its input unit and validation.
-pub enum FieldUnit { Length, Angle, Scalar, Count }
-
-/// What a reference field accepts from the viewport or the browser.
-pub enum SelectionKind {
-    /// A body.
-    Body,
-    /// A sketch feature.
-    Sketch,
-    /// One or more closed regions of a sketch.
-    SketchRegion,
-    /// One or more points of a sketch (point entities, line and arc ends, arc and circle centers).
-    SketchPoint,
-    /// Faces of a body.
-    Face,
-    /// Edges of a body.
-    Edge,
-    /// An origin plane, a datum plane or a flat face.
-    Plane,
-    /// An origin axis, a sketch line, a straight edge, or a cylindrical, conical, spherical or toroidal face.
-    Axis,
-}
-
-/// Display label for one value of an enumeration field.
-pub struct OptionHint {
-    /// The serialized value, for example "two_sides".
-    pub value: String,
-    /// The label, for example "Two sides".
-    pub label: String,
-}
-```
+- `FeatureManifest { label, category, icon, version, fields }`: the display name (also the base of default feature labels, section 3.12), the toolbar group, a kebab-case icon name, the params version (starting at 1, bumped only with a document migration) and the inspector fields in display order.
+- `Category`: `sketch`, `create` (add or remove material from scratch or from a sketch), `modify` (change existing bodies), `pattern` (mirrors and patterns), `construct` (construction geometry).
+- `FieldHint { path, label, essential, unit, selection, options }`: the field path (grammar in section 3.2), its label, whether it shows without the "More" toggle, the `FieldUnit` of an `Expr` field, the `SelectionKind` of a reference field, and `OptionHint { value, label }` labels for the values of an enumeration or tag field.
+- `FieldUnit`: `Length`, `Angle`, `Scalar`, `Count`. It also types every expression use (section 2.4) and sets its evaluation (section 3.4).
+- `SelectionKind`: `body`, `sketch`, `sketch_region`, `sketch_point` (point entities, line and arc ends, arc and circle centers), `face`, `edge`, `plane` (an origin plane, a datum plane or a flat face), `axis` (an origin axis, a sketch line, a straight edge, or a cylindrical, conical, spherical or toroidal face).
 
 JSON form (the host receives manifests in the protocol's feature catalog):
 
@@ -210,10 +151,12 @@ pub struct Dependencies {
     pub bodies_read: Vec<Link>,
     /// Bodies this feature may replace. Their prior state is also readable. No id appears in both lists.
     pub bodies_written: Vec<Link>,
-    /// Every expression the feature evaluates, with its field path and value kind, in params order.
+    /// Every expression stored in the params, with its field path and unit, in params order. `build` may leave some unevaluated (sketch reference dimensions).
     pub expressions: Vec<ExprUse>,
     /// Ids the params define (sketch entity and constraint ids), in params order. Empty for most features.
     pub declared_ids: Vec<Id>,
+    /// Asset files read, by name (a content hash such as "<64 hex>.step"), in params order, without duplicates.
+    pub assets: Vec<AssetLink>,
 }
 
 /// A feature or body a feature refers to, with the field that names it (for messages and highlighting).
@@ -224,26 +167,22 @@ pub struct Link {
     pub field: String,
 }
 
-/// One expression a feature evaluates.
+/// An asset a feature reads and the field that names it.
+pub struct AssetLink {
+    /// The asset file name in the document's `assets/` folder (file-format.md).
+    pub name: String,
+    /// Path of the params field that names it, for example "asset".
+    pub field: String,
+}
+
+/// One expression a feature declares.
 pub struct ExprUse {
     /// Field path inside params, for example "extent.expr". Unique within the feature.
     pub field: String,
     /// The expression source.
     pub expr: Expr,
-    /// How the value is interpreted and converted.
-    pub kind: ValueKind,
-}
-
-/// Interpretation of an expression value.
-pub enum ValueKind {
-    /// A length in millimeters (expected dimension `LENGTH`).
-    Length,
-    /// An angle in radians (expected dimension `ANGLE`).
-    Angle,
-    /// A plain number (expected dimension `NONE`).
-    Scalar,
-    /// A plain non-negative whole number (expected dimension `NONE`).
-    Count,
+    /// How the value is interpreted and converted (section 3.4).
+    pub kind: FieldUnit,
 }
 ```
 
@@ -253,8 +192,9 @@ Rules:
 - A face, edge or vertex reference adds the body it is resolved in to `bodies_read` (or leaves it in `bodies_written` when the feature writes that body). Element names inside `q` never create feature dependencies.
 - A `PlaneRef::Datum` adds the datum feature to `features`. A `ProfileRef`, an `AxisRef::SketchLine` or a hole's sketch adds the sketch feature.
 - Parameters are not listed; recompute derives them from `expressions` with `Expr::references`.
+- An asset name in params adds an `AssetLink`. Assets create no graph edges, and the cache key needs no extra item: the asset name is a content hash and is part of the canonical params.
 
-Example for the extrude in [features/extrude.md](features/extrude.md) test 1: `features = [Link { id: "f-sk1", field: "profile.sketch" }]`, `bodies_read = []`, `bodies_written = [Link { id: "b-1", field: "body" }]`, `expressions = [ExprUse { field: "extent.expr", expr: "30 mm", kind: Length }]`, `declared_ids = []`.
+Example for the extrude in [features/extrude.md](features/extrude.md) test 1: `features = [Link { id: "f-sk1", field: "profile.sketch" }]`, `bodies_read = []`, `bodies_written = [Link { id: "b-1", field: "body" }]`, `expressions = [ExprUse { field: "extent.expr", expr: "30 mm", kind: Length }]`, `declared_ids = []`, `assets = []`.
 
 ### 2.5 Shared param types
 
@@ -344,6 +284,8 @@ JSON examples:
 {"kind": "face", "body": "b-2", "face": {"q": "f-cyl1/side", "fp": "cylinder|n=0,0,1|c=0,0,2.5|a=157.079633|r=5"}}
 ```
 
+Every stored `Reference` sits next to the id of its body: a `body` field in the same struct (`PlaneRef::Face`, `AxisRef::Edge`, `AxisRef::Face`, sketch.md's `SketchPlane::Face`), or the feature's own `body` param for reference lists (`edges`, `remove_faces`). There is no separate body-reference type.
+
 `RegionRef`, `RegionKey` text, region fingerprint text and `Placement` JSON are defined in sketch.md; `Reference` JSON and fingerprint text in naming.md.
 
 ### 2.6 Build context
@@ -366,6 +308,8 @@ pub struct BuildInputs<'a> {
     pub bodies: &'a BTreeMap<Id, BodyState>,
     /// Output of every declared feature dependency that built successfully.
     pub upstream: &'a BTreeMap<Id, Arc<FeatureOutput>>,
+    /// Bytes of every declared asset (recompute checks they exist before building).
+    pub assets: &'a BTreeMap<String, Arc<[u8]>>,
     /// Cancellation flag of the current run.
     pub cancel: &'a CancelToken,
 }
@@ -389,10 +333,12 @@ impl<'a> BuildContext<'a> {
 
     /// State of a declared body just before this feature.
     pub fn body(&self, body: &Id) -> Result<&BodyState, FeatureError>;
-    /// Result of a declared sketch dependency.
-    pub fn sketch(&self, feature: &Id) -> Result<&SketchResult, FeatureError>;
-    /// Result of a declared datum dependency.
-    pub fn datum(&self, feature: &Id) -> Result<&DatumResult, FeatureError>;
+    /// Result of a declared sketch dependency named at `field`. Another kind of output gives `WrongFeatureType`.
+    pub fn sketch(&self, field: &str, feature: &Id) -> Result<&SketchResult, FeatureError>;
+    /// Result of a declared datum dependency named at `field`. Another kind of output gives `WrongFeatureType`.
+    pub fn datum(&self, field: &str, feature: &Id) -> Result<&DatumResult, FeatureError>;
+    /// Bytes of a declared asset named at `field`. An undeclared name gives `UndeclaredDependency`.
+    pub fn asset(&self, field: &str, name: &str) -> Result<&[u8], FeatureError>;
 
     /// Resolves the regions of a profile, with warnings for remapped, ambiguous or missing regions.
     pub fn profile(&self, field: &str, profile: &ProfileRef) -> Result<ResolvedProfile<'_>, FeatureError>;
@@ -405,8 +351,8 @@ impl<'a> BuildContext<'a> {
     /// Resolves an axis (section 3.6).
     pub fn axis(&self, field: &str, axis: &AxisRef) -> Result<Axis, FeatureError>;
 
-    /// True once the run has been cancelled. Long builds check it between steps.
-    pub fn is_cancelled(&self) -> bool;
+    /// True once the run has been canceled. Long builds check it between steps.
+    pub fn is_canceled(&self) -> bool;
 }
 
 /// Evaluated values of one feature's declared expressions.
@@ -415,8 +361,8 @@ pub struct Values { /* private: field path -> (ExprUse, Result<f64, FeatureError
 impl Values {
     /// Evaluates each use with `expr.evaluate(scope, Some(expected))` and converts it (section 3.4).
     pub fn evaluate(uses: &[ExprUse], scope: &Scope<'_>, manifest: &FeatureManifest) -> Values;
-    /// Feeds every use and its converted value or error code into a cache-key hasher, in declaration order (recompute.md).
-    pub fn hash_into(&self, hasher: &mut blake3::Hasher);
+    /// Every use with its converted value or error, in declaration order. Recompute hashes them into cache keys (recompute.md section 3.4).
+    pub fn iter(&self) -> impl Iterator<Item = (&ExprUse, &Result<f64, FeatureError>)> + '_;
 }
 
 /// The state of a body at one point in the timeline. Cloning is cheap.
@@ -460,12 +406,12 @@ pub struct ResolvedProfile<'a> {
 pub struct CancelToken { /* Arc<AtomicBool> */ }
 
 impl CancelToken {
-    /// A token that is not cancelled.
+    /// A token that is not canceled.
     pub fn new() -> Self;
     /// Requests cancellation. Idempotent.
     pub fn cancel(&self);
     /// True once `cancel` was called on this token or a clone.
-    pub fn is_cancelled(&self) -> bool;
+    pub fn is_canceled(&self) -> bool;
 }
 ```
 
@@ -553,9 +499,11 @@ pub struct Tool {
     pub naming: NamingMap,
 }
 
-/// Applies `op` with `tool` to `body` with the shared body semantics (section 3.5).
-/// Returns the update and any NoEffect warning.
-pub fn apply_op(ctx: &BuildContext<'_>, body: &Id, op: BodyOp, tool: Tool) -> Result<(BodyUpdate, Vec<FeatureWarning>), FeatureError>;
+/// Applies `op` with `tools` to `body` with the shared body semantics (section 3.5). At least one tool.
+/// New with several tools fuses them (kernel `fuse(tools[0], rest)`). Join and Cut pass every tool to one kernel
+/// `fuse` or `cut` call. Intersect takes exactly one tool. No tool, or several with Intersect, is a bug in the
+/// feature and returns `Internal`. Returns the update and any NoEffect warning.
+pub fn apply_op(ctx: &BuildContext<'_>, body: &Id, op: BodyOp, tools: Vec<Tool>) -> Result<(BodyUpdate, Vec<FeatureWarning>), FeatureError>;
 ```
 
 ### 2.8 Warnings, errors and rendering
@@ -612,8 +560,8 @@ pub struct DocumentNames<'a> {
 
 impl Names for DocumentNames<'_> { /* ... */ }
 
-/// Formats a value in display units for messages (section 3.12).
-pub fn format_value(kind: ValueKind, value: f64, units: Units) -> String;
+/// Formats a value in display units for messages and suggestions (section 3.12).
+pub fn format_value(kind: FieldUnit, value: f64, units: Units) -> String;
 
 impl FeatureError {
     /// The message with current names and units.
@@ -622,6 +570,8 @@ impl FeatureError {
     pub fn code(&self) -> &'static str;
     /// The field the error is about, if any.
     pub fn field(&self) -> Option<&FieldRef>;
+    /// A replacement expression for `field()` that fixes the problem, in display units, when the feature computed a limit (section 4.4).
+    pub fn suggestion(&self, units: Units) -> Option<String>;
     /// Repair data, if the error is about a lost reference or region.
     pub fn repair(&self) -> Option<Repair>;
 }
@@ -633,6 +583,8 @@ impl FeatureWarning {
     pub fn code(&self) -> &'static str;
     /// The field the warning is about, if any.
     pub fn field(&self) -> Option<&FieldRef>;
+    /// A replacement expression for `field()`, in display units (section 4.4). None for every M1 warning.
+    pub fn suggestion(&self, units: Units) -> Option<String>;
     /// Repair data, if the warning is about a lost reference or region.
     pub fn repair(&self) -> Option<Repair>;
 }
@@ -667,8 +619,10 @@ impl Registry {
     pub fn dependencies(&self, record: &FeatureRecord) -> Result<Dependencies, FeatureError>;
     /// Builds a valid record.
     pub fn build(&self, record: &FeatureRecord, ctx: &BuildContext<'_>) -> Result<FeatureOutput, FeatureError>;
-    /// The generic Python call that recreates the record (section 3.11). Never fails.
-    pub fn python(&self, record: &FeatureRecord) -> PythonCall;
+    /// The Python call that recreates the record (section 3.11): the dedicated form with the record keywords appended when the type has one for these params, else the generic form. Never fails.
+    pub fn python(&self, record: &FeatureRecord, names: &dyn PythonNames) -> PythonCall;
+    /// The generic `feature(...)` call that recreates any record, registered or not, valid or not (section 3.11). Never fails.
+    pub fn python_generic(&self, record: &FeatureRecord) -> PythonCall;
     /// The label of a feature in a document (section 3.12).
     pub fn label(&self, document: &Document, feature: &Id) -> Option<String>;
 }
@@ -695,6 +649,8 @@ pub trait DynFeature: Send + Sync {
     fn dependencies(&self, params: &serde_json::Map<String, serde_json::Value>) -> Result<Dependencies, FeatureError>;
     /// Builds.
     fn build(&self, params: &serde_json::Map<String, serde_json::Value>, ctx: &BuildContext<'_>) -> Result<FeatureOutput, FeatureError>;
+    /// The dedicated Python call (`Feature::python`). None when the type has none or the params do not deserialize.
+    fn python(&self, params: &serde_json::Map<String, serde_json::Value>, names: &dyn PythonNames) -> Option<PythonCall>;
 }
 
 /// Canonical params plus the keys the type does not know.
@@ -745,9 +701,9 @@ pub enum RegistryError {
 ### 2.10 Python codegen
 
 ```rust
-/// One generated Python statement: a call with positional and keyword arguments.
+/// One generated Python call with positional and keyword arguments.
 pub struct PythonCall {
-    /// Function name, "feature" for the generic form.
+    /// Function name: a dedicated function of python-api.md section 2.7, a helper such as "Ref", or "feature" for the generic form.
     pub function: String,
     /// Positional arguments in order.
     pub positional: Vec<PythonValue>,
@@ -762,7 +718,7 @@ impl PythonCall {
     pub fn render(&self, indent: usize) -> String;
 }
 
-/// A Python literal.
+/// A Python value in generated code.
 pub enum PythonValue {
     /// `None`.
     None,
@@ -776,13 +732,49 @@ pub enum PythonValue {
     List(Vec<PythonValue>),
     /// A dict literal with string keys, in order.
     Dict(Vec<(String, PythonValue)>),
+    /// Text written verbatim: a variable, an attribute path or a quantity literal, for example `block`, `Axis.Z`, `line_1.start`, `10*mm`.
+    Name(String),
+    /// A nested call, always written on one line, for example `Ref("q", "fp", part=block)` or `Region("k", "fp")`.
+    Call(Box<PythonCall>),
+    /// A tuple literal, for example `(20*mm, 4*mm)`.
+    Tuple(Vec<PythonValue>),
 }
 
 impl PythonValue {
     /// The literal of a JSON value, one to one (section 3.11).
     pub fn from_json(value: &serde_json::Value) -> PythonValue;
-    /// Renders the literal on one line.
+    /// An expression param (python-api.md section 3.8 rule 8): a bare number, a quantity literal, a parameter's variable, a `printer.*` name, or a string.
+    pub fn expression(expr: &Expr, names: &dyn PythonNames) -> PythonValue;
+    /// A raw length in millimeters (rule 9): the canonical number, written `<number>*mm` when the document units are not mm.
+    pub fn length(value: f64, units: Units) -> PythonValue;
+    /// A raw angle in radians (rule 9): `<number>*rad`.
+    pub fn angle(value: f64) -> PythonValue;
+    /// A stored reference: `Ref("<q>", "<fp>")`, with `part=<part>` when a part variable is given (rule 9).
+    pub fn reference(reference: &Reference, part: Option<String>) -> PythonValue;
+    /// A plane (rule 9): `Plane.XY`, `Plane.XZ`, `Plane.YZ`, a datum plane's variable, or `Ref(..., part=...)`. None when a variable is missing.
+    pub fn plane(plane: &PlaneRef, names: &dyn PythonNames) -> Option<PythonValue>;
+    /// An axis (rule 9): `Axis.X`, `Axis.Y`, `Axis.Z`, a sketch line's variable, or `Ref(..., part=...)`. None when a variable is missing.
+    pub fn axis(axis: &AxisRef, names: &dyn PythonNames) -> Option<PythonValue>;
+    /// Renders the value on one line.
     pub fn render(&self) -> String;
+}
+
+/// Script context the engine's script generator gives each `Feature::python` hook (python-api.md section 3.8).
+pub trait PythonNames {
+    /// The document units.
+    fn units(&self) -> Units;
+    /// The variable of a body's part. None when the document has no such body.
+    fn body(&self, body: &Id) -> Option<String>;
+    /// The variable of a feature the call refers to (a sketch or a datum plane). None when the document has no such feature.
+    fn feature(&self, feature: &Id) -> Option<String>;
+    /// The variable of a sketch entity (a point, or a line used as an axis). None when the sketch has no such entity.
+    fn entity(&self, sketch: &Id, entity: &Id) -> Option<String>;
+    /// The variable of the parameter named `name`. None when no parameter has that name.
+    fn parameter(&self, name: &str) -> Option<String>;
+    /// Every region of a sketch in solved order, as `RegionRef`s. None when the sketch did not solve.
+    fn regions(&self, sketch: &Id) -> Option<Vec<RegionRef>>;
+    /// The op a solid feature function uses for `body` when `op` is omitted (python-api.md section 3.3): New when no earlier feature in the timeline targets the body, else Join.
+    fn default_op(&self, body: &Id) -> BodyOp;
 }
 ```
 
@@ -811,9 +803,9 @@ Guarantees:
 - Expressions are not parsed or evaluated here. Expression errors surface when the feature is built (`Expression`), so a document with a typo still loads.
 - Loading never consults the registry (file-format.md). The engine canonicalizes after loading and before saving; a record whose params fail validation is kept exactly as loaded, and recompute reports the error on that feature.
 
-Field path grammar (used in `FieldHint::path`, `ExprUse::field`, `FieldRef::path`): `path = name ( "." name | "[" index "]" )*`, where `name` is a params key and `index` a 0-based decimal array index. Examples: `body`, `extent.expr`, `size[2]`, `direction.count`, `edges[1]`. A `FieldHint::path` may also use `[*]` for "any index" (`constraints[*].expr`). A `FieldRef`'s label is the label of the hint whose path equals the field path, else of the hint whose path equals it with every index replaced by `[*]`, else the path itself. `FieldRef::pointer` turns `.name` and `[index]` into `/name` and `/index` segments: `extent.expr` is `/extent/expr`, `edges[1]` is `/edges/1`, `profile.regions[0]` is `/profile/regions/0`.
+Field path grammar (used in `FieldHint::path`, `ExprUse::field`, `FieldRef::path`): `path = name ( "." name | "[" index "]" )*`, where `name` is a params key and `index` a 0-based decimal array index. Examples: `body`, `extent.expr`, `size[2]`, `direction.count`, `edges[1]`. A `FieldHint::path` may also use `[*]` for "any index" (`constraints[*].expr`). A `FieldRef`'s label is the label of the hint whose path equals the field path, else of the hint whose path equals it with every index replaced by `[*]`, else of the longest hint path that is a prefix of the field path followed by `.` or `[` (so `points[0]` takes the label of `points` and `profile.sketch` that of `profile`), else the path itself. `FieldRef::pointer` turns `.name` and `[index]` into `/name` and `/index` segments: `extent.expr` is `/extent/expr`, `edges[1]` is `/edges/1`, `profile.regions[0]` is `/profile/regions/0`.
 
-`impl FeatureInspector for Registry`: `inspect` runs `validate_and_canonicalize` and `dependencies`, then returns `FeatureLinks { declared_ids, bodies: the ids of bodies_written followed by those of bodies_read, features: the ids of features, expressions: each ExprUse::expr }`. On failure it returns `Err(message)`, the error's `Display` text.
+`impl FeatureInspector for Registry`: `inspect` runs `validate_and_canonicalize` and `dependencies`, then returns `FeatureLinks { declared_ids, bodies: the ids of bodies_written followed by those of bodies_read, features: the ids of features, expressions }`, where `expressions` holds each `ExprUse` in declaration order as `ExprLink { pointer, expr }` (model.md section 2.7) with `pointer` its field path as a JSON Pointer (converted as `FieldRef::pointer` does, so `extent.expr` gives `/extent/expr`). The model's parameter rename helper uses these pointers to rewrite expressions in place. On failure it returns `Err(message)`, the error's `Display` text.
 
 ### 3.3 Params schemas
 
@@ -830,26 +822,26 @@ Registration checks, so a bad feature fails at startup rather than at schema gen
 
 Recompute evaluates every declared `ExprUse` once per run, before building, through `Values::evaluate` with the document's `Scope` (units, evaluated parameters, and the evaluation context for `printer.*` values). Each use calls `expr.evaluate(scope, Some(expected))` (expressions.md section 3.10), so bare numbers take document units in length fields and degrees in angle fields, and a wrong dimension is the evaluator's `ExpectedDimension` error:
 
-| Kind | Expected dimension | Conversion of the result | Further checks |
+| Unit (`FieldUnit`) | Expected dimension | Conversion of the result | Further checks |
 | --- | --- | --- | --- |
 | `Length` | `LENGTH` | value in mm | none |
 | `Angle` | `ANGLE` | value in radians | none |
 | `Scalar` | `NONE` | value | none |
 | `Count` | `NONE` | nearest integer n when abs(value - n) ≤ 1e-9 | `NotWholeNumber` otherwise; `OutOfRange` (`AtLeast(0)`) when negative; `OutOfRange` (`AtMost(4294967295)`) when too large |
 
-An evaluator error becomes `Expression { field, source, error }`. The converted value or the error is what the `eval_*` methods return; they also check that `field` was declared with that exact expression and kind, else `UndeclaredDependency`. Each feature then checks its own ranges (`OutOfRange`) in params order, before any kernel work.
+An evaluator error becomes `Expression { field, source, error }`. The converted value or the error is what the `eval_*` methods return; they also check that `field` was declared with that exact expression and unit, else `UndeclaredDependency`. Each feature then checks its own ranges (`OutOfRange`) in params order, before any kernel work.
 
 ### 3.5 Body semantics
 
 Bodies are declared in `Document::bodies`. At any point in the timeline a body is either empty or holds a shape, which may consist of several disjoint solids (lumps). A body starts empty. Only features that list it in `bodies_written` change it.
 
-Solid features (extrude, revolve, primitives) name a target `body` and an `op`. `apply_op` implements the rules, so every feature behaves identically:
+Solid features (extrude, revolve, primitives, import) name a target `body` and an `op`. `apply_op` implements the rules, so every feature behaves identically:
 
 | Op | Body before | Result | Errors and warnings |
 | --- | --- | --- | --- |
-| `new` | must be empty | the tool | `BodyNotEmpty` if the body holds a solid |
-| `join` | must hold a solid | body ∪ tool (kernel `fuse`) | `BodyEmpty { use_new: true }` if empty; `NoEffect` warning if the volume does not change |
-| `cut` | must hold a solid | body − tool (kernel `cut`) | `BodyEmpty { use_new: true }`; `EmptyResult` if nothing is left; `NoEffect` warning if the volume does not change |
+| `new` | must be empty | the tool (several tools fused) | `BodyNotEmpty` if the body holds a solid |
+| `join` | must hold a solid | body ∪ tools (kernel `fuse`) | `BodyEmpty { use_new: true }` if empty; `NoEffect` warning if the volume does not change |
+| `cut` | must hold a solid | body − tools (kernel `cut`) | `BodyEmpty { use_new: true }`; `EmptyResult` if nothing is left; `NoEffect` warning if the volume does not change |
 | `intersect` | must hold a solid | body ∩ tool (kernel `common`) | `BodyEmpty { use_new: true }`; `EmptyResult` if nothing is left; `NoEffect` warning if the volume does not change |
 
 - "The volume does not change" means abs(V_after - V_before) ≤ 1e-9 × V_before. In that case the update keeps the body's previous shape and naming exactly (no imprinted edges), with change `Join`, `Cut` or `Intersect` as requested.
@@ -859,13 +851,14 @@ Solid features (extrude, revolve, primitives) name a target `body` and an `op`. 
 - Body-to-body features: `boolean` requires target and tools to hold solids (`BodyEmpty`, `ToolEmpty`); consumed tools become empty with change `Clear`.
 - Copy features (mirror, linear_pattern, circular_pattern) with `CopyOp::Join` fuse the copies into the source body (change `Join`); with `CopyOp::New` they put the copies into `target`, which must be empty (`BodyNotEmpty`), with change `New`, and leave the source unchanged.
 - Bodies keep their identity (id, name, color, material) whatever happens to their shape. A body emptied by a feature can be started again later with op `new`.
+- Emptiness is the body's state at this point of the run: a body whose earlier writers all failed, are suppressed or are rolled back is empty, so op `new` builds on it. This is why python-api.md can choose its default op statically (python-api.md section 3.3).
 
 ### 3.6 Planes, axes and placements
 
 `ctx.plane(field, plane)`:
 
 - `Origin`: `OriginPlane::placement()` (sketch.md section 3.1): XY origin (0,0,0), x-axis +X, normal +Z; XZ x-axis +X, normal -Y (y-axis +Z); YZ x-axis +Y, normal +X (y-axis +Z).
-- `Datum`: the datum's placement. The feature must be declared; its output must be `DatumResult::Plane`, else `WrongFeatureType`.
+- `Datum`: the datum's placement (`ctx.datum(field, feature)`). The feature must be declared; its output must be `DatumResult::Plane`, else `WrongFeatureType`.
 - `Face`: resolve the reference in the body (section 3.8, `resolve`). The first resolved face in resolver order is used (all pieces of a split flat face lie in one plane). A face whose kernel geometry kind is not `Plane` gives `NotPlanar`. The placement is the **face placement rule**: `Placement::on_plane(face centroid, outward face normal, &OriginPlane::Xy.placement())`, which projects the world origin onto the face's plane and takes the x-axis from world +X projected onto it (world +Y when +X is perpendicular to the face). It reproduces the origin plane frames for faces parallel to them and does not depend on kernel parametrization.
 
 `ctx.axis(field, axis)` returns a kernel `Axis` with a unit direction:

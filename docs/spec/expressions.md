@@ -595,7 +595,7 @@ When the document has two parameters with the same name (impossible for structur
 2. The expression must parse, otherwise `RenameError::Parse`.
 3. Every `Parameter` node whose name equals `from` has its source bytes replaced by `to`. Nothing else changes: whitespace, number spelling, dotted names that contain `from` as a segment, and identifiers that merely contain `from` (`wall_2`) are untouched. If nothing matches, the result equals the input.
 
-The engine uses this to rename a parameter everywhere in one transaction (model.md section 3.9).
+`Document::rename_parameter_edits` (model.md section 3.13) uses this to rename a parameter everywhere in one transaction.
 
 ### 3.16 Display text
 
@@ -802,6 +802,4 @@ Release build on the reference desktop (2022 mid-range laptop); web budgets are 
 8. **Spans are UTF-8 byte offsets.** The UI works in UTF-16 code units; the protocol spec must say who converts.
 9. **Unknown functions and units are parse errors; unknown names are evaluation errors.** So `Document::validate` reports `wall(2)` as an invalid expression but `wal` as an unknown parameter.
 10. **No suggestions in messages.** "Did you mean" hints are left for later so that messages stay exact and testable now.
-11. **`Dimension` JSON.** This spec serializes `Dimension` as its exponents, `{"length": 1, "angle": 0}`, so compound dimensions (area, length times angle) are representable. The protocol spec's examples assume a string such as `"length"`; the reviewer should align them.
-12. **Who converts to the field's dimension.** The features spec evaluates each declared expression through a closure with no expected dimension and converts the `Quantity` itself (`ValueKind` Length, Angle, Scalar, Count), reporting its own `WrongDimension`. That gives the same values as `evaluate(scope, Some(D))` here, because both promote a plain result with `display_factor`. Either path is fine; the reviewer should make sure both specs describe the same promotion (document units for lengths, degrees for angles) and that whole-number checks for counts stay in the features spec.
 13. **Number text for the Python API.** The features spec says Python records an `int` or `float` as "the canonical number text". The function for that is `canonical::format_number` (file-format.md), applied to `serde_json::Number::from_f64(value)`.

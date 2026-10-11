@@ -9,8 +9,8 @@ All core code is Rust in one Cargo workspace. Arrows point at dependencies.
 ```text
 partsmith-model     ids, units, expressions, document recipe, edits and undo log, canonical JSON
 partsmith-mesh      triangle mesh type, metrics, validity, BVH ray queries, planar slicing
-partsmith-sketch    -> model             sketch entities, constraints, solver, DOF, profile regions
 partsmith-naming    -> model             element names, references, fingerprints, resolver
+partsmith-sketch    -> model, naming     sketch entities, constraints, solver, DOF, profile regions
 partsmith-occt-sys  -> mesh              C++ shim over OCCT (cxx) plus a safe Rust facade
 partsmith-features  -> model, sketch, naming, occt-sys, mesh
                                          Feature trait, registry, built-in features
@@ -31,9 +31,9 @@ ui/                 TypeScript           React app; depends only on generated pr
 
 Rules:
 
-- `partsmith-occt-sys` is the only crate that contains C++ or `unsafe`. Every other crate has `#![forbid(unsafe_code)]` through the workspace lint table.
+- `partsmith-occt-sys` is the only crate that contains C++. It is also the only crate with `unsafe`, with one exception: `partsmith-wasm` may use `unsafe` on its three C ABI exports and nowhere else (ADR 0010). Every other crate has `#![forbid(unsafe_code)]` through the workspace lint table.
 - No C++ type, exception or raw pointer crosses out of `partsmith-occt-sys`. Its public API is safe Rust.
-- No global mutable state anywhere in the core. Every API takes a document or session handle.
+- No global mutable state anywhere in the core. Every API takes a document or session handle. The `Session` that `partsmith-wasm` keeps in a `thread_local!` is host state, not core state (ADR 0010). The STEP mutex and one-time OCCT initialization inside `partsmith-occt-sys` guard OCCT's own process-wide state, not Partsmith state (kernel.md).
 - `partsmith-model`, `partsmith-mesh`, `partsmith-sketch`, `partsmith-naming` and `partsmith-print` are pure Rust with no kernel dependency, so they test fast and build on every target unchanged.
 - The UI never sees geometry objects, only protocol messages and mesh buffers.
 
@@ -45,11 +45,11 @@ Rules:
 
 **Tolerances.** Modeling tolerance `1e-6` mm (`partsmith_model::LINEAR_TOLERANCE`), sketch solver convergence `1e-10`, angular tolerance `1e-9` rad.
 
-**Ids.** `partsmith_model::Id` is a validated string matching `[A-Za-z0-9_-]{1,64}`. Generated ids are a kind prefix plus 12 lowercase hex characters from a random 48-bit value, for example `f-3fa91c0e72b4`. Prefixes: `p-` parameter, `b-` body, `f-` feature, `e-` sketch entity, `c-` sketch constraint. Hand-written ids such as `f-sk1` are valid. Generation goes through an `IdGenerator` trait so script runs can generate deterministic ids. Ids are unique within a document and never reused.
+**Ids.** `partsmith_model::Id` is a validated string matching `[A-Za-z0-9_-]{1,64}`. Generated ids are a kind prefix plus 12 lowercase hex characters. Prefixes: `p-` parameter, `b-` body, `f-` feature, `e-` sketch entity, `c-` sketch constraint. Hand-written ids such as `f-sk1` are valid. Generation goes through an `IdGenerator` trait with two implementations: `RandomIdGenerator` (a random 48-bit value, for example `f-3fa91c0e72b4`) for interactive edits, and `SequentialIds` (one counter per kind, for example `f-000000000001`) for script runs, the CLI and tests, so they generate deterministic ids. Ids are unique within a document and never reused.
 
-**Errors.** Each crate defines its error enums with `thiserror`. Messages are plain sentences a maker understands and, where possible, name the fix ("Fillet radius 3 mm is larger than the 2.4 mm adjacent face. Try 2.4 mm or less."). No panics on user input; `unwrap` and `expect` only where an invariant makes failure impossible, with the invariant stated in the `expect` message.
+**Errors.** Each crate defines its error enums with `thiserror`. Messages are plain sentences a maker understands and, where possible, name the fix ("Fillet radius 3 mm is larger than the 2.4 mm adjacent face. Try 2.4 mm or less."). Where a feature computed such a limit, its message also carries the params field it is about and a suggested replacement value, so the UI can offer the fix in one click. No panics on user input; `unwrap` and `expect` only where an invariant makes failure impossible, with the invariant stated in the `expect` message.
 
-**Serialization.** All document and protocol types derive `serde::Serialize`, `serde::Deserialize` and `schemars::JsonSchema`. Field names are `snake_case`. Tagged enums use `#[serde(tag = "type", rename_all = "snake_case")]` or `kind` where `type` is taken.
+**Serialization.** All document and protocol types derive `serde::Serialize`, `serde::Deserialize` and `schemars::JsonSchema`. Field names are `snake_case`. Records (feature records, sketch entities, sketch constraints, edits, commands, events, findings) are tagged with `type`. Value enums nested inside params or records (extents, plane and axis references, sketch planes, hole types, drag targets, profile curves, match results) and the protocol message envelope are tagged with `kind`. Both use `rename_all = "snake_case"`.
 
 ## Document model (`partsmith-model`)
 
@@ -64,7 +64,7 @@ pub struct Document {
     pub parameters: Vec<Parameter>,
     pub bodies: Vec<Body>,
     pub features: Vec<FeatureRecord>, // timeline order
-    pub rollback: Option<Id>,     // last active feature; None means the end of the timeline
+    pub rollback: Option<Id>,     // first rolled-back feature; None means nothing is rolled back
 }
 
 pub struct Parameter { pub id: Id, pub name: String, pub expr: Expr, pub comment: Option<String> }
@@ -85,11 +85,11 @@ pub struct FeatureRecord {
 }
 ```
 
-Feature parameters are stored generically. The feature registry in `partsmith-features` owns their typed form, validation and canonical key order, so built-in features and future plugin features are stored the same way.
+Feature parameters are stored generically. The feature registry in `partsmith-features` owns their typed form, validation and canonical key order, so built-in features and future plugin features are stored the same way. Imported files are stored next to the document in an `assets/` folder, each named by the lowercase hex BLAKE3 hash of its bytes plus its extension; feature params refer to them by that name (file-format.md section 3.11).
 
 **Expressions.** `Expr` is a newtype over the source string. The grammar supports numbers with optional units (`2 mm`, `30deg`, `1.5 in`), parameter names, dotted names (`printer.fit.slip`), `+ - * / ^`, parentheses, unary minus, the constant `pi`, and functions `abs sqrt sin cos tan asin acos atan atan2 min max floor ceil round`. Evaluation is dimension-checked (length, angle, dimensionless, plus products such as area) and returns a `Quantity { value: f64, dimension: Dimension }` in internal units. Parameter references form a graph; cycles and unknown names are errors that name the offending parameter.
 
-**Edits and undo.** Every change to a document is an `Edit` value (add, update, remove and move for parameters, bodies and features; set rollback; set units; set printer). `Document::apply(edit) -> Result<Edit, EditError>` applies an edit and returns its exact inverse. An `UndoLog` stores transactions, each a labeled list of `(edit, inverse)` pairs. Undo applies inverses in reverse order. Edits are complete, deterministic and serializable, which is the seam for AI assist and collaboration (technical design section 15).
+**Edits and undo.** Every change to a document is an `Edit` value (add, update, remove and move for parameters, bodies and features; set rollback; set units; set printer). `Document::apply(edit) -> Result<Edit, EditError>` applies an edit and returns its exact inverse. An `UndoLog` stores transactions, each a labeled list of `(edit, inverse)` pairs. Undo applies inverses in reverse order. Edits are complete, deterministic and serializable, which is the seam for AI assist and collaboration (technical design section 15). `apply` never rewrites expressions; renaming a parameter is one transaction built by `Document::rename_parameter_edits`, which also rewrites every parameter and feature expression that uses the old name.
 
 **Canonical JSON (`.ptsm`).** One serializer, used for every save:
 
@@ -108,17 +108,17 @@ A sketch is a feature of type `sketch`. Its params:
 
 ```rust
 pub struct SketchParams {
-    pub plane: SketchPlane,              // origin plane, datum feature id, or face reference plus fallback placement
+    pub plane: SketchPlane,              // origin plane, datum feature id, or a body's face reference plus fallback placement
     pub entities: Vec<SketchEntity>,     // point, line, circle, arc, ellipse, elliptical arc, bspline
     pub constraints: Vec<SketchConstraint>,
 }
 ```
 
-Entities own their geometry (a line has `start` and `end` coordinates). Topology comes from constraints: points are addressed as `PointRef` strings `<entity-id>.<role>` with roles `start`, `end`, `center`, or `<entity-id>` for a point entity. Every entity has a `construction` flag. Dimensional constraints carry an `Expr` and a `driving` flag (false means a reference dimension that only reports).
+Entities own their geometry (a line has `start` and `end` coordinates). Topology comes from constraints: points are addressed as `PointRef` strings `<entity-id>.<role>` with roles `start`, `end`, `center`, or `<entity-id>` for a point entity. The sketch origin `origin` and the axes `x_axis` and `y_axis` are fixed references that constraints can use without stored entities; entity and constraint ids cannot use these names. Every entity has a `construction` flag. Dimensional constraints carry an `Expr` and a `driving` flag (false means a reference dimension that only reports).
 
-The solver is native Rust (see ADR 0004). It splits the system into connected components, eliminates trivial equalities, then runs a dog-leg trust region solve with Levenberg-Marquardt as fallback. It reports per-sketch status: degrees of freedom left, fully constrained, and the ids of redundant and conflicting constraints. Dragging solves with the dragged point weakly pinned to the cursor. The solver works on a flat parameter vector and is independent of the serialized form.
+The solver is native Rust with `faer` for linear algebra (ADR 0004). It splits the system into connected components, eliminates trivial equalities, then runs a dog-leg trust region solve with Levenberg-Marquardt as fallback. It reports per-sketch status: degrees of freedom left, fully constrained, and the ids of redundant and conflicting constraints. Dragging solves with the dragged point weakly pinned to the cursor. The solver works on a flat parameter vector and is independent of the serialized form.
 
-Profiles come from the solved, non-construction curves: the crate computes the planar arrangement, its closed regions, open loops, overlaps and self-intersections. A region is addressed by a `RegionKey`: the sorted entity ids of its outer boundary, then each hole boundary, so references survive unrelated edits. Region area and centroid serve as its fingerprint.
+Profiles come from the solved, non-construction curves: the crate computes the planar arrangement, its closed regions, open loops, overlaps and self-intersections. A region is addressed by a `RegionKey` (sketch.md 3.13.5): the entity ids of its outer boundary, then of each hole, sorted, each prefixed with `~` when the boundary runs against the entity's direction, for example `e-1,e-2,e-3,e-4;~e-5`, so references survive unrelated edits. Region area and centroid serve as its fingerprint.
 
 ## Topological naming (`partsmith-naming`)
 
@@ -126,7 +126,7 @@ Nothing ever stores an index like `Face7`.
 
 - Every sub-shape a feature outputs gets an **element name** built from its history, for example `f-ext1/lateral/e-9e12`, `f-ext1/end-cap`, `f-fil1/fillet/<edge name>`. An edge without a direct generator is named by its two adjacent faces, `edge(<face a>|<face b>)` with the pair sorted; a vertex by its edges' faces. When one element splits, every part keeps the base name plus `#n`, numbered by a deterministic geometric order.
 - A `NamingMap` maps element names to output sub-shape indices for one feature output, and is built from kernel history (generated, modified, deleted) supplied by `partsmith-features`.
-- A stored **reference** is `{"q": <element name query>, "fp": <fingerprint>}`. The fingerprint holds surface or curve type, normal or axis, centroid, area or length, and adjacency counts, and has a stable text form such as `plane|n=0,0,1|c=40,25,30|a=4000`.
+- A stored **reference** is `{"q": <element name query>, "fp": <fingerprint>}`. It always sits next to a `body` field that names the body it is resolved in. The fingerprint holds surface or curve type, normal or axis, centroid, area or length, and adjacency counts, and has a stable text form such as `plane|n=0,0,1|c=40,25,30|a=4000|adj=4,4`.
 - The resolver tries an exact name match, then a history-chain match (the element was split or merged), then a fingerprint match above a confidence threshold. It returns `Resolved`, `Ambiguous` or `Missing`, and the feature turns the last two into warnings for the repair panel.
 
 This crate works on plain data (`ElementInfo { name, kind, fingerprint, adjacency }`), never on kernel shapes, so it is tested without OCCT.
@@ -139,7 +139,8 @@ A C++17 shim over OCCT 7.9.3, exposed through the `cxx` crate, plus a safe Rust 
 - `Shape` is an opaque, cheaply cloneable handle (C++ `std::shared_ptr<TopoDS_Shape>` held in a `cxx::SharedPtr`). It is `Send + Sync`; operations that mutate cached data (tessellation) work on a copy.
 - Sub-shapes are addressed by their 1-based index in the shape's `TopTools_IndexedMapOfShape` for faces, edges or vertices. These indices never leave the feature layer; they are translated into element names immediately.
 - Operations return results with history: `OpResult { shape, history }`, where history lists, for each input face, edge and vertex index, the output indices it was modified into, generated, or whether it was deleted.
-- The facade covers primitives, wires and faces from sketch curves, prism, revolution, sweep, loft, booleans, fillet, chamfer, shell, draft, transforms, sectioning, measurement (volume, area, center of mass, bounding box), per-element geometry queries for fingerprints, tessellation into `partsmith_mesh::Mesh` with face and edge ids, and STEP read and write.
+- The facade covers primitives, wires and faces from sketch curves, prism, revolution, sweep, loft, booleans, fillet, chamfer, shell, draft, transforms, sectioning, measurement (volume, area, center of mass, bounding box), per-element geometry queries for fingerprints, tessellation into `partsmith_mesh::Mesh` with f64 positions and face, edge and vertex ids, and STEP read and write.
+- It exports `OCCT_VERSION`, the pinned OCCT version (ADR 0003), for recompute cache keys.
 
 ## Features (`partsmith-features`)
 
@@ -148,27 +149,32 @@ pub trait Feature: Send + Sync + 'static {
     const TYPE: &'static str;  // "extrude"
     type Params: Serialize + DeserializeOwned + JsonSchema + Clone + Send + Sync;
     fn manifest() -> FeatureManifest;                  // label, category, version, UI hints
-    fn dependencies(params: &Self::Params) -> Dependencies; // features, bodies and expressions it reads
+    fn dependencies(params: &Self::Params) -> Dependencies; // features, bodies, expressions and assets it reads, ids it declares
     fn build(params: &Self::Params, ctx: &BuildContext<'_>) -> Result<FeatureOutput, FeatureError>;
+    fn validate(params: &Self::Params) -> Result<(), FeatureError> { Ok(()) } // rules serde cannot express
+    fn python(params: &Self::Params, names: &dyn PythonNames) -> Option<PythonCall> { None } // dedicated Python call
 }
 ```
 
+`validate` and `python` are provided methods (ADR 0011). `FeatureManifest` is pure data defined in `partsmith-model`, so the protocol carries it typed.
+
 - `build` is a pure function of its params and the read-only context: expression evaluation, upstream body states, sketch and datum results, and reference resolution.
-- `FeatureOutput` is one of: body updates (each a body id, its new `Shape` and `NamingMap`, and the boolean op applied), a sketch result, a datum result, or nothing. Warnings travel with the output.
+- `FeatureOutput` is one of: body updates (each a body id, its new `Shape` and `NamingMap`, and the change applied: `new`, `join`, `cut`, `intersect`, `modify` for in-place changes, or `clear` for an emptied body), a sketch result, a datum result, or nothing. Warnings travel with the output.
 - Bodies are declared in `Document::bodies`. A solid feature names its target `body` and `op`: `new`, `join`, `cut` or `intersect`. `new` requires the body to be empty at that point in the timeline.
-- `Registry` maps type names to type-erased features. It validates and canonicalizes params, composes the params JSON Schema, extracts dependencies, builds, and generates the Python call for each feature. Built-in features register through the same public API a plugin will use.
+- `Registry` maps type names to type-erased features. It validates and canonicalizes params, composes the params JSON Schema, extracts dependencies, builds, and generates each feature's dedicated Python call through the feature's hook, or the generic `feature(...)` call. Built-in features register through the same public API a plugin will use.
 
 ## Recompute (`partsmith-recompute`)
 
-The timeline is a list; dependencies form a DAG: a feature depends on the previous feature that touched each body it reads, on every feature it references, and on the parameters its expressions use. Editing marks only transitive dependents dirty. Each feature result is cached in memory under a hash of its canonical params, evaluated expression values and upstream result hashes, so undo and reopen reuse results. Features after the rollback marker do not run. A failing feature records its error, leaves its bodies unchanged, and recompute continues so downstream features report their own status. Independent branches may run in parallel on desktop.
+The timeline is a list; dependencies form a DAG: a feature depends on the previous feature that touched each body it reads, on every feature it references, and on the parameters its expressions use. Editing marks only transitive dependents dirty. Each feature result is cached in memory under a BLAKE3 hash of its canonical params, evaluated expression values, upstream result hashes and the versions of `partsmith-features` and OCCT, so undo and reopen reuse results. The rollback feature and every feature after it do not run. A failing feature records its error, leaves its bodies unchanged, and recompute continues so downstream features report their own status. Independent branches may run in parallel on desktop.
 
 ## Protocol (`partsmith-protocol`)
 
 The UI and every host talk to the engine through one message protocol.
 
 - `Request { id: u64, command: Command }` in; `Response { id, result }` and unsolicited `Event`s out.
-- Commands cover documents (new, open, save, close), edits with labels, undo and redo, rollback, sketch solve and drag (not recorded until committed), tessellation settings, export (STL, 3MF, OBJ, STEP), import, measure, printability analysis and Python export.
-- Events cover document snapshots, per-feature status (ok, warning, error, with messages and repair info), body meshes, sketch solve results, and print health.
+- Commands cover documents (new, open, save, mark saved, close), edits with labels, parameter rename, undo and redo, rollback, sketch solve and drag (not recorded until committed), tessellation settings, export (STL, 3MF, OBJ, STEP), import, measure, printability analysis and Python export.
+- Events cover document snapshots, per-feature status (ok, warning, error, with messages and repair info; a message can name the params field it is about and suggest a fix), body meshes (each face, edge and vertex with the feature that created it), sketch solve results, and print health.
+- The protocol reuses the core's own data types (documents, edits, sketch results, feature manifests, print reports), so they reach the UI typed. Only feature params and their schemas travel as generic JSON.
 - Wire format: a binary frame `PSM1`, a little-endian `u32` header length, a UTF-8 JSON header, padding to 8 bytes, then raw buffers (positions `f32`, normals `f32`, indices `u32`, element ids `u32`). The header lists each buffer's offset, length and element type. The web worker transfers the buffers as `ArrayBuffer`s; Tauri returns the frame as a binary IPC response.
 - The protocol JSON Schema is generated to `docs/format/protocol.schema.json`. The UI generates its TypeScript types from it. CI fails on drift.
 - `PROTOCOL_VERSION` is bumped on any breaking change.
@@ -179,7 +185,7 @@ The UI and every host talk to the engine through one message protocol.
 
 ## Hosts
 
-- **Web:** `partsmith-wasm` targets `wasm32-unknown-emscripten`. It exports C ABI functions (`ps_alloc`, `ps_free`, `ps_call`) that take and return protocol frames. A Web Worker loads it; the UI talks to the worker through `postMessage`.
+- **Web:** `partsmith-wasm` targets `wasm32-unknown-emscripten`. It exports C ABI functions (`ps_alloc`, `ps_free`, `ps_call`) that take and return protocol frames; they are its only `unsafe` code, and its one `Session` lives in a `thread_local!` owned by the host (ADR 0010). A Web Worker loads it; the UI talks to the worker through `postMessage`.
 - **Desktop:** Tauri 2 runs the engine in-process and exposes one `call` command carrying protocol frames.
 - **CLI:** `partsmith validate | fmt | rebuild | export | schema`.
 - **Python:** `partsmith-py` (PyO3, abi3, Python 3.12+) exposes the engine; the pure-Python `partsmith` package adds the build123d-style API on top.

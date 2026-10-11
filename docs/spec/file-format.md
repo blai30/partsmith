@@ -16,11 +16,11 @@ In this milestone (M1):
 - Round-trip guarantees.
 - `format_version` 1, version checks, and the migration chain hook (`migrate`, `migrate_with`), empty for now.
 - JSON Schema generation for `.ptsm` from the model types plus every registered feature's params schema (`ptsm_schema`, `ptsm_schema_text`), written by the CLI to `docs/format/ptsm.schema.json`.
+- The `assets/` folder next to the document and content-hash references to imported files (section 3.11).
 
 Explicitly later (not in M1):
 
 - `.ptsz` bundles (ZIP of recipe, assets and optional cache).
-- The `assets/` folder and content-hash references to imported files.
 - The `.ptsm-cache/` folder (per-feature B-rep, display meshes, thumbnail).
 - Multi-document projects: references between files by relative path and id.
 - The git merge driver.
@@ -140,7 +140,7 @@ Keys are written in struct declaration order. A field is omitted exactly when th
 | `parameters` | array of `Parameter` | no | empty | always, even when empty |
 | `bodies` | array of `Body` | no | empty | always, even when empty |
 | `features` | array of `FeatureRecord` | no | empty | always, even when empty |
-| `rollback` | id string | no | end of timeline | when present |
+| `rollback` | id string | no | nothing rolled back | when present |
 
 `Parameter`:
 
@@ -274,7 +274,7 @@ Consequences:
 
 ### 3.6 Examples
 
-Each example is the exact output of `save` (or `canonical::to_string`), shown without the final line feed that the text ends with. Byte counts include that line feed. Feature params in these examples are illustrative: the feature and sketch specs own their names and shapes, and the layout is the same whatever they are.
+Each example is the exact output of `save` (or `canonical::to_string`), shown without the final line feed that the text ends with. Byte counts include that line feed. Feature params in E2 and E3 follow the feature specs. E5, E7 and E8 use params no registered feature accepts (an extrude profile with a `note`, the unregistered type `polygon_demo`, a box with unknown keys), because loading and saving never consult the registry and the layout is the same whatever the params are.
 
 **E1. Empty document.** `save(&Document::new(Units::Mm))`, 122 bytes:
 
@@ -289,7 +289,7 @@ Each example is the exact output of `save` (or `canonical::to_string`), shown wi
 }
 ```
 
-**E2. Full document**, 1514 bytes. Parameters and the body print one per line; the sketch is expanded because it contains arrays of objects; its entities and constraints print one per line; the extrude is expanded because its one-line form is too wide (it contains no array of objects); the shell is expanded because `remove_faces` is an array of objects.
+**E2. Full document**, 1614 bytes. Parameters and the body print one per line; the sketch is expanded because it contains arrays of objects; its plane stays on one line, and its entities and constraints print one per line; the extrude is expanded because its profile contains an array of region objects, so the profile and its `regions` list print expanded too; the shell is expanded because `remove_faces` is an array of objects.
 
 ```json
 {
@@ -308,7 +308,7 @@ Each example is the exact output of `save` (or `canonical::to_string`), shown wi
     {
       "id": "f-sk1",
       "type": "sketch",
-      "plane": "origin/XY",
+      "plane": {"kind": "origin", "plane": "XY"},
       "entities": [
         {"id": "e-1", "type": "line", "start": [0, 0], "end": [80, 0]},
         {"id": "e-2", "type": "line", "start": [80, 0], "end": [80, 50]},
@@ -325,7 +325,12 @@ Each example is the exact output of `save` (or `canonical::to_string`), shown wi
       "id": "f-ext1",
       "type": "extrude",
       "body": "b-1",
-      "profile": {"sketch": "f-sk1", "outer": ["e-1", "e-2", "e-3", "e-4"]},
+      "profile": {
+        "sketch": "f-sk1",
+        "regions": [
+          {"key": "e-1,e-2,e-3,e-4", "fp": "c=40,25|a=4000"}
+        ]
+      },
       "extent": {"kind": "distance", "expr": "30 mm"},
       "op": "new"
     },
@@ -335,14 +340,14 @@ Each example is the exact output of `save` (or `canonical::to_string`), shown wi
       "body": "b-1",
       "thickness": "wall",
       "remove_faces": [
-        {"q": "f-ext1/end-cap", "fp": "plane|n=0,0,1|c=40,25,30|a=4000"}
+        {"q": "f-ext1/end-cap", "fp": "plane|n=0,0,1|c=40,25,30|a=4000|adj=4,4"}
       ]
     }
   ]
 }
 ```
 
-**E3. Defaults, record keys and rollback**, 630 bytes. Body `b-1` has every default; `b-2` is hidden with a role. `f-box1` has a name; its one-line form would be 122 characters wide, so it is expanded. `f-cyl1` is suppressed. `rollback` comes last.
+**E3. Defaults, record keys and rollback**, 630 bytes. Body `b-1` has every default; `b-2` is hidden with a role. `f-box1` has a name; its one-line form would be 122 characters wide, so it is expanded. `f-cyl1` is suppressed. `rollback` comes last (`f-cyl1` is rolled back).
 
 ```json
 {
@@ -360,20 +365,20 @@ Each example is the exact output of `save` (or `canonical::to_string`), shown wi
       "type": "box",
       "name": "Base block",
       "body": "b-1",
-      "op": "new",
-      "size": ["40 mm", "30 mm", "10 mm"]
+      "size": ["40 mm", "30 mm", "10 mm"],
+      "op": "new"
     },
     {
       "id": "f-cyl1",
       "type": "cylinder",
       "suppressed": true,
       "body": "b-1",
-      "op": "cut",
       "radius": "3 mm",
-      "height": "10 mm"
+      "height": "10 mm",
+      "op": "cut"
     }
   ],
-  "rollback": "f-box1"
+  "rollback": "f-cyl1"
 }
 ```
 
@@ -602,6 +607,14 @@ Feature records of a type with no params schema (for example a plugin that is no
 
 `ptsm_schema_text(features)` is `canonical::to_string` of the schema: deterministic, independent of the order of `features`, and ending with one line feed. The CLI's `schema --write` writes it to `docs/format/ptsm.schema.json`, and CI fails when the committed file differs.
 
+### 3.11 Assets
+
+Imported files (in M1, the STEP files of the `import` feature, features/import.md) are stored next to the document in a folder named `assets/`, each named `<64 lowercase hex digits of the BLAKE3 hash of its bytes>.<lowercase extension>`, for example `assets/<64 hex>.step`. Feature params refer to an asset by that file name, never by a path.
+
+- The model never reads or writes assets: `load` and `save` work on the text alone, and a document whose assets are missing loads. The engine supplies asset bytes to recompute and returns the assets a document references when it saves (engine.md section 3.14); hosts read and write the folder.
+- A document references exactly the assets named by its features' `Dependencies::assets` (features.md section 2.4). A missing referenced asset is reported on the feature that reads it (`asset_missing`), not as a load error.
+- Because names are content hashes, an asset never changes in place, the same file imported twice is stored once, and several documents in one folder can share `assets/`.
+
 ## 4. Errors
 
 `{m}` stands for a `StructureError` message (model.md section 4.5).
@@ -671,9 +684,9 @@ E1 to E9 are the examples in section 3.6. "The E2 text" means the exact text sho
 ### Writer and layout
 
 1. `save(&Document::new(Units::Mm))` is exactly the E1 text (122 bytes), and `Document::new(Units::Mm)` equals `load(E1)`.
-2. `load(E2)` succeeds with `migrated_from == None`, 2 parameters, 1 body and 3 features; `save` of it is exactly the E2 text (1514 bytes).
+2. `load(E2)` succeeds with `migrated_from == None`, 2 parameters, 1 body and 3 features; `save` of it is exactly the E2 text (1614 bytes).
 3. E3, E4, E5, E6 and E7 each load and save back to exactly themselves (630, 399, 463, 337 and 626 bytes).
-4. A document built in code equal to E3 (bodies `b-1` named `Base`; `b-2` named `Keep out` with color `#ff0000`, `visible` false and role `SupportBlocker`; features as shown with params inserted in the shown order; rollback `f-box1`) saves to exactly the E3 text.
+4. A document built in code equal to E3 (bodies `b-1` named `Base`; `b-2` named `Keep out` with color `#ff0000`, `visible` false and role `SupportBlocker`; features as shown with params inserted in the shown order; rollback `f-cyl1`) saves to exactly the E3 text.
 5. Loading the E8 input (with CRLF line endings) and saving gives exactly the E8 output (282 bytes); loading that output and saving again gives the same bytes.
 6. The E2 output has no `\r`, no `\t`, no byte order mark, no line ending in a space, ends with exactly one `\n`, and no line is longer than 121 characters.
 7. Every row of the table in section 3.3: `format_number(&Number::from_f64(value).unwrap())` (or the integer `Number` for integer rows) gives the written form.
@@ -746,6 +759,5 @@ E1 to E9 are the examples in section 3.6. "The E2 text" means the exact text sho
 6. **Lenient reading.** The loader accepts a BOM, CRLF, `null` for optional fields, uppercase colors, non-canonical numbers and escapes, and any key order, and normalizes them on save. It still rejects unknown keys in `Document`, `Parameter` and `Body`, and duplicate keys anywhere.
 7. **Structural errors stop loading** (model.md open issue 1), so `partsmith validate` reports them from `LoadError::Structure` and reference problems from `Document::validate`.
 8. **Field-level error paths.** The paths in `Invalid` need per-field deserialization. The crate `serde_path_to_error` would provide them but is a new dependency needing human review; a hand-written traversal over the three record types also works.
-9. **Params key order is the registry's job.** `save(load(t))` alone does not reorder params of a hand-written file; `partsmith fmt` and the engine must apply the registry's canonicalization between load and save. The reviewer should check the features and CLI specs say so.
 10. **Schema details.** Feature params schemas must stay open (no `additionalProperties: false`) because unknown keys are preserved; definitions are named `feature.<kind>`; `$id` is omitted until the project domain is decided; the schema describes canonical files, not everything the loader accepts.
 11. **Where documents are validated against the schema.** Nothing in M1 validates files against the generated schema at runtime (the typed loader is the authority). The schema serves editors, documentation and drift checks.

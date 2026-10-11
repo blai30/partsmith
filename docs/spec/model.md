@@ -5,7 +5,7 @@ Behavior spec for the document recipe model: ids, document units, colors, the `D
 - [expressions.md](expressions.md): `Expr`, units in expressions, `Dimension`, `Quantity`, evaluation, the parameter graph.
 - [file-format.md](file-format.md): canonical `.ptsm` JSON, loading, saving, numbers, `format_version`, migration, JSON Schema generation.
 
-Contracts come from [architecture.md](../design/architecture.md) (section "Document model") and ADRs [0005](../adr/0005-feature-registry-with-generic-params.md) and [0008](../adr/0008-short-random-ids.md). Where this spec had to interpret them, the interpretation is listed under [Open issues](#7-open-issues).
+Contracts come from [architecture.md](../design/architecture.md) (section "Document model") and ADRs [0005](../adr/0005-feature-registry-with-generic-params.md), [0008](../adr/0008-short-random-ids.md) and [0011](../adr/0011-feature-contract-extensions.md). Where this spec had to interpret them, the interpretation is listed under [Open issues](#7-open-issues).
 
 ## 1. Purpose and scope
 
@@ -13,13 +13,14 @@ Contracts come from [architecture.md](../design/architecture.md) (section "Docum
 
 In this milestone (M1):
 
-- `Id` validation, `IdKind` prefixes, the `IdGenerator` trait with a random and a deterministic (seeded) implementation.
+- `Id` validation, `IdKind` prefixes, the `IdGenerator` trait with `RandomIdGenerator` (interactive edits) and `SequentialIds` (script runs, CLI, tests).
 - Document `Units`, `Color`, `BodyRole`.
 - `Document`, `Parameter`, `Body`, `FeatureRecord` (params as a generic JSON map flattened into the record).
 - Parameter name rules, label rules, feature type rules.
 - Structural rules that every document in memory satisfies (`check_structure`), and full validation with references, expressions and the parameter graph (`validate`).
-- `Edit` with all 15 variants and exact inverses, atomic multi-edit application (`apply_all`).
+- `Edit` with all 15 variants and exact inverses, atomic multi-edit application (`apply_all`), and the edit set that renames a parameter everywhere (`rename_parameter_edits`).
 - `UndoLog`: labeled transactions, undo, redo, redo cleared by a new commit, maximum depth.
+- Feature manifests (`FeatureManifest` and its parts): pure data the feature registry defines and the protocol carries.
 - Expressions and parameter evaluation (expressions.md), canonical JSON, load and save, `format_version` 1, the migration hook and JSON Schema generation (file-format.md).
 
 Explicitly later (not in M1):
@@ -27,7 +28,7 @@ Explicitly later (not in M1):
 - Components (local and linked from other `.ptsm` files) and their records.
 - Joints and joint values.
 - Configurations (design tables) and per-configuration suppression (v1.1).
-- `.ptsz` bundles and the content-hashed `assets/` store.
+- `.ptsz` bundles.
 - Script features (Python blocks in the timeline) and their trust state.
 - Plugin feature records carrying a plugin id and version.
 - Body "export as" setting and extruder or filament slot.
@@ -105,17 +106,12 @@ impl IdKind {
     pub fn prefix(self) -> &'static str;
 }
 
-/// Most candidate values `IdGenerator::generate` tries before giving up.
+/// Most candidate values `RandomIdGenerator` tries before giving up.
 pub const MAX_ID_ATTEMPTS: usize = 64;
 
 /// Source of new ids. Each generator owns its state; there is no global generator.
 pub trait IdGenerator: Send {
-    /// Returns the next candidate value; only its low 48 bits are used.
-    fn next_value(&mut self) -> Result<u64, IdError>;
-
-    /// Returns a new id of `kind` for which `is_taken` returns false (provided method, section 3.2).
-    /// Implementations may override it (for example to keep one counter per kind); an override must
-    /// return a valid id that starts with `kind.prefix()` and for which `is_taken` is false.
+    /// Returns a new id of `kind`, starting with `kind.prefix()`, for which `is_taken` returns false (section 3.2).
     fn generate(&mut self, kind: IdKind, is_taken: &dyn Fn(&Id) -> bool) -> Result<Id, IdError>;
 }
 
@@ -128,13 +124,14 @@ impl RandomIdGenerator {
     pub fn new() -> RandomIdGenerator;
 }
 
-/// Seeded SplitMix64 generator: the same seed always yields the same ids. Used by script runs and tests.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct DeterministicIdGenerator { /* private: state: u64 */ }
+/// Deterministic generator with one counter per kind (`f-000000000001`, `f-000000000002`, ...).
+/// Used by script runs, the CLI and tests.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SequentialIds { /* private: next value per IdKind */ }
 
-impl DeterministicIdGenerator {
-    /// Creates a generator whose state starts at `seed`.
-    pub fn new(seed: u64) -> DeterministicIdGenerator;
+impl SequentialIds {
+    /// Creates a generator whose counters all start at 1.
+    pub fn new() -> SequentialIds;
 }
 ```
 
@@ -236,7 +233,7 @@ pub struct Document {
     /// Feature records in timeline order.
     #[serde(default)]
     pub features: Vec<FeatureRecord>,
-    /// Last active feature; `None` means the end of the timeline.
+    /// First rolled-back feature: it and every later feature do not run. `None` means nothing is rolled back.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rollback: Option<Id>,
 }
@@ -254,7 +251,7 @@ impl Document {
     pub fn feature(&self, id: &Id) -> Option<&FeatureRecord>;
     /// Timeline position of the feature with this id.
     pub fn feature_index(&self, id: &Id) -> Option<usize>;
-    /// Features up to and including the rollback feature (section 3.8).
+    /// Features before the rollback feature, or all features (section 3.8).
     pub fn active_features(&self) -> &[FeatureRecord];
     /// True when a parameter, body or feature has this id.
     pub fn contains_id(&self, id: &Id) -> bool;
@@ -268,6 +265,8 @@ impl Document {
     pub fn apply(&mut self, edit: Edit) -> Result<Edit, EditError>;
     /// Applies edits in order, all or nothing, and returns each edit with its inverse.
     pub fn apply_all(&mut self, edits: Vec<Edit>) -> Result<Vec<Step>, TransactionError>;
+    /// The edits that rename parameter `id` to `new_name` and rewrite every expression that uses it (section 3.13).
+    pub fn rename_parameter_edits(&self, id: &Id, new_name: &str, inspector: &dyn FeatureInspector) -> Result<Vec<Edit>, EditError>;
     /// Evaluates every parameter (expressions.md section 3.13).
     pub fn evaluate_parameters(&self, context: &dyn EvaluationContext) -> ParameterValues;
     /// Rewrites every number inside feature params to its normalized form (file-format.md section 3.3).
@@ -398,12 +397,21 @@ The model cannot read feature params, so the registry tells it what a record dec
 pub struct FeatureLinks {
     /// Ids the params define, such as sketch entity and constraint ids, in params order.
     pub declared_ids: Vec<Id>,
-    /// Bodies the feature reads or writes, in params order.
+    /// Bodies the feature writes, then bodies it reads, each in params order.
     pub bodies: Vec<Id>,
     /// Other features whose output the feature reads directly (sketches, datums), in params order.
     pub features: Vec<Id>,
-    /// Every expression inside the params, in params order.
-    pub expressions: Vec<Expr>,
+    /// Every expression stored in the params, evaluated by build or not, in params order.
+    pub expressions: Vec<ExprLink>,
+}
+
+/// One expression stored in feature params, with its location.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ExprLink {
+    /// JSON Pointer (RFC 6901) of the expression string within the params, for example "/extent/expr".
+    pub pointer: String,
+    /// The expression.
+    pub expr: Expr,
 }
 
 /// Reports the links of a feature record; implemented by the feature registry.
@@ -505,7 +513,7 @@ pub enum Edit {
     RemoveFeature { id: Id },
     /// Moves a feature record so that it ends up at timeline position `index`.
     MoveFeature { id: Id, index: usize },
-    /// Sets the rollback marker; `None` is the end of the timeline.
+    /// Sets the rollback marker; `None` means nothing is rolled back.
     SetRollback {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         rollback: Option<Id>,
@@ -653,7 +661,7 @@ Every `BodyRole` value: `"part"`, `"negative_volume"`, `"support_blocker"`, `"su
 {"type": "set_printer"}
 ```
 
-`{"type": "set_rollback"}` sets the marker to the end of the timeline and `{"type": "set_printer"}` clears the printer. On input, an explicit `null` for `rollback` or `printer` is accepted and means the same.
+`{"type": "set_rollback"}` clears the marker (nothing is rolled back) and `{"type": "set_printer"}` clears the printer. On input, an explicit `null` for `rollback` or `printer` is accepted and means the same.
 
 `Step` and `Transaction`, as written by the canonical writer (file-format.md section 3.5):
 
@@ -670,6 +678,129 @@ Every `BodyRole` value: `"part"`, `"negative_volume"`, `"support_blocker"`, `"su
 }
 ```
 
+### 2.12 Feature manifests
+
+A manifest describes a feature type for the UI, the schema and the registry. The types are pure data defined here, in the module `manifest` (re-exported from the crate root), so `partsmith-protocol` carries them typed and the UI gets generated TypeScript types (ADR 0011). `partsmith-features` re-exports them, each feature returns its manifest (features.md section 2.3), and each feature spec lists its complete manifest as a table.
+
+```rust
+/// Static description of a feature type for the UI, schema and registry.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct FeatureManifest {
+    /// Display name, for example "Extrude". Also the base of default feature labels.
+    pub label: String,
+    /// Toolbar and palette grouping.
+    pub category: Category,
+    /// Icon name in the UI icon set, kebab-case, for example "linear-pattern".
+    pub icon: String,
+    /// Params version of this type, starting at 1. Bumped only with a document migration.
+    pub version: u32,
+    /// Inspector fields in display order.
+    pub fields: Vec<FieldHint>,
+}
+
+/// Toolbar and palette group of a feature type.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum Category {
+    /// Sketches.
+    Sketch,
+    /// Features that add or remove material from scratch or from a sketch.
+    Create,
+    /// Features that change existing bodies.
+    Modify,
+    /// Mirrors and patterns.
+    Pattern,
+    /// Construction geometry such as datum planes.
+    Construct,
+}
+
+/// How the inspector shows one params field.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct FieldHint {
+    /// Path of the field inside params, for example "extent.expr" or "size[0]" (grammar in features.md section 3.2).
+    pub path: String,
+    /// Label shown next to the field, for example "Distance".
+    pub label: String,
+    /// Shown without the "More" toggle. Default false, omitted when false.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub essential: bool,
+    /// Value kind of an `Expr` field. Omitted for non-expression fields.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unit: Option<FieldUnit>,
+    /// What the viewport picks for a reference field. Omitted for typed fields.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selection: Option<SelectionKind>,
+    /// Labels for the values of an enumeration or a tag field, in display order. Omitted when empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub options: Vec<OptionHint>,
+}
+
+/// Value kind of an expression field, which sets its input unit, its expected dimension and its validation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum FieldUnit {
+    /// A length in millimeters (expected dimension `LENGTH`).
+    Length,
+    /// An angle in radians (expected dimension `ANGLE`).
+    Angle,
+    /// A plain number (expected dimension `NONE`).
+    Scalar,
+    /// A plain non-negative whole number (expected dimension `NONE`).
+    Count,
+}
+
+/// What a reference field accepts from the viewport or the browser.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum SelectionKind {
+    /// A body.
+    Body,
+    /// A sketch feature.
+    Sketch,
+    /// One or more closed regions of a sketch.
+    SketchRegion,
+    /// One or more points of a sketch (point entities, line and arc ends, arc and circle centers).
+    SketchPoint,
+    /// Faces of a body.
+    Face,
+    /// Edges of a body.
+    Edge,
+    /// An origin plane, a datum plane or a flat face.
+    Plane,
+    /// An origin axis, a sketch line, a straight edge, or a cylindrical, conical, spherical or toroidal face.
+    Axis,
+}
+
+/// Display label for one value of an enumeration field.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct OptionHint {
+    /// The serialized value, for example "two_sides".
+    pub value: String,
+    /// The label, for example "Two sides".
+    pub label: String,
+}
+```
+
+`FieldUnit` is also the value kind the features crate uses for expression uses, range errors and value formatting (features.md).
+
+JSON form (the extrude manifest, as the host receives it in the protocol's feature catalog):
+
+```json
+{
+  "label": "Extrude",
+  "category": "create",
+  "icon": "extrude",
+  "version": 1,
+  "fields": [
+    {"path": "profile", "label": "Profile", "essential": true, "selection": "sketch_region"},
+    {"path": "extent.kind", "label": "Extent", "essential": true, "options": [{"value": "distance", "label": "Distance"}, {"value": "symmetric", "label": "Symmetric"}, {"value": "two_sides", "label": "Two sides"}, {"value": "through_all", "label": "Through all"}]},
+    {"path": "extent.expr", "label": "Distance", "essential": true, "unit": "length"},
+    {"path": "op", "label": "Operation", "essential": true, "options": [{"value": "new", "label": "New body"}, {"value": "join", "label": "Join"}, {"value": "cut", "label": "Cut"}, {"value": "intersect", "label": "Intersect"}]},
+    {"path": "body", "label": "Body", "selection": "body"}
+  ]
+}
+```
+
 ## 3. Behavior
 
 ### 3.1 Ids
@@ -680,45 +811,21 @@ Every `BodyRole` value: `"part"`, `"negative_volume"`, `"support_blocker"`, `"su
 - Deserializing an invalid id fails with the `IdError` message.
 - Hand-written ids such as `f-sk1` are valid. The prefix is a convention for generated ids only; no rule ties an id's prefix to its record kind.
 - Ids are unique within a document across parameters, bodies, features and the ids declared inside feature params (section 3.7). Two records never share an id even when they are of different kinds.
-- The model never assigns a removed record's id to a different record on its own. Generation checks only ids currently in use; the 48-bit random space makes reuse of a removed id negligible. Undo restores a removed record under its original id.
+- The model never assigns a removed record's id to a different record on its own. Generation checks only ids currently in use; the 48-bit random space makes reuse of a removed id negligible. Undo restores a removed record under its original id. `SequentialIds` may give a new record the id of one removed in an earlier session; it is meant for runs that rebuild a document from scratch.
 
 ### 3.2 Generating ids
 
 `Id::generated(kind, value)` returns `kind.prefix()` followed by `format!("{:012x}", value & 0xFFFF_FFFF_FFFF)`: exactly 12 lowercase hex digits, zero-padded, from the low 48 bits. The result is always valid.
 
-`IdGenerator::generate(kind, is_taken)` (the provided method) does this:
+Callers of `IdGenerator::generate(kind, is_taken)` pass a predicate that rejects every id already in the document (`Document::used_ids`) plus any ids they generated in the same batch but have not inserted yet. Every generator returns a valid id that starts with `kind.prefix()` and for which `is_taken` is false, or an error.
 
-1. Repeat at most `MAX_ID_ATTEMPTS` (64) times: call `next_value()`; on `Err`, return that error; build `Id::generated(kind, value)`; if `is_taken(&id)` is false, return it.
-2. After 64 taken candidates, return `IdError::Exhausted { attempts: 64 }`.
+`RandomIdGenerator::generate` tries up to `MAX_ID_ATTEMPTS` (64) candidates. Each candidate is 8 bytes from `getrandom`, read as a little-endian `u64` and passed to `Id::generated(kind, value)`, so only the low 48 bits matter. It returns the first candidate that is not taken. If the random source fails, it returns `IdError::RandomUnavailable`. After 64 taken candidates, it returns `IdError::Exhausted { attempts: 64 }`. The generator has no state.
 
-Callers pass a predicate that rejects every id already in the document (`Document::used_ids`) plus any ids they generated in the same batch but have not inserted yet.
-
-`RandomIdGenerator::next_value` fills 8 bytes from `getrandom` and returns them as a little-endian `u64`; only the low 48 bits matter. If the random source fails it returns `IdError::RandomUnavailable`. The generator has no state.
-
-`DeterministicIdGenerator` is SplitMix64. `new(seed)` sets `state = seed`. Each `next_value` does, with wrapping 64-bit arithmetic:
-
-```text
-state = state + 0x9E3779B97F4A7C15
-z = state
-z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9
-z = (z ^ (z >> 27)) * 0x94D049BB133111EB
-z = z ^ (z >> 31)
-return z >> 16
-```
-
-It never fails. Reference values (as 12 hex digits):
-
-| Seed | 1st value | 2nd value | 3rd value |
-| --- | --- | --- | --- |
-| 0 | `e220a8397b1d` | `6e789e6aa1b9` | `06c45d188009` |
-| 1 | `910a2dec8902` | `beeb8da1658e` | `f893a2eefb32` |
-| 42 | `bdd732262feb` | `28efe333b266` | `47526757130f` |
-
-So `DeterministicIdGenerator::new(0).generate(IdKind::Feature, &|_| false)` returns `f-e220a8397b1d`.
+`SequentialIds` keeps one counter per kind, each starting at 1. Each call to `generate` tries `Id::generated(kind, n)` for `n` equal to the kind's counter, then `n + 1`, and so on; it returns the first id that is not taken and sets that kind's counter to one past it. If `n` would exceed `0xFFFF_FFFF_FFFF`, it returns `IdError::Exhausted { attempts }` with the number of candidates tried in that call. So `SequentialIds::new().generate(IdKind::Feature, &|_| false)` returns `f-000000000001`, and a document that already has `f-000000000001` gets `f-000000000002`.
 
 ### 3.3 Parameter names
 
-A parameter name is how expressions refer to the parameter, and the Python code generator uses it as a variable name. `validate_parameter_name` checks, in this order, and returns the first failure:
+A parameter name is how expressions refer to the parameter, and the Python code generator uses it as a variable name (adding a suffix when it is a Python keyword, python-api.md section 3.8). `validate_parameter_name` checks, in this order, and returns the first failure:
 
 1. Not empty (`NameError::Empty`).
 2. At most 64 characters, counted in Unicode scalar values (`NameError::TooLong`).
@@ -732,9 +839,8 @@ A parameter name is how expressions refer to the parameter, and the Python code 
 - Expression units (expressions.md section 3.6): `um`, `mm`, `cm`, `m`, `in`, `ft`, `deg`, `rad`.
 - Expression functions (expressions.md section 3.9): `abs`, `sqrt`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `min`, `max`, `floor`, `ceil`, `round`.
 - The printer namespace: `printer`.
-- Python 3.12 keywords other than `in` (already listed as a unit), so generated Python stays valid: `False`, `None`, `True`, `and`, `as`, `assert`, `async`, `await`, `break`, `class`, `continue`, `def`, `del`, `elif`, `else`, `except`, `finally`, `for`, `from`, `global`, `if`, `import`, `is`, `lambda`, `nonlocal`, `not`, `or`, `pass`, `raise`, `return`, `try`, `while`, `with`, `yield`.
 
-The constant has 58 entries, each listed once.
+The constant has 24 entries, each listed once.
 
 Parameter names are unique within a document (exact, case-sensitive comparison: `wall` and `Wall` may coexist).
 
@@ -789,7 +895,7 @@ Not structural (reported by `validate`, tolerated in memory): ids declared insid
    - Otherwise, for each id in `declared_ids` (in order): report `DuplicateDeclaredId { feature, id }` if it equals a parameter, body or feature id, or an id declared earlier (in this feature's list or in an earlier feature's).
    - For each id in `bodies` (in order): `UnknownBody` if no body has it.
    - For each id in `features` (in order): `SelfReference` if it is the feature's own id; else `UnknownFeature` if no feature has it; else `LaterFeature` if that feature's timeline index is greater than this feature's.
-   - For each expression in `expressions` (in order): `InvalidExpression { owner: feature id, .. }` if it does not parse, else `UnknownParameter` for each unknown name as in step 1.
+   - For each link in `expressions` (in order): `InvalidExpression { owner: feature id, expr: link.expr, .. }` if its expression does not parse, else `UnknownParameter` for each unknown name as in step 1.
 
 The inspector's own results are taken as given; the model does not deduplicate them. A document is valid when `validate` returns an empty list. `partsmith validate` (CLI spec) reports this list.
 
@@ -797,9 +903,11 @@ The inspector's own results are taken as given; the model does not deduplicate t
 
 ### 3.8 Rollback and active features
 
-- `rollback == None` means every feature is active. `rollback == Some(id)` means features up to and including `id` are active and the rest do not run (recompute spec).
-- `active_features()` returns `&features[..=i]` where `i` is the index of the rollback feature, or `&features[..]` when `rollback` is `None` or names no feature.
-- `Some(last feature id)` and `None` activate the same features today but are different values: a feature appended later is active only under `None`. The model never rewrites one into the other.
+- `rollback == None` means every feature is active (nothing is rolled back).
+- `rollback == Some(id)` means the features before `id` are active; `id` and every later feature do not run (recompute.md).
+- `active_features()` returns `&features[..i]`, where `i` is the index of the rollback feature, or `&features[..]` when `rollback` is `None` or names no feature.
+- `Some(first feature id)` makes no feature active, so rolling back before the first feature is representable.
+- A feature added at the rollback feature's index is active; a feature appended after the rollback feature is rolled back. The model never moves the marker on its own.
 - Suppressed features are part of `active_features()`; recompute skips them.
 
 ### 3.9 Edits
@@ -830,8 +938,8 @@ Rules that apply to every edit:
 - An update finds its target by the record's `id`; ids cannot be changed by an update. Any other field may change, including a feature's `type`.
 - No-op edits (an update to an identical record, a set to the current value) succeed and return an inverse equal to the edit.
 - Numbers in feature params are normalized on the way in (file-format.md section 3.3), so a document stays normalized.
-- `apply` never checks references from features or expressions: removing a body or parameter that something still uses succeeds. Renaming a parameter does not rewrite expressions that use the old name; the engine composes a rename as one transaction of `UpdateParameter` plus one update per record whose expressions change, using `Expr::rename_parameter`.
-- `AddFeature` and `MoveFeature` do not move the rollback marker. To insert a feature at the marker, the engine commits `AddFeature { index: rollback index + 1, .. }` followed by `SetRollback { new id }` as one transaction.
+- `apply` never checks references from features or expressions: removing a body or parameter that something still uses succeeds. `apply` never rewrites expressions; `rename_parameter_edits` (section 3.13) builds the rename transaction, which the engine's `rename_parameter` command commits.
+- `AddFeature` and `MoveFeature` never move the rollback marker; an `AddFeature` at the rollback feature's index is active without a `SetRollback`.
 - `apply` does not check ids declared inside params; generators avoid them through `used_ids`, and `validate` reports collisions.
 
 **Inverse guarantee.** If `doc.check_structure()` is empty and `doc.apply(e)` returns `Ok(inv)`, then `doc.check_structure()` is still empty, and applying `inv` succeeds, restores a document equal to the original, and returns an edit equal to `e` after number normalization. Every precondition in the table is a property of the resulting document, so the inverse always meets them.
@@ -860,6 +968,18 @@ Rules that apply to every edit:
 ### 3.12 Changing units
 
 `SetUnits` changes only the `units` field. Because bare numbers in length expressions take the document units (expressions.md section 3.10), changing units changes the geometry of every expression that relies on them: `"30"` in a length field is 30 mm under `mm` and 762 mm under `in`. JSON numbers stored directly in params (such as sketch coordinates) are internal millimeters and radians and do not change. Offering a "keep sizes" conversion is the engine's and UI's job: they can commit `SetUnits` together with updates that rewrite expressions, in one transaction.
+
+### 3.13 Renaming a parameter
+
+`rename_parameter_edits(id, new_name, inspector)` returns the edits that rename one parameter and rewrite every expression that uses its old name, as one transaction for `UndoLog::commit`. It does not change the document.
+
+1. Errors, checked in this order: no parameter has `id` (`NotFound { kind: Parameter, id }`); `new_name` is not a valid parameter name (`InvalidParameterName`); another parameter already has `new_name` (`NameInUse`). Renaming a parameter to its current name returns `Ok(vec![])`.
+2. The first edit is an `UpdateParameter` of the renamed parameter with name `new_name` and its own expression rewritten through `Expr::rename_parameter(old, new_name)` (expressions.md section 3.15).
+3. Then one `UpdateParameter` for every other parameter whose expression changes under the same rewrite, in document order.
+4. Then, in timeline order, one `UpdateFeature` per feature record whose inspection succeeds and at least one of whose `ExprLink`s changes. The record is copied and each changed expression string is replaced at its `pointer` within the params; a link whose pointer does not lead to a JSON string equal to its `expr` is left alone.
+5. Expressions that do not parse, and records whose inspection fails, stay unchanged.
+
+Every edit keeps ids, other names, types and keys, so `apply_all` of the result always succeeds on the same document.
 
 ## 4. Errors
 
@@ -945,7 +1065,7 @@ Each message is the error's `Display`. Placeholders in braces are filled from th
 | `InvalidFeatureType { kind: String }` | `'{kind}' is not a valid feature type. Type names use lowercase letters, digits and _, and start with a letter.` |
 | `ReservedParamKey { key: String }` | `Feature parameters cannot use the key '{key}', because the record itself uses it.` |
 | `IndexOutOfRange { index: usize, max: usize }` | `Position {index} is out of range. Use a position from 0 to {max}.` |
-| `RemovesRollbackFeature { id: Id }` | `Feature {id} is where the timeline is rolled back to. Move the rollback marker before removing it.` |
+| `RemovesRollbackFeature { id: Id }` | `Feature {id} holds the rollback marker. Move the rollback marker before removing it.` |
 | `UnknownRollbackFeature { id: Id }` | `Cannot roll back to {id} because there is no feature with that id.` |
 
 ### 4.8 `TransactionError` and `UndoError`
@@ -969,7 +1089,7 @@ Measured as `cargo bench` style benchmarks on the reference desktop (2022 mid-ra
 | `check_structure` on a document with 1,000 parameters, 100 bodies and 1,000 features | 2 ms |
 | `validate` with `OpaqueFeatures` on the same document | 10 ms |
 | `used_ids` on the same document with `OpaqueFeatures` | 1 ms |
-| `DeterministicIdGenerator::generate` with a `BTreeSet` predicate of 10,000 ids | 2 microseconds |
+| `SequentialIds::generate` with a `BTreeSet` predicate of 10,000 ids | 2 microseconds |
 
 ## 6. Acceptance tests
 
@@ -982,7 +1102,7 @@ Conventions: `id("x")` means `Id::new("x").unwrap()`. Unless a test says otherwi
 - features, in order: `f-sk1` of type `sketch` with params `{}`; `f-ext1` of type `extrude` with params `{"body": "b-1"}`; `f-fil1` of type `fillet` with params `{"body": "b-1"}`.
 - `rollback`: `None`.
 
-**TestInspector** (written in the test crate, implementing `FeatureInspector`): if params contains the key `invalid`, returns `Err("Bad params.")`. Otherwise returns `FeatureLinks` with `bodies` from the string param `body` (if present), `features` from the string array `uses`, `declared_ids` from the string array `declares`, and `expressions` from the string array `exprs` (each absent key gives an empty list).
+**TestInspector** (written in the test crate, implementing `FeatureInspector`): if params contains the key `invalid`, returns `Err("Bad params.")`. Otherwise returns `FeatureLinks` with `bodies` from the string param `body` (if present), `features` from the string array `uses`, `declared_ids` from the string array `declares`, and `expressions` from the string array `exprs`, each with pointer `/exprs/<index>` (each absent key gives an empty list).
 
 ### Ids
 
@@ -994,13 +1114,13 @@ Conventions: `id("x")` means `Id::new("x").unwrap()`. Unless a test says otherwi
 6. `id("B") < id("a")` and `id("f-10") < id("f-9")`.
 7. `Id::generated(IdKind::Feature, 0x3fa91c0e72b4)` is `f-3fa91c0e72b4`; `Id::generated(IdKind::Parameter, 0)` is `p-000000000000`; `Id::generated(IdKind::Body, 0xFFFF_0000_0000_0001)` is `b-000000000001`.
 8. `IdKind::ALL.map(IdKind::prefix)` is `["p-", "b-", "f-", "e-", "c-"]`.
-9. `DeterministicIdGenerator::new(0)`: three calls of `next_value()` return `0xe220a8397b1d`, `0x6e789e6aa1b9`, `0x06c45d188009`.
-10. `DeterministicIdGenerator::new(0).generate(IdKind::Feature, &|_| false)` is `f-e220a8397b1d`; a second `generate(IdKind::SketchEntity, ..)` on the same generator is `e-6e789e6aa1b9`.
-11. `DeterministicIdGenerator::new(42).generate(IdKind::Body, &|_| false)` is `b-bdd732262feb`; seed 1 with `IdKind::Parameter` gives `p-910a2dec8902`.
-12. Two `DeterministicIdGenerator::new(7)` generators produce identical sequences of 1,000 ids.
-13. With seed 0 and `is_taken` true only for `f-e220a8397b1d`, `generate(IdKind::Feature, ..)` returns `f-6e789e6aa1b9`.
-14. A test generator whose `next_value` always returns `Ok(7)`, with `is_taken` true for `f-000000000007`, makes `generate` return `Err(IdError::Exhausted { attempts: 64 })` after exactly 64 calls to `next_value`.
-15. A test generator whose `next_value` returns `Err(IdError::RandomUnavailable)` makes `generate` return that error.
+9. `SequentialIds::new()` called with `IdKind::Feature`, `Feature`, `Body` and `SketchEntity` in turn (with `is_taken` always false) returns `f-000000000001`, `f-000000000002`, `b-000000000001` and `e-000000000001`.
+10. With `is_taken` true exactly for `f-000000000001` and `f-000000000002`, the first two `IdKind::Feature` ids of `SequentialIds::new()` are `f-000000000003` and `f-000000000004`.
+11. Two `SequentialIds::new()` generators give identical sequences of 1,000 ids when both cycle through `IdKind::ALL`.
+12. A clone of a `SequentialIds` that has generated three ids continues exactly like its original for the next 10 ids.
+13. `RandomIdGenerator::new().generate(IdKind::Feature, ..)` with `is_taken` always true returns `Err(IdError::Exhausted { attempts: 64 })` after exactly 64 calls of the predicate.
+14. 1,000 ids from `SequentialIds::new()`, cycling through `IdKind::ALL`, all pass `Id::new` and match `^[pbfec]-[0-9a-f]{12}$`.
+15. `&mut SequentialIds` and `&mut RandomIdGenerator` both coerce to `&mut dyn IdGenerator`, and an id generated through each trait object passes `Id::new`.
 16. `RandomIdGenerator::new()` generates 10,000 feature ids (with `is_taken` rejecting ids already produced); all match `^f-[0-9a-f]{12}$` and all are distinct.
 
 ### Units and colors
@@ -1013,10 +1133,10 @@ Conventions: `id("x")` means `Id::new("x").unwrap()`. Unless a test says otherwi
 
 ### Names and labels
 
-22. `validate_parameter_name` accepts `wall`, `_x`, `wall_2`, `W`, `Pi`, `MM`, `mm2`, `in_1` and a 64-character name of `a`.
+22. `validate_parameter_name` accepts `wall`, `_x`, `wall_2`, `W`, `Pi`, `MM`, `mm2`, `in_1`, `class`, `None` and a 64-character name of `a`.
 23. `validate_parameter_name("")` is `Err(NameError::Empty)`; a 65-character name gives `TooLong { length: 65, .. }`.
 24. `"2x"` gives `InvalidStart`; `"wall-2"` gives `InvalidCharacter { character: '-', .. }`; `"wäll"` gives `InvalidCharacter { character: 'ä', .. }`.
-25. Each of `pi`, `mm`, `in`, `deg`, `rad`, `um`, `ft`, `sqrt`, `atan2`, `round`, `printer`, `class`, `None`, `lambda` gives `NameError::Reserved`; `RESERVED_NAMES.len()` is 58 with no duplicates.
+25. Each of `pi`, `mm`, `in`, `deg`, `rad`, `um`, `ft`, `sqrt`, `atan2`, `round`, `printer` gives `NameError::Reserved`; `RESERVED_NAMES.len()` is 24 with no duplicates.
 26. `NameError::Reserved { name: "pi".into() }.to_string()` is `'pi' is a reserved word. Pick another name, such as pi_1.`
 27. `validate_label(LabelField::BodyName, "Enclosure")` and `" Lid "` succeed; `""` and `"   "` give `Empty`; 128 characters succeed; 129 give `TooLong { length: 129, .. }`; `"Lid\n"` and `"a\tb"` give `ControlCharacter`.
 28. `LabelError::Empty { field: LabelField::BodyName }.to_string()` is `Body name cannot be empty.`
@@ -1026,7 +1146,7 @@ Conventions: `id("x")` means `Id::new("x").unwrap()`. Unless a test says otherwi
 
 30. `Document::new(Units::In)` has `format == "partsmith"`, `format_version == 1`, `units == In`, empty lists, `printer == None`, `rollback == None`, and `check_structure()` is empty. `Document::default().units == Units::Mm`.
 31. On D1: `parameter(&id("p-h"))` has name `height`; `parameter_by_name("wall")` has id `p-wall`; `parameter_by_name("Wall")` is `None`; `body(&id("b-1"))` is `Some`; `feature_index(&id("f-fil1"))` is `Some(2)`; `feature(&id("f-x"))` is `None`; `contains_id(&id("b-1"))` is true.
-32. D1 with `rollback = Some(f-ext1)`: `active_features()` has ids `[f-sk1, f-ext1]`; with `None` it has all three; with `Some(f-missing)` (built directly) it has all three.
+32. D1 with `rollback = Some(f-ext1)`: `active_features()` has ids `[f-sk1]`; with `Some(f-sk1)` it is empty; with `None` it has all three; with `Some(f-missing)` (built directly) it has all three.
 33. `used_ids(&TestInspector)` on D1 where `f-sk1` params are `{"declares": ["e-1", "c-1"]}` is `{b-1, c-1, e-1, f-ext1, f-fil1, f-sk1, p-h, p-wall}`.
 
 ### Structure
@@ -1096,18 +1216,21 @@ Conventions: `id("x")` means `Id::new("x").unwrap()`. Unless a test says otherwi
 84. Conflict: commit `[AddFeature f-new]` on D1, then remove `f-new` with `doc.apply` directly; `undo` returns `Err(UndoError::Undo { label, .. })` whose inner error is `NotFound { kind: Feature, id: f-new }`; the document is unchanged and `undo_count() == 1`.
 85. `clear()` makes `can_undo()` and `can_redo()` false and keeps `max_depth()`.
 86. `record`: start from D1 with a log on which `[SetPrinter generic-fdm]` was committed and then undone (so the document equals D1 and `redo_count() == 1`). Apply `[AddParameter p-d, SetUnits In]` with `doc.apply_all`, then call `record(Transaction { label: "Two steps", steps })` with the returned steps: `redo_count() == 0`, `undo_count() == 1`, `undo_label() == Some("Two steps")`, and `undo` restores D1. `record` of a transaction with no steps changes neither stack.
-87. A test generator that overrides `generate` to return `f-000000000001`, `f-000000000002`, ... (one counter per kind) is accepted wherever `&mut dyn IdGenerator` is expected, and its ids pass `Id::new`.
+
+### Rollback, parameter rename and manifests
+
+87. On D1 with `rollback = Some(f-fil1)`, `apply(AddFeature { index: 2, feature: f-new of type box })` succeeds, `rollback` stays `Some(f-fil1)`, and `active_features()` has ids `[f-sk1, f-ext1, f-new]`.
+88. On D1 with `f-ext1` params `{"body": "b-1", "exprs": ["2 * wall", "printer.wall + 1"]}`, `rename_parameter_edits(&id("p-wall"), "thickness", &TestInspector)` returns exactly three edits: `UpdateParameter` of `p-wall` named `thickness` with expr `2 mm`; `UpdateParameter` of `p-h` named `height` with expr `10 * thickness`; `UpdateFeature` of `f-ext1` with params `{"body": "b-1", "exprs": ["2 * thickness", "printer.wall + 1"]}`. Applying them with `apply_all` succeeds and `validate(&TestInspector)` is then empty.
+89. On D1, `rename_parameter_edits` of `p-wall` to `height` returns `Err(NameInUse { name: "height" })`; to `2x` returns `Err(InvalidParameterName(InvalidStart { .. }))`; of `p-zz` returns `Err(NotFound { kind: RecordKind::Parameter, id: p-zz })`; of `p-wall` to `wall` returns `Ok(vec![])`.
+90. On D1 with `p-h` expr `10 * wall +` (does not parse) and `f-ext1` params `{"invalid": true, "exprs": ["wall"]}`, renaming `p-wall` to `t` returns only the `UpdateParameter` of `p-wall`.
+91. The extrude manifest JSON of section 2.12 deserializes as `FeatureManifest`, and serializing it with `serde_json::to_string` gives the same text as `serde_json::to_string(&serde_json::from_str::<Value>(example))`. `FieldHint { path: "body", label: "Body", essential: false, unit: None, selection: Some(SelectionKind::Body), options: vec![] }` serializes to exactly `{"path":"body","label":"Body","selection":"body"}`.
 
 ## 7. Open issues
 
 1. **Structural rules are enforced at load.** Architecture lists the validation rules but not which are hard. This spec makes the rules in section 3.6 hard (load fails, `apply` refuses edits that would break them) so that every inverse edit is guaranteed to apply. References, declared ids, expressions and cycles stay soft (reported, tolerated). A file with, for example, a duplicate id after a bad merge will not open in the app until fixed by hand; `partsmith validate` still lists every problem.
-2. **Uniqueness of ids declared inside params.** Architecture says ids are unique within a document, but sketch entity and constraint ids live in generic params. This spec checks them through `FeatureInspector::declared_ids`, so the features spec must have the registry report declared ids. `apply` does not check them.
-3. **`FeatureInspector` mirrors the registry's `Dependencies`.** The features spec defines `Dependencies { features, bodies_read, bodies_written, expressions: Vec<ExprUse> }` and says element names inside `q` never create feature dependencies. The registry implements `FeatureInspector` by mapping it: `features` as is, `bodies` = `bodies_written` followed by `bodies_read`, `expressions` = each `ExprUse::expr`, plus the ids its params declare (sketch entities and constraints), which `Dependencies` does not carry today. Records whose params fail registry validation map to `Err(message)`. The reviewer should confirm the features spec exposes declared ids.
-4. **Parameter names reserve Python keywords and `printer`.** Not stated in architecture; added so generated Python is valid and `printer.*` is not shadowed. The Python spec may want to drop this and mangle names instead.
 5. **Printer id syntax.** Treated as a label (any non-blank text up to 128 characters without control characters). The print spec may define profile ids more strictly.
 6. **`BodyRole` values.** Architecture says "part (default, omitted) | modifier kinds". This spec names the four modifier kinds from technical design section 11: `negative_volume`, `support_blocker`, `support_enforcer`, `settings_modifier`. The settings themselves come later; the IO spec owns how each exports to 3MF.
 7. **`Units` variant names.** Architecture writes `mm | cm | m | in`; the Rust variants are `Mm`, `Cm`, `M`, `In` with lowercase serialization.
 8. **Normalization of params numbers.** `FeatureRecord::params` stays a public `serde_json::Map` as in architecture, so a record built in code may hold `80.0` as a float while a loaded one holds the integer `80`. `apply` and `load` normalize, `Document::normalize` is public, and the round-trip equality `load(save(doc)) == doc` is stated for normalized documents (file-format.md section 3.8).
 9. **Default undo depth and open transactions.** The default of 1000 matches the engine spec's `undo_limit`. Update edits hold full copies of records, so a long history of large sketch edits costs memory; the engine may lower the limit through `with_max_depth`. The engine's open transactions (edits applied over several commands, then committed) use `UndoLog::record`; coalescing of repeated updates is engine behavior, not part of this crate in M1.
 10. **No reference checks in `apply`.** Removing a body that features use, or a parameter that expressions use, succeeds. The engine and UI decide whether to warn or to offer a cascading change.
-11. **Deterministic generators.** This spec's `DeterministicIdGenerator` is a seeded SplitMix64 stream shared by all kinds; the engine spec defines its own `SequentialIds` (one counter per prefix) by overriding `generate`. Both satisfy the trait; the reviewer should decide whether the model needs both or whether the Python spec relies on one of them.

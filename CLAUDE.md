@@ -43,7 +43,7 @@ cargo run -p partsmith-cli -- schema --write   # regenerate docs/format/*.schema
 
 - Deterministic serialization: saving an unchanged document is byte-identical.
 - No index-based references to faces, edges or vertices in documents or protocol messages. References are semantic queries plus fingerprints.
-- No C++ types, exceptions or `unsafe` outside `partsmith-occt-sys`.
+- No C++ types, exceptions or `unsafe` outside `partsmith-occt-sys`. The one exception is `unsafe` on `partsmith-wasm`'s three C ABI exports (ADR 0010).
 - No global mutable state in the core; every API takes a document or session handle.
 - The UI depends only on the protocol (generated types), never on core internals.
 - License policy: only permissive dependencies, plus OCCT (LGPL, linked as a separate library). No GPL code.

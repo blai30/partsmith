@@ -10,7 +10,7 @@ The protocol is the only boundary between the UI (and any other host) and the co
 
 - Binary frame `PSM1` with a JSON header and little-endian raw buffers (`u8`, `u32`, `f32`), byte-exact layout, strict decoder.
 - Message envelope: `request`, `response`, `event`; request frames carry one request, response frames carry the events caused by that request followed by its response.
-- Commands for the M1 UI: engine info; document new, open, save, close, get; labeled edit batches; transactions with an optional focus feature (live preview of the feature being edited); undo and redo; rollback (through the `set_rollback` edit); sketch solve, drag and drag commit; tessellation quality; feature catalog with manifests and params schemas; expression evaluation; element listing; pick to reference conversion; reference resolution for highlighting; measure; printer profile list and registration; print analysis with profile and orientation; export to STL, 3MF, OBJ and STEP returning bytes; STEP import; Python export.
+- Commands for the M1 UI: engine info; document new, open, save, mark saved, close, get; labeled edit batches; parameter rename with expression rewrite; transactions with an optional focus feature (live preview of the feature being edited); undo and redo; rollback (through the `set_rollback` edit); sketch solve, drag and drag commit; tessellation quality; feature catalog with manifests and params schemas; expression evaluation; element listing; pick to reference conversion; reference resolution for highlighting; measure of one body or element; printer profile list and registration; print analysis with profile and orientation; export to STL, 3MF, OBJ and STEP returning bytes; STEP import as one body; Python export.
 - Events: `document_changed`, `recomputed`, `sketch_solved`, `datum_plane`, `body_mesh`, `print_health`.
 - Error responses with stable snake_case codes and plain-sentence messages.
 - `PROTOCOL_VERSION = 1`, version check on every frame, generated JSON Schema at `docs/format/protocol.schema.json`, generated TypeScript types.
@@ -20,7 +20,7 @@ The protocol is the only boundary between the UI (and any other host) and the co
 **Later (not in M1)**
 
 - Unsolicited events (frames with events and no response), for background analysis on desktop.
-- Canceling a request that is already running (M1 only supersedes queued requests).
+- Canceling a request that is already running (M1 only supersedes queued requests), and the `not_run` feature status a canceled recompute reports.
 - Delta document updates instead of full snapshots.
 - SharedArrayBuffer transport and multiple core workers.
 - Commands for components, joints, configurations, script features and Pyodide.
@@ -29,6 +29,7 @@ The protocol is the only boundary between the UI (and any other host) and the co
 - Plugin features in the catalog (the catalog shape already allows them).
 - Proxy previews during drags, section views computed in the core, thumbnails.
 - Mass properties with material density, interference and clearance checks.
+- Distance and angle between two measure targets.
 
 ## 2. Public API
 
@@ -151,9 +152,9 @@ pub struct Response {
     pub result: Outcome,
 }
 
-/// Success or failure of one request.
+/// Success or failure of one request. A value enum inside `Response`, so it is tagged `kind`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
-#[serde(tag = "status", rename_all = "snake_case")]
+#[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Outcome {
     /// The command succeeded; its `type` equals the command's `type`.
     Ok(CommandResult),
@@ -231,7 +232,7 @@ impl FrameError {
 
 `FrameError::code` maps `VersionMismatch` to `protocol_version_mismatch`, `InvalidMessage` to `malformed_request`, and every other variant to `malformed_frame`.
 
-The protocol crate reuses these types from other crates without redefining them: `partsmith_model::{Id, Units, Expr, Document, Edit, Dimension}`, `partsmith_sketch::{SketchParams, SketchEntity, PointRef, RegionRef, ProfileFinding}`, `partsmith_naming::Reference`, `partsmith_print::{PrinterProfile, Health, HealthSummary, BodyReport}` (and the types they contain), and the feature manifest as a `serde_json::Value` (see Open issues). Their JSON forms are defined by their own specs (model.md, expressions.md, sketch.md, naming.md, print.md, features.md); examples below follow those specs.
+The protocol crate reuses these types from other crates without redefining them: `partsmith_model::{Id, Units, Expr, Document, Edit, Dimension, FeatureManifest}`, `partsmith_mesh::{BoundingBox, TessellationTolerance}`, `partsmith_sketch::{SketchParams, SketchEntity, PointRef, RegionRef, ProfileFinding, Placement, SketchStatus, EntityState}`, `partsmith_naming::Reference`, `partsmith_print::{PrinterProfile, ProfileInput, Severity, Health, HealthSummary, BodyReport}` (and the types they contain). `partsmith-protocol` therefore depends on `partsmith-mesh` directly (pure Rust, already below `partsmith-print`). Their JSON forms are defined by their own specs (model.md, expressions.md, mesh.md, sketch.md, naming.md, print.md); examples below follow those specs. The protocol carries no untyped JSON for core data; the only `serde_json::Value` is a feature's params JSON Schema in the catalog (2.5 command 2).
 
 ### 2.2 Frame layout
 
@@ -291,7 +292,7 @@ The header is serialized with `serde_json`'s compact writer (no spaces, keys in 
 000000d0  33 2d 32 31 3b 0a                                |3-21;.|
 ```
 
-**Example C: buffer table of a box mesh.** The `body_mesh` event for a 20 × 30 × 40 box (24 mesh vertices, 12 triangles, 12 edge segments, 8 B-rep vertices) lists seven buffers. All lengths happen to be multiples of 8, so there are no gaps:
+**Example C: buffer table of a box mesh.** The `body_mesh` event for a 20 × 30 × 40 box (24 mesh vertices, 12 triangles, 12 edge segments, 8 B-rep vertices) lists eight buffers, in `MeshBuffers` field order. All lengths happen to be multiples of 8, so there are no gaps:
 
 ```json
 [
@@ -301,7 +302,8 @@ The header is serialized with `serde_json`'s compact writer (no spaces, keys in 
   {"offset": 720, "length": 96, "element_type": "u32"},
   {"offset": 816, "length": 288, "element_type": "f32"},
   {"offset": 1104, "length": 48, "element_type": "u32"},
-  {"offset": 1152, "length": 96, "element_type": "f32"}
+  {"offset": 1152, "length": 96, "element_type": "f32"},
+  {"offset": 1248, "length": 32, "element_type": "u32"}
 ]
 ```
 
@@ -313,14 +315,14 @@ A request frame contains exactly one `request` message. A response frame contain
 
 ```json
 {"kind": "request", "id": 7, "command": {"type": "undo", "doc": 1}}
-{"kind": "response", "id": 7, "result": {"status": "ok", "type": "undo", "revision": 6, "label": "Change height"}}
-{"kind": "response", "id": 8, "result": {"status": "error", "code": "nothing_to_undo", "message": "There is nothing to undo."}}
+{"kind": "response", "id": 7, "result": {"kind": "ok", "type": "undo", "revision": 6, "label": "Change height"}}
+{"kind": "response", "id": 8, "result": {"kind": "error", "code": "nothing_to_undo", "message": "There is nothing to undo."}}
 {"kind": "event", "type": "document_changed", "doc": 1, "revision": 6, "document": {"format": "partsmith", "format_version": 1, "units": "mm", "parameters": [], "bodies": [], "features": []}, "dirty": false, "transaction_open": false}
 ```
 
 JSON conventions for every message:
 
-- Field names are `snake_case`. Enums are tagged with `type` (commands, results, events), `kind` (messages, orientation), `status` (outcome) or `format` (export format), with snake_case values.
+- Field names are `snake_case`. Records (commands, results, events) are tagged with `type`; the message envelope and every value enum (outcome, orientation, measure target, export format, repair) with `kind`. Values are snake_case.
 - `Option` fields are omitted when `None`. Decoders treat a missing field and `null` identically.
 - `Vec` fields are always written, possibly empty. In requests, a missing `Vec` field means empty.
 - Integers are JSON integers. `f64` fields are finite JSON numbers; a non-finite value is never produced, and `null` is rejected where an `f64` is required.
@@ -340,8 +342,8 @@ pub type Vec2 = [f64; 2];
 /// A plane frame `{origin, x_axis, normal}` with `y_axis = normal × x_axis` (sketch.md).
 pub use partsmith_sketch::Placement;
 
-/// Axis-aligned bounding box.
-pub struct BoundingBox { pub min: Vec3, pub max: Vec3 }
+/// Axis-aligned bounding box `{min, max}` in mm (mesh.md).
+pub use partsmith_mesh::BoundingBox;
 
 /// An infinite line.
 pub struct Axis { pub origin: Vec3, pub direction: Vec3 }
@@ -368,6 +370,9 @@ pub struct MeshElement { pub body: Id, pub mesh_id: u64, pub kind: ElementKind, 
 /// Curve type of an edge.
 #[serde(rename_all = "snake_case")] pub enum CurveKind { Line, Circle, Ellipse, Bspline, Other }
 
+/// A face, edge or vertex reference with the body it is resolved in.
+pub struct ElementRef { pub body: Id, pub reference: Reference }
+
 /// Geometry and identity of one B-rep element at the display state.
 pub struct ElementDescriptor {
     /// Element name from partsmith-naming.
@@ -376,6 +381,8 @@ pub struct ElementDescriptor {
     pub kind: ElementKind,
     /// Body that owns the element.
     pub body: Id,
+    /// Feature whose output created the element (engine.md 3.9).
+    pub feature: Id,
     /// The stored reference a feature param uses for this element.
     pub reference: Reference,
     /// Surface type (faces only).
@@ -409,23 +416,18 @@ pub enum Orientation {
     AsModeled,
     /// Rotation by a proper orthonormal 3 × 3 matrix, row-major.
     Matrix { rows: [[f64; 3]; 3] },
-    /// The rotation that turns this planar face's outward normal to -Z.
-    FaceDown { face: Reference },
+    /// The rotation that turns this planar face of `body` (outward normal) to -Z.
+    FaceDown { body: Id, face: Reference },
 }
 
 /// Display and export tessellation quality relative to the printer profile.
 #[serde(rename_all = "snake_case")] pub enum TessellationQuality { Draft, Standard, Fine }
 
-/// Explicit tessellation tolerances.
-pub struct Tolerance {
-    /// Maximum chord deviation in mm.
-    pub chord_deviation: f64,
-    /// Maximum angular deviation in radians.
-    pub angular_deviation: f64,
-}
+/// Explicit tessellation tolerances `{chord_deviation (mm), angular_deviation (rad)}` (mesh.md).
+pub use partsmith_mesh::TessellationTolerance;
 
-/// Severity of a diagnostic or finding.
-#[serde(rename_all = "snake_case")] pub enum Severity { Info, Warning, Error }
+/// Severity of a diagnostic or finding: `info`, `warning` or `error` (print.md).
+pub use partsmith_print::Severity;
 
 /// A message about a document, feature or export.
 pub struct Diagnostic {
@@ -435,6 +437,10 @@ pub struct Diagnostic {
     pub code: String,
     /// Plain-sentence message for the user.
     pub message: String,
+    /// JSON Pointer of the feature param the message is about, relative to the feature record (for example `/radius`). Feature messages only.
+    pub field: Option<String>,
+    /// Replacement expression for `field` that fixes the problem, in document units (for example `2.3 mm`). Feature messages only.
+    pub suggestion: Option<String>,
 }
 
 /// A file passed into or out of the engine.
@@ -459,12 +465,14 @@ JSON examples:
 {"origin": [0.0, 0.0, 0.0], "direction": [0.0, 0.0, 1.0]}
 {"mesh_id": 12, "kind": "face", "index": 3}
 {"body": "b-1", "mesh_id": 12, "kind": "edge", "index": 4}
+{"body": "b-1", "reference": {"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,40|a=600|adj=4,4"}}
 {"kind": "as_modeled"}
 {"kind": "matrix", "rows": [[1.0, 0.0, 0.0], [0.0, 0.0, -1.0], [0.0, 1.0, 0.0]]}
-{"kind": "face_down", "face": {"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,40|a=600|adj=4,4"}}
+{"kind": "face_down", "body": "b-1", "face": {"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,40|a=600|adj=4,4"}}
 "standard"
 {"chord_deviation": 0.05, "angular_deviation": 0.08726646259971647}
 {"severity": "warning", "code": "unknown_printer_profile", "message": "Printer profile \"my-printer\" is not installed, so the default FDM profile is used."}
+{"severity": "error", "code": "fillet_too_large", "message": "Fillet radius 3 mm is too large for the selected edges. The largest radius that works is about 2.3 mm. Try 2.3 mm or less.", "field": "/radius", "suggestion": "2.3 mm"}
 {"name": "9f2c0e5b7a1d4e3f8a6b2c1d0e9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f.step", "data": 0}
 {"name": "model.stl", "media_type": "model/stl", "data": 0}
 ```
@@ -472,8 +480,8 @@ JSON examples:
 An `ElementDescriptor` for the top face of the box fixture and for one of its top edges (element names and fingerprint text are produced by partsmith-naming and are shown for orientation only):
 
 ```json
-{"name": "f-box1/top", "kind": "face", "body": "b-1", "reference": {"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,40|a=600|adj=4,4"}, "surface": "plane", "centroid": [0.0, 0.0, 40.0], "area": 600.0, "normal": [0.0, 0.0, 1.0], "placement": {"origin": [0.0, 0.0, 40.0], "x_axis": [1.0, 0.0, 0.0], "normal": [0.0, 0.0, 1.0]}, "adjacent": ["edge(f-box1/back|f-box1/top)", "edge(f-box1/front|f-box1/top)", "edge(f-box1/left|f-box1/top)", "edge(f-box1/right|f-box1/top)"]}
-{"name": "edge(f-box1/front|f-box1/top)", "kind": "edge", "body": "b-1", "reference": {"q": "edge(f-box1/front|f-box1/top)", "fp": "line|n=1,0,0|c=0,-15,40|l=20|adj=2,2"}, "curve": "line", "centroid": [0.0, -15.0, 40.0], "length": 20.0, "direction": [1.0, 0.0, 0.0], "adjacent": ["f-box1/front", "f-box1/top", "vertex(f-box1/front|f-box1/left|f-box1/top)", "vertex(f-box1/front|f-box1/right|f-box1/top)"]}
+{"name": "f-box1/top", "kind": "face", "body": "b-1", "feature": "f-box1", "reference": {"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,40|a=600|adj=4,4"}, "surface": "plane", "centroid": [0.0, 0.0, 40.0], "area": 600.0, "normal": [0.0, 0.0, 1.0], "placement": {"origin": [0.0, 0.0, 40.0], "x_axis": [1.0, 0.0, 0.0], "normal": [0.0, 0.0, 1.0]}, "adjacent": ["edge(f-box1/back|f-box1/top)", "edge(f-box1/front|f-box1/top)", "edge(f-box1/left|f-box1/top)", "edge(f-box1/right|f-box1/top)"]}
+{"name": "edge(f-box1/front|f-box1/top)", "kind": "edge", "body": "b-1", "feature": "f-box1", "reference": {"q": "edge(f-box1/front|f-box1/top)", "fp": "line|n=1,0,0|c=0,-15,40|l=20|adj=2,2"}, "curve": "line", "centroid": [0.0, -15.0, 40.0], "length": 20.0, "direction": [1.0, 0.0, 0.0], "adjacent": ["f-box1/front", "f-box1/top", "vertex(f-box1/front|f-box1/left|f-box1/top)", "vertex(f-box1/front|f-box1/right|f-box1/top)"]}
 ```
 
 ### 2.5 Commands
@@ -488,7 +496,7 @@ pub enum Command { /* variants below */ }
 pub enum CommandResult { /* variants below */ }
 ```
 
-Each command below lists its fields (Rust types), a request example, and the result. Semantics are in [engine.md](engine.md), section 3. "Emits" lists the event types the command may produce, in the order of engine.md section 3.4.
+Each command below lists its fields (Rust types), a request example, and the result. Semantics are in [engine.md](engine.md), section 3. "Emits" lists the event types the command may produce, in the order of engine.md section 3.4. Commands added later keep the next free number (30, 31) and are listed in their topic's group, so earlier numbers stay stable.
 
 **Session**
 
@@ -499,7 +507,7 @@ Each command below lists its fields (Rust types), a request example, and the res
 {"type": "engine_info", "protocol_version": 1, "engine_version": "0.1.0", "format_version": 1, "kernel": "OCCT 7.9.3"}
 ```
 
-2. `feature_catalog {}`: every registered feature type with its manifest and params JSON Schema, sorted by `type`. Result `{features: Vec<CatalogEntry>}` where `CatalogEntry { type: String, manifest: FeatureManifest, params_schema: serde_json::Value }`. The manifest JSON is defined in features.md.
+2. `feature_catalog {}`: every registered feature type with its manifest and params JSON Schema, sorted by `type`. Result `{features: Vec<CatalogEntry>}` where `CatalogEntry { type: String, manifest: FeatureManifest, params_schema: serde_json::Value }`. `FeatureManifest` is defined in model.md (moved from features.md, D14), so the schema and the generated TypeScript types carry it typed.
 
 ```json
 {"type": "feature_catalog"}
@@ -510,10 +518,10 @@ Each command below lists its fields (Rust types), a request example, and the res
 
 ```json
 {"type": "list_printer_profiles"}
-{"type": "list_printer_profiles", "profiles": [{"id": "generic-fdm", "name": "Generic FDM 0.4 mm", "technology": "fdm", "bed": {"type": "rectangle", "width": 256.0, "depth": 256.0, "height": 256.0}, "nozzle_diameter": 0.4, "layer_height": 0.2, "max_overhang_angle": 0.7853981633974483, "max_bridge_length": 10.0, "fit": {"press": 0.05, "snug": 0.1, "slip": 0.2, "loose": 0.4}}]}
+{"type": "list_printer_profiles", "profiles": [{"id": "generic-fdm", "name": "Generic FDM 0.4 mm", "technology": "fdm", "bed": {"kind": "rectangle", "width": 256.0, "depth": 256.0, "height": 256.0}, "nozzle_diameter": 0.4, "layer_height": 0.2, "max_overhang_angle": 0.7853981633974483, "max_bridge_length": 10.0, "fit": {"press": 0.05, "snug": 0.1, "slip": 0.2, "loose": 0.4}}]}
 ```
 
-4. `put_printer_profile {profile: PrinterProfile}`: adds or replaces a session (user) profile. Result `{}`. Emits, for each open document whose `printer` is this id, the events of a recompute.
+4. `put_printer_profile {profile: ProfileInput}`: adds or replaces a session (user) profile. `ProfileInput` is print.md's input form, whose omitted fields come from the technology's generic profile; the engine converts it with `PrinterProfile::try_from` and reports a `ProfileError` as `invalid_profile`. Result `{}`. Emits, for each open document whose `printer` is this id, the events of a recompute.
 
 ```json
 {"type": "put_printer_profile", "profile": {"id": "my-mk4", "name": "My MK4", "technology": "fdm", "layer_height": 0.15}}
@@ -536,14 +544,21 @@ Each command below lists its fields (Rust types), a request example, and the res
 {"type": "open_document", "doc": 2}
 ```
 
-7. `save_document {doc}`: canonical `.ptsm` text plus every asset the document references, sorted by name. Result `{text: String, assets: Vec<AssetData>}`. Emits `document_changed` when `dirty` was true.
+7. `save_document {doc}`: canonical `.ptsm` text plus every asset the document references, sorted by name. Result `{text: String, assets: Vec<AssetData>, revision: u64}` (the revision the text describes). Does not change `dirty`; emits nothing.
 
 ```json
 {"type": "save_document", "doc": 1}
-{"type": "save_document", "text": "{\n  \"format\": \"partsmith\",\n  \"format_version\": 1,\n  \"units\": \"mm\"\n}\n", "assets": []}
+{"type": "save_document", "text": "{\n  \"format\": \"partsmith\",\n  \"format_version\": 1,\n  \"units\": \"mm\"\n}\n", "assets": [], "revision": 0}
 ```
 
 8. `close_document {doc}`: discards the document, its undo log and its display state. Result `{}`. Emits nothing.
+
+30. `mark_saved {doc, revision: u64}`: the host wrote the text that `save_document` returned for `revision`. When `revision` is that of the document's latest `save_document`, the dirty baseline becomes that text; otherwise nothing changes. Result `{}`. Emits `document_changed` when `dirty` changes.
+
+```json
+{"type": "mark_saved", "doc": 1, "revision": 4}
+{"type": "mark_saved"}
+```
 
 9. `get_document {doc}`: the current recipe. Result `{revision: u64, document: Document}`. Emits nothing.
 
@@ -554,12 +569,19 @@ Each command below lists its fields (Rust types), a request example, and the res
 
 **Edits, transactions, undo**
 
-10. `apply_edits {doc, label: Option<String>, edits: Vec<Edit>}`: applies the edits atomically. Outside a transaction `label` is required and the batch becomes one undo entry; inside a transaction `label` must be absent. Result `{revision: u64}`. Emits `document_changed`, `recomputed`, `sketch_solved`, `datum_plane`, `body_mesh`. Rollback is an edit (`set_rollback`). The `Edit` JSON is defined in model.md, which the examples follow.
+10. `apply_edits {doc, label: Option<String>, edits: Vec<Edit>}`: applies the edits atomically. Outside a transaction `label` is required and the batch becomes one undo entry; inside a transaction `label` must be absent. Result `{revision: u64}`. Emits `document_changed`, `recomputed`, `sketch_solved`, `datum_plane`, `body_mesh`. Rollback is an edit (`set_rollback`). The `Edit` JSON is defined in model.md, which the examples follow. `set_rollback` names the first rolled-back feature; absent means nothing is rolled back (model.md).
 
 ```json
 {"type": "apply_edits", "doc": 1, "label": "Change height", "edits": [{"type": "update_parameter", "parameter": {"id": "p-h", "name": "height", "expr": "50 mm"}}]}
-{"type": "apply_edits", "doc": 1, "label": "Roll back", "edits": [{"type": "set_rollback", "rollback": "f-box1"}]}
+{"type": "apply_edits", "doc": 1, "label": "Roll back", "edits": [{"type": "set_rollback", "rollback": "f-fil1"}]}
 {"type": "apply_edits", "revision": 4}
+```
+
+31. `rename_parameter {doc, parameter: Id, name: String}`: renames the parameter and rewrites every parameter and feature expression that uses the old name (model.md rename helper), atomically; recorded in the open transaction, else as one undo entry labeled `Rename parameter {old} to {new}`. Result `{revision: u64}`. Emits like `apply_edits`. Unknown parameter, invalid or taken name: `edit_rejected` with the model's message.
+
+```json
+{"type": "rename_parameter", "doc": 1, "parameter": "p-h", "name": "h"}
+{"type": "rename_parameter", "revision": 5}
 ```
 
 11. `begin_transaction {doc, label: String}`: opens a transaction; later `apply_edits` join it and are previewed. Result `{}`. Emits `document_changed`.
@@ -598,14 +620,14 @@ Each command below lists its fields (Rust types), a request example, and the res
 
 ```json
 {"type": "drag_sketch", "doc": 1, "feature": "f-sk1", "point": "e-1.end", "to": [20.0, 5.0]}
-{"type": "drag_sketch", "solution": {"feature": "f-sk1", "status": "under_constrained", "dof": 1, "redundant": [], "conflicting": [], "placement": {"origin": [0.0, 0.0, 0.0], "x_axis": [1.0, 0.0, 0.0], "normal": [0.0, 0.0, 1.0]}, "entities": [{"id": "e-1", "type": "line", "start": [0.0, 0.0], "end": [20.0, 0.0], "constrained": "under"}], "points": [{"point": "e-1.start", "at": [0.0, 0.0]}, {"point": "e-1.end", "at": [20.0, 0.0]}], "constraints": [{"id": "c-1", "state": "satisfied"}, {"id": "c-2", "state": "satisfied"}], "regions": [], "profile_findings": [{"type": "open_endpoint", "entity": "e-1", "point": [0.0, 0.0]}, {"type": "open_endpoint", "entity": "e-1", "point": [20.0, 0.0]}], "display": {"curve_positions": 0, "curve_entities": 1, "region_positions": 2, "region_indices": 3, "region_ids": 4}}}
+{"type": "drag_sketch", "solution": {"feature": "f-sk1", "status": "under_constrained", "failed": false, "dof": 1, "redundant": [], "conflicting": [], "placement": {"origin": [0.0, 0.0, 0.0], "x_axis": [1.0, 0.0, 0.0], "normal": [0.0, 0.0, 1.0]}, "entities": [{"id": "e-1", "type": "line", "start": [0.0, 0.0], "end": [20.0, 0.0], "constrained": "under_constrained"}], "points": [{"point": "e-1.start", "at": [0.0, 0.0]}, {"point": "e-1.end", "at": [20.0, 0.0]}], "constraints": [{"id": "c-1", "state": "satisfied"}, {"id": "c-2", "state": "satisfied"}], "regions": [], "profile_findings": [{"type": "open_endpoint", "entity": "e-1", "point": [0.0, 0.0]}, {"type": "open_endpoint", "entity": "e-1", "point": [20.0, 0.0]}], "display": {"region_positions": 0, "region_indices": 1, "region_ids": 2}}}
 ```
 
 19. `end_sketch_drag {doc, feature: Id, commit: bool}`: ends the drag; with `commit`, writes the last drag solution into the sketch as one `update_feature` edit. Result `{revision: u64}`. Emits like `apply_edits` when committed, nothing otherwise.
 
 **Display and queries**
 
-20. `set_tessellation {doc, quality: TessellationQuality}`: sets the display quality and re-tessellates. Result `{tolerance: Tolerance}` (the resolved values). Emits `body_mesh` for every body in every layer.
+20. `set_tessellation {doc, quality: TessellationQuality}`: sets the display quality and re-tessellates. Result `{tolerance: TessellationTolerance}` (the resolved values). Emits `body_mesh` for every body in every layer.
 
 ```json
 {"type": "set_tessellation", "doc": 1, "quality": "fine"}
@@ -629,39 +651,47 @@ Each command below lists its fields (Rust types), a request example, and the res
 
 ```json
 {"type": "pick_reference", "doc": 1, "pick": {"mesh_id": 12, "kind": "face", "index": 3}}
-{"type": "pick_reference", "element": {"name": "f-box1/top", "kind": "face", "body": "b-1", "reference": {"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,40|a=600|adj=4,4"}, "surface": "plane", "centroid": [0.0, 0.0, 40.0], "area": 600.0, "normal": [0.0, 0.0, 1.0], "placement": {"origin": [0.0, 0.0, 40.0], "x_axis": [1.0, 0.0, 0.0], "normal": [0.0, 0.0, 1.0]}, "adjacent": []}}
+{"type": "pick_reference", "element": {"name": "f-box1/top", "kind": "face", "body": "b-1", "feature": "f-box1", "reference": {"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,40|a=600|adj=4,4"}, "surface": "plane", "centroid": [0.0, 0.0, 40.0], "area": 600.0, "normal": [0.0, 0.0, 1.0], "placement": {"origin": [0.0, 0.0, 40.0], "x_axis": [1.0, 0.0, 0.0], "normal": [0.0, 0.0, 1.0]}, "adjacent": ["edge(f-box1/back|f-box1/top)", "edge(f-box1/front|f-box1/top)", "edge(f-box1/left|f-box1/top)", "edge(f-box1/right|f-box1/top)"]}}
 ```
 
-24. `resolve_references {doc, references: Vec<Reference>}`: resolves each reference against the display state and returns the matching mesh elements for highlighting. Result `{results: Vec<Resolution>}` with `Resolution { status: ResolutionStatus, matches: Vec<MeshElement> }` and `ResolutionStatus` one of `resolved`, `ambiguous`, `missing`.
+24. `resolve_references {doc, references: Vec<ElementRef>}`: resolves each reference within its body at the display state and returns the matching mesh elements for highlighting. Result `{results: Vec<Resolution>}` with `Resolution { status: ResolutionStatus, matches: Vec<MeshElement> }` and `ResolutionStatus` one of `resolved`, `ambiguous`, `missing`.
 
 ```json
-{"type": "resolve_references", "doc": 1, "references": [{"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,40|a=600|adj=4,4"}]}
+{"type": "resolve_references", "doc": 1, "references": [{"body": "b-1", "reference": {"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,40|a=600|adj=4,4"}}]}
 {"type": "resolve_references", "results": [{"status": "resolved", "matches": [{"body": "b-1", "mesh_id": 12, "kind": "face", "index": 3}]}]}
 ```
 
-25. `measure {doc, targets: Vec<MeasureTarget>}`: one or two targets. `MeasureTarget` is externally tagged: `{"body": Id}` or `{"reference": Reference}`. Result `Measurement` (fields present depend on the targets, see engine.md 3.11):
+25. `measure {doc, targets: Vec<MeasureTarget>}`: exactly one target in M1. Result `Measurement` (fields present depend on the target, see engine.md 3.11):
 
 ```rust
+/// What to measure, resolved at the display state.
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum MeasureTarget {
+    /// A whole body.
+    Body { body: Id },
+    /// A face, edge or vertex of `body`.
+    Element { body: Id, reference: Reference },
+}
+
 pub struct Measurement {
     pub volume: Option<f64>, pub area: Option<f64>, pub length: Option<f64>,
     pub center_of_mass: Option<Vec3>, pub centroid: Option<Vec3>, pub bounding_box: Option<BoundingBox>,
     pub face_count: Option<u32>, pub edge_count: Option<u32>, pub vertex_count: Option<u32>,
     pub surface: Option<SurfaceKind>, pub curve: Option<CurveKind>, pub normal: Option<Vec3>,
-    pub direction: Option<Vec3>, pub radius: Option<f64>,
-    pub distance: Option<f64>, pub closest_points: Option<[Vec3; 2]>, pub angle: Option<f64>,
+    pub direction: Option<Vec3>, pub axis: Option<Axis>, pub radius: Option<f64>,
 }
 ```
 
 ```json
-{"type": "measure", "doc": 1, "targets": [{"body": "b-1"}]}
+{"type": "measure", "doc": 1, "targets": [{"kind": "body", "body": "b-1"}]}
 {"type": "measure", "volume": 24000.0, "area": 5200.0, "center_of_mass": [0.0, 0.0, 20.0], "bounding_box": {"min": [-10.0, -15.0, 0.0], "max": [10.0, 15.0, 40.0]}, "face_count": 6, "edge_count": 12, "vertex_count": 8}
-{"type": "measure", "doc": 1, "targets": [{"reference": {"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,40|a=600|adj=4,4"}}, {"reference": {"q": "f-box1/bottom", "fp": "plane|n=0,0,-1|c=0,0,0|a=600|adj=4,4"}}]}
-{"type": "measure", "distance": 40.0, "closest_points": [[0.0, 0.0, 40.0], [0.0, 0.0, 0.0]], "angle": 0.0}
+{"type": "measure", "doc": 1, "targets": [{"kind": "element", "body": "b-1", "reference": {"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,40|a=600|adj=4,4"}}]}
+{"type": "measure", "area": 600.0, "centroid": [0.0, 0.0, 40.0], "surface": "plane", "normal": [0.0, 0.0, 1.0]}
 ```
 
 **Print**
 
-26. `analyze_print {doc, profile: Option<String>, orientation: Orientation, bodies: Option<Vec<Id>>}`: runs every M1 printability check with `profile` (default: the document's printer, else the default profile) on the given bodies (default: visible part bodies with geometry). Result `{health: Health}`. Emits one `print_health` event that carries the full report.
+26. `analyze_print {doc, profile: Option<String>, orientation: Orientation, bodies: Option<Vec<Id>>}`: runs every M1 printability check with `profile` (default: the document's resolved profile, engine.md 3.7) on the given bodies (default: visible part bodies with geometry). Result `{health: Health}`. Emits one `print_health` event that carries the full report.
 
 ```json
 {"type": "analyze_print", "doc": 1, "orientation": {"kind": "as_modeled"}}
@@ -670,10 +700,11 @@ pub struct Measurement {
 
 **Export and import**
 
-27. `export {doc, format: ExportFormat, bodies: Option<Vec<Id>>, tolerance: Option<Tolerance>, orientation: Option<Orientation>}`. Result `{files: Vec<ExportFile>, warnings: Vec<Diagnostic>}`.
+27. `export {doc, format: ExportFormat, bodies: Option<Vec<Id>>, tolerance: Option<TessellationTolerance>, orientation: Option<Orientation>}`. Result `{files: Vec<ExportFile>, warnings: Vec<Diagnostic>}`.
 
 ```rust
-#[serde(tag = "format")]
+/// A value enum inside the command, so it is tagged `kind`.
+#[serde(tag = "kind")]
 pub enum ExportFormat {
     /// STL; one file, or one per body.
     #[serde(rename = "stl")] Stl { binary: bool, per_body: bool },
@@ -687,17 +718,17 @@ pub enum ExportFormat {
 ```
 
 ```json
-{"type": "export", "doc": 1, "format": {"format": "stl", "binary": true, "per_body": false}}
+{"type": "export", "doc": 1, "format": {"kind": "stl", "binary": true, "per_body": false}}
 {"type": "export", "files": [{"name": "model.stl", "media_type": "model/stl", "data": 0}], "warnings": []}
-{"type": "export", "doc": 1, "format": {"format": "3mf"}, "bodies": ["b-1", "b-2"], "orientation": {"kind": "as_modeled"}}
-{"type": "export", "doc": 1, "format": {"format": "step"}}
+{"type": "export", "doc": 1, "format": {"kind": "3mf"}, "bodies": ["b-1", "b-2"], "orientation": {"kind": "as_modeled"}}
+{"type": "export", "doc": 1, "format": {"kind": "step"}}
 ```
 
-28. `import_step {doc, data: BufferIndex, name: Option<String>}`: stores the bytes as an asset, adds one body per solid and one `import` feature. Result `{feature: Id, bodies: Vec<Id>}`. Emits like `apply_edits`.
+28. `import_step {doc, data: BufferIndex, name: Option<String>}`: stores the bytes as an asset and adds one body and one `import` feature (features/import.md: params `asset`, `body`, `op: new`); every solid of the file goes into that body. Result `{feature: Id, body: Id}`. Emits like `apply_edits`.
 
 ```json
 {"type": "import_step", "doc": 1, "data": 0, "name": "Bracket"}
-{"type": "import_step", "feature": "f-3fa91c0e72b4", "bodies": ["b-0c1d2e3f4a5b"]}
+{"type": "import_step", "feature": "f-3fa91c0e72b4", "body": "b-0c1d2e3f4a5b"}
 ```
 
 29. `export_python {doc}`: the document as a Python script (rules in python-api.md section 3.8). Result `{code: String}`.
@@ -714,8 +745,10 @@ pub enum ExportFormat {
 pub struct SketchSolution {
     /// The sketch feature.
     pub feature: Id,
-    /// Overall constraint status.
+    /// Overall constraint status (`partsmith_sketch::SketchStatus`).
     pub status: SketchStatus,
+    /// True when some component did not converge; those components keep their previous geometry (sketch.md `SolveResult::failed`).
+    pub failed: bool,
     /// Remaining degrees of freedom.
     pub dof: u32,
     /// Ids of redundant constraints.
@@ -738,17 +771,18 @@ pub struct SketchSolution {
     pub display: Option<SketchDisplay>,
 }
 
-/// `under_constrained`, `fully_constrained`, `over_constrained` (conflicts present) or `failed` (did not converge).
-#[serde(rename_all = "snake_case")] pub enum SketchStatus { UnderConstrained, FullyConstrained, OverConstrained, Failed }
+/// `under_constrained`, `fully_constrained`, `redundant` or `conflicting` (sketch.md 2.6).
+pub use partsmith_sketch::SketchStatus;
+/// `under_constrained`, `fully_constrained` or `conflicting`, per entity (sketch.md 2.6).
+pub use partsmith_sketch::EntityState;
 
 /// A stored entity with solved coordinates plus its constraint state.
 pub struct SolvedEntity {
     /// The entity exactly as stored, with solved geometry.
     #[serde(flatten)] pub entity: SketchEntity,
-    /// `under`, `full` or `conflicting`, for coloring.
-    pub constrained: Constrainedness,
+    /// The entity's state from `SolveResult::entity_states`, for coloring.
+    pub constrained: EntityState,
 }
-#[serde(rename_all = "snake_case")] pub enum Constrainedness { Under, Full, Conflicting }
 
 /// A point address and its position in sketch coordinates.
 pub struct SolvedPoint { pub point: PointRef, pub at: Vec2 }
@@ -772,12 +806,8 @@ pub struct RegionInfo {
     pub centroid: Vec2,
 }
 
-/// Buffer indices of the sketch display data (all coordinates are sketch 2D, mm).
+/// Buffer indices of the sketch region fills (all coordinates are sketch 2D, mm).
 pub struct SketchDisplay {
-    /// `f32`, 2 per point, line list: 2 points per segment.
-    pub curve_positions: BufferIndex,
-    /// `u32`, 1 per segment: index into `entities`.
-    pub curve_entities: BufferIndex,
     /// `f32`, 2 per vertex: region fill vertices.
     pub region_positions: BufferIndex,
     /// `u32`, 3 per triangle into `region_positions`.
@@ -794,10 +824,10 @@ JSON examples (a region of the plate fixture, a dimension's state, a point, disp
 {"id": "c-3", "state": "satisfied", "value": 10.0}
 {"id": "c-2", "state": "conflicting"}
 {"point": "e-1.end", "at": [20.0, 0.0]}
-{"curve_positions": 0, "curve_entities": 1, "region_positions": 2, "region_indices": 3, "region_ids": 4}
+{"region_positions": 0, "region_indices": 1, "region_ids": 2}
 ```
 
-Curve tessellation in `curve_positions` is fixed: a line is one segment; a circle is 72 equal segments starting at angle 0; an arc is `max(1, ceil(sweep / (2π / 72)))` equal segments from its start to its end. Construction entities are included (the UI styles them).
+Region fills are triangulated from each region's loops, with circles and arcs split into `max(1, ceil(sweep / (2π / 72)))` equal segments; the UI draws curves itself from `entities`.
 
 ### 2.7 Events
 
@@ -816,7 +846,7 @@ DocumentChanged {
     doc: DocHandle, revision: u64,
     /// The full current recipe, including uncommitted transaction edits.
     document: Document,
-    /// Whether the canonical text differs from the last opened or saved text.
+    /// Whether the canonical text differs from the dirty baseline: the opened text, or the text named by the latest effective `mark_saved`.
     dirty: bool,
     /// Label of the entry `undo` would revert.
     undo: Option<String>,
@@ -844,21 +874,39 @@ pub struct FeatureStatus {
     pub id: Id,
     /// `ok`, `warning`, `error`, `suppressed` or `rolled_back`.
     pub status: FeatureState,
-    /// Warnings and errors in the order the feature reported them.
+    /// The error first, then warnings, each with `field` and `suggestion` when the feature reported them.
     pub messages: Vec<Diagnostic>,
-    /// References the repair panel offers to re-pick.
+    /// Lost references and profile regions the repair panel offers to re-pick.
     pub repairs: Vec<Repair>,
 }
 
-pub struct Repair {
-    /// JSON Pointer into the feature record, for example `/edges/1`.
-    pub path: String,
-    /// The stored reference that did not resolve uniquely.
-    pub reference: Reference,
-    /// `missing` or `ambiguous`.
-    pub resolution: ResolutionStatus,
-    /// Centroid from the stored fingerprint, for drawing a ghost marker.
-    pub centroid: Option<Vec3>,
+/// A reference or region that did not resolve uniquely. Mirrors features.md `Repair::Element` and `Repair::Region`.
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum Repair {
+    /// A face, edge or vertex reference.
+    Element {
+        /// JSON Pointer into the feature record, for example `/edges/1`.
+        path: String,
+        /// Body the reference is resolved in.
+        body: Id,
+        /// The stored reference.
+        reference: Reference,
+        /// `missing` or `ambiguous`.
+        resolution: ResolutionStatus,
+        /// Centroid from the stored fingerprint, for drawing a ghost marker.
+        centroid: Option<Vec3>,
+    },
+    /// A profile region.
+    Region {
+        /// JSON Pointer into the feature record, for example `/profile/regions/0`.
+        path: String,
+        /// The sketch feature the region belongs to.
+        sketch: Id,
+        /// The stored region reference.
+        region: RegionRef,
+        /// `missing` or `ambiguous`.
+        resolution: ResolutionStatus,
+    },
 }
 
 pub struct ParameterValue {
@@ -873,13 +921,13 @@ pub struct ParameterValue {
 ```
 
 ```json
-{"kind": "event", "type": "recomputed", "doc": 1, "revision": 4, "features": [{"id": "f-box1", "status": "ok", "messages": [], "repairs": []}, {"id": "f-fil1", "status": "warning", "messages": [{"severity": "warning", "code": "reference_ambiguous", "message": "Edge 2 of Fillet 1 matches 2 edges. Pick it again in the repair panel."}], "repairs": [{"path": "/edges/1", "reference": {"q": "edge(f-box1/front|f-box1/left)", "fp": "line|n=0,0,1|c=-10,-15,20|l=40|adj=2,2"}, "resolution": "ambiguous", "centroid": [-10.0, -15.0, 20.0]}]}], "parameters": [{"id": "p-h", "value": 50.0, "dimension": {"length": 1, "angle": 0}}], "diagnostics": []}
+{"kind": "event", "type": "recomputed", "doc": 1, "revision": 4, "features": [{"id": "f-box1", "status": "ok", "messages": [], "repairs": []}, {"id": "f-fil1", "status": "warning", "messages": [{"severity": "warning", "code": "reference_ambiguous", "message": "One of the edges selected for Edges now matches 2 edges, so it was skipped. Pick the one you mean in the repair panel.", "field": "/edges/1"}], "repairs": [{"kind": "element", "path": "/edges/1", "body": "b-1", "reference": {"q": "edge(f-box1/front|f-box1/left)", "fp": "line|n=0,0,1|c=-10,-15,20|l=40|adj=2,2"}, "resolution": "ambiguous", "centroid": [-10.0, -15.0, 20.0]}]}], "parameters": [{"id": "p-h", "value": 50.0, "dimension": {"length": 1, "angle": 0}}], "diagnostics": []}
 ```
 
 3. `sketch_solved`: `{doc, revision, solution: SketchSolution}` for a sketch whose solution changed. Example for the `drag.ptsm` fixture of engine.md:
 
 ```json
-{"kind": "event", "type": "sketch_solved", "doc": 1, "revision": 0, "solution": {"feature": "f-sk1", "status": "under_constrained", "dof": 1, "redundant": [], "conflicting": [], "placement": {"origin": [0.0, 0.0, 0.0], "x_axis": [1.0, 0.0, 0.0], "normal": [0.0, 0.0, 1.0]}, "entities": [{"id": "e-1", "type": "line", "start": [0.0, 0.0], "end": [10.0, 0.0], "constrained": "under"}], "points": [{"point": "e-1.start", "at": [0.0, 0.0]}, {"point": "e-1.end", "at": [10.0, 0.0]}], "constraints": [{"id": "c-1", "state": "satisfied"}, {"id": "c-2", "state": "satisfied"}], "regions": [], "profile_findings": [{"type": "open_endpoint", "entity": "e-1", "point": [0.0, 0.0]}, {"type": "open_endpoint", "entity": "e-1", "point": [10.0, 0.0]}], "display": {"curve_positions": 0, "curve_entities": 1, "region_positions": 2, "region_indices": 3, "region_ids": 4}}}
+{"kind": "event", "type": "sketch_solved", "doc": 1, "revision": 0, "solution": {"feature": "f-sk1", "status": "under_constrained", "failed": false, "dof": 1, "redundant": [], "conflicting": [], "placement": {"origin": [0.0, 0.0, 0.0], "x_axis": [1.0, 0.0, 0.0], "normal": [0.0, 0.0, 1.0]}, "entities": [{"id": "e-1", "type": "line", "start": [0.0, 0.0], "end": [10.0, 0.0], "constrained": "under_constrained"}], "points": [{"point": "e-1.start", "at": [0.0, 0.0]}, {"point": "e-1.end", "at": [10.0, 0.0]}], "constraints": [{"id": "c-1", "state": "satisfied"}, {"id": "c-2", "state": "satisfied"}], "regions": [], "profile_findings": [{"type": "open_endpoint", "entity": "e-1", "point": [0.0, 0.0]}, {"type": "open_endpoint", "entity": "e-1", "point": [10.0, 0.0]}], "display": {"region_positions": 0, "region_indices": 1, "region_ids": 2}}}
 ```
 
 4. `datum_plane`: `{doc, revision, feature: Id, placement: Option<Placement>}` for a datum plane whose result changed; `placement` is absent when it failed.
@@ -906,8 +954,10 @@ pub struct MeshBuffers {
     pub edge_positions: BufferIndex,
     /// `u32`, 1 per edge segment: display edge id.
     pub edge_ids: BufferIndex,
-    /// `f32`, 3 per displayed B-rep vertex; the display vertex id is the index.
+    /// `f32`, 3 per displayed B-rep vertex marker.
     pub vertex_positions: BufferIndex,
+    /// `u32`, 1 per displayed B-rep vertex marker: display vertex id (mesh.md `RenderBuffers::vertex_ids`).
+    pub vertex_ids: BufferIndex,
     /// Number of display face ids.
     pub face_count: u32,
     /// Number of display edge ids.
@@ -920,7 +970,7 @@ pub struct MeshBuffers {
 ```
 
 ```json
-{"kind": "event", "type": "body_mesh", "doc": 1, "revision": 0, "body": "b-1", "layer": "model", "mesh_id": 1, "mesh": {"positions": 0, "normals": 1, "indices": 2, "face_ids": 3, "edge_positions": 4, "edge_ids": 5, "vertex_positions": 6, "face_count": 6, "edge_count": 12, "vertex_count": 8, "bounding_box": {"min": [-10.0, -15.0, 0.0], "max": [10.0, 15.0, 40.0]}}}
+{"kind": "event", "type": "body_mesh", "doc": 1, "revision": 0, "body": "b-1", "layer": "model", "mesh_id": 1, "mesh": {"positions": 0, "normals": 1, "indices": 2, "face_ids": 3, "edge_positions": 4, "edge_ids": 5, "vertex_positions": 6, "vertex_ids": 7, "face_count": 6, "edge_count": 12, "vertex_count": 8, "bounding_box": {"min": [-10.0, -15.0, 0.0], "max": [10.0, 15.0, 40.0]}}}
 {"kind": "event", "type": "body_mesh", "doc": 1, "revision": 5, "body": "b-1", "layer": "preview", "mesh_id": 9}
 ```
 
@@ -931,7 +981,7 @@ PrintHealth { doc: DocHandle, revision: u64, report: PrintReport }
 
 pub struct PrintReport {
     /// Profile id the checks used.
-    pub profile: String,
+    pub profile: Id,
     /// Orientation the checks used.
     pub orientation: Orientation,
     /// The status bar badge over all analyzed bodies (`partsmith_print::HealthSummary`).
@@ -971,7 +1021,7 @@ pub struct ErrorInfo {
 }
 ```
 
-`ErrorCode` is a `snake_case` enum with the codes in section 4. Example: `{"status": "error", "code": "edit_rejected", "message": "There is no feature with id f-x.", "edit_index": 1}`.
+`ErrorCode` is a `snake_case` enum with the codes in section 4. Example: `{"kind": "error", "code": "edit_rejected", "message": "There is no feature with id f-x.", "edit_index": 1}`.
 
 ### 2.9 Schema, TypeScript types and versioning
 
@@ -984,7 +1034,7 @@ pub struct ErrorInfo {
 
 `partsmith-wasm` is an Emscripten executable (`wasm32-unknown-emscripten`) built by `scripts/build-wasm.sh` into `ui/public/core/partsmith_core.mjs` and `ui/public/core/partsmith_core.wasm`. It is an ES module factory named `createPartsmithCore` (`-sMODULARIZE=1 -sEXPORT_ES6=1 -sEXPORT_NAME=createPartsmithCore -sENVIRONMENT=worker`), keeps its runtime alive after `main` (`-sEXIT_RUNTIME=0`), grows memory up to 4 GB, uses native wasm exceptions, and exports `_ps_alloc`, `_ps_free`, `_ps_call` and the runtime view `HEAPU8`.
 
-`main` creates the module's single `Session` with `SessionOptions { display: true, ..Default::default() }` (random ids) and stores it in a `thread_local!` cell owned by the host crate. The core crates stay free of global state; this cell is the host's.
+`main` creates the module's single `Session` with `SessionOptions { display: true, ..Default::default() }` (random ids) and stores it in a `thread_local!` cell owned by the host crate. The core crates stay free of global state; this cell is the host's (ADR 0010).
 
 C signatures (wasm32, so `size_t` and pointers are 32-bit):
 
@@ -1010,7 +1060,7 @@ pub fn call(request: &[u8]) -> Vec<u8>;
 
 Rules:
 
-- The three exports are the only `unsafe` code in the crate; each `unsafe` block has a `// SAFETY:` comment (see Open issues on the lint).
+- `partsmith-wasm` defines its own lint table with `unsafe_code = "deny"` (instead of the workspace `forbid`) and puts `#[allow(unsafe_code)]` on exactly `ps_alloc`, `ps_free` and `ps_call`; each `unsafe` block has a `// SAFETY:` comment (ADR 0010).
 - `ps_call` never traps on any input. It delegates to `Session::call`, so a frame that fails to decode yields a response frame with one error response (`FrameError::code`, the request id if readable, else 0), and a panic inside the engine yields `internal_error` and poisons the request's document (engine.md 3.15).
 - JavaScript must re-read `HEAPU8` after every `ps_call` and `ps_alloc`, because memory growth replaces the underlying `ArrayBuffer`.
 
@@ -1066,6 +1116,15 @@ export interface WorkerHost {
 export function createWorkerHost(options: WorkerHostOptions): WorkerHost
 ```
 
+The superseding rule (rule 4 below) is shared by every transport (`ui/src/core/superseding.ts`):
+
+```ts
+/** Whether the queued request at `index` is superseded by a later request in `queue` (rule 4). `queue` holds requests that have not started, oldest first. */
+export function isSuperseded(queue: readonly Request[], index: number): boolean
+```
+
+`createWorkerHost` and the desktop transport (2.12) both use it.
+
 Frame codec used by the worker and the main thread (`ui/src/core/frame.ts`):
 
 ```ts
@@ -1081,7 +1140,7 @@ Behavior:
 
 1. On creation the host calls `load()`. On success it calls `engine_info` through `callCore` (request id 0 is reserved for this call) and posts `{type: 'ready', protocolVersion, engineVersion}`. If `load()` rejects, or `protocol_version` differs from the version the UI was generated against, it posts `{type: 'fatal', message}` and answers every later call with a `fatal` message instead of a frame.
 2. Calls received before `ready` are queued.
-3. The host keeps a FIFO queue. After each call it schedules the next step with `schedule`. A step takes the head of the queue; if a later queued request supersedes it, the host posts a synthesized error response frame (`superseded`, the request's id, no events, no buffers) instead of calling the core.
+3. The host keeps a FIFO queue. After each call it schedules the next step with `schedule`. A step takes the head of the queue; if a later queued request supersedes it (`isSuperseded(queue, 0)`), the host posts a synthesized error response frame (`superseded`, the request's id, no events, no buffers) instead of calling the core.
 4. Superseding rules, applied to queued requests that have not started: a `drag_sketch` is superseded by a later queued `drag_sketch` with the same `doc` and `feature` when no request for the same `doc` lies between them; a `solve_sketch` by a later `solve_sketch` with the same `doc` and `feature` under the same condition; an `analyze_print` by any later queued `analyze_print` with the same `doc`. Nothing else is ever superseded.
 5. Responses are posted in request order, one `frame` message per request, transferring the frame buffer.
 6. A wasm trap (`WebAssembly.RuntimeError`) or `CoreOutOfMemoryError` during a call posts `fatal` and stops the host.
@@ -1089,7 +1148,7 @@ Behavior:
 
 ### 2.12 Desktop `call` contract
 
-The Tauri 2 host (later milestone) exposes one command, `call`. JavaScript invokes it with the request frame as a raw binary body (`invoke('call', frameBytes)`), and the command returns the response frame as a raw binary response (`tauri::ipc::Response`). The host holds one `Session` behind a `Mutex` and runs each `Session::call` on a blocking worker thread; panics are already contained by `Session::call`. Superseding is done by the same queue logic in the UI's desktop transport.
+The Tauri 2 host (later milestone) exposes one command, `call`. JavaScript invokes it with the request frame as a raw binary body (`invoke('call', frameBytes)`), and the command returns the response frame as a raw binary response (`tauri::ipc::Response`). The host holds one `Session` behind a `Mutex` and runs each `Session::call` on a blocking worker thread; panics are already contained by `Session::call`. Superseding is done in the UI's desktop transport with the same `isSuperseded` function (2.11).
 
 ## 3. Behavior
 
@@ -1133,6 +1192,7 @@ For every `body_mesh` with a mesh:
 - The three vertices of each triangle carry the same face id, and no mesh vertex is shared by two faces. This lets a WebGL2 ID pass use `face_ids` as a `flat` integer attribute.
 - Every id in `face_ids` is less than `face_count` and every face id in `0..face_count` occurs. Edge and vertex ids likewise for `edge_count` and `vertex_count`.
 - `edge_positions` has `6 × segments` elements and `edge_ids` has `segments` elements.
+- `vertex_positions` has `3 × markers` elements and `vertex_ids` has `markers` elements, in ascending display vertex id order; every vertex id in `0..vertex_count` occurs exactly once.
 - Display ids are positions in the element order of `list_elements` for that body (faces, edges and vertices each sorted by element name). They are valid only together with their `mesh_id`, are never stored, and are not references (CLAUDE.md invariant).
 
 ### 3.5 Request ids
@@ -1163,12 +1223,12 @@ Clients choose request ids from 1 to `MAX_SAFE_INTEGER` and may reuse them; the 
 | `no_transaction` | `commit_transaction`, `cancel_transaction` or `set_focus` without a transaction | "There is no edit in progress." |
 | `label_required` | `apply_edits` outside a transaction without `label` | "Edits outside a transaction need a label for the undo history." |
 | `label_not_allowed` | `apply_edits` inside a transaction with `label` | "Edits inside the transaction \"{label}\" take the transaction's label." |
-| `edit_rejected` | `Document::apply` refused edit `edit_index` | The model's `EditError` message |
-| `invalid_params` | The registry rejected feature params in edit `edit_index` | "{feature type} {feature id}: {registry message}" |
+| `edit_rejected` | `Document::apply` refused edit `edit_index`; or `rename_parameter` names an unknown parameter or an invalid or taken name (no `edit_index`) | The model's `EditError` message |
+| `invalid_params` | The registry rejected feature params in edit `edit_index`; or `solve_sketch`/`drag_sketch` params fail sketch validation or the solver rejects them | "{feature type} {feature id}: {registry message}"; for sketch commands, the sketch crate's message |
 | `nothing_to_undo` | Empty undo stack | "There is nothing to undo." |
 | `nothing_to_redo` | Empty redo stack | "There is nothing to redo." |
 | `unknown_feature` | A command names a feature that does not exist | "There is no feature with id {id}." |
-| `focus_inactive` | `set_focus` on a suppressed feature or one after the rollback marker | "{feature name} is not active. Move the rollback marker past it or unsuppress it first." |
+| `focus_inactive` | `set_focus` on a suppressed feature, or on the rollback marker feature or a later one | "{feature name} is not active. Move the rollback marker past it or unsuppress it first." |
 | `not_a_sketch` | A sketch command names a non-sketch feature | "{id} is a {type} feature, not a sketch." |
 | `unknown_point` | `drag_sketch` names a point that does not exist | "The sketch has no point {point}." |
 | `no_drag` | `end_sketch_drag` without a drag in progress for that sketch | "No drag is in progress in {feature name}." |
@@ -1178,22 +1238,22 @@ Clients choose request ids from 1 to `MAX_SAFE_INTEGER` and may reuse them; the 
 | `unknown_body` | A command names a body that does not exist | "There is no body with id {id}." |
 | `body_empty` | A body named in `export`, `measure` or `list_elements` has no geometry at the display state | "Body \"{name}\" has no geometry yet." |
 | `reference_unresolved` | A reference given to `measure` or a `face_down` orientation does not resolve uniquely | "The selected {kind} no longer exists. Pick it again." |
-| `invalid_measure` | `measure` has zero or more than two targets | "Measure takes one or two bodies or elements." |
-| `expression_error` | `evaluate` failed | The expression evaluator's message |
-| `unknown_printer_profile` | `analyze_print` or `export` names an unknown profile | "Printer profile \"{id}\" is not installed." |
+| `invalid_measure` | `measure` does not have exactly one target | "Measure takes one body or element." |
+| `expression_error` | `evaluate` failed; or a driving dimension of `solve_sketch`/`drag_sketch` does not evaluate | The expression evaluator's message |
+| `unknown_printer_profile` | `analyze_print` names an unknown `profile` | "Printer profile \"{id}\" is not installed." |
 | `profile_id_reserved` | `put_printer_profile` uses a built-in id | "\"{id}\" is a built-in profile. Save your changes under a new name." |
 | `invalid_profile` | The print crate rejected a profile | The print crate's validation message |
 | `invalid_orientation` | Matrix not orthonormal with determinant +1 within 1e-9, or `face_down` on a non-planar face | "The orientation is not a rotation." or "Only flat faces can be laid on the bed." |
 | `nothing_to_export` | No body qualifies for export | "There is no visible body with geometry to export." |
 | `export_failed` | The writer or kernel failed | "Export failed: {detail}" |
 | `import_failed` | The STEP file could not be read or has no solids | "The STEP file could not be imported: {detail}" |
-| `invalid_tolerance` | A `Tolerance` value is not finite and positive, or `angular_deviation` exceeds π/2 | "Tessellation tolerances must be positive (angle at most 90 degrees)." |
+| `invalid_tolerance` | A `TessellationTolerance` value is not finite and positive, or `angular_deviation` exceeds π/2 | "Tessellation tolerances must be positive (angle at most 90 degrees)." |
 
 The full Rust-side variants and the mapping from engine errors are in engine.md section 4.
 
 ## 5. Performance budgets
 
-Measured on the reference machine (technical design section 14), release builds, with Criterion benches in `crates/partsmith-protocol/benches/` and a Vitest bench for the TypeScript codec:
+Measured on the reference machine (technical design section 14), release builds, with benchmarks in `crates/partsmith-protocol/benches/` (`harness = false`, `std::time::Instant`, as sketch.md) and a Vitest bench for the TypeScript codec:
 
 | Operation | Native | Web (wasm or JS) |
 | --- | --- | --- |
@@ -1237,29 +1297,29 @@ Rust tests live in `crates/partsmith-protocol/tests/` and `crates/partsmith-wasm
 24. A header with a valid layout but `{"kind":"request","id":3,"command":{"type":"no_such_command"}}` returns `InvalidMessage { request_id: Some(3), .. }` and `code()` is `malformed_request`.
 25. `decode_request_frame` rejects a frame with zero messages, with two requests, and with one event, each with `InvalidMessage`.
 26. `decode_response_frame` accepts `[event, event, response]` and rejects `[response, event]`, `[event]` and `[response, response]` with `InvalidMessage`.
-27. `error_response_frame(0, ErrorCode::MalformedFrame, "The frame does not start with PSM1.")` decodes to a response with id 0 whose header is exactly `{"protocol_version":1,"messages":[{"kind":"response","id":0,"result":{"status":"error","code":"malformed_frame","message":"The frame does not start with PSM1."}}],"buffers":[]}`.
+27. `error_response_frame(0, ErrorCode::MalformedFrame, "The frame does not start with PSM1.")` decodes to a response with id 0 whose header is exactly `{"protocol_version":1,"messages":[{"kind":"response","id":0,"result":{"kind":"error","code":"malformed_frame","message":"The frame does not start with PSM1."}}],"buffers":[]}`.
 
 **JSON shapes**
 
 28. `{"type":"undo","doc":1}` deserializes as `Command::Undo { doc: DocHandle(1) }`; `{"type":"undo","doc":1,"extra":true}` fails.
 29. `{"type":"new_document","printer":null}` and `{"type":"new_document"}` both deserialize with `units: None, printer: None`.
 30. `{"type":"open_document","text":"{}"}` deserializes with `assets` empty.
-31. A `Response { id: 7, result: Outcome::Ok(CommandResult::CloseDocument) }` serializes exactly as `{"kind":"response","id":7,"result":{"status":"ok","type":"close_document"}}`.
+31. A `Response { id: 7, result: Outcome::Ok(CommandResult::CloseDocument) }` serializes exactly as `{"kind":"response","id":7,"result":{"kind":"ok","type":"close_document"}}`.
 32. An `apply_edits` error with `edit_index: Some(1)` serializes with `"edit_index":1`; with `None` the field is absent.
 33. A `body_mesh` event with `mesh: None` serializes without a `mesh` key; a `FeatureStatus` with no messages serializes `"messages":[]`.
-34. The set of `Command` type strings equals exactly: `engine_info`, `feature_catalog`, `list_printer_profiles`, `put_printer_profile`, `new_document`, `open_document`, `save_document`, `close_document`, `get_document`, `apply_edits`, `begin_transaction`, `set_focus`, `commit_transaction`, `cancel_transaction`, `undo`, `redo`, `solve_sketch`, `drag_sketch`, `end_sketch_drag`, `set_tessellation`, `evaluate`, `list_elements`, `pick_reference`, `resolve_references`, `measure`, `analyze_print`, `export`, `import_step`, `export_python`.
+34. The set of `Command` type strings equals exactly: `engine_info`, `feature_catalog`, `list_printer_profiles`, `put_printer_profile`, `new_document`, `open_document`, `save_document`, `close_document`, `get_document`, `apply_edits`, `begin_transaction`, `set_focus`, `commit_transaction`, `cancel_transaction`, `undo`, `redo`, `solve_sketch`, `drag_sketch`, `end_sketch_drag`, `set_tessellation`, `evaluate`, `list_elements`, `pick_reference`, `resolve_references`, `measure`, `analyze_print`, `export`, `import_step`, `export_python`, `mark_saved`, `rename_parameter`.
 35. For every command, the `CommandResult` variant with the same `type` string exists, and no other result variants exist.
 36. The set of `Event` type strings equals exactly: `document_changed`, `recomputed`, `sketch_solved`, `datum_plane`, `body_mesh`, `print_health`.
 37. The set of `ErrorCode` strings equals exactly the codes in section 4.
-38. `{"format":"3mf"}` deserializes as `ExportFormat::ThreeMf`; `{"format":"stl","binary":false,"per_body":true}` as `Stl { binary: false, per_body: true }`.
-39. `{"body":"b-1"}` and `{"reference":{"q":"f-box1/top","fp":"plane|n=0,0,1|c=10,15,40|a=600"}}` deserialize as the two `MeasureTarget` variants.
-40. The three `Orientation` examples in 2.4 round-trip through serde unchanged.
+38. `{"kind":"3mf"}` deserializes as `ExportFormat::ThreeMf`; `{"kind":"stl","binary":false,"per_body":true}` as `Stl { binary: false, per_body: true }`.
+39. `{"kind":"body","body":"b-1"}` and `{"kind":"element","body":"b-1","reference":{"q":"f-box1/top","fp":"plane|n=0,0,1|c=10,15,40|a=600"}}` deserialize as the two `MeasureTarget` variants.
+40. The three `Orientation` examples in 2.4 (the `face_down` one with its `body`) round-trip through serde unchanged.
 41. Every JSON example in sections 2.3 to 2.7 whose top level is a message validates against `protocol_schema()` (examples of single types validate against their `$defs` entry).
 42. `PROTOCOL_VERSION == 1` and `MAGIC == *b"PSM1"`.
 
 **Schema**
 
-43. `protocol_schema()` parses as JSON, has `"$schema": "https://json-schema.org/draft/2020-12/schema"`, `"title": "Partsmith protocol"`, `"x-protocol-version": 1`, and `$defs` entries named `Command`, `CommandResult`, `Event`, `Message`, `ErrorCode`, `BufferInfo`, `SketchSolution`, `MeshBuffers`, `PrintReport`.
+43. `protocol_schema()` parses as JSON, has `"$schema": "https://json-schema.org/draft/2020-12/schema"`, `"title": "Partsmith protocol"`, `"x-protocol-version": 1`, and `$defs` entries named `Command`, `CommandResult`, `Event`, `Message`, `ErrorCode`, `BufferInfo`, `SketchSolution`, `MeshBuffers`, `PrintReport`, `FeatureManifest`, `ElementRef`, `Repair`.
 44. Two calls to `protocol_schema()` return identical strings ending in exactly one `\n`.
 45. `protocol_schema()` equals the checked-in `docs/format/protocol.schema.json` byte for byte.
 46. The schema declares `"maximum": 9007199254740991` for `Request.id`, `Response.id` and `BodyMesh.mesh_id`.
@@ -1285,23 +1345,20 @@ Rust tests live in `crates/partsmith-protocol/tests/` and `crates/partsmith-wasm
 60. Queued `drag_sketch` id 10, `apply_edits` id 11 (doc 1), `drag_sketch` id 12 (same sketch): none is superseded.
 61. Queued `analyze_print` id 20 (doc 1), `apply_edits` id 21 (doc 1), `analyze_print` id 22 (doc 1): id 20 is superseded; ids 21 and 22 run.
 62. Responses for ids 1 to 5 sent in order arrive in order 1 to 5, each as a `frame` message whose transfer list contains the frame's `ArrayBuffer`.
-63. The synthesized superseded frame for id 10 decodes to `{"kind":"response","id":10,"result":{"status":"error","code":"superseded","message":"A newer request replaced this one."}}`.
+63. The synthesized superseded frame for id 10 decodes to `{"kind":"response","id":10,"result":{"kind":"error","code":"superseded","message":"A newer request replaced this one."}}`.
 64. When `load()` rejects with `Error("404")`, the host posts `{type: 'fatal'}` with a message containing `404`, and a later `call` gets a `fatal` message, not a frame.
 65. With a fake core whose `engine_info` reports protocol version 1 and engine version `0.1.0`, the first message posted is `{type: 'ready', protocolVersion: 1, engineVersion: '0.1.0'}`; calls received before it are answered after it, in order.
 66. A fake core whose `call` throws `WebAssembly.RuntimeError` makes the host post `fatal` and answer later calls with `fatal`.
 
+**Added shapes and shared superseding**
+
+67. A `Diagnostic` with `field` and `suggestion` serializes as the `fillet_too_large` example of 2.4 (compact form); without them both keys are absent.
+68. Both `Repair` variants round-trip: the element repair of the 2.7 `recomputed` example, and `{"kind":"region","path":"/profile/regions/0","sketch":"f-sk1","region":{"key":"e-1,e-2,e-3,e-4","fp":"c=40,25|a=4000"},"resolution":"missing"}`.
+69. (Vitest) `isSuperseded` on the queues of tests 58 to 61: for [`drag_sketch` 10, `drag_sketch` 11] index 0 is true and index 1 false; for [`drag_sketch` `f-sk1`, `drag_sketch` `f-sk2`] both are false; for [`drag_sketch` 10, `apply_edits` 11, `drag_sketch` 12] all are false; for [`analyze_print` 20, `apply_edits` 21, `analyze_print` 22] index 0 is true and the others false.
+70. A `MeshBuffers` value serializes with keys in field order, `vertex_ids` directly after `vertex_positions`, as in the `body_mesh` example of 2.7; the buffer table of a box mesh equals example C.
+71. A `SketchSolution` serializes `status` and each entity's `constrained` with sketch.md's values (`under_constrained`, `fully_constrained`, `redundant`, `conflicting`), always writes `failed`, and its `display` has exactly the keys `region_positions`, `region_indices` and `region_ids`.
+
 ## 7. Open issues
 
-1. **`unsafe` in `partsmith-wasm`.** The architecture allows `unsafe` only in `partsmith-occt-sys`, but C ABI exports need `#[unsafe(no_mangle)]` (which the `unsafe_code` lint covers) and raw pointer reads. This spec lets `partsmith-wasm` opt out of the workspace lint table with `unsafe_code = "deny"` and an `#[allow(unsafe_code)]` module containing only the three exports, each with a `// SAFETY:` comment. Needs an ADR.
 2. **Print health as an event.** Architecture lists print health among events. This spec keeps it an event (`print_health`), emitted only by `analyze_print`, and does not run analysis automatically after edits, so a slow analysis can be superseded in the worker queue instead of blocking modeling. Background analysis with unsolicited events is later.
-3. **Session state in the wasm host.** `ps_call` has no session parameter (ADR 0009), so the wasm host holds its single `Session` in a `thread_local!`. The core stays free of global state; the host is outside the core. Reviewer to confirm this reading of the "no global mutable state" rule.
-4. **Types owned elsewhere.** Examples follow model.md (`Edit`, `Document`), expressions.md (`Dimension` as `{"length": 1, "angle": 0}`), sketch.md (entities, `RegionRef`, `ProfileFinding`, `Placement`), naming.md (element names and fingerprint text) and print.md (profiles, reports) as written at the time of this spec. `FeatureManifest` lives in `partsmith-features`, which `partsmith-protocol` does not depend on, so `CatalogEntry.manifest` is a `serde_json::Value` (with features.md's JSON form: `label`, `category`, `icon`, `version`, `fields`) unless the manifest type moves to a crate the protocol depends on.
-5. **Sketch solution projection.** `SketchSolution` is a projection of sketch.md's `SolveResult` (whose `SketchStatus` values are `under_constrained`, `fully_constrained`, `redundant`, `conflicting` plus a `failed` flag, and whose per-entity states and measured values are maps). The protocol keeps its own `SketchStatus`, `Constrainedness` and `ConstraintState` because ui.md already builds on them; engine.md 3.6 defines the mapping. The reviewer may instead expose `SolveResult` directly and update ui.md.
-6. **Print report shape.** `PrintReport` now embeds partsmith-print's `BodyReport` and `HealthSummary`, so findings live under `bodies[].report.checks[].findings` with print's `Location` (bounds or point). ui.md reads a flat `report.findings` with a point `location`; it must be updated to this shape (the engine orders bodies, and print orders checks and findings, as print.md 3.10 describes).
 7. **Entity drags.** sketch.md's `DragTarget` also allows dragging a whole entity; M1's `drag_sketch` exposes point drags only (what ui.md uses). Entity drags can be added later as an optional field without a version bump.
-8. **Feature status and repairs.** `FeatureState` adds `rolled_back` and `suppressed` to the architecture's ok, warning and error, and `Repair` assumes features report the JSON Pointer of each unresolved reference param. features.md and recompute.md must provide that data.
-9. **Focus transactions.** `set_focus` (show the state before a feature as the pickable model, and its output as a preview) is new. It is how the inspector edits a feature whose inputs are picked references while keeping the live preview. The UI spec must use it.
-10. **Import feature type.** `import_step` adds a feature of type `import` with params `{"asset": "<blake3 hex>.step", "bodies": [...]}`. features.md does not list an `import` feature in the M1 slice; it must be added, or STEP import must be redefined.
-11. **Measure distance and angle.** Two-target measurement assumes the kernel facade offers minimum distance between elements (`BRepExtrema_DistShapeShape`); kernel.md must include it.
-12. **Feature codegen ownership.** See python-api.md Open issues: features.md defines per-feature Python calls with raw params, while python-api.md defines readable calls; `export_python`'s output format depends on that decision.
-13. **Generated TypeScript location.** This spec assumes `ui/src/core/` for the bridge, worker and codec and leaves the generated types file location to ui.md.

@@ -10,14 +10,14 @@ Crate: `partsmith-engine`. Wire shapes are in [protocol.md](protocol.md); Python
 
 - `Session` with options, document handles, a byte-level entry point (`call`), a typed message entry point (`execute`) and a typed Rust API for headless hosts.
 - Every command in protocol.md section 2.5, mapped onto model edits, recompute and events as defined below.
-- Transactions with live preview and an optional focus feature; coalescing of repeated updates; undo limit.
+- Transactions with live preview and an optional focus feature; coalescing of repeated updates; undo limit; parameter rename with expression rewrite; saving with a separate `mark_saved` step.
 - Incremental recompute through `partsmith-recompute`, sequential, with a session-wide result cache.
 - Display tessellation from the printer profile with three quality levels, display element ids, pick to reference conversion, reference highlighting.
-- Measure (mass properties of bodies, element geometry, distance and angle between two targets).
+- Measure of one body or element (mass properties of bodies, element geometry).
 - Print analysis with profile and orientation, per-vertex overhang map.
-- STL, 3MF, OBJ and STEP export; STEP import with content-hashed assets.
+- STL, 3MF, OBJ and STEP export; STEP import as one body with content-hashed assets.
 - Python export (rules in python-api.md).
-- Validation entry point for `partsmith validate`, schema text for `partsmith schema`.
+- Validation entry point for `partsmith validate`, formatting for `partsmith fmt`, schema text for `partsmith schema`.
 - Determinism guarantees, cache budget, panic containment.
 
 **Later (not in M1)**
@@ -29,6 +29,7 @@ Crate: `partsmith-engine`. Wire shapes are in [protocol.md](protocol.md); Python
 - Cache eviction policy for off-screen components (components are later).
 - Mesh import, `.scad`, `.FCStd`, `.ptsz`, slicer handoff, auto-orient, arrange.
 - Mass with material density, interference and clearance analysis.
+- Distance and angle between two measure targets.
 - Script features and running Python inside the engine.
 
 ## 2. Public API
@@ -61,10 +62,8 @@ impl SessionOptions {
     pub fn headless() -> Self;
 }
 
-/// Deterministic ids: the kind prefix plus a per-prefix counter as 12 lowercase hex digits.
-pub struct SequentialIds { /* per-prefix counters */ }
-impl SequentialIds { pub fn new() -> Self; }
-impl IdGenerator for SequentialIds { /* see 3.18 */ }
+/// Deterministic ids (model.md): one counter per kind, for example `f-000000000001`.
+pub use partsmith_model::SequentialIds;
 
 /// A file the document references, stored under its content-hash name.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -101,15 +100,17 @@ impl Session {
     pub fn feature_catalog(&self) -> Vec<CatalogEntry>;
     /// Built-in profiles then session profiles, each sorted by id.
     pub fn printer_profiles(&self) -> Vec<PrinterProfile>;
-    /// Adds or replaces a session profile and recomputes documents that use it.
-    pub fn put_printer_profile(&mut self, profile: PrinterProfile) -> Result<(), EngineError>;
+    /// Converts and validates a profile (print.md `PrinterProfile::try_from`), adds or replaces it as a session profile, and recomputes documents that use it.
+    pub fn put_printer_profile(&mut self, profile: ProfileInput) -> Result<(), EngineError>;
 
     /// Creates an empty document.
     pub fn new_document(&mut self, units: Units, printer: Option<String>) -> Result<DocHandle, EngineError>;
     /// Parses, migrates and recomputes a `.ptsm` text.
     pub fn open_document(&mut self, text: &str, assets: Vec<Asset>) -> Result<Opened, EngineError>;
-    /// Canonical text plus referenced assets; resets the dirty baseline.
+    /// Canonical text, referenced assets and the revision they describe; does not change the dirty state.
     pub fn save_document(&mut self, doc: DocHandle) -> Result<Saved, EngineError>;
+    /// Moves the dirty baseline to the text of a finished save.
+    pub fn mark_saved(&mut self, doc: DocHandle, revision: u64) -> Result<(), EngineError>;
     /// Discards a document.
     pub fn close_document(&mut self, doc: DocHandle) -> Result<(), EngineError>;
     /// The current recipe, including uncommitted transaction edits.
@@ -119,6 +120,8 @@ impl Session {
 
     /// Applies edits atomically; returns the new revision.
     pub fn apply_edits(&mut self, doc: DocHandle, label: Option<&str>, edits: Vec<Edit>) -> Result<u64, EngineError>;
+    /// Renames a parameter and rewrites the expressions that use it; returns the new revision.
+    pub fn rename_parameter(&mut self, doc: DocHandle, parameter: &Id, name: &str) -> Result<u64, EngineError>;
     /// Opens a transaction.
     pub fn begin_transaction(&mut self, doc: DocHandle, label: &str) -> Result<(), EngineError>;
     /// Sets or clears the focus feature of the open transaction.
@@ -147,33 +150,37 @@ impl Session {
     pub fn end_sketch_drag(&mut self, doc: DocHandle, feature: &Id, commit: bool) -> Result<u64, EngineError>;
 
     /// Sets the display quality; returns the resolved tolerance.
-    pub fn set_tessellation(&mut self, doc: DocHandle, quality: TessellationQuality) -> Result<Tolerance, EngineError>;
+    pub fn set_tessellation(&mut self, doc: DocHandle, quality: TessellationQuality) -> Result<TessellationTolerance, EngineError>;
+    /// The resolved tessellation tolerance for a quality (3.7); no side effects.
+    pub fn tolerance(&self, doc: DocHandle, quality: TessellationQuality) -> Result<TessellationTolerance, EngineError>;
     /// Elements of a body at the display state.
     pub fn list_elements(&mut self, doc: DocHandle, body: &Id, kind: Option<ElementKind>) -> Result<Vec<ElementDescriptor>, EngineError>;
     /// Converts a pick in a current model-layer mesh into an element descriptor.
     pub fn pick_reference(&mut self, doc: DocHandle, pick: Pick) -> Result<ElementDescriptor, EngineError>;
-    /// Resolves references against the display state.
-    pub fn resolve_references(&mut self, doc: DocHandle, references: &[Reference]) -> Result<Vec<Resolution>, EngineError>;
-    /// Measures one or two targets at the display state.
+    /// Resolves references, each within its body, against the display state.
+    pub fn resolve_references(&mut self, doc: DocHandle, references: &[ElementRef]) -> Result<Vec<Resolution>, EngineError>;
+    /// Measures exactly one target at the display state.
     pub fn measure(&mut self, doc: DocHandle, targets: &[MeasureTarget]) -> Result<Measurement, EngineError>;
 
     /// Runs the printability checks.
     pub fn analyze_print(&mut self, doc: DocHandle, request: &PrintRequest) -> Result<PrintAnalysis, EngineError>;
     /// Exports bodies at the model state.
     pub fn export(&mut self, doc: DocHandle, request: &ExportRequest) -> Result<Exported, EngineError>;
-    /// Imports a STEP file as new bodies with one import feature.
+    /// Imports a STEP file as one new body with one import feature.
     pub fn import_step(&mut self, doc: DocHandle, bytes: Vec<u8>, name: Option<&str>) -> Result<Imported, EngineError>;
     /// The document as a Python script.
     pub fn export_python(&self, doc: DocHandle) -> Result<String, EngineError>;
 
     /// Validates a `.ptsm` text without opening it.
     pub fn validate(&mut self, text: &str, assets: &[Asset], options: ValidateOptions) -> ValidationReport;
+    /// Loads a .ptsm text and returns its canonical text (params canonicalized by the registry), without recompute.
+    pub fn format(&self, text: &str) -> Result<String, EngineError>;
 }
 
 /// Result of `open_document`.
 pub struct Opened { pub doc: DocHandle, pub migrated_from: Option<u32> }
 /// Result of `save_document`.
-pub struct Saved { pub text: String, pub assets: Vec<Asset> }
+pub struct Saved { pub text: String, pub assets: Vec<Asset>, pub revision: u64 }
 /// Result of `commit_transaction`.
 pub struct Committed { pub revision: u64, pub recorded: bool }
 /// Result of `undo` and `redo`.
@@ -187,13 +194,13 @@ pub struct PrintRequest { pub profile: Option<String>, pub orientation: Orientat
 pub struct PrintAnalysis { pub report: PrintReport, pub overhang: Vec<Option<Vec<f32>>> }
 
 /// Input of `export`.
-pub struct ExportRequest { pub format: ExportFormat, pub bodies: Option<Vec<Id>>, pub tolerance: Option<Tolerance>, pub orientation: Option<Orientation> }
+pub struct ExportRequest { pub format: ExportFormat, pub bodies: Option<Vec<Id>>, pub tolerance: Option<TessellationTolerance>, pub orientation: Option<Orientation> }
 /// One exported file.
 pub struct ExportedFile { pub name: String, pub media_type: String, pub bytes: Vec<u8> }
 /// Output of `export`.
 pub struct Exported { pub files: Vec<ExportedFile>, pub warnings: Vec<Diagnostic> }
 /// Output of `import_step`.
-pub struct Imported { pub feature: Id, pub bodies: Vec<Id> }
+pub struct Imported { pub feature: Id, pub body: Id }
 
 /// What `validate` checks beyond loading.
 pub struct ValidateOptions {
@@ -229,6 +236,8 @@ pub fn ptsm_schema() -> String;
 pub fn protocol_schema() -> String;
 ```
 
+`EngineInfo.kernel` is `OCCT ` followed by `partsmith_occt_sys::OCCT_VERSION` (kernel.md), for example `OCCT 7.9.3`.
+
 The typed methods return protocol types (`SketchSolution`, `FeatureStatus`, `ElementDescriptor`, `Measurement`, `PrintReport` and so on) with every display field absent (`SketchSolution::display`, `BodyPrint::mesh_id`, `BodyPrint::overhang`); `execute` fills those fields and assigns buffer indices. Typed methods never produce events; only `execute` and `call` do. All types not defined here come from `partsmith-protocol` and the crates it re-exports.
 
 Typed methods convert `Quantity` (model.md) for `evaluate`; `execute` serializes it as `{value, dimension}`.
@@ -240,17 +249,19 @@ Typed methods convert `Quantity` (model.md) for `evaluate`; `execute` serializes
 - `call` decodes the frame (protocol.md 3.2). A decode failure produces a response frame with one error response and changes nothing. Otherwise it runs `execute` and encodes the reply.
 - `execute` checks buffer references before anything else: every `BufferIndex` in the command must be below the number of request buffers and name a `u8` buffer; otherwise `malformed_request` ("Buffer {index} does not exist." or "Buffer {index} must be u8."). Request ids above `MAX_SAFE_INTEGER` are `malformed_request`.
 - Every command either succeeds or fails without changing any document, undo log, transaction, focus, drag state, revision, profile list or emitted-state bookkeeping. Caches may change. A failed command emits no events.
-- Commands naming a `doc` that is not open fail with `unknown_document` before any other check.
+- After the buffer and request-id checks, commands naming a `doc` that is not open fail with `unknown_document` before any other check.
 
 ### 3.2 Documents, handles, revisions and dirty state
 
 - Handles start at 1 and increase by 1 on each successful `new_document` or `open_document`. A failed open does not consume a handle. Closed handles are never reused within the session.
 - `new_document` creates `Document { format: "partsmith", format_version: 1, units, printer, parameters: [], bodies: [], features: [], rollback: None }` with `units` defaulting to `mm`.
-- `open_document` loads through partsmith-model (parse, migrate, validate structure), then canonicalizes feature params through the registry. It fails with `parse_error` or `unsupported_format_version` when the model rejects the text, and with `asset_mismatch` when a supplied asset's bytes do not hash to its name (3.14). It succeeds when feature params are invalid or a feature type is unknown: such features get status `error` at recompute with the registry's message ("Feature type \"wedge\" is not available in this version of Partsmith."). Invalid params are kept exactly as loaded.
+- `open_document` loads through partsmith-model (parse, migrate, validate structure), then canonicalizes feature params through the registry. It fails with `parse_error` or `unsupported_format_version` when the model rejects the text, and with `asset_mismatch` when a supplied asset's bytes do not hash to its name (3.14). It succeeds when feature params are invalid or a feature type is unknown: such features get status `error` at recompute with the registry's message (features.md `UnknownType`: "This document uses a feature type 'wedge' that this version of Partsmith does not have. Update Partsmith, or delete the feature."). Invalid params are kept exactly as loaded.
 - `migrated_from` is `Some(n)` when the text had an older `format_version` `n` and partsmith-model migrated it. M1 reads only version 1, so it is always `None` in M1; the field exists for later migrations.
-- Every document has a `revision: u64`, 0 after `new_document` or `open_document`, incremented by 1 each time the recipe changes: each successful `apply_edits`, `cancel_transaction` that reverted at least one edit, `undo`, `redo`, a committing `end_sketch_drag` that changed geometry, and `import_step`. `begin_transaction`, `set_focus`, `commit_transaction`, `save_document`, `set_tessellation` and queries never change it.
-- The dirty baseline is the canonical text of the document right after `new_document`, `open_document` or the last `save_document`. `dirty` is true exactly when the canonical text of the current recipe (including uncommitted edits) differs from the baseline. Undoing back to the saved recipe makes the document clean again.
-- `save_document` fails with `transaction_open` while a transaction is open. It returns the canonical text (model.md) and the referenced assets, and sets the baseline to that text.
+- Every document has a `revision: u64`, 0 after `new_document` or `open_document`, incremented by 1 each time the recipe changes: each successful `apply_edits`, `rename_parameter` that changed a name, `cancel_transaction` that reverted at least one edit, `undo`, `redo`, a committing `end_sketch_drag` that changed geometry, and `import_step`. `begin_transaction`, `set_focus`, `commit_transaction`, `save_document`, `mark_saved`, `set_tessellation` and queries never change it.
+- The dirty baseline is the canonical text of the document right after `new_document`, `open_document`, or the `save_document` named by the latest effective `mark_saved`. `dirty` is true exactly when the canonical text of the current recipe (including uncommitted edits) differs from the baseline. Undoing back to the saved recipe makes the document clean again.
+- `save_document` fails with `transaction_open` while a transaction is open. It returns the canonical text (model.md) and the referenced assets with the current revision, and remembers that text and revision for `mark_saved`; it does not change the baseline.
+- `mark_saved` is effective when `revision` equals the revision of the document's latest `save_document`: the baseline becomes that save's text, and `document_changed` is emitted when `dirty` changes. Any other revision (an older save, or no save yet) changes nothing and is not an error. Hosts call it only after the file is written, so a failed write leaves the document dirty.
+- `format` loads the text like `open_document` (partsmith-model parse, migrate and structure validation, then registry canonicalization of params) without recompute or a handle, and returns the canonical text. It fails with `parse_error` or `unsupported_format_version`. It keeps unknown feature types and invalid params exactly as loaded.
 - `close_document` succeeds even while a transaction or drag is open; both are discarded.
 - `get_document` and `document` return the current recipe, including uncommitted transaction edits.
 
@@ -277,7 +288,9 @@ Typed methods convert `Quantity` (model.md) for `evaluate`; `execute` serializes
 
 **Undo and redo.** `undo` applies the newest entry's inverses in reverse order and moves the entry to the redo stack; `redo` applies the entry's edits in order and moves it back. Both return the entry's label. Empty stacks fail with `nothing_to_undo` and `nothing_to_redo`. Undo history survives `save_document`.
 
-**Rollback.** The rollback marker is document state changed only by the `set_rollback` edit, so moving it is undoable and can be previewed inside a transaction. The engine never moves the marker implicitly, except in `import_step` (3.14). Clients that insert a feature after a set marker send `set_rollback` in the same batch to keep the new feature active.
+**Rollback.** The rollback marker names the first rolled-back feature (`None`: nothing is rolled back) and is changed only by `set_rollback`, so moving it is undoable and can be previewed inside a transaction. A feature added at the marker feature's index is active with no extra edit. The engine never moves the marker implicitly.
+
+**Renaming a parameter.** `rename_parameter` asks partsmith-model for the rename edit set (`Document::rename_parameter_edits`, model.md, with the registry as the `FeatureInspector`): the renamed parameter's `update_parameter`, then one `update_parameter` per other parameter and one `update_feature` per feature record whose expressions use the old name. A model error (unknown parameter, invalid name, name in use) fails with `edit_rejected` and the model's message, without an `edit_index`. The edits are then applied as one batch, as above, with the label `Rename parameter {old} to {new}` outside a transaction. Renaming to the current name gives no edits: the revision is unchanged and no undo entry is created.
 
 **Command to recipe mapping.**
 
@@ -285,13 +298,15 @@ Typed methods convert `Quantity` (model.md) for `evaluate`; `execute` serializes
 | --- | --- | --- | --- |
 | `new_document`, `open_document` | creates the recipe | empty | full |
 | `apply_edits` | the edits | one entry, or appended to the open transaction | incremental |
+| `rename_parameter` | the model's rename edit set | in the open transaction, else one entry labeled `Rename parameter {old} to {new}` | incremental |
 | `begin_transaction` | none | none | none |
 | `set_focus` | none | none | stop point changes |
 | `commit_transaction` | none | pushes the transaction | only when a focus was set |
 | `cancel_transaction` | inverses of the transaction | transaction dropped | incremental |
 | `undo`, `redo` | inverses, or edits, of one entry | entry moves between stacks | incremental |
 | `end_sketch_drag` with `commit` | one `update_feature` of the sketch | in the open transaction, else one entry labeled `Drag` | incremental |
-| `import_step` | `add_body` per solid, `add_feature` of type `import`, and `set_rollback` when a marker is set | in the open transaction, else one entry labeled `Import STEP` | incremental |
+| `import_step` | `add_body`, then `add_feature` of type `import` | in the open transaction, else one entry labeled `Import STEP` | incremental |
+| `save_document`, `mark_saved` | none | none | none |
 | `put_printer_profile` | none | none | documents whose `printer` is the profile id |
 | `set_tessellation` | none | none | none (re-tessellation only) |
 | every query | none | none | none |
@@ -300,7 +315,7 @@ Typed methods convert `Quantity` (model.md) for `evaluate`; `execute` serializes
 
 **Recompute.** After any recipe change, focus change or change of a document's resolved printer profile, the engine runs `partsmith-recompute` on the current recipe with the registry, the evaluation context (parameters and the resolved profile's `printer.*` values) and the stop point (3.5). Recompute is incremental (only dirty features and their transitive dependents run) and sequential in M1. A failing feature records its error and recompute continues (recompute.md).
 
-**Feature status.** `FeatureStatus.status` is `suppressed` for suppressed features, `rolled_back` for features after the stop point, otherwise `error` if the feature failed, `warning` if it built with warnings, and `ok`. `messages` holds the feature's warnings or error as `Diagnostic`s in reported order. `repairs` holds one `Repair` per reference param that resolved `missing` or `ambiguous`, with the JSON Pointer of the param inside the feature record and the centroid parsed from the stored fingerprint when it has one.
+**Feature status.** `FeatureStatus.status` is `suppressed` for suppressed features, `rolled_back` for the rollback marker feature and every later feature, and, while a focus `F` is set, every feature after `F`; otherwise `error` if the feature failed, `warning` if it built with warnings, and `ok`. The engine passes recompute a `CancelToken` that is never canceled in M1, so recompute's `NotRun` status never occurs. `messages` holds recompute's rendered messages (error first, then warnings), each with `field` from `Message::pointer` and `suggestion` from `Message::suggestion`. `repairs` holds one `Repair` per message with `repair` data: `element` from `Repair::Element` (with its body, and the centroid parsed from the fingerprint when it has one), `region` from `Repair::Region`; `resolution` is `ambiguous` or `missing`.
 
 **Parameter values.** Every parameter is evaluated (regardless of rollback) and reported in document order with its value and dimension, or its error message.
 
@@ -316,7 +331,7 @@ Typed methods convert `Quantity` (model.md) for `evaluate`; `execute` serializes
 6. `body_mesh` with layer `preview`, in body order, for each body whose preview changed, including the removal of a preview (`mesh` absent) when the focus clears.
 7. `print_health`, only for `analyze_print`.
 
-Sketch and datum events are not emitted for features whose status is `suppressed`, `rolled_back` or `error` without a result; the UI hides those using the statuses. When a body is removed from the document, `body_mesh` with `mesh` absent is emitted for it in each layer where it had a mesh, after the bodies still present.
+Sketch and datum events are not emitted for `suppressed` or `rolled_back` features. For a sketch with status `error`, `sketch_solved` carries the engine's own solve of the stored params (as `solve_sketch`), omitted only when that solve fails. A datum plane with status `error` emits `datum_plane` without `placement`. When a body is removed from the document, `body_mesh` with `mesh` absent is emitted for it in each layer where it had a mesh, after the bodies still present.
 
 **Mesh ids.** A session-wide counter starting at 1 is incremented for every `body_mesh` event, including those without a mesh, so mesh ids are unique within the session.
 
@@ -324,29 +339,29 @@ Sketch and datum events are not emitted for features whose status is `suppressed
 
 ### 3.5 Model state, display state and focus
 
-- The **model state** is the result of every active feature up to the rollback marker (the end of the timeline when the marker is `None`), using the current recipe including uncommitted transaction edits.
+- The **model state** is the result of every active feature before the rollback marker feature (every feature when the marker is `None`), using the current recipe including uncommitted transaction edits.
 - The **display state** is the model state, except while a transaction has a focus feature `F`: then it is the state immediately before `F` (the upstream body states `F` builds on).
 - While a focus `F` is set, the recompute stop point is `F` inclusive: features after `F` do not run and report `rolled_back`. The preview layer holds, for each body that `F`'s output updates, the body's shape after `F`. A focus on a sketch or datum feature shows no preview meshes; its `sketch_solved` or `datum_plane` event carries its result.
-- `set_focus` requires an open transaction (`no_transaction`), an existing feature (`unknown_feature`), and an active feature: not suppressed and at or before the rollback marker (`focus_inactive`). `set_focus` with `None` clears the focus.
-- An edit in the transaction that removes, suppresses or moves the focus feature after the rollback marker clears the focus.
+- `set_focus` requires an open transaction (`no_transaction`), an existing feature (`unknown_feature`), and an active feature: not suppressed and before the rollback marker feature (`focus_inactive`). `set_focus` with `None` clears the focus.
+- An edit in the transaction that removes or suppresses the focus feature, moves it to or after the rollback marker feature, or sets the marker to it or an earlier feature clears the focus.
 - Picks, `list_elements`, `resolve_references`, `measure`, `analyze_print` and the model layer use the display state. `export` uses the model state.
 
 ### 3.6 Sketch solve and drag
 
 - Sketch commands fail with `unknown_feature` for a missing id and `not_a_sketch` for a feature of another type.
 - `solve_sketch` solves the stored params, or the `candidate` params in their place (validated by the registry, `invalid_params` otherwise), with `NativeSolver::solve`, the driving dimension values evaluated in the document's context, and the sketch plane resolved against the state before the sketch. It records nothing and changes no state.
-- `drag_sketch` fails with `unknown_point` when `point` does not address a point of the sketch. The first frame of a drag calls `Solver::begin_drag` with `DragTarget::Point { point }` on the current params (stored params plus uncommitted edits) and keeps the returned `DragSession`; every frame calls `DragSession::update(to)`, which starts from the previous frame (sketch.md). A `drag_sketch` naming another point than the active drag of that sketch discards the active drag and begins a new one. If a frame's components do not converge (`failed`), the result is still returned (with status `failed`), the failed components keep their previous geometry, and the drag continues.
+- `solve_sketch` and `drag_sketch` fail with `invalid_params` when the params fail `SketchParams::validate` or the solver returns a `SketchError`, and with `expression_error` when a driving dimension does not evaluate.
+- `drag_sketch` fails with `unknown_point` when `point` does not address a point of the sketch. The first frame of a drag calls `Solver::begin_drag` with `DragTarget::Point { point }` on the current params (stored params plus uncommitted edits) and keeps the returned `DragSession`; every frame calls `DragSession::update(to)`, which starts from the previous frame (sketch.md). A `drag_sketch` naming another point than the active drag of that sketch discards the active drag and begins a new one. If a frame's components do not converge, the result is still returned (with `failed` true), the failed components keep their previous geometry, and the drag continues.
 - A drag state (the `DragSession` and the last frame's result) exists per (document, sketch) from the first frame until `end_sketch_drag`, `close_document`, or any recipe change of that document.
-- `end_sketch_drag` fails with `no_drag` when no drag state exists for the sketch. With `commit: false` it discards the drag state. With `commit: true` it applies one `update_feature` whose record equals the stored record with the last frame's solved entity geometry (constraints and every other field unchanged), recorded per 3.3, and discards the drag state. If the geometry equals the stored geometry exactly, no edit is applied and the revision is unchanged.
+- `end_sketch_drag` fails with `no_drag` when no drag state exists for the sketch. With `commit: false` it discards the drag state. With `commit: true` it applies one `update_feature` whose record equals the stored record with the last frame's solved entity geometry and, for a sketch on a face, `plane.fallback` set to the resolved placement (constraints and every other field unchanged), recorded per 3.3, and discards the drag state. If the geometry equals the stored geometry exactly, no edit is applied and the revision is unchanged.
 - No recompute runs during a drag; downstream features update after the commit.
 - **Projection into `SketchSolution`** (protocol.md 2.6), from sketch.md's `SolveResult`, `build_profile` and the resolved placement:
-  - `status`: `failed` when `SolveResult::failed`; else `over_constrained` when the sketch status is `conflicting`; else `fully_constrained` when `dof` is 0; else `under_constrained`. Redundancy is reported through `redundant`, not the status.
-  - `dof`, `redundant` and `conflicting` are copied.
-  - `entities` are the solved entities in stored order, each with `constrained` from `entity_states`: `under_constrained` to `under`, `fully_constrained` to `full`, `conflicting` to `conflicting`.
-  - `points` lists every point address of every entity in stored order: a point entity, then `start`, `end`, `center` roles as the entity type has them (line: start, end; circle: center; arc: center, start, end), with solved positions.
+  - `status`, `failed`, `dof`, `redundant` and `conflicting` are copied from `SolveResult` (sketch.md's `SketchStatus` and `failed`, no protocol re-mapping).
+  - `entities` are the solved entities in stored order, each with `constrained` equal to its `entity_states` entry (`EntityState`).
+  - `points` lists every point address of every entity in stored order: a point entity, then `start`, `end`, `center` roles as the entity type has them (line: start, end; circle: center; arc: start, end, center, which is `PointRole` declaration order), with solved positions.
   - `constraints` lists every constraint in stored order with `state` `conflicting` when listed in `conflicting`, else `redundant` when listed in `redundant`, else `unsatisfied` when it belongs to a failed component, else `satisfied`, and `value` from `measured` for dimensional constraints.
   - `regions` are `build_profile`'s regions in its order, each as `{reference: region.reference(), area, centroid}`; `profile_findings` are `build_profile`'s findings.
-  - `placement` is the resolved sketch placement; `display` (display sessions) holds the curve and region-fill buffers of protocol.md 2.6, with region fills triangulated from each region's loops at the same angular step as the curves.
+  - `placement` is the resolved sketch placement; `display` (display sessions) holds the region-fill buffers of protocol.md 2.6, triangulated as that section states.
 
 ### 3.7 Tessellation tolerances
 
@@ -354,7 +369,8 @@ Sketch and datum events are not emitted for features whose status is `suppressed
 - **Base tolerance.** `chord = layer_height / 4` (mm) and `angle = 5°` (`0.08726646259971647` rad), from the resolved profile.
 - **Quality.** `draft` multiplies the chord by 4 and the angle by 2; `standard` by 1; `fine` multiplies both by 0.5. The chord is then clamped to `[0.001, 1.0]` mm.
 - Each document has a display quality, initially `SessionOptions::tessellation`; `set_tessellation` changes it, re-tessellates every body in both layers, emits `body_mesh` for every body with a mesh in each layer (new mesh ids), and returns the resolved tolerance. It is not a recipe change and is not undoable.
-- Exports use `standard` unless the request gives an explicit `Tolerance` (`invalid_tolerance` when a value is not finite and positive or the angle exceeds π/2).
+- `tolerance(doc, quality)` returns the resolved tolerance of a quality for the document without changing anything (the CLI uses it for `--chord` and `--angle`).
+- Exports use `standard` unless the request gives an explicit `TessellationTolerance` (`invalid_tolerance` when a value is not finite and positive or the angle exceeds π/2).
 - A change of the resolved profile's layer height (a `set_printer` edit, or `put_printer_profile` for the document's profile) re-tessellates every body.
 
 ### 3.8 Display meshes and element ids
@@ -365,7 +381,7 @@ For each body with geometry at the display state, the engine takes from recomput
 - **Edges:** every named edge except seam edges (edges with one distinct adjacent face, named `edge(<face>)` by naming.md), sorted by element name. Degenerate edges are unnamed and never displayed. The display edge id is the position.
 - **Vertices:** every vertex that bounds at least one displayed edge, sorted by element name. The display vertex id is the position.
 
-The kernel tessellates the shape with the tolerance from 3.7 into a `partsmith_mesh::Mesh` whose face, edge and vertex ids are kernel indices (kernel.md). The engine drops the polylines of seam edges and the markers of undisplayed vertices, maps the remaining kernel ids to display ids with `Mesh::remap_ids`, orders vertex markers by display id, and converts with `Mesh::render_buffers` (mesh.md 3.11), whose layout is `MeshBuffers` (protocol.md 2.7 and 3.4): no mesh vertex is shared by two faces, `face_ids` gives each mesh vertex its face's display id, triangles wind counter-clockwise seen from outside with outward unit normals, each displayed edge contributes its polyline as consecutive segments, and the display vertex id of each `vertex_positions` entry is its index. `bounding_box` is the kernel's exact bounding box of the shape (not of the mesh).
+The kernel tessellates the shape with the tolerance from 3.7 into a `partsmith_mesh::Mesh` whose face, edge and vertex ids are kernel indices (kernel.md). The engine drops the polylines of seam edges and the markers of undisplayed vertices, maps the remaining kernel ids to display ids with `Mesh::remap_ids`, orders vertex markers by display id, and converts with `Mesh::render_buffers` (mesh.md 3.11), whose layout is `MeshBuffers` (protocol.md 2.7 and 3.4): no mesh vertex is shared by two faces, `face_ids` gives each mesh vertex its face's display id, triangles wind counter-clockwise seen from outside with outward unit normals, each displayed edge contributes its polyline as consecutive segments, and `vertex_ids` gives each `vertex_positions` marker its display vertex id. `bounding_box` is the kernel's exact bounding box of the shape (not of the mesh).
 
 Element names are unique per kind within one body state (naming.md). A duplicate is an internal error reported as an `error` diagnostic with code `duplicate_element_name` on the feature that produced the body state; the engine then orders duplicates by kernel index so the output stays deterministic.
 
@@ -375,8 +391,9 @@ The engine keeps the element table of the latest model-layer mesh of each body. 
 
 - `list_elements` fails with `unknown_body` or `body_empty`. It returns `ElementDescriptor`s in element-table order: faces, then edges, then vertices, filtered by `kind` when given. Element `i` of a kind has display id `i` in the body's current model-layer mesh.
 - Each descriptor holds the element name, its `Reference` (built by partsmith-naming from the name and the fingerprint of the element at the display state), and the geometry fields of protocol.md 2.4 from the kernel's element queries: `centroid`, `area` or `length`, `surface` or `curve`, `normal` (outward, planar faces), `direction` (line edges, first vertex to last), `axis` (cylinder, cone and torus faces, circle edges), `radius` (cylinder and sphere faces, circle edges), `placement` (planar faces: `Placement::on_plane(centroid, normal, &OriginPlane::Xy.placement())` from sketch.md, so a sketch on the top face of a box standing on XY has its origin above the model origin and its x axis along +X), and `adjacent` names (faces: their displayed edges; edges: their faces then their displayed vertices; vertices: their displayed edges; each group sorted by name).
+- `feature`: for a face, the feature of the last `@<feature>:<n>` instance suffix of its name when present, else the feature id that starts its name; for an edge or vertex, the latest in timeline order among the `feature`s of its adjacent faces.
 - `pick_reference` fails with `preview_not_pickable` when `mesh_id` names a preview mesh, `stale_pick` when it names any mesh that is not the latest model-layer mesh of its body (or was never issued), and `invalid_pick` when `index` is not below the mesh's count for `kind`. Otherwise it returns the descriptor of that element, identical to the corresponding `list_elements` entry.
-- `resolve_references` resolves each reference with the partsmith-naming resolver against the element sets of every body with geometry at the display state. One match over all bodies gives `resolved`; several give `ambiguous`; none gives `missing`. Each match is reported as a `MeshElement` with the body's current model-layer `mesh_id` and the element's display id; in headless sessions `mesh_id` is 0 and `index` is the element's position in `list_elements` order. Matches are sorted by body order, then kind, then index.
+- `resolve_references` resolves each `ElementRef` with the partsmith-naming resolver against the element set of its body at the display state (`resolved`, `ambiguous`, `missing`; a body without geometry gives `missing`, and an unknown body fails with `unknown_body`). Matches are `MeshElement`s with the body's current model-layer `mesh_id` and the element's display id; in headless sessions `mesh_id` is 0 and `index` is the element's position in `list_elements` order. Matches are sorted by kind, then index.
 
 ### 3.10 Expressions and printer values
 
@@ -384,26 +401,23 @@ The engine keeps the element table of the latest model-layer mesh of each body. 
 
 ### 3.11 Measure
 
-Targets are resolved at the display state: `{"body": id}` needs an existing body with geometry (`unknown_body`, `body_empty`); `{"reference": r}` must resolve uniquely (`reference_unresolved` otherwise, naming the element kind). Zero or more than two targets give `invalid_measure`. Fields present in the result:
+The target is resolved at the display state: `{"kind": "body", "body"}` needs an existing body with geometry (`unknown_body`, `body_empty`); `{"kind": "element", "body", "reference"}` needs such a body and the reference must resolve uniquely in it (`reference_unresolved` otherwise, naming the element kind). Anything but exactly one target gives `invalid_measure`. Fields present in the result:
 
-| Targets | Fields |
+| Target | Fields |
 | --- | --- |
 | One body | `volume` (mm³), `area` (mm²), `center_of_mass` (uniform density), `bounding_box`, `face_count`, `edge_count`, `vertex_count` (display element counts, 3.8) |
 | One face | `area`, `centroid`, `surface`, plus `normal` (planar), `radius` (cylinder, sphere) and `axis` (cylinder, cone, torus) |
 | One edge | `length`, `centroid`, `curve`, plus `direction` (line) or `axis` and `radius` (circle) |
 | One vertex | `centroid` (the point) |
-| Two targets of any kind | `distance` (minimum distance between them, 0 when they touch), `closest_points` (one pair of points, one on each target, whose distance equals `distance` within 1e-9 mm), and `angle` when each target is a planar face or a line edge |
-
-`angle` is in `[0, π/2]`: between two planes, the angle between their normal lines; between two lines, the angle between their direction lines; between a plane and a line, the angle between the line and the plane. Parallel planes give 0.
 
 ### 3.12 Print analysis
 
-1. **Profile.** `profile` names a session or built-in profile (`unknown_printer_profile` otherwise). When absent, the document's `printer` is used; if that id is unknown, `unknown_printer_profile`; if `printer` is `None`, `partsmith_print::DEFAULT_PROFILE_ID` (`generic-fdm`).
+1. **Profile.** `profile` names a session or built-in profile (`unknown_printer_profile` otherwise). When absent, the document's resolved profile (3.7) is used.
 2. **Bodies.** `bodies` lists existing bodies (`unknown_body`) with geometry at the display state (`body_empty`); duplicates are ignored after their first occurrence. When absent: every body with role `part`, `visible: true` and geometry, in document order. With no body to analyze, the report has empty `bodies`, and `summary` is `summarize(&[])` (health `ok`, label `Ready to print`).
-3. **Rotation.** `as_modeled` is the identity; `matrix` is `partsmith_print::Rotation::new(rows)`; `face_down` resolves the face reference uniquely at the display state (`reference_unresolved` otherwise), requires a planar face (`invalid_orientation`, "Only flat faces can be laid on the bed."), and is `Rotation::face_down(outward normal)`. A rotation the print crate rejects is `invalid_orientation` ("The orientation is not a rotation.").
+3. **Rotation.** `as_modeled` is the identity; `matrix` is `partsmith_print::Rotation::new(rows)`; `face_down` resolves the face reference uniquely in its `body` at the display state (`unknown_body` or `reference_unresolved` otherwise), requires a planar face (`invalid_orientation`, "Only flat faces can be laid on the bed."), and is `Rotation::face_down(outward normal)`. A rotation the print crate rejects is `invalid_orientation` ("The orientation is not a rotation.").
 4. **Meshes.** Each body's mesh is, in display sessions, its current model-layer display mesh with display face ids (so findings' `triangles` and `faces` index that mesh and the overhang map aligns with it); in headless sessions, a mesh at the document's `standard` tolerance.
 5. **Checks.** For each body, `partsmith_print::analyze(mesh, profile, &AnalysisOptions { rotation, checks: CheckKind::ALL.to_vec() })`. Its `BodyReport` becomes `BodyPrint.report` unchanged. `summary` is `partsmith_print::summarize` over the body reports in body order. An `AnalysisError` (for example an empty mesh) is an internal error for that body and fails the command with `internal_error`.
-6. **Transforms.** Let `R` be the rotation, `U` the union bounding box of all analyzed bodies' meshes rotated by `R`, and `c` the profile bed's center in bed coordinates (`(width / 2, depth / 2)` for a rectangular bed, print.md). The body transform is `T_b = translate(c.x - U.center.x, c.y - U.center.y, -minz_b) · R`, where `minz_b` is the minimum z of body `b`'s rotated mesh, so every body rests on z = 0 (matching print.md's print frame) and the group is centered on the bed. `BodyPrint.transform` is `T_b` as a column-major 4 × 4 matrix.
+6. **Transforms.** Let `R` be the rotation, `U` the union bounding box of all analyzed bodies' meshes rotated by `R`, and `c` the profile bed's center in bed coordinates (`Bed::center`, print.md: `(width / 2, depth / 2)` for a rectangular bed, `(0, 0)` for a round one). The body transform is `T_b = translate(c.x - U.center.x, c.y - U.center.y, -minz_b) · R`, where `minz_b` is the minimum z of body `b`'s rotated mesh, so every body rests on z = 0 (matching print.md's print frame) and the group is centered on the bed. `BodyPrint.transform` is `T_b` as a column-major 4 × 4 matrix.
 7. **Overhang map** (display sessions). The `overhangs` overlay of the analysis, converted with `Overlay::per_vertex(render indices, render vertex count)` for the body's display buffers: one `f32` per mesh vertex, the worst overhang angle of the triangles using it, 0 where not overhanging.
 8. The command emits one `print_health` event with the report and returns `{health: summary.health}`. It changes no state.
 
@@ -420,21 +434,21 @@ Targets are resolved at the display state: `{"body": id}` needs an existing body
 ### 3.14 STEP import and assets
 
 - `import_step` reads the bytes with partsmith-io. Unreadable data or a file without solids gives `import_failed` ("The STEP file could not be imported: the file contains no solid bodies.").
-- The asset name is the lowercase hex BLAKE3 hash of the bytes followed by `.step`. The bytes are stored in the document's asset store under that name.
-- One body record per solid, in file order: name from the STEP product name when non-empty, else `name`, else `Imported`; when two or more solids fall back to the same name, they get ` 1`, ` 2`, ... suffixes. Color from the file when present. Body ids, then the feature id, come from `SessionOptions::id_generator`.
-- The edits are: `add_body` for each new body at the end of `bodies`; `add_feature` of type `import` with params `{"asset": "<name>", "bodies": [<ids>]}` at the end of the timeline when the rollback marker is `None`, else immediately after the marker feature followed by `set_rollback` to the new feature. They are recorded per 3.3. The result lists the feature id and body ids.
-- `open_document` accepts assets. Supplied assets that no feature of the loaded document references are ignored. Each referenced one must be named `<64 lowercase hex>.<ext>` and equal the BLAKE3 hash of its bytes with that extension (`asset_mismatch` otherwise); it is stored per document. This lets hosts pass every file of a shared `assets/` folder. A referenced asset that was not supplied makes the `import` feature fail at recompute with "The imported file assets/{name} is missing. Put it next to the document in the assets folder.".
-- `save_document` returns every stored asset that a feature of the current recipe references (from the registry's dependency extraction), sorted by name. Unreferenced assets stay stored, so undo and redo of an import keep working.
+- The asset name is the lowercase hex BLAKE3 hash of the bytes (the `blake3` crate, ADR 0012) followed by `.step`. The bytes are stored in the document's asset store under that name.
+- One body record named `name`, else the STEP product name of the first solid, else `Imported`, with the first solid's color when present; every solid goes into it (features/import.md). The body id, then the feature id, come from `SessionOptions::id_generator`.
+- The edits are: `add_body` at the end of `bodies`; `add_feature` of type `import` with params `{"asset": "<name>", "body": "<id>", "op": "new"}` (features/import.md) at the end of the timeline when the marker is `None`, else at the marker feature's index (so it is active). They are recorded per 3.3. The result has the feature id and the body id.
+- `open_document` accepts assets. Supplied assets that no feature of the loaded document references are ignored. Each referenced one must be named `<64 lowercase hex>.<ext>` and equal the BLAKE3 hash of its bytes with that extension (`asset_mismatch` otherwise); it is stored per document. This lets hosts pass every file of a shared `assets/` folder. A referenced asset that was not supplied makes the `import` feature fail at recompute with `asset_missing` ("The imported file assets/{asset} is missing. Put it next to the document in the assets folder.", features.md).
+- `save_document` returns every stored asset that a feature of the current recipe references (`Dependencies::assets`), sorted by name. Unreferenced assets stay stored, so undo and redo of an import keep working.
 
 ### 3.15 Panics and poisoned documents
 
 - `call` and `execute` run each command under `std::panic::catch_unwind`. A panic produces an `internal_error` response with the panic message, no events, and marks the command's document (if it names one) as poisoned.
-- Every command naming a poisoned document fails with `document_poisoned`, except `save_document` and `close_document`. On a poisoned document, `save_document` returns the recipe as of the last successful command even when a transaction is open, so the user can rescue their work.
+- Every command naming a poisoned document fails with `document_poisoned`, except `save_document`, `mark_saved` and `close_document`. On a poisoned document, `save_document` returns the recipe as of the last successful command even when a transaction is open, so the user can rescue their work.
 - The typed API does not catch panics; hosts that call it directly (CLI) let a panic abort with exit code 4 (cli.md).
 
 ### 3.16 Python export
 
-`export_python` returns the script defined by python-api.md section 3.8 for the current recipe, including uncommitted edits. It never fails for a recipe that loads; features without a dedicated Python form use the generic `feature(...)` form.
+`export_python` returns the script defined by python-api.md section 3.8 for the current recipe, including uncommitted edits. For each feature the generator calls `Registry::python(record, names)` with a `PythonNames` (features.md 2.10) that supplies the document units and the script variables of bodies, features, sketch entities and parameters; the registry returns the feature's dedicated call from its `Feature::python` hook, else the generic `feature(...)` call (`Registry::python_generic`). The generator owns sketch `with` blocks, variable assignment and appending the `name=`, `suppressed=True` and `id=` keywords. It never fails for a recipe that loads.
 
 ### 3.17 Caching and memory
 
@@ -450,19 +464,19 @@ Targets are resolved at the display state: `{"body": id}` needs an existing body
 - With identical `SessionOptions` (including a deterministic id generator such as `SequentialIds`), the same sequence of request frames produces byte-identical response frames, within one build and platform, independent of cache state, `cache_budget` and machine load.
 - No output depends on wall-clock time, randomness other than the configured id generator, hash-map iteration order, memory addresses or thread scheduling. Maps that reach output are ordered (`BTreeMap` or insertion order).
 - Native and WebAssembly builds produce the same recipes, ids, statuses and messages, and geometry metrics equal within 1e-9 relative; floating-point bytes may differ.
-- `SequentialIds` generates `<prefix><n as 12 lowercase hex digits>` with a separate counter per prefix starting at 1 (`b-000000000001`, `f-000000000001`), skipping any id already used in the document. It implements partsmith-model's `IdGenerator`.
+- `SequentialIds` generates `<prefix><n as 12 lowercase hex digits>` with a separate counter per prefix starting at 1 (`b-000000000001`, `f-000000000001`), skipping any id already used in the document; it is defined in model.md.
 
 ### 3.19 Validation
 
 `validate` loads the text into a temporary document (no handle, no events) and reports, in this order:
 
 1. Load errors from partsmith-model (JSON syntax with line and column, structure, ids, format version). If loading fails, only these are reported.
-2. Unknown feature types (`unknown_feature_type`, error) and registry params validation (`invalid_params`, error, with the JSON Pointer of the param).
+2. Unknown feature types (`unknown_type`, error, with features.md's `UnknownType` message) and registry params validation (`invalid_params`, error, with the JSON Pointer of the param).
 3. Expression errors in parameters and feature params (codes from expressions.md, error), including cycles.
 4. Feature references to bodies, features and sketch entities that do not exist or come later in the timeline (codes from model.md and features.md, error).
 5. `unknown_printer_profile` (warning) when `printer` is not installed.
 6. Each sketch is solved: conflicting constraints (`sketch_conflicting`, error, listing the ids), redundant constraints (`sketch_redundant`, warning), no convergence (`sketch_not_converged`, error), with sketch.md's `SolveIssue` messages.
-7. Referenced assets missing from `assets` (`missing_asset`, error).
+7. Referenced assets missing from `assets` (`asset_missing`, error, with features.md's `AssetMissing` message).
 8. With `rebuild`: full recompute; every feature error (`feature_error`, error) and warning (`feature_warning`, warning), with the feature id in the message and the JSON Pointer `/features/<index>`.
 9. With `canonical`: `not_canonical` (error) when the text differs from the canonical serialization of the loaded document, with the line of the first differing byte.
 
@@ -480,7 +494,7 @@ Acceptance tests in this spec, cli.md and python-api.md use these documents, sto
 | `two-bodies.ptsm` | Bodies `b-1` "Block" and `b-2` "Peg". `f-box1` as in `box.ptsm` with a literal height of 40 mm and no parameters. `f-cyl1`: cylinder primitive in `b-2`, op `new`, radius 5 mm, height 10 mm, `position` (50, 0, 0) on the default plane (base center (50, 0, 0), axis +Z). | `b-2` volume 250π = 785.3981633974482 mm³, 3 faces, 2 displayed edges, 2 displayed vertices |
 | `circle.ptsm` | Body `b-1` "Disc". Sketch `f-sk1` on XY: circle `e-1` center (0, 0) radius 5, constraint `c-1` radius of `e-1` = `5 mm`. Extrude `f-ext1` by 10 mm, op `new`. | Volume 785.3981633974482 mm³, area 150π = 471.23889803846896 mm², 3 faces |
 | `drag.ptsm` | Sketch `f-sk1` on XY: line `e-1` (0, 0) to (10, 0); `c-1` fix on `e-1.start`; `c-2` horizontal `e-1`. No bodies. | DOF 1, status `under_constrained` |
-| `conflict.ptsm` | Sketch `f-sk1` on XY: line `e-1` (0, 0) to (10, 0); `c-1` horizontal `e-1`; `c-2` vertical `e-1`; `c-3` fix on `e-1.start`; `c-4` distance between `e-1.start` and `e-1.end` = `10 mm`. | Status `over_constrained`, `conflicting` non-empty and a subset of {`c-1`, `c-2`, `c-4`} |
+| `conflict.ptsm` | Sketch `f-sk1` on XY: line `e-1` (0, 0) to (10, 0); `c-1` horizontal `e-1`; `c-2` vertical `e-1`; `c-3` fix on `e-1.start`; `c-4` distance between `e-1.start` and `e-1.end` = `10 mm`. | Status `conflicting`, `conflicting` non-empty and a subset of {`c-1`, `c-2`, `c-4`}; feature status `error` |
 | `datum.ptsm` | Datum plane `f-dp1` offset 10 mm from the XY origin plane. | Placement origin (0, 0, 10), x axis (1, 0, 0), normal (0, 0, 1) |
 
 Profiles are print.md's built-ins: `generic-fdm` (the default; layer height 0.2 mm, bed 256 × 256 mm, so the bed center is (128, 128)) and `generic-resin` (layer height 0.05 mm).
@@ -501,7 +515,8 @@ pub enum EngineError {
     #[error("There is no edit in progress.")] NoTransaction,
     #[error("Edits outside a transaction need a label for the undo history.")] LabelRequired,
     #[error("Edits inside the transaction \"{label}\" take the transaction's label.")] LabelNotAllowed { label: String },
-    #[error("{source}")] EditRejected { index: u32, source: EditError },
+    /// `index` is the offending edit, or `None` when `rename_parameter`'s own checks failed.
+    #[error("{source}")] EditRejected { index: Option<u32>, source: EditError },
     #[error("{feature_type} {feature}: {message}")] InvalidParams { index: u32, feature: Id, feature_type: String, message: String },
     #[error("There is nothing to undo.")] NothingToUndo,
     #[error("There is nothing to redo.")] NothingToRedo,
@@ -516,7 +531,7 @@ pub enum EngineError {
     #[error("There is no body with id {id}.")] UnknownBody { id: Id },
     #[error("Body \"{name}\" has no geometry yet.")] BodyEmpty { name: String },
     #[error("The selected {kind} no longer exists. Pick it again.")] ReferenceUnresolved { kind: String },
-    #[error("Measure takes one or two bodies or elements.")] InvalidMeasure,
+    #[error("Measure takes one body or element.")] InvalidMeasure,
     #[error("{message}")] Expression { message: String },
     #[error("Printer profile \"{id}\" is not installed.")] UnknownPrinterProfile { id: String },
     #[error("\"{id}\" is a built-in profile. Save your changes under a new name.")] ProfileIdReserved { id: String },
@@ -532,7 +547,7 @@ pub enum EngineError {
 impl EngineError {
     /// The protocol error code.
     pub fn code(&self) -> ErrorCode;
-    /// The offending edit index for `EditRejected` and `InvalidParams`.
+    /// The offending edit index for `EditRejected` (when it has one) and `InvalidParams`.
     pub fn edit_index(&self) -> Option<u32>;
 }
 ```
@@ -541,7 +556,7 @@ impl EngineError {
 
 ## 5. Performance budgets
 
-Release builds on the reference machine (technical design section 14), measured by Criterion benches in `crates/partsmith-engine/benches/` through `Session::call` (so encoding is included) and, for the web column, by a Playwright benchmark against the WebAssembly build. The reference part is `examples/bench/fifty-features/model.ptsm` (50 features over 3 bodies: sketches, extrudes, fillets, a shell, holes and patterns).
+Release builds on the reference machine (technical design section 14), measured by benchmarks (`harness = false`, `std::time::Instant`, as sketch.md) in `crates/partsmith-engine/benches/` through `Session::call` (so encoding is included) and, for the web column, by a Playwright benchmark against the WebAssembly build. The reference part is `examples/bench/fifty-features/model.ptsm`, the one 50-feature benchmark document of the project: recompute.md's `bench50.ptsm` and ui.md's `part-50.ptsm` are this file. It has the composition recompute.md section 5 gives (2 datum planes, 10 sketches, 10 extrudes, 8 fillets, 6 chamfers, 4 hole features, 2 shells, 4 linear patterns, 2 mirrors and 2 booleans, over 4 bodies) and a parameter `base` that drives the first sketch.
 
 | Operation | Desktop | Web |
 | --- | --- | --- |
@@ -567,7 +582,7 @@ Tests live in `crates/partsmith-engine/tests/`. "Session" means `Session::new(Se
 1. `new_document {}` on a fresh session returns doc 1 and emits exactly `document_changed` (revision 0, dirty false, document units `mm`, no parameters, bodies or features, `transaction_open` false, no `undo`) then `recomputed` (empty `features`, `parameters`, `diagnostics`).
 2. A second `new_document` returns doc 2; after `close_document` 2, a third returns doc 3.
 3. `open_document` of `box.ptsm` emits, in order, `document_changed`, `recomputed` (`f-box1` ok, `p-h` value 40 dimension length), `body_mesh` (`b-1`, layer `model`, `mesh_id` 1), then the response with doc 1.
-4. That `body_mesh` has `face_count` 6, `edge_count` 12, `vertex_count` 8, 24 mesh vertices, 12 triangles, 12 edge segments, 8 vertex positions, and bounding box (-10, -15, 0) to (10, 15, 40) within 1e-6.
+4. That `body_mesh` has `face_count` 6, `edge_count` 12, `vertex_count` 8, 24 mesh vertices, 12 triangles, 12 edge segments, 8 vertex positions with `vertex_ids` 0 to 7 in order, and bounding box (-10, -15, 0) to (10, 15, 40) within 1e-6.
 5. In that mesh, the three vertices of every triangle share a face id, every face id 0 to 5 occurs on exactly 4 vertices, and every normal has length 1 within 1e-6 and equals the outward normal of its face.
 6. In that mesh, every edge id 0 to 11 occurs on exactly one segment, and each segment's endpoints are two box corners.
 7. `save_document` right after opening `box.ptsm` returns text byte-identical to the file and no assets.
@@ -589,7 +604,7 @@ Tests live in `crates/partsmith-engine/tests/`. "Session" means `Session::new(Se
 20. `undo` on a freshly opened document fails with `nothing_to_undo`; `redo` fails with `nothing_to_redo`.
 21. After an edit and an `undo`, a new labeled edit makes `redo` fail with `nothing_to_redo`.
 22. After an edit then `undo`, `document_changed` reports `dirty` false.
-23. After an edit, `save_document` emits `document_changed` with `dirty` false and no `undo` change; a second `save_document` emits no event.
+23. After an edit, `save_document` returns revision 1, emits no event and `dirty` stays true; `mark_saved` with revision 1 emits `document_changed` with `dirty` false; a second `mark_saved` emits no event; `mark_saved` with revision 0 after a further edit changes nothing.
 24. With `undo_limit` 3, after 5 labeled edits, `undo` succeeds 3 times and fails the 4th time with `nothing_to_undo`.
 25. `apply_edits` with label and an empty `edits` list succeeds, keeps the revision, and creates no undo entry.
 
@@ -606,17 +621,17 @@ Tests live in `crates/partsmith-engine/tests/`. "Session" means `Session::new(Se
 34. On `fillet.ptsm`: `begin_transaction` `Edit fillet`, `set_focus` `f-fil1` emits `document_changed` with focus `f-fil1`, `recomputed` (`f-fil1` ok), `body_mesh` model layer for `b-1` with `face_count` 6, and `body_mesh` preview layer for `b-1` with `face_count` 7.
 35. During that focus, `list_elements` on `b-1` returns 6 faces, and `measure` of `b-1` gives volume 24000.
 36. `commit_transaction` after test 34 emits `body_mesh` model layer with `face_count` 7 and `body_mesh` preview layer for `b-1` without `mesh`.
-37. On `fillet.ptsm` with `set_rollback` `f-box1` applied, `set_focus` `f-fil1` inside a transaction fails with `focus_inactive`.
+37. On `fillet.ptsm` with `set_rollback` `f-fil1` applied, `set_focus` `f-fil1` inside a transaction fails with `focus_inactive`.
 38. `pick_reference` with the `mesh_id` of a preview mesh fails with `preview_not_pickable`.
 
 **Rollback**
 
-39. On `fillet.ptsm`, `apply_edits` `Roll back` with `set_rollback` `f-box1` emits `recomputed` with `f-fil1` status `rolled_back` and a model `body_mesh` with `face_count` 6; `undo` restores `face_count` 7.
+39. On `fillet.ptsm`, `apply_edits` `Roll back` with `set_rollback` `f-fil1` emits `recomputed` with `f-fil1` status `rolled_back` and a model `body_mesh` with `face_count` 6; `undo` restores `face_count` 7.
 40. `set_rollback` to `f-nope` fails with `edit_rejected`.
 
 **Sketch**
 
-41. Opening `drag.ptsm` emits `sketch_solved` for `f-sk1` with `dof` 1, status `under_constrained`, entity `e-1` with `constrained` `under`, points `e-1.start` (0, 0) and `e-1.end` (10, 0), no regions, and two `open_endpoint` profile findings for `e-1`, at (0, 0) and (10, 0).
+41. Opening `drag.ptsm` emits `sketch_solved` for `f-sk1` with `dof` 1, status `under_constrained`, `failed` false, entity `e-1` with `constrained` `under_constrained`, points `e-1.start` (0, 0) and `e-1.end` (10, 0), no regions, and two `open_endpoint` profile findings for `e-1`, at (0, 0) and (10, 0).
 42. `solve_sketch` of `drag.ptsm` with a candidate that adds a distance constraint `c-3` of `10 mm` between `e-1.start` and `e-1.end` returns `dof` 0 and status `fully_constrained`; `get_document` still has 2 constraints and no event is emitted.
 43. `drag_sketch` of `e-1.end` to (20, 5) returns `e-1.end` at (20, 0) within 1e-9 and emits no event; the document is unchanged.
 44. A second frame to (30, -5) returns `e-1.end` at (30, 0) within 1e-9.
@@ -626,9 +641,9 @@ Tests live in `crates/partsmith-engine/tests/`. "Session" means `Session::new(Se
 48. `drag_sketch` on `box.ptsm` feature `f-box1` fails with `not_a_sketch` and the message contains `box`.
 49. `drag_sketch` of point `e-9.end` fails with `unknown_point`.
 50. After a drag frame, an `apply_edits` on the document discards the drag: `end_sketch_drag` with `commit` true fails with `no_drag`.
-51. Opening `conflict.ptsm` emits `sketch_solved` with status `over_constrained` and a non-empty `conflicting` list that is a subset of {`c-1`, `c-2`, `c-4`}.
+51. Opening `conflict.ptsm` emits `sketch_solved` with status `conflicting` and a non-empty `conflicting` list that is a subset of {`c-1`, `c-2`, `c-4`}.
 52. Opening `plate.ptsm` emits `sketch_solved` with `dof` 4 and exactly one region with area 4000 within 1e-9 and centroid (40, 25) within 1e-9, and a `body_mesh` for `b-1` with bounding box (0, 0, 0) to (80, 50, 10).
-53. Opening `circle.ptsm` (display on) gives a `sketch_solved` whose `curve_entities` buffer has 72 entries, all 0.
+53. Opening `circle.ptsm` (display on) gives a `sketch_solved` whose `region_ids` has one entry per `region_positions` vertex, all 0, and whose triangles cover an area within 0.2% of 25π.
 54. Opening `datum.ptsm` emits `datum_plane` for `f-dp1` with origin (0, 0, 10), x axis (1, 0, 0) and normal (0, 0, 1).
 
 **Tessellation**
@@ -646,18 +661,16 @@ Tests live in `crates/partsmith-engine/tests/`. "Session" means `Session::new(Se
 62. The face named `f-box1/top` has centroid (0, 0, 40), `surface` `plane`, `normal` (0, 0, 1), `area` 600 within 1e-9, `placement` origin (0, 0, 40), x axis (1, 0, 0) and normal (0, 0, 1), and `adjacent` exactly [`edge(f-box1/back|f-box1/top)`, `edge(f-box1/front|f-box1/top)`, `edge(f-box1/left|f-box1/top)`, `edge(f-box1/right|f-box1/top)`].
 63. `pick_reference` with `index` 6 and kind face fails with `invalid_pick`.
 64. After any `apply_edits` that changes `b-1`, `pick_reference` with the old `mesh_id` fails with `stale_pick`.
-65. `resolve_references` with the top face's reference returns `resolved` with one match whose `index` equals the top face's display id and whose `mesh_id` is the current model mesh.
-66. `resolve_references` with `{"q": "f-nope/top", "fp": "plane|n=1,0,0|c=999,999,999|a=1"}` returns `missing` with no matches.
+65. `resolve_references` with `{"body": "b-1", "reference": <the top face's reference>}` returns `resolved` with one match whose `index` equals the top face's display id and whose `mesh_id` is the current model mesh.
+66. `resolve_references` with `{"body": "b-1", "reference": {"q": "f-nope/top", "fp": "plane|n=1,0,0|c=999,999,999|a=1"}}` returns `missing` with no matches.
 67. On `circle.ptsm`, `list_elements` with kind edge returns 2 edges (the seam is excluded), both with `curve` `circle` and `radius` 5.
 
 **Measure and evaluate**
 
-68. `measure` of `{"body": "b-1"}` on `box.ptsm` returns volume 24000, area 5200, center of mass (0, 0, 20), bounding box (-10, -15, 0) to (10, 15, 40), face, edge and vertex counts 6, 12 and 8, and no other fields.
-69. `measure` of the top and bottom face references returns `distance` 40, `angle` 0, and closest points whose z values are 40 and 0.
-70. `measure` of the top face and the front face (normal (0, -1, 0)) returns `distance` 0 and `angle` π/2 within 1e-12.
-71. `measure` of `edge(f-box1/front|f-box1/top)` returns length 20, centroid (0, -15, 40), `curve` `line` and direction (±1, 0, 0).
+68. `measure` of `{"kind": "body", "body": "b-1"}` on `box.ptsm` returns volume 24000, area 5200, center of mass (0, 0, 20), bounding box (-10, -15, 0) to (10, 15, 40), face, edge and vertex counts 6, 12 and 8, and no other fields.
+71. `measure` of `{"kind": "element", "body": "b-1", "reference": <the reference of edge(f-box1/front|f-box1/top)>}` returns length 20, centroid (0, -15, 40), `curve` `line` and direction (±1, 0, 0).
 72. `measure` of `fillet.ptsm` `b-1` returns volume 23965.66370614359 and area 5163.946891450772 within 1e-6 relative.
-73. `measure` with no targets, and with three targets, fails with `invalid_measure`.
+73. `measure` with no targets, and with two targets, fails with `invalid_measure`.
 74. `evaluate` of `2 * height` on `box.ptsm` returns 80 with dimension length; `evaluate` of `height + 30 deg` fails with `expression_error`.
 
 **Print**
@@ -669,8 +682,8 @@ Tests live in `crates/partsmith-engine/tests/`. "Session" means `Session::new(Se
 79. `analyze_print` on `box.ptsm` with orientation `matrix` rotating 30 degrees about +X (`rows` [[1, 0, 0], [0, cos 30°, -sin 30°], [0, sin 30°, cos 30°]]) reports a finding in the `overhangs` check and summary health not `ok`; the overhang buffer is π/3 at every vertex of the face `f-box1/bottom`, π/6 at every vertex of `f-box1/front`, and 0 at every other vertex (vertices identified through `face_ids` and `list_elements`).
 80. `analyze_print` with `profile` `nope` fails with `unknown_printer_profile`.
 81. `analyze_print` with a matrix whose determinant is -1 fails with `invalid_orientation` and message `The orientation is not a rotation.`
-82. `analyze_print` with `face_down` on the top face of `box.ptsm` reports a transform whose rotation maps (0, 0, 1) to (0, 0, -1).
-83. `analyze_print` with `face_down` on the cylindrical face of `circle.ptsm` fails with `invalid_orientation` and message `Only flat faces can be laid on the bed.`
+82. `analyze_print` with `face_down` on the top face of `box.ptsm` (`body` `b-1`) reports a transform whose rotation maps (0, 0, 1) to (0, 0, -1).
+83. `analyze_print` with `face_down` on the cylindrical face of `circle.ptsm` (`body` `b-1`) fails with `invalid_orientation` and message `Only flat faces can be laid on the bed.`
 84. In a headless session, `analyze_print` on `box.ptsm` returns a report whose body has no `mesh_id` and no `overhang`.
 
 **Export and import**
@@ -679,18 +692,18 @@ Tests live in `crates/partsmith-engine/tests/`. "Session" means `Session::new(Se
 86. Exporting `two-bodies.ptsm` as STL with `per_body` true returns `Block.stl` then `Peg.stl`.
 87. `export` as 3MF returns `model.3mf` whose bytes start with `50 4b 03 04`.
 88. Two identical `export` requests (STL, 3MF, OBJ and STEP each) return byte-identical files.
-89. Exporting `box.ptsm` as STEP, then `new_document` and `import_step` with those bytes, returns one feature and one body; `measure` of that body gives volume 24000 within 1e-6 relative.
+89. Exporting `box.ptsm` as STEP, then `new_document` and `import_step` with those bytes, returns a result with one `feature` and one `body`; `measure` of that body gives volume 24000 within 1e-6 relative.
 90. `save_document` after test 89 returns one asset whose name is the BLAKE3 hex of the STEP bytes plus `.step` and whose bytes equal them; reopening the saved text with that asset gives the same volume.
 91. Reopening the saved text of test 89 without the asset succeeds, and `recomputed` reports the import feature as `error` with a message containing `is missing`.
 92. Opening the saved text of test 89 with its asset name paired with the bytes `hello` fails with `asset_mismatch`; opening `box.ptsm` with that same mismatched asset succeeds, because `box.ptsm` does not reference it.
 93. `import_step` with bytes `hello` fails with `import_failed`.
 94. `export` on an empty document fails with `nothing_to_export`; `export` with `bodies` [`b-9`] fails with `unknown_body`.
-95. On `two-bodies.ptsm` after `set_rollback` `f-box1` (so `f-cyl1` is rolled back), `export` with `bodies` [`b-2`] fails with `body_empty` and message `Body "Peg" has no geometry yet.`
+95. On `two-bodies.ptsm` after `set_rollback` `f-cyl1` (so `f-cyl1` is rolled back), `export` with `bodies` [`b-2`] fails with `body_empty` and message `Body "Peg" has no geometry yet.`
 
 **Python, catalog, determinism, frames**
 
 96. `export_python` of `box.ptsm` returns exactly the script given in python-api.md section 6, test 1.
-97. `feature_catalog` lists, sorted by type, an entry for every M1 feature type registered by features.md (including `sketch`, `extrude`, `revolve`, `fillet`, `chamfer`, `shell`, `hole`, `boolean`, `mirror`, `datum_plane`, `move_body`, `split_body`), each with an object `params_schema`.
+97. `feature_catalog` lists exactly the types of features.md 3.13 plus `import`, sorted by type, each with a `manifest` and an object `params_schema`.
 98. This request sequence, sent through `Session::call` with ids 1 to 13 in two fresh sessions with `SequentialIds`, yields byte-identical response frames: open `fillet.ptsm` (doc 1); `apply_edits` `Change height` to `45 mm`; `begin_transaction` `Edit fillet`; `set_focus` `f-fil1`; `commit_transaction`; open `drag.ptsm` (doc 2); `drag_sketch` doc 2 `e-1.end` to (20, 5); `end_sketch_drag` doc 2 commit true; `measure` doc 1 body `b-1`; `analyze_print` doc 1 `as_modeled`; `export` doc 1 binary STL; `export` doc 1 STEP; `export_python` doc 1.
 99. Running that script with `cache_budget` 0 yields the same response frames as with the default budget.
 100. `close_document` then `open_document` of the same text in one session produces events equal to the first open's events except for `doc` and `mesh_id` values.
@@ -699,16 +712,18 @@ Tests live in `crates/partsmith-engine/tests/`. "Session" means `Session::new(Se
 103. `validate` of `box.ptsm` returns no diagnostics; with `canonical` true and the text re-indented, it returns one `not_canonical` error; of `conflict.ptsm` it returns one `sketch_conflicting` error.
 104. `validate` of `box.ptsm` with `height` set to `width * 2` returns an error diagnostic whose `path` is `/parameters/0/expr` and whose message names `width`.
 105. `SequentialIds` in a document that already has `f-000000000001` generates `f-000000000002` for the first feature id.
+106. On `box.ptsm`, `rename_parameter` `p-h` to `h` returns revision 1; the document has parameter `h` and `f-box1` size `["20 mm", "30 mm", "h"]`; `f-box1` is ok; `undo` (label `Rename parameter height to h`) restores both. Renaming to `pi` fails with `edit_rejected`.
+107. `fillet.ptsm` with radius `30 mm` gives `f-fil1` status `error`, first message code `fillet_too_large`, `field` `/radius` and a `suggestion`; an `update_feature` setting `radius` to that suggestion makes `f-fil1` ok.
+108. Every face descriptor of `box.ptsm` has `feature` `f-box1`; on `fillet.ptsm` the fillet face has `feature` `f-fil1`.
+109. On `conflict.ptsm`, `f-sk1` has status `error` and `sketch_solved` is still emitted for it.
+110. `format` of `box.ptsm` re-indented with 4 spaces returns the canonical fixture text; `format` of the `wedge_v9` document of test 11 keeps that feature's params as loaded; `format` of `{"format": "partsmith",` fails with `parse_error`.
+111. On `box.ptsm`, `tolerance(doc, Standard)` returns chord 0.05 and angle 0.08726646259971647, equal to what `set_tessellation` `standard` returns, and emits nothing.
+112. On `two-bodies.ptsm` with `set_rollback` `f-cyl1`, `import_step` of the STEP bytes of test 89 inserts the `import` feature at index 1 (before `f-cyl1`) with params `asset`, `body` and `op` `new`; the rollback stays `f-cyl1`, the import feature's status is `ok` and `f-cyl1` is `rolled_back`.
 
 ## 7. Open issues
 
-1. **Recompute capabilities.** The engine needs from partsmith-recompute: a stop point (rollback marker, or a focus feature inclusive), the body states immediately before a given feature and that feature's own output, per-feature status with the JSON Pointer of each unresolved reference, sketch and datum results, parameter values, result hashes for change detection, and a cache shareable across documents. recompute.md must expose these.
-2. **Element data.** Building descriptors needs, for every element of a body state, its `ElementInfo` (naming.md) and kernel.md's element geometry and topology queries (which exist). Recompute must hand the engine each displayed body state's `Shape` and `NamingMap`, so the engine can map kernel indices to names without storing indices anywhere else.
 3. **Seam edges.** This spec hides seam edges (and unnamed degenerate edges) from display, picking and `list_elements`, matching kernel.md's tessellation, which emits no seam polylines. naming.md still names seams (`edge(f-cyl1/side)`); the reviewer should confirm that no M1 feature needs to reference one (kernel.md already rejects filleting a seam).
 4. **Print analysis mesh.** In display sessions, checks run on the display mesh so the overhang map aligns with it; findings therefore depend slightly on display quality. The CLI and Python always use `standard`.
-5. **Deterministic id format.** model.md defines `DeterministicIdGenerator` (seeded SplitMix64, ids like `f-e220a8397b1d`); this spec adds `SequentialIds` (per-prefix counters, `f-000000000001`) by overriding `IdGenerator::generate`, because readable, stable ids matter for Python scripts and tests. The reviewer decides whether both stay (model.md Open issue 11).
-6. **`import` feature and asset dependencies.** Saving assets relies on the registry's dependency extraction reporting asset names. features.md must define the `import` feature and include assets in `Dependencies`.
 7. **Fixture params.** The fixtures are described semantically; their exact JSON depends on features.md and sketch.md params, which test authors must use.
 8. **Reference benchmark part.** `examples/bench/fifty-features/model.ptsm` does not exist yet and must be authored with the examples.
-9. **Export state versus display state.** Export uses the model state (rollback marker) while interactive queries use the display state (which differs only during a focus). The UI spec should not offer export while a focus transaction is open, or must accept that export ignores the focus.
-10. **Sketch and print projections.** The protocol's `SketchSolution` is projected from sketch.md's `SolveResult` (3.6) and the print report embeds print.md's types (3.12); see protocol.md Open issues 5 and 6.
+10. **Sketch and print projections.** The protocol's `SketchSolution` (protocol.md 2.6) and `PrintReport` (protocol.md 2.7) are the contract: 3.6 projects sketch.md's `SolveResult` into the first and 3.12 embeds print.md's `BodyReport` and `HealthSummary` in the second. Changes to sketch.md or print.md types reach the UI through them, so they need the protocol's versioning rules (protocol.md 2.9).

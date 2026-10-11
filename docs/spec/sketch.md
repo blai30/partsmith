@@ -11,14 +11,15 @@ Conventions in this document:
 
 ## 1. Purpose and scope
 
-`partsmith-sketch` is pure Rust with no kernel dependency. It depends on `partsmith-model` for `Id`, `Expr` and `LINEAR_TOLERANCE` only, plus `serde`, `schemars` and `thiserror`. It does not evaluate expressions, resolve face references, read datum results, build kernel wires, record edits or define protocol messages; those belong to `partsmith-features`, `partsmith-engine` and `partsmith-protocol`, which call the API below.
+`partsmith-sketch` is pure Rust with no kernel dependency. It depends on `partsmith-model` (`Id`, `Expr`, `LINEAR_TOLERANCE`) and `partsmith-naming` (`Reference`), plus `serde`, `schemars`, `thiserror` and `faer` (MIT; sparse and dense linear algebra for the solver and diagnosis, ADR 0004; a dependency that needs human review). It does not evaluate expressions, resolve face references, read datum results, build kernel wires, record edits or define protocol messages; those belong to `partsmith-features`, `partsmith-engine` and `partsmith-protocol`, which call the API below.
 
 ### 1.1 In M1
 
 - `SketchParams` (plane, entities, constraints) with its exact JSON form, JSON Schema derive and validation.
-- Sketch planes: origin plane, datum feature, face reference with fallback placement; the `Placement` frame and the rule that places a sketch on a resolved face.
+- Sketch planes: origin plane, datum feature, a body's face reference (naming's `Reference`) with fallback placement; the `Placement` frame and the rule that places a sketch on a resolved face.
 - Entities: point, line, circle, arc, each with a construction flag.
 - `PointRef` strings and point roles.
+- Reserved references `origin`, `x_axis` and `y_axis` for the sketch's own origin and axes, usable in constraints as fixed constants.
 - Constraints: coincident, point_on_object, horizontal, vertical, parallel, perpendicular, tangent, collinear, concentric, equal, symmetric, midpoint, fix, distance (point-point, line length, point-line), horizontal_distance, vertical_distance, radius, diameter, angle. Driving and reference dimensions.
 - The native solver behind a `Solver` trait: flat parameter vector, component decomposition, substitution of trivial equalities, dog-leg with Levenberg-Marquardt fallback, convergence at `1e-10`, warm start from the stored geometry, deterministic results.
 - Diagnosis by rank-revealing QR: degrees of freedom, redundant and conflicting constraint ids, per-entity constraint state.
@@ -46,7 +47,7 @@ Conventions in this document:
 
 ## 2. Public API
 
-Everything below is public in `partsmith_sketch`. Types that appear in documents or protocol messages derive `Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize, schemars::JsonSchema`; enums with only unit variants also derive `Copy, Eq, Hash`. Every public item has a doc comment; the one-line comments below are those doc comments.
+Everything below is public in `partsmith_sketch`. Types that appear in documents or protocol messages derive `Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize, schemars::JsonSchema`; enums with only unit variants also derive `Copy, Eq, Hash`. Every public item has a doc comment; the one-line comments below are those doc comments. Tags follow architecture.md "Serialization": records (sketch entities, sketch constraints, profile findings) are tagged with `type`; value enums nested in records or messages (`SketchPlane`, `DragTarget`, `ProfileCurve`, `RegionMatch`) are tagged with `kind`.
 
 ### 2.1 Constants and re-exports
 
@@ -65,6 +66,12 @@ pub const CONFLICT_TOLERANCE: f64 = 1e-9;
 pub const DRAG_WEIGHT: f64 = 100.0;
 /// Distance (mm) within which profile vertices merge; equals `partsmith_model::LINEAR_TOLERANCE`.
 pub const PROFILE_TOLERANCE: f64 = partsmith_model::LINEAR_TOLERANCE;
+/// Reserved point reference to the sketch origin, the point (0, 0) (section 3.16).
+pub const ORIGIN: &str = "origin";
+/// Reserved line reference to the sketch x axis, the infinite line through the origin along +u (section 3.16).
+pub const X_AXIS: &str = "x_axis";
+/// Reserved line reference to the sketch y axis, the infinite line through the origin along +v (section 3.16).
+pub const Y_AXIS: &str = "y_axis";
 ```
 
 ### 2.2 Sketch params and planes
@@ -89,7 +96,7 @@ impl SketchParams {
     pub fn entity(&self, id: &Id) -> Option<&SketchEntity>;
     /// The constraint with this id.
     pub fn constraint(&self, id: &Id) -> Option<&SketchConstraint>;
-    /// Stored coordinates of a point reference, or `None` if it does not resolve to a point.
+    /// Stored coordinates of a point reference (`[0.0, 0.0]` for `origin`), or `None` if it does not resolve to a point.
     pub fn point(&self, point: &PointRef) -> Option<[f64; 2]>;
     /// Driving dimensional constraints in document order, with the kind of value each expects.
     pub fn driving_dimensions(&self) -> Vec<DimensionInput<'_>>;
@@ -119,14 +126,14 @@ pub enum ValueKind {
 pub type DimensionValues = std::collections::BTreeMap<Id, f64>;
 
 /// Where a sketch lies.
-#[serde(tag = "type", rename_all = "snake_case")]
+#[serde(tag = "kind", rename_all = "snake_case")]
 pub enum SketchPlane {
     /// One of the three origin planes.
-    Origin { name: OriginPlane },
+    Origin { plane: OriginPlane },
     /// The plane produced by a datum feature, for example a `datum_plane`.
     Datum { feature: Id },
-    /// A planar face, plus the placement used when the face cannot be resolved.
-    Face { face: FaceReference, fallback: Placement },
+    /// A planar face of `body`, plus the placement used when the face cannot be resolved.
+    Face { body: Id, face: partsmith_naming::Reference, fallback: Placement },
 }
 
 /// An origin plane, serialized as "XY", "XZ" or "YZ".
@@ -145,14 +152,6 @@ pub enum OriginPlane {
 impl OriginPlane {
     /// The fixed placement of this plane (section 3.1).
     pub fn placement(self) -> Placement;
-}
-
-/// A stored face reference with the JSON shape of `partsmith_naming` references.
-pub struct FaceReference {
-    /// Element name query, for example "f-ext1/end-cap".
-    pub q: String,
-    /// Fingerprint text, for example "plane|n=0,0,1|c=40,25,30|a=4000|adj=4,4".
-    pub fp: String,
 }
 
 /// A right-handed frame that places sketch coordinates in model space.
@@ -180,18 +179,18 @@ impl Placement {
 JSON examples:
 
 ```json
-{"type": "origin", "name": "XY"}
+{"kind": "origin", "plane": "XY"}
 ```
 
 ```json
-{"type": "datum", "feature": "f-dp1"}
+{"kind": "datum", "feature": "f-dp1"}
 ```
 
 ```json
-{"type": "face", "face": {"q": "f-ext1/end-cap", "fp": "plane|n=0,0,1|c=40,25,30|a=4000|adj=4,4"}, "fallback": {"origin": [0, 0, 30], "x_axis": [1, 0, 0], "normal": [0, 0, 1]}}
+{"kind": "face", "body": "b-1", "face": {"q": "f-ext1/end-cap", "fp": "plane|n=0,0,1|c=40,25,30|a=4000|adj=4,4"}, "fallback": {"origin": [0, 0, 30], "x_axis": [1, 0, 0], "normal": [0, 0, 1]}}
 ```
 
-A `Placement` alone: `{"origin": [0, 0, 30], "x_axis": [1, 0, 0], "normal": [0, 0, 1]}`. A `FaceReference` alone: `{"q": "f-ext1/end-cap", "fp": "plane|n=0,0,1|c=40,25,30|a=4000|adj=4,4"}`.
+A `Placement` alone: `{"origin": [0, 0, 30], "x_axis": [1, 0, 0], "normal": [0, 0, 1]}`. The `face` field is a `partsmith_naming::Reference` (naming.md section 2.4); `body` names the body it is resolved in, as for every stored reference (naming.md section 2.4).
 
 ### 2.3 Entities
 
@@ -278,7 +277,7 @@ impl std::str::FromStr for PointRef { type Err = SketchError; }
 impl std::fmt::Display for PointRef {}
 ```
 
-`PointRef` serializes as its string form. Its JSON Schema is `{"type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}(\\.(start|end|center))?$"}`. Examples: `"e-1.start"`, `"e-5.center"`, `"e-7"`.
+`PointRef` serializes as its string form. Its JSON Schema is `{"type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}(\\.(start|end|center))?$"}`. Examples: `"e-1.start"`, `"e-5.center"`, `"e-7"`. The reserved reference `"origin"` (section 3.16) parses as `PointRef { entity: origin, role: Point }`.
 
 ### 2.5 Constraints
 
@@ -396,7 +395,7 @@ impl SketchConstraint {
     pub fn dimension(&self) -> Option<&DimensionExpr>;
     /// Length or angle, for dimensional constraints.
     pub fn value_kind(&self) -> Option<ValueKind>;
-    /// Every entity id this constraint references, in field order, without duplicates.
+    /// Every entity id this constraint references, in field order, without duplicates; reserved references (section 3.16) are not entities and are left out.
     pub fn referenced_entities(&self) -> Vec<&Id>;
 }
 ```
@@ -434,6 +433,15 @@ JSON example for every constraint type and form:
 {"id": "c-26", "type": "angle", "lines": ["e-1", "e-12"], "expr": "30 deg"}
 ```
 
+Constraints that use the reserved references of section 3.16:
+
+```json
+{"id": "c-27", "type": "coincident", "points": ["e-1.start", "origin"]}
+{"id": "c-28", "type": "point_on_object", "point": "e-5.center", "curve": "y_axis"}
+{"id": "c-29", "type": "angle", "lines": ["x_axis", "e-12"], "expr": "30 deg"}
+{"id": "c-30", "type": "symmetric", "points": ["e-9.start", "e-9.end"], "line": "x_axis"}
+```
+
 ### 2.6 Solver
 
 ```rust
@@ -467,7 +475,7 @@ impl Solver for NativeSolver {
 pub struct NativeDragSession { /* private */ }
 
 /// What the user drags.
-#[serde(tag = "type", rename_all = "snake_case")]
+#[serde(tag = "kind", rename_all = "snake_case")]
 pub enum DragTarget {
     /// A point, moved to the cursor.
     Point { point: PointRef },
@@ -522,8 +530,8 @@ pub enum SolveIssue {
 JSON examples:
 
 ```json
-{"type": "point", "point": "e-1.start"}
-{"type": "entity", "entity": "e-2", "grab": [5, 0]}
+{"kind": "point", "point": "e-1.start"}
+{"kind": "entity", "entity": "e-2", "grab": [5, 0]}
 ```
 
 ```json
@@ -599,8 +607,8 @@ pub struct ProfileEdge {
     pub curve: ProfileCurve,
 }
 
-/// Exact 2D curve geometry for kernel wires.
-#[serde(tag = "type", rename_all = "snake_case")]
+/// Exact 2D curve geometry for kernel profiles.
+#[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ProfileCurve {
     /// A segment from `start` to `end`.
     Line { start: [f64; 2], end: [f64; 2] },
@@ -683,7 +691,7 @@ pub enum RegionMatch {
 pub enum MatchMethod { Key, OuterBoundary, Fingerprint }
 ```
 
-`RegionKey` and `RegionFingerprint` serialize as their text forms. `RegionMatch` (with `#[serde(tag = "type", rename_all = "snake_case")]`) and `MatchMethod` are not stored by this crate but derive the serde traits for the protocol's use: `{"type": "resolved", "index": 0, "method": "outer_boundary"}`, `{"type": "ambiguous", "candidates": [0, 1]}`, `{"type": "missing"}`. `ValueKind` serializes as `"length"` or `"angle"` and `EntityKind` as `"point"`, `"line"`, `"circle"` or `"arc"`.
+`RegionKey` and `RegionFingerprint` serialize as their text forms. `RegionMatch` (with `#[serde(tag = "kind", rename_all = "snake_case")]`) and `MatchMethod` are not stored by this crate but derive the serde traits for the protocol's use: `{"kind": "resolved", "index": 0, "method": "outer_boundary"}`, `{"kind": "ambiguous", "candidates": [0, 1]}`, `{"kind": "missing"}`. `ValueKind` serializes as `"length"` or `"angle"` and `EntityKind` as `"point"`, `"line"`, `"circle"` or `"arc"`.
 
 JSON examples:
 
@@ -699,9 +707,9 @@ JSON examples:
 ```
 
 ```json
-{"type": "line", "start": [0, 0], "end": [80, 0]}
-{"type": "arc", "center": [20, 0], "radius": 5, "start": [20, -5], "end": [20, 5], "ccw": true}
-{"type": "circle", "center": [40, 25], "radius": 5, "ccw": false}
+{"kind": "line", "start": [0, 0], "end": [80, 0]}
+{"kind": "arc", "center": [20, 0], "radius": 5, "start": [20, -5], "end": [20, 5], "ccw": true}
+{"kind": "circle", "center": [40, 25], "radius": 5, "ccw": false}
 ```
 
 A `Profile` for the plate sketch of section 2.9 (the first region's outer loop shortened to its first edge):
@@ -712,17 +720,17 @@ A `Profile` for the plate sketch of section 2.9 (the first region's outer loop s
     {
       "key": "e-1,e-2,e-3,e-4;~e-5",
       "outer": {"edges": [
-        {"entity": "e-1", "reversed": false, "curve": {"type": "line", "start": [0, 0], "end": [80, 0]}}
+        {"entity": "e-1", "reversed": false, "curve": {"kind": "line", "start": [0, 0], "end": [80, 0]}}
       ]},
       "holes": [
-        {"edges": [{"entity": "e-5", "reversed": true, "curve": {"type": "circle", "center": [40, 25], "radius": 5, "ccw": false}}]}
+        {"edges": [{"entity": "e-5", "reversed": true, "curve": {"kind": "circle", "center": [40, 25], "radius": 5, "ccw": false}}]}
       ],
       "area": 3921.460183660255,
       "centroid": [40, 25]
     },
     {
       "key": "e-5",
-      "outer": {"edges": [{"entity": "e-5", "reversed": false, "curve": {"type": "circle", "center": [40, 25], "radius": 5, "ccw": true}}]},
+      "outer": {"edges": [{"entity": "e-5", "reversed": false, "curve": {"kind": "circle", "center": [40, 25], "radius": 5, "ccw": true}}]},
       "holes": [],
       "area": 78.53981633974483,
       "centroid": [40, 25]
@@ -742,10 +750,12 @@ All `Profile`, `Region`, `ProfileLoop` and `ProfileEdge` fields are always prese
 pub enum SketchError {
     InvalidPointRef { text: String },
     DuplicateId { id: Id },
+    ReservedId { id: Id },
     InvalidPlacement { reason: PlacementProblem },
     NonFiniteGeometry { entity: Id },
     NegativeRadius { entity: Id, kind: EntityKind, radius: f64 },
     UnknownEntity { constraint: Id, entity: Id },
+    ReservedMisuse { constraint: Id, type_name: &'static str, reference: String },
     InvalidPointRole { constraint: Id, point: PointRef, kind: EntityKind },
     WrongEntityKind { constraint: Id, type_name: &'static str, entity: Id, found: EntityKind, expected: &'static str },
     SameEntity { constraint: Id, type_name: &'static str, entity: Id },
@@ -765,7 +775,7 @@ pub enum SketchError {
 pub enum PlacementProblem { NonFinite, NormalNotUnit, XAxisNotUnit, NotPerpendicular, ZeroNormal }
 ```
 
-`ValueNotPositive::points` is true for a point-to-point `distance`, which adds a hint to the message.
+`ValueNotPositive::points` is true for a point-to-point `distance`, which adds a hint to the message. `ReservedMisuse::reference` is the reference text as written, for example `origin.center` or `x_axis`.
 
 ### 2.9 Full example
 
@@ -776,7 +786,7 @@ A fully constrained 80 x 50 plate with a 10 mm hole, as a feature record in a `.
   "id": "f-sk1",
   "type": "sketch",
   "name": "Plate",
-  "plane": {"type": "origin", "name": "XY"},
+  "plane": {"kind": "origin", "plane": "XY"},
   "entities": [
     {"id": "e-1", "type": "line", "start": [0, 0], "end": [80, 0]},
     {"id": "e-2", "type": "line", "start": [80, 0], "end": [80, 50]},
@@ -826,7 +836,7 @@ The three `SketchPlane` variants:
 
 - `origin`: the placement is `OriginPlane::placement()`.
 - `datum`: the placement is the plane produced by the named datum feature. `partsmith-features` reads it from the build context; this crate only stores the id.
-- `face`: `partsmith-features` resolves `face` as a naming reference (same `q` and `fp`). When it resolves to a planar face with a point `p` on it and outward unit normal `n`, the placement is `Placement::on_plane(p, n, &fallback)`. When the reference is missing or ambiguous, or the face is not planar, the placement is `fallback` itself and the feature reports a warning. The fallback is recorded when the sketch is attached, so the sketch keeps its position if the face disappears.
+- `face`: `partsmith-features` resolves `face` in the state of `body` just before the sketch (features/sketch.md section 3.3). When it resolves and the first resolved face is planar, with a point `p` on it and outward unit normal `n`, the placement is `Placement::on_plane(p, n, &fallback)`. When the body is empty, the reference is missing or ambiguous, or the face is not planar, the placement is `fallback` itself and the feature reports a warning. The fallback is recorded when the sketch is attached, so the sketch keeps its position if the face disappears.
 
 `Placement::on_plane(plane_point, plane_normal, hint)`:
 
@@ -861,16 +871,16 @@ The three `SketchPlane` variants:
 - `PointRef` grammar: `<id>` or `<id>.<role>` where `<id>` matches `[A-Za-z0-9_-]{1,64}` and `<role>` is `start`, `end` or `center`. Anything else fails with `InvalidPointRef { text }`. `Display` writes the same form; `PointRole::Point` is the bare id.
 - Numbers are stored at full `f64` precision; this crate never rounds stored geometry. The model crate's canonical serializer decides how numbers print.
 - Each entity and constraint is a leaf record (no nested arrays of objects), so the canonical layout prints it on one line when it fits.
-- `SketchParams` derives `JsonSchema`. The generated schema contains: the `PointRef` pattern of section 2.4; for entities, a `oneOf` whose `type` constants are exactly `point`, `line`, `circle`, `arc`; for constraints, `type` constants for exactly the 19 names of section 2.5; for planes, `origin`, `datum`, `face`; `OriginPlane` as the enum `["XY", "XZ", "YZ"]`; `expr` as a string; numeric arrays as `minItems`/`maxItems` 2 (or 3 in `Placement`).
+- `SketchParams` derives `JsonSchema`. The generated schema contains: the `PointRef` pattern of section 2.4; for entities, a `oneOf` whose `type` constants are exactly `point`, `line`, `circle`, `arc`; for constraints, `type` constants for exactly the 19 names of section 2.5; for planes, a `oneOf` whose `kind` constants are exactly `origin`, `datum`, `face`; `OriginPlane` as the enum `["XY", "XZ", "YZ"]`; `expr` as a string; numeric arrays as `minItems`/`maxItems` 2 (or 3 in `Placement`).
 
 ### 3.4 Validation
 
 `SketchParams::validate` checks, in this order, and returns the first failure:
 
-1. Ids: walking `entities` then `constraints` in document order, the first id seen a second time fails with `DuplicateId { id }`. Entity and constraint ids share one namespace. (Uniqueness across the whole document is checked by `partsmith-model`.)
+1. Ids: walking `entities` then `constraints` in document order, the first id that is a reserved name (`origin`, `x_axis` or `y_axis`, section 3.16) fails with `ReservedId { id }` and the first id seen a second time fails with `DuplicateId { id }`, whichever comes first. Entity and constraint ids share one namespace. (Uniqueness across the whole document is checked by `partsmith-model`.)
 2. Plane: for `face`, `fallback.validate()`.
 3. Entities in document order: any non-finite number fails with `NonFiniteGeometry`; a negative `radius` fails with `NegativeRadius`.
-4. Constraints in document order. Within one constraint, references are checked in field order, and for each reference: it names an entity of this sketch (`UnknownEntity`); a point reference uses a role its entity has (`InvalidPointRole`, where a bare id is only valid for point entities, except in `fix`); the entity kind is accepted (`WrongEntityKind`). After all references of the constraint pass, the distinctness and ownership rules of the table below apply in the order listed (`SameEntity`, `SamePoint`, `PointOnOwnEntity`).
+4. Constraints in document order. Within one constraint, references are checked in field order. A reserved name (section 3.16) must be used where section 3.16 accepts it (`ReservedMisuse`). Any other reference names an entity of this sketch (`UnknownEntity`), a point reference uses a role its entity has (`InvalidPointRole`, where a bare id is only valid for point entities, except in `fix`), and the entity kind is accepted (`WrongEntityKind`). After all references of the constraint pass, the distinctness and ownership rules of the table below apply in the order listed (`SameEntity`, `SamePoint`, `PointOnOwnEntity`); a reserved name counts as its own entity there.
 
 Constraint catalog (what each type accepts):
 
@@ -921,12 +931,12 @@ The solver works on a flat vector `x` of `f64` built from the entities in docume
 | circle | `center.x, center.y, r` |
 | arc | `center.x, center.y, s.x, s.y, e.x, e.y` (center, start point, end point) |
 
-An arc's start and end points `s` and `e` are computed from the stored center, radius and angles (section 3.2) when the vector is built. An arc therefore has 6 parameters and one internal row (the arc rule, below), which leaves its 5 DOF. Point references map to parameter pairs: a point entity to its `x, y`, `.start`/`.end` to the line's or arc's start or end pair, `.center` to the center pair.
+An arc's start and end points `s` and `e` are computed from the stored center, radius and angles (section 3.2) when the vector is built. An arc therefore has 6 parameters and one internal row (the arc rule, below), which leaves its 5 DOF. Point references map to parameter pairs: a point entity to its `x, y`, `.start`/`.end` to the line's or arc's start or end pair, `.center` to the center pair. The reserved references of section 3.16 are constants with no parameters.
 
 #### 3.6.2 Notation
 
 - `p`, `q`, `t`: coordinates of point references P, Q, T.
-- Line L: `a` = start, `b` = end, `d = b - a`. Lines L1, L2 have `a1, b1, d1` and `a2, b2, d2`.
+- Line L: `a` = start, `b` = end, `d = b - a`. Lines L1, L2 have `a1, b1, d1` and `a2, b2, d2`. For `x_axis` and `y_axis` these are the constants of section 3.16; `origin` is the constant point (0, 0).
 - Curve K (circle or arc): `c(K)` = center; `rad(K)` = `r` for a circle and `norm(s - c)` for an arc.
 - `unit(w) = w / norm(w)` when `norm(w) >= 1e-12`, else `(1, 0)`.
 - `safe(w) = max(norm(w), 1e-12)`.
@@ -939,7 +949,7 @@ An arc's start and end points `s` and `e` are computed from the stored center, r
 Some rows depend on choices made once from the warm-start geometry: by `solve` from the stored geometry, and by `begin_drag` from the result of its initial solve (fixed for the whole drag session). These choices are part of the system and do not change during iterations.
 
 - `sigma` (side), for `tangent` without touch point (line L, curve K): `+1` if `sd(c(K), L) >= 0`, else `-1`. For `distance` point-line: `+1` if `sd(p, L) >= 0`, else `-1`. The geometry stays on the side it starts on.
-- `S` (angular scale, mm), for `parallel`, `perpendicular`, `angle`, and `tangent` with a touch point: `S = max(1, sqrt(size(X1) * size(X2)))` where X1 and X2 are the two constrained entities and `size` is `norm(d)` for a line and `rad(K)` for a circle or arc. Multiplying an angular condition by S turns it into a length, so its residual is comparable to the others and convergence means endpoint accuracy of about `1e-10` mm. S is a constant, so shrinking lines cannot satisfy an angular row.
+- `S` (angular scale, mm), for `parallel`, `perpendicular`, `angle`, and `tangent` with a touch point: `S = max(1, sqrt(size(X1) * size(X2)))` where X1 and X2 are the two constrained entities and `size` is `norm(d)` for a line and `rad(K)` for a circle or arc. An axis (section 3.16) takes the size of the other entity, or 1 when both are axes. Multiplying an angular condition by S turns it into a length, so its residual is comparable to the others and convergence means endpoint accuracy of about `1e-10` mm. S is a constant, so shrinking lines cannot satisfy an angular row.
 - Tangent mode, for `tangent` between two curves without touch point: with `D = norm(c(K2) - c(K1))`, `r1 = rad(K1)`, `r2 = rad(K2)`: external when `abs(D - (r1 + r2)) <= abs(D - abs(r1 - r2))`, else internal with `tau = +1` if `r1 >= r2`, else `-1`.
 - Fix values: `fix` freezes the warm-start values (`p0`, `a0`, `b0`, `c0`, `r0`, `s0`, `e0`) of its target's parameters.
 
@@ -1001,7 +1011,7 @@ Notes:
 
 #### 3.7.1 Components
 
-Two entities are linked when one constraint references both. Components are the connected sets of entities under this relation; an entity referenced by no constraint is a component of its own. Each constraint (and each arc rule) belongs to the component of the entities it references. Components are processed in the document order of their first entity. A fixed entity shared by otherwise separate groups joins them into one component.
+Two entities are linked when one constraint references both. Components are the connected sets of entities under this relation; an entity referenced by no constraint is a component of its own. Each constraint (and each arc rule) belongs to the component of the entities it references. Components are processed in the document order of their first entity. A fixed entity shared by otherwise separate groups joins them into one component. Reserved references (section 3.16) are not entities and link nothing; a constraint that references only reserved names belongs to no component.
 
 #### 3.7.2 Untouched components
 
@@ -1013,6 +1023,7 @@ For a component that is not untouched, parameters are grouped into classes with 
 
 - The rows of `coincident` and `concentric` (both rows) and of `horizontal` and `vertical` each state `x_i = x_j` for two parameters; the two classes are merged. A merged class is frozen when either part was, with that part's value; when both parts are frozen it keeps the value of the class that contains the lower parameter index. The merge is skipped (the row stays an ordinary row) when both classes are frozen with values more than `SOLVER_TOLERANCE` apart.
 - `fix` freezes the classes of its target's parameters (point 2, line 4, circle 3, arc all 6) at their warm-start values. A class that is already frozen keeps its first frozen value.
+- A row of `coincident`, or of `horizontal` or `vertical` in the points form, between a parameter and a coordinate of `origin` states `x_i = 0`: it freezes the parameter's class at exactly 0. When the class is already frozen at a value more than `SOLVER_TOLERANCE` from 0, the row stays an ordinary row; otherwise the class value becomes 0.
 - A frozen class takes its frozen value. A free class takes the bitwise common value when all its members' warm-start values are bitwise equal, else their mean (summed in increasing parameter index, divided by the member count).
 
 Every member of a class takes the class value. Rows whose two parameters share a class are identically satisfied and are skipped by the numerical solve (they are still evaluated for convergence and diagnosis). Rows whose parameters are all frozen are constant rows. Free classes that appear in no remaining row keep their value and are excluded from the numerical solve. The remaining free classes are the variables `y` of the component's numerical problem; `r(y)` is the vector of its non-skipped rows.
@@ -1057,7 +1068,7 @@ Entities keep their order, ids and construction flags. Because a converged compo
 
 Diagnosis runs after every `solve` (and in `begin_drag`) on the full, unsubstituted system: all `n` entity parameters and all rows in the order of section 3.6.5, evaluated with the warm-start choices at the diagnosis point. The diagnosis point is the result for converged components, the warm start for untouched components, and the LM end point for failed components.
 
-Rank-revealing QR: factor `J^T` (columns are rows of `J`) column by column in row order, without pivoting. A row is dependent when its norm after orthogonalization against all accepted rows is at most `RANK_TOLERANCE` times its original norm (a zero row is dependent); otherwise it is accepted. Results must equal those of modified Gram-Schmidt with one re-orthogonalization pass up to rounding.
+Rank-revealing QR: factor `J^T` (columns are rows of `J`) column by column in row order, without pivoting. A row is dependent when its norm after orthogonalization against all accepted rows is at most `RANK_TOLERANCE` times its original norm (a zero row is dependent); otherwise it is accepted. Results must equal those of modified Gram-Schmidt with one re-orthogonalization pass up to rounding. Implementations may use `faer` (section 1) for this and the other factorizations as long as the accepted rows are those of this definition.
 
 - `rank` is the number of accepted rows; `dof = n - rank`.
 - For each dependent row `j`, let `alpha` be the coefficients that express it in the accepted rows (least squares) and `delta = r_j - sum(alpha_k * r_k)`.
@@ -1072,7 +1083,7 @@ Status: `conflicting` if `conflicting` is non-empty; else `redundant` if `redund
 
 ### 3.9 Drag
 
-`begin_drag(sketch, values, target)` validates the sketch and values, checks the target (a `Point` target must resolve like a constraint point field, an `Entity` target must name an entity and have a finite `grab`; otherwise `UnknownDragTarget { target }` with the target's text: the point reference text or the entity id), runs a full `solve` and keeps its result as `initial()`, computes the warm-start choices of section 3.6.3 from that result, and prepares the component that contains the target's entity.
+`begin_drag(sketch, values, target)` validates the sketch and values, checks the target (a `Point` target must resolve like a constraint point field, an `Entity` target must name an entity and have a finite `grab`, and neither may be a reserved reference of section 3.16; otherwise `UnknownDragTarget { target }` with the target's text: the point reference text or the entity id), runs a full `solve` and keeps its result as `initial()`, computes the warm-start choices of section 3.6.3 from that result, and prepares the component that contains the target's entity.
 
 Each `update(cursor)`:
 
@@ -1194,13 +1205,33 @@ Matching uses only the arguments. Indices refer to the `regions` slice.
 ### 3.15 Contracts with other crates (informative)
 
 - `partsmith-features` (sketch feature): computes the placement (section 3.1), evaluates `driving_dimensions()`, calls `NativeSolver.solve`, then `build_profile(&result.entities)`. Its sketch output carries the placement, the `SolveResult` and the `Profile`. Feature build is pure, so solved geometry is not written back into the document by recompute.
-- `partsmith-features` (profile consumers such as extrude and revolve): store `RegionRef`s, resolve them with `match_region`, and build kernel wires from `ProfileLoop`s by mapping each `ProfileCurve` through `Placement::to_world`. Lines and arcs are exact curves; `ccw` is relative to the sketch normal.
+- `partsmith-features` (profile consumers such as extrude and revolve): store `RegionRef`s, resolve them with `match_region`, and pass each `ProfileLoop`'s curves to kernel `make_profile` (kernel.md section 3.4.2) in sketch coordinates, on the kernel `Plane` with the placement's `origin`, `normal` and `x_axis` (kernel plane coordinates `(x, y)` are sketch `(u, v)`). A `ProfileCurve::Line` becomes `PlanarCurve::Line`, a `Circle` becomes `PlanarCurve::Circle`, and an `Arc` becomes `PlanarCurve::Arc` with its `center` and `radius`, passed with `start` and `end` swapped when `ccw` is false (kernel arcs always run counterclockwise). Lines and arcs are exact curves; `ccw` is relative to the sketch normal.
 - `partsmith-engine`: owns `NativeDragSession`s per open sketch drag, sends each frame result as an event, and commits the last frame's entities as one edit when the drag ends.
 - `partsmith-protocol`: embeds `SketchParams`, `SolveResult`, `DragTarget`, `Profile` and their parts, and inherits their JSON Schema.
 
+### 3.16 Reserved references
+
+Three names refer to the sketch's own origin and axes. They are fixed constants, not stored entities: they never appear in `entities`, have no parameters and take no degrees of freedom.
+
+| Name | Used as | Geometry (constants) |
+| --- | --- | --- |
+| `origin` | a point reference, bare (no role) | the point (0, 0) |
+| `x_axis` | a line | the infinite line through (0, 0) along +u: `a = (0, 0)`, `b = (1, 0)` |
+| `y_axis` | a line | the infinite line through (0, 0) along +v: `a = (0, 0)`, `b = (0, 1)` |
+
+1. **Ids.** No entity or constraint id may be `origin`, `x_axis` or `y_axis`; validation fails with `ReservedId` (section 3.4, step 1).
+2. **Where they are accepted.** `origin` is accepted in every point field, including the `fix` target (two rows that always hold, so diagnosis reports such a `fix` as redundant). `x_axis` and `y_axis` are accepted in every line field whose rows use only the infinite line: the `point_on_object` curve, the `lines` of `parallel`, `perpendicular`, `collinear` and `angle`, the line of a `tangent` with a circle or arc, the `symmetric` line, and the line of a point-to-line `distance`.
+3. **Rejected uses.** Every other use fails validation with `ReservedMisuse { constraint, type_name, reference }`: `origin` with a role (`origin.start`, `origin.end`, `origin.center`); `origin` in a line or curve field; an axis in a point field (including `fix`); an axis where a constraint needs a segment's ends or length (`horizontal` and `vertical` with `line`, `equal`, `midpoint`, `distance` with `line` alone, `horizontal_distance` and `vertical_distance` with `line`); an axis where a circle or arc is needed (`concentric`, `radius`, `diameter`, and the second curve of a `tangent` whose first curve is a line or axis). The distinctness rules of section 3.4 treat each reserved name as its own entity: `parallel [x_axis, x_axis]` and `coincident [origin, origin]` fail with `SameEntity`.
+4. **Rows.** In the rows of section 3.6.5, `origin` contributes the constant point (0, 0) and an axis its constant `a`, `b` and `d = b - a`. Constants have no Jacobian columns. An axis has no endpoints, so it offers no touch-point candidate of its own (section 3.6.4); `origin` is identified with other point references through `coincident` like any point reference. For the angular scale `S`, an axis takes the size of the other entity, or 1 when both are axes (section 3.6.3).
+5. **Components and substitution.** Reserved names link nothing (section 3.7.1) and `referenced_entities()` leaves them out. A constraint that references only reserved names belongs to no component, never moves geometry, and never makes `failed` true. A `coincident` with `origin`, and a `horizontal` or `vertical` in the points form with `origin`, freezes the other point's matching parameter classes at 0 (section 3.7.3).
+6. **Diagnosis.** A row without parameters is a zero row and therefore dependent (section 3.8): its constraint is redundant when the row's residual is at most `CONFLICT_TOLERANCE` and conflicting otherwise. So `perpendicular [x_axis, y_axis]` is redundant and `parallel [x_axis, y_axis]` is conflicting. Entity states count entities only.
+7. **Measured values.** Section 3.10 applies with the constants; for example `distance e-1 to y_axis` measures `abs(u)` of e-1, and `angle [x_axis, L]` measures the direction of L from +u, modulo pi.
+8. **Drag and accessors.** Reserved names are not drag targets (`UnknownDragTarget`, section 3.9). `SketchParams::point` returns `[0.0, 0.0]` for `origin` and `None` for `x_axis` and `y_axis`; `SketchParams::entity` never returns a reserved name.
+9. **JSON.** Reserved names are written like any reference: `"origin"` as a `PointRef` string, `"x_axis"` and `"y_axis"` in line fields (examples in section 2.5). The JSON Schema is unchanged: the names already match the `PointRef` pattern and `Id`.
+
 ## 4. Errors and messages
 
-Messages are plain sentences that name the fix. Placeholders: `{label}` is the constraint's `type_name` with underscores replaced by spaces (`point on object`, `horizontal distance`); `{article kind}` is `a point`, `a line`, `a circle` or `an arc`; `{Kind}` is `Point`, `Line`, `Circle` or `Arc`; numbers are written with `format_number`: rounded to 6 decimal places, written with Rust's `Display` for `f64`, a rounded zero written `0` (so `-1.0` prints `-1`, `2.5` prints `2.5`, `1e-9` prints `0`).
+Messages are plain sentences that name the fix. Placeholders: `{label}` is the constraint's `type_name` with underscores replaced by spaces (`point on object`, `horizontal distance`); `{article kind}` is `a point`, `a line`, `a circle` or `an arc`; `{Kind}` is `Point`, `Line`, `Circle` or `Arc`; numbers are written in message form: rounded to 6 decimal places, written with Rust's `Display` for `f64`, a rounded zero written `0` (so `-1.0` prints `-1`, `2.5` prints `2.5`, `1e-9` prints `0`).
 
 ### 4.1 `SketchError`
 
@@ -1208,10 +1239,12 @@ Messages are plain sentences that name the fix. Placeholders: `{label}` is the c
 | --- | --- |
 | `InvalidPointRef { text }` | `"{text}" is not a point reference. Use an entity id, optionally followed by .start, .end or .center, for example e-1.start.` |
 | `DuplicateId { id }` | `The id {id} is used more than once in this sketch. Give each entity and constraint its own id.` |
+| `ReservedId { id }` | `The id {id} is reserved for the sketch origin and axes. Give the entity or constraint another id.` |
 | `InvalidPlacement { reason }` | `The sketch placement is invalid: {reason}. Attach the sketch to a plane or face again.` with `{reason}`: `NonFinite` "a value is not a finite number", `NormalNotUnit` "its normal is not a unit vector", `XAxisNotUnit` "its x axis is not a unit vector", `NotPerpendicular` "its x axis is not perpendicular to its normal", `ZeroNormal` "the plane normal has zero length" |
 | `NonFiniteGeometry { entity }` | `Entity {entity} has a coordinate, radius or angle that is not a finite number. Delete it and draw it again.` |
 | `NegativeRadius { entity, kind, radius }` | `{Kind} {entity} has a negative radius ({radius} mm). Use a radius of 0 mm or more.` |
 | `UnknownEntity { constraint, entity }` | `Constraint {constraint} refers to {entity}, which is not in this sketch. Delete the constraint or point it at an existing entity.` |
+| `ReservedMisuse { constraint, type_name, reference }` | `Constraint {constraint} ({label}) cannot use {reference}: origin is a single point, and x_axis and y_axis are endless lines. Pick a point or line of the sketch instead.` |
 | `InvalidPointRole { constraint, point, kind }`, kind point | `Constraint {constraint} uses {point}, but {entity} is a point. Refer to it by its id alone: {entity}.` |
 | same, kind line | `Constraint {constraint} uses {point}, but {entity} is a line, which has only {entity}.start and {entity}.end.` |
 | same, kind circle | `Constraint {constraint} uses {point}, but {entity} is a circle, which has only {entity}.center.` |
@@ -1246,7 +1279,7 @@ Deserialization errors (unknown `type`, unknown field, wrong shape) are `serde` 
 
 `SolveResult::issues(sketch)` returns one `Conflicting` (all conflicting ids) when `conflicting` is non-empty; then one `Redundant` per redundant id in document order (`dimension` is true for driving dimensional constraints); then `NotConverged` when `failed` is true and `conflicting` is empty. The `sketch` argument supplies type names and must be the sketch that was solved.
 
-Recommended feature status (for `partsmith-features`, informative): `Redundant` is a warning; `Conflicting` and `NotConverged` are errors, but the sketch output is still produced from the returned geometry so downstream features keep building.
+Feature status is defined by features/sketch.md section 3.3 (informative here): `Redundant` gives a warning; `Conflicting` and `NotConverged` are errors without output, so features that use the sketch report `upstream_failed`.
 
 ### 4.3 `ProfileFinding`
 
@@ -1336,7 +1369,8 @@ Tests live in `crates/partsmith-sketch/tests/` (suggested files: `json.rs`, `val
 - Entities: `point e-1 (x, y)`; `line e-1 (x1, y1)->(x2, y2)`; `cline` is a construction line; `circle e-1 c(x, y) r R`; `arc e-1 c(x, y) r R from A0 to A1` (radians; `pi` is `std::f64::consts::PI`).
 - Constraints use their JSON type and fields: `c-1 coincident [e-1.end, e-2.start]`; `c-2 horizontal e-1` (line form); `c-2 horizontal [e-1, e-2]` (points form); `c-3 fix e-1.start`; `c-4 point_on_object e-2 on e-1`; `c-5 midpoint e-2 of e-1`; `c-6 symmetric [e-1, e-2] about e-3`.
 - Dimensions: `c-7 distance [e-1, e-2] = 10` is the points form with `expr` `"10 mm"` and `DimensionValues` entry `c-7: 10.0`; `c-7 distance e-1 = 10` is the line form; `c-7 distance e-2 to e-1 = 5` is the point-line form; `c-8 angle [e-1, e-2] = 45 deg` has `expr` `"45 deg"` and value `pi / 4`; a trailing `ref` (as in `c-9 distance [e-1, e-2] ref`) means `driving: false`, `expr` `"7 mm"`, and no value passed.
-- The plane is `{"type": "origin", "name": "XY"}` unless stated. `solve(S)` means `NativeSolver.solve(&S, &values)` with the values implied by the shorthand.
+- `origin`, `x_axis` and `y_axis` in constraints are the reserved references of section 3.16.
+- The plane is `{"kind": "origin", "plane": "XY"}` unless stated. `solve(S)` means `NativeSolver.solve(&S, &values)` with the values implied by the shorthand.
 - Expected coordinates hold within `1e-9` unless the test says "bitwise" or gives another tolerance. "Unchanged" means bitwise equal to the input.
 - `RECT`: `line e-1 (0,0)->(80,0)`, `line e-2 (80,0)->(80,50)`, `line e-3 (80,50)->(0,50)`, `line e-4 (0,50)->(0,0)`; `c-1 coincident [e-1.end, e-2.start]`, `c-2 coincident [e-2.end, e-3.start]`, `c-3 coincident [e-3.end, e-4.start]`, `c-4 coincident [e-4.end, e-1.start]`, `c-5 horizontal e-1`, `c-6 horizontal e-3`, `c-7 vertical e-2`, `c-8 vertical e-4`.
 - `PLATE`: the sketch of section 2.9 with values `{c-10: 80, c-11: 50, c-15: 25, c-16: 10}`.
@@ -1354,12 +1388,12 @@ Tests live in `crates/partsmith-sketch/tests/` (suggested files: `json.rs`, `val
 9. `PointRef::from_str`: `"e-1.start"` gives `{e-1, Start}`, `"e-1.end"` gives `End`, `"e-5.center"` gives `Center`, `"e-7"` gives `Point`, `"f_Sk-2"` gives `Point`.
 10. `PointRef::from_str` fails with `InvalidPointRef { text }` (text equal to the input) for `""`, `".start"`, `"e-1."`, `"e-1.mid"`, `"e-1.start.end"`, `"e 1"`, `"e-1.Start"`, and a 65-character id.
 11. For every valid string of test 9, `to_string()` returns the input and `serde_json::to_string` returns it quoted.
-12. Planes: `{"type": "origin", "name": "XZ"}` gives `Origin { name: Xz }`; `{"type": "origin", "name": "xz"}` fails; `{"type": "datum", "feature": "f-dp1"}` round-trips; the face example of section 2.2 re-serializes to `{"type":"face","face":{"q":"f-ext1/end-cap","fp":"plane|n=0,0,1|c=40,25,30|a=4000|adj=4,4"},"fallback":{"origin":[0.0,0.0,30.0],"x_axis":[1.0,0.0,0.0],"normal":[0.0,0.0,1.0]}}`.
-13. `{"plane": {"type": "origin", "name": "XY"}}` deserializes as `SketchParams` with empty `entities` and `constraints` and re-serializes to `{"plane":{"type":"origin","name":"XY"},"entities":[],"constraints":[]}`.
+12. Planes: `{"kind": "origin", "plane": "XZ"}` gives `Origin { plane: Xz }`; `{"kind": "origin", "plane": "xz"}` fails; `{"kind": "datum", "feature": "f-dp1"}` round-trips; the face example of section 2.2 re-serializes to `{"kind":"face","body":"b-1","face":{"q":"f-ext1/end-cap","fp":"plane|n=0,0,1|c=40,25,30|a=4000|adj=4,4"},"fallback":{"origin":[0.0,0.0,30.0],"x_axis":[1.0,0.0,0.0],"normal":[0.0,0.0,1.0]}}`; the same face example without `body` fails to deserialize.
+13. `{"plane": {"kind": "origin", "plane": "XY"}}` deserializes as `SketchParams` with empty `entities` and `constraints` and re-serializes to `{"plane":{"kind":"origin","plane":"XY"},"entities":[],"constraints":[]}`.
 14. The `PLATE` record without `id`, `type` and `name` deserializes as `SketchParams` with 6 entities and 16 constraints; serializing and deserializing it again gives an equal value.
-15. In `serde_json::to_value(schemars::schema_for!(SketchParams))`, the strings that appear as a `const` value, or as the only element of an `enum`, of a property named `type` are exactly the 26 names `origin, datum, face, point, line, circle, arc` and the 19 constraint types of section 2.5; the schema text contains the `PointRef` pattern of section 2.4 and the strings `"XY"`, `"XZ"`, `"YZ"`.
+15. In `serde_json::to_value(schemars::schema_for!(SketchParams))`, the strings that appear as a `const` value, or as the only element of an `enum`, of a property named `type` are exactly the 23 names `point, line, circle, arc` and the 19 constraint types of section 2.5, and those of a property named `kind` are exactly `origin, datum, face`; the schema text contains the `PointRef` pattern of section 2.4 and the strings `"XY"`, `"XZ"`, `"YZ"`.
 16. `serde_json::to_string(&solve(PLATE))` has top-level keys in the order `status, failed, entities, dof, redundant, conflicting, entity_states, measured`; for an empty sketch the string contains `"redundant":[]`, `"conflicting":[]`, `"entity_states":{}` and `"measured":{}`.
-17. The `DragTarget`, `ProfileFinding`, `ProfileCurve` and `RegionRef` examples of section 2 round-trip (deserialize, serialize, deserialize gives an equal value), and a serialized `Region` has keys in the order `key, outer, holes, area, centroid`.
+17. The `DragTarget`, `ProfileFinding`, `ProfileCurve`, `RegionMatch` and `RegionRef` examples of section 2 round-trip (deserialize, serialize, deserialize gives an equal value), and a serialized `Region` has keys in the order `key, outer, holes, area, centroid`.
 
 ### 6.2 Validation
 

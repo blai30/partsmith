@@ -18,6 +18,8 @@ Write the sketch solver in Rust inside `partsmith-sketch`, behind a `Solver` int
 
 Correctness is checked with property-based tests (random constraint sets built from known solutions) and performance with a 500-constraint benchmark against the 4 ms budget.
 
+Addendum (needs human review): linear algebra uses `faer` (MIT) for the sparse and dense factorizations, instead of `nalgebra`, because the drag and diagnosis budgets on a 500-constraint component need a sparse QR that `nalgebra` does not offer (sketch.md). The dependency is logged in ADR 0012. Benchmarks are bench targets with `harness = false` that time runs with `std::time::Instant`, so no benchmark framework such as `criterion` is added.
+
 ## Consequences
 
 One C++ boundary (OCCT) instead of two, identical behavior on all targets, and no Boost or Eigen in the build. The risk is solver robustness on hard sketches; if the corpus shows gaps, PlaneGCS can still be wrapped behind the same `Solver` interface.
