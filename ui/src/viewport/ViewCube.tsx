@@ -36,8 +36,10 @@ type Press = {
   dragging: boolean
 }
 
-const FACES_WITH_CELLS: readonly { readonly face: CubeFace; readonly cells: readonly FaceCell[] }[] =
-  CUBE_FACES.map((face) => ({ face, cells: faceCells(face) }))
+const FACES_WITH_CELLS: readonly {
+  readonly face: CubeFace
+  readonly cells: readonly FaceCell[]
+}[] = CUBE_FACES.map((face) => ({ face, cells: faceCells(face) }))
 
 const PARTS_BY_ID: ReadonlyMap<string, ViewCubePart> = new Map(
   VIEW_CUBE_PARTS.map((cubePart) => [cubePart.id, cubePart]),
@@ -127,7 +129,7 @@ export function ViewCube({ rotorRef, onChooseView, onHome, onOrbit }: ViewCubePr
     <fieldset
       data-testid="view-cube"
       aria-label="View cube"
-      className="absolute top-4 right-4 size-24 touch-none select-none perspective-distant"
+      className="absolute top-4 right-4 size-24 touch-none select-none"
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={endPress}
@@ -135,58 +137,60 @@ export function ViewCube({ rotorRef, onChooseView, onHome, onOrbit }: ViewCubePr
       onPointerOver={handlePointerOver}
       onPointerLeave={() => setHovered(null)}
     >
-      <div ref={rotorRef} className="absolute inset-0 transform-3d">
-        {FACES_WITH_CELLS.map(({ face, cells }) => (
-          <div
-            key={face}
-            className={clsx(
-              'absolute inset-4 grid grid-cols-8 grid-rows-8 border backface-hidden',
-              COLOR_CLASSES.border.border,
-              FACE_PLACEMENT_CLASSES[face],
-            )}
-          >
-            {cells.map(({ part: cubePart, shape, primary }) => {
-              const className = clsx(
-                'cursor-pointer transition-colors duration-150 motion-reduce:transition-none',
-                shape === 'corner' && 'col-span-2 row-span-2',
-                shape === 'horizontal' && 'col-span-4 row-span-2',
-                shape === 'vertical' && 'col-span-2 row-span-4',
-                shape === 'center' && 'col-span-4 row-span-4',
-                hovered === cubePart.id
-                  ? COLOR_CLASSES.hover.active
-                  : COLOR_CLASSES.surfaceRaised.background,
-              )
-              return primary ? (
-                <button
-                  key={cubePart.id}
-                  type="button"
-                  tabIndex={-1}
-                  aria-label={cubePart.label}
-                  data-view-cube-part={cubePart.id}
-                  className={clsx(className, COLOR_CLASSES.focusRing.outline)}
-                  onClick={() => choose(cubePart)}
-                />
-              ) : (
-                <div
-                  key={cubePart.id}
-                  aria-hidden="true"
-                  data-view-cube-part={cubePart.id}
-                  className={className}
-                  onClick={() => choose(cubePart)}
-                />
-              )
-            })}
-            <span
-              aria-hidden="true"
+      <div className="absolute inset-0 perspective-distant">
+        <div ref={rotorRef} className="absolute inset-0 transform-3d">
+          {FACES_WITH_CELLS.map(({ face, cells }) => (
+            <div
+              key={face}
               className={clsx(
-                'pointer-events-none absolute inset-0 flex items-center justify-center text-xs font-medium whitespace-nowrap',
-                COLOR_CLASSES.textMuted.foreground,
+                'absolute inset-4 grid grid-cols-8 grid-rows-8 border backface-hidden',
+                COLOR_CLASSES.border.border,
+                FACE_PLACEMENT_CLASSES[face],
               )}
             >
-              {faceName(face)}
-            </span>
-          </div>
-        ))}
+              {cells.map(({ part: cubePart, shape, primary }) => {
+                const className = clsx(
+                  'cursor-pointer transition-colors duration-150 motion-reduce:transition-none',
+                  shape === 'corner' && 'col-span-2 row-span-2',
+                  shape === 'horizontal' && 'col-span-4 row-span-2',
+                  shape === 'vertical' && 'col-span-2 row-span-4',
+                  shape === 'center' && 'col-span-4 row-span-4',
+                  hovered === cubePart.id
+                    ? COLOR_CLASSES.hover.active
+                    : COLOR_CLASSES.surfaceRaised.background,
+                )
+                return primary ? (
+                  <button
+                    key={cubePart.id}
+                    type="button"
+                    tabIndex={-1}
+                    aria-label={cubePart.label}
+                    data-view-cube-part={cubePart.id}
+                    className={clsx(className, COLOR_CLASSES.focusRing.outline)}
+                    onClick={() => choose(cubePart)}
+                  />
+                ) : (
+                  <div
+                    key={cubePart.id}
+                    aria-hidden="true"
+                    data-view-cube-part={cubePart.id}
+                    className={className}
+                    onClick={() => choose(cubePart)}
+                  />
+                )
+              })}
+              <span
+                aria-hidden="true"
+                className={clsx(
+                  'pointer-events-none absolute inset-0 flex items-center justify-center text-xs font-medium whitespace-nowrap',
+                  COLOR_CLASSES.textMuted.foreground,
+                )}
+              >
+                {faceName(face)}
+              </span>
+            </div>
+          ))}
+        </div>
       </div>
       <button
         type="button"

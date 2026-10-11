@@ -1359,9 +1359,10 @@ mod tests {
         let hierarchy = BoundingVolumeHierarchy::new(&mesh);
         let leaf = &hierarchy.nodes[0];
 
+        // Both triangles have a 45 degree corner, so their bound is GRAZING_FACTOR · sqrt(2).
+        let expected = GRAZING_FACTOR * std::f64::consts::SQRT_2 + GRAZING_LIMIT_MARGIN;
         assert_eq!(leaf.cone_axis, [0.0, 0.0, 1.0]);
-        assert!(f64::from(leaf.grazing_limit) > 2.0 * GRAZING_FACTOR);
-        assert!(f64::from(leaf.grazing_limit) < 3.0 * GRAZING_FACTOR + 1e-5);
+        assert!((f64::from(leaf.grazing_limit) - expected).abs() < 1e-9);
     }
 
     #[test]
