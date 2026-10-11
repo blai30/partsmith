@@ -1,0 +1,9 @@
+[target.wasm32-unknown-emscripten]
+# Native wasm exceptions match the OCCT build (ADR 0003); memory grows up to the wasm32 limit.
+rustflags = [
+  "-C", "link-arg=-fwasm-exceptions",
+  "-C", "link-arg=-sALLOW_MEMORY_GROWTH=1",
+  "-C", "link-arg=-sMAXIMUM_MEMORY=4GB",
+  "-C", "link-arg=-sSTACK_SIZE=4MB",
+]
+runner = "node"
