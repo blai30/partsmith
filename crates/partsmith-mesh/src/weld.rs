@@ -36,9 +36,7 @@ impl Mesh {
         if !tolerance.is_finite() || tolerance < 0.0 {
             return Err(MeshError::InvalidWeldTolerance { tolerance });
         }
-        let timer = std::time::Instant::now();
         let mut grid = WeldGrid::new(self.positions(), tolerance);
-        eprintln!("  grid setup {:?}", timer.elapsed());
         let vertex_map: Vec<u32> = self
             .positions()
             .iter()
@@ -47,7 +45,6 @@ impl Mesh {
                     .unwrap_or_else(|| grid.add_representative(position))
             })
             .collect();
-        eprintln!("  vertex map {:?}", timer.elapsed());
 
         let mut triangles = Vec::with_capacity(self.triangle_count());
         let mut face_ids = Vec::with_capacity(self.triangle_count());
@@ -62,7 +59,6 @@ impl Mesh {
             }
         }
 
-        eprintln!("  triangles {:?}", timer.elapsed());
         let mesh = Mesh::from_valid_parts(
             grid.representatives,
             triangles,
