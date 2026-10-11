@@ -132,7 +132,7 @@ Diagnostic objects have `severity`, `code`, `message`, then `line`, `column` and
 
 ### 3.2 `fmt`
 
-1. For each file, loads it through the engine (the same loading as `open_document`, without recompute) and computes the canonical text. A file that does not load prints the load error as in 2.2 and is left untouched (exit 1).
+1. For each file, calls `Session::format` (engine.md 2) to compute the canonical text. A file that does not load prints the load error as in 2.2 and is left untouched (exit 1).
 2. Without `--check`: when the canonical text differs from the file, writes it atomically (a temporary file in the same directory, then rename), keeping the file's permissions, and prints `formatted <path>`. Unchanged files print nothing and are not rewritten (their modification time is unchanged).
 3. With `--check`: writes nothing, prints `<path>` for each file that is not canonical, and exits 1 if there is any.
 4. With `-`: reads standard input and writes the canonical text to standard output (nothing else). With `--check`, writes nothing and exits 1 when the input is not canonical.
@@ -172,7 +172,10 @@ One line per feature in timeline order: `  <id> <type> <status>`, followed by on
       "id": "p-h",
       "name": "height",
       "value": 40.0,
-      "dimension": {"length": 1, "angle": 0}
+      "dimension": {
+        "length": 1,
+        "angle": 0
+      }
     }
   ],
   "bodies": [
@@ -181,10 +184,22 @@ One line per feature in timeline order: `  <id> <type> <status>`, followed by on
       "name": "Block",
       "volume": 24000.0,
       "area": 5200.0,
-      "center_of_mass": [0.0, 0.0, 20.0],
+      "center_of_mass": [
+        0.0,
+        0.0,
+        20.0
+      ],
       "bounding_box": {
-        "min": [-10.0, -15.0, 0.0],
-        "max": [10.0, 15.0, 40.0]
+        "min": [
+          -10.0,
+          -15.0,
+          0.0
+        ],
+        "max": [
+          10.0,
+          15.0,
+          40.0
+        ]
       },
       "faces": 6,
       "edges": 12,
@@ -204,7 +219,7 @@ One line per feature in timeline order: `  <id> <type> <status>`, followed by on
 2. Option checks (exit 2): `--ascii` only with STL; `--per-body` only with STL and OBJ; `--chord`, `--angle` only with mesh formats; `--body`, `--chord`, `--angle`, `--rotate`, `--per-body` and `--ascii` are invalid with `py`. Invalid numbers: `--chord` not finite and positive, `--angle` not in (0, 90].
 3. Opens the file with its assets, applies `--printer` as in `rebuild`, and recomputes. If any feature has status `error` and `--allow-errors` is absent, prints `error: <path>: <n> feature(s) failed (<ids, comma-separated>). Fix them or pass --allow-errors to export anyway.` and exits 1.
 4. `--body` values are matched to bodies by exact id, else by exact name. No match: `error: There is no body named or with id "<value>".`; two bodies with that name: `error: Two bodies are named "<value>". Use the body id.`; both exit 1.
-5. Calls `Session::export` (mesh and STEP formats) with `ExportRequest { format, bodies, tolerance, orientation }`, where `tolerance` is present when `--chord` or `--angle` is given (the other value from the document's standard tolerance) and `orientation` is present when `--rotate` is given. For `py`, calls `export_python`.
+5. Calls `Session::export` (mesh and STEP formats) with `ExportRequest { format, bodies, tolerance, orientation }`, where `tolerance` is present when `--chord` or `--angle` is given (the other value from `Session::tolerance(doc, Standard)`) and `orientation` is present when `--rotate` is given. For `py`, calls `export_python`.
 6. Without `--per-body`, writes the single file to `--output`; the parent directory must exist (exit 3 otherwise). With `--per-body`, `--output` is a directory, created with its parents when missing, and each engine file is written inside it under its engine name. Existing files are overwritten. Writes are atomic (temporary file, then rename).
 7. Human output: each written path on its own line on standard output; engine warnings on standard error as `warning[<code>]: <message>`.
 8. JSON output:
@@ -293,7 +308,7 @@ Tests live in `crates/partsmith-cli/tests/` and run the built binary (`env!("CAR
 14. `partsmith validate --json missing.ptsm` prints a document whose only file has `ok` false and a diagnostic with code `io_error`, standard error is empty, exit 3.
 15. `partsmith validate - < box.ptsm` prints `<stdin>: ok\n`.
 16. `partsmith validate - -` exits 2.
-17. A document with an `import` feature whose asset is in `assets/` validates with exit 0; after deleting the asset, it exits 1 with a line containing `error[missing_asset]`.
+17. A document with an `import` feature whose asset is in `assets/` validates with exit 0; after deleting the asset, it exits 1 with a line containing `error[asset_missing]`.
 18. `partsmith validate --rebuild` of `box.ptsm` with the box length set to `-5 mm` exits 1 with a line containing `error[feature_error]` and `f-box1`; without `--rebuild` it exits 0.
 
 **fmt**
@@ -304,12 +319,12 @@ Tests live in `crates/partsmith-cli/tests/` and run the built binary (`env!("CAR
 22. `partsmith fmt - < reindented.ptsm` prints exactly the canonical fixture text.
 23. `partsmith fmt bad.ptsm` exits 1, prints a `parse_error` diagnostic, and leaves `bad.ptsm` unchanged.
 24. A document whose `f-box1` has type `wedge_v9` and params in non-canonical order formats with exit 0 and keeps those params and their order.
-25. On a read-only directory, `partsmith fmt reindented.ptsm` exits 3 with `error: cannot write "reindented.ptsm": ...`.
+25. On a read-only directory, `partsmith fmt reindented.ptsm` exits 3 with `error: cannot write "reindented.ptsm": ...`. Skipped when the effective user id is 0 (root ignores directory permissions).
 
 **rebuild**
 
 26. `partsmith rebuild box.ptsm` prints exactly the human example of 3.3 and exits 0.
-27. `partsmith rebuild --json box.ptsm` prints exactly the JSON example of 3.3.
+27. `partsmith rebuild --json box.ptsm` prints the JSON example of 3.3 with the same layout and keys, numbers equal within 1e-9 relative.
 28. `partsmith rebuild --json fillet.ptsm` reports `b-1` volume 23965.66370614359 and area 5163.946891450772 within 1e-6 relative, 7 faces, 15 edges, 10 vertices.
 29. `partsmith rebuild` of `box.ptsm` with the box length set to `-5 mm` exits 1; its JSON has `f-box1` status `error` and `b-1` with `"empty": true`.
 30. `partsmith rebuild --printer nope box.ptsm` exits 1 with `error: Printer profile "nope" is not installed.`
@@ -350,4 +365,3 @@ Tests live in `crates/partsmith-cli/tests/` and run the built binary (`env!("CAR
 2. **Asset discovery.** The CLI passes every hash-named file in `assets/` and relies on the engine ignoring unreferenced ones (engine.md 3.14). A large shared asset folder is read fully; a lazy asset source can come later.
 3. **`rebuild --json` and `examples/*/expected.json`.** The rebuild report carries volume, area, bounding box, element counts and findings, which are what `expected.json` stores. The examples spec may adopt this report as its format; this spec does not require it.
 4. **Exit code for feature errors in `validate --rebuild` versus `rebuild`.** Both use exit 1; print findings never affect the exit code. A future `--deny-findings` can change that.
-5. **Version string.** The kernel part of `--version` comes from the engine's `kernel` string (`OCCT 7.9.3`); if kernel.md exposes the version differently, the string must still read exactly as in test 1.
