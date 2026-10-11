@@ -1,7 +1,7 @@
 //! Geometric fingerprints and their canonical text form (naming.md sections 2.3 and 3.7).
 
 use std::borrow::Cow;
-use std::fmt;
+use std::fmt::{self, Write as _};
 use std::str::FromStr;
 
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};

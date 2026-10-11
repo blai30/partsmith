@@ -1158,7 +1158,7 @@ Measured in release builds on the reference machine of technical design section 
 
 ### 6.1 Conventions for all feature specs
 
-**Where tests live.** Registry and context tests (this file) live in `crates/partsmith-features/tests/`. Document tests in the per-feature specs need the timeline runner and live in `crates/partsmith-recompute/tests/features/<type>.rs`. Every geometry test document is also an example under `examples/<type>/`.
+**Where tests live.** Registry and context tests (this file) live in `crates/partsmith-features/tests/`. Document tests in the per-feature specs need the timeline runner and live in `crates/partsmith-recompute/tests/feature_<type>.rs` (top-level test files, so Cargo discovers each one without manifest entries), with shared document-running helpers in `crates/partsmith-recompute/tests/feature_support/mod.rs`. Every geometry test document is also an example under `examples/<type>/`.
 
 **Running a document.** Parse the document JSON with `partsmith_model`, create `Recompute::new(Arc::new(Registry::with_builtins()))`, run it with an empty evaluation context, an empty asset map (`Input::assets`) and a new `CancelToken`, and inspect the `Report` (recompute.md). "Status ok" means `Status::Ok`; "status warning (codes)" means `Status::Warning` with exactly the listed warning codes; "status error (code)" means `Status::Error` with that error code. "Rendered" compares `messages` text exactly.
 
