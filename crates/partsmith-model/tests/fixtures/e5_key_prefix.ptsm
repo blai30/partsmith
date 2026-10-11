@@ -1,0 +1,22 @@
+{
+  "format": "partsmith",
+  "format_version": 1,
+  "units": "mm",
+  "parameters": [],
+  "bodies": [
+    {"id": "b-1", "name": "Plate"}
+  ],
+  "features": [
+    {
+      "id": "f-ext1",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk1",
+        "note": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn"
+      },
+      "extent": {"kind": "distance", "expr": "30 mm"},
+      "op": "new"
+    }
+  ]
+}

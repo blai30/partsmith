@@ -75,7 +75,10 @@ mod tests {
     #[test]
     fn add_and_subtract_are_componentwise() {
         assert_eq!(add([1.0, 2.0, 3.0], [4.0, 5.0, 6.0]), [5.0, 7.0, 9.0]);
-        assert_eq!(subtract([1.0, 2.0, 3.0], [4.0, 6.0, 8.0]), [-3.0, -4.0, -5.0]);
+        assert_eq!(
+            subtract([1.0, 2.0, 3.0], [4.0, 6.0, 8.0]),
+            [-3.0, -4.0, -5.0]
+        );
     }
 
     #[test]
@@ -88,7 +91,10 @@ mod tests {
         let first = [1.0, 2.0, 3.0];
         let second = [-4.0, 0.5, 2.0];
 
-        assert_eq!(cross(first, second), cross(second, first).map(|value| -value));
+        assert_eq!(
+            cross(first, second),
+            cross(second, first).map(|value| -value)
+        );
     }
 
     #[test]

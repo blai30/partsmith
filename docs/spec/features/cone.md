@@ -69,7 +69,19 @@ Label `Cone`, category `create`, icon `cone`, version 1.
 
 ### Python
 
-Dedicated form: `cone(bottom_radius, top_radius, height, at=..., part=..., op=...)` (python-api.md section 2.7). Generic form: `feature("cone", id="f-cone1", body="b-1", bottom_radius="10", top_radius="5", height="10", op="new")`.
+Dedicated form: `cone(bottom_radius, top_radius, height, plane=..., position=..., op=...)` (python-api.md section 2.7), produced by the `Feature::python` hook with the primitive rules of features.md section 3.14. The JSON above is `cone(10, 5, 10, id="f-cone1")`. Generic form (longer than 88 characters, so one argument per line):
+
+```python
+feature(
+    "cone",
+    id="f-cone1",
+    body="b-1",
+    bottom_radius="10",
+    top_radius="5",
+    height="10",
+    op="new",
+)
+```
 
 ## 3. Behavior
 
@@ -82,7 +94,7 @@ Dedicated form: `cone(bottom_radius, top_radius, height, at=..., part=..., op=..
 
 1. Checks in order: bottom_radius ≥ 0 and top_radius ≥ 0 (`OutOfRange`, `AtLeast(0)`); not both 0 (`ConeRadiiZero`); height > 0 (`OutOfRange`, `GreaterThan(0)`).
 2. In the local frame the axis is local z; the circle of `bottom_radius` is at z = 0 and the circle of `top_radius` at z = height. A zero radius is a point (apex). With different radii the tool is kernel `make_cone`; with equal radii (within 1e-9 mm) it is kernel `make_cylinder`, because the kernel's cone needs different radii.
-3. Name the faces, then `apply_op`.
+3. Name the faces, then `apply_op(ctx, body, op, vec![tool])`.
 
 ### 3.3 Element names
 

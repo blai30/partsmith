@@ -1,6 +1,0 @@
-dist
-public/core
-src/generated
-pnpm-lock.yaml
-test-results
-playwright-report

@@ -59,7 +59,7 @@ Label `Datum plane`, category `construct`, icon `datum-plane`, version 1.
 
 ### Python
 
-Dedicated form: `datum_plane(base, offset=0, flip=...)` (python-api.md section 2.7), produced by the `Feature::python` hook with the shared rules of features.md section 3.11: `base` is `PythonValue::plane`; `offset` is written when the stored params set it; `flip=True` when true. With `b-1` as `block`, the two JSON records above are `datum_plane(Plane.XY, 10*mm, id="f-dp1")` and `datum_plane(Ref("f-box1/top", "plane|n=0,0,1|c=3,4,10|a=100", part=block), 5, flip=True, id="f-dp2")`. Generic form of the first (longer than 88 characters, so one argument per line):
+Dedicated form: `datum_plane(base, offset=0, flip=...)` (python-api.md section 2.7), produced by the `Feature::python` hook with the shared rules of features.md section 3.11: `base` is `PythonValue::plane`; `offset` is written when the stored params set it; `flip=True` when true. With `b-1` as `block`, the two JSON records above are `datum_plane(Plane.XY, 10*mm, id="f-dp1")` and `datum_plane(Ref("f-box1/top", "plane|n=0,0,1|c=3,4,10|a=100", part=block), 5, flip=True, id="f-dp2")` (written one argument per line, being longer than 88 characters). Generic form of the first (longer than 88 characters, so one argument per line):
 
 ```python
 feature(

@@ -71,7 +71,7 @@ Label `Box`, category `create`, icon `box`, version 1.
 
 ### Python
 
-Dedicated form: `box(length, width, height, at=..., part=..., op=...)` (python-api.md section 2.7). Generic form of the first JSON above: `feature("box", id="f-box1", body="b-1", size=["80", "50", "30"], op="new")`.
+Dedicated form: `box(length, width, height, plane=..., position=..., op=...)` (python-api.md section 2.7), produced by the `Feature::python` hook with the primitive rules of features.md section 3.14: `size[0]`, `size[1]`, `size[2]` are the three positional sizes. With `f-dp1` as `plane_1`, the two JSON records above are `box(80, 50, 30, id="f-box1")` and `box(10, 10, 5*mm, plane=plane_1, position=(20, 0, 0), op="cut", id="f-box2")` (op `new` is the default for the first feature of `b-1`, join for later ones). Generic form of the first JSON above: `feature("box", id="f-box1", body="b-1", size=["80", "50", "30"], op="new")`.
 
 ## 3. Behavior
 
@@ -84,9 +84,11 @@ Dedicated form: `box(length, width, height, at=..., part=..., op=...)` (python-a
 
 1. Each size must be greater than 0, else `OutOfRange` (`GreaterThan(0)`) on `size[i]`.
 2. In the local frame the box spans x in [-sx/2, sx/2], y in [-sy/2, sy/2], z in [0, sz]: kernel `make_box` (corner-anchored) with the local frame moved by (-sx/2, -sy/2, 0).
-3. Name the faces from the kernel's `PrimitiveFace` roles, then `apply_op`.
+3. Name the faces from the kernel's `PrimitiveFace` roles, then `apply_op(ctx, body, op, vec![tool])`.
 
 ### 3.3 Element names
+
+The faces take the kernel's `PrimitiveFace` roles of `make_box`, whose frame the feature shifts so the box is centered in x and y; naming.md section 3.6.4 describes the box the same way.
 
 | Name | Face (local frame) |
 | --- | --- |
@@ -130,4 +132,4 @@ Conventions from features.md section 6.1. Bodies `[b-1]` unless stated.
 
 ## Open issues
 
-1. naming.md section 3.6.4 describes the box as spanning `[0, length]` locally (the kernel's `make_box`); the box feature centers it in x and y, which changes positions, not face roles. The reviewer should align the description.
+None beyond features.md.

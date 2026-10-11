@@ -38,7 +38,7 @@ The crate is pure Rust except for STEP, which it delegates to `partsmith-occt-sy
 4. **No mesh import in M1** (section 1.2). Tests that need to read files back use minimal readers written in the test.
 5. **Every exported coordinate is an `f32`.** Positions are `f64` in memory (mesh.md section 2.1) but binary STL stores `f32`, and the slicers that read these files (PrusaSlicer, Bambu Studio, OrcaSlicer, Cura, lib3mf) parse 3MF, OBJ and ASCII STL coordinates into `f32` too. So every format writes the `f32` nearest to each `f64` value, and text formats print it as the shortest decimal that parses back to that same `f32`. All four formats then carry identical coordinates, text files stay small, and the rounding error (at most 3.1e-5 mm below 1000 mm) is far below print resolution.
 6. **Plain string building for XML.** The three 3MF parts are small, fixed templates plus escaped names and numbers; building them as strings gives exact control over every byte and needs no XML dependency.
-7. **Deflate level 6** for every 3MF part (the zlib default): about 8 MB for a 1,000,000-triangle model (against 17 MB at level 1) in about 1.2 s.
+7. **Deflate level 6** for every 3MF part (the zlib default). A prototype on one core packed the model part of a 1,000,000-triangle body (80 MB of XML) into 8 MB in about 1.2 s, against 17 MB in 0.3 s at level 1; the smaller file is worth the time at typical part sizes (under 200,000 triangles).
 8. **Shared vertices by welding.** 3MF and OBJ index vertices, so each object's vertices are deduplicated with `Mesh::weld(WELD_TOLERANCE)` (mesh.md section 3.6). Kernel meshes duplicate vertices along face boundaries; welding closes them exactly as the print checks do, so slicers see a closed mesh.
 
 ### 1.4 How the engine uses this crate (informative)
@@ -49,7 +49,7 @@ The crate is pure Rust except for STEP, which it delegates to `partsmith-occt-sy
 | `{"kind": "stl", "binary": true, "per_body": true}` | `write_stl_binary(&[body])` once per body |
 | `{"kind": "stl", "binary": false, ...}` | `write_stl_ascii`, merged or once per body as above |
 | `{"kind": "3mf"}` | `write_3mf(&all, &options)` |
-| `{"kind": "obj"}` | `write_obj(&all)` |
+| `{"kind": "obj"}` | `write_obj(&all)` (see Open issue 10) |
 | `{"kind": "step"}` | `write_step(&all)` |
 
 The engine turns each `ExportWarning` into a protocol `Diagnostic { severity: warning, code: warning.code.as_str(), message: warning.message }`, and each `IoError` into `export_failed` or `import_failed` (engine.md section 4). `import_step` calls `read_step`.
@@ -329,7 +329,7 @@ solid {solid name}
 endsolid {solid name}
 ```
 
-The seven `facet` lines repeat once per triangle (`2 + 7 · N` lines in all). Indentation is exactly 2, 4 and 6 spaces; fields are separated by one space; numbers follow section 3.1.3. The solid name is, for one body, its display name with every character outside U+0020 to U+007E replaced by `_`; for two or more bodies, `model`.
+The seven `facet` lines repeat once per triangle (`2 + 7 · N` lines in all). Indentation is exactly 2, 4 and 6 spaces; fields are separated by one space; numbers follow section 3.1.3. The solid name is, for one body, its display name with every character outside U+0020 to U+007E replaced by `_` and spaces at either end removed (the display name is not blank, so something remains); for two or more bodies, `model`.
 
 ### 3.5 OBJ
 
@@ -519,7 +519,6 @@ Release build, single thread, on the reference 2022 mid-range laptop (technical 
 | `write_stl_ascii` | 2.5 s |
 | `write_obj` | 1.2 s |
 | `write_3mf` | 2.5 s |
-| `write_stl_binary` of the engine's reference part at standard quality | 20 ms |
 | `write_step`, `read_step` | the kernel budgets (kernel.md section 5) plus 5 ms |
 
 Memory: besides the input, a writer holds at most the output, one welded copy of the largest body and its validity working set; `write_3mf` additionally holds the uncompressed model part (about 80 bytes per triangle) once.
@@ -535,7 +534,7 @@ Tests live in `crates/partsmith-io/tests/` and use only public APIs (this crate,
 - `read_stl(bytes)`: a reader written in the test that returns the header, the count and each 50-byte record as `(normal: [f32; 3], corners: [[f32; 3]; 3], attribute: u16)`.
 - `unzip(bytes)`: the entries in archive order as `(name, uncompressed bytes)`, through `zip::ZipArchive`.
 - `read_model(text)`: a line reader written in the test that collects, per `<object>` line, the `x`, `y`, `z` attributes of its `<vertex>` lines parsed as `f32` and the `v1`, `v2`, `v3` attributes of its `<triangle>` lines.
-- `W(mesh)`: `mesh.weld(WELD_TOLERANCE).unwrap().mesh`.
+- `welded(mesh)`: `mesh.weld(WELD_TOLERANCE).unwrap().mesh`.
 
 ### 6.2 Binary STL
 
@@ -564,7 +563,7 @@ Tests live in `crates/partsmith-io/tests/` and use only public APIs (this crate,
    and its last line is `endsolid Cube`.
 10. In test 9, the 12 `facet normal` lines read, in order, `0 0 -1`, `0 0 -1`, `0 0 1`, `0 0 1`, `0 -1 0`, `0 -1 0`, `0 1 0`, `0 1 0`, `-1 0 0`, `-1 0 0`, `1 0 0`, `1 0 0`.
 11. A one-triangle mesh with corners `(0.1, 1/3, -2.5)`, `(1e-7, 123456.789, 256)`, `(-0.0, 1e-46, 12.345678901234567)` gives the vertex lines `      vertex 0.1 0.33333334 -2.5`, `      vertex 0.0000001 123456.79 256` and `      vertex 0 0 12.345679`.
-12. Solid names: a body named `Bracket v2` gives `solid Bracket v2` and `endsolid Bracket v2`; `Grüße` gives `solid Gr__e`; `A\tB` gives `solid A_B`; a body with an empty name gives `solid Body 1`. Two bodies (`cube(10)` and `box([20,0,0],[30,10,10])`) give `solid model`, 24 facets and one `endsolid model`.
+12. Solid names: a body named `Bracket v2` gives `solid Bracket v2` and `endsolid Bracket v2`; `Block` with one space before and after it gives `solid Block`; `Grüße` gives `solid Gr__e`; `A\tB` gives `solid A_B`; a body with an empty name gives `solid Body 1`. Two bodies (`cube(10)` and `box([20,0,0],[30,10,10])`) give `solid model`, 24 facets and one `endsolid model`.
 13. For `sphere(10, 64, 32)`, every number of the ASCII output parsed with `str::parse::<f32>` equals bit for bit the corresponding normal or corner `f32` of the binary output.
 
 ### 6.4 OBJ
@@ -615,7 +614,7 @@ Tests live in `crates/partsmith-io/tests/` and use only public APIs (this crate,
 27. Six `cube(10)` bodies A (`PLA`, `#ff0000`), B (`PLA`, `#ff0000`), C (`PLA`, `#0000ff`), D (no material, `#00ff00`), E (`PETG`, no color), F (neither): the base lines are, in order, `<base name="PLA" displaycolor="#FF0000"/>`, `<base name="PLA" displaycolor="#0000FF"/>`, `<base name="#00FF00" displaycolor="#00FF00"/>`, `<base name="PETG" displaycolor="#B4B4BC"/>`; objects A to F have ids 2 to 7 with `pindex` 0, 0, 1, 2, 3 and F has no `pid`; the items reference 2 to 7 in order.
 28. `faceted_box([0,0,0],[10,10,10])`: the object has 8 vertex lines in the order of test 16 and the triangle lines `0 1 2`, `2 1 3`, `4 5 6`, `5 7 6`, `0 2 4`, `2 5 4`, `1 6 3`, `3 6 7`, `0 4 1`, `1 4 6`, `2 3 5`, `3 7 5` (as `v1`, `v2`, `v3`), and there are no warnings.
 29. Two parts `A` (`cube(10)`) and `B` (`box([20,0,0],[30,10,10])`): object ids 1 and 2 in that order, items 1 then 2, and B's first triangle is `v1="0" v2="2" v3="1"` (indices are per object).
-30. Round trip: for `sphere(10, 64, 32)`, `read_model` gives one object whose vertex count equals the number of vertices of `W(sphere)` used by its triangles, whose triangle count equals `W(sphere).triangle_count()`, and whose triangle `k` has the corners of `W(sphere)`'s triangle `k` converted to `f32`, in order.
+30. Round trip: for `sphere(10, 64, 32)`, `read_model` gives one object whose vertex count equals the number of vertices of `welded(sphere)` used by its triangles, whose triangle count equals `welded(sphere).triangle_count()`, and whose triangle `k` has the corners of `welded(sphere)`'s triangle `k` converted to `f32`, in order.
 31. Escaping: a body named `Bracket "A" & <B>` with material `PLA+ "Silk"` and title `R&D` gives `name="Bracket &quot;A&quot; &amp; &lt;B&gt;"`, `<base name="PLA+ &quot;Silk&quot;"` and `<metadata name="Title">R&amp;D</metadata>`; a body named `it's` gives `name="it's"`.
 32. A body named `Grüße` gives a name attribute whose bytes are `47 72 c3 bc c3 9f 65`.
 33. Cleaning: a body named `A\tB` gives `name="A_B"`; a body named `\u{FFFF}` gives `name="_"`; a first body named `  ` (two spaces) gives `name="Body 1"`; title `" "` and material `Some("")` behave as absent (no Title line; with no color, no base).
@@ -650,7 +649,7 @@ Tests live in `crates/partsmith-io/tests/` and use only public APIs (this crate,
 
 52. `write_step(&[])` returns `NoBodies`.
 53. `write_step` of `BOX` named `Bracket` with color `#3b82f6` returns bytes starting with `ISO-10303-21;`; `read_step` of them returns one solid named `Bracket` with color exactly `Color::new(0x3b, 0x82, 0xf6)`, volume 6000 within 1e-6 relative, and no warnings.
-54. `BOX` named `First` without color and `CYLINDER` named `Second` with `#ff8000` read back in that order with colors `None` and `Some(#ff8000)`.
+54. `BOX` named `First` without color and `CYLINDER` named `Second` with `#ff8000` read back in that order with colors `None` and `Some(Color::new(0xff, 0x80, 0x00))`.
 55. The colors `#000000`, `#ffffff`, `#010203`, `#fefdfc`, `#808080` and `#3b82f6` each survive `read_step(write_step(...))` exactly.
 56. A body with an empty name reads back as `Body 1`; a body named `A\nB` reads back as `A_B`.
 57. Two `write_step` calls with the same bodies return identical bytes.
@@ -670,10 +669,10 @@ Tests live in `crates/partsmith-io/tests/` and use only public APIs (this crate,
 4. **`f32` coordinates in every format** (decision 5). Text formats could carry full `f64` precision instead (about 40% larger files). The reviewer should confirm `f32`.
 5. **Dependency versions and golden bytes.** The pinned zip header values (test 21) and compressed bytes depend on `zip` 9 and its deflate backend (`zlib-rs` through `flate2`). The workspace's `deflate` feature also pulls in `zopfli`, which level 6 never uses; switching the workspace dependency to `deflate-flate2-zlib-rs` would drop it (a dependency change, needs human review).
 6. **STEP schema.** engine.md section 3.13 step 4 and the protocol's `ExportFormat::Step` doc comment say AP242; kernel.md writes AP214 and lists AP242 as later. They should say AP214.
-7. **STEP names on import.** The kernel replaces empty product names with `Body <n>`, so engine.md section 3.14's fallback (the request `name`, then `Imported`) never triggers. protocol.md command 28 now imports every solid into one body, so the engine must also choose which solid's name and color the body takes. Suggest the kernel return empty names and let the engine apply its fallback.
+7. **STEP names on import.** engine.md section 3.14 names the imported body after the request `name`, else the first solid's product name, else `Imported`. The kernel replaces an empty product name with `Body <n>` (and this crate passes names through), so the `Imported` fallback never triggers and an unnamed part arrives as `Body 1`. Suggest the kernel return empty names and let the engine apply its fallback; `ImportedSolid::name` would then document an empty name.
 8. **STEP color space.** Model colors are sRGB. This crate passes `channel / 255` to the kernel; the kernel must write and read those values as sRGB (`Quantity_TOC_sRGB` in OCCT), not as linear RGB, or other CAD programs show different colors. Kernel test 78 checks only the round trip.
 9. **3MF title.** Documents have no title, so the engine has nothing to pass in `ThreeMfOptions::title`. Suggest the body's name when one body is exported, else none, until documents gain a title.
-10. **OBJ per body.** The orchestrator's `ExportFormat` lists `{"kind": "obj"}` while protocol.md still has `Obj { per_body }` and cli.md allows `--per-body` with OBJ. This crate is agnostic (the engine calls `write_obj` once per body for per-body files); protocol.md and cli.md should agree.
+10. **OBJ per body.** Section 1.4 assumes OBJ is always one file (`{"kind": "obj"}`), but protocol.md command 27 still has `Obj { per_body }` and cli.md allows `--per-body` with OBJ. This crate works either way (per-body files are one `write_obj` call per body); protocol.md, cli.md and engine.md should settle on one.
 11. **Degenerate triangles are not an export warning.** engine.md section 3.13 step 6 says every mesh validity problem adds a warning; this spec excludes degenerate and collapsed triangles (section 3.2) because OCCT produces them at every pole and slicers ignore them. The print checks still report them as info.
 12. **Engine error wrapping.** The engine wraps io messages as `Export failed: {detail}` and `The STEP file could not be imported: {detail}`, which joins two full sentences (`Export failed: Body "Ghost" has no triangles to export.`), and engine.md's example detail (`the file contains no solid bodies.`) does not match the kernel's sentence. engine.md should say how io and kernel messages are embedded.
 13. **Memory for large text exports.** Writers return `Vec<u8>`; an ASCII STL of 1,000,000 triangles is about 200 MB, which the web build may not afford. Streaming writers are later; the UI could steer large exports to binary STL or 3MF.

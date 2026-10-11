@@ -218,7 +218,11 @@ mod tests {
         let mesh = Mesh::concat(&[&first, &second]).expect("small meshes concatenate");
 
         let edge_ids: Vec<u32> = mesh.edges().iter().map(|edge| edge.edge_id).collect();
-        let marker_ids: Vec<u32> = mesh.vertex_markers().iter().map(|marker| marker.vertex_id).collect();
+        let marker_ids: Vec<u32> = mesh
+            .vertex_markers()
+            .iter()
+            .map(|marker| marker.vertex_id)
+            .collect();
         assert_eq!(edge_ids, vec![1, 1]);
         assert_eq!(marker_ids, vec![2, 3]);
     }
@@ -309,7 +313,10 @@ mod tests {
     fn vertex_normals_replace_existing_normals() {
         let mesh = triangle_at(0.0)
             .with_vertex_normals()
-            .transformed(&crate::Transform::rotation([1.0, 0.0, 0.0], std::f64::consts::PI).expect("valid axis"))
+            .transformed(
+                &crate::Transform::rotation([1.0, 0.0, 0.0], std::f64::consts::PI)
+                    .expect("valid axis"),
+            )
             .expect("a rotation is valid");
 
         let recomputed = mesh.with_vertex_normals();

@@ -188,10 +188,12 @@ impl<'mesh> Bvh<'mesh> {
     ) -> impl Iterator<Item = RayHit> + 'query {
         let start = first as usize;
         let end = start + count as usize;
-        self.triangles[start..end].iter().filter_map(move |&triangle| {
-            let points = self.mesh.triangle_points(triangle as usize);
-            intersect_triangle(ray, triangle, points, min_distance, max_distance)
-        })
+        self.triangles[start..end]
+            .iter()
+            .filter_map(move |&triangle| {
+                let points = self.mesh.triangle_points(triangle as usize);
+                intersect_triangle(ray, triangle, points, min_distance, max_distance)
+            })
     }
 
     /// The distance at which the ray enters node `index`'s box widened by `padding`, clipped to
@@ -275,7 +277,9 @@ impl Builder<'_> {
         triangles.select_nth_unstable_by(middle, |&first, &second| {
             let first_center = self.centers[first as usize][axis];
             let second_center = self.centers[second as usize][axis];
-            first_center.total_cmp(&second_center).then(first.cmp(&second))
+            first_center
+                .total_cmp(&second_center)
+                .then(first.cmp(&second))
         });
         let (lower, upper) = triangles.split_at_mut(middle);
         self.build(nodes, lower, first);
@@ -521,7 +525,8 @@ mod tests {
         let near = bvh.padding(&ray([0.0, 0.0, 1.0], [0.0, 0.0, -1.0]));
         let far = bvh.padding(&ray([0.0, 0.0, 1000.0], [0.0, 0.0, -1.0]));
 
-        assert_eq!(near, BOX_PADDING * 2.0);
+        // The grid reaches coordinate 2, and the origins are 1 and 1000 from zero.
+        assert_eq!(near, BOX_PADDING * 3.0);
         assert_eq!(far, BOX_PADDING * 1002.0);
     }
 
@@ -530,7 +535,13 @@ mod tests {
         let mesh = floor_grid(1, 0.0);
         let bvh = Bvh::new(&mesh);
 
-        let entry = bvh.entry(0, &ray([0.5, 0.5, 4.0], [0.0, 0.0, -1.0]), 0.0, 0.0, f64::INFINITY);
+        let entry = bvh.entry(
+            0,
+            &ray([0.5, 0.5, 4.0], [0.0, 0.0, -1.0]),
+            0.0,
+            0.0,
+            f64::INFINITY,
+        );
 
         assert_eq!(entry, Some(4.0));
     }
@@ -540,7 +551,13 @@ mod tests {
         let mesh = floor_grid(1, 0.0);
         let bvh = Bvh::new(&mesh);
 
-        let entry = bvh.entry(0, &ray([5.0, 0.5, 4.0], [0.0, 0.0, -1.0]), 0.0, 0.0, f64::INFINITY);
+        let entry = bvh.entry(
+            0,
+            &ray([5.0, 0.5, 4.0], [0.0, 0.0, -1.0]),
+            0.0,
+            0.0,
+            f64::INFINITY,
+        );
 
         assert_eq!(entry, None);
     }

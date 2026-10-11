@@ -307,8 +307,10 @@ struct EdgeIndex {
 impl EdgeIndex {
     /// Indexes segments by the key of each, given in segment order.
     fn new(keys: impl Iterator<Item = u64>) -> EdgeIndex {
-        let mut entries: Vec<(u64, usize)> =
-            keys.enumerate().map(|(segment, key)| (key, segment)).collect();
+        let mut entries: Vec<(u64, usize)> = keys
+            .enumerate()
+            .map(|(segment, key)| (key, segment))
+            .collect();
         entries.sort_unstable();
         let cursors = (0..entries.len()).collect();
         EdgeIndex { entries, cursors }
@@ -316,7 +318,9 @@ impl EdgeIndex {
 
     /// The lowest-indexed unvisited segment with this key.
     fn lowest_unvisited(&mut self, key: u64, visited: &[bool]) -> Option<usize> {
-        let group = self.entries.partition_point(|&(entry_key, _)| entry_key < key);
+        let group = self
+            .entries
+            .partition_point(|&(entry_key, _)| entry_key < key);
         let mut position = *self.cursors.get(group)?;
         let found = loop {
             match self.entries.get(position) {
@@ -338,7 +342,13 @@ impl EdgeIndex {
 mod tests {
     use super::*;
 
-    fn segment(triangle: u32, start: Point2, end: Point2, start_edge: u64, end_edge: u64) -> Segment {
+    fn segment(
+        triangle: u32,
+        start: Point2,
+        end: Point2,
+        start_edge: u64,
+        end_edge: u64,
+    ) -> Segment {
         Segment {
             triangle,
             start,
@@ -358,18 +368,12 @@ mod tests {
 
     #[test]
     fn crossing_interpolates_along_the_edge() {
-        assert_eq!(
-            crossing([0.0, 0.0, 0.0], [4.0, 8.0, 4.0], 1.0),
-            [1.0, 2.0]
-        );
+        assert_eq!(crossing([0.0, 0.0, 0.0], [4.0, 8.0, 4.0], 1.0), [1.0, 2.0]);
     }
 
     #[test]
     fn crossing_at_the_upper_corner_height_is_that_corner() {
-        assert_eq!(
-            crossing([0.1, 0.2, 0.3], [0.7, 0.9, 1.1], 1.1),
-            [0.7, 0.9]
-        );
+        assert_eq!(crossing([0.1, 0.2, 0.3], [0.7, 0.9, 1.1], 1.1), [0.7, 0.9]);
     }
 
     #[test]

@@ -1,8 +1,8 @@
 //! Volume, area, bounding box and center of mass.
 
 use crate::mesh::cross_product;
-use crate::sum::{CompensatedSum, compensated_sum};
-use crate::vector::dot;
+use crate::sum::CompensatedSum;
+use crate::vector::{dot, length};
 use crate::{Aabb, Mesh, Point3};
 
 /// A signed volume whose magnitude is at most this many mm³ has no meaningful center of mass.
@@ -15,27 +15,34 @@ impl Mesh {
     /// mesh it is the negated volume; for an open mesh it is still this sum, which then depends
     /// on the origin. The empty mesh has volume 0.
     pub fn signed_volume(&self) -> f64 {
-        compensated_sum(
-            self.triangles()
-                .iter()
-                .map(|&corners| tetrahedron_volume(self.corner_points(corners))),
-        )
+        self.volume_of(self.triangles().iter().copied())
     }
 
     /// Total triangle area in mm².
     pub fn area(&self) -> f64 {
-        compensated_sum((0..self.triangle_count()).map(|triangle| self.triangle_area(triangle)))
+        let mut area = CompensatedSum::default();
+        for &corners in self.triangles() {
+            area.add(length(cross_product(self.corner_points(corners))) / 2.0);
+        }
+        area.value()
     }
 
     /// Bounding box of the vertices used by triangles, or `None` when there are no triangles.
     ///
     /// Unreferenced vertices, edge polylines and markers are ignored.
     pub fn bounding_box(&self) -> Option<Aabb> {
-        Aabb::from_points(
-            self.triangles()
-                .iter()
-                .flat_map(|&corners| self.corner_points(corners)),
-        )
+        let &[first_vertex, _, _] = self.triangles().first()?;
+        let first_point = self.positions()[first_vertex as usize];
+        let mut bounds = Aabb {
+            min: first_point,
+            max: first_point,
+        };
+        for &corners in self.triangles() {
+            for point in self.corner_points(corners) {
+                bounds = bounds.including(point);
+            }
+        }
+        Some(bounds)
     }
 
     /// Center of mass of the enclosed solid at uniform density, or `None` when there are no
@@ -57,6 +64,15 @@ impl Mesh {
         }
         let volume = volume.value();
         (volume.abs() > SMALLEST_MASS_VOLUME).then(|| moments.map(|moment| moment.value() / volume))
+    }
+
+    /// The signed volume sum `Σ A · (B × C) / 6` over the given triangles, in order.
+    pub(crate) fn volume_of(&self, triangles: impl IntoIterator<Item = [u32; 3]>) -> f64 {
+        let mut volume = CompensatedSum::default();
+        for corners in triangles {
+            volume.add(tetrahedron_volume(self.corner_points(corners)));
+        }
+        volume.value()
     }
 }
 
@@ -85,11 +101,8 @@ mod tests {
             .iter()
             .map(|corner| [0, 1, 2].map(|axis| corner[axis] + offset[axis]))
             .collect();
-        Mesh::from_triangles(
-            positions,
-            vec![[0, 2, 1], [0, 1, 3], [0, 3, 2], [1, 2, 3]],
-        )
-        .expect("valid mesh")
+        Mesh::from_triangles(positions, vec![[0, 2, 1], [0, 1, 3], [0, 3, 2], [1, 2, 3]])
+            .expect("valid mesh")
     }
 
     #[test]

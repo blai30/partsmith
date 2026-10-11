@@ -1,0 +1,16 @@
+{
+  "format": "partsmith",
+  "format_version": 1,
+  "units": "mm",
+  "parameters": [
+    {"id": "p-1", "name": "a", "expr": "1", "comment": "Fits exactly xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"},
+    {
+      "id": "p-2",
+      "name": "b",
+      "expr": "2",
+      "comment": "One too long xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    }
+  ],
+  "bodies": [],
+  "features": []
+}

@@ -9,7 +9,7 @@ Open-source parametric CAD for 3D printing. Rust core over the OCCT kernel, comp
 - `desktop/` Tauri 2 host.
 - `python/` pure-Python `partsmith` package on top of `partsmith-py`.
 - `examples/` one model per feature and option, with Python twin and expected results.
-- `docs/design/` design docs. `docs/adr/` decisions. `docs/spec/` per-area behavior specs with acceptance tests. `docs/format/` generated JSON Schemas.
+- `docs/design/` design docs. `docs/guidelines/` coding and design guidelines. `docs/adr/` decisions. `docs/spec/` per-area behavior specs with acceptance tests. `docs/format/` generated JSON Schemas.
 - `scripts/` build helpers (OCCT, WebAssembly, schema generation).
 
 ## Commands
@@ -57,7 +57,7 @@ cargo run -p partsmith-cli -- schema --write   # regenerate docs/format/*.schema
 ## Code style
 
 - Rust 2024 edition, `rustfmt` defaults, `clippy` clean with `-D warnings`. Errors via `thiserror`. Public items documented.
-- TypeScript strict mode, ESLint and Prettier clean, function components and hooks.
+- TypeScript strict mode, oxlint and oxfmt clean, function components and hooks. Follow [docs/guidelines/typescript.md](docs/guidelines/typescript.md) (use `type`, not `interface`), [docs/guidelines/tailwind-css.md](docs/guidelines/tailwind-css.md) (utility classes only, `clsx/lite` for conditional classes, no inline styles, no `px`) and [docs/guidelines/frontend-design.md](docs/guidelines/frontend-design.md) with the Partsmith direction in [docs/guidelines/README.md](docs/guidelines/README.md).
 - Names are words, not abbreviations (`material`, not `mat`). No single-letter names except `i` for loop indices and `x`, `y`, `z` for coordinates.
 - Comments are short, use `//` (doc comments use `///` or `/** */`), and sit on their own line above the code they describe, never trailing.
 - Never write the em dash character in any file. Use a colon, comma, parentheses or a new sentence instead.

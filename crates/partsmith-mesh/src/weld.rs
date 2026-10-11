@@ -36,7 +36,9 @@ impl Mesh {
         if !tolerance.is_finite() || tolerance < 0.0 {
             return Err(MeshError::InvalidWeldTolerance { tolerance });
         }
+        let timer = std::time::Instant::now();
         let mut grid = WeldGrid::new(self.positions(), tolerance);
+        eprintln!("  grid setup {:?}", timer.elapsed());
         let vertex_map: Vec<u32> = self
             .positions()
             .iter()
@@ -45,6 +47,7 @@ impl Mesh {
                     .unwrap_or_else(|| grid.add_representative(position))
             })
             .collect();
+        eprintln!("  vertex map {:?}", timer.elapsed());
 
         let mut triangles = Vec::with_capacity(self.triangle_count());
         let mut face_ids = Vec::with_capacity(self.triangle_count());
@@ -59,6 +62,7 @@ impl Mesh {
             }
         }
 
+        eprintln!("  triangles {:?}", timer.elapsed());
         let mesh = Mesh::from_valid_parts(
             grid.representatives,
             triangles,
@@ -147,8 +151,7 @@ impl WeldGrid {
         let index = to_u32(self.representatives.len());
         let cell = position.map(|coordinate| self.cell_coordinate(coordinate));
         self.representatives.push(position);
-        self.next_in_cell
-            .push(self.cell_heads.insert(cell, index));
+        self.next_in_cell.push(self.cell_heads.insert(cell, index));
         index
     }
 
@@ -167,11 +170,9 @@ fn cell_size(positions: &[Point3], tolerance: f64) -> f64 {
         largest_magnitude(bounds.size()) / (positions.len() as f64).sqrt()
     });
     // Large enough that cell coordinates stay below `LARGEST_CELL_COORDINATE`.
-    let largest_coordinate = positions
-        .iter()
-        .fold(0.0_f64, |largest, &position| {
-            largest.max(largest_magnitude(position))
-        });
+    let largest_coordinate = positions.iter().fold(0.0_f64, |largest, &position| {
+        largest.max(largest_magnitude(position))
+    });
     let resolution = largest_coordinate / LARGEST_CELL_COORDINATE;
     let size = tolerance_size.max(spacing).max(resolution);
     if size > 0.0 { size } else { 1.0 }
@@ -210,8 +211,16 @@ mod tests {
     #[test]
     fn tiny_offsets_do_not_underflow_to_zero() {
         assert!(!within_tolerance([0.0, 0.0, 0.0], [1e-300, 0.0, 0.0], 0.0));
-        assert!(!within_tolerance([0.0, 0.0, 0.0], [1e-300, 1e-300, 0.0], 1e-300));
-        assert!(within_tolerance([0.0, 0.0, 0.0], [1e-300, 1e-300, 0.0], 2e-300));
+        assert!(!within_tolerance(
+            [0.0, 0.0, 0.0],
+            [1e-300, 1e-300, 0.0],
+            1e-300
+        ));
+        assert!(within_tolerance(
+            [0.0, 0.0, 0.0],
+            [1e-300, 1e-300, 0.0],
+            2e-300
+        ));
     }
 
     #[test]
@@ -228,7 +237,11 @@ mod tests {
 
     #[test]
     fn overflowing_offsets_are_not_within() {
-        assert!(!within_tolerance([f64::MAX, 0.0, 0.0], [f64::MIN, 0.0, 0.0], 1e300));
+        assert!(!within_tolerance(
+            [f64::MAX, 0.0, 0.0],
+            [f64::MIN, 0.0, 0.0],
+            1e300
+        ));
     }
 
     #[test]
@@ -264,8 +277,14 @@ mod tests {
         let second = grid.add_representative([-0.4, 0.0, 0.0]);
 
         assert_eq!(far, 0);
-        assert_eq!(grid.lowest_representative_near([0.0, 0.0, 0.0]), Some(first));
-        assert_eq!(grid.lowest_representative_near([-1.2, 0.0, 0.0]), Some(second));
+        assert_eq!(
+            grid.lowest_representative_near([0.0, 0.0, 0.0]),
+            Some(first)
+        );
+        assert_eq!(
+            grid.lowest_representative_near([-1.2, 0.0, 0.0]),
+            Some(second)
+        );
         assert_eq!(grid.lowest_representative_near([2.0, 2.0, 2.0]), None);
     }
 
@@ -273,7 +292,9 @@ mod tests {
     fn huge_tolerance_welds_everything_into_the_first_vertex() {
         let mesh = point_cloud(vec![[f64::MAX, 0.0, 0.0], [0.0, 0.0, 0.0], [1.0, 1.0, 1.0]]);
 
-        let welded = mesh.weld(f64::MAX).expect("the largest finite tolerance is valid");
+        let welded = mesh
+            .weld(f64::MAX)
+            .expect("the largest finite tolerance is valid");
 
         assert_eq!(welded.vertex_map, vec![0, 0, 0]);
     }
@@ -351,9 +372,9 @@ mod tests {
         positions
             .iter()
             .map(|&position| {
-                let found = representatives
-                    .iter()
-                    .position(|&representative| within_tolerance(representative, position, tolerance));
+                let found = representatives.iter().position(|&representative| {
+                    within_tolerance(representative, position, tolerance)
+                });
                 found.map_or_else(
                     || {
                         representatives.push(position);

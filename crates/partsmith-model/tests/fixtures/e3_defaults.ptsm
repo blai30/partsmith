@@ -1,0 +1,30 @@
+{
+  "format": "partsmith",
+  "format_version": 1,
+  "units": "mm",
+  "parameters": [],
+  "bodies": [
+    {"id": "b-1", "name": "Base"},
+    {"id": "b-2", "name": "Keep out", "color": "#ff0000", "visible": false, "role": "support_blocker"}
+  ],
+  "features": [
+    {
+      "id": "f-box1",
+      "type": "box",
+      "name": "Base block",
+      "body": "b-1",
+      "size": ["40 mm", "30 mm", "10 mm"],
+      "op": "new"
+    },
+    {
+      "id": "f-cyl1",
+      "type": "cylinder",
+      "suppressed": true,
+      "body": "b-1",
+      "radius": "3 mm",
+      "height": "10 mm",
+      "op": "cut"
+    }
+  ],
+  "rollback": "f-cyl1"
+}

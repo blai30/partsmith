@@ -1,0 +1,12 @@
+{
+  "format": "partsmith",
+  "format_version": 1,
+  "units": "mm",
+  "parameters": [],
+  "bodies": [
+    {"id": "b-1", "name": "Lid", "color": "#3b82f6"}
+  ],
+  "features": [
+    {"id": "f-1", "type": "box", "size": ["10 mm", "10 mm", "2 mm"], "x": 1, "label": "café / bar"}
+  ]
+}

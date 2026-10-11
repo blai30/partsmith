@@ -1,8 +1,6 @@
 //! Topology and degeneracy analysis: edge use, orientation and shells.
 
 use crate::mesh::{repeats_index, to_u32};
-use crate::metrics::tetrahedron_volume;
-use crate::sum::compensated_sum;
 use crate::{Aabb, Mesh};
 
 /// Topology and degeneracy findings for a mesh, by vertex index.
@@ -150,11 +148,13 @@ impl Mesh {
                 let corners = || {
                     triangles
                         .iter()
-                        .map(|&triangle| self.triangle_points(triangle as usize))
+                        .map(|&triangle| self.triangles()[triangle as usize])
                 };
-                let signed_volume = compensated_sum(corners().map(tetrahedron_volume));
-                let bounding_box = Aabb::from_points(corners().flatten())
-                    .expect("every shell has at least one triangle");
+                let signed_volume = self.volume_of(corners());
+                let bounding_box = Aabb::from_points(
+                    corners().flat_map(|corners| self.corner_points(corners)),
+                )
+                .expect("every shell has at least one triangle");
                 Shell {
                     triangles,
                     closed,
@@ -388,10 +388,7 @@ mod tests {
     fn square_has_four_boundary_edges_and_one_interior_edge() {
         let report = square().validity();
 
-        assert_eq!(
-            report.boundary_edges,
-            vec![[0, 1], [0, 2], [1, 3], [2, 3]]
-        );
+        assert_eq!(report.boundary_edges, vec![[0, 1], [0, 2], [1, 3], [2, 3]]);
         assert!(report.non_manifold_edges.is_empty());
         assert!(report.misoriented_edges.is_empty());
         assert!(!report.is_watertight());

@@ -106,7 +106,7 @@ feature(
 2. Each distance must be greater than 0, else `OutOfRange` (`GreaterThan(0)`) on its field, checked in field order.
 3. Resolve `edges` as in [fillet.md](fillet.md) step 3, and skip smooth edges as in fillet step 4 (`Ignored { reason: SmoothEdge }`, `NoEffect` if none remain).
 4. Face assignment for two distances: for each edge, the first face is the adjacent face whose element name sorts first in byte order; `expr` is measured on it and `second_expr` on the other face (kernel `ChamferSize::TwoDistances { distance, other_distance, face }` with `face` the first face's index). `flip: true` swaps the two for every edge. Edges the kernel adds along a tangent chain follow the side of the edge they continue.
-5. Kernel `chamfer` with every edge. On kernel failure (except `InvalidInput`), run the "too large" search (features.md section 4.3; both distances scale together) and fail with `ChamferTooLarge { distance, max, cause }`, where `distance` is the larger requested distance and `max` the larger working scaled distance.
+5. Kernel `chamfer` with every edge. On kernel failure (except `InvalidInput`), run the "too large" search (features.md section 4.3; both distances scale together) and fail with `ChamferTooLarge { field, distance, max, cause }`, where `field` is `distance.expr` for an equal distance and `distance` for two distances, `distance` is the larger requested distance and `max` the larger working scaled distance. Only the equal-distance error carries a suggestion (features.md section 4.4).
 6. Name and return one `BodyUpdate` with change `Modify`.
 
 ### 3.4 Element names

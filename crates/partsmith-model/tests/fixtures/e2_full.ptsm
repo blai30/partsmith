@@ -1,0 +1,53 @@
+{
+  "format": "partsmith",
+  "format_version": 1,
+  "units": "mm",
+  "printer": "generic-fdm",
+  "parameters": [
+    {"id": "p-wall", "name": "wall", "expr": "2 mm", "comment": "Outer wall thickness"},
+    {"id": "p-clear", "name": "clearance", "expr": "printer.fit.slip"}
+  ],
+  "bodies": [
+    {"id": "b-1", "name": "Enclosure", "material": "PETG", "color": "#3b82f6"}
+  ],
+  "features": [
+    {
+      "id": "f-sk1",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XY"},
+      "entities": [
+        {"id": "e-1", "type": "line", "start": [0, 0], "end": [80, 0]},
+        {"id": "e-2", "type": "line", "start": [80, 0], "end": [80, 50]},
+        {"id": "e-3", "type": "line", "start": [80, 50], "end": [0, 50]},
+        {"id": "e-4", "type": "line", "start": [0, 50], "end": [0, 0]}
+      ],
+      "constraints": [
+        {"id": "c-1", "type": "coincident", "points": ["e-1.end", "e-2.start"]},
+        {"id": "c-2", "type": "horizontal", "line": "e-1"},
+        {"id": "c-3", "type": "distance", "points": ["e-1.start", "e-1.end"], "expr": "80 mm"}
+      ]
+    },
+    {
+      "id": "f-ext1",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk1",
+        "regions": [
+          {"key": "e-1,e-2,e-3,e-4", "fp": "c=40,25|a=4000"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "30 mm"},
+      "op": "new"
+    },
+    {
+      "id": "f-shell1",
+      "type": "shell",
+      "body": "b-1",
+      "thickness": "wall",
+      "remove_faces": [
+        {"q": "f-ext1/end-cap", "fp": "plane|n=0,0,1|c=40,25,30|a=4000|adj=4,4"}
+      ]
+    }
+  ]
+}

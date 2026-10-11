@@ -312,7 +312,9 @@ fn check_invariants(
     if let Some(vertex) = positions.iter().position(|&position| !is_finite(position)) {
         return Err(MeshError::NonFinitePosition { vertex });
     }
-    if let Some(vertex) = normals.and_then(|normals| normals.iter().position(|&normal| !is_finite(normal))) {
+    if let Some(vertex) =
+        normals.and_then(|normals| normals.iter().position(|&normal| !is_finite(normal)))
+    {
         return Err(MeshError::NonFiniteNormal { vertex });
     }
     for edge in edges {
@@ -432,7 +434,11 @@ mod tests {
     #[test]
     fn lowest_offending_vertex_is_reported() {
         let error = Mesh::from_triangles(
-            vec![[0.0, 0.0, 0.0], [f64::INFINITY, 0.0, 0.0], [f64::NAN, 0.0, 0.0]],
+            vec![
+                [0.0, 0.0, 0.0],
+                [f64::INFINITY, 0.0, 0.0],
+                [f64::NAN, 0.0, 0.0],
+            ],
             Vec::new(),
         )
         .expect_err("vertices 1 and 2 are not finite");
@@ -466,10 +472,7 @@ mod tests {
             Vec::new(),
             None,
             Vec::new(),
-            vec![
-                marker(3, [0.0, 0.0, 0.0]),
-                marker(4, [0.0, 0.0, f64::NAN]),
-            ],
+            vec![marker(3, [0.0, 0.0, 0.0]), marker(4, [0.0, 0.0, f64::NAN])],
         )
         .expect_err("marker 4 is not finite");
 
@@ -536,8 +539,8 @@ mod tests {
 
     #[test]
     fn triangle_with_all_corners_at_one_point_is_degenerate() {
-        let mesh = Mesh::from_triangles(vec![[1.0, 1.0, 1.0]; 3], vec![[0, 1, 2]])
-            .expect("valid mesh");
+        let mesh =
+            Mesh::from_triangles(vec![[1.0, 1.0, 1.0]; 3], vec![[0, 1, 2]]).expect("valid mesh");
 
         assert!(mesh.is_degenerate(0));
         assert_eq!(mesh.triangle_normal(0), None);
@@ -552,7 +555,11 @@ mod tests {
     #[test]
     fn height_exactly_at_the_threshold_is_degenerate() {
         let mesh = Mesh::from_triangles(
-            vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.5, 0.0, DEGENERATE_HEIGHT]],
+            vec![
+                [0.0, 0.0, 0.0],
+                [1.0, 0.0, 0.0],
+                [0.5, 0.0, DEGENERATE_HEIGHT],
+            ],
             vec![[0, 1, 2]],
         )
         .expect("valid mesh");

@@ -8,7 +8,7 @@ This spec defines the contract every feature type implements and every caller re
 
 ### In M1
 
-- `Feature` trait, `FeatureManifest` with UI hints, `Dependencies`, `BuildContext`, `FeatureOutput`, `BodyUpdate`, `FeatureError`, `FeatureWarning`.
+- `Feature` trait, `FeatureManifest` with UI hints (defined in `partsmith-model`), `Dependencies`, `BuildContext`, `FeatureOutput`, `BodyUpdate`, `FeatureError`, `FeatureWarning`.
 - `Registry`: register, look up, validate and canonicalize params, supply params schemas, extract dependencies, build, generate Python (dedicated forms through each feature's hook, the generic form otherwise), label features, and implement the model's `FeatureInspector`.
 - Shared param types: `BodyOp`, `CopyOp`, `ProfileRef`, `PlaneRef`, `AxisRef`, `OriginAxis`.
 - Body semantics for `new`, `join`, `cut`, `intersect`, modifying features and copy features, including empty-body and empty-result rules.
@@ -1007,6 +1007,7 @@ pub position: [Expr; 3],
 - Dependencies: a datum plane adds its feature to `features`; a face plane adds its body to `bodies_read` (or leaves it in `bodies_written` when it is the target body); `position[0]`, `position[1]`, `position[2]` are `Length` uses.
 - Manifest hints shared by all primitives (not essential): `plane` labeled Plane with selection `plane`; `position[0]`, `position[1]`, `position[2]` labeled Position X, Position Y, Position Z with unit length.
 - Each primitive builds its tool, names its faces from the kernel `PrimitiveFace` roles and calls `apply_op(ctx, body, op, vec![tool])`. All size fields are checked (in field order) before any kernel work.
+- Python: each primitive's hook writes its size fields as positional expressions in field order, then `plane=` (`PythonValue::plane`) when the plane is not origin XY, `position=` (a tuple of the three expressions) when it is not the default, and `op` per section 3.11. For example `box(20, 30, 40, position=(5, 0, 0), id="f-box1")`.
 
 JSON: `"plane": {"kind": "origin", "plane": "XZ"}, "position": ["10", "0", "5 mm"]`.
 
@@ -1120,10 +1121,10 @@ When a fillet, chamfer or shell kernel operation fails (any `KernelError` except
 
 | Variant | Suggestion |
 | --- | --- |
-| `FilletTooLarge`, `ShellTooThick` with `max` set; `ChamferTooLarge` with `max` set and an equal distance | the suggested-limit text of section 3.12, the same text as `{max}` in the message (`2.3 mm`) |
+| `FilletTooLarge`, `ShellTooThick` with `max` set; `ChamferTooLarge` with `max` set and field `distance.expr` (an equal distance) | the suggested-limit text of section 3.12, the same text as `{max}` in the message (`2.3 mm`) |
 | `OutOfRange` with `AtLeast(b)` or `AtMost(b)` | `format_value(kind, b, units)` (`1`, `360 deg`) |
 
-A two-distance chamfer gets no suggestion, because its limit scales both distances. Strict bounds (`GreaterThan`, `LessThan`) have no value that satisfies them exactly, so they get none. No M1 warning has a suggestion. Recompute passes the suggestion to hosts with each message (recompute.md section 3.6).
+A two-distance chamfer (field `distance`) gets no suggestion, because its limit scales both distances. Strict bounds (`GreaterThan`, `LessThan`) have no value that satisfies them exactly, so they get none. No M1 warning has a suggestion. Recompute passes the suggestion to hosts with each message (recompute.md section 3.6).
 
 ## 5. Performance budgets
 

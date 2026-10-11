@@ -62,7 +62,18 @@ Label `Sphere`, category `create`, icon `sphere`, version 1.
 
 ### Python
 
-Dedicated form: `sphere(radius, at=..., part=..., op=...)` (python-api.md section 2.7). Generic form: `feature("sphere", id="f-sph1", body="b-1", radius="10", position=["0", "0", "10"], op="new")`.
+Dedicated form: `sphere(radius, plane=..., position=..., op=...)` (python-api.md section 2.7), produced by the `Feature::python` hook with the primitive rules of features.md section 3.14. The JSON above is `sphere(10, position=(0, 0, 10), id="f-sph1")`. Generic form (longer than 88 characters, so one argument per line):
+
+```python
+feature(
+    "sphere",
+    id="f-sph1",
+    body="b-1",
+    radius="10",
+    position=["0", "0", "10"],
+    op="new",
+)
+```
 
 ## 3. Behavior
 
@@ -75,7 +86,7 @@ Dedicated form: `sphere(radius, at=..., part=..., op=...)` (python-api.md sectio
 
 1. radius > 0, else `OutOfRange` (`GreaterThan(0)`).
 2. Kernel `make_sphere` centered on the local origin, poles on the local z-axis.
-3. Name the face, then `apply_op`.
+3. Name the face, then `apply_op(ctx, body, op, vec![tool])`.
 
 ### 3.3 Element names
 

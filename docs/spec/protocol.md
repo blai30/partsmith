@@ -553,18 +553,18 @@ Each command below lists its fields (Rust types), a request example, and the res
 
 8. `close_document {doc}`: discards the document, its undo log and its display state. Result `{}`. Emits nothing.
 
-30. `mark_saved {doc, revision: u64}`: the host wrote the text that `save_document` returned for `revision`. When `revision` is that of the document's latest `save_document`, the dirty baseline becomes that text; otherwise nothing changes. Result `{}`. Emits `document_changed` when `dirty` changes.
-
-```json
-{"type": "mark_saved", "doc": 1, "revision": 4}
-{"type": "mark_saved"}
-```
-
 9. `get_document {doc}`: the current recipe. Result `{revision: u64, document: Document}`. Emits nothing.
 
 ```json
 {"type": "get_document", "doc": 1}
 {"type": "get_document", "revision": 3, "document": {"format": "partsmith", "format_version": 1, "units": "mm", "parameters": [{"id": "p-h", "name": "height", "expr": "40 mm"}], "bodies": [{"id": "b-1", "name": "Block"}], "features": [{"id": "f-box1", "type": "box", "body": "b-1", "size": ["20 mm", "30 mm", "height"], "op": "new"}]}}
+```
+
+30. `mark_saved {doc, revision: u64}`: the host wrote the text that `save_document` returned for `revision`. When `revision` is that of the document's latest `save_document`, the dirty baseline becomes that text; otherwise nothing changes. Result `{}`. Emits `document_changed` when `dirty` changes.
+
+```json
+{"type": "mark_saved", "doc": 1, "revision": 4}
+{"type": "mark_saved"}
 ```
 
 **Edits, transactions, undo**

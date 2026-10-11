@@ -66,7 +66,7 @@ Label `Cylinder`, category `create`, icon `cylinder`, version 1.
 
 ### Python
 
-Dedicated form: `cylinder(radius, height, at=..., part=..., op=...)` (python-api.md section 2.7). Generic form: `feature("cylinder", id="f-cyl1", body="b-1", radius="5", height="10", op="new")`.
+Dedicated form: `cylinder(radius, height, plane=..., position=..., op=...)` (python-api.md section 2.7), produced by the `Feature::python` hook with the primitive rules of features.md section 3.14. The JSON above is `cylinder(5, 10, id="f-cyl1")`. Generic form: `feature("cylinder", id="f-cyl1", body="b-1", radius="5", height="10", op="new")`.
 
 ## 3. Behavior
 
@@ -79,7 +79,7 @@ Dedicated form: `cylinder(radius, height, at=..., part=..., op=...)` (python-api
 
 1. radius > 0 and height > 0, else `OutOfRange` (`GreaterThan(0)`) on that field, in field order.
 2. Kernel `make_cylinder` in the local frame: axis on local z, base circle of `radius` at z = 0, top at z = `height`.
-3. Name the faces, then `apply_op`.
+3. Name the faces, then `apply_op(ctx, body, op, vec![tool])`.
 
 ### 3.3 Element names
 

@@ -65,7 +65,7 @@ Label `Torus`, category `create`, icon `torus`, version 1.
 
 ### Python
 
-Dedicated form: `torus(major_radius, minor_radius, at=..., part=..., op=...)` (python-api.md section 2.7). Generic form: `feature("torus", id="f-tor1", body="b-1", major_radius="20", minor_radius="5", op="new")`.
+Dedicated form: `torus(major_radius, minor_radius, plane=..., position=..., op=...)` (python-api.md section 2.7), produced by the `Feature::python` hook with the primitive rules of features.md section 3.14. The JSON above is `torus(20, 5, id="f-tor1")`. Generic form (exactly 88 characters, so one line): `feature("torus", id="f-tor1", body="b-1", major_radius="20", minor_radius="5", op="new")`.
 
 ## 3. Behavior
 
@@ -78,7 +78,7 @@ Dedicated form: `torus(major_radius, minor_radius, at=..., part=..., op=...)` (p
 
 1. Checks in order: major_radius > 0 (`GreaterThan(0)`); minor_radius > 0 (`GreaterThan(0)`); minor_radius < major_radius (`OutOfRange` on `minor_radius`, `LessThan(major)`, bound name `the ring radius`).
 2. Kernel `make_torus` centered on the local origin with its axis on local z; it spans z in [-minor, minor].
-3. Name the face, then `apply_op`.
+3. Name the face, then `apply_op(ctx, body, op, vec![tool])`.
 
 ### 3.3 Element names
 

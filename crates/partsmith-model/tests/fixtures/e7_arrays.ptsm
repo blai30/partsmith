@@ -1,0 +1,35 @@
+{
+  "format": "partsmith",
+  "format_version": 1,
+  "units": "in",
+  "parameters": [],
+  "bodies": [],
+  "features": [
+    {
+      "id": "f-poly",
+      "type": "polygon_demo",
+      "points": [
+        [0, 0],
+        [80, 0],
+        [80, 50],
+        [40, 70],
+        [0, 50],
+        [0, 25.5],
+        [10.25, 12.125],
+        [3.5, 1.75],
+        [0.5, 0.25],
+        [1, 2]
+      ]
+    },
+    {
+      "id": "f-small",
+      "type": "polygon_demo",
+      "points": [[0, 0], [80, 0], [80, 50]],
+      "empty_list": [],
+      "empty_map": {},
+      "flag": true,
+      "nothing": null
+    }
+  ],
+  "rollback": "f-poly"
+}

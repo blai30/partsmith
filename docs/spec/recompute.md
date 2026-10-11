@@ -9,9 +9,10 @@ Status: M1 spec. Crate: `partsmith-recompute`. Read with [architecture.md](../de
 ### In M1
 
 - Dependency DAG over the timeline: feature outputs, body state chains, parameters and context values.
-- Dirty tracking through content-hash cache keys (BLAKE3 of canonical params, evaluated values and upstream keys), plus graph queries for "what does this change affect".
+- Dirty tracking through content-hash cache keys (BLAKE3 of canonical params, evaluated values, upstream keys and the versions of `partsmith-features` and OCCT), plus graph queries for "what does this change affect".
 - An in-memory result cache, shared by all documents of a session, with LRU eviction by entry count.
-- Rollback marker and an explicit stop point for previews.
+- Rollback marker (the first rolled-back feature) and an explicit stop point for previews.
+- Asset bytes supplied by the host for features that read imported files.
 - Suppression, failure isolation, panic isolation.
 - Per-feature status, warnings and errors with rendered messages and repair data, timing, outputs, and body states before each feature.
 - A cancellation token checked between features and exposed to long builds.
@@ -63,6 +64,8 @@ pub struct Input<'a> {
     pub context: &'a dyn EvaluationContext,
     /// Stop after this feature (inclusive) instead of at the document's rollback marker. Used for previews.
     pub stop_at: Option<&'a Id>,
+    /// Asset bytes by name (the document's asset store).
+    pub assets: &'a BTreeMap<String, Arc<[u8]>>,
 }
 
 /// The dependency graph of one document.
@@ -103,7 +106,7 @@ pub enum NodeState {
     Active,
     /// Suppressed by the user.
     Suppressed,
-    /// After the stop point.
+    /// At or after the rollback marker, or after the stop point.
     RolledBack,
     /// Unknown type or invalid params: its dependencies are unknown, it runs nothing and writes nothing.
     Invalid,
@@ -163,7 +166,7 @@ pub enum Action {
     Fail,
     /// Suppressed.
     Suppressed,
-    /// After the stop point.
+    /// At or after the rollback marker, or after the stop point.
     RolledBack,
 }
 
@@ -175,14 +178,14 @@ pub struct CacheKey(pub [u8; 32]);
 pub struct Report {
     /// One report per feature record, in timeline order.
     pub features: Vec<FeatureReport>,
-    /// One report per body in `Document::bodies` order: the state at the stop point.
+    /// One report per body in `Document::bodies` order: the state at the end of the run (after the stop point, or before the rollback marker).
     pub bodies: Vec<BodyReport>,
     /// One report per parameter in document order.
     pub parameters: Vec<ParameterReport>,
     /// Document-level messages (for example an unknown stop point).
     pub messages: Vec<Message>,
-    /// True when the run was cancelled; `bodies` are then the states after the last feature that finished.
-    pub cancelled: bool,
+    /// True when the run was canceled; `bodies` are then the states after the last feature that finished.
+    pub canceled: bool,
     /// Wall time of the whole run.
     pub elapsed: Duration,
 }
@@ -205,7 +208,7 @@ pub struct FeatureReport {
     pub timing: Timing,
     /// Its output, when status is `Ok` or `Warning`.
     pub output: Option<Arc<FeatureOutput>>,
-    /// States of the bodies it declared (read, then written, in declaration order) just before it. Empty unless it ran or was reused.
+    /// States of the bodies it declared (read, then written, in declaration order) just before it. Empty unless it ran or was reused. Undeclared bodies are unchanged by the feature, so every body's state just before the stop feature is `bodies_before` for its declared bodies and `Report::bodies` for the rest (what the engine's focus preview needs).
     pub bodies_before: Vec<(Id, BodyState)>,
 }
 
@@ -219,9 +222,9 @@ pub enum Status {
     Error,
     /// Suppressed by the user.
     Suppressed,
-    /// After the stop point.
+    /// At or after the rollback marker, or after the stop point.
     RolledBack,
-    /// Not run because the run was cancelled.
+    /// Not run because the run was canceled.
     NotRun,
 }
 
@@ -233,7 +236,7 @@ pub struct Timing {
     pub from_cache: bool,
 }
 
-/// The state of one body at the stop point.
+/// The state of one body at the end of the run.
 pub struct BodyReport {
     /// The body.
     pub body: Id,
@@ -263,6 +266,8 @@ pub struct Message {
     pub pointer: Option<String>,
     /// The message text, rendered with current names and units.
     pub text: String,
+    /// Replacement expression for the field at `pointer`, in display units, when the feature computed a limit (features.md section 4.4).
+    pub suggestion: Option<String>,
     /// Repair data for lost references and regions.
     pub repair: Option<Repair>,
 }
@@ -281,7 +286,7 @@ For every feature record, in timeline order:
 
 1. **Validation.** `Registry::validate_and_canonicalize`. Failure (unknown type, invalid params, a sketch that fails its own validation) makes the node `Invalid` with that error. Results are memoized per record content within the `Recompute`, so unchanged records are not reparsed.
 2. **Dependencies.** `Registry::dependencies` of the canonical record.
-3. **State.** The stop point is `input.stop_at` if set, else `document.rollback`, else none. A stop point that names no feature is ignored (the whole timeline runs) with a document-level warning `unknown_stop`: `The preview or rollback point '{id}' is not in this document, so the whole timeline was rebuilt.` Records after the stop point are `RolledBack`. Otherwise suppressed records are `Suppressed`, invalid ones `Invalid`, the rest `Active`. Rollback is checked first: a suppressed record after the stop point is `RolledBack`.
+3. **State.** Active candidates are the records up to and including `input.stop_at` when it is set and names a record; otherwise the records before `document.rollback` (the first rolled-back record) when it is set and names a record; otherwise all records. Every other record is `RolledBack`: with a stop point, the records after it; with the rollback marker, the marker record and every later one. A `stop_at` or `rollback` that names no record is ignored (the whole timeline runs) with a document-level warning `unknown_stop`: `The preview or rollback point '{id}' is not in this document, so the whole timeline was rebuilt.` Among the candidates, suppressed records are `Suppressed`, invalid ones `Invalid`, the rest `Active`. Rollback is checked first: a suppressed record that is not a candidate is `RolledBack`.
 4. **Parameters.** `Document::evaluate_parameters(context)` (expressions.md section 3.13) gives `ParameterValues`; the report's `parameters` list them.
 
 ### 3.2 The graph
@@ -290,6 +295,7 @@ Edges go only from earlier to later records, so the graph is acyclic by construc
 
 - **Output edges.** For each `Link` in a node's `features`, an `Output` edge from that feature, if it exists and comes earlier in the timeline.
 - **Body edges.** For each `Link` in `bodies_read` and `bodies_written`, a `Body(b)` edge from the body's **provider**: the last `Active` record before the node whose `bodies_written` contains `b`. `Suppressed`, `RolledBack` and `Invalid` records are never providers. A body with no provider has no edge (it is empty at that point).
+- **Assets** create no edges: an asset name is a content hash stored in the params, so it is part of the cache key (section 3.4).
 - **Parameters.** A node's `parameters` are the parameters named in its expressions (`Expr::references().parameters` resolved by name), plus every parameter those reference, transitively, in document order. Its `context_names` are the dotted names (`references().values`) of its expressions and of those parameters.
 - `affected_by(changes)`: the seed set is each `Feature(id)` itself; each active node whose `parameters` contain a changed `Parameter`; each active node whose `context_names` contain a changed `ContextName`; for `Units`, every active node with `uses_expressions`. The result is the seeds that are active plus every active node reachable from them along edges, in timeline order.
 - `independent(a, b)` is true when neither node is reachable from the other.
@@ -305,17 +311,18 @@ Before an `Active` node is built, recompute checks its links in declaration orde
 | A feature link's record is `Suppressed` | `UpstreamSuppressed { feature }` |
 | A feature link's record is `Invalid` or ended with `Error` | `UpstreamFailed { feature }` |
 | A body link names no body of the document | `UnknownBody { field }` |
+| An asset link names no entry of `input.assets` | `AssetMissing { field, asset }` |
 
 ### 3.4 Cache keys
 
 Every `Active` node gets a key; `Suppressed`, `RolledBack` and `Invalid` nodes have none. The key is the BLAKE3 hash of this byte sequence, each item written as UTF-8 followed by one line feed (no item contains a line feed):
 
 1. `partsmith-recompute 1`
-2. The engine signature: `partsmith-features <crate version> occt <OCCT version>`.
+2. The engine signature: `partsmith-features {partsmith_features::VERSION} occt {partsmith_features::OCCT_VERSION}`, for example `partsmith-features 0.1.0 occt 7.9.3`.
 3. `type <type name>` and `version <manifest version>`.
 4. `id <feature id>`.
 5. `params <canonical params JSON>`: the known keys of the canonical params (unknown keys excluded), written compactly (no spaces) with keys in canonical order and numbers in canonical form.
-6. For each `ExprUse` in declaration order: `expr <field> <kind>` and then `value <hex of f64::to_bits>` for a converted value, or `error <code> <Display text>` for an error.
+6. For each use of `Values::iter` (declaration order): `expr <field> <unit>` (the `FieldUnit` in snake_case, for example `length`) and then `value <hex of f64::to_bits>` for a converted value, or `error <code> <Display text>` for an error.
 7. For each feature link in order: `feature <id> <upstream key hex>`, or `feature <id> none` when the upstream has no key.
 8. For each body link (read, then written) in order: `body <id> <provider key hex>`, or `body <id> empty` when it has no provider.
 
@@ -326,30 +333,32 @@ Consequences:
 - Names (`Body::name`, `FeatureRecord::name`), body colors and materials are not in keys; messages render names at report time.
 - Key order in the stored params does not matter (canonicalization comes first); unknown keys do not affect the key.
 - Values from the evaluation context (printer values) are in the keys through evaluated values.
+- Asset bytes are in the keys through the asset name in the params, which is their BLAKE3 hash.
+- A different `partsmith-features` or OCCT version gives different keys, so a later disk cache never reuses results across upgrades.
 
 ### 3.5 Running
 
 Features run sequentially in timeline order. A running state maps each body to its current `BodyState` (all start empty) and its provider key. For each record:
 
 1. `RolledBack`, `Suppressed`: status as named; nothing else. `Invalid`: status `Error` with the validation error.
-2. If `cancel.is_cancelled()`: this and every later `Active` record get `NotRun`; the run stops and `cancelled` is true.
+2. If `cancel.is_canceled()`: this and every later `Active` record get `NotRun`; the run stops and `canceled` is true.
 3. Evaluate the declared expressions (`Values::evaluate`) and compute the key (section 3.4).
 4. Pre-build checks (section 3.3). On failure: status `Error`, no output, bodies unchanged; the key is kept (this feature still provides the bodies it declares).
 5. Record `bodies_before` from the running state.
 6. **Cache.** If the key is cached, reuse the result (`from_cache: true`, duration zero).
-7. **Build.** Otherwise build through `Registry::build` with a `BuildContext` holding only the declared bodies' states, the declared features' outputs and the run's `CancelToken`, inside `catch_unwind`. A panic becomes `Internal { message }` with the panic message (or `unknown panic`). The duration is measured around the build.
+7. **Build.** Otherwise build through `Registry::build` with a `BuildContext` holding only the declared bodies' states, the declared features' outputs, the declared assets' bytes and the run's `CancelToken`, inside `catch_unwind`. A panic becomes `Internal { message }` with the panic message (or `unknown panic`). The duration is measured around the build.
 8. **Check the output.** A `BodyUpdate` for a body not in `bodies_written`, or two updates for one body, turns the result into `UndeclaredDependency`; nothing from that output is applied.
-9. **Store.** The result (output or error) is cached under the key, except `Cancelled` and `Internal`. A build that returns `Cancelled` gives status `NotRun` and stops the run as in step 2.
+9. **Store.** The result (output or error) is cached under the key, except `Canceled` and `Internal`. A build that returns `Canceled` gives status `NotRun` and stops the run as in step 2.
 10. **Apply.** On success, apply each `BodyUpdate` to the running state (shape, naming map, provider key = this key). On error, bodies are unchanged; the feature is still the provider of the bodies it declares in `bodies_written`, so later keys stay a function of the timeline.
 11. **Status.** `Ok` without warnings, `Warning` with warnings (including `UnknownParams` for unknown keys, added here and not cached), `Error` with an error.
 
-After the loop, `bodies` are the running states (the stop point's states, or after a cancel the states after the last finished feature).
+After the loop, `bodies` are the running states (the states at the stop point or before the rollback marker, or after a cancel the states after the last finished feature).
 
 Failure isolation: a failing feature never stops the run. Features that read a failed feature's bodies build on the states before it; features that read its output report `UpstreamFailed`.
 
 ### 3.6 Messages
 
-`FeatureReport::messages` are rendered at report time, also for cached results, with `DocumentNames { document, registry }` and the document's units: the error first (severity error), then warnings (severity warning). Each message has the error's or warning's `code()`, the JSON Pointer of its field (`FieldRef::pointer`), the rendered text, and `repair()`.
+`FeatureReport::messages` are rendered at report time, also for cached results, with `DocumentNames { document, registry }` and the document's units: the error first (severity error), then warnings (severity warning). Each message has the error's or warning's `code()`, the JSON Pointer of its field (`FieldRef::pointer`), the rendered text, `suggestion(units)`, and `repair()`.
 
 ### 3.7 The cache
 
@@ -368,7 +377,7 @@ The same `Recompute` inputs give the same report except `Timing`, `elapsed` and 
 
 ## 4. Errors
 
-Recompute has no error type of its own: every problem is a feature's status (`FeatureError` and `FeatureWarning`, features.md section 4) or a document-level `Message`. Recompute raises these `FeatureError` variants itself: `UnknownFeature`, `ForwardReference`, `UpstreamFailed`, `UpstreamSuppressed`, `UnknownBody` (section 3.3), `UndeclaredDependency` (section 3.5 step 8), `Internal` (panics), and it adds the `UnknownParams` warning. Document-level messages:
+Recompute has no error type of its own: every problem is a feature's status (`FeatureError` and `FeatureWarning`, features.md section 4) or a document-level `Message`. Recompute raises these `FeatureError` variants itself: `UnknownFeature`, `ForwardReference`, `UpstreamFailed`, `UpstreamSuppressed`, `UnknownBody`, `AssetMissing` (section 3.3), `UndeclaredDependency` (section 3.5 step 8), `Internal` (panics), and it adds the `UnknownParams` warning. Document-level messages:
 
 | Code | Severity | Text |
 | --- | --- | --- |
@@ -376,29 +385,29 @@ Recompute has no error type of its own: every problem is a feature's status (`Fe
 
 ## 5. Performance budgets
 
-Release builds on the reference machine (technical design section 14), single thread; web budgets are 3 times these. Measured by benchmarks in `crates/partsmith-recompute/benches/`, on a 50-feature benchmark document `bench50.ptsm` made of: 2 datum planes, 10 sketches (rectangles with circles), 10 extrudes (new, join and cut), 8 fillets of 4 edges, 6 chamfers of 4 edges, 4 hole features of 4 holes, 2 shells, 4 linear patterns of 3, 2 mirrors and 2 booleans, over 4 bodies.
+Release builds on the reference machine (technical design section 14), single thread; web budgets are 3 times these. Measured by benchmarks in `crates/partsmith-recompute/benches/` (`harness = false`, `std::time::Instant`), on the one 50-feature benchmark document `examples/bench/fifty-features/model.ptsm` (engine.md section 5; `bench50` below), made of: 2 datum planes, 10 sketches (rectangles with circles), 10 extrudes (new, join and cut), 8 fillets of 4 edges, 6 chamfers of 4 edges, 4 hole features of 4 holes, 2 shells, 4 linear patterns of 3, 2 mirrors and 2 booleans, over 4 bodies, with a parameter `base` that drives the first sketch.
 
 | Operation | Budget (desktop) |
 | --- | --- |
 | `plan` of a 300-feature document (validation, dependencies, parameters, keys) | 10 ms |
 | Overhead per feature, excluding build and element infos | 0.1 ms |
-| `run` of `bench50.ptsm` with every result cached | 5 ms |
-| `run` of `bench50.ptsm` from an empty cache | 1 s |
-| `run` after a parameter edit that affects the last 5 features of `bench50.ptsm` | 60 ms |
+| `run` of `bench50` with every result cached | 5 ms |
+| `run` of `bench50` from an empty cache | 1 s |
+| `run` after a parameter edit that affects the last 5 features of `bench50` | 60 ms |
 | Latency from `cancel()` to the end of `run`, between features | the remaining time of the feature being built |
 
 ## 6. Acceptance tests
 
-Tests live in `crates/partsmith-recompute/tests/` and use only public APIs. Conventions from features.md section 6.1 (documents, fixtures, tolerances). Test-only features are registered through `Registry::register` on `Registry::with_builtins()`:
+Tests live in `crates/partsmith-recompute/tests/` and use only public APIs. Conventions from features.md section 6.1 (documents, fixtures, tolerances); tests pass an empty asset map unless stated. Test-only features are registered through `Registry::register` on `Registry::with_builtins()`:
 
 - `test_panic`: params `{}`; no dependencies; `build` panics with the message `boom`.
-- `test_wait`: params `{}`; no dependencies; `build` polls `ctx.is_cancelled()` every 1 ms and returns `Err(Cancelled)` once it is set (or `Ok(Nothing)` after 10 s).
+- `test_wait`: params `{}`; no dependencies; `build` polls `ctx.is_canceled()` every 1 ms and returns `Err(Canceled)` once it is set (or `Ok(Nothing)` after 10 s).
 - `test_peek`: params `{"body": Id}`; declares nothing; `build` calls `ctx.body(body)`.
 - `test_stray`: params `{"body": Id}`; declares `bodies_read [body]`; `build` returns a `BodyUpdate` for `body`.
 
 Document `DOC-A` (bodies `b-1` named Body 1, `b-2` named Body 2; parameters `{"id": "p-h", "name": "h", "expr": "10 mm"}` and `{"id": "p-w", "name": "w", "expr": "5 mm"}`), features in order:
 
-1. `{"id": "f-sk1", "type": "sketch", "plane": {"type": "origin", "name": "XY"}, "entities": <RECT(0, 0, 80, 50) lines e-1..e-4>}`
+1. `{"id": "f-sk1", "type": "sketch", "plane": {"kind": "origin", "plane": "XY"}, "entities": <RECT(0, 0, 80, 50) lines e-1..e-4>}`
 2. `{"id": "f-ext1", "type": "extrude", "body": "b-1", "profile": {"sketch": "f-sk1", "regions": [{"key": "e-1,e-2,e-3,e-4", "fp": "c=40,25|a=4000"}]}, "extent": {"kind": "distance", "expr": "h"}, "op": "new"}`
 3. `{"id": "f-box2", "type": "box", "body": "b-2", "size": ["10", "10", "10"], "position": ["100", "0", "0"], "op": "new"}`
 4. `{"id": "f-fil1", "type": "fillet", "body": "b-1", "edges": [{"q": "edge(f-ext1/end-cap|f-ext1/lateral/e-1)", "fp": "line|n=1,0,0|c=40,0,10|l=80"}], "radius": "1"}`
@@ -428,10 +437,10 @@ Document `DOC-A` (bodies `b-1` named Body 1, `b-2` named Body 2; parameters `{"i
 
 **Stop point, suppression, failures**
 
-17. Rollback: `DOC-A` with `"rollback": "f-ext1"`: f-box2, f-fil1 and f-dp1 are `RolledBack` with no key; `bodies` has b-1 at volume 40000 with 6 faces and `last_feature == f-ext1`, and b-2 empty. Clearing the rollback after test 6 on the same `Recompute` gives `from_cache` true for every feature.
+17. Rollback: `DOC-A` with `"rollback": "f-box2"` (f-box2 is the first rolled-back feature): f-box2, f-fil1 and f-dp1 are `RolledBack` with no key; `bodies` has b-1 at volume 40000 with 6 faces and `last_feature == f-ext1`, and b-2 empty. Clearing the rollback after test 6 on the same `Recompute` gives `from_cache` true for every feature.
 18. Stop point: `DOC-A` with `stop_at = f-fil1`: f-dp1 is `RolledBack`; f-fil1's `bodies_before` holds b-1 with 6 faces; its output holds b-1 with 7 faces; `bodies` b-1 has 7 faces. `stop_at` overrides a document rollback of `f-sk1`.
 19. Unknown stop: `stop_at = f-nope`: every feature runs; `messages` holds `unknown_stop`.
-20. Failure isolation: bodies b-1; `{"id": "f-box1", "type": "box", "body": "b-1", "size": ["20", "20", "2.4"], "op": "new"}`; f-fil1 filleting the four top edges with radius 3; `{"id": "f-cha1", "type": "chamfer", "body": "b-1", "edges": [{"q": "edge(f-box1/front|f-box1/top)", "fp": "line|n=1,0,0|c=0,-10,2.4|l=20"}], "distance": {"kind": "equal", "expr": "1"}}`. Expected: f-fil1 `Error` (`fillet_too_large`); f-cha1 `Ok`, its `bodies_before` b-1 has volume 960; final b-1 volume 950, 7 faces; `bodies` b-1 `last_feature == f-cha1`.
+20. Failure isolation: bodies b-1; `{"id": "f-box1", "type": "box", "body": "b-1", "size": ["20", "20", "2.4"], "op": "new"}`; f-fil1 filleting the four top edges with radius 3; `{"id": "f-cha1", "type": "chamfer", "body": "b-1", "edges": [{"q": "edge(f-box1/front|f-box1/top)", "fp": "line|n=1,0,0|c=0,-10,2.4|l=20"}], "distance": {"kind": "equal", "expr": "1"}}`. Expected: f-fil1 `Error` (`fillet_too_large`), and its error message has `pointer == Some("/radius")` and a `suggestion` equal to the `{max}` text of its message (for example `2.3 mm`); f-cha1 `Ok`, its `bodies_before` b-1 has volume 960; final b-1 volume 950, 7 faces; `bodies` b-1 `last_feature == f-cha1`.
 21. Upstream failed: `DOC-A` with f-sk1 given the constraints `[{"id": "c-1", "type": "distance", "line": "e-1", "expr": "80 mm"}, {"id": "c-2", "type": "distance", "line": "e-1", "expr": "50 mm"}]`: f-sk1 `Error` (`sketch_conflict`); f-ext1 `Error` (`upstream_failed`, text `'Sketch 1' has an error, so this feature cannot use it. Fix 'Sketch 1' first.`); f-fil1 `Error` (`body_empty`: f-ext1 failed, so b-1 is still empty); f-box2 and f-dp1 `Ok`.
 22. Upstream suppressed: `DOC-A` with f-sk1 suppressed: f-sk1 `Suppressed`; f-ext1 `Error` (`upstream_suppressed`); f-box2 `Ok`.
 23. Unknown type: a record `{"id": "f-g1", "type": "gear_demo", "teeth": 12}` inserted before f-box2 in `DOC-A`: f-g1 `Error` (`unknown_type`) with no key; f-box2 `Ok` with the same key as in test 6.
@@ -443,12 +452,12 @@ Document `DOC-A` (bodies `b-1` named Body 1, `b-2` named Body 2; parameters `{"i
 
 **Cancellation**
 
-29. Cancelled before the run: a cancelled token: every active feature `NotRun`, `cancelled` true, every body empty, cache unchanged.
-30. Cancelled during the run: features `{"id": "f-box1", "type": "box", "body": "b-1", "size": ["10", "10", "10"], "op": "new"}`, `{"id": "f-w1", "type": "test_wait"}`, `{"id": "f-box2", "type": "box", "body": "b-2", "size": ["10", "10", "10"], "op": "new"}`; another thread cancels 50 ms after `run` starts. Expected: f-box1 `Ok`, f-w1 `NotRun`, f-box2 `NotRun`, `cancelled` true, b-1 volume 1000, b-2 empty. A following run with a new token that another thread cancels after 100 ms has `from_cache` true for f-box1 (its result was cached), and f-w1 and f-box2 `NotRun` again (a cancelled build is never cached).
+29. Canceled before the run: a canceled token: every active feature `NotRun`, `canceled` true, every body empty, cache unchanged.
+30. Canceled during the run: features `{"id": "f-box1", "type": "box", "body": "b-1", "size": ["10", "10", "10"], "op": "new"}`, `{"id": "f-w1", "type": "test_wait"}`, `{"id": "f-box2", "type": "box", "body": "b-2", "size": ["10", "10", "10"], "op": "new"}`; another thread cancels 50 ms after `run` starts. Expected: f-box1 `Ok`, f-w1 `NotRun`, f-box2 `NotRun`, `canceled` true, b-1 volume 1000, b-2 empty. A following run with a new token that another thread cancels after 100 ms has `from_cache` true for f-box1 (its result was cached), and f-w1 and f-box2 `NotRun` again (a canceled build is never cached).
 
 **Values, units and context**
 
-31. Context values: a box with size `["printer.fit.slip * 100", "10", "10"]` and a context map `{"printer.fit.slip": 0.2 mm}`: volume 200. With 0.3 mm the box is rebuilt (volume 300); with 0.2 mm again it is reused. Without the name in the context: `Error` (`expression`, rendered `Length: Unknown value 'printer.fit.slip'. Check the spelling; printer values look like printer.fit.slip.`).
+31. Context values: a box with size `["printer.fit.slip * 100", "10", "10"]` and a context map `{"printer.fit.slip": 0.2 mm}`: the box is 20 × 10 × 10, volume 2000. With 0.3 mm the box is rebuilt (volume 3000); with 0.2 mm again it is reused. Without the name in the context: `Error` (`expression`, rendered `Length: Unknown value 'printer.fit.slip'. Check the spelling; printer values look like printer.fit.slip.`).
 32. Units: boxes `f-box1` with size `["10", "10", "10"]` and `f-box2` (in b-2) with size `["10 mm", "10 mm", "10 mm"]` in an `mm` document; after changing the units to `in`, `plan` reports `Build` for f-box1 and `Reuse` for f-box2.
 33. Parameter report: a parameter `bad` with expression `"2 +"`: its `ParameterReport` value is the parse error; a box using `bad` has `Error` (`expression`).
 
@@ -456,16 +465,20 @@ Document `DOC-A` (bodies `b-1` named Body 1, `b-2` named Body 2; parameters `{"i
 
 34. Eviction: `with_cache_limit(2)`; run a document with three boxes in three bodies (3 entries, all used, none evicted: `cache_len() == 3`); then run a document with one different box: `cache_len() == 2`, holding the new box's entry and one entry of the first run.
 35. Determinism: two fresh `Recompute`s running `DOC-A` give identical keys, statuses, messages, volumes and element names; `CacheKey` display is 64 lowercase hex characters.
-36. Repair data: `DOC-A` with f-fil1's edge query changed to `edge(f-ext1/nothing|f-ext1/end-cap)` and a far fingerprint: f-fil1 `Error` (`references_not_found`); with a second, valid edge added the status is `Warning` and its message has pointer `/edges/0` and a `Repair::Element` with body `b-1`.
+36. Repair data: `DOC-A` with f-fil1's edge query changed to `edge(f-ext1/end-cap|f-ext1/nothing)` (face terms in byte order, naming.md section 3.1) and a far fingerprint: f-fil1 `Error` (`references_not_found`); with a second, valid edge added the status is `Warning` and its message has pointer `/edges/0` and a `Repair::Element` with body `b-1`.
 
 **Performance**
 
 37. The budgets of section 5 hold in the benchmarks.
 
+**Rollback, links and assets**
+
+38. Rollback before the first feature: `DOC-A` with `"rollback": "f-sk1"`: every feature is `RolledBack` with no key, and every body is empty.
+39. Unknown feature link: `DOC-A` with f-ext1's `profile.sketch` set to `f-nope`: f-ext1 `Error` (`unknown_feature`, pointer `/profile/sketch`); f-fil1 `Error` (`body_empty`); f-box2 and f-dp1 `Ok`.
+40. Missing asset: bodies b-1; the record `{"id": "f-imp1", "type": "import", "body": "b-1", "asset": "<64 zeros>.step", "op": "new"}` ([features/import.md](features/import.md)) with an empty asset map: `plan` reports `Fail`; the run gives `Error` (`asset_missing`, pointer `/asset`) and caches nothing for it. With the asset map of features/import.md test 1, `plan` reports `Build` and the run is `Ok`.
+
 ## Open issues
 
-1. **Engine contract.** engine.md open issue 1 asks for a stop point, body states before a feature, per-feature status with JSON Pointers, sketch and datum results, parameter values, result hashes and a shared cache; this spec provides them as `Input::stop_at`, `FeatureReport::bodies_before`, `Message::pointer` and `repair`, `FeatureReport::output`, `Report::parameters`, `FeatureReport::key` and `BodyReport::key`, and one `Recompute` per session.
 2. **`NotRun` status.** Protocol's feature states are ok, warning, error, suppressed and rolled back. Cancellation adds `NotRun`; engine.md lists cancellation as later, so the engine never sees it in M1, but the protocol will need it when cancellation ships.
 3. **Failed writers stay providers.** A feature that fails still counts as the provider of the bodies it declares, so downstream keys depend on it even though it changed nothing. This keeps keys a pure function of the timeline at the cost of rebuilding downstream features when a failing feature's params change.
-4. **Hashing the engine signature.** Keys include the crate and OCCT versions so a later disk cache cannot reuse results across kernel upgrades; the OCCT version string comes from `partsmith-occt-sys` (kernel.md should export it as a constant).
 5. **Test 30** depends on wall-clock waits (50 ms and 100 ms against a 10 s ceiling). The margins are wide, but CI on slow runners may need them scaled.
