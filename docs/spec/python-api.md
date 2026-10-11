@@ -573,7 +573,7 @@ python -m partsmith --version
 
 ### 3.5 Features
 
-- Each feature function builds a feature record and sends one `apply_edits` (label = the function name) with `add_feature` at the end of the timeline. Params are mapped as in the table below; `Value`s render per 3.2; element arguments compile to references (3.6); `Part` arguments become body ids; `Sketch`, `DatumPlane` and `Feature` arguments become feature ids; region arguments become `RegionKey` values.
+- Each feature function builds a feature record and sends one `apply_edits` (label = the function name) with `add_feature` at the end of the timeline. Params are mapped as in the table below; `Value`s render per 3.2; element arguments compile to references (3.6); `Part` arguments become body ids; `Sketch`, `DatumPlane` and `Feature` arguments become feature ids; region arguments become `RegionRef` values (`{"key", "fp"}`).
 - After the response, Python reads the feature's status from `recomputed`:
   - `error`: Python sends `undo` (so the document no longer contains the feature) and raises `FeatureError` whose message is the feature's first error message and whose `feature_type` is the type.
   - `warning`: Python emits one `warnings.warn(message, PartsmithWarning)` per warning message and keeps the feature.
