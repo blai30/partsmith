@@ -281,7 +281,10 @@ pub fn reference_position(entities: &[SketchEntity], point: &PointRef) -> Vector
                 ..
             },
             PointRole::Start,
-        ) => add(*center, scale([start_angle.cos(), start_angle.sin()], *radius)),
+        ) => add(
+            *center,
+            scale([start_angle.cos(), start_angle.sin()], *radius),
+        ),
         (
             Geometry::Arc {
                 center,
@@ -324,7 +327,10 @@ impl CoordinateClasses {
 
     fn merge_point(&mut self, first: &PointRef, second: &PointRef, axes: &[usize]) {
         for axis in axes {
-            self.merge(&coordinate_key(first, *axis), &coordinate_key(second, *axis));
+            self.merge(
+                &coordinate_key(first, *axis),
+                &coordinate_key(second, *axis),
+            );
         }
     }
 }
@@ -662,9 +668,15 @@ impl Builder {
                         curves: [other_id, new_id.clone()],
                     });
                 }
-                (LineRelation::Collinear, Some((other_id, other_start, other_end, other_direction))) => {
+                (
+                    LineRelation::Collinear,
+                    Some((other_id, other_start, other_end, other_direction)),
+                ) => {
                     let fraction = self.rng.uniform(-1.0, 2.0);
-                    start = add(other_start, scale(subtract(other_end, other_start), fraction));
+                    start = add(
+                        other_start,
+                        scale(subtract(other_end, other_start), fraction),
+                    );
                     direction = scale(other_direction, sign);
                     relation = Some(ConstraintKind::Collinear {
                         lines: [other_id, new_id.clone()],
@@ -877,8 +889,8 @@ impl Builder {
                     let point = self.rng.pick(&candidates).clone();
                     let (start, end) = self.line_at(index);
                     let direction = subtract(end, start);
-                    let signed = cross(direction, subtract(self.position(&point), start))
-                        / norm(direction);
+                    let signed =
+                        cross(direction, subtract(self.position(&point), start)) / norm(direction);
                     let distance = signed.abs();
                     (distance >= 0.5).then(|| {
                         (

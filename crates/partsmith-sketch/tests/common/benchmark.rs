@@ -35,11 +35,16 @@ pub fn chain(links: usize) -> (SketchParams, DimensionValues) {
         let theta = if k % 2 == 0 { FRAC_PI_6 } else { -FRAC_PI_6 };
         let direction = [theta.cos(), theta.sin()];
         let normal = [-theta.sin(), theta.cos()];
-        let next_pivot = [pivot[0] + 20.0 * direction[0], pivot[1] + 20.0 * direction[1]];
-        let middle = [pivot[0] + 10.0 * direction[0], pivot[1] + 10.0 * direction[1]];
-        let offset = |base: [f64; 2], scale: f64| {
-            [base[0] + scale * normal[0], base[1] + scale * normal[1]]
-        };
+        let next_pivot = [
+            pivot[0] + 20.0 * direction[0],
+            pivot[1] + 20.0 * direction[1],
+        ];
+        let middle = [
+            pivot[0] + 10.0 * direction[0],
+            pivot[1] + 10.0 * direction[1],
+        ];
+        let offset =
+            |base: [f64; 2], scale: f64| [base[0] + scale * normal[0], base[1] + scale * normal[1]];
 
         let name = |role: &str| format!("e-{k}-{role}");
         entities.push(entity(
@@ -94,7 +99,11 @@ pub fn chain(links: usize) -> (SketchParams, DimensionValues) {
             },
             true,
         ));
-        entities.push(entity(&name("p"), Geometry::Point { position: middle }, false));
+        entities.push(entity(
+            &name("p"),
+            Geometry::Point { position: middle },
+            false,
+        ));
         entities.push(entity(
             &name("n"),
             Geometry::Line {

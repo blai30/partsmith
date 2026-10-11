@@ -415,7 +415,9 @@ impl Sketch {
 
     /// Appends a constraint without a value.
     pub fn with(mut self, constraint_id: &str, kind: ConstraintKind) -> Sketch {
-        self.params.constraints.push(constraint(constraint_id, kind));
+        self.params
+            .constraints
+            .push(constraint(constraint_id, kind));
         self
     }
 

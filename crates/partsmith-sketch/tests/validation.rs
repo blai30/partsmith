@@ -3,16 +3,15 @@
 mod common;
 
 use common::{
-    FACE_PLANE_JSON, Sketch, angle, arc, assert_bitwise, assert_close, assert_point_close,
-    circle, coincident, concentric, diameter, distance_line, distance_point_line, distance_points,
-    equal, find, fix, horizontal, horizontal_distance_line, horizontal_distance_points, id, line,
-    measured, midpoint, parallel, perpendicular, plate, point, point_on_object, point_ref,
-    position, radius, rect, reference, symmetric, tangent, collinear, vertical,
-    vertical_distance_line, vertical_distance_points,
+    FACE_PLANE_JSON, Sketch, angle, arc, assert_bitwise, assert_close, assert_point_close, circle,
+    coincident, collinear, concentric, diameter, distance_line, distance_point_line,
+    distance_points, equal, find, fix, horizontal, horizontal_distance_line,
+    horizontal_distance_points, id, line, measured, midpoint, parallel, perpendicular, plate,
+    point, point_on_object, point_ref, position, radius, rect, reference, symmetric, tangent,
+    vertical, vertical_distance_line, vertical_distance_points,
 };
 use partsmith_sketch::{
-    ConstraintKind, EntityKind, Placement, PlacementProblem, SketchError, SketchPlane,
-    ValueKind,
+    ConstraintKind, EntityKind, Placement, PlacementProblem, SketchError, SketchPlane, ValueKind,
 };
 
 /// `RECT` plus `circle e-5 c(40,25) r5` and `point e-7 (1,1)` (test 27).
@@ -27,9 +26,7 @@ fn face_plane(fallback: Placement) -> SketchPlane {
     let mut plane: SketchPlane =
         serde_json::from_str(FACE_PLANE_JSON).expect("the face plane example deserializes");
     match &mut plane {
-        SketchPlane::Face {
-            fallback: slot, ..
-        } => *slot = fallback,
+        SketchPlane::Face { fallback: slot, .. } => *slot = fallback,
         other => panic!("the example is a face plane, found {other:?}"),
     }
     plane
@@ -270,8 +267,8 @@ fn t029_coincident_points_of_one_entity_fail() {
 
 #[test]
 fn t030_horizontal_with_the_same_point_twice_fails() {
-    let sketch =
-        Sketch::new(vec![point("e-7", 0.0, 0.0)]).with("c-1", common::horizontal_points("e-7", "e-7"));
+    let sketch = Sketch::new(vec![point("e-7", 0.0, 0.0)])
+        .with("c-1", common::horizontal_points("e-7", "e-7"));
 
     assert_eq!(
         sketch.validate(),
@@ -487,7 +484,10 @@ fn t036_driving_dimensions_lists_driving_dimensions_in_order() {
 #[test]
 fn t037_value_kinds_of_constraints() {
     let cases = [
-        (distance_points("e-1", "e-2", "1 mm"), Some(ValueKind::Length)),
+        (
+            distance_points("e-1", "e-2", "1 mm"),
+            Some(ValueKind::Length),
+        ),
         (distance_line("e-1", "1 mm"), Some(ValueKind::Length)),
         (
             distance_point_line("e-2", "e-1", "1 mm"),
@@ -505,7 +505,10 @@ fn t037_value_kinds_of_constraints() {
             vertical_distance_points("e-1", "e-2", "1 mm"),
             Some(ValueKind::Length),
         ),
-        (vertical_distance_line("e-1", "1 mm"), Some(ValueKind::Length)),
+        (
+            vertical_distance_line("e-1", "1 mm"),
+            Some(ValueKind::Length),
+        ),
         (radius("e-1", "1 mm"), Some(ValueKind::Length)),
         (diameter("e-1", "1 mm"), Some(ValueKind::Length)),
         (angle("e-1", "e-2", "1 deg"), Some(ValueKind::Angle)),
@@ -553,7 +556,8 @@ fn t037_type_names_are_the_json_names() {
 #[test]
 fn t037_referenced_entities_in_field_order_without_duplicates() {
     let symmetric_record = common::constraint("c-1", symmetric("e-1.start", "e-2", "e-3"));
-    let distance_record = common::constraint("c-2", distance_points("e-1.start", "e-1.end", "1 mm"));
+    let distance_record =
+        common::constraint("c-2", distance_points("e-1.start", "e-1.end", "1 mm"));
 
     let symmetric_entities: Vec<String> = symmetric_record
         .referenced_entities()
@@ -680,14 +684,22 @@ fn t042_negative_point_line_distance_fails() {
 
 #[test]
 fn t043_negative_horizontal_distance_is_valid() {
-    let sketch =
-        value_entities().with_value("c-1", horizontal_distance_points("e-1", "e-2", "-5 mm"), -5.0);
+    let sketch = value_entities().with_value(
+        "c-1",
+        horizontal_distance_points("e-1", "e-2", "-5 mm"),
+        -5.0,
+    );
 
     let result = sketch.solve();
 
     let first = position(find(&result.entities, "e-1"));
     let second = position(find(&result.entities, "e-2"));
-    assert_close(second[0] - first[0], -5.0, common::TOLERANCE, "u(e-2) - u(e-1)");
+    assert_close(
+        second[0] - first[0],
+        -5.0,
+        common::TOLERANCE,
+        "u(e-2) - u(e-1)",
+    );
 }
 
 #[test]
@@ -720,4 +732,3 @@ fn t045_reference_dimension_ignores_passed_values() {
     assert_eq!(result.measured.len(), 1, "measured holds only c-1");
     assert_close(measured(&result, "c-1"), 5.0, common::TOLERANCE, "c-1");
 }
-

@@ -49,8 +49,12 @@ fn t048_yz_plane_maps_sketch_right_to_y_and_up_to_z() {
 
 #[test]
 fn t049_on_plane_keeps_the_hint_frame_on_a_parallel_plane() {
-    let placement = Placement::on_plane([0.0, 0.0, 30.0], [0.0, 0.0, 1.0], &OriginPlane::Xy.placement())
-        .expect("a valid plane gives a placement");
+    let placement = Placement::on_plane(
+        [0.0, 0.0, 30.0],
+        [0.0, 0.0, 1.0],
+        &OriginPlane::Xy.placement(),
+    )
+    .expect("a valid plane gives a placement");
 
     assert_placement_close(
         &placement,
@@ -106,7 +110,11 @@ fn t051_on_plane_falls_back_to_the_hint_y_axis() {
 
 #[test]
 fn t052_on_plane_rejects_a_zero_normal() {
-    let result = Placement::on_plane([0.0, 0.0, 0.0], [0.0, 0.0, 0.0], &OriginPlane::Xy.placement());
+    let result = Placement::on_plane(
+        [0.0, 0.0, 0.0],
+        [0.0, 0.0, 0.0],
+        &OriginPlane::Xy.placement(),
+    );
 
     assert_eq!(
         result,

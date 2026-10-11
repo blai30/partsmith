@@ -11,5 +11,11 @@ publish = false
 
 [dependencies]
 
+[dev-dependencies]
+proptest.workspace = true
+schemars.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
 [lints]
 workspace = true

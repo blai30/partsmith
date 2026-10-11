@@ -6,9 +6,9 @@ use std::f64::consts::{FRAC_PI_2, PI};
 
 use common::{
     Sketch, TOLERANCE, arc, arc_parts, assert_bitwise, assert_close, assert_ids,
-    assert_point_bitwise, assert_point_close, circle, circle_parts, distance_line,
-    distance_points, drag_entity, drag_point, find, fix, frame, horizontal, initial, line,
-    line_ends, parallel, point, point_on_object, position, rect,
+    assert_point_bitwise, assert_point_close, circle, circle_parts, distance_line, distance_points,
+    drag_entity, drag_point, find, fix, frame, horizontal, initial, line, line_ends, parallel,
+    point, point_on_object, position, rect,
 };
 use partsmith_sketch::{DragSession, SketchError, SketchStatus};
 
@@ -95,9 +95,12 @@ fn t131_fixed_point_does_not_move() {
 
 #[test]
 fn t132_the_pin_is_weak() {
-    let sketch = Sketch::new(vec![circle("e-1", [0.0, 0.0], 10.0), point("e-2", 10.0, 0.0)])
-        .with("c-1", fix("e-1.center"))
-        .with("c-2", point_on_object("e-2", "e-1"));
+    let sketch = Sketch::new(vec![
+        circle("e-1", [0.0, 0.0], 10.0),
+        point("e-2", 10.0, 0.0),
+    ])
+    .with("c-1", fix("e-1.center"))
+    .with("c-2", point_on_object("e-2", "e-1"));
     let mut session = sketch.begin_drag(&drag_point("e-2"));
 
     let result = frame(&mut session, [20.0, 0.0]);
@@ -132,7 +135,8 @@ fn t133_dragging_a_whole_line_translates_it() {
 
 #[test]
 fn t134_dragging_a_line_with_a_fixed_start_moves_only_its_end() {
-    let sketch = Sketch::new(vec![line("e-1", [0.0, 0.0], [10.0, 0.0])]).with("c-1", fix("e-1.start"));
+    let sketch =
+        Sketch::new(vec![line("e-1", [0.0, 0.0], [10.0, 0.0])]).with("c-1", fix("e-1.start"));
     let mut session = sketch.begin_drag(&drag_entity("e-1", [5.0, 0.0]));
 
     let result = frame(&mut session, [5.0, 3.0]);
@@ -200,7 +204,12 @@ fn t138_fully_constrained_geometry_does_not_move() {
     for input in &sketch.params.entities {
         let (input_start, input_end) = line_ends(input);
         let (start, end) = line_ends(find(&result.entities, input.id.as_str()));
-        assert_point_close(start, input_start, TOLERANCE, &format!("{} start", input.id));
+        assert_point_close(
+            start,
+            input_start,
+            TOLERANCE,
+            &format!("{} start", input.id),
+        );
         assert_point_close(end, input_end, TOLERANCE, &format!("{} end", input.id));
     }
 }
@@ -327,4 +336,3 @@ fn t143_conflicting_component_cannot_be_dragged() {
     assert!(result.failed);
     assert_bitwise(&result.entities, &initial(&session).entities, "entities");
 }
-

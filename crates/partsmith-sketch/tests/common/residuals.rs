@@ -239,13 +239,16 @@ fn touch_point(
                 )
             });
         on_end
-            || sketch.constraints.iter().any(|constraint| match &constraint.kind {
-                ConstraintKind::PointOnObject {
-                    point: other,
-                    curve: other_curve,
-                } => other_curve == curve && identification.identified(point, other),
-                _ => false,
-            })
+            || sketch
+                .constraints
+                .iter()
+                .any(|constraint| match &constraint.kind {
+                    ConstraintKind::PointOnObject {
+                        point: other,
+                        curve: other_curve,
+                    } => other_curve == curve && identification.identified(point, other),
+                    _ => false,
+                })
     };
 
     let mut candidates = Vec::new();
@@ -483,7 +486,8 @@ fn fix_rows(shapes: &Shapes<'_>, fixed: &Shapes<'_>, target: &PointRef) -> Vec<f
         return vec![0.0, 0.0];
     }
     let entity = shapes.entity(&target.entity);
-    let whole = target.role == PointRole::Point && !matches!(entity.geometry, Geometry::Point { .. });
+    let whole =
+        target.role == PointRole::Point && !matches!(entity.geometry, Geometry::Point { .. });
     if !whole {
         let difference = subtract(shapes.point(target), fixed.point(target));
         return vec![difference[0], difference[1]];
@@ -533,7 +537,10 @@ fn fix_rows(shapes: &Shapes<'_>, fixed: &Shapes<'_>, target: &PointRef) -> Vec<f
                 center[1] - fixed_center[1],
                 start[0] - fixed_start[0],
                 start[1] - fixed_start[1],
-                cross(unit(subtract(fixed_end, fixed_center)), subtract(end, center)),
+                cross(
+                    unit(subtract(fixed_end, fixed_center)),
+                    subtract(end, center),
+                ),
             ]
         }
         (geometry, fixed_geometry) => {

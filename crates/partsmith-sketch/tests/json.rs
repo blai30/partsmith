@@ -203,7 +203,10 @@ fn t005_invalid_entities_fail_to_deserialize() {
 
     for text in invalid {
         let result = serde_json::from_str::<SketchEntity>(text);
-        assert!(result.is_err(), "{text} must not deserialize, got {result:?}");
+        assert!(
+            result.is_err(),
+            "{text} must not deserialize, got {result:?}"
+        );
     }
 }
 
@@ -242,7 +245,10 @@ fn t008_invalid_constraints_fail_to_deserialize() {
 
     for text in invalid {
         let result = serde_json::from_str::<SketchConstraint>(text);
-        assert!(result.is_err(), "{text} must not deserialize, got {result:?}");
+        assert!(
+            result.is_err(),
+            "{text} must not deserialize, got {result:?}"
+        );
     }
 }
 
@@ -323,7 +329,10 @@ fn t012_origin_plane_deserializes() {
 fn t012_origin_plane_names_are_case_sensitive() {
     let result = serde_json::from_str::<SketchPlane>(r#"{"kind": "origin", "plane": "xz"}"#);
 
-    assert!(result.is_err(), "lowercase xz must not deserialize, got {result:?}");
+    assert!(
+        result.is_err(),
+        "lowercase xz must not deserialize, got {result:?}"
+    );
 }
 
 #[test]
@@ -357,7 +366,10 @@ fn t012_face_plane_without_body_fails() {
 
     let result = serde_json::from_str::<SketchPlane>(&text);
 
-    assert!(result.is_err(), "a face plane without body must not deserialize, got {result:?}");
+    assert!(
+        result.is_err(),
+        "a face plane without body must not deserialize, got {result:?}"
+    );
 }
 
 #[test]
@@ -378,15 +390,19 @@ fn t014_plate_params_deserialize_and_round_trip() {
 
     assert_eq!(params.entities.len(), 6);
     assert_eq!(params.constraints.len(), 16);
-    assert_eq!(params, plate().params, "the JSON and the PLATE fixture agree");
+    assert_eq!(
+        params,
+        plate().params,
+        "the JSON and the PLATE fixture agree"
+    );
     let again: SketchParams = parse(&write(&params));
     assert_eq!(again, params);
 }
 
 #[test]
 fn t015_schema_lists_exactly_the_m1_type_and_kind_tags() {
-    let schema = serde_json::to_value(schemars::schema_for!(SketchParams))
-        .expect("the schema serializes");
+    let schema =
+        serde_json::to_value(schemars::schema_for!(SketchParams)).expect("the schema serializes");
 
     let mut types = BTreeSet::new();
     collect_tags(&schema, "type", &mut types);
@@ -432,8 +448,8 @@ fn t015_schema_lists_exactly_the_m1_type_and_kind_tags() {
 
 #[test]
 fn t015_schema_has_point_ref_pattern_and_origin_plane_names() {
-    let schema = serde_json::to_value(schemars::schema_for!(SketchParams))
-        .expect("the schema serializes");
+    let schema =
+        serde_json::to_value(schemars::schema_for!(SketchParams)).expect("the schema serializes");
     let text = schema.to_string();
 
     assert!(
@@ -521,7 +537,9 @@ fn t017_region_matches_round_trip() {
 
 #[test]
 fn t017_region_ref_round_trips() {
-    assert_round_trip::<RegionRef>(r#"{"key": "e-1,e-2,e-3,e-4;~e-5", "fp": "c=40,25|a=3921.460184"}"#);
+    assert_round_trip::<RegionRef>(
+        r#"{"key": "e-1,e-2,e-3,e-4;~e-5", "fp": "c=40,25|a=3921.460184"}"#,
+    );
 }
 
 #[test]

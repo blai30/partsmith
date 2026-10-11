@@ -8,9 +8,9 @@ use std::f64::consts::{FRAC_PI_4, PI};
 use common::benchmark::chain;
 use common::{
     Sketch, TOLERANCE, angle, arc, assert_bitwise, assert_close, assert_ids, circle, coincident,
-    diameter, distance_line, distance_point_line, distance_points, fix, horizontal_distance_points,
-    horizontal, id, line, measured, parallel, point, radius, rect, reference, tangent,
-    vertical_distance_points,
+    diameter, distance_line, distance_point_line, distance_points, fix, horizontal,
+    horizontal_distance_points, id, line, measured, parallel, point, radius, rect, reference,
+    tangent, vertical_distance_points,
 };
 use partsmith_sketch::{EntityState, SketchStatus, SolveIssue, SolveResult};
 
@@ -255,8 +255,16 @@ fn t115_triangle_is_fully_constrained_without_redundancy() {
     let result = triangle().solve();
 
     assert_eq!(result.dof, 0);
-    assert!(result.redundant.is_empty(), "redundant: {:?}", result.redundant);
-    assert!(result.conflicting.is_empty(), "conflicting: {:?}", result.conflicting);
+    assert!(
+        result.redundant.is_empty(),
+        "redundant: {:?}",
+        result.redundant
+    );
+    assert!(
+        result.conflicting.is_empty(),
+        "conflicting: {:?}",
+        result.conflicting
+    );
 }
 
 #[test]
@@ -297,7 +305,11 @@ fn t116_point_on_the_center_of_a_fixed_arc_is_not_redundant() {
     .solve();
 
     assert_eq!(result.dof, 0);
-    assert!(result.redundant.is_empty(), "redundant: {:?}", result.redundant);
+    assert!(
+        result.redundant.is_empty(),
+        "redundant: {:?}",
+        result.redundant
+    );
 }
 
 #[test]
@@ -319,8 +331,16 @@ fn t117_fully_defined_tangent_circle() {
 
     assert_bitwise(&result.entities, &sketch.params.entities, "entities");
     assert_eq!(result.dof, 0);
-    assert!(result.redundant.is_empty(), "redundant: {:?}", result.redundant);
-    assert!(result.conflicting.is_empty(), "conflicting: {:?}", result.conflicting);
+    assert!(
+        result.redundant.is_empty(),
+        "redundant: {:?}",
+        result.redundant
+    );
+    assert!(
+        result.conflicting.is_empty(),
+        "conflicting: {:?}",
+        result.conflicting
+    );
 }
 
 #[test]
@@ -331,7 +351,11 @@ fn t118_reference_dimensions_remove_no_dof() {
     let result = sketch.solve();
 
     assert_eq!(result.dof, 4);
-    assert!(result.conflicting.is_empty(), "conflicting: {:?}", result.conflicting);
+    assert!(
+        result.conflicting.is_empty(),
+        "conflicting: {:?}",
+        result.conflicting
+    );
     assert_bitwise(&result.entities, &sketch.params.entities, "entities");
     assert_eq!(result.measured.len(), 1);
     assert_close(measured(&result, "c-1"), 5.0, TOLERANCE, "c-1");
@@ -354,8 +378,16 @@ fn t120_first_chain_link_has_one_dof() {
     let result = sketch.solve();
 
     assert_eq!(result.dof, 1);
-    assert!(result.redundant.is_empty(), "redundant: {:?}", result.redundant);
-    assert!(result.conflicting.is_empty(), "conflicting: {:?}", result.conflicting);
+    assert!(
+        result.redundant.is_empty(),
+        "redundant: {:?}",
+        result.redundant
+    );
+    assert!(
+        result.conflicting.is_empty(),
+        "conflicting: {:?}",
+        result.conflicting
+    );
 }
 
 #[test]
@@ -376,7 +408,10 @@ fn t121_issue_for_a_redundant_dimension() {
 
     let issues = sketch.solve().issues(&sketch.params);
 
-    assert_eq!(describe(&issues), ["redundant c-2 (distance) dimension=true"]);
+    assert_eq!(
+        describe(&issues),
+        ["redundant c-2 (distance) dimension=true"]
+    );
 }
 
 #[test]
@@ -430,8 +465,18 @@ fn t123_reference_angles_are_counterclockwise_modulo_pi() {
     .with("c-2", reference(angle("e-2", "e-1", "7 mm")))
     .solve();
 
-    assert_close(measured(&result, "c-1"), 3.0 * FRAC_PI_4, 1e-12, "angle [e-1, e-2]");
-    assert_close(measured(&result, "c-2"), FRAC_PI_4, 1e-12, "angle [e-2, e-1]");
+    assert_close(
+        measured(&result, "c-1"),
+        3.0 * FRAC_PI_4,
+        1e-12,
+        "angle [e-1, e-2]",
+    );
+    assert_close(
+        measured(&result, "c-2"),
+        FRAC_PI_4,
+        1e-12,
+        "angle [e-2, e-1]",
+    );
 }
 
 #[test]
@@ -447,8 +492,18 @@ fn t124_reference_axis_distances_are_signed() {
         )
         .solve();
 
-    assert_close(measured(&result, "c-1"), -3.0, TOLERANCE, "horizontal distance");
-    assert_close(measured(&result, "c-2"), 0.0, TOLERANCE, "vertical distance");
+    assert_close(
+        measured(&result, "c-1"),
+        -3.0,
+        TOLERANCE,
+        "horizontal distance",
+    );
+    assert_close(
+        measured(&result, "c-2"),
+        0.0,
+        TOLERANCE,
+        "vertical distance",
+    );
 }
 
 #[test]
@@ -486,4 +541,3 @@ fn t127_driving_distance_measures_its_value_after_solving() {
 
     assert_close(measured(&result, "c-2"), 10.0, TOLERANCE, "c-2");
 }
-

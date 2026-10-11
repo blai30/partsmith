@@ -19,7 +19,11 @@ use partsmith_sketch::{EntityState, SketchStatus, SolveResult};
 #[track_caller]
 fn assert_clean(result: &SolveResult) {
     assert!(!result.failed, "the solve did not fail");
-    assert!(result.redundant.is_empty(), "redundant is empty: {:?}", result.redundant);
+    assert!(
+        result.redundant.is_empty(),
+        "redundant is empty: {:?}",
+        result.redundant
+    );
     assert!(
         result.conflicting.is_empty(),
         "conflicting is empty: {:?}",
@@ -499,8 +503,11 @@ fn t080_distance_between_points() {
 
 #[test]
 fn t081_line_length() {
-    let sketch = Sketch::new(vec![line("e-1", [0.0, 0.0], [3.0, 4.0])])
-        .with_value("c-1", distance_line("e-1", "10 mm"), 10.0);
+    let sketch = Sketch::new(vec![line("e-1", [0.0, 0.0], [3.0, 4.0])]).with_value(
+        "c-1",
+        distance_line("e-1", "10 mm"),
+        10.0,
+    );
 
     let result = sketch.solve();
 
@@ -537,8 +544,11 @@ fn t082_point_line_distance_keeps_the_side_below() {
 
 #[test]
 fn t083_horizontal_distance() {
-    let sketch = Sketch::new(vec![point("e-1", 1.0, 0.0), point("e-2", 4.0, 0.0)])
-        .with_value("c-1", horizontal_distance_points("e-1", "e-2", "5 mm"), 5.0);
+    let sketch = Sketch::new(vec![point("e-1", 1.0, 0.0), point("e-2", 4.0, 0.0)]).with_value(
+        "c-1",
+        horizontal_distance_points("e-1", "e-2", "5 mm"),
+        5.0,
+    );
 
     let result = sketch.solve();
 
@@ -551,7 +561,11 @@ fn t083_horizontal_distance() {
 fn t084_horizontal_distance_is_signed() {
     let sketch = Sketch::new(vec![point("e-1", 0.0, 0.0), point("e-2", 4.0, 2.0)])
         .with("c-1", fix("e-1"))
-        .with_value("c-2", horizontal_distance_points("e-1", "e-2", "-3 mm"), -3.0);
+        .with_value(
+            "c-2",
+            horizontal_distance_points("e-1", "e-2", "-3 mm"),
+            -3.0,
+        );
 
     let result = sketch.solve();
 
@@ -573,8 +587,11 @@ fn t085_vertical_distance_line_form() {
 
 #[test]
 fn t086_radius_of_a_circle() {
-    let sketch = Sketch::new(vec![circle("e-1", [1.0, 2.0], 3.0)])
-        .with_value("c-1", radius("e-1", "7.5 mm"), 7.5);
+    let sketch = Sketch::new(vec![circle("e-1", [1.0, 2.0], 3.0)]).with_value(
+        "c-1",
+        radius("e-1", "7.5 mm"),
+        7.5,
+    );
 
     let result = sketch.solve();
 
@@ -603,8 +620,11 @@ fn t087_radius_of_an_arc_keeps_its_angles() {
 
 #[test]
 fn t088_diameter() {
-    let sketch = Sketch::new(vec![circle("e-1", [1.0, 2.0], 3.0)])
-        .with_value("c-1", diameter("e-1", "10 mm"), 10.0);
+    let sketch = Sketch::new(vec![circle("e-1", [1.0, 2.0], 3.0)]).with_value(
+        "c-1",
+        diameter("e-1", "10 mm"),
+        10.0,
+    );
 
     let result = sketch.solve();
 
@@ -754,11 +774,8 @@ fn t098_merged_points_take_their_mean() {
 
 #[test]
 fn t099_order_ids_and_construction_flags_are_kept() {
-    let sketch = parallel_sketch().replace_entity(as_construction(line(
-        "e-2",
-        [0.0, 5.0],
-        [10.0, 6.0],
-    )));
+    let sketch =
+        parallel_sketch().replace_entity(as_construction(line("e-2", [0.0, 5.0], [10.0, 6.0])));
 
     let result = sketch.solve();
 
