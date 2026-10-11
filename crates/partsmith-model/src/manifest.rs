@@ -42,7 +42,7 @@ pub struct FieldHint {
     /// Label shown next to the field, for example "Distance".
     pub label: String,
     /// Shown without the "More" toggle. Default false, omitted when false.
-    #[serde(default, skip_serializing_if = "is_false")]
+    #[serde(default, skip_serializing_if = "crate::document::is_false")]
     pub essential: bool,
     /// Value kind of an `Expr` field. Omitted for non-expression fields.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -98,11 +98,6 @@ pub struct OptionHint {
     pub value: String,
     /// The label, for example "Two sides".
     pub label: String,
-}
-
-/// True when `value` is false; omits the default of `FieldHint::essential`.
-fn is_false(value: &bool) -> bool {
-    !*value
 }
 
 #[cfg(test)]

@@ -235,8 +235,9 @@ fn is_true(value: &bool) -> bool {
     *value
 }
 
-/// True when `value` is false; omits the default of `FeatureRecord::suppressed`.
-fn is_false(value: &bool) -> bool {
+/// True when `value` is false; omits flags that default to false, such as
+/// `FeatureRecord::suppressed` and `FieldHint::essential`.
+pub(crate) fn is_false(value: &bool) -> bool {
     !*value
 }
 

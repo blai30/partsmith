@@ -75,9 +75,10 @@ pub fn save(document: &Document) -> Result<String, SaveError> {
         return Err(SaveError::Structure(problems));
     }
     // Every number of a document lives in a `serde_json::Value`, which cannot hold NaN or
-    // infinity, and every map key is a string.
-    let value = canonical::to_finite_value(document)
-        .expect("a document serializes to JSON with string keys");
+    // infinity, and every map key is a string. The writer prints every number in its normalized
+    // form, so the copy needs no normalization pass.
+    let value =
+        serde_json::to_value(document).expect("a document serializes to JSON with string keys");
     Ok(canonical::to_string(&value))
 }
 
@@ -238,6 +239,26 @@ mod tests {
         StructureError::DuplicateId {
             id: Id::new(text).expect("valid id"),
         }
+    }
+
+    #[test]
+    fn save_writes_numbers_in_normalized_form() {
+        let mut record = crate::FeatureRecord::new(Id::new("f-1").expect("valid id"), "box");
+        record.params = match serde_json::json!({"a": 80.0, "b": -0.0, "c": [2.0, 0.5]}) {
+            serde_json::Value::Object(params) => params,
+            other => panic!("expected an object, got {other}"),
+        };
+        let document = Document {
+            features: vec![record],
+            ..Document::default()
+        };
+
+        let text = save(&document).expect("the document saves");
+
+        assert!(
+            text.contains(r#"{"id": "f-1", "type": "box", "a": 80, "b": 0, "c": [2, 0.5]}"#),
+            "{text}"
+        );
     }
 
     #[test]

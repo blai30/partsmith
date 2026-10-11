@@ -3,11 +3,12 @@ import { DEFAULT_SETTINGS, loadSettings, saveSettings, type Settings } from './s
 
 const KEY = 'partsmith.settings.v1'
 
+function blocked(): never {
+  throw new DOMException('The operation is insecure.', 'SecurityError')
+}
+
 // A Storage whose every access throws, as in a browser that blocks site data.
 function blockedStorage(): Storage {
-  const blocked = (): never => {
-    throw new DOMException('The operation is insecure.', 'SecurityError')
-  }
   return {
     get length(): number {
       return blocked()

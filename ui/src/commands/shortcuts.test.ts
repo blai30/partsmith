@@ -180,9 +180,9 @@ describe('chordFromEvent', () => {
   })
 
   it('U-23 a lone Shift gives null', () => {
-    expect(chordFromEvent(keydown({ key: 'Shift', code: 'ShiftLeft', shiftKey: true }), LINUX)).toBe(
-      null,
-    )
+    expect(
+      chordFromEvent(keydown({ key: 'Shift', code: 'ShiftLeft', shiftKey: true }), LINUX),
+    ).toBe(null)
   })
 
   it('U-23 {key: " "} gives Space', () => {

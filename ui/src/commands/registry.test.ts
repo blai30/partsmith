@@ -1,9 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { App, Platform } from '../app/createApp'
-import { createCoreApi } from '../core/api'
-import { createCoreClient } from '../core/client'
-import { createMutationQueue } from '../core/queue'
-import { CoreFatalError, type Transport } from '../core/transport'
+import type { CoreApi } from '../core/api'
+import type { MutationQueue } from '../core/queue'
 import { createWebFileService } from '../files/file-service'
 import { createMemoryRecentFiles } from '../files/recent'
 import { createMemoryRecovery } from '../files/recovery'
@@ -20,22 +18,23 @@ const MAC_WEB: Platform = { operatingSystem: 'mac', host: 'web' }
 const WINDOWS_DESKTOP: Platform = { operatingSystem: 'windows', host: 'desktop' }
 const ALL_CONTEXTS: readonly AppContext[] = ['model', 'sketch', 'print']
 
-// A transport that is never started: these tests never reach the core.
-function idleTransport(): Transport {
-  return {
-    kind: 'worker',
-    start: () => Promise.reject(new CoreFatalError('The test core is not started.')),
-    send: () => Promise.reject(new CoreFatalError('The test core is not started.')),
-    stop: () => undefined,
-    onFatal: () => () => undefined,
-  }
+// The core and the mutation queue are out of reach of these tests: calling any of their methods fails.
+function unreachable<Service extends object>(name: string): Service {
+  return new Proxy({} as Service, {
+    get: (_target, property) =>
+      typeof property === 'string'
+        ? () => {
+            throw new Error(`The test app has no ${name}; ${property} was called.`)
+          }
+        : undefined,
+  })
 }
 
 function createTestApp(commands: CommandRegistry, platform: Platform = LINUX_WEB): App {
   return {
     store: createAppStore(),
-    core: createCoreApi(createCoreClient(idleTransport())),
-    mutations: createMutationQueue(),
+    core: unreachable<CoreApi>('core'),
+    mutations: unreachable<MutationQueue>('mutation queue'),
     commands,
     files: createWebFileService(window),
     recent: createMemoryRecentFiles(),
@@ -109,7 +108,7 @@ describe('register, get and list', () => {
 
   it('notifies subscribers when commands are registered and unregistered, until they unsubscribe', () => {
     const registry = createCommandRegistry()
-    const listener = vi.fn()
+    const listener = vi.fn<() => void>()
     const unsubscribe = registry.subscribe(listener)
     const unregister = registry.register(command('file.save'))
     expect(listener).toHaveBeenCalledTimes(1)
@@ -124,7 +123,7 @@ describe('register, get and list', () => {
 describe('run', () => {
   it('U-25 running a disabled command calls no run and shows an info notification with its reason', async () => {
     const registry = createCommandRegistry()
-    const run = vi.fn()
+    const run = vi.fn<CommandDefinition['run']>()
     registry.register(
       command('edit.undo', {
         availability: { state: 'disabled', reason: 'Nothing to undo.' },
@@ -141,7 +140,7 @@ describe('run', () => {
 
   it('runs an enabled command with the app and the invocation source', async () => {
     const registry = createCommandRegistry()
-    const run = vi.fn()
+    const run = vi.fn<CommandDefinition['run']>()
     registry.register(command('file.save', { run }))
     const app = createTestApp(registry)
     await registry.run(app, 'file.save', 'toolbar')
@@ -250,7 +249,10 @@ describe('conflicts', () => {
     expect(conflicts).toHaveLength(1)
     expect(conflicts[0]?.chord).toBe('Shift+H')
     expect(conflicts[0]?.context).toBe('model')
-    expect([...(conflicts[0]?.commands ?? [])].sort()).toEqual(['first.command', 'second.command'])
+    expect([...(conflicts[0]?.commands ?? [])].toSorted()).toEqual([
+      'first.command',
+      'second.command',
+    ])
   })
 
   it('ignores commands of another host', () => {
@@ -269,6 +271,9 @@ describe('conflicts', () => {
     const conflicts = registry.conflicts(LINUX_WEB)
     expect(conflicts).toHaveLength(1)
     expect(conflicts[0]?.context).toBe('model')
-    expect([...(conflicts[0]?.commands ?? [])].sort()).toEqual(['first.command', 'second.command'])
+    expect([...(conflicts[0]?.commands ?? [])].toSorted()).toEqual([
+      'first.command',
+      'second.command',
+    ])
   })
 })

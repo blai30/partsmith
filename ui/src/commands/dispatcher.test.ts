@@ -1,9 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import type { App, Platform } from '../app/createApp'
-import { createCoreApi } from '../core/api'
-import { createCoreClient } from '../core/client'
-import { createMutationQueue } from '../core/queue'
-import { CoreFatalError, type Transport } from '../core/transport'
+import type { CoreApi } from '../core/api'
+import type { MutationQueue } from '../core/queue'
 import { createWebFileService } from '../files/file-service'
 import { createMemoryRecentFiles } from '../files/recent'
 import { createMemoryRecovery } from '../files/recovery'
@@ -20,22 +18,23 @@ const LINUX_WEB: Platform = { operatingSystem: 'linux', host: 'web' }
 const MAC_WEB: Platform = { operatingSystem: 'mac', host: 'web' }
 const ALL_CONTEXTS: readonly AppContext[] = ['model', 'sketch', 'print']
 
-// A transport that is never started: these tests never reach the core.
-function idleTransport(): Transport {
-  return {
-    kind: 'worker',
-    start: () => Promise.reject(new CoreFatalError('The test core is not started.')),
-    send: () => Promise.reject(new CoreFatalError('The test core is not started.')),
-    stop: () => undefined,
-    onFatal: () => () => undefined,
-  }
+// The core and the mutation queue are out of reach of these tests: calling any of their methods fails.
+function unreachable<Service extends object>(name: string): Service {
+  return new Proxy({} as Service, {
+    get: (_target, property) =>
+      typeof property === 'string'
+        ? () => {
+            throw new Error(`The test app has no ${name}; ${property} was called.`)
+          }
+        : undefined,
+  })
 }
 
 function createTestApp(commands: CommandRegistry, platform: Platform): App {
   return {
     store: createAppStore(),
-    core: createCoreApi(createCoreClient(idleTransport())),
-    mutations: createMutationQueue(),
+    core: unreachable<CoreApi>('core'),
+    mutations: unreachable<MutationQueue>('mutation queue'),
     commands,
     files: createWebFileService(window),
     recent: createMemoryRecentFiles(),
@@ -50,7 +49,7 @@ function createTestApp(commands: CommandRegistry, platform: Platform): App {
 type Fixture = {
   readonly app: App
   /** The run function of each registered command, by id. */
-  readonly runs: Readonly<Record<string, Mock>>
+  readonly runs: Readonly<Record<string, Mock<CommandDefinition['run']>>>
 }
 
 type Registration = {
@@ -80,9 +79,9 @@ const REGISTRATIONS: readonly Registration[] = [
 
 function setUp(platform: Platform = LINUX_WEB): Fixture {
   const registry = createCommandRegistry()
-  const runs: Record<string, Mock> = {}
+  const runs: Record<string, Mock<CommandDefinition['run']>> = {}
   for (const registration of REGISTRATIONS) {
-    const run = vi.fn()
+    const run = vi.fn<CommandDefinition['run']>()
     runs[registration.id] = run
     const availability = registration.availability ?? { state: 'enabled' }
     const definition: CommandDefinition = {

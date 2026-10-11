@@ -23,23 +23,17 @@ function titles(items: readonly PaletteItem[]): string[] {
   return items.map((entry) => entry.title)
 }
 
-function expectScore(query: string, text: string, expected: number): void {
-  const score = fuzzyScore(query, text)
-  expect(score).not.toBeNull()
-  expect(Math.abs((score ?? Number.NaN) - expected)).toBeLessThan(1e-9)
-}
-
 describe('fuzzyScore', () => {
   it('U-26 fuzzyScore(ext, Extrude) is 9 + 5 + 5 - 0.07 = 18.93', () => {
-    expectScore('ext', 'Extrude', 18.93)
+    expect(fuzzyScore('ext', 'Extrude')).toBeCloseTo(18.93, 9)
   })
 
   it('U-26 fuzzyScore(ext, Export 3MF) is 9 + 5 + 1 - 0.10 = 14.9', () => {
-    expectScore('ext', 'Export 3MF', 14.9)
+    expect(fuzzyScore('ext', 'Export 3MF')).toBeCloseTo(14.9, 9)
   })
 
   it('U-26 fuzzyScore(ext, Text) is 1 + 5 + 5 - 0.04 = 10.96', () => {
-    expectScore('ext', 'Text', 10.96)
+    expect(fuzzyScore('ext', 'Text')).toBeCloseTo(10.96, 9)
   })
 
   it('U-26 fuzzyScore(xyz, Extrude) is null', () => {
@@ -51,41 +45,41 @@ describe('fuzzyScore', () => {
   })
 
   it('compares case-insensitively', () => {
-    expectScore('EXT', 'extrude', 18.93)
+    expect(fuzzyScore('EXT', 'extrude')).toBeCloseTo(18.93, 9)
   })
 
   it('removes leading and trailing whitespace of the query', () => {
-    expectScore('  ext ', 'Extrude', 18.93)
+    expect(fuzzyScore('  ext ', 'Extrude')).toBeCloseTo(18.93, 9)
   })
 
   it('keeps inner runs of whitespace as single spaces that match spaces in the text', () => {
     // e 9, x p o r t 5 each, the space 5, 3 1 + 6 (word start) + 4 (consecutive), minus 0.10.
-    expectScore('export   3', 'Export 3MF', 49.9)
+    expect(fuzzyScore('export   3', 'Export 3MF')).toBeCloseTo(49.9, 9)
   })
 
   it('gives 8 extra points at position 0 only', () => {
-    expectScore('a', 'a', 8.99)
-    expectScore('b', 'ab', 0.98)
+    expect(fuzzyScore('a', 'a')).toBeCloseTo(8.99, 9)
+    expect(fuzzyScore('b', 'ab')).toBeCloseTo(0.98, 9)
   })
 
   it.each([' ', '-', '_', '/', '.', ':', '('])(
     'gives 6 extra points to a word start after %j',
     (separator) => {
-      expectScore('b', `a${separator}b`, 6.97)
+      expect(fuzzyScore('b', `a${separator}b`)).toBeCloseTo(6.97, 9)
     },
   )
 
   it('treats a lowercase letter followed by an uppercase letter in the original text as a word start', () => {
-    expectScore('p', 'linearPattern', 6.87)
+    expect(fuzzyScore('p', 'linearPattern')).toBeCloseTo(6.87, 9)
   })
 
   it('does not treat an uppercase letter after an uppercase letter as a word start', () => {
-    expectScore('b', 'AB', 0.98)
+    expect(fuzzyScore('b', 'AB')).toBeCloseTo(0.98, 9)
   })
 
   it('takes the best of all matches, not the leftmost one', () => {
     // a at 4 (word start) 7, b at 5 (consecutive) 5, minus 0.06; the leftmost match gives only 6.
-    expectScore('ab', 'xab ab', 11.94)
+    expect(fuzzyScore('ab', 'xab ab')).toBeCloseTo(11.94, 9)
   })
 })
 
@@ -108,7 +102,7 @@ describe('rankPaletteItems', () => {
   })
 
   it('U-26 pad matches Extrude through its keyword with score 18.97 - 2 = 16.97', () => {
-    expectScore('pad', 'pad', 18.97)
+    expect((fuzzyScore('pad', 'pad') ?? Number.NaN) - 2).toBeCloseTo(16.97, 9)
     expect(titles(rankPaletteItems('pad', [extrude], []))).toEqual(['Extrude'])
   })
 

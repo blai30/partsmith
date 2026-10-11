@@ -30,8 +30,8 @@ describe('applyTheme', () => {
     const root = document.createElement('html')
     root.className = 'scheme-light dark:scheme-dark text-[125%]'
     applyTheme(root, 'dark')
-    expect(Array.from(root.classList).sort()).toEqual(
-      ['dark', 'dark:scheme-dark', 'scheme-light', 'text-[125%]'].sort(),
+    expect(Array.from(root.classList).toSorted()).toEqual(
+      ['dark', 'dark:scheme-dark', 'scheme-light', 'text-[125%]'].toSorted(),
     )
   })
 
@@ -39,8 +39,8 @@ describe('applyTheme', () => {
     const root = document.createElement('html')
     root.className = 'scheme-light dark dark:scheme-dark text-[125%]'
     applyTheme(root, 'light')
-    expect(Array.from(root.classList).sort()).toEqual(
-      ['dark:scheme-dark', 'scheme-light', 'text-[125%]'].sort(),
+    expect(Array.from(root.classList).toSorted()).toEqual(
+      ['dark:scheme-dark', 'scheme-light', 'text-[125%]'].toSorted(),
     )
   })
 

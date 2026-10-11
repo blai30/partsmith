@@ -440,7 +440,10 @@ version = "0.1.0"
 dependencies = [
  "partsmith-model",
  "proptest",
+ "schemars",
+ "serde",
  "serde_json",
+ "thiserror",
 ]
 
 [[package]]
@@ -449,6 +452,7 @@ version = "0.1.0"
 dependencies = [
  "cxx",
  "cxx-build",
+ "partsmith-mesh",
  "thiserror",
 ]
 

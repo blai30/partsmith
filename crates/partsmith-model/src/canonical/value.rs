@@ -23,17 +23,9 @@ pub fn to_value<T: Serialize + ?Sized>(value: &T) -> Result<Value, CanonicalErro
             Problem::NonFinite { path } => CanonicalError::NonFiniteNumber { path },
             Problem::Custom { message } => CanonicalError::Serialize { message },
         })?;
-    to_finite_value(value).map_err(|error| CanonicalError::Serialize {
+    let mut json = serde_json::to_value(value).map_err(|error| CanonicalError::Serialize {
         message: error.to_string(),
-    })
-}
-
-/// `to_value` without the search for non-finite numbers, for values whose types cannot hold
-/// one (such as a `Document`, whose numbers all live in `serde_json::Value`s).
-pub(crate) fn to_finite_value<T: Serialize + ?Sized>(
-    value: &T,
-) -> Result<Value, serde_json::Error> {
-    let mut json = serde_json::to_value(value)?;
+    })?;
     normalize_numbers(&mut json);
     Ok(json)
 }

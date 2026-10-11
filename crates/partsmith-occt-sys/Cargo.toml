@@ -14,6 +14,7 @@ build = "build.rs"
 
 [dependencies]
 cxx.workspace = true
+partsmith-mesh.workspace = true
 thiserror.workspace = true
 
 [build-dependencies]

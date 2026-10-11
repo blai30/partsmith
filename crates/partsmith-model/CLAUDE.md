@@ -32,6 +32,8 @@ Spec (the definition of done): `docs/spec/model.md`, `docs/spec/expressions.md`,
 cargo test -p partsmith-model
 cargo clippy -p partsmith-model --all-targets -- -D warnings
 cargo fmt -p partsmith-model
+# Section 5 budgets of the three specs (benches/budgets.rs); fails when one is exceeded
+cargo bench -p partsmith-model --bench budgets
 ```
 
 ## Rules

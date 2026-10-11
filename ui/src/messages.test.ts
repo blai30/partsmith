@@ -93,11 +93,7 @@ const CASES: readonly Case[] = [
     () => MESSAGES.feature_failed('Fillet 1', 'The radius 15 mm is too large for these edges.'),
     'Fillet 1 failed. The radius 15 mm is too large for these edges.',
   ],
-  [
-    'features_failed',
-    () => MESSAGES.features_failed(3),
-    '3 features failed after this change.',
-  ],
+  ['features_failed', () => MESSAGES.features_failed(3), '3 features failed after this change.'],
   [
     'over_constrained',
     () => MESSAGES.over_constrained('Horizontal', 'Vertical and Distance'),
@@ -161,11 +157,7 @@ const CASES: readonly Case[] = [
   ],
   ['field_required', () => MESSAGES.field_required('Distance'), 'Distance needs a value.'],
   ['field_not_number', () => MESSAGES.field_not_number('Count'), 'Count must be a number.'],
-  [
-    'look_at_disabled',
-    () => MESSAGES.look_at_disabled(),
-    'Select a flat face or a plane first.',
-  ],
+  ['look_at_disabled', () => MESSAGES.look_at_disabled(), 'Select a flat face or a plane first.'],
   ['nothing_to_undo', () => MESSAGES.nothing_to_undo(), 'Nothing to undo.'],
   ['nothing_to_redo', () => MESSAGES.nothing_to_redo(), 'Nothing to redo.'],
   [
@@ -179,11 +171,7 @@ const CASES: readonly Case[] = [
     'Imported geometry has no settings to edit.',
   ],
   ['fill_fields', () => MESSAGES.fill_fields(), 'Fill in the highlighted fields first.'],
-  [
-    'core_not_running',
-    () => MESSAGES.core_not_running(),
-    'The geometry core is not running.',
-  ],
+  ['core_not_running', () => MESSAGES.core_not_running(), 'The geometry core is not running.'],
   [
     'region_crashed',
     () => MESSAGES.region_crashed(),

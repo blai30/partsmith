@@ -341,8 +341,7 @@ function hexFromTailwind(value: string): string {
   ]
   const channels = linear.map((channel) => {
     const clipped = Math.min(1, Math.max(0, channel))
-    const encoded =
-      clipped <= 0.0031308 ? 12.92 * clipped : 1.055 * clipped ** (1 / 2.4) - 0.055
+    const encoded = clipped <= 0.0031308 ? 12.92 * clipped : 1.055 * clipped ** (1 / 2.4) - 0.055
     return Math.round(encoded * 255)
       .toString(16)
       .padStart(2, '0')
@@ -356,11 +355,14 @@ function linearChannel(byte: number): number {
   return encoded <= 0.04045 ? encoded / 12.92 : ((encoded + 0.055) / 1.055) ** 2.4
 }
 
-function expectClose(actual: readonly number[], expected: readonly number[], tolerance: number) {
-  expect(actual).toHaveLength(expected.length)
-  for (const [index, value] of expected.entries()) {
-    expect(Math.abs((actual[index] ?? Number.NaN) - value)).toBeLessThan(tolerance)
+/** The largest absolute difference between two vectors, or Infinity when their lengths differ. */
+function maximumDifference(actual: readonly number[], expected: readonly number[]): number {
+  if (actual.length !== expected.length) {
+    return Number.POSITIVE_INFINITY
   }
+  return Math.max(
+    ...expected.map((value, index) => Math.abs((actual[index] ?? Number.NaN) - value)),
+  )
 }
 
 describe('contrast (U-70)', () => {
@@ -404,7 +406,9 @@ describe('contrast (U-70)', () => {
 
 describe('mapping tables (U-90)', () => {
   it('U-90 PALETTE_HEX has exactly the steps of 2.16.5 with their hex values', () => {
-    expect(PALETTE_HEX).toEqual(Object.fromEntries(PALETTE_TABLE.map(([step, , hex]) => [step, hex])))
+    expect(PALETTE_HEX).toEqual(
+      Object.fromEntries(PALETTE_TABLE.map(([step, , hex]) => [step, hex])),
+    )
   })
 
   it.each(PALETTE_TABLE)(
@@ -418,7 +422,7 @@ describe('mapping tables (U-90)', () => {
 
   it('U-90 every PALETTE_HEX value is the conversion of its step from tailwindcss/colors', () => {
     for (const [step, hex] of Object.entries(PALETTE_HEX)) {
-      expect(hexFromTailwind(TAILWIND_VALUES.get(step) ?? ''), step).toBe(hex)
+      expect([step, hexFromTailwind(TAILWIND_VALUES.get(step) ?? '')]).toEqual([step, hex])
     }
   })
 
@@ -465,10 +469,10 @@ describe('mapping tables (U-90)', () => {
   )
 
   it('U-90 VIEWPORT_COLORS has exactly the viewport roles in both themes', () => {
-    const roles = VIEWPORT_TABLE.map(([role]) => role).sort()
-    expect(Object.keys(VIEWPORT_COLORS).sort()).toEqual(['dark', 'light'])
-    expect(Object.keys(VIEWPORT_COLORS.light).sort()).toEqual(roles)
-    expect(Object.keys(VIEWPORT_COLORS.dark).sort()).toEqual(roles)
+    const roles = VIEWPORT_TABLE.map(([role]) => role).toSorted()
+    expect(Object.keys(VIEWPORT_COLORS).toSorted()).toEqual(['dark', 'light'])
+    expect(Object.keys(VIEWPORT_COLORS.light).toSorted()).toEqual(roles)
+    expect(Object.keys(VIEWPORT_COLORS.dark).toSorted()).toEqual(roles)
   })
 
   it('U-90 highlight has the steps of the accent background', () => {
@@ -509,7 +513,9 @@ describe('mapping tables (U-90)', () => {
   })
 
   it('U-90 viewportTheme(dark).highlight equals linearFromHex(#ff6900) within 1e-12', () => {
-    expectClose(viewportTheme('dark').highlight, linearFromHex('#ff6900'), 1e-12)
+    expect(
+      maximumDifference(viewportTheme('dark').highlight, linearFromHex('#ff6900')),
+    ).toBeLessThan(1e-12)
   })
 
   it('U-90 FONT_CLASSES equal 2.16.7', () => {
@@ -536,32 +542,54 @@ describe('mapping tables (U-90)', () => {
 
 describe('color conversions', () => {
   it('linearFromHex decodes sRGB per channel', () => {
-    expectClose(linearFromHex('#ffffff'), [1, 1, 1], 1e-12)
-    expectClose(linearFromHex('#000000'), [0, 0, 0], 1e-12)
-    expectClose(
-      linearFromHex('#ff8004'),
-      [linearChannel(255), linearChannel(128), linearChannel(4)],
-      1e-12,
-    )
+    expect(maximumDifference(linearFromHex('#ffffff'), [1, 1, 1])).toBeLessThan(1e-12)
+    expect(maximumDifference(linearFromHex('#000000'), [0, 0, 0])).toBeLessThan(1e-12)
+    expect(
+      maximumDifference(linearFromHex('#ff8004'), [
+        linearChannel(255),
+        linearChannel(128),
+        linearChannel(4),
+      ]),
+    ).toBeLessThan(1e-12)
   })
 
   it('linearFromHex uses the linear segment at and below the 0.04045 threshold', () => {
-    expectClose(linearFromHex('#0a0a0a'), [10 / 255 / 12.92, 10 / 255 / 12.92, 10 / 255 / 12.92], 1e-12)
+    expect(
+      maximumDifference(linearFromHex('#0a0a0a'), [
+        10 / 255 / 12.92,
+        10 / 255 / 12.92,
+        10 / 255 / 12.92,
+      ]),
+    ).toBeLessThan(1e-12)
   })
 
   it('encodedFromHex divides each channel by 255', () => {
-    expectClose(encodedFromHex('#ff8000'), [1, 128 / 255, 0], 1e-12)
-    expectClose(encodedFromHex('#b8e6fe'), [184 / 255, 230 / 255, 254 / 255], 1e-12)
+    expect(maximumDifference(encodedFromHex('#ff8000'), [1, 128 / 255, 0])).toBeLessThan(1e-12)
+    expect(
+      maximumDifference(encodedFromHex('#b8e6fe'), [184 / 255, 230 / 255, 254 / 255]),
+    ).toBeLessThan(1e-12)
   })
 
   it.each(THEMES)('viewportTheme(%s) linearizes the six backend roles', (theme) => {
     const backend = viewportTheme(theme)
     const colorsOfTheme = VIEWPORT_COLORS[theme]
-    expectClose(backend.backgroundTop, linearFromHex(colorsOfTheme.viewportTop), 1e-12)
-    expectClose(backend.backgroundBottom, linearFromHex(colorsOfTheme.viewportBottom), 1e-12)
-    expectClose(backend.highlight, linearFromHex(colorsOfTheme.highlight), 1e-12)
-    expectClose(backend.problem, linearFromHex(colorsOfTheme.problem), 1e-12)
-    expectClose(backend.edgeDark, linearFromHex(colorsOfTheme.edgeDark), 1e-12)
-    expectClose(backend.edgeLight, linearFromHex(colorsOfTheme.edgeLight), 1e-12)
+    expect(
+      maximumDifference(backend.backgroundTop, linearFromHex(colorsOfTheme.viewportTop)),
+    ).toBeLessThan(1e-12)
+    expect(
+      maximumDifference(backend.backgroundBottom, linearFromHex(colorsOfTheme.viewportBottom)),
+    ).toBeLessThan(1e-12)
+    expect(
+      maximumDifference(backend.highlight, linearFromHex(colorsOfTheme.highlight)),
+    ).toBeLessThan(1e-12)
+    expect(maximumDifference(backend.problem, linearFromHex(colorsOfTheme.problem))).toBeLessThan(
+      1e-12,
+    )
+    expect(maximumDifference(backend.edgeDark, linearFromHex(colorsOfTheme.edgeDark))).toBeLessThan(
+      1e-12,
+    )
+    expect(
+      maximumDifference(backend.edgeLight, linearFromHex(colorsOfTheme.edgeLight)),
+    ).toBeLessThan(1e-12)
   })
 })

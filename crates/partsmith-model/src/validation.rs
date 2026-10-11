@@ -1,6 +1,6 @@
 //! Full document validation: structure, references, expressions and the parameter graph (model.md section 3.7).
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::expr::{ParameterGraph, join_names};
 use crate::{Document, Expr, ExprError, FeatureInspector, Id, StructureError};
@@ -109,18 +109,14 @@ fn cycle_message(names: &[String]) -> String {
 impl Document {
     /// Every id in use: parameter, body and feature ids plus ids declared inside feature params.
     pub fn used_ids(&self, inspector: &dyn FeatureInspector) -> BTreeSet<Id> {
-        let records = self
-            .parameters
-            .iter()
-            .map(|parameter| parameter.id.clone())
-            .chain(self.bodies.iter().map(|body| body.id.clone()))
-            .chain(self.features.iter().map(|feature| feature.id.clone()));
-        let declared = self
-            .features
-            .iter()
-            .filter_map(|feature| inspector.inspect(feature).ok())
-            .flat_map(|links| links.declared_ids);
-        records.chain(declared).collect()
+        let mut ids = self.record_ids();
+        ids.extend(
+            self.features
+                .iter()
+                .filter_map(|feature| inspector.inspect(feature).ok())
+                .flat_map(|links| links.declared_ids),
+        );
+        ids
     }
 
     /// Structural problems plus reference, expression and parameter-graph problems (model.md section 3.7).
@@ -156,7 +152,16 @@ impl Document {
             }
         }));
 
-        let mut declared: BTreeSet<Id> = BTreeSet::new();
+        // Every lookup below goes through these indexes, built once, so checking the links of
+        // every feature takes O(n log n) rather than a scan of the record lists per link.
+        // `taken` starts with the record ids and gains each declared id as it is met.
+        let mut taken = self.record_ids();
+        let body_ids: BTreeSet<&Id> = self.bodies.iter().map(|body| &body.id).collect();
+        let mut feature_positions: BTreeMap<&Id, usize> = BTreeMap::new();
+        for (position, feature) in self.features.iter().enumerate() {
+            // The first position of a repeated id, like `Document::feature_index`.
+            feature_positions.entry(&feature.id).or_insert(position);
+        }
         for (position, feature) in self.features.iter().enumerate() {
             let links = match inspector.inspect(feature) {
                 Ok(links) => links,
@@ -169,17 +174,16 @@ impl Document {
                 }
             };
             for id in links.declared_ids {
-                if self.contains_id(&id) || declared.contains(&id) {
+                // `replace` hands back the equal id that was already taken, if any.
+                if let Some(repeated) = taken.replace(id) {
                     problems.push(ValidationError::DuplicateDeclaredId {
                         feature: feature.id.clone(),
-                        id,
+                        id: repeated,
                     });
-                } else {
-                    declared.insert(id);
                 }
             }
             for body in links.bodies {
-                if self.body(&body).is_none() {
+                if !body_ids.contains(&body) {
                     problems.push(ValidationError::UnknownBody {
                         feature: feature.id.clone(),
                         body,
@@ -192,7 +196,7 @@ impl Document {
                         feature: feature.id.clone(),
                     })
                 } else {
-                    match self.feature_index(&target) {
+                    match feature_positions.get(&target).copied() {
                         None => Some(ValidationError::UnknownFeature {
                             feature: feature.id.clone(),
                             target,
@@ -225,6 +229,16 @@ impl Document {
             }
         }
         problems
+    }
+
+    /// The ids of every parameter, body and feature.
+    fn record_ids(&self) -> BTreeSet<Id> {
+        self.parameters
+            .iter()
+            .map(|parameter| parameter.id.clone())
+            .chain(self.bodies.iter().map(|body| body.id.clone()))
+            .chain(self.features.iter().map(|feature| feature.id.clone()))
+            .collect()
     }
 }
 
@@ -281,6 +295,116 @@ mod tests {
                 feature: id("f-1"),
                 id: id("e-1")
             }]
+        );
+    }
+
+    /// Reports `declares` and `uses` (string arrays) and `body` (a string) from the params.
+    struct LinkInspector;
+
+    impl FeatureInspector for LinkInspector {
+        fn inspect(&self, feature: &FeatureRecord) -> Result<FeatureLinks, String> {
+            let ids = |key: &str| -> Vec<Id> {
+                feature
+                    .params
+                    .get(key)
+                    .and_then(serde_json::Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(serde_json::Value::as_str)
+                    .map(id)
+                    .collect()
+            };
+            Ok(FeatureLinks {
+                declared_ids: ids("declares"),
+                bodies: feature
+                    .params
+                    .get("body")
+                    .and_then(serde_json::Value::as_str)
+                    .map(id)
+                    .into_iter()
+                    .collect(),
+                features: ids("uses"),
+                expressions: Vec::new(),
+            })
+        }
+    }
+
+    fn linked_feature(id_text: &str, params: serde_json::Value) -> FeatureRecord {
+        let mut record = FeatureRecord::new(id(id_text), "box");
+        let serde_json::Value::Object(params) = params else {
+            panic!("params must be an object");
+        };
+        record.params = params;
+        record
+    }
+
+    #[test]
+    fn declared_ids_collide_with_every_record_kind() {
+        let document = Document {
+            parameters: vec![Parameter::new(id("p-1"), "a", "1")],
+            bodies: vec![crate::Body::new(id("b-1"), "Base")],
+            features: vec![linked_feature(
+                "f-1",
+                serde_json::json!({"declares": ["p-1", "b-1", "f-1", "e-1"], "body": "b-2"}),
+            )],
+            ..Document::default()
+        };
+
+        assert_eq!(
+            document.validate(&LinkInspector),
+            [
+                ValidationError::DuplicateDeclaredId {
+                    feature: id("f-1"),
+                    id: id("p-1")
+                },
+                ValidationError::DuplicateDeclaredId {
+                    feature: id("f-1"),
+                    id: id("b-1")
+                },
+                ValidationError::DuplicateDeclaredId {
+                    feature: id("f-1"),
+                    id: id("f-1")
+                },
+                ValidationError::UnknownBody {
+                    feature: id("f-1"),
+                    body: id("b-2")
+                }
+            ]
+        );
+    }
+
+    #[test]
+    fn a_repeated_feature_id_is_found_at_its_first_position() {
+        let earlier = Document {
+            features: vec![
+                linked_feature("f-1", serde_json::json!({})),
+                linked_feature("f-2", serde_json::json!({"uses": ["f-1"]})),
+                linked_feature("f-1", serde_json::json!({})),
+            ],
+            ..Document::default()
+        };
+        let later = Document {
+            features: vec![
+                linked_feature("f-2", serde_json::json!({"uses": ["f-1"]})),
+                linked_feature("f-1", serde_json::json!({})),
+                linked_feature("f-1", serde_json::json!({})),
+            ],
+            ..Document::default()
+        };
+
+        assert!(
+            !earlier
+                .validate(&LinkInspector)
+                .iter()
+                .any(|problem| matches!(problem, ValidationError::LaterFeature { .. }))
+        );
+        assert!(
+            later
+                .validate(&LinkInspector)
+                .contains(&ValidationError::LaterFeature {
+                    feature: id("f-2"),
+                    target: id("f-1")
+                })
         );
     }
 

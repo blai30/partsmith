@@ -245,6 +245,33 @@ mod tests {
         document
     }
 
+    /// Property names of the schemars schema of a record type, in declaration order.
+    fn derived_fields(schema: &schemars::Schema) -> Vec<&str> {
+        schema.as_value()["properties"]
+            .as_object()
+            .expect("an object schema with properties")
+            .keys()
+            .map(String::as_str)
+            .collect()
+    }
+
+    #[test]
+    fn field_lists_match_the_record_types() {
+        assert_eq!(
+            DOCUMENT_FIELDS,
+            derived_fields(&schemars::schema_for!(Document))
+        );
+        assert_eq!(
+            PARAMETER_FIELDS,
+            derived_fields(&schemars::schema_for!(Parameter))
+        );
+        assert_eq!(BODY_FIELDS, derived_fields(&schemars::schema_for!(Body)));
+        assert_eq!(
+            FeatureRecord::RESERVED_KEYS.as_slice(),
+            derived_fields(&schemars::schema_for!(FeatureRecord))
+        );
+    }
+
     #[test]
     fn a_minimal_document_reads() {
         assert_eq!(document(minimal()), Ok(Document::default()));

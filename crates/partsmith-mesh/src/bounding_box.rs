@@ -59,13 +59,6 @@ impl BoundingBox {
         }
     }
 
-    /// The largest absolute coordinate of any corner.
-    pub(crate) fn largest_magnitude(&self) -> f64 {
-        self.min
-            .iter()
-            .chain(&self.max)
-            .fold(0.0_f64, |largest, coordinate| largest.max(coordinate.abs()))
-    }
 }
 
 #[cfg(test)]
@@ -154,15 +147,5 @@ mod tests {
 
         assert_eq!(grown.min, [0.0, -1.0, 0.0]);
         assert_eq!(grown.max, [2.0, 1.0, 1.0]);
-    }
-
-    #[test]
-    fn largest_magnitude_looks_at_both_corners() {
-        let bounds = BoundingBox {
-            min: [-7.0, 0.0, 0.0],
-            max: [3.0, 2.0, 1.0],
-        };
-
-        assert_eq!(bounds.largest_magnitude(), 7.0);
     }
 }

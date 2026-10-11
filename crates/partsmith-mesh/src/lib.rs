@@ -14,6 +14,7 @@ mod bounding_box;
 mod bounding_volume_hierarchy;
 mod combine;
 mod error;
+mod hash;
 mod mesh;
 mod metrics;
 mod ray;

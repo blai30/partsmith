@@ -89,8 +89,10 @@ pub fn ptsm_schema(features: &[FeatureParamsSchema]) -> Result<Schema, SchemaErr
 
     let mut definitions = model_definitions(&sorted);
     for (kind, mut params) in params_schemas {
-        params.remove("$schema");
-        if let Some(Value::Object(nested)) = params.remove("$defs") {
+        // `shift_remove` keeps the order of the remaining keys; `remove` would move the last key
+        // into the removed slot.
+        params.shift_remove("$schema");
+        if let Some(Value::Object(nested)) = params.shift_remove("$defs") {
             for (name, definition) in nested {
                 add_definition(&mut definitions, name, definition)?;
             }
@@ -361,6 +363,102 @@ mod tests {
                 .keys()
                 .collect::<Vec<_>>(),
             ["type", "properties", "required", "additionalProperties"]
+        );
+    }
+
+    /// Property names of an object schema, in order.
+    fn property_names(schema: &Value) -> Vec<&str> {
+        schema["properties"]
+            .as_object()
+            .expect("an object schema with properties")
+            .keys()
+            .map(String::as_str)
+            .collect()
+    }
+
+    /// Every `const` and `enum` string in `schema`, at any depth, in order.
+    fn enumerated_strings(schema: &Value) -> Vec<Value> {
+        match schema {
+            Value::Object(members) => members
+                .iter()
+                .flat_map(|(key, value)| match (key.as_str(), value) {
+                    ("const", Value::String(_)) => vec![value.clone()],
+                    ("enum", Value::Array(values)) => values.clone(),
+                    _ => enumerated_strings(value),
+                })
+                .collect(),
+            Value::Array(values) => values.iter().flat_map(enumerated_strings).collect(),
+            _ => Vec::new(),
+        }
+    }
+
+    #[test]
+    fn model_definitions_match_the_derived_schemas() {
+        let schema = ptsm_schema(&[]).expect("builds");
+        let root = schema.as_value();
+        let derived = [
+            ("Parameter", schemars::schema_for!(crate::Parameter)),
+            ("Body", schemars::schema_for!(crate::Body)),
+            ("FeatureRecord", schemars::schema_for!(FeatureRecord)),
+        ];
+
+        for (name, derived) in &derived {
+            let written = &root["$defs"][*name];
+            assert_eq!(
+                property_names(written),
+                property_names(derived.as_value()),
+                "{name}"
+            );
+            assert_eq!(
+                written["required"],
+                derived.as_value()["required"],
+                "{name}"
+            );
+        }
+        let document = schemars::schema_for!(crate::Document);
+        assert_eq!(property_names(root), property_names(document.as_value()));
+        assert_eq!(root["required"], document.as_value()["required"]);
+    }
+
+    #[test]
+    fn value_definitions_list_every_serialized_value() {
+        let schema = ptsm_schema(&[]).expect("builds");
+        let definitions = &schema.as_value()["$defs"];
+
+        assert_eq!(
+            definitions["BodyRole"]["enum"],
+            Value::Array(enumerated_strings(
+                schemars::schema_for!(BodyRole).as_value()
+            ))
+        );
+        assert_eq!(
+            definitions["Units"]["enum"],
+            Value::Array(enumerated_strings(schemars::schema_for!(Units).as_value()))
+        );
+    }
+
+    #[test]
+    fn feature_params_keep_their_key_order() {
+        let schema = ptsm_schema(&[params(
+            "extrude",
+            json!({
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "title": "ExtrudeParams",
+                "type": "object",
+                "properties": {"extent": {"$ref": "#/$defs/Extent"}},
+                "required": ["extent"],
+                "$defs": {"Extent": {"type": "object"}}
+            }),
+        )])
+        .expect("builds");
+
+        assert_eq!(
+            schema.as_value()["$defs"]["feature.extrude"]
+                .as_object()
+                .expect("an object")
+                .keys()
+                .collect::<Vec<_>>(),
+            ["title", "type", "properties", "required"]
         );
     }
 

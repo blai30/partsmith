@@ -237,6 +237,45 @@ pub struct TransactionError {
 impl Document {
     /// Applies one edit and returns its exact inverse; on error the document is unchanged.
     pub fn apply(&mut self, edit: Edit) -> Result<Edit, EditError> {
+        self.apply_located(edit).map(|(inverse, _)| inverse)
+    }
+
+    /// Applies edits in order, all or nothing, and returns each edit with its inverse.
+    ///
+    /// When an edit fails, the edits before it are undone by position (`unwind`) rather than by
+    /// applying their inverses, so the document comes back exactly as it was even when it breaks
+    /// the structural rules (a repeated id, for example), where an inverse could fail or find the
+    /// wrong record. This never panics.
+    pub fn apply_all(&mut self, edits: Vec<Edit>) -> Result<Vec<Step>, TransactionError> {
+        let count = edits.len();
+        let mut steps: Vec<Step> = Vec::with_capacity(count);
+        let mut positions: Vec<usize> = Vec::with_capacity(count);
+        for (index, edit) in edits.into_iter().enumerate() {
+            let edit = edit.normalized();
+            match self.apply_located(edit.clone()) {
+                Ok((inverse, position)) => {
+                    steps.push(Step { edit, inverse });
+                    positions.push(position);
+                }
+                Err(error) => {
+                    for (step, position) in steps.into_iter().zip(positions).rev() {
+                        self.unwind(step.inverse, position);
+                    }
+                    return Err(TransactionError {
+                        index,
+                        count,
+                        error,
+                    });
+                }
+            }
+        }
+        Ok(steps)
+    }
+
+    /// Applies one edit and returns its inverse together with the position, in its list, of the
+    /// record the edit inserted, replaced, removed or moved (its position after the edit; where
+    /// it was, for a removal). The position is 0 for edits that set a document field.
+    fn apply_located(&mut self, edit: Edit) -> Result<(Edit, usize), EditError> {
         match edit {
             Edit::AddParameter { index, parameter } => {
                 self.check_unused_id(&parameter.id)?;
@@ -248,7 +287,7 @@ impl Document {
                 }
                 let id = parameter.id.clone();
                 insert(&mut self.parameters, index, parameter)?;
-                Ok(Edit::RemoveParameter { id })
+                Ok((Edit::RemoveParameter { id }, index))
             }
             Edit::UpdateParameter { parameter } => {
                 let position = position(&self.parameters, &parameter.id)?;
@@ -263,46 +302,55 @@ impl Document {
                     });
                 }
                 let previous = mem::replace(&mut self.parameters[position], parameter);
-                Ok(Edit::UpdateParameter {
-                    parameter: previous,
-                })
+                Ok((
+                    Edit::UpdateParameter {
+                        parameter: previous,
+                    },
+                    position,
+                ))
             }
             Edit::RemoveParameter { id } => {
                 let index = position(&self.parameters, &id)?;
                 let parameter = self.parameters.remove(index);
-                Ok(Edit::AddParameter { index, parameter })
+                Ok((Edit::AddParameter { index, parameter }, index))
             }
             Edit::MoveParameter { id, index } => {
                 let previous = move_to(&mut self.parameters, &id, index)?;
-                Ok(Edit::MoveParameter {
-                    id,
-                    index: previous,
-                })
+                Ok((
+                    Edit::MoveParameter {
+                        id,
+                        index: previous,
+                    },
+                    index,
+                ))
             }
             Edit::AddBody { index, body } => {
                 self.check_unused_id(&body.id)?;
                 check_body(&body)?;
                 let id = body.id.clone();
                 insert(&mut self.bodies, index, body)?;
-                Ok(Edit::RemoveBody { id })
+                Ok((Edit::RemoveBody { id }, index))
             }
             Edit::UpdateBody { body } => {
                 let position = position(&self.bodies, &body.id)?;
                 check_body(&body)?;
                 let previous = mem::replace(&mut self.bodies[position], body);
-                Ok(Edit::UpdateBody { body: previous })
+                Ok((Edit::UpdateBody { body: previous }, position))
             }
             Edit::RemoveBody { id } => {
                 let index = position(&self.bodies, &id)?;
                 let body = self.bodies.remove(index);
-                Ok(Edit::AddBody { index, body })
+                Ok((Edit::AddBody { index, body }, index))
             }
             Edit::MoveBody { id, index } => {
                 let previous = move_to(&mut self.bodies, &id, index)?;
-                Ok(Edit::MoveBody {
-                    id,
-                    index: previous,
-                })
+                Ok((
+                    Edit::MoveBody {
+                        id,
+                        index: previous,
+                    },
+                    index,
+                ))
             }
             Edit::AddFeature { index, mut feature } => {
                 self.check_unused_id(&feature.id)?;
@@ -310,14 +358,14 @@ impl Document {
                 feature.normalize();
                 let id = feature.id.clone();
                 insert(&mut self.features, index, feature)?;
-                Ok(Edit::RemoveFeature { id })
+                Ok((Edit::RemoveFeature { id }, index))
             }
             Edit::UpdateFeature { mut feature } => {
                 let position = position(&self.features, &feature.id)?;
                 check_feature(&feature)?;
                 feature.normalize();
                 let previous = mem::replace(&mut self.features[position], feature);
-                Ok(Edit::UpdateFeature { feature: previous })
+                Ok((Edit::UpdateFeature { feature: previous }, position))
             }
             Edit::RemoveFeature { id } => {
                 let index = position(&self.features, &id)?;
@@ -325,14 +373,17 @@ impl Document {
                     return Err(EditError::RemovesRollbackFeature { id });
                 }
                 let feature = self.features.remove(index);
-                Ok(Edit::AddFeature { index, feature })
+                Ok((Edit::AddFeature { index, feature }, index))
             }
             Edit::MoveFeature { id, index } => {
                 let previous = move_to(&mut self.features, &id, index)?;
-                Ok(Edit::MoveFeature {
-                    id,
-                    index: previous,
-                })
+                Ok((
+                    Edit::MoveFeature {
+                        id,
+                        index: previous,
+                    },
+                    index,
+                ))
             }
             Edit::SetRollback { rollback } => {
                 if let Some(id) = &rollback
@@ -341,11 +392,11 @@ impl Document {
                     return Err(EditError::UnknownRollbackFeature { id: id.clone() });
                 }
                 let previous = mem::replace(&mut self.rollback, rollback);
-                Ok(Edit::SetRollback { rollback: previous })
+                Ok((Edit::SetRollback { rollback: previous }, 0))
             }
             Edit::SetUnits { units } => {
                 let previous = mem::replace(&mut self.units, units);
-                Ok(Edit::SetUnits { units: previous })
+                Ok((Edit::SetUnits { units: previous }, 0))
             }
             Edit::SetPrinter { printer } => {
                 if let Some(printer) = &printer {
@@ -353,34 +404,38 @@ impl Document {
                         .map_err(EditError::InvalidLabel)?;
                 }
                 let previous = mem::replace(&mut self.printer, printer);
-                Ok(Edit::SetPrinter { printer: previous })
+                Ok((Edit::SetPrinter { printer: previous }, 0))
             }
         }
     }
 
-    /// Applies edits in order, all or nothing, and returns each edit with its inverse.
-    pub fn apply_all(&mut self, edits: Vec<Edit>) -> Result<Vec<Step>, TransactionError> {
-        let count = edits.len();
-        let mut steps: Vec<Step> = Vec::with_capacity(count);
-        for (index, edit) in edits.into_iter().enumerate() {
-            let edit = edit.normalized();
-            match self.apply(edit.clone()) {
-                Ok(inverse) => steps.push(Step { edit, inverse }),
-                Err(error) => {
-                    for step in steps.into_iter().rev() {
-                        self.apply(step.inverse).expect(
-                            "the inverse of an applied edit applies to the document it returned (model.md section 3.9)",
-                        );
-                    }
-                    return Err(TransactionError {
-                        index,
-                        count,
-                        error,
-                    });
-                }
+    /// Undoes an edit that `apply_located` just applied, given its inverse and the position it
+    /// returned. It works by position and checks nothing, so it cannot fail, and it puts back the
+    /// exact records (numbers included) that the edit replaced or removed.
+    fn unwind(&mut self, inverse: Edit, position: usize) {
+        match inverse {
+            Edit::RemoveParameter { .. } => {
+                self.parameters.remove(position);
             }
+            Edit::UpdateParameter { parameter } => self.parameters[position] = parameter,
+            Edit::AddParameter { index, parameter } => self.parameters.insert(index, parameter),
+            Edit::MoveParameter { index, .. } => move_back(&mut self.parameters, position, index),
+            Edit::RemoveBody { .. } => {
+                self.bodies.remove(position);
+            }
+            Edit::UpdateBody { body } => self.bodies[position] = body,
+            Edit::AddBody { index, body } => self.bodies.insert(index, body),
+            Edit::MoveBody { index, .. } => move_back(&mut self.bodies, position, index),
+            Edit::RemoveFeature { .. } => {
+                self.features.remove(position);
+            }
+            Edit::UpdateFeature { feature } => self.features[position] = feature,
+            Edit::AddFeature { index, feature } => self.features.insert(index, feature),
+            Edit::MoveFeature { index, .. } => move_back(&mut self.features, position, index),
+            Edit::SetRollback { rollback } => self.rollback = rollback,
+            Edit::SetUnits { units } => self.units = units,
+            Edit::SetPrinter { printer } => self.printer = printer,
         }
-        Ok(steps)
     }
 
     /// `IdInUse` when a parameter, body or feature already has `id`.
@@ -460,6 +515,12 @@ fn move_to<T: Record>(records: &mut Vec<T>, id: &Id, index: usize) -> Result<usi
     let record = records.remove(previous);
     records.insert(index, record);
     Ok(previous)
+}
+
+/// Moves the record at `position` back to `index`, undoing `move_to`.
+fn move_back<T>(records: &mut Vec<T>, position: usize, index: usize) {
+    let record = records.remove(position);
+    records.insert(index, record);
 }
 
 /// Checks a parameter name for an edit.
@@ -633,6 +694,182 @@ mod tests {
             panic!("expected AddFeature, got {:?}", steps[0].edit);
         };
         assert!(feature.params["x"].is_u64());
+    }
+
+    /// A batch whose second edit fails, so the first must be undone.
+    fn failing_after(edit: Edit) -> Vec<Edit> {
+        vec![
+            edit,
+            Edit::RemoveBody {
+                id: id("b-missing"),
+            },
+        ]
+    }
+
+    fn assert_restored(document: &mut Document, edit: Edit) {
+        let before = document.clone();
+
+        let result = document.apply_all(failing_after(edit));
+
+        assert_eq!(
+            result,
+            Err(TransactionError {
+                index: 1,
+                count: 2,
+                error: EditError::NotFound {
+                    kind: RecordKind::Body,
+                    id: id("b-missing")
+                }
+            })
+        );
+        assert_eq!(*document, before);
+    }
+
+    #[test]
+    fn a_failed_batch_restores_a_document_with_repeated_ids() {
+        let mut document = Document {
+            parameters: vec![
+                Parameter::new(id("p-1"), "a", "1"),
+                Parameter::new(id("p-1"), "b", "2"),
+            ],
+            ..Document::default()
+        };
+
+        assert_restored(&mut document, Edit::RemoveParameter { id: id("p-1") });
+    }
+
+    #[test]
+    fn a_failed_batch_moves_the_right_record_back() {
+        let mut document = Document {
+            parameters: vec![
+                Parameter::new(id("p-1"), "a", "1"),
+                Parameter::new(id("p-1"), "b", "2"),
+                Parameter::new(id("p-2"), "c", "3"),
+            ],
+            ..Document::default()
+        };
+
+        assert_restored(
+            &mut document,
+            Edit::MoveParameter {
+                id: id("p-1"),
+                index: 2,
+            },
+        );
+    }
+
+    #[test]
+    fn a_failed_batch_restores_invalid_previous_records() {
+        let mut record = FeatureRecord::new(id("f-1"), "Not A Type");
+        record.params.insert("x".to_string(), json!(2.0));
+        let mut document = Document {
+            printer: Some(String::new()),
+            bodies: vec![Body::new(id("b-1"), "")],
+            features: vec![record],
+            ..Document::default()
+        };
+
+        assert_restored(
+            &mut document,
+            Edit::SetPrinter {
+                printer: Some("Printer".to_string()),
+            },
+        );
+        assert_restored(
+            &mut document,
+            Edit::UpdateBody {
+                body: Body::new(id("b-1"), "Base"),
+            },
+        );
+        assert_restored(
+            &mut document,
+            Edit::UpdateFeature {
+                feature: FeatureRecord::new(id("f-1"), "box"),
+            },
+        );
+        assert!(document.features[0].params["x"].is_f64());
+    }
+
+    #[test]
+    fn a_failed_batch_removes_a_feature_the_rollback_marker_names() {
+        let mut document = Document {
+            rollback: Some(id("f-1")),
+            ..Document::default()
+        };
+
+        assert_restored(
+            &mut document,
+            Edit::AddFeature {
+                index: 0,
+                feature: FeatureRecord::new(id("f-1"), "box"),
+            },
+        );
+    }
+
+    #[test]
+    fn a_failed_batch_undoes_every_edit_kind() {
+        let mut document = document_with_bodies(&["a", "b"]);
+        document
+            .parameters
+            .push(Parameter::new(id("p-1"), "a", "1"));
+        document.features = vec![
+            FeatureRecord::new(id("f-1"), "box"),
+            FeatureRecord::new(id("f-2"), "box"),
+        ];
+        let before = document.clone();
+        let edits = vec![
+            Edit::AddParameter {
+                index: 0,
+                parameter: Parameter::new(id("p-2"), "b", "2"),
+            },
+            Edit::UpdateParameter {
+                parameter: Parameter::new(id("p-1"), "c", "3"),
+            },
+            Edit::MoveParameter {
+                id: id("p-1"),
+                index: 0,
+            },
+            Edit::RemoveParameter { id: id("p-2") },
+            Edit::AddBody {
+                index: 2,
+                body: Body::new(id("b-c"), "c"),
+            },
+            Edit::UpdateBody {
+                body: Body::new(id("b-a"), "renamed"),
+            },
+            Edit::MoveBody {
+                id: id("b-a"),
+                index: 2,
+            },
+            Edit::RemoveBody { id: id("b-b") },
+            Edit::AddFeature {
+                index: 1,
+                feature: FeatureRecord::new(id("f-3"), "cylinder"),
+            },
+            Edit::UpdateFeature {
+                feature: FeatureRecord::new(id("f-1"), "sphere"),
+            },
+            Edit::MoveFeature {
+                id: id("f-1"),
+                index: 2,
+            },
+            Edit::RemoveFeature { id: id("f-2") },
+            Edit::SetRollback {
+                rollback: Some(id("f-3")),
+            },
+            Edit::SetUnits { units: Units::In },
+            Edit::SetPrinter {
+                printer: Some("Printer".to_string()),
+            },
+            Edit::RemoveBody {
+                id: id("b-missing"),
+            },
+        ];
+
+        let result = document.apply_all(edits);
+
+        assert!(matches!(result, Err(TransactionError { index: 15, .. })));
+        assert_eq!(document, before);
     }
 
     #[test]

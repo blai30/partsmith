@@ -7,11 +7,8 @@ const APPROVED_STYLESHEET = `@import url('https://fonts.googleapis.com/css2?fami
 @custom-variant dark (&:where(.dark, .dark *));
 `
 
-const STYLESHEETS = import.meta.glob<string>('/src/**/*.css', {
-  query: '?raw',
-  import: 'default',
-  eager: true,
-})
+// Lazy globs only list paths: Vitest replaces the content of CSS imports with an empty string.
+const STYLESHEET_PATHS = Object.keys(import.meta.glob('/src/**/*.css'))
 
 const SOURCES = import.meta.glob<string>(['/src/**/*.{ts,tsx}', '!/src/generated/**'], {
   query: '?raw',
@@ -25,6 +22,15 @@ const STYLE_INDEX = ['.style', '['].join('')
 const PIXEL_VALUE = ['px', ']'].join('')
 const HEX_VALUE = ['[', '#'].join('')
 
+type FileSystem = { readFileSync(path: URL, encoding: 'utf8'): string }
+
+// Reads a file next to this test through Node, which runs Vitest.
+async function readFile(relativePath: string): Promise<string> {
+  const specifier: string = 'node:fs'
+  const fileSystem = (await import(/* @vite-ignore */ specifier)) as FileSystem
+  return fileSystem.readFileSync(new URL(relativePath, import.meta.url), 'utf8')
+}
+
 function filesContaining(needle: string, files: Readonly<Record<string, string>>): string[] {
   return Object.entries(files)
     .filter(([, text]) => text.includes(needle))
@@ -32,16 +38,17 @@ function filesContaining(needle: string, files: Readonly<Record<string, string>>
 }
 
 describe('styles in source (U-91)', () => {
-  it('U-91 src/index.css equals the block of 2.16.1 byte for byte', () => {
-    expect(STYLESHEETS['/src/index.css']).toBe(APPROVED_STYLESHEET)
+  it('U-91 src/index.css equals the block of 2.16.1 byte for byte', async () => {
+    expect(await readFile('../index.css')).toBe(APPROVED_STYLESHEET)
   })
 
   it('U-91 src/index.css is the only .css file under src/', () => {
-    expect(Object.keys(STYLESHEETS)).toEqual(['/src/index.css'])
+    expect(STYLESHEET_PATHS).toEqual(['/src/index.css'])
   })
 
   it('reads the TypeScript sources it checks', () => {
-    expect(Object.keys(SOURCES)).toContain('/src/theme/stylesheet.test.ts')
+    expect(Object.keys(SOURCES)).toContain('/src/main.tsx')
+    expect(SOURCES['/src/main.tsx']).toContain('createRoot')
   })
 
   it('U-91 no .tsx file under src/ has a style JSX attribute', () => {
@@ -59,8 +66,11 @@ describe('styles in source (U-91)', () => {
     expect(offenders).toEqual([])
   })
 
-  it('U-91 no file under src/ contains a pixel arbitrary value or an arbitrary hex color', () => {
-    const files = { ...SOURCES, ...STYLESHEETS }
+  it('U-91 no file under src/ contains a pixel arbitrary value or an arbitrary hex color', async () => {
+    const stylesheets = await Promise.all(
+      STYLESHEET_PATHS.map(async (path) => [path, await readFile(`../..${path}`)] as const),
+    )
+    const files = { ...SOURCES, ...Object.fromEntries(stylesheets) }
     expect(filesContaining(PIXEL_VALUE, files)).toEqual([])
     expect(filesContaining(HEX_VALUE, files)).toEqual([])
   })

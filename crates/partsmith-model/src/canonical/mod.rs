@@ -13,7 +13,6 @@ pub(crate) use number::normalized;
 pub use number::{format_number, normalize_numbers};
 pub use parse::parse;
 pub use string::format_string;
-pub(crate) use value::to_finite_value;
 pub use value::to_value;
 
 /// Width limit for one-line containers, in characters.

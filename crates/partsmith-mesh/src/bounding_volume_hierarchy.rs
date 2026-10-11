@@ -1,56 +1,108 @@
 //! A bounding volume hierarchy for ray queries.
+//!
+//! # Why pruning never drops a hit
+//!
+//! Queries must return exactly what a brute-force loop over all triangles returns (spec section
+//! 3.10), so a node may only be skipped when no triangle below it can produce an accepted hit
+//! for the ray. An accepted hit of the triangle test lies on its triangle only up to rounding,
+//! and that rounding grows for rays that graze the triangle's plane.
+//!
+//! Let `A = |e1| · |e2| / |det|` be a hit's amplification (at most 1e12, since the test rejects
+//! smaller `|det|`), `R` the largest coordinate magnitude of the ray origin plus that of the
+//! mesh, and ε = 2^-53. Each scalar triple product in the test is off by at most
+//! `5.83 ε |e1| |e2|` times `|s|` or 1 (`s = O - A`), which moves `t`, `u · e1` and `v · e2` by
+//! at most `5.83 ε A` times `|s| + |t|`, `|s| + |e1|` and `|s| + |e2|`. Since the point
+//! `O + t · d` of exact arithmetic equals `A + u · e1 + v · e2`, the point `O + t · d` at the
+//! computed `t` lies within `5.83 ε A (4 |s| + 2 |e1| + 2 |e2|) <= 1.35e-14 · A · R` (plus terms
+//! below 1e-11 · R) of its triangle. Every node box is therefore widened, per query, by
+//!
+//! - a tight padding of `1e-9 · R` when every triangle below the node has `A <= 1e4` for this
+//!   ray, which covers `1.6e-10 · R`, and
+//! - a wide padding of `3e-2 · R` otherwise, which covers `1.35e-2 · R`.
+//!
+//! The rounding of the box test itself is below `1e-15 · R`. A triangle has `A > 1e4` only for
+//! rays within about `1e-4 / sin α` of its plane, `α` being the angle of its edges at the first
+//! corner. Each node stores a [`GrazingCone`] that bounds those directions for all of its
+//! triangles, so only rays nearly parallel to some triangle of a node pay for the wide padding.
 
 use std::cmp::Ordering;
-use std::ops::Range;
 
 use crate::mesh::to_u32;
 use crate::ray::intersect_triangle;
-use crate::vector::largest_magnitude;
-use crate::{BoundingBox, Mesh, Point3, Ray, RayHit, Vector3};
+use crate::vector::{cross, dot, largest_magnitude, length, subtract};
+use crate::{Mesh, Point3, Ray, RayHit, Vector3};
 
-/// Leaves hold at most this many triangles.
+/// Leaves hold at most this many triangles (and at least two, unless the mesh has fewer).
 const LEAF_SIZE: usize = 4;
+/// Number of bins the surface area heuristic compares split positions between.
+const BIN_COUNT: usize = 16;
 
-/// Node boxes are widened during queries by this fraction of the coordinate magnitudes involved.
+/// Tight padding as a fraction of the coordinate magnitude `R` (module documentation).
+const TIGHT_PADDING: f64 = 1e-9;
+/// Wide padding as a fraction of the coordinate magnitude `R` (module documentation).
+const WIDE_PADDING: f64 = 3e-2;
+/// `|d · n| >= GRAZING_FACTOR / sin α` keeps a triangle's amplification at most 1e4.
 ///
-/// The triangle test accepts hits up to `1e-12` outside a triangle, and its rounding errors
-/// are a few units in the last place of the coordinates. Widening by `1e-9` of the coordinate
-/// scale covers both by a wide margin, so the hierarchy never prunes a triangle that the test
-/// accepts, while costing nothing measurable in pruning.
-const BOX_PADDING: f64 = 1e-9;
+/// The bound is `|det| >= (|d · n| sin α - 1.4e-15) · |e1| · |e2|`, from the rounding of `det`
+/// and of the unit normal `n`; the extra 1% covers that term.
+const GRAZING_FACTOR: f64 = 1.01e-4;
+/// A triangle with `sin α` at most this is never hit: its `|det|` stays below the test's
+/// `1e-12 · |e1| · |e2|` for every ray, rounding included.
+const NEVER_HIT_SINE: f64 = 0.99e-12;
+/// Added to every cone bound for the rounding of its own computation.
+const CONE_ROUNDING: f64 = 1e-12;
+/// Added to the stored grazing limits for the rounding of the `f32` cone axis and the query.
+const GRAZING_LIMIT_MARGIN: f64 = 1e-6;
 
 /// A bounding volume hierarchy over one mesh's triangles.
 ///
 /// Queries return exactly what a brute-force loop over all triangles with the intersection test
-/// of spec section 3.10 returns; the hierarchy only skips triangles whose (widened) boxes the
-/// ray cannot reach. It takes 32 bytes per node, with fewer nodes than triangles, plus 4 bytes
-/// per triangle.
+/// of spec section 3.10 returns; the hierarchy only skips nodes whose padded boxes the ray
+/// cannot reach (see the module documentation). It is built with a binned surface area
+/// heuristic and takes at most 64 bytes per triangle: 48 bytes per node, with fewer nodes than
+/// triangles, plus 16 bytes per triangle for its index and corners in leaf order.
 #[derive(Clone, Debug)]
 pub struct BoundingVolumeHierarchy<'mesh> {
     /// The mesh the hierarchy was built over.
     mesh: &'mesh Mesh,
-    /// The root is node 0; the two children of an inner node are adjacent, so a query reads
-    /// both boxes together.
+    /// The root is node 0; the two children of an inner node are adjacent.
     nodes: Vec<Node>,
-    /// Triangle indices, ordered so each leaf owns a contiguous range.
-    triangles: Vec<u32>,
+    /// Triangles in leaf order, so each leaf owns a contiguous range.
+    entries: Vec<Entry>,
     /// The largest absolute coordinate of any triangle corner.
     scale: f64,
+    /// True when some triangle's edge lengths or normal overflow, which voids the error bound;
+    /// nodes holding such a triangle are then never pruned.
+    unbounded: bool,
 }
 
-/// A node of the hierarchy: a box around its triangles, and either the triangles themselves or
-/// two child nodes.
+/// One triangle in leaf order.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Entry {
+    /// Index of the triangle in the mesh.
+    triangle: u32,
+    /// Its vertex indices, copied so a leaf test does not look them up in the mesh.
+    corners: [u32; 3],
+}
+
+/// A node of the hierarchy: a box around its triangles, the directions in which some of them
+/// may be grazed, and either the triangles themselves or two child nodes.
 #[derive(Clone, Copy, Debug)]
 struct Node {
     /// Smallest corner of the box around every triangle below the node, rounded down to `f32`.
     min: [f32; 3],
     /// Largest corner of that box, rounded up to `f32`.
     max: [f32; 3],
-    /// For a leaf, the index of its first entry in `BoundingVolumeHierarchy::triangles`; for an inner node, the
-    /// index of its first child, whose sibling follows it.
+    /// For a leaf, the index of its first entry; for an inner node, the index of its first
+    /// child, whose sibling follows it.
     first: u32,
     /// For a leaf, its number of triangles (at least one); 0 for an inner node.
     count: u32,
+    /// Axis of the node's grazing cone.
+    cone_axis: [f32; 3],
+    /// Rays with `|direction · cone_axis| < grazing_limit` may graze a triangle of the node
+    /// and use the wide padding: 2 marks every direction, 0 none.
+    grazing_limit: f32,
 }
 
 /// A node slot reserved for a subtree that is about to be built.
@@ -59,6 +111,8 @@ const RESERVED_NODE: Node = Node {
     max: [0.0; 3],
     first: 0,
     count: 0,
+    cone_axis: [0.0; 3],
+    grazing_limit: 0.0,
 };
 
 /// What a node holds.
@@ -66,31 +120,11 @@ const RESERVED_NODE: Node = Node {
 enum Contents {
     /// An inner node's two children: this node index and the next.
     Children(usize),
-    /// A leaf's range of entries in `BoundingVolumeHierarchy::triangles`.
-    Triangles(Range<usize>),
+    /// A leaf's range of entries.
+    Triangles(std::ops::Range<usize>),
 }
 
 impl Node {
-    /// A leaf over `count` entries of the triangle order starting at `first`.
-    fn leaf(bounds: &BoundingBox, first: usize, count: usize) -> Node {
-        Node::with_bounds(bounds, to_u32(first), to_u32(count))
-    }
-
-    /// An inner node whose children are `first_child` and the node after it.
-    fn inner(bounds: &BoundingBox, first_child: usize) -> Node {
-        Node::with_bounds(bounds, to_u32(first_child), 0)
-    }
-
-    /// A node whose `f32` box contains `bounds`.
-    fn with_bounds(bounds: &BoundingBox, first: u32, count: u32) -> Node {
-        Node {
-            min: bounds.min.map(round_down),
-            max: bounds.max.map(round_up),
-            first,
-            count,
-        }
-    }
-
     /// What the node holds.
     fn contents(&self) -> Contents {
         let first = self.first as usize;
@@ -103,34 +137,47 @@ impl Node {
 }
 
 impl<'mesh> BoundingVolumeHierarchy<'mesh> {
-    /// Builds the hierarchy by splitting triangles at the median of their box centers along
-    /// the widest axis. Degenerate triangles are included but triangles without area are never
-    /// hit. An empty mesh gives a hierarchy with no hits.
+    /// Builds the hierarchy. Degenerate triangles are included but triangles without area are
+    /// never hit. An empty mesh gives a hierarchy with no hits.
     pub fn new(mesh: &'mesh Mesh) -> BoundingVolumeHierarchy<'mesh> {
+        let mut scale = 0.0_f64;
+        let mut center_bounds = Bounds::EMPTY;
         let mut items: Vec<BuildItem> = mesh
             .triangles()
             .iter()
             .enumerate()
-            .map(|(triangle, &corners)| BuildItem {
-                center: triangle_box(mesh.corner_points(corners)).center(),
-                triangle: to_u32(triangle),
+            .map(|(triangle, &corners)| {
+                let points = mesh.corner_points(corners);
+                for point in points {
+                    scale = scale.max(largest_magnitude(point));
+                }
+                let item = BuildItem::new(to_u32(triangle), points);
+                let center = item.center();
+                center_bounds.grow(center, center);
+                item
             })
             .collect();
         let mut builder = Builder {
             mesh,
             nodes: Vec::new(),
+            unbounded: false,
         };
-        let scale = if items.is_empty() {
-            0.0
-        } else {
+        if !items.is_empty() {
             builder.nodes.push(RESERVED_NODE);
-            builder.build(0, &mut items, 0).largest_magnitude()
-        };
+            builder.build(0, &mut items, 0, center_bounds);
+        }
         BoundingVolumeHierarchy {
             mesh,
             nodes: builder.nodes,
-            triangles: items.iter().map(|item| item.triangle).collect(),
+            entries: items
+                .iter()
+                .map(|item| Entry {
+                    triangle: item.triangle,
+                    corners: mesh.triangles()[item.triangle as usize],
+                })
+                .collect(),
             scale,
+            unbounded: builder.unbounded,
         }
     }
 
@@ -152,11 +199,11 @@ impl<'mesh> BoundingVolumeHierarchy<'mesh> {
         let probe = self.probe(ray);
         let mut nearest: Option<RayHit> = None;
         let mut limit = max_distance;
+        // Nodes still to search with the distance at which the ray enters them. The nearer
+        // child is searched next without a round trip through the stack.
         let mut stack: Vec<(usize, f64)> = Vec::new();
-        if let Some(entry) = probe.entry(root, min_distance, limit) {
-            stack.push((0, entry));
-        }
-        while let Some((index, entry)) = stack.pop() {
+        let mut next = probe.entry(root, min_distance, limit).map(|entry| (0, entry));
+        while let Some((index, entry)) = next.take().or_else(|| stack.pop()) {
             // A closer hit found since this node was queued may put it out of reach. Ties stay
             // in reach because a lower triangle index can still win them.
             if entry > limit {
@@ -172,21 +219,22 @@ impl<'mesh> BoundingVolumeHierarchy<'mesh> {
                     }
                 }
                 Contents::Children(first_child) => {
-                    let mut children = [first_child, first_child + 1].map(|child| {
-                        let entry = probe.entry(&self.nodes[child], min_distance, limit);
-                        (child, entry)
-                    });
-                    if let [(_, Some(first_entry)), (_, Some(second_entry))] = children
-                        && second_entry < first_entry
-                    {
-                        children.swap(0, 1);
-                    }
-                    // Push the farther child first so the nearer one is searched first.
-                    for (child, entry) in children.into_iter().rev() {
-                        if let Some(entry) = entry {
-                            stack.push((child, entry));
+                    let second_child = first_child + 1;
+                    let first_entry = probe.entry(&self.nodes[first_child], min_distance, limit);
+                    let second_entry = probe.entry(&self.nodes[second_child], min_distance, limit);
+                    next = match (first_entry, second_entry) {
+                        (Some(first), Some(second)) if second < first => {
+                            stack.push((first_child, first));
+                            Some((second_child, second))
                         }
-                    }
+                        (Some(first), Some(second)) => {
+                            stack.push((second_child, second));
+                            Some((first_child, first))
+                        }
+                        (Some(first), None) => Some((first_child, first)),
+                        (None, Some(second)) => Some((second_child, second)),
+                        (None, None) => None,
+                    };
                 }
             }
         }
@@ -227,74 +275,363 @@ impl<'mesh> BoundingVolumeHierarchy<'mesh> {
     /// The hits on the triangles of some leaf entries within the distance range.
     fn hits_in<'query>(
         &'query self,
-        entries: Range<usize>,
+        entries: std::ops::Range<usize>,
         ray: &'query Ray,
         min_distance: f64,
         max_distance: f64,
     ) -> impl Iterator<Item = RayHit> + 'query {
-        self.triangles[entries].iter().filter_map(move |&triangle| {
-            let points = self.mesh.triangle_points(triangle as usize);
-            intersect_triangle(ray, triangle, points, min_distance, max_distance)
+        self.entries[entries].iter().filter_map(move |entry| {
+            let points = self.mesh.corner_points(entry.corners);
+            intersect_triangle(ray, entry.triangle, points, min_distance, max_distance)
         })
     }
 
     /// Prepares `ray` for box tests against this hierarchy's nodes.
     fn probe(&self, ray: &Ray) -> BoxProbe {
+        let magnitude = largest_magnitude(ray.origin()) + self.scale;
+        let direction = ray.direction();
+        let inverse_direction = direction.map(|component| 1.0 / component);
         BoxProbe {
             origin: ray.origin(),
-            inverse_direction: ray.direction().map(|component| 1.0 / component),
-            padding: BOX_PADDING * (largest_magnitude(ray.origin()) + self.scale),
+            direction,
+            inverse_direction,
+            has_parallel_axis: inverse_direction.iter().any(|inverse| !inverse.is_finite()),
+            tight_padding: TIGHT_PADDING * magnitude,
+            wide_padding: if self.unbounded {
+                f64::INFINITY
+            } else {
+                WIDE_PADDING * magnitude
+            },
         }
     }
 }
 
-/// A ray prepared for box tests: its origin, the inverse of its direction, and how far boxes
-/// are widened for it.
+/// A ray prepared for box tests: its origin and direction, the inverse of its direction, and
+/// the two paddings of the module documentation.
 struct BoxProbe {
     /// The ray origin.
     origin: Point3,
+    /// The unit direction.
+    direction: Vector3,
     /// `1 / direction` per axis; not finite where the direction component is zero or subnormal.
     inverse_direction: Vector3,
-    /// How far every box is widened on each side: [`BOX_PADDING`] times the largest coordinate
-    /// magnitude of the ray origin plus that of the mesh.
-    padding: f64,
+    /// True when some component of `inverse_direction` is not finite.
+    has_parallel_axis: bool,
+    /// How far boxes are widened on each side when no triangle of the node may be grazed.
+    tight_padding: f64,
+    /// How far boxes are widened on each side otherwise.
+    wide_padding: f64,
 }
 
 impl BoxProbe {
+    /// The padding for `node`: wide when the ray may graze one of its triangles.
+    fn padding(&self, node: &Node) -> f64 {
+        let alignment = (0..3)
+            .map(|axis| f64::from(node.cone_axis[axis]) * self.direction[axis])
+            .sum::<f64>();
+        if alignment.abs() < f64::from(node.grazing_limit) {
+            self.wide_padding
+        } else {
+            self.tight_padding
+        }
+    }
+
     /// The distance at which the ray enters `node`'s box widened by the padding, clipped to
     /// `min_distance..=max_distance`, or `None` when the ray misses that part of the box.
     ///
     /// An axis whose inverse direction is not finite is treated as parallel to the ray. That is
-    /// safe: an accepted hit lies at most `1e12 · |origin - corner|` along the ray, so such an
-    /// axis moves the ray far less than the padding before any hit.
+    /// safe: an accepted hit lies within about `5 · R` along the ray, so such an axis moves the
+    /// ray by less than `1e-300 · R` before any hit.
     fn entry(&self, node: &Node, min_distance: f64, max_distance: f64) -> Option<f64> {
+        let padding = self.padding(node);
         let mut near = min_distance;
         let mut far = max_distance;
         for axis in 0..3 {
-            let low = f64::from(node.min[axis]) - self.padding;
-            let high = f64::from(node.max[axis]) + self.padding;
+            let low = f64::from(node.min[axis]) - padding;
+            let high = f64::from(node.max[axis]) + padding;
             let origin = self.origin[axis];
             let inverse = self.inverse_direction[axis];
-            if inverse.is_finite() {
-                let first = (low - origin) * inverse;
-                let second = (high - origin) * inverse;
-                near = near.max(first.min(second));
-                far = far.min(first.max(second));
-            } else if origin < low || origin > high {
-                return None;
+            if self.has_parallel_axis && !inverse.is_finite() {
+                if origin < low || origin > high {
+                    return None;
+                }
+                continue;
+            }
+            let to_low = (low - origin) * inverse;
+            let to_high = (high - origin) * inverse;
+            let (enter, exit) = if inverse >= 0.0 {
+                (to_low, to_high)
+            } else {
+                (to_high, to_low)
+            };
+            // Neither can be NaN: the box bounds are finite or infinite, the origin is finite
+            // and the inverse is finite and nonzero.
+            if enter > near {
+                near = enter;
+            }
+            if exit < far {
+                far = exit;
             }
         }
         (near <= far).then_some(near)
     }
 }
 
+/// A cone of directions, up to sign, bounding where a group of triangles may be grazed.
+///
+/// For every unit direction `d` with `|d · axis| >= sine`, every triangle of the group has
+/// amplification at most 1e4 (module documentation). A `sine` of 1 or more holds for no
+/// direction, so the group may be grazed from anywhere.
+///
+/// For one triangle with unit normal `n` the cone is `(n, GRAZING_FACTOR / sin α)`. Widening a
+/// cone by an angle `θ` adds `sin θ` to `sine`: if `|d · axis| >= sine + sin θ`, the angle of
+/// `d` to the plane normal to `axis` exceeds `θ` plus the original half angle, because
+/// `sin(β + θ) <= sin β + sin θ`, and so the angle to any axis within `θ` of `axis` exceeds
+/// the original half angle.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct GrazingCone {
+    /// Unit axis.
+    axis: Vector3,
+    /// The bound on `|d · axis|`; 1 or more for every direction.
+    sine: f64,
+}
+
+impl GrazingCone {
+    /// The cone of every direction.
+    const EVERY_DIRECTION: GrazingCone = GrazingCone {
+        axis: [0.0, 0.0, 0.0],
+        sine: 2.0,
+    };
+
+    /// True when the cone holds every direction.
+    fn is_every_direction(&self) -> bool {
+        self.sine >= 1.0
+    }
+
+    /// The cone around `axis` that contains both cones.
+    ///
+    /// The axis bisects the two axes (taking the sign that makes them closest), so each moves
+    /// by half the angle `φ` between them, and `sin(φ / 2) = |first - second| / 2`.
+    fn union(self, other: GrazingCone) -> GrazingCone {
+        if self.is_every_direction() || other.is_every_direction() {
+            return GrazingCone::EVERY_DIRECTION;
+        }
+        let other_axis = if dot(self.axis, other.axis) < 0.0 {
+            other.axis.map(|component| -component)
+        } else {
+            other.axis
+        };
+        let sum = [0, 1, 2].map(|axis| self.axis[axis] + other_axis[axis]);
+        let difference = subtract(self.axis, other_axis);
+        let sum_length = length(sum);
+        // Both axes are unit length and at most 90 degrees apart, so the sum is at least
+        // sqrt(2) long; anything else means rounding went wrong, and every direction is safe.
+        if !(sum_length >= 1.0) {
+            return GrazingCone::EVERY_DIRECTION;
+        }
+        GrazingCone {
+            axis: sum.map(|component| component / sum_length),
+            sine: self.sine.max(other.sine) + length(difference) / 2.0 + CONE_ROUNDING,
+        }
+        .saturated()
+    }
+
+    /// The cone itself, or every direction when its bound reached 1.
+    fn saturated(self) -> GrazingCone {
+        if self.is_every_direction() {
+            GrazingCone::EVERY_DIRECTION
+        } else {
+            self
+        }
+    }
+
+    /// The axis and grazing limit a node stores for an optional cone (none when no triangle of
+    /// the node can be hit).
+    fn node_fields(cone: Option<GrazingCone>) -> ([f32; 3], f32) {
+        match cone {
+            None => ([0.0; 3], 0.0),
+            Some(cone) if cone.is_every_direction() => ([0.0; 3], 2.0),
+            Some(cone) => (
+                cone.axis.map(|component| component as f32),
+                round_up(cone.sine + GRAZING_LIMIT_MARGIN),
+            ),
+        }
+    }
+}
+
+/// How one triangle can be grazed.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum TriangleGrazing {
+    /// The triangle is never hit.
+    Never,
+    /// Its unit normal and the bound `GRAZING_FACTOR / sin α`.
+    Near {
+        /// Unit normal.
+        normal: Vector3,
+        /// The bound on `|d · normal|`, below 1.
+        sine: f64,
+    },
+    /// From any direction (a sliver, or a triangle whose error the bound does not cover).
+    Anywhere,
+    /// Its edge lengths or normal overflow.
+    Unbounded,
+}
+
+/// How a triangle can be grazed, computed with the same edge vectors as the triangle test.
+fn triangle_grazing([corner_a, corner_b, corner_c]: [Point3; 3]) -> TriangleGrazing {
+    let edge_one = subtract(corner_b, corner_a);
+    let edge_two = subtract(corner_c, corner_a);
+    let edge_product = length(edge_one) * length(edge_two);
+    let normal = cross(edge_one, edge_two);
+    let normal_length = length(normal);
+    if !edge_product.is_finite() || !normal_length.is_finite() {
+        return TriangleGrazing::Unbounded;
+    }
+    if normal_length <= NEVER_HIT_SINE * edge_product {
+        return TriangleGrazing::Never;
+    }
+    let sine = GRAZING_FACTOR * edge_product / normal_length;
+    if sine >= 1.0 {
+        return TriangleGrazing::Anywhere;
+    }
+    TriangleGrazing::Near {
+        normal: normal.map(|component| component / normal_length),
+        sine,
+    }
+}
+
+/// The grazing cone of a leaf's triangles, or `None` when none of them can be hit. Sets
+/// `unbounded` when a triangle's error is not bounded.
+fn leaf_cone(mesh: &Mesh, items: &[BuildItem], unbounded: &mut bool) -> Option<GrazingCone> {
+    let mut normals: [(Vector3, f64); LEAF_SIZE] = [([0.0; 3], 0.0); LEAF_SIZE];
+    let mut normal_count = 0;
+    for item in items {
+        let corners = mesh.triangles()[item.triangle as usize];
+        match triangle_grazing(mesh.corner_points(corners)) {
+            TriangleGrazing::Never => {}
+            TriangleGrazing::Near { normal, sine } => {
+                normals[normal_count] = (normal, sine);
+                normal_count += 1;
+            }
+            TriangleGrazing::Anywhere => return Some(GrazingCone::EVERY_DIRECTION),
+            TriangleGrazing::Unbounded => {
+                *unbounded = true;
+                return Some(GrazingCone::EVERY_DIRECTION);
+            }
+        }
+    }
+    let normals = &mut normals[..normal_count];
+    let &(reference, _) = normals.first()?;
+    // Normals of either sign graze alike, so align them to the first before averaging.
+    let mut sum = [0.0; 3];
+    for (normal, _) in normals.iter_mut() {
+        if dot(*normal, reference) < 0.0 {
+            *normal = normal.map(|component| -component);
+        }
+        sum = [0, 1, 2].map(|axis| sum[axis] + normal[axis]);
+    }
+    let sum_length = length(sum);
+    // Aligned unit normals sum to at least length 1.
+    if !(sum_length >= 1.0) {
+        return Some(GrazingCone::EVERY_DIRECTION);
+    }
+    let axis = sum.map(|component| component / sum_length);
+    let sine = normals
+        .iter()
+        .map(|&(normal, sine)| length(cross(axis, normal)) + sine)
+        .fold(0.0_f64, f64::max);
+    Some(
+        GrazingCone {
+            axis,
+            sine: sine + CONE_ROUNDING,
+        }
+        .saturated(),
+    )
+}
+
 /// One triangle while the hierarchy is built.
 #[derive(Clone, Copy, Debug)]
 struct BuildItem {
-    /// Center of the triangle's box.
-    center: Point3,
+    /// Smallest corner of the triangle's box, rounded down to `f32`.
+    min: [f32; 3],
+    /// Largest corner of the triangle's box, rounded up to `f32`.
+    max: [f32; 3],
     /// Index of the triangle in the mesh.
     triangle: u32,
+}
+
+impl BuildItem {
+    /// The item for a triangle with these corners.
+    fn new(triangle: u32, [first, second, third]: [Point3; 3]) -> BuildItem {
+        BuildItem {
+            min: [0, 1, 2].map(|axis| round_down(first[axis].min(second[axis]).min(third[axis]))),
+            max: [0, 1, 2].map(|axis| round_up(first[axis].max(second[axis]).max(third[axis]))),
+            triangle,
+        }
+    }
+
+    /// Center of the box.
+    fn center(&self) -> [f32; 3] {
+        [0, 1, 2].map(|axis| self.center_along(axis))
+    }
+
+    /// Center of the box along one axis.
+    fn center_along(&self, axis: usize) -> f32 {
+        0.5 * self.min[axis] + 0.5 * self.max[axis]
+    }
+}
+
+/// An `f32` box while the hierarchy is built; empty when `min > max`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Bounds {
+    /// Smallest corner.
+    min: [f32; 3],
+    /// Largest corner.
+    max: [f32; 3],
+}
+
+impl Bounds {
+    /// The box around nothing.
+    const EMPTY: Bounds = Bounds {
+        min: [f32::INFINITY; 3],
+        max: [f32::NEG_INFINITY; 3],
+    };
+
+    /// Grows the box to contain the box from `min` to `max`.
+    fn grow(&mut self, min: [f32; 3], max: [f32; 3]) {
+        for axis in 0..3 {
+            if min[axis] < self.min[axis] {
+                self.min[axis] = min[axis];
+            }
+            if max[axis] > self.max[axis] {
+                self.max[axis] = max[axis];
+            }
+        }
+    }
+
+    /// The smallest box containing both.
+    fn union(mut self, other: &Bounds) -> Bounds {
+        self.grow(other.min, other.max);
+        self
+    }
+
+    /// Half the surface area, which the surface area heuristic compares.
+    fn half_area(&self) -> f32 {
+        let [x, y, z] = [0, 1, 2].map(|axis| (self.max[axis] - self.min[axis]).max(0.0));
+        x * y + y * z + z * x
+    }
+
+    /// The axis along which the box is widest (lowest axis on ties).
+    fn widest_axis(&self) -> usize {
+        let size = [0, 1, 2].map(|axis| self.max[axis] - self.min[axis]);
+        let mut widest = 0;
+        for axis in 1..3 {
+            if size[axis] > size[widest] {
+                widest = axis;
+            }
+        }
+        widest
+    }
 }
 
 /// The state of a hierarchy under construction.
@@ -303,67 +640,195 @@ struct Builder<'mesh> {
     mesh: &'mesh Mesh,
     /// Nodes built so far.
     nodes: Vec<Node>,
+    /// True once a triangle's error turned out not to be bounded.
+    unbounded: bool,
 }
 
 impl Builder<'_> {
     /// Fills the reserved node `index` with the subtree over `items`, which start at entry
-    /// `first` of the final triangle order, and returns the subtree's exact box. `items` must
-    /// not be empty.
-    fn build(&mut self, index: usize, items: &mut [BuildItem], first: usize) -> BoundingBox {
+    /// `first` of the final triangle order and whose box centers lie in `center_bounds`, and
+    /// returns the subtree's box and grazing cone. `items` must not be empty.
+    fn build(
+        &mut self,
+        index: usize,
+        items: &mut [BuildItem],
+        first: usize,
+        center_bounds: Bounds,
+    ) -> (Bounds, Option<GrazingCone>) {
         if items.len() <= LEAF_SIZE {
-            let bounds = items
-                .iter()
-                .map(|item| {
-                    let corners = self.mesh.triangles()[item.triangle as usize];
-                    triangle_box(self.mesh.corner_points(corners))
-                })
-                .reduce(|union, item_bounds| union.union(&item_bounds))
-                .expect("a subtree covers at least one triangle");
-            self.nodes[index] = Node::leaf(&bounds, first, items.len());
-            return bounds;
+            let bounds = items.iter().fold(Bounds::EMPTY, |mut bounds, item| {
+                bounds.grow(item.min, item.max);
+                bounds
+            });
+            let cone = leaf_cone(self.mesh, items, &mut self.unbounded);
+            self.nodes[index] = node(&bounds, first, items.len(), cone);
+            return (bounds, cone);
         }
-        let axis = widest_center_axis(items);
-        let middle = items.len() / 2;
-        // Ordering by center, then triangle index, makes the split independent of the input
-        // order of equal centers.
-        items.select_nth_unstable_by(middle, |first, second| {
-            first.center[axis]
-                .total_cmp(&second.center[axis])
-                .then(first.triangle.cmp(&second.triangle))
-        });
-        let (lower, upper) = items.split_at_mut(middle);
+        let split = split(items, center_bounds);
+        let (lower, upper) = items.split_at_mut(split.middle);
         // Both children sit next to each other.
         let first_child = self.nodes.len();
         self.nodes.extend([RESERVED_NODE, RESERVED_NODE]);
-        let lower_bounds = self.build(first_child, lower, first);
-        let upper_bounds = self.build(first_child + 1, upper, first + middle);
+        let (lower_bounds, lower_cone) = self.build(first_child, lower, first, split.lower_centers);
+        let (upper_bounds, upper_cone) = self.build(
+            first_child + 1,
+            upper,
+            first + split.middle,
+            split.upper_centers,
+        );
         let bounds = lower_bounds.union(&upper_bounds);
-        self.nodes[index] = Node::inner(&bounds, first_child);
-        bounds
+        let cone = match (lower_cone, upper_cone) {
+            (Some(lower_cone), Some(upper_cone)) => Some(lower_cone.union(upper_cone)),
+            (lower_cone, upper_cone) => lower_cone.or(upper_cone),
+        };
+        self.nodes[index] = node(&bounds, first_child, 0, cone);
+        (bounds, cone)
     }
 }
 
-/// The axis along which the items' centers spread the most (lowest axis on ties).
-fn widest_center_axis(items: &[BuildItem]) -> usize {
-    let spread = BoundingBox::from_points(items.iter().map(|item| item.center))
-        .map_or([0.0; 3], |centers| centers.size());
-    let mut widest = 0;
-    for axis in 1..3 {
-        if spread[axis] > spread[widest] {
-            widest = axis;
+/// A node with this box, contents and cone.
+fn node(bounds: &Bounds, first: usize, count: usize, cone: Option<GrazingCone>) -> Node {
+    let (cone_axis, grazing_limit) = GrazingCone::node_fields(cone);
+    Node {
+        min: bounds.min,
+        max: bounds.max,
+        first: to_u32(first),
+        count: to_u32(count),
+        cone_axis,
+        grazing_limit,
+    }
+}
+
+/// Where a group of items was split, and the bounds of the box centers on each side.
+struct Split {
+    /// Items before this index form the lower child.
+    middle: usize,
+    /// Bounds of the lower child's box centers.
+    lower_centers: Bounds,
+    /// Bounds of the upper child's box centers.
+    upper_centers: Bounds,
+}
+
+/// Running totals of the items in one bin.
+#[derive(Clone, Copy, Debug)]
+struct Bin {
+    /// Box around the items.
+    bounds: Bounds,
+    /// Box around their centers.
+    centers: Bounds,
+    /// How many there are.
+    count: usize,
+}
+
+/// Splits more than `LEAF_SIZE` items into two groups of at least two, reordering them so the
+/// lower group comes first.
+///
+/// Items are binned by box center along the widest axis of `center_bounds`, and the split
+/// between bins with the lowest surface area cost wins. When the centers coincide along that
+/// axis, or no split leaves two items on each side, the items are split at the median center.
+fn split(items: &mut [BuildItem], center_bounds: Bounds) -> Split {
+    let axis = center_bounds.widest_axis();
+    let low = center_bounds.min[axis];
+    let extent = center_bounds.max[axis] - low;
+    if !(extent > 0.0 && extent.is_finite()) {
+        return split_at_median(items, axis);
+    }
+    let bins_per_unit = BIN_COUNT as f32 / extent;
+    let bin_of = |center: f32| (((center - low) * bins_per_unit) as usize).min(BIN_COUNT - 1);
+
+    let mut bins = [Bin {
+        bounds: Bounds::EMPTY,
+        centers: Bounds::EMPTY,
+        count: 0,
+    }; BIN_COUNT];
+    for item in items.iter() {
+        let center = item.center();
+        let bin = &mut bins[bin_of(center[axis])];
+        bin.bounds.grow(item.min, item.max);
+        bin.centers.grow(center, center);
+        bin.count += 1;
+    }
+
+    // Splitting before bin `i` puts bins `i..` in the upper group.
+    let mut upper_areas = [0.0_f32; BIN_COUNT];
+    let mut upper_counts = [0_usize; BIN_COUNT];
+    let mut upper = Bounds::EMPTY;
+    let mut upper_count = 0;
+    for split_bin in (1..BIN_COUNT).rev() {
+        upper = upper.union(&bins[split_bin].bounds);
+        upper_count += bins[split_bin].count;
+        upper_areas[split_bin] = upper.half_area();
+        upper_counts[split_bin] = upper_count;
+    }
+    let mut best: Option<(f32, usize)> = None;
+    let mut lower = Bounds::EMPTY;
+    let mut lower_count = 0;
+    for split_bin in 1..BIN_COUNT {
+        lower = lower.union(&bins[split_bin - 1].bounds);
+        lower_count += bins[split_bin - 1].count;
+        if lower_count < 2 || upper_counts[split_bin] < 2 {
+            continue;
+        }
+        let cost = lower.half_area() * lower_count as f32
+            + upper_areas[split_bin] * upper_counts[split_bin] as f32;
+        if best.is_none_or(|(best_cost, _)| cost < best_cost) {
+            best = Some((cost, split_bin));
         }
     }
-    widest
+    let Some((_, split_bin)) = best else {
+        return split_at_median(items, axis);
+    };
+
+    // Partition from both ends.
+    let mut lower_end = 0;
+    let mut upper_start = items.len();
+    loop {
+        while lower_end < upper_start && bin_of(items[lower_end].center_along(axis)) < split_bin {
+            lower_end += 1;
+        }
+        while lower_end < upper_start && bin_of(items[upper_start - 1].center_along(axis)) >= split_bin
+        {
+            upper_start -= 1;
+        }
+        if lower_end == upper_start {
+            break;
+        }
+        items.swap(lower_end, upper_start - 1);
+    }
+    let centers_of = |bins: &[Bin]| {
+        bins.iter()
+            .fold(Bounds::EMPTY, |centers, bin| centers.union(&bin.centers))
+    };
+    Split {
+        middle: lower_end,
+        lower_centers: centers_of(&bins[..split_bin]),
+        upper_centers: centers_of(&bins[split_bin..]),
+    }
 }
 
-/// The box around a triangle's corners.
-fn triangle_box([first, second, third]: [Point3; 3]) -> BoundingBox {
-    BoundingBox {
-        min: first,
-        max: first,
+/// Splits the items in half at the median box center along `axis`.
+fn split_at_median(items: &mut [BuildItem], axis: usize) -> Split {
+    let middle = items.len() / 2;
+    // Ordering by center, then triangle index, makes the split independent of the input order
+    // of equal centers.
+    items.select_nth_unstable_by(middle, |first, second| {
+        first
+            .center_along(axis)
+            .total_cmp(&second.center_along(axis))
+            .then(first.triangle.cmp(&second.triangle))
+    });
+    let centers_of = |items: &[BuildItem]| {
+        items.iter().fold(Bounds::EMPTY, |mut centers, item| {
+            let center = item.center();
+            centers.grow(center, center);
+            centers
+        })
+    };
+    Split {
+        middle,
+        lower_centers: centers_of(&items[..middle]),
+        upper_centers: centers_of(&items[middle..]),
     }
-    .including(second)
-    .including(third)
 }
 
 /// The largest `f32` that is at most `value`.
@@ -392,10 +857,13 @@ fn is_valid_range(min_distance: f64, max_distance: f64) -> bool {
 }
 
 /// Orders hits by distance, then triangle index.
+///
+/// Distances compare as numbers, so a hit at `-0.0` ties with one at `0.0` and the lower
+/// triangle index wins. Adding zero turns `-0.0` into `0.0`; accepted distances are never NaN,
+/// so the total order is then the numeric one.
 fn hit_order(first: &RayHit, second: &RayHit) -> Ordering {
-    first
-        .distance
-        .total_cmp(&second.distance)
+    (first.distance + 0.0)
+        .total_cmp(&(second.distance + 0.0))
         .then(first.triangle.cmp(&second.triangle))
 }
 
@@ -444,9 +912,29 @@ mod tests {
         hits
     }
 
+    /// Checks both queries against brute force.
+    #[track_caller]
+    fn assert_matches_brute_force(
+        hierarchy: &BoundingVolumeHierarchy<'_>,
+        ray: &Ray,
+        min_distance: f64,
+        max_distance: f64,
+    ) {
+        let expected = brute_force(hierarchy.mesh(), ray, min_distance, max_distance);
+        assert_eq!(
+            hierarchy.all_hits(ray, min_distance, max_distance),
+            expected
+        );
+        assert_eq!(
+            hierarchy.first_hit(ray, min_distance, max_distance),
+            expected.first().copied()
+        );
+    }
+
     /// The leaf entry ranges of a hierarchy.
-    fn leaf_ranges(hierarchy: &BoundingVolumeHierarchy<'_>) -> Vec<Range<usize>> {
-        hierarchy.nodes
+    fn leaf_ranges(hierarchy: &BoundingVolumeHierarchy<'_>) -> Vec<std::ops::Range<usize>> {
+        hierarchy
+            .nodes
             .iter()
             .filter_map(|node| match node.contents() {
                 Contents::Triangles(entries) => Some(entries),
@@ -455,22 +943,30 @@ mod tests {
             .collect()
     }
 
-    /// The unit cube box as a node.
+    /// The unit cube box as a leaf node that no ray grazes.
     fn unit_node() -> Node {
-        let bounds = BoundingBox {
+        let bounds = Bounds {
             min: [0.0, 0.0, 0.0],
             max: [1.0, 1.0, 1.0],
         };
-        Node::leaf(&bounds, 0, 1)
+        node(&bounds, 0, 1, None)
     }
 
-    /// A probe without padding.
+    /// A probe with both paddings zero.
     fn probe(origin: Point3, direction: Vector3) -> BoxProbe {
+        let inverse_direction = direction.map(|component| 1.0 / component);
         BoxProbe {
             origin,
-            inverse_direction: direction.map(|component| 1.0 / component),
-            padding: 0.0,
+            direction,
+            inverse_direction,
+            has_parallel_axis: inverse_direction.iter().any(|inverse| !inverse.is_finite()),
+            tight_padding: 0.0,
+            wide_padding: 0.0,
         }
+    }
+
+    fn cone(axis: Vector3, sine: f64) -> GrazingCone {
+        GrazingCone { axis, sine }
     }
 
     #[test]
@@ -480,11 +976,22 @@ mod tests {
 
         let mut covered: Vec<u32> = leaf_ranges(&hierarchy)
             .into_iter()
-            .flat_map(|entries| hierarchy.triangles[entries].to_vec())
+            .flat_map(|entries| hierarchy.entries[entries].to_vec())
+            .map(|entry| entry.triangle)
             .collect();
         covered.sort_unstable();
 
         assert_eq!(covered, (0..162).collect::<Vec<u32>>());
+    }
+
+    #[test]
+    fn entries_copy_the_corners_of_their_triangles() {
+        let mesh = floor_grid(4, 0.0);
+        let hierarchy = BoundingVolumeHierarchy::new(&mesh);
+
+        for entry in &hierarchy.entries {
+            assert_eq!(entry.corners, mesh.triangles()[entry.triangle as usize]);
+        }
     }
 
     #[test]
@@ -494,13 +1001,13 @@ mod tests {
 
         for node in &hierarchy.nodes {
             if let Contents::Triangles(entries) = node.contents() {
-                for &triangle in &hierarchy.triangles[entries] {
-                    for point in mesh.triangle_points(triangle as usize) {
+                for entry in &hierarchy.entries[entries] {
+                    for point in mesh.triangle_points(entry.triangle as usize) {
                         let inside = (0..3).all(|axis| {
                             f64::from(node.min[axis]) <= point[axis]
                                 && point[axis] <= f64::from(node.max[axis])
                         });
-                        assert!(inside, "triangle {triangle} sticks out of its leaf");
+                        assert!(inside, "triangle {} sticks out of its leaf", entry.triangle);
                     }
                 }
             }
@@ -544,12 +1051,22 @@ mod tests {
     }
 
     #[test]
-    fn hierarchy_has_fewer_nodes_than_triangles() {
+    fn leaves_hold_two_to_four_triangles_so_nodes_stay_fewer_than_triangles() {
         let mesh = floor_grid(10, 0.0);
         let hierarchy = BoundingVolumeHierarchy::new(&mesh);
 
         assert!(hierarchy.nodes.len() < mesh.triangle_count());
-        assert!(leaf_ranges(&hierarchy).iter().all(|entries| entries.len() >= 2));
+        assert!(
+            leaf_ranges(&hierarchy)
+                .iter()
+                .all(|entries| (2..=LEAF_SIZE).contains(&entries.len()))
+        );
+    }
+
+    #[test]
+    fn nodes_take_48_bytes_and_entries_16() {
+        assert_eq!(std::mem::size_of::<Node>(), 48);
+        assert_eq!(std::mem::size_of::<Entry>(), 16);
     }
 
     #[test]
@@ -578,6 +1095,16 @@ mod tests {
     }
 
     #[test]
+    fn building_twice_gives_the_same_hierarchy() {
+        let mesh = floor_grid(12, 1.0);
+        let first = BoundingVolumeHierarchy::new(&mesh);
+        let second = BoundingVolumeHierarchy::new(&mesh);
+
+        assert_eq!(first.entries, second.entries);
+        assert_eq!(format!("{:?}", first.nodes), format!("{:?}", second.nodes));
+    }
+
+    #[test]
     fn rays_through_shared_grid_edges_match_brute_force() {
         let mesh = floor_grid(8, 1.0);
         let hierarchy = BoundingVolumeHierarchy::new(&mesh);
@@ -586,12 +1113,7 @@ mod tests {
             for y in 0..=16 {
                 let origin = [f64::from(x) * 0.5, f64::from(y) * 0.5, 5.0];
                 let downward = ray(origin, [0.0, 0.0, -1.0]);
-                let expected = brute_force(&mesh, &downward, 0.0, f64::INFINITY);
-                assert_eq!(hierarchy.all_hits(&downward, 0.0, f64::INFINITY), expected);
-                assert_eq!(
-                    hierarchy.first_hit(&downward, 0.0, f64::INFINITY),
-                    expected.first().copied()
-                );
+                assert_matches_brute_force(&hierarchy, &downward, 0.0, f64::INFINITY);
             }
         }
     }
@@ -603,10 +1125,25 @@ mod tests {
 
         for step in 0..=10 {
             let sideways = ray([-1.0, f64::from(step) * 0.5, 0.0], [1.0, 0.0, 0.0]);
-            assert_eq!(
-                hierarchy.all_hits(&sideways, f64::NEG_INFINITY, f64::INFINITY),
-                brute_force(&mesh, &sideways, f64::NEG_INFINITY, f64::INFINITY)
-            );
+            assert_matches_brute_force(&hierarchy, &sideways, f64::NEG_INFINITY, f64::INFINITY);
+        }
+    }
+
+    #[test]
+    fn nearly_grazing_rays_from_far_away_match_brute_force() {
+        let mesh = floor_grid(6, 0.0);
+        let hierarchy = BoundingVolumeHierarchy::new(&mesh);
+
+        for exponent in 4..=12 {
+            let tilt = 10_f64.powi(-exponent);
+            for step in 0..=12 {
+                let target = [0.25 + f64::from(step) * 0.5, 3.1, 0.0];
+                let direction = [1.0, 0.37, -tilt];
+                let origin = [0, 1, 2].map(|axis| target[axis] - 1e5 * direction[axis]);
+                let grazing = ray(origin, direction);
+                assert_matches_brute_force(&hierarchy, &grazing, 0.0, f64::INFINITY);
+                assert_matches_brute_force(&hierarchy, &grazing, 9e4, 1.1e5);
+            }
         }
     }
 
@@ -628,11 +1165,31 @@ mod tests {
         for step in 0..=10 {
             let offset = f64::from(step) * 0.001;
             let downward = ray([1e6 + offset, 1e6 + 0.005, 1.0], [0.0, 0.0, -1.0]);
-            assert_eq!(
-                hierarchy.all_hits(&downward, 0.0, f64::INFINITY),
-                brute_force(&mesh, &downward, 0.0, f64::INFINITY)
-            );
+            assert_matches_brute_force(&hierarchy, &downward, 0.0, f64::INFINITY);
         }
+    }
+
+    #[test]
+    fn meshes_whose_error_bound_overflows_are_never_pruned() {
+        // Edge products near 1e400 overflow, so the error bound does not apply.
+        let mesh = Mesh::from_triangles(
+            vec![
+                [-1e200, -1e200, 0.0],
+                [1e200, -1e200, 0.0],
+                [0.0, 1e200, 0.0],
+                [0.0, 0.0, 5.0],
+                [1.0, 0.0, 5.0],
+                [0.0, 1.0, 5.0],
+            ],
+            vec![[0, 1, 2], [3, 4, 5]],
+        )
+        .expect("valid mesh");
+        let hierarchy = BoundingVolumeHierarchy::new(&mesh);
+        let downward = ray([0.25, 0.25, 10.0], [0.0, 0.0, -1.0]);
+
+        assert!(hierarchy.unbounded);
+        assert_eq!(hierarchy.probe(&downward).wide_padding, f64::INFINITY);
+        assert_matches_brute_force(&hierarchy, &downward, 0.0, f64::INFINITY);
     }
 
     #[test]
@@ -675,18 +1232,32 @@ mod tests {
     }
 
     #[test]
-    fn padding_grows_with_coordinate_magnitudes() {
+    fn paddings_grow_with_coordinate_magnitudes() {
         let mesh = floor_grid(2, 0.0);
         let hierarchy = BoundingVolumeHierarchy::new(&mesh);
 
-        let near = hierarchy.probe(&ray([0.0, 0.0, 1.0], [0.0, 0.0, -1.0])).padding;
-        let far = hierarchy
-            .probe(&ray([0.0, 0.0, 1000.0], [0.0, 0.0, -1.0]))
-            .padding;
+        let near = hierarchy.probe(&ray([0.0, 0.0, 1.0], [0.0, 0.0, -1.0]));
+        let far = hierarchy.probe(&ray([0.0, 0.0, 1000.0], [0.0, 0.0, -1.0]));
 
         // The grid reaches coordinate 2, and the origins are 1 and 1000 from zero.
-        assert_eq!(near, BOX_PADDING * 3.0);
-        assert_eq!(far, BOX_PADDING * 1002.0);
+        assert_eq!(near.tight_padding, TIGHT_PADDING * 3.0);
+        assert_eq!(near.wide_padding, WIDE_PADDING * 3.0);
+        assert_eq!(far.tight_padding, TIGHT_PADDING * 1002.0);
+    }
+
+    #[test]
+    fn rays_along_a_flat_leaf_use_the_wide_padding() {
+        let mesh = floor_grid(1, 0.0);
+        let hierarchy = BoundingVolumeHierarchy::new(&mesh);
+        let leaf = &hierarchy.nodes[0];
+
+        let across = hierarchy.probe(&ray([0.5, 0.5, 1.0], [0.0, 0.0, -1.0]));
+        let along = hierarchy.probe(&ray([-1.0, 0.5, 0.0], [1.0, 0.0, 0.0]));
+        let slanted = hierarchy.probe(&ray([-1.0, 0.5, 1.0], [1.0, 0.0, -1.0]));
+
+        assert_eq!(across.padding(leaf), across.tight_padding);
+        assert_eq!(along.padding(leaf), along.wide_padding);
+        assert_eq!(slanted.padding(leaf), slanted.tight_padding);
     }
 
     #[test]
@@ -734,9 +1305,155 @@ mod tests {
         let mut beside = probe([1.5, 0.5, 4.0], [0.0, 0.0, -1.0]);
         assert_eq!(beside.entry(&unit_node(), 0.0, f64::INFINITY), None);
 
-        beside.padding = 0.5;
+        beside.tight_padding = 0.5;
 
         assert_eq!(beside.entry(&unit_node(), 0.0, f64::INFINITY), Some(2.5));
+    }
+
+    #[test]
+    fn infinite_padding_admits_every_ray() {
+        let mut away = probe([5.0, 5.0, 5.0], [1.0, 0.0, 0.0]);
+        away.tight_padding = f64::INFINITY;
+
+        assert_eq!(away.entry(&unit_node(), 0.0, f64::INFINITY), Some(0.0));
+    }
+
+    #[test]
+    fn regular_triangle_is_grazed_near_its_plane() {
+        let grazing = triangle_grazing([[0.0, 0.0, 0.0], [2.0, 0.0, 0.0], [0.0, 3.0, 0.0]]);
+
+        // The edges are perpendicular, so sin α = 1.
+        assert_eq!(
+            grazing,
+            TriangleGrazing::Near {
+                normal: [0.0, 0.0, 1.0],
+                sine: GRAZING_FACTOR
+            }
+        );
+    }
+
+    #[test]
+    fn collinear_triangle_is_never_hit() {
+        let grazing = triangle_grazing([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [2.0, 0.0, 0.0]]);
+
+        assert_eq!(grazing, TriangleGrazing::Never);
+    }
+
+    #[test]
+    fn sliver_is_grazed_from_anywhere() {
+        let grazing = triangle_grazing([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.5, 1e-6, 0.0]]);
+
+        assert_eq!(grazing, TriangleGrazing::Anywhere);
+    }
+
+    #[test]
+    fn overflowing_triangle_is_unbounded() {
+        let grazing = triangle_grazing([[0.0, 0.0, 0.0], [1e200, 0.0, 0.0], [0.0, 1e200, 0.0]]);
+
+        assert_eq!(grazing, TriangleGrazing::Unbounded);
+    }
+
+    #[test]
+    fn flat_leaf_cone_is_its_normal() {
+        let mesh = floor_grid(1, 0.0);
+        let hierarchy = BoundingVolumeHierarchy::new(&mesh);
+        let leaf = &hierarchy.nodes[0];
+
+        assert_eq!(leaf.cone_axis, [0.0, 0.0, 1.0]);
+        assert!(f64::from(leaf.grazing_limit) > 2.0 * GRAZING_FACTOR);
+        assert!(f64::from(leaf.grazing_limit) < 3.0 * GRAZING_FACTOR + 1e-5);
+    }
+
+    #[test]
+    fn opposite_normals_share_a_cone() {
+        let upper = cone([0.0, 0.0, 1.0], 0.01);
+        let lower = cone([0.0, 0.0, -1.0], 0.02);
+
+        let union = upper.union(lower);
+
+        assert_eq!(union.axis, [0.0, 0.0, 1.0]);
+        assert!((union.sine - 0.02).abs() < 1e-9);
+    }
+
+    #[test]
+    fn union_bisects_the_axes_and_widens_by_half_their_angle() {
+        let along_x = cone([1.0, 0.0, 0.0], 0.1);
+        let along_y = cone([0.0, 1.0, 0.0], 0.05);
+
+        let union = along_x.union(along_y);
+
+        let half = std::f64::consts::FRAC_1_SQRT_2;
+        assert!((union.axis[0] - half).abs() < 1e-15);
+        assert!((union.axis[1] - half).abs() < 1e-15);
+        // sin(45 degrees) added to the wider cone's bound.
+        assert!((union.sine - (0.1 + half)).abs() < 1e-9);
+    }
+
+    #[test]
+    fn wide_unions_cover_every_direction() {
+        let tilted = cone([1.0, 0.0, 0.0], 0.5);
+        let level = cone([0.0, 1.0, 0.0], 0.5);
+
+        assert!(tilted.union(level).is_every_direction());
+        assert!(tilted.union(GrazingCone::EVERY_DIRECTION).is_every_direction());
+    }
+
+    #[test]
+    fn node_fields_mark_no_and_every_direction() {
+        assert_eq!(GrazingCone::node_fields(None), ([0.0; 3], 0.0));
+        assert_eq!(
+            GrazingCone::node_fields(Some(GrazingCone::EVERY_DIRECTION)),
+            ([0.0; 3], 2.0)
+        );
+        let (axis, limit) = GrazingCone::node_fields(Some(cone([0.0, 1.0, 0.0], 0.25)));
+        assert_eq!(axis, [0.0, 1.0, 0.0]);
+        assert!(f64::from(limit) >= 0.25 + GRAZING_LIMIT_MARGIN);
+    }
+
+    #[test]
+    fn surface_area_split_keeps_two_items_on_each_side() {
+        // One far triangle and many near ones: the cheapest split would isolate the far one.
+        let mut items: Vec<BuildItem> = (0..9)
+            .map(|i| {
+                let x = if i == 8 { 100.0 } else { f64::from(i) * 0.1 };
+                BuildItem::new(
+                    i,
+                    [[x, 0.0, 0.0], [x + 0.05, 0.0, 0.0], [x, 0.05, 0.0]],
+                )
+            })
+            .collect();
+        let centers = items.iter().fold(Bounds::EMPTY, |mut centers, item| {
+            let center = item.center();
+            centers.grow(center, center);
+            centers
+        });
+
+        let split = split(&mut items, centers);
+
+        assert!(split.middle >= 2 && items.len() - split.middle >= 2);
+        let (lower, upper) = items.split_at(split.middle);
+        let highest_lower = lower.iter().map(|item| item.center_along(0)).fold(f32::MIN, f32::max);
+        let lowest_upper = upper.iter().map(|item| item.center_along(0)).fold(f32::MAX, f32::min);
+        assert!(highest_lower <= lowest_upper);
+    }
+
+    #[test]
+    fn coincident_centers_split_at_the_median() {
+        let mut items: Vec<BuildItem> = (0..6)
+            .map(|i| BuildItem::new(i, [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]))
+            .collect();
+        let center = items[0].center();
+        let centers = Bounds {
+            min: center,
+            max: center,
+        };
+
+        let split = split(&mut items, centers);
+
+        assert_eq!(split.middle, 3);
+        let mut lower: Vec<u32> = items[..3].iter().map(|item| item.triangle).collect();
+        lower.sort_unstable();
+        assert_eq!(lower, vec![0, 1, 2]);
     }
 
     #[test]
@@ -770,5 +1487,19 @@ mod tests {
         assert_eq!(hit_order(&hit(5, 1.0), &hit(1, 2.0)), Ordering::Less);
         assert_eq!(hit_order(&hit(1, 2.0), &hit(5, 2.0)), Ordering::Less);
         assert_eq!(hit_order(&hit(5, 2.0), &hit(5, 2.0)), Ordering::Equal);
+    }
+
+    #[test]
+    fn negative_zero_distance_ties_with_zero() {
+        let hit = |triangle: u32, distance: f64| RayHit {
+            triangle,
+            distance,
+            point: [0.0; 3],
+            barycentric: [1.0, 0.0, 0.0],
+            front_face: true,
+        };
+
+        assert_eq!(hit_order(&hit(4, -0.0), &hit(0, 0.0)), Ordering::Greater);
+        assert_eq!(hit_order(&hit(0, 0.0), &hit(4, -0.0)), Ordering::Less);
     }
 }
