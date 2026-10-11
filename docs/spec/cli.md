@@ -148,10 +148,10 @@ Diagnostic objects have `severity`, `code`, `message`, then `line`, `column` and
 ```text
 box.ptsm
   f-box1 box ok
-  b-1 "Block": volume 24000 mm^3, area 5200 mm^2, bounding box (0, 0, 0) to (20, 30, 40) mm, 6 faces, 12 edges, 8 vertices
+  b-1 "Block": volume 24000 mm^3, area 5200 mm^2, bounding box (-10, -15, 0) to (10, 15, 40) mm, 6 faces, 12 edges, 8 vertices
 ```
 
-One line per feature in timeline order: `  <id> <type> <status>`, followed by one line per message `    <severity>[<code>]: <message>`. Then one line per body in document order; a body without geometry prints `  <id> "<name>": no geometry`. With `--checks`, then `  print health: <health> (<profile id>)` and one line per finding `    <severity>[<check>] <body id>: <message>`.
+One line per feature in timeline order: `  <id> <type> <status>`, followed by one line per message `    <severity>[<code>]: <message>`. Then one line per body in document order; a body without geometry prints `  <id> "<name>": no geometry`. With `--checks`, then `  print health: <summary label> (<profile id>)` and one line per finding `    <severity>[<check>] <body id>: <message>`, in body order, then check order, then the check's own order.
 
 5. JSON output:
 
@@ -172,7 +172,7 @@ One line per feature in timeline order: `  <id> <type> <status>`, followed by on
       "id": "p-h",
       "name": "height",
       "value": 40.0,
-      "dimension": "length"
+      "dimension": {"length": 1, "angle": 0}
     }
   ],
   "bodies": [
@@ -181,10 +181,10 @@ One line per feature in timeline order: `  <id> <type> <status>`, followed by on
       "name": "Block",
       "volume": 24000.0,
       "area": 5200.0,
-      "center_of_mass": [10.0, 15.0, 20.0],
+      "center_of_mass": [0.0, 0.0, 20.0],
       "bounding_box": {
-        "min": [0.0, 0.0, 0.0],
-        "max": [20.0, 30.0, 40.0]
+        "min": [-10.0, -15.0, 0.0],
+        "max": [10.0, 15.0, 40.0]
       },
       "faces": 6,
       "edges": 12,
@@ -194,7 +194,7 @@ One line per feature in timeline order: `  <id> <type> <status>`, followed by on
 }
 ```
 
-`printer` is the effective profile id. `messages` entries are `Diagnostic`s (protocol.md 2.4). A parameter that failed to evaluate has `error` instead of `value` and `dimension`. A body without geometry has only `id`, `name` and `"empty": true`. With `--checks` a final key `checks` holds `{"profile", "orientation", "health", "findings"}` with the protocol shapes (without `mesh_id` and `overhang`).
+`printer` is the effective profile id. `messages` entries are `Diagnostic`s (protocol.md 2.4). A parameter that failed to evaluate has `error` instead of `value` and `dimension`. A body without geometry has only `id`, `name` and `"empty": true`. With `--checks` a final key `checks` holds the protocol `PrintReport` (protocol.md 2.7: `profile`, `orientation`, `summary`, `bodies` with each body's `transform` and print.md `report`), without `mesh_id` and `overhang`.
 
 6. Exit 1 when any feature has status `error`, or `warning` with `--deny-warnings`. Print findings never change the exit code.
 
@@ -309,12 +309,12 @@ Tests live in `crates/partsmith-cli/tests/` and run the built binary (`env!("CAR
 **rebuild**
 
 26. `partsmith rebuild box.ptsm` prints exactly the human example of 3.3 and exits 0.
-27. `partsmith rebuild --json box.ptsm` prints exactly the JSON example of 3.3 with `printer` equal to the default FDM profile id.
+27. `partsmith rebuild --json box.ptsm` prints exactly the JSON example of 3.3.
 28. `partsmith rebuild --json fillet.ptsm` reports `b-1` volume 23965.663706143592 and area 5163.946891450771 within 1e-6 relative, 7 faces, 15 edges, 10 vertices.
 29. `partsmith rebuild` of `box.ptsm` with the box length set to `-5 mm` exits 1; its JSON has `f-box1` status `error` and `b-1` with `"empty": true`.
 30. `partsmith rebuild --printer nope box.ptsm` exits 1 with `error: Printer profile "nope" is not installed.`
-31. `partsmith rebuild --checks --json box.ptsm` has `checks.health` `ok` and `checks.orientation` `{"kind": "as_modeled"}`.
-32. `partsmith rebuild --checks --rotate x:30 --json box.ptsm` has a finding with check `overhangs`, and exit 0.
+31. `partsmith rebuild --checks --json box.ptsm` has `checks.summary.health` `ok`, `checks.summary.label` `Ready to print` and `checks.orientation` `{"kind": "as_modeled"}`.
+32. `partsmith rebuild --checks --rotate x:30 --json box.ptsm` has at least one finding under the `overhangs` check of `b-1`'s report, and exits 0.
 33. `partsmith rebuild --rotate x box.ptsm` exits 2.
 
 **export**

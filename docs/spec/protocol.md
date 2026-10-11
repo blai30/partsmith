@@ -392,9 +392,9 @@ pub struct ElementDescriptor {
     pub normal: Option<Vec3>,
     /// Unit direction from the first to the last vertex (line edges only).
     pub direction: Option<Vec3>,
-    /// Axis (cylinder, cone, torus and sphere faces; circle edges).
+    /// Axis (cylinder, cone and torus faces; circle edges).
     pub axis: Option<Axis>,
-    /// Radius in mm (cylinder and sphere faces; circle edges).
+    /// Radius in mm (cylinder and sphere faces; circle edges). A sphere's center is its `centroid`.
     pub radius: Option<f64>,
     /// Sketch placement a sketch on this face receives (planar faces only).
     pub placement: Option<Placement>,
@@ -510,7 +510,7 @@ Each command below lists its fields (Rust types), a request example, and the res
 
 ```json
 {"type": "list_printer_profiles"}
-{"type": "list_printer_profiles", "profiles": [{"id": "generic-fdm", "name": "Generic FDM 0.4 mm", "technology": "fdm", "layer_height": 0.2}]}
+{"type": "list_printer_profiles", "profiles": [{"id": "generic-fdm", "name": "Generic FDM 0.4 mm", "technology": "fdm", "bed": {"type": "rectangle", "width": 256.0, "depth": 256.0, "height": 256.0}, "nozzle_diameter": 0.4, "layer_height": 0.2, "max_overhang_angle": 0.7853981633974483, "max_bridge_length": 10.0, "fit": {"press": 0.05, "snug": 0.1, "slip": 0.2, "loose": 0.4}}]}
 ```
 
 4. `put_printer_profile {profile: PrinterProfile}`: adds or replaces a session (user) profile. Result `{}`. Emits, for each open document whose `printer` is this id, the events of a recompute.
@@ -554,7 +554,7 @@ Each command below lists its fields (Rust types), a request example, and the res
 
 **Edits, transactions, undo**
 
-10. `apply_edits {doc, label: Option<String>, edits: Vec<Edit>}`: applies the edits atomically. Outside a transaction `label` is required and the batch becomes one undo entry; inside a transaction `label` must be absent. Result `{revision: u64}`. Emits `document_changed`, `recomputed`, `sketch_solved`, `datum_plane`, `body_mesh`. Rollback is an edit (`set_rollback`). The `Edit` JSON is defined in model.md; the examples show its expected shape.
+10. `apply_edits {doc, label: Option<String>, edits: Vec<Edit>}`: applies the edits atomically. Outside a transaction `label` is required and the batch becomes one undo entry; inside a transaction `label` must be absent. Result `{revision: u64}`. Emits `document_changed`, `recomputed`, `sketch_solved`, `datum_plane`, `body_mesh`. Rollback is an edit (`set_rollback`). The `Edit` JSON is defined in model.md, which the examples follow.
 
 ```json
 {"type": "apply_edits", "doc": 1, "label": "Change height", "edits": [{"type": "update_parameter", "parameter": {"id": "p-h", "name": "height", "expr": "50 mm"}}]}
@@ -787,6 +787,16 @@ pub struct SketchDisplay {
 }
 ```
 
+JSON examples (a region of the plate fixture, a dimension's state, a point, display indices):
+
+```json
+{"reference": {"key": "e-1,e-2,e-3,e-4", "fp": "c=40,25|a=4000"}, "area": 4000.0, "centroid": [40.0, 25.0]}
+{"id": "c-3", "state": "satisfied", "value": 10.0}
+{"id": "c-2", "state": "conflicting"}
+{"point": "e-1.end", "at": [20.0, 0.0]}
+{"curve_positions": 0, "curve_entities": 1, "region_positions": 2, "region_indices": 3, "region_ids": 4}
+```
+
 Curve tessellation in `curve_positions` is fixed: a line is one segment; a circle is 72 equal segments starting at angle 0; an arc is `max(1, ceil(sweep / (2π / 72)))` equal segments from its start to its end. Construction entities are included (the UI styles them).
 
 ### 2.7 Events
@@ -866,7 +876,11 @@ pub struct ParameterValue {
 {"kind": "event", "type": "recomputed", "doc": 1, "revision": 4, "features": [{"id": "f-box1", "status": "ok", "messages": [], "repairs": []}, {"id": "f-fil1", "status": "warning", "messages": [{"severity": "warning", "code": "reference_ambiguous", "message": "Edge 2 of Fillet 1 matches 2 edges. Pick it again in the repair panel."}], "repairs": [{"path": "/edges/1", "reference": {"q": "edge(f-box1/front|f-box1/left)", "fp": "line|n=0,0,1|c=-10,-15,20|l=40|adj=2,2"}, "resolution": "ambiguous", "centroid": [-10.0, -15.0, 20.0]}]}], "parameters": [{"id": "p-h", "value": 50.0, "dimension": {"length": 1, "angle": 0}}], "diagnostics": []}
 ```
 
-3. `sketch_solved`: `{doc, revision, solution: SketchSolution}` for a sketch whose solution changed.
+3. `sketch_solved`: `{doc, revision, solution: SketchSolution}` for a sketch whose solution changed. Example for the `drag.ptsm` fixture of engine.md:
+
+```json
+{"kind": "event", "type": "sketch_solved", "doc": 1, "revision": 0, "solution": {"feature": "f-sk1", "status": "under_constrained", "dof": 1, "redundant": [], "conflicting": [], "placement": {"origin": [0.0, 0.0, 0.0], "x_axis": [1.0, 0.0, 0.0], "normal": [0.0, 0.0, 1.0]}, "entities": [{"id": "e-1", "type": "line", "start": [0.0, 0.0], "end": [10.0, 0.0], "constrained": "under"}], "points": [{"point": "e-1.start", "at": [0.0, 0.0]}, {"point": "e-1.end", "at": [10.0, 0.0]}], "constraints": [{"id": "c-1", "state": "satisfied"}, {"id": "c-2", "state": "satisfied"}], "regions": [], "profile_findings": [{"type": "open_endpoint", "entity": "e-1", "point": [0.0, 0.0]}, {"type": "open_endpoint", "entity": "e-1", "point": [10.0, 0.0]}], "display": {"curve_positions": 0, "curve_entities": 1, "region_positions": 2, "region_indices": 3, "region_ids": 4}}}
+```
 
 4. `datum_plane`: `{doc, revision, feature: Id, placement: Option<Placement>}` for a datum plane whose result changed; `placement` is absent when it failed.
 

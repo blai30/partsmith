@@ -374,7 +374,7 @@ The engine keeps the element table of the latest model-layer mesh of each body. 
 ### 3.9 Picks, element listing and reference resolution
 
 - `list_elements` fails with `unknown_body` or `body_empty`. It returns `ElementDescriptor`s in element-table order: faces, then edges, then vertices, filtered by `kind` when given. Element `i` of a kind has display id `i` in the body's current model-layer mesh.
-- Each descriptor holds the element name, its `Reference` (built by partsmith-naming from the name and the fingerprint of the element at the display state), and the geometry fields of protocol.md 2.4 from the kernel's element queries: `centroid`, `area` or `length`, `surface` or `curve`, `normal` (outward, planar faces), `direction` (line edges, first vertex to last), `axis` and `radius` (cylinder, cone, torus and sphere faces, circle edges), `placement` (planar faces: `Placement::on_plane(centroid, normal, &OriginPlane::Xy.placement())` from sketch.md, so a sketch on the top face of a box standing on XY has its origin above the model origin and its x axis along +X), and `adjacent` names (faces: their displayed edges; edges: their faces then their displayed vertices; vertices: their displayed edges; each group sorted by name).
+- Each descriptor holds the element name, its `Reference` (built by partsmith-naming from the name and the fingerprint of the element at the display state), and the geometry fields of protocol.md 2.4 from the kernel's element queries: `centroid`, `area` or `length`, `surface` or `curve`, `normal` (outward, planar faces), `direction` (line edges, first vertex to last), `axis` (cylinder, cone and torus faces, circle edges), `radius` (cylinder and sphere faces, circle edges), `placement` (planar faces: `Placement::on_plane(centroid, normal, &OriginPlane::Xy.placement())` from sketch.md, so a sketch on the top face of a box standing on XY has its origin above the model origin and its x axis along +X), and `adjacent` names (faces: their displayed edges; edges: their faces then their displayed vertices; vertices: their displayed edges; each group sorted by name).
 - `pick_reference` fails with `preview_not_pickable` when `mesh_id` names a preview mesh, `stale_pick` when it names any mesh that is not the latest model-layer mesh of its body (or was never issued), and `invalid_pick` when `index` is not below the mesh's count for `kind`. Otherwise it returns the descriptor of that element, identical to the corresponding `list_elements` entry.
 - `resolve_references` resolves each reference with the partsmith-naming resolver against the element sets of every body with geometry at the display state. One match over all bodies gives `resolved`; several give `ambiguous`; none gives `missing`. Each match is reported as a `MeshElement` with the body's current model-layer `mesh_id` and the element's display id; in headless sessions `mesh_id` is 0 and `index` is the element's position in `list_elements` order. Matches are sorted by body order, then kind, then index.
 
@@ -389,7 +389,7 @@ Targets are resolved at the display state: `{"body": id}` needs an existing body
 | Targets | Fields |
 | --- | --- |
 | One body | `volume` (mm³), `area` (mm²), `center_of_mass` (uniform density), `bounding_box`, `face_count`, `edge_count`, `vertex_count` (display element counts, 3.8) |
-| One face | `area`, `centroid`, `surface`, plus `normal` (planar) or `axis` and `radius` (cylinder, cone, torus, sphere) |
+| One face | `area`, `centroid`, `surface`, plus `normal` (planar), `radius` (cylinder, sphere) and `axis` (cylinder, cone, torus) |
 | One edge | `length`, `centroid`, `curve`, plus `direction` (line) or `axis` and `radius` (circle) |
 | One vertex | `centroid` (the point) |
 | Two targets of any kind | `distance` (minimum distance between them, 0 when they touch), `closest_points` (one pair of points, one on each target, whose distance equals `distance` within 1e-9 mm), and `angle` when each target is a planar face or a line edge |
@@ -616,7 +616,7 @@ Tests live in `crates/partsmith-engine/tests/`. "Session" means `Session::new(Se
 
 **Sketch**
 
-41. Opening `drag.ptsm` emits `sketch_solved` for `f-sk1` with `dof` 1, status `under_constrained`, entity `e-1` with `constrained` `under`, points `e-1.start` (0, 0) and `e-1.end` (10, 0), and a profile issue of kind `open_loop` listing `e-1`.
+41. Opening `drag.ptsm` emits `sketch_solved` for `f-sk1` with `dof` 1, status `under_constrained`, entity `e-1` with `constrained` `under`, points `e-1.start` (0, 0) and `e-1.end` (10, 0), no regions, and two `open_endpoint` profile findings for `e-1`, at (0, 0) and (10, 0).
 42. `solve_sketch` of `drag.ptsm` with a candidate that adds a distance constraint `c-3` of `10 mm` between `e-1.start` and `e-1.end` returns `dof` 0 and status `fully_constrained`; `get_document` still has 2 constraints and no event is emitted.
 43. `drag_sketch` of `e-1.end` to (20, 5) returns `e-1.end` at (20, 0) within 1e-9 and emits no event; the document is unchanged.
 44. A second frame to (30, -5) returns `e-1.end` at (30, 0) within 1e-9.

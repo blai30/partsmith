@@ -1,6 +1,6 @@
 # Feature: revolve
 
-Status: M1 spec. Type name `revolve`. Shared contracts: [features.md](../features.md).
+Status: M1 spec. Type name `revolve`. Shared contracts: [features.md](../features.md). Naming rule: [naming.md](../naming.md) section 3.6.3. Kernel operation: [kernel.md](../kernel.md) section 3.4.4.
 
 ## 1. Purpose and scope
 
@@ -8,7 +8,7 @@ Revolve sweeps closed regions of one sketch around an axis that lies in the sket
 
 ### In M1
 
-- Profile: one or more closed regions of one sketch.
+- Profile: one or more closed regions of one sketch, swept as their union.
 - Axis: an origin axis, a sketch line (construction lines allowed), a straight edge, or the axis of a round face, lying in the sketch plane.
 - Extents: `angle` (0 < angle ≤ 360 deg) and `full`.
 - `reverse` to revolve in the negative sense.
@@ -63,7 +63,7 @@ JSON:
 
 ```json
 {"id": "f-rev1", "type": "revolve", "body": "b-1",
- "profile": {"sketch": "f-sk1", "regions": [{"key": [["e-1", "e-2", "e-3", "e-4"]], "fp": "region|a=300|c=15,15"}]},
+ "profile": {"sketch": "f-sk1", "regions": [{"key": "e-1,e-2,e-3,e-4", "fp": "c=15,15|a=300"}]},
  "axis": {"kind": "origin", "axis": "Z"}, "extent": {"kind": "angle", "expr": "90 deg"}, "op": "new"}
 ```
 
@@ -85,13 +85,14 @@ Label `Revolve`, category `create`, icon `revolve`, version 1.
 
 ### Python
 
-`revolve(id=..., body=..., profile=..., axis=..., extent=..., [reverse=True], op=...)`:
+Dedicated form: `revolve(profile, axis, angle, part=..., op=...)` (python-api.md section 2.7), where an angle of 360 deg maps to `{"kind": "full"}`. Generic form of the JSON above:
 
 ```python
-revolve(
+feature(
+    "revolve",
     id="f-rev1",
     body="b-1",
-    profile={"sketch": "f-sk1", "regions": [{"key": [["e-1", "e-2", "e-3", "e-4"]], "fp": "region|a=300|c=15,15"}]},
+    profile={"sketch": "f-sk1", "regions": [{"key": "e-1,e-2,e-3,e-4", "fp": "c=15,15|a=300"}]},
     axis={"kind": "origin", "axis": "Z"},
     extent={"kind": "angle", "expr": "90 deg"},
     op="new",
@@ -114,18 +115,18 @@ revolve(
 
 1. Resolve the profile (`ctx.profile("profile", ...)`) and the axis (`ctx.axis("axis", ...)`).
 2. The axis must lie in the sketch plane: abs(normal · direction) ≤ 1e-9 and the distance from the axis origin to the plane ≤ 1e-6 mm, else `AxisNotInPlane`.
-3. Each resolved region must lie in one closed half-plane of the sketch plane bounded by the axis line: its boundary points' signed distances to the axis (measured along normal × direction) are all ≥ -1e-6 mm or all ≤ 1e-6 mm, else `ProfileCrossesAxis`. Regions on opposite sides of the axis are allowed.
+3. The union of the resolved regions must lie in one closed half-plane of the sketch plane bounded by the axis line: its boundary points' signed distances to the axis (measured along normal × direction) are all ≥ -1e-6 mm or all ≤ 1e-6 mm, else `ProfileCrossesAxis`.
 4. Angle θ: for `angle`, θ = `extent.expr` in radians; θ > 0 else `OutOfRange` (`GreaterThan(0)`); θ ≤ 2π + 1e-9 else `OutOfRange` (`AtMost(2π)`, rendered `360 deg`). If abs(θ - 2π) ≤ 1e-9 the revolve is treated as `full`.
 5. Sense: positive rotation about the axis direction by the right-hand rule; negative when `reverse` is true. A full revolve ignores `reverse`.
-6. Revolve one face per region by θ about the axis, fuse several into one tool, refine, name (section 3.4), and call `apply_op`.
+6. Kernel `revolve(profile, axis, ±θ)` (2π for full), name (section 3.4), `apply_op`.
 
-Boundary edges that lie on the axis generate no face (the solid closes on the axis).
+Boundary pieces that lie on the axis generate no face (the solid closes on the axis).
 
 ### 3.4 Element names
 
 | Name | Face |
 | --- | --- |
-| `<id>/lateral/<entity id>` | Surface of revolution swept by the boundary edge that sketch entity `<entity id>` produced. |
+| `<id>/lateral/<entity id>` | Surface of revolution swept by the boundary piece that sketch entity `<entity id>` produced. |
 | `<id>/start-cap` | The profile face at angle 0. Partial revolves only. |
 | `<id>/end-cap` | The profile face at angle θ. Partial revolves only. |
 
@@ -136,7 +137,7 @@ Boundary edges that lie on the axis generate no face (the solid closes on the ax
 | No regions | `EmptySelection` | `Select at least one region for Profile.` |
 | Angle ≤ 0 | `OutOfRange` | `Angle must be greater than 0 deg, but it is 0 deg. Use a value greater than 0 deg.` |
 | Angle > 360 deg | `OutOfRange` | `Angle must be at most 360 deg, but it is 400 deg. Use 360 deg or less.` |
-| Angle is not an angle | `WrongDimension` | `Angle must be an angle, but '10 mm' is a length. Use a value such as 45 deg.` |
+| Expression or dimension error | `Expression` | `Angle: Expected an angle, but this expression gives a length.` |
 | Axis outside the sketch plane | `AxisNotInPlane` | `The revolve axis does not lie in the sketch plane. Pick a line in the sketch, or an axis that lies in the sketch plane.` |
 | A region crosses the axis | `ProfileCrossesAxis` | `The profile crosses the revolve axis. Move the profile to one side of the axis, or pick another axis.` |
 | Axis is a curved edge | `NotStraight` | `The edge selected for Axis is not straight. Pick a straight edge, a sketch line or an origin axis.` |
@@ -145,7 +146,7 @@ Boundary edges that lie on the axis generate no face (the solid closes on the ax
 | Axis entity is not a line | `NotALine` | `'e-5' in 'Sketch 1' is not a line with length. Pick a line for Axis.` |
 | Axis edge or face lost | `ReferenceNotFound` | `The edge selected for Axis can no longer be found. Re-pick it in the repair panel.` |
 | Profile, body, kernel and result errors | as in [extrude.md](extrude.md) section 4 | |
-| Warnings | `RegionRemapped`, `RegionMissing`, `NoEffect` | features.md section 4.2 |
+| Warnings | `RegionRemapped`, `RegionAmbiguous`, `RegionMissing`, `NoEffect` | features.md section 4.2 |
 
 ## 5. Performance
 
@@ -156,8 +157,8 @@ Boundary edges that lie on the axis generate no face (the solid closes on the ax
 
 Conventions from features.md section 6.1. Fixtures:
 
-- `SK-RING`: `{"id": "f-sk1", "type": "sketch", "plane": {"kind": "origin", "plane": "XZ"}, "entities": [{"id": "e-1", "type": "line", "start": [10, 0], "end": [20, 0]}, {"id": "e-2", "type": "line", "start": [20, 0], "end": [20, 30]}, {"id": "e-3", "type": "line", "start": [20, 30], "end": [10, 30]}, {"id": "e-4", "type": "line", "start": [10, 30], "end": [10, 0]}], "constraints": []}`. On XZ, sketch (u, v) is world (u, 0, v), so the rectangle spans x 10..20, z 0..30 at y = 0.
-- `P-RING`: `{"sketch": "f-sk1", "regions": [{"key": [["e-1", "e-2", "e-3", "e-4"]], "fp": "region|a=300|c=15,15"}]}`.
+- `SK-RING`: `{"id": "f-sk1", "type": "sketch", "plane": {"type": "origin", "name": "XZ"}, "entities": [{"id": "e-1", "type": "line", "start": [10, 0], "end": [20, 0]}, {"id": "e-2", "type": "line", "start": [20, 0], "end": [20, 30]}, {"id": "e-3", "type": "line", "start": [20, 30], "end": [10, 30]}, {"id": "e-4", "type": "line", "start": [10, 30], "end": [10, 0]}]}`. On XZ, sketch (u, v) is world (u, 0, v), so the rectangle spans x 10..20, z 0..30 at y = 0.
+- `P-RING`: `{"sketch": "f-sk1", "regions": [{"key": "e-1,e-2,e-3,e-4", "fp": "c=15,15|a=300"}]}`.
 - `REV(axis, extent, op)`: `{"id": "f-rev1", "type": "revolve", "body": "b-1", "profile": <P-RING>, "axis": <axis>, "extent": <extent>, "op": <op>}`.
 - `AXIS-Z`: `{"kind": "origin", "axis": "Z"}`.
 
@@ -170,22 +171,21 @@ Bodies `[b-1]` unless stated.
 5. **360 deg is full.** As 2 with expr `"360 deg"`. Expected: identical to 1 (4 faces, no caps).
 6. **Too large.** As 2 with expr `"400 deg"`. Expected: error `out_of_range` rendered `Angle must be at most 360 deg, but it is 400 deg. Use 360 deg or less.`; b-1 empty.
 7. **Zero.** As 2 with expr `"0"`. Expected: error `out_of_range` rendered `Angle must be greater than 0 deg, but it is 0 deg. Use a value greater than 0 deg.`
-8. **Wrong dimension.** As 2 with expr `"10 mm"`. Expected: error `wrong_dimension` rendered `Angle must be an angle, but '10 mm' is a length. Use a value such as 45 deg.`
-9. **Profile crosses the axis.** Sketch `RECT(-5, 0, 5, 30)` on XZ, profile its region (fp `region|a=300|c=0,15`), `REV(AXIS-Z, {"kind": "full"}, "new")`. Expected: error `profile_crosses_axis`.
-10. **Profile touches the axis.** Sketch `RECT(0, 0, 10, 30)` on XZ (fp `region|a=300|c=5,15`), full about Z. Expected: volume 9424.777961, 3 faces, bbox [-10,-10,0]-[10,10,30]; faces `f-rev1/lateral/e-1`, `f-rev1/lateral/e-2`, `f-rev1/lateral/e-3`; no `f-rev1/lateral/e-4` (it lies on the axis).
-11. **Sphere from a half disc.** Sketch on XZ with `{"id": "e-1", "type": "arc", "center": [0, 0], "start": [0, -10], "end": [0, 10]}` and `{"id": "e-2", "type": "line", "start": [0, 10], "end": [0, -10]}`; profile key `[["e-1", "e-2"]]`, fp `region|a=157.079633|c=4.244132,0`; full about Z, op new. Expected: volume 4188.790205, 1 face, bbox [-10,-10,-10]-[10,10,10]; face `f-rev1/lateral/e-1` area 1256.637061.
+8. **Wrong dimension.** As 2 with expr `"10 mm"`. Expected: error `expression` rendered `Angle: Expected an angle, but this expression gives a length.`
+9. **Profile crosses the axis.** Sketch `RECT(-5, 0, 5, 30)` on XZ, profile its region (fp `c=0,15|a=300`), `REV(AXIS-Z, {"kind": "full"}, "new")`. Expected: error `profile_crosses_axis`.
+10. **Profile touches the axis.** Sketch `RECT(0, 0, 10, 30)` on XZ (fp `c=5,15|a=300`), full about Z. Expected: volume 9424.777961, 3 faces, bbox [-10,-10,0]-[10,10,30]; faces `f-rev1/lateral/e-1`, `f-rev1/lateral/e-2`, `f-rev1/lateral/e-3`; no `f-rev1/lateral/e-4` (it lies on the axis).
+11. **Sphere from a half disc.** Sketch on XZ with `{"id": "e-1", "type": "arc", "center": [0, 0], "radius": 10, "start_angle": -1.5707963267948966, "end_angle": 1.5707963267948966}` and `{"id": "e-2", "type": "line", "start": [0, 10], "end": [0, -10]}`; profile `{"key": "e-1,e-2", "fp": "c=4.244132,0|a=157.079633"}`; full about Z, op new. Expected: volume 4188.790205, 1 face, bbox [-10,-10,-10]-[10,10,10]; face `f-rev1/lateral/e-1` area 1256.637061.
 12. **Axis from a construction line.** `SK-RING` plus `{"id": "e-9", "type": "line", "start": [0, 0], "end": [0, 10], "construction": true}`; axis `{"kind": "sketch_line", "sketch": "f-sk1", "line": "e-9"}`, full. Expected: identical to 1.
 13. **Sketch line direction sets the sense.** As 12 with e-9 from [0, 10] to [0, 0] and extent angle `"90 deg"`. Expected: bbox [0,-20,0]-[20,0,30] (the axis points down, so the turn goes toward -Y).
 14. **Axis not in the sketch plane.** Sketch `RECT(10, 0, 20, 30)` on XY, axis `AXIS-Z`, full. Expected: error `axis_not_in_plane`.
-15. **Revolve about X on XY.** Sketch `RECT(0, 10, 30, 20)` on XY (fp `region|a=300|c=15,15`), axis `{"kind": "origin", "axis": "X"}`, full, op new. Expected: volume 28274.333882, 4 faces, bbox [0,-20,-20]-[30,20,20].
-16. **Axis from a body edge.** Bodies `[b-1, b-2]`; features `{"id": "f-box1", "type": "box", "body": "b-2", "size": ["10", "10", "10"], "position": ["0", "5", "0"], "op": "new"}`, `SK-RING`, `REV` with axis `{"kind": "edge", "body": "b-2", "edge": {"q": "edge(f-box1/front|f-box1/left)", "fp": "line|d=0,0,1|c=-5,0,5|l=10"}}`, full, op new. The edge is x = -5, y = 0, along Z. Expected: b-1 volume 37699.111843, 4 faces, bbox [-30,-25,0]-[20,25,30]; b-2 unchanged; dependencies `bodies_read == ["b-2"]`.
-17. **Groove cut.** Features `{"id": "f-cyl1", "type": "cylinder", "body": "b-1", "radius": "30", "height": "30", "op": "new"}`, sketch on XZ `RECT(10, 20, 20, 30)` (fp `region|a=100|c=15,25`), `REV(AXIS-Z, {"kind": "full"}, "cut")`. Expected: volume 75398.223686, 7 faces, bbox [-30,-30,0]-[30,30,30]; faces `f-rev1/lateral/e-1` (groove floor at z=20), `f-rev1/lateral/e-2` (cylinder radius 20) and `f-rev1/lateral/e-4` (cylinder radius 10) exist.
-18. **Intersect.** As 17 with `SK-RING` and op intersect. Expected: volume 28274.333882, 4 faces, bbox [-20,-20,0]-[20,20,30].
+15. **Revolve about X on XY.** Sketch `RECT(0, 10, 30, 20)` on XY (fp `c=15,15|a=300`), axis `{"kind": "origin", "axis": "X"}`, full, op new. Expected: volume 28274.333882, 4 faces, bbox [0,-20,-20]-[30,20,20].
+16. **Axis from a body edge.** Bodies `[b-1, b-2]`; features `{"id": "f-box1", "type": "box", "body": "b-2", "size": ["10", "10", "10"], "position": ["0", "5", "0"], "op": "new"}`, `SK-RING`, `REV` with axis `{"kind": "edge", "body": "b-2", "edge": {"q": "edge(f-box1/front|f-box1/left)", "fp": "line|n=0,0,1|c=-5,0,5|l=10"}}`, full, op new. The edge is x = -5, y = 0, along Z. Expected: b-1 volume 37699.111843, 4 faces, bbox [-30,-25,0]-[20,25,30]; b-2 unchanged; dependencies `bodies_read == ["b-2"]`.
+17. **Groove cut.** Features `{"id": "f-cyl1", "type": "cylinder", "body": "b-1", "radius": "30", "height": "30", "op": "new"}`, sketch on XZ `RECT(10, 20, 20, 30)` (fp `c=15,25|a=100`), `REV(AXIS-Z, {"kind": "full"}, "cut")` with that profile. Expected: volume 75398.223686, 7 faces, bbox [-30,-30,0]-[30,30,30]; faces `f-rev1/lateral/e-1` (groove floor at z=20), `f-rev1/lateral/e-2` (cylinder radius 20) and `f-rev1/lateral/e-4` (cylinder radius 10) exist.
+18. **Intersect.** As 17 with `SK-RING`, `P-RING` and op intersect. Expected: volume 28274.333882, 4 faces, bbox [-20,-20,0]-[20,20,30].
 19. **New on a body with a solid.** As 17 with op new. Expected: error `body_not_empty`; b-1 volume 84823.001647 (the cylinder).
-20. **Python.** `Registry::python` of the JSON in section 2 renders exactly the Python in section 2.
-21. **Performance.** Test 1 builds in under 5 ms (desktop, release, build only).
+20. **Performance.** Test 1 builds in under 5 ms (desktop, release, build only).
 
 ## Open issues
 
-1. Requiring the axis to lie in the sketch plane follows Fusion and keeps the crossing check exact. Revolving around an axis parallel to the plane but outside it is valid geometry and can be added later.
-2. Edges on the axis generating no face depends on the kernel facade's revolution handling degenerate sweeps; kernel.md should state it.
+1. Requiring the axis to lie in the sketch plane follows Fusion and the kernel facade (kernel.md section 3.4.4). Revolving around an axis parallel to the plane but outside it is valid geometry and can be added later.
+2. python-api.md's dedicated `revolve` takes a top-level `angle`; it must map 360 deg to `{"kind": "full"}` and other values to `{"kind": "angle", "expr": ...}`.

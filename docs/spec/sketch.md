@@ -70,15 +70,15 @@ pub const PROFILE_TOLERANCE: f64 = partsmith_model::LINEAR_TOLERANCE;
 ### 2.2 Sketch params and planes
 
 ```rust
-/// Params of a `sketch` feature; flattened into its feature record after `id`, `type` and `name`.
+/// Params of a `sketch` feature; flattened into its feature record after the record's own fields (`id`, `type`, `name`, `suppressed`).
 pub struct SketchParams {
     /// Where the sketch lies in model space.
     pub plane: SketchPlane,
-    /// Geometry in creation order; omitted from JSON when empty.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    /// Geometry in creation order; always written, a missing key loads as empty.
+    #[serde(default)]
     pub entities: Vec<SketchEntity>,
-    /// Constraints in creation order; omitted from JSON when empty.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    /// Constraints in creation order; always written, a missing key loads as empty.
+    #[serde(default)]
     pub constraints: Vec<SketchConstraint>,
 }
 
@@ -151,7 +151,7 @@ impl OriginPlane {
 pub struct FaceReference {
     /// Element name query, for example "f-ext1/end-cap".
     pub q: String,
-    /// Fingerprint text, for example "plane|n=0,0,1|c=40,25,30|a=4000".
+    /// Fingerprint text, for example "plane|n=0,0,1|c=40,25,30|a=4000|adj=4,4".
     pub fp: String,
 }
 
@@ -188,10 +188,10 @@ JSON examples:
 ```
 
 ```json
-{"type": "face", "face": {"q": "f-ext1/end-cap", "fp": "plane|n=0,0,1|c=40,25,30|a=4000"}, "fallback": {"origin": [0, 0, 30], "x_axis": [1, 0, 0], "normal": [0, 0, 1]}}
+{"type": "face", "face": {"q": "f-ext1/end-cap", "fp": "plane|n=0,0,1|c=40,25,30|a=4000|adj=4,4"}, "fallback": {"origin": [0, 0, 30], "x_axis": [1, 0, 0], "normal": [0, 0, 1]}}
 ```
 
-A `Placement` alone: `{"origin": [0, 0, 30], "x_axis": [1, 0, 0], "normal": [0, 0, 1]}`. A `FaceReference` alone: `{"q": "f-ext1/end-cap", "fp": "plane|n=0,0,1|c=40,25,30|a=4000"}`.
+A `Placement` alone: `{"origin": [0, 0, 30], "x_axis": [1, 0, 0], "normal": [0, 0, 1]}`. A `FaceReference` alone: `{"q": "f-ext1/end-cap", "fp": "plane|n=0,0,1|c=40,25,30|a=4000|adj=4,4"}`.
 
 ### 2.3 Entities
 
@@ -856,7 +856,7 @@ The three `SketchPlane` variants:
 ### 3.3 JSON form
 
 - Record field order is the struct and variant declaration order: `id`, `type`, then the geometry or reference fields in the order of section 2, then `expr`, `driving` for dimensions, and `construction` last on entities. `SketchParams` fields follow the feature record's own fields in the order `plane`, `entities`, `constraints`.
-- Defaults are omitted: `construction: false`, `driving: true`, empty `entities`, empty `constraints`. Inputs that spell out a default are accepted.
+- Defaults are omitted: `construction: false` and `driving: true`. Inputs that spell out a default are accepted. `entities` and `constraints` are always written, even when empty (as file-format.md does for the top-level arrays), and a missing key loads as an empty list.
 - Unknown fields inside a plane, placement, face reference, entity or constraint record are a deserialization error that names the field. Unknown `type` values are a deserialization error. A constraint record whose reference fields match none of the shapes of its type (for example a `distance` with both `points` and `line`, or a `horizontal` with neither `line` nor `points`) is a deserialization error.
 - `PointRef` grammar: `<id>` or `<id>.<role>` where `<id>` matches `[A-Za-z0-9_-]{1,64}` and `<role>` is `start`, `end` or `center`. Anything else fails with `InvalidPointRef { text }`. `Display` writes the same form; `PointRole::Point` is the bare id.
 - Numbers are stored at full `f64` precision; this crate never rounds stored geometry. The model crate's canonical serializer decides how numbers print.
@@ -1228,7 +1228,9 @@ Messages are plain sentences that name the fix. Placeholders: `{label}` is the c
 | `UnknownDragTarget { target }` | `The dragged item {target} is not in this sketch. Refresh the sketch and drag again.` |
 | `NonFiniteCursor` | `The drag position is not a finite number. Move the pointer over the sketch and drag again.` |
 | `InvalidRegionKey { text }` | `"{text}" is not a region key. A region key lists entity ids such as e-1,e-2,~e-3 in sorted order, with ; before each hole.` |
-| `InvalidFingerprint { text }` | `"{text}" is not a region fingerprint. Use the form c=<x>,<y>|a=<area>.` |
+| `InvalidFingerprint { text }` | `"{text}" is not a region fingerprint. Use the form c=<x>,<y>\|a=<area>.` |
+
+In the `InvalidFingerprint` row, `\|` is the table escape for a plain `|`; the message itself has no backslash.
 
 Deserialization errors (unknown `type`, unknown field, wrong shape) are `serde` errors raised by the caller's JSON layer; their text comes from `serde_json` and names the field or variant.
 
@@ -1352,8 +1354,8 @@ Tests live in `crates/partsmith-sketch/tests/` (suggested files: `json.rs`, `val
 9. `PointRef::from_str`: `"e-1.start"` gives `{e-1, Start}`, `"e-1.end"` gives `End`, `"e-5.center"` gives `Center`, `"e-7"` gives `Point`, `"f_Sk-2"` gives `Point`.
 10. `PointRef::from_str` fails with `InvalidPointRef { text }` (text equal to the input) for `""`, `".start"`, `"e-1."`, `"e-1.mid"`, `"e-1.start.end"`, `"e 1"`, `"e-1.Start"`, and a 65-character id.
 11. For every valid string of test 9, `to_string()` returns the input and `serde_json::to_string` returns it quoted.
-12. Planes: `{"type": "origin", "name": "XZ"}` gives `Origin { name: Xz }`; `{"type": "origin", "name": "xz"}` fails; `{"type": "datum", "feature": "f-dp1"}` round-trips; the face example of section 2.2 re-serializes to `{"type":"face","face":{"q":"f-ext1/end-cap","fp":"plane|n=0,0,1|c=40,25,30|a=4000"},"fallback":{"origin":[0.0,0.0,30.0],"x_axis":[1.0,0.0,0.0],"normal":[0.0,0.0,1.0]}}`.
-13. `{"plane": {"type": "origin", "name": "XY"}}` deserializes as `SketchParams` with empty `entities` and `constraints` and re-serializes to `{"plane":{"type":"origin","name":"XY"}}`.
+12. Planes: `{"type": "origin", "name": "XZ"}` gives `Origin { name: Xz }`; `{"type": "origin", "name": "xz"}` fails; `{"type": "datum", "feature": "f-dp1"}` round-trips; the face example of section 2.2 re-serializes to `{"type":"face","face":{"q":"f-ext1/end-cap","fp":"plane|n=0,0,1|c=40,25,30|a=4000|adj=4,4"},"fallback":{"origin":[0.0,0.0,30.0],"x_axis":[1.0,0.0,0.0],"normal":[0.0,0.0,1.0]}}`.
+13. `{"plane": {"type": "origin", "name": "XY"}}` deserializes as `SketchParams` with empty `entities` and `constraints` and re-serializes to `{"plane":{"type":"origin","name":"XY"},"entities":[],"constraints":[]}`.
 14. The `PLATE` record without `id`, `type` and `name` deserializes as `SketchParams` with 6 entities and 16 constraints; serializing and deserializing it again gives an equal value.
 15. In `serde_json::to_value(schemars::schema_for!(SketchParams))`, the strings that appear as a `const` value, or as the only element of an `enum`, of a property named `type` are exactly the 26 names `origin, datum, face, point, line, circle, arc` and the 19 constraint types of section 2.5; the schema text contains the `PointRef` pattern of section 2.4 and the strings `"XY"`, `"XZ"`, `"YZ"`.
 16. `serde_json::to_string(&solve(PLATE))` has top-level keys in the order `status, failed, entities, dof, redundant, conflicting, entity_states, measured`; for an empty sketch the string contains `"redundant":[]`, `"conflicting":[]`, `"entity_states":{}` and `"measured":{}`.
@@ -1462,7 +1464,7 @@ Expected values below were checked against a reference implementation of section
 100. Empty sketch: `dof` 0, status `fully_constrained`, `failed` false, empty `entities`, `redundant`, `conflicting`, `entity_states` and `measured`.
 101. Coincident with a fixed point: `point e-1 (0,0)`, `point e-2 (1,1)`, `c-1 fix e-1`, `c-2 coincident [e-1, e-2]` gives e-2 (0, 0) bitwise; e-1 unchanged.
 102. `PLATE` returns its entities unchanged, status `fully_constrained`, `dof` 0, `measured` `{c-10: 80, c-11: 50, c-15: 25, c-16: 10}`, and every entity state `fully_constrained`.
-103. `PLATE` with `c-10 = 100` gives e-1 (0,0)->(100,0), e-2 (100,0)->(100,50), e-3 (100,50)->(0,50), e-5 center (50, 25) radius 5, e-6 (50,0)->(50,50); e-4 unchanged.
+103. `PLATE` with `c-10 = 100` gives e-1 (0,0)->(100,0), e-2 (100,0)->(100,50), e-3 (100,50)->(0,50), e-4 (0,50)->(0,0), e-5 center (50, 25) radius 5, e-6 (50,0)->(50,50); `failed` false, `dof` 0.
 
 ### 6.7 Diagnosis
 
@@ -1604,25 +1606,23 @@ Known-solution generator (`tests/common/generator.rs`): builds entities one at a
 ## Open issues
 
 1. Technical design example superseded. Section 6 of the technical design shows `"plane": "origin/XY"`, a `rect` entity, a constraint `"on": ["e-1.width"]` and `"profile": "f-sk1/region:0"`. This spec uses a tagged plane object, no rectangle entity (rectangles are four lines plus constraints), explicit reference fields per constraint type, and `RegionRef` instead of a region index (an index would break the no-index invariant). The example should be updated.
-2. Face reference type. The crate graph forbids `partsmith-sketch -> partsmith-naming`, so `SketchPlane::Face` stores a local `FaceReference { q, fp }` with the same JSON shape as naming references, and `partsmith-features` converts it. Moving the plain `{q, fp}` struct into `partsmith-model` would give both crates one type.
+2. Face reference type. The crate graph forbids `partsmith-sketch -> partsmith-naming`, so `SketchPlane::Face` stores a local `FaceReference { q, fp }` (plain strings) with the same JSON shape as naming.md's `Reference`, and `partsmith-features` parses it into a `Reference` when resolving. Moving the plain `{q, fp}` struct into `partsmith-model` would give both crates one type.
 3. Region key orientation markers. Architecture.md defines a `RegionKey` as the sorted entity ids of the outer boundary, then each hole. This spec adds a `~` marker for boundaries that run against an entity's direction, so the two halves of a circle cut by a chord, or the lens and lunes of two circles, get distinct keys instead of relying on the fingerprint. It is a stored-reference format, so it needs reviewer sign-off and an architecture.md update.
-4. Canonical line width. With generated ids and full-precision coordinates, typical leaf records exceed the 120-character one-line limit of the canonical layout (an arc record measured 153 characters at its 6-space indentation, a line 141), so they print expanded and a single edit is no longer a one-line diff. The model spec should exempt leaf records from the limit or raise it.
-5. Empty arrays as defaults. `entities` and `constraints` are omitted when empty, reading "fields equal to their default are omitted" to include empty arrays. The model spec must agree.
-6. Unknown nested fields. This spec rejects unknown fields inside plane, entity and constraint records (silently dropping them on save would lose data). The registry rule that preserves unknown keys applies only to top-level feature params. Serde's `deny_unknown_fields` does not work with `flatten`, so these types need hand-written `Deserialize` impls.
-7. Requirements on `partsmith-model`: `Id: Clone + Debug + Eq + Ord + Hash + Display + FromStr + Serialize + Deserialize + JsonSchema`, with `Ord` comparing the id strings bytewise (region keys and findings sort by it) and `Deserialize` validating the id pattern; `Expr` serialized as a plain string with `Clone + Debug + PartialEq + JsonSchema`; `LINEAR_TOLERANCE = 1e-6`. Document-wide id uniqueness, including entity and constraint ids nested in sketch params, is the model's check; this crate checks uniqueness within one sketch.
-8. Angle expressions. The caller evaluates angle dimensions expecting an angle. How a bare number such as `"30"` is read in an angle context (degrees is what users type) and the error for a length expression on an angle dimension belong to the expressions spec.
-9. Sketch feature output and status. Recommended: the sketch feature outputs `{placement, solve: SolveResult, profile: Profile}`; `Redundant` is a warning; `Conflicting` and `NotConverged` are errors, but the output is still produced from the returned geometry so downstream features keep building. The features spec decides.
-10. Solved geometry write-back. Recompute is pure, so when an upstream parameter changes a sketch dimension, the stored coordinates stay as they were and every rebuild solves from them. That is deterministic and path independent, but the file keeps stale coordinates and a large parameter jump starts far from the answer. Recommended for the engine spec: parameter edits do not rewrite sketches (they stay one-line diffs), and a sketch's solved geometry is written back only when an edit to that sketch is committed.
-11. Face fallback refresh. A stored fallback can go stale when its face moves. Recommended: the engine refreshes `fallback` to the resolved placement whenever an edit to that sketch is committed, and the features spec uses `Placement::on_plane` for resolved faces.
-12. Datum results. Recommended: the `datum_plane` result exposes a `partsmith_sketch::Placement`, so sketches on datums use it unchanged.
-13. Profile references in features. Recommended: extrude and revolve store `{"sketch": "<feature id>", "regions": [<RegionRef>, ...]}` and resolve each with `match_region`; the features spec decides how `OuterBoundary`, `Fingerprint`, `Ambiguous` and `Missing` map to feature status.
-14. Kernel vertex tolerance. Profile vertices may lie up to `PROFILE_TOLERANCE` (1e-6 mm) from the exact curves, which is above OCCT's `Precision::Confusion()` (1e-7). The kernel spec's wire building must create edges from curve parameters and give vertices a tolerance of at least 1e-6.
-15. Sparse linear algebra. The 4 ms drag budget and the 50 ms diagnosis budget for a single 500-constraint component are out of reach for dense factorizations (a dense QR of the 800 x 825 diagnosis Jacobian is about 0.7 GFLOP). The implementation needs sparse or banded QR. `nalgebra`, already in the workspace, is dense only; the options are a hand-written sparse Householder QR in this crate or a new permissive dependency such as `faer`, which needs human review.
-16. Benchmark harness. The bench uses `std::time::Instant` with `harness = false` to avoid a new dependency; adopting `criterion` would be a dependency decision.
-17. Cross-target bitwise determinism. This spec requires bitwise determinism within a build and 1e-9 agreement across targets. Bitwise agreement between native and WebAssembly would need a portable math library (for example the `libm` crate) for `sin`, `cos` and `atan2`; decide whether corpus baselines need it.
-18. Substitution scope. ADR 0004 names coincident points and horizontal and vertical pairs; this spec also substitutes `concentric` (coincident centers) and freezes `fix` parameters. Worth a line in the ADR log.
-19. Touch-point tangents. Writing tangency as a direction condition at a known touch point (section 3.6.4) is required for correct redundancy reports on slots and fillets (a prototype of the plain center-distance form reported all 100 tangents of the chain benchmark as redundant and 125 DOF instead of 25). It adds to ADR 0004's design without changing a contract; worth recording.
-20. Fix semantics. `fix` stores no coordinates and freezes the stored geometry, as in Fusion (FreeCAD stores values). Moving a fixed entity therefore means editing its coordinates directly; the engine and UI specs need such an edit, since dragging cannot move it.
-21. Drag lag. With `DRAG_WEIGHT = 100`, a dragged point that other geometry can follow lands about `d / 10^4` from the cursor (0.001 mm for a 10 mm move). Each frame starts again from the cursor, so the lag does not accumulate. The UI may draw the dragged point at the cursor during a drag.
-22. Protocol JSON of results. `SolveResult`, `Profile` and their parts always serialize every field (no omission of empty lists), unlike document types. The protocol spec should confirm. Per-point constraint states (for coloring endpoints) are not in M1; only per-entity states are.
-23. Full-circle arcs. An arc whose sweep is 0 (for example from 0 to 2 pi) is zero-length, not a full circle; the UI must create full circles as `circle` entities.
+4. Canonical line width. With generated ids and full-precision coordinates, typical leaf records exceed the 120-character one-line limit of file-format.md (an arc record measured 153 characters at its 6-space indentation, a line 141), so they print expanded and a single geometry edit is no longer a one-line diff. The file-format spec could exempt leaf records from the limit or raise it.
+5. Unknown nested fields. This spec rejects unknown fields inside plane, entity and constraint records (silently dropping them on save would lose data). The registry rule that sets aside unknown keys applies only at the params root. Serde's `deny_unknown_fields` does not work with `flatten`, so these types need hand-written `Deserialize` impls.
+6. Requirements on `partsmith-model`: `Id` with `Ord` comparing the id strings bytewise (model.md derives it on the string, which satisfies this), `Display`, `FromStr`, a validating `Deserialize` and `JsonSchema`; `Expr` serialized as a plain string with `JsonSchema`; `LINEAR_TOLERANCE = 1e-6`. Document-wide uniqueness of ids nested in sketch params is the model's check; this crate checks uniqueness within one sketch.
+7. Angle expressions. The caller evaluates angle dimensions expecting an angle. How a bare number such as `"30"` is read in an angle context (degrees is what users type) and the error for a length expression on an angle dimension belong to the expressions spec.
+8. Sketch feature status. features.md's `SketchResult` already carries the placement, the `SolveResult` and the `Profile`, `DatumResult::Plane` carries a `Placement`, and profiles are stored as `{"sketch", "regions": [RegionRef]}`, all consistent with this spec. Still open for the features spec: recommended status mapping (`Redundant` a warning; `Conflicting` and `NotConverged` errors, while the sketch output is still produced from the returned geometry so downstream features keep building).
+9. Solved geometry write-back. Recompute is pure, so when an upstream parameter changes a sketch dimension, the stored coordinates stay as they were and every rebuild solves from them. That is deterministic and path independent, but the file keeps stale coordinates and a large parameter jump starts far from the answer. Recommended for the engine spec: parameter edits do not rewrite sketches (they stay one-line diffs), and a sketch's solved geometry is written back only when an edit to that sketch is committed.
+10. Face fallback refresh. A stored fallback can go stale when its face moves. Recommended: the engine refreshes `fallback` to the resolved placement whenever an edit to that sketch is committed, and the features spec uses `Placement::on_plane` for resolved faces.
+11. Kernel vertex tolerance. Profile vertices may lie up to `PROFILE_TOLERANCE` (1e-6 mm) from the exact curves, which is above OCCT's `Precision::Confusion()` (1e-7). The kernel spec's wire building must create edges from curve parameters and give vertices a tolerance of at least 1e-6.
+12. Sparse linear algebra. The 4 ms drag budget and the 50 ms diagnosis budget for a single 500-constraint component are out of reach for dense factorizations (a dense QR of the 800 x 825 diagnosis Jacobian is about 0.7 GFLOP). The implementation needs sparse or banded QR. `nalgebra`, already in the workspace, is dense only; the options are a hand-written sparse Householder QR in this crate or a new permissive dependency such as `faer`, which needs human review.
+13. Benchmark harness. The bench uses `std::time::Instant` with `harness = false` to avoid a new dependency; adopting `criterion` would be a dependency decision.
+14. Cross-target bitwise determinism. This spec requires bitwise determinism within a build and 1e-9 agreement across targets. Bitwise agreement between native and WebAssembly would need a portable math library (for example the `libm` crate) for `sin`, `cos` and `atan2`; decide whether corpus baselines need it.
+15. Substitution scope. ADR 0004 names coincident points and horizontal and vertical pairs; this spec also substitutes `concentric` (coincident centers) and freezes `fix` parameters. Worth a line in the ADR log.
+16. Touch-point tangents. Writing tangency as a direction condition at a known touch point (section 3.6.4) is required for correct redundancy reports on slots and fillets (a prototype of the plain center-distance form reported all 100 tangents of the chain benchmark as redundant and 125 DOF instead of 25). It adds to ADR 0004's design without changing a contract; worth recording.
+17. Conflict test. ADR 0004 calls a dependent row conflicting when its residual is nonzero. This spec tests the inconsistency of the dependency (`delta`, section 3.8) instead, which is the same at a converged point and avoids misreporting rows that merely share a least-squares residual.
+18. Fix semantics. `fix` stores no coordinates and freezes the stored geometry, as in Fusion (FreeCAD stores values). Moving a fixed entity therefore means editing its coordinates directly; the engine and UI specs need such an edit, since dragging cannot move it.
+19. Drag lag. With `DRAG_WEIGHT = 100`, a dragged point that other geometry can follow lands about `d / 10^4` from the cursor (0.001 mm for a 10 mm move). Each frame starts again from the cursor, so the lag does not accumulate. The UI may draw the dragged point at the cursor during a drag.
+20. Protocol JSON of results. `SolveResult`, `Profile` and their parts always serialize every field (no omission of empty lists). The protocol spec should confirm. Per-point constraint states (for coloring endpoints) are not in M1; only per-entity states are.
+21. Full-circle arcs. An arc whose sweep is 0 (for example from 0 to 2 pi) is zero-length, not a full circle; the UI must create full circles as `circle` entities.

@@ -2196,3 +2196,329 @@ UI budgets derived from them (same runner):
 | Initial JavaScript (excluding the core module) | 250 KB gzipped | build output check |
 
 Rules that make these reachable: hot paths bypass React; meshes are never copied on the main thread (frame views go straight to `upload`); picks read a small block of the ID pass; previews and drags are latest-only; analysis never runs automatically outside Print.
+
+## 6. Acceptance tests
+
+Vitest unit tests live next to the code as `src/**/*.test.ts(x)` (jsdom; no WebGL; fakes from `src/test/fakes`). Playwright end-to-end tests live in `ui/e2e/*.spec.ts` and run against the production build with the real WebAssembly core in `ui/public/core/` (`pnpm -C ui e2e`; the project is Desktop Chrome, viewport 1280 by 720, device scale factor 1, Linux, so `Mod` is Control; use Playwright's `ControlOrMeta`). Protocol-level codec, bridge and worker host tests are protocol.md tests 53 to 66 and are not repeated here.
+
+### 6.1 Selectors
+
+Tests use these stable selectors only (plus accessible roles and names given in section 3).
+
+| `data-testid` | Element | Attributes |
+| --- | --- | --- |
+| `app` | Root | `data-core-status` (`loading`, `ready`, `failed`), `data-context` (`model`, `sketch`, `print`) |
+| `unsupported` | Unsupported page | |
+| `core-overlay`, `core-fatal` | Loading overlay, fatal panel | |
+| `top-bar`, `document-name`, `save-state`, `document-menu`, `palette-button` | Top bar parts | `document-name`: `data-dirty` |
+| `palette`, `palette-input`, `palette-option`, `palette-shortcut` | Palette | option: `data-item-id`, `data-kind` |
+| `browser`, `browser-row` | Browser | row: `data-kind`, `data-id` |
+| `color-popover` | Body color popover | |
+| `viewport` | Viewport | `data-hover-kind`, `data-hover-key`, `data-selection-count`, `data-view`, `data-projection`, `data-nav-preset`, `data-section`, `data-camera-target` |
+| `view-cube`, `viewport-controls`, `section-popover` | Viewport chrome | |
+| `inspector` | Inspector | `data-mode` (`command`, `selection`), `data-preview` (`none`, `pending`, `shown`, `failed`) |
+| `inspector-field`, `inspector-more`, `inspector-ok`, `inspector-error` | Inspector parts | field: `data-path` |
+| `selection-field` | Selection field box | `data-active`, `data-count` |
+| `expression-result`, `field-error` | Expression field parts | |
+| `selection-title`, `body-size`, `body-center` | Selection inspector parts | |
+| `timeline`, `timeline-item`, `timeline-marker`, `timeline-problems`, `context-menu` | Timeline | item: `data-feature-id`, `data-status`, `data-suppressed`, `data-rolled-back` |
+| `side-panel`, `parameters-panel`, `parameter-row`, `parameter-value`, `problems-panel`, `health-list`, `health-item` | Side panels | row: `data-id`; health item: `data-check`, `data-severity` |
+| `sketch-header`, `sketch-problems`, `sketch-hint` | Sketch chrome | header: `data-state`, `data-dof` |
+| `sketch-dimension`, `dimension-editor`, `constraint-glyph`, `inference-glyph`, `draw-input`, `profile-issue`, `box-selection` | Sketch overlay | dimension: `data-constraint-id`, `data-type`, `data-driving`; glyph: `data-constraint-id`, `data-type`, `data-state`; inference: `data-type` |
+| `status-bar`, `status-core`, `status-dof`, `status-recompute`, `status-units`, `status-printer`, `health-badge` | Status bar | dof: `data-dof`, `data-state`; badge: `data-state`, `data-stale` |
+| `printer-menu`, `checks-popover`, `overhang-legend`, `finding-marker`, `export-popover`, `drop-overlay` | Print and export | |
+| `notification` | Notification | `data-severity`, `data-code` |
+
+### 6.2 Fixtures
+
+`ui/e2e/fixtures/` holds `.ptsm` files written by the test author from model.md, sketch.md and the feature specs. Every fixture is canonical (`partsmith fmt` leaves it unchanged), valid (`partsmith validate` is clean), unit `mm`, with unnamed features (labels come from features.md 3.12).
+
+| File | Content | Result |
+| --- | --- | --- |
+| `cube.ptsm` | Body `b-cube` "Cube". `f-sk1`: sketch on XY with a fully constrained 20 by 20 rectangle centered on the origin. `f-ext1`: extrude of its region, distance `20 mm`, op new, body `b-cube`. | Cube x, y in [-10, 10], z in [0, 20]; timeline "Sketch 1", "Extrude 1" |
+| `rect-sketch.ptsm` | `f-sk1`: sketch on XY: rectangle with a corner coincident with the origin, horizontal and vertical sides, driving `distance` `40 mm` on the bottom line and `20 mm` on the left line; no bodies. | Fully constrained, one region of 40 by 20 at x in [0, 40], y in [0, 20] |
+| `underconstrained.ptsm` | `f-sk1`: sketch on XY with line `e-1` from (0, 0) to (30, 0) and circle `e-2` centered (50, 0) radius 5; no constraints; no bodies. | DOF 7 |
+| `parametric.ptsm` | Parameter `p-size` `size` = `20 mm`; otherwise `cube.ptsm` with every dimension and the extrude distance set to `size`. | Cube of side `size` |
+| `cube-features.ptsm` | `cube.ptsm` plus `f-fil1` fillet `2 mm` on the 4 vertical edges and `f-sh1` shell `2 mm` removing the top face. | 4 features, all ok |
+| `two-bodies.ptsm` | `cube.ptsm` plus body `b-peg` "Peg" and `f-cyl1` cylinder radius `4 mm`, height `20 mm`, base center (0, 0, 10), axis +Z, op new, body `b-peg`. | Timeline "Sketch 1", "Extrude 1", "Cylinder 1" |
+| `fillet-error.ptsm` | `cube.ptsm` plus `f-fil1` fillet `15 mm` on the 4 top edges. | "Fillet 1" fails with `fillet_too_large` |
+| `revolve-sketch.ptsm` | `f-sk1`: sketch on XZ with a fully constrained rectangle at sketch x in [10, 20], y in [0, 10]; no bodies. | One region; sketch visible |
+| `offset-cube.ptsm` | As `cube.ptsm` with the rectangle at x in [10, 30], y in [-10, 10]. | Cube x in [10, 30] |
+| `overhang.ptsm` | Body "Mushroom": a 10 by 10 by 20 post centered on the origin (z 0 to 20) joined with a 30 by 30 by 5 cap (z 20 to 25); `printer` set to the default FDM profile id (print.md). | At least one `overhangs` finding |
+| `oversize.ptsm` | Body "Slab": a 400 by 400 by 10 box; `printer` the default FDM profile. | A `bed_fit` error |
+| `notes.txt` | The text `hello`. | Not a model |
+| `sketch-500.ptsm` | One sketch with at least 500 constraints in one connected component and DOF at least 2, where dragging point `e-drag.end` moves at least 100 other entities. | Perf |
+| `part-50.ptsm` | 50 features (sketches, extrudes, holes, fillets, patterns) whose first sketch is driven by parameter `base`. | Perf |
+| `dense.ptsm` | At least 2,000,000 display triangles at standard quality (for example a 20 by 20 linear pattern of spheres). | Perf |
+| `palette-2000.ptsm` | 1,980 parameters `p0` to `p1979` and 20 features. | Perf |
+
+### 6.3 Helpers (`ui/e2e/helpers.ts`)
+
+- `openApp(page, { fileSystemAccess = true } = {})`: when false, an init script deletes `window.showOpenFilePicker` and `window.showSaveFilePicker`; then `page.goto('/')` and waits for `[data-testid=app][data-core-status=ready]`.
+- `dropFile(page, name)`: reads the fixture, builds a `DataTransfer` with a `File` in the page, and dispatches `dragenter`, `dragover` and `drop` on the app root; waits for `document-name` to equal the name without extension (or for a notification).
+- `canvas(page)`: the canvas bounding box `{ x, y, width, height }`, its center `(cx, cy)` and `H = height`.
+- `fitView(page, view)`: clicks "{View} view" on the cube, turns "Orthographic" on, clicks "Fit to view", and waits for `data-view` and `data-projection`.
+- `toScreen(box, bounds, view)`: maps model millimeters to page pixels using the fit rule of 2.11 (content extents scaled to 80 percent of the limiting dimension, bounds center at the canvas center). For the cube in the front view: `s = 0.04 × H` px per mm, `x_px = cx + x × s`, `y_px = cy - (z - 10) × s`; the top edge of the front face is at `top = cy - 0.4 H`.
+- `sketchToScreen(box, contentMin, contentMax)`: the same mapping for a sketch on XY just entered (top view, content framed with margin 0.1).
+- `expectHover(page, x, y, kind)`: moves the mouse and polls `data-hover-kind`.
+- `download(page, action)`: waits for the `download` event during `action` and returns the suggested name and bytes.
+- `measures(page, name)`: `performance.getEntriesByName(name)` durations.
+
+### 6.4 Vitest unit tests
+
+Core and transports:
+
+1. U-1. `createWorkerTransport` with a fake worker that posts `{type: 'ready', protocolVersion: 1, engineVersion: '0.1.0'}`: `start()` resolves `{protocolVersion: 1, engineVersion: '0.1.0'}`.
+2. U-2. A fake worker posting `{type: 'fatal', message: 'HTTP 404'}` before ready: `start()` rejects with `CoreFatalError` whose message contains `HTTP 404`.
+3. U-3. With fake timers and no ready message, `start()` rejects after exactly 30,000 ms with "The geometry core did not start within 30 seconds."
+4. U-4. Two `send` calls post `{type: 'call', frame}` messages whose transfer lists contain each frame; two `{type: 'frame'}` replies resolve them in order.
+5. U-5. A worker `error` event after start rejects both pending sends with `CoreFatalError`, calls a fatal listener exactly once, and a later `send` rejects immediately.
+6. U-6. `createTauriTransport` with a fake `invoke`: `start()` calls `invoke('call', frame)` with an `engine_info` request frame of id 0 and resolves the versions; a reply with `protocol_version` 2 rejects with "This app and its core speak different protocol versions. Reinstall Partsmith."
+7. U-7. Tauri transport: three `drag_sketch` frames for doc 1 and `f-sk1` sent while the first `invoke` is pending: `invoke` runs for the first and third only; the second resolves with a `superseded` error frame for its id.
+8. U-8. Tauri transport: an `invoke` rejection with `Error('boom')` resolves the send with an error response frame of code `internal_error` for that request id.
+9. U-9. `chooseTransport({ __TAURI__: { core: { invoke } } })` has kind `tauri`; `chooseTransport({})` has kind `worker`.
+10. U-10. `createCoreClient`: three requests carry ids 1, 2 and 3, and the first frame's header equals `{protocol_version: 1, messages: [{kind: 'request', id: 1, command}], buffers: []}`.
+11. U-11. A response frame `[document_changed, recomputed, response ok]`: listeners see both events, in order, before the request promise resolves.
+12. U-12. An error outcome rejects with `CoreError` carrying the code, the message verbatim and `editIndex`.
+13. U-13. A response with another id rejects with `CoreFatalError` and notifies fatal listeners.
+14. U-14. An event of unknown type is ignored; a listener that throws does not stop the next listener or the request.
+15. U-15. `createMutationQueue`: the second task starts only after the first settles; a rejected task does not block the next; `pending` counts queued and running tasks.
+16. U-16. `createLatestOnly`: submitting a, b and c while a is in flight sends a then c (never b); `onResult` runs once, for c; `cancel()` drops a waiting input and suppresses the in-flight result.
+17. U-17. `decodeEvent` of a `body_mesh` returns typed arrays whose `buffer` is the frame's `ArrayBuffer`; an out-of-range buffer index throws `CoreFatalError`; an unknown event type returns null.
+18. U-18. The store ignores a `document_changed` whose revision is lower than the stored one and applies one with an equal revision.
+19. U-19. `generateId('f', () => false, () => 0x3fa91c0e72b4)` is `f-3fa91c0e72b4`; `generateId('b', () => false, () => 1)` is `b-000000000001`; a predicate that rejects the first candidate gets the second; 64 rejections throw "Could not generate a free id after 64 attempts."
+20. U-20. `featureLabel`: the second unnamed extrude is "Extrude 2"; a named record shows its name; suppressed records count; an unknown type uses the type name. `nextBodyName` with bodies "Body 1" and "Body 3" is "Body 2".
+21. U-84. `app.restartCore()` with fake transports: the new core receives `open_document` with `JSON.stringify(recipe, null, 2)`, the document keeps its name and handle, and `localUnsaved` is true.
+
+Commands, shortcuts and palette:
+
+22. U-21. `formatShortcut`: `Mod+Shift+S` is `⇧⌘S` on macOS and `Ctrl+Shift+S` on Linux; `Mod+Enter` is `⌘↩` and `Ctrl+Enter`; `Delete` is `⌦` and `Del`; `F6` is `F6`. `parseShortcut` throws `Invalid shortcut "Shift+".`, and likewise for `Shift+Mod+S`, `Mod+Mod+S` and `Mod+Ctrl+S`.
+23. U-22. The built-in registry plus the test catalog has no `conflicts()` on macOS, Windows or Linux.
+24. U-23. `chordFromEvent`: `{key: 's', metaKey: true, shiftKey: true}` on macOS gives `Mod+Shift+S`; the same with `ctrlKey` on Linux; `{key: 'д', code: 'KeyL'}` gives `L`; a lone Shift gives null; `{key: ' '}` gives `Space`.
+25. U-24. Dispatcher: `e` with an `<input>` target runs nothing; `e` with `document.body` runs `feature.extrude`; `Mod+S` in an input runs `file.save`; `Mod+Z` in an input runs nothing; `defaultPrevented` and `repeat` events run nothing; with the palette open only `Mod+K` runs.
+26. U-25. Registering a duplicate id throws "Command x is already registered."; running a disabled command calls no `run` and shows an info notification with its reason.
+27. U-26. `fuzzyScore('ext', 'Extrude')` is 18.93, `('ext', 'Export 3MF')` 14.9, `('ext', 'Text')` 10.96 (within 1e-9), `('xyz', 'Extrude')` null; `rankPaletteItems('ext', ...)` orders Extrude, Export 3MF, Text; query `pad` matches Extrude through its keyword with score 16.97.
+28. U-27. Equal scores order by `recentIds`, then title; an empty query lists up to 5 recent items first, then category order; results never exceed 50.
+29. U-28. `paletteItems` in Model context with `cube.ptsm` state: contains "Extrude 1" (feature), "Cube" (body), "Theme: Dark" (setting, `checked` false under the light theme) and no sketch tools; in sketch mode it contains "Line".
+30. U-29. The catalog commands: one `feature.<type>` per entry, title the manifest label, `extrude` with shortcut `E`, keywords including `pad`, and an unknown icon name falling back to `Shapes`.
+
+Inspector:
+
+31. U-30. `normalizeManifest` accepts the extrude manifest JSON of features.md 2.3; missing `essential` becomes false and missing `options` empty; `category: 'other'` throws `ManifestError` naming `category`.
+32. U-31. `buildInspectorModel` with the extrude test catalog entry (schema and manifest of features/extrude.md) and params `{extent: {kind: 'distance', expr: '30 mm'}, op: 'new'}`: essential paths `profile`, `extent.kind`, `extent.expr`, `op`; more paths `reverse`, `body`; `extent.opposite_expr` absent; controls: `profile` selection `sketch_region` multiple, `extent.kind` segmented choice with 4 options, `extent.expr` expression length, `op` segmented choice, `reverse` switch, `body` selection `body` not multiple. With `kind: 'two_sides'` the `extent.opposite_expr` field appears; with `through_all`, `extent.expr` disappears.
+33. U-32. `complete` is false while `profile` is missing and true once set; `forceMore` is true with `errors = {body: '...'}`.
+34. U-33. `defaultParams` for extrude: `extent` `{kind: 'distance', expr: '10 mm'}`; `op` `new` without bodies with geometry; `op` `join` and `body` equal to `lastTargetBody` with them.
+35. U-34. `setParam(..., 'extent.kind', 'two_sides')` keeps `expr` and adds `opposite_expr` `10 mm`; an unknown key `taper_angle` in params is preserved by every `setParam`.
+36. U-35. `selectionValue`: origin XY for `plane` gives `{kind: 'origin', plane: 'XY'}`; a flat face gives `{kind: 'face', body, face: reference}`; origin Z for `axis` gives `{kind: 'origin', axis: 'Z'}`; a sketch line gives `{kind: 'sketch_line', sketch, line}`; two regions of `f-sk1` give a `ProfileRef` with both regions in pick order; edges with `multiple` give an array of references.
+37. U-36. `acceptsTarget('plane', face)` is true for `surface: 'plane'` and false for `cylinder`; `acceptsTarget('axis', edge)` is true for `curve: 'line'` and false for `circle`; a cylindrical face is accepted by `axis`.
+38. U-37. `placeInspector` with bounds (0, 0, 1000, 600), panel 320 by 400: anchor (100, 100, 50, 50) gives (166, 100); anchor (700, 100, 200, 50) gives (364, 100); anchor (100, 100, 800, 50) gives (16, 16); anchor (100, 500, 50, 50) gives y 184; null gives (16, 16).
+
+Expression input:
+
+39. U-38. `convertForField`: `{value: 2, dimension: 'dimensionless'}` for a length in inches is 50.8; 90 dimensionless for an angle is π/2; 3.0000000001 for a count is 3; 2.5 for a count with label Count gives "Count must be a whole number, but it is 2.5. Use 2 or 3."; an angle for a length labeled Distance with source `10 deg` gives "Distance must be a length, but '10 deg' is an angle. Use a value such as 10 mm."
+40. U-39. Formatting: 12.5 mm "12.5 mm"; 2.4 mm in an inch document "0.0945 in"; 1/3 mm "0.333 mm"; -0 "0 mm"; 1234.5 "1234.5 mm"; 25.4 mm in cm "2.54 cm"; 1 mm in m "0.001 m"; π/4 rad "45°"; `formatSize` of (0, 0, 0) to (40, 20, 10) "40 × 20 × 10 mm"; `formatPoint` (10, 0, 10) "10, 0, 10 mm".
+41. U-40. `stepExpression`: `10` up gives `11`; `10 mm` up gives `11 mm`; `10mm` up gives `11mm`; `2.5` up coarse gives `12.5`; `2.5` up fine gives `2.6`; `-0.1` up fine gives `0`; `wall` gives null; a count `0` down gives `0`; an angle `45 deg` up gives `46 deg`.
+42. U-41. `isPlainNumber` is true for `10`, `-2.5`, `10mm`, `10 mm`, `45 deg` and false for `2*5`, `wall`, `10 mm + 1` and the empty string.
+43. U-42. `ExpressionInput` with a fake `evaluate`: typing `2 * 5` shows `= 10 mm`; typing `10` shows `mm`; a rejected evaluation shows the core message in `field-error`; when the result for `1` arrives after the result for `12`, the input shows the result for `12`.
+44. U-43. Enter calls `onCommit` only in the valid state; Esc calls `onCancel`; ArrowUp on `10` changes the value to `11`.
+
+Viewport math and picking:
+
+45. U-44. `standardViewRotation` forward and up vectors match 2.11 for all seven views; `classifyView` returns each view for its own rotation and `custom` after a 1e-3 rad perturbation.
+46. U-45. `fitBounds` orthographic, front view, bounds (-10, -10, 0) to (10, 10, 20): aspect 2 gives `orthoHeight` 25 and target (0, 0, 10); aspect 0.5 gives 50.
+47. U-46. `fitBounds` perspective, top view, bounds (0, 0, 0) to (40, 20, 0), aspect 1.6: `distance` equals `31.25 / (2 tan 15°)` within 1e-9.
+48. U-47. `zoomAt` keeps the world point under the cursor at the same NDC position within 1e-9 for both projections; distance and orthoHeight clamp to [0.01, 1e7].
+49. U-48. `withProjection` round trip keeps `visibleHeightAtTarget`; `orbit(c, 100, 0, target)` rotates about world Z by -40°; `pan` moves the target by exactly the pixel delta times mm per pixel; `wheelZoomFactor({deltaY: 100, deltaMode: 0, ctrlKey: false}, 600)` is 1.0015^100, with `deltaMode: 1, deltaY: 3` it is 1.0015^48, and with `ctrlKey` 1.01^100.
+50. U-49. `encodePickId` and `decodePickId` round-trip 1, 255, 256, 65536, 16777216 and 4294967295; `choosePick` prefers a vertex at 3 px over an edge at 1 px over a face at 0 px; with vertices not accepted it picks the edge; an edge at 5 px with radius 4 loses to the face; a face at 1 px is ignored.
+
+Sketch:
+
+51. U-50. `rectangleTwoPointRecipe` from (0, 0) to (40, 20) returns 4 lines in the order and directions of 3.16.4 and exactly 4 `coincident`, 2 `horizontal` and 2 `vertical` constraints with the listed operands; a zero width returns null.
+52. U-51. `rectangleCenterRecipe` with center (0, 0) and corner (20, 10) returns 4 lines from (-20, -10), one construction line from (-20, -10) to (20, 10), one construction point at (0, 0), and 11 constraints (4 + 2 + 2 coincident and orientation, 2 coincident for the diagonal, 1 midpoint).
+53. U-52. `circleRecipe` returns one circle; radius 0 returns null. `pointRecipe` returns one point entity with the construction flag as given.
+54. U-53. `arcThreePointRecipe` A (10, 0), B (-10, 0), T (0, 10) gives center (0, 0), radius 10, counterclockwise from (10, 0) to (-10, 0); with T (0, -10) it runs from (-10, 0) to (10, 0); collinear points return null.
+55. U-54. `lineRecipe` with equal ends returns null; the construction flag is copied.
+56. U-55. `circleThroughThreePoints` of (0, 0), (2, 0), (0, 2) is center (1, 1), radius √2; `tessellateArc` of a full circle radius 10 with tolerance 0.01 has `ceil(2π / (2 acos(1 - 0.001)))` segments.
+57. U-56. `infer` with 0.1 mm per pixel: a point 0.7 mm away snaps (`point`), one 0.9 mm away does not; a line midpoint 0.5 mm away snaps (`midpoint`); a curve 0.5 mm away snaps (`curve`); a point and a midpoint both in range pick the point; a segment at 2.9° is `horizontal` and its end is moved onto the horizontal, at 3.1° nothing; 88° is `vertical`; a segment from an arc end within 5° of its tangent is `tangent` and not horizontal; `suppressed` returns the raw point and no inference.
+58. U-57. `applicableConstraints`: two lines give Parallel, Perpendicular, Collinear, Equal, Fix; one line gives Horizontal, Vertical, Fix; two points give Coincident, Horizontal, Vertical, Fix; a point and a line give Point on object, Midpoint, Fix; two points and a line give Symmetric, Fix; a line and a circle give Tangent, Fix; two circles give Tangent, Concentric, Equal, Fix.
+59. U-58. `constraintFor('symmetric', ...)` uses the line as the axis whatever the selection order; `constraintFor('coincident', [point, line])` returns a `point_on_object` constraint.
+60. U-59. `dimensionTypeFor` with points (0, 0) and (10, 5): label (5, 10) `horizontal_distance`, (15, 2) `vertical_distance`, (12, 8) `distance`; points (0, 0) and (10, 0) with label (5, 5) `distance`; a circle `diameter`; an arc `radius`; lines at 90° `angle`; parallel lines `distance`; a point and a circle unsupported with "Partsmith cannot dimension a point and a circle."
+61. U-60. `measuredValue('angle', ...)` for a line along +X and a line at 60° through the origin is π/3 with the label at (cos 30°, sin 30°) and 2π/3 with the label at (-1, 0.5).
+62. U-61. `commitSketchChange` with a fake core: a requested id reported conflicting returns `over_constrained` and calls no `applyEdits`; an inferred id reported redundant is removed, the sketch is solved again, and `applyEdits` gets the params without it and with solved geometry; a `failed` status returns `failed` with the solver message.
+63. U-62. Sketch view history: enter (view entry), orbit (view entry), commit an edit (document marker); three `Mod+Z` presses restore the orbit camera, call core `undo` once, and restore the pre-entry camera, in that order; `Mod+Shift+Z` replays them in reverse.
+64. U-63. Sketch header mapping: no entities `empty`; `under_constrained` with dof 3 `under` and "3 DOF"; `fully_constrained` `full`; `over_constrained` with 2 conflicting `conflict` and "2 conflicting constraints"; `failed` "Cannot solve"; one redundant appends " · 1 redundant".
+
+Store and actions:
+
+65. U-64. `startFeatureCommand('extrude')` with a preselected region and no bodies: `beginTransaction(doc, 'Extrude')`, then one `applyEdits(doc, null, [add_body "Body 1", add_feature])` with the body id in the record, then `setFocus(doc, featureId)`.
+66. U-65. With `rollback` `f-sk1` (index 0 of 3 features), the first preview's `add_feature` has index 1 and is followed by `set_rollback` to the new id.
+67. U-66. `confirmCommand` calls `commitTransaction`; `cancelCommand` calls `cancelTransaction`; `Mod+Z` with a command active cancels it and calls no `undo`.
+68. U-67. `editFeature('f-ext1')` calls `beginTransaction(doc, 'Edit Extrude 1')` and `setFocus(doc, 'f-ext1')`; a `focus_inactive` error on a suppressed feature calls `cancelTransaction` and shows an error notification with the action "Unsuppress".
+69. U-68. Timeline edits: deleting the rollback feature sends `set_rollback` to the nearest earlier remaining active feature before `remove_feature`; dropping feature index 3 at gap 1 sends `move_feature` index 1, at gap 4 index 3 (no edit); `setRollback(N)` sends `set_rollback` without an id and `setRollback(2)` the id of feature 2.
+70. U-69. Esc ladder: with an open popover, a sketch drawing in progress, an active tool, a command and a selection, successive Esc presses close the popover, cancel the drawing, exit the tool, cancel the command, then clear the selection.
+71. U-70. Theme tokens: `theme.css` (imported `?raw`) defines every token of 2.16 with exactly the listed value in both the light and the dark block, and no other `--ps-` color tokens; `contrastRatio` of every pair stated in the 2.16 table meets its threshold in both themes.
+72. U-71. `resolveTheme('system', true)` is `dark`; `applyTheme` sets `data-theme`; `loadSettings` of malformed JSON returns `DEFAULT_SETTINGS`, and of `{"theme": "dark", "uiScale": 7}` returns theme dark with scale 1.
+73. U-72. Notifications with fake timers: info disappears after 5 s, warnings after 8 s, errors stay; a fourth notification removes the oldest non-error; a duplicate message restarts the existing timer instead of adding one.
+74. U-73. Every message id of 4.3 renders exactly its text for sample placeholders (table-driven).
+75. U-74. Web file service with mocked File System Access: `pickToOpen` returns name, bytes and handle; an `AbortError` returns null; `chooseSaveTarget` returns a handle target; `write` calls `requestPermission` when `queryPermission` is `prompt` and throws `FileServiceError` `permission` when it is denied; a `NotFoundError` becomes `not_found`.
+76. U-75. Without the API: `chooseSaveTarget` returns `{kind: 'download', name}`; `write` clicks an anchor whose `download` is the name and revokes its object URL; `pickToOpen` resolves from the hidden input's `change` event.
+77. U-76. `createMemoryRecentFiles`: at most 10 entries, newest first; a text entry with an existing name replaces it; a handle entry whose handle `isSameEntry` an existing one replaces it.
+78. U-77. Recovery: a dirty `document_changed` writes an entry after 2 s (fake timers); another change within 2 s postpones it; a successful save clears the store.
+79. U-78. Save as cancelled at the picker never calls `saveDocument`; Save to a handle whose write fails with `permission` sets `localUnsaved` and shows `save_permission` with the action "Save as".
+80. U-79. `openFile`: `model.stl` shows `not_ptsm`; invalid UTF-8 shows `not_text`; a `parse_error` shows `open_failed` with the core message and keeps the current document; with a dirty current document the stash is written before `closeDocument`.
+81. U-80. `exportModel` with no visible bodies shows `nothing_to_export` and calls no `exportBodies`; formats map to `{"format": "3mf"}`, `{"format": "stl", "binary": true, "per_body": false}`, `{"format": "obj", "per_body": false}` and `{"format": "step"}`; the suggested name is `{document name}.3mf`.
+82. U-81. Print: badge states derive as in 3.17, hidden checks are excluded from counts, a report for an older revision is stale; in Print context a revision change schedules `analyzePrint` after 300 ms (fake timers) and a `null` result changes nothing; in Model context no analysis is scheduled.
+83. U-82. After a mesh change, a selected face whose reference resolves `missing` leaves the selection and one that resolves is kept.
+84. U-83. Rendering `App` with fakes produces the landmarks banner, navigation "Browser", main "3D view", region "Timeline" and contentinfo, and every `button` has a non-empty accessible name.
+
+### 6.5 Playwright end-to-end tests
+
+Each test starts with `openApp` unless it says otherwise. "Click X" means clicking the element with accessible name X in the region named. Positions are relative to the canvas center `(cx, cy)` in CSS pixels, with `H` the canvas height.
+
+Startup and files:
+
+1. E-1. Cold start: `document-name` is "Untitled" with `data-dirty="false"`; the radio "Model" is checked; the toolbar "Model tools" has, in order, buttons named Sketch, Extrude, Revolve, Hole, Fillet, Chamfer, Shell, Primitive, Pattern, Mirror, Boolean; `status-units` reads "mm"; `health-badge` has `data-state="none"`.
+2. E-2. With an init script making `getContext('webgl2')` return null: `unsupported` is visible with the `unsupported_webgl2` text and the page has no worker.
+3. E-3. Drop `cube.ptsm`: `document-name` "cube"; two `timeline-item`s named "Sketch 1" and "Extrude 1" with `data-status="ok"`; a `browser-row[data-kind=body]` with text "Cube"; `status-recompute` matches `^Rebuilt in \d+(\.\d)? (ms|s)$`; `data-dirty="false"`.
+4. E-4. `openApp(page, {fileSystemAccess: false})`, press ControlOrMeta+O, answer the file chooser with `cube.ptsm`: same expectations as E-3.
+5. E-5. Drop `notes.txt`: a `notification[data-severity=error]` reads "notes.txt is not a Partsmith model. Partsmith opens .ptsm files."; `document-name` stays "Untitled".
+6. E-6. Without File System Access, drop `cube.ptsm`, press ControlOrMeta+S: a download named `cube.ptsm` whose bytes equal the fixture's bytes; an info notification with `download_hint` text.
+7. E-7. Drop `cube.ptsm`; click the body row "Cube", press F2, type "Box", Enter: `save-state` reads "Edited" and `data-dirty="true"`. Press ControlOrMeta+S (no File System Access): the download contains `"name": "Box"`; `data-dirty="false"` and `save-state` is empty.
+8. E-8. Without File System Access, drop `cube.ptsm`, reload, open the Document menu, open "Open recent", click "cube": `document-name` "cube" and two timeline items.
+9. E-9. Drop `cube.ptsm`, rename the body to "Box", wait 3 s, reload: a notification starting "Partsmith kept unsaved changes to cube from"; click "Open": a body row "Box" and `data-dirty="true"`.
+
+Palette and shortcuts:
+
+10. E-10. Press ControlOrMeta+K: `palette` visible and `palette-input` focused. Type "ext": the first `palette-option` contains "Extrude" and its `palette-shortcut` reads "E". Enter: `inspector[data-mode=command]` named "Extrude"; Escape closes it. ControlOrMeta+K, type "pad": an option "Extrude" is listed. With `cube.ptsm` dropped, ControlOrMeta+K, type "Cube", Enter: `data-selection-count="1"` and `selection-title` "Cube".
+11. E-11. Open the palette, run "Parameters", click "Add parameter", type "e": the name field contains "e" and no command inspector opened. Escape, click the canvas at `(cx, cy)`, press "e": the inspector "Extrude" opens.
+
+Sketching:
+
+12. E-12. Click "Sketch" in the toolbar: `data-context="sketch"`, `sketch-header` `data-state="picking"`. Expand "Origin" in the browser and click "XY plane": a timeline item "Sketch 1", `data-view="top"`, header `data-state="empty"`. Press R, move to `(cx, cy)`: an `inference-glyph[data-type=coincident]` is visible. Click there, click `(cx + 200, cy - 100)`: header `data-state="under"`, `data-dof="2"`, `status-dof` `data-dof="2"`. Press D, click `(cx + 100, cy)`, click `(cx + 100, cy + 40)`: `dimension-editor` visible; type "40", Enter: a `sketch-dimension` with text "40" and `data-dof="1"`. Click `(cx, cy - 50)`, click `(cx - 40, cy - 50)`, type "20", Enter: `data-dof="0"`, `data-state="full"`, header text contains "Fully constrained".
+13. E-13. Continue from E-12 (or open `rect-sketch.ptsm` and double-click "Sketch 1"). Press E: `data-context="model"`; the inspector "Extrude"; the `selection-field` in `inspector-field[data-path=profile]` has `data-count="1"`; the Distance input is focused. Type "10": `expression-result` reads "mm". Enter: timeline items "Sketch 1" and "Extrude 1", both `data-status="ok"`; a body row "Body 1"; clicking it shows `body-size` "40 × 20 × 10 mm" and `body-center` "20, 10, 5 mm".
+14. E-14. Drop `rect-sketch.ptsm`, `fitView(page, 'Top')`, press E, click `(cx, cy)`: the profile field has `data-count="1"`. Fill Distance with "10 deg": `field-error` visible containing "must be a length", `inspector-ok` `aria-disabled="true"`. Fill "2 * 5": `expression-result` "= 10 mm", no `field-error`, OK enabled.
+15. E-36. New sketch on XY (as in E-12). Press L, click `(cx, cy)`, move to `(cx + 200, cy - 3)`: `inference-glyph[data-type=horizontal]` visible. Click, Escape, Escape: `data-dof="1"`. Press L, hold Control, click `(cx, cy - 100)`, move to `(cx + 200, cy - 103)`: no `inference-glyph`; click, release Control, Escape, Escape: `data-dof="5"`.
+16. E-37. New sketch on XY. Press L, click `(cx, cy)`, move to `(cx + 150, cy)`, type "25": `draw-input` named "Length" has value "25". Enter: a `sketch-dimension` with text "25". Escape, Escape: `data-dof="0"`, `data-state="full"`.
+17. E-38. Draw the horizontal line of E-36 and leave the tool. Click `(cx + 100, cy)`: `selection-title` "1 line" and a button "Vertical". Press V: a `notification[data-severity=warning]` reads "Vertical would over-constrain the sketch: it conflicts with Horizontal."; `data-dof="1"`. Click "Replace them": one `constraint-glyph[data-type=vertical]`, none of type horizontal, `data-dof="1"`.
+18. E-39. Drop `rect-sketch.ptsm`, double-click the timeline item "Sketch 1": `data-state="full"`. With `s = sketchToScreen` for content (0, 0) to (40, 20): press D, click the top line at `(cx, cy - 10 s)`, click `(cx, cy - 10 s - 30)`, type "40", Enter: the editor shows the `dimension_over_constrained` text in a `role=alert`. Click "Add reference": a new `sketch-dimension` with `data-driving="false"` and text "(40)".
+19. E-40. New sketch on XY. Holding Control, draw line A from `(cx - 150, cy + 60)` to `(cx + 150, cy + 60)` and line B from `(cx - 100, cy - 60)` to `(cx + 100, cy - 140)`, leaving the tool after each: `data-dof="8"`. Click A, Shift+click B: the selection inspector has buttons Parallel, Perpendicular, Collinear, Equal. Click "Perpendicular": `data-dof="7"` and one `constraint-glyph[data-type=perpendicular]`.
+20. E-41. Drop `underconstrained.ptsm`, double-click "Sketch 1": `data-dof="7"`. With the mapping for content (0, -5) to (55, 5), the line end (30, 0) is a `sketch_point` on hover. Drag it in 10 steps to (30, 10) mm and release: `data-dof="7"`; hovering the new position gives `sketch_point`, the old one does not. ControlOrMeta+Z: hovering the old position gives `sketch_point` again.
+21. E-42. Drop `rect-sketch.ptsm`, enter the sketch. Drag on empty space from 30 px above and left of the rectangle's top-left corner to 30 px below and right of its bottom-right corner: `selection-title` "4 lines". Drag from right to left across only the bottom line's middle: `selection-title` "1 line".
+22. E-43. In sketch mode press ControlOrMeta+Enter: `data-context="model"`; the browser shows a button "Hide Sketch 1" (the sketch stays visible).
+
+Inspector, timeline and browser:
+
+23. E-15. Drop `parametric.ptsm`; click the body row "Cube": `body-size` "20 × 20 × 20 mm". Run "Parameters"; fill "Expression of size" with "30 mm", Enter: `parameter-value` "30 mm" and `body-size` "30 × 30 × 30 mm". ControlOrMeta+Z: "20 × 20 × 20 mm".
+24. E-16. Drop `cube-features.ptsm`; drag `timeline-marker` to the gap between the first and second items: items 2 to 4 have `data-rolled-back="true"`, the marker's `aria-valuenow` is 1, the body row reads "Cube (empty)", and hovering `(cx, cy)` does not give `face`. ControlOrMeta+Z: `aria-valuenow` 4 and no rolled-back items.
+25. E-17. Drop `cube-features.ptsm`; focus the marker; ArrowLeft: `aria-valuenow` 3; End: 4 with `aria-valuetext` "At the end"; Home: 1.
+26. E-18. Drop `two-bodies.ptsm`; drag "Cylinder 1" to the first gap: item names in order "Cylinder 1", "Sketch 1", "Extrude 1", all ok. Drag "Extrude 1" to the gap between "Cylinder 1" and "Sketch 1": "Extrude 1" has `data-status="error"` and an error notification starts with "Extrude 1 failed."; click its "Undo": the order is "Cylinder 1", "Sketch 1", "Extrude 1" and "Extrude 1" is ok.
+27. E-19. Drop `cube-features.ptsm`; right-click "Fillet 1", choose "Suppress": `data-suppressed="true"`, `data-status="suppressed"`. ControlOrMeta+Z: `data-suppressed="false"`.
+28. E-20. Drop `fillet-error.ptsm`: "Fillet 1" has `data-status="error"`; `timeline-problems` reads "1 problem"; clicking it opens `problems-panel` listing "Fillet 1" with a message containing "Fillet radius"; clicking "Edit" opens the inspector "Fillet 1" whose `inspector-error` has `role=alert`.
+29. E-21. Drop `cube.ptsm`; double-click "Extrude 1": the inspector "Extrude 1" with the Distance input value "20 mm". Fill "30" and wait for `data-preview="shown"`; Escape: the inspector closes and `body-size` (select the body) is "20 × 20 × 20 mm". Double-click "Extrude 1", fill "30", Enter: "20 × 20 × 30 mm". ControlOrMeta+Z: "20 × 20 × 20 mm".
+30. E-22. Drop `cube.ptsm`; press E: visible `inspector-field`s have paths `profile`, `extent.kind`, `extent.expr`, `op`; `inspector-more` has `aria-expanded="false"`. Click it: `reverse` and `body` appear. Escape, press E: `aria-expanded="true"`.
+31. E-23. Drop `cube.ptsm`, `fitView(page, 'Front')`, press F: the first `selection-field` has `data-active="true"`. Click `(cx, cy - 0.4 H)` (the top front edge): `data-count="1"`; click again: 0; click again: 1. Fill the radius field (features/fillet.md manifest) with "2", Enter: "Fillet 1" ok.
+32. E-24. Drop `cube.ptsm`, front fit, click `(cx, cy - 0.4 H)`: `selection-title` "1 edge". Press F: the edges field has `data-count="1"`.
+33. E-25. Drop `cube.ptsm`, front fit: hover `(cx, cy)` gives `face`, `(cx, cy - 0.4 H)` gives `edge`, `(cx + 0.4 H, cy - 0.4 H)` gives `vertex`. In "Selection filter" uncheck Edges and Vertices: `(cx, cy - 0.4 H + 2)` gives `face` and `(cx + 0.4 H - 2, cy - 0.4 H + 2)` gives `face`.
+34. E-26. Drop `cube.ptsm`, front fit: click `(cx, cy)`: `selection-title` "1 face". Shift+click `(cx, cy - 0.4 H)`: "2 items". Click `(cx, cy + 0.45 H)`: `data-selection-count="0"` and no inspector.
+35. E-27. Drop `cube.ptsm`, front fit, double-click `(cx, cy)`: the inspector "Extrude 1".
+36. E-28. Drop `cube.ptsm`, front fit. Click "Hide Cube": hover `(cx, cy)` gives `none`. Click "Show Cube": `face`. Click "Lock Cube": `none`. Click "Unlock Cube": `face`.
+37. E-29. Without File System Access, drop `cube.ptsm`; click "Color of Cube", click "Red" in `color-popover`; ControlOrMeta+S: the download contains `"color": "#dc2626"`.
+38. E-54. Drop `cube.ptsm`; press Tab until a `timeline-item` has focus (at most 30 presses): it is named "Sketch 1". ArrowRight: "Extrude 1" has focus. Enter: the inspector "Extrude 1" opens with focus inside it. Escape: it closes and "Extrude 1" has focus again.
+39. E-55. Drop `cube.ptsm`; rename the body to "Box"; ControlOrMeta+Z: the body row reads "Cube"; ControlOrMeta+Shift+Z: "Box". Run "Parameters", click "Add parameter", type "abc", press ControlOrMeta+Z: the body row still reads "Box".
+40. E-56. Drop `cube.ptsm`: every visible `button` and `[role=button]` has a non-empty accessible name (`aria-label`, `aria-labelledby` text, or text content).
+
+Viewport:
+
+41. E-30. Drop `cube.ptsm`. Click "Top view": `data-view="top"`; "Front view": `front`; "Front right top corner view": `iso`; "Home view": `iso`. Shift+middle-drag 100 px on the canvas: `custom`.
+42. E-31. Click "Orthographic": `aria-pressed="true"` and `data-projection="orthographic"`. Press Shift+P: `perspective`.
+43. E-32. Drop `cube.ptsm`, front fit. Middle-drag from `(cx, cy)` to `(cx + 0.6 H, cy)`: `data-camera-target` changed, hover `(cx, cy)` gives `none` and `(cx + 0.6 H, cy)` gives `face`. Press F6, then five wheel events of `deltaY: -100` at `(cx, cy)`: hover `(cx, cy + 0.45 H)` gives `face`.
+44. E-33. Run "Navigation: FreeCAD": `data-nav-preset="freecad"`. Front fit; press the middle button, then the left button, move 100 px, release both: `data-view="custom"`. Click "Front view"; middle-drag 100 px: `data-view` stays `front` and `data-camera-target` changes.
+45. E-34. Drop `cube.ptsm`, front fit, press Shift+X: `section-popover` visible; fill Offset with "10", Enter: `data-section="on"`; hover `(cx, cy - 0.2 H)` gives `none` and `(cx, cy + 0.2 H)` gives `face`. Shift+X: `data-section="off"` and `(cx, cy - 0.2 H)` gives `face`.
+46. E-35. Drop `cube.ptsm`, front fit; ten wheel events of `deltaY: 100`: hover `(cx, cy - 0.39 H)` gives `none`. Press F6: `(cx, cy - 0.38 H)` gives `face` and `(cx, cy - 0.42 H)` gives `none`.
+
+Print and export:
+
+47. E-44. Drop `overhang.ptsm`; click the radio "Print": `data-context="print"`; the toolbar "Print tools" has buttons starting "Printer:", "Overhangs" (`aria-pressed="true"`), "Checks", "Health", "Export 3MF", "Export". `health-badge` reaches `data-state` `warning` or `error` with `data-stale="false"`; `overhang-legend` is visible and contains "°". Click the badge: `health-list` has at least one `health-item[data-check=overhangs]`. Clicking it changes `data-camera-target` and shows `finding-marker`.
+48. E-45. Drop `cube.ptsm`, go to Print, click the "Printer:" button: `printer-menu` has at least two `menuitemradio`s. Choose one that is not checked: `status-printer` shows its name. ControlOrMeta+Z: the previous name.
+49. E-46. Drop `oversize.ptsm`, go to Print: `health-badge` `data-state="error"` and a `health-item[data-check=bed_fit][data-severity=error]`.
+50. E-47. Drop `overhang.ptsm`, go to Print, open "Checks", switch "Overhangs" off: no `health-item[data-check=overhangs]` and no `overhang-legend`. Reload, drop the file, go to Print: the switch is still off.
+51. E-48. Drop `overhang.ptsm`, go to Print and wait for a report; click "Model", rename the body: `health-badge` `data-stale="true"`. Click it: `data-stale="false"` and `health-list` visible.
+52. E-49. Without File System Access, drop `cube.ptsm`, go to Print, click "Export 3MF": a download `cube.3mf` starting with bytes `50 4b 03 04`, and a notification "Exported cube.3mf."
+53. E-50. Open the export popover, choose STL, click "Export": a download `cube.stl` whose length is 84 plus 50 times the little-endian `u32` at offset 80, which is at least 12.
+54. E-51. STEP: `cube.step` starting with `ISO-10303-21;`. OBJ: `cube.obj` containing a line starting `v ` and a line starting `f `.
+55. E-52. Drop `cube.ptsm`, click "Hide Cube", go to Print, click "Export 3MF": the notification reads "There is no visible body with geometry to export." and no download starts within 2 s.
+
+Themes:
+
+56. E-53. Run "Theme: Dark": `html[data-theme=dark]`; reload: still dark. Run "Theme: Light": light. With `page.emulateMedia({ colorScheme: 'dark' })`, run "Theme: System": dark.
+
+Feature coverage (E-57, one test per row, parametrized). Fields are found by the labels in each feature's manifest table (`docs/spec/features/<type>.md`); selection fields are filled by the clicks listed. Each test ends with Enter and expects a new timeline item with the feature's default label and `data-status="ok"`, plus the listed result.
+
+| Type | Fixture and view | Steps | Result |
+| --- | --- | --- | --- |
+| `revolve` | `revolve-sketch.ptsm`, front fit | Run Revolve; click `(cx, cy)` (the region); activate the axis field; expand Origin and click "Z axis"; angle `360 deg` | Body 1 `body-size` "40 × 40 × 10 mm" |
+| `fillet` | `cube.ptsm`, front fit | E-23 | Cube "20 × 20 × 20 mm" |
+| `chamfer` | `cube.ptsm`, front fit | Run Chamfer; click `(cx, cy - 0.4 H)`; distance `2` | Cube "20 × 20 × 20 mm" |
+| `shell` | `cube.ptsm`, top fit | Run Shell; click `(cx, cy)` (top face); thickness `2` | Cube "20 × 20 × 20 mm" |
+| `hole` | `cube.ptsm`, top fit | Run Hole; fill the essential fields (features/hole.md) for a 5 mm through hole at the top face center, clicking `(cx, cy)` for the placement | Cube "20 × 20 × 20 mm" |
+| `box` | new document | Primitive, Box; sizes `10`, `10`, `10`; op New body | Body 1 "10 × 10 × 10 mm" |
+| `cylinder` | new document | Primitive, Cylinder; radius `5`, height `10` | Body 1 "10 × 10 × 10 mm" |
+| `sphere` | new document | Primitive, Sphere; radius `5` | Body 1 "10 × 10 × 10 mm" |
+| `cone` | new document | Primitive, Cone; bottom radius `5`, top radius `0`, height `10` | Body 1 "10 × 10 × 10 mm" |
+| `torus` | new document | Primitive, Torus; major radius `10`, minor radius `2` | Body 1 "24 × 24 × 4 mm" |
+| `boolean` | `two-bodies.ptsm` | Run Boolean; target: click the row "Cube"; tools: click the row "Peg"; operation Cut | Cube "20 × 20 × 20 mm"; the Peg row reads "Peg (empty)" |
+| `move_body` | `cube.ptsm` | Palette "Move body"; body: row "Cube"; translation X `10` | Cube `body-center` "10, 0, 10 mm" |
+| `split_body` | `cube.ptsm` | Palette "Split body"; body: row "Cube"; plane: row "XZ plane" | Two body rows with geometry, each "20 × 10 × 20 mm" |
+| `mirror` | `offset-cube.ptsm` | Run Mirror; bodies: row "Cube"; plane: row "YZ plane"; op Join | Cube "60 × 20 × 20 mm", center "0, 0, 10 mm" |
+| `linear_pattern` | `offset-cube.ptsm` | Pattern, Linear pattern; bodies: "Cube"; direction: row "X axis"; count `3`; spacing `30`; op Join | Cube "80 × 20 × 20 mm" |
+| `circular_pattern` | `offset-cube.ptsm` | Pattern, Circular pattern; bodies: "Cube"; axis: row "Z axis"; count `4`; angle `360 deg`; op Join | Cube "60 × 60 × 20 mm" |
+| `datum_plane` | `cube.ptsm` | Palette "Datum plane"; plane: row "XY plane"; offset `10` | A Construction row "Datum plane 1" |
+
+`sketch` and `extrude` are covered by E-12 and E-13.
+
+### 6.6 Visual tests
+
+Tagged `@visual`, using `expect(page).toHaveScreenshot` with `animations: 'disabled'` and `maxDiffPixelRatio: 0.002`. Baselines are reviewed and approved by a human at the gate (technical design 16 and 17); a changed baseline needs reviewer approval.
+
+1. V-1. Empty app, light theme. V-2. Empty app, dark theme.
+2. V-3. `cube.ptsm` with "Home view", light. V-4. The same, dark.
+3. V-5. `rect-sketch.ptsm` in sketch mode (fully constrained colors, dimensions), light. V-6. `underconstrained.ptsm` in sketch mode, dark.
+4. V-7. `overhang.ptsm` in Print with the overhang map and legend, light.
+5. V-8. `cube.ptsm` with the Extrude inspector open in edit mode, light. V-9. `cube.ptsm` with the front face selected and the top edge hovered, light.
+
+### 6.7 Performance tests
+
+Tagged `@perf`, skipped unless `PARTSMITH_PERF=1`, run on the fixed hardware runner (technical design 16; a regression over 10 percent blocks the merge). Web budgets from section 5; the desktop budgets run in the desktop harness when the host lands.
+
+1. P-1. Load the app once, reload: `ps:usable` is at most 4,000 ms after `performance.timeOrigin`.
+2. P-2. `sketch-500.ptsm`: drag `e-drag.end` along a 2 s path with 120 pointer moves: 95th percentile of `ps:sketch-drag` at most 16 ms; no long task over 50 ms.
+3. P-3. `part-50.ptsm`: edit the first extrude and type 20 distances, one every 300 ms: median `ps:preview` at most 250 ms.
+4. P-4. `part-50.ptsm`: change parameter `base`: `ps:rebuild` at most 3,000 ms.
+5. P-5. `part-50.ptsm` opened, New, opened again: the second `ps:open` at most 1,000 ms.
+6. P-6. `dense.ptsm`, home view: a 3 s Shift+middle-drag orbit: 95th percentile of `ps:frame` at most 16.7 ms.
+7. P-7. `dense.ptsm`: 100 hovers with a still camera: 95th percentile of `ps:pick` at most 1 ms.
+8. P-8. `palette-2000.ptsm`: open the palette and type 10 characters: 95th percentile of `ps:palette` at most 8 ms.
+
+## 7. Open issues
+
+1. **Region fingerprint text.** `RegionInfo` in protocol.md's `SketchSolution` has `key`, `area` and `centroid` but no `fp`, which a `RegionRef` (features.md 2.5) needs. This spec has `selection-values.ts` format `region|a={area}|c={x},{y}` with the model's canonical number formatting (features.md open issue 4) until `RegionInfo` carries `fp`; the protocol should add it so the UI never builds fingerprints.
+2. **Sketch origin and axis references.** Constraints to the sketch origin and axes (inference snaps, the dimension-as-you-draw angle, symmetric about an axis) need reserved references in sketch.md. `src/sketch/refs.ts` assumes `ORIGIN_POINT`, `X_AXIS` and `Y_AXIS` exist there.
+3. **Dimension label positions.** Nothing in the drafts stores a dimension's label position. The UI computes `defaultLabelPosition` and uses a stored position if sketch.md adds one; dragging labels is later.
+4. **Structured fixes and field paths in diagnostics.** `Diagnostic` is severity, code and message. Without a field path the inspector cannot attach a feature error to its field, and without a suggested value it cannot offer one-click fixes such as "Use 2.4 mm". M1 offers navigational fixes ("Edit", "Undo"). Suggested protocol addition: `field: Option<String>` and `suggestion: Option<{ path, value, label }>`.
+5. **Feature that made a face.** Double-click on a face derives the feature from the first segment of the face's element name (features.md 3.9). An explicit `feature` field in `ElementDescriptor` would be more robust.
+6. **Rolling back before the first feature.** `Document.rollback` is the last active feature, with `None` meaning the end, so "no feature active" is not representable. The marker's minimum position is therefore 1.
+7. **Renaming a parameter.** model.md says the engine composes a rename with rewritten expressions, but the protocol only offers `apply_edits` with `update_parameter`, which does not rewrite them. This spec sends `update_parameter`; expressions using the old name then fail (with Undo). engine.md or protocol.md should define rename semantics.
+8. **Saving marks the document clean before the file is written.** `save_document` clears `dirty` before the UI writes the bytes. The UI chooses the target first and tracks `localUnsaved` after a failed write; a separate "mark saved at revision" step after a successful write would be cleaner.
+9. **Desktop host pieces.** The Tauri transport reads `window.__TAURI__` (requires `app.withGlobalTauri: true`) to avoid adding `@tauri-apps/api`; the desktop `FileService` needs the Tauri dialog and fs plugins; and the desktop transport reuses the worker host's queue and superseding logic, which protocol.md keeps inside `createWorkerHost`, so that logic should be factored into its own function. These belong in the desktop spec and need human review as dependencies.
+10. **Session-only view state.** Sketch, datum and origin visibility and body locks are not saved, because the document has no fields for them. Persisting them is a format change (ADR and human review).
+11. **When print analysis runs.** The technical design runs checks after every recompute. With one web worker, `analyze_print` would delay edits, so this spec runs it automatically only in the Print context and shows a stale badge elsewhere. Revisit with desktop background analysis (protocol.md "later").
+12. **Check toggles.** `analyze_print` always runs every check, so the UI's switches only hide findings. An optional check list on the command would save work.
+13. **Print profile fields.** The overhang limit, bed size and technology come from `PrinterProfile` in print.md, which was not available; this spec uses the overhang findings' `limit` first and names the profile fields generically.
+14. **Manifest types.** The protocol carries `FeatureManifest` as untyped JSON (protocol.md open issue 4), so the UI declares a mirror type with runtime validation in `inspector/manifest.ts`, against the module rule that the UI uses generated types. A typed schema definition would remove the mirror.
+15. **Hole placement value.** The `sketch_point` selection value shape is defined by features/hole.md, which was not available.
+16. **Feature insertion at the marker.** model.md says the engine commits `add_feature` after the rollback feature followed by `set_rollback`. This spec has the UI send both edits inside the transaction. If the engine does it on its own, the UI must stop sending `set_rollback`.
+17. **Design tokens need sign-off.** The accent (violet, chosen so selection stays distinct from the blue of under-constrained sketch geometry), the gray scale and the body swatches are design-system decisions, which technical design 17 reserves for human review.
+18. **Inference hold key on macOS.** This spec suppresses inference with Cmd on macOS (Fusion's convention) because Ctrl-click is a secondary click there.
+19. **Dragging sketch curves.** `drag_sketch` pins one point, so M1 drags points only; translating lines and resizing circles by drag needs multi-point drags.
+20. **Untitled document units.** New documents use `mm`; a default-units setting is later.
+21. **Fixtures depend on unfinished JSON.** The e2e fixtures need sketch.md, print.md and the per-feature specs; they are written with `partsmith fmt` once those exist, and E-57's field labels come from those manifests.
