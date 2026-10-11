@@ -1025,6 +1025,7 @@ export interface ViewportHandle {
   fit(bounds?: BoundingBox): void
   setStandardView(view: StandardView): void
   toggleProjection(): void
+  /** Puts the eye on the `normal` side of `target`, looking along -normal, with up from `upHint`. */
   lookAlong(normal: Vec3, upHint: Vec3, target: Vec3): void
   zoomToBounds(bounds: BoundingBox, margin: number): void
   screenRect(items: readonly SelectionItem[]): Rect | null
@@ -1579,7 +1580,7 @@ Datum plane, Move body and Split body are in the palette only. A group button op
 Context rules:
 
 - The app starts in Model. `data-context` on the `app` root mirrors the context.
-- Model to Print, or Print to Model: an active feature command is cancelled first (`cancel_transaction`). The selection is kept.
+- Model to Print, or Print to Model: an active feature command is canceled first (`cancel_transaction`). The selection is kept.
 - Choosing the Sketch radio outside sketch mode runs `startNewSketch` (3.16.1). In sketch mode, choosing Model or Print finishes the sketch (3.16.11) and then switches.
 - A feature command run from Sketch finishes the sketch, switches to Model and starts the command. If the finished sketch has exactly one closed region and the command has a `sketch_region` field, that region is preselected. Run from Print, it switches to Model first.
 - Print commands are listed and active in Print only. Sketch tools are listed and active in Sketch only, and only while a sketch is being edited (not during plane picking).
@@ -1725,7 +1726,7 @@ Starting a new feature (`startFeatureCommand(type)`):
 5. The active field is the first selection field that is required and empty, skipping a `body` field whose parent object also has a `face` or `edge` field (the first pick fills it, 2.12); if none, focus goes to the first essential expression field with its text selected.
 6. The inspector opens (placement below). If the params are complete, the first preview is applied at once.
 
-Editing an existing feature (`editFeature(id)`): a `sketch` feature enters sketch mode instead. Otherwise: cancel an active command, `beginTransaction(doc, 'Edit {label}')`, `setFocus(doc, id)`, take `params` from the record, mark the command `applied`, and open the inspector titled with the feature label. Selection fields show `itemsFromValue` and their references are highlighted through `resolveReferences` on the model layer (which shows the state before the feature). If `setFocus` fails with `focus_inactive`, the transaction is cancelled and the core's message is shown as an error notification with the action "Unsuppress" (suppressed feature: unsuppresses it and retries the edit) or "Move marker to the end" (rolled-back feature: sets the rollback to the end and retries).
+Editing an existing feature (`editFeature(id)`): a `sketch` feature enters sketch mode instead. Otherwise: cancel an active command, `beginTransaction(doc, 'Edit {label}')`, `setFocus(doc, id)`, take `params` from the record, mark the command `applied`, and open the inspector titled with the feature label. Selection fields show `itemsFromValue` and their references are highlighted through `resolveReferences` on the model layer (which shows the state before the feature). If `setFocus` fails with `focus_inactive`, the transaction is canceled and the core's message is shown as an error notification with the action "Unsuppress" (suppressed feature: unsuppresses it and retries the edit) or "Move marker to the end" (rolled-back feature: sets the rollback to the end and retries).
 
 Preview cycle: every field change recomputes local field errors (expression states, selection minimums). When the params are complete (every required field set, no field error, no expression pending), the UI submits a preview through a `LatestOnly` over `applyEdits(doc, null, edits)`:
 
@@ -1739,7 +1740,7 @@ The inspector shows the focused feature's status messages in a banner (`data-tes
 
 Confirming (Enter ladder, or the OK button): allowed only when complete. A waiting preview is applied first (awaited). Then `commitTransaction(doc)`, the inspector closes, the command clears and focus returns to where it was before the command. A sketch referenced by the committed params through a `sketch` key is hidden for the session (3.10). If the committed feature's status is `error`, the failure notification of 4.2 appears.
 
-Cancelling (Esc ladder, the Cancel button or the close button): `cancelTransaction(doc)`, the inspector closes, nothing is recorded.
+Canceling (Esc ladder, the Cancel button or the close button): `cancelTransaction(doc)`, the inspector closes, nothing is recorded.
 
 `Mod+Z` during a command cancels the command and does nothing else.
 
@@ -2066,7 +2067,7 @@ Bed outline: in Print context, after a report, the bed rectangle of the report's
 - The top-bar Export button, `Mod+Shift+E` and the Document menu open the export popover (`data-testid="export-popover"`): Format (radio group 3MF, STL, OBJ, STEP; default 3MF), Bodies (radio group "All visible bodies", "Selected bodies"; the second is disabled unless bodies are selected), and an "Export" button.
 - The Print toolbar's "Export 3MF" exports 3MF of all visible bodies directly; its Export group exports STL, OBJ or STEP of all visible bodies directly.
 - `exportModel(request)`: the bodies are the visible bodies with model-layer geometry, or the selected bodies. With none, the error notification "There is no visible body with geometry to export." appears and the core is not called. Otherwise `exportBodies(doc, format, bodies)` with `{"format": "3mf"}`, `{"format": "stl", "binary": true, "per_body": false}`, `{"format": "obj", "per_body": false}` or `{"format": "step"}`.
-- The single returned file is saved with `files.chooseSaveTarget('{document name}.{3mf|stl|obj|step}', kind)` and `files.write`. A cancelled picker does nothing. Success shows the info notification "Exported {file name}." Each warning diagnostic shows a warning notification with its message. A `CoreError` shows its message as an error notification.
+- The single returned file is saved with `files.chooseSaveTarget('{document name}.{3mf|stl|obj|step}', kind)` and `files.write`. A canceled picker does nothing. Success shows the info notification "Exported {file name}." Each warning diagnostic shows a warning notification with its message. A `CoreError` shows its message as an error notification.
 
 ### 3.19 Files
 
@@ -2414,7 +2415,7 @@ Store and actions:
 75. U-75. Without the API: `chooseSaveTarget` returns `{kind: 'download', name}`; `write` clicks an anchor whose `download` is the name and revokes its object URL; `pickToOpen` resolves from the hidden input's `change` event.
 76. U-76. `createMemoryRecentFiles`: at most 10 entries, newest first; a text entry with an existing name replaces it; a handle entry whose handle `isSameEntry` an existing one replaces it.
 77. U-77. Recovery: a dirty `document_changed` writes an entry after 2 s (fake timers); another change within 2 s postpones it; a successful save clears the store.
-78. U-78. Save as cancelled at the picker never calls `saveDocument`; Save to a handle whose write fails with `permission` sets `localUnsaved` and shows `save_permission` with the action "Save as".
+78. U-78. Save as canceled at the picker never calls `saveDocument`; Save to a handle whose write fails with `permission` sets `localUnsaved` and shows `save_permission` with the action "Save as".
 79. U-79. `openFile`: `model.stl` shows `not_ptsm`; invalid UTF-8 shows `not_text`; a `parse_error` shows `open_failed` with the core message and keeps the current document; with a dirty current document the stash is written before `closeDocument`.
 80. U-80. `exportModel` with no visible bodies shows `nothing_to_export` and calls no `exportBodies`; formats map to `{"format": "3mf"}`, `{"format": "stl", "binary": true, "per_body": false}`, `{"format": "obj", "per_body": false}` and `{"format": "step"}`; the suggested name is `{document name}.3mf`.
 81. U-81. Print: badge states derive as in 3.17, hidden checks are excluded from counts, a report for an older revision is stale; in Print context a revision change schedules `analyzePrint` after 300 ms (fake timers) and a `null` result changes nothing; in Model context no analysis is scheduled.
