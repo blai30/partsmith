@@ -49,8 +49,18 @@ fn t068_measuring_a_body_reports_mass_properties_and_counts_only() {
 
     let measured = measure_body(&mut session, doc, "b-1");
 
-    assert_relative(number(&measured["volume"]), 24000.0, GEOMETRY_TOLERANCE, "volume");
-    assert_relative(number(&measured["area"]), 5200.0, GEOMETRY_TOLERANCE, "area");
+    assert_relative(
+        number(&measured["volume"]),
+        24000.0,
+        GEOMETRY_TOLERANCE,
+        "volume",
+    );
+    assert_relative(
+        number(&measured["area"]),
+        5200.0,
+        GEOMETRY_TOLERANCE,
+        "area",
+    );
     assert_point3(
         point3(&measured["center_of_mass"]),
         [0.0, 0.0, 20.0],
@@ -99,7 +109,12 @@ fn t071_measuring_an_edge_reports_its_line_geometry() {
     );
 
     let result = measured.ok();
-    assert_relative(number(&result["length"]), 20.0, GEOMETRY_TOLERANCE, "length");
+    assert_relative(
+        number(&result["length"]),
+        20.0,
+        GEOMETRY_TOLERANCE,
+        "length",
+    );
     assert_point3(
         point3(&result["centroid"]),
         [0.0, -15.0, 40.0],
@@ -169,7 +184,12 @@ fn t074_evaluate_uses_the_document_parameters() {
         json!({"type": "evaluate", "doc": doc, "expr": "height + 30 deg"}),
     );
 
-    assert_relative(number(&evaluated.ok()["value"]), 80.0, GEOMETRY_TOLERANCE, "value");
+    assert_relative(
+        number(&evaluated.ok()["value"]),
+        80.0,
+        GEOMETRY_TOLERANCE,
+        "value",
+    );
     assert_eq!(
         evaluated.ok()["dimension"],
         serde_json::to_value(Dimension::LENGTH).expect("dimensions serialize")
@@ -190,9 +210,20 @@ fn t075_profiles_list_built_ins_first_then_session_profiles() {
 
     let profiles = session.printer_profiles();
 
-    assert!(profiles.iter().any(|profile| profile.technology == Technology::Fdm));
-    assert!(profiles.iter().any(|profile| profile.technology == Technology::Resin));
-    let ids: Vec<String> = profiles.iter().map(|profile| profile.id.to_string()).collect();
+    assert!(
+        profiles
+            .iter()
+            .any(|profile| profile.technology == Technology::Fdm)
+    );
+    assert!(
+        profiles
+            .iter()
+            .any(|profile| profile.technology == Technology::Resin)
+    );
+    let ids: Vec<String> = profiles
+        .iter()
+        .map(|profile| profile.id.to_string())
+        .collect();
     let mut builtin: Vec<String> = partsmith_print::builtin_profiles()
         .iter()
         .map(|profile| profile.id.to_string())
@@ -229,7 +260,9 @@ fn t077_the_box_as_modeled_is_ready_to_print() {
     let report = &analyzed.events[0]["report"];
     assert_eq!(report["profile"], "generic-fdm");
     assert_eq!(report["summary"]["label"], "Ready to print");
-    let bodies = report["bodies"].as_array().expect("the report lists bodies");
+    let bodies = report["bodies"]
+        .as_array()
+        .expect("the report lists bodies");
     assert_eq!(bodies.len(), 1);
     let checks = bodies[0]["report"]["checks"]
         .as_array()
@@ -242,7 +275,10 @@ fn t077_the_box_as_modeled_is_ready_to_print() {
     assert_eq!(bodies[0]["mesh_id"], mesh_id);
     let overhang = analyzed.f32_buffer(&bodies[0]["overhang"]);
     assert_eq!(overhang.len(), 24);
-    assert!(overhang.iter().all(|&value| value == 0.0), "no overhangs: {overhang:?}");
+    assert!(
+        overhang.iter().all(|&value| value == 0.0),
+        "no overhangs: {overhang:?}"
+    );
 }
 
 #[test]
@@ -296,7 +332,10 @@ fn t079_a_tilted_box_overhangs_on_its_bottom_and_front_faces() {
         .find(|check| check["check"] == "overhangs")
         .expect("the overhangs check ran");
     assert!(
-        !overhangs["findings"].as_array().expect("findings").is_empty(),
+        !overhangs["findings"]
+            .as_array()
+            .expect("findings")
+            .is_empty(),
         "the overhangs check has a finding: {overhangs}"
     );
     let overhang = analyzed.f32_buffer(&report["bodies"][0]["overhang"]);
@@ -309,7 +348,12 @@ fn t079_a_tilted_box_overhangs_on_its_bottom_and_front_faces() {
         } else if face == front {
             assert_relative(value, PI / 6.0, BUFFER_TOLERANCE, "front face overhang");
         } else {
-            assert_near(value, 0.0, BUFFER_TOLERANCE, &format!("overhang of face {face}"));
+            assert_near(
+                value,
+                0.0,
+                BUFFER_TOLERANCE,
+                &format!("overhang of face {face}"),
+            );
         }
     }
 }
@@ -380,7 +424,10 @@ fn t083_only_flat_faces_can_face_down() {
     );
 
     assert_eq!(sent.error_code(), "invalid_orientation");
-    assert_eq!(sent.error_message(), "Only flat faces can be laid on the bed.");
+    assert_eq!(
+        sent.error_message(),
+        "Only flat faces can be laid on the bed."
+    );
 }
 
 #[test]

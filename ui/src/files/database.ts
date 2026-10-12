@@ -82,6 +82,7 @@ function isInvalidState(error: unknown): boolean {
   return error instanceof DOMException && error.name === 'InvalidStateError'
 }
 
+/** The connection one store (recent files or recovery) shares between its operations. */
 export function createConnection(factory: IDBFactory): Connection {
   let opening: Promise<IDBDatabase> | null = null
 

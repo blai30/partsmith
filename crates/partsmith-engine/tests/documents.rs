@@ -3,8 +3,8 @@
 mod common;
 
 use common::{
-    GEOMETRY_TOLERANCE, assert_bounding_box, assert_near, doc_handle, fixture, get_document, new_doc,
-    open, open_text, reindent, replace_once, saved_text, send, session,
+    GEOMETRY_TOLERANCE, assert_bounding_box, assert_near, doc_handle, fixture, get_document,
+    new_doc, open, open_text, reindent, replace_once, saved_text, send, session,
 };
 use partsmith_model::Dimension;
 use pretty_assertions::assert_eq;
@@ -169,8 +169,14 @@ fn t006_box_mesh_edges_are_one_segment_each_between_corners() {
     for segment in 0..mesh.segment_count() {
         let start = common::triple(&mesh.edge_positions, 2 * segment);
         let end = common::triple(&mesh.edge_positions, 2 * segment + 1);
-        assert!(is_box_corner(start), "segment {segment} starts at a corner: {start:?}");
-        assert!(is_box_corner(end), "segment {segment} ends at a corner: {end:?}");
+        assert!(
+            is_box_corner(start),
+            "segment {segment} starts at a corner: {start:?}"
+        );
+        assert!(
+            is_box_corner(end),
+            "segment {segment} ends at a corner: {end:?}"
+        );
         assert_ne!(start, end, "segment {segment} joins two different corners");
     }
 }
@@ -211,7 +217,11 @@ fn t009_invalid_json_fails_with_parse_error_and_consumes_no_handle() {
         "message names the line: {}",
         sent.error_message()
     );
-    assert!(sent.events.is_empty(), "no events: {:?}", sent.event_types());
+    assert!(
+        sent.events.is_empty(),
+        "no events: {:?}",
+        sent.event_types()
+    );
     assert_eq!(new_doc(&mut session), 1);
 }
 
@@ -237,7 +247,11 @@ fn t010_newer_format_version_is_unsupported() {
 #[test]
 fn t011_unknown_feature_type_opens_with_an_error_status_and_saves_unchanged() {
     let mut session = session();
-    let text = replace_once(&fixture("box.ptsm"), r#""type": "box""#, r#""type": "wedge_v9""#);
+    let text = replace_once(
+        &fixture("box.ptsm"),
+        r#""type": "box""#,
+        r#""type": "wedge_v9""#,
+    );
 
     let opened = open_text(&mut session, &text);
     let doc = doc_handle(&opened);
@@ -248,13 +262,14 @@ fn t011_unknown_feature_type_opens_with_an_error_status_and_saves_unchanged() {
         .as_array()
         .expect("statuses list messages");
     assert!(
-        messages
-            .iter()
-            .any(|message| message["message"].as_str().is_some_and(|text| text.contains("wedge_v9"))),
+        messages.iter().any(|message| message["message"]
+            .as_str()
+            .is_some_and(|text| text.contains("wedge_v9"))),
         "a message names the type: {status}"
     );
     assert!(
-        opened.body_meshes("b-1", "model").is_empty() && opened.body_meshes("b-1", "preview").is_empty(),
+        opened.body_meshes("b-1", "model").is_empty()
+            && opened.body_meshes("b-1", "preview").is_empty(),
         "no body_mesh for b-1: {:?}",
         opened.events_of("body_mesh")
     );

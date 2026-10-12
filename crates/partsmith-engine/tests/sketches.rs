@@ -50,16 +50,30 @@ fn t041_opening_drag_reports_the_under_constrained_solution() {
     assert_eq!(solution["dof"], 1);
     assert_eq!(solution["status"], "under_constrained");
     assert_eq!(solution["failed"], false);
-    let entities = solution["entities"].as_array().expect("solutions list entities");
+    let entities = solution["entities"]
+        .as_array()
+        .expect("solutions list entities");
     assert_eq!(entities.len(), 1);
     assert_eq!(entities[0]["id"], "e-1");
     assert_eq!(entities[0]["constrained"], "under_constrained");
-    let points = solution["points"].as_array().expect("solutions list points");
+    let points = solution["points"]
+        .as_array()
+        .expect("solutions list points");
     assert_eq!(points.len(), 2);
     assert_eq!(points[0]["point"], "e-1.start");
-    assert_point2(point2(&points[0]["at"]), [0.0, 0.0], SKETCH_TOLERANCE, "e-1.start");
+    assert_point2(
+        point2(&points[0]["at"]),
+        [0.0, 0.0],
+        SKETCH_TOLERANCE,
+        "e-1.start",
+    );
     assert_eq!(points[1]["point"], "e-1.end");
-    assert_point2(point2(&points[1]["at"]), [10.0, 0.0], SKETCH_TOLERANCE, "e-1.end");
+    assert_point2(
+        point2(&points[1]["at"]),
+        [10.0, 0.0],
+        SKETCH_TOLERANCE,
+        "e-1.end",
+    );
     assert_eq!(solution["regions"], json!([]));
     let findings = solution["profile_findings"]
         .as_array()
@@ -68,7 +82,12 @@ fn t041_opening_drag_reports_the_under_constrained_solution() {
     for (finding, at) in findings.iter().zip([[0.0, 0.0], [10.0, 0.0]]) {
         assert_eq!(finding["type"], "open_endpoint");
         assert_eq!(finding["entity"], "e-1");
-        assert_point2(point2(&finding["point"]), at, SKETCH_TOLERANCE, "open endpoint");
+        assert_point2(
+            point2(&finding["point"]),
+            at,
+            SKETCH_TOLERANCE,
+            "open endpoint",
+        );
     }
 }
 
@@ -94,7 +113,11 @@ fn t042_solving_a_candidate_records_nothing() {
     let solution = &solved.ok()["solution"];
     assert_eq!(solution["dof"], 0);
     assert_eq!(solution["status"], "fully_constrained");
-    assert!(solved.events.is_empty(), "no events: {:?}", solved.event_types());
+    assert!(
+        solved.events.is_empty(),
+        "no events: {:?}",
+        solved.event_types()
+    );
     let constraints = &get_document(&mut session, doc)["document"]["features"][0]["constraints"];
     assert_eq!(constraints.as_array().map(Vec::len), Some(2));
 }
@@ -109,7 +132,11 @@ fn t043_a_drag_frame_follows_the_constraints_and_records_nothing() {
 
     let end = solved_point(&frame.ok()["solution"], "e-1.end");
     assert_point2(end, [20.0, 0.0], SKETCH_TOLERANCE, "e-1.end");
-    assert!(frame.events.is_empty(), "no events: {:?}", frame.event_types());
+    assert!(
+        frame.events.is_empty(),
+        "no events: {:?}",
+        frame.event_types()
+    );
     assert_eq!(get_document(&mut session, doc), before);
 }
 
@@ -247,9 +274,16 @@ fn t052_the_plate_has_one_region_and_an_extruded_mesh() {
 
     let solution = opened.sketch_solution("f-sk1");
     assert_eq!(solution["dof"], 4);
-    let regions = solution["regions"].as_array().expect("solutions list regions");
+    let regions = solution["regions"]
+        .as_array()
+        .expect("solutions list regions");
     assert_eq!(regions.len(), 1);
-    assert_near(number(&regions[0]["area"]), 4000.0, SKETCH_TOLERANCE, "region area");
+    assert_near(
+        number(&regions[0]["area"]),
+        4000.0,
+        SKETCH_TOLERANCE,
+        "region area",
+    );
     assert_point2(
         point2(&regions[0]["centroid"]),
         [40.0, 25.0],
@@ -279,12 +313,19 @@ fn t053_region_fill_buffers_cover_the_disc() {
     assert_eq!(indices.len() % 3, 0);
     let vertex = |index: u32| {
         let index = index as usize;
-        [f64::from(positions[2 * index]), f64::from(positions[2 * index + 1])]
+        [
+            f64::from(positions[2 * index]),
+            f64::from(positions[2 * index + 1]),
+        ]
     };
     let area: f64 = indices
         .chunks(3)
         .map(|triangle| {
-            let [a, b, c] = [vertex(triangle[0]), vertex(triangle[1]), vertex(triangle[2])];
+            let [a, b, c] = [
+                vertex(triangle[0]),
+                vertex(triangle[1]),
+                vertex(triangle[2]),
+            ];
             ((b[0] - a[0]) * (c[1] - a[1]) - (c[0] - a[0]) * (b[1] - a[1])).abs() / 2.0
         })
         .sum();
@@ -301,9 +342,24 @@ fn t054_datum_planes_are_reported_with_their_placement() {
     let event = opened.event("datum_plane");
     assert_eq!(event["feature"], "f-dp1");
     let placement = &event["placement"];
-    assert_point3(point3(&placement["origin"]), [0.0, 0.0, 10.0], GEOMETRY_TOLERANCE, "origin");
-    assert_point3(point3(&placement["x_axis"]), [1.0, 0.0, 0.0], GEOMETRY_TOLERANCE, "x axis");
-    assert_point3(point3(&placement["normal"]), [0.0, 0.0, 1.0], GEOMETRY_TOLERANCE, "normal");
+    assert_point3(
+        point3(&placement["origin"]),
+        [0.0, 0.0, 10.0],
+        GEOMETRY_TOLERANCE,
+        "origin",
+    );
+    assert_point3(
+        point3(&placement["x_axis"]),
+        [1.0, 0.0, 0.0],
+        GEOMETRY_TOLERANCE,
+        "x axis",
+    );
+    assert_point3(
+        point3(&placement["normal"]),
+        [0.0, 0.0, 1.0],
+        GEOMETRY_TOLERANCE,
+        "normal",
+    );
 }
 
 #[test]

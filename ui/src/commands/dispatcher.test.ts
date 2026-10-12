@@ -131,6 +131,7 @@ afterEach(() => {
   uninstall?.()
   uninstall = null
   document.body.replaceChildren()
+  vi.restoreAllMocks()
 })
 
 function install(fixture: Fixture): void {
@@ -242,6 +243,27 @@ describe('installShortcutDispatcher', () => {
     expect(ranCommands(fixture.runs)).toEqual(['app.palette'])
   })
 
+  it('with a menu or popover open only Mod+K runs', async () => {
+    const fixture = setUp()
+    install(fixture)
+    const menu = document.createElement('div')
+    menu.setAttribute('popover', 'auto')
+    document.body.append(menu)
+    // jsdom has no Popover API and never matches :popover-open, so the document reports the menu
+    // as an open popover the way a browser does.
+    const querySelector = document.querySelector.bind(document)
+    vi.spyOn(document, 'querySelector').mockImplementation((selectors: string) =>
+      selectors.includes(':popover-open') ? menu : querySelector(selectors),
+    )
+    keydown(document.body, { key: 'e', code: 'KeyE' })
+    keydown(document.body, { key: 's', code: 'KeyS', ctrlKey: true })
+    await settle()
+    expect(ranCommands(fixture.runs)).toEqual([])
+    keydown(document.body, { key: 'k', code: 'KeyK', ctrlKey: true })
+    await settle()
+    expect(ranCommands(fixture.runs)).toEqual(['app.palette'])
+  })
+
   it('Mod+K runs the palette command from a text field', async () => {
     const fixture = setUp()
     install(fixture)
@@ -260,6 +282,23 @@ describe('installShortcutDispatcher', () => {
     keydown(select, { key: 'e', code: 'KeyE' })
     await settle()
     expect(ranCommands(fixture.runs)).toEqual([])
+  })
+
+  it('treats a content-editable element as an editable target', async () => {
+    const fixture = setUp()
+    install(fixture)
+    const editor = document.createElement('div')
+    editor.setAttribute('contenteditable', 'true')
+    // jsdom does not compute isContentEditable; a browser gives true here.
+    Object.defineProperty(editor, 'isContentEditable', { value: true })
+    document.body.append(editor)
+    keydown(editor, { key: 'e', code: 'KeyE' })
+    keydown(editor, { key: 'z', code: 'KeyZ', ctrlKey: true })
+    await settle()
+    expect(ranCommands(fixture.runs)).toEqual([])
+    keydown(editor, { key: 's', code: 'KeyS', ctrlKey: true })
+    await settle()
+    expect(ranCommands(fixture.runs)).toEqual(['file.save'])
   })
 
   it('treats a checkbox as not editable', async () => {

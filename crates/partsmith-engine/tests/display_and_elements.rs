@@ -45,7 +45,12 @@ fn pick(session: &mut Session, doc: u64, mesh_id: &Value, kind: &str, index: u32
 fn names(elements: &[Value]) -> Vec<String> {
     elements
         .iter()
-        .map(|element| element["name"].as_str().expect("elements have names").to_owned())
+        .map(|element| {
+            element["name"]
+                .as_str()
+                .expect("elements have names")
+                .to_owned()
+        })
         .collect()
 }
 
@@ -91,10 +96,30 @@ fn t057_draft_and_fine_scale_the_standard_tolerance() {
     let (draft_chord, draft_angle) = resolved(&set_tessellation(&mut session, doc, "draft"));
     let (fine_chord, fine_angle) = resolved(&set_tessellation(&mut session, doc, "fine"));
 
-    assert_relative(draft_chord, 4.0 * standard, TOLERANCE_PRECISION, "draft chord");
-    assert_relative(fine_chord, standard / 2.0, TOLERANCE_PRECISION, "fine chord");
-    assert_relative(draft_angle, 0.17453292519943295, TOLERANCE_PRECISION, "draft angle");
-    assert_relative(fine_angle, 0.04363323129985824, TOLERANCE_PRECISION, "fine angle");
+    assert_relative(
+        draft_chord,
+        4.0 * standard,
+        TOLERANCE_PRECISION,
+        "draft chord",
+    );
+    assert_relative(
+        fine_chord,
+        standard / 2.0,
+        TOLERANCE_PRECISION,
+        "fine chord",
+    );
+    assert_relative(
+        draft_angle,
+        0.17453292519943295,
+        TOLERANCE_PRECISION,
+        "draft angle",
+    );
+    assert_relative(
+        fine_angle,
+        0.04363323129985824,
+        TOLERANCE_PRECISION,
+        "fine angle",
+    );
 }
 
 #[test]
@@ -139,7 +164,10 @@ fn t059_retessellation_issues_new_mesh_ids_and_stales_old_picks() {
         .collect();
     assert_ne!(new_ids[0], new_ids[1]);
     for id in &new_ids {
-        assert!(!old_ids.contains(id), "mesh id {id} is new (old: {old_ids:?})");
+        assert!(
+            !old_ids.contains(id),
+            "mesh id {id} is new (old: {old_ids:?})"
+        );
     }
     let picked = pick(&mut session, doc, &old_block, "face", 0);
     assert_eq!(picked.error_code(), "stale_pick");
@@ -187,14 +215,39 @@ fn t062_the_top_face_descriptor_has_its_geometry_and_adjacent_edges() {
     let top = common::element_named(&mut session, doc, "b-1", "f-box1/top");
 
     assert_eq!(top["kind"], "face");
-    assert_point3(point3(&top["centroid"]), [0.0, 0.0, 40.0], GEOMETRY_TOLERANCE, "centroid");
+    assert_point3(
+        point3(&top["centroid"]),
+        [0.0, 0.0, 40.0],
+        GEOMETRY_TOLERANCE,
+        "centroid",
+    );
     assert_eq!(top["surface"], "plane");
-    assert_point3(point3(&top["normal"]), [0.0, 0.0, 1.0], GEOMETRY_TOLERANCE, "normal");
+    assert_point3(
+        point3(&top["normal"]),
+        [0.0, 0.0, 1.0],
+        GEOMETRY_TOLERANCE,
+        "normal",
+    );
     common::assert_near(number(&top["area"]), 600.0, 1e-9, "area");
     let placement = &top["placement"];
-    assert_point3(point3(&placement["origin"]), [0.0, 0.0, 40.0], GEOMETRY_TOLERANCE, "placement origin");
-    assert_point3(point3(&placement["x_axis"]), [1.0, 0.0, 0.0], GEOMETRY_TOLERANCE, "placement x axis");
-    assert_point3(point3(&placement["normal"]), [0.0, 0.0, 1.0], GEOMETRY_TOLERANCE, "placement normal");
+    assert_point3(
+        point3(&placement["origin"]),
+        [0.0, 0.0, 40.0],
+        GEOMETRY_TOLERANCE,
+        "placement origin",
+    );
+    assert_point3(
+        point3(&placement["x_axis"]),
+        [1.0, 0.0, 0.0],
+        GEOMETRY_TOLERANCE,
+        "placement x axis",
+    );
+    assert_point3(
+        point3(&placement["normal"]),
+        [0.0, 0.0, 1.0],
+        GEOMETRY_TOLERANCE,
+        "placement normal",
+    );
     assert_eq!(
         top["adjacent"],
         json!([
@@ -254,7 +307,10 @@ fn t065_a_resolved_reference_matches_the_displayed_face() {
         json!({"type": "resolve_references", "doc": doc, "references": [{"body": "b-1", "reference": faces[top_index]["reference"]}]}),
     );
 
-    let results = resolved.ok()["results"].as_array().expect("results").clone();
+    let results = resolved.ok()["results"]
+        .as_array()
+        .expect("results")
+        .clone();
     assert_eq!(results.len(), 1);
     assert_eq!(results[0]["status"], "resolved");
     assert_eq!(
@@ -308,7 +364,11 @@ fn t108_descriptors_name_the_feature_that_created_each_face() {
     );
     let rounds: Vec<&Value> = fillet_faces
         .iter()
-        .filter(|face| face["name"].as_str().is_some_and(|name| name.starts_with("f-fil1/")))
+        .filter(|face| {
+            face["name"]
+                .as_str()
+                .is_some_and(|name| name.starts_with("f-fil1/"))
+        })
         .collect();
     assert_eq!(rounds.len(), 1, "one fillet face: {fillet_faces:?}");
     assert_eq!(rounds[0]["feature"], "f-fil1");
@@ -326,8 +386,18 @@ fn t111_tolerance_resolves_a_quality_without_side_effects() {
         )
         .expect("the document is open");
 
-    assert_relative(tolerance.chord_deviation, 0.05, TOLERANCE_PRECISION, "chord");
-    assert_relative(tolerance.angular_deviation, STANDARD_ANGLE, TOLERANCE_PRECISION, "angle");
+    assert_relative(
+        tolerance.chord_deviation,
+        0.05,
+        TOLERANCE_PRECISION,
+        "chord",
+    );
+    assert_relative(
+        tolerance.angular_deviation,
+        STANDARD_ANGLE,
+        TOLERANCE_PRECISION,
+        "angle",
+    );
     let (chord, angle) = resolved(&set_tessellation(&mut session, doc, "standard"));
     assert_eq!(tolerance.chord_deviation, chord);
     assert_eq!(tolerance.angular_deviation, angle);

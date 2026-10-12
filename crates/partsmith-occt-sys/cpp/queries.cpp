@@ -2,6 +2,7 @@
 // 3.6).
 #include <algorithm>
 #include <utility>
+#include <vector>
 
 #include <BRepAdaptor_Curve.hxx>
 #include <BRepAdaptor_Surface.hxx>
@@ -13,6 +14,7 @@
 #include <Bnd_Box.hxx>
 #include <GProp_GProps.hxx>
 #include <TopExp.hxx>
+#include <TopExp_Explorer.hxx>
 #include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
 #include <TopoDS.hxx>
 #include <TopoDS_Compound.hxx>
@@ -314,36 +316,48 @@ ElementData element_data(const TopoDS_Shape &element) {
   }
 }
 
-// Appends the sorted, distinct indices in `map` of the sub-shapes in `shapes`.
-void append_indices(IndexLists &lists, const TopTools_IndexedMapOfShape &map,
-                    const TopTools_IndexedMapOfShape &shapes) {
-  std::vector<std::uint32_t> indices;
-  indices.reserve(static_cast<std::size_t>(shapes.Extent()));
-  for (int position = 1; position <= shapes.Extent(); ++position) {
-    const int index = map.FindIndex(shapes(position));
-    if (index > 0) {
-      indices.push_back(static_cast<std::uint32_t>(index));
-    }
-  }
+// Appends one list made of `indices`, distinct and ascending, and clears `indices` for the next
+// list.
+void append_list(IndexLists &lists, std::vector<std::uint32_t> &indices) {
   std::sort(indices.begin(), indices.end());
   indices.erase(std::unique(indices.begin(), indices.end()), indices.end());
   for (std::uint32_t index : indices) {
     lists.values.push_back(index);
   }
   lists.offsets.push_back(static_cast<std::uint32_t>(lists.values.size()));
+  indices.clear();
 }
 
-// Appends the indices of the ancestors of `element` found in `ancestors`.
-void append_ancestors(IndexLists &lists, const TopTools_IndexedMapOfShape &map,
+// Adds the index in `map` of `element`, if it is there.
+void add_index(std::vector<std::uint32_t> &indices, const TopTools_IndexedMapOfShape &map,
+               const TopoDS_Shape &element) {
+  const int index = map.FindIndex(element);
+  if (index > 0) {
+    indices.push_back(static_cast<std::uint32_t>(index));
+  }
+}
+
+// Appends the list of the indices in `map` of the sub-shapes of `shape` of one type.
+void append_sub_shapes(IndexLists &lists, std::vector<std::uint32_t> &indices,
+                       const TopTools_IndexedMapOfShape &map, const TopoDS_Shape &shape,
+                       TopAbs_ShapeEnum type) {
+  for (TopExp_Explorer explorer(shape, type); explorer.More(); explorer.Next()) {
+    add_index(indices, map, explorer.Current());
+  }
+  append_list(lists, indices);
+}
+
+// Appends the list of the indices in `map` of the ancestors of `element` found in `ancestors`.
+void append_ancestors(IndexLists &lists, std::vector<std::uint32_t> &indices,
+                      const TopTools_IndexedMapOfShape &map,
                       const TopTools_IndexedDataMapOfShapeListOfShape &ancestors,
                       const TopoDS_Shape &element) {
-  TopTools_IndexedMapOfShape shapes;
   if (const TopTools_ListOfShape *list = ancestors.Seek(element)) {
     for (const TopoDS_Shape &ancestor : *list) {
-      shapes.Add(ancestor);
+      add_index(indices, map, ancestor);
     }
   }
-  append_indices(lists, map, shapes);
+  append_list(lists, indices);
 }
 
 // Empty compressed lists.
@@ -428,21 +442,17 @@ TopologyData shape_topology(const Shape &shape) {
 
   TopologyData data{empty_lists(), empty_lists(), empty_lists(), empty_lists(), {}, {},
                     empty_lists(), empty_lists()};
+  // One buffer collects the indices of every list in turn.
+  std::vector<std::uint32_t> indices;
   for (int index = 1; index <= shape.faces().Extent(); ++index) {
     const TopoDS_Shape &face = shape.faces()(index);
-    TopTools_IndexedMapOfShape edges;
-    TopTools_IndexedMapOfShape vertices;
-    TopExp::MapShapes(face, TopAbs_EDGE, edges);
-    TopExp::MapShapes(face, TopAbs_VERTEX, vertices);
-    append_indices(data.face_edges, shape.edges(), edges);
-    append_indices(data.face_vertices, shape.vertices(), vertices);
+    append_sub_shapes(data.face_edges, indices, shape.edges(), face, TopAbs_EDGE);
+    append_sub_shapes(data.face_vertices, indices, shape.vertices(), face, TopAbs_VERTEX);
   }
   for (int index = 1; index <= shape.edges().Extent(); ++index) {
     const TopoDS_Edge &edge = TopoDS::Edge(shape.edges()(index));
-    append_ancestors(data.edge_faces, shape.faces(), edge_faces, edge);
-    TopTools_IndexedMapOfShape vertices;
-    TopExp::MapShapes(edge, TopAbs_VERTEX, vertices);
-    append_indices(data.edge_vertices, shape.vertices(), vertices);
+    append_ancestors(data.edge_faces, indices, shape.faces(), edge_faces, edge);
+    append_sub_shapes(data.edge_vertices, indices, shape.vertices(), edge, TopAbs_VERTEX);
     data.edge_degenerate.push_back(BRep_Tool::Degenerated(edge));
     bool seam = false;
     if (const TopTools_ListOfShape *faces = edge_faces.Seek(edge)) {
@@ -454,8 +464,8 @@ TopologyData shape_topology(const Shape &shape) {
   }
   for (int index = 1; index <= shape.vertices().Extent(); ++index) {
     const TopoDS_Shape &vertex = shape.vertices()(index);
-    append_ancestors(data.vertex_edges, shape.edges(), vertex_edges, vertex);
-    append_ancestors(data.vertex_faces, shape.faces(), vertex_faces, vertex);
+    append_ancestors(data.vertex_edges, indices, shape.edges(), vertex_edges, vertex);
+    append_ancestors(data.vertex_faces, indices, shape.faces(), vertex_faces, vertex);
   }
   return data;
 }

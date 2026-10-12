@@ -23,7 +23,11 @@ fn t014_edits_outside_a_transaction_need_a_label() {
     let sent = apply(&mut session, doc, None, json!([set_height("50 mm")]));
 
     assert_eq!(sent.error_code(), "label_required");
-    assert!(sent.events.is_empty(), "no events: {:?}", sent.event_types());
+    assert!(
+        sent.events.is_empty(),
+        "no events: {:?}",
+        sent.event_types()
+    );
     assert_eq!(revision(&mut session, doc), 0);
 }
 
@@ -142,12 +146,22 @@ fn t019_undo_and_redo_step_the_revision_and_the_values() {
 
     assert_eq!(undone.ok()["revision"], 2);
     assert_eq!(undone.ok()["label"], "Change height");
-    assert_relative(height_value(&undone), 40.0, GEOMETRY_TOLERANCE, "height after undo");
+    assert_relative(
+        height_value(&undone),
+        40.0,
+        GEOMETRY_TOLERANCE,
+        "height after undo",
+    );
 
     let redone = send(&mut session, json!({"type": "redo", "doc": doc}));
 
     assert_eq!(redone.ok()["revision"], 3);
-    assert_relative(height_value(&redone), 50.0, GEOMETRY_TOLERANCE, "height after redo");
+    assert_relative(
+        height_value(&redone),
+        50.0,
+        GEOMETRY_TOLERANCE,
+        "height after redo",
+    );
 }
 
 #[test]
@@ -166,9 +180,21 @@ fn t020_empty_stacks_have_nothing_to_undo_or_redo() {
 fn t021_a_new_edit_clears_the_redo_stack() {
     let mut session = session();
     let doc = open_doc(&mut session, "box.ptsm");
-    apply(&mut session, doc, Some("First"), json!([set_height("50 mm")])).ok();
+    apply(
+        &mut session,
+        doc,
+        Some("First"),
+        json!([set_height("50 mm")]),
+    )
+    .ok();
     send(&mut session, json!({"type": "undo", "doc": doc})).ok();
-    apply(&mut session, doc, Some("Second"), json!([set_height("60 mm")])).ok();
+    apply(
+        &mut session,
+        doc,
+        Some("Second"),
+        json!([set_height("60 mm")]),
+    )
+    .ok();
 
     let redo = send(&mut session, json!({"type": "redo", "doc": doc}));
 
@@ -206,7 +232,11 @@ fn t023_save_does_not_clean_and_mark_saved_moves_the_baseline() {
 
     let saved = send(&mut session, json!({"type": "save_document", "doc": doc}));
     assert_eq!(saved.ok()["revision"], 1);
-    assert!(saved.events.is_empty(), "save emits nothing: {:?}", saved.event_types());
+    assert!(
+        saved.events.is_empty(),
+        "save emits nothing: {:?}",
+        saved.event_types()
+    );
 
     let marked = send(
         &mut session,
@@ -222,7 +252,11 @@ fn t023_save_does_not_clean_and_mark_saved_moves_the_baseline() {
         json!({"type": "mark_saved", "doc": doc, "revision": 1}),
     );
     again.ok();
-    assert!(again.events.is_empty(), "nothing changed: {:?}", again.event_types());
+    assert!(
+        again.events.is_empty(),
+        "nothing changed: {:?}",
+        again.event_types()
+    );
 
     apply(
         &mut session,
@@ -236,7 +270,11 @@ fn t023_save_does_not_clean_and_mark_saved_moves_the_baseline() {
         json!({"type": "mark_saved", "doc": doc, "revision": 0}),
     );
     stale.ok();
-    assert!(stale.events.is_empty(), "nothing changed: {:?}", stale.event_types());
+    assert!(
+        stale.events.is_empty(),
+        "nothing changed: {:?}",
+        stale.event_types()
+    );
     let opened = send(
         &mut session,
         json!({"type": "begin_transaction", "doc": doc, "label": "Probe"}),
@@ -297,7 +335,10 @@ fn t106_rename_parameter_rewrites_expressions_and_undoes_as_one_entry() {
     assert_eq!(renamed.feature_status("f-box1")["status"], "ok");
     let document = get_document(&mut session, doc)["document"].clone();
     assert_eq!(document["parameters"][0]["name"], "h");
-    assert_eq!(document["features"][0]["size"], json!(["20 mm", "30 mm", "h"]));
+    assert_eq!(
+        document["features"][0]["size"],
+        json!(["20 mm", "30 mm", "h"])
+    );
 
     let undone = send(&mut session, json!({"type": "undo", "doc": doc}));
     assert_eq!(undone.ok()["label"], "Rename parameter height to h");

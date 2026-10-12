@@ -27,20 +27,33 @@ pub(crate) struct Problem<'a> {
     scales: Vec<f64>,
     /// The full parameter vector; the component's parameters are rewritten on each evaluation.
     x: Vec<f64>,
+    /// Scratch for one row's gradient.
+    gradient: Vec<(usize, f64)>,
+    /// The factorization of the Gauss-Newton steps, reused so that its buffers are allocated once.
+    factorization: SparseQr,
 }
 
 /// Residuals and the Jacobian with respect to `z` at one point.
 struct Evaluation {
     residuals: Vec<f64>,
-    /// One sparse row per residual: (variable, partial derivative), ascending.
-    jacobian: Vec<Vec<(usize, f64)>>,
+    /// The sparse rows of the Jacobian back to back: (variable, partial derivative), ascending within a row.
+    entries: Vec<(usize, f64)>,
+    /// Where each row starts in `entries`, plus the end of the last.
+    starts: Vec<usize>,
 }
 
 impl Evaluation {
+    /// The sparse Jacobian rows in row order.
+    fn rows(&self) -> impl Iterator<Item = &[(usize, f64)]> {
+        self.starts
+            .windows(2)
+            .map(|bounds| &self.entries[bounds[0]..bounds[1]])
+    }
+
     /// `J^T v` for a vector with one entry per row.
     fn transpose_times(&self, vector: &[f64], variables: usize) -> Vec<f64> {
         let mut product = vec![0.0; variables];
-        for (row, &value) in self.jacobian.iter().zip(vector) {
+        for (row, &value) in self.rows().zip(vector) {
             for &(variable, partial) in row {
                 product[variable] += partial * value;
             }
@@ -50,8 +63,7 @@ impl Evaluation {
 
     /// `J v` for a vector with one entry per variable.
     fn times(&self, vector: &[f64]) -> Vec<f64> {
-        self.jacobian
-            .iter()
+        self.rows()
             .map(|row| {
                 row.iter()
                     .map(|&(variable, partial)| partial * vector[variable])
@@ -88,6 +100,8 @@ impl<'a> Problem<'a> {
             substitution,
             scales,
             x,
+            gradient: Vec::new(),
+            factorization: SparseQr::default(),
         }
     }
 
@@ -99,34 +113,53 @@ impl<'a> Problem<'a> {
 
     fn evaluate(&mut self, y: &[f64]) -> Evaluation {
         self.substitution.write(y, &mut self.x);
-        let mut residuals = Vec::with_capacity(self.substitution.rows.len());
-        let mut jacobian = Vec::with_capacity(self.substitution.rows.len());
-        let mut gradient = Vec::new();
+        let count = self.substitution.rows.len();
+        let mut residuals = Vec::with_capacity(count);
+        let mut entries = Vec::new();
+        let mut starts = Vec::with_capacity(count + 1);
+        starts.push(0);
         for &row in &self.substitution.rows {
-            gradient.clear();
-            residuals.push(self.system.rows[row].value_and_gradient(&self.x, &mut gradient));
-            let mut partials: Vec<(usize, f64)> = gradient
-                .iter()
-                .filter_map(|&(parameter, partial)| {
-                    self.substitution
-                        .variable(parameter)
-                        .map(|variable| (variable, partial * self.scales[variable]))
-                })
-                .collect();
-            partials.sort_by_key(|&(variable, _)| variable);
-            partials.dedup_by(|later, earlier| {
-                let same = later.0 == earlier.0;
-                if same {
-                    earlier.1 += later.1;
+            self.gradient.clear();
+            residuals.push(self.system.rows[row].value_and_gradient(&self.x, &mut self.gradient));
+            let start = entries.len();
+            for &(parameter, partial) in &self.gradient {
+                if let Some(variable) = self.substitution.variable(parameter) {
+                    entries.push((variable, partial * self.scales[variable]));
                 }
-                same
-            });
-            jacobian.push(partials);
+            }
+            entries[start..].sort_by_key(|&(variable, _)| variable);
+            // Partials of one variable (from several parameters of its class) are summed in order.
+            let mut end = start;
+            for index in start..entries.len() {
+                let (variable, partial) = entries[index];
+                if end > start && entries[end - 1].0 == variable {
+                    entries[end - 1].1 += partial;
+                } else {
+                    entries[end] = (variable, partial);
+                    end += 1;
+                }
+            }
+            entries.truncate(end);
+            starts.push(end);
         }
         Evaluation {
             residuals,
-            jacobian,
+            entries,
+            starts,
         }
+    }
+
+    /// The minimum-norm Gauss-Newton step at `evaluation` on the rows that pass the sequential rank test.
+    fn gauss_newton_step(&mut self, evaluation: &Evaluation) -> Vec<f64> {
+        self.factorization.clear(self.scales.len());
+        let mut accepted_residuals = Vec::new();
+        for (row, &residual) in evaluation.rows().zip(&evaluation.residuals) {
+            if self.factorization.add(row, RANK_TOLERANCE) == Added::Accepted {
+                accepted_residuals.push(-residual);
+            }
+        }
+        self.factorization
+            .minimum_norm_solution(&accepted_residuals)
     }
 
     /// `y + D h`.
@@ -140,12 +173,11 @@ impl<'a> Problem<'a> {
 
     /// `norm(z)` for `z = y / D`.
     fn scaled_norm(&self, y: &[f64]) -> f64 {
-        norm(
-            &y.iter()
-                .zip(&self.scales)
-                .map(|(value, scale)| value / scale)
-                .collect::<Vec<f64>>(),
-        )
+        y.iter()
+            .zip(&self.scales)
+            .map(|(value, scale)| (value / scale).powi(2))
+            .sum::<f64>()
+            .sqrt()
     }
 
     fn too_small(&self, step: &[f64], y: &[f64]) -> bool {
@@ -165,26 +197,24 @@ pub(crate) enum Outcome {
 /// Runs dog-leg from `start`, then Levenberg-Marquardt from `start` again when dog-leg does not converge.
 /// A converged point is refined before it is returned.
 pub(crate) fn solve(problem: &mut Problem<'_>, start: &[f64]) -> Outcome {
-    let solution = match dog_leg(problem, start) {
-        Some(solution) => solution,
+    use std::sync::atomic::Ordering::Relaxed;
+    use super::sparse_qr::*;
+    let all = [&ENQUEUE, &INSERT, &QUEUE_SHIFT, &ADDS, &REFLECTS, &NEWROWS, &TOUCHLEN, &COLUMNS];
+    for counter in all { counter.store(0, Relaxed); }
+    let outcome = solve_inner(problem, start);
+    let c = COLUMNS.load(Relaxed) as f64;
+    eprintln!("per column: enqueue {:.1} insert {:.1} shift {:.1} adds {:.1} reflects {:.1} newrows {:.1} touchlen {:.1}", ENQUEUE.load(Relaxed) as f64 / c, INSERT.load(Relaxed) as f64 / c, QUEUE_SHIFT.load(Relaxed) as f64 / c, ADDS.load(Relaxed) as f64 / c, REFLECTS.load(Relaxed) as f64 / c, NEWROWS.load(Relaxed) as f64 / c, TOUCHLEN.load(Relaxed) as f64 / c);
+    outcome
+}
+fn solve_inner(problem: &mut Problem<'_>, start: &[f64]) -> Outcome {
+    let (solution, evaluation) = match dog_leg(problem, start) {
+        Some(converged) => converged,
         None => match levenberg_marquardt(problem, start) {
-            Ok(solution) => solution,
+            Ok(converged) => converged,
             Err(end) => return Outcome::Failed(end),
         },
     };
-    Outcome::Converged(refine(problem, solution))
-}
-
-/// The minimum-norm Gauss-Newton step on the rows that pass the sequential rank test.
-fn gauss_newton_step(evaluation: &Evaluation, variables: usize) -> Vec<f64> {
-    let mut factorization = SparseQr::new(variables);
-    let mut accepted_residuals = Vec::new();
-    for (row, &residual) in evaluation.jacobian.iter().zip(&evaluation.residuals) {
-        if factorization.add(row, RANK_TOLERANCE) == Added::Accepted {
-            accepted_residuals.push(-residual);
-        }
-    }
-    factorization.minimum_norm_solution(&accepted_residuals)
+    Outcome::Converged(refine(problem, solution, evaluation))
 }
 
 /// `F(z) - F(z + h)` computed from the two residual vectors without cancellation of the squares.
@@ -205,18 +235,18 @@ fn gain_ratio(actual: f64, predicted: f64) -> f64 {
     }
 }
 
-/// Powell's dog-leg method; `None` when it stops without converging.
+/// Powell's dog-leg method: the converged point with its evaluation, or `None` when it stops without converging.
 ///
 /// A step at most `MIN_RELATIVE_STEP` long ends the iteration, but only after it was tried, so a last
 /// tiny step that completes convergence is kept.
-fn dog_leg(problem: &mut Problem<'_>, start: &[f64]) -> Option<Vec<f64>> {
+fn dog_leg(problem: &mut Problem<'_>, start: &[f64]) -> Option<(Vec<f64>, Evaluation)> {
     let variables = start.len();
     let mut y = start.to_vec();
     let mut current = problem.evaluate(&y);
     if current.converged() {
-        return Some(y);
+        return Some((y, current));
     }
-    let mut gauss_newton = gauss_newton_step(&current, variables);
+    let mut gauss_newton = problem.gauss_newton_step(&current);
     let mut radius = norm(&gauss_newton).max(MIN_TRUST_RADIUS);
     for _ in 0..MAX_ITERATIONS {
         let gradient = current.transpose_times(&current.residuals, variables);
@@ -256,9 +286,9 @@ fn dog_leg(problem: &mut Problem<'_>, start: &[f64]) -> Option<Vec<f64>> {
             y = candidate;
             current = trial;
             if current.converged() {
-                return Some(y);
+                return Some((y, current));
             }
-            gauss_newton = gauss_newton_step(&current, variables);
+            gauss_newton = problem.gauss_newton_step(&current);
         }
         if stalled {
             return None;
@@ -290,18 +320,22 @@ fn blend(steepest: &[f64], gauss_newton: &[f64], radius: f64) -> Vec<f64> {
         .collect()
 }
 
-/// Levenberg-Marquardt; `Err` holds the point where it stopped without converging.
+/// Levenberg-Marquardt: the converged point with its evaluation, or `Err` with the point where it
+/// stopped without converging.
 ///
 /// Like dog-leg, it tries a step at most `MIN_RELATIVE_STEP` long before it stops.
-fn levenberg_marquardt(problem: &mut Problem<'_>, start: &[f64]) -> Result<Vec<f64>, Vec<f64>> {
+fn levenberg_marquardt(
+    problem: &mut Problem<'_>,
+    start: &[f64],
+) -> Result<(Vec<f64>, Evaluation), Vec<f64>> {
     let variables = start.len();
     let mut y = start.to_vec();
     let mut current = problem.evaluate(&y);
     if current.converged() {
-        return Ok(y);
+        return Ok((y, current));
     }
     let mut diagonal = vec![0.0; variables];
-    for row in &current.jacobian {
+    for row in current.rows() {
         for &(variable, partial) in row {
             diagonal[variable] += partial * partial;
         }
@@ -331,7 +365,7 @@ fn levenberg_marquardt(problem: &mut Problem<'_>, start: &[f64]) -> Result<Vec<f
             y = candidate;
             current = trial;
             if current.converged() {
-                return Ok(y);
+                return Ok((y, current));
             }
             damping *= (1.0 - (2.0 * rho - 1.0).powi(3)).max(1.0 / 3.0);
             growth = 2.0;
@@ -354,14 +388,13 @@ fn levenberg_marquardt(problem: &mut Problem<'_>, start: &[f64]) -> Result<Vec<f
 /// with a row slightly above the tolerance, and solving the output again would move it. Refined, the
 /// conversion moves points far less than the tolerance, so the output solves back to itself bitwise.
 /// Every accepted step lowers the largest residual, so the point stays converged.
-fn refine(problem: &mut Problem<'_>, mut y: Vec<f64>) -> Vec<f64> {
-    let mut current = problem.evaluate(&y);
+fn refine(problem: &mut Problem<'_>, mut y: Vec<f64>, mut current: Evaluation) -> Vec<f64> {
     for _ in 0..MAX_REFINEMENT_STEPS {
         let largest = current.largest_residual();
         if largest <= REFINED_RESIDUAL {
             break;
         }
-        let step = gauss_newton_step(&current, y.len());
+        let step = problem.gauss_newton_step(&current);
         let candidate = problem.advance(&y, &step);
         let trial = problem.evaluate(&candidate);
         let finite = trial.residuals.iter().all(|residual| residual.is_finite());
@@ -378,7 +411,7 @@ fn refine(problem: &mut Problem<'_>, mut y: Vec<f64>) -> Vec<f64> {
 fn damped_step(evaluation: &Evaluation, damping: f64, variables: usize) -> Vec<f64> {
     let rows = evaluation.residuals.len();
     let mut columns: Vec<Vec<(usize, f64)>> = vec![Vec::new(); variables];
-    for (row, partials) in evaluation.jacobian.iter().enumerate() {
+    for (row, partials) in evaluation.rows().enumerate() {
         for &(variable, partial) in partials {
             columns[variable].push((row, partial));
         }

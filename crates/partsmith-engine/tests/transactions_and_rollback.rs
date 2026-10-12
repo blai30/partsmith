@@ -51,7 +51,10 @@ fn t026_a_transaction_undoes_as_one_entry_with_its_label() {
         apply(&mut session, doc, None, json!([set_height(height)])).ok();
     }
 
-    let committed = send(&mut session, json!({"type": "commit_transaction", "doc": doc}));
+    let committed = send(
+        &mut session,
+        json!({"type": "commit_transaction", "doc": doc}),
+    );
     assert_eq!(committed.ok()["recorded"], true);
 
     let undone = send(&mut session, json!({"type": "undo", "doc": doc}));
@@ -99,8 +102,14 @@ fn t029_commit_cancel_and_focus_need_a_transaction() {
     let mut session = session();
     let doc = open_doc(&mut session, "box.ptsm");
 
-    let commit = send(&mut session, json!({"type": "commit_transaction", "doc": doc}));
-    let cancel = send(&mut session, json!({"type": "cancel_transaction", "doc": doc}));
+    let commit = send(
+        &mut session,
+        json!({"type": "commit_transaction", "doc": doc}),
+    );
+    let cancel = send(
+        &mut session,
+        json!({"type": "cancel_transaction", "doc": doc}),
+    );
     let focused = focus(&mut session, doc, "f-box1");
 
     assert_eq!(commit.error_code(), "no_transaction");
@@ -117,7 +126,10 @@ fn t030_cancel_restores_the_recipe_and_counts_as_a_revision() {
     apply(&mut session, doc, None, json!([set_height("41 mm")])).ok();
     apply(&mut session, doc, None, json!([set_height("42 mm")])).ok();
 
-    let canceled = send(&mut session, json!({"type": "cancel_transaction", "doc": doc}));
+    let canceled = send(
+        &mut session,
+        json!({"type": "cancel_transaction", "doc": doc}),
+    );
 
     assert_eq!(canceled.ok()["revision"], 3);
     assert_bounding_box(
@@ -149,7 +161,10 @@ fn t032_committing_an_empty_transaction_records_nothing() {
     let doc = open_doc(&mut session, "box.ptsm");
     begin(&mut session, doc, "Nothing").ok();
 
-    let committed = send(&mut session, json!({"type": "commit_transaction", "doc": doc}));
+    let committed = send(
+        &mut session,
+        json!({"type": "commit_transaction", "doc": doc}),
+    );
 
     assert_eq!(committed.ok()["recorded"], false);
     assert_eq!(committed.ok()["revision"], 0);
@@ -171,7 +186,11 @@ fn t033_coalesced_slider_edits_undo_to_the_original_text() {
         )
         .ok();
     }
-    send(&mut session, json!({"type": "commit_transaction", "doc": doc})).ok();
+    send(
+        &mut session,
+        json!({"type": "commit_transaction", "doc": doc}),
+    )
+    .ok();
 
     send(&mut session, json!({"type": "undo", "doc": doc})).ok();
 
@@ -220,12 +239,18 @@ fn t036_commit_after_a_focus_shows_the_result_and_removes_the_preview() {
     let mut session = session();
     let (doc, _) = focused_fillet(&mut session);
 
-    let committed = send(&mut session, json!({"type": "commit_transaction", "doc": doc}));
+    let committed = send(
+        &mut session,
+        json!({"type": "commit_transaction", "doc": doc}),
+    );
 
     committed.ok();
     assert_eq!(face_count(committed.body_mesh("b-1", "model")), 7);
     let preview = committed.body_mesh("b-1", "preview");
-    assert!(preview.get("mesh").is_none(), "the preview is removed: {preview}");
+    assert!(
+        preview.get("mesh").is_none(),
+        "the preview is removed: {preview}"
+    );
 }
 
 #[test]

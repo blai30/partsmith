@@ -151,9 +151,18 @@ fn t088_exports_are_deterministic() {
         let first = export(&mut session, doc, format.clone());
         let second = export(&mut session, doc, format.clone());
         assert_eq!(file_names(&first), file_names(&second), "{format}");
-        let first_bytes: Vec<Vec<u8>> = files(&first).iter().map(|file| first.file_bytes(file)).collect();
-        let second_bytes: Vec<Vec<u8>> = files(&second).iter().map(|file| second.file_bytes(file)).collect();
-        assert!(first_bytes == second_bytes, "{format} exports are byte-identical");
+        let first_bytes: Vec<Vec<u8>> = files(&first)
+            .iter()
+            .map(|file| first.file_bytes(file))
+            .collect();
+        let second_bytes: Vec<Vec<u8>> = files(&second)
+            .iter()
+            .map(|file| second.file_bytes(file))
+            .collect();
+        assert!(
+            first_bytes == second_bytes,
+            "{format} exports are byte-identical"
+        );
     }
 }
 
@@ -162,15 +171,26 @@ fn t089_step_round_trip_imports_one_named_body_with_the_same_volume() {
     let (mut session, doc, bytes, imported) = imported_box();
 
     let result = imported.ok().clone();
-    let body = result["body"].as_str().expect("the result names the body").to_owned();
-    assert!(result["feature"].is_string(), "the result names the feature: {result}");
+    let body = result["body"]
+        .as_str()
+        .expect("the result names the body")
+        .to_owned();
+    assert!(
+        result["feature"].is_string(),
+        "the result names the feature: {result}"
+    );
     let document = get_document(&mut session, doc)["document"].clone();
     assert_eq!(document["bodies"].as_array().map(Vec::len), Some(1));
     assert_eq!(document["features"].as_array().map(Vec::len), Some(1));
     assert_eq!(document["bodies"][0]["id"], body.as_str());
     assert_eq!(document["bodies"][0]["name"], "Block");
     let measured = measure_body(&mut session, doc, &body);
-    assert_relative(number(&measured["volume"]), 24000.0, GEOMETRY_TOLERANCE, "volume");
+    assert_relative(
+        number(&measured["volume"]),
+        24000.0,
+        GEOMETRY_TOLERANCE,
+        "volume",
+    );
 
     let named_doc = new_doc(&mut session);
     let named = import_step(&mut session, named_doc, &bytes, Some("Bracket"));
@@ -182,16 +202,28 @@ fn t089_step_round_trip_imports_one_named_body_with_the_same_volume() {
 #[test]
 fn t090_saving_returns_the_content_hashed_asset() {
     let (mut session, doc, bytes, imported) = imported_box();
-    let body = imported.ok()["body"].as_str().expect("the result names the body").to_owned();
+    let body = imported.ok()["body"]
+        .as_str()
+        .expect("the result names the body")
+        .to_owned();
     let volume = number(&measure_body(&mut session, doc, &body)["volume"]);
 
     let saved = send(&mut session, json!({"type": "save_document", "doc": doc}));
 
-    let assets = saved.ok()["assets"].as_array().expect("save returns assets").clone();
+    let assets = saved.ok()["assets"]
+        .as_array()
+        .expect("save returns assets")
+        .clone();
     assert_eq!(assets.len(), 1);
     assert_eq!(assets[0]["name"], asset_name(&bytes).as_str());
-    assert!(saved.u8_buffer(&assets[0]["data"]) == bytes, "the asset holds the STEP bytes");
-    let text = saved.ok()["text"].as_str().expect("save returns text").to_owned();
+    assert!(
+        saved.u8_buffer(&assets[0]["data"]) == bytes,
+        "the asset holds the STEP bytes"
+    );
+    let text = saved.ok()["text"]
+        .as_str()
+        .expect("save returns text")
+        .to_owned();
     let reopened = open_with_asset(&mut session, &text, &asset_name(&bytes), &bytes);
     let reopened_doc = doc_handle(&reopened);
     let reopened_volume = number(&measure_body(&mut session, reopened_doc, &body)["volume"]);
@@ -201,7 +233,10 @@ fn t090_saving_returns_the_content_hashed_asset() {
 #[test]
 fn t091_a_missing_asset_fails_the_import_feature() {
     let (mut session, doc, _, imported) = imported_box();
-    let feature = imported.ok()["feature"].as_str().expect("the result names the feature").to_owned();
+    let feature = imported.ok()["feature"]
+        .as_str()
+        .expect("the result names the feature")
+        .to_owned();
     let text = common::saved_text(&mut session, doc);
 
     let reopened = open_text(&mut session, &text);
@@ -213,7 +248,9 @@ fn t091_a_missing_asset_fails_the_import_feature() {
             .as_array()
             .expect("statuses list messages")
             .iter()
-            .any(|message| message["message"].as_str().is_some_and(|text| text.contains("is missing"))),
+            .any(|message| message["message"]
+                .as_str()
+                .is_some_and(|text| text.contains("is missing"))),
         "a message says the asset is missing: {status}"
     );
 }
@@ -320,8 +357,14 @@ fn t112_an_import_under_the_rollback_marker_is_inserted_active() {
 
     let imported = import_step(&mut session, doc, &bytes, None);
 
-    let feature = imported.ok()["feature"].as_str().expect("the result names the feature").to_owned();
-    let body = imported.ok()["body"].as_str().expect("the result names the body").to_owned();
+    let feature = imported.ok()["feature"]
+        .as_str()
+        .expect("the result names the feature")
+        .to_owned();
+    let body = imported.ok()["body"]
+        .as_str()
+        .expect("the result names the body")
+        .to_owned();
     let document = get_document(&mut session, doc)["document"].clone();
     let record = &document["features"][1];
     assert_eq!(record["id"], feature.as_str());

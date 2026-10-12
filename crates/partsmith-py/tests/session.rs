@@ -129,8 +129,7 @@ fn t074_two_threads_share_one_session() {
                         .map(|call_index| {
                             let id = thread_index * 1000 + call_index;
                             let frame = engine_info_frame(id);
-                            let response =
-                                Python::attach(|py| call(session.bind(py), &frame));
+                            let response = Python::attach(|py| call(session.bind(py), &frame));
                             (id, response_json(&response))
                         })
                         .collect::<Vec<_>>()

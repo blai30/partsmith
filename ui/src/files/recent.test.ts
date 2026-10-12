@@ -19,6 +19,10 @@ function fakeHandle(name: string, file: string): FileSystemFileHandle {
   return handle as unknown as FileSystemFileHandle
 }
 
+function recentFile(id: string, name: string, openedAt: number): RecentFile {
+  return { id, name, openedAt, handle: null, text: '{}' }
+}
+
 function blocked(): never {
   throw new DOMException('The user denied permission to access the database.', 'SecurityError')
 }
@@ -276,18 +280,11 @@ describe('createIndexedDbRecentFiles', () => {
   it('lists the stored entries by openedAt, newest first, whatever their ids', async () => {
     const fake = createFakeIndexedDb()
     const store = createIndexedDbRecentFiles(fake.factory)
-    // Creates the database, then stores entries whose id order is the reverse of their age.
+    // Creates the database, then stores entries whose key order is not their openedAt order.
     await store.list()
-    const record = (id: string, name: string, openedAt: number): RecentFile => ({
-      id,
-      name,
-      openedAt,
-      handle: null,
-      text: '{}',
-    })
-    fake.putRecord('partsmith', 'recent', record('a', 'oldest.ptsm', 1000))
-    fake.putRecord('partsmith', 'recent', record('b', 'newest.ptsm', 3000))
-    fake.putRecord('partsmith', 'recent', record('c', 'middle.ptsm', 2000))
+    fake.putRecord('partsmith', 'recent', recentFile('a', 'oldest.ptsm', 1000))
+    fake.putRecord('partsmith', 'recent', recentFile('b', 'newest.ptsm', 3000))
+    fake.putRecord('partsmith', 'recent', recentFile('c', 'middle.ptsm', 2000))
     expect((await store.list()).map((entry) => entry.name)).toEqual([
       'newest.ptsm',
       'middle.ptsm',

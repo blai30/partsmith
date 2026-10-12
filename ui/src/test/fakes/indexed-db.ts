@@ -266,6 +266,10 @@ class FakeDatabase extends EventTarget {
   }
 }
 
+function unsupported(): never {
+  throw domError('NotSupportedError', 'The fake IndexedDB only opens databases.')
+}
+
 /** Creates an empty in-memory IndexedDB; its `factory` stands in for `window.indexedDB`. */
 export function createFakeIndexedDb(): FakeIndexedDb {
   const databases = new Map<string, DatabaseData>()
@@ -325,10 +329,6 @@ export function createFakeIndexedDb(): FakeIndexedDb {
       connect(request, name, data, requested)
     })
     return request
-  }
-
-  function unsupported(): never {
-    throw domError('NotSupportedError', 'The fake IndexedDB only opens databases.')
   }
 
   // The fake has the members the stores use, not all of IDBFactory's.

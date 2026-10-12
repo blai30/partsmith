@@ -79,6 +79,15 @@ describe('register, get and list', () => {
     )
   })
 
+  it('register throws for a malformed shortcut and registers nothing', () => {
+    const registry = createCommandRegistry()
+    expect(() => registry.register(command('file.save', { shortcuts: ['Shift+Mod+S'] }))).toThrow(
+      new Error('Invalid shortcut "Shift+Mod+S".'),
+    )
+    expect(registry.get('file.save')).toBeUndefined()
+    expect(registry.list()).toEqual([])
+  })
+
   it('get returns the registered definition and undefined for an unknown id', () => {
     const registry = createCommandRegistry()
     const save = command('file.save')
@@ -225,6 +234,24 @@ describe('forChord', () => {
     registry.register(command('second.delete', { shortcuts: ['Delete'] }))
     const app = createTestApp(registry)
     expect(registry.forChord(app, 'Delete', 'model')?.id).toBe('second.delete')
+  })
+
+  it('keeps Ctrl and Mod apart on macOS, where Mod is Cmd', () => {
+    const registry = createCommandRegistry()
+    registry.register(command('view.browser', { shortcuts: ['Mod+B'] }))
+    registry.register(command('control.command', { shortcuts: ['Ctrl+B'] }))
+    const app = createTestApp(registry, MAC_WEB)
+    expect(registry.forChord(app, 'Mod+B', 'model')?.id).toBe('view.browser')
+    expect(registry.forChord(app, 'Ctrl+B', 'model')?.id).toBe('control.command')
+  })
+
+  it('finds a command bound to Ctrl by the chord the Control key gives outside macOS', () => {
+    const registry = createCommandRegistry()
+    registry.register(command('control.command', { shortcuts: ['Ctrl+B'] }))
+    // chordFromEvent reports the Control key as the primary modifier outside macOS.
+    expect(registry.forChord(createTestApp(registry, LINUX_WEB), 'Mod+B', 'model')?.id).toBe(
+      'control.command',
+    )
   })
 
   it('returns a disabled command so its reason can be shown', () => {
