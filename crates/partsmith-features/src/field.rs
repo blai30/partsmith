@@ -74,7 +74,8 @@ pub(crate) fn segments(path: &str) -> Option<Vec<Segment<'_>>> {
         } else if let Some(after) = rest.strip_prefix('.') {
             rest = after;
             expect_name = true;
-        } else if let Some(after) = rest.strip_prefix('[') {
+        } else {
+            let after = rest.strip_prefix('[')?;
             let end = after.find(']')?;
             let index = &after[..end];
             steps.push(if index == "*" {
@@ -85,8 +86,6 @@ pub(crate) fn segments(path: &str) -> Option<Vec<Segment<'_>>> {
                 return None;
             });
             rest = &after[end + 1..];
-        } else {
-            return None;
         }
     }
     Some(steps)

@@ -84,7 +84,16 @@ pub fn error_response_frame(id: u64, code: ErrorCode, message: &str) -> Vec<u8> 
 
 /// Writes magic, header length, header, zero padding, then each buffer little-endian with zero gaps.
 fn encode(messages: &[MessageRef<'_>], buffers: &[Buffer]) -> Result<Vec<u8>, FrameError> {
-    let table = buffer_table(buffers);
+    let offsets = buffer_offsets(buffers);
+    let table: Vec<BufferInfo> = offsets
+        .iter()
+        .zip(buffers)
+        .map(|(&offset, buffer)| BufferInfo {
+            offset: offset as u64,
+            length: buffer.byte_length() as u64,
+            element_type: buffer.element_type(),
+        })
+        .collect();
     let header = HeaderRef {
         protocol_version: PROTOCOL_VERSION,
         messages,
@@ -101,40 +110,31 @@ fn encode(messages: &[MessageRef<'_>], buffers: &[Buffer]) -> Result<Vec<u8>, Fr
         u32::try_from(header.len()).expect("a header within MAX_HEADER_LENGTH fits in a u32");
 
     let buffer_start = PREFIX_LENGTH + header.len() + header_padding(header.len());
-    let starts: Vec<usize> = buffer_starts(buffer_start, buffers).collect();
-    let frame_length = starts
+    let section_length = offsets
         .last()
         .zip(buffers.last())
-        .map_or(buffer_start, |(start, buffer)| start + buffer.byte_length());
+        .map_or(0, |(offset, buffer)| offset + buffer.byte_length());
 
     // Every byte not written below (padding and gaps) stays zero.
-    let mut bytes = vec![0; frame_length];
+    let mut bytes = vec![0; buffer_start + section_length];
     bytes[..MAGIC.len()].copy_from_slice(&MAGIC);
     bytes[MAGIC.len()..PREFIX_LENGTH].copy_from_slice(&header_length.to_le_bytes());
     bytes[PREFIX_LENGTH..PREFIX_LENGTH + header.len()].copy_from_slice(&header);
-    for (start, buffer) in starts.into_iter().zip(buffers) {
+    for (offset, buffer) in offsets.into_iter().zip(buffers) {
+        let start = buffer_start + offset;
         buffer.write_to(&mut bytes[start..start + buffer.byte_length()]);
     }
     Ok(bytes)
 }
 
-/// Where each buffer starts when the first one starts at `first`, by the layout rule of section 2.2: each buffer starts at the first multiple of 8 at or after the end of the one before.
-fn buffer_starts(first: usize, buffers: &[Buffer]) -> impl Iterator<Item = usize> {
-    buffers.iter().scan(first, |next_start, buffer| {
-        let start = *next_start;
-        *next_start = (start + buffer.byte_length()).next_multiple_of(ALIGNMENT);
-        Some(start)
-    })
-}
-
-/// The header's buffer table, with offsets relative to the buffer section.
-fn buffer_table(buffers: &[Buffer]) -> Vec<BufferInfo> {
-    buffer_starts(0, buffers)
-        .zip(buffers)
-        .map(|(offset, buffer)| BufferInfo {
-            offset: offset as u64,
-            length: buffer.byte_length() as u64,
-            element_type: buffer.element_type(),
+/// Offset of each buffer from the start of the buffer section, by the layout rule of section 2.2: the first buffer is at 0, and each later one at the first multiple of 8 at or after the end of the one before.
+fn buffer_offsets(buffers: &[Buffer]) -> Vec<usize> {
+    buffers
+        .iter()
+        .scan(0, |next_offset: &mut usize, buffer| {
+            let offset = *next_offset;
+            *next_offset = (offset + buffer.byte_length()).next_multiple_of(ALIGNMENT);
+            Some(offset)
         })
         .collect()
 }
@@ -188,7 +188,7 @@ mod tests {
     }
 
     #[test]
-    fn buffer_table_aligns_each_offset_to_eight() {
+    fn buffer_offsets_align_each_buffer_to_eight() {
         let buffers = [
             Buffer::U8(vec![0; 3]),
             Buffer::F32(vec![0.0; 2]),
@@ -196,25 +196,26 @@ mod tests {
             Buffer::U8(vec![0; 1]),
         ];
 
-        let offsets: Vec<u64> = buffer_table(&buffers)
-            .iter()
-            .map(|info| info.offset)
-            .collect();
-
-        assert_eq!(offsets, [0, 8, 16, 16]);
+        assert_eq!(buffer_offsets(&buffers), [0, 8, 16, 16]);
     }
 
     #[test]
     fn buffer_table_lists_byte_lengths_and_types() {
-        let table = buffer_table(&[Buffer::U32(vec![1, 2])]);
+        let frame = Frame {
+            messages: Vec::new(),
+            buffers: vec![Buffer::U32(vec![1, 2])],
+        };
 
-        assert_eq!(
-            table,
-            [BufferInfo {
-                offset: 0,
-                length: 8,
-                element_type: crate::ElementType::U32,
-            }]
+        let bytes = encode_frame(&frame).expect("a small frame encodes");
+
+        let decoded = crate::decode_frame(&bytes).expect("an encoded frame decodes");
+        assert_eq!(decoded.buffers, frame.buffers);
+        let header_length = usize::from(bytes[4]);
+        let header = std::str::from_utf8(&bytes[PREFIX_LENGTH..PREFIX_LENGTH + header_length])
+            .expect("the header is UTF-8");
+        assert!(
+            header.ends_with(r#""buffers":[{"offset":0,"length":8,"element_type":"u32"}]}"#),
+            "{header}"
         );
     }
 
@@ -238,7 +239,10 @@ mod tests {
 
         let bytes = encode_frame(&frame).expect("a small frame encodes");
 
-        assert_eq!(&bytes[bytes.len() - 13..], &[1, 1, 1, 0, 0, 0, 0, 0, 2, 2, 2, 2, 2]);
+        assert_eq!(
+            &bytes[bytes.len() - 13..],
+            &[1, 1, 1, 0, 0, 0, 0, 0, 2, 2, 2, 2, 2]
+        );
     }
 
     #[test]

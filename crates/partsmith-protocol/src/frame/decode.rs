@@ -5,7 +5,9 @@ use std::ops::Range;
 use serde::Deserialize;
 use serde_json::{Map, Value};
 
-use super::{ALIGNMENT, Buffer, BufferInfo, Frame, FrameError, PREFIX_LENGTH, ResponseFrame, header_padding};
+use super::{
+    ALIGNMENT, Buffer, BufferInfo, Frame, FrameError, PREFIX_LENGTH, ResponseFrame, header_padding,
+};
 use crate::{MAGIC, MAX_HEADER_LENGTH, Message, PROTOCOL_VERSION, Request};
 
 /// Decodes and validates a frame (layout, version, message types).
@@ -39,9 +41,7 @@ pub fn decode_frame(bytes: &[u8]) -> Result<Frame, FrameError> {
 
     // 5 to 7: the header is JSON with protocol version 1 and a buffer table.
     let header = parse_header(&bytes[PREFIX_LENGTH..header_end])?;
-    let request_id = header
-        .pointer("/messages/0/id")
-        .and_then(Value::as_u64);
+    let request_id = header.pointer("/messages/0/id").and_then(Value::as_u64);
     let invalid = |message: String| FrameError::InvalidMessage {
         message,
         request_id,
@@ -79,13 +79,14 @@ pub fn decode_frame(bytes: &[u8]) -> Result<Frame, FrameError> {
 
     // 11: the messages match the message schema.
     let Value::Array(items) = field(fields, "messages").map_err(&invalid)? else {
-        return Err(invalid("messages is not a list.".to_string()));
+        return Err(invalid("the messages field is not a list.".to_string()));
     };
     let messages = items
         .iter()
         .enumerate()
         .map(|(index, item)| {
-            Message::deserialize(item).map_err(|error| invalid(format!("message {index}: {error}.")))
+            Message::deserialize(item)
+                .map_err(|error| invalid(format!("message {index}: {error}.")))
         })
         .collect::<Result<Vec<Message>, FrameError>>()?;
 
@@ -105,7 +106,7 @@ pub fn decode_request_frame(bytes: &[u8]) -> Result<(Request, Vec<Buffer>), Fram
         Ok([Message::Request(request)]) => return Ok((request, frame.buffers)),
         Ok([other]) => format!(
             "a request frame must hold a request, but this one holds {}.",
-            with_article(&other)
+            kind_with_article(&other)
         ),
         Err(messages) => format!(
             "a request frame must hold exactly one message, but this one holds {}.",
@@ -132,7 +133,7 @@ pub fn decode_response_frame(bytes: &[u8]) -> Result<ResponseFrame, FrameError> 
         Some(other) => {
             return Err(invalid(format!(
                 "a response frame must end with a response, but this one ends with {}.",
-                with_article(&other)
+                kind_with_article(&other)
             )));
         }
         None => {
@@ -149,7 +150,7 @@ pub fn decode_response_frame(bytes: &[u8]) -> Result<ResponseFrame, FrameError> 
             Message::Event(event) => Ok(event),
             other => Err(invalid(format!(
                 "message {index} of a response frame must be an event, but it is {}.",
-                with_article(&other)
+                kind_with_article(&other)
             ))),
         })
         .collect::<Result<_, _>>()?;
@@ -234,7 +235,7 @@ fn is_zero(bytes: &[u8]) -> bool {
 }
 
 /// The message's kind with its article, for composition errors ("a request", "an event").
-fn with_article(message: &Message) -> &'static str {
+fn kind_with_article(message: &Message) -> &'static str {
     match message {
         Message::Request(_) => "a request",
         Message::Response(_) => "a response",
@@ -373,7 +374,8 @@ mod tests {
 
     #[test]
     fn invalid_message_names_the_message_index() {
-        let header = r#"{"protocol_version":1,"messages":[{"kind":"event","type":"nothing"}],"buffers":[]}"#;
+        let header =
+            r#"{"protocol_version":1,"messages":[{"kind":"event","type":"nothing"}],"buffers":[]}"#;
 
         let error = decode_frame(&frame(header, &[])).expect_err("the event is unknown");
 
@@ -452,14 +454,18 @@ mod tests {
 
         let decoded = decode_frame(&frame(&header, &section)).expect("the frame is valid");
 
-        assert_eq!(decoded.buffers, [Buffer::U32(vec![1]), Buffer::F32(vec![1.0])]);
+        assert_eq!(
+            decoded.buffers,
+            [Buffer::U32(vec![1]), Buffer::F32(vec![1.0])]
+        );
     }
 
     #[test]
     fn request_frame_with_a_response_names_what_it_holds() {
         let header = r#"{"protocol_version":1,"messages":[{"kind":"response","id":5,"result":{"kind":"ok","type":"close_document"}}],"buffers":[]}"#;
 
-        let error = decode_request_frame(&frame(header, &[])).expect_err("a response is not a request");
+        let error =
+            decode_request_frame(&frame(header, &[])).expect_err("a response is not a request");
 
         assert!(error.to_string().contains("a response"), "{error}");
     }

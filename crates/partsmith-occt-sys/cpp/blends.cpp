@@ -28,11 +28,12 @@ using namespace detail;
 namespace {
 
 // One requested blend: a fillet radius (as both sizes) or two chamfer distances, the first
-// measured on `face` when it is not 0.
+// measured on `face` when `on_face` is set.
 struct BlendRequest {
   std::uint32_t edge;
   double size;
   double other_size;
+  bool on_face;
   std::uint32_t face;
 };
 
@@ -50,15 +51,14 @@ void check_requests(const Shape &shape, const std::vector<BlendRequest> &request
       for (const TopoDS_Shape &face : *faces) {
         seam = seam || BRep_Tool::IsClosed(edge, TopoDS::Face(face));
         adjacent = adjacent ||
-                   (request.face != 0 &&
-                    face.IsSame(shape.faces()(static_cast<int>(request.face))));
+                   (request.on_face && face.IsSame(shape.faces()(static_cast<int>(request.face))));
       }
     }
     if (seam || BRep_Tool::Degenerated(edge)) {
       raise_invalid_input("Edge " + std::to_string(request.edge) +
                           " is a seam or a degenerated edge and cannot be rounded or beveled.");
     }
-    if (request.face != 0 && !adjacent) {
+    if (request.on_face && !adjacent) {
       raise_invalid_input("Face " + std::to_string(request.face) + " is not next to edge " +
                           std::to_string(request.edge) + ", so it cannot set the chamfer side.");
     }
@@ -198,7 +198,7 @@ void require_material_removed(const TopoDS_Shape &original, const TopoDS_Shape &
 OpResultData fillet(const Shape &shape, rust::Slice<const FilletEdgeData> edges) {
   std::vector<BlendRequest> requests;
   for (const FilletEdgeData &edge : edges) {
-    requests.push_back(BlendRequest{edge.edge, edge.radius, edge.radius, 0});
+    requests.push_back(BlendRequest{edge.edge, edge.radius, edge.radius, false, 0});
   }
   check_requests(shape, requests);
   // The fillet runs on a copy so it never writes to the input (kernel spec section 3.1).
@@ -218,18 +218,19 @@ OpResultData fillet(const Shape &shape, rust::Slice<const FilletEdgeData> edges)
 OpResultData chamfer(const Shape &shape, rust::Slice<const ChamferEdgeData> edges) {
   std::vector<BlendRequest> requests;
   for (const ChamferEdgeData &edge : edges) {
-    requests.push_back(BlendRequest{edge.edge, edge.distance, edge.other_distance, edge.face});
+    requests.push_back(BlendRequest{edge.edge, edge.distance, edge.other_distance,
+                                    edge.two_distances, edge.face});
   }
   check_requests(shape, requests);
   // The chamfer runs on a copy so it never writes to the input (kernel spec section 3.1).
   const Shape copy = copy_shape(shape);
   BRepFilletAPI_MakeChamfer chamfer(copy.get());
   for (const BlendRequest &request : requests) {
-    if (request.face == 0) {
-      chamfer.Add(request.size, request_edge(copy, request));
-    } else {
+    if (request.on_face) {
       chamfer.Add(request.size, request.other_size, request_edge(copy, request),
                   TopoDS::Face(copy.faces()(static_cast<int>(request.face))));
+    } else {
+      chamfer.Add(request.size, request_edge(copy, request));
     }
   }
   check_contours(chamfer, copy, requests, "BRepFilletAPI_MakeChamfer");

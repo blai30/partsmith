@@ -1,38 +1,56 @@
-//! Plane vector helpers shared by the solver and the profile builder (formulas of spec section 3.6.2).
+//! Vector helpers shared by the solver, the profile builder and placements (formulas of spec section 3.6.2).
 
 /// Below this length a direction is undefined: `unit` gives (1, 0) and `safe` lengths stop here.
 pub(crate) const MIN_LENGTH: f64 = 1e-12;
 
-pub(crate) fn add(a: [f64; 2], b: [f64; 2]) -> [f64; 2] {
-    [a[0] + b[0], a[1] + b[1]]
+/// `first + second`, entry by entry.
+pub(crate) fn add<const N: usize>(first: [f64; N], second: [f64; N]) -> [f64; N] {
+    std::array::from_fn(|i| first[i] + second[i])
 }
 
-pub(crate) fn subtract(a: [f64; 2], b: [f64; 2]) -> [f64; 2] {
-    [a[0] - b[0], a[1] - b[1]]
+/// `first - second`, entry by entry.
+pub(crate) fn subtract<const N: usize>(first: [f64; N], second: [f64; N]) -> [f64; N] {
+    std::array::from_fn(|i| first[i] - second[i])
 }
 
-pub(crate) fn scale(a: [f64; 2], factor: f64) -> [f64; 2] {
-    [a[0] * factor, a[1] * factor]
+/// `vector * factor`, entry by entry.
+pub(crate) fn scale<const N: usize>(vector: [f64; N], factor: f64) -> [f64; N] {
+    vector.map(|value| value * factor)
 }
 
-pub(crate) fn norm(a: [f64; 2]) -> f64 {
-    a[0].hypot(a[1])
+/// The sum of the products of matching entries, added in index order, for points and for the solver's long vectors.
+pub(crate) fn dot(first: impl AsRef<[f64]>, second: impl AsRef<[f64]>) -> f64 {
+    // Starting from -0 makes the result bitwise equal to `first[0] * second[0] + first[1] * second[1] + ...`.
+    first
+        .as_ref()
+        .iter()
+        .zip(second.as_ref())
+        .fold(-0.0, |total, (first_entry, second_entry)| {
+            total + first_entry * second_entry
+        })
 }
 
-pub(crate) fn dot(a: [f64; 2], b: [f64; 2]) -> f64 {
-    a[0] * b[0] + a[1] * b[1]
+/// The Euclidean length `sqrt(dot(vector, vector))` of a vector of any size.
+pub(crate) fn length(vector: impl AsRef<[f64]>) -> f64 {
+    let entries = vector.as_ref();
+    dot(entries, entries).sqrt()
 }
 
-/// `a.x * b.y - a.y * b.x`.
-pub(crate) fn cross(a: [f64; 2], b: [f64; 2]) -> f64 {
-    a[0] * b[1] - a[1] * b[0]
+/// The length `norm(vector)` of a plane vector, computed with `hypot` so it neither overflows nor underflows.
+pub(crate) fn norm(vector: [f64; 2]) -> f64 {
+    vector[0].hypot(vector[1])
 }
 
-/// `a / norm(a)`, or (1, 0) below the minimum length.
-pub(crate) fn unit(a: [f64; 2]) -> [f64; 2] {
-    let length = norm(a);
+/// `first.x * second.y - first.y * second.x`.
+pub(crate) fn cross(first: [f64; 2], second: [f64; 2]) -> f64 {
+    first[0] * second[1] - first[1] * second[0]
+}
+
+/// `vector / norm(vector)`, or (1, 0) below the minimum length.
+pub(crate) fn unit(vector: [f64; 2]) -> [f64; 2] {
+    let length = norm(vector);
     if length >= MIN_LENGTH {
-        scale(a, 1.0 / length)
+        scale(vector, 1.0 / length)
     } else {
         [1.0, 0.0]
     }

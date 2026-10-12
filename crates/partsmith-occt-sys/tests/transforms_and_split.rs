@@ -6,13 +6,13 @@ mod common;
 use std::f64::consts::FRAC_PI_2;
 
 use common::{
-    BOUNDS_TOLERANCE, POINT_TOLERANCE, assert_bounds, assert_invalid_input, assert_near,
+    BOUNDS_TOLERANCE, ORIGIN, POINT_TOLERANCE, assert_bounds, assert_invalid_input, assert_near,
     assert_point_near, assert_relative, assert_vector_near, box_primitive, cube_a, cube_c,
     face_direction, face_with_role, geometry, volume, xy_plane_at, z_axis,
 };
 use partsmith_occt_sys::{
     GeometryKind, Operation, Plane, PlaneSide, Point, PrimitiveFace, Shape, ShapeKind, SplitResult,
-    SubShapeKind, Transform, Vector, compound, section, split, transform,
+    SubShapeKind, Transform, Vector, compound, fuse, make_box, section, split, transform,
 };
 
 const SIMILARITY_MESSAGE: &str =
@@ -354,4 +354,129 @@ fn rotation_keeps_element_indices() {
             &format!("vertex {vertex}"),
         );
     }
+}
+
+/// An L shape: a 30 x 10 x 10 base with a 10 x 10 x 20 tower on its left end, so its top step
+/// face lies at z = 10 next to the tower.
+fn l_shape() -> Shape {
+    let base = make_box(&Plane::XY, 30.0, 10.0, 10.0).expect("the base builds");
+    let tower = make_box(&xy_plane_at(0.0, 0.0, 10.0), 10.0, 10.0, 20.0).expect("the tower builds");
+    fuse(&base.shape, &[tower.shape])
+        .expect("the L shape fuses")
+        .shape
+}
+
+/// The single face of `shape` whose centroid is `centroid`.
+fn face_at(shape: &Shape, centroid: Point) -> u32 {
+    let faces: Vec<u32> = (1..=shape.count(SubShapeKind::Face))
+        .filter(|face| {
+            let found = geometry(shape, SubShapeKind::Face, *face).centroid;
+            found.distance(centroid) <= POINT_TOLERANCE
+        })
+        .collect();
+    assert_eq!(
+        faces.len(),
+        1,
+        "faces with centroid {centroid:?}: {faces:?}"
+    );
+    faces[0]
+}
+
+#[test]
+fn split_through_a_face_on_the_plane_reports_only_new_section_faces() {
+    let shape = l_shape();
+    let step = face_at(&shape, Point::new(20.0, 5.0, 10.0));
+
+    let result = split(&shape, &xy_plane_at(0.0, 0.0, 10.0)).expect("the L shape splits");
+
+    assert_eq!(result.result.shape.count(SubShapeKind::Solid), 2);
+    assert_eq!(result.section_faces.len(), 2, "{:?}", result.section_faces);
+    let sides: Vec<PlaneSide> = result.section_faces.iter().map(|face| face.side).collect();
+    assert!(sides.contains(&PlaneSide::Negative) && sides.contains(&PlaneSide::Positive));
+    for section_face in &result.section_faces {
+        let element = geometry(&result.result.shape, SubShapeKind::Face, section_face.face);
+        assert_point_near(
+            element.centroid,
+            Point::new(5.0, 5.0, 10.0),
+            POINT_TOLERANCE,
+            "section centroid",
+        );
+        assert_relative(element.measure, 100.0, 1e-9, "section area");
+    }
+    let step_images = &result.result.history.inputs[0].faces[step as usize - 1].modified;
+    assert_eq!(step_images.len(), 1);
+    assert!(
+        result
+            .section_faces
+            .iter()
+            .all(|section_face| section_face.face != step_images[0]),
+        "the step face {} is reported as a section face",
+        step_images[0]
+    );
+}
+
+#[test]
+fn plane_touching_a_face_creates_no_section_face() {
+    let block = box_primitive();
+    let cases = [
+        (30.0, PrimitiveFace::Top, PlaneSide::Negative),
+        (0.0, PrimitiveFace::Bottom, PlaneSide::Positive),
+    ];
+    for (height, role, side) in cases {
+        let result = split(&block.shape, &xy_plane_at(0.0, 0.0, height))
+            .expect("a plane on a face splits nothing");
+
+        assert_eq!(
+            result.result.shape.count(SubShapeKind::Solid),
+            1,
+            "{role:?}"
+        );
+        assert_eq!(result.solid_sides, [side], "{role:?}");
+        assert!(
+            result.section_faces.is_empty(),
+            "{role:?}: {:?}",
+            result.section_faces
+        );
+        assert_relative(volume(&result.result.shape), 6000.0, 1e-9, "volume");
+        let face = face_with_role(&block, role);
+        assert_eq!(
+            result.result.history.inputs[0].faces[face as usize - 1]
+                .modified
+                .len(),
+            1,
+            "{role:?}"
+        );
+    }
+}
+
+#[test]
+fn split_leaves_its_input_unchanged() {
+    let shape = l_shape();
+    let before = shape.to_brep().expect("BRep bytes");
+
+    split(&shape, &xy_plane_at(0.0, 0.0, 10.0)).expect("the L shape splits");
+    split(&shape, &xy_plane_at(0.0, 0.0, 5.0)).expect("the L shape splits");
+
+    assert!(shape.to_brep().expect("BRep bytes") == before);
+}
+
+#[test]
+fn section_leaves_its_input_unchanged() {
+    let shape = l_shape();
+    let before = shape.to_brep().expect("BRep bytes");
+
+    section(&shape, &xy_plane_at(0.0, 0.0, 15.0)).expect("the section is computed");
+
+    assert!(shape.to_brep().expect("BRep bytes") == before);
+}
+
+#[test]
+fn mirror_and_scale_leave_their_input_unchanged() {
+    let shape = box_primitive().shape;
+    let before = shape.to_brep().expect("BRep bytes");
+
+    transform(&shape, &Transform::mirror(&Plane::YZ)).expect("the box is mirrored");
+    transform(&shape, &Transform::scale(ORIGIN, 2.0)).expect("the box is scaled");
+
+    assert!(shape.to_brep().expect("BRep bytes") == before);
 }

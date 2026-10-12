@@ -340,3 +340,122 @@ fn step_writing_leaves_the_bodies_unchanged() {
 
     assert!(shape.to_brep().expect("BRep bytes") == before);
 }
+
+#[test]
+fn brep_bytes_without_the_version_header_fail_to_read() {
+    let bytes = box_primitive().shape.to_brep().expect("BRep bytes");
+    let header: &[u8] = b"\nOpen CASCADE Topology V4, (c) Open Cascade\n";
+    assert!(
+        bytes.starts_with(header),
+        "to_brep writes the version 4 header"
+    );
+    let older_version = [b"\nOpen CASCADE Topology V3 (c)\n", &bytes[header.len()..]].concat();
+
+    for bad in [Vec::new(), header[..10].to_vec(), older_version] {
+        let error = Shape::from_brep(&bad).expect_err("the bytes lack the header");
+
+        assert_eq!(error.kind, KernelErrorKind::ReadFailed, "{error:?}");
+        assert_eq!(error.exception, "Partsmith_ReadError");
+        assert_eq!(error.operation, Operation::ReadBrep);
+    }
+}
+
+#[test]
+fn truncated_brep_bytes_fail_to_read() {
+    let bytes = box_primitive().shape.to_brep().expect("BRep bytes");
+
+    let error = Shape::from_brep(&bytes[..bytes.len() / 2]).expect_err("the stream is cut short");
+
+    assert_eq!(error.kind, KernelErrorKind::ReadFailed, "{error:?}");
+    assert_eq!(error.operation, Operation::ReadBrep);
+}
+
+/// The shim never prints (kernel spec section 3.9, item 7). OCCT can write to the process's
+/// standard streams past Rust's test capture, so the test runs itself again in a child process
+/// and reads what the child wrote. WebAssembly tests cannot start processes.
+#[cfg(not(target_os = "emscripten"))]
+mod standard_streams {
+    use super::{EMPTY_STEP, body};
+    use crate::common::{OPT, box_primitive, face_with_role, xy_plane_at};
+    use partsmith_occt_sys::{
+        EdgeRadius, PrimitiveFace, Shape, fillet, read_step, shell, split, write_step,
+    };
+
+    /// Set in the child process `kernel_prints_nothing` starts.
+    const QUIET_PROBE_VARIABLE: &str = "PARTSMITH_OCCT_SYS_QUIET_PROBE";
+    /// The line the child writes to both streams before its kernel calls.
+    const PROBE_BEGINS: &str = "<<kernel calls begin>>";
+    /// The line the child writes to both streams after its kernel calls.
+    const PROBE_ENDS: &str = "<<kernel calls end>>";
+
+    /// Reads bad bytes and runs failing and ordinary operations: the paths where OCCT prints if
+    /// anything does.
+    fn exercise_the_kernel() {
+        let block = box_primitive();
+        let bytes = block.shape.to_brep().expect("BRep bytes");
+        for bad in [&[1, 2, 3][..], &[], &bytes[..bytes.len() / 2]] {
+            Shape::from_brep(bad).expect_err("the bytes are not a whole BRep stream");
+        }
+        Shape::from_brep(&bytes).expect("the bytes reload");
+        read_step(b"not a step file").expect_err("the bytes are not STEP");
+        read_step(EMPTY_STEP.as_bytes()).expect_err("the file has no solid");
+        let step = write_step(&[body(block.shape.clone(), "Bracket")]).expect("written");
+        read_step(&step).expect("read back");
+        let edges: Vec<EdgeRadius> = (1..=12)
+            .map(|edge| EdgeRadius { edge, radius: 6.0 })
+            .collect();
+        fillet(&block.shape, &edges).expect_err("the radius is too large");
+        let top = face_with_role(&block, PrimitiveFace::Top);
+        shell(&block.shape, &[top], 6.0).expect_err("the wall is too thick");
+        split(&block.shape, &xy_plane_at(0.0, 0.0, 10.0)).expect("the box splits");
+        block.shape.tessellate(&OPT).expect("the box is meshed");
+    }
+
+    /// Asserts that a stream of the child holds nothing between the markers and nothing after
+    /// them but the test harness's closing lines.
+    fn assert_quiet(stream: &str, bytes: &[u8]) {
+        let text = String::from_utf8_lossy(bytes);
+        let (_, after_begin) = text
+            .split_once(PROBE_BEGINS)
+            .unwrap_or_else(|| panic!("{stream} has no begin marker: {text:?}"));
+        let (between, after_end) = after_begin
+            .split_once(PROBE_ENDS)
+            .unwrap_or_else(|| panic!("{stream} has no end marker: {text:?}"));
+        assert_eq!(between, "\n", "the kernel wrote to {stream}");
+        let harness_line =
+            |line: &str| line.is_empty() || line == "ok" || line.starts_with("test result: ");
+        assert!(
+            after_end.lines().all(harness_line),
+            "{stream} holds more than the test harness wrote: {after_end:?}"
+        );
+    }
+
+    /// Runs the kernel calls in a child process and checks both of its standard streams.
+    #[test]
+    fn kernel_prints_nothing() {
+        if std::env::var_os(QUIET_PROBE_VARIABLE).is_some() {
+            println!("{PROBE_BEGINS}");
+            eprintln!("{PROBE_BEGINS}");
+            exercise_the_kernel();
+            println!("{PROBE_ENDS}");
+            eprintln!("{PROBE_ENDS}");
+            return;
+        }
+        let test_binary = std::env::current_exe().expect("the path of the test binary");
+
+        let output = std::process::Command::new(test_binary)
+            .args([
+                "standard_streams::kernel_prints_nothing",
+                "--exact",
+                "--nocapture",
+                "--test-threads=1",
+            ])
+            .env(QUIET_PROBE_VARIABLE, "1")
+            .output()
+            .expect("the test binary runs again");
+
+        assert!(output.status.success(), "the child run failed: {output:?}");
+        assert_quiet("standard output", &output.stdout);
+        assert_quiet("standard error", &output.stderr);
+    }
+}

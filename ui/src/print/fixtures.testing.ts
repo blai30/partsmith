@@ -1,32 +1,23 @@
-// Test support for the print and export tests: an `App` over a fake core, file service and
-// viewport, plus recipe, mesh and print report fixtures (ui.md 2.8, 2.9, 3.17, 3.18; print.md 2.6).
+// Fixtures for the print and export tests (ui.md 3.17, 3.18; print.md 2.6): recipes with bodies and
+// model meshes, print reports, a recording viewport, and an App over the shared fakes of
+// src/test/fakes with a chosen starting state.
 
 import { vi, type Mock } from 'vitest'
-import type { App, Platform } from '../app/createApp'
-import { createCommandRegistry } from '../commands/registry'
-import type { CoreApi, ExportedFile } from '../core/api'
-import { CoreError, createCoreClient } from '../core/client'
-import { decodeFrame, encodeFrame } from '../core/frame'
-import { createMutationQueue } from '../core/queue'
-import type { Transport } from '../core/transport'
-import type { FileService } from '../files/file-service'
-import { createMemoryRecentFiles } from '../files/recent'
-import { createMemoryRecovery } from '../files/recovery'
-import {
-  PROTOCOL_VERSION,
-  type Body,
-  type BodyPrint,
-  type BoundingBox,
-  type CheckKind,
-  type CheckResult,
-  type Document,
-  type ErrorCode,
-  type Finding,
-  type FindingCode,
-  type Location,
-  type PrinterProfile,
-  type PrintReport,
-  type Severity,
+import type { App } from '../app/createApp'
+import type { ExportedFile } from '../core/api'
+import type {
+  Body,
+  BodyPrint,
+  BoundingBox,
+  CheckKind,
+  CheckResult,
+  Document,
+  Finding,
+  FindingCode,
+  Location,
+  PrinterProfile,
+  PrintReport,
+  Severity,
 } from '../generated/protocol'
 import {
   createAppStore,
@@ -36,12 +27,14 @@ import {
   type MeshSummary,
   type PrintState,
 } from '../state/store'
+import { createTestApp } from '../test/fakes/app'
+import { createFakeCoreApi, type FakeCoreApi } from '../test/fakes/core-api'
+import { createFakeFileService, type FakeFileService } from '../test/fakes/files'
+import { TEST_PRINTERS } from '../test/fakes/printers'
 import { DEFAULT_CAMERA } from '../viewport/camera'
 import type { ViewportHandle } from '../viewport/controller'
 
 export const DOCUMENT_HANDLE = 7
-
-const LINUX_WEB: Platform = { operatingSystem: 'linux', host: 'web' }
 
 const READY_CORE: CoreState = {
   status: 'ready',
@@ -50,31 +43,7 @@ const READY_CORE: CoreState = {
   pendingMutations: 0,
 }
 
-// Printer profiles as list_printer_profiles returns them: built-ins, then session profiles (print.md 2.2).
-
-export const GENERIC_FDM: PrinterProfile = {
-  id: 'generic-fdm',
-  name: 'Generic FDM 0.4 mm',
-  technology: 'fdm',
-  bed: { kind: 'rectangle', width: 256, depth: 256, height: 256 },
-  nozzle_diameter: 0.4,
-  layer_height: 0.2,
-  max_overhang_angle: 0.7853981633974483,
-  max_bridge_length: 10,
-  fit: { press: 0.05, snug: 0.1, slip: 0.2, loose: 0.4 },
-}
-
-export const GENERIC_RESIN: PrinterProfile = {
-  id: 'generic-resin',
-  name: 'Generic resin MSLA',
-  technology: 'resin',
-  bed: { kind: 'rectangle', width: 130, depth: 80, height: 160 },
-  layer_height: 0.05,
-  max_overhang_angle: 0.5235987755982988,
-  max_bridge_length: 5,
-  fit: { press: 0.02, snug: 0.05, slip: 0.1, loose: 0.2 },
-}
-
+/** A session profile, listed after the built-in ones (protocol.md list_printer_profiles). */
 export const MY_MK4: PrinterProfile = {
   id: 'my-mk4',
   name: 'My MK4',
@@ -87,7 +56,8 @@ export const MY_MK4: PrinterProfile = {
   fit: { press: 0.05, snug: 0.1, slip: 0.2, loose: 0.4 },
 }
 
-export const PRINTERS: readonly PrinterProfile[] = [GENERIC_FDM, GENERIC_RESIN, MY_MK4]
+/** Generic FDM, generic resin, then My MK4. */
+export const PRINTERS: readonly PrinterProfile[] = [...TEST_PRINTERS, MY_MK4]
 
 // Bodies of the test recipes.
 
@@ -282,74 +252,20 @@ export function printReport(bodies: readonly BodyPrint[], profile = 'generic-fdm
   }
 }
 
-// The fake services.
+// Export results.
 
-/** A `CoreApi` whose every method is a mock; methods a test does not expect throw. */
-export type FakeCore = { readonly [Method in keyof CoreApi]: Mock<CoreApi[Method]> }
-
-export type FakeFiles = { readonly fileSystemAccess: boolean } & {
-  readonly [Method in Exclude<keyof FileService, 'fileSystemAccess'>]: Mock<FileService[Method]>
-}
-
-export type FakeViewport = { readonly [Method in keyof ViewportHandle]: Mock<ViewportHandle[Method]> }
-
-function unexpected(service: string, method: string): () => never {
-  return () => {
-    throw new Error(`The test ${service} does not expect ${method} to be called.`)
-  }
-}
+/** Bytes of a 3MF file: a ZIP local file header. */
+export const THREE_MF_BYTES = new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0x14, 0x00])
 
 export function exportedFile(name: string, bytes: Uint8Array): ExportedFile {
   return { name, mediaType: 'model/3mf', bytes }
 }
 
-/** Bytes of a 3MF file: a ZIP local file header. */
-export const THREE_MF_BYTES = new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0x14, 0x00])
+// The App.
 
-export function createFakeCore(): FakeCore {
-  const core = (method: string) => unexpected('core', method)
-  return {
-    engineInfo: vi.fn<CoreApi['engineInfo']>(core('engineInfo')),
-    featureCatalog: vi.fn<CoreApi['featureCatalog']>(core('featureCatalog')),
-    listPrinterProfiles: vi.fn<CoreApi['listPrinterProfiles']>(() => Promise.resolve(PRINTERS)),
-    newDocument: vi.fn<CoreApi['newDocument']>(core('newDocument')),
-    openDocument: vi.fn<CoreApi['openDocument']>(core('openDocument')),
-    saveDocument: vi.fn<CoreApi['saveDocument']>(core('saveDocument')),
-    markSaved: vi.fn<CoreApi['markSaved']>(core('markSaved')),
-    closeDocument: vi.fn<CoreApi['closeDocument']>(core('closeDocument')),
-    applyEdits: vi.fn<CoreApi['applyEdits']>(() => Promise.resolve(4)),
-    renameParameter: vi.fn<CoreApi['renameParameter']>(core('renameParameter')),
-    beginTransaction: vi.fn<CoreApi['beginTransaction']>(core('beginTransaction')),
-    setFocus: vi.fn<CoreApi['setFocus']>(core('setFocus')),
-    commitTransaction: vi.fn<CoreApi['commitTransaction']>(core('commitTransaction')),
-    cancelTransaction: vi.fn<CoreApi['cancelTransaction']>(core('cancelTransaction')),
-    undo: vi.fn<CoreApi['undo']>(core('undo')),
-    redo: vi.fn<CoreApi['redo']>(core('redo')),
-    solveSketch: vi.fn<CoreApi['solveSketch']>(core('solveSketch')),
-    dragSketch: vi.fn<CoreApi['dragSketch']>(core('dragSketch')),
-    endSketchDrag: vi.fn<CoreApi['endSketchDrag']>(core('endSketchDrag')),
-    evaluate: vi.fn<CoreApi['evaluate']>(core('evaluate')),
-    listElements: vi.fn<CoreApi['listElements']>(core('listElements')),
-    pickReference: vi.fn<CoreApi['pickReference']>(core('pickReference')),
-    resolveReferences: vi.fn<CoreApi['resolveReferences']>(core('resolveReferences')),
-    analyzePrint: vi.fn<CoreApi['analyzePrint']>(() => Promise.resolve('ok')),
-    exportBodies: vi.fn<CoreApi['exportBodies']>(() =>
-      Promise.resolve({ files: [exportedFile('model.3mf', THREE_MF_BYTES)], warnings: [] }),
-    ),
-  }
-}
-
-/** A file service without the File System Access API: every save target is a download. */
-export function createFakeFiles(): FakeFiles {
-  return {
-    fileSystemAccess: false,
-    pickToOpen: vi.fn<FileService['pickToOpen']>(unexpected('file service', 'pickToOpen')),
-    readHandle: vi.fn<FileService['readHandle']>(unexpected('file service', 'readHandle')),
-    chooseSaveTarget: vi.fn<FileService['chooseSaveTarget']>((suggestedName) =>
-      Promise.resolve({ kind: 'download', name: suggestedName }),
-    ),
-    write: vi.fn<FileService['write']>(() => Promise.resolve()),
-  }
+/** A `ViewportHandle` whose every method is a mock. */
+export type FakeViewport = {
+  readonly [Method in keyof ViewportHandle]: Mock<ViewportHandle[Method]>
 }
 
 export function createFakeViewport(): FakeViewport {
@@ -366,51 +282,50 @@ export function createFakeViewport(): FakeViewport {
   }
 }
 
-/** The state a test starts from: the core ready, the test printers and the cube document, then `overrides`. */
+/** The state tests start from: the core ready, the test printers and the cube document, then `overrides`. */
 export function baseState(overrides: Partial<AppState> = {}): Partial<AppState> {
   return { core: READY_CORE, printers: PRINTERS, document: documentState(), ...overrides }
 }
 
-/** An `AppState` for pure functions of the state. */
+/** An `AppState` for the pure functions of the state. */
 export function stateWith(overrides: Partial<AppState> = {}): AppState {
   return createAppStore(baseState(overrides)).getState()
 }
 
-export type TestApp = {
+export type PrintApp = {
   readonly app: App
-  readonly core: FakeCore
-  readonly files: FakeFiles
+  readonly core: FakeCoreApi
+  readonly files: FakeFileService
   readonly viewport: FakeViewport
 }
 
-export type TestAppOptions = {
+export type PrintAppOptions = {
   /** Whether a viewport is mounted (default true). */
   readonly viewportMounted?: boolean
 }
 
-export function createTestApp(
+/**
+ * An App assembled by hand (createTestApp) with the state of `baseState(overrides)`, a recording
+ * core, a file service without the File System Access API (every save target is a download) and
+ * a recording viewport.
+ */
+export function createPrintApp(
   overrides: Partial<AppState> = {},
-  options: TestAppOptions = {},
-): TestApp {
-  const core = createFakeCore()
-  const files = createFakeFiles()
+  options: PrintAppOptions = {},
+): PrintApp {
+  const core = createFakeCoreApi({
+    analyzePrint: () => Promise.resolve('ok'),
+    exportBodies: () =>
+      Promise.resolve({ files: [exportedFile('model.3mf', THREE_MF_BYTES)], warnings: [] }),
+  })
+  const files = createFakeFileService({ fileSystemAccess: false })
   const viewport = createFakeViewport()
-  let attached: ViewportHandle | null = options.viewportMounted === false ? null : viewport
-  const app: App = {
+  const app = createTestApp({
     store: createAppStore(baseState(overrides)),
     core,
-    mutations: createMutationQueue(),
-    commands: createCommandRegistry(),
     files,
-    recent: createMemoryRecentFiles(),
-    recovery: createMemoryRecovery(),
-    platform: LINUX_WEB,
-    viewport: () => attached,
-    attachViewport: (handle) => {
-      attached = handle
-    },
-    restartCore: () => Promise.resolve(),
-  }
+    viewport: options.viewportMounted === false ? null : viewport,
+  })
   return { app, core, files, viewport }
 }
 
@@ -424,63 +339,13 @@ export function setRevision(app: App, revision: number): void {
 export type Deferred<Value> = {
   readonly promise: Promise<Value>
   resolve(value: Value): void
-  reject(reason: unknown): void
 }
 
-/** A promise the test settles by hand. */
+/** A promise the test resolves by hand. */
 export function deferred<Value>(): Deferred<Value> {
-  let resolve: (value: Value) => void = () => undefined
-  let reject: (reason: unknown) => void = () => undefined
-  const promise = new Promise<Value>((resolvePromise, rejectPromise) => {
-    resolve = resolvePromise
-    reject = rejectPromise
+  let resolvePromise: ((value: Value) => void) | undefined
+  const promise = new Promise<Value>((resolve) => {
+    resolvePromise = resolve
   })
-  return { promise, resolve, reject }
-}
-
-/** Waits for one macrotask, so every promise callback queued before it has run. */
-export function nextTask(): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, 0)
-  })
-}
-
-/**
- * A `CoreError` exactly as the core client raises it: the error response frame of a fake
- * transport, decoded by `createCoreClient` (ui.md 2.5).
- */
-export async function coreError(code: ErrorCode, message: string): Promise<CoreError> {
-  const transport: Transport = {
-    kind: 'worker',
-    start: () => Promise.resolve({ protocolVersion: PROTOCOL_VERSION, engineVersion: '0.1.0' }),
-    send: (request) => {
-      const sent = decodeFrame(request).header.messages[0]
-      if (sent?.kind !== 'request') {
-        return Promise.reject(new Error('The client sent a frame without a request.'))
-      }
-      return Promise.resolve(
-        encodeFrame(
-          {
-            protocol_version: PROTOCOL_VERSION,
-            messages: [{ kind: 'response', id: sent.id, result: { kind: 'error', code, message } }],
-          },
-          [],
-        ),
-      )
-    },
-    stop: () => undefined,
-    onFatal: () => () => undefined,
-  }
-  const client = createCoreClient(transport)
-  try {
-    await client.request({ type: 'engine_info' })
-  } catch (error) {
-    if (error instanceof CoreError) {
-      return error
-    }
-    throw error
-  } finally {
-    client.close()
-  }
-  throw new Error('The fake core answered with success instead of an error.')
+  return { promise, resolve: (value) => resolvePromise?.(value) }
 }

@@ -1,39 +1,33 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Platform } from '../app/createApp'
 import {
   bodyItem,
   cubeDocumentState,
+  CYLINDRICAL_FACE,
   documentState,
   elementItem,
   featureItem,
   IMPORT_DOCUMENT,
   originItem,
   readyState,
-  TEST_CATALOG,
-  TOP_FACE,
-  CYLINDRICAL_FACE,
 } from '../layout/fixtures.testing'
-import {
-  createFakeViewport,
-  createTestApp,
-  LINUX_WEB,
-  MAC_WEB,
-  settle,
-  stubMatchMedia,
-  WINDOWS_WEB,
-} from '../layout/test-app.testing'
+import { createFakeViewport, createModelApp, stubMatchMedia } from '../layout/test-app.testing'
 import { MESSAGES } from '../messages'
 import { DEFAULT_SETTINGS } from '../settings/settings'
 import type { ActiveCommand, AppContext, AppState } from '../state/store'
+import { LINUX_WEB, MAC_WEB } from '../test/fakes/app'
+import { TEST_CATALOG } from '../test/fakes/catalog'
+import { CUBE_TOP_FACE } from '../test/fakes/documents'
+import { settle } from '../test/fakes/settle'
 import { builtinCommands } from './builtin'
 import { featureCommands } from './features'
 import { createCommandRegistry, type CommandDefinition } from './registry'
-import { vi } from 'vitest'
 
 afterEach(() => {
   vi.unstubAllGlobals()
 })
 
+const WINDOWS_WEB: Platform = { operatingSystem: 'windows', host: 'web' }
 const ALL: readonly AppContext[] = ['model', 'sketch', 'print']
 const MODEL_PRINT: readonly AppContext[] = ['model', 'print']
 const SKETCH: readonly AppContext[] = ['sketch']
@@ -156,7 +150,7 @@ const EXTRUDE_COMMAND: ActiveCommand = {
 }
 
 function cubeApp(overrides: Partial<AppState> = {}) {
-  return createTestApp({ state: readyState(cubeDocumentState(), overrides) })
+  return createModelApp({ state: readyState(cubeDocumentState(), overrides) })
 }
 
 describe('the built-in commands with the test catalog', () => {
@@ -235,7 +229,7 @@ describe('availability', () => {
   })
 
   it('U-89 disables Edit feature with import_not_editable for an import feature', () => {
-    const { app } = createTestApp({
+    const { app } = createModelApp({
       state: readyState(documentState(IMPORT_DOCUMENT), {
         selection: [featureItem('f-imp1', 'Import 1')],
       }),
@@ -292,7 +286,7 @@ describe('availability', () => {
   })
 
   it('enables Look at with a flat face or an origin plane selected', () => {
-    const { app } = cubeApp({ selection: [elementItem(TOP_FACE)] })
+    const { app } = cubeApp({ selection: [elementItem(CUBE_TOP_FACE)] })
     expect(app.commands.get('view.look_at')?.availability(app)).toEqual({ state: 'enabled' })
     app.store.setState({ selection: [originItem('XZ')] })
     expect(app.commands.get('view.look_at')?.availability(app)).toEqual({ state: 'enabled' })
@@ -319,8 +313,8 @@ describe('running built-in commands', () => {
     app.store.setState({ document: document && { ...document, undoLabel: 'Fillet' } })
     await app.commands.run(app, 'edit.undo', 'shortcut')
     await settle()
-    expect(core.cancelTransaction).toHaveBeenCalledWith(1)
-    expect(core.undo).not.toHaveBeenCalled()
+    expect(core.callsTo('cancelTransaction')).toEqual([[1]])
+    expect(core.callsTo('undo')).toEqual([])
     expect(app.store.getState().command).toBeNull()
   })
 
@@ -330,7 +324,7 @@ describe('running built-in commands', () => {
     app.store.setState({ document: document && { ...document, undoLabel: 'Extrude' } })
     await app.commands.run(app, 'edit.undo', 'shortcut')
     await settle()
-    expect(core.undo).toHaveBeenCalledWith(1)
+    expect(core.callsTo('undo')).toEqual([[1]])
   })
 
   it('switches context with context.print and context.model', async () => {
@@ -412,15 +406,15 @@ describe('running built-in commands', () => {
     expect(app.store.getState().view.locked).toEqual(['b-cube'])
     await app.commands.run(app, 'view.unlock', 'palette')
     expect(app.store.getState().view.locked).toEqual([])
-    expect(core.applyEdits).not.toHaveBeenCalled()
+    expect(core.callsTo('applyEdits')).toEqual([])
   })
 
   it('suppresses the selected feature in one edit labeled "Suppress {label}"', async () => {
     const { app, core } = cubeApp({ selection: [featureItem('f-ext1', 'Extrude 1')] })
     await app.commands.run(app, 'edit.suppress', 'palette')
     await settle()
-    expect(core.applyEdits).toHaveBeenCalledTimes(1)
-    const [documentHandle, label, edits] = core.applyEdits.mock.calls[0] ?? []
+    expect(core.callsTo('applyEdits')).toHaveLength(1)
+    const [documentHandle, label, edits] = core.callsTo('applyEdits')[0] ?? []
     expect(documentHandle).toBe(1)
     expect(label).toBe('Suppress Extrude 1')
     expect(edits).toEqual([
@@ -435,8 +429,8 @@ describe('running built-in commands', () => {
     const { app, core } = cubeApp()
     await app.commands.run(app, 'document.units.in', 'palette')
     await settle()
-    expect(core.applyEdits).toHaveBeenCalledWith(1, 'Change units to in', [
-      { type: 'set_units', units: 'in' },
+    expect(core.callsTo('applyEdits')).toEqual([
+      [1, 'Change units to in', [{ type: 'set_units', units: 'in' }]],
     ])
     expect(app.store.getState().notifications.map((notification) => notification.message)).toContain(
       MESSAGES.units_changed('in'),

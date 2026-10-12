@@ -180,10 +180,14 @@ fn geometry_from(kind: &Geometry, values: &[f64]) -> Geometry {
 }
 
 /// The direction of `offset` as an angle in [0, 2*pi): negative `atan2` values get 2*pi added and -0 becomes 0.
+///
+/// A negative angle closer to 0 than half an ulp of 2*pi rounds to exactly 2*pi when it is added; that
+/// direction is +u, so it becomes 0 and the result stays below 2*pi.
 fn stored_angle(offset: [f64; 2]) -> f64 {
     let angle = offset[1].atan2(offset[0]);
     if angle < 0.0 {
-        angle + TAU
+        let turned = angle + TAU;
+        if turned < TAU { turned } else { 0.0 }
     } else if angle == 0.0 {
         0.0
     } else {
@@ -246,6 +250,30 @@ mod tests {
     #[test]
     fn negative_zero_angle_becomes_zero() {
         assert_eq!(stored_angle([1.0, -0.0]).to_bits(), 0.0_f64.to_bits());
+    }
+
+    #[test]
+    fn tiny_negative_angle_becomes_zero_instead_of_a_full_turn() {
+        // atan2 gives -1e-17, and -1e-17 + 2*pi rounds to exactly 2*pi.
+        assert_eq!(stored_angle([6.0, -6e-17]).to_bits(), 0.0_f64.to_bits());
+    }
+
+    #[test]
+    fn solved_arc_angles_stay_below_a_full_turn() {
+        let geometry = geometry_from(
+            &Geometry::Arc {
+                center: [0.0, 0.0],
+                radius: 5.0,
+                start_angle: 0.0,
+                end_angle: 1.0,
+            },
+            &[0.0, 0.0, 6.0, -6e-17, 0.0, 6.0],
+        );
+
+        let Geometry::Arc { start_angle, .. } = geometry else {
+            panic!("an arc stays an arc, found {geometry:?}");
+        };
+        assert_eq!(start_angle.to_bits(), 0.0_f64.to_bits());
     }
 
     #[test]

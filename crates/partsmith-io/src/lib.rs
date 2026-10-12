@@ -17,6 +17,8 @@ mod export;
 mod obj;
 mod step;
 mod stl;
+#[cfg(test)]
+mod test_support;
 mod text;
 mod three_mf;
 

@@ -40,14 +40,22 @@ const ANGLE_MESSAGE: &str = "The revolve angle must be greater than 0 and at mos
 const AXIS_OUT_OF_PLANE_MESSAGE: &str = "The revolve axis must lie in the sketch plane.";
 const CROSSES_AXIS_MESSAGE: &str =
     "The profile crosses the revolve axis. Keep the profile on one side of the axis.";
-const TAGS_MISMATCH_MESSAGE: &str = "The profile's edge tags do not match its edges.";
 
-/// Checks the parts of a profile every sweep relies on, returning its plane frame.
+/// Checks the parts of a profile every sweep relies on, returning its plane frame. Edge tags
+/// that do not match the edges mean the caller changed a profile `make_profile` built, a
+/// programming error rather than maker input, so they are an `Internal` error.
 fn profile_frame(operation: Operation, profile: &PlanarProfile) -> Result<Frame, KernelError> {
     check_finite(operation, &profile.plane.values())?;
     let frame = profile.plane.frame(operation)?;
-    if profile.edge_tags.len() != profile.shape.count(SubShapeKind::Edge) as usize {
-        return Err(KernelError::invalid_input(operation, TAGS_MISMATCH_MESSAGE));
+    let edges = profile.shape.count(SubShapeKind::Edge);
+    if profile.edge_tags.len() != edges as usize {
+        return Err(KernelError::internal(
+            operation,
+            format!(
+                "the profile has {} edge tags for {edges} edges",
+                profile.edge_tags.len()
+            ),
+        ));
     }
     Ok(frame)
 }
@@ -188,7 +196,9 @@ pub fn revolve(
     check_finite(operation, &[angle])?;
     let frame = profile_frame(operation, profile)?;
     let direction = axis.unit_direction(operation)?;
-    if angle == 0.0 || angle.abs() > TAU + ANGULAR_TOLERANCE {
+    // An angle within the angular tolerance of 0 sweeps nothing, which OCCT rejects or turns
+    // into an invalid solid.
+    if angle.abs() <= ANGULAR_TOLERANCE || angle.abs() > TAU + ANGULAR_TOLERANCE {
         return Err(KernelError::invalid_input(operation, ANGLE_MESSAGE));
     }
     let height = axis.origin.minus(frame.origin).dot(frame.normal);
@@ -302,14 +312,45 @@ mod tests {
     }
 
     #[test]
-    fn profile_with_mismatched_tags_is_rejected() {
+    fn profile_with_mismatched_tags_is_an_internal_error() {
         let mut profile = square_profile();
         profile.edge_tags.pop();
 
         let error = extrude(&profile, Vector::new(0.0, 0.0, 1.0), 0.0, 1.0)
             .expect_err("the tags do not match");
 
-        assert_eq!(error.message, TAGS_MISMATCH_MESSAGE);
+        assert_eq!(error.kind, crate::KernelErrorKind::Internal);
+        assert_eq!(error.operation, Operation::Extrude);
+        assert_eq!(error.message, "the profile has 3 edge tags for 4 edges");
+    }
+
+    #[test]
+    fn revolve_angle_within_the_angular_tolerance_of_zero_is_rejected() {
+        let axis = Axis {
+            origin: Point::new(-5.0, 0.0, 0.0),
+            direction: Vector::new(0.0, 1.0, 0.0),
+        };
+
+        for angle in [1e-12, -1e-12, ANGULAR_TOLERANCE, -ANGULAR_TOLERANCE] {
+            let error =
+                revolve(&square_profile(), &axis, angle).expect_err("the angle is too small");
+
+            assert_eq!(error.kind, crate::KernelErrorKind::InvalidInput, "{angle}");
+            assert_eq!(error.message, ANGLE_MESSAGE, "{angle}");
+        }
+    }
+
+    #[test]
+    fn revolve_angle_beyond_the_angular_tolerance_builds() {
+        let axis = Axis {
+            origin: Point::new(-5.0, 0.0, 0.0),
+            direction: Vector::new(0.0, 1.0, 0.0),
+        };
+
+        let result = revolve(&square_profile(), &axis, 1e-6).expect("a small angle builds");
+
+        assert!(result.faces.contains(&SweepFace::StartCap));
+        assert!(result.faces.contains(&SweepFace::EndCap));
     }
 
     fn point(x: f64, y: f64) -> Point2 {

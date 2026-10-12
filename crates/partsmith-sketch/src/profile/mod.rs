@@ -74,15 +74,20 @@ pub struct ProfileLoop {
 impl ProfileLoop {
     /// Signed enclosed area: positive for counterclockwise loops.
     pub fn signed_area(&self) -> f64 {
-        let Some(first) = self.edges.first() else {
-            return 0.0;
-        };
-        let origin = first.curve.reference_point();
-        self.edges
-            .iter()
-            .map(|edge| area::moments(&edge.curve, origin)[0])
-            .sum()
+        signed_area(&self.edges)
     }
+}
+
+/// Signed area enclosed by a closed chain of edges: positive when it runs counterclockwise.
+fn signed_area(edges: &[ProfileEdge]) -> f64 {
+    let Some(first) = edges.first() else {
+        return 0.0;
+    };
+    let origin = first.curve.reference_point();
+    edges
+        .iter()
+        .map(|edge| area::moments(&edge.curve, origin)[0])
+        .sum()
 }
 
 /// One piece of a sketch curve, oriented in loop traversal direction.

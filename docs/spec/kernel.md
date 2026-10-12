@@ -644,7 +644,7 @@ Built in the placement frame `gp_Ax2(origin, normal, x_axis)`. Face roles (Parts
 - Sphere: `Surface`. 1 face, 3 edges (the seam in the local xz half-plane on the +x side, two degenerated edges at the poles), 2 vertices (the poles).
 - Torus: `Surface`. 1 face, 2 edges (both seams), 1 vertex.
 
-Validation: box dimensions greater than 0; cylinder radius and height greater than 0; sphere radius greater than 0; cone height greater than 0, both radii at least 0 and different (one may be 0); torus minor radius greater than 0 and major radius greater than the minor radius.
+Validation: a size that must be positive must be at least `LINEAR`, because OCCT rejects smaller ones with generic exceptions or builds degenerate solids. Box dimensions at least `LINEAR`; cylinder radius and height at least `LINEAR`; sphere radius at least `LINEAR`; cone height at least `LINEAR`, each radius 0 or at least `LINEAR`, and the radii differing by at least `LINEAR` (one may be 0); torus minor radius at least `LINEAR` and major radius exceeding the minor radius by at least `LINEAR`. The messages (section 4.2) still say "greater than 0 mm", since smaller values display as 0 mm.
 
 #### 3.4.2 Profiles
 
@@ -663,7 +663,7 @@ Validation: box dimensions greater than 0; cylinder radius and height greater th
 
 #### 3.4.4 Revolve
 
-`revolve(profile, axis, angle)` rotates the profile about `axis` by `angle` (right-hand rule about `axis.direction`). Requirements: `0 < abs(angle) <= 2 pi + ANGULAR`; the axis lies in the profile plane (distance from `axis.origin` to the plane at most `LINEAR` and `abs(direction . normal) <= ANGULAR`); the profile lies in one closed half-plane of the axis (curves may touch the axis but not cross it, checked on the 2D curves with tolerance `LINEAR`). `abs(angle) >= 2 pi - ANGULAR` is a full revolution. Face roles: `Lateral { tag }` per profile edge that generates a face; a curve lying on the axis generates no face; `StartCap` (the profile face) and `EndCap` (the rotated face) exist only for partial revolutions. Surfaces are canonical where possible (a segment parallel to the axis gives a cylinder, perpendicular gives a plane).
+`revolve(profile, axis, angle)` rotates the profile about `axis` by `angle` (right-hand rule about `axis.direction`). Requirements: `ANGULAR < abs(angle) <= 2 pi + ANGULAR`; the axis lies in the profile plane (distance from `axis.origin` to the plane at most `LINEAR` and `abs(direction . normal) <= ANGULAR`); the profile lies in one closed half-plane of the axis (curves may touch the axis but not cross it, checked on the 2D curves with tolerance `LINEAR`). `abs(angle) >= 2 pi - ANGULAR` is a full revolution. Face roles: `Lateral { tag }` per profile edge that generates a face; a curve lying on the axis generates no face; `StartCap` (the profile face) and `EndCap` (the rotated face) exist only for partial revolutions. Surfaces are canonical where possible (a segment parallel to the axis gives a cylinder, perpendicular gives a plane).
 
 #### 3.4.5 Booleans
 
@@ -671,15 +671,15 @@ Validation: box dimensions greater than 0; cylinder radius and height greater th
 
 #### 3.4.6 Fillet
 
-`fillet(shape, edges)` uses `BRepFilletAPI_MakeFillet` with rational fillet shape (`ChFi3d_Rational`), adding each edge with its radius. OCCT extends each contour to tangent-continuous edges; those edges are filleted with the same radius. Requirements: at least one edge; every index in range, not repeated, not a seam and not degenerated; every radius greater than 0; the shape contains a solid; two requested edges in the same tangent contour must have equal radii. History: each filleted input edge is deleted and its `generated` lists the fillet face or faces built along it; a vertex where several fillets meet in a corner patch lists that face in `generated`; trimmed faces are in their originals' `modified` lists. On failure the shim reports the faulty contours' `ChFiDS_ErrorStatus` names in the raw message.
+`fillet(shape, edges)` uses `BRepFilletAPI_MakeFillet` with rational fillet shape (`ChFi3d_Rational`), adding each edge with its radius. OCCT extends each contour to tangent-continuous edges; those edges are filleted with the same radius. Requirements: at least one edge; every index in range, not repeated, not a seam and not degenerated; every radius at least `LINEAR`; the shape contains a solid; two requested edges in the same tangent contour must have equal radii. History: each filleted input edge is deleted and its `generated` lists the fillet face or faces built along it; a vertex where several fillets meet in a corner patch lists that face in `generated`; trimmed faces are in their originals' `modified` lists. On failure the shim reports the faulty contours' `ChFiDS_ErrorStatus` names in the raw message.
 
 #### 3.4.7 Chamfer
 
-`chamfer(shape, edges)` uses `BRepFilletAPI_MakeChamfer`: `Equal` adds the edge with one distance; `TwoDistances` adds it with `distance` on `face` and `other_distance` on the other adjacent face. Requirements as fillet, plus: distances greater than 0; for `TwoDistances`, `face` is in range and adjacent to the edge. History as fillet (chamfer faces generated from edges, corner faces from vertices).
+`chamfer(shape, edges)` uses `BRepFilletAPI_MakeChamfer`: `Equal` adds the edge with one distance; `TwoDistances` adds it with `distance` on `face` and `other_distance` on the other adjacent face. Requirements as fillet, plus: distances at least `LINEAR`; for `TwoDistances`, `face` is in range and adjacent to the edge. History as fillet (chamfer faces generated from edges, corner faces from vertices).
 
 #### 3.4.8 Shell
 
-`shell(shape, remove_faces, thickness)` uses `BRepOffsetAPI_MakeThickSolid::MakeThickSolidByJoin` on the single solid with offset `-thickness` (inward), the removed faces as closing faces, mode `BRepOffset_Skin`, join `GeomAbs_Arc`, coincidence tolerance `LINEAR`, intersection and self-intersection off. An empty `remove_faces` makes a closed hollow solid (outer and inner shells). Requirements: `thickness > 0`; the shape contains exactly one solid; face indices in range and not repeated; at least one face kept.
+`shell(shape, remove_faces, thickness)` uses `BRepOffsetAPI_MakeThickSolid::MakeThickSolidByJoin` on the single solid with offset `-thickness` (inward), the removed faces as closing faces, mode `BRepOffset_Skin`, join `GeomAbs_Arc`, coincidence tolerance `LINEAR`, intersection and self-intersection off. An empty `remove_faces` makes a closed hollow solid (outer and inner shells): `MakeThickSolid` returns only the inner offset solid when there are no closing faces, so the shim offsets with `BRepOffsetAPI_MakeOffsetShape::PerformByJoin` (same parameters) and builds the hollow solid from the input's shell and the reversed inner shell; a result that removes no material (the wall did not fit) fails with `StdFail_NotDone`. Requirements: `thickness >= LINEAR`; the shape contains exactly one solid; face indices in range and not repeated; at least one face kept.
 
 #### 3.4.9 Shell history contract
 
@@ -696,7 +696,7 @@ For `shell`, the history must satisfy, and the shim augments OCCT's history wher
 
 #### 3.4.11 Split
 
-`split(shape, plane)` splits every solid of the shape by the unbounded plane (`BRepAlgoAPI_Splitter` with a planar tool face larger than the shape's bounding box), then copies each resulting solid so the pieces share no sub-shapes, merging all histories. `solid_sides[i]` is the side of solid `i + 1` by the sign of the signed distance of its center of mass to the plane. `section_faces` lists every result face that lies on the plane and came from the tool, with the side of the solid it bounds (its outward normal is `-normal` on the positive side and `+normal` on the negative side). A solid the plane does not cut is kept whole (no section face). Requirements: the shape contains a solid. History: each input face cut by the plane lists both pieces in `modified`; uncut elements list their single image.
+`split(shape, plane)` splits every solid of the shape by the unbounded plane (`BRepAlgoAPI_Splitter` with a planar tool face larger than the shape's bounding box), then copies each resulting solid so the pieces share no sub-shapes, merging all histories. `solid_sides[i]` is the side of solid `i + 1` by the sign of the signed distance of its center of mass to the plane. `section_faces` lists every result face that lies on the plane and came from the tool, except faces that are also images of an input face (the splitter merges an input face lying on the plane with the tool, and such a face is not new), with the side of the solid it bounds (its outward normal is `-normal` on the positive side and `+normal` on the negative side). A solid the plane does not cut is kept whole (no section face). Requirements: the shape contains a solid. History: each input face cut by the plane lists both pieces in `modified`; uncut elements list their single image.
 
 #### 3.4.12 Section
 

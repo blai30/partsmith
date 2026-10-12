@@ -25,12 +25,14 @@ export type ErrorReply = {
 /** A response message as `decodeFrame` returns it. */
 export type ResponseMessage = Extract<Message, { kind: 'response' }>
 
-/** The parts of a response frame: the events caused by the request, then its outcome. */
-export type ResponseParts = {
-  readonly id: number
+/** A response without its id: the events caused by the request, the buffers, then the outcome. */
+export type ResponseBody = {
   readonly events?: readonly ProtocolEvent[]
   readonly buffers?: readonly BufferView[]
 } & ({ readonly result: CommandResult } | { readonly error: ErrorReply })
+
+/** The parts of a response frame. */
+export type ResponseParts = { readonly id: number } & ResponseBody
 
 /** A decoded response frame. */
 export type DecodedResponse = {
@@ -148,4 +150,22 @@ export function meshParts(bounds: BoundingBox, firstIndex: number): MeshParts {
 /** Copies an `ArrayBuffer`'s bytes into a plain array, for comparing frames. */
 export function bytesOf(buffer: ArrayBuffer): number[] {
   return Array.from(new Uint8Array(buffer))
+}
+
+/**
+ * The value with every null-valued object key removed, recursively. The protocol treats a null
+ * optional field and an absent one alike (protocol.md 2.3), so tests compare commands this way.
+ */
+export function withoutNulls(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(withoutNulls)
+  }
+  if (typeof value === 'object' && value !== null) {
+    return Object.fromEntries(
+      Object.entries(value)
+        .filter(([, entry]) => entry !== null)
+        .map(([key, entry]) => [key, withoutNulls(entry)]),
+    )
+  }
+  return value
 }

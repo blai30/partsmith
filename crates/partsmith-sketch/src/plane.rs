@@ -6,6 +6,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::error::{PlacementProblem, SketchError};
+use crate::vector::{dot, length, scale, subtract};
 
 /// Largest deviation from unit length or perpendicularity a valid placement may have.
 const FRAME_TOLERANCE: f64 = 1e-9;
@@ -86,7 +87,7 @@ pub struct Placement {
 impl Placement {
     /// Unit direction of sketch +v, `normal x x_axis`.
     pub fn y_axis(&self) -> [f64; 3] {
-        cross(self.normal, self.x_axis)
+        vector_product(self.normal, self.x_axis)
     }
 
     /// Model-space point of sketch coordinates `(u, v)`: `origin + u * x_axis + v * y_axis`.
@@ -102,10 +103,10 @@ impl Placement {
         if !values.into_iter().all(|value| value.is_finite()) {
             return invalid(PlacementProblem::NonFinite);
         }
-        if (norm(self.normal) - 1.0).abs() > FRAME_TOLERANCE {
+        if (length(self.normal) - 1.0).abs() > FRAME_TOLERANCE {
             return invalid(PlacementProblem::NormalNotUnit);
         }
-        if (norm(self.x_axis) - 1.0).abs() > FRAME_TOLERANCE {
+        if (length(self.x_axis) - 1.0).abs() > FRAME_TOLERANCE {
             return invalid(PlacementProblem::XAxisNotUnit);
         }
         if dot(self.x_axis, self.normal).abs() > FRAME_TOLERANCE {
@@ -131,21 +132,21 @@ impl Placement {
                 reason: PlacementProblem::NonFinite,
             });
         }
-        let length = norm(plane_normal);
-        if length < MIN_NORMAL_LENGTH {
+        let normal_length = length(plane_normal);
+        if normal_length < MIN_NORMAL_LENGTH {
             return Err(SketchError::InvalidPlacement {
                 reason: PlacementProblem::ZeroNormal,
             });
         }
-        let normal = scale(plane_normal, 1.0 / length);
+        let normal = scale(plane_normal, 1.0 / normal_length);
         let height = dot(subtract(hint.origin, plane_point), normal);
         let origin = subtract(hint.origin, scale(normal, height));
         let candidates = [hint.x_axis, hint.y_axis(), [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]];
         let x_axis = candidates
             .into_iter()
             .map(|candidate| subtract(candidate, scale(normal, dot(candidate, normal))))
-            .find(|projected| norm(*projected) >= MIN_AXIS_LENGTH)
-            .map(|projected| scale(projected, 1.0 / norm(projected)))
+            .find(|projected| length(*projected) >= MIN_AXIS_LENGTH)
+            .map(|projected| scale(projected, 1.0 / length(projected)))
             .expect("a unit normal is perpendicular to at most one of +X and +Y, so one of them projects to a usable axis");
         Ok(Placement {
             origin,
@@ -155,28 +156,13 @@ impl Placement {
     }
 }
 
-fn cross(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
+/// The vector product `first x second` of two space vectors.
+fn vector_product(first: [f64; 3], second: [f64; 3]) -> [f64; 3] {
     [
-        a[1] * b[2] - a[2] * b[1],
-        a[2] * b[0] - a[0] * b[2],
-        a[0] * b[1] - a[1] * b[0],
+        first[1] * second[2] - first[2] * second[1],
+        first[2] * second[0] - first[0] * second[2],
+        first[0] * second[1] - first[1] * second[0],
     ]
-}
-
-fn dot(a: [f64; 3], b: [f64; 3]) -> f64 {
-    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
-}
-
-fn norm(a: [f64; 3]) -> f64 {
-    dot(a, a).sqrt()
-}
-
-fn scale(a: [f64; 3], factor: f64) -> [f64; 3] {
-    a.map(|value| value * factor)
-}
-
-fn subtract(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
-    [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
 }
 
 #[cfg(test)]

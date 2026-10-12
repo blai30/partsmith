@@ -7,6 +7,7 @@ use partsmith_sketch::Placement;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use crate::strict::no_fields;
 use crate::{BufferIndex, MAX_SAFE_INTEGER};
 
 /// Handle of an open document; starts at 1 per session and is never reused.
@@ -165,6 +166,7 @@ pub struct ElementDescriptor {
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Orientation {
     /// No rotation.
+    #[serde(deserialize_with = "no_fields")]
     AsModeled,
     /// Rotation by a proper orthonormal 3 × 3 matrix, row-major.
     Matrix {
@@ -228,4 +230,146 @@ pub struct ExportFile {
     pub media_type: String,
     /// The file bytes (a `u8` buffer).
     pub data: BufferIndex,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The reference of the top face of the box fixture (protocol.md section 2.4).
+    const TOP_FACE: &str = r#"{"q":"f-box1/top","fp":"plane|n=0,0,1|c=0,0,40|a=600|adj=4,4"}"#;
+
+    fn top_face() -> Reference {
+        serde_json::from_str(TOP_FACE).expect("the reference deserializes")
+    }
+
+    fn id(text: &str) -> Id {
+        Id::new(text).expect("a valid id")
+    }
+
+    #[test]
+    fn doc_handle_is_a_bare_integer() {
+        assert_eq!(
+            serde_json::to_string(&DocHandle(3)).expect("serializes"),
+            "3"
+        );
+    }
+
+    #[test]
+    fn pick_rejects_unknown_fields() {
+        let result = serde_json::from_str::<Pick>(r#"{"mesh_id":1,"kind":"face","index":0,"x":4}"#);
+
+        assert!(result.is_err(), "got {result:?}");
+    }
+
+    #[test]
+    fn element_ref_rejects_unknown_fields() {
+        let text = format!(r#"{{"body":"b-1","reference":{TOP_FACE},"feature":"f-1"}}"#);
+
+        let result = serde_json::from_str::<ElementRef>(&text);
+
+        assert!(result.is_err(), "got {result:?}");
+    }
+
+    #[test]
+    fn as_modeled_rejects_unknown_fields() {
+        let result = serde_json::from_str::<Orientation>(r#"{"kind":"as_modeled","rows":[]}"#);
+
+        assert!(result.is_err(), "got {result:?}");
+    }
+
+    #[test]
+    fn face_down_keeps_its_body_and_face() {
+        let orientation = Orientation::FaceDown {
+            body: id("b-1"),
+            face: top_face(),
+        };
+
+        let text = serde_json::to_string(&orientation).expect("serializes");
+
+        assert_eq!(
+            text,
+            format!(r#"{{"kind":"face_down","body":"b-1","face":{TOP_FACE}}}"#)
+        );
+    }
+
+    #[test]
+    fn vertex_descriptor_writes_only_its_own_fields() {
+        let vertex = ElementDescriptor {
+            name: "vertex(f-box1/front|f-box1/left|f-box1/top)".to_string(),
+            kind: ElementKind::Vertex,
+            body: id("b-1"),
+            feature: id("f-box1"),
+            reference: serde_json::from_str(
+                r#"{"q":"vertex(f-box1/front|f-box1/left|f-box1/top)","fp":"point|c=-10,-15,40|adj=3,3"}"#,
+            )
+            .expect("the reference deserializes"),
+            surface: None,
+            curve: None,
+            centroid: [-10.0, -15.0, 40.0],
+            area: None,
+            length: None,
+            normal: None,
+            direction: None,
+            axis: None,
+            radius: None,
+            placement: None,
+            adjacent: Vec::new(),
+        };
+
+        let written = serde_json::to_value(&vertex).expect("serializes");
+
+        let keys: Vec<&str> = written
+            .as_object()
+            .expect("an object")
+            .keys()
+            .map(String::as_str)
+            .collect();
+        assert_eq!(
+            keys,
+            [
+                "name",
+                "kind",
+                "body",
+                "feature",
+                "reference",
+                "centroid",
+                "adjacent"
+            ]
+        );
+    }
+
+    #[test]
+    fn value_enums_are_snake_case() {
+        let texts = [
+            serde_json::to_string(&Layer::Preview),
+            serde_json::to_string(&SurfaceKind::Bspline),
+            serde_json::to_string(&CurveKind::Ellipse),
+            serde_json::to_string(&TessellationQuality::Draft),
+        ]
+        .map(|text| text.expect("serializes"));
+
+        assert_eq!(
+            texts,
+            [r#""preview""#, r#""bspline""#, r#""ellipse""#, r#""draft""#]
+        );
+    }
+
+    #[test]
+    fn asset_data_rejects_unknown_fields() {
+        let result = serde_json::from_str::<AssetData>(r#"{"name":"a.step","data":0,"size":14}"#);
+
+        assert!(result.is_err(), "got {result:?}");
+    }
+
+    #[test]
+    fn diagnostic_reads_null_options_as_absent() {
+        let diagnostic: Diagnostic = serde_json::from_str(
+            r#"{"severity":"info","code":"note","message":"Fine.","field":null,"suggestion":null}"#,
+        )
+        .expect("deserializes");
+
+        assert_eq!(diagnostic.field, None);
+        assert_eq!(diagnostic.suggestion, None);
+    }
 }

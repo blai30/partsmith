@@ -593,3 +593,25 @@ fn every_profile_face_faces_along_the_plane_normal() {
         "holed face direction",
     );
 }
+
+#[test]
+fn extrude_leaves_its_profile_unchanged() {
+    let profile = rectangle_with_hole_profile();
+    let before = profile.shape.to_brep().expect("BRep bytes");
+
+    extrude(&profile, UP, 0.0, 30.0).expect("the profile is extruded");
+    extrude(&profile, Vector::new(0.0, 1.0, 1.0), -5.0, 10.0).expect("the profile is extruded");
+
+    assert!(profile.shape.to_brep().expect("BRep bytes") == before);
+}
+
+#[test]
+fn revolve_leaves_its_profile_unchanged() {
+    let profile = ring_profile();
+    let before = profile.shape.to_brep().expect("BRep bytes");
+
+    revolve(&profile, &z_axis(), 2.0 * PI).expect("the profile is revolved fully");
+    revolve(&profile, &z_axis(), FRAC_PI_2).expect("the profile is revolved partly");
+
+    assert!(profile.shape.to_brep().expect("BRep bytes") == before);
+}

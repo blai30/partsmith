@@ -107,3 +107,60 @@ pub struct SketchDisplay {
     /// `u32`, 1 per region fill vertex: index into `regions`.
     pub region_ids: BufferIndex,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn solved_entity_writes_the_entity_then_its_state() {
+        let text = r#"{"id":"e-1","type":"circle","center":[1.0,2.0],"radius":3.0,"constrained":"fully_constrained"}"#;
+
+        let entity: SolvedEntity = serde_json::from_str(text).expect("deserializes");
+
+        assert_eq!(entity.constrained, EntityState::FullyConstrained);
+        assert_eq!(serde_json::to_string(&entity).expect("serializes"), text);
+    }
+
+    #[test]
+    fn solved_entity_keeps_the_construction_flag() {
+        let text = r#"{"id":"e-2","type":"point","position":[0.0,0.0],"construction":true,"constrained":"under_constrained"}"#;
+
+        let entity: SolvedEntity = serde_json::from_str(text).expect("deserializes");
+
+        assert!(entity.entity.construction);
+        assert_eq!(serde_json::to_string(&entity).expect("serializes"), text);
+    }
+
+    #[test]
+    fn solved_entity_without_its_state_is_rejected() {
+        let result = serde_json::from_str::<SolvedEntity>(
+            r#"{"id":"e-1","type":"line","start":[0.0,0.0],"end":[1.0,0.0]}"#,
+        );
+
+        assert!(result.is_err(), "got {result:?}");
+    }
+
+    #[test]
+    fn constraint_state_omits_an_absent_value() {
+        let state = ConstraintState {
+            id: Id::new("c-2").expect("a valid id"),
+            state: ConstraintSolveState::Unsatisfied,
+            value: None,
+        };
+
+        let text = serde_json::to_string(&state).expect("serializes");
+
+        assert_eq!(text, r#"{"id":"c-2","state":"unsatisfied"}"#);
+    }
+
+    #[test]
+    fn region_info_keeps_its_reference_area_and_centroid() {
+        let text = r#"{"reference":{"key":"e-1,e-2,e-3,e-4","fp":"c=40,25|a=4000"},"area":4000.0,"centroid":[40.0,25.0]}"#;
+
+        let region: RegionInfo = serde_json::from_str(text).expect("deserializes");
+
+        assert_eq!(region.area, 4000.0);
+        assert_eq!(serde_json::to_string(&region).expect("serializes"), text);
+    }
+}

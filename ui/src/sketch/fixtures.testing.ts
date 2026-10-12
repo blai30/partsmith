@@ -28,7 +28,7 @@ import type { ViewportHandle } from '../viewport/controller'
 import type { Vector2 } from './geometry'
 import type { IdSource } from './recipes'
 
-export type FeatureRecord = Document['features'][number]
+export type FeatureRecord = NonNullable<Document['features']>[number]
 export type SolvedEntity = SketchSolution['entities'][number]
 export type EntityState = SolvedEntity['constrained']
 export type EntityType = 'point' | 'line' | 'circle' | 'arc'

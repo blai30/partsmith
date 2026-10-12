@@ -1,5 +1,5 @@
-import { render, screen } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { cleanup, render, screen } from '@testing-library/react'
+import { afterEach, describe, expect, it } from 'vitest'
 import { AppProvider } from '../app/AppProvider'
 import type { SketchEntity, SketchSolution } from '../generated/protocol'
 import {
@@ -17,6 +17,10 @@ import {
 import { SketchHeader } from './SketchHeader'
 
 const LINE = lineEntity('e-1', [0, 0], [10, 0])
+
+afterEach(() => {
+  cleanup()
+})
 
 /** Renders the header in sketch mode on f-sk1 with these entities and this solution. */
 function renderHeader(entities: SketchEntity[], solution: SketchSolution): HTMLElement {

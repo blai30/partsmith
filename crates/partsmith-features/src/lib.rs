@@ -13,6 +13,14 @@
 //! Errors and warnings store ids and internal-unit numbers, and render with current names and
 //! document units. The behavior is specified in `docs/spec/features.md`.
 
+// `FeatureError` keeps the plain payloads features.md section 4.1 gives it (references, expression
+// and kernel errors), so it is larger than clippy's threshold. An error ends a build, so its size
+// costs nothing on a hot path, and boxing would change the shape the spec gives.
+#![expect(
+    clippy::result_large_err,
+    reason = "FeatureError keeps the payload types the spec gives; errors end a build"
+)]
+
 mod builtin;
 mod context;
 mod dependencies;
@@ -30,6 +38,8 @@ mod python;
 mod registry;
 mod schema;
 mod search;
+#[cfg(test)]
+mod test_support;
 mod warning;
 
 pub use builtin::register_builtins;

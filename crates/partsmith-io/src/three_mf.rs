@@ -72,7 +72,10 @@ pub fn write_3mf(
     options: &ThreeMfOptions<'_>,
 ) -> Result<ExportOutput, IoError> {
     check_not_empty(bodies)?;
-    if !bodies.iter().any(|body| body.role.is_part()) {
+    if bodies
+        .iter()
+        .all(|body| modifier_words(body.role).is_some())
+    {
         return Err(IoError::NoPrintedParts);
     }
     let (bases, base_indices) = base_materials(bodies);
@@ -112,7 +115,8 @@ pub fn write_3mf(
     Ok(ExportOutput { bytes, warnings })
 }
 
-/// The words naming a modifier role in messages, or `None` for a printed part.
+/// The words naming a role that 3MF leaves out, for its `modifier_omitted` message, or `None` for
+/// a printed part, the only role 3MF writes. Every role decision of the writer goes through here.
 fn modifier_words(role: BodyRole) -> Option<&'static str> {
     match role {
         BodyRole::Part => None,
@@ -170,7 +174,7 @@ fn base_materials(bodies: &[ExportBody<'_>]) -> (Vec<Base>, Vec<Option<usize>>) 
     let indices = bodies
         .iter()
         .map(|body| {
-            if !body.role.is_part() {
+            if modifier_words(body.role).is_some() {
                 return None;
             }
             let base = Base::of(body)?;
@@ -312,17 +316,7 @@ mod tests {
     use partsmith_mesh::Mesh;
 
     use super::*;
-
-    /// A part body for tests.
-    fn part<'a>(name: &'a str, mesh: &'a Mesh) -> ExportBody<'a> {
-        ExportBody {
-            name,
-            color: None,
-            material: None,
-            role: BodyRole::Part,
-            mesh,
-        }
-    }
+    use crate::test_support::{part, unit_triangle};
 
     /// A part body with a material and a color.
     fn colored<'a>(
@@ -335,15 +329,6 @@ mod tests {
             color,
             ..part("Body", mesh)
         }
-    }
-
-    /// The unit right triangle in the XY plane.
-    fn unit_triangle() -> Mesh {
-        Mesh::from_triangles(
-            vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
-            vec![[0, 1, 2]],
-        )
-        .expect("a valid test mesh")
     }
 
     /// The decompressed parts of a package, in archive order.

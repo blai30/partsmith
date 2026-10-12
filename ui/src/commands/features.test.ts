@@ -1,15 +1,10 @@
 import { ArrowUpFromLine, Layers2, PencilRuler, Shapes } from 'lucide-react'
 import { describe, expect, it } from 'vitest'
 import type { CatalogEntry } from '../generated/protocol'
-import {
-  CATALOG_TYPES,
-  catalogOf,
-  cubeDocumentState,
-  readyState,
-  TEST_CATALOG,
-  TEST_CATALOG_ENTRIES,
-} from '../layout/fixtures.testing'
-import { createTestApp, settle } from '../layout/test-app.testing'
+import { CATALOG_TYPES, cubeDocumentState, readyState } from '../layout/fixtures.testing'
+import { createModelApp } from '../layout/test-app.testing'
+import { catalogOf, TEST_CATALOG, TEST_CATALOG_ENTRIES } from '../test/fakes/catalog'
+import { settle } from '../test/fakes/settle'
 import { FEATURE_KEYWORDS, featureCommands } from './features'
 import type { CommandDefinition } from './registry'
 
@@ -122,28 +117,28 @@ describe('featureCommands', () => {
 
 describe('running feature commands', () => {
   it('starts the inspector command with a transaction named after the manifest label', async () => {
-    const { app, core } = createTestApp({ state: readyState(cubeDocumentState()) })
+    const { app, core } = createModelApp({ state: readyState(cubeDocumentState()) })
     await app.commands.run(app, 'feature.fillet', 'palette')
     await settle()
-    expect(core.beginTransaction).toHaveBeenCalledWith(1, 'Fillet')
+    expect(core.callsTo('beginTransaction')).toEqual([[1, 'Fillet']])
     expect(app.store.getState().command?.featureType).toBe('fillet')
   })
 
   it('switches from Print to Model before starting the command (3.3)', async () => {
-    const { app, core } = createTestApp({
+    const { app, core } = createModelApp({
       state: readyState(cubeDocumentState(), { context: 'print' }),
     })
     await app.commands.run(app, 'feature.fillet', 'toolbar')
     await settle()
     expect(app.store.getState().context).toBe('model')
-    expect(core.beginTransaction).toHaveBeenCalledWith(1, 'Fillet')
+    expect(core.callsTo('beginTransaction')).toEqual([[1, 'Fillet']])
   })
 
   it('runs the sketch type as a new sketch, not an inspector command', async () => {
-    const { app, core } = createTestApp({ state: readyState(cubeDocumentState()) })
+    const { app, core } = createModelApp({ state: readyState(cubeDocumentState()) })
     await app.commands.run(app, 'feature.sketch', 'toolbar')
     await settle()
-    expect(core.beginTransaction).not.toHaveBeenCalled()
+    expect(core.callsTo('beginTransaction')).toEqual([])
     expect(app.store.getState().command).toBeNull()
     expect(app.store.getState().context).toBe('sketch')
     expect(app.store.getState().sketch?.sketchId).toBeNull()

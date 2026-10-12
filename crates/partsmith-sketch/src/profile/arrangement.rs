@@ -8,9 +8,10 @@ use partsmith_model::Id;
 
 use super::area::{moments, winding_number};
 use super::key::{KeyEdge, RegionKey, loop_text};
-use super::{Profile, ProfileCurve, ProfileEdge, ProfileFinding, ProfileLoop, Region};
+use super::{Profile, ProfileCurve, ProfileEdge, ProfileFinding, ProfileLoop, Region, signed_area};
 use crate::PROFILE_TOLERANCE;
 use crate::entity::{Geometry, SketchEntity, point_at_angle};
+use crate::union_find::UnionFind;
 use crate::vector::{add, cross, dot, norm, scale, signed_distance, subtract, unit};
 
 /// Outgoing tangents whose angles differ by at most this much (rad) are ordered by curvature.
@@ -209,16 +210,20 @@ pub(super) fn build(entities: &[SketchEntity]) -> Profile {
     // Step 1: intersections and shared stretches of every pair, in entity order.
     let mut crossings: Vec<(usize, usize, Vec<[f64; 2]>)> = Vec::new();
     let mut stretches: Vec<(usize, usize, [[f64; 2]; 2])> = Vec::new();
-    for (i, first) in curves.iter().enumerate() {
-        for (j, second) in curves.iter().enumerate().skip(i + 1) {
+    for (first_index, first) in curves.iter().enumerate() {
+        for (second_index, second) in curves.iter().enumerate().skip(first_index + 1) {
             if !boxes_overlap(&first.bounds, &second.bounds) {
                 continue;
             }
             let (points, shared) = meet(first, second);
             if !points.is_empty() {
-                crossings.push((i, j, points));
+                crossings.push((first_index, second_index, points));
             }
-            stretches.extend(shared.into_iter().map(|stretch| (i, j, stretch)));
+            stretches.extend(
+                shared
+                    .into_iter()
+                    .map(|stretch| (first_index, second_index, stretch)),
+            );
         }
     }
 
@@ -235,8 +240,10 @@ pub(super) fn build(entities: &[SketchEntity]) -> Profile {
         .collect();
     let crossing_vertices: Vec<(usize, usize, usize)> = crossings
         .iter()
-        .flat_map(|(i, j, points)| points.iter().map(move |point| (*i, *j, *point)))
-        .map(|(i, j, point)| (i, j, vertices.snap(point)))
+        .flat_map(|(first, second, points)| {
+            points.iter().map(move |point| (*first, *second, *point))
+        })
+        .map(|(first, second, point)| (first, second, vertices.snap(point)))
         .collect();
     for (_, _, stretch) in &stretches {
         for point in stretch {
@@ -245,8 +252,11 @@ pub(super) fn build(entities: &[SketchEntity]) -> Profile {
     }
     let vertices = vertices.points;
 
-    for (i, j, [start, end]) in &stretches {
-        let mut entities = [curves[*i].entity.clone(), curves[*j].entity.clone()];
+    for (first, second, [start, end]) in &stretches {
+        let mut entities = [
+            curves[*first].entity.clone(),
+            curves[*second].entity.clone(),
+        ];
         entities.sort();
         findings.push(ProfileFinding::Overlap {
             entities,
@@ -362,7 +372,7 @@ fn meet(first: &Curve<'_>, second: &Curve<'_>) -> (Vec<[f64; 2]>, Vec<[[f64; 2];
                 .map(|parameter| (parameter, point))
         })
         .collect();
-    points.sort_by(|a, b| a.0.total_cmp(&b.0));
+    points.sort_by(|first, second| first.0.total_cmp(&second.0));
     (
         points.into_iter().map(|(_, point)| point).collect(),
         Vec::new(),
@@ -402,7 +412,7 @@ fn line_overlap(first: &Shape, second: &Shape) -> Option<[[f64; 2]; 2]> {
     let direction = unit(subtract(end, start));
     let mut projected =
         [other_start, other_end].map(|point| (dot(subtract(point, start), direction), point));
-    projected.sort_by(|a, b| a.0.total_cmp(&b.0));
+    projected.sort_by(|first, second| first.0.total_cmp(&second.0));
     let [low, high] = projected;
     let from = if low.0 <= 0.0 { (0.0, start) } else { low };
     let to = if high.0 >= length {
@@ -545,7 +555,9 @@ fn self_intersections(
     for (curve, ends) in endpoint_vertices.iter().enumerate() {
         for vertex in ends.iter().flatten() {
             match first_curve_at.get(vertex) {
-                Some(&other) => chains.union(other, curve),
+                Some(&other) => {
+                    chains.union(other, curve);
+                }
                 None => {
                     first_curve_at.insert(*vertex, curve);
                 }
@@ -557,11 +569,13 @@ fn self_intersections(
     };
     crossing_vertices
         .iter()
-        .filter(|&&(i, j, vertex)| {
-            !is_end(i, vertex) && !is_end(j, vertex) && chains.root(i) == chains.root(j)
+        .filter(|&&(first, second, vertex)| {
+            !is_end(first, vertex)
+                && !is_end(second, vertex)
+                && chains.root(first) == chains.root(second)
         })
-        .map(|&(i, j, vertex)| {
-            let mut entities = [curves[i].entity.clone(), curves[j].entity.clone()];
+        .map(|&(first, second, vertex)| {
+            let mut entities = [curves[first].entity.clone(), curves[second].entity.clone()];
             entities.sort();
             ProfileFinding::SelfIntersection {
                 entities,
@@ -571,7 +585,8 @@ fn self_intersections(
         .collect()
 }
 
-/// A piece of a line or arc between two vertices, in its entity's direction.
+/// A piece of a curve between two vertices, in its entity's direction. A closed piece starts and ends
+/// at one vertex: a circle with one vertex on it, or an arc whose ends met.
 #[derive(Clone, Copy, Debug)]
 struct Piece {
     curve: usize,
@@ -581,11 +596,24 @@ struct Piece {
     sweep: Option<f64>,
 }
 
-/// A whole circle with at most one vertex on it, which forms a loop on its own.
+impl Piece {
+    /// True when the piece starts and ends at one vertex.
+    fn is_closed(&self) -> bool {
+        self.from == self.to
+    }
+}
+
+/// A whole circle with no vertex on it, which forms loops on its own.
 #[derive(Clone, Copy, Debug)]
 struct Ring {
     curve: usize,
-    vertex: Option<usize>,
+}
+
+/// An edge that closes on itself: a closed piece or a ring, by index.
+#[derive(Clone, Copy, Debug)]
+enum ClosedEdge {
+    Piece(usize),
+    Ring(usize),
 }
 
 /// The edges of the arrangement.
@@ -623,7 +651,7 @@ impl Graph {
                 on.push((0.0, start));
                 on.push((curve.shape.end_parameter(), end));
             }
-            on.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
+            on.sort_by(|first, second| first.0.total_cmp(&second.0).then(first.1.cmp(&second.1)));
             match curve.shape {
                 Shape::Line { .. } => {
                     // A straight piece cannot start and end at one vertex.
@@ -637,36 +665,40 @@ impl Graph {
                     }
                 }
                 Shape::Arc { .. } => {
+                    // Ends that met at one vertex close an arc that sweeps more than half a turn; a
+                    // shorter piece between one vertex has no length to speak of and is left out.
                     for pair in on.windows(2) {
-                        pieces.push(Piece {
-                            curve: index,
-                            from: pair[0].1,
-                            to: pair[1].1,
-                            sweep: Some(pair[1].0 - pair[0].0),
-                        });
-                    }
-                }
-                Shape::Circle { .. } => match on.as_slice() {
-                    [] => rings.push(Ring {
-                        curve: index,
-                        vertex: None,
-                    }),
-                    [(_, vertex)] => rings.push(Ring {
-                        curve: index,
-                        vertex: Some(*vertex),
-                    }),
-                    _ => {
-                        for (position, &(parameter, vertex)) in on.iter().enumerate() {
-                            let (next_parameter, next_vertex) = on[(position + 1) % on.len()];
+                        let sweep = pair[1].0 - pair[0].0;
+                        if pair[0].1 != pair[1].1 || sweep > PI {
                             pieces.push(Piece {
                                 curve: index,
-                                from: vertex,
-                                to: next_vertex,
-                                sweep: Some((next_parameter - parameter).rem_euclid(TAU)),
+                                from: pair[0].1,
+                                to: pair[1].1,
+                                sweep: Some(sweep),
                             });
                         }
                     }
-                },
+                }
+                Shape::Circle { .. } => {
+                    if on.is_empty() {
+                        rings.push(Ring { curve: index });
+                    }
+                    // k vertices give k arcs; one vertex gives one closed piece around the whole circle.
+                    for (position, &(parameter, vertex)) in on.iter().enumerate() {
+                        let (next_parameter, next_vertex) = on[(position + 1) % on.len()];
+                        let sweep = if on.len() == 1 {
+                            TAU
+                        } else {
+                            (next_parameter - parameter).rem_euclid(TAU)
+                        };
+                        pieces.push(Piece {
+                            curve: index,
+                            from: vertex,
+                            to: next_vertex,
+                            sweep: Some(sweep),
+                        });
+                    }
+                }
             }
         }
         Graph { pieces, rings }
@@ -700,29 +732,59 @@ impl Graph {
                 }
             }
         }
+        // Closed edges on one circle each cover all of it, whatever vertex they have, so only the one
+        // of the smallest id stays.
+        let mut dropped_rings = vec![false; self.rings.len()];
+        let closed_edges: Vec<ClosedEdge> = (0..self.pieces.len())
+            .filter(|&index| !dropped[index] && self.pieces[index].is_closed())
+            .map(ClosedEdge::Piece)
+            .chain((0..self.rings.len()).map(ClosedEdge::Ring))
+            .collect();
+        let mut kept: Vec<ClosedEdge> = Vec::new();
+        for edge in closed_edges {
+            let curve = &curves[self.closed_curve(edge)];
+            let duplicate = kept.iter_mut().find(|other| {
+                same_circle(
+                    curves[self.closed_curve(**other)].shape.circle(),
+                    curve.shape.circle(),
+                )
+            });
+            let leaving = match duplicate {
+                None => {
+                    kept.push(edge);
+                    continue;
+                }
+                Some(other) if curve.entity < curves[self.closed_curve(*other)].entity => {
+                    std::mem::replace(other, edge)
+                }
+                Some(_) => edge,
+            };
+            match leaving {
+                ClosedEdge::Piece(index) => dropped[index] = true,
+                ClosedEdge::Ring(index) => dropped_rings[index] = true,
+            }
+        }
         let mut index = 0;
         self.pieces.retain(|_| {
             index += 1;
             !dropped[index - 1]
         });
-        let mut kept: Vec<Ring> = Vec::new();
-        for ring in &self.rings {
-            let circle = curves[ring.curve].shape.circle();
-            let duplicate = kept
-                .iter_mut()
-                .find(|other| same_circle(curves[other.curve].shape.circle(), circle));
-            match duplicate {
-                Some(other) if curves[ring.curve].entity < curves[other.curve].entity => {
-                    *other = *ring;
-                }
-                Some(_) => {}
-                None => kept.push(*ring),
-            }
-        }
-        self.rings = kept;
+        let mut index = 0;
+        self.rings.retain(|_| {
+            index += 1;
+            !dropped_rings[index - 1]
+        });
     }
 
-    /// Ends of curves that touch nothing else: vertices of degree 1 (step 5).
+    /// The curve of a closed edge.
+    fn closed_curve(&self, edge: ClosedEdge) -> usize {
+        match edge {
+            ClosedEdge::Piece(index) => self.pieces[index].curve,
+            ClosedEdge::Ring(index) => self.rings[index].curve,
+        }
+    }
+
+    /// Ends of curves that touch nothing else: vertices of degree 1 (step 5). A closed piece counts twice.
     fn open_endpoints(&self, curves: &[Curve<'_>], vertices: &[[f64; 2]]) -> Vec<ProfileFinding> {
         let mut degree = vec![0_usize; vertices.len()];
         let mut last_curve = vec![0_usize; vertices.len()];
@@ -730,11 +792,6 @@ impl Graph {
             for vertex in [piece.from, piece.to] {
                 degree[vertex] += 1;
                 last_curve[vertex] = piece.curve;
-            }
-        }
-        for ring in &self.rings {
-            if let Some(vertex) = ring.vertex {
-                degree[vertex] += 2;
             }
         }
         (0..vertices.len())
@@ -761,7 +818,9 @@ impl Graph {
         });
     }
 
-    /// Traces every loop with its face on the left (step 7).
+    /// Traces every face boundary with its face on the left (step 7). Closed pieces take part in the
+    /// tracing, so a circle that touches other curves at one vertex sits in the right faces, and then
+    /// each closed edge is split off into a chain of its own.
     fn loops(&self, curves: &[Curve<'_>], vertices: &[[f64; 2]]) -> Vec<TracedLoop> {
         let half_edges = 2 * self.pieces.len();
         let origin = |half_edge: usize| {
@@ -810,20 +869,32 @@ impl Graph {
             if visited[start] {
                 continue;
             }
-            let mut edges = Vec::new();
-            let mut starts = Vec::new();
+            let mut chains = Vec::new();
+            let mut rest = Chain::default();
             let mut half_edge = start;
             while !visited[half_edge] {
                 visited[half_edge] = true;
-                edges.push(self.profile_edge(half_edge, curves, vertices));
-                starts.push(origin(half_edge));
+                let edge = self.profile_edge(half_edge, curves, vertices);
+                let edge_start = Some(origin(half_edge));
+                if self.pieces[half_edge / 2].is_closed() {
+                    chains.push(Chain {
+                        edges: vec![edge],
+                        starts: vec![edge_start],
+                    });
+                } else {
+                    rest.edges.push(edge);
+                    rest.starts.push(edge_start);
+                }
                 half_edge = next(half_edge);
             }
+            // Without its closed edges the boundary still closes: each one leaves where it arrived.
+            if !rest.edges.is_empty() {
+                chains.push(rest);
+            }
             loops.push(TracedLoop::new(
-                edges,
-                starts.iter().map(|&vertex| Some(vertex)).collect(),
-                components.root(starts[0]),
-                vertices[starts[0]],
+                chains,
+                components.root(origin(start)),
+                vertices[origin(start)],
             ));
         }
         for (index, ring) in self.rings.iter().enumerate() {
@@ -831,11 +902,6 @@ impl Graph {
                 .shape
                 .circle()
                 .expect("rings are circles");
-            // A point on the circle away from its vertex, so it is never on another component's boundary.
-            let away = match ring.vertex {
-                Some(vertex) => angle_of(subtract(vertices[vertex], center)) + PI,
-                None => 0.0,
-            };
             for ccw in [true, false] {
                 let edge = ProfileEdge {
                     entity: curves[ring.curve].entity.clone(),
@@ -847,10 +913,12 @@ impl Graph {
                     },
                 };
                 loops.push(TracedLoop::new(
-                    vec![edge],
-                    vec![None],
+                    vec![Chain {
+                        edges: vec![edge],
+                        starts: vec![None],
+                    }],
                     vertices.len() + index,
-                    point_at_angle(center, radius, away),
+                    point_at_angle(center, radius, 0.0),
                 ));
             }
         }
@@ -884,7 +952,7 @@ impl Graph {
         }
     }
 
-    /// The profile edge of a half-edge, in traversal direction.
+    /// The profile edge of a half-edge, in traversal direction; a closed piece is a whole circle.
     fn profile_edge(
         &self,
         half_edge: usize,
@@ -899,6 +967,11 @@ impl Graph {
             (vertices[piece.from], vertices[piece.to])
         };
         let curve = match (piece.sweep, curves[piece.curve].shape.circle()) {
+            (Some(_), Some((center, radius))) if piece.is_closed() => ProfileCurve::Circle {
+                center,
+                radius,
+                ccw: !backward,
+            },
             (Some(_), Some((center, radius))) => ProfileCurve::Arc {
                 center,
                 radius,
@@ -956,14 +1029,15 @@ fn same_circle(first: Option<([f64; 2], f64)>, second: Option<([f64; 2], f64)>) 
 
 /// Sorts (angle, curvature, half-edge) counterclockwise: by angle, with ties within `TANGENT_TIE` broken by curvature.
 fn counterclockwise_order(mut keys: Vec<(f64, f64, usize)>) -> Vec<usize> {
-    keys.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.2.cmp(&b.2)));
+    keys.sort_by(|first, second| first.0.total_cmp(&second.0).then(first.2.cmp(&second.2)));
     let mut ordered = Vec::with_capacity(keys.len());
     let mut group_start = 0;
     for index in 1..=keys.len() {
         let ends_group = index == keys.len() || keys[index].0 - keys[index - 1].0 > TANGENT_TIE;
         if ends_group {
             let group = &mut keys[group_start..index];
-            group.sort_by(|a, b| a.1.total_cmp(&b.1).then(a.2.cmp(&b.2)));
+            group
+                .sort_by(|first, second| first.1.total_cmp(&second.1).then(first.2.cmp(&second.2)));
             ordered.extend(group.iter().map(|key| key.2));
             group_start = index;
         }
@@ -1022,48 +1096,27 @@ fn bridges(vertex_count: usize, ends: &[(usize, usize)]) -> Vec<bool> {
     is_bridge
 }
 
-/// A traced loop with what classification needs.
-struct TracedLoop {
+/// A closed chain of edges in traversal order.
+#[derive(Default)]
+struct Chain {
     edges: Vec<ProfileEdge>,
-    /// Creation index of each edge's start vertex; `None` for a whole circle.
+    /// Creation index of each edge's start vertex; `None` for a circle without vertices.
     starts: Vec<Option<usize>>,
-    /// Connected component after bridge removal; whole circles form their own.
-    component: usize,
-    /// A point of the loop, for containment tests.
-    point: [f64; 2],
-    area: f64,
-    /// `[min u, min v, max u, max v]` of the loop's curves.
-    bounds: [f64; 4],
 }
 
-impl TracedLoop {
-    fn new(
-        edges: Vec<ProfileEdge>,
-        starts: Vec<Option<usize>>,
-        component: usize,
-        point: [f64; 2],
-    ) -> TracedLoop {
-        let profile_loop = ProfileLoop { edges };
-        let area = profile_loop.signed_area();
-        let bounds = curve_bounds(&profile_loop.edges);
-        TracedLoop {
-            edges: profile_loop.edges,
-            starts,
-            component,
-            point,
-            area,
-            bounds,
-        }
+impl Chain {
+    fn signed_area(&self) -> f64 {
+        signed_area(&self.edges)
     }
 
-    /// Rotates the loop to start with the edge of the smallest entity id, then the earliest start vertex.
-    fn normalized(mut self) -> TracedLoop {
+    /// Rotates the chain to start with the edge of the smallest entity id, then the earliest start vertex.
+    fn normalized(mut self) -> Chain {
         let first = (0..self.edges.len())
-            .min_by(|&a, &b| {
-                self.edges[a]
+            .min_by(|&first, &second| {
+                self.edges[first]
                     .entity
-                    .cmp(&self.edges[b].entity)
-                    .then(self.starts[a].cmp(&self.starts[b]))
+                    .cmp(&self.edges[second].entity)
+                    .then(self.starts[first].cmp(&self.starts[second]))
             })
             .unwrap_or(0);
         self.edges.rotate_left(first);
@@ -1080,14 +1133,46 @@ impl TracedLoop {
             })
             .collect()
     }
+}
+
+/// A traced face boundary with what classification needs.
+struct TracedLoop {
+    /// The boundary as closed chains: each closed edge on its own, then the other edges.
+    chains: Vec<Chain>,
+    /// Connected component after bridge removal; circles without vertices form their own.
+    component: usize,
+    /// The boundary's first vertex (a point of the circle for a circle without vertices), for containment tests.
+    point: [f64; 2],
+    /// Signed area of the whole boundary.
+    area: f64,
+    /// `[min u, min v, max u, max v]` of the boundary's curves.
+    bounds: [f64; 4],
+}
+
+impl TracedLoop {
+    fn new(chains: Vec<Chain>, component: usize, point: [f64; 2]) -> TracedLoop {
+        let area = chains.iter().map(Chain::signed_area).sum();
+        let bounds = curve_bounds(chains.iter().flat_map(|chain| &chain.edges));
+        TracedLoop {
+            chains,
+            component,
+            point,
+            area,
+            bounds,
+        }
+    }
 
     fn curves(&self) -> Vec<ProfileCurve> {
-        self.edges.iter().map(|edge| edge.curve).collect()
+        self.chains
+            .iter()
+            .flat_map(|chain| &chain.edges)
+            .map(|edge| edge.curve)
+            .collect()
     }
 }
 
-/// Bounds of a loop's curves (circles and arcs by their whole circle).
-fn curve_bounds(edges: &[ProfileEdge]) -> [f64; 4] {
+/// Bounds of a boundary's curves (circles and arcs by their whole circle).
+fn curve_bounds<'a>(edges: impl IntoIterator<Item = &'a ProfileEdge>) -> [f64; 4] {
     let mut bounds = [
         f64::INFINITY,
         f64::INFINITY,
@@ -1136,8 +1221,11 @@ fn regions(loops: Vec<TracedLoop>) -> Vec<Region> {
                     && box_contains(&outer.bounds, candidate.point)
                     && winding_number(&outer.curves(), candidate.point) != 0
             })
-            .min_by(|(a_index, a), (b_index, b)| {
-                a.area.total_cmp(&b.area).then(a_index.cmp(b_index))
+            .min_by(|(first_index, first), (second_index, second)| {
+                first
+                    .area
+                    .total_cmp(&second.area)
+                    .then(first_index.cmp(second_index))
             });
         if let Some((outer, _)) = container {
             holes_of[outer].push(hole);
@@ -1152,21 +1240,35 @@ fn regions(loops: Vec<TracedLoop>) -> Vec<Region> {
         if !is_outer {
             continue;
         }
-        let outer = loops[outer_index]
+        let TracedLoop {
+            mut chains, point, ..
+        } = loops[outer_index]
             .take()
-            .expect("an outer loop is used once")
-            .normalized();
-        let mut holes: Vec<TracedLoop> = holes_of[outer_index]
-            .iter()
-            .map(|&hole| {
-                loops[hole]
-                    .take()
-                    .expect("a hole belongs to one outer loop")
-                    .normalized()
-            })
+            .expect("an outer loop is used once");
+        // The chain with the largest signed area bounds the face from outside; any other chain is a
+        // closed edge that touches the face from inside, so it is a hole.
+        let areas: Vec<f64> = chains.iter().map(Chain::signed_area).collect();
+        let outermost = (1..areas.len()).fold(0, |best, index| {
+            if areas[index] > areas[best] {
+                index
+            } else {
+                best
+            }
+        });
+        let outer = chains.remove(outermost).normalized();
+        let assigned = holes_of[outer_index].iter().flat_map(|&hole| {
+            loops[hole]
+                .take()
+                .expect("a hole belongs to one outer loop")
+                .chains
+        });
+        let mut holes: Vec<Chain> = chains
+            .into_iter()
+            .chain(assigned)
+            .map(Chain::normalized)
             .collect();
         holes.sort_by_cached_key(|hole| loop_text(&canonical_entries(hole.entries())));
-        if let Some(region) = region(outer, holes) {
+        if let Some(region) = region(outer, holes, point) {
             regions.push(region);
         }
     }
@@ -1174,25 +1276,25 @@ fn regions(loops: Vec<TracedLoop>) -> Vec<Region> {
         .into_iter()
         .map(|region| (region.key.to_string(), region))
         .collect();
-    keyed.sort_by(|(a_text, a), (b_text, b)| {
-        a_text
-            .cmp(b_text)
-            .then(a.centroid[0].total_cmp(&b.centroid[0]))
-            .then(a.centroid[1].total_cmp(&b.centroid[1]))
+    keyed.sort_by(|(first_text, first), (second_text, second)| {
+        first_text
+            .cmp(second_text)
+            .then(first.centroid[0].total_cmp(&second.centroid[0]))
+            .then(first.centroid[1].total_cmp(&second.centroid[1]))
     });
     keyed.into_iter().map(|(_, region)| region).collect()
 }
 
-/// A loop's key entries as a region key sorts them.
+/// A chain's key entries as a region key sorts them.
 fn canonical_entries(mut entries: Vec<KeyEdge>) -> Vec<KeyEdge> {
     entries.sort();
     entries.dedup();
     entries
 }
 
-/// The region of an outer loop and its holes, or `None` when its area is too small.
-fn region(outer: TracedLoop, holes: Vec<TracedLoop>) -> Option<Region> {
-    let origin = outer.point;
+/// The region of an outer chain and its holes, or `None` when its area is too small. Moments are
+/// taken about `origin`, a point near the region.
+fn region(outer: Chain, holes: Vec<Chain>, origin: [f64; 2]) -> Option<Region> {
     let mut totals = [0.0; 3];
     let edges = outer
         .edges
@@ -1210,10 +1312,7 @@ fn region(outer: TracedLoop, holes: Vec<TracedLoop>) -> Option<Region> {
     if area <= MIN_REGION_AREA {
         return None;
     }
-    let key = RegionKey::new(
-        outer.entries(),
-        holes.iter().map(TracedLoop::entries).collect(),
-    );
+    let key = RegionKey::new(outer.entries(), holes.iter().map(Chain::entries).collect());
     Some(Region {
         key,
         centroid: [origin[0] + totals[1] / area, origin[1] + totals[2] / area],
@@ -1247,34 +1346,261 @@ fn compare_findings(first: &ProfileFinding, second: &ProfileFinding) -> Ordering
         .then(first_point[1].total_cmp(&second_point[1]))
 }
 
-/// Union-find over indices whose roots are the lowest index of each set.
-struct UnionFind {
-    parents: Vec<usize>,
-}
-
-impl UnionFind {
-    fn new(count: usize) -> UnionFind {
-        UnionFind {
-            parents: (0..count).collect(),
-        }
-    }
-
-    fn root(&self, mut index: usize) -> usize {
-        while self.parents[index] != index {
-            index = self.parents[index];
-        }
-        index
-    }
-
-    fn union(&mut self, first: usize, second: usize) {
-        let (first, second) = (self.root(first), self.root(second));
-        self.parents[first.max(second)] = first.min(second);
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn entity(id: &str, geometry: Geometry) -> SketchEntity {
+        SketchEntity {
+            id: Id::new(id).expect("test ids are valid"),
+            geometry,
+            construction: false,
+        }
+    }
+
+    fn line(id: &str, start: [f64; 2], end: [f64; 2]) -> SketchEntity {
+        entity(id, Geometry::Line { start, end })
+    }
+
+    fn circle(id: &str, center: [f64; 2], radius: f64) -> SketchEntity {
+        entity(id, Geometry::Circle { center, radius })
+    }
+
+    /// The 80 x 50 rectangle e-1 to e-4, drawn counterclockwise from the origin.
+    fn rectangle() -> Vec<SketchEntity> {
+        vec![
+            line("e-1", [0.0, 0.0], [80.0, 0.0]),
+            line("e-2", [80.0, 0.0], [80.0, 50.0]),
+            line("e-3", [80.0, 50.0], [0.0, 50.0]),
+            line("e-4", [0.0, 50.0], [0.0, 0.0]),
+        ]
+    }
+
+    fn keys(profile: &Profile) -> Vec<String> {
+        profile
+            .regions
+            .iter()
+            .map(|region| region.key.to_string())
+            .collect()
+    }
+
+    fn assert_close(actual: f64, expected: f64) {
+        assert!(
+            (actual - expected).abs() <= 1e-9 * expected.abs(),
+            "{actual} is not {expected}"
+        );
+    }
+
+    /// Every loop closes, and a circle edge is the only edge of its loop, as kernel profiles need.
+    fn assert_loops_close(profile: &Profile) {
+        let loops = profile
+            .regions
+            .iter()
+            .flat_map(|region| std::iter::once(&region.outer).chain(&region.holes));
+        for profile_loop in loops {
+            let ends: Vec<Option<([f64; 2], [f64; 2])>> = profile_loop
+                .edges
+                .iter()
+                .map(|edge| match edge.curve {
+                    ProfileCurve::Line { start, end } | ProfileCurve::Arc { start, end, .. } => {
+                        Some((start, end))
+                    }
+                    ProfileCurve::Circle { .. } => None,
+                })
+                .collect();
+            if ends.contains(&None) {
+                assert_eq!(
+                    ends.len(),
+                    1,
+                    "a circle edge shares its loop: {profile_loop:?}"
+                );
+                continue;
+            }
+            let ends: Vec<([f64; 2], [f64; 2])> = ends.into_iter().flatten().collect();
+            for (position, (_, end)) in ends.iter().enumerate() {
+                let (next_start, _) = ends[(position + 1) % ends.len()];
+                assert_eq!(*end, next_start, "the loop breaks: {profile_loop:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn circle_touching_an_edge_from_inside_is_a_disc_and_a_hole() {
+        // Exactly tangent, and overlapping the edge by 1e-10, which is within the tolerance.
+        for center_v in [5.0, 4.9999999999] {
+            let mut entities = rectangle();
+            entities.push(circle("e-5", [40.0, center_v], 5.0));
+
+            let profile = build(&entities);
+
+            assert_eq!(
+                keys(&profile),
+                ["e-1,e-2,e-3,e-4;~e-5", "e-5"],
+                "{center_v}"
+            );
+            assert_close(profile.regions[0].area, 4000.0 - 25.0 * PI);
+            assert_close(profile.regions[1].area, 25.0 * PI);
+            assert_eq!(
+                profile.regions[0].holes[0].edges[0].curve,
+                ProfileCurve::Circle {
+                    center: [40.0, center_v],
+                    radius: 5.0,
+                    ccw: false
+                }
+            );
+            assert!(profile.findings.is_empty(), "{:?}", profile.findings);
+            assert_loops_close(&profile);
+        }
+    }
+
+    #[test]
+    fn circle_touching_an_edge_from_outside_keeps_its_disc() {
+        for center_v in [-5.0, -4.9999999999] {
+            let mut entities = rectangle();
+            entities.push(circle("e-5", [40.0, center_v], 5.0));
+
+            let profile = build(&entities);
+
+            assert_eq!(keys(&profile), ["e-1,e-2,e-3,e-4", "e-5"], "{center_v}");
+            assert_close(profile.regions[0].area, 4000.0);
+            assert_close(profile.regions[1].area, 25.0 * PI);
+            assert!(profile.findings.is_empty(), "{:?}", profile.findings);
+            assert_loops_close(&profile);
+        }
+    }
+
+    #[test]
+    fn touching_shapes_inside_an_outline_are_separate_holes() {
+        let entities = [
+            line("e-1", [0.0, 0.0], [100.0, 0.0]),
+            line("e-2", [100.0, 0.0], [100.0, 100.0]),
+            line("e-3", [100.0, 100.0], [0.0, 100.0]),
+            line("e-4", [0.0, 100.0], [0.0, 0.0]),
+            line("e-5", [20.0, 20.0], [40.0, 20.0]),
+            line("e-6", [40.0, 20.0], [40.0, 30.0]),
+            line("e-7", [40.0, 30.0], [20.0, 30.0]),
+            line("e-8", [20.0, 30.0], [20.0, 20.0]),
+            circle("e-9", [30.0, 15.0], 5.0),
+        ];
+
+        let profile = build(&entities);
+
+        assert_eq!(
+            keys(&profile),
+            [
+                "e-1,e-2,e-3,e-4;~e-5,~e-6,~e-7,~e-8;~e-9",
+                "e-5,e-6,e-7,e-8",
+                "e-9"
+            ]
+        );
+        assert_close(profile.regions[0].area, 10000.0 - 200.0 - 25.0 * PI);
+        assert_eq!(profile.regions[0].holes.len(), 2);
+        assert!(profile.findings.is_empty(), "{:?}", profile.findings);
+        assert_loops_close(&profile);
+    }
+
+    #[test]
+    fn corner_on_a_circle_keeps_the_disc() {
+        // Drawn clockwise from the corner, so the outside of the triangle is traced from the corner.
+        let corner = [4.9999999999, 0.0];
+        let entities = [
+            circle("e-1", [0.0, 0.0], 5.0),
+            line("e-2", corner, [15.0, 5.0]),
+            line("e-3", [15.0, 5.0], [15.0, -5.0]),
+            line("e-4", [15.0, -5.0], corner),
+        ];
+
+        let profile = build(&entities);
+
+        assert_eq!(keys(&profile), ["e-1", "~e-2,~e-3,~e-4"]);
+        assert_close(profile.regions[0].area, 25.0 * PI);
+        assert_close(profile.regions[1].area, 5.0 * (15.0 - corner[0]));
+        assert!(profile.findings.is_empty(), "{:?}", profile.findings);
+        assert_loops_close(&profile);
+    }
+
+    #[test]
+    fn corner_touching_a_circle_from_inside_is_a_hole_of_the_disc() {
+        let entities = [
+            circle("e-1", [0.0, 0.0], 5.0),
+            line("e-2", [5.0, 0.0], [0.0, 2.0]),
+            line("e-3", [0.0, 2.0], [0.0, -2.0]),
+            line("e-4", [0.0, -2.0], [5.0, 0.0]),
+        ];
+
+        let profile = build(&entities);
+
+        assert_eq!(keys(&profile), ["e-1;~e-2,~e-3,~e-4", "e-2,e-3,e-4"]);
+        assert_close(profile.regions[0].area, 25.0 * PI - 10.0);
+        assert_close(profile.regions[1].area, 10.0);
+        assert_loops_close(&profile);
+    }
+
+    #[test]
+    fn circle_tangent_inside_a_circle_is_its_hole() {
+        let entities = [
+            circle("e-1", [0.0, 0.0], 10.0),
+            circle("e-2", [5.0, 0.0], 5.0),
+        ];
+
+        let profile = build(&entities);
+
+        assert_eq!(keys(&profile), ["e-1;~e-2", "e-2"]);
+        assert_close(profile.regions[0].area, 75.0 * PI);
+        assert_close(profile.regions[1].area, 25.0 * PI);
+        assert_loops_close(&profile);
+    }
+
+    #[test]
+    fn nearly_full_arc_whose_ends_meet_is_a_circle_edge() {
+        let entities = [entity(
+            "e-1",
+            Geometry::Arc {
+                center: [0.0, 0.0],
+                radius: 5.0,
+                start_angle: 0.0,
+                end_angle: 6.2831852,
+            },
+        )];
+
+        let profile = build(&entities);
+
+        assert_eq!(keys(&profile), ["e-1"]);
+        assert_eq!(
+            profile.regions[0].outer.edges,
+            [ProfileEdge {
+                entity: Id::new("e-1").expect("valid id"),
+                reversed: false,
+                curve: ProfileCurve::Circle {
+                    center: [0.0, 0.0],
+                    radius: 5.0,
+                    ccw: true
+                },
+            }]
+        );
+        assert_close(profile.regions[0].area, 25.0 * PI);
+        assert!(profile.findings.is_empty(), "{:?}", profile.findings);
+    }
+
+    #[test]
+    fn identical_circles_keep_the_smaller_id() {
+        // The second circle is the first within the tolerance but misses the overlap's vertex at (5, 0).
+        for second in [
+            circle("e-2", [0.0, 0.0], 5.0),
+            circle("e-2", [-0.9e-6, 0.0], 5.0 - 0.9e-6),
+        ] {
+            let entities = [circle("e-1", [0.0, 0.0], 5.0), second];
+
+            let profile = build(&entities);
+
+            assert_eq!(keys(&profile), ["e-1"]);
+            assert_close(profile.regions[0].area, 25.0 * PI);
+            assert!(matches!(
+                profile.findings.as_slice(),
+                [ProfileFinding::Overlap { .. }]
+            ));
+        }
+    }
 
     #[test]
     fn bridges_of_two_triangles_joined_by_an_edge() {

@@ -58,10 +58,10 @@ TopoDS_Face covering_face(const TopoDS_Shape &shape, const gp_Pln &plane) {
   double min_x = 0.0, min_y = 0.0, min_z = 0.0, max_x = 0.0, max_y = 0.0, max_z = 0.0;
   box.Get(min_x, min_y, min_z, max_x, max_y, max_z);
   const gp_Pnt center((min_x + max_x) / 2.0, (min_y + max_y) / 2.0, (min_z + max_z) / 2.0);
-  double u = 0.0, v = 0.0;
-  ElSLib::Parameters(plane, center, u, v);
-  BRepBuilderAPI_MakeFace maker(plane, u - half_size, u + half_size, v - half_size,
-                                v + half_size);
+  double u_center = 0.0, v_center = 0.0;
+  ElSLib::Parameters(plane, center, u_center, v_center);
+  BRepBuilderAPI_MakeFace maker(plane, u_center - half_size, u_center + half_size,
+                                v_center - half_size, v_center + half_size);
   return maker.Face();
 }
 
@@ -155,12 +155,25 @@ SplitData split(const Shape &shape, const Frame &plane_frame) {
     solid_positive.push_back((properties.CentreOfMass().XYZ() - origin).Dot(normal) > 0.0);
   }
 
+  rust::Vec<InputHistoryData> inputs = history_data(history, {shape.get()}, output);
+  // A face of the input lying on the plane is also an image of the tool, since the splitter
+  // merges coincident faces; it was not created on the plane, so it is no section face.
+  std::vector<bool> input_images(static_cast<std::size_t>(output.faces().Extent()) + 1, false);
+  for (const FateData &fate : inputs[0].faces) {
+    for (std::uint32_t face : fate.modified) {
+      input_images[static_cast<std::size_t>(face)] = true;
+    }
+  }
+
   TopTools_IndexedDataMapOfShapeListOfShape face_solids;
   TopExp::MapShapesAndUniqueAncestors(result, TopAbs_FACE, TopAbs_SOLID, face_solids);
   std::vector<std::pair<std::uint32_t, bool>> sections;
   for (const TopoDS_Shape &image : history->Modified(tool)) {
     const int face = output.faces().FindIndex(image);
-    const TopTools_ListOfShape *solids = face > 0 ? face_solids.Seek(image) : nullptr;
+    if (face == 0 || input_images[static_cast<std::size_t>(face)]) {
+      continue;
+    }
+    const TopTools_ListOfShape *solids = face_solids.Seek(image);
     if (solids == nullptr || solids->IsEmpty()) {
       continue;
     }
@@ -175,7 +188,6 @@ SplitData split(const Shape &shape, const Frame &plane_frame) {
     section_faces.push_back(SectionFaceData{face, positive});
   }
 
-  rust::Vec<InputHistoryData> inputs = history_data(history, {shape.get()}, output);
   return SplitData{OpResultData{std::move(pieces_shape), std::move(inputs)},
                    std::move(solid_positive), std::move(section_faces)};
 }

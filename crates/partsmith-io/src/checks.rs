@@ -124,11 +124,11 @@ pub(crate) struct WeldedBody {
     pub(crate) warnings: Vec<ExportWarning>,
     /// The welded mesh, which has at least one triangle.
     mesh: Mesh,
-    /// For each welded vertex, whether a triangle uses it.
-    used: Vec<bool>,
-    /// For each welded vertex, the number of used vertices before it: the output position of a
-    /// used vertex.
-    output_index: Vec<u32>,
+    /// For each welded vertex, its position in the output vertex list, or `None` when no triangle
+    /// uses it.
+    output_index: Vec<Option<u32>>,
+    /// The number of output vertices.
+    vertex_count: usize,
 }
 
 impl WeldedBody {
@@ -141,39 +141,38 @@ impl WeldedBody {
         if mesh.triangle_count() == 0 {
             return Err(empty_body(index, &name));
         }
-        let mut used = vec![false; mesh.vertex_count()];
+        // Mark the vertices the triangles use, then number them in welded mesh order. A mesh
+        // holds at most `MAX_ELEMENTS` (`u32::MAX`) vertices, so the count fits in `u32`.
+        let mut output_index = vec![None; mesh.vertex_count()];
         for &vertex in mesh.triangles().iter().flatten() {
-            used[vertex as usize] = true;
+            output_index[vertex as usize] = Some(0);
+        }
+        let mut vertex_count: u32 = 0;
+        for position in output_index.iter_mut().flatten() {
+            *position = vertex_count;
+            vertex_count += 1;
         }
         let out_of_range = mesh
             .positions()
             .iter()
-            .zip(&used)
-            .any(|(&position, &is_used)| is_used && is_out_of_range(position));
+            .zip(&output_index)
+            .any(|(&position, used)| used.is_some() && is_out_of_range(position));
         if out_of_range {
             return Err(coordinate_out_of_range(index, &name));
         }
-        let output_index = used
-            .iter()
-            .scan(0_u32, |used_before, &is_used| {
-                let position = *used_before;
-                *used_before += u32::from(is_used);
-                Some(position)
-            })
-            .collect();
         let warnings = validity_warnings(index, &name, &mesh);
         Ok(WeldedBody {
             name,
             warnings,
             mesh,
-            used,
             output_index,
+            vertex_count: vertex_count as usize,
         })
     }
 
     /// The number of output vertices.
     pub(crate) fn vertex_count(&self) -> usize {
-        self.used.iter().filter(|&&is_used| is_used).count()
+        self.vertex_count
     }
 
     /// The written coordinates of the output vertices, in welded mesh order.
@@ -181,42 +180,28 @@ impl WeldedBody {
         self.mesh
             .positions()
             .iter()
-            .zip(&self.used)
-            .filter(|&(_, &is_used)| is_used)
+            .zip(&self.output_index)
+            .filter(|(_, used)| used.is_some())
             .map(|(&position, _)| written_point(position))
     }
 
     /// The welded triangles in order, each corner an index into the output vertices.
     pub(crate) fn triangles(&self) -> impl Iterator<Item = [u32; 3]> + '_ {
-        self.mesh
-            .triangles()
-            .iter()
-            .map(|corners| corners.map(|vertex| self.output_index[vertex as usize]))
+        self.mesh.triangles().iter().map(|corners| {
+            corners.map(|vertex| {
+                self.output_index[vertex as usize]
+                    .expect("every vertex a welded triangle uses has an output position")
+            })
+        })
     }
 }
 
 #[cfg(test)]
 mod tests {
     use partsmith_mesh::Point3;
-    use partsmith_model::BodyRole;
 
     use super::*;
-
-    /// A part body for tests.
-    fn part<'a>(name: &'a str, mesh: &'a Mesh) -> ExportBody<'a> {
-        ExportBody {
-            name,
-            color: None,
-            material: None,
-            role: BodyRole::Part,
-            mesh,
-        }
-    }
-
-    /// A mesh from positions and triangles.
-    fn mesh(positions: &[Point3], triangles: &[[u32; 3]]) -> Mesh {
-        Mesh::from_triangles(positions.to_vec(), triangles.to_vec()).expect("a valid test mesh")
-    }
+    use crate::test_support::{mesh, part};
 
     /// The corners of the unit corner tetrahedron.
     const TETRA_POSITIONS: [Point3; 4] = [

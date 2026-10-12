@@ -186,10 +186,9 @@ mod tests {
 
     #[test]
     fn null_edit_index_reads_as_absent() {
-        let info: ErrorInfo = serde_json::from_str(
-            r#"{"code":"edit_rejected","message":"No.","edit_index":null}"#,
-        )
-        .expect("an error with a null edit index deserializes");
+        let info: ErrorInfo =
+            serde_json::from_str(r#"{"code":"edit_rejected","message":"No.","edit_index":null}"#)
+                .expect("an error with a null edit index deserializes");
 
         assert_eq!(info.edit_index, None);
     }

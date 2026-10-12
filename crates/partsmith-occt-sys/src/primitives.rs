@@ -4,7 +4,7 @@ use crate::element::GeometryKind;
 use crate::error::{KernelError, Operation, call};
 use crate::ffi::bridge as sys;
 use crate::shape::{Shape, SubShapeKind};
-use crate::values::{Frame, Plane, Vector, check_finite};
+use crate::values::{Frame, Plane, Vector, check_finite, is_positive_length};
 
 /// A primitive solid with the role of each face.
 #[derive(Debug, Clone)]
@@ -123,7 +123,7 @@ pub fn make_box(
     height: f64,
 ) -> Result<Primitive, KernelError> {
     let operation = Operation::MakeBox;
-    let valid = length > 0.0 && width > 0.0 && height > 0.0;
+    let valid = [length, width, height].into_iter().all(is_positive_length);
     let frame = placement_frame(
         operation,
         placement,
@@ -144,7 +144,7 @@ pub fn make_cylinder(
     height: f64,
 ) -> Result<Primitive, KernelError> {
     let operation = Operation::MakeCylinder;
-    let valid = radius > 0.0 && height > 0.0;
+    let valid = is_positive_length(radius) && is_positive_length(height);
     let frame = placement_frame(
         operation,
         placement,
@@ -165,7 +165,7 @@ pub fn make_sphere(placement: &Plane, radius: f64) -> Result<Primitive, KernelEr
         operation,
         placement,
         &[radius],
-        radius > 0.0,
+        is_positive_length(radius),
         SPHERE_MESSAGE,
     )?;
     let shape = call(operation, || sys::make_sphere(&frame.to_ffi(), radius))?;
@@ -180,8 +180,12 @@ pub fn make_cone(
     height: f64,
 ) -> Result<Primitive, KernelError> {
     let operation = Operation::MakeCone;
-    let valid =
-        height > 0.0 && bottom_radius >= 0.0 && top_radius >= 0.0 && bottom_radius != top_radius;
+    // Each radius is 0 (an apex) or a length, and the two differ beyond the tolerance.
+    let is_radius = |radius: f64| radius == 0.0 || is_positive_length(radius);
+    let valid = is_positive_length(height)
+        && is_radius(bottom_radius)
+        && is_radius(top_radius)
+        && is_positive_length((bottom_radius - top_radius).abs());
     let frame = placement_frame(
         operation,
         placement,
@@ -202,7 +206,7 @@ pub fn make_torus(
     minor_radius: f64,
 ) -> Result<Primitive, KernelError> {
     let operation = Operation::MakeTorus;
-    let valid = minor_radius > 0.0 && major_radius > minor_radius;
+    let valid = is_positive_length(minor_radius) && is_positive_length(major_radius - minor_radius);
     let frame = placement_frame(
         operation,
         placement,
@@ -263,6 +267,45 @@ mod tests {
     fn other_faces_have_no_role() {
         assert_eq!(classify(GeometryKind::BsplineSurface, None), None);
         assert_eq!(classify(GeometryKind::Plane, None), None);
+    }
+
+    #[test]
+    fn cone_radii_within_the_tolerance_are_equal() {
+        let error = make_cone(&Plane::XY, 5.0, 5.0 + 1e-9, 10.0).expect_err("the radii are equal");
+
+        assert_eq!(error.kind, crate::KernelErrorKind::InvalidInput);
+        assert_eq!(error.message, CONE_MESSAGE);
+    }
+
+    #[test]
+    fn cone_radius_below_the_tolerance_is_rejected() {
+        let error = make_cone(&Plane::XY, 5.0, 1e-9, 10.0).expect_err("the top radius is tiny");
+
+        assert_eq!(error.kind, crate::KernelErrorKind::InvalidInput);
+        assert_eq!(error.message, CONE_MESSAGE);
+    }
+
+    #[test]
+    fn cone_radii_beyond_the_tolerance_build() {
+        let cone = make_cone(&Plane::XY, 5.0, 5.0 + 2.0 * crate::LINEAR_TOLERANCE, 10.0)
+            .expect("the radii differ by twice the tolerance");
+
+        assert_eq!(cone.faces.len(), 3);
+    }
+
+    #[test]
+    fn box_side_below_the_tolerance_is_rejected() {
+        let error = make_box(&Plane::XY, 1e-8, 1.0, 1.0).expect_err("the length is tiny");
+
+        assert_eq!(error.kind, crate::KernelErrorKind::InvalidInput);
+        assert_eq!(error.message, BOX_MESSAGE);
+    }
+
+    #[test]
+    fn torus_radii_within_the_tolerance_are_rejected() {
+        let error = make_torus(&Plane::XY, 2.0 + 1e-9, 2.0).expect_err("no hole is left");
+
+        assert_eq!(error.message, TORUS_MESSAGE);
     }
 
     #[test]

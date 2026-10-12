@@ -52,10 +52,9 @@ function expectPoint(actual: Vector2 | undefined, expected: Vector2): void {
   expect(actual?.[1]).toBeCloseTo(expected[1], DIGITS)
 }
 
-function expectRawCursor(result: InferenceResult, cursor: Vector2): void {
-  expectPoint(result.point, cursor)
-  expect(result.snap).toBeNull()
-  expect(result.direction).toBeNull()
+/** What `infer` returns when it infers nothing: the raw cursor. */
+function raw(cursor: Vector2): InferenceResult {
+  return { point: cursor, snap: null, direction: null }
 }
 
 describe('infer: snaps', () => {
@@ -69,7 +68,7 @@ describe('infer: snaps', () => {
   })
 
   it('U-56 a point 0.9 mm away does not snap', () => {
-    expectRawCursor(infer(snapInput([lonePoint], [20.9, 20])), [20.9, 20])
+    expect(infer(snapInput([lonePoint], [20.9, 20]))).toEqual(raw([20.9, 20]))
   })
 
   it('U-56 a line midpoint 0.5 mm away snaps to the midpoint', () => {
@@ -131,7 +130,7 @@ describe('infer: direction while drawing a line', () => {
 
   it('U-56 a segment at 3.1 degrees infers nothing', () => {
     const cursor = along(start, 3.1, 20)
-    expectRawCursor(infer(lineInput([], freeStart, cursor)), cursor)
+    expect(infer(lineInput([], freeStart, cursor))).toEqual(raw(cursor))
   })
 
   it('U-56 a segment at 88 degrees is vertical and its end moves onto the vertical through the start', () => {
@@ -162,6 +161,6 @@ describe('infer: direction while drawing a line', () => {
     // Without suppression this cursor would snap to e-7 and the segment (1.4 degrees) would be horizontal.
     const cursor: Vector2 = [120.5, 100.5]
     const input: InferenceInput = { ...lineInput([lonePoint], freeStart, cursor), suppressed: true }
-    expectRawCursor(infer(input), cursor)
+    expect(infer(input)).toEqual(raw(cursor))
   })
 })

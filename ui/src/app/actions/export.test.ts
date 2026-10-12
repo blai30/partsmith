@@ -9,22 +9,23 @@ import {
   PEG,
   PEG_BOUNDS,
   THREE_MF_BYTES,
-  coreError,
-  createTestApp,
+  createPrintApp,
   documentState,
   exportedFile,
   meshSummary,
-  type TestApp,
-} from '../../print/test-app.testing'
+  type PrintApp,
+} from '../../print/fixtures.testing'
 import type { AppState, SelectionItem } from '../../state/store'
+import { coreErrorFor } from '../../test/fakes/core-api'
+import { createFakeFileHandle } from '../../test/fakes/files'
 import { exportModel, type ExportRequest } from './export'
 
 const NOTHING_TO_EXPORT = 'There is no visible body with geometry to export.'
 
 // The document "cube" with, in browser order, a visible body with geometry, a hidden body with
 // geometry, a visible body without geometry and a second visible body with geometry.
-function exportApp(overrides: Partial<AppState> = {}): TestApp {
-  return createTestApp({
+function exportApp(overrides: Partial<AppState> = {}): PrintApp {
+  return createPrintApp({
     document: documentState({
       name: 'cube',
       bodies: [CUBE, GHOST, EMPTY, PEG],
@@ -64,7 +65,7 @@ function faceItem(body: string): SelectionItem {
   }
 }
 
-function notifications(harness: TestApp): { severity: string; message: string }[] {
+function notifications(harness: PrintApp): { severity: string; message: string }[] {
   return harness.app.store
     .getState()
     .notifications.map(({ severity, message }) => ({ severity, message }))
@@ -85,70 +86,71 @@ const FORMATS: readonly [ExportRequest['format'], ExportFormat][] = [
 
 describe('exportModel without anything to export', () => {
   it('U-80 with no visible bodies shows nothing_to_export and calls no exportBodies', async () => {
-    const harness = createTestApp({
+    const harness = createPrintApp({
       document: documentState({
         bodies: [GHOST, EMPTY],
         meshes: { [GHOST.id]: meshSummary(2, CUBE_BOUNDS) },
       }),
     })
     await exportModel(harness.app, THREE_MF)
-    expect(harness.core.exportBodies).not.toHaveBeenCalled()
+    expect(harness.core.callsTo('exportBodies')).toEqual([])
     expect(notifications(harness)).toEqual([{ severity: 'error', message: NOTHING_TO_EXPORT }])
   })
 
   it('U-80 a document without bodies shows nothing_to_export and calls no exportBodies', async () => {
-    const harness = createTestApp({ document: documentState({ bodies: [], meshes: {} }) })
+    const harness = createPrintApp({ document: documentState({ bodies: [], meshes: {} }) })
     await exportModel(harness.app, THREE_MF)
-    expect(harness.core.exportBodies).not.toHaveBeenCalled()
+    expect(harness.core.callsTo('exportBodies')).toEqual([])
     expect(notifications(harness)).toEqual([{ severity: 'error', message: NOTHING_TO_EXPORT }])
   })
 
   it('asks for no save location when there is nothing to export', async () => {
-    const harness = createTestApp({
-      document: documentState({ bodies: [GHOST], meshes: { [GHOST.id]: meshSummary(2, CUBE_BOUNDS) } }),
+    const harness = createPrintApp({
+      document: documentState({
+        bodies: [GHOST],
+        meshes: { [GHOST.id]: meshSummary(2, CUBE_BOUNDS) },
+      }),
     })
     await exportModel(harness.app, THREE_MF)
-    expect(harness.files.chooseSaveTarget).not.toHaveBeenCalled()
-    expect(harness.files.write).not.toHaveBeenCalled()
+    expect(harness.files.saveRequests).toEqual([])
+    expect(harness.files.writes).toEqual([])
   })
 
   it('shows nothing_to_export for the selected scope when no body is selected', async () => {
     const harness = exportApp({ selection: [faceItem(CUBE.id)] })
     await exportModel(harness.app, { format: '3mf', scope: 'selected' })
-    expect(harness.core.exportBodies).not.toHaveBeenCalled()
+    expect(harness.core.callsTo('exportBodies')).toEqual([])
     expect(notifications(harness)).toEqual([{ severity: 'error', message: NOTHING_TO_EXPORT }])
   })
 })
 
 describe('exportModel request', () => {
-  it.each(FORMATS)('U-80 the format %s maps to its protocol export format', async (format, expected) => {
-    const harness = exportApp()
-    await exportModel(harness.app, { format, scope: 'visible' })
-    expect(harness.core.exportBodies).toHaveBeenCalledTimes(1)
-    expect(harness.core.exportBodies).toHaveBeenCalledWith(
-      DOCUMENT_HANDLE,
-      expected,
-      expect.anything(),
-    )
-  })
+  it.each(FORMATS)(
+    'U-80 the format %s maps to its protocol export format',
+    async (format, expected) => {
+      const harness = exportApp()
+      await exportModel(harness.app, { format, scope: 'visible' })
+      const calls = harness.core.callsTo('exportBodies')
+      expect(calls).toHaveLength(1)
+      expect(calls[0]?.[0]).toBe(DOCUMENT_HANDLE)
+      expect(calls[0]?.[1]).toEqual(expected)
+    },
+  )
 
   it('exports the visible bodies with model-layer geometry, in document order', async () => {
     const harness = exportApp()
     await exportModel(harness.app, THREE_MF)
-    expect(harness.core.exportBodies).toHaveBeenCalledWith(DOCUMENT_HANDLE, { kind: '3mf' }, [
-      CUBE.id,
-      PEG.id,
+    expect(harness.core.callsTo('exportBodies')).toEqual([
+      [DOCUMENT_HANDLE, { kind: '3mf' }, [CUBE.id, PEG.id]],
     ])
   })
 
   it('exports the selected bodies for the selected scope', async () => {
     const harness = exportApp({ selection: [faceItem(CUBE.id), bodyItem(PEG.id, PEG.name)] })
     await exportModel(harness.app, { format: 'stl', scope: 'selected' })
-    expect(harness.core.exportBodies).toHaveBeenCalledWith(
-      DOCUMENT_HANDLE,
-      { kind: 'stl', binary: true, per_body: false },
-      [PEG.id],
-    )
+    expect(harness.core.callsTo('exportBodies')).toEqual([
+      [DOCUMENT_HANDLE, { kind: 'stl', binary: true, per_body: false }, [PEG.id]],
+    ])
   })
 })
 
@@ -156,27 +158,21 @@ describe('exportModel saving', () => {
   it('U-80 the suggested name is "{document name}.3mf"', async () => {
     const harness = exportApp()
     await exportModel(harness.app, THREE_MF)
-    expect(harness.files.chooseSaveTarget).toHaveBeenCalledWith('cube.3mf', '3mf')
+    expect(harness.files.saveRequests).toEqual([{ suggestedName: 'cube.3mf', kind: '3mf' }])
   })
 
-  it.each(FORMATS)(
-    'suggests "{document name}.%s" with the matching file kind',
-    async (format) => {
-      const harness = exportApp()
-      await exportModel(harness.app, { format, scope: 'visible' })
-      expect(harness.files.chooseSaveTarget).toHaveBeenCalledWith(`cube.${format}`, format)
-    },
-  )
+  it.each(FORMATS)('suggests "{document name}.%s" with the matching file kind', async (format) => {
+    const harness = exportApp()
+    await exportModel(harness.app, { format, scope: 'visible' })
+    expect(harness.files.saveRequests).toEqual([{ suggestedName: `cube.${format}`, kind: format }])
+  })
 
   it('writes the bytes of the returned file to the chosen target', async () => {
     const harness = exportApp()
     await exportModel(harness.app, THREE_MF)
-    expect(harness.files.write).toHaveBeenCalledTimes(1)
-    expect(harness.files.write).toHaveBeenCalledWith(
-      { kind: 'download', name: 'cube.3mf' },
-      '3mf',
-      THREE_MF_BYTES,
-    )
+    expect(harness.files.writes).toEqual([
+      { target: { kind: 'download', name: 'cube.3mf' }, kind: '3mf', bytes: THREE_MF_BYTES },
+    ])
   })
 
   it('announces success with "Exported {file name}."', async () => {
@@ -191,19 +187,22 @@ describe('exportModel saving', () => {
 
   it('names the file the save picker chose in the success message', async () => {
     const harness = exportApp()
-    const handle = { kind: 'file', name: 'bracket.3mf' } as unknown as FileSystemFileHandle
-    const target = { kind: 'handle', name: 'bracket.3mf', handle } as const
-    harness.files.chooseSaveTarget.mockResolvedValue(target)
+    const target = {
+      kind: 'handle',
+      name: 'bracket.3mf',
+      handle: createFakeFileHandle('bracket.3mf'),
+    } as const
+    harness.files.nextSaveTarget = target
     await exportModel(harness.app, THREE_MF)
-    expect(harness.files.write).toHaveBeenCalledWith(target, '3mf', THREE_MF_BYTES)
+    expect(harness.files.writes).toEqual([{ target, kind: '3mf', bytes: THREE_MF_BYTES }])
     expect(notifications(harness).map((shown) => shown.message)).toEqual(['Exported bracket.3mf.'])
   })
 
   it('does nothing more when the save picker is canceled', async () => {
     const harness = exportApp()
-    harness.files.chooseSaveTarget.mockResolvedValue(null)
+    harness.files.nextSaveTarget = null
     await exportModel(harness.app, THREE_MF)
-    expect(harness.files.write).not.toHaveBeenCalled()
+    expect(harness.files.writes).toEqual([])
     expect(notifications(harness)).toEqual([])
   })
 
@@ -211,10 +210,12 @@ describe('exportModel saving', () => {
     const harness = exportApp()
     const first = 'Peg has no color, so it is exported in the default color.'
     const second = 'Cube has 2 open edges. Slicers may repair them differently.'
-    harness.core.exportBodies.mockResolvedValue({
-      files: [exportedFile('model.3mf', THREE_MF_BYTES)],
-      warnings: [warning(first), warning(second)],
-    })
+    harness.core.stub('exportBodies', () =>
+      Promise.resolve({
+        files: [exportedFile('model.3mf', THREE_MF_BYTES)],
+        warnings: [warning(first), warning(second)],
+      }),
+    )
     await exportModel(harness.app, THREE_MF)
     expect(notifications(harness)).toEqual(
       expect.arrayContaining([
@@ -227,9 +228,10 @@ describe('exportModel saving', () => {
   it('shows the message of a CoreError as an error notification and saves nothing', async () => {
     const harness = exportApp()
     const message = 'Export failed. The disk is full.'
-    harness.core.exportBodies.mockRejectedValue(await coreError('export_failed', message))
+    const error = await coreErrorFor({ code: 'export_failed', message })
+    harness.core.stub('exportBodies', () => Promise.reject(error))
     await exportModel(harness.app, THREE_MF)
-    expect(harness.files.write).not.toHaveBeenCalled()
+    expect(harness.files.writes).toEqual([])
     expect(notifications(harness)).toEqual([{ severity: 'error', message }])
   })
 })

@@ -6,7 +6,7 @@ use crate::error::{KernelError, Operation, call};
 use crate::ffi::bridge as sys;
 use crate::history::{OpResult, op_result_from_ffi};
 use crate::shape::{Shape, SubShapeKind};
-use crate::values::check_finite;
+use crate::values::{check_finite, is_positive_length};
 
 /// One edge to round and its radius.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -98,7 +98,7 @@ pub fn fillet(shape: &Shape, edges: &[EdgeRadius]) -> Result<OpResult, KernelErr
     }
     let radii: Vec<f64> = edges.iter().map(|edge| edge.radius).collect();
     check_finite(operation, &radii)?;
-    if radii.iter().any(|radius| *radius <= 0.0) {
+    if !radii.iter().copied().all(is_positive_length) {
         return Err(KernelError::invalid_input(operation, FILLET_RADIUS_MESSAGE));
     }
     check_blend_solid(operation, shape)?;
@@ -119,16 +119,28 @@ pub fn fillet(shape: &Shape, edges: &[EdgeRadius]) -> Result<OpResult, KernelErr
     op_result_from_ffi(operation, result)
 }
 
-impl ChamferSize {
-    /// The bridge form: distances and the face `distance` is measured on (0 for equal).
-    fn parts(self) -> (f64, f64, u32) {
-        match self {
-            ChamferSize::Equal { distance } => (distance, distance, 0),
+impl ChamferEdge {
+    /// The bridge form of the request.
+    fn to_ffi(self) -> sys::ChamferEdgeData {
+        match self.size {
+            ChamferSize::Equal { distance } => sys::ChamferEdgeData {
+                edge: self.edge,
+                distance,
+                other_distance: distance,
+                two_distances: false,
+                face: 0,
+            },
             ChamferSize::TwoDistances {
                 distance,
                 other_distance,
                 face,
-            } => (distance, other_distance, face),
+            } => sys::ChamferEdgeData {
+                edge: self.edge,
+                distance,
+                other_distance,
+                two_distances: true,
+                face,
+            },
         }
     }
 }
@@ -142,24 +154,13 @@ pub fn chamfer(shape: &Shape, edges: &[ChamferEdge]) -> Result<OpResult, KernelE
             NO_CHAMFER_EDGES_MESSAGE,
         ));
     }
-    let data: Vec<sys::ChamferEdgeData> = edges
-        .iter()
-        .map(|edge| {
-            let (distance, other_distance, face) = edge.size.parts();
-            sys::ChamferEdgeData {
-                edge: edge.edge,
-                distance,
-                other_distance,
-                face,
-            }
-        })
-        .collect();
+    let data: Vec<sys::ChamferEdgeData> = edges.iter().map(|edge| edge.to_ffi()).collect();
     let distances: Vec<f64> = data
         .iter()
         .flat_map(|edge| [edge.distance, edge.other_distance])
         .collect();
     check_finite(operation, &distances)?;
-    if distances.iter().any(|distance| *distance <= 0.0) {
+    if !distances.iter().copied().all(is_positive_length) {
         return Err(KernelError::invalid_input(
             operation,
             CHAMFER_DISTANCE_MESSAGE,
@@ -172,7 +173,7 @@ pub fn chamfer(shape: &Shape, edges: &[ChamferEdge]) -> Result<OpResult, KernelE
         SubShapeKind::Edge,
         edges.iter().map(|edge| edge.edge),
     )?;
-    for edge in data.iter().filter(|edge| edge.face != 0) {
+    for edge in data.iter().filter(|edge| edge.two_distances) {
         shape.check_index(operation, SubShapeKind::Face, edge.face)?;
     }
     let result = call(operation, || sys::chamfer(shape.inner(), &data))?;
@@ -184,7 +185,7 @@ pub fn chamfer(shape: &Shape, edges: &[ChamferEdge]) -> Result<OpResult, KernelE
 pub fn shell(shape: &Shape, remove_faces: &[u32], thickness: f64) -> Result<OpResult, KernelError> {
     let operation = Operation::Shell;
     check_finite(operation, &[thickness])?;
-    if thickness <= 0.0 {
+    if !is_positive_length(thickness) {
         return Err(KernelError::invalid_input(
             operation,
             SHELL_THICKNESS_MESSAGE,
@@ -258,18 +259,44 @@ mod tests {
 
     #[test]
     fn equal_chamfer_has_no_side_face() {
-        assert_eq!(ChamferSize::Equal { distance: 2.0 }.parts(), (2.0, 2.0, 0));
+        let edge = ChamferEdge {
+            edge: 5,
+            size: ChamferSize::Equal { distance: 2.0 },
+        };
+
+        assert_eq!(
+            edge.to_ffi(),
+            sys::ChamferEdgeData {
+                edge: 5,
+                distance: 2.0,
+                other_distance: 2.0,
+                two_distances: false,
+                face: 0,
+            }
+        );
     }
 
     #[test]
     fn two_distance_chamfer_keeps_its_face() {
-        let size = ChamferSize::TwoDistances {
-            distance: 1.0,
-            other_distance: 3.0,
-            face: 4,
+        let edge = ChamferEdge {
+            edge: 5,
+            size: ChamferSize::TwoDistances {
+                distance: 1.0,
+                other_distance: 3.0,
+                face: 4,
+            },
         };
 
-        assert_eq!(size.parts(), (1.0, 3.0, 4));
+        assert_eq!(
+            edge.to_ffi(),
+            sys::ChamferEdgeData {
+                edge: 5,
+                distance: 1.0,
+                other_distance: 3.0,
+                two_distances: true,
+                face: 4,
+            }
+        );
     }
 
     #[test]
@@ -286,6 +313,34 @@ mod tests {
         let error = chamfer(&Shape::empty(), &edges).expect_err("distances must be positive");
 
         assert_eq!(error.message, CHAMFER_DISTANCE_MESSAGE);
+    }
+
+    #[test]
+    fn blend_sizes_below_the_tolerance_are_rejected() {
+        let block = make_box(&Plane::XY, 10.0, 20.0, 30.0).expect("box").shape;
+        let tiny = crate::LINEAR_TOLERANCE / 2.0;
+
+        let fillet_error = fillet(
+            &block,
+            &[EdgeRadius {
+                edge: 1,
+                radius: tiny,
+            }],
+        )
+        .expect_err("the radius is below the tolerance");
+        let chamfer_error = chamfer(
+            &block,
+            &[ChamferEdge {
+                edge: 1,
+                size: ChamferSize::Equal { distance: tiny },
+            }],
+        )
+        .expect_err("the distance is below the tolerance");
+        let shell_error = shell(&block, &[1], tiny).expect_err("the wall is below the tolerance");
+
+        assert_eq!(fillet_error.message, FILLET_RADIUS_MESSAGE);
+        assert_eq!(chamfer_error.message, CHAMFER_DISTANCE_MESSAGE);
+        assert_eq!(shell_error.message, SHELL_THICKNESS_MESSAGE);
     }
 
     #[test]

@@ -489,7 +489,11 @@ mod tests {
         let solution = qr.minimum_norm_solution(&[2.0, 1.0]);
 
         for (row, expected) in rows.iter().zip([2.0, 1.0]) {
-            let value: f64 = row.iter().zip(&solution).map(|(a, b)| a * b).sum();
+            let value: f64 = row
+                .iter()
+                .zip(&solution)
+                .map(|(entry, unknown)| entry * unknown)
+                .sum();
             assert!((value - expected).abs() < 1e-12);
         }
         // The minimum-norm solution lies in the row space, so it is orthogonal to the null vector (1, -1, 1).

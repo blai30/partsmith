@@ -20,6 +20,7 @@ mod message;
 mod schema;
 mod shared;
 mod solution;
+mod strict;
 
 pub use partsmith_mesh::{BoundingBox, TessellationTolerance};
 pub use partsmith_naming::ElementKind;
@@ -32,8 +33,7 @@ pub use command::{
 };
 pub use error::{ErrorCode, ErrorInfo, Span};
 pub use event::{
-    BodyPrint, Event, FeatureState, FeatureStatus, MeshBuffers, ParameterValue, PrintReport,
-    Repair,
+    BodyPrint, Event, FeatureState, FeatureStatus, MeshBuffers, ParameterValue, PrintReport, Repair,
 };
 pub use frame::{
     Buffer, BufferIndex, BufferInfo, ElementType, Frame, FrameError, FrameHeader, ResponseFrame,
@@ -47,8 +47,8 @@ pub use shared::{
     Layer, MeshElement, Orientation, Pick, SurfaceKind, TessellationQuality, Vec2, Vec3,
 };
 pub use solution::{
-    ConstraintSolveState, ConstraintState, RegionInfo, SketchDisplay, SketchSolution,
-    SolvedEntity, SolvedPoint,
+    ConstraintSolveState, ConstraintState, RegionInfo, SketchDisplay, SketchSolution, SolvedEntity,
+    SolvedPoint,
 };
 
 /// Current protocol version; bumped on every breaking change.

@@ -15,9 +15,10 @@ Spec: `docs/spec/io.md` (the definition of done). Acceptance tests in `tests/` c
 ## Internals
 
 - `src/text.rs`: `clean`, display names (`Body {n}` for blank names), non-blank materials and titles, and the written `f32` of every coordinate (`-0.0` as `0`); text formats print it with `Display`, the shortest round-trip decimal.
-- `src/checks.rs`: the check order of spec 3.1.1, `weld` (the one `expect`: `WELD_TOLERANCE` is valid), validity warnings, and `WeldedBody` (welded mesh, used vertices and their output positions) shared by 3MF and OBJ.
+- `src/checks.rs`: the check order of spec 3.1.1, `weld`, validity warnings, and `WeldedBody` (welded mesh, the output position of each used vertex, and the output vertex count) shared by 3MF and OBJ.
 - `src/stl.rs`, `src/obj.rs`, `src/three_mf.rs` (base materials, XML escaping, zip package with fixed options), `src/step.rs` (color conversion both ways), `src/export.rs`, `src/error.rs`.
 - 3MF and OBJ weld, check and write one body at a time, so a writer holds at most one welded copy besides the output. XML is built as plain strings (no XML crate, decision 6).
+- `src/test_support.rs` (tests only): the `part`, `mesh`, `triangle` and `unit_triangle` fixtures of the unit tests.
 
 ## Commands
 
@@ -36,3 +37,5 @@ Building needs the OCCT install (`OCCT_ROOT`, set in `.cargo/config.toml`) becau
 - Outputs are deterministic: no clock, randomness or hash-map iteration; 3MF entries use `SimpleFileOptions::DEFAULT` (1980 timestamp), Unix host system and mode 0644, so golden tests can compare bytes.
 - Writers never repair, reorder or move geometry; welding (3MF, OBJ) is the only change. Warnings never change the bytes.
 - No panics on input; dependencies limited to the spec's list (section 2.1).
+- `expect` outside tests only where an invariant rules failure out, stated in its message: `weld` (`WELD_TOLERANCE` is valid), `WeldedBody::triangles` (every vertex a welded triangle uses has an output position), and the text writers in `stl.rs`, `obj.rs` and `three_mf.rs` (formatting into a `String` cannot fail).
+- Known gap, waiting for a spec decision: on a 32-bit target (the web build) a single output buffer cannot exceed `isize::MAX` bytes (2 GiB), and `Vec` and `String` report a larger request as a capacity overflow panic, not an allocation failure. A binary STL of 42,949,672 or more triangles hits this when it reserves the file; ASCII STL, OBJ and the 3MF model part hit it when their text passes 1 GiB, since the next doubling asks for 2 GiB. Returning an error instead needs a new `IoError` variant (or a wider `PackageTooLarge`) in io.md, with growth through `try_reserve`. 64-bit targets cannot reach it.

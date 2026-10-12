@@ -172,8 +172,8 @@ fn t004_expression_error_names_the_field_and_keeps_the_source() {
     assert!(
         matches!(
             &result,
-            Err(FeatureError::Expression { field, source, .. })
-                if field.path == "distance" && field.label == "Distance" && source.as_str() == "30 deg"
+            Err(FeatureError::Expression { field, expr, .. })
+                if field.path == "distance" && field.label == "Distance" && expr.as_str() == "30 deg"
         ),
         "got {result:?}"
     );

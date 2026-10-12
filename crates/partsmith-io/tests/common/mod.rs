@@ -215,9 +215,15 @@ pub fn inside_out() -> Mesh {
     )
 }
 
-/// `fin`: `cube(10)` plus vertex 8 at `(5, -5, 10)` and triangle `[4, 5, 8]`.
+/// `fin`: `cube(10)` plus vertex 8 at `(5, -5, 10)` and triangle `[4, 5, 8]` with face id 6.
 pub fn fin() -> Mesh {
-    cube_with(&[[5.0, -5.0, 10.0]], &[[4, 5, 8]])
+    let mut positions = box_positions([0.0, 0.0, 0.0], [10.0, 10.0, 10.0]);
+    positions.push([5.0, -5.0, 10.0]);
+    let mut triangles = BOX_TRIANGLES.to_vec();
+    triangles.push([4, 5, 8]);
+    let mut face_ids = BOX_FACE_IDS.to_vec();
+    face_ids.push(6);
+    mesh_with_face_ids(positions, triangles, face_ids)
 }
 
 /// `sphere(r, segments, rings)`: UV sphere centered at the origin with outward triangles.

@@ -108,7 +108,7 @@ describe('constraintFor', () => {
     ['line last', [FIRST_POINT, SECOND_POINT, FIRST_LINE]],
   ])(
     'U-58 symmetric uses the line as the axis whatever the selection order (%s)',
-    (_, selection) => {
+    (_order, selection) => {
       const constraint = constraintFor('symmetric', selection, SOLUTION, sequentialIds())
       expect(constraint).toMatchObject({ type: 'symmetric', line: 'e-1' })
       expect(constraint).toHaveProperty('points', expect.arrayContaining(['e-3', 'e-4']))

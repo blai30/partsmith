@@ -199,10 +199,6 @@ fn main() -> ExitCode {
     .into_iter()
     .map(|(constraint, value)| (Id::new(constraint).expect("valid id"), value))
     .collect();
-    let plate_solution = NativeSolver
-        .solve(&plate, &plate_values)
-        .expect("the plate is valid")
-        .entities;
     let grid = grid_benchmark();
 
     let scenarios = [
@@ -248,7 +244,7 @@ fn main() -> ExitCode {
         },
         Scenario {
             name: "build_profile, plate",
-            times: time(|| build_profile(&plate_solution)),
+            times: time(|| build_profile(&plate.entities)),
             median_budget: Duration::from_micros(200),
             maximum_budget: None,
         },

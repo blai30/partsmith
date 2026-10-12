@@ -16,7 +16,7 @@ import {
   printReport,
   printState,
   stateWith,
-} from './test-app.testing'
+} from './fixtures.testing'
 
 const GENERIC_FDM_LIMIT = 0.7853981633974483
 const GENERIC_RESIN_LIMIT = 0.5235987755982988
@@ -55,7 +55,11 @@ function mapState(options: MapOptions = {}): AppState {
       bodies: [CUBE, PEG],
       meshes: { [CUBE.id]: meshSummary(1, CUBE_BOUNDS), [PEG.id]: meshSummary(3, PEG_BOUNDS) },
     }),
-    print: printState({ report: REPORT, reportRevision: 3, overhangMap: options.overhangMap ?? true }),
+    print: printState({
+      report: REPORT,
+      reportRevision: 3,
+      overhangMap: options.overhangMap ?? true,
+    }),
     settings: { ...DEFAULT_SETTINGS, hiddenChecks: options.hiddenChecks ?? [] },
   })
 }
@@ -64,15 +68,22 @@ describe('overhangLimit', () => {
   it('is the limit of the first finding of an overhangs check in the report', () => {
     const report = printReport([
       bodyPrint({ body: CUBE.id, meshId: 1 }),
-      bodyPrint({ body: PEG.id, meshId: 2, findings: { overhangs: [overhang(0.6), overhang(0.65)] } }),
+      bodyPrint({
+        body: PEG.id,
+        meshId: 2,
+        findings: { overhangs: [overhang(0.6), overhang(0.65)] },
+      }),
     ])
     expect(overhangLimit(report, PRINTERS)).toBe(0.6)
   })
 
   it("falls back to the max_overhang_angle of the report's profile", () => {
-    expect(overhangLimit(printReport([bodyPrint({ body: CUBE.id, meshId: 1 })], 'generic-resin'), PRINTERS)).toBe(
-      GENERIC_RESIN_LIMIT,
-    )
+    expect(
+      overhangLimit(
+        printReport([bodyPrint({ body: CUBE.id, meshId: 1 })], 'generic-resin'),
+        PRINTERS,
+      ),
+    ).toBe(GENERIC_RESIN_LIMIT)
     expect(overhangLimit(printReport([], 'generic-fdm'), PRINTERS)).toBe(GENERIC_FDM_LIMIT)
   })
 

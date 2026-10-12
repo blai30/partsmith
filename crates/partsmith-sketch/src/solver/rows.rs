@@ -111,6 +111,11 @@ pub(crate) enum Term {
 }
 
 impl Term {
+    /// The value of the term at `x`.
+    pub(crate) fn value(&self, x: &[f64]) -> f64 {
+        self.evaluate(x, 1.0, None)
+    }
+
     /// The value of the term; when `gradient` is given, its partial derivatives times `weight` are added to it.
     fn evaluate(&self, x: &[f64], weight: f64, gradient: Option<&mut Gradient>) -> f64 {
         match *self {

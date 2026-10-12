@@ -382,6 +382,56 @@ fn t050_chamfer_side_face_must_touch_the_edge() {
 }
 
 #[test]
+fn two_distance_chamfer_on_face_zero_is_rejected() {
+    let block = box_primitive();
+    let edge = top_front_edge(&block);
+
+    let error = chamfer(
+        &block.shape,
+        &[ChamferEdge {
+            edge,
+            size: ChamferSize::TwoDistances {
+                distance: 2.0,
+                other_distance: 3.0,
+                face: 0,
+            },
+        }],
+    )
+    .expect_err("face 0 does not exist");
+
+    assert_argument_error(
+        &error,
+        Operation::Chamfer,
+        "Face 0 does not exist in this body.",
+    );
+}
+
+#[test]
+fn two_distance_chamfer_on_a_face_out_of_range_is_rejected() {
+    let block = box_primitive();
+    let edge = top_front_edge(&block);
+
+    let error = chamfer(
+        &block.shape,
+        &[ChamferEdge {
+            edge,
+            size: ChamferSize::TwoDistances {
+                distance: 2.0,
+                other_distance: 3.0,
+                face: 7,
+            },
+        }],
+    )
+    .expect_err("face 7 does not exist");
+
+    assert_argument_error(
+        &error,
+        Operation::Chamfer,
+        "Face 7 does not exist in this body.",
+    );
+}
+
+#[test]
 fn t051_open_box_shell_volume_and_faces() {
     let result = open_box_shell(&box_primitive());
 

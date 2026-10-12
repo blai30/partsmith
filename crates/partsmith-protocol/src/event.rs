@@ -239,3 +239,117 @@ pub struct BodyPrint {
     /// The print crate's report: health, and per check its status, findings and omitted count.
     pub report: BodyReport,
 }
+
+#[cfg(test)]
+mod tests {
+    use partsmith_model::Units;
+
+    use super::*;
+
+    fn id(text: &str) -> Id {
+        Id::new(text).expect("a valid id")
+    }
+
+    #[test]
+    fn document_changed_omits_absent_labels_and_focus() {
+        let event = Event::DocumentChanged {
+            doc: DocHandle(1),
+            revision: 0,
+            document: Document::new(Units::Mm),
+            dirty: false,
+            undo: None,
+            redo: None,
+            transaction_open: false,
+            transaction: None,
+            focus: None,
+        };
+
+        let text = serde_json::to_string(&event).expect("serializes");
+
+        assert_eq!(
+            text,
+            r#"{"type":"document_changed","doc":1,"revision":0,"document":{"format":"partsmith","format_version":1,"units":"mm","parameters":[],"bodies":[],"features":[]},"dirty":false,"transaction_open":false}"#
+        );
+    }
+
+    #[test]
+    fn failed_datum_plane_has_no_placement() {
+        let event = Event::DatumPlane {
+            doc: DocHandle(1),
+            revision: 2,
+            feature: id("f-dp1"),
+            placement: None,
+        };
+
+        let text = serde_json::to_string(&event).expect("serializes");
+
+        assert_eq!(
+            text,
+            r#"{"type":"datum_plane","doc":1,"revision":2,"feature":"f-dp1"}"#
+        );
+    }
+
+    #[test]
+    fn feature_states_are_snake_case() {
+        let texts = [FeatureState::RolledBack, FeatureState::Suppressed]
+            .map(|state| serde_json::to_string(&state).expect("serializes"));
+
+        assert_eq!(texts, [r#""rolled_back""#, r#""suppressed""#]);
+    }
+
+    #[test]
+    fn failed_parameter_has_only_its_error() {
+        let value = ParameterValue {
+            id: id("p-w"),
+            value: None,
+            dimension: None,
+            error: Some("Unknown name 'wal'.".to_string()),
+        };
+
+        let text = serde_json::to_string(&value).expect("serializes");
+
+        assert_eq!(text, r#"{"id":"p-w","error":"Unknown name 'wal'."}"#);
+    }
+
+    #[test]
+    fn element_repair_without_centroid_omits_it() {
+        let repair = Repair::Element {
+            path: "/edges/0".to_string(),
+            body: id("b-1"),
+            reference: serde_json::from_str(
+                r#"{"q":"f-box1/top","fp":"plane|n=0,0,1|c=0,0,40|a=600|adj=4,4"}"#,
+            )
+            .expect("the reference deserializes"),
+            resolution: ResolutionStatus::Missing,
+            centroid: None,
+        };
+
+        let written = serde_json::to_value(&repair).expect("serializes");
+
+        assert_eq!(written["kind"], "element");
+        assert!(written.get("centroid").is_none(), "{written}");
+    }
+
+    #[test]
+    fn events_ignore_unknown_fields() {
+        let event: Event = serde_json::from_str(
+            r#"{"type":"body_mesh","doc":1,"revision":5,"body":"b-1","layer":"preview","mesh_id":9,"added_later":1}"#,
+        )
+        .expect("an event with an unknown field deserializes");
+
+        assert!(
+            matches!(event, Event::BodyMesh { mesh: None, .. }),
+            "{event:?}"
+        );
+    }
+
+    #[test]
+    fn body_print_without_display_omits_mesh_and_overhang() {
+        let text = r#"{"body":"b-1","transform":[1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0],"report":{"profile":"generic-fdm","rotation":{"rows":[[1.0,0.0,0.0],[0.0,1.0,0.0],[0.0,0.0,1.0]]},"health":"ok","checks":[]}}"#;
+
+        let body: BodyPrint = serde_json::from_str(text).expect("deserializes");
+
+        assert_eq!(body.mesh_id, None);
+        assert_eq!(serde_json::to_string(&body).expect("serializes"), text);
+    }
+}

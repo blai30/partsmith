@@ -319,8 +319,10 @@ fn solve_component(
     let start = substitution.variable_values();
     let mut problem = Problem::new(system, &substitution, scales, warm.to_vec(), factorization);
     match numeric::solve(&mut problem, &start) {
-        Outcome::Converged(y) => Outcome::Converged(problem.parameters(&y).to_vec()),
-        Outcome::Failed(y) => Outcome::Failed(problem.parameters(&y).to_vec()),
+        Outcome::Converged(variables) => {
+            Outcome::Converged(problem.parameters(&variables).to_vec())
+        }
+        Outcome::Failed(variables) => Outcome::Failed(problem.parameters(&variables).to_vec()),
     }
 }
 
@@ -347,6 +349,7 @@ fn status(redundant: &[Id], conflicting: &[Id], dof: u32) -> SketchStatus {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::entity::Geometry;
 
     fn id(text: &str) -> Id {
         Id::new(text).expect("test ids are valid")
@@ -407,6 +410,43 @@ mod tests {
 
         assert!(!first.failed);
         assert_eq!(second.entities, first.entities);
+    }
+
+    #[test]
+    fn solved_arc_angles_stay_below_a_full_turn() {
+        // The start angle is a hair below 0; adding 2*pi to it rounds to exactly 2*pi.
+        let sketch: SketchParams = serde_json::from_str(
+            r#"{
+              "plane": {"kind": "origin", "plane": "XY"},
+              "entities": [
+                {"id": "e-1", "type": "arc", "center": [0, 0], "radius": 5, "start_angle": -1e-17, "end_angle": 2}
+              ],
+              "constraints": [
+                {"id": "c-1", "type": "fix", "target": "e-1.center"},
+                {"id": "c-2", "type": "radius", "curve": "e-1", "expr": "6 mm"}
+              ]
+            }"#,
+        )
+        .expect("valid sketch");
+        let values: DimensionValues = [(id("c-2"), 6.0)].into_iter().collect();
+
+        let result = NativeSolver
+            .solve(&sketch, &values)
+            .expect("the sketch is valid");
+
+        let Geometry::Arc {
+            radius,
+            start_angle,
+            end_angle,
+            ..
+        } = result.entities[0].geometry
+        else {
+            panic!("an arc stays an arc, found {:?}", result.entities[0]);
+        };
+        assert!(!result.failed);
+        assert!((radius - 6.0).abs() <= 1e-9);
+        assert_eq!(start_angle.to_bits(), 0.0_f64.to_bits());
+        assert!((0.0..std::f64::consts::TAU).contains(&end_angle));
     }
 
     #[test]

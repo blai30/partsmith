@@ -55,6 +55,20 @@ fn t038_open_box_warns_about_open_edges() {
 }
 
 #[test]
+fn fin_fixture_matches_its_definition() {
+    // mesh.md section 6.1: `cube(10)` plus vertex 8 at (5, -5, 10) and triangle [4, 5, 8] with
+    // face id 6.
+    let mesh = fin();
+    assert_eq!(mesh.vertex_count(), 9);
+    assert_eq!(mesh.positions()[8], [5.0, -5.0, 10.0]);
+    assert_eq!(mesh.triangles()[12], [4, 5, 8]);
+    assert_eq!(
+        mesh.face_ids(),
+        &[0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6][..]
+    );
+}
+
+#[test]
 fn t039_fin_warns_about_open_then_non_manifold_edges() {
     let mesh = fin();
     assert_warnings_in_every_writer(

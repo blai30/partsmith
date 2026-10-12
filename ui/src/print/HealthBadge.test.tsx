@@ -2,8 +2,7 @@ import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { COLOR_CLASSES } from '../theme/roles'
-import type { HealthBadgeState } from './health'
-import { HealthBadge } from './HealthBadge'
+import { HealthBadge, type HealthBadgeProps } from './HealthBadge'
 
 afterEach(() => {
   cleanup()
@@ -13,18 +12,21 @@ function classes(roleClasses: string): string[] {
   return roleClasses.split(' ')
 }
 
-function renderBadge(badge: HealthBadgeState, onClick = vi.fn<() => void>()) {
+// The badge as `selectHealthBadge` (state/selectors.ts) derives it from the print state (ui.md 3.17).
+type Badge = HealthBadgeProps['badge']
+
+function renderBadge(badge: Badge, onClick = vi.fn<() => void>()) {
   render(<HealthBadge badge={badge} onClick={onClick} />)
   return { badge: screen.getByTestId('health-badge'), onClick }
 }
 
-function badgeState(overrides: Partial<HealthBadgeState>): HealthBadgeState {
+function badgeState(overrides: Partial<Badge>): Badge {
   return { state: 'none', errors: 0, warnings: 0, stale: false, ...overrides }
 }
 
 type Row = {
   readonly title: string
-  readonly badge: HealthBadgeState
+  readonly badge: Badge
   readonly icon: string
   readonly text: string
   readonly name: string
@@ -137,7 +139,9 @@ describe('HealthBadge', () => {
   })
 
   it('reports a click', async () => {
-    const { badge, onClick } = renderBadge(badgeState({ state: 'warning', warnings: 1, stale: true }))
+    const { badge, onClick } = renderBadge(
+      badgeState({ state: 'warning', warnings: 1, stale: true }),
+    )
     await userEvent.click(badge)
     expect(onClick).toHaveBeenCalledTimes(1)
   })

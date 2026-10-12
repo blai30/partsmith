@@ -197,12 +197,14 @@ pub(crate) mod bridge {
         radius: f64,
     }
 
-    /// One edge to chamfer; `face` is 0 for an equal-distance chamfer.
-    #[derive(Debug, Clone, Copy)]
+    /// One edge to chamfer. With `two_distances`, `distance` is measured on `face` and
+    /// `other_distance` on the edge's other face; otherwise both are equal and `face` is unused.
+    #[derive(Debug, Clone, Copy, PartialEq)]
     struct ChamferEdgeData {
         edge: u32,
         distance: f64,
         other_distance: f64,
+        two_distances: bool,
         face: u32,
     }
 

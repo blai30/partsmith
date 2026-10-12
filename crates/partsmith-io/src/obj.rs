@@ -45,30 +45,10 @@ fn write_object(text: &mut String, body: &WeldedBody, vertices_before: u64) -> f
 
 #[cfg(test)]
 mod tests {
-    use partsmith_mesh::Mesh;
     use partsmith_model::{BodyRole, Color};
 
     use super::*;
-
-    /// A part body for tests.
-    fn part<'a>(name: &'a str, mesh: &'a Mesh) -> ExportBody<'a> {
-        ExportBody {
-            name,
-            color: None,
-            material: None,
-            role: BodyRole::Part,
-            mesh,
-        }
-    }
-
-    /// The unit right triangle in the XY plane.
-    fn unit_triangle() -> Mesh {
-        Mesh::from_triangles(
-            vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
-            vec![[0, 1, 2]],
-        )
-        .expect("a valid test mesh")
-    }
+    use crate::test_support::{part, unit_triangle};
 
     /// The text of a successful write.
     fn obj_text(bodies: &[ExportBody<'_>]) -> String {

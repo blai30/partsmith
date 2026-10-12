@@ -449,9 +449,10 @@ impl Transform {
 
     /// Determinant of the linear part.
     pub(crate) fn determinant(&self) -> f64 {
-        let [a, b, c] = self.linear();
-        a[0] * (b[1] * c[2] - b[2] * c[1]) - a[1] * (b[0] * c[2] - b[2] * c[0])
-            + a[2] * (b[0] * c[1] - b[1] * c[0])
+        let [first_row, second_row, third_row] = self.linear();
+        first_row[0] * (second_row[1] * third_row[2] - second_row[2] * third_row[1])
+            - first_row[1] * (second_row[0] * third_row[2] - second_row[2] * third_row[0])
+            + first_row[2] * (second_row[0] * third_row[1] - second_row[1] * third_row[0])
     }
 
     /// True when the linear part is a rotation or reflection times a uniform scale of at least
@@ -504,9 +505,26 @@ pub(crate) fn check_finite(operation: Operation, values: &[f64]) -> Result<(), K
     }
 }
 
+/// True when a length is greater than 0 at the modeling tolerance. A shorter length is zero
+/// there (and shows as 0 mm in messages), and OCCT rejects it or builds degenerate geometry, so
+/// sizes that must be positive are checked with this.
+pub(crate) fn is_positive_length(length: f64) -> bool {
+    length >= crate::LINEAR_TOLERANCE
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn lengths_below_the_tolerance_are_not_positive() {
+        assert!(is_positive_length(crate::LINEAR_TOLERANCE));
+        assert!(is_positive_length(1.0));
+        assert!(!is_positive_length(crate::LINEAR_TOLERANCE / 2.0));
+        assert!(!is_positive_length(0.0));
+        assert!(!is_positive_length(-1.0));
+        assert!(!is_positive_length(f64::NAN));
+    }
 
     fn assert_close(actual: Point, expected: Point) {
         assert!(

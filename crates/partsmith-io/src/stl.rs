@@ -42,7 +42,11 @@ pub fn write_stl_binary(bodies: &[ExportBody<'_>]) -> Result<ExportOutput, IoErr
     let warnings = warnings(bodies, &names);
 
     let length = PREFIX_LENGTH + RECORD_LENGTH * u64::from(count);
-    // A file longer than this target's address space fails here like any allocation.
+    // The whole file is reserved up front. On a 64-bit target this fails only when memory runs
+    // out, which aborts like any allocation failure (spec section 4). A 32-bit target (the web
+    // build) cannot hold a buffer over `isize::MAX` bytes (2 GiB, 42,949,672 triangles), and
+    // `Vec` stops there with a capacity overflow panic, also for a length beyond `usize`.
+    // Returning an error instead needs a new `IoError` variant (see the crate's CLAUDE.md).
     let mut bytes = Vec::with_capacity(usize::try_from(length).unwrap_or(usize::MAX));
     bytes.extend_from_slice(&STL_HEADER);
     bytes.extend_from_slice(&count.to_le_bytes());
@@ -158,31 +162,8 @@ fn write_solid(text: &mut String, solid: &str, bodies: &[ExportBody<'_>]) -> fmt
 
 #[cfg(test)]
 mod tests {
-    use partsmith_mesh::Point3;
-    use partsmith_model::BodyRole;
-
     use super::*;
-
-    /// A part body for tests.
-    fn part<'a>(name: &'a str, mesh: &'a Mesh) -> ExportBody<'a> {
-        ExportBody {
-            name,
-            color: None,
-            material: None,
-            role: BodyRole::Part,
-            mesh,
-        }
-    }
-
-    /// A one-triangle mesh.
-    fn triangle(corners: [Point3; 3]) -> Mesh {
-        Mesh::from_triangles(corners.to_vec(), vec![[0, 1, 2]]).expect("a valid test mesh")
-    }
-
-    /// The unit right triangle in the XY plane, facing +Z.
-    fn unit_triangle() -> Mesh {
-        triangle([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]])
-    }
+    use crate::test_support::{part, triangle, unit_triangle};
 
     #[test]
     fn header_is_the_text_padded_with_spaces() {
@@ -218,10 +199,15 @@ mod tests {
 
     #[test]
     fn facet_normal_has_no_negative_zero() {
-        // The cross product of this winding is (0, 0, -1) with negative zero components.
-        let facing_down = triangle([[0.0, 0.0, 0.0], [0.0, 1.0, 0.0], [1.0, 0.0, 0.0]]);
-        let normal = Facet::new(&facing_down, 0).normal;
-        assert_eq!(normal.map(f32::to_bits), [0, 0, (-1.0_f32).to_bits()]);
+        // The edges (1, 0, 0) and (0, 1, -1) cross to (-0, 1, 1): x is 0 · -1 - 0 · 1 = -0.
+        let tilted = triangle([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, -1.0]]);
+        let raw = tilted
+            .triangle_normal(0)
+            .expect("the tilted triangle has a normal");
+        assert_eq!(raw[0].to_bits(), (-0.0_f64).to_bits());
+        let normal = Facet::new(&tilted, 0).normal;
+        assert_eq!(normal[0].to_bits(), 0);
+        assert_eq!(normal[1..], [raw[1] as f32, raw[2] as f32]);
     }
 
     #[test]

@@ -7,14 +7,15 @@
 use super::rows::Equality;
 use super::system::{Component, System};
 use crate::SOLVER_TOLERANCE;
+use crate::union_find::UnionFind;
 
 /// The classes of one component and the variables of its numerical problem.
 #[derive(Clone, Debug)]
 pub(crate) struct Substitution {
     /// Global parameter indices of the component, ascending.
     parameters: Vec<usize>,
-    /// Union-find parent of each local parameter; a root is the lowest local index of its class.
-    parents: Vec<usize>,
+    /// The classes over local parameter indices; a root is the lowest local index of its class.
+    classes: UnionFind,
     /// The frozen value of each class root, if frozen.
     frozen: Vec<Option<f64>>,
     /// The value of each class root.
@@ -33,7 +34,7 @@ impl Substitution {
         let count = component.parameters.len();
         let mut substitution = Substitution {
             parameters: component.parameters.clone(),
-            parents: (0..count).collect(),
+            classes: UnionFind::new(count),
             frozen: vec![None; count],
             values: Vec::new(),
             rows: Vec::new(),
@@ -72,7 +73,7 @@ impl Substitution {
             }
         }
         for (root, &read) in used.iter().enumerate() {
-            if read && substitution.parents[root] == root && substitution.frozen[root].is_none() {
+            if read && substitution.classes.is_root(root) && substitution.frozen[root].is_none() {
                 substitution.variable_of_root[root] = Some(substitution.variables.len());
                 substitution.variables.push(root);
             }
@@ -86,15 +87,8 @@ impl Substitution {
             .expect("rows of a component only read parameters of its entities")
     }
 
-    fn root(&self, mut local: usize) -> usize {
-        while self.parents[local] != local {
-            local = self.parents[local];
-        }
-        local
-    }
-
     fn root_of(&self, parameter: usize) -> usize {
-        self.root(self.local(parameter))
+        self.classes.root(self.local(parameter))
     }
 
     /// `x_first = x_second`: merges the two classes unless both are frozen at values more than the tolerance apart.
@@ -113,7 +107,7 @@ impl Substitution {
             }
             (low_value, high_value) => low_value.or(high_value),
         };
-        self.parents[high] = low;
+        self.classes.union(low, high);
         self.frozen[low] = frozen;
     }
 
@@ -131,7 +125,7 @@ impl Substitution {
         let count = self.parameters.len();
         let mut members: Vec<Vec<f64>> = vec![Vec::new(); count];
         for local in 0..count {
-            members[self.root(local)].push(x[self.parameters[local]]);
+            members[self.classes.root(local)].push(x[self.parameters[local]]);
         }
         members
             .into_iter()
@@ -196,7 +190,7 @@ impl Substitution {
     /// Writes every class value into the component's parameters of `x`, with `variables` as the variable values.
     pub(crate) fn write(&self, variables: &[f64], x: &mut [f64]) {
         for (local, &parameter) in self.parameters.iter().enumerate() {
-            let root = self.root(local);
+            let root = self.classes.root(local);
             x[parameter] = match self.variable_of_root[root] {
                 Some(variable) => variables[variable],
                 None => self.values[root],

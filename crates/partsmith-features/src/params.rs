@@ -172,7 +172,10 @@ impl PlacementExt for Placement {
     fn local_to_world(&self, local: [f64; 3]) -> [f64; 3] {
         let y_axis = self.y_axis();
         [0, 1, 2].map(|i| {
-            self.origin[i] + local[0] * self.x_axis[i] + local[1] * y_axis[i] + local[2] * self.normal[i]
+            self.origin[i]
+                + local[0] * self.x_axis[i]
+                + local[1] * y_axis[i]
+                + local[2] * self.normal[i]
         })
     }
 

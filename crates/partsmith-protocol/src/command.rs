@@ -6,10 +6,9 @@ use partsmith_naming::{ElementKind, Reference};
 use partsmith_print::{Health, PrinterProfile, ProfileInput};
 use partsmith_sketch::{PointRef, SketchParams};
 use schemars::JsonSchema;
-use serde::de::{self, MapAccess, Visitor};
-use serde::{Deserialize, Deserializer, Serialize};
-use std::fmt;
+use serde::{Deserialize, Serialize};
 
+use crate::strict::no_fields;
 use crate::{
     AssetData, Axis, BufferIndex, CurveKind, Diagnostic, DocHandle, ElementDescriptor, ElementRef,
     ExportFile, MeshElement, Orientation, Pick, SketchSolution, SurfaceKind, TessellationQuality,
@@ -249,31 +248,6 @@ pub enum Command {
         /// The document.
         doc: DocHandle,
     },
-}
-
-/// Reads the fields of a command that has none, and rejects any field.
-///
-/// Serde ignores unknown fields of unit variants in internally tagged enums, so the unit commands use this to stay as strict as the others.
-fn no_fields<'de, D: Deserializer<'de>>(deserializer: D) -> Result<(), D::Error> {
-    /// Accepts only a map without entries.
-    struct NoFields;
-
-    impl<'de> Visitor<'de> for NoFields {
-        type Value = ();
-
-        fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-            formatter.write_str("a command without fields")
-        }
-
-        fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<(), A::Error> {
-            match map.next_key::<String>()? {
-                Some(name) => Err(de::Error::unknown_field(&name, &[])),
-                None => Ok(()),
-            }
-        }
-    }
-
-    deserializer.deserialize_map(NoFields)
 }
 
 /// The success value of every command; its `type` equals the command's `type`.
@@ -560,12 +534,199 @@ pub enum ExportFormat {
         per_body: bool,
     },
     /// 3MF with every exported body as an object.
-    #[serde(rename = "3mf")]
+    #[serde(rename = "3mf", deserialize_with = "no_fields")]
     ThreeMf,
     /// Wavefront OBJ; one file with one object per body.
-    #[serde(rename = "obj")]
+    #[serde(rename = "obj", deserialize_with = "no_fields")]
     Obj,
     /// STEP AP214 B-rep with body names and colors.
-    #[serde(rename = "step")]
+    #[serde(rename = "step", deserialize_with = "no_fields")]
     Step,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn command(text: &str) -> Result<Command, serde_json::Error> {
+        serde_json::from_str(text)
+    }
+
+    #[test]
+    fn unit_commands_reject_unknown_fields() {
+        for name in ["engine_info", "feature_catalog", "list_printer_profiles"] {
+            let result = command(&format!(r#"{{"type":"{name}","extra":1}}"#));
+
+            assert!(result.is_err(), "{name}: got {result:?}");
+        }
+    }
+
+    #[test]
+    fn unit_commands_without_fields_deserialize() {
+        assert_eq!(
+            command(r#"{"type":"feature_catalog"}"#).expect("the command deserializes"),
+            Command::FeatureCatalog
+        );
+    }
+
+    #[test]
+    fn unit_command_serializes_as_its_type_only() {
+        let text = serde_json::to_string(&Command::ListPrinterProfiles).expect("serializes");
+
+        assert_eq!(text, r#"{"type":"list_printer_profiles"}"#);
+    }
+
+    #[test]
+    fn missing_lists_in_requests_are_empty() {
+        let edits = command(r#"{"type":"apply_edits","doc":1,"label":"Nothing"}"#)
+            .expect("apply_edits without edits deserializes");
+        let references = command(r#"{"type":"resolve_references","doc":1}"#)
+            .expect("resolve_references without references deserializes");
+        let targets =
+            command(r#"{"type":"measure","doc":1}"#).expect("measure without targets deserializes");
+
+        assert!(matches!(edits, Command::ApplyEdits { edits, .. } if edits.is_empty()));
+        assert!(
+            matches!(references, Command::ResolveReferences { references, .. } if references.is_empty())
+        );
+        assert!(matches!(targets, Command::Measure { targets, .. } if targets.is_empty()));
+    }
+
+    #[test]
+    fn absent_options_are_not_written() {
+        let set_focus = Command::SetFocus {
+            doc: DocHandle(1),
+            feature: None,
+        };
+
+        let text = serde_json::to_string(&set_focus).expect("serializes");
+
+        assert_eq!(text, r#"{"type":"set_focus","doc":1}"#);
+    }
+
+    #[test]
+    fn struct_command_rejects_a_missing_required_field() {
+        let result = command(r#"{"type":"begin_transaction","doc":1}"#);
+
+        assert!(result.is_err(), "got {result:?}");
+    }
+
+    #[test]
+    fn export_command_round_trips_with_every_option() {
+        let text = r#"{"type":"export","doc":1,"format":{"kind":"stl","binary":true,"per_body":true},"bodies":["b-1"],"tolerance":{"chord_deviation":0.05,"angular_deviation":0.1},"orientation":{"kind":"as_modeled"}}"#;
+
+        let export = command(text).expect("the export command deserializes");
+
+        assert_eq!(serde_json::to_string(&export).expect("serializes"), text);
+    }
+
+    #[test]
+    fn drag_sketch_reads_the_point_and_target() {
+        let drag = command(
+            r#"{"type":"drag_sketch","doc":1,"feature":"f-sk1","point":"e-1.end","to":[20.0,5.0]}"#,
+        )
+        .expect("the drag deserializes");
+
+        let Command::DragSketch { point, to, .. } = drag else {
+            panic!("a drag_sketch command, got {drag:?}");
+        };
+        assert_eq!(point.to_string(), "e-1.end");
+        assert_eq!(to, [20.0, 5.0]);
+    }
+
+    #[test]
+    fn export_format_rejects_unknown_fields() {
+        let result = serde_json::from_str::<ExportFormat>(r#"{"kind":"step","ascii":true}"#);
+
+        assert!(result.is_err(), "got {result:?}");
+    }
+
+    #[test]
+    fn export_format_tags_are_the_file_extensions() {
+        let tags: Vec<String> = [
+            ExportFormat::Stl {
+                binary: true,
+                per_body: false,
+            },
+            ExportFormat::ThreeMf,
+            ExportFormat::Obj,
+            ExportFormat::Step,
+        ]
+        .iter()
+        .map(|format| serde_json::to_value(format).expect("serializes")["kind"].to_string())
+        .collect();
+
+        assert_eq!(tags, [r#""stl""#, r#""3mf""#, r#""obj""#, r#""step""#]);
+    }
+
+    #[test]
+    fn measure_target_rejects_unknown_fields() {
+        let result =
+            serde_json::from_str::<MeasureTarget>(r#"{"kind":"body","body":"b-1","face":1}"#);
+
+        assert!(result.is_err(), "got {result:?}");
+    }
+
+    #[test]
+    fn measure_result_writes_its_fields_beside_the_type() {
+        let result = CommandResult::Measure(Measurement {
+            volume: Some(24000.0),
+            face_count: Some(6),
+            ..Measurement::default()
+        });
+
+        let text = serde_json::to_string(&result).expect("serializes");
+
+        assert_eq!(
+            text,
+            r#"{"type":"measure","volume":24000.0,"face_count":6}"#
+        );
+    }
+
+    #[test]
+    fn catalog_entry_names_its_feature_type_field_type() {
+        let entry: CatalogEntry = serde_json::from_str(
+            r#"{"type":"box","manifest":{"label":"Box","category":"create","icon":"box","version":1,"fields":[]},"params_schema":true}"#,
+        )
+        .expect("the entry deserializes");
+
+        assert_eq!(entry.kind, "box");
+        let written = serde_json::to_value(&entry).expect("serializes");
+        assert_eq!(written["type"], "box");
+    }
+
+    #[test]
+    fn resolution_status_values_are_snake_case() {
+        let values: Vec<String> = [
+            ResolutionStatus::Resolved,
+            ResolutionStatus::Ambiguous,
+            ResolutionStatus::Missing,
+        ]
+        .iter()
+        .map(|status| serde_json::to_string(status).expect("serializes"))
+        .collect();
+
+        assert_eq!(values, [r#""resolved""#, r#""ambiguous""#, r#""missing""#]);
+    }
+
+    #[test]
+    fn open_document_result_omits_an_absent_migration() {
+        let result = CommandResult::OpenDocument {
+            doc: DocHandle(2),
+            migrated_from: None,
+        };
+
+        let text = serde_json::to_string(&result).expect("serializes");
+
+        assert_eq!(text, r#"{"type":"open_document","doc":2}"#);
+    }
+
+    #[test]
+    fn results_ignore_unknown_fields() {
+        let result: CommandResult =
+            serde_json::from_str(r#"{"type":"apply_edits","revision":4,"added_later":true}"#)
+                .expect("a result with an unknown field deserializes");
+
+        assert_eq!(result, CommandResult::ApplyEdits { revision: 4 });
+    }
 }

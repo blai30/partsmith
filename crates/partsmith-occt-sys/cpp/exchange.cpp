@@ -1,4 +1,5 @@
 // STEP and binary BRep exchange (kernel spec section 3.8).
+#include <cstring>
 #include <mutex>
 #include <sstream>
 #include <string>
@@ -9,6 +10,7 @@
 #include <BRepCheck_Analyzer.hxx>
 #include <BRep_Tool.hxx>
 #include <BinTools.hxx>
+#include <BinTools_ShapeSetBase.hxx>
 #include <DESTEP_Parameters.hxx>
 #include <Interface_HArray1OfHAsciiString.hxx>
 #include <Message.hxx>
@@ -208,6 +210,13 @@ class StepCollector {
   std::size_t skipped_ = 0;
 };
 
+// The first bytes of every stream `shape_to_brep` writes: BinTools_ShapeSet::Write starts with
+// an empty line and the line naming format version 4.
+std::string brep_header() {
+  return std::string("\n") +
+         BinTools_ShapeSetBase::THE_ASCII_VERSIONS[BinTools_FormatVersion_VERSION_4] + "\n";
+}
+
 }  // namespace
 
 std::unique_ptr<std::string> shape_to_brep(const Shape &shape) {
@@ -221,6 +230,14 @@ std::unique_ptr<std::string> shape_to_brep(const Shape &shape) {
 }
 
 std::shared_ptr<Shape> shape_from_brep(rust::Slice<const std::uint8_t> bytes) {
+  // BinTools::Read prints to standard output, past the messenger, when it finds no version
+  // line, so bytes `shape_to_brep` did not write are rejected first (kernel spec section 3.9,
+  // item 7).
+  const std::string header = brep_header();
+  if (bytes.size() < header.size() ||
+      std::memcmp(bytes.data(), header.data(), header.size()) != 0) {
+    raise_read_error("the bytes do not start with the BRep format version 4 header");
+  }
   std::istringstream stream(
       std::string(reinterpret_cast<const char *>(bytes.data()), bytes.size()),
       std::ios::in | std::ios::binary);

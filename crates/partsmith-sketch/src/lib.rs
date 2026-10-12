@@ -15,6 +15,7 @@ mod point_ref;
 mod profile;
 mod reserved;
 mod solver;
+mod union_find;
 mod validation;
 mod vector;
 

@@ -184,21 +184,40 @@ impl fmt::Display for RegionFingerprint {
 impl FromStr for RegionFingerprint {
     type Err = SketchError;
 
+    /// Accepts the grammar of `FINGERPRINT_PATTERN`: plain decimals, a sign only on the centroid.
     fn from_str(text: &str) -> Result<RegionFingerprint, SketchError> {
         let parse = || -> Option<RegionFingerprint> {
             let (centroid, area) = text.strip_prefix("c=")?.split_once("|a=")?;
-            let (u, v) = centroid.split_once(',')?;
-            let number = |part: &str| part.parse::<f64>().ok().filter(|value| value.is_finite());
-            let fingerprint = RegionFingerprint {
-                area: number(area)?,
-                centroid: [number(u)?, number(v)?],
-            };
-            (fingerprint.area >= 0.0).then_some(fingerprint)
+            let (centroid_u, centroid_v) = centroid.split_once(',')?;
+            Some(RegionFingerprint {
+                area: decimal(area, false)?,
+                centroid: [decimal(centroid_u, true)?, decimal(centroid_v, true)?],
+            })
         };
         parse().ok_or_else(|| SketchError::InvalidFingerprint {
             text: text.to_owned(),
         })
     }
+}
+
+/// The finite value of a plain decimal `-?[0-9]+(\.[0-9]+)?` (the minus only when `signed`), with -0 read as 0.
+fn decimal(text: &str, signed: bool) -> Option<f64> {
+    let unsigned = match text.strip_prefix('-') {
+        Some(rest) if signed => rest,
+        Some(_) => return None,
+        None => text,
+    };
+    let (whole, fraction) = match unsigned.split_once('.') {
+        Some((whole, fraction)) => (whole, Some(fraction)),
+        None => (unsigned, None),
+    };
+    let digits = |part: &str| !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_digit());
+    if !digits(whole) || !fraction.is_none_or(digits) {
+        return None;
+    }
+    let value: f64 = text.parse().ok()?;
+    // Adding 0 turns -0 into 0 and leaves every other value unchanged.
+    value.is_finite().then_some(value + 0.0)
 }
 
 impl Serialize for RegionFingerprint {
@@ -274,6 +293,48 @@ mod tests {
     fn fingerprint_with_a_missing_part_fails() {
         assert!("c=1,2|a=".parse::<RegionFingerprint>().is_err());
         assert!("c=1|a=1".parse::<RegionFingerprint>().is_err());
+    }
+
+    #[test]
+    fn fingerprint_numbers_outside_the_plain_decimal_form_fail() {
+        for text in [
+            "c=1e3,2|a=5",
+            "c=1,2|a=+5",
+            "c=.5,2|a=5",
+            "c=1,2|a=5.",
+            "c=1,2|a=-0",
+            "c=+1,2|a=5",
+            "c=1,2|a=NaN",
+            "c=1, 2|a=5",
+            "c=--1,2|a=5",
+            "c=1,2|a=1.2.3",
+        ] {
+            assert_eq!(
+                text.parse::<RegionFingerprint>(),
+                Err(SketchError::InvalidFingerprint {
+                    text: text.to_owned()
+                }),
+                "{text}"
+            );
+        }
+    }
+
+    #[test]
+    fn fingerprint_accepts_long_decimals_and_reads_negative_zero_as_zero() {
+        let fingerprint: RegionFingerprint = "c=-0,-0.000|a=0.1234567"
+            .parse()
+            .expect("plain decimals are valid");
+
+        assert_eq!(fingerprint.centroid[0].to_bits(), 0.0_f64.to_bits());
+        assert_eq!(fingerprint.centroid[1].to_bits(), 0.0_f64.to_bits());
+        assert_eq!(fingerprint.area, 0.1234567);
+    }
+
+    #[test]
+    fn fingerprint_too_large_to_be_finite_fails() {
+        let text = format!("c=0,0|a={}", "9".repeat(400));
+
+        assert!(text.parse::<RegionFingerprint>().is_err());
     }
 
     #[test]

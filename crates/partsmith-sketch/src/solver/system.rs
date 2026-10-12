@@ -14,6 +14,7 @@ use crate::entity::{Geometry, SketchEntity};
 use crate::params::{DimensionValues, SketchParams};
 use crate::point_ref::{PointRef, PointRole};
 use crate::reserved::{axis_line, is_reserved};
+use crate::union_find::UnionFind;
 use crate::vector::{norm, signed_distance, subtract, unit};
 
 /// The rows of a sketch and how they split into components.
@@ -168,11 +169,6 @@ impl Builder<'_> {
         is_reserved(curve.as_str()) || matches!(self.entity(curve).1, Geometry::Line { .. })
     }
 
-    /// The warm-start value of a term.
-    fn term_value(&self, term: Term) -> f64 {
-        Row::new(RowOwner::Constraint(0), vec![(1.0, term)], 0.0).value(self.x)
-    }
-
     /// `size` of section 3.6.3, or `None` for an axis.
     fn size(&self, entity: &Id) -> Option<f64> {
         if is_reserved(entity.as_str()) {
@@ -182,7 +178,7 @@ impl Builder<'_> {
             let line = self.line(entity);
             norm(subtract(line.end.value(self.x), line.start.value(self.x)))
         } else {
-            self.term_value(self.curve(entity).radius)
+            self.curve(entity).radius.value(self.x)
         })
     }
 
@@ -526,8 +522,8 @@ impl Builder<'_> {
             second.center.value(self.x),
             first.center.value(self.x),
         ));
-        let first_radius = self.term_value(first.radius);
-        let second_radius = self.term_value(second.radius);
+        let first_radius = first.radius.value(self.x);
+        let second_radius = second.radius.value(self.x);
         let centers = Term::Length {
             from: first.center,
             to: second.center,
@@ -697,22 +693,21 @@ fn points_on_curves(sketch: &SketchParams) -> BTreeMap<&Id, Vec<(usize, &PointRe
 struct Identification {
     /// Class index of every point reference that appears in a `coincident`.
     references: BTreeMap<PointRef, usize>,
-    /// Union-find parents of the classes.
-    parents: Vec<usize>,
+    /// The classes merged by the `coincident` constraints.
+    classes: UnionFind,
 }
 
 impl Identification {
     fn new(sketch: &SketchParams) -> Identification {
         let mut identification = Identification {
             references: BTreeMap::new(),
-            parents: Vec::new(),
+            classes: UnionFind::default(),
         };
         for constraint in &sketch.constraints {
             if let ConstraintKind::Coincident { points } = &constraint.kind {
                 let first = identification.class(&points[0]);
                 let second = identification.class(&points[1]);
-                let (first, second) = (identification.root(first), identification.root(second));
-                identification.parents[first.max(second)] = first.min(second);
+                identification.classes.union(first, second);
             }
         }
         identification
@@ -722,16 +717,8 @@ impl Identification {
         if let Some(&class) = self.references.get(point) {
             return class;
         }
-        let class = self.parents.len();
-        self.parents.push(class);
+        let class = self.classes.push();
         self.references.insert(point.clone(), class);
-        class
-    }
-
-    fn root(&self, mut class: usize) -> usize {
-        while self.parents[class] != class {
-            class = self.parents[class];
-        }
         class
     }
 
@@ -740,7 +727,7 @@ impl Identification {
             return true;
         }
         match (self.references.get(first), self.references.get(second)) {
-            (Some(&first), Some(&second)) => self.root(first) == self.root(second),
+            (Some(&first), Some(&second)) => self.classes.root(first) == self.classes.root(second),
             _ => false,
         }
     }
@@ -748,13 +735,7 @@ impl Identification {
 
 /// Splits the entities into connected components and assigns rows and constraints to them (section 3.7.1).
 fn components(sketch: &SketchParams, layout: &Layout, rows: &[Row]) -> Vec<Component> {
-    let mut parents: Vec<usize> = (0..sketch.entities.len()).collect();
-    let root = |parents: &[usize], mut entity: usize| {
-        while parents[entity] != entity {
-            entity = parents[entity];
-        }
-        entity
-    };
+    let mut linked = UnionFind::new(sketch.entities.len());
     let constraint_entities: Vec<Vec<usize>> = sketch
         .constraints
         .iter()
@@ -772,8 +753,7 @@ fn components(sketch: &SketchParams, layout: &Layout, rows: &[Row]) -> Vec<Compo
         .collect();
     for entities in &constraint_entities {
         for pair in entities.windows(2) {
-            let (first, second) = (root(&parents, pair[0]), root(&parents, pair[1]));
-            parents[first.max(second)] = first.min(second);
+            linked.union(pair[0], pair[1]);
         }
     }
     // Roots are the lowest entity index of each component, so components come out in document order.
@@ -781,7 +761,7 @@ fn components(sketch: &SketchParams, layout: &Layout, rows: &[Row]) -> Vec<Compo
     let mut components: Vec<Component> = Vec::new();
     let mut component_of_entity = Vec::with_capacity(sketch.entities.len());
     for entity in 0..sketch.entities.len() {
-        let entity_root = root(&parents, entity);
+        let entity_root = linked.root(entity);
         let component = *component_of_root.entry(entity_root).or_insert_with(|| {
             components.push(Component {
                 entities: Vec::new(),

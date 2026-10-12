@@ -12,12 +12,9 @@ import {
   type SketchAddition,
 } from './recipes'
 
-const DIGITS = 9
-
-function expectPoint(actual: readonly number[] | undefined, expected: Vector2): void {
-  expect(actual).toHaveLength(2)
-  expect(actual?.[0]).toBeCloseTo(expected[0], DIGITS)
-  expect(actual?.[1]).toBeCloseTo(expected[1], DIGITS)
+/** Coordinates rounded to 9 decimals, with -0 written 0, so computed points compare exactly. */
+function rounded(point: readonly number[] | undefined): number[] {
+  return (point ?? []).map((value) => Math.round(value * 1e9) / 1e9 + 0)
 }
 
 function present(addition: SketchAddition | null): SketchAddition {
@@ -59,72 +56,108 @@ function isConstruction(entity: SketchEntity): boolean {
   return entity.construction === true
 }
 
+/** The start and end of each line, rounded. */
+function segments(entities: readonly SketchEntity[]): number[][][] {
+  return entities.map(asLine).map((line) => [rounded(line.start), rounded(line.end)])
+}
+
 /** A constraint without its generated id, for comparing operands. */
 function withoutId(constraint: SketchConstraint): Record<string, unknown> {
   return Object.fromEntries(Object.entries(constraint).filter(([key]) => key !== 'id'))
 }
 
-/** Asserts that `constraints` are exactly `expected` (ids ignored), in any order. */
-function expectConstraints(
-  constraints: readonly SketchConstraint[],
-  expected: readonly Record<string, unknown>[],
-): void {
-  expect(constraints).toHaveLength(expected.length)
-  expect(constraints.map(withoutId)).toEqual(expect.arrayContaining([...expected]))
-}
-
-/** The constraints 3.16.4 lists for a rectangle with lines `l1` to `l4`. */
-function rectangleConstraints(
-  l1: string,
-  l2: string,
-  l3: string,
-  l4: string,
-): Record<string, unknown>[] {
+/** The constraints 3.16.4 lists for a rectangle whose lines L1 to L4 have these ids. */
+function rectangleConstraints(lineIds: readonly string[]): Record<string, unknown>[] {
+  const [first = '', second = '', third = '', fourth = ''] = lineIds
   return [
-    { type: 'coincident', points: [`${l1}.end`, `${l2}.start`] },
-    { type: 'coincident', points: [`${l2}.end`, `${l3}.start`] },
-    { type: 'coincident', points: [`${l3}.end`, `${l4}.start`] },
-    { type: 'coincident', points: [`${l4}.end`, `${l1}.start`] },
-    { type: 'horizontal', line: l1 },
-    { type: 'horizontal', line: l3 },
-    { type: 'vertical', line: l2 },
-    { type: 'vertical', line: l4 },
+    { type: 'coincident', points: [`${first}.end`, `${second}.start`] },
+    { type: 'coincident', points: [`${second}.end`, `${third}.start`] },
+    { type: 'coincident', points: [`${third}.end`, `${fourth}.start`] },
+    { type: 'coincident', points: [`${fourth}.end`, `${first}.start`] },
+    { type: 'horizontal', line: first },
+    { type: 'horizontal', line: third },
+    { type: 'vertical', line: second },
+    { type: 'vertical', line: fourth },
   ]
 }
 
-describe('rectangleTwoPointRecipe', () => {
-  function rectangle(construction: boolean): SketchAddition {
-    return present(
-      rectangleTwoPointRecipe({
-        corner: [0, 0],
-        opposite: [40, 20],
-        construction,
-        ids: sequentialIds(),
-      }),
-    )
-  }
+/** The 2-point rectangle from (0, 0) to (40, 20). */
+function twoPointRectangle(construction: boolean): SketchAddition {
+  return present(
+    rectangleTwoPointRecipe({
+      corner: [0, 0],
+      opposite: [40, 20],
+      construction,
+      ids: sequentialIds(),
+    }),
+  )
+}
 
+/** The center rectangle with center (0, 0) and corner (20, 10), split into its parts. */
+function centerRectangle() {
+  const addition = present(
+    rectangleCenterRecipe({
+      center: [0, 0],
+      corner: [20, 10],
+      construction: false,
+      ids: sequentialIds(),
+    }),
+  )
+  const constructionEntities = addition.entities.filter(isConstruction)
+  return {
+    addition,
+    rectangleLines: addition.entities.filter((entity) => !isConstruction(entity)),
+    diagonal: asLine(constructionEntities.find((entity) => entity.type === 'line')),
+    centerPoint: asPointEntity(constructionEntities.find((entity) => entity.type === 'point')),
+  }
+}
+
+function arcThrough(start: Vector2, end: Vector2, through: Vector2) {
+  const addition = present(
+    arcThreePointRecipe({ start, end, through, construction: false, ids: sequentialIds() }),
+  )
+  return { addition, arc: asArc(addition.entities[0]) }
+}
+
+/** The counterclockwise sweep of an arc, in [0, 2π). */
+function sweepOf(arc: { readonly start_angle: number; readonly end_angle: number }): number {
+  const sweep = (arc.end_angle - arc.start_angle) % (2 * Math.PI)
+  return sweep < 0 ? sweep + 2 * Math.PI : sweep
+}
+
+/** The start, middle and end points of an arc, rounded. */
+function arcPoints(arc: ReturnType<typeof asArc>): number[][] {
+  const at = (angle: number) => rounded(pointOnCircle(arc.center, arc.radius, angle))
+  return [at(arc.start_angle), at(arc.start_angle + sweepOf(arc) / 2), at(arc.end_angle)]
+}
+
+describe('rectangleTwoPointRecipe', () => {
   it('U-50 returns 4 lines in the order and directions of 3.16.4', () => {
-    const addition = rectangle(false)
-    expect(addition.entities).toHaveLength(4)
-    const [l1, l2, l3, l4] = addition.entities.map(asLine)
-    expectPoint(l1?.start, [0, 0])
-    expectPoint(l1?.end, [40, 0])
-    expectPoint(l2?.start, [40, 0])
-    expectPoint(l2?.end, [40, 20])
-    expectPoint(l3?.start, [40, 20])
-    expectPoint(l3?.end, [0, 20])
-    expectPoint(l4?.start, [0, 20])
-    expectPoint(l4?.end, [0, 0])
+    expect(segments(twoPointRectangle(false).entities)).toEqual([
+      [
+        [0, 0],
+        [40, 0],
+      ],
+      [
+        [40, 0],
+        [40, 20],
+      ],
+      [
+        [40, 20],
+        [0, 20],
+      ],
+      [
+        [0, 20],
+        [0, 0],
+      ],
+    ])
   })
 
   it('U-50 returns exactly 4 coincident, 2 horizontal and 2 vertical constraints with the listed operands', () => {
-    const addition = rectangle(false)
-    const [l1, l2, l3, l4] = addition.entities.map((entity) => entity.id)
-    expectConstraints(
-      addition.constraints,
-      rectangleConstraints(l1 ?? '', l2 ?? '', l3 ?? '', l4 ?? ''),
-    )
+    const addition = twoPointRectangle(false)
+    const expected = rectangleConstraints(addition.entities.map((entity) => entity.id))
+    expect(addition.constraints).toHaveLength(8)
+    expect(addition.constraints.map(withoutId)).toEqual(expect.arrayContaining(expected))
   })
 
   it('U-50 a zero width returns null', () => {
@@ -150,7 +183,7 @@ describe('rectangleTwoPointRecipe', () => {
   })
 
   it('takes entity ids from the e prefix and constraint ids from the c prefix, all distinct', () => {
-    const addition = rectangle(false)
+    const addition = twoPointRectangle(false)
     const entityIds = addition.entities.map((entity) => entity.id)
     const constraintIds = addition.constraints.map((constraint) => constraint.id)
     expect(entityIds.every((id) => id.startsWith('e-'))).toBe(true)
@@ -159,65 +192,66 @@ describe('rectangleTwoPointRecipe', () => {
   })
 
   it('copies the construction flag to the 4 lines', () => {
-    expect(rectangle(true).entities.map(isConstruction)).toEqual([true, true, true, true])
-    expect(rectangle(false).entities.map(isConstruction)).toEqual([false, false, false, false])
+    expect(twoPointRectangle(true).entities.map(isConstruction)).toEqual([true, true, true, true])
+    expect(twoPointRectangle(false).entities.map(isConstruction)).toEqual([
+      false,
+      false,
+      false,
+      false,
+    ])
   })
 })
 
 describe('rectangleCenterRecipe', () => {
-  function centerRectangle() {
-    const addition = present(
-      rectangleCenterRecipe({
-        center: [0, 0],
-        corner: [20, 10],
-        construction: false,
-        ids: sequentialIds(),
-      }),
-    )
-    const constructionEntities = addition.entities.filter(isConstruction)
-    return {
-      addition,
-      rectangleLines: addition.entities.filter((entity) => !isConstruction(entity)),
-      diagonal: asLine(constructionEntities.find((entity) => entity.type === 'line')),
-      centerPoint: asPointEntity(constructionEntities.find((entity) => entity.type === 'point')),
-    }
-  }
-
   it('U-51 returns 4 lines from (-20, -10), one construction line and one construction point', () => {
     const { addition, rectangleLines } = centerRectangle()
     expect(addition.entities).toHaveLength(6)
-    expect(rectangleLines).toHaveLength(4)
-    const [l1, l2, l3, l4] = rectangleLines.map(asLine)
-    expectPoint(l1?.start, [-20, -10])
-    expectPoint(l1?.end, [20, -10])
-    expectPoint(l2?.start, [20, -10])
-    expectPoint(l2?.end, [20, 10])
-    expectPoint(l3?.start, [20, 10])
-    expectPoint(l3?.end, [-20, 10])
-    expectPoint(l4?.start, [-20, 10])
-    expectPoint(l4?.end, [-20, -10])
+    expect(segments(rectangleLines)).toEqual([
+      [
+        [-20, -10],
+        [20, -10],
+      ],
+      [
+        [20, -10],
+        [20, 10],
+      ],
+      [
+        [20, 10],
+        [-20, 10],
+      ],
+      [
+        [-20, 10],
+        [-20, -10],
+      ],
+    ])
   })
 
   it('U-51 the construction line runs from (-20, -10) to (20, 10)', () => {
     const { diagonal } = centerRectangle()
-    expectPoint(diagonal.start, [-20, -10])
-    expectPoint(diagonal.end, [20, 10])
+    expect(segments([diagonal])).toEqual([
+      [
+        [-20, -10],
+        [20, 10],
+      ],
+    ])
   })
 
   it('U-51 the construction point is at the center (0, 0)', () => {
     const { centerPoint } = centerRectangle()
-    expectPoint(centerPoint.position, [0, 0])
+    expect(rounded(centerPoint.position)).toEqual([0, 0])
   })
 
   it('U-51 returns 11 constraints: the rectangle 8, 2 coincident for the diagonal and 1 midpoint', () => {
     const { addition, rectangleLines, diagonal, centerPoint } = centerRectangle()
-    const [l1, l2, l3, l4] = rectangleLines.map((entity) => entity.id)
-    expectConstraints(addition.constraints, [
-      ...rectangleConstraints(l1 ?? '', l2 ?? '', l3 ?? '', l4 ?? ''),
-      { type: 'coincident', points: [`${diagonal.id}.start`, `${l1 ?? ''}.start`] },
-      { type: 'coincident', points: [`${diagonal.id}.end`, `${l2 ?? ''}.end`] },
+    const lineIds = rectangleLines.map((entity) => entity.id)
+    const expected = [
+      ...rectangleConstraints(lineIds),
+      { type: 'coincident', points: [`${diagonal.id}.start`, `${lineIds[0] ?? ''}.start`] },
+      { type: 'coincident', points: [`${diagonal.id}.end`, `${lineIds[1] ?? ''}.end`] },
       { type: 'midpoint', point: centerPoint.id, line: diagonal.id },
-    ])
+    ]
+    expect(addition.constraints).toHaveLength(11)
+    expect(addition.constraints.map(withoutId)).toEqual(expect.arrayContaining(expected))
   })
 })
 
@@ -229,8 +263,8 @@ describe('circleRecipe', () => {
     expect(addition.entities).toHaveLength(1)
     expect(addition.constraints).toHaveLength(0)
     const circle = asCircle(addition.entities[0])
-    expectPoint(circle.center, [5, -3])
-    expect(circle.radius).toBeCloseTo(7.5, DIGITS)
+    expect(rounded(circle.center)).toEqual([5, -3])
+    expect(circle.radius).toBeCloseTo(7.5, 9)
   })
 
   it('U-52 radius 0 returns null', () => {
@@ -252,7 +286,7 @@ describe('pointRecipe', () => {
     const addition = pointRecipe({ at: [2, 3], construction: false, ids: sequentialIds() })
     expect(addition.entities).toHaveLength(1)
     expect(addition.constraints).toHaveLength(0)
-    expectPoint(asPointEntity(addition.entities[0]).position, [2, 3])
+    expect(rounded(asPointEntity(addition.entities[0]).position)).toEqual([2, 3])
   })
 
   it('U-52 the point entity has the construction flag as given', () => {
@@ -264,43 +298,34 @@ describe('pointRecipe', () => {
 })
 
 describe('arcThreePointRecipe', () => {
-  function arcThrough(start: Vector2, end: Vector2, through: Vector2) {
-    const addition = present(
-      arcThreePointRecipe({ start, end, through, construction: false, ids: sequentialIds() }),
-    )
+  it('U-53 A (10, 0), B (-10, 0), T (0, 10) gives center (0, 0) and radius 10', () => {
+    const { addition, arc } = arcThrough([10, 0], [-10, 0], [0, 10])
     expect(addition.entities).toHaveLength(1)
     expect(addition.constraints).toHaveLength(0)
-    return asArc(addition.entities[0])
-  }
-
-  function sweepOf(arc: { readonly start_angle: number; readonly end_angle: number }): number {
-    const sweep = (arc.end_angle - arc.start_angle) % (2 * Math.PI)
-    return sweep < 0 ? sweep + 2 * Math.PI : sweep
-  }
-
-  it('U-53 A (10, 0), B (-10, 0), T (0, 10) gives center (0, 0) and radius 10', () => {
-    const arc = arcThrough([10, 0], [-10, 0], [0, 10])
-    expectPoint(arc.center, [0, 0])
-    expect(arc.radius).toBeCloseTo(10, DIGITS)
+    expect(rounded(arc.center)).toEqual([0, 0])
+    expect(arc.radius).toBeCloseTo(10, 9)
   })
 
-  it('U-53 A (10, 0), B (-10, 0), T (0, 10) runs counterclockwise from (10, 0) to (-10, 0)', () => {
-    const arc = arcThrough([10, 0], [-10, 0], [0, 10])
-    expectPoint(pointOnCircle(arc.center, arc.radius, arc.start_angle), [10, 0])
-    expectPoint(pointOnCircle(arc.center, arc.radius, arc.end_angle), [-10, 0])
-    expect(sweepOf(arc)).toBeCloseTo(Math.PI, DIGITS)
-    // Halfway along the counterclockwise sweep lies T.
-    expectPoint(pointOnCircle(arc.center, arc.radius, arc.start_angle + sweepOf(arc) / 2), [0, 10])
+  it('U-53 A (10, 0), B (-10, 0), T (0, 10) runs counterclockwise from (10, 0) through T to (-10, 0)', () => {
+    const { arc } = arcThrough([10, 0], [-10, 0], [0, 10])
+    expect(sweepOf(arc)).toBeCloseTo(Math.PI, 9)
+    expect(arcPoints(arc)).toEqual([
+      [10, 0],
+      [0, 10],
+      [-10, 0],
+    ])
   })
 
-  it('U-53 with T (0, -10) the arc runs from (-10, 0) to (10, 0)', () => {
-    const arc = arcThrough([10, 0], [-10, 0], [0, -10])
-    expectPoint(arc.center, [0, 0])
-    expect(arc.radius).toBeCloseTo(10, DIGITS)
-    expectPoint(pointOnCircle(arc.center, arc.radius, arc.start_angle), [-10, 0])
-    expectPoint(pointOnCircle(arc.center, arc.radius, arc.end_angle), [10, 0])
-    expect(sweepOf(arc)).toBeCloseTo(Math.PI, DIGITS)
-    expectPoint(pointOnCircle(arc.center, arc.radius, arc.start_angle + sweepOf(arc) / 2), [0, -10])
+  it('U-53 with T (0, -10) the arc runs counterclockwise from (-10, 0) through T to (10, 0)', () => {
+    const { arc } = arcThrough([10, 0], [-10, 0], [0, -10])
+    expect(rounded(arc.center)).toEqual([0, 0])
+    expect(arc.radius).toBeCloseTo(10, 9)
+    expect(sweepOf(arc)).toBeCloseTo(Math.PI, 9)
+    expect(arcPoints(arc)).toEqual([
+      [-10, 0],
+      [0, -10],
+      [10, 0],
+    ])
   })
 
   it('U-53 collinear points return null', () => {
@@ -321,11 +346,13 @@ describe('lineRecipe', () => {
     const addition = present(
       lineRecipe({ start: [1, 2], end: [31, 2], construction: false, ids: sequentialIds() }),
     )
-    expect(addition.entities).toHaveLength(1)
     expect(addition.constraints).toHaveLength(0)
-    const line = asLine(addition.entities[0])
-    expectPoint(line.start, [1, 2])
-    expectPoint(line.end, [31, 2])
+    expect(segments(addition.entities)).toEqual([
+      [
+        [1, 2],
+        [31, 2],
+      ],
+    ])
   })
 
   it('U-54 equal ends return null', () => {
