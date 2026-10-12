@@ -4,14 +4,17 @@
 //! vector. It is transformed by the reflectors of the columns accepted before it; what is left outside
 //! their pivot rows is its component orthogonal to their span. A column is dependent when that part
 //! is at most `tolerance` times its original norm, and then it gets no reflector. Otherwise a
-//! Householder reflector maps that part onto one new pivot row (the lowest row index it touches,
-//! which keeps fill local for document-ordered sketches). Only the reflectors whose rows overlap a
-//! column are applied to it, in ascending order.
+//! Householder reflector maps that part onto one new pivot row: the lowest row the transformed
+//! column can have an entry on, which keeps fill local for document-ordered sketches.
 //!
 //! With the accepted columns as `A`, the factorization is `A = Q [R; 0]` with `Q` the product of the
-//! reflectors and `R` upper triangular in acceptance order. Reflectors and the columns of `R` are
-//! stored back to back in flat arrays, and every buffer keeps its capacity across `clear`, so the
-//! repeated factorizations of a solve allocate almost nothing.
+//! reflectors and `R` upper triangular in acceptance order.
+//!
+//! Which reflectors reach a column, and which rows the result can have entries on, depend only on
+//! the sparsity patterns of the columns and on which earlier columns were accepted. Each column's
+//! plan is worked out from patterns alone and kept across `clear`, so the repeated factorizations of
+//! one solve, whose Jacobians share their pattern, only do the arithmetic. A plan is reused while the
+//! column has the same pattern and every earlier column had the same pattern and decision.
 
 /// What happened to an added column.
 #[derive(Clone, Debug, PartialEq)]
@@ -23,41 +26,7 @@ pub(crate) enum Added {
     Dependent { projection: Vec<(usize, f64)> },
 }
 
-/// A dense scratch vector with the list of rows it touches.
-#[derive(Clone, Debug, Default)]
-struct Workspace {
-    values: Vec<f64>,
-    touched: Vec<bool>,
-    support: Vec<usize>,
-}
-
-impl Workspace {
-    /// Makes the workspace all zero with `dimension` rows.
-    fn reset(&mut self, dimension: usize) {
-        self.clear();
-        self.values.resize(dimension, 0.0);
-        self.touched.resize(dimension, false);
-    }
-
-    fn add(&mut self, row: usize, value: f64) {
-        if !self.touched[row] {
-            self.touched[row] = true;
-            self.support.push(row);
-        }
-        self.values[row] += value;
-    }
-
-    /// Sets every touched row back to zero.
-    fn clear(&mut self) {
-        for &row in &self.support {
-            self.values[row] = 0.0;
-            self.touched[row] = false;
-        }
-        self.support.clear();
-    }
-}
-
-/// The order in which `SparseQr::apply` applies reflectors.
+/// The order in which reflectors are applied.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Order {
     /// First to last: `Q^T x`.
@@ -66,9 +35,24 @@ enum Order {
     Descending,
 }
 
+/// How one column is transformed, worked out from sparsity patterns alone.
+#[derive(Clone, Debug, PartialEq)]
+struct Plan {
+    /// Rows the column has entries on, ascending.
+    pattern: Vec<usize>,
+    /// Reflectors that reach the column, in ascending order.
+    schedule: Vec<usize>,
+    /// Rows the transformed column can have entries on, ascending.
+    rows: Vec<usize>,
+    /// Whether the column was accepted; the plans after it assume this decision.
+    accepted: bool,
+}
+
 /// The factorization of the columns added so far.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct SparseQr {
+    /// Number of rows of every column.
+    dimension: usize,
     /// Pivot row of each reflector.
     pivots: Vec<usize>,
     /// `beta` of each reflector `I - beta v v^T`.
@@ -83,17 +67,26 @@ pub(crate) struct SparseQr {
     vector_values: Vec<f64>,
     /// Where each reflector's column of `R` starts in `above`, plus the end of the last.
     above_starts: Vec<usize>,
-    /// Entries of `R` above the diagonal: (earlier reflector, value), ascending within each column.
+    /// Entries of `R` above the diagonal: (earlier reflector, value).
     above: Vec<(usize, f64)>,
     /// For each row, the reflectors whose vectors contain it, ascending.
     touching: Vec<Vec<usize>>,
     /// For each row, the reflector it is the pivot of.
     pivot_of: Vec<Option<usize>>,
-    workspace: Workspace,
-    /// For each reflector, whether it waits in `queue`; all false between calls of `apply`.
+    /// Plans of the columns added since `clear`, followed by plans kept from earlier factorizations.
+    plans: Vec<Plan>,
+    /// Number of columns added since `clear`.
+    added: usize,
+    /// Dense scratch vector; all zero between calls.
+    values: Vec<f64>,
+    /// Scratch marks of rows; all false between calls.
+    marked: Vec<bool>,
+    /// For each reflector, whether it waits in `queue`; all false between calls.
     queued: Vec<bool>,
-    /// Reflectors waiting to be applied, sorted so that the next one is last.
+    /// Reflectors waiting to be reached, sorted so that the next one is last.
     queue: Vec<usize>,
+    /// The pattern of the column being added.
+    pattern: Vec<usize>,
 }
 
 impl SparseQr {
@@ -104,8 +97,14 @@ impl SparseQr {
         factorization
     }
 
-    /// Forgets every column and prepares for columns with `dimension` rows, keeping allocated capacity.
+    /// Forgets every column and prepares for columns with `dimension` rows. Column plans are kept
+    /// when the dimension is unchanged.
     pub(crate) fn clear(&mut self, dimension: usize) {
+        if dimension != self.dimension {
+            self.plans.clear();
+            self.dimension = dimension;
+        }
+        self.added = 0;
         self.pivots.clear();
         self.betas.clear();
         self.diagonals.clear();
@@ -122,9 +121,9 @@ impl SparseQr {
         self.touching.resize_with(dimension, Vec::new);
         self.pivot_of.clear();
         self.pivot_of.resize(dimension, None);
-        self.workspace.reset(dimension);
+        self.values.resize(dimension, 0.0);
+        self.marked.resize(dimension, false);
         self.queued.clear();
-        self.queue.clear();
     }
 
     /// Number of accepted columns.
@@ -139,45 +138,77 @@ impl SparseQr {
     /// so the norm is taken as at least 1: a column shorter than `tolerance` is zero up to rounding
     /// (an exactly zero column always is dependent).
     pub(crate) fn add(&mut self, column: &[(usize, f64)], tolerance: f64) -> Added {
-        for &(row, value) in column {
-            self.workspace.add(row, value);
+        self.pattern.clear();
+        for &(row, _) in column {
+            if !self.marked[row] {
+                self.marked[row] = true;
+                self.pattern.push(row);
+            }
         }
-        let original_norm = norm(
-            self.workspace
-                .support
-                .iter()
-                .map(|&row| self.workspace.values[row]),
-        );
-        self.apply(Order::Ascending);
-        self.workspace.support.sort_unstable();
+        for &row in &self.pattern {
+            self.marked[row] = false;
+        }
+        self.pattern.sort_unstable();
+        let index = self.added;
+        self.added += 1;
+        let reusable = self
+            .plans
+            .get(index)
+            .is_some_and(|plan| plan.pattern == self.pattern);
+        if !reusable {
+            self.plans.truncate(index);
+            let (schedule, rows) = self.reach(Order::Ascending);
+            self.plans.push(Plan {
+                pattern: self.pattern.clone(),
+                schedule,
+                rows,
+                accepted: true,
+            });
+        }
+
+        for &(row, value) in column {
+            self.values[row] += value;
+        }
+        let original_norm = norm(self.pattern.iter().map(|&row| self.values[row]));
+        let plan = &self.plans[index];
+        for &reflector in &plan.schedule {
+            let range = self.vector_starts[reflector]..self.vector_starts[reflector + 1];
+            reflect(
+                &self.vector_rows[range.clone()],
+                &self.vector_values[range],
+                self.betas[reflector],
+                &mut self.values,
+            );
+        }
         // The projection becomes the column of R and the residual the reflector's vector; both are
         // written in place and taken back out when the column turns out dependent.
         let above_start = self.above.len();
         let vector_start = self.vector_rows.len();
-        for &row in &self.workspace.support {
-            let value = self.workspace.values[row];
+        for &row in &plan.rows {
+            let value = std::mem::take(&mut self.values[row]);
             match self.pivot_of[row] {
                 Some(reflector) => self.above.push((reflector, value)),
-                None if value != 0.0 => {
+                None => {
                     self.vector_rows.push(row);
                     self.vector_values.push(value);
                 }
-                None => {}
             }
         }
-        self.workspace.clear();
-        self.above[above_start..].sort_unstable_by_key(|&(reflector, _)| reflector);
         let residual_norm = norm(self.vector_values[vector_start..].iter().copied());
         let independent =
             residual_norm > tolerance * original_norm.max(1.0) && residual_norm.is_finite();
+        if self.plans[index].accepted != independent {
+            self.plans.truncate(index + 1);
+            self.plans[index].accepted = independent;
+        }
         if !independent {
             self.vector_rows.truncate(vector_start);
             self.vector_values.truncate(vector_start);
-            return Added::Dependent {
-                projection: self.above.split_off(above_start),
-            };
+            let mut projection = self.above.split_off(above_start);
+            projection.sort_unstable_by_key(|&(reflector, _)| reflector);
+            return Added::Dependent { projection };
         }
-        let index = self.pivots.len();
+        let reflector = self.pivots.len();
         let pivot = self.vector_rows[vector_start];
         let pivot_value = self.vector_values[vector_start];
         let diagonal = if pivot_value >= 0.0 {
@@ -187,9 +218,9 @@ impl SparseQr {
         };
         self.vector_values[vector_start] -= diagonal;
         for &row in &self.vector_rows[vector_start..] {
-            self.touching[row].push(index);
+            self.touching[row].push(reflector);
         }
-        self.pivot_of[pivot] = Some(index);
+        self.pivot_of[pivot] = Some(reflector);
         self.pivots.push(pivot);
         self.betas
             .push(1.0 / (residual_norm * (residual_norm + pivot_value.abs())));
@@ -200,37 +231,31 @@ impl SparseQr {
         Added::Accepted
     }
 
-    /// The vector `v` of a reflector as its rows and entries.
-    fn vector(&self, reflector: usize) -> (&[usize], &[f64]) {
-        let range = self.vector_starts[reflector]..self.vector_starts[reflector + 1];
-        (&self.vector_rows[range.clone()], &self.vector_values[range])
-    }
-
-    /// The entries of `R` above the diagonal in a reflector's column.
-    fn above(&self, reflector: usize) -> &[(usize, f64)] {
-        &self.above[self.above_starts[reflector]..self.above_starts[reflector + 1]]
-    }
-
-    /// Applies to the workspace, in ascending order (`Q^T x`) or descending order (`Q x`), every reflector
-    /// whose rows overlap it. A reflector that fills in new rows queues the reflectors after it in that
-    /// order which touch them; each reflector is queued at most once.
-    fn apply(&mut self, order: Order) {
-        for &row in &self.workspace.support {
+    /// The reflectors that reach a vector with entries on the rows of `pattern` when they are applied
+    /// in `order`, and every row the result can have entries on (ascending), from patterns alone.
+    ///
+    /// The reflectors touching the starting rows are queued; a reflector reached later in `order`
+    /// adds its rows, and the reflectors after it in `order` that touch a newly added row are queued.
+    fn reach(&mut self, order: Order) -> (Vec<usize>, Vec<usize>) {
+        let mut schedule = Vec::new();
+        let mut rows = self.pattern.clone();
+        for &row in &rows {
+            self.marked[row] = true;
             for &reflector in &self.touching[row] {
                 enqueue(&mut self.queue, &mut self.queued, reflector, order);
             }
         }
         while let Some(reflector) = self.queue.pop() {
             self.queued[reflector] = false;
-            let touched_before = self.workspace.support.len();
-            let range = self.vector_starts[reflector]..self.vector_starts[reflector + 1];
-            reflect(
-                &self.vector_rows[range.clone()],
-                &self.vector_values[range],
-                self.betas[reflector],
-                &mut self.workspace,
-            );
-            for &row in &self.workspace.support[touched_before..] {
+            schedule.push(reflector);
+            for &row in
+                &self.vector_rows[self.vector_starts[reflector]..self.vector_starts[reflector + 1]]
+            {
+                if self.marked[row] {
+                    continue;
+                }
+                self.marked[row] = true;
+                rows.push(row);
                 let list = &self.touching[row];
                 let following = match order {
                     Order::Ascending => &list[list.partition_point(|&other| other <= reflector)..],
@@ -241,11 +266,16 @@ impl SparseQr {
                 }
             }
         }
+        for &row in &rows {
+            self.marked[row] = false;
+        }
+        rows.sort_unstable();
+        (schedule, rows)
     }
 
     /// The minimum-norm `h` with `A^T h = right_side`, where `right_side` has one entry per accepted column.
     pub(crate) fn minimum_norm_solution(&self, right_side: &[f64]) -> Vec<f64> {
-        let mut solution = vec![0.0; self.touching.len()];
+        let mut solution = vec![0.0; self.dimension];
         let mut forward = vec![0.0; self.rank()];
         for index in 0..self.rank() {
             let known: f64 = self
@@ -268,7 +298,11 @@ impl SparseQr {
         for reflector in 0..self.rank() {
             self.reflect_dense(reflector, &mut transformed);
         }
-        let projection: Vec<f64> = self.pivots.iter().map(|&pivot| transformed[pivot]).collect();
+        let projection: Vec<f64> = self
+            .pivots
+            .iter()
+            .map(|&pivot| transformed[pivot])
+            .collect();
         self.back_substitute(projection)
     }
 
@@ -297,37 +331,47 @@ impl SparseQr {
 
     /// For each row, the distance from its unit vector to the span of the accepted columns.
     pub(crate) fn complement_distances(&mut self) -> Vec<f64> {
-        let mut squared = vec![0.0; self.touching.len()];
-        for row in 0..self.touching.len() {
+        let mut squared = vec![0.0; self.dimension];
+        for row in 0..self.dimension {
             if self.pivot_of[row].is_some() {
                 continue;
             }
             // Q e_row is a unit vector orthogonal to every accepted column; together they span the complement.
-            self.workspace.add(row, 1.0);
-            self.apply(Order::Descending);
-            for &other in &self.workspace.support {
-                squared[other] += self.workspace.values[other] * self.workspace.values[other];
+            self.pattern.clear();
+            self.pattern.push(row);
+            let (schedule, rows) = self.reach(Order::Descending);
+            self.values[row] = 1.0;
+            for &reflector in &schedule {
+                let range = self.vector_starts[reflector]..self.vector_starts[reflector + 1];
+                reflect(
+                    &self.vector_rows[range.clone()],
+                    &self.vector_values[range],
+                    self.betas[reflector],
+                    &mut self.values,
+                );
             }
-            self.workspace.clear();
+            for &other in &rows {
+                let value = std::mem::take(&mut self.values[other]);
+                squared[other] += value * value;
+            }
         }
         squared.into_iter().map(f64::sqrt).collect()
     }
 
+    /// The entries of `R` above the diagonal in a reflector's column.
+    fn above(&self, reflector: usize) -> &[(usize, f64)] {
+        &self.above[self.above_starts[reflector]..self.above_starts[reflector + 1]]
+    }
+
     /// Applies one reflector to a dense vector.
     fn reflect_dense(&self, reflector: usize, values: &mut [f64]) {
-        let (rows, vector) = self.vector(reflector);
-        let product: f64 = rows
-            .iter()
-            .zip(vector)
-            .map(|(&row, &value)| value * values[row])
-            .sum();
-        if product == 0.0 {
-            return;
-        }
-        let factor = self.betas[reflector] * product;
-        for (&row, &value) in rows.iter().zip(vector) {
-            values[row] -= factor * value;
-        }
+        let range = self.vector_starts[reflector]..self.vector_starts[reflector + 1];
+        reflect(
+            &self.vector_rows[range.clone()],
+            &self.vector_values[range],
+            self.betas[reflector],
+            values,
+        );
     }
 }
 
@@ -344,20 +388,19 @@ fn enqueue(queue: &mut Vec<usize>, queued: &mut [bool], reflector: usize, order:
     queue.insert(position, reflector);
 }
 
-/// Applies the reflector `I - beta v v^T` to the workspace; rows it touches for the first time are
-/// appended to the workspace's support.
-fn reflect(rows: &[usize], vector: &[f64], beta: f64, workspace: &mut Workspace) {
+/// Applies the reflector `I - beta v v^T`, with `v` given by its rows and entries, to a dense vector.
+fn reflect(rows: &[usize], vector: &[f64], beta: f64, values: &mut [f64]) {
     let product: f64 = rows
         .iter()
         .zip(vector)
-        .map(|(&row, &value)| value * workspace.values[row])
+        .map(|(&row, &value)| value * values[row])
         .sum();
     if product == 0.0 {
         return;
     }
     let factor = beta * product;
     for (&row, &value) in rows.iter().zip(vector) {
-        workspace.add(row, -factor * value);
+        values[row] -= factor * value;
     }
 }
 
@@ -502,6 +545,40 @@ mod tests {
         assert_eq!(qr.rank(), 2);
         let solution = qr.minimum_norm_solution(&[1.0, 3.0]);
         assert!((solution[0] - 1.0).abs() < 1e-12 && (solution[1] - 3.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn plans_are_reused_for_columns_with_the_same_patterns() {
+        let mut qr = SparseQr::new(3);
+        qr.add(&dense(&[1.0, 1.0, 0.0]), 1e-8);
+        qr.add(&dense(&[0.0, 1.0, 1.0]), 1e-8);
+        let plans = qr.plans.clone();
+
+        qr.clear(3);
+        qr.add(&dense(&[2.0, 1.0, 0.0]), 1e-8);
+        qr.add(&dense(&[0.0, 3.0, 1.0]), 1e-8);
+
+        assert_eq!(qr.plans, plans);
+        let solution = qr.minimum_norm_solution(&[3.0, 4.0]);
+        assert!((2.0 * solution[0] + solution[1] - 3.0).abs() < 1e-12);
+        assert!((3.0 * solution[1] + solution[2] - 4.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn a_changed_decision_replans_the_later_columns() {
+        let mut qr = SparseQr::new(2);
+        qr.add(&[(0, 1.0), (1, 0.0)], 1e-8);
+        qr.add(&[(0, 1.0), (1, 1.0)], 1e-8);
+        qr.clear(2);
+
+        let first = qr.add(&[(0, 0.0), (1, 0.0)], 1e-8);
+        let second = qr.add(&[(0, 1.0), (1, 1.0)], 1e-8);
+
+        assert!(matches!(first, Added::Dependent { .. }));
+        assert_eq!(second, Added::Accepted);
+        assert_eq!(qr.rank(), 1);
+        let solution = qr.minimum_norm_solution(&[2.0]);
+        assert!((solution[0] - 1.0).abs() < 1e-12 && (solution[1] - 1.0).abs() < 1e-12);
     }
 
     #[test]

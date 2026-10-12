@@ -8,6 +8,7 @@ from partsmith import (
     Axis,
     Circle,
     Document,
+    FeatureError,
     Part,
     Placement,
     Plane,
@@ -256,15 +257,12 @@ def test_t010_unregistered_type_is_emitted_in_the_generic_form(tmp_path):
     )
 
 
-def test_t010_unregistered_type_round_trips_at_step_3(tmp_path):
+def test_t010_unregistered_type_does_not_apply_when_run(tmp_path):
     original = open_text(json.dumps(WEDGE_DOCUMENT), tmp_path)
-    text = original.to_text()
     code = original.to_python()
 
-    documents = run_code(code)
-
-    assert len(documents) == 1
-    assert documents[0].to_text() == text
+    with pytest.raises(FeatureError):
+        run_code(code)
 
 
 def test_t011_runs_of_features_with_the_same_part_share_one_block():
@@ -353,13 +351,13 @@ def test_t016_export_is_deterministic():
     assert document.to_python() == document.to_python()
 
 
-def test_t078_control_characters_are_escaped_and_round_trip(tmp_path):
+def test_t078_quotes_and_backslashes_in_names_are_escaped_and_round_trip(tmp_path):
     document = Document()
-    Part("a\tb\x01\x7fé", id="b-1")
+    Part('a "q" \\ é', id="b-1")
 
     code = document.to_python()
 
-    assert r'a_b = Part("a\tb\x01\x7fé", id="b-1")' in code_lines(code)
+    assert r'Part("a \"q\" \\ é", id="b-1")' in code
     assert_round_trip(document.to_text(), tmp_path)
 
 

@@ -28,6 +28,7 @@ use crate::validation::check_values;
 use diagnosis::diagnose;
 use measure::measure;
 use numeric::{Outcome, Problem};
+use sparse_qr::SparseQr;
 use substitution::Substitution;
 use system::{Component, System};
 
@@ -255,6 +256,7 @@ fn solve_checked(sketch: &SketchParams, values: &DimensionValues) -> Solved {
     let mut solved = warm.clone();
     let mut diagnosis_point = warm.clone();
     let mut failed_components = Vec::with_capacity(system.components.len());
+    let mut factorization = SparseQr::default();
     for component in &system.components {
         let untouched = component
             .rows
@@ -263,7 +265,7 @@ fn solve_checked(sketch: &SketchParams, values: &DimensionValues) -> Solved {
         let failed = if untouched {
             false
         } else {
-            match solve_component(&system, component, &warm, &[]) {
+            match solve_component(&system, component, &warm, &[], &mut factorization) {
                 Outcome::Converged(x) => {
                     copy_parameters(component, &x, &mut solved);
                     copy_parameters(component, &x, &mut diagnosis_point);
@@ -299,12 +301,15 @@ fn solve_checked(sketch: &SketchParams, values: &DimensionValues) -> Solved {
 /// Substitutes and solves one component from the warm start `warm` (sections 3.7.3 to 3.7.5).
 ///
 /// `drag_targets` lists dragged parameters with their targets (section 3.9); it is empty outside a drag.
-/// The outcome holds the full parameter vector at the solution, or where Levenberg-Marquardt stopped.
+/// `factorization` is reused between calls so that repeated solves of one component plan their
+/// factorizations once. The outcome holds the full parameter vector at the solution, or where
+/// Levenberg-Marquardt stopped.
 fn solve_component(
     system: &System,
     component: &Component,
     warm: &[f64],
     drag_targets: &[(usize, f64)],
+    factorization: &mut SparseQr,
 ) -> Outcome {
     let mut substitution = Substitution::new(system, component, warm);
     let mut scales = vec![1.0; substitution.variable_count()];
@@ -312,7 +317,7 @@ fn solve_component(
         scales[variable] = 1.0 / crate::DRAG_WEIGHT;
     }
     let start = substitution.variable_values();
-    let mut problem = Problem::new(system, &substitution, scales, warm.to_vec());
+    let mut problem = Problem::new(system, &substitution, scales, warm.to_vec(), factorization);
     match numeric::solve(&mut problem, &start) {
         Outcome::Converged(y) => Outcome::Converged(problem.parameters(&y).to_vec()),
         Outcome::Failed(y) => Outcome::Failed(problem.parameters(&y).to_vec()),
@@ -360,6 +365,48 @@ mod tests {
     fn status_follows_the_degrees_of_freedom() {
         assert_eq!(status(&[], &[], 0), SketchStatus::FullyConstrained);
         assert_eq!(status(&[], &[], 2), SketchStatus::UnderConstrained);
+    }
+
+    #[test]
+    fn an_arc_that_barely_converges_is_returned_so_that_it_solves_back_to_itself() {
+        // A generated case whose dog-leg stops with residuals just under the tolerance; without the
+        // refinement, the arc conversion pushed a row over it and a second solve moved the geometry.
+        let sketch: SketchParams = serde_json::from_str(
+            r#"{
+              "plane": {"kind": "origin", "plane": "XY"},
+              "entities": [
+                {"id": "e-1", "type": "arc", "center": [-29.211621051278534, 71.52444974678612], "radius": 2.186651343819874, "start_angle": 0.08710887295788977, "end_angle": 4.018194978566759},
+                {"id": "e-2", "type": "point", "position": [-28.14216649949164, 73.41106114750663]}
+              ],
+              "constraints": [
+                {"id": "c-1", "type": "point_on_object", "point": "e-2", "curve": "e-1"},
+                {"id": "c-2", "type": "horizontal_distance", "points": ["e-1.start", "e-2"], "expr": "-1.0830079422851284 mm"},
+                {"id": "c-3", "type": "diameter", "curve": "e-1", "expr": "4.356816697371727 mm"},
+                {"id": "c-4", "type": "horizontal_distance", "points": ["e-2", "e-1.end"], "expr": "-2.480733460235122 mm"}
+              ]
+            }"#,
+        )
+        .expect("valid sketch");
+        let values: DimensionValues = [
+            ("c-2", -1.0830079422851284),
+            ("c-3", 4.356816697371727),
+            ("c-4", -2.480733460235122),
+        ]
+        .into_iter()
+        .map(|(constraint, value)| (id(constraint), value))
+        .collect();
+        let first = NativeSolver
+            .solve(&sketch, &values)
+            .expect("the sketch is valid");
+        let mut solved = sketch.clone();
+        solved.entities = first.entities.clone();
+
+        let second = NativeSolver
+            .solve(&solved, &values)
+            .expect("the sketch is valid");
+
+        assert!(!first.failed);
+        assert_eq!(second.entities, first.entities);
     }
 
     #[test]

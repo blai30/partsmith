@@ -8,7 +8,7 @@ The design calls for OCCT 7.8 or later, pinned, because kernel upgrades change o
 
 ## Decision
 
-Pin OCCT 7.9.3 (`scripts/occt-version.sh`) and build it from source with `scripts/build-occt.sh` for every target: native static libraries with position-independent code, and Emscripten static libraries with native wasm exceptions (`-fwasm-exceptions`). Only the modeling, mesh, STEP and STL toolkits are built; CMake adds their dependencies. Release builds keep OCCT's exception checks (`BUILD_RELEASE_DISABLE_EXCEPTIONS=OFF`) so bad input fails loudly instead of corrupting memory. `partsmith-occt-sys` finds the install through the `OCCT_ROOT` environment variable. CI caches each install keyed by version and script hash.
+Pin OCCT 7.9.3 (`scripts/occt-version.sh`) and build it from source with `scripts/build-occt.sh` for every target: native static libraries with position-independent code, and Emscripten static libraries with native wasm exceptions (`-fwasm-exceptions`), optimized for size (`-Os`), and with `OCC_CONVERT_SIGNALS` undefined: that define wraps `setjmp` in `try` blocks, which Emscripten 4.0.15 compiles to invalid wasm (rejected by V8 in `ShapeUpgrade_ShapeDivide` and `ShapeCustom_BSplineRestriction`), and it only matters when OCCT signal handlers are installed, which the shim never does. Only the modeling, mesh, STEP and STL toolkits are built; CMake adds their dependencies. Release builds keep OCCT's exception checks (`BUILD_RELEASE_DISABLE_EXCEPTIONS=OFF`) so bad input fails loudly instead of corrupting memory. `partsmith-occt-sys` finds the install through the `OCCT_ROOT` environment variable. CI caches each install keyed by version and script hash.
 
 OCCT 8.0 is released; moving to it is a separate decision gated by a full corpus run.
 

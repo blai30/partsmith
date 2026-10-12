@@ -775,7 +775,7 @@ with plate:
 7. A part named `He said "hi"\` is emitted as `Part("He said \"hi\"\\", id="b-1")`.
 8. Parts named `Lid (top)`, `class`, `Block` and `Block` get variables `lid_top`, `class_2`, `block` and `block_2`; a part named `3D` gets `part_3d`; a part named `box` gets `box_2`.
 9. A feature whose one-line form exceeds 88 characters is emitted with one argument per line, a trailing comma on each, and `)` alone on the last line, and the output still round-trips.
-10. A document with part `b-1` named `Block` and a feature `f-1` of type `wedge_v9` with params `{"body": "b-1", "size": ["20", "30"], "from": 1}` emits that feature as `    feature("wedge_v9", id="f-1", body="b-1", size=["20", "30"], **{"from": 1})` inside `with block:`, and the round trip holds at step 3.
+10. A document with part `b-1` named `Block` and a feature `f-1` of type `wedge_v9` with params `{"body": "b-1", "size": ["20", "30"], "from": 1}` emits that feature as `    feature("wedge_v9", id="f-1", body="b-1", size=["20", "30"], **{"from": 1})` inside `with block:`. The round trip of 3.9 does not apply: an unregistered type cannot be applied through `apply_edits` (engine.md 3.3 rejects it with `invalid_params`), so the emitted script stops with `FeatureError` when run against the standard registry, which is the expected behavior for plugin features whose plugin is missing.
 11. A document with parts `b-1` named `Base` and `b-2` named `Lid`, and features [`f-a` targeting `b-1`, sketch `f-s`, `f-b` targeting `b-2` using `f-s`, `f-c` targeting `b-1`] emits the blocks `with base:` (`f-a`), `with lid:` (`f-s`, `f-b`), `with base:` (`f-c`), in that order.
 12. A document with rollback `f-box1` ends with the line `rollback("f-box1")`.
 13. A suppressed feature is emitted with `suppressed=True` before `id=`, and a named one with `name="..."` before that.
@@ -871,7 +871,7 @@ with Sketch(
 
 **Added code generation and feature mapping**
 
-78. A part named `a` + tab + `b` + U+0001 + U+007F + `é` is emitted as `Part("a\tb\x01\x7fé", id="b-1")`, and the round trip of 3.9 holds.
+78. A part named `a "q" \ é` (a quote pair, one backslash and a non-ASCII letter; model.md section 3.4 forbids control characters in labels) is emitted as `Part("a \"q\" \\ é", id="b-1")`, and the round trip of 3.9 holds. Control-character escaping (rule 10) is covered by codegen unit tests on string values, not by document labels.
 79. On `box(20, 30, 40)`, `shell(None, 2)` stores no `remove_faces` and gives volume 24000 - 16 × 26 × 36 = 9024; `export_python` emits it as `shell(None, 2, id="<id>")` (rule 8: the stored expression is `2`).
 80. `revolve` of the sketch of test 23 with `reverse=True` stores `"reverse": true`, gives volume 2500π, and `export_python` emits `reverse=True` before `id=`.
 81. A `boolean` record with op `cut` is emitted without `op`; with op `join` it is emitted with `op="join"`.

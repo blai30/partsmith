@@ -1,6 +1,6 @@
 //! Acceptance tests for the safe core of the bridge, `partsmith_wasm::call` (protocol.md section 2.10 and section 6, "WebAssembly bridge", tests 48 and 50 to 52), plus the frame handling rules of section 2.10: `call` never traps and answers every input with exactly one response frame.
 //!
-//! Every test thread has its own session in the bridge's `thread_local!` cell, so tests never read each other's documents.
+//! Tests that open documents use the handle the session returns, so they pass whether or not other tests ran on the same thread's session (natively each test has its own thread; on the Emscripten target all tests share one).
 
 mod common;
 

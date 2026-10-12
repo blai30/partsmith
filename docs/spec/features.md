@@ -831,7 +831,7 @@ Recompute evaluates every declared `ExprUse` once per run, before building, thro
 | `Scalar` | `NONE` | value | none |
 | `Count` | `NONE` | nearest integer n when abs(value - n) ≤ 1e-9 | `NotWholeNumber` otherwise; `OutOfRange` (`AtLeast(0)`) when negative; `OutOfRange` (`AtMost(4294967295)`) when too large |
 
-An evaluator error becomes `Expression { field, source, error }`. The converted value or the error is what the `eval_*` methods return; they also check that `field` was declared with that exact expression and unit, else `UndeclaredDependency`. Each feature then checks its own ranges (`OutOfRange`) in params order, before any kernel work.
+An evaluator error becomes `Expression { field, expr, error }`. The converted value or the error is what the `eval_*` methods return; they also check that `field` was declared with that exact expression and unit, else `UndeclaredDependency`. Each feature then checks its own ranges (`OutOfRange`) in params order, before any kernel work.
 
 ### 3.5 Body semantics
 
@@ -1025,7 +1025,7 @@ Messages below are templates. `{label}` is the field's manifest label; `{body}` 
 | `target_required` | `TargetRequired { field: FieldRef }` | `Op new puts the copies into another body. Pick an empty body for {label}.` |
 | `target_not_allowed` | `TargetNotAllowed { field: FieldRef }` | `{label} is only used with op new. Remove it, or set the op to new.` |
 | `same_body` | `SameBody { field: FieldRef, body: Id }` | `Body '{body}' cannot be used twice here. Pick a different body for {label}.` |
-| `expression` | `Expression { field: FieldRef, source: Expr, error: ExprError }` | `{label}: {error}` (the evaluator's message, which names the fix) |
+| `expression` | `Expression { field: FieldRef, expr: Expr, error: ExprError }` | `{label}: {error}` (the evaluator's message, which names the fix) |
 | `out_of_range` | `OutOfRange { field: FieldRef, kind: FieldUnit, value: f64, bound: Bound, bound_name: Option<String> }` | see below |
 | `not_whole_number` | `NotWholeNumber { field: FieldRef, value: f64 }` | `{label} must be a whole number, but it is {value}. Use {floor} or {ceil}.` |
 | `undeclared_dependency` | `UndeclaredDependency { what: String }` | `This feature read {what} without declaring it. This is a bug in the feature; please report it.` |

@@ -1,6 +1,7 @@
 //! Drag solving with a weakly pinned target (spec section 3.9).
 
 use super::layout::Layout;
+use super::sparse_qr::SparseQr;
 use super::system::System;
 use super::{
     DragSession, DragTarget, Outcome, SolveResult, measure, solve_checked, solve_component,
@@ -27,6 +28,8 @@ pub struct NativeDragSession {
     previous: Vec<SketchEntity>,
     /// True when a component other than the dragged one failed in the initial solve.
     other_failed: bool,
+    /// The factorization of the dragged component, whose plans every frame reuses.
+    factorization: SparseQr,
 }
 
 /// The parameters a drag moves, by target kind.
@@ -75,6 +78,7 @@ impl NativeDragSession {
             initial,
             begin,
             other_failed,
+            factorization: SparseQr::default(),
         })
     }
 
@@ -126,7 +130,13 @@ impl DragSession for NativeDragSession {
         let warm = self.system.layout.vector(&self.previous);
         let targets = self.targets(cursor, &warm);
         let component = &self.system.components[self.component];
-        let (solved, failed) = match solve_component(&self.system, component, &warm, &targets) {
+        let (solved, failed) = match solve_component(
+            &self.system,
+            component,
+            &warm,
+            &targets,
+            &mut self.factorization,
+        ) {
             Outcome::Converged(x) => (x, false),
             Outcome::Failed(_) => (warm.clone(), true),
         };

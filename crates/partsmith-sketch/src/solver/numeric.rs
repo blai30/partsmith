@@ -29,8 +29,8 @@ pub(crate) struct Problem<'a> {
     x: Vec<f64>,
     /// Scratch for one row's gradient.
     gradient: Vec<(usize, f64)>,
-    /// The factorization of the Gauss-Newton steps, reused so that its buffers are allocated once.
-    factorization: SparseQr,
+    /// The factorization of the Gauss-Newton steps, reused so that its plans and buffers are made once.
+    factorization: &'a mut SparseQr,
 }
 
 /// Residuals and the Jacobian with respect to `z` at one point.
@@ -94,6 +94,7 @@ impl<'a> Problem<'a> {
         substitution: &'a Substitution,
         scales: Vec<f64>,
         x: Vec<f64>,
+        factorization: &'a mut SparseQr,
     ) -> Problem<'a> {
         Problem {
             system,
@@ -101,7 +102,7 @@ impl<'a> Problem<'a> {
             scales,
             x,
             gradient: Vec::new(),
-            factorization: SparseQr::default(),
+            factorization,
         }
     }
 

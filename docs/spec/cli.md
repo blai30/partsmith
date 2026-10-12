@@ -346,7 +346,7 @@ Tests live in `crates/partsmith-cli/tests/` and run the built binary (`env!("CAR
 43. `partsmith export box.ptsm -o out.dat` exits 2 with the format message; `--format stl` makes it succeed.
 44. `partsmith export box.ptsm -o out.3mf --ascii` exits 2, and so does `partsmith export two-bodies.ptsm -o parts --per-body --format obj` (OBJ always writes one file with one object per body).
 45. Exporting `fillet.ptsm` with the fillet radius set to `30 mm` (so it fails) exits 1 with a message naming `f-fil1`; adding `--allow-errors` exits 0 and writes the unfilleted box.
-46. `partsmith export circle.ptsm -o coarse.stl --chord 0.5` writes a smaller file than `partsmith export circle.ptsm -o default.stl`; for `box.ptsm` both give 684 bytes, because planar faces do not depend on the chord.
+46. `partsmith export circle.ptsm -o coarse.stl --chord 0.5 --angle 45` writes a smaller file than `partsmith export circle.ptsm -o default.stl`; for `box.ptsm` both give 684 bytes, because planar faces do not depend on the tolerance. (The angle is raised too: for a radius-5 circle the default 5 degree angular limit is stricter than either chord, so `--chord 0.5` alone would not change the mesh.)
 47. `partsmith export box.ptsm -o missing-dir/out.stl` exits 3.
 48. `partsmith export --json box.ptsm -o out.stl` prints `{"files": [{"path": "out.stl", "media_type": "model/stl", "bytes": 684}], "warnings": []}` in the pretty layout of 2.2.
 49. Running test 34 twice gives byte-identical files.
