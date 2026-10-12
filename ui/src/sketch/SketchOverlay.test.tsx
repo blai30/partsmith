@@ -31,7 +31,10 @@ const HORIZONTAL: SketchConstraint = { id: 'c-1', type: 'horizontal', line: 'e-1
 const LENGTH: SketchConstraint = { id: 'c-2', type: 'distance', line: 'e-1', expr: '20' }
 
 /** Renders the overlay inside the test view's viewport region, beside its canvas. */
-function renderOverlay(harness: SketchHarness, tool: SketchToolId | null = null): HTMLCanvasElement {
+function renderOverlay(
+  harness: SketchHarness,
+  tool: SketchToolId | null = null,
+): HTMLCanvasElement {
   harness.app.store.setState((state) =>
     state.sketch === null ? {} : { sketch: { ...state.sketch, tool } },
   )
