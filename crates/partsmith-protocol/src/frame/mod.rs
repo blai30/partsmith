@@ -88,7 +88,7 @@ pub enum FrameError {
     VersionMismatch {
         /// The version the header names.
         found: u32,
-        /// The id of the header's first message, when it has an integer id.
+        /// The id of the header's first message, when it is an integer of at most `MAX_SAFE_INTEGER`.
         request_id: Option<u64>,
     },
     /// A padding byte is not zero.
@@ -113,7 +113,7 @@ pub enum FrameError {
     InvalidMessage {
         /// What is wrong with the header.
         message: String,
-        /// The id of the header's first message, when it has an integer id.
+        /// The id of the header's first message, when it is an integer of at most `MAX_SAFE_INTEGER`.
         request_id: Option<u64>,
     },
 }

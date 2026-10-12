@@ -71,6 +71,90 @@ mod tests {
         );
     }
 
+    /// The schema of the `Command` variant whose `type` is `name`.
+    fn command_variant(schema: &Value, name: &str) -> Value {
+        schema
+            .pointer("/$defs/Command/oneOf")
+            .and_then(Value::as_array)
+            .expect("Command lists its variants")
+            .iter()
+            .find(|variant| variant.pointer("/properties/type/const") == Some(&Value::from(name)))
+            .cloned()
+            .unwrap_or_else(|| panic!("Command has a {name} variant"))
+    }
+
+    /// The `allOf` reference of a schema that `strict::closed` built, if it is one.
+    fn closed_reference(schema: &Value) -> Option<&str> {
+        if schema.get("unevaluatedProperties") != Some(&Value::Bool(false)) {
+            return None;
+        }
+        schema.pointer("/allOf/0/$ref").and_then(Value::as_str)
+    }
+
+    #[test]
+    fn orientation_and_assets_are_open_in_results_and_events() {
+        let schema = schema();
+        let orientation_variants = schema
+            .pointer("/$defs/Orientation/oneOf")
+            .and_then(Value::as_array)
+            .expect("Orientation lists its variants");
+
+        assert!(
+            orientation_variants
+                .iter()
+                .all(|variant| variant.get("additionalProperties").is_none())
+        );
+        assert!(
+            schema
+                .pointer("/$defs/AssetData/additionalProperties")
+                .is_none()
+        );
+        assert_eq!(
+            schema.pointer("/$defs/PrintReport/properties/orientation/$ref"),
+            Some(&Value::from("#/$defs/Orientation"))
+        );
+    }
+
+    #[test]
+    fn request_fields_of_shared_types_are_closed() {
+        let schema = schema();
+        let analyze_print = command_variant(&schema, "analyze_print");
+        let open_document = command_variant(&schema, "open_document");
+        let export = command_variant(&schema, "export");
+
+        assert_eq!(
+            closed_reference(&analyze_print["properties"]["orientation"]),
+            Some("#/$defs/Orientation")
+        );
+        assert_eq!(
+            closed_reference(&open_document["properties"]["assets"]["items"]),
+            Some("#/$defs/AssetData")
+        );
+        assert_eq!(
+            closed_reference(&export["properties"]["orientation"]["anyOf"][0]),
+            Some("#/$defs/Orientation")
+        );
+        assert_eq!(
+            closed_reference(&export["properties"]["tolerance"]["anyOf"][0]),
+            Some("#/$defs/TessellationTolerance")
+        );
+    }
+
+    #[test]
+    fn optional_request_fields_of_shared_types_stay_optional() {
+        let schema = schema();
+        let export = command_variant(&schema, "export");
+
+        assert_eq!(
+            export["required"],
+            Value::from(vec!["type", "doc", "format"])
+        );
+        assert_eq!(
+            export["properties"]["orientation"]["anyOf"][1],
+            serde_json::json!({"type": "null"})
+        );
+    }
+
     #[test]
     fn request_variant_rejects_unknown_fields() {
         let schema = schema();
