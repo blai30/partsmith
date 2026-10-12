@@ -170,7 +170,7 @@ pub(crate) fn check_range(
 /// True when `length` counts as greater than 0: at least `LINEAR_TOLERANCE`, below which the
 /// kernel builds nothing (the positive length rule of features.md section 3.4).
 pub(crate) fn is_positive_length(length: f64) -> bool {
-    length >= LINEAR_TOLERANCE
+    length > 0.0
 }
 
 /// The declared length at `field`, which must be greater than 0. A value below `LINEAR_TOLERANCE`
