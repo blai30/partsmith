@@ -54,7 +54,10 @@ fn ps_call_without_a_length_slot_returns_null_and_handles_nothing() {
 
     let response = close.call_without_length_slot();
 
-    assert!(response.is_null(), "ps_call returned a block it cannot size");
+    assert!(
+        response.is_null(),
+        "ps_call returned a block it cannot size"
+    );
     let saved = response_frame(&call(&request_frame(
         3,
         &format!(r#"{{"type":"save_document","doc":{doc}}}"#),

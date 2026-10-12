@@ -177,15 +177,23 @@ function build(type: ConstraintType, sorted: Sorted, id: string): SketchConstrai
     }
     case 'horizontal':
     case 'vertical':
+      // Each branch narrows `type` to one literal, so the record is one member of the union.
       if (shaped(sorted, 0, 1, 0) && firstLine !== undefined && !firstLine.axis) {
-        return { id, type, line: firstLine.line }
+        return type === 'horizontal'
+          ? { id, type, line: firstLine.line }
+          : { id, type, line: firstLine.line }
       }
-      return shaped(sorted, 2, 0, 0) &&
-        firstPoint !== undefined &&
-        secondPoint !== undefined &&
-        firstPoint.point !== secondPoint.point
+      if (
+        !shaped(sorted, 2, 0, 0) ||
+        firstPoint === undefined ||
+        secondPoint === undefined ||
+        firstPoint.point === secondPoint.point
+      ) {
+        return null
+      }
+      return type === 'horizontal'
         ? { id, type, points: [firstPoint.point, secondPoint.point] }
-        : null
+        : { id, type, points: [firstPoint.point, secondPoint.point] }
     case 'parallel':
     case 'perpendicular':
     case 'collinear':

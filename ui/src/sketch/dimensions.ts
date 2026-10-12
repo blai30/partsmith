@@ -300,6 +300,19 @@ function valueFields(expression: string, driving: boolean): { expr: string; driv
   return driving ? { expr: expression } : { expr: expression, driving: false }
 }
 
+/** A horizontal or vertical distance between two points. */
+function signedDistance(
+  type: 'horizontal_distance' | 'vertical_distance',
+  id: string,
+  points: [string, string],
+  fields: { expr: string; driving?: false },
+): SketchConstraint {
+  // Each branch narrows `type` to one literal, so the record is one member of the union.
+  return type === 'horizontal_distance'
+    ? { id, type, points, ...fields }
+    : { id, type, points, ...fields }
+}
+
 /** The constraint of `type` on these operands, or null when they cannot take it. */
 function buildDimension(
   type: DimensionType,
@@ -323,7 +336,7 @@ function buildDimension(
         }
         if (type === 'horizontal_distance' || type === 'vertical_distance') {
           const ends: [string, string] = [`${first.line}.start`, `${first.line}.end`]
-          return { id, type, points: order.swapPoints ? [ends[1], ends[0]] : ends, ...fields }
+          return signedDistance(type, id, order.swapPoints ? [ends[1], ends[0]] : ends, fields)
         }
         return null
       }
@@ -343,8 +356,11 @@ function buildDimension(
     const points: [string, string] = order.swapPoints
       ? [second.point, first.point]
       : [first.point, second.point]
-    return type === 'distance' || type === 'horizontal_distance' || type === 'vertical_distance'
-      ? { id, type, points, ...fields }
+    if (type === 'distance') {
+      return { id, type, points, ...fields }
+    }
+    return type === 'horizontal_distance' || type === 'vertical_distance'
+      ? signedDistance(type, id, points, fields)
       : null
   }
   const point = first.kind === 'point' ? first : second.kind === 'point' ? second : null

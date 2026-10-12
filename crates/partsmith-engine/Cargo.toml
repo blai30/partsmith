@@ -28,5 +28,9 @@ thiserror.workspace = true
 pretty_assertions.workspace = true
 zip.workspace = true
 
+[[bench]]
+name = "budgets"
+harness = false
+
 [lints]
 workspace = true

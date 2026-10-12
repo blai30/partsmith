@@ -2667,6 +2667,7 @@ name = "partsmith-wasm"
 version = "0.1.0"
 dependencies = [
  "partsmith-engine",
+ "partsmith-model",
  "partsmith-protocol",
  "proptest",
  "serde_json",

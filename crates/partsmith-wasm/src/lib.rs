@@ -21,7 +21,7 @@ thread_local! {
 fn session_options() -> SessionOptions {
     SessionOptions {
         display: true,
-        ..SessionOptions::default()
+        ..SessionOptions::headless()
     }
 }
 

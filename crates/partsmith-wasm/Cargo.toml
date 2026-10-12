@@ -18,13 +18,13 @@ name = "partsmith_core"
 path = "src/main.rs"
 test = false
 
-[dependencies]
-partsmith-engine.workspace = true
-
 # The `ps_call` budget of protocol.md section 5.
 [[bench]]
 name = "budgets"
 harness = false
+
+[dependencies]
+partsmith-engine.workspace = true
 
 [dev-dependencies]
 partsmith-model.workspace = true
