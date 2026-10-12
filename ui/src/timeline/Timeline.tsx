@@ -19,12 +19,12 @@ import {
 } from '../app/actions/timeline'
 import { useApp, useAppState } from '../app/AppProvider'
 import { FEATURE_ICONS } from '../commands/icons'
-import { Button } from '../components/Button'
 import { IconButton } from '../components/IconButton'
 import { Menu, type MenuEntry } from '../components/Menu'
 import { Tooltip } from '../components/Tooltip'
 import { featureLabel } from '../core/labels'
 import type { FeatureRecord, FeatureStatus } from '../generated/protocol'
+import { SIDE_PANEL_ID } from '../layout/panel-ids'
 import { pickRow, togglesSelection } from '../layout/pick-row'
 import { RenameField } from '../layout/RenameField'
 import { useUiRequest } from '../layout/requests'
@@ -217,7 +217,7 @@ function TimelineItem({
           {state === 'error' ? (
             <CircleX
               aria-hidden="true"
-              strokeWidth={2}
+              strokeWidth={1.75}
               className={clsx(
                 'absolute right-0 bottom-0 size-3.5 rounded-full',
                 COLOR_CLASSES.surfaceRaised.background,
@@ -227,7 +227,7 @@ function TimelineItem({
           ) : state === 'warning' ? (
             <TriangleAlert
               aria-hidden="true"
-              strokeWidth={2}
+              strokeWidth={1.75}
               className={clsx(
                 'absolute right-0 bottom-0 size-3.5',
                 COLOR_CLASSES.warningMark.fill,
@@ -458,12 +458,13 @@ function Strip() {
     }
     current.gap = nearestGap(current.gaps, event.clientX)
     current.rollback?.move(current.gap)
-    const origin = element.getBoundingClientRect()
+    // The ghost and the bar sit in the strip's scrolled content.
+    const left = element.getBoundingClientRect().left - element.scrollLeft
     if (bar.current !== null) {
-      positionElement(bar.current, (current.gaps[current.gap] ?? origin.left) - origin.left, 0)
+      positionElement(bar.current, (current.gaps[current.gap] ?? left) - left, 0)
     }
     if (ghost.current !== null) {
-      positionElement(ghost.current, event.clientX - origin.left, 0)
+      positionElement(ghost.current, event.clientX - left - ghost.current.offsetWidth / 2, 0)
     }
   }
 
@@ -653,7 +654,7 @@ function Strip() {
           ref={ghost}
           aria-hidden="true"
           className={clsx(
-            'pointer-events-none absolute top-2 left-0 flex size-10 -translate-x-1/2 items-center justify-center rounded-sm border opacity-80 shadow-lg',
+            'pointer-events-none absolute top-2 left-0 flex size-10 items-center justify-center rounded-sm border opacity-80 shadow-lg',
             COLOR_CLASSES.surfaceRaised.background,
             COLOR_CLASSES.accent.border,
           )}
@@ -682,12 +683,20 @@ function ProblemsButton() {
     return null
   }
   return (
-    <Button
+    <button
+      type="button"
       data-testid="timeline-problems"
-      className="h-6 shrink-0 gap-1.5 px-2 text-xs tabular-nums"
+      aria-controls={SIDE_PANEL_ID}
       onClick={() => {
         app.store.setState((state) => ({ panels: { ...state.panels, side: 'problems' } }))
       }}
+      className={clsx(
+        'inline-flex h-6 shrink-0 items-center gap-1.5 rounded-sm px-2 text-xs whitespace-nowrap tabular-nums transition-colors duration-150 motion-reduce:transition-none',
+        COLOR_CLASSES.text.foreground,
+        COLOR_CLASSES.hover.background,
+        COLOR_CLASSES.focusRing.outline,
+        COLOR_CLASSES.accent.outline,
+      )}
     >
       <TriangleAlert
         aria-hidden="true"
@@ -699,7 +708,7 @@ function ProblemsButton() {
         )}
       />
       {plural(count, 'problem', 'problems')}
-    </Button>
+    </button>
   )
 }
 

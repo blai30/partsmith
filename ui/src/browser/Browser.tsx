@@ -36,7 +36,9 @@ import { isPlainNumber } from '../expression/step'
 import type { Body, FeatureRecord, Parameter } from '../generated/protocol'
 import { pickRow, togglesSelection } from '../layout/pick-row'
 import { RenameField } from '../layout/RenameField'
+import { BROWSER_PANEL_ID } from '../layout/panel-ids'
 import { requestUi, useUiRequest } from '../layout/requests'
+import { useOverlayDismiss } from '../layout/use-overlay-dismiss'
 import type { AppState, OriginName, SelectionItem, SelectionItemKind } from '../state/store'
 import { COLOR_CLASSES, FONT_CLASSES } from '../theme/roles'
 import { isSessionVisible } from '../viewport/scene'
@@ -586,12 +588,17 @@ export function Browser() {
   const recipe = useAppState((state) => state.document?.recipe ?? null)
   const catalog = useAppState((state) => state.catalog)
   const selected = useSelectedKeys()
+  const panel = useRef<HTMLElement>(null)
   const tree = useRef<HTMLUListElement>(null)
   const lastFocused = useRef<Element | null>(null)
   const [expanded, setExpanded] = useState<Record<GroupId, boolean>>(
     () => sessionExpansion.get(app) ?? DEFAULT_EXPANDED,
   )
   const [renaming, setRenaming] = useState<string | null>(null)
+
+  useOverlayDismiss(panel, () => {
+    app.store.setState((state) => ({ panels: { ...state.panels, browserOpen: false } }))
+  })
 
   // Absent lists are empty; anything else is used as the protocol gives it.
   const { bodies = [], features = [], parameters = [] } = recipe ?? {}
@@ -637,6 +644,8 @@ export function Browser() {
 
   return (
     <nav
+      ref={panel}
+      id={BROWSER_PANEL_ID}
       aria-label="Browser"
       data-testid="browser"
       className={clsx(

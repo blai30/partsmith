@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { setSketchTool } from '../app/actions/sketch'
-import type { Edit, SketchConstraint, SketchSolution } from '../generated/protocol'
+import type { CoreApi } from '../core/api'
+import type { Edit, ProfileFinding, SketchConstraint, SketchSolution } from '../generated/protocol'
 import {
   DOCUMENT_HANDLE,
   SKETCH_ID,
   circleEntity,
+  curveItem,
   lineEntity,
   solutionFor,
   solvedEntity,
@@ -91,10 +93,11 @@ describe('sketchStepHint (2.14)', () => {
   })
 })
 
-describe('outlineProblems (2.14)', () => {
-  const open = (point: [number, number]) =>
-    ({ type: 'open_endpoint', entity: 'e-1', point }) as const
+function open(point: [number, number]): ProfileFinding {
+  return { type: 'open_endpoint', entity: 'e-1', point }
+}
 
+describe('outlineProblems (2.14)', () => {
   it('is null without findings', () => {
     expect(outlineProblems(solutionFor([]))).toBeNull()
   })
@@ -109,11 +112,11 @@ describe('outlineProblems (2.14)', () => {
   })
 
   it('counts outline problems otherwise', () => {
-    const crossing = {
+    const crossing: ProfileFinding = {
       type: 'self_intersection',
       entities: ['e-1', 'e-2'],
       point: [1, 1],
-    } as const
+    }
     expect(outlineProblems(solutionFor([], { profile_findings: [crossing] }))).toBe(
       '1 outline problem',
     )
@@ -421,6 +424,29 @@ describe('constraint tools in pick mode (3.16.6)', () => {
     ])
   })
 
+  it('starts pick mode from a selection more picks can complete, else from nothing', () => {
+    const harness = sketchHarness({ entities: [SLANTED, CIRCLE] })
+    start(harness)
+    harness.app.store.setState((state) =>
+      state.sketch === null
+        ? {}
+        : { sketch: { ...state.sketch, selection: [curveItem('e-1', 'line')] } },
+    )
+    setSketchTool(harness.app, 'constrain_parallel')
+    expect(harness.app.store.getState().sketch?.selection).toHaveLength(1)
+    setSketchTool(harness.app, null)
+    harness.app.store.setState((state) =>
+      state.sketch === null
+        ? {}
+        : { sketch: { ...state.sketch, selection: [curveItem('e-2', 'circle')] } },
+    )
+    setSketchTool(harness.app, 'constrain_parallel')
+    expect(harness.app.store.getState().sketch).toMatchObject({
+      tool: 'constrain_parallel',
+      selection: [],
+    })
+  })
+
   it('flashes the requirement for a refused pick', () => {
     const harness = sketchHarness({ entities: [SLANTED, CIRCLE] })
     const sketch = start(harness, 'constrain_parallel')
@@ -560,13 +586,13 @@ describe('dimension tool (3.16.7)', () => {
 
 describe('drag and box selection (3.16.9)', () => {
   it('dragging a point solves each move through dragSketch and ends with one endSketchDrag', async () => {
-    const dragSketch = vi.fn(
+    const dragSketch = vi.fn<CoreApi['dragSketch']>(
       (_handle: number, _feature: string, _point: string, to: readonly number[]) =>
         Promise.resolve(
           solvedSketch(solutionFor([lineEntity('e-1', [0, 0], [to[0] ?? 0, to[1] ?? 0])])),
         ),
     )
-    const endSketchDrag = vi.fn(() => Promise.resolve(7))
+    const endSketchDrag = vi.fn<CoreApi['endSketchDrag']>(() => Promise.resolve(7))
     const harness = sketchHarness({
       entities: [lineEntity('e-1', [0, 0], [20, 10])],
       core: { dragSketch, endSketchDrag },
@@ -582,7 +608,7 @@ describe('drag and box selection (3.16.9)', () => {
 
   it('a point of a fully constrained entity shows not-allowed and does not drag', async () => {
     const line = lineEntity('e-1', [0, 0], [20, 10])
-    const dragSketch = vi.fn(() => Promise.resolve(null))
+    const dragSketch = vi.fn<CoreApi['dragSketch']>(() => Promise.resolve(null))
     const harness = sketchHarness({
       entities: [line],
       solution: solutionFor([line], { entities: [solvedEntity(line, 'fully_constrained')] }),
@@ -638,21 +664,21 @@ describe('drag and box selection (3.16.9)', () => {
   })
 })
 
-describe('painting (3.12, 3.16.2)', () => {
-  function lastPaint(sketch: SketchController): () => OverlayPaint {
-    let paint: OverlayPaint | null = null
-    sketch.setPainter((next) => {
-      paint = next
-    })
-    return () => {
-      sketch.repaint()
-      if (paint === null) {
-        throw new Error('Nothing was painted.')
-      }
-      return paint
+function lastPaint(sketch: SketchController): () => OverlayPaint {
+  let paint: OverlayPaint | null = null
+  sketch.setPainter((next) => {
+    paint = next
+  })
+  return () => {
+    sketch.repaint()
+    if (paint === null) {
+      throw new Error('Nothing was painted.')
     }
+    return paint
   }
+}
 
+describe('painting (3.12, 3.16.2)', () => {
   it('places a glyph 14 pixels above the middle of its line', () => {
     const line = lineEntity('e-1', [0, 0], [20, 0])
     const horizontal: SketchConstraint = { id: 'c-1', type: 'horizontal', line: 'e-1' }

@@ -22,6 +22,7 @@ import {
   constraintTitle,
   constraintsFor,
   joinTitles,
+  pickVerdict,
   referencedEntities,
   type ConstraintType,
 } from '../../sketch/constraints'
@@ -386,6 +387,10 @@ export function setSketchTool(app: App, tool: SketchToolId | null): void {
       void applySketchConstraints(app, type, constraints)
       return
     }
+    // Pick mode starts from the selection when more picks can complete it, else from nothing.
+    const verdict = pickVerdict(type, session.selection, solution)
+    updateSession(app, { tool, selection: verdict === 'partial' ? session.selection : [] })
+    return
   }
   updateSession(app, { tool })
 }

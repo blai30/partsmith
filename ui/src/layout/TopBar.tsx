@@ -15,6 +15,7 @@ import { toggledTheme } from '../theme/theme'
 import { useResolvedTheme } from './use-resolved-theme'
 import { ContextToolbar } from './ContextToolbar'
 import { DocumentMenu } from './DocumentMenu'
+import { BROWSER_PANEL_ID } from './panel-ids'
 import { useUiRequest } from './requests'
 import { runCommand, useCommandViews } from './use-commands'
 
@@ -42,6 +43,7 @@ function BrowserToggle() {
         label="Toggle browser"
         icon={PanelLeft}
         pressed={open}
+        aria-controls={BROWSER_PANEL_ID}
         onClick={() => {
           runCommand(app, 'view.browser', 'toolbar')
         }}

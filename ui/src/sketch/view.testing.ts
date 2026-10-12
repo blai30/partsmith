@@ -86,14 +86,14 @@ export function mountView(): TestView {
 export function fixedViewport(camera: Camera = TOP_CAMERA): ViewportHandle {
   return {
     getCamera: () => camera,
-    setCamera: vi.fn(),
-    fit: vi.fn(),
-    setStandardView: vi.fn(),
-    toggleProjection: vi.fn(),
-    lookAlong: vi.fn(),
-    zoomToBounds: vi.fn(),
+    setCamera: vi.fn<ViewportHandle['setCamera']>(),
+    fit: vi.fn<ViewportHandle['fit']>(),
+    setStandardView: vi.fn<ViewportHandle['setStandardView']>(),
+    toggleProjection: vi.fn<ViewportHandle['toggleProjection']>(),
+    lookAlong: vi.fn<ViewportHandle['lookAlong']>(),
+    zoomToBounds: vi.fn<ViewportHandle['zoomToBounds']>(),
     screenRectangle: () => null,
-    requestRender: vi.fn(),
+    requestRender: vi.fn<ViewportHandle['requestRender']>(),
   }
 }
 
@@ -249,11 +249,11 @@ export function sketchHarness(
   return { app, core, applied, probes }
 }
 
-/** Waits until the sketch commits in flight have settled. */
+/**
+ * Waits until the sketch commits in flight have settled: the fake core answers at once, so every
+ * step of a commit runs in the microtasks that finish before the next task.
+ */
 export async function settleCommits(): Promise<void> {
-  for (let i = 0; i < 10; i += 1) {
-    await Promise.resolve()
-  }
   await new Promise((resolve) => {
     setTimeout(resolve, 0)
   })

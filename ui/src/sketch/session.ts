@@ -440,6 +440,17 @@ function dimensionUnit(type: string): 'length' | 'angle' {
   return type === 'angle' ? 'angle' : 'length'
 }
 
+/** The rectangle spanned by two canvas pixels. */
+function pixelRectangle(start: Vector2, end: Vector2): PixelRectangle {
+  const area = screenBox(start, end)
+  return {
+    x: area.left,
+    y: area.top,
+    width: area.right - area.left,
+    height: area.bottom - area.top,
+  }
+}
+
 /** A changed dimension that drives again: `driving: true` is the default sketch.md leaves out. */
 function withoutDriving(constraint: DimensionConstraint): SketchConstraint {
   const { driving: _driving, ...rest } = constraint
@@ -956,18 +967,7 @@ export function createSketchController(options: SketchControllerOptions): Sketch
             ],
       editor: editorAt,
       placing,
-      box:
-        box === null
-          ? null
-          : (() => {
-              const area = screenBox(box.start, box.end)
-              return {
-                x: area.left,
-                y: area.top,
-                width: area.right - area.left,
-                height: area.bottom - area.top,
-              }
-            })(),
+      box: box === null ? null : pixelRectangle(box.start, box.end),
       measures,
     }
   }

@@ -31,28 +31,39 @@ export function statusText(status: FeatureStatus | undefined, suppressed: boolea
   }
 }
 
-/** The x positions (client CSS pixels) of the gaps 0 to N around the strip's items. */
-export function gapPositions(strip: HTMLElement): readonly number[] {
-  const rectangles = [...strip.querySelectorAll<HTMLElement>('[data-testid="timeline-item"]')].map(
-    (item) => item.getBoundingClientRect(),
-  )
-  const [first] = rectangles
-  const last = rectangles.at(-1)
+/** A laid out item's horizontal extent, in client CSS pixels. */
+export type Extent = { readonly left: number; readonly right: number }
+
+/**
+ * The x positions of the gaps 0 to N around items laid out left to right: halfway between
+ * neighbors, and half the items' spacing outside the first and the last. Without items there is
+ * one gap, at `start`.
+ */
+export function gapsBetween(items: readonly Extent[], start: number): readonly number[] {
+  const [first, second] = items
+  const last = items.at(-1)
   if (first === undefined || last === undefined) {
-    return [strip.getBoundingClientRect().left]
+    return [start]
   }
-  const second = rectangles[1]
   const spacing = second === undefined ? 0 : second.left - first.right
   const gaps = [first.left - spacing / 2]
-  for (let i = 1; i < rectangles.length; i++) {
-    const before = rectangles[i - 1]
-    const after = rectangles[i]
+  for (let i = 1; i < items.length; i++) {
+    const before = items[i - 1]
+    const after = items[i]
     if (before !== undefined && after !== undefined) {
       gaps.push((before.right + after.left) / 2)
     }
   }
   gaps.push(last.right + spacing / 2)
   return gaps
+}
+
+/** The gaps around the timeline items of a strip as laid out now. */
+export function gapPositions(strip: HTMLElement): readonly number[] {
+  const items = [...strip.querySelectorAll<HTMLElement>('[data-testid="timeline-item"]')].map(
+    (item) => item.getBoundingClientRect(),
+  )
+  return gapsBetween(items, strip.getBoundingClientRect().left)
 }
 
 /** The gap nearest to a client x position. */

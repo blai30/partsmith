@@ -74,19 +74,26 @@ impl Problems {
         self.entries.push((path.to_owned(), message));
     }
 
-    /// Fails with every problem when there is any. The sort is stable, so problems of one path keep
-    /// their order.
-    fn assert_none(mut self) {
+    /// Every problem sorted by path, one per line (a message of several lines stays whole), or
+    /// `None` when there is none. The sort is stable, so problems of one path keep their order.
+    fn report(mut self) -> Option<String> {
         if self.entries.is_empty() {
-            return;
+            return None;
         }
         self.entries.sort_by(|left, right| left.0.cmp(&right.0));
-        let lines: Vec<String> = self
+        let messages: Vec<String> = self
             .entries
             .into_iter()
             .map(|(_, message)| message)
             .collect();
-        panic!("{}", lines.join("\n"));
+        Some(messages.join("\n"))
+    }
+
+    /// Fails with every problem when there is any.
+    fn assert_none(self) {
+        if let Some(report) = self.report() {
+            panic!("{report}");
+        }
     }
 }
 
@@ -413,6 +420,22 @@ fn rebuild_failure(report: &Value) -> Option<String> {
     None
 }
 
+/// Why `partsmith rebuild --checks --json` exited with a status other than 0 or 1: its standard
+/// error, or, when that is empty, the reason in the failure document on standard output. With
+/// `--json`, a file that cannot be read exits with 3 and reports only there (cli spec section 2.2).
+fn exit_reason(standard_output: &[u8], standard_error: &[u8]) -> String {
+    let standard_error = String::from_utf8_lossy(standard_error)
+        .trim_end()
+        .to_owned();
+    if !standard_error.is_empty() {
+        return standard_error;
+    }
+    serde_json::from_slice::<Value>(standard_output)
+        .ok()
+        .and_then(|report| rebuild_failure(&report))
+        .unwrap_or_default()
+}
+
 /// Whether an example with this (projected) report qualifies for a Python twin: no `import`
 /// feature and no feature with status `error` (delivery spec section 2.8).
 fn qualifies_for_twin(report: &Value) -> bool {
@@ -430,9 +453,10 @@ fn expected_text(report: &Value) -> String {
     format!("{text}\n")
 }
 
-/// Runs `partsmith rebuild --checks --json` on every example, in parallel over
-/// `available_parallelism()` workers, and returns the outputs in example order.
-fn rebuild_all(examples: &[Example]) -> Vec<io::Result<Output>> {
+/// Runs `partsmith <command> <model>` once for every example, in parallel over
+/// `available_parallelism()` workers, and returns the outputs in example order. Each output then
+/// belongs to exactly one example, even when it spans several lines.
+fn run_each(examples: &[Example], command: &[&str]) -> Vec<io::Result<Output>> {
     let workers = thread::available_parallelism()
         .map_or(1, NonZeroUsize::get)
         .min(examples.len())
@@ -449,15 +473,15 @@ fn rebuild_all(examples: &[Example]) -> Vec<io::Result<Output>> {
                             break outputs;
                         };
                         let model = example.model();
-                        let output = partsmith(["rebuild", "--checks", "--json", model.as_str()]);
-                        outputs.push((index, output));
+                        let arguments = command.iter().copied().chain([model.as_str()]);
+                        outputs.push((index, partsmith(arguments)));
                     }
                 })
             })
             .collect();
         let mut outputs: Vec<(usize, io::Result<Output>)> = handles
             .into_iter()
-            .flat_map(|handle| handle.join().expect("a rebuild worker does not panic"))
+            .flat_map(|handle| handle.join().expect("a partsmith worker does not panic"))
             .collect();
         outputs.sort_by_key(|(index, _)| *index);
         outputs.into_iter().map(|(_, output)| output).collect()
@@ -575,7 +599,7 @@ fn check_example(
             format!(
                 "{model}: partsmith rebuild exited with {}: {}",
                 exit_description(output.status),
-                String::from_utf8_lossy(&output.stderr).trim_end()
+                exit_reason(&output.stdout, &output.stderr)
             ),
         );
         return;
@@ -601,6 +625,31 @@ fn check_example(
     let report = project(report);
     check_twin(example, &report, bless, problems);
     check_expected(example, &report, bless, problems);
+}
+
+/// The problem `partsmith fmt --check <model>` found, or `None` when the example is canonical. A
+/// load error is the CLI's diagnostic as printed: it names the file first and lists each problem
+/// of a document with several on its own line, so it stays one problem.
+fn canonical_problem(model: &str, output: &Output) -> Option<String> {
+    let standard_output = String::from_utf8_lossy(&output.stdout);
+    let standard_error = String::from_utf8_lossy(&output.stderr);
+    let standard_error = standard_error.trim_end();
+    match output.status.code() {
+        Some(0) => None,
+        Some(1) if standard_error.is_empty() && standard_output.trim_end() == model => Some(
+            format!("{model}: not canonical. Run: partsmith fmt {model}"),
+        ),
+        Some(1) if standard_error.starts_with(model) => Some(standard_error.to_owned()),
+        _ => Some(format!(
+            "{model}: partsmith fmt --check exited with {}: {}",
+            exit_description(output.status),
+            if standard_error.is_empty() {
+                standard_output.trim_end()
+            } else {
+                standard_error
+            }
+        )),
+    }
 }
 
 /// Parses literal JSON text of a test.
@@ -662,42 +711,20 @@ fn examples_follow_the_layout() {
 // Delivery spec section 2.8, runner test 2.
 #[test]
 fn examples_are_canonical() {
-    let models: Vec<String> = examples().iter().map(Example::model).collect();
-    let output = partsmith(
-        ["fmt", "--check"]
-            .into_iter()
-            .chain(models.iter().map(String::as_str)),
-    )
-    .expect("the partsmith binary starts");
-    if output.status.success() {
-        return;
-    }
+    let examples = examples();
+    let checks = run_each(&examples, &["fmt", "--check"]);
     let mut problems = Problems::default();
-    let standard_output = String::from_utf8_lossy(&output.stdout);
-    let standard_error = String::from_utf8_lossy(&output.stderr);
-    for line in standard_output
-        .lines()
-        .chain(standard_error.lines())
-        .filter(|line| !line.trim().is_empty())
-    {
-        if models.iter().any(|model| model == line) {
-            problems.add(
-                line,
-                format!("{line}: not canonical. Run: partsmith fmt {line}"),
-            );
-        } else {
-            // A load error names its file first, so the line sorts with that file.
-            problems.add(line, line.to_owned());
+    for (example, check) in examples.iter().zip(checks) {
+        let model = example.model();
+        let problem = match check {
+            Ok(output) => canonical_problem(&model, &output),
+            Err(error) => Some(format!(
+                "{model}: partsmith fmt --check could not start: {error}"
+            )),
+        };
+        if let Some(problem) = problem {
+            problems.add(&model, problem);
         }
-    }
-    if output.status.code() != Some(1) || problems.entries.is_empty() {
-        problems.add(
-            "",
-            format!(
-                "partsmith fmt --check exited with {}",
-                exit_description(output.status)
-            ),
-        );
     }
     problems.assert_none();
 }
@@ -733,7 +760,7 @@ fn examples_rebuild_as_expected() {
     )
     .unwrap_or_else(|message| panic!("{message}"));
     let examples = examples();
-    let rebuilds = rebuild_all(&examples);
+    let rebuilds = run_each(&examples, &["rebuild", "--checks", "--json"]);
     let mut problems = Problems::default();
     for (example, rebuild) in examples.iter().zip(rebuilds) {
         check_example(example, rebuild, bless, &mut problems);
@@ -767,6 +794,115 @@ fn rebuild_reports_are_not_failures() {
     );
 
     assert_eq!(rebuild_failure(&report), None);
+}
+
+#[test]
+fn exit_reason_is_the_standard_error_when_there_is_one() {
+    let reason = exit_reason(b"", b"internal error: boom\n");
+
+    assert_eq!(reason, "internal error: boom");
+}
+
+#[test]
+fn exit_reason_without_standard_error_is_the_failure_document() {
+    let failure = br#"{"path": "examples/box/x.ptsm", "error": {"severity": "error", "code": "io_error", "message": "cannot read \"examples/box/x.ptsm\": Permission denied (os error 13)"}}"#;
+
+    let reason = exit_reason(failure, b"");
+
+    assert_eq!(
+        reason,
+        r#"error[io_error]: cannot read "examples/box/x.ptsm": Permission denied (os error 13)"#
+    );
+}
+
+#[test]
+fn unreadable_examples_are_reported_with_their_reason() {
+    let example = Example {
+        path: "box/not-an-example".to_owned(),
+    };
+    let rebuild = partsmith(["rebuild", "--checks", "--json", example.model().as_str()]);
+    let mut problems = Problems::default();
+
+    check_example(&example, rebuild, false, &mut problems);
+
+    let report = problems.report().expect("a missing file is a problem");
+    let expected = r#"examples/box/not-an-example.ptsm: partsmith rebuild exited with 3: error[io_error]: cannot read "examples/box/not-an-example.ptsm": "#;
+    assert!(report.starts_with(expected), "{report}");
+}
+
+#[test]
+fn problems_sort_by_path_and_keep_messages_of_several_lines_whole() {
+    let mut problems = Problems::default();
+    problems.add(
+        "examples/b.ptsm",
+        "examples/b.ptsm: not canonical.".to_owned(),
+    );
+    problems.add(
+        "examples/a.ptsm",
+        "examples/a.ptsm: error[parse_error]: 2 problems:\n- one\n- two".to_owned(),
+    );
+
+    assert_eq!(
+        problems.report().as_deref(),
+        Some(
+            "examples/a.ptsm: error[parse_error]: 2 problems:\n- one\n- two\nexamples/b.ptsm: not canonical."
+        )
+    );
+}
+
+#[test]
+fn canonical_documents_have_no_canonical_problem() {
+    let directory = tempfile::tempdir().expect("a temporary directory can be created");
+    let model = directory.path().join("default.ptsm");
+    fs::copy(repository_root().join("examples/box/default.ptsm"), &model)
+        .expect("the example can be copied");
+    let model = model.to_string_lossy().into_owned();
+    let output =
+        partsmith(["fmt", "--check", model.as_str()]).expect("the partsmith binary starts");
+
+    assert_eq!(canonical_problem(&model, &output), None);
+}
+
+#[test]
+fn documents_that_fmt_would_change_are_not_canonical() {
+    let directory = tempfile::tempdir().expect("a temporary directory can be created");
+    let model = directory.path().join("reindented.ptsm");
+    let canonical = fs::read_to_string(repository_root().join("examples/box/default.ptsm"))
+        .expect("the example can be read");
+    fs::write(&model, canonical.replace("  ", "    ")).expect("the document can be written");
+    let model = model.to_string_lossy().into_owned();
+    let output =
+        partsmith(["fmt", "--check", model.as_str()]).expect("the partsmith binary starts");
+
+    assert_eq!(
+        canonical_problem(&model, &output),
+        Some(format!(
+            "{model}: not canonical. Run: partsmith fmt {model}"
+        ))
+    );
+}
+
+#[test]
+fn a_load_error_with_several_problems_is_one_canonical_problem() {
+    let directory = tempfile::tempdir().expect("a temporary directory can be created");
+    let model = directory.path().join("two-problems.ptsm");
+    fs::write(
+        &model,
+        r#"{"format": "partsmith", "format_version": 1, "units": "mm", "parameters": [{"id": "p-1", "name": "pi", "expr": "1"}, {"id": "p-2", "name": "x", "expr": "1"}], "bodies": [], "features": [], "rollback": "f-9"}"#,
+    )
+    .expect("the document can be written");
+    let model = model.to_string_lossy().into_owned();
+    let output =
+        partsmith(["fmt", "--check", model.as_str()]).expect("the partsmith binary starts");
+
+    assert_eq!(
+        canonical_problem(&model, &output),
+        Some(format!(
+            "{model}: error[parse_error]: The file is not a valid Partsmith document: This document has 2 problems:\n\
+             - Parameter p-1: 'pi' is a reserved word. Pick another name, such as pi_1.\n\
+             - The rollback marker points at f-9, which is not a feature in this document. Move the marker to an existing feature or to the end."
+        ))
+    );
 }
 
 #[test]

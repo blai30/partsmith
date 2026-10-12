@@ -1,5 +1,5 @@
 import { clsx } from 'clsx/lite'
-import { useId } from 'react'
+import { useId, useRef } from 'react'
 import { focusFinding, runPrintAnalysis } from '../app/actions/print'
 import { useApp, useAppState } from '../app/AppProvider'
 import { ParametersPanel } from '../parameters/ParametersPanel'
@@ -7,7 +7,10 @@ import { hasPrintableBody, healthRows, missingReport } from '../print/health'
 import { HealthList } from '../print/HealthList'
 import { healthProfileName } from '../print/printers'
 import { ProblemsPanel } from '../problems/ProblemsPanel'
+import type { PanelsState } from '../state/store'
 import { COLOR_CLASSES } from '../theme/roles'
+import { SIDE_PANEL_ID } from './panel-ids'
+import { useOverlayDismiss } from './use-overlay-dismiss'
 
 // The right side panel (ui.md 3.2): Parameters, Print health or Problems, one at a time. Below the
 // lg breakpoint it opens as an overlay above the viewport.
@@ -47,13 +50,16 @@ function HealthPanel() {
   )
 }
 
-export function SidePanel() {
-  const side = useAppState((state) => state.panels.side)
-  if (side === null) {
-    return null
-  }
+function OpenSidePanel({ side }: { readonly side: NonNullable<PanelsState['side']> }) {
+  const app = useApp()
+  const panel = useRef<HTMLElement>(null)
+  useOverlayDismiss(panel, () => {
+    app.store.setState((state) => ({ panels: { ...state.panels, side: null } }))
+  })
   return (
     <aside
+      ref={panel}
+      id={SIDE_PANEL_ID}
       data-testid="side-panel"
       aria-label={
         side === 'parameters' ? 'Parameters' : side === 'problems' ? 'Problems' : 'Print health'
@@ -69,4 +75,9 @@ export function SidePanel() {
       {side === 'health' ? <HealthPanel /> : null}
     </aside>
   )
+}
+
+export function SidePanel() {
+  const side = useAppState((state) => state.panels.side)
+  return side === null ? null : <OpenSidePanel side={side} />
 }

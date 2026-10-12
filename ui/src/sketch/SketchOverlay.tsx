@@ -14,7 +14,7 @@ import { sketchParamsOf } from '../app/actions/sketch'
 import { useApp, useAppState } from '../app/AppProvider'
 import { CONSTRAINT_ICONS } from '../commands/icons'
 import type { SketchConstraint, SketchSolution, Units } from '../generated/protocol'
-import { resolvedTheme } from '../layout/color-scheme'
+import { useResolvedTheme } from '../layout/use-resolved-theme'
 import { COLOR_CLASSES, FONT_CLASSES, VIEWPORT_COLORS } from '../theme/roles'
 import { positionElement } from '../viewport/overlay'
 import { dimensionLabelText, hasGlyph, solvedValue } from './annotations'
@@ -163,7 +163,7 @@ function SketchLayer({ sketchId }: { readonly sketchId: string }) {
   const units = useAppState((state) => state.document?.recipe.units ?? 'mm')
   const showConstraints = useAppState((state) => state.sketch?.showConstraints ?? true)
   const selection = useAppState((state) => state.sketch?.selection ?? null)
-  const theme = useAppState((state) => resolvedTheme(state.settings))
+  const theme = useResolvedTheme()
   const uiScale = useAppState((state) => state.settings.uiScale)
   const colors = VIEWPORT_COLORS[theme]
 
@@ -208,6 +208,7 @@ function SketchLayer({ sketchId }: { readonly sketchId: string }) {
     const canvas =
       layer.current?.closest('[data-testid="viewport"]')?.querySelector('canvas') ?? null
     if (canvas === null) {
+      console.error('The sketch overlay needs the viewport canvas: render it inside the Viewport.')
       return undefined
     }
     const created = createSketchController({ app, canvas })

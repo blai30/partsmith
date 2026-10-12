@@ -131,6 +131,15 @@ describe('SketchHeader', () => {
   })
 })
 
+function fullWith(findings: ProfileFinding[]): SketchSolution {
+  return solutionFor([LINE], {
+    status: 'fully_constrained',
+    dof: 0,
+    entities: [solvedEntity(LINE, 'fully_constrained')],
+    profile_findings: findings,
+  })
+}
+
 describe('SketchHeader outline (3.16.8)', () => {
   const OPEN_START: ProfileFinding = { type: 'open_endpoint', entity: 'e-1', point: [0, 0] }
   const OPEN_END: ProfileFinding = { type: 'open_endpoint', entity: 'e-1', point: [10, 0] }
@@ -139,15 +148,6 @@ describe('SketchHeader outline (3.16.8)', () => {
     entities: ['e-1', 'e-2'],
     start: [0, 0],
     end: [5, 0],
-  }
-
-  function fullWith(findings: ProfileFinding[]): SketchSolution {
-    return solutionFor([LINE], {
-      status: 'fully_constrained',
-      dof: 0,
-      entities: [solvedEntity(LINE, 'fully_constrained')],
-      profile_findings: findings,
-    })
   }
 
   it('U-63 two open ends keep full and append " · 2 open ends" with data-outline 2', () => {
@@ -229,30 +229,30 @@ describe('plane picking header (3.16.1)', () => {
   })
 })
 
+function renderWith(fields: Partial<AppState>): void {
+  const app = createSketchTestApp({ core: createFakeCore({}), state: fields })
+  render(
+    <AppProvider app={app}>
+      <SketchHeader />
+    </AppProvider>,
+  )
+}
+
+function editing(
+  entities: SketchEntity[],
+  session: Partial<SketchSession> = {},
+): Partial<AppState> {
+  return {
+    context: 'sketch',
+    sketch: sketchSession(session),
+    document: documentState({
+      features: [sketchRecord({ entities })],
+      sketches: { [SKETCH_ID]: solvedSketch(solutionFor(entities)) },
+    }),
+  }
+}
+
 describe('sketch hint (3.16.3)', () => {
-  function renderWith(fields: Partial<AppState>): void {
-    const app = createSketchTestApp({ core: createFakeCore({}), state: fields })
-    render(
-      <AppProvider app={app}>
-        <SketchHeader />
-      </AppProvider>,
-    )
-  }
-
-  function editing(
-    entities: SketchEntity[],
-    session: Partial<SketchSession> = {},
-  ): Partial<AppState> {
-    return {
-      context: 'sketch',
-      sketch: sketchSession(session),
-      document: documentState({
-        features: [sketchRecord({ entities })],
-        sketches: { [SKETCH_ID]: solvedSketch(solutionFor(entities)) },
-      }),
-    }
-  }
-
   it('prompts to start drawing in an empty sketch with no tool', () => {
     renderWith(editing([]))
     expect(screen.getByTestId('sketch-hint')).toHaveTextContent(
