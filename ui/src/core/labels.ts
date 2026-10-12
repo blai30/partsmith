@@ -35,3 +35,22 @@ export function nextBodyName(document: Document): string {
   }
   return `Body ${String(number)}`
 }
+
+/** An origin plane by its coordinates. */
+export type OriginPlane = 'XY' | 'XZ' | 'YZ'
+
+const ORIGIN_PLANE_VIEWS: Readonly<Record<OriginPlane, 'Top' | 'Front' | 'Right'>> = {
+  XY: 'Top',
+  XZ: 'Front',
+  YZ: 'Right',
+}
+
+/** The standard view that looks at an origin plane from its front (2.11): "Top", "Front" or "Right". */
+export function originPlaneView(plane: OriginPlane): 'Top' | 'Front' | 'Right' {
+  return ORIGIN_PLANE_VIEWS[plane]
+}
+
+/** "Top plane (XY)", "Front plane (XZ)" or "Right plane (YZ)" (3.10). */
+export function originPlaneName(plane: OriginPlane): string {
+  return `${originPlaneView(plane)} plane (${plane})`
+}

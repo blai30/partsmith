@@ -674,7 +674,7 @@ export function Browser() {
       aria-label="Browser"
       data-testid="browser"
       className={clsx(
-        'flex w-66 shrink-0 flex-col overflow-y-auto border-r max-lg:absolute max-lg:inset-y-0 max-lg:left-0 max-lg:z-30 max-lg:shadow-lg',
+        'col-start-1 row-start-2 flex min-h-0 w-66 flex-col overflow-y-auto border-r max-lg:absolute max-lg:inset-y-0 max-lg:left-0 max-lg:z-30 max-lg:shadow-lg',
         COLOR_CLASSES.surface.background,
         COLOR_CLASSES.border.border,
         COLOR_CLASSES.text.foreground,

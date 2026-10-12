@@ -59,12 +59,18 @@ export function regionItem(sketch: string, region: RegionInfo, number = 1): Sele
   }
 }
 
+/** Origin plane names by view and coordinates (ui.md 3.10). */
+const ORIGIN_LABELS: Readonly<Partial<Record<OriginName, string>>> = {
+  XY: 'Top plane (XY)',
+  XZ: 'Front plane (XZ)',
+  YZ: 'Right plane (YZ)',
+}
+
 /** An origin plane, axis or point row. */
 export function originItem(origin: OriginName): SelectionItem {
   const kind =
     origin === 'O' ? 'origin_point' : origin.length === 2 ? 'origin_plane' : 'origin_axis'
-  const label =
-    origin === 'O' ? 'Origin' : origin.length === 2 ? `${origin} plane` : `${origin} axis`
+  const label = origin === 'O' ? 'Origin' : (ORIGIN_LABELS[origin] ?? `${origin} axis`)
   return {
     key: `origin:${origin}`,
     kind,

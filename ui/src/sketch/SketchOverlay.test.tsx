@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { AppProvider } from '../app/AppProvider'
 import type { App } from '../app/createApp'
 import type { SketchConstraint } from '../generated/protocol'
+import { COLOR_CLASSES, FONT_CLASSES } from '../theme/roles'
 import { circleEntity, lineEntity, SKETCH_ID, solutionFor, solvedSketch } from './fixtures.testing'
 import type { SketchToolId } from './session'
 import { SketchOverlay } from './SketchOverlay'
@@ -97,6 +98,7 @@ describe('SketchOverlay in sketch mode (3.2, 3.16.3)', () => {
           showConstraints: true,
           selection: [],
           dragging: false,
+          cameraBefore: null,
         },
       },
     })
@@ -342,6 +344,24 @@ describe('SketchOverlay drawing (3.16.4, 3.16.5)', () => {
     expect(length).toHaveFocus()
   })
 
+  it('shows the live measures in the textMuted placeholder facet and the values font (3.16.4)', async () => {
+    const harness = sketchHarness()
+    const canvas = renderOverlay(harness, 'line')
+    act(() => {
+      clickAt(canvas, [0, 0])
+      pointerAt(canvas, 'pointermove', [15, 0])
+    })
+    await nextFrame()
+    for (const input of screen.getAllByTestId('draw-input')) {
+      for (const name of [
+        ...COLOR_CLASSES.textMuted.placeholder.split(' '),
+        ...FONT_CLASSES.values.split(' '),
+      ]) {
+        expect(input).toHaveClass(name)
+      }
+    }
+  })
+
   it('Enter in a draw input commits the line with the typed length', async () => {
     const harness = sketchHarness()
     const canvas = renderOverlay(harness, 'line')
@@ -468,7 +488,7 @@ describe('SketchOverlay dimension editor (3.16.7)', () => {
     await act(settleCommits)
     const alert = screen.getByRole('alert')
     expect(alert).toHaveTextContent(
-      'This dimension would over-constrain the sketch. Add it as a reference dimension that only measures?',
+      'Other dimensions and constraints already set this size. Add it as a reference dimension that only shows the measurement?',
     )
     await user.click(within(alert).getByRole('button', { name: 'Add reference' }))
     await act(settleCommits)

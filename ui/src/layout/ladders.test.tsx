@@ -61,6 +61,7 @@ const EDITING_SKETCH: SketchSession = {
   showConstraints: true,
   selection: [],
   dragging: false,
+  cameraBefore: null,
 }
 
 function renderApp(state: Partial<AppState>) {
@@ -161,6 +162,37 @@ describe('escapeStep (3.5)', () => {
     expect(app.store.getState().sketch?.selection).toEqual([])
     expect(escapeStep(app)).toBe(false)
     expect(app.store.getState().context).toBe('sketch')
+  })
+
+  it('names the way out of the sketch for 3 s when nothing is left to do (3.5)', () => {
+    vi.useFakeTimers()
+    try {
+      const { app } = createModelApp({
+        state: readyState(rectSketchDocumentState(), { context: 'sketch', sketch: EDITING_SKETCH }),
+      })
+      expect(app.store.getState().pickHint).toBeNull()
+      expect(escapeStep(app)).toBe(false)
+      expect(app.store.getState().pickHint).toEqual({
+        message: 'To leave the sketch, click Finish sketch or press Ctrl+Enter.',
+        field: null,
+      })
+      expect(app.store.getState().context).toBe('sketch')
+      vi.advanceTimersByTime(3000)
+      expect(app.store.getState().pickHint).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('shows no sketch_leave hint while there is still a step to take', () => {
+    const { app } = createModelApp({
+      state: readyState(rectSketchDocumentState(), {
+        context: 'sketch',
+        sketch: { ...EDITING_SKETCH, tool: 'line' },
+      }),
+    })
+    expect(escapeStep(app)).toBe(true)
+    expect(app.store.getState().pickHint).toBeNull()
   })
 
   it('clears the app selection, and then has nothing left to do', () => {

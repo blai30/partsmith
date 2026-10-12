@@ -599,7 +599,12 @@ export async function editFeature(app: App, featureId: string): Promise<void> {
     return
   }
   if (record.type === 'import') {
-    notify(app, { severity: 'info', message: MESSAGES.import_not_editable(), actions: [] })
+    notify(app, {
+      severity: 'info',
+      message: MESSAGES.import_not_editable(),
+      actions: [],
+      code: 'import_not_editable',
+    })
     return
   }
   const state = app.store.getState()
@@ -630,7 +635,12 @@ export async function editFeature(app: App, featureId: string): Promise<void> {
         showCoreError(app, cancelError)
       })
     if (error instanceof CoreError && error.code === 'focus_inactive') {
-      notify(app, { severity: 'error', message: error.message, actions: [focusFix(app, record)] })
+      notify(app, {
+        severity: 'error',
+        message: error.message,
+        actions: [focusFix(app, record)],
+        code: error.code,
+      })
       return
     }
     showCoreError(app, error)

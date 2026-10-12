@@ -52,7 +52,7 @@ SweepData sweep_data(const TopoDS_Shape &swept, const Roles &roles, const char *
   // The sweep copied the profile, so every sub-shape of the swept shape is new.
   store_plane_pcurves(swept);
   Handle(BRepTools_History) history = new BRepTools_History;
-  std::shared_ptr<Shape> shape = make_shape(finish_solid(swept, history, algorithm));
+  std::shared_ptr<Shape> shape = make_shape(finish_solid(swept, history, {}, algorithm));
 
   const int face_count = shape->faces().Extent();
   std::vector<bool> assigned(static_cast<std::size_t>(face_count) + 1, false);

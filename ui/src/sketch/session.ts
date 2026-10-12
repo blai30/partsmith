@@ -83,7 +83,6 @@ import {
   shapePoints,
   type Projector,
 } from './screen'
-import { SKETCH_PROMPTS } from './prompts'
 import { constraintTool, isDrawingTool } from './tools'
 
 // Sketch mode's session (ui.md 2.14, 3.16): its tools and the changes they commit, the step
@@ -144,65 +143,49 @@ export type SketchStep =
 export function sketchStepHint(step: SketchStep, platform: Platform): string | null {
   switch (step.kind) {
     case 'idle':
-      return step.empty ? SKETCH_PROMPTS.sketch_step_start(platform) : null
+      return step.empty ? MESSAGES.sketch_step_start(platform) : null
     case 'line':
       return step.chain
-        ? SKETCH_PROMPTS.sketch_step_line_next(platform)
-        : SKETCH_PROMPTS.sketch_step_line_start()
+        ? MESSAGES.sketch_step_line_next(platform)
+        : MESSAGES.sketch_step_line_start()
     case 'rectangle_2point':
       return step.clicks === 0
-        ? SKETCH_PROMPTS.sketch_step_corner()
-        : SKETCH_PROMPTS.sketch_step_opposite_corner()
+        ? MESSAGES.sketch_step_corner()
+        : MESSAGES.sketch_step_opposite_corner()
     case 'rectangle_center':
       return step.clicks === 0
-        ? SKETCH_PROMPTS.sketch_step_center()
-        : SKETCH_PROMPTS.sketch_step_rectangle_corner()
+        ? MESSAGES.sketch_step_center()
+        : MESSAGES.sketch_step_rectangle_corner()
     case 'circle':
       return step.clicks === 0
-        ? SKETCH_PROMPTS.sketch_step_center()
-        : SKETCH_PROMPTS.sketch_step_circle_size()
+        ? MESSAGES.sketch_step_center()
+        : MESSAGES.sketch_step_circle_size()
     case 'arc_3point':
       return (
         [
-          SKETCH_PROMPTS.sketch_step_arc_start(),
-          SKETCH_PROMPTS.sketch_step_arc_end(),
-          SKETCH_PROMPTS.sketch_step_arc_shape(),
+          MESSAGES.sketch_step_arc_start(),
+          MESSAGES.sketch_step_arc_end(),
+          MESSAGES.sketch_step_arc_shape(),
         ][step.clicks] ?? null
       )
     case 'point':
-      return SKETCH_PROMPTS.sketch_step_point()
+      return MESSAGES.sketch_step_point()
     case 'dimension':
       switch (step.picked) {
         case 'nothing':
-          return SKETCH_PROMPTS.sketch_step_dimension()
+          return MESSAGES.sketch_step_dimension()
         case 'line':
-          return SKETCH_PROMPTS.sketch_step_dimension_place()
+          return MESSAGES.sketch_step_dimension_place()
         case 'point':
-          return SKETCH_PROMPTS.sketch_step_dimension_second()
+          return MESSAGES.sketch_step_dimension_second()
         case 'round':
         case 'pair':
-          return SKETCH_PROMPTS.sketch_step_dimension_label()
+          return MESSAGES.sketch_step_dimension_label()
       }
   }
 }
 
 // Profile problems.
-
-/**
- * The outline summary of the header (3.16.8): "1 open end", "{n} open ends", "1 outline problem" or
- * "{n} outline problems"; null without profile findings.
- */
-export function outlineProblems(solution: SketchSolution): string | null {
-  const findings = solution.profile_findings
-  const count = findings.length
-  if (count === 0) {
-    return null
-  }
-  if (findings.every((finding) => finding.type === 'open_endpoint')) {
-    return count === 1 ? '1 open end' : `${String(count)} open ends`
-  }
-  return count === 1 ? '1 outline problem' : `${String(count)} outline problems`
-}
 
 // The overlay the controller drives.
 

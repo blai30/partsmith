@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { setSketchTool } from '../app/actions/sketch'
 import type { CoreApi } from '../core/api'
-import type { Edit, ProfileFinding, SketchConstraint, SketchSolution } from '../generated/protocol'
+import type { Edit, SketchConstraint, SketchSolution } from '../generated/protocol'
 import {
   DOCUMENT_HANDLE,
   SKETCH_ID,
@@ -14,7 +14,6 @@ import {
 } from './fixtures.testing'
 import {
   createSketchController,
-  outlineProblems,
   sketchStepHint,
   type OverlayPaint,
   type SketchController,
@@ -88,39 +87,6 @@ describe('sketchStepHint (2.14)', () => {
     )
     expect(sketchStepHint({ kind: 'dimension', picked: 'pair' }, LINUX)).toBe(
       'Click to place the dimension.',
-    )
-  })
-})
-
-function open(point: [number, number]): ProfileFinding {
-  return { type: 'open_endpoint', entity: 'e-1', point }
-}
-
-describe('outlineProblems (2.14)', () => {
-  it('is null without findings', () => {
-    expect(outlineProblems(solutionFor([]))).toBeNull()
-  })
-
-  it('counts open ends when every finding is one', () => {
-    expect(outlineProblems(solutionFor([], { profile_findings: [open([0, 0])] }))).toBe(
-      '1 open end',
-    )
-    expect(
-      outlineProblems(solutionFor([], { profile_findings: [open([0, 0]), open([1, 0])] })),
-    ).toBe('2 open ends')
-  })
-
-  it('counts outline problems otherwise', () => {
-    const crossing: ProfileFinding = {
-      type: 'self_intersection',
-      entities: ['e-1', 'e-2'],
-      point: [1, 1],
-    }
-    expect(outlineProblems(solutionFor([], { profile_findings: [crossing] }))).toBe(
-      '1 outline problem',
-    )
-    expect(outlineProblems(solutionFor([], { profile_findings: [open([0, 0]), crossing] }))).toBe(
-      '2 outline problems',
     )
   })
 })

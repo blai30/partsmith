@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  cameraAfterSketch,
   classifyView,
   DEFAULT_CAMERA,
   DEFAULT_VERTICAL_FIELD_OF_VIEW,
@@ -739,5 +740,62 @@ describe('zoomAt', () => {
   it('U-47 zoomAt clamps orthographicHeight to at most 1e7', () => {
     const camera = cameraWith({ projection: 'orthographic', orthographicHeight: 8e6 })
     expect(zoomAt(camera, 2, [0, 0], aspect).orthographicHeight).toBeCloseTo(1e7, 3)
+  })
+})
+
+describe('cameraAfterSketch (3.16.11)', () => {
+  const normal: Vector3 = [0, 0, 1]
+  // Looking straight down -Z at the XY plane, from somewhere other than the default target.
+  const straightOn = cameraWith({
+    target: [5, 6, 7],
+    distance: 80,
+    projection: 'orthographic',
+    orthographicHeight: 40,
+    rotation: standardViewRotation('top'),
+  })
+
+  it('U-126 returns the camera from before the sketch when that one looked at the plane in depth', () => {
+    expect(cameraAfterSketch(straightOn, DEFAULT_CAMERA, normal)).toBe(DEFAULT_CAMERA)
+  })
+
+  it('U-126 turns to iso, keeping target, distance and projection, when the camera before looked straight on too', () => {
+    const before = cameraWith({ rotation: standardViewRotation('top') })
+    const after = cameraAfterSketch(straightOn, before, normal)
+    expect(after).not.toBeNull()
+    expect(classifyView(after ?? straightOn)).toBe('iso')
+    expect(after?.target).toEqual(straightOn.target)
+    expect(after?.distance).toBe(80)
+    expect(after?.projection).toBe('orthographic')
+    expect(after?.orthographicHeight).toBe(40)
+  })
+
+  it('U-126 turns to iso without a camera from before', () => {
+    const after = cameraAfterSketch(straightOn, null, normal)
+    expect(classifyView(after ?? straightOn)).toBe('iso')
+  })
+
+  it('U-126 stays when the camera is 15 degrees away from the normal', () => {
+    const turned = cameraWith({
+      rotation: rotationLookingAlong([0, Math.sin(15 * DEGREE), -Math.cos(15 * DEGREE)], [0, 1, 0]),
+    })
+    expect(cameraAfterSketch(turned, DEFAULT_CAMERA, normal)).toBeNull()
+  })
+
+  it('counts a camera looking along +normal, from behind the plane, as straight on', () => {
+    const fromBelow = cameraWith({ rotation: standardViewRotation('bottom') })
+    expect(cameraAfterSketch(fromBelow, DEFAULT_CAMERA, normal)).toBe(DEFAULT_CAMERA)
+  })
+
+  it('counts 9 degrees from the normal as straight on', () => {
+    const nearly = cameraWith({
+      rotation: rotationLookingAlong([0, Math.sin(9 * DEGREE), -Math.cos(9 * DEGREE)], [0, 1, 0]),
+    })
+    expect(cameraAfterSketch(nearly, null, normal)).not.toBeNull()
+  })
+
+  it('turns to the front view for a plane that faces the iso direction', () => {
+    const isoNormal: Vector3 = [1, -1, 1]
+    const after = cameraAfterSketch(DEFAULT_CAMERA, null, isoNormal)
+    expect(classifyView(after ?? DEFAULT_CAMERA)).toBe('front')
   })
 })

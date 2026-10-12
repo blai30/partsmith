@@ -232,7 +232,10 @@ export function SelectionField({
           data-active={active}
           data-count={items.length}
           aria-labelledby={`${labelId} ${textId}`}
-          aria-describedby={describedBy(message === '' ? null : errorId, pickHint === null ? null : hintId)}
+          aria-describedby={describedBy(
+            message === '' ? null : errorId,
+            pickHint === null ? null : hintId,
+          )}
           aria-pressed={active}
           onClick={activate}
           className={clsx(

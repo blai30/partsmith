@@ -1084,7 +1084,8 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
       shortcuts: ['Mod+Enter'],
       contexts: SKETCH,
       availability: whileEditingSketch,
-      run: (app) => finishSketch(app),
+      // Finish sketch selects what the sketch made, so the next step shows (3.16.11).
+      run: (app) => finishSketch(app, { selectResult: true }),
     }),
 
     // Print.

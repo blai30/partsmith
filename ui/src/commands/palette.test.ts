@@ -20,6 +20,7 @@ const EDITING_SKETCH: SketchSession = {
   showConstraints: true,
   selection: [],
   dragging: false,
+  cameraBefore: null,
 }
 
 function find(

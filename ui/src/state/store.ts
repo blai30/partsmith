@@ -19,7 +19,7 @@ import type {
 import type { JsonSchema } from '../inspector/model'
 import { loadSettings, type Settings } from '../settings/settings'
 import type { SketchToolId } from '../sketch/session'
-import type { StandardView } from '../viewport/camera'
+import type { Camera, StandardView } from '../viewport/camera'
 import type { SelectionItemKind } from '../viewport/picking'
 
 // The app state (ui.md 2.8): one zustand vanilla store per app, so tests create isolated stores
@@ -169,6 +169,8 @@ export type SketchSession = {
   /** In-sketch selection (entities, points, constraints), separate from the app selection. */
   readonly selection: readonly SelectionItem[]
   readonly dragging: boolean
+  /** Camera before enterSketch moved it, for leaving the sketch (3.16.11); null during plane picking. */
+  readonly cameraBefore: Camera | null
 }
 
 export type PrintState = {
@@ -223,6 +225,10 @@ export type Notification = {
   readonly message: string
   readonly actions: readonly { readonly label: string; readonly run: () => void }[]
   readonly createdAt: number
+  /** The core's error or diagnostic code, or the id of a UI-owned message (4.3), shown as `data-code` (4.1). */
+  readonly code?: string
+  /** Feature ids a failure notification names; it is dismissed once none of them is in error (4.2). Absent for other notifications. */
+  readonly features?: readonly string[]
 }
 
 /** A live region message; `id` changes with every announcement, so a repeated text is read again. */

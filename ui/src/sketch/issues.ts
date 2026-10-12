@@ -110,3 +110,19 @@ export function issueRings(solution: SketchSolution): readonly IssueRing[] {
     return at === null || title === null ? [] : [{ at, title }]
   })
 }
+
+/**
+ * The outline summary of the header (3.16.8): "1 open end", "{n} open ends", "1 outline problem" or
+ * "{n} outline problems"; null without profile findings.
+ */
+export function outlineProblems(solution: SketchSolution): string | null {
+  const findings = solution.profile_findings
+  const count = findings.length
+  if (count === 0) {
+    return null
+  }
+  if (findings.every((finding) => finding.type === 'open_endpoint')) {
+    return count === 1 ? '1 open end' : `${String(count)} open ends`
+  }
+  return count === 1 ? '1 outline problem' : `${String(count)} outline problems`
+}

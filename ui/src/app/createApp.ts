@@ -19,6 +19,7 @@ import { createAppStore, type AppStore, type FileReference } from '../state/stor
 import { initialSessionVisibility } from '../state/visibility'
 import type { ViewportHandle } from '../viewport/controller'
 import { isUnsaved } from './actions/edits'
+import { installFailureDismissal } from './actions/notifications'
 import { installPrintAnalysis } from './actions/print'
 import { connectApp } from './connection'
 import { loadCoreData } from './core-data'
@@ -285,6 +286,7 @@ export function createApp(options: CreateAppOptions): App {
   eventListeners.add(scheduleRecovery(app, now))
   installPrintAnalysis(app)
   installSelectionUpkeep(app)
+  installFailureDismissal(app)
   return app
 }
 

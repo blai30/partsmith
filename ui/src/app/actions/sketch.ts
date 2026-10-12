@@ -28,14 +28,14 @@ import {
   type ConstraintType,
 } from '../../sketch/constraints'
 import { pointSelectionItem } from '../../sketch/hit'
-import { failedSolveMessage, findingPoints } from '../../sketch/issues'
+import { failedSolveMessage, findingPoints, outlineProblems } from '../../sketch/issues'
 import { worldBounds } from '../../sketch/placement'
 import type { Vector2 } from '../../sketch/geometry'
 import type { IdSource } from '../../sketch/recipes'
 import type { SketchChange, SketchCommitResult, SketchToolId } from '../../sketch/session'
 import { constraintTool } from '../../sketch/tools'
 import type { AppStore, SelectionItem, SketchSession } from '../../state/store'
-import type { Camera, Vector3 } from '../../viewport/camera'
+import { cameraAfterSketch, type Camera, type Vector3 } from '../../viewport/camera'
 import { addScaled, cross } from '../../viewport/math'
 import type { App } from '../createApp'
 import { cancelCommand } from './command'
@@ -62,8 +62,8 @@ type SketchModeRecord = {
 
 const sessionRecords = new WeakMap<AppStore, SketchModeRecord>()
 
-/** A fresh session on a sketch, or plane picking for a new one. */
-function sketchSession(sketchId: string | null): SketchSession {
+/** A fresh session on a sketch, or plane picking for a new one (no camera to go back to yet). */
+function sketchSession(sketchId: string | null, cameraBefore: Camera | null): SketchSession {
   return {
     sketchId,
     tool: null,
@@ -71,6 +71,7 @@ function sketchSession(sketchId: string | null): SketchSession {
     showConstraints: true,
     selection: [],
     dragging: false,
+    cameraBefore,
   }
 }
 
@@ -184,7 +185,7 @@ export async function startNewSketch(app: App): Promise<void> {
     return
   }
   leaveSketchHistory(app)
-  app.store.setState({ context: 'sketch', sketch: sketchSession(null) })
+  app.store.setState({ context: 'sketch', sketch: sketchSession(null, null) })
 }
 
 /** Adds an empty sketch on a plane-like item in one edit labeled "New sketch", then edits it. */
@@ -284,12 +285,15 @@ export async function enterSketch(app: App, sketchId: string): Promise<void> {
     await cancelCommand(app)
   }
   const before = app.viewport()?.getCamera() ?? null
-  // A session that moves on to another sketch keeps its starting statuses until it finishes.
+  // A session that moves on to another sketch keeps its starting statuses until it finishes, and
+  // the camera from before it started, which looked at the model rather than at a sketch.
   const statusesBefore =
     sessionRecords.get(app.store)?.statusesBefore ?? documentOf(app)?.featureStatus ?? {}
+  const cameraBefore =
+    editedSketch(app) === null ? before : (app.store.getState().sketch?.cameraBefore ?? before)
   app.store.setState((state) => ({
     context: 'sketch',
-    sketch: sketchSession(sketchId),
+    sketch: sketchSession(sketchId, cameraBefore),
     view: {
       ...state.view,
       sessionVisible: { ...state.view.sessionVisible, [`feature:${sketchId}`]: true },
@@ -392,13 +396,27 @@ function finishedSketchSelection(
 }
 
 /**
- * Ends sketch mode (3.16.11): Model context, the sketch kept visible for the session, the camera
- * kept. Features the session's edits made fail are reported now rather than after each edit, and
- * an outline with problems is named in a warning that leads back to the sketch.
+ * Turns a camera that still looks straight at the sketch plane back to the view from before the
+ * sketch, or to iso, so the next feature's preview is seen in depth (3.16.11).
+ */
+function leaveSketchPlane(app: App, cameraBefore: Camera | null, normal: Vector3): void {
+  const viewport = app.viewport()
+  const next = viewport === null ? null : cameraAfterSketch(viewport.getCamera(), cameraBefore, normal)
+  if (viewport !== null && next !== null) {
+    viewport.setCamera(next, { animate: true })
+  }
+}
+
+/**
+ * Ends sketch mode (3.16.11): Model context, the sketch kept visible for the session, and a camera
+ * that still looks straight at the sketch turned so the model is seen in depth. Features the
+ * session's edits made fail are reported now rather than after each edit, and an outline with
+ * problems is named in a warning that leads back to the sketch.
  */
 export async function finishSketch(app: App, options: FinishSketchOptions = {}): Promise<void> {
   const state = app.store.getState()
   const sketchId = state.sketch?.sketchId ?? null
+  const cameraBefore = state.sketch?.cameraBefore ?? null
   const statusesBefore = sessionRecords.get(app.store)?.statusesBefore ?? null
   leaveSketchHistory(app)
   app.store.setState((current) => ({
@@ -420,17 +438,21 @@ export async function finishSketch(app: App, options: FinishSketchOptions = {}):
     reportNewFailures(app, statusesBefore)
   }
   const solution = document.sketches[sketchId]?.solution ?? null
+  if (solution !== null) {
+    leaveSketchPlane(app, cameraBefore, solution.placement.normal)
+  }
   if (options.selectResult === true && solution !== null) {
     select(app, finishedSketchSelection(app, sketchId, solution), 'replace')
   }
-  const problems = solution?.profile_findings.length ?? 0
-  if (problems > 0) {
+  const outline = solution === null ? null : outlineProblems(solution)
+  if (outline !== null) {
     // A warning: the sketch stays valid and its other shapes still extrude (3.16.2).
     notify(app, {
       severity: 'warning',
+      code: 'profile_problems',
       message: MESSAGES.profile_problems(
         featureLabel(document.recipe, sketchId, state.catalog),
-        problems,
+        outline,
       ),
       actions: [
         {
@@ -920,6 +942,7 @@ export async function applySketchConstraints(
           severity: 'info',
           message: MESSAGES.redundant_constraint(title),
           actions: [],
+          code: 'redundant_constraint',
         })
         return false
       }
@@ -940,6 +963,7 @@ function offerReplacement(
   id = notify(app, {
     severity: 'warning',
     message: MESSAGES.over_constrained(title, conflictList(app, sketchId, conflicting)),
+    code: 'over_constrained',
     actions: [
       {
         label: 'Replace them',
@@ -978,6 +1002,7 @@ async function replaceConstraints(
       severity: 'warning',
       message: MESSAGES.over_constrained(title, conflictList(app, sketchId, result.conflicting)),
       actions: [],
+      code: 'over_constrained',
     })
     return
   }
@@ -1173,6 +1198,7 @@ export async function addSketchShape(
       const title = added === undefined ? label : constraintTitle(added, solution, units)
       notify(app, {
         severity: result.redundant ? 'info' : 'warning',
+        code: result.redundant ? 'redundant_constraint' : 'over_constrained',
         message: result.redundant
           ? MESSAGES.redundant_constraint(title)
           : MESSAGES.over_constrained(title, conflictList(app, sketchId, result.conflicting)),

@@ -92,6 +92,7 @@ export function DrawInputs({ ref, controller, inputs, focusRequest }: DrawInputs
               FONT_CLASSES.values,
               COLOR_CLASSES.field.background,
               COLOR_CLASSES.text.foreground,
+              COLOR_CLASSES.textMuted.placeholder,
               COLOR_CLASSES.focusRing.outline,
               input.error === null
                 ? COLOR_CLASSES.borderControl.border

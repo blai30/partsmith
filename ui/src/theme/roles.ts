@@ -9,6 +9,7 @@ export type Facet =
   | 'background'
   | 'active'
   | 'foreground'
+  | 'placeholder'
   | 'border'
   | 'outline'
   | 'stroke'
@@ -73,7 +74,10 @@ export const COLOR_CLASSES = {
   border: { border: 'border-zinc-200 dark:border-zinc-800' },
   borderControl: { border: 'border-zinc-500' },
   text: { foreground: 'text-zinc-900 dark:text-zinc-100' },
-  textMuted: { foreground: 'text-zinc-600 dark:text-zinc-400' },
+  textMuted: {
+    foreground: 'text-zinc-600 dark:text-zinc-400',
+    placeholder: 'placeholder:text-zinc-600 dark:placeholder:text-zinc-400',
+  },
   textDisabled: { foreground: 'text-zinc-400 dark:text-zinc-600' },
   accent: {
     background: 'bg-orange-600 dark:bg-orange-500',

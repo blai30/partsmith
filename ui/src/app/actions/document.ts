@@ -105,6 +105,7 @@ async function closeReplaced(
     notify(app, {
       severity: 'info',
       message: MESSAGES.stashed(entry.name),
+      code: 'stashed',
       actions: [
         {
           label: 'Reopen',
@@ -136,6 +137,7 @@ async function replaceDocument(app: App, source: DocumentSource): Promise<boolea
       notify(app, {
         severity: 'error',
         message: MESSAGES.open_failed(source.fileName, error.message),
+        code: 'open_failed',
         actions: [],
       })
       return false
@@ -157,6 +159,7 @@ async function replaceDocument(app: App, source: DocumentSource): Promise<boolea
     notify(app, {
       severity: 'info',
       message: MESSAGES.migrated(source.fileName, opened.migratedFrom),
+      code: 'migrated',
       actions: [],
     })
   }
@@ -186,6 +189,7 @@ async function offerRecovery(app: App): Promise<void> {
     {
       severity: 'info',
       message: MESSAGES.recovered(entry.name, recoveryTime(entry.savedAt)),
+      code: 'recovered',
       actions: [
         {
           label: 'Open',
@@ -251,14 +255,24 @@ export async function openFile(app: App, file: OpenedFile): Promise<void> {
   // ps:open runs from the read file bytes to the first frame with the opened document (2.18).
   const started = performance.now()
   if (!PTSM_EXTENSION.test(file.name)) {
-    notify(app, { severity: 'error', message: MESSAGES.not_ptsm(file.name), actions: [] })
+    notify(app, {
+      severity: 'error',
+      message: MESSAGES.not_ptsm(file.name),
+      actions: [],
+      code: 'not_ptsm',
+    })
     return
   }
   let text: string
   try {
     text = new TextDecoder('utf-8', { fatal: true }).decode(file.bytes)
   } catch {
-    notify(app, { severity: 'error', message: MESSAGES.not_text(file.name), actions: [] })
+    notify(app, {
+      severity: 'error',
+      message: MESSAGES.not_text(file.name),
+      actions: [],
+      code: 'not_text',
+    })
     return
   }
   const opened = await replaceDocument(app, {
@@ -311,6 +325,7 @@ export async function openRecent(app: App, entry: RecentFile): Promise<void> {
       notify(app, {
         severity: 'error',
         message: MESSAGES.recent_permission(entry.name),
+        code: 'recent_permission',
         actions: [
           {
             label: 'Open...',
@@ -324,6 +339,7 @@ export async function openRecent(app: App, entry: RecentFile): Promise<void> {
       notify(app, {
         severity: 'warning',
         message: MESSAGES.recent_missing(entry.name),
+        code: 'recent_missing',
         actions: [],
       })
       await app.recent.forget(entry.id)
@@ -331,6 +347,7 @@ export async function openRecent(app: App, entry: RecentFile): Promise<void> {
       notify(app, {
         severity: 'error',
         message: MESSAGES.open_failed(entry.name, error.message),
+        code: 'open_failed',
         actions: [],
       })
     }
@@ -350,13 +367,13 @@ function saveAsAction(app: App): { readonly label: string; readonly run: () => v
 
 /** The message of a failed write of the document file (3.19). */
 function showWriteError(app: App, fileName: string, error: FileServiceError): void {
-  const message =
+  const [code, message] =
     error.reason === 'permission'
-      ? MESSAGES.save_permission(fileName)
+      ? ['save_permission', MESSAGES.save_permission(fileName)]
       : error.reason === 'not_found'
-        ? MESSAGES.save_not_found(fileName)
-        : MESSAGES.save_io(fileName, error.message)
-  notify(app, { severity: 'error', message, actions: [saveAsAction(app)] })
+        ? ['save_not_found', MESSAGES.save_not_found(fileName)]
+        : ['save_io', MESSAGES.save_io(fileName, error.message)]
+  notify(app, { severity: 'error', message, actions: [saveAsAction(app)], code })
 }
 
 /**
@@ -460,7 +477,12 @@ export async function saveAs(app: App): Promise<void> {
   )
   if (!downloadHintShown.has(app.store)) {
     downloadHintShown.add(app.store)
-    notify(app, { severity: 'info', message: MESSAGES.download_hint(target.name), actions: [] })
+    notify(app, {
+      severity: 'info',
+      message: MESSAGES.download_hint(target.name),
+      actions: [],
+      code: 'download_hint',
+    })
   }
 }
 
@@ -534,6 +556,11 @@ export async function coreRedo(app: App): Promise<void> {
 /** Changes the document units and explains what that means for typed numbers (3.21). */
 export async function setUnits(app: App, units: Units): Promise<void> {
   if (await commitEdits(app, `Change units to ${units}`, [{ type: 'set_units', units }])) {
-    notify(app, { severity: 'info', message: MESSAGES.units_changed(units), actions: [] })
+    notify(app, {
+      severity: 'info',
+      message: MESSAGES.units_changed(units),
+      actions: [],
+      code: 'units_changed',
+    })
   }
 }

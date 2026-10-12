@@ -64,7 +64,7 @@ function OpenSidePanel({ side }: { readonly side: NonNullable<PanelsState['side'
         side === 'parameters' ? 'Parameters' : side === 'problems' ? 'Problems' : 'Print check'
       }
       className={clsx(
-        'flex w-90 max-w-full shrink-0 flex-col border-l max-lg:absolute max-lg:inset-y-0 max-lg:right-0 max-lg:z-30 max-lg:shadow-lg',
+        'col-start-3 row-start-2 flex min-h-0 w-90 max-w-full flex-col border-l max-lg:absolute max-lg:inset-y-0 max-lg:right-0 max-lg:z-30 max-lg:shadow-lg',
         COLOR_CLASSES.surface.background,
         COLOR_CLASSES.border.border,
       )}

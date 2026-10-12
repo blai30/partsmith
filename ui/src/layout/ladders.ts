@@ -1,9 +1,11 @@
 import { useEffect } from 'react'
 import { cancelCommand, confirmCommand } from '../app/actions/command'
 import { clearSelection } from '../app/actions/selection'
+import { showPickHint } from '../app/actions/notifications'
 import { finishSketch, setSketchTool } from '../app/actions/sketch'
 import type { App } from '../app/createApp'
 import { buildInspectorModel } from '../inspector/model'
+import { MESSAGES } from '../messages'
 import type { AppState } from '../state/store'
 import { isNarrowWindow } from './use-overlay-dismiss'
 
@@ -12,7 +14,8 @@ import { isNarrowWindow } from './use-overlay-dismiss'
 /**
  * One step of the Esc ladder after the open layers, which close themselves (3.5): exit the sketch
  * tool, cancel the command, cancel a new sketch's plane pick, then clear the selection. Esc never
- * leaves sketch mode once a sketch is being edited. Returns whether a step applied.
+ * leaves sketch mode once a sketch is being edited; with nothing left to do there, the sketch hint
+ * shows `sketch_leave` for 3 s. Returns whether a step applied.
  */
 export function escapeStep(app: App): boolean {
   const state = app.store.getState()
@@ -32,6 +35,8 @@ export function escapeStep(app: App): boolean {
       )
       return true
     }
+    // Nothing left for Esc to do, so the sketch hint names the way out.
+    showPickHint(app, MESSAGES.sketch_leave(app.platform), null)
     return false
   }
   if (state.command !== null) {

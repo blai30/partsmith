@@ -81,13 +81,14 @@ OpResultData boolean_result(BOPAlgo_Operation operation, const Shape &target,
     }
     result = run_boolean(operation, target.get(), all_tools, true, history);
   }
-  result = solids_only(result);
-  if (TopExp_Explorer(result, TopAbs_SOLID).More()) {
-    ensure_valid(result, history, operation_name(operation));
-    result = solids_only(result);
-  }
   std::vector<TopoDS_Shape> inputs{target.get()};
   inputs.insert(inputs.end(), tool_shapes.begin(), tool_shapes.end());
+  result = solids_only(result);
+  if (TopExp_Explorer(result, TopAbs_SOLID).More()) {
+    // Booleans run non-destructively, so faces of the inputs in the result are unchanged.
+    ensure_valid(result, history, inputs, operation_name(operation));
+    result = solids_only(result);
+  }
   return op_result(result, history, inputs);
 }
 

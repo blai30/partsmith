@@ -70,7 +70,7 @@ describe('notify', () => {
 
   it('U-72 a warning disappears after 8 s', () => {
     const app = createTestApp()
-    show(app, 'warning', 'Vertical would over-constrain the sketch: it conflicts with Horizontal.')
+    show(app, 'warning', 'Vertical conflicts with Horizontal, so it was not added.')
     vi.advanceTimersByTime(7_999)
     expect(messages(app)).toHaveLength(1)
     vi.advanceTimersByTime(1)

@@ -35,7 +35,7 @@ function renderWith(notifications: readonly Notification[]) {
 }
 
 describe('notifications (3.22)', () => {
-  it('shows each notification inside the viewport with its severity and message', () => {
+  it('shows each notification with its severity and message', () => {
     renderWith([
       notification('n-1', 'info', 'Exported cube.3mf.'),
       notification('n-2', 'error', 'Could not save cube.ptsm: disk full'),
@@ -44,9 +44,42 @@ describe('notifications (3.22)', () => {
     expect(shown.map((element) => element.getAttribute('data-severity'))).toEqual(['info', 'error'])
     expect(shown[0]).toHaveTextContent('Exported cube.3mf.')
     expect(shown[1]).toHaveTextContent('Could not save cube.ptsm: disk full')
-    for (const element of shown) {
-      expect(screen.getByTestId('viewport')).toContainElement(element)
+  })
+
+  it('places the stack in the viewport area, last in the tab order after the status bar (3.24)', () => {
+    const { app } = renderWith([notification('n-1', 'info', 'Exported cube.3mf.')])
+    act(() => {
+      app.store.setState((state) => ({ panels: { ...state.panels, side: 'problems' } }))
+    })
+    const stack = screen.getByTestId('notification').parentElement
+    const viewport = screen.getByTestId('viewport')
+    for (const area of ['col-start-2', 'row-start-2']) {
+      expect(viewport).toHaveClass(area)
+      expect(stack).toHaveClass(area)
     }
+    expect(stack).toHaveClass('justify-end', 'items-end')
+    const statusBar = screen.getByTestId('status-bar')
+    expect(statusBar.compareDocumentPosition(stack ?? document.body)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    )
+    const order = ['top-bar', 'browser', 'viewport', 'timeline', 'side-panel', 'status-bar']
+    const regions = order.map((testId) => screen.getByTestId(testId))
+    for (let i = 1; i < regions.length; i++) {
+      expect(regions[i - 1]?.compareDocumentPosition(regions[i] ?? document.body)).toBe(
+        Node.DOCUMENT_POSITION_FOLLOWING,
+      )
+    }
+  })
+
+  it('marks each notification with its code when it has one (4.1, 6.1)', () => {
+    renderWith([
+      { ...notification('n-1', 'error', 'Edges are gone.'), code: 'reference_unresolved' },
+      notification('n-2', 'info', 'Nothing to say.'),
+    ])
+    const [coded, plain] = screen.getAllByTestId('notification')
+    expect(coded).toHaveAttribute('data-code', 'reference_unresolved')
+    expect(coded).not.toHaveTextContent('reference_unresolved')
+    expect(plain).not.toHaveAttribute('data-code')
   })
 
   it('puts the newest notification at the bottom', () => {

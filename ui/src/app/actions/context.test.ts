@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { startWithDocument } from '../../test/fakes/app'
-import { CUBE_DOCUMENT, CUBE_SKETCH_SOLUTION, CUBE_TOP_FACE } from '../../test/fakes/documents'
+import {
+  CUBE_DOCUMENT,
+  CUBE_REGION,
+  CUBE_SKETCH_SOLUTION,
+  CUBE_TOP_FACE,
+} from '../../test/fakes/documents'
 import { elementItem } from '../../test/fakes/selection'
 import { settle } from '../../test/fakes/settle'
 import { startFeatureCommand } from './command'
@@ -58,6 +63,26 @@ describe('setContext (3.3)', () => {
     const state = fake.app.store.getState()
     expect(state.context).toBe('model')
     expect(state.sketch).toBeNull()
+  })
+
+  it('U-99 choosing Model in sketch mode selects the finished sketch\'s only region (3.16.11)', async () => {
+    const fake = await cube()
+    await enterSketch(fake.app, 'f-sk1')
+    await setContext(fake.app, 'model')
+    await settle()
+    expect(fake.app.store.getState().selection.map((item) => item.key)).toEqual([
+      `region:f-sk1:${CUBE_REGION.reference.key}`,
+    ])
+  })
+
+  it('choosing Print in sketch mode keeps the selection (3.16.11)', async () => {
+    const fake = await cube()
+    const face = elementItem(CUBE_TOP_FACE, 'Cube')
+    select(fake.app, [face], 'replace')
+    await enterSketch(fake.app, 'f-sk1')
+    await setContext(fake.app, 'print')
+    await settle()
+    expect(fake.app.store.getState().selection.map((item) => item.key)).toEqual([face.key])
   })
 
   it('choosing Print in sketch mode finishes the sketch and switches to Print', async () => {

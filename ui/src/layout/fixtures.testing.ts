@@ -478,9 +478,9 @@ export function elementItem(element: ElementDescriptor, bodyName = 'Cube'): Sele
 }
 
 const ORIGIN_LABELS: Readonly<Record<OriginName, string>> = {
-  XY: 'XY plane',
-  XZ: 'XZ plane',
-  YZ: 'YZ plane',
+  XY: 'Top plane (XY)',
+  XZ: 'Front plane (XZ)',
+  YZ: 'Right plane (YZ)',
   X: 'X axis',
   Y: 'Y axis',
   Z: 'Z axis',

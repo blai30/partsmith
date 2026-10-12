@@ -96,7 +96,8 @@ OpResultData transform(const Shape &shape, rust::Slice<const double> matrix) {
     merge_history(history, new BRepTools_History(arguments, transformer));
     if (has_solid(shape.get())) {
       require_solid(result, "BRepBuilderAPI_Transform");
-      ensure_valid(result, history, "BRepBuilderAPI_Transform");
+      // Every element is a transformed copy, so the whole result is checked.
+      ensure_valid(result, history, {}, "BRepBuilderAPI_Transform");
     }
   }
   return op_result(result, history, {shape.get()});
@@ -120,9 +121,13 @@ SplitData split(const Shape &shape, const Frame &plane_frame) {
   Handle(BRepTools_History) history = new BRepTools_History;
   merge_history(history, splitter.History());
 
+  // The pieces are checked as the splitter built them, where the faces the plane does not cut
+  // are still the input's own (kernel spec section 3.5); copying keeps them valid.
+  const TopoDS_Shape checked =
+      finish_solid(splitter.Shape(), history, {shape.get()}, "BRepAlgoAPI_Splitter");
   // Copy each piece on its own so the pieces share no sub-shapes.
   TopTools_IndexedMapOfShape pieces;
-  TopExp::MapShapes(splitter.Shape(), TopAbs_SOLID, pieces);
+  TopExp::MapShapes(checked, TopAbs_SOLID, pieces);
   Handle(BRepTools_History) copies = new BRepTools_History;
   BRep_Builder builder;
   TopoDS_Compound compound;
@@ -142,7 +147,7 @@ SplitData split(const Shape &shape, const Frame &plane_frame) {
     }
   }
   merge_history(history, copies);
-  const TopoDS_Shape result = finish_solid(compound, history, "BRepAlgoAPI_Splitter");
+  const TopoDS_Shape result = solids_only(compound);
 
   std::shared_ptr<Shape> pieces_shape = make_shape(result);
   const Shape &output = *pieces_shape;

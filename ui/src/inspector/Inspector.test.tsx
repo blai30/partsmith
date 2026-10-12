@@ -517,10 +517,10 @@ describe('the selection inspector (3.8)', () => {
     expect(within(panel).getByRole('button', { name: /^Revolve/ })).toBeInTheDocument()
   })
 
-  it('shows an origin plane as "XY plane" with Sketch', () => {
+  it('shows an origin plane as "Top plane (XY)" with Sketch', () => {
     renderInspector(cubeDocumentState(), { selection: [originItem('XY')] })
     const panel = inspector()
-    expect(within(panel).getByTestId('selection-title')).toHaveTextContent('XY plane')
+    expect(within(panel).getByTestId('selection-title')).toHaveTextContent('Top plane (XY)')
     expect(within(panel).getByRole('button', { name: /^Sketch/ })).toBeInTheDocument()
   })
 
@@ -556,6 +556,7 @@ describe('the selection inspector (3.8)', () => {
           showConstraints: true,
           selection: [sketchPointItem('f-sk1', 'e-p1')],
           dragging: false,
+          cameraBefore: null,
         },
       },
     )

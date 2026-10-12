@@ -130,7 +130,8 @@ describe('finishSketch outline warning (3.16.11)', () => {
     expect(notifications).toHaveLength(1)
     expect(notifications[0]).toMatchObject({
       severity: 'warning',
-      message: MESSAGES.profile_problems('Sketch 1', 2),
+      code: 'profile_problems',
+      message: 'Sketch 1 has 2 open ends, so some shapes cannot be extruded.',
     })
     expect(notifications[0]?.actions.map((action) => action.label)).toEqual(['Back to sketch'])
   })

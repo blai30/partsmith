@@ -109,7 +109,7 @@ describe('startup wiring (3.1, desktop.md 3.6 and 3.7)', () => {
   })
 
   it('tells the desktop host whether closing would lose changes', async () => {
-    const invoke = vi.fn((command: string): Promise<unknown> =>
+    const invoke = vi.fn<(command: string) => Promise<unknown>>((command) =>
       // The core never answers, so the document stays unopened and nothing is unsaved.
       command === 'set_unsaved' ? Promise.resolve(null) : new Promise(() => undefined),
     )

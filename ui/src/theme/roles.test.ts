@@ -75,6 +75,7 @@ const CLASS_TABLE: readonly (readonly [role: string, facet: string, classes: str
   ['borderControl', 'border', 'border-zinc-500'],
   ['text', 'foreground', 'text-zinc-900 dark:text-zinc-100'],
   ['textMuted', 'foreground', 'text-zinc-600 dark:text-zinc-400'],
+  ['textMuted', 'placeholder', 'placeholder:text-zinc-600 dark:placeholder:text-zinc-400'],
   ['textDisabled', 'foreground', 'text-zinc-400 dark:text-zinc-600'],
   ['accent', 'background', 'bg-orange-600 dark:bg-orange-500'],
   ['accent', 'foreground', 'text-zinc-950'],

@@ -168,6 +168,7 @@ describe('running feature commands', () => {
           showConstraints: true,
           selection: [],
           dragging: false,
+          cameraBefore: null,
         },
       }),
     })

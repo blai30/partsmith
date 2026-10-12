@@ -15,7 +15,8 @@ export async function setContext(app: App, context: AppContext): Promise<void> {
     return
   }
   if (state.context === 'sketch') {
-    await finishSketch(app)
+    // The Model radio selects what the sketch made (3.16.11); the Print radio keeps the selection.
+    await finishSketch(app, { selectResult: context === 'model' })
   } else if (state.command !== null) {
     await cancelCommand(app)
   }

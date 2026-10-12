@@ -283,6 +283,7 @@ describe('the view cube and viewport controls (3.14)', () => {
         showConstraints: true,
         selection: [],
         dragging: false,
+        cameraBefore: null,
       },
     })
     expect(within(viewport).queryByRole('button', { name: 'Selection filter' })).toBeNull()

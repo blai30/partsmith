@@ -154,17 +154,19 @@ describe('the status bar (3.21)', () => {
   it('disables units and printer with finish_command_first during a feature command, and a click says why', async () => {
     const { app, user } = renderApp({ command: EXTRUDE_COMMAND })
     const reason = MESSAGES.finish_command_first('Extrude')
-    for (const testId of ['status-units', 'status-printer']) {
-      const button = screen.getByTestId(testId)
+    const units = screen.getByTestId('status-units')
+    const printer = screen.getByTestId('status-printer')
+    for (const button of [units, printer]) {
       expect(button).toHaveAttribute('aria-disabled', 'true')
       expect(button).toHaveAccessibleDescription(expect.stringContaining(reason))
-      await user.click(button)
-      expect(screen.queryByRole('menu')).toBeNull()
-      expect(screen.queryByTestId('printer-menu')).toBeNull()
     }
-    expect(
-      app.store.getState().notifications.map((notification) => notification.message),
-    ).toEqual([reason])
+    await user.click(units)
+    expect(screen.queryByRole('menu')).toBeNull()
+    await user.click(printer)
+    expect(screen.queryByTestId('printer-menu')).toBeNull()
+    expect(app.store.getState().notifications.map((notification) => notification.message)).toEqual([
+      reason,
+    ])
   })
 
   it('enables units and printer again when the command ends', () => {
@@ -193,6 +195,7 @@ describe('the status bar (3.21)', () => {
           showConstraints: true,
           selection: [],
           dragging: false,
+          cameraBefore: null,
         },
       },
       rectSketchDocumentState({ sketches: { 'f-sk1': { solution, display: null } } }),

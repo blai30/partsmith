@@ -99,8 +99,11 @@ describe('the browser tree (3.10)', () => {
   it('expands Origin to the three planes, three axes and the origin point', async () => {
     const { user, browser } = renderBrowser()
     await user.click(within(browser).getByText('Origin'))
-    for (const id of ['XY', 'XZ', 'YZ']) {
-      expect(row('origin_plane', id)).toHaveTextContent(`${id} plane`)
+    const planes = { XY: 'Top plane (XY)', XZ: 'Front plane (XZ)', YZ: 'Right plane (YZ)' }
+    for (const [id, name] of Object.entries(planes)) {
+      expect(row('origin_plane', id)).toHaveTextContent(name)
+      expect(within(row('origin_plane', id)).getByRole('button', { name: `Show ${name}` }))
+        .toBeInTheDocument()
     }
     for (const id of ['X', 'Y', 'Z']) {
       expect(row('origin_axis', id)).toHaveTextContent(`${id} axis`)
@@ -381,7 +384,7 @@ describe('sketch, datum and origin rows (3.10)', () => {
   it('captures an origin plane row into the active plane field of a command', async () => {
     const { app, user, browser } = renderBrowser(cubeDocumentState(), { command: DATUM_COMMAND })
     await user.click(within(browser).getByText('Origin'))
-    await user.click(within(row('origin_plane', 'XZ')).getByText('XZ plane'))
+    await user.click(within(row('origin_plane', 'XZ')).getByText('Front plane (XZ)'))
     await settle()
     expect(app.store.getState().command?.params.base).toEqual({ kind: 'origin', plane: 'XZ' })
     expect(app.store.getState().selection).toEqual([])
@@ -390,7 +393,7 @@ describe('sketch, datum and origin rows (3.10)', () => {
   it('selects an origin plane row outside a command', async () => {
     const { app, user, browser } = renderBrowser()
     await user.click(within(browser).getByText('Origin'))
-    await user.click(within(row('origin_plane', 'XY')).getByText('XY plane'))
+    await user.click(within(row('origin_plane', 'XY')).getByText('Top plane (XY)'))
     expect(app.store.getState().selection).toEqual([
       expect.objectContaining({ key: 'origin:XY', kind: 'origin_plane', origin: 'XY' }),
     ])

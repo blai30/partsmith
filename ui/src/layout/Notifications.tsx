@@ -9,10 +9,12 @@ import { SeverityIcon } from '../print/SeverityIcon'
 import type { Notification } from '../state/store'
 import { COLOR_CLASSES } from '../theme/roles'
 
-// Notifications (ui.md 3.22): a stack at the viewport's bottom-right, newest at the bottom. Errors
-// are announced through an alert region and the others through a status region; both regions stay
-// mounted, so a message added to them is announced, which a region inserted with its text often is
-// not. A notification's countdown pauses while the pointer is over it or focus is inside it.
+// Notifications (ui.md 3.22): a stack at the viewport's bottom-right, newest at the bottom. The
+// stack is the shell's last region, placed in the viewport's grid area, so it comes last in the tab
+// order (3.24). Errors are announced through an alert region and the others through a status
+// region; both regions stay mounted, so a message added to them is announced, which a region
+// inserted with its text often is not. A notification's countdown pauses while the pointer is over
+// it or focus is inside it.
 
 function NotificationIcon({ severity }: { readonly severity: Notification['severity'] }) {
   if (severity === 'success') {
@@ -47,6 +49,7 @@ function NotificationCard({ notification }: { readonly notification: Notificatio
     <div
       data-testid="notification"
       data-severity={notification.severity}
+      data-code={notification.code}
       onPointerEnter={() => {
         hold('pointer', true)
       }}
@@ -66,7 +69,7 @@ function NotificationCard({ notification }: { readonly notification: Notificatio
         }
       }}
       className={clsx(
-        'pointer-events-auto flex items-start gap-3 rounded-md border p-3 text-sm shadow-lg transition-opacity duration-150 ease-out starting:opacity-0 motion-reduce:transition-none',
+        'pointer-events-auto flex w-90 max-w-full items-start gap-3 rounded-md border p-3 text-sm shadow-lg transition-opacity duration-150 ease-out starting:opacity-0 motion-reduce:transition-none',
         COLOR_CLASSES.surfaceRaised.background,
         COLOR_CLASSES.border.border,
         COLOR_CLASSES.text.foreground,
@@ -123,7 +126,7 @@ export function Notifications() {
         <Announcements notifications={others} />
       </output>
       {notifications.length === 0 ? null : (
-        <div className="pointer-events-none absolute right-4 bottom-4 z-30 flex w-90 max-w-full flex-col gap-2">
+        <div className="pointer-events-none relative z-30 col-start-2 row-start-2 flex min-h-0 min-w-0 flex-col items-end justify-end gap-2 overflow-hidden p-4">
           {notifications.map((notification) => (
             <NotificationCard key={notification.id} notification={notification} />
           ))}

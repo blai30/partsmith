@@ -19,7 +19,7 @@ import { DEFAULT_SETTINGS } from '../settings/settings'
 import type { ActiveCommand, AppContext, AppState } from '../state/store'
 import { LINUX_WEB, MAC_WEB } from '../test/fakes/app'
 import { TEST_CATALOG } from '../test/fakes/catalog'
-import { CUBE_TOP_FACE } from '../test/fakes/documents'
+import { CUBE_TOP_FACE, RECT_REGION } from '../test/fakes/documents'
 import { settle } from '../test/fakes/settle'
 import { builtinCommands } from './builtin'
 import { featureCommands } from './features'
@@ -348,6 +348,29 @@ describe('running built-in commands', () => {
     await app.commands.run(app, 'edit.undo', 'shortcut')
     await settle()
     expect(core.callsTo('undo')).toEqual([[1]])
+  })
+
+  it('U-99 Finish sketch selects the finished sketch\'s only region (3.16.11)', async () => {
+    const { app } = createModelApp({
+      state: readyState(rectSketchDocumentState(), {
+        context: 'sketch',
+        sketch: {
+          sketchId: 'f-sk1',
+          tool: null,
+          construction: false,
+          showConstraints: true,
+          selection: [],
+          dragging: false,
+          cameraBefore: null,
+        },
+      }),
+    })
+    await app.commands.run(app, 'sketch.finish', 'shortcut')
+    await settle()
+    expect(app.store.getState().context).toBe('model')
+    expect(app.store.getState().selection.map((item) => item.key)).toEqual([
+      `region:f-sk1:${RECT_REGION.reference.key}`,
+    ])
   })
 
   it('switches context with context.print and context.model', async () => {

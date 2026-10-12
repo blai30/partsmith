@@ -76,16 +76,19 @@ TopoDS_Shape run_boolean(BOPAlgo_Operation operation, const TopoDS_Shape &target
 void merge_history(const Handle(BRepTools_History) &history,
                    const Handle(BRepTools_History) &next);
 
-// Checks the result with BRepCheck_Analyzer. An invalid result is repaired with ShapeFix_Shape
-// (on a copy, so shared inputs stay untouched) and the repair is merged into the history; a
-// result still invalid raises Partsmith_InvalidResult (kernel spec section 3.5).
+// Checks what the operation produced or changed in its result relative to `inputs`, the shapes
+// it ran on, with the checks of BRepCheck_Analyzer (the whole result when no face of an input
+// is in it). An invalid result is repaired with ShapeFix_Shape (on a copy, so shared inputs
+// stay untouched), the repair is merged into the history and the whole repaired result is
+// checked; a result still invalid raises Partsmith_InvalidResult (kernel spec section 3.5).
 void ensure_valid(TopoDS_Shape &shape, const Handle(BRepTools_History) &history,
-                  const char *algorithm);
+                  const std::vector<TopoDS_Shape> &inputs, const char *algorithm);
 
 // Normalizes the result of an operation that must produce a solid: keeps its solids, checks
-// and repairs it, and raises Partsmith_EmptyResult when no solid is left.
+// and repairs it relative to `inputs` (see ensure_valid), and raises Partsmith_EmptyResult
+// when no solid is left.
 TopoDS_Shape finish_solid(const TopoDS_Shape &shape, const Handle(BRepTools_History) &history,
-                          const char *algorithm);
+                          const std::vector<TopoDS_Shape> &inputs, const char *algorithm);
 
 // The history of every input relative to the result (kernel spec section 3.3). `history` may
 // be null when the result contains the inputs' sub-shapes unchanged.

@@ -733,7 +733,7 @@ export function Timeline() {
       aria-label="Timeline"
       data-testid="timeline"
       className={clsx(
-        'relative flex shrink-0 items-center gap-2 border-t px-2',
+        'relative col-span-3 row-start-3 flex min-w-0 items-center gap-2 border-t px-2',
         collapsed ? 'h-7' : 'h-14',
         COLOR_CLASSES.surface.background,
         COLOR_CLASSES.border.border,

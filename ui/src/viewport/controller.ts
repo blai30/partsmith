@@ -725,7 +725,12 @@ export function createViewportController(options: {
       return
     }
     if (item.kind === 'face' && item.element?.surface !== 'plane') {
-      notify(app, { severity: 'info', message: MESSAGES.pick_plane(), actions: [] })
+      notify(app, {
+        severity: 'info',
+        message: MESSAGES.pick_plane(),
+        actions: [],
+        code: 'pick_plane',
+      })
       return
     }
     await createSketchOn(app, item)

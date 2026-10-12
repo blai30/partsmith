@@ -62,6 +62,9 @@ export function App() {
   useRootClasses()
   useEscapeLadder(app)
   useEnterLadder(app)
+  // One grid places every region by area, so the DOM, and with it the tab order, follows 3.24:
+  // the timeline comes before the side panel, and the notification stack, drawn over the
+  // viewport's bottom-right, comes last.
   return (
     <div
       data-testid="app"
@@ -69,39 +72,37 @@ export function App() {
       data-context={context}
       {...drop.handlers}
       className={clsx(
-        'flex h-dvh w-dvw flex-col overflow-hidden antialiased',
+        'relative grid h-dvh w-dvw grid-cols-[auto_minmax(0,1fr)_auto] grid-rows-[auto_minmax(0,1fr)_auto_auto] overflow-hidden antialiased',
         FONT_CLASSES.interfaceText,
         COLOR_CLASSES.surface.background,
         COLOR_CLASSES.text.foreground,
       )}
     >
-      <RegionBoundary region="top bar" fallbackClassName="h-12 shrink-0">
+      <RegionBoundary region="top bar" fallbackClassName="col-span-3 row-start-1 h-12">
         <TopBar />
       </RegionBoundary>
-      <div className="relative flex min-h-0 flex-1">
-        {browserOpen ? (
-          <RegionBoundary region="browser" fallbackClassName="w-66 shrink-0">
-            <Browser />
-          </RegionBoundary>
-        ) : null}
-        <RegionBoundary region="viewport" fallbackClassName="flex-1">
-          <Viewport>
-            <SketchHeader />
-            <PrintLegend />
-            <Inspector />
-            <Notifications />
-          </Viewport>
+      {browserOpen ? (
+        <RegionBoundary region="browser" fallbackClassName="col-start-1 row-start-2 w-66">
+          <Browser />
         </RegionBoundary>
-        <RegionBoundary region="side panel" fallbackClassName="w-90 shrink-0">
-          <SidePanel />
-        </RegionBoundary>
-      </div>
-      <RegionBoundary region="timeline" fallbackClassName="h-14 shrink-0">
+      ) : null}
+      <RegionBoundary region="viewport" fallbackClassName="col-start-2 row-start-2">
+        <Viewport>
+          <SketchHeader />
+          <PrintLegend />
+          <Inspector />
+        </Viewport>
+      </RegionBoundary>
+      <RegionBoundary region="timeline" fallbackClassName="col-span-3 row-start-3 h-14">
         <Timeline />
       </RegionBoundary>
-      <RegionBoundary region="status bar" fallbackClassName="h-7 shrink-0">
+      <RegionBoundary region="side panel" fallbackClassName="col-start-3 row-start-2 w-90">
+        <SidePanel />
+      </RegionBoundary>
+      <RegionBoundary region="status bar" fallbackClassName="col-span-3 row-start-4 h-7">
         <StatusBar />
       </RegionBoundary>
+      <Notifications />
       <CommandPalette />
       <LiveRegions />
       {drop.over ? <DropOverlay /> : null}

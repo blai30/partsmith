@@ -229,6 +229,7 @@ export function sketchSession(fields: Partial<SketchSession> = {}): SketchSessio
     showConstraints: true,
     selection: [],
     dragging: false,
+    cameraBefore: null,
     ...fields,
   }
 }

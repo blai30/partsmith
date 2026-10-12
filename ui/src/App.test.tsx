@@ -246,6 +246,7 @@ describe('the Esc ladder (3.5)', () => {
         showConstraints: true,
         selection: [],
         dragging: false,
+        cameraBefore: null,
       },
     })
     await user.keyboard('{Escape}')
@@ -268,6 +269,7 @@ describe('the Esc ladder (3.5)', () => {
         showConstraints: true,
         selection: [],
         dragging: false,
+        cameraBefore: null,
       },
     })
     await user.keyboard('{Escape}')

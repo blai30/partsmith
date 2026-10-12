@@ -83,11 +83,14 @@ describe('dimensionTypeFor', () => {
     ).toBe('distance')
   })
 
-  it('U-59 a point and a circle are unsupported with "Partsmith cannot dimension a point and a circle."', () => {
+  it('U-59 a point and a circle are unsupported with the full cannot_dimension text', () => {
     const solution = solutionFor([pointEntity('e-1', [20, 0]), circleEntity('e-2', [0, 0], 5)])
     expect(
       dimensionTypeFor([pointItem('e-1'), curveItem('e-2', 'circle')], [10, 10], solution),
-    ).toEqual({ unsupported: 'Partsmith cannot dimension a point and a circle.' })
+    ).toEqual({
+      unsupported:
+        'Partsmith cannot dimension a point and a circle. Pick two points, a point and a line, two lines, or one circle or arc.',
+    })
   })
 })
 

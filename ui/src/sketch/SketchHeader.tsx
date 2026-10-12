@@ -11,15 +11,17 @@ import {
 } from '../app/actions/sketch'
 import { Button } from '../components/Button'
 import { Popover } from '../components/Popover'
+import { originPlaneName, originPlaneView, type OriginPlane } from '../core/labels'
 import type { ProfileFinding, SketchConstraint, SketchSolution } from '../generated/protocol'
+import { originItem } from '../inspector/selection-values'
+import { MESSAGES } from '../messages'
 import { selectFeatureLabel, selectSketchDof, type SketchDof } from '../state/selectors'
-import type { AppState, SelectionItem } from '../state/store'
+import type { AppState } from '../state/store'
 import { COLOR_CLASSES } from '../theme/roles'
 import { constraintTitle } from './constraints'
 import { entitySelectionItem } from './hit'
-import { profileFindingMessage } from './issues'
-import { SKETCH_PROMPTS } from './prompts'
-import { outlineProblems, sketchStepHint, type SketchOverlayModel } from './session'
+import { outlineProblems, profileFindingMessage } from './issues'
+import { sketchStepHint, type SketchOverlayModel } from './session'
 
 // The sketch header and hint (ui.md 3.16.1, 3.16.3, 3.16.8): the sketch's name and constraint
 // status in the viewport's top-center slot (3.2), opening the list of the sketch's problems, and
@@ -57,24 +59,7 @@ function selectEditedSketch(state: AppState): string | null | undefined {
 }
 
 /** The three origin planes a new sketch can start on in one click (3.16.1). */
-const ORIGIN_PLANES = [
-  { plane: 'XY', label: 'Top', name: 'Top plane (XY)' },
-  { plane: 'XZ', label: 'Front', name: 'Front plane (XZ)' },
-  { plane: 'YZ', label: 'Right', name: 'Right plane (YZ)' },
-] as const
-
-function originPlaneItem(plane: (typeof ORIGIN_PLANES)[number]): SelectionItem {
-  return {
-    key: `origin:${plane.plane}`,
-    kind: 'origin_plane',
-    label: plane.name,
-    body: null,
-    feature: null,
-    element: null,
-    sketchItem: null,
-    origin: plane.plane,
-  }
-}
+const ORIGIN_PLANES: readonly OriginPlane[] = ['XY', 'XZ', 'YZ']
 
 export type SketchHeaderProps = {
   /** The active tool's hint from the sketch controller (3.16.3), or null without one. */
@@ -116,15 +101,15 @@ function PlanePicking() {
       <legend className="float-left font-medium">Pick a plane or a flat face to draw on</legend>
       {ORIGIN_PLANES.map((plane) => (
         <Button
-          key={plane.plane}
-          aria-label={`Sketch on ${plane.name}`}
+          key={plane}
+          aria-label={`Sketch on ${originPlaneName(plane)}`}
           onClick={() => {
-            createSketchOn(app, originPlaneItem(plane)).catch((error: unknown) => {
+            createSketchOn(app, originItem(plane)).catch((error: unknown) => {
               console.error('Creating the sketch failed.', error)
             })
           }}
         >
-          {plane.label}
+          {originPlaneView(plane)}
         </Button>
       ))}
     </fieldset>
@@ -240,7 +225,7 @@ function SketchHint({ sketchId, hint, freePlacement }: SketchHintProps) {
   )
   const idleStep = idle ? sketchStepHint({ kind: 'idle', empty }, app.platform) : null
   const text =
-    pickHint ?? (sketchId === null ? SKETCH_PROMPTS.plane_pick_hint() : (hint?.text ?? idleStep))
+    pickHint ?? (sketchId === null ? MESSAGES.plane_pick_hint() : (hint?.text ?? idleStep))
   const warning = pickHint !== null || hint?.warning === true
   return (
     <output
@@ -257,7 +242,7 @@ function SketchHint({ sketchId, hint, freePlacement }: SketchHintProps) {
     >
       {text}
       {text !== null && sketchId !== null && freePlacement ? (
-        <span aria-live="off">{` ${SKETCH_PROMPTS.sketch_free_placement(app.platform)}`}</span>
+        <span aria-live="off">{` ${MESSAGES.sketch_free_placement(app.platform)}`}</span>
       ) : null}
     </output>
   )
@@ -396,7 +381,7 @@ function SketchProblems({ sketchId }: { readonly sketchId: string }) {
         </section>
       )}
       <p className={clsx('text-xs', COLOR_CLASSES.textMuted.foreground)}>
-        {SKETCH_PROMPTS.sketch_dof_help(app.platform)}
+        {MESSAGES.sketch_dof_help(app.platform)}
       </p>
     </>
   )

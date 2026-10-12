@@ -3,9 +3,14 @@
 #include <cmath>
 #include <exception>
 #include <map>
+#include <utility>
 #include <vector>
 
 #include <BRepAdaptor_Surface.hxx>
+#include <BRep_CurveOn2Surfaces.hxx>
+#include <BRep_CurveRepresentation.hxx>
+#include <BRep_ListOfCurveRepresentation.hxx>
+#include <BRep_TEdge.hxx>
 #include <BRepCheck_Analyzer.hxx>
 #include <BRepFilletAPI_MakeChamfer.hxx>
 #include <BRepFilletAPI_MakeFillet.hxx>
@@ -27,6 +32,8 @@
 #include <TopExp_Explorer.hxx>
 #include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
 #include <TopoDS.hxx>
+#include <TopoDS_Compound.hxx>
+#include <TopoDS_Shell.hxx>
 #include <TopoDS_Solid.hxx>
 
 #include "partsmith-occt-sys/cpp/internal.h"
@@ -141,7 +148,8 @@ OpResultData blend_result(Blend &blend, const Shape &copy, const char *algorithm
   TopTools_ListOfShape arguments;
   arguments.Append(copy.get());
   const Handle(BRepTools_History) history = new BRepTools_History(arguments, blend);
-  return op_result(finish_solid(blend.Shape(), history, algorithm), history, {copy.get()});
+  return op_result(finish_solid(blend.Shape(), history, {copy.get()}, algorithm), history,
+                   {copy.get()});
 }
 
 // The name of an offset error.
@@ -185,6 +193,131 @@ TopoDS_Shape hollow_solid(const TopoDS_Shape &solid, const TopoDS_Shape &inner) 
     builder.Add(hollow, shells.Current().Reversed());
   }
   return hollow;
+}
+
+// A shape with the rank of its first face, for sorting.
+template <class Part>
+using Ranked = std::pair<int, Part>;
+
+// Sorts by rank, keeping the order of equal ranks.
+template <class Part>
+void sort_by_rank(std::vector<Ranked<Part>> &parts) {
+  std::stable_sort(parts.begin(), parts.end(),
+                   [](const Ranked<Part> &first, const Ranked<Part> &second) {
+                     return first.first < second.first;
+                   });
+}
+
+// The shell result rebuilt with its solids, shells and faces in an order that depends only on
+// the input (kernel spec sections 3.4.8 and 3.11). A face's rank is its position among the
+// faces that the faces of `copy` are, were modified into or generated, then those its edges
+// and then its vertices generated, each kind in index order; shells and solids follow their
+// first face. OCCT's offset assembles shells from hash maps keyed by shape addresses, so its
+// own order, and with it every element index and the last bits of the volume, changed from run
+// to run. Faces, edges and vertices are kept, so the history still applies.
+TopoDS_Shape ordered_by_input(const Shape &copy, const TopoDS_Shape &result,
+                              const Handle(BRepTools_History) &history) {
+  TopTools_IndexedMapOfShape ranked;
+  const auto add_faces = [&ranked](const TopTools_ListOfShape &images) {
+    for (const TopoDS_Shape &image : images) {
+      if (image.ShapeType() == TopAbs_FACE) {
+        ranked.Add(image);
+      }
+    }
+  };
+  for (int index = 1; index <= copy.faces().Extent(); ++index) {
+    ranked.Add(copy.faces()(index));
+    add_faces(history->Modified(copy.faces()(index)));
+    add_faces(history->Generated(copy.faces()(index)));
+  }
+  for (ElementKind kind : {ElementKind::Edge, ElementKind::Vertex}) {
+    for (int index = 1; index <= copy.map(kind).Extent(); ++index) {
+      add_faces(history->Generated(copy.map(kind)(index)));
+    }
+  }
+  // A face that no input element accounts for (none is expected) comes after the others.
+  const int unranked = ranked.Extent() + 1;
+  const auto rank_of = [&ranked, unranked](const TopoDS_Shape &face) {
+    const int rank = ranked.FindIndex(face);
+    return rank > 0 ? rank : unranked;
+  };
+
+  BRep_Builder builder;
+  std::vector<Ranked<TopoDS_Solid>> solids;
+  for (TopExp_Explorer solid(result, TopAbs_SOLID); solid.More(); solid.Next()) {
+    std::vector<Ranked<TopoDS_Shell>> shells;
+    for (TopExp_Explorer shell(solid.Current(), TopAbs_SHELL); shell.More(); shell.Next()) {
+      // Each face keeps its orientation as explored, so the rebuilt shell bounds the same side.
+      std::vector<Ranked<TopoDS_Shape>> faces;
+      for (TopExp_Explorer face(shell.Current(), TopAbs_FACE); face.More(); face.Next()) {
+        faces.emplace_back(rank_of(face.Current()), face.Current());
+      }
+      sort_by_rank(faces);
+      TopoDS_Shell ordered;
+      builder.MakeShell(ordered);
+      for (const Ranked<TopoDS_Shape> &face : faces) {
+        builder.Add(ordered, face.second);
+      }
+      ordered.Closed(shell.Current().Closed());
+      shells.emplace_back(faces.empty() ? unranked : faces.front().first, ordered);
+    }
+    sort_by_rank(shells);
+    TopoDS_Solid ordered;
+    builder.MakeSolid(ordered);
+    for (const Ranked<TopoDS_Shell> &shell : shells) {
+      builder.Add(ordered, shell.second);
+    }
+    ordered.Closed(solid.Current().Closed());
+    solids.emplace_back(shells.empty() ? unranked : shells.front().first, ordered);
+  }
+  sort_by_rank(solids);
+  if (solids.size() == 1) {
+    return solids.front().second;
+  }
+  TopoDS_Compound compound;
+  builder.MakeCompound(compound);
+  for (const Ranked<TopoDS_Solid> &solid : solids) {
+    builder.Add(compound, solid.second);
+  }
+  return compound;
+}
+
+// Stores the two surfaces of every edge's continuity record (kernel spec section 3.11) in the
+// order of the first faces of `shape` that use them. OCCT's offset records the continuity of
+// two faces in the order it finds them in an address-keyed map, which changed the BRep bytes
+// from run to run; the record means the same in either order. Only for shapes the operation
+// built itself: it writes to the edges.
+void order_continuity_records(const TopoDS_Shape &shape) {
+  TopTools_IndexedMapOfShape faces;
+  TopExp::MapShapes(shape, TopAbs_FACE, faces);
+  // The rank of a surface is the index of the first face on it; the address only finds it.
+  std::map<const Geom_Surface *, int> surface_ranks;
+  for (int index = 1; index <= faces.Extent(); ++index) {
+    surface_ranks.emplace(BRep_Tool::Surface(TopoDS::Face(faces(index))).get(), index);
+  }
+  const auto rank_of = [&surface_ranks](const Handle(Geom_Surface) &surface) {
+    const auto found = surface_ranks.find(surface.get());
+    return found == surface_ranks.end() ? 0 : found->second;
+  };
+  TopTools_IndexedMapOfShape edges;
+  TopExp::MapShapes(shape, TopAbs_EDGE, edges);
+  for (int index = 1; index <= edges.Extent(); ++index) {
+    const Handle(BRep_TEdge) edge = Handle(BRep_TEdge)::DownCast(edges(index).TShape());
+    for (BRep_ListIteratorOfListOfCurveRepresentation representation(edge->ChangeCurves());
+         representation.More(); representation.Next()) {
+      const Handle(BRep_CurveRepresentation) &record = representation.Value();
+      if (!record->IsRegularity()) {
+        continue;
+      }
+      const int first = rank_of(record->Surface());
+      const int second = rank_of(record->Surface2());
+      if (first > 0 && second > 0 && second < first) {
+        representation.ChangeValue() =
+            new BRep_CurveOn2Surfaces(record->Surface2(), record->Surface(), record->Location2(),
+                                      record->Location(), record->Continuity());
+      }
+    }
+  }
 }
 
 // Volume of a shape's solids.
@@ -262,9 +395,13 @@ struct ShellAttempt {
 // Checks an attempt (kernel spec section 3.4.8, item 4) and returns its result.
 OpResultData checked_shell(const Shape &copy, const ShellAttempt &attempt,
                            const std::vector<bool> &removed, double thickness) {
-  const TopoDS_Shape result = finish_solid(attempt.shape, attempt.history, attempt.algorithm);
+  const TopoDS_Shape result = ordered_by_input(
+      copy, finish_solid(attempt.shape, attempt.history, {copy.get()}, attempt.algorithm),
+      attempt.history);
   require_material_removed(copy.solids()(1), result);
   require_wall_thickness(copy, removed, result, attempt.history, thickness);
+  // Every edge of the result belongs to the copy or was built by the attempt.
+  order_continuity_records(result);
   return op_result(result, attempt.history, {copy.get()});
 }
 

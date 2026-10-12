@@ -197,6 +197,17 @@ describe('itemsFromValue', () => {
     expect(item).toMatchObject({ key: 'origin:XY', kind: 'origin_plane', origin: 'XY' })
   })
 
+  it('names origin planes by view and coordinates, as field boxes show them (3.10)', () => {
+    const labels = (['XY', 'XZ', 'YZ'] as const).map(
+      (plane) => itemsFromValue('plane', { kind: 'origin', plane }, state)[0]?.label,
+    )
+    expect(labels).toEqual(['Top plane (XY)', 'Front plane (XZ)', 'Right plane (YZ)'])
+  })
+
+  it('names origin axes and the origin point plainly', () => {
+    expect(itemsFromValue('axis', { kind: 'origin', axis: 'Z' }, state)[0]?.label).toBe('Z axis')
+  })
+
   it('gives the body item, labeled with the body name, for a body id', () => {
     const [item] = itemsFromValue('body', 'b-cube', state)
     expect(item).toMatchObject({ key: 'body:b-cube', kind: 'body', label: 'Cube', body: 'b-cube' })

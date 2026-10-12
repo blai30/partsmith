@@ -4,16 +4,28 @@
 
 #include <BRepBuilderAPI_Copy.hxx>
 #include <BRepCheck_Analyzer.hxx>
+#include <BRepCheck_Edge.hxx>
+#include <BRepCheck_Face.hxx>
+#include <BRepCheck_IndexedDataMapOfShapeResult.hxx>
+#include <BRepCheck_ListOfStatus.hxx>
+#include <BRepCheck_Result.hxx>
+#include <BRepCheck_Shell.hxx>
+#include <BRepCheck_Solid.hxx>
+#include <BRepCheck_Vertex.hxx>
+#include <BRepCheck_Wire.hxx>
 #include <BRepLib.hxx>
 #include <BRep_Builder.hxx>
+#include <NCollection_Map.hxx>
 #include <ShapeBuild_ReShape.hxx>
 #include <ShapeFix_Shape.hxx>
 #include <StdFail_NotDone.hxx>
 #include <Standard_NullObject.hxx>
 #include <TopExp.hxx>
 #include <TopExp_Explorer.hxx>
+#include <TopTools_MapOfShape.hxx>
 #include <TopoDS.hxx>
 #include <TopoDS_Compound.hxx>
+#include <TopoDS_Iterator.hxx>
 
 #include "partsmith-occt-sys/cpp/internal.h"
 
@@ -139,9 +151,273 @@ void merge_history(const Handle(BRepTools_History) &history,
   }
 }
 
+namespace {
+
+// The checks of BRepCheck_Analyzer, with its default settings, limited to what an operation
+// produced or changed (kernel spec section 3.5): every face of the result that is not a face of
+// an input (by IsSame), with its wires, edges and vertices, each edge and vertex also in every
+// face and edge of the result that contains it, and every shell and solid that is not a shell
+// or solid of an input. The rest of the result is the inputs' own unchanged elements.
+class ChangeCheck {
+ public:
+  ChangeCheck(const TopoDS_Shape &shape, const std::vector<TopoDS_Shape> &inputs)
+      : shape_(shape) {
+    for (const TopoDS_Shape &input : inputs) {
+      TopExp::MapShapes(input, TopAbs_FACE, input_faces_);
+      TopExp::MapShapes(input, TopAbs_SHELL, input_shells_);
+      TopExp::MapShapes(input, TopAbs_SOLID, input_solids_);
+    }
+    for (TopExp_Explorer face(shape, TopAbs_FACE); face.More(); face.Next()) {
+      if (input_faces_.Contains(face.Current())) {
+        keeps_input_faces_ = true;
+      } else {
+        TopExp::MapShapes(face.Current(), TopAbs_EDGE, changed_edges_);
+        TopExp::MapShapes(face.Current(), TopAbs_VERTEX, changed_vertices_);
+      }
+    }
+  }
+
+  // True when some face of the result is a face of an input.
+  bool keeps_input_faces() const { return keeps_input_faces_; }
+
+  // Runs the checks; true when every one passed.
+  bool run() {
+    visit(shape_);
+    return valid();
+  }
+
+ private:
+  // True when every recorded status is BRepCheck_NoError.
+  bool valid() const {
+    for (int index = 1; index <= results_.Extent(); ++index) {
+      const Handle(BRepCheck_Result) &result = results_(index);
+      if (!all_clear(result->Status())) {
+        return false;
+      }
+      for (result->InitContextIterator(); result->MoreShapeInContext();
+           result->NextShapeInContext()) {
+        if (!all_clear(result->StatusOnShape())) {
+          return false;
+        }
+      }
+    }
+    return true;
+  }
+
+  static bool all_clear(const BRepCheck_ListOfStatus &statuses) {
+    for (const BRepCheck_Status status : statuses) {
+      if (status != BRepCheck_NoError) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  // The result of one occurrence of an element (orientation included, as in the analyzer),
+  // created with its minimum checks on first use.
+  const Handle(BRepCheck_Result) &result(const TopoDS_Shape &element) {
+    if (const Handle(BRepCheck_Result) *found = results_.Seek(element)) {
+      return *found;
+    }
+    Handle(BRepCheck_Result) created;
+    switch (element.ShapeType()) {
+      case TopAbs_VERTEX:
+        created = new BRepCheck_Vertex(TopoDS::Vertex(element));
+        break;
+      case TopAbs_EDGE: {
+        const Handle(BRepCheck_Edge) edge = new BRepCheck_Edge(TopoDS::Edge(element));
+        edge->GeometricControls(Standard_True);
+        edge->SetExactMethod(Standard_False);
+        created = edge;
+        break;
+      }
+      case TopAbs_WIRE: {
+        const Handle(BRepCheck_Wire) wire = new BRepCheck_Wire(TopoDS::Wire(element));
+        wire->GeometricControls(Standard_True);
+        created = wire;
+        break;
+      }
+      case TopAbs_FACE: {
+        const Handle(BRepCheck_Face) face = new BRepCheck_Face(TopoDS::Face(element));
+        face->GeometricControls(Standard_True);
+        created = face;
+        break;
+      }
+      case TopAbs_SHELL:
+        created = new BRepCheck_Shell(TopoDS::Shell(element));
+        break;
+      case TopAbs_SOLID:
+        created = new BRepCheck_Solid(TopoDS::Solid(element));
+        break;
+      default:
+        raise_not_done("the validity check met an unexpected sub-shape type");
+    }
+    return results_(results_.Add(element, created));
+  }
+
+  // Checks each element occurrence once, parents before children like the analyzer.
+  void visit(const TopoDS_Shape &shape) {
+    if (!visited_.Add(shape)) {
+      return;
+    }
+    switch (shape.ShapeType()) {
+      case TopAbs_SOLID:
+        if (!input_solids_.Contains(shape)) {
+          result(shape);
+          for (TopoDS_Iterator shell(shape); shell.More(); shell.Next()) {
+            if (shell.Value().ShapeType() == TopAbs_SHELL) {
+              result(shell.Value())->InContext(shape);
+            }
+          }
+        }
+        break;
+      case TopAbs_SHELL:
+        if (!input_shells_.Contains(shape)) {
+          result(shape);
+        }
+        break;
+      case TopAbs_FACE:
+        if (input_faces_.Contains(shape)) {
+          // Nothing below an unchanged face changed except along its border.
+          check_border_of_unchanged_face(shape);
+          return;
+        }
+        check_changed_face(TopoDS::Face(shape));
+        break;
+      case TopAbs_EDGE:
+        check_edge(shape);
+        break;
+      case TopAbs_VERTEX:
+        if (changed_vertices_.Contains(shape)) {
+          result(shape);
+        }
+        break;
+      default:
+        break;
+    }
+    for (TopoDS_Iterator child(shape); child.More(); child.Next()) {
+      visit(child.Value());
+    }
+  }
+
+  // The analyzer's checks of a face: its vertices, edges and wires in its context, then the
+  // orientation of its wires when they allow it.
+  void check_changed_face(const TopoDS_Face &face) {
+    result(face);
+    TopTools_MapOfShape done;
+    for (TopExp_Explorer vertex(face, TopAbs_VERTEX); vertex.More(); vertex.Next()) {
+      if (done.Add(vertex.Current())) {
+        result(vertex.Current())->InContext(face);
+      }
+    }
+    bool wires_checkable = true;
+    done.Clear();
+    for (TopExp_Explorer edge(face, TopAbs_EDGE); edge.More(); edge.Next()) {
+      if (!done.Add(edge.Current())) {
+        continue;
+      }
+      const Handle(BRepCheck_Result) &edge_result = result(edge.Current());
+      edge_result->InContext(face);
+      if (wires_checkable && edge_result->IsStatusOnShape(face)) {
+        for (const BRepCheck_Status status : edge_result->StatusOnShape(face)) {
+          if (status == BRepCheck_NoCurveOnSurface || status == BRepCheck_InvalidCurveOnSurface ||
+              status == BRepCheck_InvalidRange ||
+              status == BRepCheck_InvalidCurveOnClosedSurface) {
+            wires_checkable = false;
+          }
+        }
+      }
+    }
+    bool wires_oriented = wires_checkable;
+    for (TopExp_Explorer wire(face, TopAbs_WIRE); wire.More(); wire.Next()) {
+      const Handle(BRepCheck_Result) &wire_result = result(wire.Current());
+      wire_result->InContext(face);
+      if (wires_oriented && wire_result->IsStatusOnShape(face) &&
+          !all_clear(wire_result->StatusOnShape(face))) {
+        wires_oriented = false;
+      }
+    }
+    const Handle(BRepCheck_Face) face_result = Handle(BRepCheck_Face)::DownCast(result(face));
+    if (wires_oriented) {
+      face_result->OrientationOfWires(Standard_True);
+    } else {
+      face_result->SetUnorientable();
+    }
+  }
+
+  // An unchanged face shares edges and vertices with changed faces along the border of what
+  // the operation changed; those are checked in its context and in its edges' too.
+  void check_border_of_unchanged_face(const TopoDS_Shape &face) {
+    TopTools_MapOfShape done;
+    for (TopExp_Explorer vertex(face, TopAbs_VERTEX); vertex.More(); vertex.Next()) {
+      if (changed_vertices_.Contains(vertex.Current()) && done.Add(vertex.Current())) {
+        result(vertex.Current())->InContext(face);
+      }
+    }
+    for (TopExp_Explorer edge(face, TopAbs_EDGE); edge.More(); edge.Next()) {
+      if (changed_edges_.Contains(edge.Current()) && done.Add(edge.Current())) {
+        result(edge.Current())->InContext(face);
+      }
+      if (visited_.Add(edge.Current())) {
+        check_edge(edge.Current());
+      }
+    }
+  }
+
+  // The analyzer's checks of an edge (its triangulation polygons and its vertices in its
+  // context), for edges of changed faces; vertices of changed faces are also checked in the
+  // context of every other edge that contains them.
+  void check_edge(const TopoDS_Shape &edge) {
+    const bool changed = changed_edges_.Contains(edge);
+    if (changed) {
+      const Handle(BRepCheck_Edge) edge_result = Handle(BRepCheck_Edge)::DownCast(result(edge));
+      const BRepCheck_Status status = edge_result->CheckPolygonOnTriangulation(TopoDS::Edge(edge));
+      if (status != BRepCheck_NoError) {
+        edge_result->SetStatus(status);
+      }
+    }
+    TopTools_MapOfShape done;
+    for (TopExp_Explorer vertex(edge, TopAbs_VERTEX); vertex.More(); vertex.Next()) {
+      if ((changed || changed_vertices_.Contains(vertex.Current())) && done.Add(vertex.Current())) {
+        result(vertex.Current())->InContext(edge);
+      }
+    }
+  }
+
+  const TopoDS_Shape shape_;
+  // Faces, shells and solids of the inputs (IsSame semantics).
+  TopTools_IndexedMapOfShape input_faces_;
+  TopTools_IndexedMapOfShape input_shells_;
+  TopTools_IndexedMapOfShape input_solids_;
+  // Edges and vertices of changed faces (IsSame semantics).
+  TopTools_IndexedMapOfShape changed_edges_;
+  TopTools_IndexedMapOfShape changed_vertices_;
+  // Occurrences already visited (orientation included).
+  NCollection_Map<TopoDS_Shape> visited_;
+  BRepCheck_IndexedDataMapOfShapeResult results_;
+  bool keeps_input_faces_ = false;
+};
+
+// True when the result passes the checks of kernel spec section 3.5: those of ChangeCheck
+// when some face of the result is an input's face, else BRepCheck_Analyzer on the whole.
+bool changed_part_valid(const TopoDS_Shape &shape, const std::vector<TopoDS_Shape> &inputs) {
+  ChangeCheck check(shape, inputs);
+  if (!check.keeps_input_faces()) {
+    return BRepCheck_Analyzer(shape).IsValid();
+  }
+  try {
+    return check.run();
+  } catch (const Standard_Failure &) {
+    // The analyzer records a check that throws as a failure.
+    return false;
+  }
+}
+
+}  // namespace
+
 void ensure_valid(TopoDS_Shape &shape, const Handle(BRepTools_History) &history,
-                  const char *algorithm) {
-  if (BRepCheck_Analyzer(shape).IsValid()) {
+                  const std::vector<TopoDS_Shape> &inputs, const char *algorithm) {
+  if (changed_part_valid(shape, inputs)) {
     return;
   }
   initialize();
@@ -166,10 +442,10 @@ void ensure_valid(TopoDS_Shape &shape, const Handle(BRepTools_History) &history,
 }
 
 TopoDS_Shape finish_solid(const TopoDS_Shape &shape, const Handle(BRepTools_History) &history,
-                          const char *algorithm) {
+                          const std::vector<TopoDS_Shape> &inputs, const char *algorithm) {
   TopoDS_Shape result = solids_only(shape);
   require_solid(result, algorithm);
-  ensure_valid(result, history, algorithm);
+  ensure_valid(result, history, inputs, algorithm);
   return solids_only(result);
 }
 

@@ -53,7 +53,7 @@ function bodiesToExport(app: App, request: ExportRequest): readonly string[] {
 
 function showWarnings(app: App, warnings: readonly Diagnostic[]): void {
   for (const warning of warnings) {
-    notify(app, { severity: 'warning', message: warning.message, actions: [] })
+    notify(app, { severity: 'warning', message: warning.message, actions: [], code: warning.code })
   }
 }
 
@@ -72,15 +72,16 @@ function showSaveError(
   error: FileServiceError,
   exported: ExportResult,
 ): void {
-  const message =
+  const [code, message] =
     error.reason === 'permission'
-      ? MESSAGES.save_permission(fileName)
+      ? ['save_permission', MESSAGES.save_permission(fileName)]
       : error.reason === 'not_found'
-        ? MESSAGES.save_not_found(fileName)
-        : MESSAGES.save_io(fileName, error.message)
+        ? ['save_not_found', MESSAGES.save_not_found(fileName)]
+        : ['save_io', MESSAGES.save_io(fileName, error.message)]
   notify(app, {
     severity: 'error',
     message,
+    code,
     actions: [
       {
         label: 'Save as',
@@ -111,7 +112,12 @@ async function saveExport(app: App, exported: ExportResult): Promise<void> {
     }
     throw error
   }
-  notify(app, { severity: 'success', message: MESSAGES.exported(target.name), actions: [] })
+  notify(app, {
+    severity: 'success',
+    message: MESSAGES.exported(target.name),
+    actions: [],
+    code: 'exported',
+  })
   showWarnings(app, exported.warnings)
 }
 
@@ -120,7 +126,12 @@ export async function exportModel(app: App, request: ExportRequest): Promise<voi
   const document = documentOf(app)
   const bodies = bodiesToExport(app, request)
   if (document === null || bodies.length === 0) {
-    notify(app, { severity: 'error', message: MESSAGES.nothing_to_export(), actions: [] })
+    notify(app, {
+      severity: 'error',
+      message: MESSAGES.nothing_to_export(),
+      actions: [],
+      code: 'nothing_to_export',
+    })
     return
   }
   let exported: { files: readonly ExportedFile[]; warnings: readonly Diagnostic[] }

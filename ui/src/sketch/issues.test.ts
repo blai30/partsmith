@@ -7,6 +7,7 @@ import {
   findingPoints,
   issueRings,
   messageNumber,
+  outlineProblems,
   profileFindingMessage,
 } from './issues'
 
@@ -73,5 +74,38 @@ describe('failed solves', () => {
   it('writes numbers rounded to 6 decimals with a rounded zero as 0', () => {
     expect(messageNumber(-0.0000001)).toBe('0')
     expect(messageNumber(2.5)).toBe('2.5')
+  })
+})
+
+function open(point: [number, number]): ProfileFinding {
+  return { type: 'open_endpoint', entity: 'e-1', point }
+}
+
+describe('outlineProblems (2.14)', () => {
+  it('is null without findings', () => {
+    expect(outlineProblems(solutionFor([]))).toBeNull()
+  })
+
+  it('counts open ends when every finding is one', () => {
+    expect(outlineProblems(solutionFor([], { profile_findings: [open([0, 0])] }))).toBe(
+      '1 open end',
+    )
+    expect(
+      outlineProblems(solutionFor([], { profile_findings: [open([0, 0]), open([1, 0])] })),
+    ).toBe('2 open ends')
+  })
+
+  it('counts outline problems otherwise', () => {
+    const crossing: ProfileFinding = {
+      type: 'self_intersection',
+      entities: ['e-1', 'e-2'],
+      point: [1, 1],
+    }
+    expect(outlineProblems(solutionFor([], { profile_findings: [crossing] }))).toBe(
+      '1 outline problem',
+    )
+    expect(outlineProblems(solutionFor([], { profile_findings: [open([0, 0]), crossing] }))).toBe(
+      '2 outline problems',
+    )
   })
 })

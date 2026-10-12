@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest'
+import type { Platform } from './app/createApp'
 import { MESSAGES } from './messages'
 
 type Case = readonly [id: string, render: () => string, text: string]
+
+const LINUX: Platform = { operatingSystem: 'linux', host: 'web' }
+const MAC: Platform = { operatingSystem: 'mac', host: 'web' }
 
 // Every message of ui.md 4.3, rendered with sample placeholders in the order they appear in the text.
 const CASES: readonly Case[] = [
@@ -96,8 +100,8 @@ const CASES: readonly Case[] = [
   ['features_failed', () => MESSAGES.features_failed(3), '3 features failed after this change.'],
   [
     'over_constrained',
-    () => MESSAGES.over_constrained('Horizontal', 'Vertical and Distance'),
-    'Horizontal would over-constrain the sketch: it conflicts with Vertical and Distance.',
+    () => MESSAGES.over_constrained('Horizontal', 'Vertical and Distance 40'),
+    'Horizontal conflicts with Vertical and Distance 40, so it was not added.',
   ],
   [
     'redundant_constraint',
@@ -107,7 +111,7 @@ const CASES: readonly Case[] = [
   [
     'dimension_over_constrained',
     () => MESSAGES.dimension_over_constrained(),
-    'This dimension would over-constrain the sketch. Add it as a reference dimension that only measures?',
+    'Other dimensions and constraints already set this size. Add it as a reference dimension that only shows the measurement?',
   ],
   [
     'dimension_unsolvable',
@@ -117,7 +121,7 @@ const CASES: readonly Case[] = [
   [
     'cannot_dimension',
     () => MESSAGES.cannot_dimension('a point', 'a circle'),
-    'Partsmith cannot dimension a point and a circle.',
+    'Partsmith cannot dimension a point and a circle. Pick two points, a point and a line, two lines, or one circle or arc.',
   ],
   [
     'arc_collinear',
@@ -126,8 +130,8 @@ const CASES: readonly Case[] = [
   ],
   [
     'profile_problems',
-    () => MESSAGES.profile_problems('Sketch 1', 2),
-    'Sketch 1 has 2 profile problems, so some regions may not extrude.',
+    () => MESSAGES.profile_problems('Sketch 1', '2 open ends'),
+    'Sketch 1 has 2 open ends, so some shapes cannot be extruded.',
   ],
   [
     'units_changed',
@@ -173,6 +177,74 @@ const CASES: readonly Case[] = [
   ['fill_fields', () => MESSAGES.fill_fields(), 'Fill in the highlighted fields first.'],
   ['core_not_running', () => MESSAGES.core_not_running(), 'The geometry core is not running.'],
   [
+    'sketch_dof_help',
+    () => MESSAGES.sketch_dof_help(LINUX),
+    'Blue geometry can still move or change size. Add dimensions (D) or constraints where the size matters; you can extrude at any time.',
+  ],
+  ['plane_pick_hint', () => MESSAGES.plane_pick_hint(), 'Top plane (XY) is the print bed.'],
+  [
+    'sketch_step_start',
+    () => MESSAGES.sketch_step_start(LINUX),
+    'Choose Line (L), Rectangle (R) or Circle (C) to start drawing.',
+  ],
+  ['sketch_step_line_start', () => MESSAGES.sketch_step_line_start(), 'Click to start a line.'],
+  [
+    'sketch_step_line_next',
+    () => MESSAGES.sketch_step_line_next(LINUX),
+    'Click to end the segment, or type a length. Click the first point to close the shape, or press Enter to stop.',
+  ],
+  ['sketch_step_corner', () => MESSAGES.sketch_step_corner(), 'Click the first corner.'],
+  [
+    'sketch_step_opposite_corner',
+    () => MESSAGES.sketch_step_opposite_corner(),
+    'Click the opposite corner, or type the width.',
+  ],
+  ['sketch_step_center', () => MESSAGES.sketch_step_center(), 'Click the center.'],
+  [
+    'sketch_step_rectangle_corner',
+    () => MESSAGES.sketch_step_rectangle_corner(),
+    'Click a corner, or type the width.',
+  ],
+  [
+    'sketch_step_circle_size',
+    () => MESSAGES.sketch_step_circle_size(),
+    'Click to set the size, or type the diameter.',
+  ],
+  ['sketch_step_arc_start', () => MESSAGES.sketch_step_arc_start(), 'Click where the arc starts.'],
+  ['sketch_step_arc_end', () => MESSAGES.sketch_step_arc_end(), 'Click where it ends.'],
+  [
+    'sketch_step_arc_shape',
+    () => MESSAGES.sketch_step_arc_shape(),
+    'Move to shape the arc, then click, or type the radius.',
+  ],
+  ['sketch_step_point', () => MESSAGES.sketch_step_point(), 'Click to place a point.'],
+  [
+    'sketch_step_dimension',
+    () => MESSAGES.sketch_step_dimension(),
+    'Click a line, circle, arc or point.',
+  ],
+  [
+    'sketch_step_dimension_place',
+    () => MESSAGES.sketch_step_dimension_place(),
+    'Click to place the dimension, or click a second point or line to measure between them.',
+  ],
+  [
+    'sketch_step_dimension_second',
+    () => MESSAGES.sketch_step_dimension_second(),
+    'Click a second point or a line.',
+  ],
+  [
+    'sketch_step_dimension_label',
+    () => MESSAGES.sketch_step_dimension_label(),
+    'Click to place the dimension.',
+  ],
+  ['sketch_free_placement', () => MESSAGES.sketch_free_placement(LINUX), 'Hold Ctrl to place freely.'],
+  [
+    'sketch_leave',
+    () => MESSAGES.sketch_leave(LINUX),
+    'To leave the sketch, click Finish sketch or press Ctrl+Enter.',
+  ],
+  [
     'region_crashed',
     () => MESSAGES.region_crashed(),
     'This part of the window hit a problem. Reload to restore it.',
@@ -186,6 +258,17 @@ describe('MESSAGES', () => {
 
   it('U-73 has an entry for every message id of 4.3', () => {
     expect(Object.keys(MESSAGES)).toEqual(expect.arrayContaining(CASES.map(([id]) => id)))
-    expect(CASES).toHaveLength(44)
+    expect(CASES).toHaveLength(64)
+  })
+
+  it('renders shortcut placeholders and the free placement key for macOS', () => {
+    expect(MESSAGES.sketch_step_start(MAC)).toBe(
+      'Choose Line (L), Rectangle (R) or Circle (C) to start drawing.',
+    )
+    expect(MESSAGES.sketch_step_line_next(MAC)).toMatch(/press ↩ to stop\.$/)
+    expect(MESSAGES.sketch_leave(MAC)).toBe(
+      'To leave the sketch, click Finish sketch or press ⌘↩.',
+    )
+    expect(MESSAGES.sketch_free_placement(MAC)).toBe('Hold ⌘ to place freely.')
   })
 })

@@ -1,5 +1,9 @@
+import type { Platform } from './app/createApp'
+import { formatShortcut } from './commands/shortcuts'
+
 // UI-owned messages (ui.md 4.3), each a function of its placeholders. Core messages are shown verbatim
-// and only wrapped by these templates; file names appear as given, without quotation marks.
+// and only wrapped by these templates; file names appear as given, without quotation marks. A
+// shortcut placeholder is rendered with `formatShortcut` for the platform.
 
 const BROWSERS = 'Chrome, Edge, Firefox or Safari'
 
@@ -37,19 +41,22 @@ export const MESSAGES = {
   feature_failed: (label: string, message: string) => `${label} failed. ${message}`,
   features_failed: (count: number) => `${String(count)} features failed after this change.`,
   over_constrained: (title: string, list: string) =>
-    `${title} would over-constrain the sketch: it conflicts with ${list}.`,
+    `${title} conflicts with ${list}, so it was not added.`,
   redundant_constraint: (title: string) =>
     `${title} is already implied by other constraints, so it was not added.`,
   dimension_over_constrained: () =>
-    'This dimension would over-constrain the sketch. Add it as a reference dimension that only measures?',
+    'Other dimensions and constraints already set this size. Add it as a reference dimension that only shows the measurement?',
   dimension_unsolvable: () =>
     'The sketch cannot be solved with this value. Check for dimensions that cannot all be true at once.',
   cannot_dimension: (first: string, second: string) =>
-    `Partsmith cannot dimension ${first} and ${second}.`,
+    `Partsmith cannot dimension ${first} and ${second}. Pick two points, a point and a line, two lines, or one circle or arc.`,
   arc_collinear: () =>
     'These three points are in a line. Move the last point off the line to make an arc.',
-  profile_problems: (label: string, count: number) =>
-    `${label} has ${String(count)} profile problems, so some regions may not extrude.`,
+  /** `outline` is `outlineProblems` of the sketch's solution, such as "2 open ends" (2.14). */
+  profile_problems: (label: string, outline: string) =>
+    `${label} has ${outline}, so some shapes cannot be extruded.`,
+  sketch_dof_help: (platform: Platform) =>
+    `Blue geometry can still move or change size. Add dimensions (${formatShortcut('D', platform)}) or constraints where the size matters; you can extrude at any time.`,
   units_changed: (unit: string) =>
     `Units are now ${unit}. Numbers typed without a unit now mean ${unit}.`,
   pick_plane: () => 'Pick a flat face, a datum plane or an origin plane.',
@@ -67,6 +74,31 @@ export const MESSAGES = {
   import_not_editable: () => 'Imported geometry has no settings to edit.',
   fill_fields: () => 'Fill in the highlighted fields first.',
   core_not_running: () => 'The geometry core is not running.',
+  plane_pick_hint: () => 'Top plane (XY) is the print bed.',
+  sketch_step_start: (platform: Platform) =>
+    `Choose Line (${formatShortcut('L', platform)}), Rectangle (${formatShortcut('R', platform)}) or Circle (${formatShortcut('C', platform)}) to start drawing.`,
+  sketch_step_line_start: () => 'Click to start a line.',
+  sketch_step_line_next: (platform: Platform) =>
+    `Click to end the segment, or type a length. Click the first point to close the shape, or press ${formatShortcut('Enter', platform)} to stop.`,
+  sketch_step_corner: () => 'Click the first corner.',
+  sketch_step_opposite_corner: () => 'Click the opposite corner, or type the width.',
+  sketch_step_center: () => 'Click the center.',
+  sketch_step_rectangle_corner: () => 'Click a corner, or type the width.',
+  sketch_step_circle_size: () => 'Click to set the size, or type the diameter.',
+  sketch_step_arc_start: () => 'Click where the arc starts.',
+  sketch_step_arc_end: () => 'Click where it ends.',
+  sketch_step_arc_shape: () => 'Move to shape the arc, then click, or type the radius.',
+  sketch_step_point: () => 'Click to place a point.',
+  sketch_step_dimension: () => 'Click a line, circle, arc or point.',
+  sketch_step_dimension_place: () =>
+    'Click to place the dimension, or click a second point or line to measure between them.',
+  sketch_step_dimension_second: () => 'Click a second point or a line.',
+  sketch_step_dimension_label: () => 'Click to place the dimension.',
+  /** The key that suppresses inference: "Ctrl" on Windows and Linux, "⌘" on macOS (3.16.5). */
+  sketch_free_placement: (platform: Platform) =>
+    `Hold ${platform.operatingSystem === 'mac' ? '⌘' : 'Ctrl'} to place freely.`,
+  sketch_leave: (platform: Platform) =>
+    `To leave the sketch, click Finish sketch or press ${formatShortcut('Mod+Enter', platform)}.`,
   region_crashed: () => 'This part of the window hit a problem. Reload to restore it.',
 } as const
 

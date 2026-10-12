@@ -2,6 +2,7 @@ import { cleanup, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { installPopoverPolyfill } from '../components/popover-polyfill.testing'
+import { MESSAGES } from '../messages'
 import { DEFAULT_SETTINGS, SETTINGS_KEY } from '../settings/settings'
 import { INITIAL_STATE, type AppState, type SketchSession } from '../state/store'
 import { catalogOf, TEST_CATALOG_ENTRIES } from '../test/fakes/catalog'
@@ -40,6 +41,7 @@ const EDITING_SKETCH: SketchSession = {
   showConstraints: true,
   selection: [],
   dragging: false,
+  cameraBefore: null,
 }
 
 function renderApp(state: Partial<AppState> = {}, document = cubeDocumentState()) {
@@ -421,6 +423,32 @@ describe('the Print toolbar (3.3, 3.17)', () => {
     expect(
       within(toolbar).getByRole('button', { name: 'Printer: Generic FDM 0.4 mm (default)' }),
     ).toBeInTheDocument()
+  })
+
+  it('disables the printer button with finish_command_first during a feature command', async () => {
+    const { app, user } = renderApp({
+      context: 'print',
+      command: {
+        featureType: 'fillet',
+        featureId: 'f-fil9',
+        editing: false,
+        title: 'Fillet',
+        params: {},
+        activeField: 'edges',
+        fieldErrors: {},
+        applied: false,
+        newBody: null,
+        preview: 'none',
+      },
+    })
+    const toolbar = screen.getByRole('toolbar', { name: 'Print tools' })
+    const printer = within(toolbar).getByRole('button', { name: /^Printer: / })
+    expect(printer).toHaveAttribute('aria-disabled', 'true')
+    await user.click(printer)
+    expect(screen.queryByTestId('printer-menu')).toBeNull()
+    expect(app.store.getState().notifications.map((notification) => notification.message)).toEqual([
+      MESSAGES.finish_command_first('Fillet'),
+    ])
   })
 
   it('shows the shown finding count on Print check and opens the print check panel', async () => {

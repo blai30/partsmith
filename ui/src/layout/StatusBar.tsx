@@ -284,7 +284,7 @@ export function StatusBar() {
     <footer
       data-testid="status-bar"
       className={clsx(
-        'flex h-7 shrink-0 items-center gap-3 overflow-x-auto border-t px-2 text-xs',
+        'col-span-3 row-start-4 flex h-7 min-w-0 items-center gap-3 overflow-x-auto border-t px-2 text-xs',
         COLOR_CLASSES.surface.background,
         COLOR_CLASSES.border.border,
         COLOR_CLASSES.textMuted.foreground,

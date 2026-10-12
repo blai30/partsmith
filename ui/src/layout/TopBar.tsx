@@ -213,7 +213,7 @@ export function TopBar() {
     <header
       data-testid="top-bar"
       className={clsx(
-        '@container flex h-12 shrink-0 items-center gap-2 border-b px-2',
+        '@container col-span-3 row-start-1 flex h-12 min-w-0 items-center gap-2 border-b px-2',
         COLOR_CLASSES.surface.background,
         COLOR_CLASSES.border.border,
       )}

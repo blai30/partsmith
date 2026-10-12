@@ -28,7 +28,7 @@ import { ViewportControls, type SelectionFilterKind } from './ViewportControls'
 // chrome once; the controller draws and moves runtime positions without React (ADR 0002).
 
 export type ViewportProps = {
-  /** Chrome over the view: the inspector, notifications, the sketch header and legends. */
+  /** Chrome over the view: the inspector, the sketch header and legends. */
   readonly children?: ReactNode
 }
 
@@ -357,7 +357,7 @@ export function Viewport({ children }: ViewportProps) {
       data-hover-kind={hoverKind}
       data-hover-key={hoverKey ?? undefined}
       data-selection-count={selectionCount}
-      className="relative min-h-0 min-w-0 flex-1 overflow-hidden"
+      className="relative col-start-2 row-start-2 min-h-0 min-w-0 overflow-hidden"
     >
       {/* The spec makes the view one focusable application that takes the camera keys (3.13). */}
       {/* oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */}

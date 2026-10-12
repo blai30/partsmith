@@ -135,6 +135,25 @@ export function dismiss(app: App, id: string): void {
   removeNotification(app.store, id)
 }
 
+/**
+ * Dismisses each failure notification once none of the features it names is in error anymore,
+ * after an undo, a fix or a deletion (3.22, 4.2). Returns the function that stops it.
+ */
+export function installFailureDismissal(app: App): () => void {
+  return app.store.subscribe((state, previous) => {
+    const statuses = state.document?.featureStatus
+    if (statuses === previous.document?.featureStatus) {
+      return
+    }
+    for (const notification of state.notifications) {
+      const features = notification.features
+      if (features !== undefined && features.every((id) => statuses?.[id]?.status !== 'error')) {
+        removeNotification(app.store, notification.id)
+      }
+    }
+  })
+}
+
 /** Holds a notification's countdown while the pointer is over it or focus is inside it. */
 export function pauseNotification(app: App, id: string): void {
   const countdown = timersOf(app.store).countdowns.get(id)

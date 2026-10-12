@@ -38,7 +38,7 @@ export function showCoreError(app: App, error: unknown, options: RefusalOptions 
       options.onRefused(error.message)
       return
     }
-    notify(app, { severity: 'error', message: error.message, actions: [] })
+    notify(app, { severity: 'error', message: error.message, actions: [], code: error.code })
     return
   }
   if (error instanceof CoreFatalError) {
@@ -76,10 +76,14 @@ export function reportNewFailures(app: App, before: Readonly<Record<string, Feat
       void undo(app)
     },
   }
+  // The notification names the features, so it goes once none of them is in error (3.22).
+  const features = failed.map((feature) => feature.id)
   if (failed.length > 1) {
     notify(app, {
       severity: 'error',
       message: MESSAGES.features_failed(failed.length),
+      code: 'features_failed',
+      features,
       actions: [
         {
           label: 'Show problems',
@@ -97,6 +101,8 @@ export function reportNewFailures(app: App, before: Readonly<Record<string, Feat
   notify(app, {
     severity: 'error',
     message: MESSAGES.feature_failed(label, message).trimEnd(),
+    code: 'feature_failed',
+    features,
     actions: [
       {
         label: 'Edit',

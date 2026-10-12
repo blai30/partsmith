@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { Document } from '../generated/protocol'
 import { TEST_CATALOG } from '../test/fakes/catalog'
 import { CUBE_DOCUMENT, emptyDocument, type FeatureRecord } from '../test/fakes/documents'
-import { featureLabel, nextBodyName } from './labels'
+import { featureLabel, nextBodyName, originPlaneName, originPlaneView } from './labels'
 
 function documentWith(
   features: readonly FeatureRecord[],
@@ -70,5 +70,19 @@ describe('nextBodyName', () => {
 
   it('skips every number in use and ignores other names', () => {
     expect(nextBodyName(documentWith([], ['Body 1', 'Cube', 'Body 2']))).toBe('Body 3')
+  })
+})
+
+describe('originPlaneName', () => {
+  it('U-113 names XY "Top plane (XY)", XZ "Front plane (XZ)" and YZ "Right plane (YZ)"', () => {
+    expect(originPlaneName('XY')).toBe('Top plane (XY)')
+    expect(originPlaneName('XZ')).toBe('Front plane (XZ)')
+    expect(originPlaneName('YZ')).toBe('Right plane (YZ)')
+  })
+
+  it('takes the view that looks at each plane from its front (2.11)', () => {
+    expect(originPlaneView('XY')).toBe('Top')
+    expect(originPlaneView('XZ')).toBe('Front')
+    expect(originPlaneView('YZ')).toBe('Right')
   })
 })

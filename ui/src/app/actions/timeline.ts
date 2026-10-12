@@ -205,6 +205,7 @@ export async function deleteFeatures(app: App, featureIds: readonly string[]): P
   notify(app, {
     severity: 'info',
     message: MESSAGES.deleted(subject),
+    code: 'deleted',
     actions: [
       {
         label: 'Undo',

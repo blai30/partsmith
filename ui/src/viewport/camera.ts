@@ -432,6 +432,39 @@ export function normalizedPosition(
   }
 }
 
+// How far from a sketch plane's normal a view still counts as looking straight at the plane (3.16.11).
+const STRAIGHT_AT_PLANE = 10 * DEGREE
+
+/** Whether the camera looks along `normal` or `-normal` within 10 degrees. */
+function looksStraightAt(camera: Camera, normal: Vector3): boolean {
+  const angle = angleBetween(forward(camera), normal)
+  return Math.min(angle, Math.PI - angle) <= STRAIGHT_AT_PLANE
+}
+
+/**
+ * The camera to animate to when a sketch with plane normal `normal` is left (3.16.11), or null to
+ * stay: a view the user already turned away from the plane stays; otherwise the view from before
+ * the sketch, unless it looked straight at the plane too; otherwise the iso view (the front view
+ * for a plane that faces the iso direction), keeping target, distance and projection. It never
+ * returns a camera looking straight at the plane, so the next feature's preview is seen in depth.
+ */
+export function cameraAfterSketch(
+  current: Camera,
+  before: Camera | null,
+  normal: Vector3,
+): Camera | null {
+  if (!looksStraightAt(current, normal)) {
+    return null
+  }
+  if (before !== null && !looksStraightAt(before, normal)) {
+    return before
+  }
+  const iso = { ...current, rotation: standardViewRotation('iso') }
+  return looksStraightAt(iso, normal)
+    ? { ...current, rotation: standardViewRotation('front') }
+    : iso
+}
+
 /** Cubic ease-out of camera animations (2.11), for `amount` from 0 to 1. */
 export function easeOutCubic(amount: number): number {
   return 1 - (1 - amount) ** 3

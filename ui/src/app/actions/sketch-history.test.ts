@@ -1,6 +1,5 @@
 import { describe, expect, it, vi, type Mock } from 'vitest'
 import type { BoundingBox, ProfileFinding } from '../../generated/protocol'
-import { MESSAGES } from '../../messages'
 import {
   actionLabels,
   createTestApp,
@@ -16,7 +15,14 @@ import {
 import { documentStateFor } from '../../test/fakes/state'
 import { settle } from '../../test/fakes/settle'
 import { createAppStore } from '../../state/store'
-import { DEFAULT_CAMERA, orbit, type Camera, type StandardView } from '../../viewport/camera'
+import {
+  classifyView,
+  DEFAULT_CAMERA,
+  orbit,
+  standardViewRotation,
+  type Camera,
+  type StandardView,
+} from '../../viewport/camera'
 import type { Vector3 } from '../../viewport/math'
 import type { App } from '../createApp'
 import { redo, undo } from './document'
@@ -26,6 +32,7 @@ import {
   recordSketchEdit,
   recordSketchView,
   sketchPlaneOf,
+  startNewSketch,
 } from './sketch'
 
 // The sketch view history of ui.md 3.20 with a recording viewport, and entering and finishing.
@@ -163,8 +170,61 @@ describe('finishSketch (3.16.11)', () => {
     await enterSketch(fake.app, 'f-sk1')
     await finishSketch(fake.app)
     await settle()
-    const notification = notificationWith(fake.app, MESSAGES.profile_problems('Sketch 1', 1))
+    const notification = notificationWith(fake.app, 'Sketch 1 has 1 open end, so some shapes cannot be extruded.')
     expect(actionLabels(notification)).toEqual(['Back to sketch'])
+  })
+})
+
+describe('the camera after a sketch (3.16.11)', () => {
+  // Looking straight down at the XY plane of f-sk1, as entering the sketch leaves the camera.
+  const STRAIGHT_ON: Camera = { ...BEFORE, rotation: standardViewRotation('top') }
+
+  it('keeps the camera from before entering as cameraBefore', async () => {
+    const { app } = sketchApp()
+    await enterSketch(app, 'f-sk1')
+    expect(app.store.getState().sketch?.cameraBefore).toBe(BEFORE)
+  })
+
+  it('U-126 animates a camera still looking straight at the sketch back to the camera from before', async () => {
+    const { app, viewport } = sketchApp()
+    await enterSketch(app, 'f-sk1')
+    viewport.setCamera(STRAIGHT_ON)
+    const setCamera = vi.spyOn(viewport, 'setCamera')
+    await finishSketch(app)
+    expect(setCamera).toHaveBeenCalledExactlyOnceWith(BEFORE, { animate: true })
+    expect(viewport.getCamera()).toBe(BEFORE)
+  })
+
+  it('U-126 turns to iso when the camera from before looked straight at the sketch too', async () => {
+    const { app, viewport } = sketchApp()
+    viewport.setCamera(STRAIGHT_ON)
+    await enterSketch(app, 'f-sk1')
+    await finishSketch(app)
+    expect(classifyView(viewport.getCamera())).toBe('iso')
+    expect(viewport.getCamera().target).toEqual(STRAIGHT_ON.target)
+  })
+
+  it('U-126 leaves a camera the user turned away from the sketch plane where it is', async () => {
+    const { app, viewport } = sketchApp()
+    await enterSketch(app, 'f-sk1')
+    viewport.setCamera(LATER)
+    const setCamera = vi.spyOn(viewport, 'setCamera')
+    await finishSketch(app)
+    expect(setCamera).not.toHaveBeenCalled()
+  })
+
+  it('keeps the first camera from before when the session moves on to another sketch', async () => {
+    const { app, viewport } = sketchApp()
+    await enterSketch(app, 'f-sk1')
+    viewport.setCamera(STRAIGHT_ON)
+    await enterSketch(app, 'f-sk1')
+    expect(app.store.getState().sketch?.cameraBefore).toBe(BEFORE)
+  })
+
+  it('has no camera from before while a plane is picked', async () => {
+    const { app } = sketchApp()
+    await startNewSketch(app)
+    expect(app.store.getState().sketch).toMatchObject({ sketchId: null, cameraBefore: null })
   })
 })
 
