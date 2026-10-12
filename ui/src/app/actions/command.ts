@@ -16,6 +16,7 @@ import {
   bodyCreatingTarget,
   buildInspectorModel,
   defaultParams,
+  filledByCommand,
   getParam,
   setParam,
   type InspectorField,
@@ -254,11 +255,22 @@ function fillsFromSiblingPick(field: InspectorField, fields: readonly InspectorF
   )
 }
 
-/** The first required, empty selection field, or null. */
-function firstEmptySelectionField(model: InspectorModel, feature: CatalogFeature): string | null {
+/**
+ * The first required, empty selection field that waits for a pick, or null: a body field that the
+ * first face or edge pick fills, or that the command fills itself (op new), waits for none.
+ */
+function firstEmptySelectionField(
+  model: InspectorModel,
+  feature: CatalogFeature,
+  params: Params,
+): string | null {
   const fields = selectionFields(model, feature)
   const next = fields.find(
-    (field) => field.required && isEmptyValue(field.value) && !fillsFromSiblingPick(field, fields),
+    (field) =>
+      field.required &&
+      isEmptyValue(field.value) &&
+      !fillsFromSiblingPick(field, fields) &&
+      !filledByCommand(field, params, feature),
   )
   return next?.path ?? null
 }
@@ -267,8 +279,12 @@ function firstEmptySelectionField(model: InspectorModel, feature: CatalogFeature
  * The field that takes picks when a command opens (3.7 step 5): the first required empty
  * selection field, else the first essential multiple selection field, else none.
  */
-function openingActiveField(model: InspectorModel, feature: CatalogFeature): string | null {
-  const empty = firstEmptySelectionField(model, feature)
+function openingActiveField(
+  model: InspectorModel,
+  feature: CatalogFeature,
+  params: Params,
+): string | null {
+  const empty = firstEmptySelectionField(model, feature, params)
   if (empty !== null) {
     return empty
   }
@@ -932,7 +948,8 @@ async function openFeatureCommand(
       editing: false,
       title: feature.manifest.label,
       params: opening.params,
-      activeField: saved === null ? openingActiveField(model, feature) : saved.activeField,
+      activeField:
+        saved === null ? openingActiveField(model, feature, opening.params) : saved.activeField,
       fieldErrors: {},
       applied: false,
       newBody: opening.newBody,
@@ -1639,7 +1656,7 @@ function commitPick(
     params: helped.params,
     errors: command.fieldErrors,
   })
-  const next = firstEmptySelectionField(nextModel, session.feature)
+  const next = firstEmptySelectionField(nextModel, session.feature, helped.params)
   const first = filled && isEmptyValue(field.value)
   const activeField = !filled
     ? command.activeField

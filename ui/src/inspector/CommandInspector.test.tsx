@@ -257,6 +257,18 @@ describe('where focus starts (3.7 step 5, U-104)', () => {
     expect(test.app.store.getState().command?.activeField).toBe('edges')
   })
 
+  it('U-104 Box opens with Length focused and selected and no active field, since it makes its own body', async () => {
+    const test = createModelApp({ state: readyState(cubeDocumentState()) })
+    renderWithApp(test.app)
+    await startFeatureCommand(test.app, 'box')
+    await settle()
+    expect(test.app.store.getState().command?.activeField).toBeNull()
+    const length = within(field('size[0]')).getByRole('combobox', { name: 'Length' })
+    expect(length).toHaveFocus()
+    expect(length).toHaveProperty('selectionStart', 0)
+    expect(length).toHaveProperty('selectionEnd', length.getAttribute('value')?.length ?? 0)
+  })
+
   it('focuses a required empty selection field that waits for a pick', async () => {
     const test = createModelApp({ state: readyState(cubeDocumentState()) })
     renderWithApp(test.app)

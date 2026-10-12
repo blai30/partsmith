@@ -101,8 +101,11 @@ function Panel({
       return undefined
     }
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null
-    const opening = openingFocus(app.store.getState())
-    const target = opening === null ? null : document.getElementById(fieldInputId(opening))
+    // The first of the opening fields that is shown takes focus.
+    const target =
+      openingFocus(app.store.getState())
+        .map((path) => document.getElementById(fieldInputId(path)))
+        .find((element) => element !== null) ?? null
     if (target !== null) {
       target.focus()
       if (target instanceof HTMLInputElement) {
@@ -213,24 +216,27 @@ function Panel({
 }
 
 /**
- * Where focus goes when a command's inspector opens (3.7 step 5): the active field when it is a
- * required empty selection field, else the first essential expression field, else the active field.
+ * Where focus goes when a command's inspector opens (3.7 step 5), in order of preference: the
+ * active field when it is a required empty selection field, else the first essential expression
+ * field, else the active field. The first of them that is shown takes focus, so an active field
+ * inside the closed More options gives way to the first essential expression field.
  */
-function openingFocus(state: AppState): string | null {
+function openingFocus(state: AppState): readonly string[] {
   const command = state.command
   const feature = command === null ? undefined : state.catalog?.byType[command.featureType]
   if (command === null || feature === undefined) {
-    return null
+    return []
   }
   const model = buildInspectorModel({ feature, params: command.params, errors: {} })
   const fields = [...model.essential, ...model.more]
   const active = fields.find((field) => field.path === command.activeField)
   const waiting = active !== undefined && active.required && isEmptyField(active.value)
   const expression = model.essential.find((field) => field.control.type === 'expression')
-  if (waiting || expression === undefined) {
-    return command.activeField
-  }
-  return expression.path
+  const paths =
+    waiting || expression === undefined
+      ? [command.activeField, expression?.path]
+      : [expression.path, command.activeField]
+  return paths.filter((path): path is string => path !== null && path !== undefined)
 }
 
 function isEmptyField(value: unknown): boolean {

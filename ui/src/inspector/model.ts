@@ -389,7 +389,11 @@ export function bodyCreatingTarget(feature: CatalogFeature): 'op' | 'always' | n
 }
 
 /** A body field the command fills itself: an empty body beside op `new` gets a new body (3.7). */
-function filledByCommand(field: InspectorField, params: Params, feature: CatalogFeature): boolean {
+export function filledByCommand(
+  field: InspectorField,
+  params: Params,
+  feature: CatalogFeature,
+): boolean {
   if (
     field.control.type !== 'selection' ||
     field.control.accepts !== 'body' ||
