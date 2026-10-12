@@ -518,6 +518,8 @@ struct BodyContent {
     naming: Arc<NamingMap>,
     /// Element infos, computed on first use.
     elements: OnceLock<Result<Arc<[ElementInfo]>, FeatureError>>,
+    /// Volume, computed on first use.
+    volume: OnceLock<Result<f64, FeatureError>>,
 }
 
 impl BodyState {
@@ -575,6 +577,18 @@ impl BodyState {
             .clone()
     }
 
+    /// Volume of the shape in cubic millimeters (0 for an empty body), computed once on first use
+    /// and shared by clones.
+    pub fn volume(&self) -> Result<f64, FeatureError> {
+        self.content
+            .volume
+            .get_or_init(|| match &self.content.shape {
+                None => Ok(0.0),
+                Some(shape) => Ok(shape.volume()?),
+            })
+            .clone()
+    }
+
     /// A state with this shape and naming map.
     fn with(shape: Option<Shape>, naming: Arc<NamingMap>) -> Self {
         BodyState {
@@ -582,6 +596,7 @@ impl BodyState {
                 shape,
                 naming,
                 elements: OnceLock::new(),
+                volume: OnceLock::new(),
             }),
         }
     }
@@ -1819,6 +1834,22 @@ mod tests {
         assert!(state.is_empty());
         assert!(state.shape().is_none());
         assert_eq!(state.elements().expect("no elements").len(), 0);
+    }
+
+    #[test]
+    fn empty_bodies_have_no_volume() {
+        assert_eq!(BodyState::empty().volume().expect("no volume"), 0.0);
+    }
+
+    #[test]
+    fn the_volume_of_a_state_is_shared_by_its_clones() {
+        let state = box_body("f-box1", [0.0, 0.0, 0.0], 10.0);
+        let clone = state.clone();
+
+        let volume = state.volume().expect("the box has a volume");
+
+        assert!((volume - 1000.0).abs() < 1e-9, "{volume}");
+        assert_eq!(clone.volume().expect("the clone has a volume"), volume);
     }
 
     #[test]

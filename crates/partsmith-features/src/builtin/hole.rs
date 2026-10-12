@@ -3,17 +3,19 @@
 //!
 //! Each point gets its own tool, the full revolution of a half cross-section whose curves are
 //! tagged by role, so every tool face is named `<feature>/<role>/<point>` (naming.md section
-//! 3.6.8). The tools are cut from the body with one kernel call.
+//! 3.6.8). Tools apart from each other are checked against the body with one kernel `common`, and
+//! the tools that overlap it are cut from the body with one kernel call.
 
 use std::f64::consts::{PI, TAU};
 
 use partsmith_model::{
     Category, Expr, FeatureManifest, FieldUnit, Id, LINEAR_TOLERANCE, SelectionKind,
 };
+use partsmith_mesh::BoundingBox;
 use partsmith_naming::{FaceSource, Generator, roles};
 use partsmith_occt_sys::{
     Axis, PlanarCurve, PlanarLoop, PlanarRegion, Plane, Point, Point2, Shape, SweepFace,
-    TaggedCurve, Vector, common, make_profile, revolve,
+    TaggedCurve, Vector, common, compound, make_profile, revolve,
 };
 use partsmith_sketch::{PointRef, PointRole};
 use schemars::JsonSchema;
@@ -192,7 +194,8 @@ impl Feature for Hole {
     }
 
     /// Checks the values, builds one tool per sketch point that touches the body and cuts them
-    /// all with one kernel call (features/hole.md section 3.3).
+    /// all with one kernel call (features/hole.md section 3.3). The body's bounding box is read
+    /// once for every point, and its volume once for the overlap test and the cut.
     fn build(
         params: &HoleParams,
         context: &BuildContext<'_>,
@@ -222,30 +225,48 @@ impl Feature for Hole {
             }
         }
 
-        let body_volume = body.volume()?;
-        let mut tools = Vec::new();
+        let body_bounds = body.bounding_box()?;
+        // Each point with its tool, when it has one whose bounding box meets the body's.
+        let mut drilled: Vec<(&PointRef, Option<Candidate>)> = Vec::new();
         for (point, position) in points {
             if context.is_canceled() {
                 return Err(FeatureError::Canceled);
             }
             let length = match size.depth {
                 Some(depth) => Some(depth),
-                None => size.through_length(farthest_corner(body, position, direction)?),
+                None => size.through_length(farthest_corner(&body_bounds, position, direction)),
             };
             let frame = Frame {
                 position,
                 radial: plane.x_axis,
                 direction,
             };
-            let tool = match length {
+            let candidate = match length {
                 Some(length) => {
                     let tool = hole_tool(context.feature(), point, &frame, &size.section(length))?;
-                    touches(body, body_volume, &tool.shape)?.then_some(tool)
+                    let bounds = tool.shape.bounding_box()?;
+                    bounds
+                        .intersects(&body_bounds)
+                        .then_some(Candidate { tool, bounds })
                 }
                 None => None,
             };
-            match tool {
-                Some(tool) => tools.push(tool),
+            drilled.push((point, candidate));
+        }
+
+        let candidates: Vec<&Candidate> = drilled
+            .iter()
+            .filter_map(|(_, candidate)| candidate.as_ref())
+            .collect();
+        let mut shared = shared_volumes(body, &candidates)?.into_iter();
+        let threshold = VOLUME_TOLERANCE * state.volume()?;
+        let mut tools = Vec::new();
+        for (point, candidate) in drilled {
+            // The shared volumes follow the candidates in point order.
+            let overlapping = candidate
+                .filter(|_| shared.next().is_some_and(|volume| volume > threshold));
+            match overlapping {
+                Some(candidate) => tools.push(candidate.tool),
                 None => warnings.push(FeatureWarning::HoleMissesBody {
                     point: point.to_string(),
                     body: params.body.clone(),
@@ -670,21 +691,81 @@ fn hole_tool(
     })
 }
 
-/// True when the tool overlaps the body: their common volume is more than `VOLUME_TOLERANCE`
-/// times the body's (features/hole.md section 3.3 step 5). Disjoint bounding boxes need no kernel
-/// boolean.
-fn touches(body: &Shape, body_volume: f64, tool: &Shape) -> Result<bool, FeatureError> {
-    let body_bounds = body.bounding_box()?;
-    let tool_bounds = tool.bounding_box()?;
-    let overlap = (0..3).all(|axis| {
-        body_bounds.min[axis] <= tool_bounds.max[axis]
-            && tool_bounds.min[axis] <= body_bounds.max[axis]
-    });
-    if !overlap {
-        return Ok(false);
+/// A hole tool whose bounding box meets the body's, so only a kernel boolean can tell whether it
+/// overlaps the body (features/hole.md section 3.3 step 5).
+struct Candidate {
+    /// The tool.
+    tool: Tool,
+    /// Its tight bounding box.
+    bounds: BoundingBox,
+}
+
+/// The volume each candidate shares with the body, in candidate order. Candidates whose bounding
+/// boxes are apart are grouped into one compound and intersected with the body in one kernel
+/// `common`, each solid of the result counting for the candidate whose box is nearest to its
+/// center; the kernel's work grows with the body, so this costs about one boolean instead of one
+/// per hole. Candidates whose boxes come closer each get their own `common`.
+fn shared_volumes(body: &Shape, candidates: &[&Candidate]) -> Result<Vec<f64>, FeatureError> {
+    let bounds: Vec<&BoundingBox> = candidates
+        .iter()
+        .map(|candidate| &candidate.bounds)
+        .collect();
+    if candidates.len() < 2 || !apart(&bounds) {
+        return candidates
+            .iter()
+            .map(|candidate| {
+                let shared = common(body, std::slice::from_ref(&candidate.tool.shape))?;
+                Ok(shared.shape.volume()?)
+            })
+            .collect();
     }
-    let shared = common(body, std::slice::from_ref(tool))?;
-    Ok(shared.shape.volume()? > VOLUME_TOLERANCE * body_volume)
+    let tools: Vec<Shape> = candidates
+        .iter()
+        .map(|candidate| candidate.tool.shape.clone())
+        .collect();
+    let group = compound(&tools)?.shape;
+    let shared = common(body, std::slice::from_ref(&group))?.shape;
+    let mut volumes = vec![0.0; candidates.len()];
+    for solid in shared.solids()? {
+        let center = solid.bounding_box()?.center();
+        volumes[nearest(&bounds, center)] += solid.volume()?;
+    }
+    Ok(volumes)
+}
+
+/// True when every two boxes are more than `LINEAR_TOLERANCE` apart along some axis, so the
+/// solids inside them neither overlap nor touch.
+fn apart(bounds: &[&BoundingBox]) -> bool {
+    bounds.iter().enumerate().all(|(index, first)| {
+        bounds[index + 1..].iter().all(|second| {
+            (0..3).any(|axis| {
+                first.max[axis] + LINEAR_TOLERANCE < second.min[axis]
+                    || second.max[axis] + LINEAR_TOLERANCE < first.min[axis]
+            })
+        })
+    })
+}
+
+/// The position in `bounds` of the box nearest to `point` (distance 0 inside a box); the first of
+/// equally near boxes. `bounds` is not empty.
+fn nearest(bounds: &[&BoundingBox], point: [f64; 3]) -> usize {
+    let squared_distance = |bounds: &BoundingBox| -> f64 {
+        (0..3)
+            .map(|axis| {
+                let outside = (bounds.min[axis] - point[axis])
+                    .max(point[axis] - bounds.max[axis])
+                    .max(0.0);
+                outside * outside
+            })
+            .sum()
+    };
+    let mut nearest = 0;
+    for (index, candidate) in bounds.iter().enumerate().skip(1) {
+        if squared_distance(candidate) < squared_distance(bounds[nearest]) {
+            nearest = index;
+        }
+    }
+    nearest
 }
 
 /// The kernel point of plane coordinates.
@@ -694,11 +775,12 @@ fn plane_point([x, y]: [f64; 2]) -> Point2 {
 
 #[cfg(test)]
 mod tests {
+    use partsmith_occt_sys::make_cylinder;
     use serde_json::json;
 
     use super::*;
     use crate::registry::Registry;
-    use crate::test_support::{ScriptNames, fixture, id};
+    use crate::test_support::{ScriptNames, fixture, id, named_box, named_primitive};
 
     /// `HOLE(points, extra)` of the spec: diameter 6, plus `extra` members.
     fn record(points: serde_json::Value, extra: serde_json::Value) -> serde_json::Value {
@@ -974,6 +1056,82 @@ mod tests {
 
         assert_eq!(plane.y_axis(), frame.direction);
         assert_eq!(plane.origin, frame.position);
+    }
+
+    fn bounds(min: [f64; 3], max: [f64; 3]) -> BoundingBox {
+        BoundingBox { min, max }
+    }
+
+    /// A cylinder tool of radius 1 standing on (x, y, z), 12 high, with its bounding box.
+    fn rod(x: f64, y: f64, z: f64) -> Candidate {
+        let placement = Plane {
+            origin: Point::new(x, y, z),
+            ..Plane::XY
+        };
+        let tool = named_primitive(
+            "f-rod",
+            make_cylinder(&placement, 1.0, 12.0).expect("the rod builds"),
+        );
+        let bounds = tool.shape.bounding_box().expect("the rod has bounds");
+        Candidate { tool, bounds }
+    }
+
+    /// The shared volumes of `candidates` with the cube [0, 10]^3.
+    fn shared_with_cube(candidates: &[Candidate]) -> Vec<f64> {
+        let cube = named_box("f-box1", [0.0, 0.0, 0.0], 10.0);
+        let candidates: Vec<&Candidate> = candidates.iter().collect();
+        shared_volumes(&cube.shape, &candidates).expect("the overlaps are measured")
+    }
+
+    fn assert_volumes(actual: &[f64], expected: &[f64]) {
+        assert_eq!(actual.len(), expected.len(), "{actual:?}");
+        for (actual, expected) in actual.iter().zip(expected) {
+            assert!((actual - expected).abs() < 1e-6, "{actual} != {expected}");
+        }
+    }
+
+    #[test]
+    fn boxes_are_apart_with_a_gap_along_one_axis() {
+        let unit = bounds([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
+        let beside = bounds([2.0, 0.5, 0.5], [3.0, 1.5, 1.5]);
+        let touching = bounds([1.0, 0.0, 0.0], [2.0, 1.0, 1.0]);
+        let overlapping = bounds([0.5, 0.5, 0.5], [1.5, 1.5, 1.5]);
+
+        assert!(apart(&[&unit, &beside]));
+        assert!(!apart(&[&unit, &touching]));
+        assert!(!apart(&[&beside, &unit, &overlapping]));
+        assert!(apart(&[&unit]));
+    }
+
+    #[test]
+    fn the_nearest_box_holds_the_point_or_is_closest_to_it() {
+        let first = bounds([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
+        let second = bounds([5.0, 0.0, 0.0], [6.0, 1.0, 1.0]);
+
+        assert_eq!(nearest(&[&first, &second], [5.5, 0.5, 0.5]), 1);
+        assert_eq!(nearest(&[&first, &second], [2.0, 0.5, 0.5]), 0);
+        assert_eq!(nearest(&[&first, &second], [4.0, 0.5, 0.5]), 1);
+    }
+
+    #[test]
+    fn tools_apart_share_their_own_volumes_with_the_body() {
+        let quarter = PI * 10.0 / 4.0;
+
+        let volumes = shared_with_cube(&[
+            rod(5.0, 5.0, -1.0),
+            rod(0.0, 0.0, -1.0),
+            rod(10.0, 5.0, 5.0),
+            rod(20.0, 20.0, 0.0),
+        ]);
+
+        assert_volumes(&volumes, &[PI * 10.0, quarter, PI * 5.0 / 2.0, 0.0]);
+    }
+
+    #[test]
+    fn tools_close_together_share_their_own_volumes_with_the_body() {
+        let volumes = shared_with_cube(&[rod(5.0, 5.0, -1.0), rod(6.0, 5.0, 2.0)]);
+
+        assert_volumes(&volumes, &[PI * 10.0, PI * 8.0]);
     }
 
     #[test]

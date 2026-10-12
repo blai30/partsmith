@@ -162,7 +162,7 @@ pub fn apply_op(
     }
     let tool_shapes: Vec<Shape> = tools.iter().map(|tool| tool.shape.clone()).collect();
     let result = boolean(target, &tool_shapes)?;
-    let before = target.volume()?;
+    let before = state.volume()?;
     let after = result.shape.volume()?;
     let nothing_left =
         result.shape.count(SubShapeKind::Solid) == 0 || after <= VOLUME_TOLERANCE * before;

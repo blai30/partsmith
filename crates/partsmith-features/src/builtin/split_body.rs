@@ -94,7 +94,7 @@ impl Feature for SplitBody {
         let pieces = split(shape, &plane.to_kernel())?;
         // A side holds no solid when its volume is at most the volume tolerance of the body
         // (split_body.md section 3.3).
-        let threshold = VOLUME_TOLERANCE * shape.volume()?;
+        let threshold = VOLUME_TOLERANCE * state.volume()?;
         let (positive, negative) = sides(&pieces, threshold)?;
         if !positive.reached || !negative.reached {
             return Err(FeatureError::PlaneMissesBody {

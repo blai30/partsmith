@@ -234,7 +234,7 @@ fn interval(
                     use_new: true,
                 });
             };
-            let reach = farthest_corner(shape, origin, direction)?;
+            let reach = farthest_corner(&shape.bounding_box()?, origin, direction);
             if reach <= 0.0 {
                 return Err(FeatureError::ThroughAllMisses {
                     body: params.body.clone(),

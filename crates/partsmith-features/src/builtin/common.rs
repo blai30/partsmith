@@ -4,6 +4,7 @@
 use partsmith_model::{
     Category, Expr, FeatureManifest, FieldHint, FieldUnit, Id, OptionHint, SelectionKind,
 };
+use partsmith_mesh::BoundingBox;
 use partsmith_naming::{ElementName, FaceSource, Generator, NamingError, Reference, roles};
 use partsmith_occt_sys::{Point, Primitive, PrimitiveFace, Shape, SweepFace, SweepResult, Vector};
 
@@ -230,14 +231,9 @@ pub(crate) fn apply_tool(
     Ok(bodies(vec![update], warnings))
 }
 
-/// The largest signed distance `(corner - origin) · direction` over the eight corners of the
-/// shape's tight bounding box: how far a through-all extrusion or hole must reach.
-pub(crate) fn farthest_corner(
-    shape: &Shape,
-    origin: Point,
-    direction: Vector,
-) -> Result<f64, FeatureError> {
-    let bounds = shape.bounding_box()?;
+/// The largest signed distance `(corner - origin) · direction` over the eight corners of `bounds`,
+/// a body's tight bounding box: how far a through-all extrusion or hole must reach.
+pub(crate) fn farthest_corner(bounds: &BoundingBox, origin: Point, direction: Vector) -> f64 {
     let mut farthest = f64::NEG_INFINITY;
     for corner in 0..8 {
         let [x, y, z] = [0, 1, 2].map(|axis| {
@@ -250,7 +246,7 @@ pub(crate) fn farthest_corner(
         let offset = Vector::new(x - origin.x, y - origin.y, z - origin.z);
         farthest = farthest.max(offset.dot(direction));
     }
-    Ok(farthest)
+    farthest
 }
 
 /// A naming failure, which valid kernel output cannot cause, as an internal error.
@@ -445,8 +441,8 @@ mod tests {
             .shape;
         let [x, y, z] = origin;
         let [dx, dy, dz] = direction;
-        farthest_corner(&shape, Point::new(x, y, z), Vector::new(dx, dy, dz))
-            .expect("the box has bounds")
+        let bounds = shape.bounding_box().expect("the box has bounds");
+        farthest_corner(&bounds, Point::new(x, y, z), Vector::new(dx, dy, dz))
     }
 
     #[test]
