@@ -518,6 +518,8 @@ pub enum EngineError {
     /// `index` is the offending edit, or `None` when `rename_parameter`'s own checks failed.
     #[error("{source}")] EditRejected { index: Option<u32>, source: EditError },
     #[error("{feature_type} {feature}: {message}")] InvalidParams { index: u32, feature: Id, feature_type: String, message: String },
+    /// Sketch params of `solve_sketch` or `drag_sketch` fail validation (the registry's or `SketchParams::validate`) or the solver rejects them (3.6).
+    #[error("{message}")] InvalidSketch { message: String },
     #[error("There is nothing to undo.")] NothingToUndo,
     #[error("There is nothing to redo.")] NothingToRedo,
     #[error("There is no feature with id {id}.")] UnknownFeature { id: Id },
@@ -532,7 +534,8 @@ pub enum EngineError {
     #[error("Body \"{name}\" has no geometry yet.")] BodyEmpty { name: String },
     #[error("The selected {kind} no longer exists. Pick it again.")] ReferenceUnresolved { kind: String },
     #[error("Measure takes one body or element.")] InvalidMeasure,
-    #[error("{message}")] Expression { message: String },
+    /// `span` is the byte range of the problem in the expression text when that text is the one the command gave (`evaluate`), else `None` (a sketch's driving dimension, 3.6).
+    #[error("{message}")] Expression { message: String, span: Option<Span> },
     #[error("Printer profile \"{id}\" is not installed.")] UnknownPrinterProfile { id: String },
     #[error("\"{id}\" is a built-in profile. Save your changes under a new name.")] ProfileIdReserved { id: String },
     #[error("{message}")] InvalidProfile { message: String },
@@ -549,12 +552,16 @@ impl EngineError {
     pub fn code(&self) -> ErrorCode;
     /// The offending edit index for `EditRejected` (when it has one) and `InvalidParams`.
     pub fn edit_index(&self) -> Option<u32>;
+    /// The error as it travels on the wire: code, message, edit index and expression span.
+    pub fn to_info(&self) -> ErrorInfo;
 }
 ```
 
 `ExportFailed` and `ImportFailed` embed a partsmith-io error: `detail` is its `Display` text unchanged (io.md section 4, which passes kernel messages through), always one or more complete sentences ending with a period, so the message reads as a short lead sentence followed by the cause, for example `Export failed. Body "Ghost" has no triangles to export.` and `Import failed. The file is not a valid STEP file.` The engine never lowercases, trims or rewords `detail`.
 
-`code()` maps each variant to the snake_case code of its name (`EditRejected` to `edit_rejected`, `Parse` to `parse_error`, `Expression` to `expression_error`, `Internal` to `internal_error`, `MalformedRequest` to `malformed_request`). `InvalidOrientation` messages are "The orientation is not a rotation." for matrices and "Only flat faces can be laid on the bed." for non-planar faces.
+`code()` maps each variant to the snake_case code of its name (`EditRejected` to `edit_rejected`, `Parse` to `parse_error`, `Expression` to `expression_error`, `Internal` to `internal_error`, `MalformedRequest` to `malformed_request`), except `InvalidSketch`, which shares `invalid_params` with `InvalidParams` (protocol.md section 4, the sketch-command case) and carries the sketch crate's or the registry's message unchanged, with no edit index. `InvalidOrientation` messages are "The orientation is not a rotation." for matrices and "Only flat faces can be laid on the bed." for non-planar faces.
+
+`to_info()` builds protocol.md's `ErrorInfo` (section 2.8): `code()`, the `Display` message, `edit_index()`, and `span` only for an `Expression` error that has one. `Span` here is `partsmith_model::Span` (`usize` byte offsets, expressions.md); `to_info` converts it to the protocol's `Span` with `u32` offsets (`From<partsmith_model::Span>`), the same half-open UTF-8 byte range `[start, end)` into the expression text, which the UI converts to string indices. For example, `evaluate` of `2 * wal` on a document without a parameter `wal` fails with code `expression_error`, message `Unknown name 'wal'. Check the spelling, or add a parameter named wal.` and span `{"start": 4, "end": 7}`.
 
 ## 5. Performance budgets
 

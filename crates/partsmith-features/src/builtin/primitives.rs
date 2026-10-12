@@ -2,18 +2,18 @@
 //! manifest, dependencies, tool and Python form of a solid made from size fields, a placement and
 //! an op.
 
-use partsmith_model::{Category, Expr, FeatureManifest, FieldUnit, Id, LINEAR_TOLERANCE};
+use partsmith_model::{Category, Expr, FeatureManifest, FieldUnit, Id};
 use partsmith_occt_sys::{KernelError, Primitive};
 use partsmith_sketch::Placement;
 
 use super::common::{
-    apply_tool, body_hint, body_op_hint, call, essential, manifest, op_keyword, out_of_range,
-    primitive_tool, unit_hint,
+    apply_tool, body_hint, body_op_hint, call, essential, manifest, op_keyword, primitive_tool,
+    unit_hint,
 };
 use crate::PrimitivePlacement;
 use crate::context::BuildContext;
 use crate::deps::Dependencies;
-use crate::error::{Bound, FeatureError};
+use crate::error::FeatureError;
 use crate::output::FeatureOutput;
 use crate::params::BodyOp;
 use crate::python::{PythonCall, PythonNames, PythonValue};
@@ -33,29 +33,6 @@ pub(crate) fn primitive_manifest(
     fields.extend(PrimitivePlacement::hints());
     fields.push(body_hint());
     manifest(label, Category::Create, icon, fields)
-}
-
-/// The declared size at `field`, which must be greater than 0 (features.md section 3.14). A size
-/// below `LINEAR_TOLERANCE` is `OutOfRange` (`GreaterThan(0)`) like 0, so it never reaches the
-/// kernel, which builds nothing smaller than its modeling tolerance.
-pub(crate) fn positive_size(
-    context: &BuildContext<'_>,
-    field: &str,
-    expr: &Expr,
-) -> Result<f64, FeatureError> {
-    let value = context.eval_length(field, expr)?;
-    if value >= LINEAR_TOLERANCE {
-        Ok(value)
-    } else {
-        Err(out_of_range(
-            context,
-            field,
-            FieldUnit::Length,
-            value,
-            Bound::GreaterThan(0.0),
-            None,
-        ))
-    }
 }
 
 /// A primitive's params as the steps all primitives share read them.

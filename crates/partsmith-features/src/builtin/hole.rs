@@ -24,7 +24,8 @@ use serde::{Deserialize, Serialize};
 use super::common::{
     THROUGH_ALL_MARGIN, bodies, body_hint, call, check_range, empty_selection, essential,
     face_name, farthest_corner, flag, hint, is_false, manifest, one_or_list, options_hint,
-    out_of_range, selection_hint, solid_body, unchanged, unit_hint,
+    is_positive_length, out_of_range, positive_length, selection_hint, solid_body, unchanged,
+    unit_hint,
 };
 use crate::context::BuildContext;
 use crate::deps::Dependencies;
@@ -381,36 +382,48 @@ struct HoleSize {
 
 impl HoleSize {
     /// Evaluates the values and checks them in the order of features/hole.md section 3.3 step 2:
-    /// the diameter, the depth, the head, then the tip. A tip angle on a through-all hole adds an
-    /// `Ignored` warning and is not evaluated.
+    /// the diameter, the depth, the head, then the tip, each length by the positive length rule of
+    /// features.md section 3.4. A tip angle on a through-all hole adds an `Ignored` warning and is
+    /// not evaluated.
     fn checked(
         params: &HoleParams,
         context: &BuildContext<'_>,
         warnings: &mut Vec<FeatureWarning>,
     ) -> Result<HoleSize, FeatureError> {
-        let length = |field: &str, value: f64, bound: Bound, bound_name: Option<&str>| {
-            check_range(context, field, FieldUnit::Length, value, bound, bound_name)
-        };
         let angle = |field: &str, value: f64, bound: Bound| {
             check_range(context, field, FieldUnit::Angle, value, bound, None)
         };
         let diameter = context.eval_length("diameter", &params.diameter)?;
-        length("diameter", diameter, Bound::GreaterThan(0.0), None)?;
+        // The entry and bottom segments of the cross-section are as long as the bore radius.
+        if !is_positive_length(diameter / 2.0) {
+            return Err(out_of_range(
+                context,
+                "diameter",
+                FieldUnit::Length,
+                diameter,
+                Bound::GreaterThan(0.0),
+                None,
+            ));
+        }
         let depth = match &params.extent {
-            HoleExtent::Distance { expr } => {
-                let depth = context.eval_length("extent.expr", expr)?;
-                Some(length("extent.expr", depth, Bound::GreaterThan(0.0), None)?)
-            }
+            HoleExtent::Distance { expr } => Some(positive_length(context, "extent.expr", expr)?),
             HoleExtent::ThroughAll => None,
         };
         let wider = |field: &str, expr: &Expr| {
             let head_diameter = context.eval_length(field, expr)?;
-            length(
-                field,
-                head_diameter,
-                Bound::GreaterThan(diameter),
-                Some("the hole diameter"),
-            )
+            // The step in from the head radius to the bore radius is a segment of its own.
+            if is_positive_length((head_diameter - diameter) / 2.0) {
+                Ok(head_diameter)
+            } else {
+                Err(out_of_range(
+                    context,
+                    field,
+                    FieldUnit::Length,
+                    head_diameter,
+                    Bound::GreaterThan(diameter),
+                    Some("the hole diameter"),
+                ))
+            }
         };
         let head = match &params.hole_type {
             HoleType::Simple => Head::Simple,
@@ -419,8 +432,7 @@ impl HoleSize {
                 depth: head_depth,
             } => {
                 let head_diameter = wider("hole_type.diameter", head_diameter)?;
-                let head_depth = context.eval_length("hole_type.depth", head_depth)?;
-                length("hole_type.depth", head_depth, Bound::GreaterThan(0.0), None)?;
+                let head_depth = positive_length(context, "hole_type.depth", head_depth)?;
                 if let Some(depth) = depth
                     && !ends_above_shoulder(head_depth, depth)
                 {

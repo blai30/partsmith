@@ -131,3 +131,20 @@ fn t007_tube_below_the_tolerance_is_out_of_range() {
     );
     assert_empty(&run, "b-1");
 }
+
+#[test]
+fn t008_tube_within_the_tolerance_of_the_ring_is_out_of_range() {
+    let record = r#"{"id": "f-tor1", "type": "torus", "body": "b-1", "major_radius": "10", "minor_radius": "9.9999999", "op": "new"}"#;
+
+    let run = Run::records(&["b-1"], &[record]);
+
+    let error = run.assert_error("f-tor1", "out_of_range");
+    assert_error_field(error, "minor_radius");
+    assert_eq!(
+        run.messages("f-tor1"),
+        [
+            "Tube radius must be less than the ring radius (10 mm), but it is 10 mm. Use a value less than 10 mm."
+        ],
+    );
+    assert_empty(&run, "b-1");
+}

@@ -7,7 +7,8 @@ use partsmith_sketch::Placement;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use super::primitives::{PrimitiveParams, positive_size, primitive_manifest};
+use super::common::positive_length;
+use super::primitives::{PrimitiveParams, primitive_manifest};
 use crate::context::BuildContext;
 use crate::deps::Dependencies;
 use crate::error::FeatureError;
@@ -81,7 +82,7 @@ impl Feature for BoxFeature {
     ) -> Result<FeatureOutput, FeatureError> {
         let mut size = [0.0; 3];
         for ((value, field), expr) in size.iter_mut().zip(SIZE_FIELDS).zip(&params.size) {
-            *value = positive_size(context, field, expr)?;
+            *value = positive_length(context, field, expr)?;
         }
         let [length, width, height] = size;
         params.primitive().build(context, |frame| {

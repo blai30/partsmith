@@ -450,3 +450,97 @@ fn t026_countersink_ending_at_the_shoulder_within_the_tolerance() {
         ],
     );
 }
+
+/// Runs a through hole of test 1 with this diameter and asserts that it fails with `OutOfRange` on
+/// `diameter`, leaving the body unchanged.
+fn assert_diameter_out_of_range(diameter: &str) -> Run {
+    let run = run_hole(&hole_with_diameter(r#"["e-p1"]"#, diameter, THROUGH_ALL));
+
+    let error = run.assert_error("f-hole1", "out_of_range");
+    assert_error_field(error, "diameter");
+    assert_unchanged(&run, "f-hole1", "b-1");
+    run
+}
+
+#[test]
+fn t027_diameter_below_the_tolerance() {
+    let run = assert_diameter_out_of_range("0.0000001");
+
+    assert_eq!(
+        run.messages("f-hole1"),
+        ["Diameter must be greater than 0 mm, but it is 0 mm. Use a value greater than 0 mm."],
+    );
+}
+
+#[test]
+fn t028_bore_radius_below_the_tolerance() {
+    let run = assert_diameter_out_of_range("0.0000015");
+
+    let error = run.assert_error("f-hole1", "out_of_range");
+    assert!(
+        matches!(
+            error,
+            FeatureError::OutOfRange {
+                bound: Bound::GreaterThan(0.0),
+                ..
+            }
+        ),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn t029_depth_below_the_tolerance() {
+    let run = run_hole(&hole(
+        r#"["e-p1"]"#,
+        r#""extent": {"kind": "distance", "expr": "0.0000001"}"#,
+    ));
+
+    let error = run.assert_error("f-hole1", "out_of_range");
+    assert_error_field(error, "extent.expr");
+    assert_eq!(
+        run.messages("f-hole1"),
+        ["Depth must be greater than 0 mm, but it is 0 mm. Use a value greater than 0 mm."],
+    );
+    assert_unchanged(&run, "f-hole1", "b-1");
+}
+
+#[test]
+fn t030_counterbore_depth_below_the_tolerance() {
+    let run = run_hole(&hole(
+        r#"["e-p1"]"#,
+        &format!(
+            r#""hole_type": {{"kind": "counterbore", "diameter": "11", "depth": "0.0000001"}}, {THROUGH_ALL}"#
+        ),
+    ));
+
+    let error = run.assert_error("f-hole1", "out_of_range");
+    assert_error_field(error, "hole_type.depth");
+    assert_eq!(
+        run.messages("f-hole1"),
+        [
+            "Counterbore depth must be greater than 0 mm, but it is 0 mm. Use a value greater than 0 mm."
+        ],
+    );
+    assert_unchanged(&run, "f-hole1", "b-1");
+}
+
+#[test]
+fn t031_head_within_the_tolerance_of_the_hole_diameter() {
+    let run = run_hole(&hole(
+        r#"["e-p1"]"#,
+        &format!(
+            r#""hole_type": {{"kind": "counterbore", "diameter": "6.0000001", "depth": "4"}}, {THROUGH_ALL}"#
+        ),
+    ));
+
+    let error = run.assert_error("f-hole1", "out_of_range");
+    assert_error_field(error, "hole_type.diameter");
+    assert_eq!(
+        run.messages("f-hole1"),
+        [
+            "Head diameter must be greater than the hole diameter (6 mm), but it is 6 mm. Use a value greater than 6 mm."
+        ],
+    );
+    assert_unchanged(&run, "f-hole1", "b-1");
+}

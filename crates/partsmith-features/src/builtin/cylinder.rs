@@ -5,7 +5,8 @@ use partsmith_occt_sys::make_cylinder;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use super::primitives::{PrimitiveParams, positive_size, primitive_manifest};
+use super::common::positive_length;
+use super::primitives::{PrimitiveParams, primitive_manifest};
 use crate::context::BuildContext;
 use crate::deps::Dependencies;
 use crate::error::FeatureError;
@@ -76,8 +77,8 @@ impl Feature for Cylinder {
         params: &CylinderParams,
         context: &BuildContext<'_>,
     ) -> Result<FeatureOutput, FeatureError> {
-        let radius = positive_size(context, "radius", &params.radius)?;
-        let height = positive_size(context, "height", &params.height)?;
+        let radius = positive_length(context, "radius", &params.radius)?;
+        let height = positive_length(context, "height", &params.height)?;
         params.primitive().build(context, |frame| {
             make_cylinder(&frame.to_kernel(), radius, height)
         })

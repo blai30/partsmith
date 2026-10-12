@@ -8,8 +8,8 @@ use serde::{Deserialize, Serialize};
 
 use super::common::{
     THROUGH_ALL_MARGIN, apply_tool, body_hint, body_op_hint, call, check_range, empty_selection,
-    essential, farthest_corner, flag, hint, is_false, manifest, op_keyword, options_hint,
-    positive_length, profile_arguments, selection_hint, sweep_tool, unit_hint,
+    essential, farthest_corner, flag, hint, is_false, is_positive_length, manifest, op_keyword,
+    options_hint, positive_length, profile_arguments, selection_hint, sweep_tool, unit_hint,
 };
 use crate::context::BuildContext;
 use crate::deps::Dependencies;
@@ -218,7 +218,8 @@ fn interval(
         } => {
             let along = not_negative("extent.expr", expr)?;
             let against = not_negative("extent.opposite_expr", opposite_expr)?;
-            if along + against <= 0.0 {
+            // Sides that together stay below the tolerance extrude nothing the kernel can build.
+            if !is_positive_length(along + against) {
                 return Err(FeatureError::BothSidesZero);
             }
             Ok((-against, along))

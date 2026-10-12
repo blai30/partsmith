@@ -459,3 +459,16 @@ fn t025_union_of_regions_split_by_a_line() {
     assert_full_ring(&run);
     assert_no_face(run.body("b-1"), "f-rev1/lateral/e-5");
 }
+
+#[test]
+fn t026_angle_within_the_tolerance_of_zero() {
+    let run = run_ring(&angle("0.00000001 deg"));
+
+    let error = run.assert_error("f-rev1", "out_of_range");
+    assert_error_field(error, "extent.expr");
+    assert_eq!(
+        run.messages("f-rev1"),
+        ["Angle must be greater than 0 deg, but it is 0 deg. Use a value greater than 0 deg."],
+    );
+    assert_empty(&run, "b-1");
+}

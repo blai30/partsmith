@@ -14,8 +14,8 @@ use serde::{Deserialize, Serialize};
 
 use super::common::{
     apply_tool, body_hint, body_op_hint, call, check_range, empty_selection, essential, flag, hint,
-    is_false, manifest, op_keyword, options_hint, profile_arguments, selection_hint, sweep_tool,
-    unit_hint,
+    is_false, manifest, op_keyword, options_hint, out_of_range, profile_arguments, selection_hint,
+    sweep_tool, unit_hint,
 };
 use crate::context::{BuildContext, ResolvedProfile};
 use crate::deps::Dependencies;
@@ -176,14 +176,24 @@ impl Turn {
 }
 
 /// The turn of the extent with the range checks of features/revolve.md section 3.3 step 4: an
-/// angle within the angular tolerance of 360 deg is a full turn.
+/// angle within the angular tolerance of 0 is out of range like 0, since the kernel sweeps nothing,
+/// and one within the angular tolerance of 360 deg is a full turn.
 fn turn(params: &RevolveParams, context: &BuildContext<'_>) -> Result<Turn, FeatureError> {
     let RevolveExtent::Angle { expr } = &params.extent else {
         return Ok(Turn::Full);
     };
     let angle = context.eval_angle("extent.expr", expr)?;
+    if angle <= ANGULAR_TOLERANCE {
+        return Err(out_of_range(
+            context,
+            "extent.expr",
+            FieldUnit::Angle,
+            angle,
+            Bound::GreaterThan(0.0),
+            None,
+        ));
+    }
     let range = |bound| check_range(context, "extent.expr", FieldUnit::Angle, angle, bound, None);
-    range(Bound::GreaterThan(0.0))?;
     if angle > TAU + ANGULAR_TOLERANCE {
         range(Bound::AtMost(TAU))?;
     }

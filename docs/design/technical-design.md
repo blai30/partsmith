@@ -491,7 +491,7 @@ The inspector appears only while a command runs, next to the selected face. Clos
 
 - Five-minute first-run tutorial that models a printable part (a parametric box with a lid) and sends it to a slicer.
 - Hover tooltips with a short looping animation of what the tool does.
-- A "Coming from Fusion / FreeCAD" panel mapping familiar names to ours (Pad → Extrude).
+- A "Coming from Fusion / FreeCAD" panel mapping familiar names to ours (Pad → Extrude). In M1 the command palette finds commands by their Fusion and FreeCAD names through its tagged keywords and shows the mapping in the result (for example "FreeCAD: Pad" on Extrude, [ui.md](../spec/ui.md) section 2.10); the panel comes later.
 
 ## 14. Performance, recompute and rendering
 

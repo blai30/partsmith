@@ -18,7 +18,7 @@ Hole cuts round holes into a body at points of a sketch, drilled along the sketc
 
 - Tapped and threaded holes, ISO and UNC size tables.
 - Print presets: teardrop and flat-top horizontal holes, sacrificial bridging layers, heat-set insert pockets.
-- Placement on a face by click without a sketch.
+- Placement on a face by click without a sketch. The UI already places holes by clicking a flat face: it writes a helper sketch on that face with one point entity per click and sets `sketch` to the helper and `points` to those points ([ui.md](../ui.md) section 3.7, "Placing holes on a face"), so the feature itself needs no change.
 - Holes on curved faces (drilled along the face normal).
 - Per-hole depths and types in one feature.
 - Clearance, close and loose fit size presets.

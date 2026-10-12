@@ -5,8 +5,8 @@ use partsmith_occt_sys::{KernelError, Plane, Primitive, make_cone, make_cylinder
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use super::common::check_range;
-use super::primitives::{PrimitiveParams, positive_size, primitive_manifest};
+use super::common::{check_range, positive_length};
+use super::primitives::{PrimitiveParams, primitive_manifest};
 use crate::context::BuildContext;
 use crate::deps::Dependencies;
 use crate::error::{Bound, FeatureError};
@@ -126,7 +126,7 @@ impl Feature for Cone {
         if bottom == 0.0 && top == 0.0 {
             return Err(FeatureError::ConeRadiiZero);
         }
-        let height = positive_size(context, "height", &params.height)?;
+        let height = positive_length(context, "height", &params.height)?;
         params.primitive().build(context, |frame| {
             solid(&frame.to_kernel(), bottom, top, height)
         })

@@ -3,7 +3,8 @@
 
 use partsmith_mesh::BoundingBox;
 use partsmith_model::{
-    Category, Expr, FeatureManifest, FieldHint, FieldUnit, Id, OptionHint, SelectionKind,
+    Category, Expr, FeatureManifest, FieldHint, FieldUnit, Id, LINEAR_TOLERANCE, OptionHint,
+    SelectionKind,
 };
 use partsmith_naming::{ElementName, FaceSource, Generator, NamingError, Reference, roles};
 use partsmith_occt_sys::{Point, Primitive, PrimitiveFace, Shape, SweepFace, SweepResult, Vector};
@@ -166,21 +167,33 @@ pub(crate) fn check_range(
     }
 }
 
-/// The declared length at `field`, which must be greater than 0.
+/// True when `length` counts as greater than 0: at least `LINEAR_TOLERANCE`, below which the
+/// kernel builds nothing (the positive length rule of features.md section 3.4).
+pub(crate) fn is_positive_length(length: f64) -> bool {
+    length >= LINEAR_TOLERANCE
+}
+
+/// The declared length at `field`, which must be greater than 0. A value below `LINEAR_TOLERANCE`
+/// is `OutOfRange` (`GreaterThan(0)`) like 0, so it never reaches the kernel (features.md section
+/// 3.4).
 pub(crate) fn positive_length(
     context: &BuildContext<'_>,
     field: &str,
     expr: &Expr,
 ) -> Result<f64, FeatureError> {
     let value = context.eval_length(field, expr)?;
-    check_range(
-        context,
-        field,
-        FieldUnit::Length,
-        value,
-        Bound::GreaterThan(0.0),
-        None,
-    )
+    if is_positive_length(value) {
+        Ok(value)
+    } else {
+        Err(out_of_range(
+            context,
+            field,
+            FieldUnit::Length,
+            value,
+            Bound::GreaterThan(0.0),
+            None,
+        ))
+    }
 }
 
 /// The state and shape of a declared body that holds a solid. An empty body is `BodyEmpty` for a
@@ -443,6 +456,15 @@ mod tests {
         let [dx, dy, dz] = direction;
         let bounds = shape.bounding_box().expect("the box has bounds");
         farthest_corner(&bounds, Point::new(x, y, z), Vector::new(dx, dy, dz))
+    }
+
+    #[test]
+    fn a_length_is_positive_from_the_tolerance_on() {
+        assert!(is_positive_length(LINEAR_TOLERANCE));
+        assert!(is_positive_length(1.0));
+        assert!(!is_positive_length(LINEAR_TOLERANCE / 2.0));
+        assert!(!is_positive_length(0.0));
+        assert!(!is_positive_length(-1.0));
     }
 
     #[test]

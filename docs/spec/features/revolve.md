@@ -123,7 +123,7 @@ feature(
 1. Resolve the profile (`ctx.profile("profile", ...)`) and the axis (`ctx.axis("axis", ...)`).
 2. The axis must lie in the sketch plane: abs(normal · direction) ≤ 1e-9 and the distance from the axis origin to the plane ≤ 1e-6 mm, else `AxisNotInPlane`.
 3. The union of the resolved regions must lie in one closed half-plane of the sketch plane bounded by the axis line: its boundary points' signed distances to the axis (measured along normal × direction) are all ≥ -1e-6 mm or all ≤ 1e-6 mm, else `ProfileCrossesAxis`.
-4. Angle θ: for `angle`, θ = `extent.expr` in radians; θ > 0 else `OutOfRange` (`GreaterThan(0)`); θ ≤ 2π + 1e-9 else `OutOfRange` (`AtMost(2π)`, rendered `360 deg`). If abs(θ - 2π) ≤ 1e-9 the revolve is treated as `full`.
+4. Angle θ: for `angle`, θ = `extent.expr` in radians; θ > 1e-9 (the angular tolerance, within which the kernel sweeps nothing, kernel.md section 3.4.4) else `OutOfRange` (`GreaterThan(0)`); θ ≤ 2π + 1e-9 else `OutOfRange` (`AtMost(2π)`, rendered `360 deg`). If abs(θ - 2π) ≤ 1e-9 the revolve is treated as `full`.
 5. Sense: positive rotation about the axis direction by the right-hand rule; negative when `reverse` is true. A full revolve ignores `reverse`.
 6. Kernel `revolve(profile, axis, ±θ)` (2π for full), name (section 3.4), `apply_op(ctx, body, op, vec![tool])`.
 
@@ -196,6 +196,7 @@ Bodies `[b-1]` unless stated.
 23. **Axis face without an axis.** Bodies `[b-1, b-2]`; `{"id": "f-box1", "type": "box", "body": "b-2", "size": ["10", "10", "10"], "op": "new"}`, `SK-RING`, `REV({"kind": "face", "body": "b-2", "face": {"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,10|a=100"}}, {"kind": "full"}, "new")`. Expected: error `no_axis`, rendered `The face selected for Axis has no axis. Pick a cylindrical or conical face, a straight edge, a sketch line or an origin axis.`; b-2 unchanged.
 24. **Curved axis edge.** Bodies `[b-1, b-2]`; `{"id": "f-cyl1", "type": "cylinder", "body": "b-2", "radius": "5", "height": "10", "op": "new"}`, `SK-RING`, `REV({"kind": "edge", "body": "b-2", "edge": {"q": "edge(f-cyl1/side|f-cyl1/top)", "fp": "circle|n=0,0,1|c=0,0,10|l=31.415927|r=5"}}, {"kind": "full"}, "new")`. Expected: error `not_straight`, rendered `The edge selected for Axis is not straight. Pick a straight edge, a sketch line or an origin axis.`
 25. **Union of regions split by a line.** `SK-RING` plus `{"id": "e-5", "type": "line", "start": [15, 0], "end": [15, 30]}`; profile `{"sketch": "f-sk1", "regions": [{"key": "e-1,e-3,e-4,e-5", "fp": "c=12.5,15|a=150"}, {"key": "e-1,e-2,e-3,~e-5", "fp": "c=17.5,15|a=150"}]}`; `REV(AXIS-Z, {"kind": "full"}, "new")` with this profile in place of `P-RING`. Expected: identical to 1 (volume 28274.333882, 4 faces; `f-rev1/lateral/e-1` and `f-rev1/lateral/e-3` area 942.477796 each); no face named `f-rev1/lateral/e-5`.
+26. **Angle within the tolerance of 0.** As 2 with expr `"0.00000001 deg"` (1.7e-10 rad). Expected: error `out_of_range`, field `extent.expr`, rendered `Angle must be greater than 0 deg, but it is 0 deg. Use a value greater than 0 deg.`; b-1 empty.
 
 ## Open issues
 
