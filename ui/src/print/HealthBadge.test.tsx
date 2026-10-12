@@ -128,18 +128,22 @@ describe('HealthBadge', () => {
     expect(badge.querySelector('svg')).toHaveClass(...classes(COLOR_CLASSES.errorMark.foreground))
   })
 
-  it('U-81 marks a stale report: data-stale, opacity-50, "(out of date)" and ", out of date"', () => {
+  it('U-81 marks a stale report: data-stale, muted text, a dimmed icon, "(out of date)" and ", out of date"', () => {
     const { badge } = renderBadge(badgeState({ state: 'warning', warnings: 1, stale: true }))
     expect(badge).toBe(screen.getByRole('button', { name: 'Print check: 1 warning, out of date' }))
     expect(badge).toHaveAttribute('data-state', 'warning')
     expect(badge).toHaveAttribute('data-stale', 'true')
-    expect(badge).toHaveClass('opacity-50')
+    // The text stays readable (textMuted keeps 4.5:1, 2.16.6); only the icon is dimmed (3.17).
+    expect(badge).not.toHaveClass('opacity-50')
+    expect(badge).toHaveClass(...classes(COLOR_CLASSES.textMuted.foreground))
+    expect(badge.querySelector('svg')?.parentElement).toHaveClass('opacity-50')
     expect(badge).toHaveTextContent('1 warning (out of date)')
   })
 
-  it('draws a current report at full opacity', () => {
+  it('draws a current report in the text role at full opacity', () => {
     const { badge } = renderBadge(badgeState({ state: 'ok' }))
-    expect(badge).not.toHaveClass('opacity-50')
+    expect(badge).toHaveClass(...classes(COLOR_CLASSES.text.foreground))
+    expect(badge.querySelector('svg')?.parentElement).not.toHaveClass('opacity-50')
   })
 
   it('reports a click', async () => {
@@ -156,7 +160,7 @@ describe('HealthBadge while checking', () => {
     const { badge } = renderBadge(badgeState({ state: 'running', warnings: 2, stale: true }))
     expect(badge).toBe(screen.getByRole('button', { name: 'Print check: Checking' }))
     expect(badge).toHaveTextContent(/^Checking$/)
-    expect(badge).not.toHaveClass('opacity-50')
+    expect(badge.querySelector('svg')?.parentElement).not.toHaveClass('opacity-50')
     // The attribute agrees with what is drawn.
     expect(badge).toHaveAttribute('data-stale', 'false')
   })

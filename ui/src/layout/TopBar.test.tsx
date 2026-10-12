@@ -493,15 +493,20 @@ describe('the Print toolbar (3.3, 3.17)', () => {
     const toolbar = screen.getByRole('toolbar', { name: 'Print tools' })
     const layOnFace = within(toolbar).getByRole('button', { name: 'Lay on face' })
     expect(layOnFace).toHaveAttribute('aria-pressed', 'false')
+    // The live region is there before the pick, so its prompt is announced (3.24).
+    const hint = screen.getByTestId('print-hint')
+    expect(hint).toHaveTextContent('')
+    expect(hint).toHaveClass('sr-only')
     await user.click(layOnFace)
     expect(app.store.getState().print.pickingFace).toBe(true)
-    expect(screen.getByTestId('print-hint')).toHaveTextContent(
-      'Pick the face that should touch the bed.',
-    )
-    expect(screen.getByTestId('print-hint')).toHaveRole('status')
+    expect(screen.getByTestId('print-hint')).toBe(hint)
+    expect(hint).toHaveTextContent('Pick the face that should touch the bed.')
+    expect(hint).toHaveRole('status')
+    expect(hint).not.toHaveClass('sr-only')
     await user.keyboard('{Escape}')
     expect(app.store.getState().print.pickingFace).toBe(false)
-    expect(screen.queryByTestId('print-hint')).toBeNull()
+    expect(hint).toHaveTextContent('')
+    expect(hint).toHaveClass('sr-only')
   })
 
   it('Lay on face is pressed while an orientation is set, and a click prints as modeled again', async () => {

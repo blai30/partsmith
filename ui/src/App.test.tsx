@@ -383,13 +383,20 @@ describe('sketching in the shell (3.16)', () => {
     )
     renderWithApp(app)
     const user = userEvent.setup()
+    // The hint's live region is there, empty, before sketch mode, and is never replaced (3.24).
+    const hint = screen.getByTestId('sketch-hint')
+    expect(hint).toHaveTextContent('')
 
     // Sketch (3.16.1): plane picking offers the three origin planes.
     await user.click(within(screen.getByTestId('top-bar')).getByRole('radio', { name: 'Sketch' }))
     expect(screen.getByTestId('sketch-header')).toHaveAttribute('data-state', 'picking')
-    expect(screen.getByTestId('sketch-hint')).toHaveTextContent('Top plane (XY) is the print bed.')
+    expect(screen.getByTestId('sketch-hint')).toBe(hint)
+    expect(hint).toHaveTextContent('Top plane (XY) is the print bed.')
     await user.click(screen.getByRole('button', { name: 'Sketch on Top plane (XY)' }))
     await act(settleCommits)
+    expect(screen.getByTestId('sketch-hint')).toBe(hint)
+    // The plane button is gone; focus goes on to the 3D view, where the drawing happens (3.24).
+    expect(within(screen.getByTestId('viewport')).getByRole('application')).toHaveFocus()
     expect(labels).toEqual(['New sketch'])
     const sketchId = app.store.getState().sketch?.sketchId ?? ''
     expect(sketchId).toMatch(/^f-[0-9a-f]{12}$/)

@@ -44,6 +44,8 @@ export function ChoiceField({ field, options, presentation, trailing = null }: C
             options={options}
             value={value}
             describedBy={help === null ? undefined : helpId}
+            // A status message about this field moves focus to its checked option (4.2).
+            checkedId={id}
             onChange={(next) => {
               setCommandField(app, field.path, next)
             }}

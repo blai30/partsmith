@@ -78,9 +78,7 @@ export async function addParameter(
     (current) => ({
       label: `Add parameter ${name}`,
       // At the end of the list as it is then, behind parameters added just before.
-      edits: [
-        { type: 'add_parameter', parameter, index: current.recipe.parameters?.length ?? 0 },
-      ],
+      edits: [{ type: 'add_parameter', parameter, index: current.recipe.parameters?.length ?? 0 }],
     }),
     options,
   )
@@ -164,7 +162,10 @@ export async function deleteParameter(app: App, id: string): Promise<boolean> {
   }
   return commitParameterEdits(
     app,
-    () => ({ label: `Delete parameter ${parameter.name}`, edits: [{ type: 'remove_parameter', id }] }),
+    () => ({
+      label: `Delete parameter ${parameter.name}`,
+      edits: [{ type: 'remove_parameter', id }],
+    }),
     {},
   )
 }

@@ -34,6 +34,7 @@ import { ViewCube } from './ViewCube'
 import { viewCubeRotorMatrix } from './view-cube'
 import { ViewportControls, type SelectionFilterKind } from './ViewportControls'
 import { ViewportMenu } from './ViewportMenu'
+import { VIEW_ID } from '../layout/focus'
 
 // The 3D view (ui.md 3.2, 3.12 to 3.15): the canvas and its controller, the overlay layer, the
 // view cube and viewport controls, and the core's loading and fatal states. React renders the
@@ -456,6 +457,7 @@ export function Viewport({ children }: ViewportProps) {
       {/* oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */}
       <div
         ref={surface}
+        id={VIEW_ID}
         role="application"
         aria-roledescription="3D view"
         aria-label="3D view"

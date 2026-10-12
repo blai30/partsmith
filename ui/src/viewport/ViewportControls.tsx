@@ -128,7 +128,7 @@ export function ViewportControls({
   // The outer box, as wide as the view cube, centers the stack under it. It starts at 9.5rem, below the farthest reach of the turning cube: the 6rem cube is centered 4rem from the top, and its corners reach 3√3 ≈ 5.2rem from its center. The menu and the popover stay outside it, since they would inherit its pointer-events-none.
   return (
     <>
-      <div className="pointer-events-none absolute top-38 right-4 flex w-24 justify-center">
+      <div className="pointer-events-none absolute top-42 right-4 flex w-24 justify-center">
         <fieldset
           aria-label="View controls"
           data-testid="viewport-controls"

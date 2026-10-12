@@ -1,0 +1,32 @@
+# 0022: A profile region follows its boundary and keeps covering its area when split
+
+Status: Accepted, needs human review
+
+## Context
+
+A feature's profile stores each region it uses as a key (its sorted boundary entries) and a fingerprint (area and centroid). sketch.md section 3.14 matches a stored region by the exact key, then by the outer boundary, then by a fingerprint within 1e-3 of the area, which is 4 mm² on the 4000 mm² block of the corpus.
+
+[The reference stability study](../design/reference-stability-and-errors.md) found 35 of 123 corpus tests passing today, and 38 that silently use the wrong element. Region matching is the largest single class of loud failures (study section 2.4, class C1, 12 tests): adding a 5 mm corner chamfer line (R01), a notch (R02), deleting a bevel (R03, R51), drawing a circle across the edge (R04), moving two rectangles until they overlap (R05) or redrawing a side further out (R06b, R07b) all lose the profile. `profile_not_found` then takes the whole model down, and every later feature repeats the symptom with a misleading message. R01 passes at 0.5 mm and fails at 5 mm, so the outcome depends on the size typed. Region references also keep a sorted key, not the loop order, so when a line is deleted and redrawn in place nothing can tell that the new line took its place, and the face made from it gets a new name with no history (R06a, R07a, R49).
+
+One case is a product decision the corpus left open (R50): a circle drawn inside the selected region, for example as a guide for a later hole. The regions become a ring and a disc. Today the outer boundary step matches the ring only and silently cuts a through hole (volume 110575.222039 instead of 120000) with only a vague warning.
+
+## Decision
+
+- **The boundary decides, not the area.** `RegionRef` gains `outline`, the region's outer loop in traversal order, rotated to its smallest form (sketch.md new section 3.13.8), and `Region::reference()` always writes it. `match_region(regions, entities, reference)` (sketch.md section 3.14 as rewritten by the study, change S3) tries the key, then the boundary: every region whose outer loop keeps a stored outer entry on the same side seeds the set, regions drawn entirely inside a hole of new entities fill it, and the set splits into components connected through new geometry. One region resolves by `Boundary`; one connected component of several regions resolves by `Coverage`; several components are `Ambiguous`. Only when no stored outer entry survives is the area used (`Fingerprint`, reported as a guess). Otherwise `Missing` with the reason: entities deleted, the outline drawn again, or the outline no longer closed.
+- **A split region keeps covering the same connected area.** Every piece of a region split by new geometry is used, as a split face resolves to all its pieces. When the pieces' total area equals the stored area within 1e-6 relative, the feature adds the info notice `region_split` (the material is unchanged); otherwise the warning `region_resized` with Keep these regions and Pick. A circle drawn inside the region keeps ring and disc (R50: volume 120000), and the notice tells a user who wants a hole to remove the disc from the profile. A region that keeps a stored entity but is not connected to the others through new geometry is never added silently.
+- **Successions.** With one matched region, the outline tells which entity took which entity's place: a removed entity replaced by a run of new entities between the same survivors (a replacement), or a new entity continuing a survivor on the same line or circle (an extension). Extrude and revolve pass them to naming as aliases of their lateral faces (naming.md change N9), so references to those faces follow by meaning (ADR 0021): a one-for-one replacement or an extension is an info notice, and a replacement by several entities that do not lie on one line or circle is the warning `reference_widened` (new corpus scenario R66).
+- **Nothing is rewritten without the user.** The stored region changes only when the user clicks Keep these regions, which also re-anchors, in the same undo entry, the later references that followed its successions.
+
+## Alternatives considered
+
+- **Follow only the outer part, so a circle drawn inside becomes a hole.** A guide circle would silently change the material, as R50 does today, and a circle across the edge (R04) would keep only one piece. A sketch helper should never change the part without a word.
+- **Widen the area tolerance.** Any tolerance is a hidden size threshold (corpus rule 6): a 5 mm chamfer and a 20 x 10 notch differ from the passing cases only in size.
+- **Ask the user on every split.** Splitting a region with lines that leave the material unchanged is a common, harmless sketch edit. Asking each time turns it into a broken model; a connected split has one meaning, and the notice keeps it visible.
+- **Use every region that keeps a stored entity.** A second rectangle drawn on an extended line would be added silently. Requiring a connection through new geometry, and reporting `Ambiguous` otherwise, keeps unrelated shapes out.
+
+## Consequences
+
+- Phase 1 of the study makes the profile part of R01 to R07, R50, R51 and R64 pass for every size, and lets R06a, R07a and R49 follow through successions. R50's corpus expectation becomes this rule, and R66 is added to the corpus.
+- `outline` is an optional field of file format version 2 (ADR 0025). A region reference without it still matches; its successions are inferred only when exactly one stored outer entity was removed and the new entities form one run between survivors.
+- A user who wanted the inner circle as a hole removes the disc from the profile once; the notice says so.
+- This changes a product rule and sketch.md section 3.14, so it waits for human review at the next gate.

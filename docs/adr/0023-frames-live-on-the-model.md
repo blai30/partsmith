@@ -1,0 +1,39 @@
+# 0023: Sketch frames, axis directions and chamfer sides live on the model
+
+Status: Accepted, needs human review
+
+## Context
+
+Some geometric rules are anchored in world space or in byte order instead of in the model. features.md section 3.6 places a sketch on a face with `Placement::on_plane(face centroid, normal, fallback)`, which projects a fallback stored in world coordinates at attach time and never refreshed: only the plane follows the face, the in-plane frame stays in world space. The same section makes the first nonzero component of an edge or face axis positive, and chamfer.md section 3.3 puts the first distance of a two-distance chamfer on the face whose current name sorts first.
+
+[The reference stability study](../design/reference-stability-and-errors.md) found 35 of 123 corpus tests passing today, and 38 that silently use the wrong element. After resolving by meaning (ADR 0021), 4 silent wrong results remain, all from these rules (study section 2.4, classes C10 to C12):
+
+- **Frames in world space** (5 tests: R26, R32 in three variants, R33). A Move body of 100 mm leaves a hole behind (R32a); a 90 degree rotation puts it at another corner silently; a reversed extrude turns the sketch's y axis and drops the point off the face (R32b). When the face is lost, the sketch jumps to its attach-time position (R26: z=30 instead of 80; R33: z=10 instead of 40) while the message claims it "stays at its last position".
+- **Axis sense canonicalized** (R38): a wall that leans 1 mm one way flips a pattern from +Y to -Y. Revolve, circular pattern and move body rotations use the same rule.
+- **Chamfer side by byte order** (R22, 2 tests): a join that renames the top swaps the two distances silently; with random interactive ids about half of such joins flip the chamfer.
+
+A face can also turn over: a reversed extrude (R32b) or a mirror copy makes its outward normal point against the stored frame's normal, so a right-handed frame on it either mirrors the drawing or must become left-handed.
+
+## Decision
+
+- **Motions per face.** A naming map records, for every piece-free face name, how Move body features and copy transforms have moved it since it was built: a base motion and own motions, inherited like names and never pruned, so a face that a later feature removed still has its motion (naming.md section 3.3 step 8). Move body applies its transform with `NamingMap::moved` instead of rebuilding the map; pattern and mirror copies compose their transform in `with_instance`.
+- **Fallbacks in body coordinates behind an explicit marker.** `SketchPlane::Face` gains `fallback_frame`: `world` (the default and the meaning of every existing document) or `body` (the coordinates of the face's own feature before later moves). Hosts write `body` with every new attach and every committed sketch drag, from the element descriptor's `fallback`; nothing rewrites a fallback on its own.
+- **Where a face sketch goes.** In order: on the resolved faces, which must be planar and coplanar (else `NotCoplanar`), with a body-frame hint moved by the face's current motion; when the face is missing, on the face as it was just before the feature that removed it, moved with the body since, read from the body's writer chain in the same run (`face_placement_before_removal`), so nothing is written to the document; otherwise the saved fallback, with a `plane_fallback` message that says so truthfully.
+- **A face that turned over keeps a right-handed placement.** The placement uses the outward normal and the hint's x axis, so the drawing lies mirrored on the face. The sketch warns `sketch_turned_over` ("now faces the other way, so the drawing is mirrored on it"), and the fix "Turn the drawing back" mirrors every stored entity across the sketch's x axis, stores the current frame as the fallback in body coordinates and re-anchors the profile regions of the features that use the sketch, as one undo entry.
+- **Axes keep the side the user picked.** `AxisRef::Edge` and `AxisRef::Face` gain `direction`, the picked direction in body coordinates, written by every pick. The axis is oriented to a positive dot product with that direction moved by the face's motion, else with the stored fingerprint's direction, else by the old first-component rule. Resolved axis edges must be collinear (else `NotCollinear`), so name order never decides.
+- **Chamfer sides follow the picked face.** The first distance goes on the adjacent face that corresponds to the first face term of the stored reference through canonical names (ADR 0021), not on the name that sorts first.
+
+## Alternatives considered
+
+- **Keep the drawing in place on a turned-over face with a mirrored placement** (`Placement::mirrored`). Left-handed frames otherwise give inverted profiles and break "every solid has positive volume" (features.md section 3.10), so this needs a handedness rule in sketch.md (`Placement`), features.md (`make_profile` input, extrude and revolve directions, hole drilling) and kernel.md (`make_profile` with a left-handed frame), with tests for each. The accepted rule keeps one handedness everywhere and makes the change visible with a one-click fix. If this alternative is ever chosen, `Placement` gains `mirrored` in the file format and the protocol.
+- **Refresh the stored fallback after every successful build.** Recompute would write documents behind the user's back, reverting an edit by hand would no longer give a byte-identical file, and cache keys would have to include the refreshed value. Placement before removal gives the same position from the run itself.
+- **Read every existing fallback as body coordinates.** That changes what saved files mean; the explicit marker keeps documents written before this change rebuilding exactly as before.
+- **Derive the axis direction from the stored fingerprint moved by today's motion.** A fingerprint is in world coordinates as they were at pick time, so applying the motion would count a Move body twice when the edge was picked after it.
+
+## Consequences
+
+- The study expects phase 2 to take the corpus from 112 to 119 passing tests and the silent wrong results from 4 to 0, with no test that builds correctly before it failing after.
+- The corpus amends two expectations: R32b warns `sketch_turned_over` and, after Turn the drawing back, drills at (20, 10); after R26's delete the sketch uses its saved position with a true message, and the engine's cause line offers "Keep the sketch where it was".
+- `fallback_frame` and `direction` are optional fields of file format version 2 (ADR 0025). A version 1 document rebuilds with the same placements, volumes and statuses, which a recompute test checks.
+- A sketch on a reversed extrude cap or a mirror copy face now warns instead of silently mirroring or missing; a reference that resolves to faces in several planes or edges on several lines asks instead of letting name order decide.
+- This changes the naming maps and the sketch placement rule, so it waits for human review at the next gate. It gates the phase 2 code of the study's plan; motions are built in phase 1 and read from phase 2.

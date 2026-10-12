@@ -105,7 +105,7 @@ function Panel({
     const target =
       openingFocus(app.store.getState())
         .map((path) => document.getElementById(fieldInputId(path)))
-        .find((element) => element !== null) ?? null
+        .find((candidate) => candidate !== null) ?? null
     if (target !== null) {
       target.focus()
       if (target instanceof HTMLInputElement) {

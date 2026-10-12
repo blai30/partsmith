@@ -687,11 +687,11 @@ describe('keyboard (3.9)', () => {
 
   it('a held Enter edits the feature once: repeated presses do nothing', async () => {
     const { core } = renderTimeline()
-    const item = itemButton('Extrude 1')
-    item.focus()
-    fireEvent.keyDown(item, { key: 'Enter' })
-    fireEvent.keyDown(item, { key: 'Enter', repeat: true })
-    fireEvent.keyDown(item, { key: 'Enter', repeat: true })
+    const extrude = itemButton('Extrude 1')
+    extrude.focus()
+    fireEvent.keyDown(extrude, { key: 'Enter' })
+    fireEvent.keyDown(extrude, { key: 'Enter', repeat: true })
+    fireEvent.keyDown(extrude, { key: 'Enter', repeat: true })
     await waitFor(() => {
       expect(core.callsTo('beginTransaction')).toEqual([[1, 'Edit Extrude 1']])
     })

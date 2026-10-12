@@ -15,6 +15,7 @@ export function SwitchField({ field }: { readonly field: InspectorField }) {
   const app = useApp()
   return (
     <Switch
+      id={fieldInputId(field.path)}
       label={field.label}
       help={field.help}
       checked={field.value === true}
@@ -108,9 +109,13 @@ export function UnsupportedField({ field }: { readonly field: InspectorField }) 
       <span className={clsx('text-xs font-medium', COLOR_CLASSES.textMuted.foreground)}>
         {field.label}
       </span>
+      {/* Focusable from a status message about this field (4.2), outside the tab order. */}
       <code
+        id={fieldInputId(field.path)}
+        tabIndex={-1}
         className={clsx(
           'block overflow-x-auto rounded-sm border px-2 py-1 text-xs whitespace-pre',
+          COLOR_CLASSES.focusRing.outline,
           FONT_CLASSES.values,
           COLOR_CLASSES.field.background,
           COLOR_CLASSES.border.border,

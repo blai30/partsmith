@@ -1040,12 +1040,10 @@ describe('a hovered selection field box (3.7)', () => {
       prepare: (core) => {
         core.stub('resolveReferences', (_documentHandle, references: readonly ElementRef[]) =>
           Promise.resolve(
-            references.map(
-              (): Resolution => ({
-                status: 'resolved',
-                matches: [{ body: 'b-cube', mesh_id: 1, kind: 'edge', index: 4 }],
-              }),
-            ),
+            references.map((): Resolution => ({
+              status: 'resolved',
+              matches: [{ body: 'b-cube', mesh_id: 1, kind: 'edge', index: 4 }],
+            })),
           ),
         )
       },

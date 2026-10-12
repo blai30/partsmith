@@ -62,6 +62,14 @@ describe('SketchHeader', () => {
     expect(header).toHaveTextContent('Not fully constrained · 3 DOF')
   })
 
+  it('keeps the sketch name and lets the status give way with an ellipsis in a narrow slot (3.24)', () => {
+    const header = renderHeader([LINE], solutionFor([LINE], { dof: 3 }))
+    const [name] = [...header.children]
+    expect(name).toHaveClass('shrink-0', 'max-w-40', 'truncate')
+    const status = within(header).getByText('Not fully constrained · 3 DOF').parentElement
+    expect(status).toHaveClass('min-w-0', 'truncate')
+  })
+
   it('U-63 fully_constrained is full, "Fully constrained"', () => {
     const header = renderHeader(
       [LINE],
@@ -171,6 +179,24 @@ describe('SketchHeader outline (3.16.8)', () => {
 })
 
 describe('plane picking header (3.16.1)', () => {
+  it('gives the Top plane button the focus the Sketch button that started the pick had (3.24)', () => {
+    const app = createSketchTestApp({
+      core: createFakeCore({}),
+      state: {
+        context: 'sketch',
+        sketch: sketchSession({ sketchId: null }),
+        document: documentState({ features: [] }),
+      },
+    })
+    expect(document.activeElement).toBe(document.body)
+    render(
+      <AppProvider app={app}>
+        <SketchHeader />
+      </AppProvider>,
+    )
+    expect(screen.getByRole('button', { name: 'Sketch on Top plane (XY)' })).toHaveFocus()
+  })
+
   it('offers the three origin planes, and Top creates the sketch on XY', async () => {
     const applied: unknown[] = []
     const app = createSketchTestApp({

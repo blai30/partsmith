@@ -1,0 +1,47 @@
+# 0021: Resolve references by meaning, never by a fingerprint guess
+
+Status: Accepted, needs human review
+
+## Context
+
+The owner's first concern is FreeCAD's Edge002 problem: a reference that silently points at another element after an upstream edit. Partsmith stores a semantic name plus a fingerprint (technical design section 5, architecture.md "Topological naming"), and naming.md section 3.9 resolves it by an exact name, then a history chain, then a fingerprint match above `CONFIDENCE_THRESHOLD` (0.85) with `AMBIGUITY_MARGIN` (0.05). Order-dependent names (`#n`) are confirmed against the fingerprint stored at pick time.
+
+[The reference stability study](../design/reference-stability-and-errors.md) ran the 65 scenarios of [the corpus](../design/reference-stability-corpus.md) as 123 tests against the current resolver. 35 pass (28%). 38 (31%) end with Partsmith using the wrong element with status ok and no message, the FreeCAD failure mode and sometimes worse, because a fingerprint can pick a lookalike anywhere in the body. 25 fail loudly where the model should build, and 25 get the right geometry with a message that says neither what was lost, nor why, nor what to do. The resolver's own share (study section 2.4):
+
+- **Lookalikes substituted after the element is gone** (19 tests): a pocket floor ring becomes the hole's top rim when the pocket goes through (R12, score 0.9732), an inside corner becomes a cove (R21b, score 1.0, since fingerprints carry no convexity), peg A's rim becomes peg B's when peg A is suppressed (R23, 0.8851). Element names create no feature dependencies, so suppression, deletion, reordering and upstream failures are invisible to the resolver.
+- **Order-dependent names confirmed by stale fingerprints** (8 tests): the sibling piece wins against a fingerprint recorded before the edit (R08 at width 200: 0.685 against 0.486), and an imported fallback name is accepted with confidence 0 (R46a).
+- **Split numbers follow cut order** (4 tests: R10a, R17a, R17c, R29) and **the instance suffix hides pieces** (2 tests: R20a, R20b).
+- **History descendants, nested names and relatives not followed** (5 tests: a shell rim continuing the face it replaced, a chamfer face named after merged faces, a hole whose type changed), and **merged elements** that come apart or fuse without a word (4 tests).
+- **Sketch edits leave no history** (3 tests): a line deleted and redrawn gives its face a new name with no link to the old one, and the next unrelated edit lets the stale fingerprint move the fillet (R07a).
+
+Several passing tests pass only because a typed size stays under a threshold: R08 passes at width 120 and fails at 200. Every threshold on a fingerprint makes the outcome depend on a number the user typed (corpus rule 6), and a perfect lookalike (R21b scores 1.0) is exactly what makes the breakage silent.
+
+## Decision
+
+The resolver uses an element only when recorded history connects it to the reference, and asks the user otherwise (naming.md changes N1 to N16 of the study, section 3.2):
+
+- **Meaning, never guesses.** A result comes from the exact name (confirmed by its anchors when it is order dependent), the pieces of a split element, aliases of merged elements, a sketch entity's recorded succession (ADR 0022), the merged names stored in the reference, a shell rim that continues a removed face, or, for edges and vertices, a relative of the same feature and sketch generator under another role. Fingerprints never choose an element of a built-in feature's named output: they rank candidates, confirm the fallback names of imported faces, and mark a name without anchors as a guess (`MatchMethod::Guess`) when a sibling fits the stored fingerprint clearly better.
+- **Anchors and merged names in references.** A reference gains `nb`: for each order-dependent part, the piece-free names of the faces it touched that its siblings did not, at most `ANCHOR_LIMIT` (6), only what tells siblings apart. It gains `merged`: for each face name occurring in the query, the former names merged into it, with every copy of one pattern or mirror written once as `<source>@<feature>:*`. `Reference::from_element` writes both at every pick and every stored fix; both are omitted when empty, so such a reference serializes exactly as before. A piece is found again by what it touches, so cut order, sizes and rigid moves never change which piece it is.
+- **Canonical names indexed per body state.** `ElementSet` holds a body state's element infos, its aliases (now sorted one-to-many unions, so input order never matters) and an index of every face under the canonical forms of its name, built once and shared, so matching is lookups.
+- **Losses are kept and explained.** `Resolution` becomes `Resolved { elements, method, confidence, follow, via, alternatives }`, `Ambiguous { candidates }` or `Missing { lost, candidates }`. Candidates carry `meaning`, `distance` and `score` and are listed by meaning, then distance, then name; they are never applied. Features keep every loss and its candidates, also in lists that resolve to nothing; a followed reference is an info notice (`reference_followed`), a replacement by several entities a warning (`reference_widened`), a guess a warning (`reference_guessed`).
+- **No deletion log.** Element names still create no feature dependencies. Recompute's loss diagnosis reads names, aliases and the body's writer chain to say which feature removed an element, from the run itself (recompute.md change RC4).
+- **Nothing is rewritten without the user.** A reference changes only through an explicit, undoable action (Keep this match, Use, Pick).
+- **Design text.** architecture.md's "Topological naming" bullet and technical-design.md section 5 items 4 and 5 replace "then a fingerprint match above a confidence threshold" with "candidates ranked by fingerprint for the user to choose, and a repair mode with the lost element's ghost".
+- **One release.** The resolver, anchors, merged names, region boundaries and successions (ADR 0022) ship together in phase 1, because without anchors R10b and R08 at width 120 lose the luck that holds them today, and without successions R06a loses its fillet.
+
+## Alternatives considered
+
+- **Keep the fingerprint step with a stricter threshold or margin.** Any threshold is a hidden size limit. A stricter one breaks R10b (0.801 against 0.658), a looser one keeps R12 (0.9732) and R21b (1.0) silent, and no value separates them because fingerprints carry no provenance or convexity.
+- **Confirm `#n` names by geometric order or by a fingerprint taken after the edit.** Cut order and sizes change the numbering (R17, R29), and the post-edit shape is what is being resolved. What a piece touches does not change with order, size or rigid moves.
+- **Store the new name automatically when a reference followed by shape.** That writes documents behind the user's back: reverting an edit by hand would no longer give a byte-identical file (corpus rule 7), and the stale fingerprint would decide again on the next edit (R07a). The match is stored only when the user clicks Keep this match.
+- **A persistent log of deleted elements** (naming.md "Explicitly later"). Recompute can name the removing feature from the current run, so nothing extra is stored or kept in sync.
+- **Anchor every adjacent face.** A split top surrounded by a hundred holes would store a hundred names; only faces that tell siblings apart help.
+
+## Consequences
+
+- The study expects phase 1 to take the corpus from 35 to 112 passing tests and the silent wrong results from 38 to 4, with no test that builds correctly today failing after it. The 4 left are frames anchored in world space or byte order, which ADR 0023 fixes.
+- More edits end with a reported loss and candidates instead of a silent substitute. The messages, candidates and one-click fixes that make this bearable are ADR 0024.
+- References grow by at most six anchors per order-dependent part and by merged names, which needs file format version 2 (ADR 0025). References without them (version 1 files, hand-written or scripted references) still resolve; a sibling that fits clearly better makes them a reported guess, never a silent one.
+- Resolving is a pure function of the reference and the element set, independent of input order, random ids and sizes, except for fallback names and the guess rule.
+- naming.md tests 61 to 77, 80 and 89 change and tests 91 to 118 are added (study N16), with new budgets for `ElementSet::new`, `resolve` with merged names and `from_element` (N15). `partsmith_features::VERSION` is bumped so persisted caches built with the old naming maps are never reused.
+- This changes the naming algorithm, so it waits for human review at the next gate (CLAUDE.md). With ADRs 0024 and 0025 it gates all code of the study's plan.

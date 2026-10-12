@@ -125,6 +125,7 @@ describe('viewportMenuItems (U-122)', () => {
     expect(app.commands.get('edit.repeat')?.availability(app)).toEqual({
       state: 'disabled',
       reason: MESSAGES.nothing_to_repeat(),
+      code: 'nothing_to_repeat',
     })
     expect(labels(viewportMenuItems(app))[0]).toBe('Fillet')
   })

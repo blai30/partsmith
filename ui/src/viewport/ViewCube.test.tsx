@@ -32,7 +32,14 @@ describe('ViewCube', () => {
   it('is a group named "View cube" at the top right of the viewport, size-24', () => {
     const { cube } = setUp()
     expect(screen.getByRole('group', { name: 'View cube' })).toBe(cube)
-    expect(cube).toHaveClass('absolute', 'top-4', 'right-4', 'size-24')
+    expect(cube).toHaveClass('absolute', 'top-8', 'right-4', 'size-24')
+  })
+
+  it('sits low enough that the iso view keeps its top corner inside the viewport (3.14)', () => {
+    const { cube } = setUp()
+    const top = Number(/\btop-(\d+)\b/.exec(cube.className)?.[1]) * 0.25
+    // Centered half its 6rem below its top; in iso the top corner rises 4√(3/2) rem above the center, a little more under the cube's perspective.
+    expect(top + 3).toBeGreaterThan(4 * Math.sqrt(1.5) * 1.01)
   })
 
   it('fills its size-24 box with each face, so corners and edge bands are at least size-6 (3.24)', () => {

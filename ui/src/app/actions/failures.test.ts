@@ -8,11 +8,7 @@ import {
   startWithDocument,
   type FakeApp,
 } from '../../test/fakes/app'
-import {
-  CUBE_FEATURES_DOCUMENT,
-  CUBE_TOP_FRONT_EDGE,
-  featuresOf,
-} from '../../test/fakes/documents'
+import { CUBE_FEATURES_DOCUMENT, CUBE_TOP_FRONT_EDGE, featuresOf } from '../../test/fakes/documents'
 import { elementItem } from '../../test/fakes/selection'
 import type { FakeFeatureStatus } from '../../test/fakes/core'
 import { settle } from '../../test/fakes/settle'
@@ -167,26 +163,26 @@ describe('failure notifications', () => {
   })
 })
 
+/** The stored edges of Fillet 1 in cube-features.ptsm. */
+const STORED_EDGES = featuresOf(CUBE_FEATURES_DOCUMENT).find(
+  (feature) => feature.id === 'f-fil1',
+)?.['edges'] as readonly unknown[]
+
+async function editingLostEdge(): Promise<FakeApp> {
+  const fake = await startWithDocument('cube-features.ptsm', CUBE_FEATURES_DOCUMENT, {
+    core: { statuses: { 'f-fil1': { ...FAILED, repairs: [LOST_EDGE] } } },
+  })
+  await editFeature(fake.app, 'f-fil1')
+  await settle()
+  return fake
+}
+
+function edges(fake: FakeApp): unknown {
+  return fake.app.store.getState().command?.params['edges']
+}
+
 describe('Re-pick (3.7, 4.2)', () => {
-  /** The stored edges of Fillet 1 in cube-features.ptsm. */
-  const STORED_EDGES = featuresOf(CUBE_FEATURES_DOCUMENT).find((feature) => feature.id === 'f-fil1')?.[
-    'edges'
-  ] as readonly unknown[]
-
-  async function editingLostEdge(): Promise<FakeApp> {
-    const fake = await startWithDocument('cube-features.ptsm', CUBE_FEATURES_DOCUMENT, {
-      core: { statuses: { 'f-fil1': { ...FAILED, repairs: [LOST_EDGE] } } },
-    })
-    await editFeature(fake.app, 'f-fil1')
-    await settle()
-    return fake
-  }
-
-  function edges(fake: FakeApp): unknown {
-    return fake.app.store.getState().command?.params['edges']
-  }
-
-  it('U-110 the next pick in Edges takes the lost edge\'s place instead of adding to the list', async () => {
+  it("U-110 the next pick in Edges takes the lost edge's place instead of adding to the list", async () => {
     const fake = await editingLostEdge()
     await capturePick(fake.app, elementItem(CUBE_TOP_FRONT_EDGE, 'Cube'))
     expect(edges(fake)).toEqual([CUBE_TOP_FRONT_EDGE.reference, ...STORED_EDGES.slice(1)])
@@ -211,7 +207,10 @@ describe('Re-pick (3.7, 4.2)', () => {
   it('U-110 picking an edge the list already holds just removes the lost one', async () => {
     const fake = await editingLostEdge()
     const [, second] = STORED_EDGES
-    const held = { ...CUBE_TOP_FRONT_EDGE, reference: second as typeof CUBE_TOP_FRONT_EDGE.reference }
+    const held = {
+      ...CUBE_TOP_FRONT_EDGE,
+      reference: second as typeof CUBE_TOP_FRONT_EDGE.reference,
+    }
     await capturePick(fake.app, elementItem(held, 'Cube'))
     expect(edges(fake)).toEqual(STORED_EDGES.slice(1))
   })

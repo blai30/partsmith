@@ -145,7 +145,7 @@ export function ViewCube({ rotorRef, onChooseView, onHome, onOrbit }: ViewCubePr
     <fieldset
       data-testid="view-cube"
       aria-label="View cube"
-      className="absolute top-4 right-4 size-24 touch-none select-none"
+      className="absolute top-8 right-4 size-24 touch-none select-none"
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={endPress}

@@ -1525,7 +1525,10 @@ function repairedValue(
     return null
   }
   const picked = selectionValue(accepts, [item], multiple)
-  if (accepts === 'sketch_region' && propertyOf(picked, 'sketch') !== propertyOf(current, 'sketch')) {
+  if (
+    accepts === 'sketch_region' &&
+    propertyOf(picked, 'sketch') !== propertyOf(current, 'sketch')
+  ) {
     return null
   }
   const entries = valueAt(picked, slot.segments.slice(0, -1))

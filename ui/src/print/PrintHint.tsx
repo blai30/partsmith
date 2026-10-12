@@ -15,25 +15,28 @@ function selectRefusal(state: AppState): string | null {
   return state.pickHint !== null && state.pickHint.field === null ? state.pickHint.message : null
 }
 
-/** The print hint chip while Lay on face picks a face; nothing otherwise. */
+/**
+ * The print hint chip while Lay on face picks a face. The live region stays mounted, empty and
+ * visually hidden otherwise, so the prompt is announced when a pick starts (3.24).
+ */
 export function PrintHint() {
   const picking = useAppState(selectPicking)
   const refusal = useAppState(selectRefusal)
-  if (!picking) {
-    return null
-  }
   return (
     <div className="pointer-events-none absolute inset-x-32 top-4 z-10 flex flex-col items-center gap-2">
       <output
         data-testid="print-hint"
         className={clsx(
-          'max-w-full rounded-md border px-3 py-1 text-center text-xs text-pretty shadow-sm',
-          COLOR_CLASSES.surfaceRaised.background,
-          COLOR_CLASSES.border.border,
-          refusal === null ? COLOR_CLASSES.textMuted.foreground : COLOR_CLASSES.text.foreground,
+          !picking && 'sr-only',
+          picking &&
+            'max-w-full rounded-md border px-3 py-1 text-center text-xs text-pretty shadow-sm',
+          picking && COLOR_CLASSES.surfaceRaised.background,
+          picking && COLOR_CLASSES.border.border,
+          picking && refusal === null && COLOR_CLASSES.textMuted.foreground,
+          picking && refusal !== null && COLOR_CLASSES.text.foreground,
         )}
       >
-        {refusal ?? MESSAGES.print_pick_face()}
+        {picking ? (refusal ?? MESSAGES.print_pick_face()) : null}
       </output>
     </div>
   )

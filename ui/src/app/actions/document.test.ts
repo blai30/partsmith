@@ -264,19 +264,19 @@ describe('newDocument (3.19)', () => {
   })
 })
 
-describe('replacing a document during a feature command (3.7)', () => {
-  /** cube.ptsm, clean, with a Box command whose preview made the document dirty. */
-  async function cubeWithBoxPreview(): Promise<FakeApp> {
-    const fake = await startWithDocument('cube.ptsm', CUBE_DOCUMENT)
-    await startFeatureCommand(fake.app, 'box')
-    await settle()
-    expect(currentDocument(fake.app).dirty).toBe(true)
-    fake.transport.clearRequests()
-    fake.journal.length = 0
-    return fake
-  }
+/** cube.ptsm, clean, with a Box command whose preview made the document dirty. */
+async function cubeWithBoxPreview(): Promise<FakeApp> {
+  const fake = await startWithDocument('cube.ptsm', CUBE_DOCUMENT)
+  await startFeatureCommand(fake.app, 'box')
+  await settle()
+  expect(currentDocument(fake.app).dirty).toBe(true)
+  fake.transport.clearRequests()
+  fake.journal.length = 0
+  return fake
+}
 
-  it('New cancels the command before closing the document, so the preview is not kept as changes', async () => {
+describe('replacing a document during a feature command (3.7)', () => {
+  it('U-109 New cancels the command before closing the document, so the preview is not kept as changes', async () => {
     const fake = await cubeWithBoxPreview()
     await newDocument(fake.app)
     await settle()
@@ -288,7 +288,7 @@ describe('replacing a document during a feature command (3.7)', () => {
     expect(fake.app.store.getState().command).toBeNull()
   })
 
-  it('Open cancels the command before closing the document, so nothing is stashed', async () => {
+  it('U-109 Open cancels the command before closing the document, so nothing is stashed', async () => {
     const fake = await cubeWithBoxPreview()
     await openFile(fake.app, documentFile('other.ptsm', renamed('Other')))
     await settle()
@@ -317,7 +317,11 @@ describe('document edits during a feature command (3.7)', () => {
     expect(fake.transport.commandTypes()).toEqual([])
     expect(fake.journal).toEqual([])
     expect(fake.app.store.getState().notifications).toMatchObject([
-      { severity: 'info', message: MESSAGES.finish_command_first('Box'), code: 'finish_command_first' },
+      {
+        severity: 'info',
+        message: MESSAGES.finish_command_first('Box'),
+        code: 'finish_command_first',
+      },
     ])
   })
 })

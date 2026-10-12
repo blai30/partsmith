@@ -156,9 +156,7 @@ describe('a repeated message (3.22)', () => {
       actions: [],
       features: ['f-ch1', 'f-hole1'],
     })
-    expect(app.store.getState().notifications).toMatchObject([
-      { features: ['f-ch1', 'f-hole1'] },
-    ])
+    expect(app.store.getState().notifications).toMatchObject([{ features: ['f-ch1', 'f-hole1'] }])
   })
 })
 

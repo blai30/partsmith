@@ -22,6 +22,8 @@ export type SegmentedControlProps<Value extends string> = {
   readonly className?: string
   /** Ids of elements that describe the group, such as a field's help. */
   readonly describedBy?: string | undefined
+  /** An id for the checked option's radio, so other controls can move focus to the group. */
+  readonly checkedId?: string | undefined
 }
 
 /** The option index an arrow, Home or End key moves focus to, or null for other keys. */
@@ -55,6 +57,7 @@ export function SegmentedControl<Value extends string>({
   disabled = false,
   className,
   describedBy,
+  checkedId,
 }: SegmentedControlProps<Value>) {
   const name = useId()
   const radios = useRef<(HTMLInputElement | null)[]>([])
@@ -87,6 +90,7 @@ export function SegmentedControl<Value extends string>({
             key={option.value}
             option={option}
             name={name}
+            id={option.value === value ? checkedId : undefined}
             checked={option.value === value}
             disabled={disabled}
             radioRef={(radio) => {
@@ -115,6 +119,7 @@ export function SegmentedControl<Value extends string>({
 type SegmentProps<Value extends string> = {
   readonly option: SegmentedOption<Value>
   readonly name: string
+  readonly id: string | undefined
   readonly checked: boolean
   readonly disabled: boolean
   readonly radioRef: Ref<HTMLInputElement>
@@ -128,6 +133,7 @@ type SegmentProps<Value extends string> = {
 function Segment<Value extends string>({
   option,
   name,
+  id,
   checked,
   disabled,
   radioRef,
@@ -151,6 +157,7 @@ function Segment<Value extends string>({
       {/* The transparent radio covers its segment, so the focus ring outlines the segment. */}
       <input
         ref={radioRef}
+        id={id}
         type="radio"
         name={name}
         value={option.value}

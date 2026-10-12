@@ -3,10 +3,15 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { installPopoverPolyfill } from '../components/popover-polyfill.testing'
 import type { Diagnostic, FeatureStatus } from '../generated/protocol'
-import { cubeDocumentState, elementItem, readyState } from '../layout/fixtures.testing'
+import {
+  cubeDocumentState,
+  documentState,
+  elementItem,
+  readyState,
+} from '../layout/fixtures.testing'
 import { createModelApp, renderWithApp, stubMatchMedia } from '../layout/test-app.testing'
 import type { ActiveCommand, AppState, DocumentState } from '../state/store'
-import { CUBE_REGION, CUBE_TOP_FRONT_EDGE } from '../test/fakes/documents'
+import { CUBE_REGION, CUBE_TOP_FRONT_EDGE, emptyDocument } from '../test/fakes/documents'
 import { settle } from '../test/fakes/settle'
 import { startFeatureCommand } from '../app/actions/command'
 
@@ -186,6 +191,52 @@ describe('Reverse fixes (4.2, U-107)', () => {
   })
 })
 
+describe('a status message about a field takes the user to it (4.2)', () => {
+  it('moves focus to the checked option of a segmented choice such as Operation', async () => {
+    const message: Diagnostic = {
+      severity: 'warning',
+      code: 'no_effect',
+      message: 'Extrude 2 does not change Cube.',
+      field: '/op',
+    }
+    const { user } = renderCommand(
+      command({
+        params: {
+          profile: PROFILE,
+          extent: { kind: 'distance', expr: '5 mm' },
+          op: 'join',
+          body: 'b-cube',
+        },
+      }),
+      withStatus('f-ext9', [message]),
+    )
+    const banner = within(inspector()).getByTestId('inspector-error')
+    await user.click(within(banner).getByRole('button', { name: message.message }))
+    expect(within(field('op')).getByRole('radio', { checked: true })).toHaveFocus()
+  })
+
+  it('moves focus to a switch such as Keep tools', async () => {
+    const message: Diagnostic = {
+      severity: 'warning',
+      code: 'no_effect',
+      message: 'Boolean 1 does not change Cube.',
+      field: '/keep_tools',
+    }
+    const { user } = renderCommand(
+      command({
+        featureType: 'boolean',
+        featureId: 'f-bool9',
+        title: 'Boolean',
+        params: { target: 'b-cube', tools: ['b-peg'], op: 'join', keep_tools: true },
+      }),
+      withStatus('f-bool9', [message]),
+    )
+    const banner = within(inspector()).getByTestId('inspector-error')
+    await user.click(within(banner).getByRole('button', { name: message.message }))
+    expect(within(field('keep_tools')).getByRole('switch')).toHaveFocus()
+  })
+})
+
 describe('More options shows what it hides (3.7, U-117)', () => {
   it('U-117 names the More fields changed out of sight, and lists every More field in its tooltip', async () => {
     const { user } = renderCommand(
@@ -257,8 +308,8 @@ describe('where focus starts (3.7 step 5, U-104)', () => {
     expect(test.app.store.getState().command?.activeField).toBe('edges')
   })
 
-  it('U-104 Box opens with Length focused and selected and no active field, since it makes its own body', async () => {
-    const test = createModelApp({ state: readyState(cubeDocumentState()) })
+  it('U-104 Box in a new document opens with Length focused and selected and no active field, since it makes its own body', async () => {
+    const test = createModelApp({ state: readyState(documentState(emptyDocument())) })
     renderWithApp(test.app)
     await startFeatureCommand(test.app, 'box')
     await settle()

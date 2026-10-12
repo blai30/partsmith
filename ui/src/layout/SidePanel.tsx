@@ -1,5 +1,5 @@
 import { clsx } from 'clsx/lite'
-import { useId, useRef } from 'react'
+import { useEffect, useId, useRef } from 'react'
 import { setContext } from '../app/actions/context'
 import {
   focusFinding,
@@ -17,6 +17,7 @@ import { healthProfileName } from '../print/printer'
 import { ProblemsPanel } from '../problems/ProblemsPanel'
 import type { PanelsState } from '../state/store'
 import { COLOR_CLASSES } from '../theme/roles'
+import { focusLost, focusView } from './focus'
 import { SIDE_PANEL_ID } from './panel-ids'
 import { useOverlayDismiss } from './use-overlay-dismiss'
 
@@ -86,6 +87,22 @@ function OpenSidePanel({ side }: { readonly side: NonNullable<PanelsState['side'
   useOverlayDismiss(panel, () => {
     app.store.setState((state) => ({ panels: { ...state.panels, side: null } }))
   })
+  // Closing the panel from inside it gives focus back to the control that opened it, or to the
+  // 3D view when that control is gone (3.24).
+  useEffect(() => {
+    const active = document.activeElement
+    const opener = active instanceof HTMLElement && active !== document.body ? active : null
+    return () => {
+      if (!focusLost()) {
+        return
+      }
+      if (opener?.isConnected === true) {
+        opener.focus()
+      } else {
+        focusView()
+      }
+    }
+  }, [])
   return (
     <aside
       ref={panel}

@@ -15,7 +15,13 @@ const TWO_SKETCHES: Document = {
   ...CUBE_DOCUMENT,
   features: [
     ...(CUBE_DOCUMENT.features ?? []),
-    { id: 'f-sk2', type: 'sketch', plane: { kind: 'origin', plane: 'XZ' }, entities: [], constraints: [] },
+    {
+      id: 'f-sk2',
+      type: 'sketch',
+      plane: { kind: 'origin', plane: 'XZ' },
+      entities: [],
+      constraints: [],
+    },
   ],
 }
 
@@ -62,7 +68,9 @@ describe('sketch changes queued behind a slow rebuild', () => {
     expect(state.sketch).toBeNull()
     expect(state.notifications).toEqual([])
     expect(updatedSketches(fake)).toEqual(['f-sk1'])
-    const record = currentDocument(fake.app).recipe.features?.find((feature) => feature.id === 'f-sk1')
+    const record = currentDocument(fake.app).recipe.features?.find(
+      (feature) => feature.id === 'f-sk1',
+    )
     expect(record?.['entities']).toHaveLength((CUBE_SKETCH['entities'] as unknown[]).length + 1)
   })
 
@@ -79,7 +87,9 @@ describe('sketch changes queued behind a slow rebuild', () => {
     await settle()
     expect(fake.app.store.getState().sketch?.sketchId).toBe('f-sk2')
     expect(updatedSketches(fake)).toEqual(['f-sk1'])
-    const second = currentDocument(fake.app).recipe.features?.find((feature) => feature.id === 'f-sk2')
+    const second = currentDocument(fake.app).recipe.features?.find(
+      (feature) => feature.id === 'f-sk2',
+    )
     expect(second?.['entities']).toEqual([])
   })
 })

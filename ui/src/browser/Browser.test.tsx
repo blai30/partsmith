@@ -445,6 +445,16 @@ describe('parameters group (3.10)', () => {
     expect(app.store.getState().panels.side).toBe('parameters')
   })
 
+  it('closing the Parameters panel gives focus back to "Edit parameters" (3.24)', async () => {
+    const { app, user, browser } = renderBrowser(documentState(PARAMETRIC_DOCUMENT))
+    const edit = within(browser).getByRole('button', { name: 'Edit parameters', hidden: true })
+    await user.click(edit)
+    expect(app.store.getState().panels.side).toBe('parameters')
+    await user.click(screen.getByRole('button', { name: 'Close Parameters' }))
+    expect(app.store.getState().panels.side).toBeNull()
+    expect(edit).toHaveFocus()
+  })
+
   it('opens the Parameters panel on a double-click of a parameter row', async () => {
     const { app, user } = renderBrowser(documentState(PARAMETRIC_DOCUMENT))
     await user.dblClick(within(row('parameter', 'p-size')).getByText('size = 20 mm'))

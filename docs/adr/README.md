@@ -26,3 +26,9 @@ Format: title, status (proposed, accepted, superseded by NNNN), context, decisio
 | [0018](0018-body-updates-carry-measurements.md) | Body updates carry the measurements of their shape | Proposed, needs human review |
 | [0019](0019-hosts-read-profile-and-load-positions-from-the-engine.md) | Hosts read the resolved printer profile and load error positions from the engine; the CLI drops `partsmith-print` | Accepted, needs human review |
 | [0020](0020-dependency-log.md) | Dependency log of the workspace, and removal of four unused workspace dependencies | Accepted, needs human review |
+| [0021](0021-resolve-references-by-meaning.md) | Resolve references by meaning, never by a fingerprint guess: anchors, merged names, canonical names, losses with candidates | Accepted, needs human review |
+| [0022](0022-split-regions-keep-their-area.md) | A profile region follows its boundary and keeps covering its area when split | Accepted, needs human review |
+| [0023](0023-frames-live-on-the-model.md) | Sketch frames, axis directions and chamfer sides live on the model; a turned-over face mirrors the drawing with "Turn the drawing back" | Accepted, needs human review |
+| [0024](0024-diagnostics-with-actions-causes-and-ghosts.md) | Diagnostics carry actions, causes, details, candidates and ghosts (protocol schema) | Accepted, needs human review |
+| [0025](0025-file-format-version-2.md) | File format version 2 for anchors, merged names, region outlines and model frames, migrated from 1 without change | Accepted, needs human review |
+| [0026](0026-kernel-facade-additions-for-errors.md) | Kernel facade additions for ghosts, limits, void checks and true hints | Accepted, needs human review |

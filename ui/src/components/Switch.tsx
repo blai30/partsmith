@@ -15,6 +15,8 @@ export type SwitchProps = {
   readonly help?: string | null
   readonly disabled?: boolean
   readonly className?: string
+  /** The switch's id, for a control that moves focus to it; a generated one otherwise. */
+  readonly id?: string
 }
 
 /** An on and off control (`role="switch"`) with its label on the left and the switch on the right. */
@@ -26,8 +28,10 @@ export function Switch({
   help = null,
   disabled = false,
   className,
+  id: givenId,
 }: SwitchProps) {
-  const id = useId()
+  const generatedId = useId()
+  const id = givenId ?? generatedId
   const labelId = `${id}-label`
   const descriptionId = `${id}-description`
   const helpId = `${id}-help`

@@ -2,7 +2,7 @@
 
 This corpus is the test plan for two promises in [the guidelines](../guidelines/README.md): references that survive edits, and errors that help. In FreeCAD a fillet or a sketch stores a number such as Edge7 or Face6, and the slightest change to an earlier step can make that number point at another element, often with no message at all. Partsmith stores a semantic name plus a geometric fingerprint ([naming.md](../spec/naming.md)), but a name scheme is only as good as the edits it has been tested against. Each scenario below is one such edit: an exact model, one reference in it, one change made earlier in the timeline, and the exact result and message the user must get.
 
-The scenarios were merged from 113 candidates written against [technical design](technical-design.md) section 5, naming.md, [features.md](../spec/features.md) sections 3.6 to 3.8 and 4, and the feature specs. Ids are in priority order: R01 to R48 are high, R49 to R64 medium, R65 low. Within a priority they follow the category order of this document.
+The scenarios were merged from 113 candidates written against [technical design](technical-design.md) section 5, naming.md, [features.md](../spec/features.md) sections 3.6 to 3.8 and 4, and the feature specs. Ids are in priority order: R01 to R48 are high, R49 to R64 medium, R65 low. R66, added after [the reference stability study](reference-stability-and-errors.md), is high. Within a priority they follow the category order of this document.
 
 ## How to read a scenario
 
@@ -11,7 +11,8 @@ The scenarios were merged from 113 candidates written against [technical design]
 - **Edit** is the change the user makes. "Insert before X" puts the new features directly above X in the timeline. A scenario with variants (a), (b) is one test per variant.
 - **Expect** is the assertion after a full recompute. "ok" means status ok with no warnings; volumes match within 1e-6 relative, positions within 1e-6 mm, and "about" means within 0.05 mm. A fillet is located by its axis (a radius r fillet on an edge between two perpendicular faces has its axis r in from each face).
 - **Messages.** Labels follow features.md section 3.12 in timeline order, so an inserted feature can get a lower number than its id suggests; the scenarios give the rendered labels. Bodies `b-1` and `b-2` are named 'Body 1' and 'Body 2'. "The message names X" means the rendered text contains X in words; it never contains an element name such as `edge(f-box1/front|f-box1/top)`, an id or raw kernel text. A "one-click fix" is an action the host applies in one step: a suggestion, a candidate in the repair data, or a timeline action such as Unsuppress or Move below. A "notice" is a non-blocking message on a feature that built correctly.
-- **Today** is what the current specs and resolver arithmetic (naming.md section 3.9, `CONFIDENCE_THRESHOLD` 0.85, `AMBIGUITY_MARGIN` 0.05) give, as of 2026-10-12. "Guard" marks a scenario that passes today and must keep passing.
+- **Picked references.** Since decisions D1 to D3 of the study ([ADR 0021](../adr/0021-resolve-references-by-meaning.md), [ADR 0022](../adr/0022-split-regions-keep-their-area.md), [ADR 0023](../adr/0023-frames-live-on-the-model.md)), a pick stores more than `{q, fp}`: a reference also stores its anchors (`nb`) and merged names, a region reference its `outline`, and an attach marks its fallback `fallback_frame: body`. Test setups therefore re-pick every reference and region by name at setup time, in the state the setup builds, with `Reference::from_element` and `Region::reference()` (what `pick_reference` and the sketch editor store), so the inputs match real documents. A face sketch's fallback keeps the values the scenario gives, which record where the sketch was attached (R33's was attached when the box was 10 tall), and is stored with `fallback_frame: body`; no setup has a Move body or copy before its sketch, so body and world coordinates coincide at attach time. Expected outcomes do not change except where a scenario says so. References in the short form `{q, fp}` are tested by naming.md tests 69 to 77 and 96 (the guess and loss rules) and by the version 1 rebuild test of file-format.md ([ADR 0025](../adr/0025-file-format-version-2.md)).
+- **Today** is what the current specs and resolver arithmetic (naming.md section 3.9, `CONFIDENCE_THRESHOLD` 0.85, `AMBIGUITY_MARGIN` 0.05) give, as of 2026-10-12, corrected where the study's runs showed otherwise (R20a, R31b, R49). "Guard" marks a scenario that passes today and must keep passing.
 - Messages, notices, causes and actions that M1 does not have yet are specified in naming.md, features.md or the feature spec before code is written (the project's spec-first process). The corpus fixes the outcome, not the mechanism.
 
 ## Shared setups
@@ -32,6 +33,24 @@ The scenarios were merged from 113 candidates written against [technical design]
 5. Every loss names what was lost in words, which change removed it (the feature and the edit), and what to do, with candidates as one-click replacements. One root cause gives one message; features downstream point at it.
 6. The outcome never depends on a typed number crossing a hidden threshold. Scenarios list the sizes that must behave alike.
 7. Reverting an edit restores the original result and a byte-identical document. References are never rewritten without the user seeing it.
+
+## Where the assertions run
+
+- **Recompute tests** in `crates/partsmith-recompute/tests/`: `reference_stability_1.rs` (R01 to R22), `reference_stability_2.rs` (R23 to R44) and `reference_stability_3.rs` (R45 to R66), behind the crate feature `stability-study` until all of them pass. They check everything the document alone determines: geometry, statuses, codes, pointers, the structural message recompute renders from its loss diagnosis, and the message's actions. Recompute cannot know that a feature was deleted, only that it is not in the document, so where a scenario says "deleted" (R23b, R26, R54) the structural message says "a feature that is not in this document".
+- **Engine twins** in `crates/partsmith-engine/tests/reference_causes.rs`, one each for R03, R10a, R12, R13, R16, R23b, R26, R33, R41, R48, R54 and R57. Each opens the setup, applies the edit with `apply_edits`, and checks the cause line ("This started after you ...") and its actions, which need the session; R23b, R26 and R54 check "This started after you deleted '...'".
+
+## Amendments after the study (decision D6)
+
+[The reference stability study](reference-stability-and-errors.md) section 3.10 amended this corpus. The amendments were accepted as decision D6, together with decisions D1 to D5 and D7 (ADRs 0021 to 0026), and wait for human review at the next gate like them:
+
+1. Setups re-pick their references as picks store them ("Picked references" above).
+2. Engine twins check cause lines ("Where the assertions run" above).
+3. R26's expectation after the delete: the sketch uses its saved position with a true message, and the engine twin's "Keep the sketch where it was" puts the boss back on top.
+4. R32b's expectation follows decision D3: `sketch_turned_over`, then "Turn the drawing back".
+5. New scenario R66: a side line replaced by a notch widens the edge reference with a warning.
+6. Corrected "Today" of R20a, R31b and R49; R50 records decision D2; R10b's optional notice is not emitted; R33 records how its placement survives reopening; R23's variants are labeled (a) and (b).
+
+The naming tests that change with the resolver (naming.md tests 61 to 77, 80 and 89) are amended in naming.md. The errors newcomers hit most have their own corpus, [the newcomer error corpus](newcomer-error-corpus.md).
 
 ## Index
 
@@ -86,7 +105,7 @@ The scenarios were merged from 113 candidates written against [technical design]
 | R47 | high | wrong result | An upstream sketch conflict must not send a fillet to a lookalike |
 | R48 | high | unclear message | Switching document units with bare numbers |
 | R49 | medium | wrong result | Splitting a side line must not halve the shell opening |
-| R50 | medium | decision | A circle drawn inside the selected region |
+| R50 | medium | wrong result | A circle drawn inside the selected region |
 | R51 | medium | wrong result | The picked arc of a tangent chain is deleted |
 | R52 | medium | wrong result | A merged element comes apart |
 | R53 | medium | wrong result | A join covers the referenced face |
@@ -102,6 +121,7 @@ The scenarios were merged from 113 candidates written against [technical design]
 | R63 | medium | wrong result | Changing the hole type |
 | R64 | medium | wrong result | An inside corner already rounded upstream |
 | R65 | low | guard | Reordering sketch entities and renaming features change nothing |
+| R66 | high | wrong result | A side line replaced by a notch |
 
 ## A. Sketch edits
 
@@ -161,20 +181,28 @@ The scenarios were merged from 113 candidates written against [technical design]
 - **Expect:** after (1), the fillet is on the back top edge at z=30. After (2), it is still on the back top edge: (a) axis y=48, z=78, x 0..80, volume 319931.327412, bottom back edge sharp; (b) axis y=48, z=28, x 0..160. Once a match by shape is accepted, later unrelated edits keep following that element (for example by storing the new name as an explicit, undoable change, or by resolving through the sketch's record that `e-9` replaced `e-3`). The extrude shows no lingering warning.
 - **Today:** (a) the stored fingerprint still says z=30, so the bottom back edge `edge(f-ext1/lateral/e-9|f-ext1/start-cap)` scores 0.8784 against 0.8193 for the true edge and the fillet silently moves to the bottom. (b) the stored region key was never refreshed, so the wider outline (area 8000 against 4000) loses the profile and the whole model fails; with the profile fixed, the true edge scores 0.736, below the threshold, and the fillet fails. Either way an unrelated edit breaks it.
 
+### R66 A side line replaced by a notch
+
+- **Setup:** BLOCK. `f-fil1` fillet radius 1 on `[{q: edge(f-ext1/end-cap|f-ext1/lateral/e-3), fp: line|n=1,0,0|c=40,50,30|l=80|adj=2,2}]`.
+- **Reference:** `f-ext1` profile.regions[0]; `f-fil1` edges[0] (the back top edge).
+- **Edit:** in `f-sk1` delete `e-3` and draw in its place `e-9` (80,50)-(50,50), `e-10` (50,50)-(50,40), `e-11` (50,40)-(30,40), `e-12` (30,40)-(30,50), `e-13` (30,50)-(0,50): the 20 x 10 notch of R02, drawn as new lines instead of by editing `e-3`.
+- **Expect:** `f-ext1` matches its region by boundary with the succession `e-3 -> [e-9, e-10, e-11, e-12, e-13]` and no region warning; after `f-ext1` the body has volume 114000 and 10 faces, with `f-ext1/lateral/e-9` to `e-13`. `f-fil1` status warning `reference_widened` at `/edges/0`: `The back top edge of 'Extrude 1' selected for Edges now covers 5 edges, because the line it was made from was replaced by 5 lines in 'Sketch 1'. Keep all of them, or use only one.`, with the actions Keep all 5, Use only the back top edge of 'Extrude 1' along the line from (80, 50) to (50, 50), and Pick an edge again. Until the user chooses, the fillet is built on all five top edges. A replacement by one line (R06a) stays a notice.
+- **Today:** as in R02, the area changes 5 percent, so `profile_not_found` takes the whole model down. With the profile re-picked by hand, `e-3` has no face left and the fingerprint step decides among the new top edges. R66 was added after the study's runs, so its scores were not measured.
+
 ### R49 Splitting a side line must not halve the shell opening
 
 - **Setup:** BLOCK. `f-sh1` shell thickness 2, remove_faces `[{q: f-ext1/lateral/e-2, fp: plane|n=1,0,0|c=80,25,15|a=1500|adj=4,4}]` (open right side).
 - **Reference:** `f-sh1` remove_faces[0] (the whole right side).
 - **Edit:** in `f-sk1` end `e-2` at (80,25) and add a collinear line `e-6` (80,25)-(80,50). The right side becomes `f-ext1/lateral/e-2` (y 0..25) and `f-ext1/lateral/e-6` (y 25..50).
 - **Expect:** the whole right side stays open: one opening in x=80 spanning y 2..48, z 2..28. If only the `e-2` part is used, a notice says the face was split by the sketch edit and offers `f-ext1/lateral/e-6` in one click; the silent half opening is the failure.
-- **Today:** the exact name matches the lower half only, so the shell silently leaves a wall over y 25..50 (and the profile shows `region_remapped`).
+- **Today:** the exact name matches the lower half only (`f-ext1/lateral/e-2`, y 0..25). The kernel cannot open half a side next to the coplanar kept half, so `f-sh1` fails with a misleading `shell_too_thick` error (removing both halves gives exactly the expected opening), and the profile shows `region_remapped`.
 
 ### R50 A circle drawn inside the selected region
 
 - **Setup:** BLOCK.
 - **Reference:** `f-ext1` profile.regions[0].
 - **Edit:** add circle `e-5` center (40,25) radius 10 to `f-sk1` (for example as a guide for a later hole). The regions become the ring (`e-1`,`e-2`,`e-3`,`e-4` with hole `e-5`) and the disc `e-5`.
-- **Expect (proposed, consistent with R04):** the selection keeps covering the same area, ring plus disc: volume 120000, no face `f-ext1/lateral/e-5`, and a notice that the region was split and both parts were kept, so a user who wants a hole removes the disc from the profile. This is a product decision recorded in sketch.md section 3.14 first; the test pins the rule chosen.
+- **Expect (decision D2, [ADR 0022](../adr/0022-split-regions-keep-their-area.md), consistent with R04):** the selection keeps covering the same connected area, ring plus disc: volume 120000, no face `f-ext1/lateral/e-5`. `f-ext1` status ok with the info notice `region_split` at `/profile/regions/0`: `The region of 'Sketch 1' selected for Profile is now split in 2 parts by new lines, and all of them are used. Remove a part from the profile to leave it out.`, with the actions Keep these regions and Pick a region again. A user who wants a hole removes the disc from the profile.
 - **Today:** the outer-boundary step matches the ring only, so a through hole appears (volume 110575.222039) with only a `region_remapped` warning.
 
 ### R51 The picked arc of a tangent chain is deleted
@@ -216,7 +244,7 @@ The scenarios were merged from 113 candidates written against [technical design]
 - **Setup:** (a) BLOCK and SLOT(30,50). `f-fil1` fillet radius 2 on `[{q: edge(f-ext1/end-cap#2|f-ext1/lateral/e-1), fp: line|n=1,0,0|c=65,0,30|l=30|adj=2,2}]`. (b) BLOCK; `f-dp1` datum XY offset 30; slot A: `f-sk2` on `f-dp1` rectangle x 10..20, y -1..51, `f-ext2` distance 5, reverse, op cut; slot B: `f-sk3` on `f-dp1` rectangle x 50..60, y -1..51, `f-ext3` the same (pieces `#1` x 0..10, `#2#1` x 20..50, `#2#2` x 60..80). `f-fil1` fillet radius 1 on `[{q: edge(f-ext1/end-cap#2#1|f-ext1/lateral/e-1), fp: line|n=1,0,0|c=35,0,30|l=30|adj=2,2}]`.
 - **Reference:** `f-fil1` edges[0]: (a) the front top edge of the right-hand piece; (b) the front top edge of the middle piece.
 - **Edit:** (a) move the slot to x 50..81: the right piece is cut away and the top is one face `f-ext1/end-cap` (x 0..50). (b) delete `f-sk2` and `f-ext2`, and separately suppress them: pieces become `#1` (x 0..50) and `#2` (x 60..80).
-- **Expect:** (a) `f-fil1` error, no fillet face, volume 112500; the message says the front top edge of the right part of the top was removed when 'Sketch 2' moved the slot of 'Extrude 2', and the repair data offers the slot floor's front edge (y=0, z=25, x 50..80) as a one-click replacement. The left part's edge is not rounded. (b) `f-fil1` ok on the merged segment x 0..50 that contains the old middle piece (axis y=1, z=29); x 60..80 stays sharp; a notice that the edge grew is allowed.
+- **Expect:** (a) `f-fil1` error, no fillet face, volume 112500; the message says the front top edge of the right part of the top was removed when 'Sketch 2' moved the slot of 'Extrude 2', and the repair data offers the slot floor's front edge (y=0, z=25, x 50..80) as a one-click replacement. The left part's edge is not rounded. (b) `f-fil1` ok on the merged segment x 0..50 that contains the old middle piece (axis y=1, z=29); x 60..80 stays sharp; no notice: a grown piece resolves by its anchors without one.
 - **Today:** (a) step 3 finds a family of one and resolves it with confidence 0.625 to the left part's edge, rounding it silently. (b) passes (0.801 against 0.658). A fix must keep both: a fingerprint threshold on family matches breaks (b); checking that the old piece lies within the candidate does not.
 
 ### R11 A notch moved further than its width keeps the chamfer on its side
@@ -307,7 +335,7 @@ The scenarios were merged from 113 candidates written against [technical design]
 - **Reference:** `f-fil1` edges[0]: the front top edge of the copy.
 - **Edit:** (a) insert SLOT(30,50) (`f-dp1`, `f-sk2`, `f-ext2`) between `f-ext1` and `f-lp1`; the copy's top pieces are `f-ext1/end-cap#1@f-lp1:1` and `f-ext1/end-cap#2@f-lp1:1`. (b) on the model after (a), with the reference stored as `{q: edge(f-ext1/end-cap#2@f-lp1:1|f-ext1/lateral/e-1@f-lp1:1), fp: line|n=1,0,0|c=65,60,30|l=30|adj=2,2}`, suppress `f-ext2`.
 - **Expect:** the copy behaves like the original (naming.md test 84). (a) `f-fil1` resolves by history to both front top segments of the copy, x 0..30 and x 50..80 at y=60, two fillet faces. (b) it resolves by history to the copy's unsplit front top edge (x 0..80, y=60); unsuppressing restores the result of (a).
-- **Today:** the instance suffix follows the split suffix, so neither the split step nor the family step sees the pieces: (a) both segments score 0.757, below 0.85, and `f-fil1` fails while the same reference on the source body works; (b) the best candidate scores 0.641 and `f-fil1` fails.
+- **Today:** the instance suffix follows the split suffix, so neither the split step nor the family step sees the pieces: (a) both segments score 0.757, and the fingerprint step finds the copy's bottom front edge (0.878) and the source's back bottom edge (0.873) within the 0.05 margin, so the reference is ambiguous and `f-fil1` fails while the same reference on the source body works; had either lookalike led by the margin, it would have been rounded silently. (b) the best candidate scores 0.641 and `f-fil1` fails.
 
 ### R21 A box joined against a filleted side
 
@@ -339,8 +367,8 @@ The scenarios were merged from 113 candidates written against [technical design]
 
 - **Setup:** bodies `[b-1]`. `f-box1` box 60 x 30 x 10 (x -30..30, y -15..15, z 0..10). `f-dp1` datum XY offset 10. `f-sk1` on `f-dp1`: circle `e-5` center (-5,0) radius 4; `f-ext1` extrude distance 20, op join (peg A, z 10..30). `f-sk2` on `f-dp1`: circle `e-7` center (5,0) radius 4; `f-ext2` extrude distance 20, op join (peg B). `f-fil1` fillet radius 1 on `[{q: edge(f-ext1/end-cap|f-ext1/lateral/e-5), fp: circle|n=0,0,1|c=-5,0,30|l=25.132741|r=4|adj=2,1}]`.
 - **Reference:** `f-fil1` edges[0]: the top rim of peg A.
-- **Edit:** suppress `f-ext1`; separately, delete `f-sk1` and `f-ext1`.
-- **Expect:** `f-fil1` error, no face `f-fil1/fillet/*`, peg B's top rim sharp. The message names the element (the top rim of 'Extrude 1') and the cause ('Extrude 1' is suppressed, or a deleted feature made it), with Unsuppress as the one-click fix when suppressed. Unsuppressing gives back the original result and a byte-identical document.
+- **Edit:** (a) suppress `f-ext1`. (b) delete `f-sk1` and `f-ext1`.
+- **Expect:** `f-fil1` error, no face `f-fil1/fillet/*`, peg B's top rim sharp. The message names the element (the top rim of 'Extrude 1') and the cause ((a) 'Extrude 1' is suppressed; (b) a deleted feature made it), with Unsuppress as the one-click fix in (a). Unsuppressing gives back the original result and a byte-identical document.
 - **Today:** step 4 scores peg B's top rim 0.885 (its base rim 0.794) and silently rounds peg B.
 
 ### R24 A slot-rim fillet when the slot is suppressed or the fillet dragged above it
@@ -364,7 +392,7 @@ The scenarios were merged from 113 candidates written against [technical design]
 - **Setup:** BLOCK. Face sketch `f-sk2` on `{q: f-ext1/end-cap, fp: plane|n=0,0,1|c=40,25,30|a=4000|adj=4,4}`, fallback origin (0,0,30), x_axis (1,0,0), normal (0,0,1), with circle `e-5` center (40,25) radius 10; `f-ext2` extrude distance 10, op join (boss on top).
 - **Reference:** `f-sk2` plane.face: the top of the block.
 - **Edit:** (1) change `f-ext1` distance from 30 to 80 (the sketch follows by name to z=80). (2) delete `f-ext1` and add `f-ext3` with the same profile, distance 80, op new, at the same timeline position.
-- **Expect:** the boss stays on top at z 80..90: one solid, volume 323141.592654, bounding box max z 90. If the face is not matched, the sketch keeps its last resolved placement (z=80), and the warning says the feature that made its face was deleted and offers a one-click re-attach to the top of the new extrude.
+- **Expect (amended by decision D3, [ADR 0023](../adr/0023-frames-live-on-the-model.md)):** after (1) the sketch follows by name and the boss stands on top at z 80..90. After (2) the run alone cannot tell that `f-ext3` replaces `f-ext1`, so nothing moves without the user. Labels follow timeline order, so `f-ext3`, now the first extrude, is 'Extrude 1'. `f-sk2` uses the position saved with it (origin (0,0,30)) with warning `plane_fallback`: `The face this sketch is on, a face of a feature that is not in this document, is gone, so the sketch uses the position saved with it.`, with the actions Attach to the top of 'Extrude 1' first, then Pick. `f-ext2` warning `no_effect` with root 'Sketch 2': `This extrude adds nothing to body 'Body 1' because 'Sketch 2' lost the face it was on. Fix 'Sketch 2' first.` The engine twin checks the cause line `This started after you deleted 'Extrude 1'.` (the label the deleted feature had) and its action Keep the sketch where it was, after which the boss stands on top at z 80..90: one solid, volume 323141.592654, bounding box max z 90.
 - **Today:** the stored fingerprint still says z=30, the new end cap scores 0.7875, and the sketch uses the fallback stored at attach time (z=30) while the message claims it "stays at its last position"; the boss lands inside the body and `f-ext2` reports `no_effect`.
 
 ### R27 Removing an upstream move must not hand a reference to the sibling piece
@@ -425,7 +453,7 @@ The scenarios were merged from 113 candidates written against [technical design]
 - **Reference:** (a) the bottom front edge; (b) the top front edge of the upper part.
 - **Edit:** (a) insert before `f-cha1`: `f-dp1` datum XY offset 5 and `f-split1` split_body of `b-1` by `f-dp1`, target `b-2` (`b-1` keeps z 5..20). (b) set `f-split1` flip to true (`b-1` keeps z 0..10).
 - **Expect:** nothing in `b-1` is beveled or rounded. (a) `f-cha1` error: the edge is now in 'Body 2' because 'Split body 1' put that side there; re-pick; `b-1` volume 6000. (b) `f-fil1` error: the edge is now in 'Body 2' because 'Split body 1' keeps the other side; one-click "Use Body 2", where the name resolves exactly; `b-1` volume 4000.
-- **Today:** the fingerprint step picks `b-1`'s cut edge ((a) at z=5, (b) at z=10, both 0.914) and bevels or rounds it silently.
+- **Today:** (a) the fingerprint step picks `b-1`'s cut edge at z=5 (0.914) and bevels it silently. (b) `b-1`'s cut edge at z=10 is the nearest candidate at 0.847 (its centroid is 10 mm from the stored one, not 5), 0.003 below the threshold, so `f-fil1` fails with only "can no longer be found": right by luck, since a slightly closer edge would have been rounded silently.
 
 ### R56 An edge that now lives in another body
 
@@ -450,7 +478,7 @@ The scenarios were merged from 113 candidates written against [technical design]
 - **Setup:** (a) bodies `[b-1]`. `f-box1` box 40 x 40 x 10 (x -20..20, y -20..20, z 0..10). Face sketch `f-sk2` on `{q: f-box1/top, fp: plane|n=0,0,1|c=0,0,10|a=1600|adj=4,4}`, fallback origin (0,0,10), x_axis (1,0,0), normal (0,0,1), with point `e-p1` (15,15). `f-hole1` hole on `b-1`, sketch `f-sk2`, points `[e-p1]`, diameter 4, through all. (b) BLOCK. Face sketch `f-sk2` on `{q: f-ext1/end-cap, fp: plane|n=0,0,1|c=40,25,30|a=4000|adj=4,4}`, fallback origin (0,0,30), x_axis (1,0,0), normal (0,0,1), with point `e-p1` (20,10). `f-hole1` diameter 5, depth 10, points `[e-p1]`.
 - **Reference:** `f-sk2` plane.face, and with it where `e-p1` sits relative to the face's edges.
 - **Edit:** (a) insert `f-mv1` move_body of `b-1`, translation (100,0,0), between `f-box1` and `f-sk2`; variant: a rotation of 90 about the origin Z axis instead. (b) set `f-ext1` reverse to true (the end cap is now the bottom at z=-30, facing -Z).
-- **Expect:** exact face match, no warnings, and the point keeps its place on the face. (a) the hole axis is at world x=115, y=15; volume 15874.336294; rotation variant: the hole is at world (-15,15). (b) the hole axis is at world x=20, y=10, drilled from z=-30 up to z=-20; volume 119803.650459.
+- **Expect:** exact face match. (a) no warnings, and the point keeps its place on the face: the hole axis is at world x=115, y=15; volume 15874.336294; rotation variant: the hole is at world (-15,15). (b) amended by decision D3 ([ADR 0023](../adr/0023-frames-live-on-the-model.md)): the face turned over, and its placement stays right-handed, so the drawing lies mirrored on it. `f-sk2` warning `sketch_turned_over` with the action Turn the drawing back; until it is applied, `e-p1` lies at world (20,-10,-30), off the face, and the hole cuts nothing (volume 120000). Turn the drawing back is one undo entry; afterwards `f-sk2` has no warning, and the hole axis is at world x=20, y=10, drilled from z=-30 up to z=-20; volume 119803.650459.
 - **Today:** the placement takes its origin and x axis from the stored fallback (`Placement::on_plane` projects the hint), so only the plane follows: (a) the hole stays at (15,15), outside the moved box: `hole_misses_body` and `no_effect`; rotation variant: the hole stays at world (15,15), another corner of the face. (b) the flipped normal turns the sketch's y axis to -Y, `e-p1` maps to (20,-10,-30), off the face: `hole_misses_body` and `no_effect`.
 
 ### R33 A sketch whose face is cut away must not jump to its attach-time position
@@ -458,7 +486,7 @@ The scenarios were merged from 113 candidates written against [technical design]
 - **Setup:** bodies `[b-1]`. `f-box1` box 20 x 20 x 40 (x -10..10, y -10..10, z 0..40). Face sketch `f-sk2` on `{q: f-box1/top, fp: plane|n=0,0,1|c=0,0,10|a=400|adj=4,4}`, fallback origin (0,0,10), x_axis (1,0,0), normal (0,0,1) (attached when the box was 10 tall; the height was then edited to 40 and the sketch followed by name), with circle `e-5` center (0,0) radius 3; `f-ext2` extrude distance 5, op join (boss z 40..45).
 - **Reference:** `f-sk2` plane.face: the top of the box.
 - **Edit:** insert before `f-sk2`: `f-dp1` datum XY offset 35, `f-sk3` on `f-dp1` with a rectangle x -15..15, y -15..15, and `f-ext3` extrude distance 10, op cut (removes z 35..40; the box top is deleted and the new top is `f-ext3/start-cap` at z=35). After the insert the cut is labeled 'Extrude 1'.
-- **Expect:** the sketch does not move to the attach-time fallback (z=10). It keeps the placement of its last successful build (origin (0,0,40)), and its warning names the face (the top of 'Box 1') and the cause ('Extrude 1', inserted before this sketch, cut it away), and offers the new top at z=35 as a one-click re-attach. The boss is never inside the box: bounding box max z 45. How the last placement survives closing and reopening the document is decided in features/sketch.md.
+- **Expect:** the sketch does not move to the attach-time fallback (z=10). It keeps the placement of its last successful build (origin (0,0,40)), and its warning names the face (the top of 'Box 1') and the cause ('Extrude 1', inserted before this sketch, cut it away), and offers the new top at z=35 as a one-click re-attach. The boss is never inside the box: bounding box max z 45. Decision D3 ([ADR 0023](../adr/0023-frames-live-on-the-model.md)) places the sketch on the face as it was just before 'Extrude 1' removed it, read from the run itself, so a document opened fresh gives the same placement and nothing is written to the document.
 - **Today:** the face is missing (best 0.72 against the stale z=10 fingerprint), the sketch goes to z=10, the boss is joined inside the box with only `no_effect`, and it vanishes.
 
 ### R34 A shell inserted under a sketch must not drop it onto the floor
@@ -653,12 +681,12 @@ The scenarios were merged from 113 candidates written against [technical design]
 
 Downstream consumers:
 
-- Fillet edges: R01 to R08, R10, R12, R13, R14, R15, R16, R17, R18, R19, R20, R21, R23, R24, R27, R28, R29, R30, R31, R41, R47, R48, R51, R52, R56, R61, R64, R65.
+- Fillet edges: R01 to R08, R10, R12, R13, R14, R15, R16, R17, R18, R19, R20, R21, R23, R24, R27, R28, R29, R30, R31, R41, R47, R48, R51, R52, R56, R61, R64, R65, R66.
 - Chamfer edges, equal distance: R02, R11, R17, R18, R29, R31, R40, R42, R43, R45, R46, R57, R62, R63. Two distances: R22.
 - Shell removed faces: R09, R44, R49, R52, R53.
 - Sketch on a face: R01, R06, R13, R15, R26, R32, R33, R34, R35, R36, R55, R57.
 - Datum plane on a face: R15, R25, R37, R53, R54, R58.
-- Extrude profile regions: R01 to R07, R49, R50, R51, R64, R65.
+- Extrude profile regions: R01 to R07, R49, R50, R51, R64, R65, R66.
 - Revolve axis on an edge: R39, R59; on a round face: R39.
 - Mirror plane on a face: R60. Linear pattern direction on an edge: R38. Move body rotation axis on an edge: R39.
 - Split body plane through a datum: R15, R31, R58.
@@ -669,7 +697,7 @@ Downstream consumers:
 
 Edit types:
 
-- Sketch geometry: lines added (R01, R02, R49), removed (R03, R51), deleted and redrawn (R06, R07), a crossing or inner circle (R04, R50), points moved (R11, R38, R42), overlapping outlines (R05), a corner rounded (R02, R64), entities reordered (R65), a conflicting constraint (R47).
+- Sketch geometry: lines added (R01, R02, R49), removed (R03, R51), deleted and redrawn (R06, R07), a line replaced by several (R66), a crossing or inner circle (R04, R50), points moved (R11, R38, R42), overlapping outlines (R05), a corner rounded (R02, R64), entities reordered (R65), a conflicting constraint (R47).
 - Dimensions and parameters: R08, R09, R10, R12, R13, R14, R26, R36, R52, R61.
 - Features inserted upstream: R15 to R22, R31, R32, R33, R34, R35, R37, R39, R44, R53, R58, R59, R60, R62.
 - Suppress and unsuppress: R10, R20, R23, R24, R25, R27, R56. Delete: R10, R23, R26, R54.

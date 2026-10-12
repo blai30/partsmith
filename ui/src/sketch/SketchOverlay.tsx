@@ -170,13 +170,34 @@ function ringTitlesOf(solution: SketchSolution | undefined): readonly string[] {
  */
 export function SketchOverlay() {
   const sketchId = useAppState(selectEditedSketch)
-  if (sketchId === undefined) {
-    return null
-  }
-  return sketchId === null ? <SketchHeader /> : <SketchLayer key={sketchId} sketchId={sketchId} />
+  const [controller, setController] = useState<SketchController | null>(null)
+  const model = useSyncExternalStore(
+    controller?.subscribe ?? subscribeNothing,
+    controller?.getModel ?? emptyModel,
+  )
+  const editing = sketchId !== undefined && sketchId !== null
+  // The header and its hint keep one place in the tree from plane picking to editing and back,
+  // so the hint's live region is never replaced and each step's prompt is announced (3.24).
+  return (
+    <>
+      <SketchHeader
+        hint={editing ? model.hint : null}
+        freePlacement={editing && model.freePlacement}
+      />
+      {editing ? (
+        <SketchLayer key={sketchId} sketchId={sketchId} onController={setController} />
+      ) : null}
+    </>
+  )
 }
 
-function SketchLayer({ sketchId }: { readonly sketchId: string }) {
+type SketchLayerProps = {
+  readonly sketchId: string
+  /** Receives the layer's controller once it exists, and null when the layer goes. */
+  readonly onController: (controller: SketchController | null) => void
+}
+
+function SketchLayer({ sketchId, onController }: SketchLayerProps) {
   const app = useApp()
   const layer = useRef<HTMLDivElement>(null)
   const [controller, setController] = useState<SketchController | null>(null)
@@ -248,11 +269,13 @@ function SketchLayer({ sketchId }: { readonly sketchId: string }) {
     }
     const created = createSketchController({ app, canvas })
     setController(created)
+    onController(created)
     return () => {
       created.dispose()
       setController(null)
+      onController(null)
     }
-  }, [app])
+  }, [app, onController])
 
   useLayoutEffect(() => {
     if (controller === null) {
@@ -288,7 +311,6 @@ function SketchLayer({ sketchId }: { readonly sketchId: string }) {
 
   return (
     <>
-      <SketchHeader hint={model.hint} freePlacement={model.freePlacement} />
       <div
         ref={layer}
         data-testid="sketch-overlay"

@@ -1,6 +1,6 @@
 import { clsx } from 'clsx/lite'
 import { ChevronDown } from 'lucide-react'
-import { useId, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useApp, useAppState } from '../app/AppProvider'
 import {
@@ -14,6 +14,7 @@ import { Popover } from '../components/Popover'
 import { originPlaneName, originPlaneView, type OriginPlane } from '../core/labels'
 import type { ProfileFinding, SketchConstraint, SketchSolution } from '../generated/protocol'
 import { originItem } from '../inspector/selection-values'
+import { focusLost, focusView } from '../layout/focus'
 import { MESSAGES } from '../messages'
 import { selectFeatureLabel, selectSketchDof, type SketchDof } from '../state/selectors'
 import type { AppState } from '../state/store'
@@ -71,13 +72,20 @@ export type SketchHeaderProps = {
 /** The sketch header chip and the sketch hint in the top-center slot; nothing outside sketch mode. */
 export function SketchHeader({ hint = null, freePlacement = false }: SketchHeaderProps) {
   const sketchId = useAppState(selectEditedSketch)
-  if (sketchId === undefined) {
-    return null
-  }
   return (
     <div className="pointer-events-none absolute inset-x-32 top-4 z-10 flex flex-col items-center gap-2">
-      {sketchId === null ? <PlanePicking /> : <EditingHeader sketchId={sketchId} />}
-      <SketchHint sketchId={sketchId} hint={hint} freePlacement={freePlacement} />
+      {sketchId === undefined ? null : sketchId === null ? (
+        <PlanePicking />
+      ) : (
+        <EditingHeader sketchId={sketchId} />
+      )}
+      {/* The hint stays mounted, empty outside sketch mode, so its first prompt is announced. */}
+      <SketchHint
+        sketchId={sketchId ?? null}
+        active={sketchId !== undefined}
+        hint={hint}
+        freePlacement={freePlacement}
+      />
     </div>
   )
 }
@@ -85,6 +93,13 @@ export function SketchHeader({ hint = null, freePlacement = false }: SketchHeade
 /** While a plane is picked for a new sketch: the prompt and the three origin planes. */
 function PlanePicking() {
   const app = useApp()
+  const first = useRef<HTMLButtonElement>(null)
+  // The Sketch button that started the pick is gone, so the first plane takes its focus (3.24).
+  useEffect(() => {
+    if (focusLost()) {
+      first.current?.focus()
+    }
+  }, [])
   return (
     <fieldset
       data-testid="sketch-header"
@@ -99,9 +114,10 @@ function PlanePicking() {
       )}
     >
       <legend className="float-left font-medium">Pick a plane or a flat face to draw on</legend>
-      {ORIGIN_PLANES.map((plane) => (
+      {ORIGIN_PLANES.map((plane, index) => (
         <Button
           key={plane}
+          ref={index === 0 ? first : undefined}
           aria-label={`Sketch on ${originPlaneName(plane)}`}
           onClick={() => {
             createSketchOn(app, originItem(plane)).catch((error: unknown) => {
@@ -134,6 +150,12 @@ function EditingHeader({ sketchId }: { readonly sketchId: string }) {
   const [open, setOpen] = useState(false)
   const popoverId = useId()
   const status = dof === null ? null : statusOf(dof)
+  // The plane button that started the sketch is gone; drawing goes on in the 3D view (3.24).
+  useEffect(() => {
+    if (focusLost()) {
+      focusView()
+    }
+  }, [])
 
   return (
     <>
@@ -160,13 +182,14 @@ function EditingHeader({ sketchId }: { readonly sketchId: string }) {
           COLOR_CLASSES.accent.outline,
         )}
       >
-        <span className="truncate font-medium">{label}</span>
+        {/* The name keeps its place up to 10rem; the status gives way first, with an ellipsis. */}
+        <span className="max-w-40 shrink-0 truncate font-medium">{label}</span>
         {status === null || dof === null ? null : (
           <>
             <span className="sr-only">, </span>
             <span
               className={clsx(
-                'flex items-center border-l pl-3',
+                'min-w-0 truncate border-l pl-3',
                 COLOR_CLASSES.border.border,
                 status.error
                   ? COLOR_CLASSES.errorText.foreground
@@ -207,12 +230,14 @@ function EditingHeader({ sketchId }: { readonly sketchId: string }) {
 
 type SketchHintProps = {
   readonly sketchId: string | null
+  /** Whether sketch mode is on (a sketch edited or a plane picked); the hint is empty otherwise. */
+  readonly active: boolean
   readonly hint: SketchOverlayModel['hint']
   readonly freePlacement: boolean
 }
 
 /** The sketch hint under the header (3.16.3): the step prompt, or what replaces it for now. */
-function SketchHint({ sketchId, hint, freePlacement }: SketchHintProps) {
+function SketchHint({ sketchId, active, hint, freePlacement }: SketchHintProps) {
   const app = useApp()
   const pickHint = useAppState((state) =>
     state.pickHint !== null && state.pickHint.field === null ? state.pickHint.message : null,
@@ -224,8 +249,9 @@ function SketchHint({ sketchId, hint, freePlacement }: SketchHintProps) {
       (state.document?.sketches[sketchId]?.solution.entities.length ?? 0) === 0,
   )
   const idleStep = idle ? sketchStepHint({ kind: 'idle', empty }, app.platform) : null
-  const text =
-    pickHint ?? (sketchId === null ? MESSAGES.plane_pick_hint() : (hint?.text ?? idleStep))
+  const text = !active
+    ? null
+    : (pickHint ?? (sketchId === null ? MESSAGES.plane_pick_hint() : (hint?.text ?? idleStep)))
   const warning = pickHint !== null || hint?.warning === true
   return (
     <output
