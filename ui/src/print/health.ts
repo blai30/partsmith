@@ -98,8 +98,6 @@ export const hasPrintableBody: (state: AppState) => boolean = memoized(
     meshes !== undefined &&
     (bodies ?? []).some(
       (body) =>
-        body.visible !== false &&
-        (body.role ?? 'part') === 'part' &&
-        meshes[body.id] !== undefined,
+        body.visible !== false && (body.role ?? 'part') === 'part' && meshes[body.id] !== undefined,
     ),
 )

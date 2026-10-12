@@ -2,7 +2,7 @@
 //! section 3.4).
 
 use partsmith_features::Repair as FeatureRepair;
-use partsmith_model::Document;
+use partsmith_model::{Document, Id};
 use partsmith_naming::{ElementKind, ElementName};
 use partsmith_protocol::{
     Diagnostic, FeatureState, FeatureStatus, ParameterValue, Repair, ResolutionStatus, Severity,
@@ -11,8 +11,22 @@ use partsmith_recompute::{Message, Severity as MessageSeverity, Status};
 
 use crate::state::{BodyView, Computed, display_bodies};
 
-/// The status of every feature in timeline order.
-pub(crate) fn feature_statuses(document: &Document, computed: &Computed) -> Vec<FeatureStatus> {
+/// A body whose display mesh could not be built (section 3.8): the error is reported on the
+/// feature whose output holds the body state, and the body shows no mesh.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct DisplayFailure {
+    /// The feature whose output holds the body state.
+    pub(crate) feature: Option<Id>,
+    /// The diagnostic message.
+    pub(crate) message: String,
+}
+
+/// The status of every feature in timeline order, with the display failures of its document.
+pub(crate) fn feature_statuses(
+    document: &Document,
+    computed: &Computed,
+    failures: &[DisplayFailure],
+) -> Vec<FeatureStatus> {
     let duplicated: Vec<BodyView> = display_bodies(document, computed)
         .into_iter()
         .filter(|view| view.has_geometry() && has_duplicate_names(view))
@@ -38,6 +52,18 @@ pub(crate) fn feature_statuses(document: &Document, computed: &Computed) -> Vec<
                             "Two elements of body {} have the same name. This is a bug in Partsmith; please report it.",
                             view.body
                         ),
+                        field: None,
+                        suggestion: None,
+                    });
+                }
+            }
+            for failure in failures {
+                if failure.feature.as_ref() == Some(&report.feature) {
+                    status.status = FeatureState::Error;
+                    status.messages.push(Diagnostic {
+                        severity: Severity::Error,
+                        code: "display_failed".to_string(),
+                        message: failure.message.clone(),
                         field: None,
                         suggestion: None,
                     });
@@ -153,7 +179,6 @@ pub(crate) fn document_diagnostics(computed: &Computed) -> Vec<Diagnostic> {
 
 #[cfg(test)]
 mod tests {
-    use partsmith_model::Id;
     use partsmith_naming::Reference;
 
     use super::*;

@@ -163,7 +163,11 @@ function build(type: ConstraintType, sorted: Sorted, id: string): SketchConstrai
         ? { id, type, points: [firstPoint.point, secondPoint.point] }
         : null
     case 'point_on_object': {
-      const curve = shaped(sorted, 1, 1, 0) ? firstLine : shaped(sorted, 1, 0, 1) ? firstRound : null
+      const curve = shaped(sorted, 1, 1, 0)
+        ? firstLine
+        : shaped(sorted, 1, 0, 1)
+          ? firstRound
+          : null
       return firstPoint !== undefined &&
         curve !== null &&
         curve !== undefined &&
@@ -270,7 +274,11 @@ function fixTarget(operand: Operand): string | null {
 function present(operands: readonly Operand[], solution: SketchSolution): boolean {
   return operands.every((operand) => {
     const reference =
-      operand.kind === 'point' ? operand.owner : operand.kind === 'line' ? operand.line : operand.curve
+      operand.kind === 'point'
+        ? operand.owner
+        : operand.kind === 'line'
+          ? operand.line
+          : operand.curve
     return isReservedReference(reference) || solvedEntity(solution, reference) !== undefined
   })
 }
@@ -282,7 +290,9 @@ function fixTargets(operands: readonly Operand[]): string[] | null {
     return target === null ? [] : [target]
   })
   const distinct = new Set(targets)
-  return targets.length > 0 && targets.length === operands.length && distinct.size === targets.length
+  return targets.length > 0 &&
+    targets.length === operands.length &&
+    distinct.size === targets.length
     ? targets
     : null
 }
@@ -328,9 +338,11 @@ export function constraintsFor(
     return []
   }
   if (type === 'fix') {
-    return (fixTargets(operands) ?? []).map(
-      (target): SketchConstraint => ({ id: ids.next('c'), type: 'fix', target }),
-    )
+    return (fixTargets(operands) ?? []).map((target): SketchConstraint => ({
+      id: ids.next('c'),
+      type: 'fix',
+      target,
+    }))
   }
   const sorted = sortOperands(operands)
   // Coincident on a point and a curve is point on object (3.16.6).

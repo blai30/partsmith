@@ -16,13 +16,15 @@ import {
 } from '../../print/fixtures.testing'
 import { DEFAULT_SETTINGS } from '../../settings/settings'
 import { selectHealthBadge } from '../../state/selectors'
-import type { AppState, FindingKey } from '../../state/store'
+import { INITIAL_STATE, type AppState, type FindingKey } from '../../state/store'
 import { settle } from '../../test/fakes/settle'
 import {
   focusFinding,
   installPrintAnalysis,
+  openPrintHealth,
   runPrintAnalysis,
   setCheckHidden,
+  setOverhangMap,
   setPrinter,
 } from './print'
 
@@ -445,6 +447,193 @@ describe('automatic print analysis (installPrintAnalysis)', () => {
     setRevision(harness.app, 4)
     await vi.advanceTimersByTimeAsync(100)
     stop()
+    await vi.advanceTimersByTimeAsync(1000)
+    await settle()
+    expect(analyses(harness)).toEqual([])
+  })
+})
+
+describe('setCheckHidden for mesh validity', () => {
+  it('never hides mesh validity, which is always checked', () => {
+    const harness = createPrintApp()
+    setCheckHidden(harness.app, 'mesh_validity', true)
+    expect(harness.app.store.getState().settings.hiddenChecks).toEqual([])
+  })
+
+  it('shows mesh validity again when stored settings hid it', () => {
+    const harness = createPrintApp({
+      settings: { ...DEFAULT_SETTINGS, hiddenChecks: ['mesh_validity', 'islands'] },
+    })
+    setCheckHidden(harness.app, 'mesh_validity', false)
+    expect(harness.app.store.getState().settings.hiddenChecks).toEqual(['islands'])
+  })
+})
+
+describe('setOverhangMap', () => {
+  it('turns the overhang map off and on again', () => {
+    const harness = createPrintApp()
+    setOverhangMap(harness.app, false)
+    expect(harness.app.store.getState().print.overhangMap).toBe(false)
+    setOverhangMap(harness.app, true)
+    expect(harness.app.store.getState().print.overhangMap).toBe(true)
+  })
+
+  it('leaves the print state as it is when the map already has that state', () => {
+    const harness = createPrintApp()
+    const before = harness.app.store.getState().print
+    setOverhangMap(harness.app, true)
+    expect(harness.app.store.getState().print).toBe(before)
+  })
+})
+
+describe('openPrintHealth (the health badge)', () => {
+  it('opens the health panel', async () => {
+    const harness = createPrintApp({
+      print: printState({ report: OVERHANG_REPORT, reportRevision: 3 }),
+    })
+    await openPrintHealth(harness.app)
+    expect(harness.app.store.getState().panels.side).toBe('health')
+  })
+
+  it('runs the analysis when the report describes an older revision', async () => {
+    const harness = createPrintApp({
+      document: documentState({ revision: 4 }),
+      print: printState({ report: OVERHANG_REPORT, reportRevision: 3 }),
+    })
+    await openPrintHealth(harness.app)
+    expect(analyses(harness)).toEqual([[DOCUMENT_HANDLE, AS_MODELED]])
+  })
+
+  it('runs the analysis when there is no report yet', async () => {
+    const harness = createPrintApp({ print: printState() })
+    await openPrintHealth(harness.app)
+    expect(analyses(harness)).toHaveLength(1)
+  })
+
+  it('runs nothing when the report is up to date', async () => {
+    const harness = createPrintApp({
+      print: printState({ report: OVERHANG_REPORT, reportRevision: 3 }),
+    })
+    await openPrintHealth(harness.app)
+    expect(analyses(harness)).toEqual([])
+  })
+})
+
+function focused(harness: PrintApp): FindingKey | null {
+  return harness.app.store.getState().print.focusedFinding
+}
+
+describe('the focused finding marker (installPrintAnalysis)', () => {
+  const OVERHANG: FindingKey = { body: CUBE.id, check: 'overhangs', index: 1 }
+  const stops: (() => void)[] = []
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    for (const stop of stops.splice(0)) {
+      stop()
+    }
+    vi.useRealTimers()
+  })
+
+  // The cube document in Print context with the health panel open and a finding focused.
+  function focusedApp(): PrintApp {
+    const harness = createPrintApp({
+      context: 'print',
+      document: documentState({ revision: 3 }),
+      print: printState({ report: OVERHANG_REPORT, reportRevision: 3 }),
+      panels: { ...INITIAL_STATE.panels, side: 'health' },
+    })
+    stops.push(installPrintAnalysis(harness.app))
+    focusFinding(harness.app, OVERHANG)
+    return harness
+  }
+
+  it('stays while the panel is open and the document is unchanged', () => {
+    const harness = focusedApp()
+    harness.app.store.setState({ selection: [] })
+    harness.app.store.setState((state) => ({ print: { ...state.print, running: true } }))
+    expect(focused(harness)).toEqual(OVERHANG)
+  })
+
+  it('goes when the health panel closes', () => {
+    const harness = focusedApp()
+    harness.app.store.setState((state) => ({ panels: { ...state.panels, side: null } }))
+    expect(focused(harness)).toBeNull()
+  })
+
+  it('goes when another side panel replaces the health panel', () => {
+    const harness = focusedApp()
+    harness.app.store.setState((state) => ({ panels: { ...state.panels, side: 'problems' } }))
+    expect(focused(harness)).toBeNull()
+  })
+
+  it('goes when the document changes', () => {
+    const harness = focusedApp()
+    setRevision(harness.app, 4)
+    expect(focused(harness)).toBeNull()
+  })
+
+  it('goes with the revision change that also schedules the analysis', async () => {
+    const harness = focusedApp()
+    setRevision(harness.app, 4)
+    await vi.advanceTimersByTimeAsync(300)
+    await settle()
+    expect(analyses(harness)).toEqual([[DOCUMENT_HANDLE, AS_MODELED]])
+  })
+})
+
+function setTransactionOpen(harness: PrintApp, transactionOpen: boolean): void {
+  harness.app.store.setState((state) =>
+    state.document === null ? {} : { document: { ...state.document, transactionOpen } },
+  )
+}
+
+describe('analysis when a transaction closes (installPrintAnalysis)', () => {
+  const stops: (() => void)[] = []
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    for (const stop of stops.splice(0)) {
+      stop()
+    }
+    vi.useRealTimers()
+  })
+
+  it('runs 300 ms after the transaction closes when edits made the report stale', async () => {
+    const harness = createPrintApp({
+      context: 'print',
+      document: documentState({ revision: 3 }),
+      print: printState({ report: OVERHANG_REPORT, reportRevision: 3 }),
+    })
+    stops.push(installPrintAnalysis(harness.app))
+    setTransactionOpen(harness, true)
+    setRevision(harness.app, 4)
+    await vi.advanceTimersByTimeAsync(1000)
+    await settle()
+    expect(analyses(harness)).toEqual([])
+    setTransactionOpen(harness, false)
+    await vi.advanceTimersByTimeAsync(299)
+    await settle()
+    expect(analyses(harness)).toEqual([])
+    await vi.advanceTimersByTimeAsync(1)
+    await settle()
+    expect(analyses(harness)).toEqual([[DOCUMENT_HANDLE, AS_MODELED]])
+  })
+
+  it('runs nothing when a transaction closes without changing the document', async () => {
+    const harness = createPrintApp({
+      context: 'print',
+      document: documentState({ revision: 3, transactionOpen: true }),
+      print: printState({ report: OVERHANG_REPORT, reportRevision: 3 }),
+    })
+    stops.push(installPrintAnalysis(harness.app))
+    setTransactionOpen(harness, false)
     await vi.advanceTimersByTimeAsync(1000)
     await settle()
     expect(analyses(harness)).toEqual([])

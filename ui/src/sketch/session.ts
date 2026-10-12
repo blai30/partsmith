@@ -38,26 +38,3 @@ export type SketchCommitResult =
       readonly redundant: boolean
     }
   | { readonly outcome: 'failed'; readonly message: string }
-
-/** The drawing tools, which place new geometry and show a crosshair. */
-export const DRAWING_TOOLS: ReadonlySet<SketchToolId> = new Set([
-  'line',
-  'rectangle_2point',
-  'rectangle_center',
-  'circle',
-  'arc_3point',
-  'point',
-])
-
-/** Whether the tool draws new geometry (as opposed to dimensioning or constraining). */
-export function isDrawingTool(tool: SketchToolId | null): boolean {
-  return tool !== null && DRAWING_TOOLS.has(tool)
-}
-
-/** The constraint of a constraint tool, or null for the other tools. */
-export function constraintTool(tool: SketchToolId | null): ConstraintType | null {
-  if (tool === null || !tool.startsWith('constrain_')) {
-    return null
-  }
-  return tool.slice('constrain_'.length) as ConstraintType
-}

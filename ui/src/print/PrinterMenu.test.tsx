@@ -151,3 +151,55 @@ describe('PrinterMenu', () => {
     expect(onChoose).not.toHaveBeenCalled()
   })
 })
+
+describe('PrinterMenu keyboard and dismissal', () => {
+  it('checks a profile with Space and stays open', async () => {
+    const { menu, onChoose } = await openMenu()
+    await userEvent.keyboard('{ArrowDown}')
+    await userEvent.keyboard(' ')
+    expect(onChoose).toHaveBeenCalledWith('my-mk4')
+    expect(screen.getByRole('menu')).toBe(menu)
+  })
+
+  it('wraps around with the arrow keys and jumps with Home and End', async () => {
+    const { menu } = await openMenu()
+    await userEvent.keyboard('{ArrowUp}')
+    expect(radio(menu, 'No printer')).toHaveFocus()
+    await userEvent.keyboard('{ArrowDown}')
+    expect(radio(menu, 'Generic FDM 0.4 mm')).toHaveFocus()
+    await userEvent.keyboard('{End}')
+    expect(radio(menu, 'No printer')).toHaveFocus()
+    await userEvent.keyboard('{Home}')
+    expect(radio(menu, 'Generic FDM 0.4 mm')).toHaveFocus()
+  })
+
+  it('moves to the next item starting with a typed letter', async () => {
+    const { menu } = await openMenu()
+    await userEvent.keyboard('m')
+    expect(radio(menu, 'My MK4')).toHaveFocus()
+    await userEvent.keyboard('n')
+    expect(radio(menu, 'No printer')).toHaveFocus()
+  })
+
+  it('closes on Tab without choosing', async () => {
+    const { onChoose, onOpenChange } = await openMenu()
+    await userEvent.keyboard('{Tab}')
+    expect(onOpenChange).toHaveBeenLastCalledWith(false)
+    expect(screen.queryByRole('menu')).toBeNull()
+    expect(onChoose).not.toHaveBeenCalled()
+  })
+
+  it('closes on a press outside it', async () => {
+    const { onChoose, onOpenChange } = await openMenu()
+    await userEvent.click(document.body)
+    expect(onOpenChange).toHaveBeenLastCalledWith(false)
+    expect(screen.queryByRole('menu')).toBeNull()
+    expect(onChoose).not.toHaveBeenCalled()
+  })
+
+  it('offers only "No printer" without profiles', async () => {
+    const { menu } = await openMenu({ printers: [] })
+    expect(within(menu).getAllByRole('menuitemradio')).toEqual([radio(menu, 'No printer')])
+    expect(within(menu).queryByRole('group')).toBeNull()
+  })
+})

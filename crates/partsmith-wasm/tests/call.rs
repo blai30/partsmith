@@ -8,9 +8,39 @@ use common::{
     EMPTY_DOCUMENT_TEXT, error_info, error_of, example_a, frame_from_header, ok_result,
     request_frame, response_frame,
 };
-use partsmith_protocol::{ErrorCode, FrameError, MAX_SAFE_INTEGER};
-use partsmith_wasm::call;
+use partsmith_protocol::{ErrorCode, Event, FrameError, MAX_SAFE_INTEGER, ResponseFrame};
+use partsmith_wasm::{call, initialize_session};
 use proptest::prelude::*;
+use serde_json::Value;
+
+/// A document with one body holding a 10 x 20 x 30 mm box (`examples/box/default.ptsm`).
+const BOX_DOCUMENT: &str = r#"{
+  "format": "partsmith",
+  "format_version": 1,
+  "units": "mm",
+  "parameters": [],
+  "bodies": [
+    {"id": "b-1", "name": "Body 1"}
+  ],
+  "features": [
+    {"id": "f-box1", "type": "box", "body": "b-1", "size": ["10", "20", "30"], "op": "new"}
+  ]
+}
+"#;
+
+/// Creates an empty document with request `id` and returns its handle as JSON.
+fn new_document(id: u64) -> Value {
+    let created = response_frame(&call(&request_frame(id, r#"{"type":"new_document"}"#)));
+    ok_result(&created, "new_document")["doc"].clone()
+}
+
+/// Sends request `id` with a command of `command_type` whose one field is `doc`, and decodes the response frame.
+fn send_for_document(id: u64, command_type: &str, doc: &Value) -> ResponseFrame {
+    response_frame(&call(&request_frame(
+        id,
+        &format!(r#"{{"type":"{command_type}","doc":{doc}}}"#),
+    )))
+}
 
 #[test]
 fn t048_engine_info_through_call_reports_the_protocol_engine_and_format_versions() {
@@ -136,6 +166,50 @@ fn engine_info_echoes_the_largest_safe_request_id() {
     let frame = response_frame(&call(&request));
 
     assert_eq!(frame.response.id, MAX_SAFE_INTEGER);
+}
+
+#[test]
+fn a_closed_document_is_unknown_to_later_calls() {
+    let doc = new_document(1);
+    send_for_document(2, "close_document", &doc);
+
+    let saved = send_for_document(3, "save_document", &doc);
+
+    assert_eq!(error_info(&saved).code, ErrorCode::UnknownDocument);
+}
+
+#[test]
+fn initializing_the_session_again_keeps_the_open_documents() {
+    initialize_session();
+    let doc = new_document(1);
+
+    initialize_session();
+    let saved = send_for_document(2, "save_document", &doc);
+
+    ok_result(&saved, "save_document");
+}
+
+#[test]
+fn opening_a_document_with_a_body_sends_its_display_mesh() {
+    let request = request_frame(
+        1,
+        &format!(
+            r#"{{"type":"open_document","text":{},"assets":[]}}"#,
+            Value::from(BOX_DOCUMENT)
+        ),
+    );
+
+    let opened = response_frame(&call(&request));
+
+    ok_result(&opened, "open_document");
+    assert!(
+        opened
+            .events
+            .iter()
+            .any(|event| matches!(event, Event::BodyMesh { mesh: Some(_), .. })),
+        "a display session sends body meshes"
+    );
+    assert!(!opened.buffers.is_empty(), "meshes travel as raw buffers");
 }
 
 proptest! {

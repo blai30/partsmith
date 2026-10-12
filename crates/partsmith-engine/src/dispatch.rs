@@ -94,32 +94,42 @@ impl Session {
                 Some(_) => {}
             }
         }
+        match self.contained(doc, |session| session.run(request.command, &buffers)) {
+            Ok((result, output)) => Reply {
+                events: output.events,
+                response: Response {
+                    id: request.id,
+                    result: Outcome::Ok(result),
+                },
+                buffers: output.buffers,
+            },
+            Err(error) => error_reply(request.id, &error),
+        }
+    }
+
+    /// Runs one command under panic containment (section 3.15). A panic becomes an internal
+    /// error, and a panic or a failure after the command changed its document poisons the
+    /// document `doc`, keeping the recipe it had before the command.
+    fn contained<T>(
+        &mut self,
+        doc: Option<DocHandle>,
+        command: impl FnOnce(&mut Session) -> Result<T, Failure>,
+    ) -> Result<T, EngineError> {
         let snapshot = doc
             .and_then(|doc| self.documents.get(&doc))
             .map(|open| Arc::clone(&open.document));
-        let outcome = catch_unwind(AssertUnwindSafe(|| self.run(request.command, &buffers)));
-        let error = match outcome {
-            Ok(Ok((result, output))) => {
-                return Reply {
-                    events: output.events,
-                    response: Response {
-                        id: request.id,
-                        result: Outcome::Ok(result),
-                    },
-                    buffers: output.buffers,
-                };
-            }
-            Ok(Err(Failure::Command(error))) => error,
+        match catch_unwind(AssertUnwindSafe(|| command(self))) {
+            Ok(Ok(value)) => Ok(value),
+            Ok(Err(Failure::Command(error))) => Err(error),
             Ok(Err(Failure::Events(error))) => {
                 self.poison(doc, snapshot);
-                error
+                Err(error)
             }
             Err(panic) => {
                 self.poison(doc, snapshot);
-                EngineError::internal(panic_message(panic.as_ref()))
+                Err(EngineError::internal(panic_message(panic.as_ref())))
             }
-        };
-        error_reply(request.id, &error)
+        }
     }
 
     /// Marks a document poisoned, keeping the recipe as of its last successful command.
@@ -512,7 +522,117 @@ fn panic_message(payload: &(dyn Any + Send)) -> String {
 
 #[cfg(test)]
 mod tests {
+    use partsmith_model::{Edit, Id, Parameter};
+
     use super::*;
+
+    /// A headless session with `box.ptsm` open.
+    fn box_session() -> (Session, DocHandle) {
+        let mut session = Session::new(crate::SessionOptions::headless());
+        let doc = session
+            .open_document(include_str!("../tests/fixtures/box.ptsm"), Vec::new())
+            .expect("box.ptsm opens")
+            .doc;
+        (session, doc)
+    }
+
+    /// The edit that sets the box's `height` parameter.
+    fn set_height(expr: &str) -> Edit {
+        Edit::UpdateParameter {
+            parameter: Parameter::new(Id::new("p-h").expect("a valid id"), "height", expr),
+        }
+    }
+
+    /// The error code of a reply, or `None` when it succeeded.
+    fn error_code(session: &mut Session, command: Command) -> Option<ErrorCode> {
+        let reply = session.execute(Request { id: 1, command }, Vec::new());
+        match reply.response.result {
+            Outcome::Ok(_) => None,
+            Outcome::Error(info) => Some(info.code),
+        }
+    }
+
+    #[test]
+    fn a_panic_is_an_internal_error_that_poisons_its_document() {
+        let (mut session, doc) = box_session();
+
+        let result: Result<(), EngineError> =
+            session.contained(Some(doc), |_| panic!("the kernel fell over"));
+
+        assert_eq!(
+            result,
+            Err(EngineError::internal("the kernel fell over".to_string()))
+        );
+        assert_eq!(
+            error_code(&mut session, Command::Undo { doc }),
+            Some(ErrorCode::DocumentPoisoned)
+        );
+        assert_eq!(
+            error_code(&mut session, Command::GetDocument { doc }),
+            Some(ErrorCode::DocumentPoisoned)
+        );
+    }
+
+    #[test]
+    fn a_poisoned_document_saves_its_recipe_from_before_the_failed_command() {
+        let (mut session, doc) = box_session();
+        session
+            .begin_transaction(doc, "Resize")
+            .expect("a transaction opens");
+        session
+            .apply_edits(doc, None, vec![set_height("50 mm")])
+            .expect("the edit applies");
+
+        let result: Result<(), EngineError> = session.contained(Some(doc), |session| {
+            session
+                .apply_edits(doc, None, vec![set_height("60 mm")])
+                .expect("the edit applies");
+            panic!("after the edit")
+        });
+        let saved = session.save_document(doc).expect("a poisoned document saves");
+
+        assert!(result.is_err());
+        assert!(saved.text.contains("\"50 mm\""), "{}", saved.text);
+        assert!(!saved.text.contains("\"60 mm\""), "{}", saved.text);
+        assert_eq!(
+            error_code(
+                &mut session,
+                Command::MarkSaved {
+                    doc,
+                    revision: saved.revision
+                }
+            ),
+            None
+        );
+        assert_eq!(error_code(&mut session, Command::CloseDocument { doc }), None);
+    }
+
+    #[test]
+    fn a_failure_after_the_document_changed_poisons_it() {
+        let (mut session, doc) = box_session();
+
+        let result: Result<(), EngineError> = session.contained(Some(doc), |_| {
+            Err(Failure::Events(EngineError::internal("no events")))
+        });
+
+        assert_eq!(result, Err(EngineError::internal("no events")));
+        assert_eq!(
+            error_code(&mut session, Command::Undo { doc }),
+            Some(ErrorCode::DocumentPoisoned)
+        );
+    }
+
+    #[test]
+    fn a_failed_command_does_not_poison_its_document() {
+        let (mut session, doc) = box_session();
+
+        let result: Result<(), EngineError> = session.contained(Some(doc), |_| {
+            Err(Failure::Command(EngineError::NothingToUndo))
+        });
+
+        assert_eq!(result, Err(EngineError::NothingToUndo));
+        assert_eq!(error_code(&mut session, Command::GetDocument { doc }), None);
+    }
 
     #[test]
     fn missing_buffers_are_malformed() {

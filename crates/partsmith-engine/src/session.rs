@@ -255,7 +255,11 @@ impl Session {
     /// Status of every feature in timeline order at the current state.
     pub fn feature_statuses(&self, doc: DocHandle) -> Result<Vec<FeatureStatus>, EngineError> {
         let open = self.open(doc)?;
-        Ok(feature_statuses(&open.document, &open.computed))
+        Ok(feature_statuses(
+            &open.document,
+            &open.computed,
+            &open.emitted.display_failures(),
+        ))
     }
 
     /// Every parameter's evaluated value in document order.
@@ -577,20 +581,39 @@ mod tests {
         ));
     }
 
+    /// Whether the document differs from its dirty baseline.
+    fn dirty(session: &mut Session, doc: DocHandle) -> bool {
+        session
+            .open_mut(doc)
+            .and_then(OpenDocument::dirty)
+            .expect("the document is open")
+    }
+
     #[test]
     fn saving_marks_nothing_until_the_host_confirms() {
         let mut session = session();
         let doc = session
             .new_document(Units::Mm, None)
             .expect("an empty document opens");
+        session
+            .apply_edits(doc, Some("Units"), vec![Edit::SetUnits { units: Units::In }])
+            .expect("the edit applies");
 
         let saved = session.save_document(doc).expect("the document saves");
+        let dirty_after_save = dirty(&mut session, doc);
         session
             .mark_saved(doc, saved.revision + 1)
             .expect("a stale revision is not an error");
+        let dirty_after_stale_mark = dirty(&mut session, doc);
+        session
+            .mark_saved(doc, saved.revision)
+            .expect("the save is confirmed");
 
-        assert_eq!(saved.revision, 0);
+        assert_eq!(saved.revision, 1);
         assert!(saved.assets.is_empty());
         assert!(saved.text.ends_with("}\n"));
+        assert!(dirty_after_save);
+        assert!(dirty_after_stale_mark);
+        assert!(!dirty(&mut session, doc));
     }
 }

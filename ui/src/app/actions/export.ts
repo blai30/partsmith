@@ -43,7 +43,9 @@ function bodiesToExport(app: App, request: ExportRequest): readonly string[] {
   )
   return (document.recipe.bodies ?? [])
     .filter((body) =>
-      request.scope === 'selected' ? selected.has(body.id) : exportsWhenVisible(body, request.format),
+      request.scope === 'selected'
+        ? selected.has(body.id)
+        : exportsWhenVisible(body, request.format),
     )
     .filter((body) => document.meshes[body.id] !== undefined)
     .map((body) => body.id)

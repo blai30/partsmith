@@ -2,7 +2,13 @@ import { describe, expect, it } from 'vitest'
 import type { AppState } from '../state/store'
 import { DEFAULT_SETTINGS } from '../settings/settings'
 import { encodedFromHex, type ThemeName } from '../theme/roles'
-import { overhangAnalysis, overhangFields, overhangLimit, overhangMapShown } from './overhang'
+import {
+  overhangAnalysis,
+  overhangFields,
+  overhangLegendLimit,
+  overhangLimit,
+  overhangMapShown,
+} from './overhang'
 import {
   CUBE,
   CUBE_BOUNDS,
@@ -163,5 +169,32 @@ describe('overhangAnalysis', () => {
   it('is null while the map is not shown', () => {
     expect(overhangAnalysis(mapState({ context: 'model' }), 'light')).toBeNull()
     expect(overhangAnalysis(mapState({ hiddenChecks: ['overhangs'] }), 'dark')).toBeNull()
+  })
+})
+
+describe('overhangLegendLimit', () => {
+  it('is the overhang limit while the map is shown', () => {
+    expect(overhangLegendLimit(mapState())).toBe(0.7)
+  })
+
+  it('is null while the map is not shown', () => {
+    expect(overhangLegendLimit(mapState({ context: 'model' }))).toBeNull()
+    expect(overhangLegendLimit(mapState({ overhangMap: false }))).toBeNull()
+    expect(overhangLegendLimit(mapState({ hiddenChecks: ['overhangs'] }))).toBeNull()
+  })
+
+  it('is null without a report', () => {
+    expect(overhangLegendLimit(stateWith({ context: 'print', print: printState() }))).toBeNull()
+  })
+})
+
+describe('overhangFields without a body mesh id', () => {
+  it('leaves out a body analyzed without a display mesh', () => {
+    const report = printReport([{ ...bodyPrint({ body: CUBE.id, meshId: 1 }), mesh_id: null }])
+    const state = stateWith({
+      context: 'print',
+      print: printState({ report, reportRevision: 3 }),
+    })
+    expect(overhangFields(state, OVERHANG)).toEqual({})
   })
 })

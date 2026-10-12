@@ -2,7 +2,6 @@ import { clsx } from 'clsx/lite'
 import { Check } from 'lucide-react'
 import {
   useEffect,
-  useId,
   useLayoutEffect,
   useRef,
   useState,
@@ -52,7 +51,6 @@ function wrap(index: number, count: number): number {
 function PrinterMenuList({ anchor, onOpenChange, printers, current, onChoose }: PrinterMenuProps) {
   const element = useRef<HTMLDivElement>(null)
   const items = useRef<(HTMLButtonElement | null)[]>([])
-  const idPrefix = useId()
   const [active, setActive] = useState<number | null>(null)
 
   const groups = printerGroups(printers)
@@ -246,26 +244,21 @@ function PrinterMenuList({ anchor, onOpenChange, printers, current, onChoose }: 
         COLOR_CLASSES.text.foreground,
       )}
     >
-      {groups.map((group) => {
-        const headingId = `${idPrefix}-${group.technology}`
-        return (
-          <div key={group.technology} role="group" aria-labelledby={headingId}>
-            <div
-              id={headingId}
-              aria-hidden="true"
-              className={clsx(
-                'px-2 pt-2 pb-1 text-xs font-medium',
-                COLOR_CLASSES.textMuted.foreground,
-              )}
-            >
-              {group.title}
-            </div>
-            {choices.map((choice, index) =>
-              choice.technology === group.technology ? item(choice, index) : null,
+      {groups.map((group) => (
+        <fieldset key={group.technology} className="flex min-w-0 flex-col">
+          <legend
+            className={clsx(
+              'px-2 pt-2 pb-1 text-xs font-medium',
+              COLOR_CLASSES.textMuted.foreground,
             )}
-          </div>
-        )
-      })}
+          >
+            {group.title}
+          </legend>
+          {choices.map((choice, index) =>
+            choice.technology === group.technology ? item(choice, index) : null,
+          )}
+        </fieldset>
+      ))}
       {groups.length === 0 ? null : (
         <hr className={clsx('-mx-1 my-1', COLOR_CLASSES.border.border)} />
       )}

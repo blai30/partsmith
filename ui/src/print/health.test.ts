@@ -2,7 +2,13 @@ import { describe, expect, it } from 'vitest'
 import type { BodyPrint, Finding, PrintReport } from '../generated/protocol'
 import { DEFAULT_SETTINGS } from '../settings/settings'
 import type { AppState } from '../state/store'
-import { healthRows } from './health'
+import {
+  findingAt,
+  focusedFindingPoint,
+  hasPrintableBody,
+  healthRows,
+  locationCenter,
+} from './health'
 import {
   CUBE,
   CUBE_BOUNDS,
@@ -191,5 +197,111 @@ describe('healthRows', () => {
 
   it('is empty without a report', () => {
     expect(healthRows(printingState({ report: null }))).toEqual([])
+  })
+})
+
+describe('healthRows memoization', () => {
+  it('returns the same rows while the report, the hidden checks and the bodies stay', () => {
+    const state = printingState({ report: MIXED_REPORT })
+    const rows = healthRows(state)
+    expect(healthRows({ ...state, selection: [] })).toBe(rows)
+  })
+
+  it('names a body the recipe no longer has by its id', () => {
+    const report = printReport([cube({ overhangs: [OVERHANG_LARGE] })])
+    const state = printingState({ report })
+    const withoutBodies = {
+      ...state,
+      document:
+        state.document === null
+          ? null
+          : { ...state.document, recipe: { ...state.document.recipe, bodies: [] } },
+    }
+    expect(healthRows(withoutBodies).map((row) => row.bodyName)).toEqual([CUBE.id])
+  })
+})
+
+describe('findingAt', () => {
+  it('finds a finding by body, check and index', () => {
+    expect(findingAt(MIXED_REPORT, { body: CUBE.id, check: 'overhangs', index: 1 })).toBe(
+      OVERHANG_SMALL,
+    )
+  })
+
+  it('is undefined for a key the report does not have, and without a report', () => {
+    expect(findingAt(MIXED_REPORT, { body: CUBE.id, check: 'overhangs', index: 2 })).toBeUndefined()
+    expect(
+      findingAt(MIXED_REPORT, { body: 'b-gone', check: 'overhangs', index: 0 }),
+    ).toBeUndefined()
+    expect(findingAt(null, { body: CUBE.id, check: 'overhangs', index: 0 })).toBeUndefined()
+  })
+})
+
+describe('locationCenter', () => {
+  it('is the point of a point location', () => {
+    expect(locationCenter({ kind: 'point', at: [1, 2, 3] })).toEqual([1, 2, 3])
+  })
+
+  it('is the center of a bounds location', () => {
+    expect(locationCenter({ kind: 'bounds', min: [0, -10, 4], max: [8, 10, 10] })).toEqual([
+      4, 0, 7,
+    ])
+  })
+})
+
+describe('focusedFindingPoint', () => {
+  const BOXED = finding({
+    check: 'bed_fit',
+    code: 'footprint_too_large',
+    severity: 'error',
+    message: 'Too large.',
+    location: { kind: 'bounds', min: [0, 0, 0], max: [300, 40, 10] },
+  })
+  const REPORT = printReport([cube({ bed_fit: [BOXED] })])
+
+  function focusedState(focusedFinding: { body: string; check: string; index: number } | null) {
+    return stateWith({
+      context: 'print',
+      document: documentState({ revision: 3, ...BODIES_WITH_GEOMETRY }),
+      print: printState({ report: REPORT, reportRevision: 3, focusedFinding }),
+    })
+  }
+
+  it("is the center of the focused finding's location", () => {
+    expect(
+      focusedFindingPoint(focusedState({ body: CUBE.id, check: 'bed_fit', index: 0 })),
+    ).toEqual([150, 20, 5])
+  })
+
+  it('is null without a focused finding or when the report no longer has it', () => {
+    expect(focusedFindingPoint(focusedState(null))).toBeNull()
+    expect(
+      focusedFindingPoint(focusedState({ body: CUBE.id, check: 'islands', index: 0 })),
+    ).toBeNull()
+  })
+
+  it('returns the same point while the report and the focused finding stay', () => {
+    const state = focusedState({ body: CUBE.id, check: 'bed_fit', index: 0 })
+    const point = focusedFindingPoint(state)
+    expect(focusedFindingPoint({ ...state, selection: [] })).toBe(point)
+  })
+})
+
+describe('hasPrintableBody', () => {
+  it('is true with a visible part body that has model geometry', () => {
+    expect(hasPrintableBody(printingState({ report: null }))).toBe(true)
+  })
+
+  it('is false without bodies, without geometry, or with hidden or modifier bodies only', () => {
+    const cases = [
+      documentState({ bodies: [], meshes: {} }),
+      documentState({ bodies: [CUBE], meshes: {} }),
+      documentState({ bodies: [{ ...CUBE, visible: false }] }),
+      documentState({ bodies: [{ ...CUBE, role: 'negative_volume' }] }),
+    ]
+    for (const document of cases) {
+      expect(hasPrintableBody(stateWith({ document }))).toBe(false)
+    }
+    expect(hasPrintableBody(stateWith({ document: null }))).toBe(false)
   })
 })

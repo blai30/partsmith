@@ -3,6 +3,8 @@
 // Each test binary uses only some of these helpers.
 #![allow(dead_code)]
 
+pub mod block;
+
 use partsmith_protocol::{ErrorCode, ErrorInfo, Outcome, ResponseFrame, decode_response_frame};
 use serde_json::Value;
 

@@ -41,55 +41,9 @@ pub fn call(request: &[u8]) -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
-    use partsmith_protocol::{
-        Command, ErrorCode, Event, Outcome, Request, ResponseFrame, decode_response_frame,
-        encode_request_frame,
-    };
-    use serde_json::{Value, json};
+    use partsmith_model::{Id, IdKind};
 
     use super::*;
-
-    /// A document with one body holding a 10 x 20 x 30 mm box (`examples/box/default.ptsm`).
-    const BOX_DOCUMENT: &str = r#"{
-  "format": "partsmith",
-  "format_version": 1,
-  "units": "mm",
-  "parameters": [],
-  "bodies": [
-    {"id": "b-1", "name": "Body 1"}
-  ],
-  "features": [
-    {"id": "f-box1", "type": "box", "body": "b-1", "size": ["10", "20", "30"], "op": "new"}
-  ]
-}
-"#;
-
-    /// Sends request `id` with `command`, a JSON command object, through `call` and decodes the response frame.
-    fn send(id: u64, command: Value) -> ResponseFrame {
-        let command: Command = serde_json::from_value(command).expect("the test command is valid");
-        let request = encode_request_frame(&Request { id, command }, &[])
-            .expect("a small request always encodes");
-        decode_response_frame(&call(&request)).expect("call always returns a response frame")
-    }
-
-    /// The JSON form of a response's outcome.
-    fn outcome(frame: &ResponseFrame) -> Value {
-        serde_json::to_value(&frame.response.result).expect("an outcome always serializes")
-    }
-
-    /// The error code of a response that must have failed.
-    fn error_code(frame: &ResponseFrame) -> &ErrorCode {
-        match &frame.response.result {
-            Outcome::Error(info) => &info.code,
-            Outcome::Ok(_) => panic!("expected an error, got {}", outcome(frame)),
-        }
-    }
-
-    /// Creates an empty document and returns its handle as JSON.
-    fn new_document(id: u64) -> Value {
-        let created = send(id, json!({"type": "new_document"}));
-        outcome(&created)["doc"].clone()
-    }
 
     #[test]
     fn session_options_turn_display_meshes_on() {
@@ -97,81 +51,15 @@ mod tests {
     }
 
     #[test]
-    fn engine_info_answers_with_the_request_id() {
-        let frame = send(41, json!({"type": "engine_info"}));
+    fn session_options_generate_random_ids() {
+        let mut options = session_options();
 
-        assert_eq!(frame.response.id, 41);
-        assert_eq!(outcome(&frame)["type"], "engine_info");
-    }
+        let first = options
+            .id_generator
+            .generate(IdKind::Body, &|_: &Id| false)
+            .expect("a random id is free");
 
-    #[test]
-    fn engine_info_reports_this_crate_version_as_the_engine_version() {
-        let frame = send(1, json!({"type": "engine_info"}));
-
-        assert_eq!(outcome(&frame)["engine_version"], env!("CARGO_PKG_VERSION"));
-    }
-
-    #[test]
-    fn bytes_that_are_not_a_frame_answer_malformed_frame_with_id_0() {
-        let frame = decode_response_frame(&call(b"PSM2")).expect("a response frame");
-
-        assert_eq!(frame.response.id, 0);
-        assert_eq!(error_code(&frame), &ErrorCode::MalformedFrame);
-    }
-
-    #[test]
-    fn an_error_response_frame_has_no_events_or_buffers() {
-        let frame = decode_response_frame(&call(&[0; 16])).expect("a response frame");
-
-        assert!(frame.events.is_empty());
-        assert!(frame.buffers.is_empty());
-    }
-
-    #[test]
-    fn a_document_created_by_one_call_is_open_for_the_next() {
-        let doc = new_document(1);
-
-        let closed = send(2, json!({"type": "close_document", "doc": doc}));
-
-        assert_eq!(outcome(&closed)["kind"], "ok");
-    }
-
-    #[test]
-    fn a_closed_document_is_unknown_to_later_calls() {
-        let doc = new_document(1);
-        send(2, json!({"type": "close_document", "doc": doc}));
-
-        let saved = send(3, json!({"type": "save_document", "doc": doc}));
-
-        assert_eq!(error_code(&saved), &ErrorCode::UnknownDocument);
-    }
-
-    #[test]
-    fn initializing_again_keeps_the_open_documents() {
-        initialize_session();
-        let doc = new_document(1);
-
-        initialize_session();
-        let saved = send(2, json!({"type": "save_document", "doc": doc}));
-
-        assert_eq!(outcome(&saved)["kind"], "ok");
-    }
-
-    #[test]
-    fn opening_a_document_with_a_body_sends_its_display_mesh() {
-        let opened = send(
-            1,
-            json!({"type": "open_document", "text": BOX_DOCUMENT, "assets": []}),
-        );
-
-        assert_eq!(outcome(&opened)["kind"], "ok", "{}", outcome(&opened));
-        assert!(
-            opened
-                .events
-                .iter()
-                .any(|event| matches!(event, Event::BodyMesh { mesh: Some(_), .. })),
-            "a display session sends body meshes"
-        );
-        assert!(!opened.buffers.is_empty(), "meshes travel as raw buffers");
+        // `SequentialIds` starts at 1; a random 48-bit id is 1 with probability 2^-48.
+        assert_ne!(first.as_str(), "b-000000000001");
     }
 }

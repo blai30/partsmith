@@ -24,7 +24,7 @@ export type HealthListProps = {
   readonly onClose?: () => void
 }
 
-/** Words for the severity icon, read by screen readers before the message. */
+/** Words for the severity icon, which screen readers read in its place. */
 const SEVERITY_NAMES: Readonly<Record<Severity, string>> = {
   error: 'Error',
   warning: 'Warning',
@@ -90,7 +90,10 @@ export function HealthList({
           <span>No problems found with {profileName}.</span>
         </p>
       ) : (
-        <ul aria-label="Findings" className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto p-2">
+        <ul
+          aria-label="Findings"
+          className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto p-2"
+        >
           {rows.map((row) => {
             const focused = sameFinding(row.key, focusedFinding)
             return (
@@ -101,6 +104,7 @@ export function HealthList({
                   data-check={row.key.check}
                   data-severity={row.severity}
                   aria-current={focused ? 'true' : undefined}
+                  aria-label={`${SEVERITY_NAMES[row.severity]}: ${row.message} ${row.bodyName}`}
                   onClick={() => {
                     onFocusFinding(row.key)
                   }}
@@ -118,7 +122,6 @@ export function HealthList({
                     <SeverityIcon severity={row.severity} />
                   </span>
                   <span className="flex min-w-0 flex-col gap-0.5">
-                    <span className="sr-only">{SEVERITY_NAMES[row.severity]}: </span>
                     <span>{row.message}</span>
                     <span className={clsx('text-xs', COLOR_CLASSES.textMuted.foreground)}>
                       {row.bodyName}

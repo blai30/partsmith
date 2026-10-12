@@ -182,7 +182,8 @@ export function installPrintAnalysis(app: App): () => void {
     const revisionChanged =
       document.documentHandle !== previous.document?.documentHandle ||
       document.revision !== previous.document?.revision
-    const transactionClosed = previous.document?.transactionOpen === true && !document.transactionOpen
+    const transactionClosed =
+      previous.document?.transactionOpen === true && !document.transactionOpen
     if (!revisionChanged && !transactionClosed) {
       return
     }

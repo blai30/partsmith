@@ -1,5 +1,7 @@
-import { describe, expect, it } from 'vitest'
-import type { Diagnostic, ExportFormat } from '../../generated/protocol'
+import { describe, expect, it, vi } from 'vitest'
+import { FileServiceError } from '../../files/file-service'
+import type { Body, Diagnostic, ExportFormat } from '../../generated/protocol'
+import { MESSAGES } from '../../messages'
 import {
   CUBE,
   CUBE_BOUNDS,
@@ -233,5 +235,80 @@ describe('exportModel saving', () => {
     await exportModel(harness.app, THREE_MF)
     expect(harness.files.writes).toEqual([])
     expect(notifications(harness)).toEqual([{ severity: 'error', message }])
+  })
+})
+
+describe('exportModel body roles', () => {
+  const BLOCKER: Body = { id: 'b-blocker', name: 'Blocker', role: 'support_blocker' }
+
+  // The cube document with a visible part body and a visible support blocker, both with geometry.
+  function modifierApp(overrides: Partial<AppState> = {}): PrintApp {
+    return createPrintApp({
+      document: documentState({
+        bodies: [CUBE, BLOCKER],
+        meshes: {
+          [CUBE.id]: meshSummary(1, CUBE_BOUNDS),
+          [BLOCKER.id]: meshSummary(2, PEG_BOUNDS),
+        },
+      }),
+      ...overrides,
+    })
+  }
+
+  it.each(['stl', 'obj', 'step'] as const)(
+    'leaves visible modifier bodies out of %s, as the core does',
+    async (format) => {
+      const harness = modifierApp()
+      await exportModel(harness.app, { format, scope: 'visible' })
+      expect(harness.core.callsTo('exportBodies')[0]?.[2]).toEqual([CUBE.id])
+    },
+  )
+
+  it('passes visible modifier bodies to a 3MF export, as the core does', async () => {
+    const harness = modifierApp()
+    await exportModel(harness.app, THREE_MF)
+    expect(harness.core.callsTo('exportBodies')[0]?.[2]).toEqual([CUBE.id, BLOCKER.id])
+  })
+
+  it('exports a selected modifier body in any format', async () => {
+    const harness = modifierApp({ selection: [bodyItem(BLOCKER.id, BLOCKER.name)] })
+    await exportModel(harness.app, { format: 'stl', scope: 'selected' })
+    expect(harness.core.callsTo('exportBodies')[0]?.[2]).toEqual([BLOCKER.id])
+  })
+})
+
+describe('exportModel save failures', () => {
+  it('shows a failing save picker as an error and writes nothing', async () => {
+    const harness = exportApp()
+    vi.spyOn(harness.files, 'chooseSaveTarget').mockRejectedValue(
+      new FileServiceError('io', 'The picker could not open.'),
+    )
+    await exportModel(harness.app, THREE_MF)
+    expect(harness.files.writes).toEqual([])
+    expect(notifications(harness)).toEqual([
+      { severity: 'error', message: MESSAGES.save_io('cube.3mf', 'The picker could not open.') },
+    ])
+  })
+
+  it('shows a refused write with the file name and announces no export', async () => {
+    const harness = exportApp()
+    harness.files.writeError = new FileServiceError('permission', 'No access.')
+    await exportModel(harness.app, THREE_MF)
+    expect(notifications(harness)).toEqual([
+      { severity: 'error', message: MESSAGES.save_permission('cube.3mf') },
+    ])
+  })
+
+  it('shows no export warnings when the file was not saved', async () => {
+    const harness = exportApp()
+    harness.files.nextSaveTarget = null
+    harness.core.stub('exportBodies', () =>
+      Promise.resolve({
+        files: [exportedFile('model.3mf', THREE_MF_BYTES)],
+        warnings: [warning('Peg has no color, so it is exported in the default color.')],
+      }),
+    )
+    await exportModel(harness.app, THREE_MF)
+    expect(notifications(harness)).toEqual([])
   })
 })

@@ -20,7 +20,7 @@ use crate::session::Session;
 use crate::sketch::{DATUM_PLANE_TYPE, SKETCH_TYPE, Solved, built, datum_placement, sketch_params};
 use crate::sketching::solve_in;
 use crate::state::{BodyView, display_bodies, preview_bodies};
-use crate::status::{document_diagnostics, feature_statuses, parameter_values};
+use crate::status::{DisplayFailure, document_diagnostics, feature_statuses, parameter_values};
 use crate::triangulate::fill_regions;
 
 /// Events and the buffers they reference, collected for one reply.
@@ -56,8 +56,32 @@ pub(crate) struct Emitted {
     pub(crate) model: BTreeMap<Id, Shown>,
     /// The preview-layer mesh of each body that has one.
     pub(crate) preview: BTreeMap<Id, Shown>,
+    /// The model-layer bodies whose mesh could not be built.
+    model_failures: BTreeMap<Id, Failed>,
+    /// The preview-layer bodies whose mesh could not be built.
+    preview_failures: BTreeMap<Id, Failed>,
     /// Re-send every mesh with a new id (after `set_tessellation`).
     pub(crate) refresh_meshes: bool,
+}
+
+impl Emitted {
+    /// The current display failures, model layer first, each layer in body id order.
+    pub(crate) fn display_failures(&self) -> Vec<DisplayFailure> {
+        self.model_failures
+            .values()
+            .chain(self.preview_failures.values())
+            .map(|failed| failed.failure.clone())
+            .collect()
+    }
+}
+
+/// A mesh that could not be built: the body state and tolerance that failed, and its diagnostic.
+#[derive(Debug, Clone)]
+struct Failed {
+    /// The body state and tolerance.
+    key: MeshKey,
+    /// What the feature statuses report.
+    failure: DisplayFailure,
 }
 
 /// The fields of a `document_changed` event besides the handle and the recipe.
@@ -108,28 +132,35 @@ impl Session {
             .get_mut(&doc)
             .ok_or(EngineError::UnknownDocument { doc })?;
         let revision = open.revision;
+        // Meshes are built first, so the statuses of `recomputed` can report the bodies that
+        // could not be displayed.
+        let changes = display.then(|| mesh_changes(open, cache));
         document_changed(open, doc, output)?;
         if open.computed.run != open.emitted.run {
             open.emitted.run = open.computed.run;
             output.events.push(Event::Recomputed {
                 doc,
                 revision,
-                features: feature_statuses(&open.document, &open.computed),
+                features: feature_statuses(
+                    &open.document,
+                    &open.computed,
+                    &open.emitted.display_failures(),
+                ),
                 parameters: parameter_values(&open.computed),
                 diagnostics: document_diagnostics(&open.computed),
             });
         }
         sketch_events(registry, open, doc, *display, output);
         datum_events(open, doc, output);
-        if *display {
+        if let Some((model, preview)) = changes {
             let mut meshes = Meshes {
-                cache,
                 next_mesh_id,
                 doc,
                 revision,
                 output,
             };
-            mesh_events(open, &mut meshes)?;
+            emit_layer(&mut open.emitted.model, Layer::Model, model, &mut meshes);
+            emit_layer(&mut open.emitted.preview, Layer::Preview, preview, &mut meshes);
         }
         Ok(())
     }
@@ -292,8 +323,6 @@ fn datum_events(open: &mut OpenDocument, doc: DocHandle, output: &mut Output) {
 
 /// What mesh emission writes to besides the document.
 struct Meshes<'a> {
-    /// The display cache.
-    cache: &'a mut DisplayCache,
     /// The session's mesh id counter.
     next_mesh_id: &'a mut u64,
     /// The document.
@@ -304,9 +333,25 @@ struct Meshes<'a> {
     output: &'a mut Output,
 }
 
-/// Emits `body_mesh` for every body whose model or preview mesh changed (section 3.4, items 5
-/// and 6), then for removed bodies.
-fn mesh_events(open: &mut OpenDocument, meshes: &mut Meshes<'_>) -> Result<(), EngineError> {
+/// One `body_mesh` event to emit: the body and its new mesh with its key, or no mesh.
+struct MeshChange {
+    /// The body.
+    body: Id,
+    /// The mesh and the body state and tolerance it shows.
+    mesh: Option<(MeshKey, Arc<DisplayMesh>)>,
+}
+
+/// One layer's wanted meshes: each body in document order with the key and state of the mesh it
+/// should show, or `None` when it shows nothing.
+type Wanted = Vec<(Id, Option<(MeshKey, BodyView)>)>;
+
+/// Builds the meshes whose model or preview display changed (section 3.4, items 5 and 6) and
+/// returns each layer's `body_mesh` changes in emission order. A body whose mesh cannot be built
+/// shows no mesh, and its failure is recorded for the statuses of its provider feature.
+fn mesh_changes(
+    open: &mut OpenDocument,
+    cache: &mut DisplayCache,
+) -> (Vec<MeshChange>, Vec<MeshChange>) {
     let tolerance = crate::session::Session::display_tolerance(open);
     let refresh = std::mem::take(&mut open.emitted.refresh_meshes);
     let key = |view: &BodyView| {
@@ -315,13 +360,12 @@ fn mesh_events(open: &mut OpenDocument, meshes: &mut Meshes<'_>) -> Result<(), E
             .filter(|_| view.has_geometry())
             .map(|identity| MeshKey::new(identity, &tolerance))
     };
-    let model: Vec<(Id, Option<(MeshKey, BodyView)>)> =
-        display_bodies(&open.document, &open.computed)
-            .into_iter()
-            .map(|view| (view.body.clone(), key(&view).map(|key| (key, view))))
-            .collect();
+    let model: Wanted = display_bodies(&open.document, &open.computed)
+        .into_iter()
+        .map(|view| (view.body.clone(), key(&view).map(|key| (key, view))))
+        .collect();
     let previews = preview_bodies(&open.computed);
-    let preview: Vec<(Id, Option<(MeshKey, BodyView)>)> = open
+    let preview: Wanted = open
         .document
         .bodies
         .iter()
@@ -332,79 +376,128 @@ fn mesh_events(open: &mut OpenDocument, meshes: &mut Meshes<'_>) -> Result<(), E
             (body.id.clone(), wanted)
         })
         .collect();
-    layer_events(
-        &mut open.emitted.model,
-        Layer::Model,
-        model,
+    let emitted = &mut open.emitted;
+    let mut planner = MeshPlanner {
+        document: &open.document,
+        cache,
         refresh,
-        meshes,
-    )?;
-    layer_events(
-        &mut open.emitted.preview,
-        Layer::Preview,
-        preview,
-        refresh,
-        meshes,
-    )
+    };
+    let model = planner.changes(&emitted.model, &mut emitted.model_failures, model);
+    let preview = planner.changes(&emitted.preview, &mut emitted.preview_failures, preview);
+    (model, preview)
 }
 
-/// Emits the `body_mesh` events of one layer: for each body in document order whose wanted mesh
-/// differs from the shown one (or every shown mesh when `refresh`), then for shown bodies that
-/// are no longer in the document.
-fn layer_events(
+/// What deciding one layer's changes reads and writes besides the layer.
+struct MeshPlanner<'a> {
+    /// The recipe, for body names.
+    document: &'a Document,
+    /// The display cache.
+    cache: &'a mut DisplayCache,
+    /// Re-send every shown mesh with a new id.
+    refresh: bool,
+}
+
+impl MeshPlanner<'_> {
+    /// The changes of one layer: for each body in document order whose wanted mesh differs from
+    /// the shown one (or every shown mesh when refreshing), then for shown bodies that are no
+    /// longer in the document. `failures` is updated with the meshes that cannot be built.
+    fn changes(
+        &mut self,
+        shown: &BTreeMap<Id, Shown>,
+        failures: &mut BTreeMap<Id, Failed>,
+        wanted: Wanted,
+    ) -> Vec<MeshChange> {
+        let bodies: Vec<Id> = wanted.iter().map(|(body, _)| body.clone()).collect();
+        let mut changes = Vec::new();
+        for (body, wanted) in wanted {
+            let current = shown.get(&body).map(|shown| &shown.key);
+            let Some((key, view)) = wanted else {
+                failures.remove(&body);
+                if current.is_some() {
+                    changes.push(MeshChange { body, mesh: None });
+                }
+                continue;
+            };
+            let unchanged = current == Some(&key) && !self.refresh;
+            let still_failing = failures.get(&body).is_some_and(|failed| failed.key == key);
+            if unchanged || still_failing {
+                continue;
+            }
+            match self.cache.mesh(&key, &view.state) {
+                Ok(mesh) => {
+                    failures.remove(&body);
+                    changes.push(MeshChange {
+                        body,
+                        mesh: Some((key, mesh)),
+                    });
+                }
+                Err(error) => {
+                    let failure = display_failure(self.document, &view, &error);
+                    failures.insert(body.clone(), Failed { key, failure });
+                    if current.is_some() {
+                        changes.push(MeshChange { body, mesh: None });
+                    }
+                }
+            }
+        }
+        failures.retain(|body, _| bodies.contains(body));
+        changes.extend(
+            shown
+                .keys()
+                .filter(|body| !bodies.contains(body))
+                .map(|body| MeshChange {
+                    body: body.clone(),
+                    mesh: None,
+                }),
+        );
+        changes
+    }
+}
+
+/// The diagnostic of a body whose display mesh could not be built.
+fn display_failure(document: &Document, view: &BodyView, error: &EngineError) -> DisplayFailure {
+    let name = document
+        .body(&view.body)
+        .map_or_else(|| view.body.to_string(), |body| body.name.clone());
+    let detail = match error {
+        EngineError::Internal { detail } => detail.clone(),
+        other => other.to_string(),
+    };
+    DisplayFailure {
+        feature: view.provider.clone(),
+        message: format!("Partsmith could not display body \"{name}\" ({detail}). Please report this."),
+    }
+}
+
+/// Emits the `body_mesh` events of one layer's changes and records what the layer shows.
+fn emit_layer(
     shown: &mut BTreeMap<Id, Shown>,
     layer: Layer,
-    wanted: Vec<(Id, Option<(MeshKey, BodyView)>)>,
-    refresh: bool,
+    changes: Vec<MeshChange>,
     meshes: &mut Meshes<'_>,
-) -> Result<(), EngineError> {
-    let bodies: Vec<Id> = wanted.iter().map(|(body, _)| body.clone()).collect();
-    for (body, wanted) in wanted {
-        let current = shown.get(&body).map(|shown| &shown.key);
-        let unchanged = current == wanted.as_ref().map(|(key, _)| key);
-        if unchanged && !(refresh && wanted.is_some()) {
-            continue;
-        }
+) {
+    for change in changes {
         let mesh_id = next_id(meshes.next_mesh_id);
-        let mesh = match wanted {
-            Some((key, view)) => {
-                let mesh = meshes.cache.mesh(&key, &view.state)?;
+        let mesh = match change.mesh {
+            Some((key, mesh)) => {
                 let buffers = mesh_buffers(&mesh, meshes.output);
-                shown.insert(body.clone(), Shown { mesh_id, key, mesh });
+                shown.insert(change.body.clone(), Shown { mesh_id, key, mesh });
                 Some(buffers)
             }
             None => {
-                shown.remove(&body);
+                shown.remove(&change.body);
                 None
             }
         };
         meshes.output.events.push(Event::BodyMesh {
             doc: meshes.doc,
             revision: meshes.revision,
-            body,
+            body: change.body,
             layer,
             mesh_id,
             mesh,
         });
     }
-    let removed: Vec<Id> = shown
-        .keys()
-        .filter(|body| !bodies.contains(body))
-        .cloned()
-        .collect();
-    for body in removed {
-        shown.remove(&body);
-        let mesh_id = next_id(meshes.next_mesh_id);
-        meshes.output.events.push(Event::BodyMesh {
-            doc: meshes.doc,
-            revision: meshes.revision,
-            body,
-            layer,
-            mesh_id,
-            mesh: None,
-        });
-    }
-    Ok(())
 }
 
 /// Takes the next mesh id.
@@ -435,7 +528,152 @@ fn mesh_buffers(mesh: &DisplayMesh, output: &mut Output) -> MeshBuffers {
 
 #[cfg(test)]
 mod tests {
+    use partsmith_features::BodyState;
+    use partsmith_model::SequentialIds;
+    use partsmith_protocol::{FeatureState, Pick};
+    use partsmith_recompute::{CacheKey, Report};
+
     use super::*;
+    use crate::SessionOptions;
+
+    /// A display session with `box.ptsm` open and no events collected yet.
+    fn box_session() -> (Session, DocHandle) {
+        let mut session = Session::new(SessionOptions {
+            display: true,
+            id_generator: Box::new(SequentialIds::new()),
+            ..SessionOptions::default()
+        });
+        let doc = session
+            .open_document(include_str!("../tests/fixtures/box.ptsm"), Vec::new())
+            .expect("box.ptsm opens")
+            .doc;
+        (session, doc)
+    }
+
+    /// Replaces the document's latest recompute by a new run in which `b-1` holds its shape with
+    /// an empty naming map, which no element table accepts, as a state written under `key`.
+    fn break_display(session: &mut Session, doc: DocHandle, key: u8) {
+        let open = session.open_mut(doc).expect("the document is open");
+        let mut report = Report::clone(&open.computed.report);
+        let shape = report.bodies[0]
+            .state
+            .shape()
+            .cloned()
+            .expect("the box has a shape");
+        report.bodies[0].state = BodyState::new(shape, Arc::clone(BodyState::empty().naming()));
+        report.features[0].key = Some(CacheKey([key; 32]));
+        open.computed.report = Arc::new(report);
+        open.computed.run += 1;
+    }
+
+    /// The events of the document's next emission.
+    fn events(session: &mut Session, doc: DocHandle) -> Vec<Event> {
+        let mut output = Output::default();
+        session
+            .collect_events(doc, &mut output)
+            .expect("events never fail because of one body");
+        output.events
+    }
+
+    /// The status of `f-box1` in a `recomputed` event.
+    fn box_status(events: &[Event]) -> partsmith_protocol::FeatureStatus {
+        events
+            .iter()
+            .find_map(|event| match event {
+                Event::Recomputed { features, .. } => features.first().cloned(),
+                _ => None,
+            })
+            .expect("a recomputed event with f-box1")
+    }
+
+    /// The model-layer `body_mesh` events: `(body, has a mesh)`.
+    fn model_meshes(events: &[Event]) -> Vec<(String, bool)> {
+        events
+            .iter()
+            .filter_map(|event| match event {
+                Event::BodyMesh {
+                    body,
+                    layer: Layer::Model,
+                    mesh,
+                    ..
+                } => Some((body.to_string(), mesh.is_some())),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_body_that_cannot_be_displayed_is_an_error_of_its_feature() {
+        let (mut session, doc) = box_session();
+        break_display(&mut session, doc, 7);
+
+        let first = events(&mut session, doc);
+        let status = box_status(&first);
+
+        assert_eq!(status.status, FeatureState::Error);
+        assert_eq!(status.messages[0].code, "display_failed");
+        assert!(
+            status.messages[0].message.contains("\"Block\""),
+            "{}",
+            status.messages[0].message
+        );
+        assert_eq!(model_meshes(&first), []);
+        assert_eq!(
+            session.feature_statuses(doc).expect("the document is open")[0],
+            status
+        );
+    }
+
+    #[test]
+    fn a_failed_display_is_not_retried_until_the_state_changes() {
+        let (mut session, doc) = box_session();
+        break_display(&mut session, doc, 7);
+        events(&mut session, doc);
+        session.open_mut(doc).expect("open").emitted.refresh_meshes = true;
+
+        let again = events(&mut session, doc);
+
+        assert_eq!(model_meshes(&again), []);
+    }
+
+    #[test]
+    fn a_shown_body_that_can_no_longer_be_displayed_loses_its_mesh() {
+        let (mut session, doc) = box_session();
+        let opened = events(&mut session, doc);
+        assert_eq!(model_meshes(&opened), [("b-1".to_string(), true)]);
+        let shown = session.open(doc).expect("open").emitted.model["b-1"].mesh_id;
+
+        break_display(&mut session, doc, 7);
+        let broken = events(&mut session, doc);
+        let pick = session.pick_reference(
+            doc,
+            Pick {
+                mesh_id: shown,
+                kind: ElementKind::Face,
+                index: 0,
+            },
+        );
+
+        assert_eq!(model_meshes(&broken), [("b-1".to_string(), false)]);
+        assert_eq!(box_status(&broken).status, FeatureState::Error);
+        assert_eq!(pick, Err(EngineError::StalePick));
+    }
+
+    #[test]
+    fn a_display_failure_clears_when_the_body_displays_again() {
+        let (mut session, doc) = box_session();
+        let good = Arc::clone(&session.open(doc).expect("open").computed.report);
+        break_display(&mut session, doc, 7);
+        events(&mut session, doc);
+
+        let open = session.open_mut(doc).expect("open");
+        open.computed.report = good;
+        open.computed.run += 1;
+        let repaired = events(&mut session, doc);
+
+        assert_eq!(box_status(&repaired).status, FeatureState::Ok);
+        assert_eq!(model_meshes(&repaired), [("b-1".to_string(), true)]);
+    }
 
     #[test]
     fn buffers_are_numbered_in_order() {

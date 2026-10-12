@@ -74,7 +74,7 @@ class Document:
         text = path.read_bytes().decode("utf-8")
         folder = path.parent / "assets"
         names = (
-            sorted(child.name for child in folder.iterdir() if ASSET_NAME.fullmatch(child.name))
+            sorted(child.name for child in folder.iterdir() if ASSET_NAME.fullmatch(child.name) and child.is_file())
             if folder.is_dir()
             else []
         )

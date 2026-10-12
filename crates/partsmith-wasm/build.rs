@@ -1,6 +1,8 @@
 //! Link arguments that make the `partsmith_core` binary the web core module of protocol.md section 2.10 (ADR 0009).
 //!
 //! They apply only to binaries built for `wasm32-unknown-emscripten`, so native builds and every test target are unaffected.
+//!
+//! The list repeats every link argument that `.cargo/config.toml` gives the target, so the module stays the same when a `RUSTFLAGS` environment variable replaces those configured flags (`tests/build_script.rs` checks this).
 
 use std::env;
 
@@ -16,6 +18,8 @@ const EMSCRIPTEN_LINK_ARGUMENTS: &[&str] = &[
     // Memory grows up to the wasm32 limit.
     "-sALLOW_MEMORY_GROWTH=1",
     "-sMAXIMUM_MEMORY=4GB",
+    // Deep OCCT calls need far more than Emscripten's default 64 KiB stack.
+    "-sSTACK_SIZE=4MB",
     // Native wasm exceptions, matching the OCCT build and the C++ shim (ADR 0003, ADR 0009).
     "-fwasm-exceptions",
     // The C ABI bridge, plus `main`, which creates the session when the module is instantiated.

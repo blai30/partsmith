@@ -49,9 +49,11 @@ pub unsafe extern "C" fn ps_free(pointer: *mut u8, length: usize) {
 ///
 /// Never frees the request, and answers every request, including bytes that are not a frame, with exactly one response frame (see [`call`](crate::call)). A null `request` reads as an empty request. Returns null and writes 0 only when the response block cannot be allocated. The caller frees the response with [`ps_free`] and the written length.
 ///
+/// A null `response_length` would leave the caller unable to free the response, so `ps_call` then handles nothing and returns null.
+///
 /// # Safety
 ///
-/// `request` is null, or points to `request_length` initialized bytes that nothing writes during the call. `response_length` points to a writable `usize`.
+/// `request` is null, or points to `request_length` initialized bytes that nothing writes during the call. `response_length` is null, or points to a writable `usize`.
 #[allow(unsafe_code)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ps_call(
@@ -59,6 +61,9 @@ pub unsafe extern "C" fn ps_call(
     request_length: usize,
     response_length: *mut usize,
 ) -> *mut u8 {
+    if response_length.is_null() {
+        return ptr::null_mut();
+    }
     let request = if request.is_null() {
         &[]
     } else {
@@ -74,7 +79,7 @@ pub unsafe extern "C" fn ps_call(
         unsafe { ptr::copy_nonoverlapping(response.as_ptr(), block, response.len()) };
         response.len()
     };
-    // SAFETY: the caller passes a writable length slot.
+    // SAFETY: the length slot is not null (checked above), and the caller passes a writable one.
     unsafe { response_length.write(length) };
     block
 }

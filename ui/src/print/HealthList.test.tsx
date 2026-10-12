@@ -155,3 +155,33 @@ describe('HealthList', () => {
     expect(list).not.toHaveTextContent('No problems found')
   })
 })
+
+describe('HealthList details', () => {
+  it('marks the row of the focused finding as current', () => {
+    renderList({ focusedFinding: { body: 'b-mushroom', check: 'overhangs', index: 1 } })
+    expect(items().map((row) => row.getAttribute('aria-current'))).toEqual([null, 'true', null])
+    expect(item(1)).toHaveClass(...classes(COLOR_CLASSES.selection.background))
+  })
+
+  it('marks no row without a focused finding', () => {
+    renderList()
+    expect(items().filter((row) => row.hasAttribute('aria-current'))).toEqual([])
+  })
+
+  it('names each row with its severity, message and body for screen readers', () => {
+    renderList()
+    expect(item(0)).toHaveAccessibleName(`Error: ${ROWS[0]?.message ?? ''} Slab`)
+  })
+
+  it('closes from its close button when it can be closed', async () => {
+    const onClose = vi.fn<() => void>()
+    const { list } = renderList({ onClose })
+    await userEvent.click(within(list).getByRole('button', { name: 'Close print health' }))
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('has no close button otherwise', () => {
+    const { list } = renderList()
+    expect(within(list).queryByRole('button', { name: 'Close print health' })).toBeNull()
+  })
+})

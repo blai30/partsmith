@@ -21,7 +21,13 @@ test = false
 [dependencies]
 partsmith-engine.workspace = true
 
+# The `ps_call` budget of protocol.md section 5.
+[[bench]]
+name = "budgets"
+harness = false
+
 [dev-dependencies]
+partsmith-model.workspace = true
 partsmith-protocol.workspace = true
 proptest.workspace = true
 serde_json.workspace = true

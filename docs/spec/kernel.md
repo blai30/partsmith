@@ -20,7 +20,7 @@ The facade turns OCCT into deterministic, thread-safe Rust functions that take p
 - Transforms: translate, rotate, mirror, uniform scale.
 - Split by plane and planar section.
 - Measurement: volume, area, center of mass, bounding box, validity.
-- Element geometry queries (kind, direction, location, radius, centroid, area or length) and topology (faces of an edge, edges of a face, faces and edges of a vertex, seam and degenerate flags).
+- Element geometry queries (kind, direction, location, radius, centroid, area or length), the point, tangent and outward face normals at the middle of an edge, and topology (faces of an edge, edges of a face, faces and edges of a vertex, seam and degenerate flags).
 - Tessellation into `partsmith_mesh::Mesh` with `f64` positions, per-triangle face ids, edge polylines with edge ids, and vertex markers with vertex ids, from a `partsmith_mesh::TessellationTolerance`.
 - STEP write to bytes and read from bytes (AP214, millimeters, body names and colors); binary BRep write and read for the result cache.
 - `KernelError` with operation, kind, C++ exception type and raw message, plus the user-facing translation.
@@ -199,6 +199,8 @@ impl Shape {
     pub fn elements(&self, kind: SubShapeKind) -> Result<Vec<ElementGeometry>, KernelError>;
     /// Adjacency of all faces, edges and vertices.
     pub fn topology(&self) -> Result<Topology, KernelError>;
+    /// The point and tangent at the middle of an edge, and the outward normal there of each face containing it (section 3.6, item 5).
+    pub fn edge_normals(&self, edge: u32) -> Result<EdgeNormals, KernelError>;
 
     /// Triangulates the shape into a mesh with face ids, edge polylines and vertex markers (section 3.7).
     pub fn tessellate(&self, tolerance: &partsmith_mesh::TessellationTolerance) -> Result<partsmith_mesh::Mesh, KernelError>;
@@ -513,6 +515,26 @@ pub struct VertexTopology {
     /// Faces containing the vertex.
     pub faces: Vec<u32>,
 }
+
+/// An edge at the middle of its parameter range, with the outward normal there of each face containing it (section 3.6, item 5).
+#[derive(Debug, Clone, PartialEq)]
+pub struct EdgeNormals {
+    /// The point of the edge's curve at the middle of its parameter range.
+    pub point: Point,
+    /// Unit tangent at `point`, running from the edge's first vertex toward its last.
+    pub tangent: Vector,
+    /// One entry per face containing the edge, ascending by face index (the order of `EdgeTopology::faces`).
+    pub faces: Vec<FaceNormal>,
+}
+
+/// One face containing an edge, with its outward unit normal at the edge's middle.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FaceNormal {
+    /// 1-based face index.
+    pub face: u32,
+    /// Unit surface normal at `EdgeNormals::point`, flipped when the face is reversed, so it points out of the material of a valid solid.
+    pub normal: Vector,
+}
 ```
 
 ### 2.11 Tessellation
@@ -679,7 +701,18 @@ Validation: a size that must be positive must be at least `LINEAR`, because OCCT
 
 #### 3.4.8 Shell
 
-`shell(shape, remove_faces, thickness)` uses `BRepOffsetAPI_MakeThickSolid::MakeThickSolidByJoin` on the single solid with offset `-thickness` (inward), the removed faces as closing faces, mode `BRepOffset_Skin`, join `GeomAbs_Arc`, coincidence tolerance `LINEAR`, intersection and self-intersection off. An empty `remove_faces` makes a closed hollow solid (outer and inner shells): `MakeThickSolid` returns only the inner offset solid when there are no closing faces, so the shim offsets with `BRepOffsetAPI_MakeOffsetShape::PerformByJoin` (same parameters) and builds the hollow solid from the input's shell and the reversed inner shell; a result that removes no material (the wall did not fit) fails with `StdFail_NotDone`. Requirements: `thickness >= LINEAR`; the shape contains exactly one solid; face indices in range and not repeated; at least one face kept.
+`shell(shape, remove_faces, thickness)` hollows a copy of the single solid (section 3.1, item 3). Requirements: `thickness >= LINEAR`; the shape contains exactly one solid; face indices in range and not repeated; at least one face kept.
+
+1. **Closed hollow.** An empty `remove_faces` makes a closed hollow solid (outer and inner shells). `MakeThickSolid` returns only the inner offset solid when there are no closing faces, so the shim offsets with `BRepOffsetAPI_MakeOffsetShape::PerformByJoin` (offset `-thickness`, mode `BRepOffset_Skin`, join `GeomAbs_Arc`, coincidence tolerance `LINEAR`, intersection and self-intersection off) and builds the hollow solid from the input's shell and the reversed inner shell.
+2. **Open shell, first attempt.** With removed faces, `BRepOffsetAPI_MakeThickSolid::MakeThickSolidByJoin` with offset `-thickness` (inward), the removed faces as closing faces, and the parameters of item 1.
+3. **Open shell, fallback.** OCCT 7.9.3's join offset cannot close the wall when a removed face borders a concave edge: the removed face's surface would have to reach across that edge to cap the offset of the face on its other side. The first attempt then returns the input solid unchanged, or fails, at every thickness (the L-shaped body of test 102 with its step face removed). No setting of the join offset changes this; probed without success were join `GeomAbs_Intersection`, the intersection, self-intersection and internal-edge-removal flags, mode `BRepOffset_RectoVerso` and a coincidence tolerance of 1e-4, while `MakeThickSolidBySimple` on the open shell builds a wrong solid. So when the first attempt fails (item 4) and some removed face shares an edge with a kept face along which the solid is concave (`BRepOffset_Analyse` reports a `ChFiDS_Concave` interval on the edge, with the angular tolerance the offset algorithm itself uses, `4 asin(min(LINEAR / (thickness / 2 + Precision::Confusion()), 1))`), the shim tries once more by cutting out a cavity:
+   1. The cavity is `BRepOffset_MakeOffset::MakeOffsetShape` of the solid with offset `-thickness`, tolerance `LINEAR`, mode `BRepOffset_Skin`, join `GeomAbs_Intersection`, intersection, self-intersection, thickening and internal-edge removal off, and offset 0 on every removed face (`SetOffsetOnFace`): a closed solid bounded by the inner offsets of the kept faces and by the removed faces' own surfaces, extended until they meet. It must be exactly one valid solid with positive volume. (Join `GeomAbs_Arc` throws here, because the offsets on the two sides of the concave edge differ.)
+   2. The result is the solid minus the cavity: `BRepAlgoAPI_Cut` with the settings of section 3.4.5, without unification. It may hold several solids when the opening cuts a part of the body loose (a boss standing on a removed face); section 3.1 item 7 applies.
+   3. History: an input element's `modified` list holds its images in the cut, and its `generated` list holds the images in the cut of the cavity elements the offset generated from it (section 3.4.9).
+   4. Concave edges between kept faces get sharp inner corners in this attempt, not arc joins.
+
+   If the fallback does not apply or fails as well, the call fails with the first attempt's error.
+4. **Checks.** An attempt (items 1 to 3) fails when OCCT reports failure or throws; when its result is still invalid after repair or holds no solid (section 3.5); when it removes no material (its volume is not below `1 - 1e-9` times the input's: the offset returns the input unchanged when the wall does not fit); or when an inner face is not at distance `thickness` from the face it came from: for every kept input face and every face the attempt generated from it, the point of the generated face at the middle of its parameter bounds (`BRepTools::UVBounds`) must lie within `1e-4 * max(1, thickness)` of distance `thickness` from the kept face's surface (`GeomAPI_ProjectPointOnSurf`, nearest solution). The last check catches walls thicker than the radius of a convex face: OCCT then turns that face's offset inside out and returns a wrong solid instead of failing (a cylinder of radius 20 shelled 25 mm thick gets a bore of radius 5, test 103). The shim reports a failed check as `StdFail_NotDone` naming the check.
 
 #### 3.4.9 Shell history contract
 
@@ -689,6 +722,7 @@ For `shell`, the history must satisfy, and the shim augments OCCT's history wher
 2. Every removed input face lists in `modified` the rim faces that close the wall where it was (for a planar removed face, one planar face lying in its plane between the outer and inner boundaries).
 3. Faces filling gaps at concave edges or vertices (arc joins) are in the `generated` list of the input edge or vertex that produced them.
 4. Every output face appears in at least one input element's `modified` or `generated` list.
+5. In the fallback of section 3.4.8 item 3, a face lying in a removed face's surface but outside that face (it closes the wall of a kept face across the concave edge, such as the bottom of the wall over the opening in test 102) is in that removed face's `generated` list; the rest of the removed face is its rim, in its `modified` list as in item 2.
 
 #### 3.4.10 Transform
 
@@ -733,6 +767,12 @@ After every operation that returns a solid result (profiles, sweeps, booleans, f
 `centroid` is the area centroid of a face (`BRepGProp::SurfaceProperties`), the length centroid of an edge (`BRepGProp::LinearProperties`), the vertex position for a vertex, and the vertex position for a degenerated edge; `measure` is area, length, or 0 (vertices and degenerated edges).
 
 4. `topology()`: built from `TopExp::MapShapesAndUniqueAncestors`. `seam` is true when `BRep_Tool::IsClosed(edge, face)` holds for a face containing it; `degenerate` is `BRep_Tool::Degenerated(edge)`. Lists are distinct and ascending.
+5. `edge_normals(edge)` describes an edge at its middle, so callers can compare the faces that meet there (the smooth-edge rule of fillet.md section 3.3 step 4). Errors use operation `Query`.
+   1. Requirements: `edge` is an edge index of the shape, else `InvalidInput` with the element index message of section 4.2; the edge is not degenerated, else `InvalidInput` with `Edge <index> is a degenerated edge, so it has no middle point.`
+   2. Middle: with `[first, last]` the parameter range of the edge's 3D curve (`BRepAdaptor_Curve` of the edge, location applied), the middle parameter is `m = (first + last) / 2` and `point` is the curve's point at `m`. On lines and circular arcs this is the midpoint along the edge; on a full circle it is the point opposite the edge's vertex.
+   3. Tangent: the curve's first derivative at `m`, normalized, and reversed when the edge as stored in the edge index map (section 3.2) is reversed. So it runs from the edge's first vertex toward its last, and on a `Line` it equals `element(Edge, edge).direction`. A derivative shorter than `gp::Resolution()` fails with `InvalidInput` and `Edge <index> has no direction at its middle.`
+   4. Faces: one entry per distinct face containing the edge (`TopExp::MapShapesAndUniqueAncestors`, `IsSame` semantics), in ascending face index order, which is the order of `topology().edges[edge - 1].faces`. An edge between two faces of a solid has two entries; a seam lists its face once; a boundary edge of an open shell or face has one entry; a free edge has none; an edge shared by several solids of a compound has one entry per face.
+   5. Normal: the surface parameters `(u, v)` of `point` on the face come from the edge's curve on that face (`BRep_Tool::CurveOnSurface` for the edge as stored in the edge index map, evaluated at `m`; edges of valid shapes are same-parameter), or, when the face has no curve for the edge, from projecting `point` onto the face's surface (`GeomAPI_ProjectPointOnSurf`, nearest solution). `BRepLProp_SLProps` on `BRepAdaptor_Surface` of the face at `(u, v)` (derivative order 1, resolution `LINEAR`) gives the unit normal (the direction of `dU x dV`), which is reversed when the face as stored in the face index map is reversed. For a valid solid it therefore points out of the material, like the `Plane` direction of item 3; for a lone face it is the face's own normal. Where `IsNormalDefined()` is false (a singular point of the surface, such as a cone apex or a sphere pole), the call fails with `InvalidInput` and `Face <face> has no defined normal at the middle of edge <index>.`
 
 ### 3.7 Tessellation
 
@@ -871,6 +911,9 @@ Numbers in messages use the fingerprint number format of `docs/spec/naming.md` s
 | Bounding box of empty shape | `This shape is empty, so it has no bounding box.` |
 | Element index out of range | `<Kind> <index> does not exist in this body.` (`<Kind>` is `Face`, `Edge` or `Vertex`) |
 | Element query on solids | `Only faces, edges and vertices can be queried.` |
+| Edge normals of a degenerated edge | `Edge <index> is a degenerated edge, so it has no middle point.` |
+| Edge without a tangent at its middle | `Edge <index> has no direction at its middle.` |
+| Face normal undefined at an edge's middle | `Face <face> has no defined normal at the middle of edge <index>.` |
 | Mesh tolerances | `Mesh tolerances must be greater than 0, with an angle of at most 90 degrees.` |
 | Nothing to export | `There is nothing to export.` |
 | Body without solid | `Body "<name>" has no solid to export.` |
@@ -918,7 +961,7 @@ Features may replace these messages with more specific ones (for example computi
 
 ## 5. Performance budgets
 
-Release builds on the reference laptop (technical design section 14), single thread, measured by benchmarks in `crates/partsmith-occt-sys/benches/` (not by acceptance tests). Web budgets are three times these. "Part" is the 80 x 50 x 30 extrude of naming spec test 81 with a cut hole, a slot, 4 fillets and a shell (about 40 faces) unless stated.
+Release builds on the reference laptop (technical design section 14), single thread, measured by benchmarks in `crates/partsmith-occt-sys/benches/` (not by acceptance tests). Web budgets are three times these. "Part" is the 80 x 50 x 30 extrude of naming spec test 81 with a cut hole, a slot, 4 fillets and a shell (about 40 faces) unless stated. `PLATE` is a 200 x 200 x 10 box (origin (0,0,-5) on `Plane::XY`) with 194 through holes of radius 4 cut in one `cut` call (tool cylinders of height 20 on `Plane::XY` at origins (10 + 13.5 c, 10 + 13.5 r, -10) for c = i mod 14, r = i div 14, i = 0 to 193): 200 faces, 594 edges, 396 vertices, the body of the `BodyState::elements` budget in features.md section 5. `L` is the L-shaped body of test 102.
 
 | Operation | Budget |
 | --- | --- |
@@ -929,13 +972,17 @@ Release builds on the reference laptop (technical design section 14), single thr
 | `cut` of 20 cylinders from a box (one call) | 60 ms |
 | `fillet` of the 12 edges of a box | 40 ms |
 | `shell` of a box | 20 ms |
+| `shell` of `L` with its step face removed (first attempt and fallback, section 3.4.8) | 40 ms |
 | `transform` (rigid) | 0.1 ms |
 | `elements(Face)` plus `topology()` for a 200-face shape | 10 ms |
+| `elements` of faces, edges and vertices plus `topology()` for `PLATE` | 8 ms |
 | `volume` of the part | 2 ms |
 | `tessellate` the part at 0.05 mm and 0.1 rad | 30 ms |
 | `to_brep` plus `from_brep` of the part | 5 ms |
 | `write_step` of the part | 100 ms |
 | `read_step` of the part | 150 ms |
+
+The `PLATE` budget leaves 2 ms of the 10 ms `BodyState::elements` budget for naming. Baseline before it was set (release, x86_64, single thread, median of repeated runs on a 4-core build container): `elements(Face)` 25 ms, `elements(Edge)` 0.6 ms, `elements(Vertex)` under 0.1 ms and `topology()` 1.8 ms, about 27 ms in total. Callgrind puts 98% of the face time in `BRepGProp::SurfaceProperties` (`BRepGProp_Gauss`): 18 x 18 integration points on every boundary edge of every face, half of the instructions in surface derivative evaluation and a third in inertia terms the query discards. The 194 cylindrical hole faces take about 21 ms (three of each wall's four boundary edges contribute nothing: its two circles are iso-parametric in v and one seam occurrence lies at the start of the u range), and the two planar faces with 194 holes each about 4 ms. Closed-form properties of a cylinder face whose parameter domain is a rectangle (`GProp_SelGProps` on the face's `gp_Cylinder` and `BRepTools::UVBounds`) took 0.85 ms for the 194 faces and matched `BRepGProp` within 1e-14 relative, inside the accuracy of section 3.6 item 2.
 
 ## 6. Acceptance tests
 
@@ -1096,6 +1143,21 @@ Constants and profile tolerance:
 93. `OCCT_VERSION == "7.9.3"` and `LINEAR_TOLERANCE == 1e-6`.
 94. Arc ends within tolerance of the circle: the half disc of test 19 with the arc running from (10.0000009, 0) to (-9.9999991, 0) (distances from the center 10.0000009 and 9.9999991, which differ by 1.8e-6) and the line from (-9.9999991, 0) to (10.0000009, 0) builds a valid face (`is_valid()` true) with area 157.07963267948966 relative 1e-6; with the arc start at (10.000002, 0) and the line end at (10.000002, 0) it fails with `InvalidInput` and `Arc 1 does not have its start and end on its circle.`
 
+Edge normals (every `tangent` and `normal` in tests 95 to 100 has length 1 within 1e-12, and `faces[i].face` equals `topology().edges[edge - 1].faces[i]` for every `i`):
+
+95. BOX `edge_normals(TF)`: `point` (5,0,30); `tangent` equals `element(Edge, TF).direction` (parallel to X); `faces` has two entries in ascending face index order, the `Front` face with normal (0,-1,0) and the `Top` face with normal (0,0,1).
+96. Cylinder rim: on `make_cylinder(&Plane::XY, 5, 10)`, the circle edge between `Side` and `Top` gives `point` (-5,0,10) (opposite the edge's vertex at (5,0,10)) and `tangent` (0,1,0) or (0,-1,0); `faces` has two entries, `Side` with normal (-1,0,0) and `Top` with normal (0,0,1).
+97. Next to a torus: `R = fillet(&make_cylinder(&Plane::XY, 10, 20).shape, &[EdgeRadius { edge: <the circle edge between Side and Top>, radius: 2 }])` has 4 faces (a `Cylinder`, a `Torus` and two `Plane` faces). The edge between R's `Cylinder` face and its `Torus` face gives a `point` with z = 18 at distance 10 from the Z axis and two entries whose normals both equal (x / 10, y / 10, 0) for the point's x and y, so the angle between them is at most 1e-9. The edge between the `Torus` face and the `Plane` face at z = 20 gives a `point` with z = 20 at distance 8 from the Z axis and two entries whose normals are both (0,0,1).
+98. Seams: the seam of the cylinder of test 96 gives `point` (5,0,5), `tangent` parallel to Z and `faces` with one entry, the `Side` face with normal (1,0,0). The seam of `make_sphere(&Plane::XY, 10)` gives `point` (10,0,0) and one entry, the sphere's face with normal (1,0,0).
+99. Boundary edge of an open face: on `RECT` (test 15), the edge tagged 1 gives `point` (40,0,0), `tangent` equal to its element direction and one entry, face 1 with normal (0,0,1). On `RECT` placed on `Plane::XZ` (test 20), the edge tagged 1 gives `point` (40,0,0) and one entry with normal (0,-1,0).
+100. Reversed faces: in the hollow box of test 52, the edge shared by the inner faces that BOX's `Top` and `Front` list in `generated` gives `point` (5,1,29) and two entries: the inner top face with normal (0,0,-1) and the inner front face with normal (0,1,0), both pointing out of the material into the cavity. The outer edge where the output images of BOX's `Top` and `Front` meet gives normals (0,0,1) and (0,-1,0) as in test 95.
+101. `edge_normals(0)` and `edge_normals(13)` on BOX fail with `InvalidInput` and `Edge 0 does not exist in this body.` and `Edge 13 does not exist in this body.`; each degenerated edge `d` of `make_sphere(&Plane::XY, 10)` fails with `InvalidInput` and `Edge <d> is a degenerated edge, so it has no middle point.`
+
+Shell beside a concave edge and thick walls:
+
+102. The L-shaped body `L = fuse(&make_box(&Plane { origin: (-20,-10,0), ..Plane::XY }, 40, 20, 10).shape, &[make_box(&Plane { origin: (0,-10,10), ..Plane::XY }, 20, 20, 10).shape])` (volume 12000, 8 faces; the body of fillet.md test 4) with `STEP`, its face with direction (0,0,1) and centroid (-10,0,10) (area 400). `shell(&L.shape, &[STEP], 2)` is `Ok` (the first attempt removes no material, the fallback of section 3.4.8 item 3 builds it): valid, one solid, volume 5344 relative 1e-9, 16 faces, bounding box (-20,-10,0) to (20,10,20). History: `STEP` lists exactly one face in `modified`, the rim (kind `Plane`, direction (0,0,1), area 112 relative 1e-9, centroid (-12.571428571428571,0,10)), and exactly one face in `generated`, the bottom of the wall over the opening (kind `Plane`, direction (0,0,-1), area 32 relative 1e-9, centroid (1,0,10)); each of the 7 other input faces lists exactly one face in `modified` (its outer image, with the input face's area) and exactly one face in `generated` (its inner offset, a `Plane` face parallel to it at distance 2, facing the opposite way); every output face appears in the `modified` or `generated` list of an input face. With thickness 0.5 the volume is 1531 relative 1e-9; thickness 10 fails with kind `Failed` or `InvalidResult` and the shell message.
+103. Walls thicker than a convex face's radius: with `CYL20` = `make_cylinder(&Plane::XY, 20, 40)`, `shell(&CYL20.shape, &[Top], 19)` has volume 50199.50901171131 relative 1e-9 (an inner radius of 1), and `shell(&CYL20.shape, &[Top], 25)` fails with kind `Failed` or `InvalidResult` and the shell message (OCCT alone returns a solid with a bore of radius 5 there, which the distance check of section 3.4.8 item 4 rejects).
+
 ## 7. Open issues
 
 1. **History for constructive operations.** The architecture says operations return `OpResult { shape, history }` with history per input index. For primitives and sweeps the inputs are parameters or a profile, so this spec returns explicit face roles instead (`Primitive::faces`, `SweepResult::faces`), which is what naming needs; `OpResult` is used for every operation on existing shapes.
@@ -1104,3 +1166,4 @@ Constants and profile tolerance:
 4. **Fillet corner history.** Test 45 requires that a vertex where three fillets meet generates the corner face. `ChFi3d_Builder::Generated` maps vertices through its internal map; this must be verified, and the shim augments the history if needed.
 5. **Tolerance constant.** This crate cannot depend on `partsmith-model` (architecture graph: `occt-sys -> mesh` only), so it defines its own public `LINEAR_TOLERANCE` (1e-6); a test in `partsmith-features` checks that the two are equal.
 6. **Exceptions from OCCT classified as `Failed`.** Types such as `Standard_NullObject` or `Standard_OutOfRange` can signal OCCT bugs as well as bad geometry; this spec maps every `Standard_Failure` to `Failed` (an actionable message) and only non-OCCT exceptions to `Internal`.
+7. **Shell beside a concave blend.** The shell fallback (section 3.4.8 item 3) runs only when a removed face borders a concave edge. A removed face that meets a concave fillet tangentially still fails: the body of test 102 with the concave edge filleted at radius 2 (fillet.md test 4) and the step face removed makes the first attempt return the solid unchanged, the edge between the step face and the fillet is tangent rather than concave, and running the fallback anyway fails the distance check. Supporting it needs another cavity construction for tangent concave faces.

@@ -109,7 +109,12 @@ export function rectangleCenterRecipe(input: {
 }): SketchAddition | null {
   const { center, corner, construction, ids } = input
   const opposite: Vector2 = [2 * center[0] - corner[0], 2 * center[1] - corner[1]]
-  const rectangle = rectangleTwoPointRecipe({ corner: opposite, opposite: corner, construction, ids })
+  const rectangle = rectangleTwoPointRecipe({
+    corner: opposite,
+    opposite: corner,
+    construction,
+    ids,
+  })
   const [first, second] = rectangle?.entities ?? []
   if (rectangle === null || first === undefined || second === undefined) {
     return null

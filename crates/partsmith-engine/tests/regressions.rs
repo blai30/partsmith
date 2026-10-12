@@ -5,9 +5,10 @@
 
 mod common;
 
-use common::{fixture, open_doc, open_text, send, session};
+use common::{doc_handle, fixture, number, open_doc, open_text, replace_once, send, session};
 use partsmith_engine::{ValidateOptions, ValidationReport};
 use partsmith_print::Severity;
+use partsmith_protocol::{DocHandle, TessellationQuality};
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 
@@ -192,4 +193,88 @@ fn analyze_print_checks_requested_bodies_in_request_order() {
 
     assert_eq!(sent.error_code(), "unknown_body");
     assert!(sent.error_message().contains("b-9"), "{}", sent.error_message());
+}
+
+/// `box.ptsm` using the printer profile `shop-printer`, which is not installed.
+fn box_on_shop_printer() -> String {
+    replace_once(
+        &fixture("box.ptsm"),
+        r#""units": "mm","#,
+        r#""units": "mm",
+  "printer": "shop-printer","#,
+    )
+}
+
+/// The `put_printer_profile` command for `shop-printer` with a layer height.
+fn put_shop_printer(name: &str, layer_height: f64) -> Value {
+    json!({
+        "type": "put_printer_profile",
+        "profile": {"id": "shop-printer", "name": name, "technology": "fdm", "layer_height": layer_height}
+    })
+}
+
+/// The codes of a list of diagnostics.
+fn codes(diagnostics: &Value) -> Vec<&str> {
+    diagnostics
+        .as_array()
+        .expect("a list of diagnostics")
+        .iter()
+        .map(|diagnostic| diagnostic["code"].as_str().expect("diagnostics have a code"))
+        .collect()
+}
+
+#[test]
+fn an_unknown_printer_is_a_warning_of_recompute_and_export() {
+    let mut session = session();
+
+    let opened = open_text(&mut session, &box_on_shop_printer());
+    let doc = doc_handle(&opened);
+    let exported = send(
+        &mut session,
+        json!({"type": "export", "doc": doc, "format": {"kind": "stl", "binary": true, "per_body": false}}),
+    );
+
+    let diagnostics = &opened.event("recomputed")["diagnostics"];
+    assert_eq!(codes(diagnostics), ["unknown_printer_profile"]);
+    assert_eq!(diagnostics[0]["severity"], "warning");
+    assert_eq!(
+        diagnostics[0]["message"],
+        "Printer profile \"shop-printer\" is not installed, so the default FDM profile is used. Install it or pick another printer."
+    );
+    assert_eq!(codes(&exported.ok()["warnings"]), ["unknown_printer_profile"]);
+}
+
+#[test]
+fn putting_a_document_profile_recomputes_and_retessellates_it() {
+    let mut session = session();
+    let opened = open_text(&mut session, &box_on_shop_printer());
+    let doc = doc_handle(&opened);
+    let first_mesh = number(&opened.body_mesh("b-1", "model")["mesh_id"]);
+    let other = open_doc(&mut session, "box.ptsm");
+
+    let put = send(&mut session, put_shop_printer("Shop", 0.1));
+
+    put.ok();
+    assert_eq!(put.event_types(), ["recomputed", "body_mesh"]);
+    let recomputed = put.event("recomputed");
+    assert_eq!(recomputed["doc"], doc);
+    assert_eq!(codes(&recomputed["diagnostics"]), Vec::<&str>::new());
+    assert!(number(&put.body_mesh("b-1", "model")["mesh_id"]) > first_mesh);
+    assert_ne!(other, doc);
+    let handle = DocHandle(u32::try_from(doc).expect("small handles"));
+    let tolerance = session
+        .tolerance(handle, TessellationQuality::Standard)
+        .expect("the document is open");
+    assert!((tolerance.chord_deviation - 0.025).abs() < 1e-12);
+}
+
+#[test]
+fn a_profile_change_that_keeps_the_layer_height_keeps_the_meshes() {
+    let mut session = session();
+    open_text(&mut session, &box_on_shop_printer());
+    send(&mut session, put_shop_printer("Shop", 0.1)).ok();
+
+    let renamed = send(&mut session, put_shop_printer("Workshop", 0.1));
+
+    assert_eq!(renamed.event_types(), ["recomputed"]);
 }
