@@ -15,11 +15,12 @@ use partsmith_protocol::{
 use partsmith_recompute::Status;
 use partsmith_sketch::{
     DimensionValues, DragSession, DragTarget, EntityState, Geometry, NativeDragSession,
-    NativeSolver, OriginPlane, Placement, PointRef, PointRole, Profile, Region, SketchEntity,
+    NativeSolver, OriginPlane, Placement, PointRef, PointRole, Profile, Region, RegionRef, SketchEntity,
     SketchParams, SketchPlane, SolveResult, Solver, ValueKind, build_profile,
 };
 
 use crate::error::EngineError;
+use crate::session::evaluate_in;
 use crate::state::Computed;
 
 /// The type name of sketch features.
@@ -193,6 +194,30 @@ fn state_before(computed: &Computed, position: usize, body: &Id) -> BodyState {
         }
     }
     BodyState::empty()
+}
+
+/// Every region of a stored sketch in solved order, or `None` when its params are invalid, a
+/// dimension does not evaluate, or the solve fails or does not converge.
+pub(crate) fn solved_regions(
+    registry: &Registry,
+    document: &Document,
+    computed: &Computed,
+    sketch: &Id,
+) -> Option<Vec<RegionRef>> {
+    let (_, record) = sketch_record(document, sketch).ok()?;
+    let params = sketch_params(registry, document, record).ok()?;
+    let values = evaluate_in(document, computed, |scope| dimension_values(&params, scope)).ok()?;
+    let result = NativeSolver.solve(&params, &values).ok()?;
+    if result.failed {
+        return None;
+    }
+    Some(
+        build_profile(&result.entities)
+            .regions
+            .iter()
+            .map(Region::reference)
+            .collect(),
+    )
 }
 
 /// Solves `params` with `values` (`invalid_params` with the sketch crate's message when the

@@ -12,7 +12,11 @@ use partsmith_sketch::{
 };
 use serde_json::Value;
 
-use crate::sketch::SKETCH_TYPE;
+use partsmith_protocol::DocHandle;
+
+use crate::error::EngineError;
+use crate::session::Session;
+use crate::sketch::{SKETCH_TYPE, solved_regions};
 
 /// Longest statement, indentation included, written on one line (rule 11).
 const MAX_LINE_LENGTH: usize = 88;
@@ -40,6 +44,16 @@ const RESERVED_VARIABLES: &[&str] = &[
     "run_script", "run_code", "PartsmithError", "EngineError", "FeatureError",
     "SelectionError", "ExpressionError", "PartsmithWarning",
 ];
+
+impl Session {
+    /// The document as a Python script.
+    pub fn export_python(&self, doc: DocHandle) -> Result<String, EngineError> {
+        let open = self.open(doc)?;
+        let regions =
+            |sketch: &Id| solved_regions(&self.registry, &open.document, &open.computed, sketch);
+        Ok(script(&open.document, &self.registry, &regions))
+    }
+}
 
 /// The script that rebuilds `document`. `regions` gives every region of a sketch in solved
 /// order, or `None` when the sketch does not solve.
