@@ -53,6 +53,9 @@ export function Switch({
             'inline-flex h-6 w-10 shrink-0 items-center rounded-sm border p-0.5 transition-colors duration-150 motion-reduce:transition-none',
             checked ? 'justify-end' : 'justify-start',
             COLOR_CLASSES.focusRing.outline,
+            // A resting outline color equal to the ring's, so transition-colors does not fade the
+            // ring in from the text color.
+            COLOR_CLASSES.accent.outline,
             COLOR_CLASSES.borderControl.border,
             checked && !disabled ? COLOR_CLASSES.accent.background : COLOR_CLASSES.field.background,
             disabled && 'cursor-not-allowed',

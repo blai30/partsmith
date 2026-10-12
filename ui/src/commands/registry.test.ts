@@ -106,6 +106,19 @@ describe('register, get and list', () => {
     expect(() => registry.register(command('file.save'))).not.toThrow()
   })
 
+  it('list returns the same array until the commands change', () => {
+    const registry = createCommandRegistry()
+    registry.register(command('file.save'))
+    const first = registry.list()
+    expect(registry.list()).toBe(first)
+    const unregister = registry.register(command('file.open'))
+    const second = registry.list()
+    expect(second).not.toBe(first)
+    expect(second.map((definition) => definition.id)).toEqual(['file.save', 'file.open'])
+    unregister()
+    expect(registry.list().map((definition) => definition.id)).toEqual(['file.save'])
+  })
+
   it('notifies subscribers when commands are registered and unregistered, until they unsubscribe', () => {
     const registry = createCommandRegistry()
     const listener = vi.fn<() => void>()

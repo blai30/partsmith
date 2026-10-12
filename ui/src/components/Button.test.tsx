@@ -90,3 +90,22 @@ describe('Button', () => {
     expect(screen.getByRole('button', { name: 'Export' })).toHaveClass('w-full')
   })
 })
+
+describe('Button with aria-disabled', () => {
+  it('looks unavailable but stays focusable and reports clicks, so the caller can explain why', async () => {
+    const onClick = vi.fn<() => void>()
+    const user = userEvent.setup()
+    render(
+      <Button variant="primary" aria-disabled="true" onClick={onClick}>
+        OK
+      </Button>,
+    )
+    const button = screen.getByRole('button', { name: 'OK' })
+    expect(button).not.toHaveClass(COLOR_CLASSES.accent.background)
+    expect(button).toHaveClass(COLOR_CLASSES.textDisabled.foreground)
+    await user.tab()
+    expect(button).toHaveFocus()
+    await user.click(button)
+    expect(onClick).toHaveBeenCalledTimes(1)
+  })
+})

@@ -7,10 +7,9 @@
   <body>
     <canvas></canvas>
     <script type="module">
-      import * as backend from '/src/viewport/backend.ts'
-      import * as camera from '/src/viewport/camera.ts'
+      import * as harness from './viewport-harness.ts'
 
-      window.partsmithViewport = { backend, camera }
+      window.partsmithViewport = harness
       document.body.dataset.ready = 'true'
     </script>
   </body>

@@ -146,3 +146,54 @@ describe('Tooltip', () => {
     expect(tooltip).toHaveClass(COLOR_CLASSES.border.border)
   })
 })
+
+describe('Tooltip pointer and focus details', () => {
+  it('stays open while the pointer moves onto the tooltip', async () => {
+    const { user, trigger } = setUp()
+    await user.hover(trigger)
+    advance(500)
+    const tooltip = shownTooltip()
+    expect(tooltip).not.toBeNull()
+    await user.unhover(trigger)
+    if (tooltip !== null) {
+      await user.hover(tooltip)
+    }
+    advance(1000)
+    expect(shownTooltip()).not.toBeNull()
+  })
+
+  it('does not appear when a click focuses the trigger', async () => {
+    const { user, trigger } = setUp()
+    await user.click(trigger)
+    expect(trigger).toHaveFocus()
+    advance(1000)
+    expect(shownTooltip()).toBeNull()
+  })
+
+  it('stays open on keyboard focus when the pointer leaves', async () => {
+    const { user, trigger } = setUp()
+    await user.tab()
+    await user.tab()
+    expect(shownTooltip()).not.toBeNull()
+    await user.hover(trigger)
+    await user.unhover(trigger)
+    advance(1000)
+    expect(shownTooltip()).not.toBeNull()
+  })
+
+  it('keeps a description the trigger already has', () => {
+    render(
+      <>
+        <p id="state">Edited</p>
+        <Tooltip label="Save" shortcut={null}>
+          <button type="button" aria-describedby="state">
+            Save file
+          </button>
+        </Tooltip>
+      </>,
+    )
+    const ids = screen.getByRole('button', { name: 'Save file' }).getAttribute('aria-describedby')
+    expect(ids?.split(' ')).toHaveLength(2)
+    expect(ids?.split(' ')[0]).toBe('state')
+  })
+})

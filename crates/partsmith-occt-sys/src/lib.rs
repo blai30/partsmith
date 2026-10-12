@@ -1,81 +1,49 @@
-//! Safe Rust facade over a C++ shim around the OCCT geometry kernel.
+//! Safe Rust facade over a C++ shim around the OCCT geometry kernel (`docs/spec/kernel.md`).
+//!
+//! Functions take plain values and immutable [`Shape`] handles and return new shapes with the
+//! history and face roles that naming needs. Every C++ exception becomes a [`KernelError`];
+//! no C++ type appears in the public API. All lengths are millimeters and all angles radians.
 
+mod blends;
+mod booleans;
+mod element;
+mod error;
+mod exchange;
 mod ffi;
+mod history;
+mod primitives;
+mod profiles;
+mod shape;
+mod sweeps;
+mod tessellation;
+mod transforms;
+mod values;
 
-use ffi::ffi as sys;
-use thiserror::Error;
+pub use blends::{ChamferEdge, ChamferSize, EdgeRadius, chamfer, fillet, shell};
+pub use booleans::{common, cut, fuse};
+pub use element::{
+    EdgeTopology, ElementGeometry, FaceTopology, GeometryKind, Topology, VertexTopology,
+};
+pub use error::{KernelError, KernelErrorKind, Operation};
+pub use exchange::{StepBody, StepImport, read_step, write_step};
+pub use history::{ElementFate, History, InputHistory, OpResult, Origin};
+pub use primitives::{
+    Primitive, PrimitiveFace, make_box, make_cone, make_cylinder, make_sphere, make_torus,
+};
+pub use profiles::{
+    PlanarCurve, PlanarLoop, PlanarProfile, PlanarRegion, TaggedCurve, make_profile,
+};
+pub use shape::{Shape, ShapeKind, SubShape, SubShapeKind};
+pub use sweeps::{SweepFace, SweepResult, extrude, revolve};
+pub use transforms::{PlaneSide, SectionFace, SplitResult, compound, section, split, transform};
+pub use values::{Axis, Color, Plane, Point, Point2, Transform, Vector};
 
-/// A failure reported by the geometry kernel.
-#[derive(Debug, Clone, PartialEq, Eq, Error)]
-#[error("{message}")]
-pub struct KernelError {
-    /// The C++ exception type, for example `Standard_ConstructionError`.
-    pub exception: String,
-    /// The kernel's message.
-    pub message: String,
-}
+/// The pinned OCCT version (ADR 0003); part of recompute cache keys.
+pub const OCCT_VERSION: &str = "7.9.3";
 
-impl From<cxx::Exception> for KernelError {
-    fn from(exception: cxx::Exception) -> Self {
-        // The shim formats every exception as "<type>: <message>".
-        let (kind, message) = exception
-            .what()
-            .split_once(": ")
-            .unwrap_or(("unknown", exception.what()));
-        Self {
-            exception: kind.to_owned(),
-            message: message.to_owned(),
-        }
-    }
-}
+/// Modeling tolerance in millimeters; equal to `partsmith_model::LINEAR_TOLERANCE` (kernel spec
+/// section 3.1).
+pub const LINEAR_TOLERANCE: f64 = 1e-6;
 
-/// An immutable B-rep shape. Cloning is cheap and shares the underlying geometry.
-#[derive(Clone)]
-pub struct Shape {
-    inner: cxx::SharedPtr<sys::Shape>,
-}
-
-// SAFETY: a `Shape` is never mutated after construction; OCCT reads of distinct or shared
-// immutable shapes are thread-safe. Operations that write caches work on copies.
-unsafe impl Send for Shape {}
-// SAFETY: see `Send`; shared references only perform reads.
-unsafe impl Sync for Shape {}
-
-impl Shape {
-    fn new(inner: cxx::SharedPtr<sys::Shape>) -> Self {
-        Self { inner }
-    }
-
-    fn get(&self) -> &sys::Shape {
-        self.inner
-            .as_ref()
-            .expect("shim functions never return a null shape")
-    }
-
-    /// The enclosed volume in cubic millimeters.
-    pub fn volume(&self) -> Result<f64, KernelError> {
-        Ok(sys::shape_volume(self.get())?)
-    }
-}
-
-/// Makes an axis-aligned box with one corner at the origin.
-pub fn make_box(dx: f64, dy: f64, dz: f64) -> Result<Shape, KernelError> {
-    Ok(Shape::new(sys::make_box(dx, dy, dz)?))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn box_volume_is_product_of_sides() {
-        let shape = make_box(10.0, 20.0, 30.0).unwrap();
-        assert!((shape.volume().unwrap() - 6000.0).abs() < 1e-9);
-    }
-
-    #[test]
-    fn degenerate_box_is_a_kernel_error() {
-        let error = make_box(0.0, 20.0, 30.0).err().unwrap();
-        assert_eq!(error.exception, "Standard_DomainError");
-    }
-}
+/// Angular tolerance in radians (kernel spec section 3.1).
+pub(crate) const ANGULAR_TOLERANCE: f64 = 1e-9;

@@ -76,3 +76,12 @@ describe('Switch', () => {
     expect(bordered.length).toBeGreaterThan(0)
   })
 })
+
+describe('Switch label', () => {
+  it('clicking the label asks for the opposite state', async () => {
+    const onChange = vi.fn<(checked: boolean) => void>()
+    render(<Switch label="Overhangs" checked={false} onChange={onChange} />)
+    await userEvent.click(screen.getByText('Overhangs'))
+    expect(onChange).toHaveBeenCalledWith(true)
+  })
+})

@@ -61,10 +61,7 @@ export function installShortcutDispatcher(app: App, target: Window): () => void 
       return
     }
     const state = app.store.getState()
-    if (
-      (state.panels.paletteOpen || hasOpenPopover(target.document)) &&
-      name !== PALETTE_CHORD
-    ) {
+    if ((state.panels.paletteOpen || hasOpenPopover(target.document)) && name !== PALETTE_CHORD) {
       return
     }
     const command = app.commands.forChord(app, name, state.context)

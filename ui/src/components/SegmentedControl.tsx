@@ -83,7 +83,6 @@ export function SegmentedControl<Value extends string>({
             className={clsx(
               'relative flex items-center gap-2 rounded-xs px-3 text-sm whitespace-nowrap transition-colors duration-150 motion-reduce:transition-none',
               disabled && COLOR_CLASSES.textDisabled.foreground,
-              disabled && 'cursor-not-allowed',
               !disabled && checked && COLOR_CLASSES.selection.background,
               !disabled && checked && COLOR_CLASSES.text.foreground,
               !disabled && checked && 'font-semibold',
@@ -108,8 +107,9 @@ export function SegmentedControl<Value extends string>({
                 onKeyDown(event, index)
               }}
               className={clsx(
-                'absolute inset-0 m-0 size-full cursor-[inherit] appearance-none rounded-xs',
+                'absolute inset-0 m-0 size-full appearance-none rounded-xs',
                 COLOR_CLASSES.focusRing.outline,
+                disabled && 'cursor-not-allowed',
               )}
             />
             {Icon === undefined ? null : (

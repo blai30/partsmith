@@ -109,9 +109,59 @@ fn find_plateaus(body: &Body) -> Vec<Plateau> {
             }
             plateaus[plateau].normal_z_sum += normal_z;
             if faces_down {
-                plateaus[plateau].downward_triangles.push(index_u32(triangle));
+                plateaus[plateau]
+                    .downward_triangles
+                    .push(index_u32(triangle));
             }
         }
     }
     plateaus
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::rotation::Rotation;
+    use crate::test_meshes::boxes;
+
+    /// The island heights of a base box with a second box hovering at `height`.
+    fn island_heights(height: f64) -> Vec<f64> {
+        let mesh = boxes(&[
+            ([0.0, 0.0, 0.0], [10.0, 10.0, 1.0]),
+            ([20.0, 0.0, height], [30.0, 10.0, height + 1.0]),
+        ]);
+        let body = Body::prepare(&mesh, Rotation::identity()).expect("prepares");
+        check(&body)
+            .findings
+            .iter()
+            .filter_map(|finding| finding.value)
+            .collect()
+    }
+
+    #[test]
+    fn hovering_part_is_an_island() {
+        assert_eq!(island_heights(2.0), vec![2.0]);
+    }
+
+    #[test]
+    fn part_within_the_contact_tolerance_is_not_an_island() {
+        assert!(island_heights(0.01).is_empty());
+        assert_eq!(island_heights(0.02), vec![0.02]);
+    }
+
+    #[test]
+    fn islands_are_ordered_by_height() {
+        let mesh = boxes(&[
+            ([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]),
+            ([5.0, 0.0, 4.0], [6.0, 1.0, 5.0]),
+            ([10.0, 0.0, 2.0], [11.0, 1.0, 3.0]),
+        ]);
+        let body = Body::prepare(&mesh, Rotation::identity()).expect("prepares");
+        let heights: Vec<f64> = check(&body)
+            .findings
+            .iter()
+            .filter_map(|finding| finding.value)
+            .collect();
+        assert_eq!(heights, vec![2.0, 4.0]);
+    }
 }

@@ -56,7 +56,11 @@ impl Overlay {
     ///
     /// Each vertex gets the worst value (largest for `above`, smallest for `below`) among the
     /// triangles that use it and have a value, or `OVERLAY_NO_VALUE` when none has.
-    pub fn per_vertex(&self, indices: &[u32], vertex_count: usize) -> Result<Vec<f32>, AnalysisError> {
+    pub fn per_vertex(
+        &self,
+        indices: &[u32],
+        vertex_count: usize,
+    ) -> Result<Vec<f32>, AnalysisError> {
         if indices.len() != 3 * self.values.len() {
             return Err(AnalysisError::OverlayIndexCount {
                 indices: indices.len(),

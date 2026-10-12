@@ -8,13 +8,13 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use common::{
-    Harness, all_element_names, all_features, body, body_record, bodies, builtin_registry, chain_json,
-    datum_height, datum_placement, doc_a, doc_a_json, document, document_json, error_code,
-    face_count, feature, final_state, first_message, key, keys, load, message_texts, messages,
-    not_reused, owned, parameter, parameter_record, parameter_value, record, records, reused,
-    severity_name, status, statuses, test_block, test_datum, test_datum_on, test_probe,
-    test_registry, volume, warning_codes, with_action, assert_vector, assert_volume,
-    PLACEMENT_TOLERANCE,
+    Harness, PLACEMENT_TOLERANCE, all_element_names, all_features, assert_vector, assert_volume,
+    bodies, body, body_record, builtin_registry, chain_json, datum_height, datum_placement, doc_a,
+    doc_a_json, document, document_json, error_code, face_count, feature, final_state,
+    first_message, key, keys, load, message_texts, messages, not_reused, owned, parameter_record,
+    parameter_value, record, record_position, records, reused, severity_name, status, statuses,
+    test_block, test_datum, test_datum_on, test_probe, test_registry, volume, warning_codes,
+    with_action,
 };
 use partsmith_features::Repair;
 use partsmith_model::Quantity;
@@ -63,7 +63,10 @@ fn t006_first_run_of_doc_a() {
     for (feature, key) in keys(&report) {
         assert!(key.is_some(), "{feature} has no key");
     }
-    assert_volume(final_state(&report, "b-1"), 40000.0 - (1.0 - PI / 4.0) * 80.0);
+    assert_volume(
+        final_state(&report, "b-1"),
+        40000.0 - (1.0 - PI / 4.0) * 80.0,
+    );
     assert_eq!(face_count(final_state(&report, "b-1")), 7);
     assert_volume(final_state(&report, "b-2"), 1000.0);
     assert_eq!(parameter_value(&report, "p-h"), &Ok(Quantity::length(10.0)));
@@ -216,7 +219,9 @@ fn t015_unknown_keys_warn_and_do_not_change_keys() {
     assert_eq!(warning_codes(&report, "f-ext1"), vec!["unknown_params"]);
     assert_eq!(
         message_texts(&report, "f-ext1"),
-        owned(&["This feature has settings this version of Partsmith does not know ('taper'). They are ignored and kept in the file."])
+        owned(&[
+            "This feature has settings this version of Partsmith does not know ('taper'). They are ignored and kept in the file."
+        ])
     );
     assert_eq!(keys(&report), keys(&first));
     assert_eq!(keys(&changed), keys(&first));
@@ -235,12 +240,16 @@ fn t016_cached_warnings_render_with_current_names() {
     assert_eq!(status(&first, "f-box9"), "warning");
     assert_eq!(
         message_texts(&first, "f-box9"),
-        owned(&["This feature does not change body 'Body 2'. Check its position, size and direction."])
+        owned(&[
+            "This feature does not change body 'Body 2'. Check its position, size and direction."
+        ])
     );
     assert!(feature(&second, "f-box9").timing.from_cache);
     assert_eq!(
         message_texts(&second, "f-box9"),
-        owned(&["This feature does not change body 'Lid'. Check its position, size and direction."])
+        owned(&[
+            "This feature does not change body 'Lid'. Check its position, size and direction."
+        ])
     );
 }
 
@@ -266,7 +275,10 @@ fn t034_eviction_keeps_the_latest_run_and_drops_older_entries() {
     harness.run(&one_box);
 
     assert_eq!(harness.cache_len(), 2);
-    assert_eq!(with_action(&harness.plan(&one_box), "reuse"), owned(&["f-box9"]));
+    assert_eq!(
+        with_action(&harness.plan(&one_box), "reuse"),
+        owned(&["f-box9"])
+    );
     assert_eq!(with_action(&harness.plan(&three_boxes), "reuse").len(), 1);
 }
 
@@ -282,19 +294,30 @@ fn t035_two_fresh_recomputes_give_identical_results() {
     assert_eq!(statuses(&first), statuses(&second));
     for entry in &first.features {
         let id = entry.feature.as_str();
-        assert_eq!(message_texts(&first, id), message_texts(&second, id), "messages of {id}");
+        assert_eq!(
+            message_texts(&first, id),
+            message_texts(&second, id),
+            "messages of {id}"
+        );
     }
     for body_id in ["b-1", "b-2"] {
         let left = final_state(&first, body_id);
         let right = final_state(&second, body_id);
         assert_eq!(volume(left), volume(right), "volume of {body_id}");
-        assert_eq!(all_element_names(left), all_element_names(right), "names of {body_id}");
+        assert_eq!(
+            all_element_names(left),
+            all_element_names(right),
+            "names of {body_id}"
+        );
     }
     for (feature, key) in keys(&first) {
-        let text = key.unwrap_or_else(|| panic!("{feature} has no key")).to_string();
+        let text = key
+            .unwrap_or_else(|| panic!("{feature} has no key"))
+            .to_string();
         assert_eq!(text.len(), 64, "key text of {feature}");
         assert!(
-            text.chars().all(|character| character.is_ascii_digit() || ('a'..='f').contains(&character)),
+            text.chars()
+                .all(|character| character.is_ascii_digit() || ('a'..='f').contains(&character)),
             "key text of {feature} is {text}"
         );
     }
@@ -304,7 +327,8 @@ fn t035_two_fresh_recomputes_give_identical_results() {
 #[ignore = "needs built-in sketch, extrude, box, fillet, datum_plane"]
 fn t036_lost_references_carry_repair_data() {
     let mut harness = Harness::builtins();
-    let lost = json!({"q": "edge(f-ext1/end-cap|f-ext1/nothing)", "fp": "line|n=0,0,1|c=500,500,500|l=1"});
+    let lost =
+        json!({"q": "edge(f-ext1/end-cap|f-ext1/nothing)", "fp": "line|n=0,0,1|c=500,500,500|l=1"});
     let valid = json!({"q": "edge(f-ext1/end-cap|f-ext1/lateral/e-1)", "fp": "line|n=1,0,0|c=40,0,10|l=80"});
     let mut document = doc_a_json();
     record(&mut document, "f-fil1")["edges"] = json!([lost.clone()]);
@@ -360,12 +384,19 @@ fn body_reports_name_the_last_writer_and_its_key() {
     let report = harness.run(&load(&chain_json()));
 
     let bracket = body(&report, "b-1");
-    assert_eq!(bracket.last_feature.as_ref().map(|id| id.as_str()), Some("f-b"));
+    assert_eq!(
+        bracket.last_feature.as_ref().map(|id| id.as_str()),
+        Some("f-b")
+    );
     assert_eq!(bracket.key, key(&report, "f-b"));
     let lid = body(&report, "b-2");
     assert_eq!(lid.last_feature.as_ref().map(|id| id.as_str()), Some("f-c"));
     assert_eq!(lid.key, key(&report, "f-c"));
-    let order: Vec<&str> = report.bodies.iter().map(|entry| entry.body.as_str()).collect();
+    let order: Vec<&str> = report
+        .bodies
+        .iter()
+        .map(|entry| entry.body.as_str())
+        .collect();
     assert_eq!(order, vec!["b-1", "b-2"]);
 }
 
@@ -541,9 +572,14 @@ fn the_unknown_params_warning_is_added_to_reused_results() {
     assert_eq!(warning_codes(&tapered, "f-d1"), vec!["unknown_params"]);
     assert_eq!(
         message_texts(&tapered, "f-d1"),
-        owned(&["This feature has settings this version of Partsmith does not know ('taper'). They are ignored and kept in the file."])
+        owned(&[
+            "This feature has settings this version of Partsmith does not know ('taper'). They are ignored and kept in the file."
+        ])
     );
-    assert_eq!(severity_name(&first_message(&tapered, "f-d1").severity), "warning");
+    assert_eq!(
+        severity_name(&first_message(&tapered, "f-d1").severity),
+        "warning"
+    );
     assert_eq!(keys(&tapered), keys(&first));
     assert_eq!(keys(&changed), keys(&first));
 }
@@ -560,7 +596,10 @@ fn recompute_warnings_follow_the_output_warnings() {
 
     let report = harness.run(&load(&document));
 
-    assert_eq!(warning_codes(&report, "f-p"), vec!["no_effect", "unknown_params"]);
+    assert_eq!(
+        warning_codes(&report, "f-p"),
+        vec!["no_effect", "unknown_params"]
+    );
     assert_eq!(
         message_texts(&report, "f-p"),
         owned(&[
@@ -584,12 +623,16 @@ fn cached_warnings_render_with_current_names() {
 
     assert_eq!(
         message_texts(&first, "f-p"),
-        owned(&["This feature does not change body 'Body 1'. Check its position, size and direction."])
+        owned(&[
+            "This feature does not change body 'Body 1'. Check its position, size and direction."
+        ])
     );
     assert_eq!(reused(&second), owned(&["f-a", "f-p"]));
     assert_eq!(
         message_texts(&second, "f-p"),
-        owned(&["This feature does not change body 'Lid'. Check its position, size and direction."])
+        owned(&[
+            "This feature does not change body 'Lid'. Check its position, size and direction."
+        ])
     );
 }
 
@@ -636,9 +679,18 @@ fn eviction_drops_the_entry_with_the_oldest_last_use() {
     harness.run(&datum("3"));
 
     assert_eq!(harness.cache_len(), 2);
-    assert_eq!(with_action(&harness.plan(&datum("1")), "reuse"), owned(&["f-d1"]));
-    assert_eq!(with_action(&harness.plan(&datum("2")), "build"), owned(&["f-d1"]));
-    assert_eq!(with_action(&harness.plan(&datum("3")), "reuse"), owned(&["f-d1"]));
+    assert_eq!(
+        with_action(&harness.plan(&datum("1")), "reuse"),
+        owned(&["f-d1"])
+    );
+    assert_eq!(
+        with_action(&harness.plan(&datum("2")), "build"),
+        owned(&["f-d1"])
+    );
+    assert_eq!(
+        with_action(&harness.plan(&datum("3")), "reuse"),
+        owned(&["f-d1"])
+    );
 }
 
 #[test]
@@ -696,7 +748,11 @@ fn two_fresh_recomputes_give_identical_reports() {
     assert_eq!(statuses(&first), statuses(&second));
     for entry in &first.features {
         let id = entry.feature.as_str();
-        assert_eq!(message_texts(&first, id), message_texts(&second, id), "messages of {id}");
+        assert_eq!(
+            message_texts(&first, id),
+            message_texts(&second, id),
+            "messages of {id}"
+        );
     }
     for body_id in ["b-1", "b-2"] {
         assert_eq!(

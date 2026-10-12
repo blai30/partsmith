@@ -5,7 +5,7 @@
 //! `Shape` is built, or create the empty shape.
 
 #[cxx::bridge(namespace = "partsmith::occt")]
-pub(crate) mod ffi {
+pub(crate) mod bridge {
     /// A point or vector in model space.
     #[derive(Debug, Clone, Copy, PartialEq)]
     struct Vec3 {
@@ -269,7 +269,7 @@ pub(crate) mod ffi {
         fn shape_elements(shape: &Shape, kind: ElementKind) -> Result<Vec<ElementData>>;
         fn shape_topology(shape: &Shape) -> Result<TopologyData>;
         fn shape_tessellate(shape: &Shape, chord_deviation: f64, angle: f64) -> Result<MeshData>;
-        fn shape_to_brep(shape: &Shape) -> Result<Vec<u8>>;
+        fn shape_to_brep(shape: &Shape) -> Result<UniquePtr<CxxString>>;
         fn shape_from_brep(bytes: &[u8]) -> Result<SharedPtr<Shape>>;
 
         fn make_box(
@@ -315,8 +315,7 @@ pub(crate) mod ffi {
         fn section(shape: &Shape, plane: &Frame) -> Result<SharedPtr<Shape>>;
         fn compound(shapes: &[ShapeHandle]) -> Result<OpResultData>;
 
-        fn write_step(bodies: &[StepBodyData]) -> Result<Vec<u8>>;
+        fn write_step(bodies: &[StepBodyData]) -> Result<UniquePtr<CxxString>>;
         fn read_step(bytes: &[u8]) -> Result<StepImportData>;
     }
 }
-

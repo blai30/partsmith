@@ -36,7 +36,19 @@ const TOOLKITS: &[&str] = &[
     "TKernel",
 ];
 
-const SOURCES: &[&str] = &["cpp/shim.cpp"];
+/// Every C++ source of the shim, split by area (kernel spec section 3.9).
+const SOURCES: &[&str] = &[
+    "cpp/primitives.cpp",
+    "cpp/profiles.cpp",
+    "cpp/sweeps.cpp",
+    "cpp/booleans.cpp",
+    "cpp/blends.cpp",
+    "cpp/transforms.cpp",
+    "cpp/queries.cpp",
+    "cpp/mesh.cpp",
+    "cpp/exchange.cpp",
+    "cpp/history.cpp",
+];
 
 fn main() {
     let target = env::var("TARGET").expect("cargo sets TARGET for build scripts");
@@ -63,7 +75,10 @@ fn main() {
     }
     build.compile("partsmith_occt_shim");
 
-    println!("cargo:rustc-link-search=native={}", root.join("lib").display());
+    println!(
+        "cargo:rustc-link-search=native={}",
+        root.join("lib").display()
+    );
     for toolkit in TOOLKITS {
         println!("cargo:rustc-link-lib=static={toolkit}");
     }

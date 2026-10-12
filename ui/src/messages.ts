@@ -55,7 +55,8 @@ export const MESSAGES = {
   pick_plane: () => 'Pick a flat face, a datum plane or an origin plane.',
   pick_axis: () => 'Pick a straight edge, a sketch line, a round face or an origin axis.',
   pick_kind: (pluralNoun: string) => `Pick ${pluralNoun}.`,
-  pick_same_body: (kind: string, body: string) => `Pick ${kind}s of '${body}', or clear Body first.`,
+  pick_same_body: (kind: string, body: string) =>
+    `Pick ${kind}s of '${body}', or clear Body first.`,
   parameter_name: () => 'Names start with a letter or _ and use only letters, digits and _.',
   field_required: (label: string) => `${label} needs a value.`,
   field_not_number: (label: string) => `${label} must be a number.`,

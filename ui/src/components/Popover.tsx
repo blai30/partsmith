@@ -22,8 +22,9 @@ export type PopoverProps = {
 
 /**
  * A non-modal dialog in a native light-dismiss popover, anchored under its trigger. It stays in
- * the DOM while closed; opening moves focus to its first focusable element (or an element with
- * `autofocus`), and Esc returns focus to the trigger.
+ * the DOM while closed. Opening moves focus into it: to an element marked `data-autofocus` (React
+ * never writes the `autofocus` attribute), else its first focusable element. Esc returns focus to
+ * the trigger.
  */
 export function Popover({ label, open, anchor, onOpenChange, children, className }: PopoverProps) {
   const element = useRef<HTMLDialogElement>(null)
@@ -81,8 +82,11 @@ export function Popover({ label, open, anchor, onOpenChange, children, className
     }
     showPopover(popover, anchor.current)
     shown.current = true
+    if (popover.contains(popover.ownerDocument.activeElement)) {
+      return
+    }
     const target =
-      popover.querySelector<HTMLElement>('[autofocus]') ??
+      popover.querySelector<HTMLElement>('[data-autofocus], [autofocus]') ??
       popover.querySelector<HTMLElement>(FOCUSABLE) ??
       popover
     target.focus()

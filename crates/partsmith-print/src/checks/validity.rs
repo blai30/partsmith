@@ -10,10 +10,9 @@ pub(crate) fn check(body: &Body) -> CheckResult {
     let validity = body.print().validity();
     let mut findings = Vec::new();
     if !validity.boundary_edges.is_empty() {
-        let count = validity.boundary_edges.len();
         let message = format!(
             "The mesh has {}, so it is not watertight. Repair or rebuild the body before exporting.",
-            format_count(count, "open edge", "open edges")
+            format_count(validity.boundary_edges.len(), "open edge", "open edges")
         );
         findings.push(edge_finding(
             body,
@@ -23,10 +22,9 @@ pub(crate) fn check(body: &Body) -> CheckResult {
         ));
     }
     if !validity.non_manifold_edges.is_empty() {
-        let count = validity.non_manifold_edges.len();
         let message = format!(
             "{} shared by more than two triangles. Separate the touching parts or rebuild the body.",
-            format_count(count, "edge is", "edges are")
+            format_count(validity.non_manifold_edges.len(), "edge is", "edges are")
         );
         findings.push(edge_finding(
             body,
@@ -36,10 +34,9 @@ pub(crate) fn check(body: &Body) -> CheckResult {
         ));
     }
     if !validity.misoriented_edges.is_empty() {
-        let count = validity.misoriented_edges.len();
         let message = format!(
             "{} triangles that face opposite ways. Rebuild the body or repair its normals.",
-            format_count(count, "edge joins", "edges join")
+            format_count(validity.misoriented_edges.len(), "edge joins", "edges join")
         );
         findings.push(edge_finding(
             body,
@@ -87,9 +84,15 @@ fn edge_finding(body: &Body, code: FindingCode, message: String, edges: &[[u32; 
         })
         .map(index_u32);
     let location = body.vertices_location(edges.iter().flatten().copied());
-    Finding::new(CheckKind::MeshValidity, code, Severity::Error, message, location)
-        .with_value(edges.len() as f64)
-        .with_affected(body.affected(users))
+    Finding::new(
+        CheckKind::MeshValidity,
+        code,
+        Severity::Error,
+        message,
+        location,
+    )
+    .with_value(edges.len() as f64)
+    .with_affected(body.affected(users))
 }
 
 /// The info finding about input triangles without area, located at their input vertices.

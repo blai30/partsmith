@@ -10,12 +10,19 @@ authors.workspace = true
 publish = false
 
 [dependencies]
+partsmith-model.workspace = true
+partsmith-naming.workspace = true
+schemars.workspace = true
+serde.workspace = true
+thiserror.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
-schemars.workspace = true
-serde.workspace = true
 serde_json.workspace = true
 
 [lints]
 workspace = true
+
+[[bench]]
+name = "solver"
+harness = false

@@ -85,3 +85,29 @@ describe('TextField', () => {
     expect(screen.queryByText(message)).toBeNull()
   })
 })
+
+describe('TextField labels and descriptions', () => {
+  it('keeps a hidden label as the accessible name', () => {
+    render(<TextField label="Name of size" hideLabel value="size" onChange={() => undefined} />)
+    expect(screen.getByRole('textbox', { name: 'Name of size' })).toBeInTheDocument()
+    expect(screen.getByText('Name of size')).toHaveClass('sr-only')
+  })
+
+  it('adds the error to a description the caller gives', () => {
+    render(
+      <>
+        <p id="hint">Used in expressions.</p>
+        <TextField
+          label="Name of size"
+          value="2x"
+          aria-describedby="hint"
+          error="Names start with a letter or _ and use only letters, digits and _."
+          onChange={() => undefined}
+        />
+      </>,
+    )
+    expect(screen.getByRole('textbox', { name: 'Name of size' })).toHaveAccessibleDescription(
+      'Used in expressions. Names start with a letter or _ and use only letters, digits and _.',
+    )
+  })
+})

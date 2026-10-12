@@ -170,10 +170,11 @@ fn link(loops: &[SmallLoop]) -> DisjointSets {
         }
         // Sorted by the left edge, only a prefix of the upper loops can reach a lower loop.
         let mut upper_by_left: Vec<usize> = upper.collect();
-        upper_by_left.sort_by(|&first, &second| loops[first].min[0].total_cmp(&loops[second].min[0]));
+        upper_by_left
+            .sort_by(|&first, &second| loops[first].min[0].total_cmp(&loops[second].min[0]));
         for below in lower {
-            let reach = upper_by_left
-                .partition_point(|&above| loops[above].min[0] <= loops[below].max[0]);
+            let reach =
+                upper_by_left.partition_point(|&above| loops[above].min[0] <= loops[below].max[0]);
             for &above in &upper_by_left[..reach] {
                 if loops[above].kind == loops[below].kind && loops[above].overlaps(&loops[below]) {
                     sets.union(below, above);

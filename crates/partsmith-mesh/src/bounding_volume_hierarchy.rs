@@ -1515,8 +1515,14 @@ mod tests {
 
         let (lower, upper) = items.split_at(split.middle);
         assert!(lower.len() >= 2 && upper.len() >= 2);
-        let rightmost_lower = lower.iter().map(|item| item.center[0]).fold(f32::MIN, f32::max);
-        let leftmost_upper = upper.iter().map(|item| item.center[0]).fold(f32::MAX, f32::min);
+        let rightmost_lower = lower
+            .iter()
+            .map(|item| item.center[0])
+            .fold(f32::MIN, f32::max);
+        let leftmost_upper = upper
+            .iter()
+            .map(|item| item.center[0])
+            .fold(f32::MAX, f32::min);
         assert!(rightmost_lower < leftmost_upper);
         assert_eq!(split.lower_bounds, bounds_of(&items[..split.middle]));
         assert_eq!(split.upper_bounds, bounds_of(&items[split.middle..]));

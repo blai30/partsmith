@@ -367,7 +367,7 @@ mod tests {
     fn numbers_drop_trailing_zeros() {
         assert_eq!(format_number(40.0), "40");
         assert_eq!(format_number(314.1592653589793), "314.159265");
-        assert_eq!(format_number(0.7071067811865476), "0.707107");
+        assert_eq!(format_number(std::f64::consts::FRAC_1_SQRT_2), "0.707107");
         assert_eq!(format_number(-1e-7), "0");
         assert_eq!(format_number(0.0078125), "0.007812");
         assert_eq!(format_number(1234567.8912345), "1234567.891235");

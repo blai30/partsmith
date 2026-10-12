@@ -150,12 +150,12 @@ fn split_planes(body: &Body, bounds: &BoundingBox, axis: usize, limit: f64) -> O
 /// `MAX_SPLIT_PIECES`.
 fn pieces_needed(extent: f64, limit: f64) -> Option<usize> {
     let allowed = limit + EPSILON;
-    let estimate = (extent / allowed).ceil().max(2.0);
+    let estimate = (extent / allowed).ceil();
     if estimate.is_nan() || estimate > MAX_SPLIT_PIECES as f64 {
         return None;
     }
-    // The estimate is a whole number from 2 to MAX_SPLIT_PIECES, so the cast is exact.
-    let mut pieces = estimate as usize;
+    // The estimate is a whole number of at most MAX_SPLIT_PIECES, so the cast is exact.
+    let mut pieces = (estimate as usize).max(2);
     // Correct the rounding of the estimate in either direction.
     while pieces > 2 && extent / (pieces - 1) as f64 <= allowed {
         pieces -= 1;
@@ -169,6 +169,63 @@ fn pieces_needed(extent: f64, limit: f64) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::profile::generic_fdm;
+    use crate::rotation::Rotation;
+    use crate::test_meshes::box_mesh;
+
+    /// The bed fit findings of a box on the generic FDM bed.
+    fn box_findings(max: [f64; 3]) -> Vec<Finding> {
+        let mesh = box_mesh([0.0; 3], max);
+        let body = Body::prepare(&mesh, Rotation::identity()).expect("prepares");
+        check(&body, &generic_fdm().bed).findings
+    }
+
+    #[test]
+    fn huge_part_gets_no_split_suggestion() {
+        let findings = box_findings([1e6, 10.0, 10.0]);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].code, FindingCode::FootprintTooLarge);
+        assert_eq!(findings[0].suggestion, None);
+    }
+
+    #[test]
+    fn part_too_wide_and_too_deep_splits_along_x_then_y() {
+        let findings = box_findings([300.0, 600.0, 10.0]);
+        let Some(Suggestion::Split { planes }) = &findings[0].suggestion else {
+            panic!(
+                "expected a split suggestion, got {:?}",
+                findings[0].suggestion
+            );
+        };
+        let normals: Vec<[f64; 3]> = planes.iter().map(|plane| plane.normal).collect();
+        assert_eq!(
+            normals,
+            vec![[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 1.0, 0.0]]
+        );
+        assert_eq!(findings[0].value, Some(300.0));
+        assert_eq!(findings[0].limit, Some(256.0));
+    }
+
+    #[test]
+    fn deep_part_reports_its_depth() {
+        let findings = box_findings([10.0, 300.0, 10.0]);
+        assert_eq!(findings[0].code, FindingCode::FootprintTooLarge);
+        assert_eq!(findings[0].value, Some(300.0));
+        assert_eq!(findings[0].limit, Some(256.0));
+    }
+
+    #[test]
+    fn round_bed_still_checks_the_height() {
+        let mesh = box_mesh([0.0; 3], [10.0, 10.0, 300.0]);
+        let body = Body::prepare(&mesh, Rotation::identity()).expect("prepares");
+        let bed = Bed::Circle {
+            diameter: 100.0,
+            height: 200.0,
+        };
+        let findings = check(&body, &bed).findings;
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].code, FindingCode::TooTall);
+    }
 
     #[test]
     fn pieces_are_at_least_two() {

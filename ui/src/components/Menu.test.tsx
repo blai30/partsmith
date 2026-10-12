@@ -281,3 +281,76 @@ describe('Menu', () => {
     expect(menu).toHaveAttribute('data-positioned')
   })
 })
+
+describe('Menu keys and pointer details', () => {
+  it('a typed letter moves focus to the next item starting with it', async () => {
+    const { user } = await openMenu(documentEntries(handlers()))
+    await user.keyboard('s')
+    expect(item('Save')).toHaveFocus()
+    await user.keyboard('s')
+    expect(screen.getByRole('menuitemcheckbox', { name: 'Show constraints' })).toHaveFocus()
+    await user.keyboard('t')
+    expect(item('Theme')).toHaveFocus()
+  })
+
+  it('Space on a checkbox item keeps the menu open; Enter closes it', async () => {
+    const on = handlers()
+    const onOpenChange = vi.fn<(open: boolean) => void>()
+    const { user } = await openMenu(documentEntries(on), onOpenChange)
+    await user.keyboard('{ArrowDown}{ArrowDown} ')
+    expect(on.onConstraints).toHaveBeenCalledTimes(1)
+    expect(onOpenChange).not.toHaveBeenCalledWith(false)
+    expect(screen.getByRole('menu', { name: 'Document' })).toBeInTheDocument()
+    await user.keyboard('{Enter}')
+    expect(on.onConstraints).toHaveBeenCalledTimes(2)
+    expect(screen.queryByRole('menu')).toBeNull()
+  })
+
+  it('Tab closes the menu', async () => {
+    const onOpenChange = vi.fn<(open: boolean) => void>()
+    const { user } = await openMenu(documentEntries(handlers()), onOpenChange)
+    await user.tab()
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+    expect(screen.queryByRole('menu')).toBeNull()
+  })
+
+  it('hovering a submenu item opens its submenu without moving focus into it', async () => {
+    const { user } = await openMenu(documentEntries(handlers()))
+    await user.hover(item('Theme'))
+    const submenu = screen.getByRole('menu', { name: 'Theme' })
+    expect(item('Theme')).toHaveFocus()
+    expect(submenu).not.toContainElement(focused())
+    await user.keyboard('{ArrowRight}')
+    expect(submenu).toContainElement(focused())
+  })
+
+  it('hovering another item closes an open submenu', async () => {
+    const { user } = await openMenu(documentEntries(handlers()))
+    await user.hover(item('Theme'))
+    expect(screen.getByRole('menu', { name: 'Theme' })).toBeInTheDocument()
+    await user.hover(item('Save'))
+    expect(screen.queryByRole('menu', { name: 'Theme' })).toBeNull()
+    expect(item('Save')).toHaveFocus()
+  })
+
+  it('a disabled item can take focus but Enter does nothing', async () => {
+    const onExport = vi.fn<() => void>()
+    const { user } = await openMenu([
+      { kind: 'item', label: 'Save', onSelect: () => undefined },
+      { kind: 'item', label: 'Export', disabled: true, onSelect: onExport },
+    ])
+    await user.keyboard('{ArrowDown}')
+    expect(item('Export')).toHaveFocus()
+    await user.keyboard('{Enter}')
+    expect(onExport).not.toHaveBeenCalled()
+    expect(screen.getByRole('menu', { name: 'Document' })).toBeInTheDocument()
+  })
+
+  it('marks the focused item with the active background', async () => {
+    const { user } = await openMenu(documentEntries(handlers()))
+    expect(item(/^New/)).toHaveClass(COLOR_CLASSES.hover.active)
+    await user.keyboard('{ArrowDown}')
+    expect(item('Save')).toHaveClass(COLOR_CLASSES.hover.active)
+    expect(item(/^New/)).not.toHaveClass(COLOR_CLASSES.hover.active)
+  })
+})

@@ -57,6 +57,7 @@ export type CommandRegistry = {
   /** Throws Error(`Command ${id} is already registered.`) on a duplicate id. */
   register(definition: CommandDefinition): () => void
   get(id: string): CommandDefinition | undefined
+  /** Every registered command in registration order; the same array until the next change. */
   list(): readonly CommandDefinition[]
   /** Runs the command if enabled; a disabled command shows its reason as an info notification. */
   run(app: App, id: string, source: InvocationSource): Promise<void>
@@ -89,9 +90,13 @@ function onHost(definition: CommandDefinition, platform: Platform): boolean {
 export function createCommandRegistry(): CommandRegistry {
   const registrations = new Map<string, Registration>()
   const listeners = new Set<() => void>()
+  // A stable snapshot, so subscribers that compare lists (useSyncExternalStore) see changes only.
+  let definitions: readonly CommandDefinition[] = []
 
   function changed(): void {
-    for (const listener of [...listeners]) {
+    definitions = Array.from(registrations.values(), (registration) => registration.definition)
+    // A copy, so a listener that subscribes or unsubscribes does not change this round.
+    for (const listener of Array.from(listeners)) {
       listener()
     }
   }
@@ -121,7 +126,7 @@ export function createCommandRegistry(): CommandRegistry {
     },
 
     list() {
-      return Array.from(registrations.values(), (registration) => registration.definition)
+      return definitions
     },
 
     async run(app, id, source) {

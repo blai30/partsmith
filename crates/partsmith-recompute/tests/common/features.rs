@@ -54,8 +54,12 @@ pub fn register_spec_features(registry: &mut Registry) {
     registry
         .register::<TestPanic>()
         .expect("test_panic registers");
-    registry.register::<TestWait>().expect("test_wait registers");
-    registry.register::<TestPeek>().expect("test_peek registers");
+    registry
+        .register::<TestWait>()
+        .expect("test_wait registers");
+    registry
+        .register::<TestPeek>()
+        .expect("test_peek registers");
     registry
         .register::<TestStray>()
         .expect("test_stray registers");
@@ -72,7 +76,9 @@ pub fn register_runner_features(registry: &mut Registry) {
     registry
         .register::<TestProbe>()
         .expect("test_probe registers");
-    registry.register::<TestNode>().expect("test_node registers");
+    registry
+        .register::<TestNode>()
+        .expect("test_node registers");
     registry
         .register::<TestAsset>()
         .expect("test_asset registers");
@@ -322,11 +328,7 @@ impl Feature for TestDatum {
 
     fn dependencies(params: &TestDatumParams) -> Dependencies {
         Dependencies {
-            features: params
-                .base
-                .iter()
-                .map(|base| link(base, "base"))
-                .collect(),
+            features: params.base.iter().map(|base| link(base, "base")).collect(),
             expressions: vec![length_use("offset", &params.offset)],
             ..no_dependencies()
         }

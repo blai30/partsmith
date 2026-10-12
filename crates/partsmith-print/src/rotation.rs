@@ -71,8 +71,7 @@ impl Rotation {
     /// Rotation by `angle` about `axis` (right-hand rule), by Rodrigues' formula on the
     /// normalized axis. A zero or non-finite axis, or a non-finite angle, is `InvalidAxis`.
     pub fn about_axis(axis: Vector3, angle: f64) -> Result<Rotation, AnalysisError> {
-        let transform =
-            Transform::rotation(axis, angle).map_err(|_| AnalysisError::InvalidAxis)?;
+        let transform = Transform::rotation(axis, angle).map_err(|_| AnalysisError::InvalidAxis)?;
         Ok(Rotation {
             rows: transform.rows,
         })
@@ -144,7 +143,10 @@ mod tests {
     #[track_caller]
     fn assert_vector_close(actual: Vector3, expected: Vector3) {
         for (component, wanted) in actual.iter().zip(expected) {
-            assert!((component - wanted).abs() <= 1e-12, "{actual:?} != {expected:?}");
+            assert!(
+                (component - wanted).abs() <= 1e-12,
+                "{actual:?} != {expected:?}"
+            );
         }
     }
 

@@ -123,7 +123,8 @@ impl ProfileField {
 fn out_of_range_message(field: ProfileField, value: f64, min: f64, max: f64) -> String {
     let label = field.label();
     if field == ProfileField::MaxOverhangAngle {
-        let [value, min, max] = [value, min, max].map(|angle| format_one_decimal(angle.to_degrees()));
+        let [value, min, max] =
+            [value, min, max].map(|angle| format_one_decimal(angle.to_degrees()));
         format!("{label} {value} degrees is out of range. Use a value from {min} to {max} degrees.")
     } else {
         let [value, min, max] = [value, min, max].map(format_length);

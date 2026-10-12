@@ -1,0 +1,286 @@
+// Fillet, chamfer and shell with history (kernel spec sections 3.4.6 to 3.4.9).
+#include <cmath>
+#include <map>
+#include <vector>
+
+#include <BRepFilletAPI_MakeChamfer.hxx>
+#include <BRepFilletAPI_MakeFillet.hxx>
+#include <BRepGProp.hxx>
+#include <BRepOffsetAPI_MakeOffsetShape.hxx>
+#include <BRepOffsetAPI_MakeThickSolid.hxx>
+#include <BRepOffset_MakeOffset.hxx>
+#include <BRep_Builder.hxx>
+#include <BRep_Tool.hxx>
+#include <GProp_GProps.hxx>
+#include <TopExp.hxx>
+#include <TopExp_Explorer.hxx>
+#include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
+#include <TopoDS.hxx>
+#include <TopoDS_Solid.hxx>
+
+#include "partsmith-occt-sys/cpp/internal.h"
+
+namespace partsmith {
+namespace occt {
+
+using namespace detail;
+
+namespace {
+
+// One requested blend: a fillet radius (as both sizes) or two chamfer distances, the first
+// measured on `face` when it is not 0.
+struct BlendRequest {
+  std::uint32_t edge;
+  double size;
+  double other_size;
+  std::uint32_t face;
+};
+
+// Raises Partsmith_InvalidInput for a seam or degenerated edge, which cannot be blended, and for
+// a chamfer side face that does not touch its edge.
+void check_requests(const Shape &shape, const std::vector<BlendRequest> &requests) {
+  TopTools_IndexedDataMapOfShapeListOfShape edge_faces;
+  TopExp::MapShapesAndUniqueAncestors(shape.get(), TopAbs_EDGE, TopAbs_FACE, edge_faces);
+  for (const BlendRequest &request : requests) {
+    const TopoDS_Edge &edge = TopoDS::Edge(shape.edges()(static_cast<int>(request.edge)));
+    const TopTools_ListOfShape *faces = edge_faces.Seek(edge);
+    bool seam = false;
+    bool adjacent = false;
+    if (faces != nullptr) {
+      for (const TopoDS_Shape &face : *faces) {
+        seam = seam || BRep_Tool::IsClosed(edge, TopoDS::Face(face));
+        adjacent = adjacent ||
+                   (request.face != 0 &&
+                    face.IsSame(shape.faces()(static_cast<int>(request.face))));
+      }
+    }
+    if (seam || BRep_Tool::Degenerated(edge)) {
+      raise_invalid_input("Edge " + std::to_string(request.edge) +
+                          " is a seam or a degenerated edge and cannot be rounded or beveled.");
+    }
+    if (request.face != 0 && !adjacent) {
+      raise_invalid_input("Face " + std::to_string(request.face) + " is not next to edge " +
+                          std::to_string(request.edge) + ", so it cannot set the chamfer side.");
+    }
+  }
+}
+
+// The copy's edge of a request.
+const TopoDS_Edge &request_edge(const Shape &copy, const BlendRequest &request) {
+  return TopoDS::Edge(copy.edges()(static_cast<int>(request.edge)));
+}
+
+// Checks the contours OCCT built from the requests: every edge is in one, and edges of one
+// tangent contour have the same size.
+template <class Blend>
+void check_contours(const Blend &blend, const Shape &copy,
+                    const std::vector<BlendRequest> &requests, const char *algorithm) {
+  std::map<int, const BlendRequest *> first_in_contour;
+  for (const BlendRequest &request : requests) {
+    const int contour = blend.Contour(request_edge(copy, request));
+    if (contour == 0) {
+      raise_not_done(std::string(algorithm) + " cannot blend edge " +
+                     std::to_string(request.edge) + " between its faces");
+    }
+    const auto [entry, inserted] = first_in_contour.emplace(contour, &request);
+    const BlendRequest &first = *entry->second;
+    if (!inserted && (std::abs(first.size - request.size) > kLinear ||
+                      std::abs(first.other_size - request.other_size) > kLinear)) {
+      raise_invalid_input("Edges " + std::to_string(first.edge) + " and " +
+                          std::to_string(request.edge) +
+                          " are tangent to each other, so they must use the same size.");
+    }
+  }
+}
+
+// The name of a fillet contour status.
+const char *status_name(ChFiDS_ErrorStatus status) {
+  switch (status) {
+    case ChFiDS_Ok:
+      return "ChFiDS_Ok";
+    case ChFiDS_Error:
+      return "ChFiDS_Error";
+    case ChFiDS_WalkingFailure:
+      return "ChFiDS_WalkingFailure";
+    case ChFiDS_StartsolFailure:
+      return "ChFiDS_StartsolFailure";
+    case ChFiDS_TwistedSurface:
+      return "ChFiDS_TwistedSurface";
+  }
+  return "ChFiDS_Error";
+}
+
+// The failure message of a fillet that is not done, naming each faulty contour's status.
+std::string fillet_failure(const BRepFilletAPI_MakeFillet &fillet) {
+  std::string message = "BRepFilletAPI_MakeFillet failed";
+  for (int position = 1; position <= fillet.NbFaultyContours(); ++position) {
+    const int contour = fillet.FaultyContour(position);
+    message += "; contour " + std::to_string(contour) + ": " +
+               status_name(fillet.StripeStatus(contour));
+  }
+  return message;
+}
+
+// Finishes a blend: history from the algorithm and a normalized, checked result. The blend
+// ran on `copy`, whose element indices are the input's. OCCT lists fillet and chamfer faces as
+// generated by their edges, and corner faces as generated by their vertices (kernel spec
+// section 7, open issue 4, verified by the blend tests).
+template <class Blend>
+OpResultData blend_result(Blend &blend, const Shape &copy, const char *algorithm) {
+  TopTools_ListOfShape arguments;
+  arguments.Append(copy.get());
+  const Handle(BRepTools_History) history = new BRepTools_History(arguments, blend);
+  return op_result(finish_solid(blend.Shape(), history, algorithm), history, {copy.get()});
+}
+
+// The name of an offset error.
+const char *offset_error_name(BRepOffset_Error error) {
+  switch (error) {
+    case BRepOffset_NoError:
+      return "BRepOffset_NoError";
+    case BRepOffset_UnknownError:
+      return "BRepOffset_UnknownError";
+    case BRepOffset_BadNormalsOnGeometry:
+      return "BRepOffset_BadNormalsOnGeometry";
+    case BRepOffset_C0Geometry:
+      return "BRepOffset_C0Geometry";
+    case BRepOffset_NullOffset:
+      return "BRepOffset_NullOffset";
+    case BRepOffset_NotConnectedShell:
+      return "BRepOffset_NotConnectedShell";
+    case BRepOffset_CannotTrimEdges:
+      return "BRepOffset_CannotTrimEdges";
+    case BRepOffset_CannotFuseVertices:
+      return "BRepOffset_CannotFuseVertices";
+    case BRepOffset_CannotExtentEdge:
+      return "BRepOffset_CannotExtentEdge";
+    case BRepOffset_UserBreak:
+      return "BRepOffset_UserBreak";
+    case BRepOffset_MixedConnectivity:
+      return "BRepOffset_MixedConnectivity";
+  }
+  return "BRepOffset_UnknownError";
+}
+
+// A solid bounded by the outer shells of `solid` and the reversed shells of `inner`.
+TopoDS_Shape hollow_solid(const TopoDS_Shape &solid, const TopoDS_Shape &inner) {
+  BRep_Builder builder;
+  TopoDS_Solid hollow;
+  builder.MakeSolid(hollow);
+  for (TopExp_Explorer shells(solid, TopAbs_SHELL); shells.More(); shells.Next()) {
+    builder.Add(hollow, shells.Current());
+  }
+  for (TopExp_Explorer shells(inner, TopAbs_SHELL); shells.More(); shells.Next()) {
+    builder.Add(hollow, shells.Current().Reversed());
+  }
+  return hollow;
+}
+
+// Volume of a shape's solids.
+double solid_volume(const TopoDS_Shape &shape) {
+  GProp_GProps properties;
+  BRepGProp::VolumeProperties(shape, properties);
+  return properties.Mass();
+}
+
+// Raises StdFail_NotDone unless hollowing left a positive volume smaller than the original.
+// When the wall does not fit, the offset can return the original solid unchanged.
+void require_material_removed(const TopoDS_Shape &original, const TopoDS_Shape &hollowed) {
+  const double before = solid_volume(original);
+  const double after = solid_volume(hollowed);
+  if (!(after > 0.0 && after < before * (1.0 - 1e-9))) {
+    raise_not_done("BRepOffsetAPI_MakeThickSolid did not hollow the solid");
+  }
+}
+
+}  // namespace
+
+OpResultData fillet(const Shape &shape, rust::Slice<const FilletEdgeData> edges) {
+  std::vector<BlendRequest> requests;
+  for (const FilletEdgeData &edge : edges) {
+    requests.push_back(BlendRequest{edge.edge, edge.radius, edge.radius, 0});
+  }
+  check_requests(shape, requests);
+  // The fillet runs on a copy so it never writes to the input (kernel spec section 3.1).
+  const Shape copy = copy_shape(shape);
+  BRepFilletAPI_MakeFillet fillet(copy.get(), ChFi3d_Rational);
+  for (const BlendRequest &request : requests) {
+    fillet.Add(request.size, request_edge(copy, request));
+  }
+  check_contours(fillet, copy, requests, "BRepFilletAPI_MakeFillet");
+  fillet.Build();
+  if (!fillet.IsDone()) {
+    raise_not_done(fillet_failure(fillet));
+  }
+  return blend_result(fillet, copy, "BRepFilletAPI_MakeFillet");
+}
+
+OpResultData chamfer(const Shape &shape, rust::Slice<const ChamferEdgeData> edges) {
+  std::vector<BlendRequest> requests;
+  for (const ChamferEdgeData &edge : edges) {
+    requests.push_back(BlendRequest{edge.edge, edge.distance, edge.other_distance, edge.face});
+  }
+  check_requests(shape, requests);
+  // The chamfer runs on a copy so it never writes to the input (kernel spec section 3.1).
+  const Shape copy = copy_shape(shape);
+  BRepFilletAPI_MakeChamfer chamfer(copy.get());
+  for (const BlendRequest &request : requests) {
+    if (request.face == 0) {
+      chamfer.Add(request.size, request_edge(copy, request));
+    } else {
+      chamfer.Add(request.size, request.other_size, request_edge(copy, request),
+                  TopoDS::Face(copy.faces()(static_cast<int>(request.face))));
+    }
+  }
+  check_contours(chamfer, copy, requests, "BRepFilletAPI_MakeChamfer");
+  chamfer.Build();
+  if (!chamfer.IsDone()) {
+    // BRepFilletAPI_MakeChamfer does not expose the status of its contours.
+    raise_not_done("BRepFilletAPI_MakeChamfer could not build the chamfer");
+  }
+  return blend_result(chamfer, copy, "BRepFilletAPI_MakeChamfer");
+}
+
+OpResultData shell(const Shape &shape, rust::Slice<const std::uint32_t> remove_faces,
+                   double thickness) {
+  // The offset runs on a copy so it never writes to the input (kernel spec section 3.1).
+  const Shape copy = copy_shape(shape);
+  const TopoDS_Shape &solid = copy.solids()(1);
+  TopTools_ListOfShape arguments;
+  arguments.Append(solid);
+  Handle(BRepTools_History) history;
+  TopoDS_Shape hollowed;
+  if (remove_faces.empty()) {
+    // OCCT offsets a closed solid into the inner solid alone; the hollow solid is the input's
+    // shell plus the reversed inner shell, which then faces the cavity.
+    BRepOffsetAPI_MakeOffsetShape offset;
+    offset.PerformByJoin(solid, -thickness, kLinear, BRepOffset_Skin, Standard_False,
+                         Standard_False, GeomAbs_Arc);
+    if (!offset.IsDone()) {
+      raise_not_done(std::string("BRepOffsetAPI_MakeOffsetShape failed: ") +
+                     offset_error_name(offset.MakeOffset().Error()));
+    }
+    history = new BRepTools_History(arguments, offset);
+    hollowed = hollow_solid(solid, offset.Shape());
+  } else {
+    TopTools_ListOfShape closing_faces;
+    for (std::uint32_t face : remove_faces) {
+      closing_faces.Append(copy.faces()(static_cast<int>(face)));
+    }
+    BRepOffsetAPI_MakeThickSolid thick;
+    thick.MakeThickSolidByJoin(solid, closing_faces, -thickness, kLinear, BRepOffset_Skin,
+                               Standard_False, Standard_False, GeomAbs_Arc);
+    if (!thick.IsDone()) {
+      raise_not_done(std::string("BRepOffsetAPI_MakeThickSolid failed: ") +
+                     offset_error_name(thick.MakeOffset().Error()));
+    }
+    history = new BRepTools_History(arguments, thick);
+    hollowed = thick.Shape();
+  }
+  const TopoDS_Shape result = finish_solid(hollowed, history, "BRepOffsetAPI_MakeThickSolid");
+  require_material_removed(solid, result);
+  return op_result(result, history, {copy.get()});
+}
+
+}  // namespace occt
+}  // namespace partsmith

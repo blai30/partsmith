@@ -38,8 +38,6 @@ pub(crate) struct Body<'input> {
     normals: Vec<Option<Vector3>>,
     /// Print-frame area of each welded triangle in mm².
     areas: Vec<f64>,
-    /// Every undirected edge use `([low, high], triangle)`, sorted.
-    edge_uses: Vec<([u32; 2], u32)>,
 }
 
 /// A maximal set of flagged triangles connected through shared edges.
@@ -52,7 +50,10 @@ pub(crate) struct Region {
 
 impl<'input> Body<'input> {
     /// Welds the mesh, drops unused vertices, and rotates and lowers it onto the bed.
-    pub(crate) fn prepare(input: &'input Mesh, rotation: Rotation) -> Result<Body<'input>, AnalysisError> {
+    pub(crate) fn prepare(
+        input: &'input Mesh,
+        rotation: Rotation,
+    ) -> Result<Body<'input>, AnalysisError> {
         let welded = input
             .weld(WELD_TOLERANCE)
             .expect("WELD_TOLERANCE is finite and not negative");
@@ -121,15 +122,6 @@ impl<'input> Body<'input> {
         let areas = (0..print.triangle_count())
             .map(|triangle| print.triangle_area(triangle))
             .collect();
-        let mut edge_uses: Vec<([u32; 2], u32)> = print
-            .triangles()
-            .iter()
-            .enumerate()
-            .flat_map(|(triangle, &corners)| {
-                triangle_edges(corners).map(|edge| (edge, index_u32(triangle)))
-            })
-            .collect();
-        edge_uses.sort_unstable();
 
         Ok(Body {
             input,
@@ -141,7 +133,6 @@ impl<'input> Body<'input> {
             collapsed,
             normals,
             areas,
-            edge_uses,
         })
     }
 
@@ -248,20 +239,21 @@ impl<'input> Body<'input> {
     /// Maximal sets of flagged welded triangles connected through shared edges, ordered by area
     /// (largest first), ties by smallest triangle.
     pub(crate) fn regions(&self, flagged: &[bool]) -> Vec<Region> {
+        let flagged_triangles: Vec<usize> = (0..self.triangle_count())
+            .filter(|&triangle| flagged[triangle])
+            .collect();
+        // Only the edges of flagged triangles, so the work follows the number flagged.
+        let mut edge_uses: Vec<([u32; 2], usize)> = flagged_triangles
+            .iter()
+            .flat_map(|&triangle| self.edges(triangle).map(|edge| (edge, triangle)))
+            .collect();
+        edge_uses.sort_unstable();
         let mut sets = DisjointSets::new(self.triangle_count());
-        for uses in self.edge_uses.chunk_by(|first, second| first.0 == second.0) {
-            let mut previous: Option<usize> = None;
-            for &(_, triangle) in uses {
-                let triangle = triangle as usize;
-                if flagged[triangle] {
-                    if let Some(previous) = previous {
-                        sets.union(previous, triangle);
-                    }
-                    previous = Some(triangle);
-                }
+        for uses in edge_uses.chunk_by(|first, second| first.0 == second.0) {
+            for pair in uses.windows(2) {
+                sets.union(pair[0].1, pair[1].1);
             }
         }
-        let flagged_triangles = (0..self.triangle_count()).filter(|&triangle| flagged[triangle]);
         let mut regions: Vec<Region> = sets
             .groups(flagged_triangles)
             .into_iter()
@@ -276,7 +268,10 @@ impl<'input> Body<'input> {
     }
 
     /// Input triangle ranges and face ids of welded triangles.
-    pub(crate) fn affected(&self, welded: impl IntoIterator<Item = u32>) -> (Vec<TriangleRange>, Vec<u32>) {
+    pub(crate) fn affected(
+        &self,
+        welded: impl IntoIterator<Item = u32>,
+    ) -> (Vec<TriangleRange>, Vec<u32>) {
         let input = welded
             .into_iter()
             .map(|triangle| self.input_triangle(triangle as usize))
@@ -299,7 +294,11 @@ impl<'input> Body<'input> {
 
     /// One value per input triangle: the welded triangle's value where there is one, else
     /// `collapsed_value`.
-    pub(crate) fn per_input_triangle(&self, welded_values: impl IntoIterator<Item = f32>, collapsed_value: f32) -> Vec<f32> {
+    pub(crate) fn per_input_triangle(
+        &self,
+        welded_values: impl IntoIterator<Item = f32>,
+        collapsed_value: f32,
+    ) -> Vec<f32> {
         let mut values = vec![collapsed_value; self.input.triangle_count()];
         for (&input_triangle, value) in self.input_triangles.iter().zip(welded_values) {
             values[input_triangle as usize] = value;
@@ -438,11 +437,13 @@ mod tests {
     #[test]
     fn collapsed_triangles_are_listed() {
         let positions = vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]];
-        let mesh =
-            Mesh::from_triangles(positions, vec![[0, 0, 1], [0, 1, 2]]).expect("valid mesh");
+        let mesh = Mesh::from_triangles(positions, vec![[0, 0, 1], [0, 1, 2]]).expect("valid mesh");
         let body = Body::prepare(&mesh, Rotation::identity()).expect("prepares");
         assert_eq!(body.collapsed(), &[0]);
-        assert_eq!(body.affected([0]), (vec![TriangleRange { start: 1, end: 2 }], vec![0]));
+        assert_eq!(
+            body.affected([0]),
+            (vec![TriangleRange { start: 1, end: 2 }], vec![0])
+        );
     }
 
     #[test]
@@ -555,7 +556,9 @@ mod tests {
     fn a_single_point_location_is_a_point() {
         assert_eq!(
             location_around([[1.0, 2.0, 3.0], [1.0, 2.0, 3.0]]),
-            Location::Point { at: [1.0, 2.0, 3.0] }
+            Location::Point {
+                at: [1.0, 2.0, 3.0]
+            }
         );
         assert_eq!(
             location_around([[0.0, 2.0, 3.0], [1.0, 2.0, 3.0]]),
@@ -574,8 +577,7 @@ mod tests {
     #[test]
     fn values_of_collapsed_triangles_take_the_default() {
         let positions = vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]];
-        let mesh =
-            Mesh::from_triangles(positions, vec![[0, 1, 2], [1, 1, 2]]).expect("valid mesh");
+        let mesh = Mesh::from_triangles(positions, vec![[0, 1, 2], [1, 1, 2]]).expect("valid mesh");
         let body = Body::prepare(&mesh, Rotation::identity()).expect("prepares");
         assert_eq!(body.per_input_triangle([0.5], -1.0), vec![0.5, -1.0]);
     }

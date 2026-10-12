@@ -29,7 +29,8 @@ fn node_state(graph: &Graph, feature: &str) -> &'static str {
 
 /// Recompute test 3's body chain: three boxes on b-1, then a fillet on b-1.
 fn body_chain(box3_suppressed: bool) -> Document {
-    let box3 = json!({"id": "f-box3", "type": "box", "body": "b-1", "size": ["2", "2", "2"], "op": "cut"});
+    let box3 =
+        json!({"id": "f-box3", "type": "box", "body": "b-1", "size": ["2", "2", "2"], "op": "cut"});
     let box3 = if box3_suppressed {
         suppressed(box3)
     } else {
@@ -239,12 +240,7 @@ fn upstream_lists_features_then_read_bodies_then_written_bodies_in_declaration_o
 
     assert_eq!(
         upstream(&graph, "f-n"),
-        owned(&[
-            "output f-d2",
-            "output f-d1",
-            "body b-2 f-c",
-            "body b-1 f-b"
-        ])
+        owned(&["output f-d2", "output f-d1", "body b-2 f-c", "body b-1 f-b"])
     );
 }
 
@@ -479,10 +475,7 @@ fn affected_by_returns_only_active_nodes() {
         affected(&graph, &[Change::Feature(id("f-d1"))]),
         owned(&["f-d1", "f-d3"])
     );
-    assert_eq!(
-        affected(&graph, &[Change::Units]),
-        owned(&["f-d1", "f-d3"])
-    );
+    assert_eq!(affected(&graph, &[Change::Units]), owned(&["f-d1", "f-d3"]));
 }
 
 #[test]

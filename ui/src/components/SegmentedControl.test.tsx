@@ -118,3 +118,40 @@ describe('SegmentedControl', () => {
     expect(screen.getByRole('radio', { name: 'XY' })).not.toBeChecked()
   })
 })
+
+describe('SegmentedControl keys and states', () => {
+  it('arrow keys, Home and End only move focus, without choosing', async () => {
+    const onChange = vi.fn<(value: Context) => void>()
+    const { user, radio } = setUp('model', onChange)
+    await user.tab()
+    await user.tab()
+    await user.keyboard('{ArrowRight}{End}{Home}{ArrowLeft}')
+    expect(radio('Print')).toHaveFocus()
+    expect(onChange).not.toHaveBeenCalled()
+    expect(radio('Model')).toBeChecked()
+  })
+
+  it('clicking the checked option does not report a change', async () => {
+    const onChange = vi.fn<(value: Context) => void>()
+    const { user, radio } = setUp('model', onChange)
+    await user.click(radio('Model'))
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
+  it('a disabled control does not change', async () => {
+    const onChange = vi.fn<(value: Context) => void>()
+    render(
+      <SegmentedControl
+        label="Context"
+        options={OPTIONS}
+        value="model"
+        disabled
+        onChange={onChange}
+      />,
+    )
+    const print = screen.getByRole('radio', { name: 'Print' })
+    expect(print).toBeDisabled()
+    await userEvent.click(print)
+    expect(onChange).not.toHaveBeenCalled()
+  })
+})

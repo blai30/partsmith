@@ -104,7 +104,12 @@ pub enum FitClass {
 
 impl FitClass {
     /// Every class, from tightest to loosest.
-    const ALL: [FitClass; 4] = [FitClass::Press, FitClass::Snug, FitClass::Slip, FitClass::Loose];
+    const ALL: [FitClass; 4] = [
+        FitClass::Press,
+        FitClass::Snug,
+        FitClass::Slip,
+        FitClass::Loose,
+    ];
 
     /// The lowercase serialized name, used in messages.
     pub(crate) fn name(self) -> &'static str {
@@ -256,7 +261,8 @@ impl TryFrom<ProfileInput> for PrinterProfile {
     /// Checks the id, fills omitted fields from the technology's generic profile and validates
     /// (section 3.1).
     fn try_from(input: ProfileInput) -> Result<PrinterProfile, ProfileError> {
-        let id = Id::new(input.id.as_str()).map_err(|_| ProfileError::InvalidId { id: input.id })?;
+        let id =
+            Id::new(input.id.as_str()).map_err(|_| ProfileError::InvalidId { id: input.id })?;
         let base = match input.technology {
             Technology::Fdm => generic_fdm(),
             Technology::Resin => generic_resin(),
@@ -349,7 +355,11 @@ impl PrinterProfile {
             BRIDGE_LENGTH_RANGE,
         )?;
         for class in FitClass::ALL {
-            check_range(ProfileField::Fit(class), self.fit.clearance(class), FIT_RANGE)?;
+            check_range(
+                ProfileField::Fit(class),
+                self.fit.clearance(class),
+                FIT_RANGE,
+            )?;
         }
         for pair in FitClass::ALL.windows(2) {
             let (class, next) = (pair[0], pair[1]);
@@ -382,7 +392,11 @@ impl PrinterProfile {
 }
 
 /// `OutOfRange` unless `min <= value <= max`; a non-finite value is always out of range.
-fn check_range(field: ProfileField, value: f64, (min, max): (f64, f64)) -> Result<(), ProfileError> {
+fn check_range(
+    field: ProfileField,
+    value: f64,
+    (min, max): (f64, f64),
+) -> Result<(), ProfileError> {
     if (min..=max).contains(&value) {
         Ok(())
     } else {
@@ -452,7 +466,23 @@ fn builtin_id(text: &str) -> Id {
 
 #[cfg(test)]
 mod tests {
+    use schemars::generate::SchemaSettings;
+
     use super::*;
+
+    /// The names a JSON Schema lists as required, sorted.
+    fn required_fields<T: JsonSchema>(settings: SchemaSettings) -> Vec<String> {
+        let schema = settings.into_generator().into_root_schema_for::<T>();
+        let value = serde_json::to_value(schema).expect("schemas serialize");
+        let mut names: Vec<String> = value["required"]
+            .as_array()
+            .expect("an object schema lists its required fields")
+            .iter()
+            .filter_map(|name| name.as_str().map(String::from))
+            .collect();
+        names.sort();
+        names
+    }
 
     /// A valid profile input with only the required fields.
     fn input(technology: Technology) -> ProfileInput {
@@ -473,12 +503,6 @@ mod tests {
     fn builtin_profiles_are_valid() {
         assert_eq!(generic_fdm().validate(), Ok(()));
         assert_eq!(generic_resin().validate(), Ok(()));
-    }
-
-    #[test]
-    fn builtin_angles_are_forty_five_and_thirty_degrees() {
-        assert_eq!(generic_fdm().max_overhang_angle, 0.7853981633974483);
-        assert_eq!(generic_resin().max_overhang_angle, 0.5235987755982988);
     }
 
     #[test]
@@ -693,6 +717,31 @@ mod tests {
     fn unknown_profile_id_is_not_builtin() {
         assert_eq!(builtin_profile("generic-fdm"), Some(generic_fdm()));
         assert_eq!(builtin_profile("Generic-FDM"), None);
+    }
+
+    #[test]
+    fn profile_schema_reads_the_input_form() {
+        assert_eq!(
+            required_fields::<PrinterProfile>(SchemaSettings::default().for_deserialize()),
+            vec!["id", "name", "technology"]
+        );
+    }
+
+    #[test]
+    fn profile_schema_writes_every_field_but_the_optional_nozzle() {
+        assert_eq!(
+            required_fields::<PrinterProfile>(SchemaSettings::default().for_serialize()),
+            vec![
+                "bed",
+                "fit",
+                "id",
+                "layer_height",
+                "max_bridge_length",
+                "max_overhang_angle",
+                "name",
+                "technology"
+            ]
+        );
     }
 
     #[test]

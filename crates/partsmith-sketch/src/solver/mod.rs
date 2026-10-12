@@ -1,0 +1,376 @@
+//! The native constraint solver of ADR 0004 (spec sections 2.6 and 3.6 to 3.12).
+
+mod diagnosis;
+mod drag;
+mod layout;
+mod measure;
+mod numeric;
+mod rows;
+mod sparse_qr;
+mod substitution;
+mod system;
+
+use std::collections::BTreeMap;
+use std::fmt;
+
+use partsmith_model::Id;
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
+
+pub use drag::NativeDragSession;
+
+use crate::SOLVER_TOLERANCE;
+use crate::entity::SketchEntity;
+use crate::error::{SketchError, label};
+use crate::params::{DimensionValues, SketchParams};
+use crate::point_ref::PointRef;
+use crate::validation::check_values;
+use diagnosis::diagnose;
+use measure::measure;
+use numeric::{Outcome, Problem};
+use substitution::Substitution;
+use system::{Component, System};
+
+/// A sketch solver backend. `NativeSolver` is the only M1 implementation.
+pub trait Solver {
+    /// The interactive drag state this backend returns.
+    type Drag: DragSession;
+
+    /// Solves the sketch from its stored geometry and diagnoses it.
+    fn solve(
+        &self,
+        sketch: &SketchParams,
+        values: &DimensionValues,
+    ) -> Result<SolveResult, SketchError>;
+
+    /// Solves and diagnoses once, then prepares fast repeated solves that pull `target` toward a cursor.
+    fn begin_drag(
+        &self,
+        sketch: &SketchParams,
+        values: &DimensionValues,
+        target: &DragTarget,
+    ) -> Result<Self::Drag, SketchError>;
+}
+
+/// An interactive drag. Owned by the caller's session; holds no global state.
+pub trait DragSession: Send {
+    /// The result of the full solve performed when the drag began.
+    fn initial(&self) -> &SolveResult;
+
+    /// Solves one frame with the target weakly pinned to `cursor` (sketch coordinates).
+    fn update(&mut self, cursor: [f64; 2]) -> Result<SolveResult, SketchError>;
+}
+
+/// The native Rust solver of ADR 0004. Stateless; `Send + Sync`.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct NativeSolver;
+
+impl Solver for NativeSolver {
+    type Drag = NativeDragSession;
+
+    fn solve(
+        &self,
+        sketch: &SketchParams,
+        values: &DimensionValues,
+    ) -> Result<SolveResult, SketchError> {
+        sketch.validate()?;
+        check_values(sketch, values)?;
+        Ok(solve_checked(sketch, values).result)
+    }
+
+    fn begin_drag(
+        &self,
+        sketch: &SketchParams,
+        values: &DimensionValues,
+        target: &DragTarget,
+    ) -> Result<NativeDragSession, SketchError> {
+        NativeDragSession::begin(sketch, values, target)
+    }
+}
+
+/// What the user drags.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum DragTarget {
+    /// A point, moved to the cursor.
+    Point {
+        /// The dragged point.
+        point: PointRef,
+    },
+    /// A whole entity grabbed at `grab` (sketch coordinates at drag start).
+    Entity {
+        /// The dragged entity.
+        entity: Id,
+        /// Where the pointer grabbed it.
+        grab: [f64; 2],
+    },
+}
+
+/// Outcome of a solve or a drag frame.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct SolveResult {
+    /// Constraint state of the whole sketch.
+    pub status: SketchStatus,
+    /// True when some component did not reach `SOLVER_TOLERANCE`; those components keep their input geometry.
+    pub failed: bool,
+    /// Solved entities: same order, ids and construction flags as the input.
+    pub entities: Vec<SketchEntity>,
+    /// Remaining degrees of freedom.
+    pub dof: u32,
+    /// Constraints that only repeat what earlier constraints determine, in document order.
+    pub redundant: Vec<Id>,
+    /// Constraints that take part in an unsatisfiable combination, in document order.
+    pub conflicting: Vec<Id>,
+    /// Constraint state of every entity, keyed by entity id.
+    pub entity_states: BTreeMap<Id, EntityState>,
+    /// Measured value of every dimensional constraint (driving and reference), mm or rad.
+    pub measured: BTreeMap<Id, f64>,
+}
+
+impl SolveResult {
+    /// User-facing issues in display order: conflicts, then redundancies, then non-convergence.
+    pub fn issues(&self, sketch: &SketchParams) -> Vec<SolveIssue> {
+        let mut issues = Vec::new();
+        if !self.conflicting.is_empty() {
+            issues.push(SolveIssue::Conflicting {
+                constraints: self.conflicting.clone(),
+            });
+        }
+        for id in &self.redundant {
+            if let Some(constraint) = sketch.constraint(id) {
+                issues.push(SolveIssue::Redundant {
+                    constraint: id.clone(),
+                    type_name: constraint.type_name(),
+                    dimension: constraint.is_driving_dimension(),
+                });
+            }
+        }
+        if self.failed && self.conflicting.is_empty() {
+            issues.push(SolveIssue::NotConverged);
+        }
+        issues
+    }
+}
+
+/// Constraint state of a sketch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum SketchStatus {
+    /// Some degrees of freedom remain and no constraint is redundant or conflicting.
+    UnderConstrained,
+    /// No degree of freedom remains and no constraint is redundant or conflicting.
+    FullyConstrained,
+    /// Some constraint repeats what others determine; none conflicts.
+    Redundant,
+    /// Some constraints cannot all hold.
+    Conflicting,
+}
+
+/// Constraint state of one entity, used for coloring.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum EntityState {
+    /// Some of its parameters can still move.
+    UnderConstrained,
+    /// All of its parameters are determined.
+    FullyConstrained,
+    /// A conflicting constraint references it.
+    Conflicting,
+}
+
+/// A user-facing solver finding. `Display` gives the message of section 4.2.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SolveIssue {
+    /// These constraints cannot all hold.
+    Conflicting {
+        /// The conflicting constraints in document order.
+        constraints: Vec<Id>,
+    },
+    /// This constraint repeats what others already determine.
+    Redundant {
+        /// The redundant constraint.
+        constraint: Id,
+        /// Its JSON type name.
+        type_name: &'static str,
+        /// True for a driving dimension.
+        dimension: bool,
+    },
+    /// Some component did not converge and no conflict explains it.
+    NotConverged,
+}
+
+impl fmt::Display for SolveIssue {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            SolveIssue::Conflicting { constraints } => match constraints.as_slice() {
+                [single] => write!(
+                    formatter,
+                    "Constraint {single} cannot be satisfied. Delete it or change a dimension."
+                ),
+                _ => {
+                    let names: Vec<&str> = constraints.iter().map(Id::as_str).collect();
+                    write!(
+                        formatter,
+                        "Constraints {} conflict: they cannot all be satisfied at once. Delete one of them or change a dimension.",
+                        names.join(", ")
+                    )
+                }
+            },
+            SolveIssue::Redundant {
+                constraint,
+                type_name,
+                dimension: false,
+            } => write!(
+                formatter,
+                "Constraint {constraint} ({}) is redundant: the other constraints already determine what it sets. Delete it.",
+                label(type_name)
+            ),
+            SolveIssue::Redundant {
+                constraint,
+                type_name,
+                dimension: true,
+            } => write!(
+                formatter,
+                "Dimension {constraint} ({}) is redundant: the other constraints already determine what it sets. Delete it or make it a reference dimension.",
+                label(type_name)
+            ),
+            SolveIssue::NotConverged => formatter.write_str(
+                "The sketch could not be solved from its current shape. Undo the last change, or drag the geometry closer to the intended shape and try again.",
+            ),
+        }
+    }
+}
+
+/// A solve result together with the components that failed.
+struct Solved {
+    result: SolveResult,
+    /// For each component of the system, whether it failed.
+    failed_components: Vec<bool>,
+}
+
+/// Solves a validated sketch whose values were checked (sections 3.7 and 3.8).
+fn solve_checked(sketch: &SketchParams, values: &DimensionValues) -> Solved {
+    let system = System::new(sketch, values, &sketch.entities);
+    let warm = system.layout.vector(&sketch.entities);
+    let mut solved = warm.clone();
+    let mut diagnosis_point = warm.clone();
+    let mut failed_components = Vec::with_capacity(system.components.len());
+    for component in &system.components {
+        let untouched = component
+            .rows
+            .iter()
+            .all(|&row| system.rows[row].value(&warm).abs() <= SOLVER_TOLERANCE);
+        let failed = if untouched {
+            false
+        } else {
+            match solve_component(&system, component, &warm, &[]) {
+                Outcome::Converged(x) => {
+                    copy_parameters(component, &x, &mut solved);
+                    copy_parameters(component, &x, &mut diagnosis_point);
+                    false
+                }
+                Outcome::Failed(x) => {
+                    copy_parameters(component, &x, &mut diagnosis_point);
+                    true
+                }
+            }
+        };
+        failed_components.push(failed);
+    }
+    let entities = system.layout.entities(&sketch.entities, &warm, &solved);
+    let diagnosis = diagnose(sketch, &system, &diagnosis_point);
+    let measured = measure(sketch, &entities);
+    let failed = failed_components.contains(&true);
+    Solved {
+        result: SolveResult {
+            status: status(&diagnosis.redundant, &diagnosis.conflicting, diagnosis.dof),
+            failed,
+            entities,
+            dof: diagnosis.dof,
+            redundant: diagnosis.redundant,
+            conflicting: diagnosis.conflicting,
+            entity_states: diagnosis.entity_states,
+            measured,
+        },
+        failed_components,
+    }
+}
+
+/// Substitutes and solves one component from the warm start `warm` (sections 3.7.3 to 3.7.5).
+///
+/// `drag_targets` lists dragged parameters with their targets (section 3.9); it is empty outside a drag.
+/// The outcome holds the full parameter vector at the solution, or where Levenberg-Marquardt stopped.
+fn solve_component(
+    system: &System,
+    component: &Component,
+    warm: &[f64],
+    drag_targets: &[(usize, f64)],
+) -> Outcome {
+    let mut substitution = Substitution::new(system, component, warm);
+    let mut scales = vec![1.0; substitution.variable_count()];
+    for variable in substitution.drag(drag_targets) {
+        scales[variable] = 1.0 / crate::DRAG_WEIGHT;
+    }
+    let start = substitution.variable_values();
+    let mut problem = Problem::new(system, &substitution, scales, warm.to_vec());
+    match numeric::solve(&mut problem, &start) {
+        Outcome::Converged(y) => Outcome::Converged(problem.parameters(&y).to_vec()),
+        Outcome::Failed(y) => Outcome::Failed(problem.parameters(&y).to_vec()),
+    }
+}
+
+/// Copies the component's parameters from `source` into `target`.
+fn copy_parameters(component: &Component, source: &[f64], target: &mut [f64]) {
+    for &parameter in &component.parameters {
+        target[parameter] = source[parameter];
+    }
+}
+
+/// The sketch status of section 3.8.
+fn status(redundant: &[Id], conflicting: &[Id], dof: u32) -> SketchStatus {
+    if !conflicting.is_empty() {
+        SketchStatus::Conflicting
+    } else if !redundant.is_empty() {
+        SketchStatus::Redundant
+    } else if dof == 0 {
+        SketchStatus::FullyConstrained
+    } else {
+        SketchStatus::UnderConstrained
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn id(text: &str) -> Id {
+        Id::new(text).expect("test ids are valid")
+    }
+
+    #[test]
+    fn conflicts_win_over_redundancy() {
+        assert_eq!(
+            status(&[id("c-1")], &[id("c-2")], 0),
+            SketchStatus::Conflicting
+        );
+        assert_eq!(status(&[id("c-1")], &[], 3), SketchStatus::Redundant);
+    }
+
+    #[test]
+    fn status_follows_the_degrees_of_freedom() {
+        assert_eq!(status(&[], &[], 0), SketchStatus::FullyConstrained);
+        assert_eq!(status(&[], &[], 2), SketchStatus::UnderConstrained);
+    }
+
+    #[test]
+    fn single_conflict_message_names_the_constraint() {
+        let issue = SolveIssue::Conflicting {
+            constraints: vec![id("c-1")],
+        };
+
+        assert_eq!(
+            issue.to_string(),
+            "Constraint c-1 cannot be satisfied. Delete it or change a dimension."
+        );
+    }
+}

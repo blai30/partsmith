@@ -2,7 +2,7 @@
 //! section 2.1), plus the argument checks shared by every operation (section 3.1).
 
 use crate::error::{KernelError, Operation};
-use crate::ffi::ffi as sys;
+use crate::ffi::bridge as sys;
 
 /// Shortest vector length the facade treats as a direction.
 const MIN_LENGTH: f64 = 1e-12;
@@ -441,9 +441,9 @@ impl Transform {
 
     /// Applies the linear part to a vector.
     pub fn apply_vector(&self, vector: Vector) -> Vector {
-        let [first, second, third] = self.matrix.map(|row| {
-            row[0] * vector.x + row[1] * vector.y + row[2] * vector.z
-        });
+        let [first, second, third] = self
+            .matrix
+            .map(|row| row[0] * vector.x + row[1] * vector.y + row[2] * vector.z);
         Vector::new(first, second, third)
     }
 
@@ -632,7 +632,9 @@ mod tests {
             ..Plane::XY
         };
 
-        let error = plane.frame(Operation::Split).expect_err("the plane is invalid");
+        let error = plane
+            .frame(Operation::Split)
+            .expect_err("the plane is invalid");
 
         assert_eq!(error.message, PLANE_MESSAGE);
         assert_eq!(error.operation, Operation::Split);

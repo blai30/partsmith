@@ -40,6 +40,9 @@ export function IconButton({
         'inline-flex shrink-0 items-center justify-center rounded-sm transition-colors duration-150 motion-reduce:transition-none',
         size === 'toolbar' ? 'size-9' : 'size-6',
         COLOR_CLASSES.focusRing.outline,
+        // A resting outline color equal to the ring's, so transition-colors does not fade the
+        // ring in from the text color.
+        COLOR_CLASSES.accent.outline,
         selected && COLOR_CLASSES.selection.background,
         selected && COLOR_CLASSES.text.foreground,
         !selected && !inactive && COLOR_CLASSES.hover.background,

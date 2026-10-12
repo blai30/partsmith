@@ -1,5 +1,5 @@
 import type { BoundingBox, FieldUnit, Units } from '../generated/protocol'
-import type { Vector3 } from '../viewport/camera'
+import type { Vector3 } from '../viewport/math'
 
 /** Millimeters in one document unit (model.md 2.4). */
 export const MILLIMETERS_PER_UNIT: Readonly<Record<Units, number>> = {

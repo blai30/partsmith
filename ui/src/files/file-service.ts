@@ -150,6 +150,16 @@ async function ensurePermission(handle: FileSystemFileHandle, mode: PermissionMo
   }
 }
 
+/** Whether bytes are a view on an ordinary ArrayBuffer, which Blobs and file streams accept. */
+function isOnArrayBuffer(bytes: Uint8Array): bytes is Uint8Array<ArrayBuffer> {
+  return bytes.buffer[Symbol.toStringTag] === 'ArrayBuffer'
+}
+
+/** The bytes as a view on an ordinary ArrayBuffer: a view on shared memory is copied. */
+function writableBytes(bytes: Uint8Array): Uint8Array<ArrayBuffer> {
+  return isOnArrayBuffer(bytes) ? bytes : bytes.slice()
+}
+
 async function bytesOf(file: Blob): Promise<Uint8Array> {
   return new Uint8Array(await file.arrayBuffer())
 }
@@ -167,7 +177,7 @@ async function writeFileHandle(handle: FileSystemFileHandle, bytes: Uint8Array):
   try {
     const writable = await handle.createWritable()
     try {
-      await writable.write(bytes)
+      await writable.write(writableBytes(bytes))
       await writable.close()
     } catch (error) {
       // Aborting discards the partial write, so the file on disk keeps its earlier content.
@@ -222,7 +232,7 @@ function download(
   kind: FileKind,
   bytes: Uint8Array,
 ): void {
-  const blob = new environment.Blob([bytes], { type: FILE_TYPES[kind].mediaType })
+  const blob = new environment.Blob([writableBytes(bytes)], { type: FILE_TYPES[kind].mediaType })
   const url = environment.URL.createObjectURL(blob)
   const anchor = environment.document.createElement('a')
   anchor.href = url

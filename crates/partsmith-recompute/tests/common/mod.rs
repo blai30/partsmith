@@ -316,10 +316,7 @@ impl Harness {
 
     /// A harness over `registry` that keeps at most `max_entries` results not used by the latest run.
     pub fn with_cache_limit(registry: Registry, max_entries: usize) -> Harness {
-        Harness::from_recompute(Recompute::with_cache_limit(
-            Arc::new(registry),
-            max_entries,
-        ))
+        Harness::from_recompute(Recompute::with_cache_limit(Arc::new(registry), max_entries))
     }
 
     /// A harness over the built-in registry plus the spec's test features.
@@ -481,7 +478,10 @@ pub fn datum_height(report: &Report, feature_id: &str) -> f64 {
 }
 
 /// The reported value of one parameter.
-pub fn parameter_value<'r>(report: &'r Report, parameter_id: &str) -> &'r Result<Quantity, ExprError> {
+pub fn parameter_value<'r>(
+    report: &'r Report,
+    parameter_id: &str,
+) -> &'r Result<Quantity, ExprError> {
     &report
         .parameters
         .iter()
@@ -699,7 +699,9 @@ pub fn shape(state: &BodyState) -> &Shape {
 
 /// The volume of a body that holds a solid.
 pub fn volume(state: &BodyState) -> f64 {
-    shape(state).volume().expect("the kernel measures the volume")
+    shape(state)
+        .volume()
+        .expect("the kernel measures the volume")
 }
 
 /// Number of faces of a body that holds a solid.

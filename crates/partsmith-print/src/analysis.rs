@@ -117,8 +117,12 @@ mod tests {
 
     #[test]
     fn fully_collapsed_mesh_reports_only_degenerate_triangles() {
-        let analysis =
-            analyze(&collapsed_mesh(), &generic_fdm(), &AnalysisOptions::default()).expect("runs");
+        let analysis = analyze(
+            &collapsed_mesh(),
+            &generic_fdm(),
+            &AnalysisOptions::default(),
+        )
+        .expect("runs");
         let validity = &analysis.report.checks[0];
         assert_eq!(validity.findings.len(), 1);
         assert_eq!(validity.findings[0].code, FindingCode::DegenerateTriangles);

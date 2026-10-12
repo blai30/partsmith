@@ -114,3 +114,43 @@ fn no_contact(body: &Body) -> Finding {
     .with_value(0.0)
     .with_affected(body.affected(touching))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::profile::generic_fdm;
+    use crate::rotation::Rotation;
+    use crate::test_meshes::boxes;
+
+    #[test]
+    fn low_contact_comes_before_tall_and_thin() {
+        // A 1 mm square column carrying a wide plate.
+        let mesh = boxes(&[
+            ([0.0, 0.0, 0.0], [1.0, 1.0, 30.0]),
+            ([-20.0, -20.0, 30.0], [20.0, 20.0, 31.0]),
+        ]);
+        let body = Body::prepare(&mesh, Rotation::identity()).expect("prepares");
+        let codes: Vec<FindingCode> = check(&body, &generic_fdm().thresholds())
+            .findings
+            .iter()
+            .map(|finding| finding.code)
+            .collect();
+        assert_eq!(
+            codes,
+            vec![FindingCode::LowBedContact, FindingCode::TallAndThin]
+        );
+    }
+
+    #[test]
+    fn contact_counts_only_faces_within_the_tolerance() {
+        // The second box hovers 0.005 mm above the bed, within the contact tolerance. Without it
+        // only 1 of the 21 mm² footprint would touch the bed, less than 5%.
+        let mesh = boxes(&[
+            ([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]),
+            ([20.0, 0.0, 0.005], [21.0, 1.0, 1.0]),
+        ]);
+        let body = Body::prepare(&mesh, Rotation::identity()).expect("prepares");
+        let result = check(&body, &generic_fdm().thresholds());
+        assert!(result.findings.is_empty(), "{:?}", result.findings);
+    }
+}

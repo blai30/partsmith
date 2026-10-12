@@ -92,6 +92,7 @@ export function Menu({ label, open, anchor, entries, onOpenChange }: MenuProps) 
       close={closeAndFocusButton}
       dismiss={dismiss}
       dismissAll={dismiss}
+      focusRequest={1}
     />
   )
 }
@@ -110,8 +111,8 @@ type MenuListProps = {
   readonly dismiss: () => void
   /** Closes every menu without moving focus (Tab). */
   readonly dismissAll: () => void
-  /** For submenus opened by hovering: keep focus on the parent item. */
-  readonly focusOnOpen?: boolean
+  /** Each increase focuses the first item; 0 leaves focus where it is (a submenu opened by hovering). */
+  readonly focusRequest: number
 }
 
 function roleOf(entry: FocusableEntry): 'menuitem' | 'menuitemcheckbox' | 'menuitemradio' {
@@ -126,10 +127,15 @@ function roleOf(entry: FocusableEntry): 'menuitem' | 'menuitemcheckbox' | 'menui
   }
 }
 
+/** An index wrapped into [0, count). */
+function wrap(index: number, count: number): number {
+  return ((index % count) + count) % count
+}
+
 /** The index of the next focusable entry from `start` in `direction`, wrapping around. */
 function nextFocusable(entries: readonly MenuEntry[], start: number, direction: 1 | -1): number {
   for (let step = 1; step <= entries.length; step++) {
-    const index = (start + direction * step + entries.length * step) % entries.length
+    const index = wrap(start + direction * step, entries.length)
     if (entries[index]?.kind !== 'separator') {
       return index
     }
@@ -146,20 +152,19 @@ function MenuList({
   close,
   dismiss,
   dismissAll,
-  focusOnOpen = true,
+  focusRequest,
 }: MenuListProps) {
   const element = useRef<HTMLDivElement>(null)
   const items = useRef<(HTMLButtonElement | null)[]>([])
   const submenuAnchor = useRef<HTMLButtonElement | null>(null)
   const idPrefix = useId()
   const [active, setActive] = useState<number | null>(null)
-  const [submenu, setSubmenu] = useState<{ index: number; focus: boolean } | null>(null)
+  const [submenu, setSubmenu] = useState<{ index: number; focusRequest: number } | null>(null)
 
   const focusItem = useCallback((index: number) => {
     items.current[index]?.focus()
   }, [])
-  // The item focused when the menu opens; the menu mounts when it opens and unmounts when it closes.
-  const initialFocus = useRef(focusOnOpen ? nextFocusable(entries, -1, 1) : null)
+  const firstItem = nextFocusable(entries, -1, 1)
 
   // The browser light-dismisses a menu on a press outside it; the owner learns it closed.
   const latestDismiss = useRef(dismiss)
@@ -188,10 +193,12 @@ function MenuList({
       return
     }
     showPopover(menu, anchor.current)
-    if (initialFocus.current !== null) {
-      focusItem(initialFocus.current)
+  }, [anchor])
+  useLayoutEffect(() => {
+    if (focusRequest > 0) {
+      focusItem(firstItem)
     }
-  }, [anchor, focusItem])
+  }, [focusRequest, firstItem, focusItem])
   useAnchoredPosition(element, anchor, true, placement)
 
   const closeSubmenu = useCallback(() => {
@@ -200,7 +207,10 @@ function MenuList({
 
   function openSubmenu(index: number, focus: boolean): void {
     submenuAnchor.current = items.current[index] ?? null
-    setSubmenu({ index, focus })
+    setSubmenu((previous) => {
+      const requests = previous?.index === index ? previous.focusRequest : 0
+      return { index, focusRequest: focus ? requests + 1 : requests }
+    })
   }
 
   function activate(index: number, source: 'enter' | 'space' | 'pointer'): void {
@@ -309,8 +319,9 @@ function MenuList({
       aria-label={'label' in name ? name.label : undefined}
       aria-labelledby={'labelledBy' in name ? name.labelledBy : undefined}
       onKeyDown={onKeyDown}
+      // `hidden open:flex`: a display class would override the browser's hiding of a closed popover.
       className={clsx(
-        'fixed top-0 left-0 m-0 flex max-h-dvh min-w-48 max-w-80 flex-col overflow-y-auto rounded-md border p-1 text-sm shadow-lg transition-opacity duration-150 ease-out starting:opacity-0 motion-reduce:transition-none',
+        'fixed top-0 left-0 m-0 hidden max-h-dvh min-w-48 max-w-80 flex-col open:flex overflow-y-auto rounded-md border p-1 text-sm shadow-lg transition-opacity duration-150 ease-out starting:opacity-0 motion-reduce:transition-none',
         COLOR_CLASSES.surfaceRaised.background,
         COLOR_CLASSES.border.border,
         COLOR_CLASSES.text.foreground,
@@ -367,8 +378,11 @@ function MenuList({
               activate(index, 'pointer')
             }}
             className={clsx(
-              'flex h-8 w-full shrink-0 items-center gap-2 rounded-sm px-2 text-left whitespace-nowrap',
+              'flex h-8 w-full shrink-0 items-center gap-2 rounded-sm px-2 text-left whitespace-nowrap transition-colors duration-150 motion-reduce:transition-none',
               COLOR_CLASSES.focusRing.outline,
+              // A resting outline color equal to the ring's, so transition-colors does not fade the
+              // ring in from the text color.
+              COLOR_CLASSES.accent.outline,
               disabled && COLOR_CLASSES.textDisabled.foreground,
               disabled && 'cursor-not-allowed',
               !disabled && active === index && COLOR_CLASSES.hover.active,
@@ -421,7 +435,7 @@ function MenuList({
                 }}
                 dismiss={closeSubmenu}
                 dismissAll={dismissAll}
-                focusOnOpen={submenu?.focus ?? true}
+                focusRequest={submenu?.focusRequest ?? 0}
               />
             ) : null}
           </div>

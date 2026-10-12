@@ -217,7 +217,10 @@ impl Finding {
     }
 
     /// Sets the affected triangles and their face ids.
-    pub(crate) fn with_affected(mut self, (triangles, faces): (Vec<TriangleRange>, Vec<u32>)) -> Finding {
+    pub(crate) fn with_affected(
+        mut self,
+        (triangles, faces): (Vec<TriangleRange>, Vec<u32>),
+    ) -> Finding {
         self.triangles = triangles;
         self.faces = faces;
         self
@@ -392,7 +395,7 @@ mod tests {
     #[test]
     fn health_ignores_info() {
         let info = CheckResult::new(CheckKind::MeshValidity, vec![finding(Severity::Info)], 0);
-        assert_eq!(Health::of_checks(&[info.clone()]), Health::Ok);
+        assert_eq!(Health::of_checks(std::slice::from_ref(&info)), Health::Ok);
         let warning = CheckResult::new(CheckKind::Overhangs, vec![finding(Severity::Warning)], 0);
         assert_eq!(Health::of_checks(&[info, warning]), Health::Warning);
         assert_eq!(Health::of_checks(&[]), Health::Ok);

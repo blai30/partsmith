@@ -33,9 +33,7 @@ impl CheckThresholds {
     pub(crate) fn for_profile(profile: &PrinterProfile) -> CheckThresholds {
         match profile.technology {
             Technology::Fdm => {
-                let nozzle_diameter = profile
-                    .nozzle_diameter
-                    .unwrap_or(GENERIC_NOZZLE_DIAMETER);
+                let nozzle_diameter = profile.nozzle_diameter.unwrap_or(GENERIC_NOZZLE_DIAMETER);
                 CheckThresholds {
                     max_overhang_angle: profile.max_overhang_angle,
                     min_wall: 2.0 * nozzle_diameter,
@@ -59,7 +57,6 @@ impl CheckThresholds {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::profile::{generic_fdm, generic_resin};
 
     #[test]

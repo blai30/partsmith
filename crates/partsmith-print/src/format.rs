@@ -49,7 +49,10 @@ mod tests {
     #[test]
     fn length_keeps_up_to_three_decimals() {
         assert_eq!(format_length(0.6), "0.6");
-        assert_eq!(format_length(0.3 * (std::f64::consts::PI / 16.0).cos()), "0.294");
+        assert_eq!(
+            format_length(0.3 * (std::f64::consts::PI / 16.0).cos()),
+            "0.294"
+        );
         assert_eq!(format_length(113.13708498984761), "113.137");
     }
 

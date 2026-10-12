@@ -96,7 +96,9 @@ fn key_lists_values_then_feature_links_then_read_and_written_bodies() {
     let datum_key = key(&report, "f-d1").expect("f-d1 has a key");
     let block_key = key(&report, "f-a").expect("f-a has a key");
     let mut items = header("test_node", "f-n");
-    items.push(r#"params {"uses":["f-d1"],"reads":["b-2"],"writes":["b-1"],"values":["3"]}"#.to_string());
+    items.push(
+        r#"params {"uses":["f-d1"],"reads":["b-2"],"writes":["b-1"],"values":["3"]}"#.to_string(),
+    );
     items.push("expr values[0] length".to_string());
     items.push(value_item(3.0));
     items.push(format!("feature f-d1 {}", hex(&datum_key)));
@@ -209,7 +211,11 @@ fn only_active_nodes_have_keys() {
     assert!(key(&report, "f-d1").is_some());
     for feature in ["f-s", "f-g", "f-r"] {
         assert_eq!(key(&report, feature), None, "{feature} has a key");
-        assert_eq!(step(&plan, feature).key, None, "{feature} has a planned key");
+        assert_eq!(
+            step(&plan, feature).key,
+            None,
+            "{feature} has a planned key"
+        );
     }
 }
 
@@ -380,12 +386,16 @@ fn different_asset_names_give_different_keys() {
 
     let first = run_key(
         &mut harness,
-        &document_json(json!({"features": [{"id": "f-a1", "type": "test_asset", "asset": "a.step"}]})),
+        &document_json(
+            json!({"features": [{"id": "f-a1", "type": "test_asset", "asset": "a.step"}]}),
+        ),
         "f-a1",
     );
     let second = run_key(
         &mut harness,
-        &document_json(json!({"features": [{"id": "f-a1", "type": "test_asset", "asset": "b.step"}]})),
+        &document_json(
+            json!({"features": [{"id": "f-a1", "type": "test_asset", "asset": "b.step"}]}),
+        ),
         "f-a1",
     );
 

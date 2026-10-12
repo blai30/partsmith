@@ -5,7 +5,14 @@ import type { EncodedRgb, Rgb, ViewportTheme } from '../viewport/backend'
 // Every class string is a complete literal so Tailwind's scanner finds it.
 
 export type ThemeName = 'light' | 'dark'
-export type Facet = 'background' | 'active' | 'foreground' | 'border' | 'outline' | 'stroke' | 'fill'
+export type Facet =
+  | 'background'
+  | 'active'
+  | 'foreground'
+  | 'border'
+  | 'outline'
+  | 'stroke'
+  | 'fill'
 
 /** sRGB '#rrggbb' of every Tailwind 4.3.3 palette step the mapping uses (ui.md 2.16.5). */
 export const PALETTE_HEX = {
@@ -118,26 +125,27 @@ export type ViewportRole =
   | 'analysisHigh'
 
 /** Palette step of each viewport role per theme (ui.md 2.16.4). */
-export const VIEWPORT_STEPS: Readonly<Record<ViewportRole, Readonly<Record<ThemeName, PaletteStep>>>> =
-  {
-    viewportTop: { light: 'white', dark: 'zinc-800' },
-    viewportBottom: { light: 'zinc-100', dark: 'zinc-900' },
-    body: { light: 'zinc-400', dark: 'zinc-400' },
-    edgeDark: { light: 'zinc-900', dark: 'zinc-900' },
-    edgeLight: { light: 'zinc-200', dark: 'zinc-200' },
-    highlight: { light: 'orange-600', dark: 'orange-500' },
-    problem: { light: 'red-700', dark: 'red-500' },
-    sketchUnder: { light: 'blue-600', dark: 'blue-400' },
-    sketchFull: { light: 'zinc-900', dark: 'zinc-50' },
-    sketchOver: { light: 'red-700', dark: 'red-500' },
-    sketchConstruction: { light: 'zinc-600', dark: 'zinc-300' },
-    sketchRegion: { light: 'blue-500', dark: 'blue-400' },
-    sketchReference: { light: 'zinc-500', dark: 'zinc-400' },
-    datum: { light: 'zinc-400', dark: 'zinc-500' },
-    bed: { light: 'zinc-500', dark: 'zinc-400' },
-    analysisLow: { light: 'sky-200', dark: 'sky-200' },
-    analysisHigh: { light: 'violet-700', dark: 'violet-700' },
-  }
+export const VIEWPORT_STEPS: Readonly<
+  Record<ViewportRole, Readonly<Record<ThemeName, PaletteStep>>>
+> = {
+  viewportTop: { light: 'white', dark: 'zinc-800' },
+  viewportBottom: { light: 'zinc-100', dark: 'zinc-900' },
+  body: { light: 'zinc-400', dark: 'zinc-400' },
+  edgeDark: { light: 'zinc-900', dark: 'zinc-900' },
+  edgeLight: { light: 'zinc-200', dark: 'zinc-200' },
+  highlight: { light: 'orange-600', dark: 'orange-500' },
+  problem: { light: 'red-700', dark: 'red-500' },
+  sketchUnder: { light: 'blue-600', dark: 'blue-400' },
+  sketchFull: { light: 'zinc-900', dark: 'zinc-50' },
+  sketchOver: { light: 'red-700', dark: 'red-500' },
+  sketchConstruction: { light: 'zinc-600', dark: 'zinc-300' },
+  sketchRegion: { light: 'blue-500', dark: 'blue-400' },
+  sketchReference: { light: 'zinc-500', dark: 'zinc-400' },
+  datum: { light: 'zinc-400', dark: 'zinc-500' },
+  bed: { light: 'zinc-500', dark: 'zinc-400' },
+  analysisLow: { light: 'sky-200', dark: 'sky-200' },
+  analysisHigh: { light: 'violet-700', dark: 'violet-700' },
+}
 
 function viewportColorsOf(theme: ThemeName): Readonly<Record<ViewportRole, string>> {
   const entries = Object.entries(VIEWPORT_STEPS).map(([role, steps]) => [

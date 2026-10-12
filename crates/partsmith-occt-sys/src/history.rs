@@ -1,7 +1,7 @@
 //! Operation results with history (kernel spec sections 2.3 and 3.3).
 
 use crate::error::{KernelError, Operation};
-use crate::ffi::ffi as sys;
+use crate::ffi::bridge as sys;
 use crate::shape::{Shape, SubShape, SubShapeKind};
 
 /// A new shape plus, for each operation input, what became of its faces, edges and vertices.
@@ -71,11 +71,8 @@ impl InputHistory {
 }
 
 /// The element kinds a history describes, in sort order.
-const HISTORY_KINDS: [SubShapeKind; 3] = [
-    SubShapeKind::Face,
-    SubShapeKind::Edge,
-    SubShapeKind::Vertex,
-];
+const HISTORY_KINDS: [SubShapeKind; 3] =
+    [SubShapeKind::Face, SubShapeKind::Edge, SubShapeKind::Vertex];
 
 impl History {
     /// Input elements whose `modified` list contains output element `index` of `kind`, sorted.

@@ -37,12 +37,13 @@ function hovers(event: PointerEvent): boolean {
  * keyboard focus; closed by Esc, by pressing the trigger, and when both the pointer and keyboard
  * focus have left (ui.md 3.24). The tooltip stays in the DOM, referenced by the trigger's
  * aria-describedby. Trigger and tooltip share a `display: contents` wrapper that takes their
- * pointer and focus events, so the trigger lays out as a direct child of its container.
+ * pointer and focus events, so the trigger lays out as a direct child of its container (use
+ * `gap` there rather than `space-*` or `divide-*`, which style the wrapper).
  */
 export function Tooltip({ label, shortcut = null, children }: TooltipProps) {
   const id = useId()
-  const wrapper = useRef<HTMLDivElement>(null)
-  const tooltip = useRef<HTMLDivElement>(null)
+  const wrapper = useRef<HTMLSpanElement>(null)
+  const tooltip = useRef<HTMLSpanElement>(null)
   const trigger = useRef<Element | null>(null)
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   // Whether the last interaction was a key press, so the next focus counts as keyboard focus.
@@ -109,8 +110,9 @@ export function Tooltip({ label, shortcut = null, children }: TooltipProps) {
   useAnchoredPosition(tooltip, trigger, visible, 'below')
 
   const describedBy = children.props['aria-describedby']
+  // Spans, so a tooltip is valid wherever its trigger (phrasing content such as a button) is.
   return (
-    <div
+    <span
       ref={wrapper}
       className="contents"
       onPointerEnter={(event) => {
@@ -147,13 +149,14 @@ export function Tooltip({ label, shortcut = null, children }: TooltipProps) {
       {cloneElement(children, {
         'aria-describedby': describedBy === undefined ? id : `${describedBy} ${id}`,
       })}
-      <div
+      <span
         ref={tooltip}
         id={id}
         role="tooltip"
         popover="manual"
+        // `hidden open:flex`: a display class would override the browser's hiding of a closed popover.
         className={clsx(
-          'fixed top-0 left-0 m-0 flex max-w-80 items-center gap-3 rounded-md border px-2 py-1 text-xs shadow-lg transition-opacity duration-150 ease-out starting:open:opacity-0 motion-reduce:transition-none',
+          'fixed top-0 left-0 m-0 hidden max-w-80 items-center gap-3 open:flex rounded-md border px-2 py-1 text-xs shadow-lg transition-opacity duration-150 ease-out starting:open:opacity-0 motion-reduce:transition-none',
           COLOR_CLASSES.surfaceRaised.background,
           COLOR_CLASSES.border.border,
           COLOR_CLASSES.text.foreground,
@@ -163,7 +166,7 @@ export function Tooltip({ label, shortcut = null, children }: TooltipProps) {
         {shortcut === null ? null : (
           <span className={COLOR_CLASSES.textMuted.foreground}>{shortcut}</span>
         )}
-      </div>
-    </div>
+      </span>
+    </span>
   )
 }

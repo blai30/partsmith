@@ -67,3 +67,28 @@ fn lowest_vertex(body: &Body, triangles: &[u32]) -> usize {
         })
         .expect("a shell has at least one triangle")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::rotation::Rotation;
+    use crate::test_meshes::{box_mesh, boxes};
+
+    #[test]
+    fn separate_solids_are_not_hollows() {
+        let mesh = boxes(&[
+            ([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]),
+            ([5.0, 0.0, 0.0], [6.0, 1.0, 1.0]),
+        ]);
+        let body = Body::prepare(&mesh, Rotation::identity()).expect("prepares");
+        assert!(check(&body, Technology::Resin).findings.is_empty());
+    }
+
+    #[test]
+    fn lowest_vertex_prefers_the_smallest_index_on_ties() {
+        let mesh = box_mesh([0.0; 3], [1.0; 3]);
+        let body = Body::prepare(&mesh, Rotation::identity()).expect("prepares");
+        let triangles: Vec<u32> = (0..12).collect();
+        assert_eq!(lowest_vertex(&body, &triangles), 0);
+    }
+}

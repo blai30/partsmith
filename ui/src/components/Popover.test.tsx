@@ -129,3 +129,22 @@ describe('Popover', () => {
     expect(screen.getByRole('dialog', { name: 'Section' })).toHaveAttribute('data-positioned')
   })
 })
+
+describe('Popover focus', () => {
+  it('moves focus to its first focusable element when it opens', async () => {
+    render(<Harness />)
+    await userEvent.click(screen.getByRole('button', { name: 'Section view' }))
+    expect(screen.getByRole('button', { name: 'Flip' })).toHaveFocus()
+  })
+
+  it('moves focus to an element marked data-autofocus first', () => {
+    const anchor = { current: null }
+    render(
+      <Popover label="Color" open anchor={anchor} onOpenChange={() => undefined}>
+        <button type="button">Default</button>
+        <input aria-label="Hex" data-autofocus />
+      </Popover>,
+    )
+    expect(screen.getByRole('textbox', { name: 'Hex' })).toHaveFocus()
+  })
+})
