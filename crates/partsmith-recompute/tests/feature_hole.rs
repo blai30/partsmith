@@ -12,7 +12,7 @@ use feature_support::{
     assert_face_kind, assert_face_radius, assert_has_face, assert_no_face, assert_unchanged,
     assert_volume, body_update, example_paths, face, load_example, median_build_time, vertex,
 };
-use partsmith_features::BodyChange;
+use partsmith_features::{BodyChange, Bound, FeatureError};
 use partsmith_occt_sys::GeometryKind;
 
 /// `BOX-BELOW`: spans [-20,-20,-10]-[20,20,0], volume 16000, top face at z = 0.
