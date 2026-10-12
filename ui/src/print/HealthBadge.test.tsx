@@ -1,0 +1,144 @@
+import { cleanup, render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { COLOR_CLASSES } from '../theme/roles'
+import type { HealthBadgeState } from './health'
+import { HealthBadge } from './HealthBadge'
+
+afterEach(() => {
+  cleanup()
+})
+
+function classes(roleClasses: string): string[] {
+  return roleClasses.split(' ')
+}
+
+function renderBadge(badge: HealthBadgeState, onClick = vi.fn<() => void>()) {
+  render(<HealthBadge badge={badge} onClick={onClick} />)
+  return { badge: screen.getByTestId('health-badge'), onClick }
+}
+
+function badgeState(overrides: Partial<HealthBadgeState>): HealthBadgeState {
+  return { state: 'none', errors: 0, warnings: 0, stale: false, ...overrides }
+}
+
+type Row = {
+  readonly title: string
+  readonly badge: HealthBadgeState
+  readonly icon: string
+  readonly text: string
+  readonly name: string
+}
+
+const ROWS: readonly Row[] = [
+  {
+    title: 'none',
+    badge: badgeState({ state: 'none' }),
+    icon: 'lucide-circle-dashed',
+    text: 'Check print',
+    name: 'Print health: not checked',
+  },
+  {
+    title: 'running',
+    badge: badgeState({ state: 'running' }),
+    icon: 'lucide-loader-circle',
+    text: 'Checking',
+    name: 'Print health: checking',
+  },
+  {
+    title: 'ok',
+    badge: badgeState({ state: 'ok' }),
+    icon: 'lucide-circle-check',
+    text: 'Ready to print',
+    name: 'Print health: no problems',
+  },
+  {
+    title: 'one warning',
+    badge: badgeState({ state: 'warning', warnings: 1 }),
+    icon: 'lucide-triangle-alert',
+    text: '1 warning',
+    name: 'Print health: 1 warning',
+  },
+  {
+    title: 'several warnings',
+    badge: badgeState({ state: 'warning', warnings: 3 }),
+    icon: 'lucide-triangle-alert',
+    text: '3 warnings',
+    name: 'Print health: 3 warnings',
+  },
+  {
+    title: 'one error and several warnings',
+    badge: badgeState({ state: 'error', errors: 1, warnings: 2 }),
+    icon: 'lucide-circle-x',
+    text: '1 error',
+    name: 'Print health: 1 error, 2 warnings',
+  },
+  {
+    title: 'several errors and one warning',
+    badge: badgeState({ state: 'error', errors: 2, warnings: 1 }),
+    icon: 'lucide-circle-x',
+    text: '2 errors',
+    name: 'Print health: 2 errors, 1 warning',
+  },
+  {
+    title: 'errors without warnings',
+    badge: badgeState({ state: 'error', errors: 1, warnings: 0 }),
+    icon: 'lucide-circle-x',
+    text: '1 error',
+    name: 'Print health: 1 error, 0 warnings',
+  },
+]
+
+describe('HealthBadge', () => {
+  it.each(ROWS)('U-81 shows $title with its icon, text and accessible name', (row) => {
+    const { badge } = renderBadge(row.badge)
+    expect(badge).toBe(screen.getByRole('button', { name: row.name }))
+    expect(badge).toHaveAttribute('data-state', row.badge.state)
+    expect(badge).toHaveAttribute('data-stale', 'false')
+    expect(badge).toHaveTextContent(row.text)
+    expect(badge.querySelector('svg')).toHaveClass(row.icon)
+  })
+
+  it('spins the running icon unless the user prefers reduced motion', () => {
+    const { badge } = renderBadge(badgeState({ state: 'running' }))
+    expect(badge.querySelector('svg')).toHaveClass('animate-spin', 'motion-reduce:animate-none')
+  })
+
+  it('draws the ok check in successMark', () => {
+    const { badge } = renderBadge(badgeState({ state: 'ok' }))
+    expect(badge.querySelector('svg')).toHaveClass(...classes(COLOR_CLASSES.successMark.foreground))
+  })
+
+  it('draws the warning hazard sign in warningMark', () => {
+    const { badge } = renderBadge(badgeState({ state: 'warning', warnings: 1 }))
+    expect(badge.querySelector('svg')).toHaveClass(
+      ...classes(COLOR_CLASSES.warningMark.fill),
+      ...classes(COLOR_CLASSES.warningMark.foreground),
+    )
+  })
+
+  it('draws the error mark in errorMark', () => {
+    const { badge } = renderBadge(badgeState({ state: 'error', errors: 1 }))
+    expect(badge.querySelector('svg')).toHaveClass(...classes(COLOR_CLASSES.errorMark.foreground))
+  })
+
+  it('U-81 marks a stale report: data-stale, opacity-50, "(out of date)" and ", out of date"', () => {
+    const { badge } = renderBadge(badgeState({ state: 'warning', warnings: 1, stale: true }))
+    expect(badge).toBe(screen.getByRole('button', { name: 'Print health: 1 warning, out of date' }))
+    expect(badge).toHaveAttribute('data-state', 'warning')
+    expect(badge).toHaveAttribute('data-stale', 'true')
+    expect(badge).toHaveClass('opacity-50')
+    expect(badge).toHaveTextContent('1 warning (out of date)')
+  })
+
+  it('draws a current report at full opacity', () => {
+    const { badge } = renderBadge(badgeState({ state: 'ok' }))
+    expect(badge).not.toHaveClass('opacity-50')
+  })
+
+  it('reports a click', async () => {
+    const { badge, onClick } = renderBadge(badgeState({ state: 'warning', warnings: 1, stale: true }))
+    await userEvent.click(badge)
+    expect(onClick).toHaveBeenCalledTimes(1)
+  })
+})
