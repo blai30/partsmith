@@ -1070,8 +1070,8 @@ Rust signatures:
 
 ```rust
 #[unsafe(no_mangle)] pub extern "C" fn ps_alloc(length: usize) -> *mut u8;
-#[unsafe(no_mangle)] pub extern "C" fn ps_free(pointer: *mut u8, length: usize);
-#[unsafe(no_mangle)] pub extern "C" fn ps_call(request: *const u8, request_length: usize, response_length: *mut usize) -> *mut u8;
+#[unsafe(no_mangle)] pub unsafe extern "C" fn ps_free(pointer: *mut u8, length: usize);
+#[unsafe(no_mangle)] pub unsafe extern "C" fn ps_call(request: *const u8, request_length: usize, response_length: *mut usize) -> *mut u8;
 /// Safe core of `ps_call`: frame bytes in, frame bytes out. Used by the exports and by native tests.
 pub fn call(request: &[u8]) -> Vec<u8>;
 ```
@@ -1081,6 +1081,8 @@ Rules:
 - `partsmith-wasm` defines its own lint table with `unsafe_code = "deny"` (instead of the workspace `forbid`) and puts `#[allow(unsafe_code)]` on exactly `ps_alloc`, `ps_free` and `ps_call`; each `unsafe` block has a `// SAFETY:` comment (ADR 0010).
 - `ps_call` never traps on any input. It delegates to `Session::call`, so a frame that fails to decode yields a response frame with one error response (`FrameError::code`, the request id if readable, else 0), and a panic inside the engine yields `internal_error` and poisons the request's document (engine.md 3.15).
 - JavaScript must re-read `HEAPU8` after every `ps_call` and `ps_alloc`, because memory growth replaces the underlying `ArrayBuffer`.
+- Pointers and lengths are unsigned 32-bit values. JavaScript receives the `i32` results of `_ps_alloc` and `_ps_call` as signed numbers, so `wrapEmscriptenModule` reads them with `>>> 0`; otherwise a block above 2 GiB gets a negative address and `slice` silently copies the wrong bytes.
+- `ps_free` and `ps_call` are `unsafe extern "C" fn` because they dereference caller-provided pointers; `ps_call` with a null `response_length` handles nothing and returns null, and a null `request` reads as empty.
 
 JavaScript calling sequence (`ui/src/core/bridge.ts`):
 
@@ -1271,7 +1273,7 @@ The full Rust-side variants and the mapping from engine errors are in engine.md 
 
 ## 5. Performance budgets
 
-Measured on the reference machine (technical design section 14), release builds, with benchmarks in `crates/partsmith-protocol/benches/` (`harness = false`, `std::time::Instant`, as sketch.md) and a Vitest bench for the TypeScript codec:
+Measured on the reference machine (technical design section 14), release builds, with benchmarks in `crates/partsmith-protocol/benches/` for the codec and `crates/partsmith-wasm/benches/` for the `ps_call` round trip (`harness = false`, `std::time::Instant`, as sketch.md) and a Vitest bench for the TypeScript codec:
 
 | Operation | Native | Web (wasm or JS) |
 | --- | --- | --- |

@@ -25,7 +25,7 @@ import type {
 import type { App } from '../createApp'
 import { measureToNextFrame } from '../timing'
 import { commitEdits, documentOf, reportNewFailures, showCoreError } from './edits'
-import { notify } from './notifications'
+import { notify, showPickHint } from './notifications'
 import { enterSketch, finishSketch, startNewSketch } from './sketch'
 import { setSessionVisible } from './bodies'
 import { setSuppressed } from './timeline'
@@ -388,7 +388,11 @@ function refreshPreview(app: App): void {
 function endSession(app: App): void {
   sessions.get(app.store)?.preview.cancel()
   sessions.delete(app.store)
-  app.store.setState({ command: null })
+  // A hint under a field of this command goes with it.
+  app.store.setState((state) => ({
+    command: null,
+    pickHint: state.pickHint?.field === null ? state.pickHint : null,
+  }))
 }
 
 /** Whether a field takes the item; a feature row only counts as a sketch when it is one. */
@@ -794,7 +798,7 @@ export async function capturePick(app: App, item: SelectionItem): Promise<void> 
   }
   const { accepts, multiple } = field.control
   if (!takes(app.store.getState(), accepts, item)) {
-    notify(app, { severity: 'info', message: refusalHint(accepts), actions: [] })
+    showPickHint(app, refusalHint(accepts), field.path)
     return
   }
   let params: Record<string, unknown> = { ...command.params }
@@ -804,11 +808,7 @@ export async function capturePick(app: App, item: SelectionItem): Promise<void> 
     if (typeof body === 'string' && body !== '' && body !== item.body) {
       const bodyName =
         documentOf(app)?.recipe.bodies?.find((candidate) => candidate.id === body)?.name ?? body
-      notify(app, {
-        severity: 'info',
-        message: MESSAGES.pick_same_body(accepts, bodyName),
-        actions: [],
-      })
+      showPickHint(app, MESSAGES.pick_same_body(accepts, bodyName), field.path)
       return
     }
   }

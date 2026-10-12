@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ElementDescriptor, Edit } from '../../generated/protocol'
 import {
   CUBE_DOCUMENT,
@@ -10,12 +10,13 @@ import {
   RECT_SKETCH_SOLUTION,
   withFeatureChanges,
 } from '../../test/fakes/documents'
-import { notificationWith, startWithDocument, type FakeApp } from '../../test/fakes/app'
+import { startWithDocument, type FakeApp } from '../../test/fakes/app'
 import { editsOf } from '../../test/fakes/protocol'
 import { elementItem, regionItem } from '../../test/fakes/selection'
 import { settle } from '../../test/fakes/settle'
 import { MESSAGES } from '../../messages'
 import {
+  cancelCommand,
   capturePick,
   confirmCommand,
   editFeature,
@@ -123,14 +124,27 @@ async function filletOnCube(): Promise<FakeApp> {
 }
 
 describe('capturePick', () => {
-  it('refuses an item the active field does not take, with the field hint', async () => {
-    const fake = await filletOnCube()
-    await capturePick(fake.app, elementItem(CUBE_TOP_FACE, 'Cube'))
-    expect(notificationWith(fake.app, MESSAGES.pick_kind('edges')).severity).toBe('info')
-    expect(fake.app.store.getState().command?.params['edges']).toBeUndefined()
+  afterEach(() => {
+    vi.useRealTimers()
   })
 
-  it("refuses an edge of another body than the field's body", async () => {
+  it('refuses an item the active field does not take, with the hint under the field for 3 s', async () => {
+    const fake = await filletOnCube()
+    vi.useFakeTimers()
+    await capturePick(fake.app, elementItem(CUBE_TOP_FACE, 'Cube'))
+    expect(fake.app.store.getState().pickHint).toEqual({
+      message: MESSAGES.pick_kind('edges'),
+      field: 'edges',
+    })
+    expect(fake.app.store.getState().notifications).toEqual([])
+    expect(fake.app.store.getState().command?.params['edges']).toBeUndefined()
+    vi.advanceTimersByTime(2_999)
+    expect(fake.app.store.getState().pickHint).not.toBeNull()
+    vi.advanceTimersByTime(1)
+    expect(fake.app.store.getState().pickHint).toBeNull()
+  })
+
+  it("refuses an edge of another body than the field's body, with the hint under the field", async () => {
     const fake = await filletOnCube()
     const pegEdge: ElementDescriptor = {
       ...CUBE_TOP_FRONT_EDGE,
@@ -139,9 +153,29 @@ describe('capturePick', () => {
       reference: { q: 'edge(f-cyl1/top|f-cyl1/side)', fp: 'circle|r=4' },
     }
     await capturePick(fake.app, elementItem(pegEdge, 'Peg'))
-    expect(notificationWith(fake.app, MESSAGES.pick_same_body('edge', 'Cube')).severity).toBe(
-      'info',
-    )
+    expect(fake.app.store.getState().pickHint).toEqual({
+      message: MESSAGES.pick_same_body('edge', 'Cube'),
+      field: 'edges',
+    })
+  })
+
+  it('a newer refusal replaces the hint and gets its own 3 s', async () => {
+    const fake = await filletOnCube()
+    vi.useFakeTimers()
+    await capturePick(fake.app, elementItem(CUBE_TOP_FACE, 'Cube'))
+    vi.advanceTimersByTime(2_000)
+    await capturePick(fake.app, elementItem(CUBE_TOP_FACE, 'Cube'))
+    vi.advanceTimersByTime(1_000)
+    expect(fake.app.store.getState().pickHint?.field).toBe('edges')
+    vi.advanceTimersByTime(2_000)
+    expect(fake.app.store.getState().pickHint).toBeNull()
+  })
+
+  it('canceling the command removes its hint', async () => {
+    const fake = await filletOnCube()
+    await capturePick(fake.app, elementItem(CUBE_TOP_FACE, 'Cube'))
+    await cancelCommand(fake.app)
+    expect(fake.app.store.getState().pickHint).toBeNull()
   })
 })
 

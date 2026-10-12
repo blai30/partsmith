@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createFakeCoreModule } from '../test/fakes/core-module'
 import { readRequest, readResponse, requestFrame, responseFrame } from '../test/fakes/protocol'
-import { callCore, CoreOutOfMemoryError } from './bridge'
+import { callCore, CoreOutOfMemoryError, wrapEmscriptenModule } from './bridge'
 
 function engineInfoModule() {
   return createFakeCoreModule((request) =>
@@ -84,5 +84,20 @@ describe('callCore', () => {
     expect(() => callCore(module, requestFrame(1, { type: 'engine_info' }))).toThrow(
       CoreOutOfMemoryError,
     )
+  })
+})
+
+describe('wrapEmscriptenModule', () => {
+  it('reads pointers above 2 GiB as unsigned addresses', () => {
+    const heap = new Uint8Array(0)
+    const wrapped = wrapEmscriptenModule({
+      _ps_alloc: () => -511999960,
+      _ps_free: () => undefined,
+      _ps_call: () => -2147483648,
+      HEAPU8: heap,
+    })
+    expect(wrapped.alloc(8)).toBe(3782967336)
+    expect(wrapped.call(0, 0, 0)).toBe(2147483648)
+    expect(wrapped.memory()).toBe(heap)
   })
 })

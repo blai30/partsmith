@@ -2737,7 +2737,7 @@ Bed outline: in Print context, after a report, the bed outline of the report's p
 - While a feature command is active, the export commands are disabled with `finish_command_first` (export uses the model state, which ignores the focus).
 - The top-bar Export button, `Mod+Shift+E` and the Document menu open the export popover (`data-testid="export-popover"`): Format (radio group 3MF, STL, OBJ, STEP; default 3MF), Bodies (radio group "All visible bodies", "Selected bodies"; the second is disabled unless bodies are selected), and an "Export" button.
 - The Print toolbar's "Export 3MF" exports 3MF of all visible bodies directly; its Export group exports STL, OBJ or STEP of all visible bodies directly.
-- The export popover shows, above its Export button, up to three status lines (`data-testid="export-status"`, `text-xs`; `exportStatus` in `src/export/status.ts`), so what is about to be printed is clear while export stays one click with no confirmation: (1) when an active feature has status `error`, `export_failed_features` with the `warningMark` hazard icon and a button "Show problems" (opens the Problems panel); (2) for 3MF and STL only, "Print check: {state}" with the health badge's icon and text (3.17; "Not checked" for `none`, " (out of date)" appended when stale) and, when the badge is `none` or stale, a button "Check print" that runs the analysis and opens the print check panel; (3) for 3MF and STL while `print.orientation` is set, `orientation_set` with its "Print as modeled" button.
+- The export popover shows, above its Export button, up to three status lines (`data-testid="export-status"`, `text-xs`; `exportStatus` in `src/export/status.ts`), so what is about to be printed is clear while export stays one click with no confirmation: (1) when an active feature has status `error`, `export_failed_feature` (one feature) or `export_failed_features` (several) with the `warningMark` hazard icon and a button "Show problems" (opens the Problems panel); (2) for 3MF and STL only, "Print check: {state}" with the health badge's icon and text (3.17; "Not checked" for `none`, " (out of date)" appended when stale) and, when the badge is `none` or stale, a button "Check print" that runs the analysis and opens the print check panel; (3) for 3MF and STL while `print.orientation` is set, `orientation_set` with its "Print as modeled" button.
 - `exportModel(request)`: the bodies are the visible bodies with model-layer geometry, or the selected bodies. With none, the error notification "There is no visible body with geometry to export." appears and the core is not called. Otherwise `exportBodies(documentHandle, format, bodies, orientation)` with `{"kind": "3mf"}`, `{"kind": "stl", "binary": true, "per_body": false}`, `{"kind": "obj"}` or `{"kind": "step"}`; 3MF and STL pass `print.orientation` when one is set, OBJ and STEP stay as modeled.
 - The single returned file is saved with `files.chooseSaveTarget('{document name}.{3mf|stl|obj|step}', kind)` and `files.write`. A canceled picker does nothing. Success shows the success notification "Exported {file name}.", or, when an active feature has status `error`, the warning notification `exported_with_failures` with "Show problems" instead (this covers the Print toolbar's direct exports, which have no popover). Each warning diagnostic shows a warning notification with its message. A `CoreError` shows its message as an error notification.
 
@@ -2829,12 +2829,12 @@ Every message the user sees follows the architecture's error rule:
 | --- | --- | --- |
 | Invalid expression in a field | Under the field (`field-error`, `errorText`), field border `errorMark`; OK disabled | Edit the field |
 | Invalid sketch dimension value | In the dimension editor | Edit the value, "Add reference" when over-constraining |
-| Feature status during a command (preview) | Inspector banner (`inspector-error`), and the mapped field's `field-error` (3.7) | Errors and warnings whose `field` maps to a field: the field is highlighted and focused by clicking the message; "Use {suggestion}" when the message has a `suggestion` |
-| Feature status after a user change: a feature goes from not-error to error | One notification: for one feature "{label} failed. {message}" with "Edit" and "Undo"; for several "{n} features failed after this change." with "Show problems" and "Undo" | As listed |
-| Feature warnings and errors at rest | Timeline and browser badges, tooltips, Problems panel, selection inspector | "Edit" opens the inspector, where repairs re-pick the reference (the field `Repair.path` maps to, 3.7, becomes the active selection field); "Use {suggestion}" applies `update_feature` with the value at `field` replaced (label "Change {label}") |
+| Feature status during a command (preview) | Inspector banner (`inspector-error`), and the mapped field's `field-error` (3.7) | Errors and warnings whose `field` maps to a field: the field is highlighted and focused by clicking the message; "Use {suggestion}" when the message has a `suggestion`. In a feature with an inline Reverse (2.12): an `out_of_range` error whose `field` maps to the field Reverse is attached to (`attachedTo`), holding a plain number (2.13) that starts with `-`, offers "Reverse and use {text without the leading -}", which toggles Reverse and sets that text; a `no_effect` warning while Operation is Cut or Intersect, and a `through_all_misses` error, offer "Reverse", which toggles Reverse |
+| Feature status after a user change: a feature goes from not-error to error | One notification (`Notification.features` naming those features): for one feature "{label} failed. {message}" with "Edit" and "Undo"; for several "{n} features failed after this change." with "Show problems" and "Undo". During a sketch session, sketch edits raise none (the timeline and browser badges show the failures); when the session ends, the features in error that were not in error when it started raise this notification once. The notification is dismissed automatically when none of the features it names is in error anymore | As listed |
+| Feature warnings and errors at rest | Timeline and browser badges, tooltips, Problems panel, selection inspector | For a feature whose status has `repairs`, the "Edit" action (notification, Problems panel row, selection inspector) reads "Re-pick {field label}", the label of the field the first repair's `path` maps to (3.7), and runs `editFeature` with that field active, as "Edit" does; the repair marker (3.7) shows where the lost element was. "Edit" opens the inspector, where repairs re-pick the reference (the field `Repair.path` maps to, 3.7, becomes the active selection field); "Use {suggestion}" applies `update_feature` with the value at `field` replaced (label "Change {label}") |
 | Sketch over-constraint while adding | Notification (3.16.6) or dimension editor (3.16.7) | "Replace them", "Add reference", "Cancel" |
-| Sketch conflicts and redundancy at rest | Sketch header, glyph and label colors, sketch problems popover | "Delete" per constraint |
-| Profile issues | Rings and halos in sketch mode; notification on finishing | "Back to sketch" |
+| Sketch conflicts and extra constraints at rest | Sketch header, glyph and label colors, sketch problems popover | "Delete" per constraint; "Select them" for free geometry (3.16.8) |
+| Profile (outline) issues | Rings and halos in sketch mode, the header's outline suffix; warning notification on finishing | "Back to sketch" |
 | Command failed in the core (`CoreError`) | Error notification with the core message | "Undo" when the error followed an edit that was applied; otherwise none |
 | `focus_inactive` when editing | Error notification with the core message | "Unsuppress" or "Move marker to the end" |
 | File, export and permission errors | Error notification (4.3) | "Save as", "Open..." |
@@ -2843,7 +2843,7 @@ Every message the user sees follows the architecture's error rule:
 
 ### 4.3 UI-owned messages
 
-`src/messages.ts` exports each of these as a function of its placeholders; tests compare exact text.
+`src/messages.ts` exports each of these as a function of its placeholders; tests compare exact text. A shortcut placeholder such as `{L}` or `{Mod+Enter}` is `formatShortcut` of that shortcut for the platform; `{key}` in `sketch_free_placement` is "Ctrl" on Windows and Linux and "⌘" on macOS; `{failed}` in `exported_with_failures` is the text of `export_failed_feature` or `export_failed_features`.
 
 | Id | Text | Severity | Actions |
 | --- | --- | --- | --- |
@@ -2865,21 +2865,28 @@ Every message the user sees follows the architecture's error rule:
 | `recovered` | Partsmith kept unsaved changes to {name} from {time}. | info (persistent) | Open, Discard |
 | `nothing_to_export` | There is no visible body with geometry to export. | error | none |
 | `exported` | Exported {file}. | success | none |
+| `exported_with_failures` | Exported {file}. {failed} | warning | Show problems |
+| `export_failed_feature` | {label} failed, so it is not in the export. | status line | Show problems |
+| `export_failed_features` | {n} features failed, so they are not in the export. | status line | Show problems |
 | `deleted` | Deleted {label}. | info | Undo |
 | `feature_failed` | {label} failed. {message} | error | Edit, Undo |
 | `features_failed` | {n} features failed after this change. | error | Show problems, Undo |
-| `over_constrained` | {title} would over-constrain the sketch: it conflicts with {list}. | warning | Replace them, Cancel |
+| `over_constrained` | {title} conflicts with {list}, so it was not added. | warning | Replace them, Cancel |
 | `redundant_constraint` | {title} is already implied by other constraints, so it was not added. | info | none |
-| `dimension_over_constrained` | This dimension would over-constrain the sketch. Add it as a reference dimension that only measures? | inline | Add reference, Cancel |
+| `dimension_over_constrained` | Other dimensions and constraints already set this size. Add it as a reference dimension that only shows the measurement? | inline | Add reference, Cancel |
 | `dimension_unsolvable` | The sketch cannot be solved with this value. Check for dimensions that cannot all be true at once. | inline | none |
-| `cannot_dimension` | Partsmith cannot dimension {a} and {b}. | hint | none |
+| `cannot_dimension` | Partsmith cannot dimension {a} and {b}. Pick two points, a point and a line, two lines, or one circle or arc. | hint | none |
 | `arc_collinear` | These three points are in a line. Move the last point off the line to make an arc. | hint | none |
-| `profile_problems` | {label} has {n} profile problems, so some regions may not extrude. | info | Back to sketch |
+| `profile_problems` | {label} has {outline}, so some shapes cannot be extruded. | warning | Back to sketch |
+| `sketch_dof_help` | Blue geometry can still move or change size. Add dimensions ({D}) or constraints where the size matters; you can extrude at any time. | popover | none |
 | `units_changed` | Units are now {unit}. Numbers typed without a unit now mean {unit}. | info | none |
 | `pick_plane` | Pick a flat face, a datum plane or an origin plane. | hint | none |
 | `pick_axis` | Pick a straight edge, a sketch line, a round face or an origin axis. | hint | none |
 | `pick_kind` | Pick {plural noun}. | hint | none |
-| `pick_same_body` | Pick {kind}s of '{body}', or clear Body first. | hint | none |
+| `pick_points` | Click a flat face or pick sketch points. | hint | none |
+| `pick_flat_face` | Pick a flat face. | hint | none |
+| `pick_same_body` | All {plural noun} must be on '{body}'. Remove them to pick {plural noun} of another body. | hint | none |
+| `hole_one_face` | One Hole puts its holes on one face. Press Enter to finish this one, then start another. | hint | none |
 | `parameter_name` | Names start with a letter or _ and use only letters, digits and _. | inline | none |
 | `field_required` | {label} needs a value. | inline | none |
 | `field_not_number` | {label} must be a number. | inline | none |
@@ -2887,9 +2894,35 @@ Every message the user sees follows the architecture's error rule:
 | `nothing_to_undo` | Nothing to undo. | disabled reason | none |
 | `nothing_to_redo` | Nothing to redo. | disabled reason | none |
 | `finish_command_first` | Finish or cancel {title} first. | disabled reason | none |
+| `needs_sketch_region` | Draw a closed shape in a sketch first. | disabled reason | none |
+| `needs_solid` | Make a solid first, for example with Extrude or Box. | disabled reason | none |
+| `needs_two_bodies` | Boolean needs two bodies with geometry. Make a second body first, for example with Box. | disabled reason | none |
+| `nothing_to_repeat` | No command to repeat yet. | disabled reason | none |
 | `import_not_editable` | Imported geometry has no settings to edit. | disabled reason | none |
 | `fill_fields` | Fill in the highlighted fields first. | disabled reason | none |
 | `core_not_running` | The geometry core is not running. | disabled reason | none |
+| `command_canceled` | {title} was canceled. | info | Restore |
+| `plane_pick_hint` | Top plane (XY) is the print bed. | hint | none |
+| `sketch_step_start` | Choose Line ({L}), Rectangle ({R}) or Circle ({C}) to start drawing. | hint | none |
+| `sketch_step_line_start` | Click to start a line. | hint | none |
+| `sketch_step_line_next` | Click to end the segment, or type a length. Click the first point to close the shape, or press {Enter} to stop. | hint | none |
+| `sketch_step_corner` | Click the first corner. | hint | none |
+| `sketch_step_opposite_corner` | Click the opposite corner, or type the width. | hint | none |
+| `sketch_step_center` | Click the center. | hint | none |
+| `sketch_step_rectangle_corner` | Click a corner, or type the width. | hint | none |
+| `sketch_step_circle_size` | Click to set the size, or type the diameter. | hint | none |
+| `sketch_step_arc_start` | Click where the arc starts. | hint | none |
+| `sketch_step_arc_end` | Click where it ends. | hint | none |
+| `sketch_step_arc_shape` | Move to shape the arc, then click, or type the radius. | hint | none |
+| `sketch_step_point` | Click to place a point. | hint | none |
+| `sketch_step_dimension` | Click a line, circle, arc or point. | hint | none |
+| `sketch_step_dimension_place` | Click to place the dimension, or click a second point or line to measure between them. | hint | none |
+| `sketch_step_dimension_second` | Click a second point or a line. | hint | none |
+| `sketch_step_dimension_label` | Click to place the dimension. | hint | none |
+| `sketch_free_placement` | Hold {key} to place freely. | hint | none |
+| `sketch_leave` | To leave the sketch, click Finish sketch or press {Mod+Enter}. | hint (3 s) | none |
+| `print_pick_face` | Pick the face that should touch the bed. | hint | none |
+| `orientation_set` | Printing with the picked face of {body} on the bed. | status line | Print as modeled |
 | `region_crashed` | This part of the window hit a problem. Reload to restore it. | region fallback | Reload |
 
 ### 4.4 Fatal states
@@ -2941,22 +2974,22 @@ Tests use these stable selectors only (plus accessible roles and names given in 
 | `unsupported` | Unsupported page | |
 | `core-overlay`, `core-fatal` | Loading overlay, fatal panel | |
 | `top-bar`, `document-name`, `save-state`, `document-menu`, `palette-button`, `theme-toggle` | Top bar parts | `document-name`: `data-dirty`; `theme-toggle`: `aria-pressed` |
-| `palette`, `palette-input`, `palette-option`, `palette-shortcut` | Palette | option: `data-item-id`, `data-kind` |
+| `palette`, `palette-input`, `palette-option`, `palette-shortcut`, `palette-heading`, `palette-empty`, `palette-footer` | Palette | option: `data-item-id`, `data-kind` |
 | `browser`, `browser-row` | Browser | row: `data-kind`, `data-id` |
 | `color-popover` | Body color popover | |
-| `viewport` | Viewport | `data-hover-kind`, `data-hover-key`, `data-selection-count`, `data-view`, `data-projection`, `data-nav-preset`, `data-section`, `data-camera-target` |
-| `view-cube`, `viewport-controls`, `section-popover` | Viewport chrome | |
+| `viewport` | Viewport | `data-hover-kind`, `data-hover-key`, `data-selection-count`, `data-view`, `data-projection`, `data-nav-preset`, `data-section`, `data-camera-target`, `data-grid-spacing` |
+| `view-cube`, `viewport-controls`, `section-popover`, `viewport-menu`, `empty-state`, `plane-label`, `repair-marker` | Viewport chrome | |
 | `inspector` | Inspector | `data-mode` (`command`, `selection`), `data-preview` (`none`, `pending`, `shown`, `failed`) |
 | `inspector-field`, `inspector-more`, `inspector-ok`, `inspector-error` | Inspector parts | field: `data-path` |
 | `selection-field` | Selection field box | `data-active`, `data-count` |
-| `expression-result`, `field-error` | Expression field parts | |
-| `selection-title`, `body-size`, `body-center` | Selection inspector parts | |
-| `timeline`, `timeline-item`, `timeline-marker`, `timeline-problems`, `context-menu` | Timeline | item: `data-feature-id`, `data-status`, `data-suppressed`, `data-rolled-back` |
-| `side-panel`, `parameters-panel`, `parameter-row`, `parameter-value`, `problems-panel`, `health-list`, `health-item` | Side panels | row: `data-id`; health item: `data-check`, `data-severity` |
-| `sketch-header`, `sketch-problems`, `sketch-hint` | Sketch chrome | header: `data-state`, `data-dof` |
+| `expression-result`, `field-error`, `expression-suggestions` | Expression field parts | |
+| `selection-title`, `body-size`, `body-center`, `entity-size`, `measure-row` | Selection inspector parts | measure row: `data-measure` |
+| `timeline`, `timeline-item`, `timeline-marker`, `timeline-problems`, `context-menu`, `timeline-empty` | Timeline | item: `data-feature-id`, `data-status`, `data-suppressed`, `data-rolled-back` |
+| `side-panel`, `parameters-panel`, `parameter-row`, `parameter-value`, `parameters-empty`, `parameters-transaction`, `problems-panel`, `health-list`, `health-item`, `keys-panel` | Side panels | row: `data-id`; health item: `data-check`, `data-severity` |
+| `sketch-header`, `sketch-problems`, `sketch-hint` | Sketch chrome | header: `data-state`, `data-dof`, `data-outline` |
 | `sketch-dimension`, `dimension-editor`, `constraint-glyph`, `inference-glyph`, `draw-input`, `profile-issue`, `box-selection` | Sketch overlay | dimension: `data-constraint-id`, `data-type`, `data-driving`; glyph: `data-constraint-id`, `data-type`, `data-state`; inference: `data-type` |
-| `status-bar`, `status-core`, `status-dof`, `status-recompute`, `status-units`, `status-printer`, `health-badge` | Status bar | dof: `data-dof`, `data-state`; badge: `data-state`, `data-stale` |
-| `printer-menu`, `checks-popover`, `overhang-legend`, `finding-marker`, `export-popover`, `drop-overlay` | Print and export | |
+| `status-bar`, `status-core`, `status-dof`, `status-grid`, `status-recompute`, `status-units`, `status-printer`, `health-badge` | Status bar | dof: `data-dof`, `data-state`; badge: `data-state`, `data-stale` |
+| `printer-menu`, `checks-popover`, `overhang-legend`, `finding-marker`, `print-hint`, `export-popover`, `export-status`, `drop-overlay` | Print and export | |
 | `notification` | Notification | `data-severity`, `data-code` |
 | (any) | Element positioned at runtime (3.12) | `data-positioned`; its `style` attribute holds only `translate` (the view cube rotor: only `transform`) |
 

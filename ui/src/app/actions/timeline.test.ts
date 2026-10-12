@@ -17,7 +17,15 @@ import {
 } from '../../test/fakes/documents'
 import { withoutNulls, editsOf } from '../../test/fakes/protocol'
 import { settle } from '../../test/fakes/settle'
-import { deleteFeatures, moveFeature, renameFeature, setRollback, setSuppressed } from './timeline'
+import {
+  deleteFeatures,
+  moveFeature,
+  renameFeature,
+  setRollback,
+  setSuppressed,
+  startRollbackDrag,
+  type RollbackDrag,
+} from './timeline'
 
 /** The apply_edits requests as { label, edits }, null fields removed. */
 function appliedEdits(fake: FakeApp): unknown[] {
@@ -213,5 +221,90 @@ describe('renameFeature (3.9)', () => {
     const feature = edit?.type === 'update_feature' ? edit.feature : null
     expect(feature?.id).toBe('f-ext1')
     expect(feature?.name ?? null).toBeNull()
+  })
+})
+
+describe('startRollbackDrag (3.9)', () => {
+  /** A drag of the marker of cube-features.ptsm (4 features, nothing rolled back) from the end. */
+  async function dragFromEnd(): Promise<{ fake: FakeApp; drag: RollbackDrag }> {
+    const fake = await cubeFeatures()
+    fake.transport.clearRequests()
+    const drag = startRollbackDrag(fake.app, 4)
+    if (drag === null) {
+      throw new Error('The drag did not start.')
+    }
+    return { fake, drag }
+  }
+
+  it('begins "Roll back" and moves the model live with unlabeled set_rollback edits', async () => {
+    const { fake, drag } = await dragFromEnd()
+    drag.move(2)
+    await settle()
+    expect(fake.transport.commandsOfType('begin_transaction')).toEqual([
+      expect.objectContaining({ type: 'begin_transaction', label: 'Roll back' }),
+    ])
+    expect(appliedEdits(fake)).toEqual([{ edits: [{ type: 'set_rollback', rollback: 'f-fil1' }] }])
+    expect(currentDocument(fake.app).recipe.rollback).toBe('f-fil1')
+    expect(currentDocument(fake.app).transactionOpen).toBe(true)
+  })
+
+  it('sends the newest gap after the one in flight, skipping the gaps in between', async () => {
+    const { fake, drag } = await dragFromEnd()
+    drag.move(3)
+    drag.move(2)
+    drag.move(1)
+    await settle()
+    expect(appliedEdits(fake)).toEqual([
+      { edits: [{ type: 'set_rollback', rollback: 'f-sh1' }] },
+      { edits: [{ type: 'set_rollback', rollback: 'f-ext1' }] },
+    ])
+  })
+
+  it('dropping commits the transaction as one undo entry labeled "Roll back"', async () => {
+    const { fake, drag } = await dragFromEnd()
+    drag.move(1)
+    await drag.drop()
+    await settle()
+    expect(fake.transport.commandTypes()).toEqual([
+      'begin_transaction',
+      'apply_edits',
+      'commit_transaction',
+    ])
+    const document = currentDocument(fake.app)
+    expect(document.recipe.rollback).toBe('f-ext1')
+    expect(document.transactionOpen).toBe(false)
+    expect(document.undoLabel).toBe('Roll back')
+  })
+
+  it('cancel (Esc) cancels the transaction and the marker returns', async () => {
+    const { fake, drag } = await dragFromEnd()
+    drag.move(1)
+    await settle()
+    await drag.cancel()
+    await settle()
+    expect(fake.transport.commandTypes()).toContain('cancel_transaction')
+    expect(fake.transport.commandTypes()).not.toContain('commit_transaction')
+    expect(currentDocument(fake.app).recipe.rollback ?? null).toBeNull()
+    expect(currentDocument(fake.app).transactionOpen).toBe(false)
+  })
+
+  it('dropping at the starting gap cancels', async () => {
+    const { fake, drag } = await dragFromEnd()
+    drag.move(2)
+    drag.move(4)
+    await drag.drop()
+    await settle()
+    expect(fake.transport.commandTypes()).toContain('cancel_transaction')
+    expect(fake.transport.commandTypes()).not.toContain('commit_transaction')
+    expect(currentDocument(fake.app).recipe.rollback ?? null).toBeNull()
+  })
+
+  it('a move after the drop sends nothing', async () => {
+    const { fake, drag } = await dragFromEnd()
+    drag.move(1)
+    await drag.drop()
+    drag.move(2)
+    await settle()
+    expect(fake.transport.commandsOfType('apply_edits')).toHaveLength(1)
   })
 })

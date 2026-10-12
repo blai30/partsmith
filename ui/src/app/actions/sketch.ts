@@ -38,7 +38,7 @@ import type { App } from '../createApp'
 import { cancelCommand } from './command'
 import { coreRedo, coreUndo } from './document'
 import { commitEdits, documentOf, reportNewFailures, showCoreError } from './edits'
-import { dismiss, notify } from './notifications'
+import { dismiss, notify, showPickHint } from './notifications'
 
 // Sketch mode (ui.md 3.16): entering, leaving and navigating it (3.16.1, 3.16.11, 3.20), and the
 // changes its tools commit: geometry, constraints, dimensions, construction and deletion.
@@ -185,7 +185,8 @@ export async function createSketchOn(app: App, plane: SelectionItem): Promise<vo
     return
   }
   if (sketchPlane === null) {
-    notify(app, { severity: 'info', message: MESSAGES.pick_plane(), actions: [] })
+    // While picking the plane of a new sketch, the hint shows in the sketch header (3.16.1).
+    showPickHint(app, MESSAGES.pick_plane(), null)
     return
   }
   const features = document.recipe.features ?? []

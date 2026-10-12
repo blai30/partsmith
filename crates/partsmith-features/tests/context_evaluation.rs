@@ -3,6 +3,13 @@
 //! Each test builds a `BuildContext` for the `probe` test feature, whose manifest labels its fields
 //! Distance, Angle and Count, with one declared expression use.
 
+// `FeatureError` keeps the payload types the spec gives, so test helpers that return it are larger
+// than clippy's threshold, as in the crate itself (see `lib.rs`).
+#![expect(
+    clippy::result_large_err,
+    reason = "FeatureError keeps the payload types the spec gives"
+)]
+
 mod common;
 
 use std::f64::consts::FRAC_PI_2;
