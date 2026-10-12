@@ -38,6 +38,7 @@ import {
   type StandardView,
   type Vector3,
 } from './camera'
+import { drawnGridSpacing } from './grid'
 import { scale } from './math'
 import {
   gestureFor,
@@ -387,6 +388,15 @@ export function createViewportController(options: {
     }
     positionAnchors()
     mirrorCameraTarget()
+    mirrorGridSpacing(state)
+  }
+
+  /** Mirrors the drawn grid's minor spacing in the store when it changes, for the status bar (3.12, 3.21). */
+  function mirrorGridSpacing(state: AppState): void {
+    const spacing = drawnGridSpacing(state, camera, size.height)
+    if (state.view.gridSpacing !== spacing) {
+      store.setState((current) => ({ view: { ...current.view, gridSpacing: spacing } }))
+    }
   }
 
   /** The CSS pixel position of a world point, or null behind the eye. */

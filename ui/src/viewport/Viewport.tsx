@@ -58,6 +58,12 @@ function setView(app: App, change: Partial<ViewState>): void {
   app.store.setState((state) => ({ view: { ...state.view, ...change } }))
 }
 
+/** The drawn grid's minor spacing in the document unit, or empty when no grid is drawn (3.12). */
+function gridSpacingText(state: AppState): string {
+  const spacing = state.view.gridSpacing
+  return spacing === null ? '' : formatNumber(spacing, 'length', state.document?.recipe.units ?? 'mm')
+}
+
 const AXIS_LABELS = ['X', 'Y', 'Z'] as const
 
 /** The axis labels at the positive ends of the visible origin axes, anchored in the overlay (3.12). */
@@ -297,6 +303,7 @@ export function Viewport({ children }: ViewportProps) {
   const hoverKind = useAppState((state) => state.hover?.kind ?? 'none')
   const hoverKey = useAppState((state) => state.hover?.key ?? null)
   const selectionCount = useAppState((state) => state.selection.length)
+  const gridSpacing = useAppState(gridSpacingText)
   const findingPoint = useAppState(focusedFindingPoint)
   // The controller draws a frame when the print state changes, which places the marker (3.17).
   const findingMarker = useRef<SVGCircleElement>(null)
@@ -396,6 +403,7 @@ export function Viewport({ children }: ViewportProps) {
       data-hover-kind={hoverKind}
       data-hover-key={hoverKey ?? undefined}
       data-selection-count={selectionCount}
+      data-grid-spacing={gridSpacing}
       className="relative col-start-2 row-start-2 min-h-0 min-w-0 overflow-hidden"
     >
       {/* The spec makes the view one focusable application that takes the camera keys (3.13). */}
