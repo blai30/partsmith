@@ -42,4 +42,4 @@ ruff format python/partsmith python/tests/test_unit_*.py && ruff check python/pa
 
 - No modeling logic in Python beyond the spec's argument mapping; the engine owns behavior and code generation (`export_python`).
 - The only module-level mutable state is the `ContextVar`s in `document.py`.
-- `selectors`, `features` and `sketch` import each other in one direction only; `document.py` and `sketch.py` import the higher modules inside the few functions that need them.
+- Modules import in the order `document`, `sketch`, `selectors`, `features`; `document.py`, `sketch.py` and `selectors.py` import a later module only inside the few functions that need it.

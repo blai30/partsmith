@@ -52,6 +52,14 @@ cmake_args=(
   -DUSE_DRACO=OFF
 )
 
+# On Windows, OCCT installs into inc/ and win64/vc14/lib/ by default; partsmith-occt-sys expects
+# include/opencascade/ and lib/, as on Unix (delivery.md section 3.6).
+case "$(uname -s)" in
+  MINGW* | MSYS* | CYGWIN*)
+    cmake_args+=(-DINSTALL_DIR_LAYOUT=Unix)
+    ;;
+esac
+
 case "$target" in
   native)
     cmake "${cmake_args[@]}"
