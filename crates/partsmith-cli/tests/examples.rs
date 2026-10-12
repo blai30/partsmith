@@ -194,7 +194,7 @@ fn example_files() -> Vec<String> {
 }
 
 /// One example, `examples/<path>.ptsm`, and its companion files.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 struct Example {
     /// The path relative to `examples/`, without extension, for example `box/default`.
     path: String,
