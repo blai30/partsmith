@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { createFakeIndexedDb } from '../test/fakes/indexed-db'
 import { createIndexedDbRecovery, createMemoryRecovery, type RecoveryEntry } from './recovery'
 
 const ENTRY: RecoveryEntry = {
@@ -68,5 +69,56 @@ describe('createIndexedDbRecovery', () => {
     await expect(recovery.clear()).resolves.toBeUndefined()
     expect(warn).toHaveBeenCalled()
     expect(warn.mock.calls.flat().map(String).join(' ')).toMatch(/recovery/i)
+  })
+
+  it('reads null before anything is written', async () => {
+    expect(await createIndexedDbRecovery(createFakeIndexedDb().factory).read()).toBeNull()
+  })
+
+  it('writes the entry as the one record with slot current and reads it back', async () => {
+    const fake = createFakeIndexedDb()
+    const recovery = createIndexedDbRecovery(fake.factory)
+    await recovery.write(ENTRY)
+    expect(fake.records('partsmith', 'recovery')).toEqual([{ ...ENTRY, slot: 'current' }])
+    expect(await recovery.read()).toEqual(ENTRY)
+  })
+
+  it('keeps one record: a second write replaces the first', async () => {
+    const fake = createFakeIndexedDb()
+    const recovery = createIndexedDbRecovery(fake.factory)
+    const handle = { kind: 'file', name: 'bracket.ptsm' } as unknown as FileSystemFileHandle
+    const replaced: RecoveryEntry = { ...ENTRY, savedAt: 2000, handle, reason: 'replaced' }
+    await recovery.write(ENTRY)
+    await recovery.write(replaced)
+    expect(fake.records('partsmith', 'recovery')).toHaveLength(1)
+    expect(await recovery.read()).toEqual(replaced)
+  })
+
+  it('clear deletes the record', async () => {
+    const fake = createFakeIndexedDb()
+    const recovery = createIndexedDbRecovery(fake.factory)
+    await recovery.write(ENTRY)
+    await recovery.clear()
+    expect(fake.records('partsmith', 'recovery')).toEqual([])
+    expect(await recovery.read()).toBeNull()
+  })
+
+  it('keeps the entry for a later session', async () => {
+    const fake = createFakeIndexedDb()
+    await createIndexedDbRecovery(fake.factory).write(ENTRY)
+    expect(await createIndexedDbRecovery(fake.factory).read()).toEqual(ENTRY)
+  })
+
+  it.each([
+    ['a reason that is not autosave or replaced', { reason: 'crash' }],
+    ['text that is not a string', { text: 42 }],
+    ['a handle that is not a file handle', { handle: { kind: 'directory' } }],
+    ['no savedAt', { savedAt: undefined }],
+  ])('reads null for a stored record with %s', async (_, change) => {
+    const fake = createFakeIndexedDb()
+    const recovery = createIndexedDbRecovery(fake.factory)
+    await recovery.clear()
+    fake.putRecord('partsmith', 'recovery', { ...ENTRY, ...change, slot: 'current' })
+    expect(await recovery.read()).toBeNull()
   })
 })

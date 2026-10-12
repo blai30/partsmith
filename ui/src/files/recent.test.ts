@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { createFakeIndexedDb } from '../test/fakes/indexed-db'
 import {
   createIndexedDbRecentFiles,
   createMemoryRecentFiles,
+  type RecentFile,
   type RecentFilesStore,
 } from './recent'
 
@@ -201,5 +203,154 @@ describe('createIndexedDbRecentFiles', () => {
     await expect(store.forget('missing')).resolves.toBeUndefined()
     expect(warn).toHaveBeenCalled()
     expect(warn.mock.calls.flat().map(String).join(' ')).toMatch(/recent/i)
+  })
+
+  it('U-76 keeps the 10 newest of 11 entries, newest first, and deletes the oldest record', async () => {
+    const fake = createFakeIndexedDb()
+    const time = clock(1000)
+    const store = createIndexedDbRecentFiles(fake.factory, time.now)
+    const entries = Array.from({ length: 11 }, (_, index) => ({
+      name: `part-${String(index + 1)}.ptsm`,
+      handle: null,
+      text: `{"part": ${String(index + 1)}}`,
+    }))
+    await rememberInOrder(store, entries, time.tick)
+    const names = (await store.list()).map((entry) => entry.name)
+    expect(names).toEqual(
+      entries
+        .map((entry) => entry.name)
+        .toReversed()
+        .slice(0, 10),
+    )
+    const stored = fake
+      .records('partsmith', 'recent')
+      .map((record) => Reflect.get(Object(record), 'name'))
+    expect(stored).toHaveLength(10)
+    expect(stored).not.toContain('part-1.ptsm')
+  })
+
+  it('U-76 a text entry with an existing name replaces its record', async () => {
+    const fake = createFakeIndexedDb()
+    const time = clock(1000)
+    const store = createIndexedDbRecentFiles(fake.factory, time.now)
+    await rememberInOrder(
+      store,
+      [
+        { name: 'a.ptsm', handle: null, text: 'first' },
+        { name: 'b.ptsm', handle: null, text: 'other' },
+        { name: 'a.ptsm', handle: null, text: 'second' },
+      ],
+      time.tick,
+    )
+    const list = await store.list()
+    expect(list.map((entry) => [entry.name, entry.text, entry.openedAt])).toEqual([
+      ['a.ptsm', 'second', 3000],
+      ['b.ptsm', 'other', 2000],
+    ])
+    expect(fake.records('partsmith', 'recent')).toHaveLength(2)
+  })
+
+  it('U-76 a handle entry whose handle isSameEntry an existing one replaces it and stores no text', async () => {
+    const fake = createFakeIndexedDb()
+    const time = clock(1000)
+    const store = createIndexedDbRecentFiles(fake.factory, time.now)
+    const again = fakeHandle('bracket.ptsm', '/models/bracket.ptsm')
+    await rememberInOrder(
+      store,
+      [
+        {
+          name: 'bracket.ptsm',
+          handle: fakeHandle('bracket.ptsm', '/models/bracket.ptsm'),
+          text: '{}',
+        },
+        { name: 'bracket.ptsm', handle: again, text: '{}' },
+      ],
+      time.tick,
+    )
+    const list = await store.list()
+    expect(list).toHaveLength(1)
+    expect(list[0]?.handle).toBe(again)
+    expect(list[0]?.text).toBeNull()
+  })
+
+  it('lists the stored entries by openedAt, newest first, whatever their ids', async () => {
+    const fake = createFakeIndexedDb()
+    const store = createIndexedDbRecentFiles(fake.factory)
+    // Creates the database, then stores entries whose id order is the reverse of their age.
+    await store.list()
+    const record = (id: string, name: string, openedAt: number): RecentFile => ({
+      id,
+      name,
+      openedAt,
+      handle: null,
+      text: '{}',
+    })
+    fake.putRecord('partsmith', 'recent', record('a', 'oldest.ptsm', 1000))
+    fake.putRecord('partsmith', 'recent', record('b', 'newest.ptsm', 3000))
+    fake.putRecord('partsmith', 'recent', record('c', 'middle.ptsm', 2000))
+    expect((await store.list()).map((entry) => entry.name)).toEqual([
+      'newest.ptsm',
+      'middle.ptsm',
+      'oldest.ptsm',
+    ])
+  })
+
+  it('skips stored records that are not recent files', async () => {
+    const fake = createFakeIndexedDb()
+    const store = createIndexedDbRecentFiles(fake.factory)
+    await store.list()
+    fake.putRecord('partsmith', 'recent', {
+      id: 'a',
+      name: 'good.ptsm',
+      openedAt: 1000,
+      handle: null,
+      text: '{}',
+    })
+    fake.putRecord('partsmith', 'recent', {
+      id: 'b',
+      name: 'bad.ptsm',
+      openedAt: 'yesterday',
+      handle: null,
+      text: '{}',
+    })
+    fake.putRecord('partsmith', 'recent', { id: 'c', name: 'no-handle-field.ptsm', openedAt: 2000 })
+    expect((await store.list()).map((entry) => entry.name)).toEqual(['good.ptsm'])
+  })
+
+  it('forget deletes the record with that id', async () => {
+    const fake = createFakeIndexedDb()
+    const time = clock(1000)
+    const store = createIndexedDbRecentFiles(fake.factory, time.now)
+    await rememberInOrder(
+      store,
+      [
+        { name: 'a.ptsm', handle: null, text: 'a' },
+        { name: 'b.ptsm', handle: null, text: 'b' },
+      ],
+      time.tick,
+    )
+    const [newest] = await store.list()
+    await store.forget(newest?.id ?? '')
+    expect((await store.list()).map((entry) => entry.name)).toEqual(['a.ptsm'])
+    expect(fake.records('partsmith', 'recent')).toHaveLength(1)
+  })
+
+  it('keeps the entries for a later session', async () => {
+    const fake = createFakeIndexedDb()
+    await createIndexedDbRecentFiles(fake.factory, () => 1000).remember({
+      name: 'bracket.ptsm',
+      handle: null,
+      text: '{"format": 1}',
+    })
+    const later = await createIndexedDbRecentFiles(fake.factory).list()
+    expect(later).toEqual([
+      {
+        id: expect.any(String),
+        name: 'bracket.ptsm',
+        openedAt: 1000,
+        handle: null,
+        text: '{"format": 1}',
+      },
+    ])
   })
 })
