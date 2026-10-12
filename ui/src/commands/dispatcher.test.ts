@@ -1,11 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import type { App, Platform } from '../app/createApp'
-import type { CoreApi } from '../core/api'
-import type { MutationQueue } from '../core/queue'
-import { createWebFileService } from '../files/file-service'
-import { createMemoryRecentFiles } from '../files/recent'
-import { createMemoryRecovery } from '../files/recovery'
-import { createAppStore, type AppContext } from '../state/store'
+import type { AppContext } from '../state/store'
+import { createTestApp as createFakeTestApp, LINUX_WEB, MAC_WEB } from '../test/fakes/app'
 import { installShortcutDispatcher } from './dispatcher'
 import {
   createCommandRegistry,
@@ -14,36 +10,10 @@ import {
   type CommandRegistry,
 } from './registry'
 
-const LINUX_WEB: Platform = { operatingSystem: 'linux', host: 'web' }
-const MAC_WEB: Platform = { operatingSystem: 'mac', host: 'web' }
 const ALL_CONTEXTS: readonly AppContext[] = ['model', 'sketch', 'print']
 
-// The core and the mutation queue are out of reach of these tests: calling any of their methods fails.
-function unreachable<Service extends object>(name: string): Service {
-  return new Proxy({} as Service, {
-    get: (_target, property) =>
-      typeof property === 'string'
-        ? () => {
-            throw new Error(`The test app has no ${name}; ${property} was called.`)
-          }
-        : undefined,
-  })
-}
-
 function createTestApp(commands: CommandRegistry, platform: Platform): App {
-  return {
-    store: createAppStore(),
-    core: unreachable<CoreApi>('core'),
-    mutations: unreachable<MutationQueue>('mutation queue'),
-    commands,
-    files: createWebFileService(window),
-    recent: createMemoryRecentFiles(),
-    recovery: createMemoryRecovery(),
-    platform,
-    viewport: () => null,
-    attachViewport: () => undefined,
-    restartCore: () => Promise.resolve(),
-  }
+  return createFakeTestApp({ commands, platform })
 }
 
 type Fixture = {
