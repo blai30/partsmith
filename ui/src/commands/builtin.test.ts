@@ -350,7 +350,7 @@ describe('running built-in commands', () => {
     expect(core.callsTo('undo')).toEqual([[1]])
   })
 
-  it('U-99 Finish sketch selects the finished sketch\'s only region (3.16.11)', async () => {
+  it("U-99 Finish sketch selects the finished sketch's only region (3.16.11)", async () => {
     const { app } = createModelApp({
       state: readyState(rectSketchDocumentState(), {
         context: 'sketch',

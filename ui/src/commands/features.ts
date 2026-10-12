@@ -3,7 +3,7 @@ import { startFeatureCommand } from '../app/actions/command'
 import type { App } from '../app/createApp'
 import type { Category } from '../generated/protocol'
 import { MESSAGES } from '../messages'
-import type { AppContext, Catalog } from '../state/store'
+import type { AppContext, Catalog, CatalogFeature } from '../state/store'
 import { FEATURE_ICONS } from './icons'
 import type { Availability, CommandCategory, CommandDefinition } from './registry'
 
@@ -40,7 +40,8 @@ export const FEATURE_SHORTCUTS: Readonly<
   >
 > = {
   extrude: { shortcuts: ['E'], contexts: ['model', 'sketch', 'print'] },
-  // Sketch mode has its own H (Horizontal), and these features need a finished model anyway.
+  // Sketch mode has its own H (Horizontal), F and M stay free there too, and these features act
+  // on a solid anyway; the commands themselves stay in the Sketch palette (2.10).
   hole: { shortcuts: ['H'], contexts: ['model', 'print'] },
   fillet: { shortcuts: ['F'], contexts: ['model', 'print'] },
   move_body: { shortcuts: ['M'], contexts: ['model', 'print'] },
@@ -66,23 +67,28 @@ function availability(app: App): Availability {
     : { state: 'disabled', reason: MESSAGES.core_not_running() }
 }
 
+/** The command of one catalog feature type. */
+function featureCommand(feature: CatalogFeature): CommandDefinition {
+  const bound = FEATURE_SHORTCUTS[feature.type]
+  const definition: CommandDefinition = {
+    id: `feature.${feature.type}`,
+    title: feature.manifest.label,
+    category: CATEGORIES[feature.manifest.category],
+    icon: FEATURE_ICONS[feature.manifest.icon] ?? Shapes,
+    keywords: FEATURE_KEYWORDS[feature.type] ?? [],
+    shortcuts: bound?.shortcuts ?? [],
+    // Every feature command is in every context (3.3); some of their letters are not (3.5).
+    contexts: ALL_CONTEXTS,
+    availability,
+    // The sketch type starts a new sketch; startFeatureCommand switches to Model first (3.3).
+    run: (app: App) => startFeatureCommand(app, feature.type),
+  }
+  return bound === undefined ? definition : { ...definition, shortcutContexts: bound.contexts }
+}
+
 /** The commands of the catalog's feature types, in catalog order. */
 export function featureCommands(catalog: Catalog): CommandDefinition[] {
   return catalog.features
     .filter((feature) => !WITHOUT_COMMAND.has(feature.type))
-    .map((feature) => {
-      const bound = FEATURE_SHORTCUTS[feature.type]
-      return {
-        id: `feature.${feature.type}`,
-        title: feature.manifest.label,
-        category: CATEGORIES[feature.manifest.category],
-        icon: FEATURE_ICONS[feature.manifest.icon] ?? Shapes,
-        keywords: FEATURE_KEYWORDS[feature.type] ?? [],
-        shortcuts: bound?.shortcuts ?? [],
-        contexts: bound?.contexts ?? ALL_CONTEXTS,
-        availability,
-        // The sketch type starts a new sketch; startFeatureCommand switches to Model first (3.3).
-        run: (app: App) => startFeatureCommand(app, feature.type),
-      }
-    })
+    .map(featureCommand)
 }

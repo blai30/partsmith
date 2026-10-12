@@ -1,4 +1,4 @@
-import type { Diagnostic, FeatureRecord } from '../generated/protocol'
+import type { Diagnostic, FeatureRecord, FeatureStatus, FieldHint } from '../generated/protocol'
 
 // Mapping a feature status message to the inspector field it is about (ui.md 3.7): a hint path
 // `a.b[1]` is the JSON pointer `/a/b/1`; a message's `field` maps to the field whose pointer equals
@@ -24,6 +24,26 @@ export function fieldForPointer(paths: readonly string[], pointer: string): stri
     }
   }
   return best?.path ?? null
+}
+
+/**
+ * The selection field the first repair of a feature's status maps to (4.2): the field to pick the
+ * lost reference again in. Null without repairs or when the repair maps to no selection field.
+ */
+export function repairField(
+  fields: readonly FieldHint[],
+  status: FeatureStatus | undefined,
+): FieldHint | null {
+  const [repair] = status?.repairs ?? []
+  if (repair === undefined) {
+    return null
+  }
+  const selectionFields = fields.filter((field) => (field.selection ?? null) !== null)
+  const path = fieldForPointer(
+    selectionFields.map((field) => field.path),
+    repair.path,
+  )
+  return selectionFields.find((field) => field.path === path) ?? null
 }
 
 /** The first message for each field a status message maps to. */

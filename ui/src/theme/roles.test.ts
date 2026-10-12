@@ -128,6 +128,7 @@ const VIEWPORT_TABLE: readonly (readonly [
   ['sketchReference', 'zinc-500', 'zinc-400', '#71717b', '#9f9fa9'],
   ['datum', 'zinc-400', 'zinc-500', '#9f9fa9', '#71717b'],
   ['bed', 'zinc-500', 'zinc-400', '#71717b', '#9f9fa9'],
+  ['grid', 'zinc-300', 'zinc-600', '#d4d4d8', '#52525c'],
   ['analysisLow', 'sky-200', 'sky-200', '#b8e6fe', '#b8e6fe'],
   ['analysisHigh', 'violet-700', 'violet-700', '#7008e7', '#7008e7'],
 ]

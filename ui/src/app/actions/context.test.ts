@@ -65,7 +65,7 @@ describe('setContext (3.3)', () => {
     expect(state.sketch).toBeNull()
   })
 
-  it('U-99 choosing Model in sketch mode selects the finished sketch\'s only region (3.16.11)', async () => {
+  it("U-99 choosing Model in sketch mode selects the finished sketch's only region (3.16.11)", async () => {
     const fake = await cube()
     await enterSketch(fake.app, 'f-sk1')
     await setContext(fake.app, 'model')

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { Diagnostic, Edit } from '../../generated/protocol'
+import type { Diagnostic, Edit, Repair } from '../../generated/protocol'
 import { MESSAGES } from '../../messages'
 import {
   actionLabels,
@@ -47,6 +47,16 @@ async function cubeWithStatuses(): Promise<{
 
 const FAILED: FakeFeatureStatus = { status: 'error', messages: [TOO_LARGE] }
 
+/** The first edge of Fillet 1, which no longer resolves. */
+const LOST_EDGE: Repair = {
+  kind: 'element',
+  path: '/edges/0',
+  body: 'b-cube',
+  reference: { q: 'edge(top,front)', fp: 'fp-edge' },
+  resolution: 'missing',
+  centroid: [0, 0, 20],
+}
+
 const RENAME_BODY: readonly Edit[] = [{ type: 'update_body', body: { id: 'b-cube', name: 'Box' } }]
 
 describe('failure notifications', () => {
@@ -65,6 +75,25 @@ describe('failure notifications', () => {
     runAction(notification, 'Undo')
     await settle()
     expect(fake.transport.commandTypes()).toContain('undo')
+  })
+
+  it('U-110 a feature with a lost reference offers "Re-pick Edges", which edits it with Edges active', async () => {
+    const { fake, statuses } = await cubeWithStatuses()
+    statuses['f-fil1'] = { ...FAILED, repairs: [LOST_EDGE] }
+    await applyEdits(fake.app, 'Change Fillet 1', RADIUS_15)
+    await settle()
+    const notification = notificationWith(
+      fake.app,
+      MESSAGES.feature_failed('Fillet 1', TOO_LARGE.message),
+    )
+    expect(actionLabels(notification)).toEqual(['Re-pick Edges', 'Undo'])
+    runAction(notification, 'Re-pick Edges')
+    await settle()
+    expect(fake.app.store.getState().command).toMatchObject({
+      featureId: 'f-fil1',
+      editing: true,
+      activeField: 'edges',
+    })
   })
 
   it('several failing features: a count with Show problems and Undo', async () => {

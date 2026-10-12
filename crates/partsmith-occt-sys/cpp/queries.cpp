@@ -13,6 +13,8 @@
 #include <BRepGProp.hxx>
 #include <BRepLProp_SLProps.hxx>
 #include <BRep_Builder.hxx>
+#include <BRep_CurveRepresentation.hxx>
+#include <BRep_TEdge.hxx>
 #include <BRep_Tool.hxx>
 #include <Bnd_Box.hxx>
 #include <GProp_GProps.hxx>
@@ -23,9 +25,9 @@
 #include <GeomAPI_ProjectPointOnSurf.hxx>
 #include <TopExp.hxx>
 #include <TopExp_Explorer.hxx>
-#include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
 #include <TopoDS.hxx>
 #include <TopoDS_Compound.hxx>
+#include <TopoDS_Iterator.hxx>
 #include <gp_Circ.hxx>
 #include <gp_Circ2d.hxx>
 #include <gp_Cone.hxx>
@@ -510,8 +512,7 @@ ElementData element_data(const TopoDS_Shape &element) {
   }
 }
 
-// Appends one list made of `indices`, distinct and ascending, and clears `indices` for the next
-// list.
+// Appends one list made of `indices`, distinct and ascending, to `lists`.
 void append_list(IndexLists &lists, std::vector<std::uint32_t> &indices) {
   std::sort(indices.begin(), indices.end());
   indices.erase(std::unique(indices.begin(), indices.end()), indices.end());
@@ -519,7 +520,6 @@ void append_list(IndexLists &lists, std::vector<std::uint32_t> &indices) {
     lists.values.push_back(index);
   }
   lists.offsets.push_back(static_cast<std::uint32_t>(lists.values.size()));
-  indices.clear();
 }
 
 // Adds the index in `map` of `element`, if it is there.
@@ -531,34 +531,72 @@ void add_index(std::vector<std::uint32_t> &indices, const TopTools_IndexedMapOfS
   }
 }
 
-// Appends the list of the indices in `map` of the sub-shapes of `shape` of one type.
-void append_sub_shapes(IndexLists &lists, std::vector<std::uint32_t> &indices,
-                       const TopTools_IndexedMapOfShape &map, const TopoDS_Shape &shape,
-                       TopAbs_ShapeEnum type) {
-  for (TopExp_Explorer explorer(shape, type); explorer.More(); explorer.Next()) {
-    add_index(indices, map, explorer.Current());
+// Adds the indices of the edges and vertices at any depth below `shape`, as TopExp_Explorer
+// finds them (orientation and location composed) but without its allocations.
+void add_edges_and_vertices(const Shape &whole, const TopoDS_Shape &shape,
+                            std::vector<std::uint32_t> &edges,
+                            std::vector<std::uint32_t> &vertices) {
+  for (TopoDS_Iterator child(shape); child.More(); child.Next()) {
+    const TopoDS_Shape &sub_shape = child.Value();
+    if (sub_shape.ShapeType() == TopAbs_VERTEX) {
+      add_index(vertices, whole.vertices(), sub_shape);
+      continue;
+    }
+    if (sub_shape.ShapeType() == TopAbs_EDGE) {
+      add_index(edges, whole.edges(), sub_shape);
+    }
+    add_edges_and_vertices(whole, sub_shape, edges, vertices);
   }
-  append_list(lists, indices);
 }
 
-// Appends the list of the indices in `map` of the ancestors of `element` found in `ancestors`.
-void append_ancestors(IndexLists &lists, std::vector<std::uint32_t> &indices,
-                      const TopTools_IndexedMapOfShape &map,
-                      const TopTools_IndexedDataMapOfShapeListOfShape &ancestors,
-                      const TopoDS_Shape &element) {
-  if (const TopTools_ListOfShape *list = ancestors.Seek(element)) {
-    for (const TopoDS_Shape &ancestor : *list) {
-      add_index(indices, map, ancestor);
+// One entry of an inverted relation: an element index and a related index.
+using Pair = std::pair<std::uint32_t, std::uint32_t>;
+
+// The compressed lists of elements 1 to `count` from pairs (element, related), each pair once
+// and the related indices of each element ascending in the order of `pairs` (a stable counting
+// sort by element).
+IndexLists invert(std::size_t count, const std::vector<Pair> &pairs) {
+  // starts[i] is where the list of element i + 1 starts; starts[count] is the end.
+  std::vector<std::uint32_t> starts(count + 1, 0);
+  for (const Pair &pair : pairs) {
+    ++starts[pair.first];
+  }
+  for (std::size_t position = 1; position <= count; ++position) {
+    starts[position] += starts[position - 1];
+  }
+  // Now starts[i] is where the list of element i ends; filling from the back of each list
+  // keeps the order of `pairs` once the ends have moved back to the starts.
+  std::vector<std::uint32_t> values(starts[count]);
+  for (auto pair = pairs.rbegin(); pair != pairs.rend(); ++pair) {
+    values[--starts[pair->first]] = pair->second;
+  }
+  IndexLists lists;
+  lists.offsets.reserve(count + 1);
+  for (std::size_t position = 1; position <= count; ++position) {
+    lists.offsets.push_back(starts[position]);
+  }
+  lists.offsets.push_back(static_cast<std::uint32_t>(values.size()));
+  lists.values.reserve(values.size());
+  for (std::uint32_t value : values) {
+    lists.values.push_back(value);
+  }
+  return lists;
+}
+
+// True when the edge has a curve representation that makes it closed on some surface or
+// triangulation; only such an edge can be a seam (BRep_Tool::IsClosed looks for one).
+bool has_closed_representation(const TopoDS_Edge &edge) {
+  const Handle(BRep_TEdge) storage = Handle(BRep_TEdge)::DownCast(edge.TShape());
+  if (storage.IsNull()) {
+    return false;
+  }
+  for (const Handle(BRep_CurveRepresentation) &representation : storage->Curves()) {
+    if (representation->IsCurveOnClosedSurface() ||
+        representation->IsPolygonOnClosedTriangulation()) {
+      return true;
     }
   }
-  append_list(lists, indices);
-}
-
-// Empty compressed lists.
-IndexLists empty_lists() {
-  IndexLists lists;
-  lists.offsets.push_back(0);
-  return lists;
+  return false;
 }
 
 }  // namespace
@@ -625,41 +663,57 @@ rust::Vec<ElementData> shape_elements(const Shape &shape, ElementKind kind) {
 }
 
 TopologyData shape_topology(const Shape &shape) {
-  const TopoDS_Shape &whole = shape.get();
-  TopTools_IndexedDataMapOfShapeListOfShape edge_faces;
-  TopTools_IndexedDataMapOfShapeListOfShape vertex_edges;
-  TopTools_IndexedDataMapOfShapeListOfShape vertex_faces;
-  TopExp::MapShapesAndUniqueAncestors(whole, TopAbs_EDGE, TopAbs_FACE, edge_faces);
-  TopExp::MapShapesAndUniqueAncestors(whole, TopAbs_VERTEX, TopAbs_EDGE, vertex_edges);
-  TopExp::MapShapesAndUniqueAncestors(whole, TopAbs_VERTEX, TopAbs_FACE, vertex_faces);
-
-  TopologyData data{empty_lists(), empty_lists(), empty_lists(), empty_lists(), {}, {},
-                    empty_lists(), empty_lists()};
-  // One buffer collects the indices of every list in turn.
-  std::vector<std::uint32_t> indices;
-  for (int index = 1; index <= shape.faces().Extent(); ++index) {
-    const TopoDS_Shape &face = shape.faces()(index);
-    append_sub_shapes(data.face_edges, indices, shape.edges(), face, TopAbs_EDGE);
-    append_sub_shapes(data.face_vertices, indices, shape.vertices(), face, TopAbs_VERTEX);
+  const std::size_t face_count = static_cast<std::size_t>(shape.faces().Extent());
+  const std::size_t edge_count = static_cast<std::size_t>(shape.edges().Extent());
+  const std::size_t vertex_count = static_cast<std::size_t>(shape.vertices().Extent());
+  TopologyData data;
+  data.face_edges.offsets.push_back(0);
+  data.face_vertices.offsets.push_back(0);
+  data.edge_vertices.offsets.push_back(0);
+  // One walk over the faces and one over the edges give every relation; the inverse ones are
+  // collected as pairs in ascending order of the related element.
+  std::vector<Pair> edge_faces;
+  std::vector<Pair> vertex_faces;
+  std::vector<Pair> vertex_edges;
+  std::vector<std::uint32_t> edges;
+  std::vector<std::uint32_t> vertices;
+  for (std::uint32_t face = 1; face <= face_count; ++face) {
+    edges.clear();
+    vertices.clear();
+    add_edges_and_vertices(shape, shape.faces()(static_cast<int>(face)), edges, vertices);
+    append_list(data.face_edges, edges);
+    append_list(data.face_vertices, vertices);
+    for (std::uint32_t edge : edges) {
+      edge_faces.emplace_back(edge, face);
+    }
+    for (std::uint32_t vertex : vertices) {
+      vertex_faces.emplace_back(vertex, face);
+    }
   }
-  for (int index = 1; index <= shape.edges().Extent(); ++index) {
-    const TopoDS_Edge &edge = TopoDS::Edge(shape.edges()(index));
-    append_ancestors(data.edge_faces, indices, shape.faces(), edge_faces, edge);
-    append_sub_shapes(data.edge_vertices, indices, shape.vertices(), edge, TopAbs_VERTEX);
-    data.edge_degenerate.push_back(BRep_Tool::Degenerated(edge));
+  data.edge_faces = invert(edge_count, edge_faces);
+  data.vertex_faces = invert(vertex_count, vertex_faces);
+  for (std::uint32_t edge = 1; edge <= edge_count; ++edge) {
+    const TopoDS_Edge &stored = TopoDS::Edge(shape.edges()(static_cast<int>(edge)));
+    edges.clear();
+    vertices.clear();
+    add_edges_and_vertices(shape, stored, edges, vertices);
+    append_list(data.edge_vertices, vertices);
+    for (std::uint32_t vertex : vertices) {
+      vertex_edges.emplace_back(vertex, edge);
+    }
+    data.edge_degenerate.push_back(BRep_Tool::Degenerated(stored));
     bool seam = false;
-    if (const TopTools_ListOfShape *faces = edge_faces.Seek(edge)) {
-      for (const TopoDS_Shape &face : *faces) {
-        seam = seam || BRep_Tool::IsClosed(edge, TopoDS::Face(face));
+    if (has_closed_representation(stored)) {
+      const std::uint32_t first = data.edge_faces.offsets[edge - 1];
+      const std::uint32_t last = data.edge_faces.offsets[edge];
+      for (std::uint32_t position = first; position < last && !seam; ++position) {
+        const int face = static_cast<int>(data.edge_faces.values[position]);
+        seam = BRep_Tool::IsClosed(stored, TopoDS::Face(shape.faces()(face)));
       }
     }
     data.edge_seam.push_back(seam);
   }
-  for (int index = 1; index <= shape.vertices().Extent(); ++index) {
-    const TopoDS_Shape &vertex = shape.vertices()(index);
-    append_ancestors(data.vertex_edges, indices, shape.edges(), vertex_edges, vertex);
-    append_ancestors(data.vertex_faces, indices, shape.faces(), vertex_faces, vertex);
-  }
+  data.vertex_edges = invert(vertex_count, vertex_edges);
   return data;
 }
 

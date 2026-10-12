@@ -258,6 +258,7 @@ MeshData shape_tessellate(const Shape &shape, double chord_deviation, double ang
   parameters.Angle = angle;
   parameters.Relative = Standard_False;
   parameters.InParallel = Standard_False;
+  parameters.MeshAlgo = IMeshTools_MeshAlgoType_Delabella;
   BRepMesh_IncrementalMesh mesher(copy.get(), parameters);
   return MeshBuilder(copy).build();
 }

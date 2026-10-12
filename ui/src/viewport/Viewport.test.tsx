@@ -378,6 +378,53 @@ describe('overlays', () => {
     expect(screen.getByTestId('finding-marker')).not.toHaveAttribute('display')
   })
 
+  it('labels the origin planes while a plane is picked, at the positive corner of each square (3.16.1)', () => {
+    setUp({
+      context: 'sketch',
+      sketch: {
+        sketchId: null,
+        tool: null,
+        construction: false,
+        showConstraints: true,
+        selection: [],
+        dragging: false,
+        cameraBefore: null,
+      },
+    })
+    flush()
+    const labels = screen.getAllByTestId('plane-label')
+    expect(labels.map((label) => label.textContent)).toEqual([
+      'Top (XY)',
+      'Front (XZ)',
+      'Right (YZ)',
+    ])
+    // The cube spans z 0 to 20, so the planes are 50 mm squares about the projection of (0, 0, 10).
+    expect(labels.map((label) => label.dataset['anchor'])).toEqual([
+      '25,25,0',
+      '25,0,35',
+      '0,25,35',
+    ])
+    for (const label of labels) {
+      expect(label).toHaveClass('pointer-events-none', 'text-xs')
+      expect(label).toHaveClass(...COLOR_CLASSES.surfaceRaised.background.split(' '))
+      expect(label).toHaveAttribute('data-positioned')
+      expect(label).not.toHaveAttribute('hidden')
+    }
+  })
+
+  it('labels only the origin planes that are drawn', () => {
+    setUp({ view: { ...INITIAL_STATE.view, sessionVisible: { 'origin:XZ': true } } })
+    flush()
+    expect(screen.getAllByTestId('plane-label').map((label) => label.textContent)).toEqual([
+      'Front (XZ)',
+    ])
+  })
+
+  it('shows no plane labels while no origin plane is drawn', () => {
+    setUp()
+    expect(screen.queryAllByTestId('plane-label')).toEqual([])
+  })
+
   it('renders with the settings’ UI scale', () => {
     setUp({ settings: { ...DEFAULT_SETTINGS, theme: 'light', uiScale: 1.5 } })
     expect(created.backends[0]?.lastFrame()?.uiScale).toBe(1.5)

@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import type { Diagnostic } from '../generated/protocol'
-import { fieldForPointer, fieldPointer, messagesByField, suggestedRecord } from './status'
+import type { Diagnostic, FeatureStatus, FieldHint, Repair } from '../generated/protocol'
+import {
+  fieldForPointer,
+  fieldPointer,
+  messagesByField,
+  repairField,
+  suggestedRecord,
+} from './status'
 
 describe('fieldPointer', () => {
   it('turns a hint path into a JSON pointer', () => {
@@ -79,5 +85,46 @@ describe('suggestedRecord', () => {
     expect(suggestedRecord(record, outOfRange('/missing/expr', '20 mm'))).toBeNull()
     expect(suggestedRecord(record, outOfRange('/sizes/5', '3 mm'))).toBeNull()
     expect(suggestedRecord(record, outOfRange('/id', 'f-other'))).toBeNull()
+  })
+})
+
+function statusWith(repairs: readonly Repair[]): FeatureStatus {
+  return { id: 'f-fil1', status: 'error', messages: [], repairs: [...repairs] }
+}
+
+describe('repairField (4.2)', () => {
+  const fields: readonly FieldHint[] = [
+    { path: 'body', label: 'Body', selection: 'body' },
+    { path: 'edges', label: 'Edges', selection: 'edge' },
+    { path: 'radius', label: 'Radius', unit: 'length' },
+  ]
+  const lostEdge: Repair = {
+    kind: 'element',
+    path: '/edges/1',
+    body: 'b-cube',
+    reference: { q: 'edge(top,front)', fp: 'fp-edge' },
+    resolution: 'missing',
+  }
+
+  it('U-110 maps the first repair to the selection field its path is under', () => {
+    expect(repairField(fields, statusWith([lostEdge]))?.label).toBe('Edges')
+  })
+
+  it('maps a region repair to the profile field', () => {
+    const region: Repair = {
+      kind: 'region',
+      path: '/profile/regions/0',
+      sketch: 'f-sk1',
+      region: { key: 'e-1', fp: 'fp-region' },
+      resolution: 'ambiguous',
+    }
+    const profile: FieldHint = { path: 'profile', label: 'Profile', selection: 'sketch_region' }
+    expect(repairField([profile], statusWith([region]))?.path).toBe('profile')
+  })
+
+  it('is null without repairs, without a status or for a path under no selection field', () => {
+    expect(repairField(fields, statusWith([]))).toBeNull()
+    expect(repairField(fields, undefined)).toBeNull()
+    expect(repairField(fields, statusWith([{ ...lostEdge, path: '/radius' }]))).toBeNull()
   })
 })

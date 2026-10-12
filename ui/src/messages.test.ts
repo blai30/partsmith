@@ -238,7 +238,11 @@ const CASES: readonly Case[] = [
     () => MESSAGES.sketch_step_dimension_label(),
     'Click to place the dimension.',
   ],
-  ['sketch_free_placement', () => MESSAGES.sketch_free_placement(LINUX), 'Hold Ctrl to place freely.'],
+  [
+    'sketch_free_placement',
+    () => MESSAGES.sketch_free_placement(LINUX),
+    'Hold Ctrl to place freely.',
+  ],
   [
     'sketch_leave',
     () => MESSAGES.sketch_leave(LINUX),
@@ -266,9 +270,7 @@ describe('MESSAGES', () => {
       'Choose Line (L), Rectangle (R) or Circle (C) to start drawing.',
     )
     expect(MESSAGES.sketch_step_line_next(MAC)).toMatch(/press ↩ to stop\.$/)
-    expect(MESSAGES.sketch_leave(MAC)).toBe(
-      'To leave the sketch, click Finish sketch or press ⌘↩.',
-    )
+    expect(MESSAGES.sketch_leave(MAC)).toBe('To leave the sketch, click Finish sketch or press ⌘↩.')
     expect(MESSAGES.sketch_free_placement(MAC)).toBe('Hold ⌘ to place freely.')
   })
 })

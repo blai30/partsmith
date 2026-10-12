@@ -2,13 +2,25 @@ import { act, cleanup, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { installPopoverPolyfill } from './components/popover-polyfill.testing'
-import { bodyItem, cubeDocumentState, readyState } from './layout/fixtures.testing'
+import type { App as AppInstance } from './app/createApp'
+import type { Edit, SketchEntity } from './generated/protocol'
+import { bodyItem, cubeDocumentState, documentState, readyState } from './layout/fixtures.testing'
 import { createModelApp, renderWithApp, stubMatchMedia } from './layout/test-app.testing'
 import { MESSAGES } from './messages'
 import { INITIAL_STATE, type ActiveCommand, type AppState } from './state/store'
+import { solutionFor, solvedSketch } from './sketch/fixtures.testing'
+import {
+  clickAt,
+  fixedViewport,
+  settleCommits,
+  TOP_CAMERA,
+  VIEW_PIXELS,
+} from './sketch/view.testing'
+import { emptyDocument } from './test/fakes/documents'
 import { settle } from './test/fakes/settle'
 import { checkResult, finding, printReport } from './test/fakes/state'
 import { COLOR_CLASSES, FONT_CLASSES } from './theme/roles'
+import { classifyView } from './viewport/camera'
 
 let uninstallPopovers: () => void
 
@@ -276,5 +288,125 @@ describe('the Esc ladder (3.5)', () => {
     await settle()
     expect(app.store.getState().context).toBe('model')
     expect(app.store.getState().sketch).toBeNull()
+  })
+})
+
+/** Applies sketch records to the store as the core's `document_changed` and `sketch_solved` would. */
+function applySketchEdits(app: AppInstance, edits: readonly Edit[]): void {
+  app.store.setState((state) => {
+    const document = state.document
+    if (document === null) {
+      return {}
+    }
+    let features = [...(document.recipe.features ?? [])]
+    const sketches = { ...document.sketches }
+    for (const edit of edits) {
+      if (edit.type === 'add_feature') {
+        features.splice(edit.index, 0, edit.feature)
+      } else if (edit.type === 'update_feature') {
+        features = features.map((feature) =>
+          feature.id === edit.feature.id ? edit.feature : feature,
+        )
+      } else {
+        continue
+      }
+      const stored: unknown = edit.feature['entities']
+      const entities = Array.isArray(stored) ? (stored as SketchEntity[]) : []
+      sketches[edit.feature.id] = solvedSketch(solutionFor(entities, { feature: edit.feature.id }))
+    }
+    return {
+      document: {
+        ...document,
+        revision: document.revision + 1,
+        recipe: { ...document.recipe, features },
+        sketches,
+      },
+    }
+  })
+}
+
+describe('sketching in the shell (3.16)', () => {
+  beforeEach(() => {
+    // jsdom has no WebGL2, so the viewport draws nothing and the test's fixed view stays attached.
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
+    vi.spyOn(HTMLCanvasElement.prototype, 'clientWidth', 'get').mockReturnValue(VIEW_PIXELS)
+    vi.spyOn(HTMLCanvasElement.prototype, 'clientHeight', 'get').mockReturnValue(VIEW_PIXELS)
+  })
+
+  it('enters a sketch on the Top plane, draws a line and finishes it', async () => {
+    const { app, core } = createModelApp({ state: readyState(documentState(emptyDocument())) })
+    const view = fixedViewport()
+    app.attachViewport(view)
+    const labels: (string | null)[] = []
+    core.stub('applyEdits', async (_handle, label, edits) => {
+      labels.push(label)
+      applySketchEdits(app, edits)
+      return app.store.getState().document?.revision ?? 0
+    })
+    core.stub('solveSketch', async (_handle, feature, candidate) =>
+      candidate === undefined
+        ? (app.store.getState().document?.sketches[feature] ?? null)
+        : solvedSketch(solutionFor(candidate.entities ?? [], { feature })),
+    )
+    renderWithApp(app)
+    const user = userEvent.setup()
+
+    // Sketch (3.16.1): plane picking offers the three origin planes.
+    await user.click(within(screen.getByTestId('top-bar')).getByRole('radio', { name: 'Sketch' }))
+    expect(screen.getByTestId('sketch-header')).toHaveAttribute('data-state', 'picking')
+    expect(screen.getByTestId('sketch-hint')).toHaveTextContent('Top plane (XY) is the print bed.')
+    await user.click(screen.getByRole('button', { name: 'Sketch on Top plane (XY)' }))
+    await act(settleCommits)
+    expect(labels).toEqual(['New sketch'])
+    const sketchId = app.store.getState().sketch?.sketchId ?? ''
+    expect(sketchId).toMatch(/^f-[0-9a-f]{12}$/)
+    expect(view.lookAlong).toHaveBeenCalledWith([0, 0, 1], [0, 1, 0], [0, 0, 0])
+    expect(screen.getByTestId('sketch-header')).toHaveAttribute('data-state', 'empty')
+    expect(screen.getByTestId('sketch-hint')).toHaveTextContent(
+      'Choose Line (L), Rectangle (R) or Circle (C) to start drawing.',
+    )
+
+    // Line (3.16.4): two clicks on the canvas commit one line.
+    const tools = screen.getByRole('toolbar', { name: 'Sketch tools' })
+    await user.click(within(tools).getByRole('button', { name: 'Line' }))
+    expect(screen.getByTestId('sketch-hint')).toHaveTextContent('Click to start a line.')
+    const canvas = screen.getByTestId('viewport').querySelector('canvas')
+    if (canvas === null) {
+      throw new Error('The viewport has no canvas.')
+    }
+    act(() => {
+      clickAt(canvas, [0, 0])
+      clickAt(canvas, [20, 0])
+    })
+    await act(settleCommits)
+    expect(labels).toEqual(['New sketch', 'Line'])
+    expect(app.store.getState().document?.sketches[sketchId]?.solution.entities).toHaveLength(1)
+    expect(screen.getByTestId('sketch-hint')).toHaveTextContent(/^Click to end the segment/)
+
+    // Esc ends the chain, then the tool; with nothing left, the hint names the way out (3.5).
+    await user.keyboard('{Escape}')
+    expect(app.store.getState().sketch?.tool).toBe('line')
+    await user.keyboard('{Escape}')
+    expect(app.store.getState().sketch?.tool).toBeNull()
+    await user.keyboard('{Escape}')
+    expect(screen.getByTestId('sketch-hint')).toHaveTextContent(
+      'To leave the sketch, click Finish sketch or press Ctrl+Enter.',
+    )
+    expect(app.store.getState().context).toBe('sketch')
+
+    // Finish sketch (3.16.11): Model, the sketch selected, the view turned off the sketch plane.
+    const setCamera = vi.mocked(view.setCamera)
+    setCamera.mockClear()
+    await user.click(within(tools).getByRole('button', { name: 'Finish sketch' }))
+    await settle()
+    expect(app.store.getState().context).toBe('model')
+    expect(app.store.getState().sketch).toBeNull()
+    expect(screen.queryByTestId('sketch-header')).toBeNull()
+    expect(screen.queryByTestId('sketch-overlay')).toBeNull()
+    expect(app.store.getState().selection.map((item) => item.key)).toEqual([`feature:${sketchId}`])
+    expect(setCamera).toHaveBeenCalledTimes(1)
+    const [camera, options] = setCamera.mock.calls[0] ?? []
+    expect(classifyView(camera ?? TOP_CAMERA)).toBe('iso')
+    expect(options).toEqual({ animate: true })
   })
 })

@@ -170,7 +170,10 @@ describe('finishSketch (3.16.11)', () => {
     await enterSketch(fake.app, 'f-sk1')
     await finishSketch(fake.app)
     await settle()
-    const notification = notificationWith(fake.app, 'Sketch 1 has 1 open end, so some shapes cannot be extruded.')
+    const notification = notificationWith(
+      fake.app,
+      'Sketch 1 has 1 open end, so some shapes cannot be extruded.',
+    )
     expect(actionLabels(notification)).toEqual(['Back to sketch'])
   })
 })

@@ -99,15 +99,29 @@ describe('featureCommands', () => {
     expect(commandFor('sketch').category).toBe('Create')
   })
 
-  it('lists every feature command in the Model, Sketch and Print contexts', () => {
-    // 3.5 limits Hole (H), Fillet (F) and Move body (M) to Model and Print, so Sketch keeps H for
-    // Horizontal and U-22 finds no conflict.
-    const modelAndPrint = new Set(['feature.hole', 'feature.fillet', 'feature.move_body'])
+  it('lists every feature command in the Model, Sketch and Print contexts (2.10, 3.3)', () => {
     for (const command of featureCommands(TEST_CATALOG)) {
-      expect([...command.contexts].toSorted()).toEqual(
-        modelAndPrint.has(command.id) ? ['model', 'print'] : ['model', 'print', 'sketch'],
-      )
+      expect([...command.contexts].toSorted()).toEqual(['model', 'print', 'sketch'])
     }
+  })
+
+  it('makes H, F and M work in Model and Print only, and E everywhere (3.5)', () => {
+    // Sketch keeps H for Horizontal, so U-22 finds no conflict.
+    const shortcutContexts = Object.fromEntries(
+      featureCommands(TEST_CATALOG)
+        .filter((command) => command.shortcuts.length > 0)
+        .map((command) => [command.id, [...(command.shortcutContexts ?? [])].toSorted()]),
+    )
+    expect(shortcutContexts).toEqual({
+      'feature.extrude': ['model', 'print', 'sketch'],
+      'feature.hole': ['model', 'print'],
+      'feature.fillet': ['model', 'print'],
+      'feature.move_body': ['model', 'print'],
+    })
+  })
+
+  it('gives commands without a shortcut no shortcut contexts', () => {
+    expect(commandFor('chamfer').shortcutContexts).toBeUndefined()
   })
 
   it('binds exactly Extrude E, Hole H, Fillet F and Move body M (3.5)', () => {

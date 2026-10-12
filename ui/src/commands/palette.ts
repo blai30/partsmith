@@ -7,7 +7,7 @@ import { requestUi } from '../layout/requests'
 import { MESSAGES } from '../messages'
 import type { AppState, SelectionItem } from '../state/store'
 import type { PaletteItem } from './fuzzy'
-import type { CommandDefinition } from './registry'
+import { shortcutsActiveIn, type CommandDefinition } from './registry'
 import { formatShortcut } from './shortcuts'
 
 // The items the command palette searches (ui.md 3.4): commands and settings, then the document's
@@ -40,9 +40,10 @@ function listed(app: App, state: AppState, definition: CommandDefinition): boole
   )
 }
 
-function commandItem(app: App, definition: CommandDefinition): PaletteItem {
+function commandItem(app: App, state: AppState, definition: CommandDefinition): PaletteItem {
   const availability = definition.availability(app)
-  const [shortcut] = definition.shortcuts
+  // A shortcut that does something else in this context is not shown (3.5).
+  const [shortcut] = shortcutsActiveIn(definition, state.context) ? definition.shortcuts : []
   return {
     id: definition.id,
     kind: definition.category === 'Settings' ? 'setting' : 'command',
@@ -126,7 +127,7 @@ export function paletteItems(app: App, recent: readonly RecentFile[]): PaletteIt
   const commands = app.commands
     .list()
     .filter((definition) => listed(app, state, definition))
-    .map((definition) => commandItem(app, definition))
+    .map((definition) => commandItem(app, state, definition))
   const recentItems = recent.map((entry): PaletteItem => ({
     id: `recent:${entry.id}`,
     kind: 'recent',

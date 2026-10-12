@@ -1,15 +1,76 @@
 export type NavigationPreset = 'fusion' | 'freecad'
 export type Gesture = 'orbit' | 'pan' | 'none'
 
-/** The navigation presets of M1 (3.13), in menu order. */
+/** One row of the navigation table of 3.13: what the user does and the gesture that does it. */
+export type NavigationRow = { readonly action: string; readonly gesture: string }
+
+// The rows both presets share, in table order around the preset-specific ones (3.13).
+const SELECT: NavigationRow = { action: 'Select', gesture: 'Left click' }
+const PAN: NavigationRow = { action: 'Pan', gesture: 'Middle drag' }
+const ORBIT_WITHOUT_MIDDLE: NavigationRow = {
+  action: 'Orbit without a middle button (also a two-finger press and drag on a macOS trackpad)',
+  gesture: 'Right drag',
+}
+const PAN_WITHOUT_MIDDLE: NavigationRow = {
+  action: 'Pan without a middle button',
+  gesture: 'Shift + right drag',
+}
+const ZOOM: NavigationRow = { action: 'Zoom', gesture: 'Wheel at the cursor' }
+const PINCH: NavigationRow = { action: 'Zoom with a trackpad pinch', gesture: 'At the cursor' }
+const VIEW_CUBE: NavigationRow = { action: 'Orbit with the view cube', gesture: 'Left drag on the cube' }
+const BOX_SELECTION: NavigationRow = {
+  action: 'Box selection',
+  gesture: 'Left drag on empty space, sketch mode only',
+}
+
+/**
+ * The navigation presets of M1 in menu order (3.13). `rows` are the preset's column of the 3.13
+ * table, in table order, which the keyboard and mouse panel renders (3.5).
+ */
 export const NAVIGATION_PRESETS: readonly {
   readonly id: NavigationPreset
   readonly label: string
   /** Whether a middle-button double-click fits the view. */
   readonly middleDoubleClickFits: boolean
+  readonly rows: readonly NavigationRow[]
 }[] = [
-  { id: 'fusion', label: 'Fusion', middleDoubleClickFits: true },
-  { id: 'freecad', label: 'FreeCAD', middleDoubleClickFits: false },
+  {
+    id: 'fusion',
+    label: 'Fusion',
+    middleDoubleClickFits: true,
+    rows: [
+      SELECT,
+      PAN,
+      { action: 'Orbit', gesture: 'Shift + middle drag' },
+      ORBIT_WITHOUT_MIDDLE,
+      PAN_WITHOUT_MIDDLE,
+      ZOOM,
+      PINCH,
+      { action: 'Fit to view', gesture: 'Middle double-click' },
+      VIEW_CUBE,
+      BOX_SELECTION,
+    ],
+  },
+  {
+    id: 'freecad',
+    label: 'FreeCAD',
+    middleDoubleClickFits: false,
+    rows: [
+      SELECT,
+      PAN,
+      {
+        action: 'Orbit',
+        gesture: 'Middle + left drag, or middle + right drag (press middle first)',
+      },
+      ORBIT_WITHOUT_MIDDLE,
+      PAN_WITHOUT_MIDDLE,
+      ZOOM,
+      PINCH,
+      { action: 'Fit to view', gesture: 'None' },
+      VIEW_CUBE,
+      BOX_SELECTION,
+    ],
+  },
 ]
 
 // PointerEvent.buttons bits.
@@ -21,13 +82,20 @@ const MIDDLE_BUTTON = 4
 export const GESTURE_THRESHOLD_PIXELS = 3
 
 /**
- * The camera gesture for the pressed buttons (PointerEvent.buttons: 1 left, 2 right, 4 middle) and modifiers (section 3.13). Fusion: middle pans, Shift + middle orbits. FreeCAD: middle pans, middle with left or with right orbits. Everything else is 'none' (left alone selects or box-selects).
+ * The camera gesture for the pressed buttons (PointerEvent.buttons: 1 left, 2 right, 4 middle) and
+ * modifiers (section 3.13). In both presets the right button alone orbits and pans with Shift, so a
+ * mouse without a middle button and a trackpad work with either. Fusion: middle pans, Shift +
+ * middle orbits. FreeCAD: middle pans, middle with left or with right orbits. Everything else is
+ * 'none' (left alone selects or box-selects).
  */
 export function gestureFor(
   preset: NavigationPreset,
   buttons: number,
   modifiers: { readonly shift: boolean },
 ): Gesture {
+  if (buttons === RIGHT_BUTTON) {
+    return modifiers.shift ? 'pan' : 'orbit'
+  }
   if (preset === 'fusion') {
     if (buttons !== MIDDLE_BUTTON) {
       return 'none'
@@ -41,6 +109,16 @@ export function gestureFor(
     return 'orbit'
   }
   return 'none'
+}
+
+const LEGEND_ORBIT: Readonly<Record<NavigationPreset, string>> = {
+  fusion: 'Shift+middle-drag',
+  freecad: 'middle+left-drag',
+}
+
+/** One-line legend of the preset's camera gestures, shown in the empty state (2.11, 3.2). */
+export function navigationLegend(preset: NavigationPreset): string {
+  return `Orbit: ${LEGEND_ORBIT[preset]}, right-drag or drag the view cube. Pan: middle-drag or Shift+right-drag. Zoom: wheel or pinch.`
 }
 
 /** A camera change asked for from the keyboard on the focused viewport (3.5). */

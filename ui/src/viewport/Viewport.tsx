@@ -1,9 +1,11 @@
 import { clsx } from 'clsx/lite'
 import { LoaderCircle } from 'lucide-react'
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { useShallow } from 'zustand/react/shallow'
 import { useApp, useAppState } from '../app/AppProvider'
 import type { App } from '../app/createApp'
 import { formatShortcut } from '../commands/shortcuts'
+import { originPlaneView } from '../core/labels'
 import { Button } from '../components/Button'
 import { ExpressionInput } from '../expression/ExpressionInput'
 import { formatNumber } from '../expression/format'
@@ -17,7 +19,14 @@ import { orbit, type Vector3 } from './camera'
 import { createViewportController, type RenderedFrame, type ViewportController } from './controller'
 import { keyNavigation } from './navigation'
 import { orientElement } from './overlay'
-import { isSessionVisible, planeExtent, createScene, type Scene } from './scene'
+import {
+  createScene,
+  drawnOriginPlanes,
+  isSessionVisible,
+  originPlaneLabelAnchor,
+  planeExtent,
+  type Scene,
+} from './scene'
 import { defaultSectionOffset, type SectionPlane } from './section'
 import { ViewCube } from './ViewCube'
 import { viewCubeRotorMatrix } from './view-cube'
@@ -86,6 +95,36 @@ function AxisLabels({ scene }: { readonly scene: Scene }) {
       </span>
     )
   })
+}
+
+/**
+ * The labels of the drawn origin planes, "Top (XY)", "Front (XZ)" and "Right (YZ)", at the corner
+ * of each plane's square in its positive axis directions, anchored in the overlay (3.16.1, 3.12).
+ */
+function PlaneLabels({ scene }: { readonly scene: Scene }) {
+  // Compared by value: the selectors run on every store change.
+  const planes = useAppState(useShallow(drawnOriginPlanes))
+  const anchors = useAppState(
+    useShallow((state) => {
+      const bounds = planes.length === 0 ? null : scene.visibleBounds(state)
+      return planes.map((plane) => originPlaneLabelAnchor(plane, bounds).join(','))
+    }),
+  )
+  return planes.map((plane, index) => (
+    <span
+      key={plane}
+      data-testid="plane-label"
+      data-anchor={anchors[index]}
+      hidden
+      className={clsx(
+        'pointer-events-none absolute top-0 left-0 rounded-sm px-1 text-xs whitespace-nowrap',
+        COLOR_CLASSES.surfaceRaised.background,
+        COLOR_CLASSES.text.foreground,
+      )}
+    >
+      {`${originPlaneView(plane)} (${plane})`}
+    </span>
+  ))
 }
 
 /** A centered chip over the view on the `surfaceRaised` role (3.24: text over the view sits on a chip). */
@@ -388,6 +427,7 @@ export function Viewport({ children }: ViewportProps) {
           )}
         </svg>
         {scene === null ? null : <AxisLabels scene={scene} />}
+        {scene === null ? null : <PlaneLabels scene={scene} />}
       </div>
       <ViewCube
         rotorRef={rotor}

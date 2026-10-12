@@ -1,5 +1,6 @@
 import { featureLabel } from '../core/labels'
 import type { Diagnostic } from '../generated/protocol'
+import { repairField } from '../inspector/status'
 import { isCheckHidden } from '../print/checks'
 import type { AppState } from './store'
 
@@ -34,6 +35,17 @@ export function memoized<Inputs extends unknown[], Result>(
 /** The display label of a feature (features.md 3.12), or its id when there is no document. */
 export function selectFeatureLabel(state: AppState, id: string): string {
   return state.document === null ? id : featureLabel(state.document.recipe, id, state.catalog)
+}
+
+/**
+ * The label of the action that opens a feature for editing (4.2): "Re-pick {field label}" when its
+ * status has a repair, naming the field the repair's reference is picked again in, else "Edit".
+ */
+export function selectEditLabel(state: AppState, id: string): string {
+  const type = state.document?.recipe.features?.find((feature) => feature.id === id)?.type
+  const fields = (type === undefined ? undefined : state.catalog?.byType[type])?.manifest.fields
+  const field = repairField(fields ?? [], state.document?.featureStatus[id])
+  return field === null ? 'Edit' : `Re-pick ${field.label}`
 }
 
 /** Ids of the features before the rollback marker, in timeline order. */

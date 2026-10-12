@@ -34,7 +34,7 @@ describe('INITIAL_STATE', () => {
     })
   })
 
-  it('views in perspective from iso with faces, edges and vertices selectable and bodies not', () => {
+  it('views in perspective from iso with faces, edges and vertices selectable and bodies not, grid on', () => {
     expect(INITIAL_STATE.view).toEqual({
       projection: 'perspective',
       named: 'iso',
@@ -42,6 +42,8 @@ describe('INITIAL_STATE', () => {
       filter: { body: false, face: true, edge: true, vertex: true },
       sessionVisible: {},
       locked: [],
+      grid: true,
+      gridSpacing: null,
     })
   })
 

@@ -37,6 +37,11 @@ export type CommandDefinition = {
   readonly shortcuts: readonly string[]
   /** Contexts in which the command is listed in the palette and its shortcuts are active. */
   readonly contexts: readonly AppContext[]
+  /**
+   * Contexts in which the shortcuts are active when that is fewer than `contexts` (3.5): Hole,
+   * Fillet and Move body are listed everywhere, but H, F and M work in Model and Print only.
+   */
+  readonly shortcutContexts?: readonly AppContext[]
   /** Only on this host; absent means every host. */
   readonly host?: 'web' | 'desktop'
   availability(app: App): Availability
@@ -85,6 +90,11 @@ function platformChord(chord: Chord, platform: Platform): string {
 
 function onHost(definition: CommandDefinition, platform: Platform): boolean {
   return definition.host === undefined || definition.host === platform.host
+}
+
+/** Whether a command's shortcuts are active in a context (3.5). */
+export function shortcutsActiveIn(definition: CommandDefinition, context: AppContext): boolean {
+  return (definition.shortcutContexts ?? definition.contexts).includes(context)
 }
 
 export function createCommandRegistry(): CommandRegistry {
@@ -151,7 +161,7 @@ export function createCommandRegistry(): CommandRegistry {
       for (const { definition, chords } of registrations.values()) {
         if (
           onHost(definition, app.platform) &&
-          definition.contexts.includes(context) &&
+          shortcutsActiveIn(definition, context) &&
           chords.some((bound) => platformChord(bound, app.platform) === chord) &&
           definition.availability(app).state !== 'hidden'
         ) {
@@ -170,7 +180,7 @@ export function createCommandRegistry(): CommandRegistry {
         }
         for (const bound of chords) {
           const chord = platformChord(bound, platform)
-          for (const context of definition.contexts) {
+          for (const context of definition.shortcutContexts ?? definition.contexts) {
             const key = `${context} ${chord}`
             const binding = bindings.get(key) ?? { chord, context, ids: new Set<string>() }
             binding.ids.add(definition.id)

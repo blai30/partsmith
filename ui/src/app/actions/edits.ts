@@ -3,6 +3,7 @@ import { featureLabel } from '../../core/labels'
 import { CoreFatalError } from '../../core/transport'
 import type { Edit, FeatureStatus } from '../../generated/protocol'
 import { MESSAGES } from '../../messages'
+import { selectEditLabel } from '../../state/selectors'
 import type { DocumentState } from '../../state/store'
 import type { App } from '../createApp'
 import { editFeature } from './command'
@@ -105,7 +106,7 @@ export function reportNewFailures(app: App, before: Readonly<Record<string, Feat
     features,
     actions: [
       {
-        label: 'Edit',
+        label: selectEditLabel(app.store.getState(), first.id),
         run: () => {
           void editFeature(app, first.id)
         },

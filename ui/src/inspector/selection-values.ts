@@ -176,7 +176,6 @@ function isOriginPlane(origin: OriginName): origin is OriginPlane {
  * rows, selection titles, field boxes and Choose menus agree (planes by `originPlaneName`, 3.10).
  */
 export function originItem(origin: OriginName): SelectionItem {
-  const axis = ORIGIN_AXES.has(origin)
   if (isOriginPlane(origin)) {
     return {
       ...NO_ITEM_DATA,
@@ -186,6 +185,7 @@ export function originItem(origin: OriginName): SelectionItem {
       origin,
     }
   }
+  const axis = ORIGIN_AXES.has(origin)
   return {
     ...NO_ITEM_DATA,
     key: `origin:${origin}`,

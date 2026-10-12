@@ -3,6 +3,7 @@ import {
   gestureFor,
   keyNavigation,
   NAVIGATION_PRESETS,
+  navigationLegend,
   type Gesture,
   type NavigationPreset,
 } from './navigation'
@@ -25,7 +26,8 @@ const CASES: readonly Case[] = [
   { preset: 'fusion', pressed: 'Shift + middle', buttons: MIDDLE, shift: true, gesture: 'orbit' },
   { preset: 'fusion', pressed: 'left', buttons: LEFT, shift: false, gesture: 'none' },
   { preset: 'fusion', pressed: 'Shift + left', buttons: LEFT, shift: true, gesture: 'none' },
-  { preset: 'fusion', pressed: 'right', buttons: RIGHT, shift: false, gesture: 'none' },
+  { preset: 'fusion', pressed: 'right', buttons: RIGHT, shift: false, gesture: 'orbit' },
+  { preset: 'fusion', pressed: 'Shift + right', buttons: RIGHT, shift: true, gesture: 'pan' },
   {
     preset: 'fusion',
     pressed: 'left + right',
@@ -65,7 +67,15 @@ const CASES: readonly Case[] = [
   },
   { preset: 'freecad', pressed: 'left', buttons: LEFT, shift: false, gesture: 'none' },
   { preset: 'freecad', pressed: 'Shift + left', buttons: LEFT, shift: true, gesture: 'none' },
-  { preset: 'freecad', pressed: 'right', buttons: RIGHT, shift: false, gesture: 'none' },
+  { preset: 'freecad', pressed: 'right', buttons: RIGHT, shift: false, gesture: 'orbit' },
+  { preset: 'freecad', pressed: 'Shift + right', buttons: RIGHT, shift: true, gesture: 'pan' },
+  {
+    preset: 'freecad',
+    pressed: 'Shift + middle',
+    buttons: MIDDLE,
+    shift: true,
+    gesture: 'pan',
+  },
   {
     preset: 'freecad',
     pressed: 'left + right',
@@ -82,11 +92,81 @@ describe('gestureFor', () => {
   })
 })
 
+describe('gestureFor with the right button (U-97)', () => {
+  it('U-97 right alone orbits in both presets', () => {
+    expect(gestureFor('fusion', RIGHT, { shift: false })).toBe('orbit')
+    expect(gestureFor('freecad', RIGHT, { shift: false })).toBe('orbit')
+  })
+
+  it('U-97 Shift with the right button pans in both presets', () => {
+    expect(gestureFor('fusion', RIGHT, { shift: true })).toBe('pan')
+    expect(gestureFor('freecad', RIGHT, { shift: true })).toBe('pan')
+  })
+
+  it('U-97 FreeCAD middle with right orbits, and Fusion left alone does nothing', () => {
+    expect(gestureFor('freecad', MIDDLE | RIGHT, { shift: false })).toBe('orbit')
+    expect(gestureFor('fusion', LEFT, { shift: false })).toBe('none')
+  })
+})
+
+describe('navigationLegend (U-97)', () => {
+  it('U-97 gives the Fusion legend of 2.11', () => {
+    expect(navigationLegend('fusion')).toBe(
+      'Orbit: Shift+middle-drag, right-drag or drag the view cube. Pan: middle-drag or Shift+right-drag. Zoom: wheel or pinch.',
+    )
+  })
+
+  it('U-97 gives the FreeCAD legend of 2.11', () => {
+    expect(navigationLegend('freecad')).toBe(
+      'Orbit: middle+left-drag, right-drag or drag the view cube. Pan: middle-drag or Shift+right-drag. Zoom: wheel or pinch.',
+    )
+  })
+})
+
+// The navigation table of ui.md 3.13 as data: action, Fusion column, FreeCAD column.
+const NAVIGATION_TABLE: readonly (readonly [string, string, string])[] = [
+  ['Select', 'Left click', 'Left click'],
+  ['Pan', 'Middle drag', 'Middle drag'],
+  [
+    'Orbit',
+    'Shift + middle drag',
+    'Middle + left drag, or middle + right drag (press middle first)',
+  ],
+  [
+    'Orbit without a middle button (also a two-finger press and drag on a macOS trackpad)',
+    'Right drag',
+    'Right drag',
+  ],
+  ['Pan without a middle button', 'Shift + right drag', 'Shift + right drag'],
+  ['Zoom', 'Wheel at the cursor', 'Wheel at the cursor'],
+  ['Zoom with a trackpad pinch', 'At the cursor', 'At the cursor'],
+  ['Fit to view', 'Middle double-click', 'None'],
+  ['Orbit with the view cube', 'Left drag on the cube', 'Left drag on the cube'],
+  [
+    'Box selection',
+    'Left drag on empty space, sketch mode only',
+    'Left drag on empty space, sketch mode only',
+  ],
+]
+
 describe('NAVIGATION_PRESETS', () => {
   it('lists Fusion first, the only preset where a middle double-click fits the view', () => {
     expect(NAVIGATION_PRESETS.map((preset) => preset.id)).toEqual(['fusion', 'freecad'])
     expect(NAVIGATION_PRESETS.map((preset) => preset.middleDoubleClickFits)).toEqual([true, false])
   })
+
+  it.each([
+    ['fusion', 1],
+    ['freecad', 2],
+  ] as const)(
+    'U-97 %s has one row per row of the 3.13 table with that preset’s column',
+    (id, column) => {
+      const preset = NAVIGATION_PRESETS.find((entry) => entry.id === id)
+      expect(preset?.rows).toEqual(
+        NAVIGATION_TABLE.map((row) => ({ action: row[0], gesture: row[column] })),
+      )
+    },
+  )
 })
 
 describe('keyNavigation', () => {

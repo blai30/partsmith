@@ -16,7 +16,7 @@ import { useFileDrop } from './layout/use-file-drop'
 import { useResolvedTheme } from './layout/use-resolved-theme'
 import { OverhangLegend } from './print/OverhangLegend'
 import { overhangLegendLimit } from './print/overhang'
-import { SketchHeader } from './sketch/SketchHeader'
+import { SketchOverlay } from './sketch/SketchOverlay'
 import type { AppState } from './state/store'
 import { COLOR_CLASSES, FONT_CLASSES, ROOT_CLASSES } from './theme/roles'
 import { applyTheme, applyUiScale } from './theme/theme'
@@ -88,7 +88,7 @@ export function App() {
       ) : null}
       <RegionBoundary region="viewport" fallbackClassName="col-start-2 row-start-2">
         <Viewport>
-          <SketchHeader />
+          <SketchOverlay />
           <PrintLegend />
           <Inspector />
         </Viewport>

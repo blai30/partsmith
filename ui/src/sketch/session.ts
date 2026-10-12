@@ -157,9 +157,7 @@ export function sketchStepHint(step: SketchStep, platform: Platform): string | n
         ? MESSAGES.sketch_step_center()
         : MESSAGES.sketch_step_rectangle_corner()
     case 'circle':
-      return step.clicks === 0
-        ? MESSAGES.sketch_step_center()
-        : MESSAGES.sketch_step_circle_size()
+      return step.clicks === 0 ? MESSAGES.sketch_step_center() : MESSAGES.sketch_step_circle_size()
     case 'arc_3point':
       return (
         [

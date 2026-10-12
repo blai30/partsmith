@@ -438,6 +438,35 @@ describe('the selection inspector (3.8)', () => {
     })
   })
 
+  it('U-110 offers "Re-pick Edges" for a feature with a lost edge, which edits it with Edges active', async () => {
+    const lost: FeatureStatus = {
+      ...status([TOO_LARGE]),
+      repairs: [
+        {
+          kind: 'element',
+          path: '/edges/0',
+          body: 'b-cube',
+          reference: { q: 'edge(top,front)', fp: 'fp-edge' },
+          resolution: 'missing',
+          centroid: [0, 0, 20],
+        },
+      ],
+    }
+    const document = documentState(CUBE_FEATURES_DOCUMENT, {
+      meshes: { 'b-cube': meshSummary(1, CUBE_BOUNDS) },
+      featureStatus: { ...documentState(CUBE_FEATURES_DOCUMENT).featureStatus, 'f-fil1': lost },
+    })
+    const { app, user } = renderInspector(document, {
+      selection: [featureItem('f-fil1', 'Fillet 1')],
+    })
+    const panel = inspector()
+    expect(within(panel).queryByRole('button', { name: 'Edit' })).toBeNull()
+    await user.click(within(panel).getByRole('button', { name: 'Re-pick Edges' }))
+    await waitFor(() => {
+      expect(app.store.getState().command?.activeField).toBe('edges')
+    })
+  })
+
   it('offers "Use {suggestion}" for a feature message at rest, labeled "Change {label}"', async () => {
     const document = documentState(CUBE_FEATURES_DOCUMENT, {
       meshes: { 'b-cube': meshSummary(1, CUBE_BOUNDS) },

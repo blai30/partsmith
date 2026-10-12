@@ -1,5 +1,5 @@
 import type { BodyMeshData, CoreEvent } from '../core/events'
-import { featureLabel } from '../core/labels'
+import { featureLabel, type OriginPlane } from '../core/labels'
 import type {
   BoundingBox,
   Body,
@@ -44,6 +44,14 @@ import {
   type Camera,
   type Vector3,
 } from './camera'
+import {
+  drawnGridSpacing,
+  gridCorners,
+  gridHalfSide,
+  gridPlacement,
+  gridSegments,
+  type GridSegments,
+} from './grid'
 import { addScaled, cross, dot, normalize, subtract } from './math'
 import type { PickClass, PickResult, SelectionItemKind } from './picking'
 import { sectionClip } from './section'
@@ -101,6 +109,10 @@ const SKETCH_POINT_PICK_SIZE = 11
 const ORIGIN_POINT_SIZE = 9
 const PLANE_OUTLINE_WIDTH = 1
 const BED_WIDTH = 1.5
+/** Grid lines: 1 CSS pixel wide, minor at 35 percent and major at 70 percent opacity (3.12). */
+const GRID_LINE_WIDTH = 1
+const GRID_MINOR_OPACITY = 0.35
+const GRID_MAJOR_OPACITY = 0.7
 /** Chord tolerance of sketch circles and arcs. */
 const SKETCH_TOLERANCE_PIXELS = 0.25
 /** A tessellation is kept until the scale changes by more than this factor. */
@@ -116,14 +128,13 @@ const PLANE_SIDE_FACTOR = 1.2
 /** The length of the sketch axes, as a multiple of the larger visible extent at the target. */
 const SKETCH_AXIS_REACH = 4
 
-const ORIGIN_PLANES: readonly {
-  readonly name: 'XY' | 'XZ' | 'YZ'
-  readonly placement: Placement
-}[] = [
-  { name: 'XY', placement: { origin: [0, 0, 0], x_axis: [1, 0, 0], normal: [0, 0, 1] } },
-  { name: 'XZ', placement: { origin: [0, 0, 0], x_axis: [1, 0, 0], normal: [0, -1, 0] } },
-  { name: 'YZ', placement: { origin: [0, 0, 0], x_axis: [0, 1, 0], normal: [1, 0, 0] } },
-]
+const ORIGIN_PLANE_PLACEMENTS: Readonly<Record<OriginPlane, Placement>> = {
+  XY: { origin: [0, 0, 0], x_axis: [1, 0, 0], normal: [0, 0, 1] },
+  XZ: { origin: [0, 0, 0], x_axis: [1, 0, 0], normal: [0, -1, 0] },
+  YZ: { origin: [0, 0, 0], x_axis: [0, 1, 0], normal: [1, 0, 0] },
+}
+
+const ORIGIN_PLANES: readonly OriginPlane[] = ['XY', 'XZ', 'YZ']
 
 const ORIGIN_AXES: readonly { readonly name: 'X' | 'Y' | 'Z'; readonly direction: Vector3 }[] = [
   { name: 'X', direction: [1, 0, 0] },
@@ -189,6 +200,11 @@ type PendingDraw = {
 }
 
 type Point3 = readonly [number, number, number]
+
+/** Line segments, two points each, as unpicked line geometry with one element. */
+function linesOf(positions: Float32Array): Geometry {
+  return { kind: 'lines', positions, elementIds: new Uint32Array(positions.length / 6), elementCount: 1 }
+}
 
 function bodyMeshKey(documentHandle: DocHandle, body: string): string {
   return `${String(documentHandle)}:${body}`
@@ -665,7 +681,11 @@ function visibleDatums(
 }
 
 /** The 4 corners of a square plane of this side centered at the projection of `center` onto it. */
-function squareCorners(placement: Placement, side: number, center: Vector3): Point3[] {
+function squareCorners(
+  placement: Placement,
+  side: number,
+  center: Vector3,
+): [Point3, Point3, Point3, Point3] {
   const normal = normalize(placement.normal) ?? [0, 0, 1]
   const xAxis = normalize(placement.x_axis) ?? [1, 0, 0]
   const yAxis = cross(normal, xAxis)
@@ -685,6 +705,25 @@ function originPlanesShown(state: AppState): boolean {
     return true
   }
   return activeFieldKind(state) === 'plane'
+}
+
+/**
+ * The origin planes the scene draws: all three while a plane is picked for a new sketch or a plane
+ * field is active, otherwise those shown this session (3.10, 3.12).
+ */
+export function drawnOriginPlanes(state: AppState): readonly OriginPlane[] {
+  const shown = originPlanesShown(state)
+  return ORIGIN_PLANES.filter((plane) => shown || sessionVisible(state, `origin:${plane}`, null))
+}
+
+/**
+ * Where an origin plane's label goes (3.16.1): the corner of its drawn square in the plane's
+ * positive first and second axis directions.
+ */
+export function originPlaneLabelAnchor(plane: OriginPlane, bounds: BoundingBox | null): Vector3 {
+  const extent = planeExtent(bounds)
+  const [, , corner] = squareCorners(ORIGIN_PLANE_PLACEMENTS[plane], extent.side, extent.center)
+  return corner
 }
 
 function overlayCall(
@@ -971,6 +1010,13 @@ export function createScene(backend: RenderBackend): Scene {
       }
     }
 
+    // The ground or sketch grid (3.12 pass 6), never picked.
+    const gridDraws = drawGrid(state, bounds, camera, size.height, theme, scale)
+    for (const corner of gridDraws.corners) {
+      sceneBounds = extend(sceneBounds, [corner])
+    }
+    pending.push(...gridDraws.draws)
+
     // Datum and origin planes, origin axes (3.12 pass 6).
     const planes = planeExtent(bounds)
     const datumColor = colorOf(theme, 'datum')
@@ -984,12 +1030,10 @@ export function createScene(backend: RenderBackend): Scene {
         item: plainItem(`feature:${datum.id}`, 'datum_plane', datum.id, { feature: datum.id }),
         placement: datum.placement,
       })),
-      ...ORIGIN_PLANES.filter(
-        (plane) => originPlanesShown(state) || sessionVisible(state, `origin:${plane.name}`, null),
-      ).map((plane) => ({
-        key: `origin:${plane.name}`,
-        item: originItem(plane.name),
-        placement: plane.placement,
+      ...drawnOriginPlanes(state).map((plane) => ({
+        key: `origin:${plane}`,
+        item: originItem(plane),
+        placement: ORIGIN_PLANE_PLACEMENTS[plane],
       })),
     ]
     for (const plane of planeKinds) {
@@ -1162,6 +1206,48 @@ export function createScene(backend: RenderBackend): Scene {
       section: section === null ? null : clipOf(section.plane, sectionOffset, section.flipped),
       analysis: overhangAnalysis(state, theme),
     }
+  }
+
+  /** The grid's two draws, minor and major lines, and its square's corners; nothing when no grid is drawn. */
+  function drawGrid(
+    state: AppState,
+    bounds: BoundingBox | null,
+    camera: Camera,
+    height: number,
+    theme: ThemeName,
+    scale: number,
+  ): { readonly draws: PendingDraw[]; readonly corners: readonly Point3[] } {
+    const placement = gridPlacement(state)
+    const spacing = drawnGridSpacing(state, camera, height)
+    if (placement === null || spacing === null) {
+      remove('grid:minor')
+      remove('grid:major')
+      return { draws: [], corners: [] }
+    }
+    const half = gridHalfSide(bounds, spacing)
+    const signature = JSON.stringify([placement, spacing, half])
+    // Built at most once, and only when a draw's signature changed.
+    let segments: GridSegments | null = null
+    const lines = () => (segments ??= gridSegments(placement, spacing, half))
+    uploadGenerated('grid:minor', signature, () => linesOf(lines().minor))
+    uploadGenerated('grid:major', signature, () => linesOf(lines().major))
+    const color = colorOf(theme, 'grid')
+    const draws: PendingDraw[] = (
+      [
+        ['grid:minor', GRID_MINOR_OPACITY],
+        ['grid:major', GRID_MAJOR_OPACITY],
+      ] as const
+    ).map(([id, opacity]) => ({
+      call: {
+        ...overlayCall(color, 'translucent', opacity, GRID_LINE_WIDTH * scale, false, false),
+        id,
+        depthTest: true,
+      },
+      elementCount: 1,
+      target: null,
+      states: null,
+    }))
+    return { draws, corners: gridCorners(placement, half) }
   }
 
   type BodyInput = {

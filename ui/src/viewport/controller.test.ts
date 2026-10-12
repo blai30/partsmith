@@ -456,6 +456,54 @@ describe('navigation (3.13)', () => {
     expect(fixture.controller.getCamera().rotation).not.toEqual(DEFAULT_CAMERA.rotation)
   })
 
+  it.each(['fusion', 'freecad'] as const)(
+    'orbits with a right drag in the %s preset and opens no browser menu (3.13)',
+    (navigation) => {
+      const fixture = setUp({
+        state: { settings: { ...DEFAULT_SETTINGS, theme: 'light', navigation } },
+      })
+      const press = {
+        pointerId: 1,
+        pointerType: 'mouse',
+        button: 2,
+        buttons: 2,
+        clientX: 400,
+        clientY: 300,
+      }
+      fireEvent.pointerDown(fixture.canvas, press)
+      expect(fireEvent.contextMenu(fixture.canvas, press)).toBe(false)
+      fireEvent.pointerMove(fixture.canvas, { ...press, clientX: 460 })
+      fireEvent.pointerUp(fixture.canvas, { ...press, buttons: 0, clientX: 460 })
+      fixture.frames.flush()
+      expect(fixture.controller.getCamera().rotation).not.toEqual(DEFAULT_CAMERA.rotation)
+    },
+  )
+
+  it.each(['fusion', 'freecad'] as const)(
+    'pans with Shift and a right drag in the %s preset',
+    (navigation) => {
+      const fixture = setUp({
+        state: { settings: { ...DEFAULT_SETTINGS, theme: 'light', navigation } },
+      })
+      const press = {
+        pointerId: 1,
+        pointerType: 'mouse',
+        button: 2,
+        buttons: 2,
+        shiftKey: true,
+        clientX: 400,
+        clientY: 300,
+      }
+      fireEvent.pointerDown(fixture.canvas, press)
+      fireEvent.pointerMove(fixture.canvas, { ...press, clientX: 460 })
+      fireEvent.pointerUp(fixture.canvas, { ...press, buttons: 0, clientX: 460 })
+      fixture.frames.flush()
+      const camera = fixture.controller.getCamera()
+      expect(camera.rotation).toEqual(DEFAULT_CAMERA.rotation)
+      expect(camera.target).not.toEqual(DEFAULT_CAMERA.target)
+    },
+  )
+
   it('fits the view on a middle double-click in the Fusion preset', () => {
     const fixture = setUp()
     middleClick(fixture.canvas, 400, 300)

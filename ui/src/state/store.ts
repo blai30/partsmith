@@ -203,6 +203,10 @@ export type ViewState = {
   readonly sessionVisible: Readonly<Record<string, boolean>>
   /** Session-only locked bodies (not pickable). */
   readonly locked: readonly string[]
+  /** Session-only: whether the ground and sketch grid is drawn (3.12). */
+  readonly grid: boolean
+  /** Minor spacing in mm of the grid drawn now, mirrored by the viewport controller; null when no grid is drawn (3.12, 3.21). */
+  readonly gridSpacing: number | null
 }
 
 export type SectionState = {
@@ -215,7 +219,7 @@ export type PanelsState = {
   readonly browserOpen: boolean
   readonly timelineCollapsed: boolean
   readonly paletteOpen: boolean
-  readonly side: 'parameters' | 'health' | 'problems' | null
+  readonly side: 'parameters' | 'health' | 'problems' | 'keys' | null
   readonly inspectorPosition: { readonly x: number; readonly y: number } | null
 }
 
@@ -283,6 +287,8 @@ export const INITIAL_STATE: AppState = {
     filter: { body: false, face: true, edge: true, vertex: true },
     sessionVisible: {},
     locked: [],
+    grid: true,
+    gridSpacing: null,
   },
   panels: {
     browserOpen: startsWithBrowserOpen(),

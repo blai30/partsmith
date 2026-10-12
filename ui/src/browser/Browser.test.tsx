@@ -102,8 +102,9 @@ describe('the browser tree (3.10)', () => {
     const planes = { XY: 'Top plane (XY)', XZ: 'Front plane (XZ)', YZ: 'Right plane (YZ)' }
     for (const [id, name] of Object.entries(planes)) {
       expect(row('origin_plane', id)).toHaveTextContent(name)
-      expect(within(row('origin_plane', id)).getByRole('button', { name: `Show ${name}` }))
-        .toBeInTheDocument()
+      expect(
+        within(row('origin_plane', id)).getByRole('button', { name: `Show ${name}` }),
+      ).toBeInTheDocument()
     }
     for (const id of ['X', 'Y', 'Z']) {
       expect(row('origin_axis', id)).toHaveTextContent(`${id} axis`)

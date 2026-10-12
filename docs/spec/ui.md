@@ -95,7 +95,7 @@ ui/
       events.ts              CoreEvent, decodeEvent (the only module that names events)
       queue.ts               createMutationQueue, createLatestOnly
       ids.ts                 generateId
-      labels.ts              featureLabel, nextBodyName, originPlaneName
+      labels.ts              featureLabel, nextBodyName, originPlaneView, originPlaneName
     generated/
       protocol.ts            generated, checked in, never edited
     state/
@@ -150,7 +150,8 @@ ui/
       constraints.ts         applicableConstraints, constraintFor
       dimensions.ts          dimensionTypeFor, measuredValue, defaultLabelPosition
       session.ts             SketchToolId, SketchChange, SketchCommitResult, SketchStep, sketchStepHint,
-                             outlineProblems, the internal sketch controller
+                             the internal sketch controller
+      issues.ts              profile finding messages and rings, outlineProblems
       SketchOverlay.tsx, SketchHeader.tsx, DrawInputs.tsx, DimensionEditor.tsx
     timeline/ Timeline.tsx
     browser/ Browser.tsx
@@ -824,6 +825,8 @@ export type CommandDefinition = {
   readonly shortcuts: readonly string[]
   /** Contexts in which the command is listed in the palette and its shortcuts are active. */
   readonly contexts: readonly AppContext[]
+  /** Contexts in which the shortcuts are active when that is fewer than `contexts` (3.5); absent means `contexts`. */
+  readonly shortcutContexts?: readonly AppContext[]
   /** Only on this host; absent means every host. */
   readonly host?: 'web' | 'desktop'
   availability(app: App): Availability
@@ -843,12 +846,15 @@ export type CommandRegistry = {
   list(): readonly CommandDefinition[]
   /** Runs the command if enabled; a disabled command shows its reason as an info notification. */
   run(app: App, id: string, source: InvocationSource): Promise<void>
-  /** The command bound to a chord in a context, considering host and availability 'hidden'. */
+  /** The command bound to a chord in a context, considering host, shortcut contexts and availability 'hidden'. */
   forChord(app: App, chord: string, context: AppContext): CommandDefinition | undefined
+  /** Clashes of chords within each command's shortcut contexts. */
   conflicts(platform: Platform): readonly ShortcutConflict[]
   subscribe(listener: () => void): () => void
 }
 export function createCommandRegistry(): CommandRegistry
+/** Whether a command's shortcuts are active in a context: `shortcutContexts`, else `contexts`. */
+export function shortcutsActiveIn(definition: CommandDefinition, context: AppContext): boolean
 ```
 
 `src/commands/shortcuts.ts`:
@@ -931,7 +937,7 @@ export const TOOLBARS: Readonly<Record<AppContext, readonly ToolbarEntry[]>>
 
 The exact entries are in section 3.3. A toolbar entry whose command is not registered (a catalog without that feature type) is not rendered.
 
-`src/commands/features.ts` registers one command per catalog entry: id `feature.<type>`, title the manifest label, category from the manifest category (`create` Create, `modify` Modify, `pattern` Pattern, `construct` Construct, `sketch` Create), icon from `FEATURE_ICONS[manifest.icon]` (fallback `Shapes`), keywords from `COMMAND_KEYWORDS['feature.' + type]`, description from `FEATURE_DESCRIPTIONS['feature.' + type]`, shortcuts from `FEATURE_SHORTCUTS[type]` (3.5), contexts `model`, `sketch` and `print` (running it from Sketch or Print switches to Model first, 3.3). The `sketch` type's command runs `startNewSketch` instead of the inspector. The `import` type gets no command (STEP import UI is later). Its timeline item can be selected, renamed, suppressed and deleted; Edit is disabled with `import_not_editable` (4.3).
+`src/commands/features.ts` registers one command per catalog entry: id `feature.<type>`, title the manifest label, category from the manifest category (`create` Create, `modify` Modify, `pattern` Pattern, `construct` Construct, `sketch` Create), icon from `FEATURE_ICONS[manifest.icon]` (fallback `Shapes`), keywords from `COMMAND_KEYWORDS['feature.' + type]`, description from `FEATURE_DESCRIPTIONS['feature.' + type]`, shortcuts and their `shortcutContexts` from `FEATURE_SHORTCUTS[type]` (3.5), contexts `model`, `sketch` and `print` (running it from Sketch or Print switches to Model first, 3.3). The `sketch` type's command runs `startNewSketch` instead of the inspector. The `import` type gets no command (STEP import UI is later). Its timeline item can be selected, renamed, suppressed and deleted; Edit is disabled with `import_not_editable` (4.3).
 
 Feature command availability (`FEATURE_REQUIREMENTS` in `src/commands/features.ts`) is computed from the store, so a tool that has nothing to act on says what is missing before it is clicked; editing an existing feature is never affected:
 
@@ -1098,7 +1104,7 @@ Definitions:
 - `wheelZoomFactor`: the pixel delta is `deltaY` for `deltaMode` 0, `deltaY × 16` for mode 1, `deltaY × viewportHeightPixels` for mode 2; the factor is `1.0015 ^ pixels`, or `1.01 ^ pixels` when `ctrlKey` is true (trackpad pinch).
 - `fitBounds`: keeps the rotation; sets the target to the box center; transforms the 8 corners into camera space; with `w` and `h` the camera-space x and y extents, the required visible height is `max(h, w / aspect) / (1 - 2 × margin)` (margin default 0.1, so the content fills 80 percent of the limiting dimension). Orthographic sets `orthographicHeight` to it; perspective sets `distance = visibleHeight / (2 tan(verticalFieldOfView / 2)) + d / 2`, where `d` is the camera-space z extent. An empty or degenerate box (all extents below 1e-9) is treated as a 100 mm cube around its center.
 - `withProjection` preserves the apparent size at the target: switching to orthographic sets `orthographicHeight = 2 × distance × tan(verticalFieldOfView / 2)`; switching to perspective sets `distance = orthographicHeight / (2 tan(verticalFieldOfView / 2))`.
-- `cameraAfterSketch`: when the angle between `forward(current)` and `normal` or `-normal` is more than 10 degrees, null (the user already turned the view, so it stays). Otherwise `before` when it is not null and its forward vector is itself more than 10 degrees from `normal` and `-normal`; otherwise `current` with the `iso` rotation (`standardViewRotation('iso')`), keeping target, distance, projection and orthographic height. It never returns a camera looking straight at the sketch plane, so the next feature's preview is seen in depth.
+- `cameraAfterSketch`: when the angle between `forward(current)` and `normal` or `-normal` is more than 10 degrees, null (the user already turned the view, so it stays). Otherwise `before` when it is not null and its forward vector is itself more than 10 degrees from `normal` and `-normal`; otherwise `current` with the `iso` rotation (`standardViewRotation('iso')`), keeping target, distance, projection and orthographic height, or with the `front` rotation when the iso view is itself within 10 degrees of `normal` or `-normal` (a plane facing the iso direction). It never returns a camera looking straight at the sketch plane, so the next feature's preview is seen in depth.
 - `depthRange` covers the scene's bounding sphere with 10 percent slack: with `c` the distance of the sphere center along the forward axis, perspective uses `near = max(c - 1.1 × r, 0.001 × (c + 1.1 × r), 0.01)` and `far = c + 1.1 × r`; orthographic uses `near = c - 1.1 × r`, `far = c + 1.1 × r` (near may be negative).
 
 `src/viewport/backend.ts` (ADR 0007):
@@ -1661,7 +1667,9 @@ export type SketchStep =
   | { readonly kind: 'dimension'; readonly picked: 'nothing' | 'line' | 'point' | 'round' | 'pair' }
 /** The step prompt for a step, shortcuts rendered with formatShortcut, or null when there is none. */
 export function sketchStepHint(step: SketchStep, platform: Platform): string | null
-/** The outline summary of the header (3.16.8): "1 open end", "{n} open ends", "1 outline problem" or "{n} outline problems"; null without profile findings. */
+
+// src/sketch/issues.ts
+/** The outline summary of the header (3.16.8) and of `profile_problems` (4.3): "1 open end", "{n} open ends", "1 outline problem" or "{n} outline problems"; null without profile findings. */
 export function outlineProblems(solution: SketchSolution): string | null
 ```
 
@@ -2067,9 +2075,14 @@ export function usedIds(document: Document): Set<string>
 export function featureLabel(document: Document, featureId: string, catalog: Catalog | null): string
 /** "Body n" with the smallest n ≥ 1 not used by a body name. */
 export function nextBodyName(document: Document): string
+export type OriginPlane = 'XY' | 'XZ' | 'YZ'
+/** The standard view that looks at an origin plane from its front (2.11): "Top", "Front" or "Right". */
+export function originPlaneView(plane: OriginPlane): 'Top' | 'Front' | 'Right'
 /** "Top plane (XY)", "Front plane (XZ)" or "Right plane (YZ)" (3.10). */
-export function originPlaneName(plane: 'XY' | 'XZ' | 'YZ'): string
+export function originPlaneName(plane: OriginPlane): string
 ```
+
+`originItem` (`src/inspector/selection-values.ts`) is the one place that builds origin selection items, so browser rows, selection titles, field boxes, Choose menus and scene picks all take their plane labels from `originPlaneName`; the plane buttons of 3.16.1 read `originPlaneView` and the plane labels "{view} ({plane})".
 
 New features are created without a `name`; their label comes from `featureLabel`. New bodies are named with `nextBodyName`.
 
@@ -2168,7 +2181,7 @@ Context rules:
 ### 3.4 Command palette
 
 - Opens with `Mod+K` (from anywhere, including text fields) or `S` (when focus is not editable), or the palette button. `Mod+K` while open closes it.
-- Layout: a container `role="dialog"` with `aria-label="Command palette"` and `data-testid="palette"`, holding a `role="combobox"` input (`data-testid="palette-input"`, placeholder "Search commands, features, bodies, parameters and settings") with `aria-controls` pointing at a `role="listbox"`, and a footer. Options (`role="option"`, `data-testid="palette-option"`, `data-item-id`, `data-kind`) show icon, title, detail (`textMuted`), a kind tag for non-commands ("Feature", "Body", "Parameter", "Recent file", `text-xs` in `textMuted`), and the formatted shortcut (`data-testid="palette-shortcut"`, `textMuted`, Inter). The active option has the `hover` role's `active` background.
+- Layout: a container `role="dialog"` with `aria-label="Command palette"` and `data-testid="palette"`, holding a `role="combobox"` input (`data-testid="palette-input"`, placeholder "Search commands, features, bodies, parameters and settings") with `aria-controls` pointing at a `role="listbox"`, and a footer. Options (`role="option"`, `data-testid="palette-option"`, `data-item-id`, `data-kind`) show icon, title, detail (`textMuted`), a kind tag for non-commands ("Feature", "Body", "Parameter", "Recent file", `text-xs` in `textMuted`), and the formatted shortcut (`data-testid="palette-shortcut"`, `textMuted`, Inter) when it is active in the current context (`shortcutsActiveIn`, 2.10), so Hole shows no H in Sketch, where H is Horizontal. The active option has the `hover` role's `active` background.
 - Items (`paletteItems`): every registered command whose availability is not `hidden` in the current context; every feature in the document ("{label}", kind feature, runs: select it in the timeline and scroll it into view); every body ("{name}", kind body, runs: select it and frame it); every parameter ("{name} = {expr}", kind parameter, runs: open the Parameters panel with that row's expression input focused); recent files ("Open recent: {name}", kind recent). Settings are ordinary commands of category Settings: "Theme: System", "Theme: Light", "Theme: Dark", "Navigation: Fusion", "Navigation: FreeCAD", "UI scale: 100%" to "UI scale: 300%", each with `checked` showing the current value.
 - Ranking: `rankPaletteItems` with `settings.paletteRecent` and the current context (2.10). The first option is active when the list changes.
 - With an empty query the options are grouped under headings (`role="group"` with `aria-label` the heading; the heading is `text-xs` in `textMuted`, `data-testid="palette-heading"`, and is not an option): "Recent" when there are recent items, then the category names in the context order of 2.10. So every command can be browsed without knowing its name. Arrow keys move over options only.
@@ -2182,9 +2195,9 @@ Context rules:
 
 ### 3.5 Keyboard shortcuts
 
-Registry shortcuts (displayed with `formatShortcut`; `Mod` is Cmd on macOS and Ctrl elsewhere):
+Registry shortcuts (displayed with `formatShortcut`; `Mod` is Cmd on macOS and Ctrl elsewhere). The last column gives the contexts in which the shortcut works. It equals the command's `contexts` except for Hole, Fillet and Move body: like every feature command they are listed in the palette in all three contexts (2.10, 3.3), but their letters work in Model and Print only (`shortcutContexts`), because Sketch uses H for Horizontal and keeps F and M free.
 
-| Command id | Title | Shortcut | Contexts |
+| Command id | Title | Shortcut | Shortcut contexts |
 | --- | --- | --- | --- |
 | `app.palette` | Command palette | Mod+K, S | all |
 | `app.keys` | Keyboard and mouse | F1 | all |
@@ -2248,7 +2261,7 @@ Commands without a default shortcut (ids and titles; all listed in the palette i
 
 `edit.repeat` runs `startFeatureCommand` for the type of the last feature command run in this session from any source, with the current selection preselected; before any it is disabled with `nothing_to_repeat`. It is reached from the viewport context menu (3.13) and with Enter on the focused viewport (Enter ladder, below).
 
-`FEATURE_SHORTCUTS` holds the four feature entries above; other commands have no shortcut. Letters follow Fusion where Fusion has a default (E, H, F, M, L, R, C, D, X, S); `Mod+N` is desktop only because browsers reserve Ctrl+N. Unit test U-22 asserts `conflicts()` is empty for the built-in registry with the test catalog on every platform. Letters stay shortcuts: typed entry on the viewport routes only characters that start a number (3.7, 3.16.4), so S, V and the feature letters keep working during commands and while a shape is rubber-banding; once a value input has focus, every key types into it.
+`FEATURE_SHORTCUTS` holds the four feature entries above with their shortcut contexts; other commands have no shortcut. Letters follow Fusion where Fusion has a default (E, H, F, M, L, R, C, D, X, S); `Mod+N` is desktop only because browsers reserve Ctrl+N. Unit test U-22 asserts `conflicts()` is empty for the built-in registry with the test catalog on every platform. Letters stay shortcuts: typed entry on the viewport routes only characters that start a number (3.7, 3.16.4), so S, V and the feature letters keep working during commands and while a shape is rubber-banding; once a value input has focus, every key types into it.
 
 Keys handled by components, not the registry:
 
@@ -2330,7 +2343,7 @@ Starting a new feature (`startFeatureCommand(type)`):
 5. The active field is the first selection field that is required and empty, skipping a `body` field whose parent object also has a `face` or `edge` field (the first pick fills it, 2.12); if there is none, the first essential selection field whose control is `multiple` (for example Profile, Edges, Faces to remove), so further clicks keep adding to it; if there is none, no field. Unless the active field is a required empty field, focus goes to the first essential expression field with its text selected.
 6. The inspector opens (placement below). If the params are complete, the first preview is applied at once.
 
-Editing an existing feature (`editFeature(id)`): a `sketch` feature enters sketch mode instead. Otherwise: cancel an active command, `beginTransaction(documentHandle, 'Edit {label}')`, `setFocus(documentHandle, id)`, take `params` from the record, mark the command `applied`, and open the inspector titled with the feature label. Selection fields show `itemsFromValue` and their references are highlighted through `resolveReferences`, each reference paired with its sibling `body` param (features.md 2.5 shapes), on the model layer (which shows the state before the feature). If `setFocus` fails with `focus_inactive`, the transaction is canceled and the core's message is shown as an error notification with the action "Unsuppress" (suppressed feature: unsuppresses it and retries the edit) or "Move marker to the end" (rolled-back feature: `set_rollback` with no id, so nothing is rolled back, then retries). Each `Repair` of the feature's status with a `centroid` gets a dashed ring of 16 CSS pixels diameter in `errorMark` at that point (`data-testid="repair-marker"`, an SVG `circle` in the overlay with the static attribute `stroke-dasharray="4 3"`, 3.12) with the SVG `title` "Where the missing {noun} was" (face, edge or vertex, from the field's selection kind), until the command ends, so the user sees where to pick again.
+Editing an existing feature (`editFeature(id)`): a `sketch` feature enters sketch mode instead. Otherwise: cancel an active command, `beginTransaction(documentHandle, 'Edit {label}')`, `setFocus(documentHandle, id)`, take `params` from the record, mark the command `applied`, and open the inspector titled with the feature label. When the feature's status has `repairs`, the active field is the selection field the first repair's `path` maps to (the mapping rule below), so the next pick replaces the lost reference (4.2); otherwise there is none. Selection fields show `itemsFromValue` and their references are highlighted through `resolveReferences`, each reference paired with its sibling `body` param (features.md 2.5 shapes), on the model layer (which shows the state before the feature). If `setFocus` fails with `focus_inactive`, the transaction is canceled and the core's message is shown as an error notification with the action "Unsuppress" (suppressed feature: unsuppresses it and retries the edit) or "Move marker to the end" (rolled-back feature: `set_rollback` with no id, so nothing is rolled back, then retries). Each `Repair` of the feature's status with a `centroid` gets a dashed ring of 16 CSS pixels diameter in `errorMark` at that point (`data-testid="repair-marker"`, an SVG `circle` in the overlay with the static attribute `stroke-dasharray="4 3"`, 3.12) with the SVG `title` "Where the missing {noun} was" (face, edge or vertex, from the field's selection kind), until the command ends, so the user sees where to pick again.
 
 Preview cycle: every field change recomputes local field errors (expression states, selection minimums). When the params are complete (every required field set, no field error, no expression pending), the UI submits a preview through a `LatestOnly` over `applyEdits(documentHandle, null, edits)`:
 
@@ -2516,7 +2529,7 @@ Passes, in order:
 
 - Grid: in Model context, lines on the XY plane (z = 0); in sketch mode, lines on the sketch plane through the placement origin along the placement axes instead; none in Print, which draws the bed outline, and none while the grid is turned off (the palette toggle "Show grid", `ViewState.grid`). The minor spacing is `gridSpacing` (2.11) at the camera target; every tenth line is major. The grid covers a square of side `max(200 mm, 2 × the diagonal of the visible bounds)` centered on the origin (or the placement origin), rounded out to whole major cells. Lines are 1 CSS pixel wide (times the UI scale) in `grid`, minor at 35 percent and major at 70 percent opacity, depth-tested so bodies hide them; they are not drawn into the ID pass and are never snap targets. The viewport mirrors the minor spacing in the document unit (`formatNumber`) in `data-grid-spacing`, empty when no grid is drawn, and the status bar shows it (3.21), so the grid gives scale and not only orientation.
 
-- Datum and origin planes are drawn as squares of side `max(50 mm, 1.2 × the diagonal of the visible bounds)` centered at the projection of the visible bounds center onto the plane. Origin axes are drawn as dashed lines of the same length through the origin in `sketchReference`, with DOM labels "X", "Y", "Z" (`textMuted`) at their positive ends.
+- Datum and origin planes are drawn as squares of side `max(50 mm, 1.2 × the diagonal of the visible bounds)` centered at the projection of the visible bounds center onto the plane. Every drawn origin plane (all three while a plane is picked or a plane field is active, otherwise those shown this session) carries its plane label of 3.16.1 at its corner. Origin axes are drawn as dashed lines of the same length through the origin in `sketchReference`, with DOM labels "X", "Y", "Z" (`textMuted`) at their positive ends.
 - The overlay layer (`absolute inset-0 overflow-hidden pointer-events-none` over the canvas; interactive children `pointer-events-auto`) holds an SVG (`absolute inset-0 size-full`) for the box selection rectangle, profile issue rings, finding markers and repair markers, and HTML elements for sketch dimension labels, constraint glyphs, draw inputs, the dimension editor, inference glyphs, axis labels and plane labels. Their positions follow the runtime positions rule below and update in the same animation frame as the canvas.
 - WebGL context loss: `preventDefault` on `webglcontextlost`, a status overlay "Restoring the 3D view" (`role="status"`), and on restore `scene.restore()` re-uploads every drawable and renders.
 
@@ -2547,12 +2560,13 @@ export function orientElement(element: HTMLElement, matrix: Float32Array): void
 | Orbit without a middle button (also a two-finger press and drag on a macOS trackpad) | Right drag | Right drag |
 | Pan without a middle button | Shift + right drag | Shift + right drag |
 | Zoom | Wheel at the cursor | Wheel at the cursor |
-| Zoom (trackpad pinch: wheel with `ctrlKey`) | At the cursor | At the cursor |
-| Fit to view | Middle double-click | none |
+| Zoom with a trackpad pinch | At the cursor | At the cursor |
+| Fit to view | Middle double-click | None |
 | Orbit with the view cube | Left drag on the cube | Left drag on the cube |
-| Box selection | Left drag on empty space, sketch mode only | same |
+| Box selection | Left drag on empty space, sketch mode only | Left drag on empty space, sketch mode only |
 
 - A gesture starts after 3 CSS pixels of motion; below that, a press and release is a click. Orbit rate 0.4 degrees per CSS pixel about the pivot: the world point under the cursor at the gesture start (from the ID pass depth) or the target when nothing is there or the backend cannot read depth.
+- A trackpad pinch arrives as a wheel event with `ctrlKey` and zooms as the wheel does. The table is the keyboard and mouse panel's data (`NAVIGATION_PRESETS` rows, 2.11, 3.5), so its cells are written for users.
 - Wheel uses `wheelZoomFactor`; one notch with a pixel delta of 100 zooms out by 1.0015^100 ≈ 1.162 (wheel back) or in by the inverse (wheel forward). Wheel listeners are non-passive and call `preventDefault`.
 - Middle-button `pointerdown` and `mousedown` call `preventDefault` (no browser autoscroll). The canvas `contextmenu` event always calls `preventDefault` (on macOS and Linux it fires on press, before a right drag can start). A right-button press that moves 3 CSS pixels or more is a camera gesture (the threshold above); a right press released before that opens the viewport context menu.
 - Viewport context menu (`data-testid="viewport-menu"`, `role="menu"`), at the pointer; a pick target under the pointer that is not selected first becomes the selection (as a click would). Shift+F10 or the ContextMenu key on the focused viewport opens it at the center of the selection's screen rectangle, or the viewport center. Items come from `viewportMenuItems(app)` (2.11), each with its formatted shortcut, leaving out disabled ones, so the menu and the radial marking menu of 1.2 can share them:
@@ -2587,7 +2601,7 @@ export function orientElement(element: HTMLElement, matrix: Float32Array): void
 
 - `startNewSketch`: when the selection is exactly one plane-like item (origin plane, datum plane, or a face whose `surface` is `plane`), `createSketchOn(item)`. Otherwise the app enters plane picking: context Sketch with `sketchId` null; the sketch header reading "Pick a plane or a flat face to draw on" followed by the buttons "Top", "Front" and "Right" (accessible names "Sketch on Top plane (XY)", "Sketch on Front plane (XZ)", "Sketch on Right plane (YZ)"), which run `createSketchOn` for that origin plane, so the first plane is one click or one Tab away; origin planes shown, each with a label at the corner of its square in the plane's positive first and second axis directions (`data-testid="plane-label"`, `pointer-events-none`, `text-xs` on a `surfaceRaised` chip, positioned per 3.12): "Top (XY)", "Front (XZ)", "Right (YZ)"; the sketch hint (3.16.3) reading `plane_pick_hint` ("Top plane (XY) is the print bed."); and only origin planes, datum planes and faces accepted. A face that is not flat shows the hint `pick_plane`. Clicking a browser origin plane or datum row works too. Esc returns to Model.
 - `createSketchOn(item)`: commits one `apply_edits` labeled "New sketch" with `add_feature` of a `sketch` record whose `plane` is sketch.md's `SketchPlane` for the item: `{"kind": "origin", "plane": "XY"}`, `{"kind": "datum", "feature": id}` or, for a face, `{"kind": "face", "body": id, "face": <Reference>, "fallback": <Placement>}` with the fallback from the face's `ElementDescriptor.placement`; empty entities and constraints; inserted by the marker rule of 3.7. Then `enterSketch(new id)`.
-- `enterSketch(id)`: cancels an active command, sets context Sketch, shows the sketch for the session, gets its solution (`sketch_solved` events or `solveSketch(documentHandle, id)`), and moves the camera: `lookAlong` the placement normal with the placement y-axis up, then, when the sketch has entities, frames their bounds in the sketch plane (`fitBounds`, margin 0.1); an empty sketch keeps the visible height and targets the placement origin. The projection is kept. The camera before entering is pushed as a sketch view entry (3.20) and kept as `cameraBefore` (3.16.11). Downstream features stay visible and recompute after each sketch edit.
+- `enterSketch(id)`: cancels an active command, sets context Sketch, shows the sketch for the session, gets its solution (`sketch_solved` events or `solveSketch(documentHandle, id)`), and moves the camera: `lookAlong` the placement normal with the placement y-axis up, then, when the sketch has entities, frames their bounds in the sketch plane (`fitBounds`, margin 0.1); an empty sketch keeps the visible height and targets the placement origin. The projection is kept. The camera before entering is pushed as a sketch view entry (3.20) and kept as `cameraBefore` (3.16.11); entering another sketch while one is edited keeps the session's `cameraBefore`, which still looks at the model. Downstream features stay visible and recompute after each sketch edit.
 
 #### 3.16.2 Display
 
@@ -3127,7 +3141,7 @@ Sketch:
 59. U-59. `dimensionTypeFor` with points (0, 0) and (10, 5): label (5, 10) `horizontal_distance`, (15, 2) `vertical_distance`, (12, 8) `distance`; points (0, 0) and (10, 0) with label (5, 5) `distance`; a circle `diameter`; an arc `radius`; lines at 90° `angle`; parallel lines `distance`; a point and a circle unsupported with "Partsmith cannot dimension a point and a circle. Pick two points, a point and a line, two lines, or one circle or arc."
 60. U-60. `measuredValue('angle', ...)` for a line along +X and a line at 60° through the origin is π/3 with the label at (cos 30°, sin 30°) and 2π/3 with the label at (-1, 0.5).
 61. U-61. `commitSketchChange` with a fake core: a requested id reported conflicting returns `over_constrained` and calls no `applyEdits`; an inferred id reported redundant is removed, the sketch is solved again, and `applyEdits` gets the params without it and with solved geometry; a solution with `failed` true returns `failed` with the solver message, and an `invalid_params` `CoreError` returns `failed` with the core's message.
-62. U-62. Sketch view history: enter (view entry), orbit (view entry), commit an edit (document marker); three `Mod+Z` presses restore the orbit camera, call core `undo` once, and restore the pre-entry camera, in that order; `Mod+Shift+Z` replays them in reverse.
+62. U-62. Sketch view history: enter (view entry), orbit (view entry), commit an edit (document marker); three `Mod+Z` presses pop the newest entry first (3.20): they call core `undo` once, restore the camera from before the orbit, and restore the pre-entry camera, in that order; `Mod+Shift+Z` replays them in reverse.
 63. U-63. Sketch header mapping: no entities `empty`; `under_constrained` with dof 3 `under` and "Not fully constrained · 3 DOF"; `fully_constrained` `full`; status `conflicting` with 2 conflicting ids `conflict` and "2 conflicting constraints"; `failed` true with no conflicting ids `failed` and "Cannot solve"; status `redundant` with dof 0 and one redundant id `full` with " · 1 extra constraint" appended; two `open_endpoint` findings with dof 0: `full`, `data-outline` 2 and " · 2 open ends" appended; an `open_endpoint` and an `overlap`: " · 2 outline problems".
 
 Store and actions:

@@ -401,7 +401,8 @@ function finishedSketchSelection(
  */
 function leaveSketchPlane(app: App, cameraBefore: Camera | null, normal: Vector3): void {
   const viewport = app.viewport()
-  const next = viewport === null ? null : cameraAfterSketch(viewport.getCamera(), cameraBefore, normal)
+  const next =
+    viewport === null ? null : cameraAfterSketch(viewport.getCamera(), cameraBefore, normal)
   if (viewport !== null && next !== null) {
     viewport.setCamera(next, { animate: true })
   }

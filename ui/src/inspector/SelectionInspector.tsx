@@ -25,6 +25,7 @@ import {
   isDimension,
   type ConstraintType,
 } from '../sketch/constraints'
+import { selectEditLabel } from '../state/selectors'
 import type { AppState, DocumentState, SelectionItem } from '../state/store'
 import { COLOR_CLASSES, FONT_CLASSES } from '../theme/roles'
 import { formatArea } from './area'
@@ -303,7 +304,7 @@ function FeatureSection({
             <Button aria-disabled="true">Edit</Button>
           </Tooltip>
         ) : (
-          <Button onClick={edit}>Edit</Button>
+          <Button onClick={edit}>{selectEditLabel(state, featureId)}</Button>
         )}
         <Button
           onClick={() => {

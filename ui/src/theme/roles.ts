@@ -125,6 +125,7 @@ export type ViewportRole =
   | 'sketchReference'
   | 'datum'
   | 'bed'
+  | 'grid'
   | 'analysisLow'
   | 'analysisHigh'
 
@@ -147,6 +148,7 @@ export const VIEWPORT_STEPS: Readonly<
   sketchReference: { light: 'zinc-500', dark: 'zinc-400' },
   datum: { light: 'zinc-400', dark: 'zinc-500' },
   bed: { light: 'zinc-500', dark: 'zinc-400' },
+  grid: { light: 'zinc-300', dark: 'zinc-600' },
   analysisLow: { light: 'sky-200', dark: 'sky-200' },
   analysisHigh: { light: 'violet-700', dark: 'violet-700' },
 }

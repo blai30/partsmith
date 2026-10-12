@@ -12,6 +12,7 @@ import {
   type InspectorModel,
 } from '../../inspector/model'
 import { acceptsTarget, selectionValue } from '../../inspector/selection-values'
+import { repairField } from '../../inspector/status'
 import { MESSAGES } from '../../messages'
 import { TIMING_NAMES } from '../../performance/marks'
 import type {
@@ -672,7 +673,9 @@ export async function editFeature(app: App, featureId: string): Promise<void> {
       editing: true,
       title: label,
       params,
-      activeField: null,
+      // A lost reference is picked again in its field (4.2), so that field takes the picks.
+      activeField:
+        repairField(feature.manifest.fields, document.featureStatus[featureId])?.path ?? null,
       fieldErrors: {},
       applied: true,
       newBody: null,

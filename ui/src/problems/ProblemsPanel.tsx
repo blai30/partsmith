@@ -8,7 +8,7 @@ import { Button } from '../components/Button'
 import type { Severity } from '../generated/protocol'
 import { UseSuggestion } from '../inspector/UseSuggestion'
 import { PanelHeader } from '../layout/PanelHeader'
-import { selectProblems } from '../state/selectors'
+import { selectEditLabel, selectProblems } from '../state/selectors'
 import { COLOR_CLASSES } from '../theme/roles'
 
 // The Problems panel (ui.md 3.9): features with warnings or errors in timeline order, then the
@@ -44,6 +44,11 @@ function StatusIcon({ severity }: { readonly severity: Severity }) {
       )}
     />
   )
+}
+
+/** "Edit", or "Re-pick {field}" for a feature with a lost reference (4.2). */
+function EditLabel({ featureId }: { readonly featureId: string }) {
+  return useAppState((state) => selectEditLabel(state, featureId))
 }
 
 export function ProblemsPanel() {
@@ -103,7 +108,7 @@ export function ProblemsPanel() {
                           })
                         }}
                       >
-                        Edit
+                        <EditLabel featureId={problem.featureId} />
                       </Button>
                     </div>
                     {problem.messages.map((message, messageIndex) => {

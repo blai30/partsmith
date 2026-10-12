@@ -241,7 +241,7 @@ function onMouseDown(event: MouseEvent): void {
   }
 }
 
-/** The canvas opens no context menu in M1 (3.13). */
+/** The browser's menu never opens on the canvas: on macOS and Linux it fires on the press, before a right drag can orbit (3.13). */
 function onContextMenu(event: Event): void {
   event.preventDefault()
 }

@@ -74,6 +74,21 @@ describe('paletteItems', () => {
     expect(find(paletteItems(app, []), 'command', 'Line').id).toBe('sketch.line')
   })
 
+  it('lists Hole in sketch mode without H, which is Horizontal there (3.5)', () => {
+    const { app } = createModelApp({
+      state: readyState(cubeDocumentState(), { context: 'sketch', sketch: EDITING_SKETCH }),
+    })
+    const items = paletteItems(app, [])
+    expect(find(items, 'command', 'Hole').shortcut).toBeNull()
+    expect(find(items, 'command', 'Horizontal').shortcut).toBe('H')
+    expect(find(items, 'command', 'Extrude').shortcut).toBe('E')
+  })
+
+  it('shows H for Hole in Model context', () => {
+    const { app } = createModelApp({ state: readyState(cubeDocumentState()) })
+    expect(find(paletteItems(app, []), 'command', 'Hole').shortcut).toBe('H')
+  })
+
   it('lists no sketch tools while a plane is being picked for a new sketch', () => {
     const { app } = createModelApp({
       state: readyState(cubeDocumentState(), {

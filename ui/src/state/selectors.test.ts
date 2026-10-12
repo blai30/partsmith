@@ -5,6 +5,7 @@ import { CUBE_DOCUMENT, CUBE_FEATURES_DOCUMENT, withFeatureChanges } from '../te
 import { checkResult, finding, printReport, stateWithDocument } from '../test/fakes/state'
 import {
   selectActiveFeatureIds,
+  selectEditLabel,
   selectFeatureLabel,
   selectHealthBadge,
   selectProblems,
@@ -21,6 +22,40 @@ describe('selectFeatureLabel', () => {
   it('shows a record name', () => {
     const state = stateWithDocument(withFeatureChanges(CUBE_DOCUMENT, 'f-ext1', { name: 'Base' }))
     expect(selectFeatureLabel(state, 'f-ext1')).toBe('Base')
+  })
+})
+
+describe('selectEditLabel (4.2)', () => {
+  it('is "Edit" for a feature without repairs', () => {
+    expect(selectEditLabel(stateWithDocument(CUBE_FEATURES_DOCUMENT), 'f-fil1')).toBe('Edit')
+  })
+
+  it('U-110 is "Re-pick Edges" when the first repair is under the Edges field', () => {
+    const state = stateWithDocument(CUBE_FEATURES_DOCUMENT)
+    const document = state.document
+    if (document === null) {
+      throw new Error('The state has no document.')
+    }
+    const lost: FeatureStatus = {
+      id: 'f-fil1',
+      status: 'error',
+      messages: [],
+      repairs: [
+        {
+          kind: 'element',
+          path: '/edges/0',
+          body: 'b-cube',
+          reference: { q: 'edge(top,front)', fp: 'fp-edge' },
+          resolution: 'missing',
+          centroid: [0, 0, 20],
+        },
+      ],
+    }
+    const withRepair: AppState = {
+      ...state,
+      document: { ...document, featureStatus: { ...document.featureStatus, 'f-fil1': lost } },
+    }
+    expect(selectEditLabel(withRepair, 'f-fil1')).toBe('Re-pick Edges')
   })
 })
 

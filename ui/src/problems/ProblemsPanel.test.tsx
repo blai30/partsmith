@@ -124,6 +124,28 @@ describe('the Problems panel (3.9)', () => {
     })
   })
 
+  it('U-110 reads "Re-pick Edges" for a lost edge and edits the feature with Edges active (4.2)', async () => {
+    const lost: FeatureStatus = {
+      ...FILLET_TOO_LARGE,
+      repairs: [
+        {
+          kind: 'element',
+          path: '/edges/0',
+          body: 'b-cube',
+          reference: { q: 'edge(top,front)', fp: 'fp-edge' },
+          resolution: 'missing',
+          centroid: [0, 0, 20],
+        },
+      ],
+    }
+    const { app, user, panel } = renderPanel(withProblems([lost]))
+    expect(within(panel).queryByRole('button', { name: 'Edit' })).toBeNull()
+    await user.click(within(panel).getByRole('button', { name: 'Re-pick Edges' }))
+    await waitFor(() => {
+      expect(app.store.getState().command?.activeField).toBe('edges')
+    })
+  })
+
   it('offers "Use {suggestion}", which changes the value at the message field at rest', async () => {
     const { core, user, panel } = renderPanel(withProblems([FILLET_TOO_LARGE]))
     await user.click(within(panel).getByRole('button', { name: 'Use 2.3 mm' }))

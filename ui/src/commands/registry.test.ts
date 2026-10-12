@@ -23,6 +23,7 @@ function createTestApp(commands: CommandRegistry, platform: Platform = LINUX_WEB
 type CommandOptions = {
   readonly shortcuts?: readonly string[]
   readonly contexts?: readonly AppContext[]
+  readonly shortcutContexts?: readonly AppContext[]
   readonly host?: 'web' | 'desktop'
   readonly availability?: Availability
   readonly run?: CommandDefinition['run']
@@ -41,7 +42,18 @@ function command(id: string, options: CommandOptions = {}): CommandDefinition {
     availability: () => availability,
     run: options.run ?? (() => undefined),
   }
-  return options.host === undefined ? definition : { ...definition, host: options.host }
+  return {
+    ...definition,
+    ...(options.host === undefined ? {} : { host: options.host }),
+    ...(options.shortcutContexts === undefined
+      ? {}
+      : { shortcutContexts: options.shortcutContexts }),
+  }
+}
+
+/** Hole as 3.5 binds it: listed in every context, its H active in Model and Print only. */
+function holeCommand(): CommandDefinition {
+  return command('feature.hole', { shortcuts: ['H'], shortcutContexts: ['model', 'print'] })
 }
 
 describe('register, get and list', () => {
@@ -191,6 +203,24 @@ describe('forChord', () => {
     expect(registry.forChord(app, 'H', 'sketch')?.id).toBe('sketch.constrain_horizontal')
   })
 
+  it('finds a command listed in a context only where its shortcut contexts allow (3.5)', () => {
+    const registry = createCommandRegistry()
+    registry.register(holeCommand())
+    registry.register(
+      command('sketch.constrain_horizontal', { shortcuts: ['H'], contexts: ['sketch'] }),
+    )
+    const app = createTestApp(registry)
+    expect(registry.forChord(app, 'H', 'model')?.id).toBe('feature.hole')
+    expect(registry.forChord(app, 'H', 'print')?.id).toBe('feature.hole')
+    expect(registry.forChord(app, 'H', 'sketch')?.id).toBe('sketch.constrain_horizontal')
+  })
+
+  it('finds no command for a shortcut outside its shortcut contexts', () => {
+    const registry = createCommandRegistry()
+    registry.register(holeCommand())
+    expect(registry.forChord(createTestApp(registry), 'H', 'sketch')).toBeUndefined()
+  })
+
   it('skips a command for another host', () => {
     const registry = createCommandRegistry()
     registry.register(command('file.new', { shortcuts: ['Mod+N'], host: 'desktop' }))
@@ -266,6 +296,24 @@ describe('conflicts', () => {
     expect([...(conflicts[0]?.commands ?? [])].toSorted()).toEqual([
       'first.command',
       'second.command',
+    ])
+  })
+
+  it('checks a command listed everywhere only in its shortcut contexts (3.5)', () => {
+    const registry = createCommandRegistry()
+    registry.register(holeCommand())
+    registry.register(
+      command('sketch.constrain_horizontal', { shortcuts: ['H'], contexts: ['sketch'] }),
+    )
+    expect(registry.conflicts(LINUX_WEB)).toEqual([])
+  })
+
+  it('reports a clash inside the shortcut contexts', () => {
+    const registry = createCommandRegistry()
+    registry.register(holeCommand())
+    registry.register(command('print.other', { shortcuts: ['H'], contexts: ['print'] }))
+    expect(registry.conflicts(LINUX_WEB)).toEqual([
+      { chord: 'H', context: 'print', commands: ['feature.hole', 'print.other'] },
     ])
   })
 

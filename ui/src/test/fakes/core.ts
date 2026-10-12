@@ -15,6 +15,7 @@ import {
   type FeatureStatus,
   type ParameterValue,
   type PrinterProfile,
+  type Repair,
   type Resolution,
   type SketchSolution,
 } from '../../generated/protocol'
@@ -50,6 +51,8 @@ export type FakeReply =
 export type FakeFeatureStatus = {
   readonly status: FeatureState
   readonly messages: readonly Diagnostic[]
+  /** References that did not resolve; none when absent. */
+  readonly repairs?: readonly Repair[]
 }
 
 export type FakeCoreOptions = {
@@ -459,6 +462,7 @@ export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
     return featuresOf(recipe).map((feature, index) => {
       let status: FeatureState = 'ok'
       let messages: readonly Diagnostic[] = []
+      let repairs: readonly Repair[] = []
       if (index >= end) {
         status = 'rolled_back'
       } else if (feature.suppressed === true) {
@@ -468,9 +472,10 @@ export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
         if (override !== undefined) {
           status = override.status
           messages = override.messages
+          repairs = override.repairs ?? []
         }
       }
-      return { id: feature.id, status, messages: [...messages], repairs: [] }
+      return { id: feature.id, status, messages: [...messages], repairs: [...repairs] }
     })
   }
 
