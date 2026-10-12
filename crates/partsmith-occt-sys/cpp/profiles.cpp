@@ -5,12 +5,10 @@
 #include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepCheck_Analyzer.hxx>
-#include <BRepLib.hxx>
 #include <BRep_Builder.hxx>
 #include <ElCLib.hxx>
 #include <ElSLib.hxx>
 #include <Geom_Circle.hxx>
-#include <TopExp_Explorer.hxx>
 #include <TopoDS.hxx>
 #include <TopoDS_Compound.hxx>
 #include <TopoDS_Edge.hxx>
@@ -142,11 +140,7 @@ TopoDS_Face make_region(const gp_Pln &plane, const std::vector<TopoDS_Wire> &wir
     raise_invalid_input(kInvalidRegion);
   }
   const TopoDS_Face face = maker.Face();
-  // OCCT keeps no curves of edges on planes and projects them again on every use; storing them
-  // once makes the check below, sweeps and later queries of this face much cheaper.
-  for (TopExp_Explorer edges(face, TopAbs_EDGE); edges.More(); edges.Next()) {
-    BRepLib::BuildPCurveForEdgeOnPlane(TopoDS::Edge(edges.Current()), face);
-  }
+  store_plane_pcurves(face);
   if (!BRepCheck_Analyzer(face).IsValid()) {
     raise_invalid_input(kInvalidRegion);
   }

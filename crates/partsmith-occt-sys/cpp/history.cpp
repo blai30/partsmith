@@ -4,6 +4,7 @@
 
 #include <BRepBuilderAPI_Copy.hxx>
 #include <BRepCheck_Analyzer.hxx>
+#include <BRepLib.hxx>
 #include <BRep_Builder.hxx>
 #include <ShapeBuild_ReShape.hxx>
 #include <ShapeFix_Shape.hxx>
@@ -11,6 +12,7 @@
 #include <Standard_NullObject.hxx>
 #include <TopExp.hxx>
 #include <TopExp_Explorer.hxx>
+#include <TopoDS.hxx>
 #include <TopoDS_Compound.hxx>
 
 #include "partsmith-occt-sys/cpp/internal.h"
@@ -119,6 +121,15 @@ Shape copy_shape(const Shape &shape) {
     }
   }
   return copy;
+}
+
+void store_plane_pcurves(const TopoDS_Shape &shape) {
+  for (TopExp_Explorer faces(shape, TopAbs_FACE); faces.More(); faces.Next()) {
+    const TopoDS_Face &face = TopoDS::Face(faces.Current());
+    for (TopExp_Explorer edges(face, TopAbs_EDGE); edges.More(); edges.Next()) {
+      BRepLib::BuildPCurveForEdgeOnPlane(TopoDS::Edge(edges.Current()), face);
+    }
+  }
 }
 
 void merge_history(const Handle(BRepTools_History) &history,

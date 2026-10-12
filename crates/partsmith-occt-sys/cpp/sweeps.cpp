@@ -49,6 +49,8 @@ void add_lateral_faces(Roles &roles, Sweep &sweep, const TopoDS_Shape &profile) 
 
 // Normalizes, checks and repairs a swept shape, then gives every face exactly one role.
 SweepData sweep_data(const TopoDS_Shape &swept, const Roles &roles, const char *algorithm) {
+  // The sweep copied the profile, so every sub-shape of the swept shape is new.
+  store_plane_pcurves(swept);
   Handle(BRepTools_History) history = new BRepTools_History;
   std::shared_ptr<Shape> shape = make_shape(finish_solid(swept, history, algorithm));
 

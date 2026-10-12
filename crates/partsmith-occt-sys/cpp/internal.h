@@ -58,6 +58,11 @@ TopoDS_Shape solids_only(const TopoDS_Shape &shape);
 // `i` of the input and the copy's history is the input's (kernel spec section 3.1).
 Shape copy_shape(const Shape &shape);
 
+// Stores the curve of every edge on every planar face of `shape`, which OCCT otherwise projects
+// again on each use; checks and queries of the shape get much cheaper. Only for shapes the
+// operation built itself: it writes to the edges.
+void store_plane_pcurves(const TopoDS_Shape &shape);
+
 // Appends the next step of an operation to its history.
 void merge_history(const Handle(BRepTools_History) &history,
                    const Handle(BRepTools_History) &next);
