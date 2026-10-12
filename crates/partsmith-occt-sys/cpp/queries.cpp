@@ -695,9 +695,9 @@ gp_Dir normal_at_edge(const TopoDS_Face &face, const TopoDS_Edge &edge, double m
                      std::to_string(face_index) + " at the middle of edge " +
                      std::to_string(edge_index));
     }
-    double u = 0.0, v = 0.0;
-    projection.LowerDistanceParameters(u, v);
-    parameters.SetCoord(u, v);
+    double u_parameter = 0.0, v_parameter = 0.0;
+    projection.LowerDistanceParameters(u_parameter, v_parameter);
+    parameters.SetCoord(u_parameter, v_parameter);
   }
   const BRepAdaptor_Surface surface(face);
   BRepLProp_SLProps properties(surface, parameters.X(), parameters.Y(), 1, kLinear);

@@ -5,6 +5,7 @@ import { onCoreEvent, type App } from '../app/createApp'
 import { CoreError } from '../core/client'
 import { createLatestOnly, type LatestOnly } from '../core/queue'
 import type {
+  BoundingBox,
   DocHandle,
   ElementDescriptor,
   ElementRef,
@@ -33,13 +34,17 @@ import {
   wheelZoomFactor,
   withProjection,
   zoomAt,
-  type Bounds,
   type Camera,
   type StandardView,
   type Vector3,
 } from './camera'
 import { scale } from './math'
-import { gestureFor, GESTURE_THRESHOLD_PIXELS, type KeyNavigation } from './navigation'
+import {
+  gestureFor,
+  GESTURE_THRESHOLD_PIXELS,
+  NAVIGATION_PRESETS,
+  type KeyNavigation,
+} from './navigation'
 import { positionElement } from './overlay'
 import { choosePick, type PickCandidate, type PickResult } from './picking'
 import { commandSelectionFields, type Scene } from './scene'
@@ -51,12 +56,12 @@ import { commandSelectionFields, type Scene } from './scene'
 export type ViewportHandle = {
   getCamera(): Camera
   setCamera(camera: Camera, options?: { animate?: boolean; record?: boolean }): void
-  fit(bounds?: Bounds): void
+  fit(bounds?: BoundingBox): void
   setStandardView(view: StandardView): void
   toggleProjection(): void
   /** Puts the eye on the `normal` side of `target`, looking along -normal, with up from `upHint`. */
   lookAlong(normal: Vector3, upHint: Vector3, target: Vector3): void
-  zoomToBounds(bounds: Bounds, margin: number): void
+  zoomToBounds(bounds: BoundingBox, margin: number): void
   screenRectangle(items: readonly SelectionItem[]): Rectangle | null
   requestRender(): void
 }
@@ -92,7 +97,13 @@ const WHEEL_BURST_MILLISECONDS = 300
 const EMPTY_FIT_SIDE = 100
 const FIT_MARGIN = 0.1
 
+/** A second middle click within this long of the first is a double-click (3.13). */
+const DOUBLE_CLICK_MILLISECONDS = 500
+/** Hover picking waits until the camera has been still this long (3.13). */
+const CAMERA_STILL_MILLISECONDS = 100
+
 const PRIMARY_BUTTON = 1
+const MIDDLE_BUTTONS = 4
 const MIDDLE_BUTTON_INDEX = 1
 
 /** Pick errors that mean the geometry under the pointer is gone or not pickable. */
@@ -213,7 +224,7 @@ function coordinateText(value: number): string {
   return String(rounded + 0)
 }
 
-function emptyFitBounds(): Bounds {
+function emptyFitBounds(): BoundingBox {
   const half = EMPTY_FIT_SIDE / 2
   return { min: [-half, -half, -half], max: [half, half, half] }
 }
@@ -286,6 +297,14 @@ export function createViewportController(options: {
   let hoverAt: { readonly x: number; readonly y: number } | null = null
   let wheelBurst: { readonly before: Camera; timer: ReturnType<typeof setTimeout> } | null = null
   let pointerClass = false
+  /** The camera of the last frame and when a frame last showed a different one, for the hover pause (3.13). */
+  let renderedCamera: Camera = camera
+  let cameraChangedAt = Number.NEGATIVE_INFINITY
+  let hoverTimer: ReturnType<typeof setTimeout> | null = null
+  /** The last middle-button click, for the Fit to view double-click (3.13). */
+  let lastMiddleClick: { readonly at: number; readonly x: number; readonly y: number } | null = null
+  /** Whether this task already recorded a sketch view entry: one user action is one entry. */
+  let recordedInTask = false
   const renderListeners = new Set<(frame: RenderedFrame) => void>()
   const cleanups: (() => void)[] = []
 
@@ -329,15 +348,36 @@ export function createViewportController(options: {
       render()
     }
     if (hoverAt !== null && press === null) {
-      const point = hoverAt
-      hoverAt = null
-      hover(point.x, point.y)
+      // Hover picking waits for the camera to be still, so a moving camera renders no ID pass (3.13).
+      const wait = cameraChangedAt + CAMERA_STILL_MILLISECONDS - performance.now()
+      if (animation === null && wait <= 0) {
+        const point = hoverAt
+        hoverAt = null
+        hover(point.x, point.y)
+      } else if (animation === null) {
+        retryHoverAfter(wait)
+      }
     }
+  }
+
+  /** Asks for another frame once the camera has been still long enough to hover. */
+  function retryHoverAfter(milliseconds: number): void {
+    if (hoverTimer !== null) {
+      return
+    }
+    hoverTimer = setTimeout(() => {
+      hoverTimer = null
+      schedule()
+    }, milliseconds)
   }
 
   function render(): void {
     const started = performance.now()
     const state = store.getState()
+    if (camera !== renderedCamera) {
+      renderedCamera = camera
+      cameraChangedAt = started
+    }
     lastFrame = scene.frame(state, camera, size)
     backend.render(lastFrame)
     measureTiming(TIMING_NAMES.frame, started)
@@ -429,8 +469,13 @@ export function createViewportController(options: {
   }
 
   function setCamera(next: Camera, change: { animate?: boolean; record?: boolean } = {}): void {
-    if (change.record === true) {
+    // Several recorded moves in one task (Home is a standard view and a fit) are one entry.
+    if (change.record === true && !recordedInTask) {
       recordSketchView(app, goalCamera())
+      recordedInTask = true
+      queueMicrotask(() => {
+        recordedInTask = false
+      })
     }
     if (change.animate === true && !prefersReducedMotion()) {
       animation = { from: camera, to: next, startedAt: performance.now() }
@@ -448,7 +493,7 @@ export function createViewportController(options: {
     setCamera(next, { animate: true, record: true })
   }
 
-  function fit(bounds?: Bounds): void {
+  function fit(bounds?: BoundingBox): void {
     const framed = bounds ?? scene.visibleBounds(store.getState()) ?? emptyFitBounds()
     moveCamera(fitBounds(goalCamera(), framed, aspect(), FIT_MARGIN))
   }
@@ -830,15 +875,38 @@ export function createViewportController(options: {
       return
     }
     const point = canvasPoint(event)
+    // A press that passed the gesture threshold without a camera gesture is still a click within 4 pixels (3.6).
     const isClick =
       released &&
-      ended.gesture === null &&
-      ended.startButtons === PRIMARY_BUTTON &&
-      event.button === 0 &&
       Math.hypot(point.x - ended.startX, point.y - ended.startY) <= CLICK_DISTANCE &&
       performance.now() - ended.startedAt <= CLICK_MILLISECONDS
-    if (isClick) {
+    if (isClick && ended.startButtons === PRIMARY_BUTTON && event.button === 0) {
       click(point.x, point.y, event.shiftKey || event.ctrlKey || event.metaKey).catch(report)
+    } else if (
+      isClick &&
+      ended.startButtons === MIDDLE_BUTTONS &&
+      event.button === MIDDLE_BUTTON_INDEX
+    ) {
+      middleClick(point)
+    }
+  }
+
+  /** A second middle click close to the first fits the view in presets that ask for it (3.13). */
+  function middleClick(point: { readonly x: number; readonly y: number }): void {
+    const now = performance.now()
+    const previous = lastMiddleClick
+    const double =
+      previous !== null &&
+      now - previous.at <= DOUBLE_CLICK_MILLISECONDS &&
+      Math.hypot(point.x - previous.x, point.y - previous.y) <= CLICK_DISTANCE
+    if (!double) {
+      lastMiddleClick = { at: now, x: point.x, y: point.y }
+      return
+    }
+    lastMiddleClick = null
+    const preset = store.getState().settings.navigation
+    if (NAVIGATION_PRESETS.find((entry) => entry.id === preset)?.middleDoubleClickFits === true) {
+      fit()
     }
   }
 
@@ -1236,6 +1304,10 @@ export function createViewportController(options: {
       if (wheelBurst !== null) {
         clearTimeout(wheelBurst.timer)
         wheelBurst = null
+      }
+      if (hoverTimer !== null) {
+        clearTimeout(hoverTimer)
+        hoverTimer = null
       }
       resolutions.cancel()
       for (const request of faceRequests.values()) {

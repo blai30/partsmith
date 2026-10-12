@@ -245,6 +245,18 @@ describe('the top bar (3.2)', () => {
     ])
   })
 
+  it('leaves out a group button whose commands are all hidden, as while picking a sketch plane', () => {
+    renderApp({ context: 'sketch', sketch: { ...EDITING_SKETCH, sketchId: null } })
+    const toolbar = screen.getByRole('toolbar', { name: 'Sketch tools' })
+    expect(within(toolbar).queryByRole('button', { name: 'Rectangle' })).toBeNull()
+    expect(within(toolbar).queryByRole('button', { name: 'Constrain' })).toBeNull()
+    cleanup()
+    renderApp({ context: 'sketch', sketch: EDITING_SKETCH })
+    const editing = screen.getByRole('toolbar', { name: 'Sketch tools' })
+    expect(within(editing).getByRole('button', { name: 'Rectangle' })).toBeInTheDocument()
+    expect(within(editing).getByRole('button', { name: 'Constrain' })).toBeInTheDocument()
+  })
+
   it('marks disabled toolbar commands with aria-disabled', () => {
     renderApp({
       core: { status: 'failed', engineVersion: null, fatal: 'HTTP 404', pendingMutations: 0 },

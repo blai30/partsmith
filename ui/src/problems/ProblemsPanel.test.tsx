@@ -6,7 +6,7 @@ import type { FeatureStatus } from '../generated/protocol'
 import { cubeDocumentState, documentState, readyState } from '../layout/fixtures.testing'
 import { createModelApp, renderWithApp, stubMatchMedia } from '../layout/test-app.testing'
 import { INITIAL_STATE, type DocumentState } from '../state/store'
-import { CUBE_FEATURES_DOCUMENT } from '../test/fakes/documents'
+import { CUBE_FEATURES_DOCUMENT, featuresOf } from '../test/fakes/documents'
 
 let uninstallPopovers: () => void
 
@@ -122,5 +122,40 @@ describe('the Problems panel (3.9)', () => {
     await waitFor(() => {
       expect(core.callsTo('beginTransaction')).toEqual([[1, 'Edit Fillet 1']])
     })
+  })
+
+  it('offers "Use {suggestion}", which changes the value at the message field at rest', async () => {
+    const { core, user, panel } = renderPanel(withProblems([FILLET_TOO_LARGE]))
+    await user.click(within(panel).getByRole('button', { name: 'Use 2.3 mm' }))
+    await waitFor(() => {
+      expect(core.callsTo('applyEdits')).toHaveLength(1)
+    })
+    const [[documentHandle, label, edits]] = core.callsTo('applyEdits') as [
+      [number, string, readonly unknown[]],
+    ]
+    expect(documentHandle).toBe(1)
+    expect(label).toBe('Change Fillet 1')
+    expect(edits).toEqual([
+      {
+        type: 'update_feature',
+        feature: { ...featuresOf(CUBE_FEATURES_DOCUMENT)[2], radius: '2.3 mm' },
+      },
+    ])
+  })
+
+  it('offers no suggestion for a message without one', () => {
+    const { panel } = renderPanel(withProblems([SHELL_WARNING]))
+    expect(within(panel).queryByRole('button', { name: /^Use / })).toBeNull()
+  })
+
+  it('marks an info diagnostic with the info icon, not the hazard sign', () => {
+    const { panel } = renderPanel(
+      withProblems(
+        [],
+        [{ severity: 'info', code: 'example_info', message: 'The document uses inches.' }],
+      ),
+    )
+    expect(within(panel).getByLabelText('Info')).toHaveClass('lucide-info')
+    expect(panel.querySelector('.lucide-triangle-alert')).toBeNull()
   })
 })

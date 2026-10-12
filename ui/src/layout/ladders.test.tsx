@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { installPopoverPolyfill } from '../components/popover-polyfill.testing'
@@ -13,7 +13,7 @@ import {
   sketchLineItem,
 } from './fixtures.testing'
 import { commandComplete, escapeStep } from './ladders'
-import { createModelApp, renderWithApp, stubMatchMedia } from './test-app.testing'
+import { createModelApp, deferred, renderWithApp, stubMatchMedia } from './test-app.testing'
 
 let uninstallPopovers: () => void
 
@@ -115,6 +115,27 @@ describe('the Enter ladder (3.5)', () => {
     fireEvent.keyDown(viewportSurface(), { key: 'Enter', ctrlKey: true })
     await settle()
     expect(core.callsTo('commitTransaction')).toEqual([])
+  })
+
+  it('confirms with Enter pressed in an inspector field before its text is evaluated', async () => {
+    const result = deferred<{ value: number; dimension: { length: number; angle: number } }>()
+    const { core, user } = renderApp({ command: COMPLETE_EXTRUDE })
+    await settle()
+    core.stub('evaluate', () => result.promise)
+    const distance = within(screen.getByTestId('inspector')).getByRole('textbox', {
+      name: 'Distance',
+    })
+    await user.clear(distance)
+    await user.type(distance, '25{Enter}')
+    await settle()
+    expect(core.callsTo('commitTransaction')).toEqual([])
+    await act(async () => {
+      result.resolve({ value: 25, dimension: { length: 0, angle: 0 } })
+      await settle()
+    })
+    await waitFor(() => {
+      expect(core.callsTo('commitTransaction')).toEqual([[1]])
+    })
   })
 
   it('lets a focused button in the inspector take its own Enter', async () => {

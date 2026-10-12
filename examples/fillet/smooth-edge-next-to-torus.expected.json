@@ -1,0 +1,173 @@
+{
+  "printer": "generic-fdm",
+  "features": [
+    {
+      "id": "f-cyl1",
+      "type": "cylinder",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-fil1",
+      "type": "fillet",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-fil2",
+      "type": "fillet",
+      "status": "warning",
+      "messages": [
+        {
+          "severity": "warning",
+          "code": "ignored",
+          "message": "One of the edges selected for Edges is smooth (its faces meet without a corner), so it was skipped.",
+          "field": "/edges"
+        },
+        {
+          "severity": "warning",
+          "code": "no_effect",
+          "message": "This feature does not change body 'Body 1'. Check its position, size and direction."
+        }
+      ]
+    }
+  ],
+  "parameters": [],
+  "bodies": [
+    {
+      "id": "b-1",
+      "name": "Body 1",
+      "volume": 6231.6594673576965,
+      "area": 1829.2409621271997,
+      "center_of_mass": [
+        -1.5689349033387701e-15,
+        -9.044739493006187e-17,
+        9.921081417390962
+      ],
+      "bounding_box": {
+        "min": [
+          -10.0,
+          -10.0000001,
+          0.0
+        ],
+        "max": [
+          10.0,
+          10.0,
+          20.0
+        ]
+      },
+      "faces": 4,
+      "edges": 3,
+      "vertices": 3
+    }
+  ],
+  "checks": {
+    "profile": "generic-fdm",
+    "orientation": {
+      "kind": "as_modeled"
+    },
+    "summary": {
+      "health": "ok",
+      "errors": 0,
+      "warnings": 0,
+      "infos": 0,
+      "label": "Ready to print"
+    },
+    "bodies": [
+      {
+        "body": "b-1",
+        "transform": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          128.0,
+          128.0,
+          -0.0,
+          1.0
+        ],
+        "report": {
+          "profile": "generic-fdm",
+          "rotation": {
+            "rows": [
+              [
+                1.0,
+                0.0,
+                0.0
+              ],
+              [
+                0.0,
+                1.0,
+                0.0
+              ],
+              [
+                0.0,
+                0.0,
+                1.0
+              ]
+            ]
+          },
+          "health": "ok",
+          "checks": [
+            {
+              "check": "mesh_validity",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "bed_fit",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "first_layer_contact",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "islands",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "overhangs",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "thin_walls",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "small_features",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "trapped_volumes",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

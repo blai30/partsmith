@@ -10,8 +10,9 @@ import type { Notification } from '../state/store'
 import { COLOR_CLASSES } from '../theme/roles'
 
 // Notifications (ui.md 3.22): a stack at the viewport's bottom-right, newest at the bottom. Errors
-// are announced as alerts and the others as status messages. A notification's countdown pauses
-// while the pointer is over it or focus is inside it.
+// are announced through an alert region and the others through a status region; both regions stay
+// mounted, so a message added to them is announced, which a region inserted with its text often is
+// not. A notification's countdown pauses while the pointer is over it or focus is inside it.
 
 function NotificationIcon({ severity }: { readonly severity: Notification['severity'] }) {
   if (severity === 'success') {
@@ -46,7 +47,6 @@ function NotificationCard({ notification }: { readonly notification: Notificatio
     <div
       data-testid="notification"
       data-severity={notification.severity}
-      role={notification.severity === 'error' ? 'alert' : 'status'}
       onPointerEnter={() => {
         hold('pointer', true)
       }}
@@ -105,16 +105,30 @@ function NotificationCard({ notification }: { readonly notification: Notificatio
   )
 }
 
+/** The messages of the notifications a live region announces. */
+function Announcements({ notifications }: { readonly notifications: readonly Notification[] }) {
+  return notifications.map((notification) => <p key={notification.id}>{notification.message}</p>)
+}
+
 export function Notifications() {
   const notifications = useAppState((state) => state.notifications)
-  if (notifications.length === 0) {
-    return null
-  }
+  const errors = notifications.filter((notification) => notification.severity === 'error')
+  const others = notifications.filter((notification) => notification.severity !== 'error')
   return (
-    <div className="pointer-events-none absolute right-4 bottom-4 z-30 flex w-90 max-w-full flex-col gap-2">
-      {notifications.map((notification) => (
-        <NotificationCard key={notification.id} notification={notification} />
-      ))}
-    </div>
+    <>
+      <div role="alert" data-testid="notification-alerts" className="sr-only">
+        <Announcements notifications={errors} />
+      </div>
+      <output data-testid="notification-status" className="sr-only">
+        <Announcements notifications={others} />
+      </output>
+      {notifications.length === 0 ? null : (
+        <div className="pointer-events-none absolute right-4 bottom-4 z-30 flex w-90 max-w-full flex-col gap-2">
+          {notifications.map((notification) => (
+            <NotificationCard key={notification.id} notification={notification} />
+          ))}
+        </div>
+      )}
+    </>
   )
 }

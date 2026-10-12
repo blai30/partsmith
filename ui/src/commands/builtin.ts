@@ -89,6 +89,7 @@ import type { AppContext, AppState, OriginName, SelectionItem, ViewState } from 
 import { toggledTheme } from '../theme/theme'
 import type { StandardView, Vector3 } from '../viewport/camera'
 import { cross } from '../viewport/math'
+import { isSessionVisible } from '../viewport/scene'
 import { CONSTRAINT_ICONS } from './icons'
 import type { Availability, CommandCategory, CommandDefinition } from './registry'
 
@@ -430,7 +431,7 @@ async function toggleVisibility(app: App): Promise<void> {
         edits.push(setBodyVisible(app, body.id, body.visible === false))
       }
     } else {
-      setSessionVisible(app, item.key, state.view.sessionVisible[item.key] === false)
+      setSessionVisible(app, item.key, !isSessionVisible(state, item.key))
     }
   }
   // The mutation queue applies the body edits in order.
@@ -718,7 +719,12 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
         if (target === null) {
           return
         }
-        const where = target.kind === 'body' || focusInBrowser() ? 'browser' : 'timeline'
+        // The browser shows bodies, sketches and datum planes; every feature has a timeline item.
+        const type =
+          target.feature === null ? null : featureRecord(stateOf(app), target.feature)?.type
+        const inBrowser = type === 'sketch' || type === 'datum_plane'
+        const where =
+          target.kind === 'body' || (inBrowser && focusInBrowser()) ? 'browser' : 'timeline'
         if (where === 'browser') {
           app.store.setState((state) => ({ panels: { ...state.panels, browserOpen: true } }))
         }

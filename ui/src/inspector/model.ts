@@ -38,7 +38,10 @@ export type InspectorField = {
 export type InspectorModel = {
   readonly essential: readonly InspectorField[]
   readonly more: readonly InspectorField[]
-  /** True when a field in `more` has an error, which forces the More section open. */
+  /**
+   * True when a field in `more` has an error, or a required field in `more` is empty and not
+   * waiting for a pick; it forces the More section open (2.12).
+   */
   readonly forceMore: boolean
   /** True when every required field has a value and no field has an error. */
   readonly complete: boolean
@@ -368,6 +371,38 @@ function filledByCommand(field: InspectorField, params: Params): boolean {
   return getParam(params, parent === '' ? 'op' : `${parent}.op`) === 'new'
 }
 
+const PICKED_ELEMENT_KINDS: ReadonlySet<string> = new Set(['face', 'edge', 'sketch_point'])
+
+/**
+ * A `body` or `sketch` field that the first pick of an empty sibling `face`, `edge` or
+ * `sketch_point` field fills (2.12).
+ */
+function waitsForPick(
+  field: InspectorField,
+  fields: readonly InspectorField[],
+  params: Params,
+): boolean {
+  if (
+    field.control.type !== 'selection' ||
+    (field.control.accepts !== 'body' && field.control.accepts !== 'sketch')
+  ) {
+    return false
+  }
+  const parent = parentPath(field.path)
+  return fields.some(
+    (sibling) =>
+      sibling.control.type === 'selection' &&
+      PICKED_ELEMENT_KINDS.has(sibling.control.accepts) &&
+      parentPath(sibling.path) === parent &&
+      !hasValue(sibling.control, getParam(params, sibling.path)),
+  )
+}
+
+/** A required field without a value that nothing else fills. */
+function missing(field: InspectorField, params: Params): boolean {
+  return field.required && !hasValue(field.control, field.value) && !filledByCommand(field, params)
+}
+
 function rootSchemaOf(feature: CatalogFeature): JsonSchema {
   return feature.paramsSchema
 }
@@ -406,14 +441,12 @@ export function buildInspectorModel(input: {
   return {
     essential,
     more,
-    forceMore: more.some((field) => field.error !== null),
-    complete: fields.every(
+    forceMore: more.some(
       (field) =>
-        field.error === null &&
-        (!field.required ||
-          hasValue(field.control, field.value) ||
-          filledByCommand(field, input.params)),
+        field.error !== null ||
+        (missing(field, input.params) && !waitsForPick(field, fields, input.params)),
     ),
+    complete: fields.every((field) => field.error === null && !missing(field, input.params)),
   }
 }
 

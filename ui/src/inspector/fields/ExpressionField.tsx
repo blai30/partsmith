@@ -2,6 +2,7 @@ import { setCommandField, setFieldStatus } from '../../app/actions/command'
 import { useApp } from '../../app/AppProvider'
 import type { FieldUnit } from '../../generated/protocol'
 import { ExpressionInput } from '../../expression/ExpressionInput'
+import { confirmIfComplete } from '../../layout/ladders'
 import type { InspectorField } from '../model'
 import { fieldInputId } from './field-id'
 
@@ -33,6 +34,10 @@ export function ExpressionField({ field, unit, statusMessage }: ExpressionFieldP
           error: state.state === 'invalid' ? state.message : null,
           pending: state.state === 'pending',
         })
+      }}
+      // Enter confirms the command (3.5), also when pressed before the text was evaluated.
+      onCommit={() => {
+        confirmIfComplete(app)
       }}
     />
   )

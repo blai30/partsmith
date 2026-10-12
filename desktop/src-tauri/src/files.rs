@@ -1,6 +1,6 @@
 //! File access limited to files the user chose in a native dialog (desktop.md 2.4 and 3.2 to 3.5).
 
-use std::fs::{self, File};
+use std::fs::{self, File, OpenOptions, Permissions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -252,7 +252,8 @@ impl Files {
     /// Reads a granted file.
     pub fn read(&self, grant: &str) -> Result<Vec<u8>, FileError> {
         let path = self.path_of(grant)?;
-        let bytes = fs::read(&path).map_err(|error| FileError::from_io(&error, Path::new(&path)))?;
+        let bytes =
+            fs::read(&path).map_err(|error| FileError::from_io(&error, Path::new(&path)))?;
         self.move_to_front(&path);
         Ok(bytes)
     }
@@ -336,15 +337,18 @@ impl Files {
     }
 
     /// Replaces the contents of `target` atomically: the original is either untouched or fully replaced.
+    /// A symbolic link stays and the file it points to is replaced; a read-only file is not replaced.
     fn replace(&self, target: &Path, bytes: &[u8]) -> io::Result<()> {
+        let target = followed(target)?;
+        let permissions = writable_permissions(&target)?;
         let number = self.temporary_files.fetch_add(1, Ordering::Relaxed);
         let temporary_name = format!(
             ".{}.{}-{number}.partsmith.tmp",
-            file_name(target),
+            file_name(&target),
             std::process::id()
         );
         let temporary = target.with_file_name(temporary_name);
-        let result = write_and_rename(&temporary, target, bytes);
+        let result = write_and_rename(&temporary, &target, permissions.as_ref(), bytes);
         if result.is_err() {
             // The temporary file may not exist when its creation was what failed.
             let _ = fs::remove_file(&temporary);
@@ -353,18 +357,58 @@ impl Files {
     }
 }
 
-/// Writes `bytes` to a new `temporary` file, flushes it to disk, gives it the permissions of `target` and renames it over `target`.
-fn write_and_rename(temporary: &Path, target: &Path, bytes: &[u8]) -> io::Result<()> {
-    let mut file = File::create_new(temporary)?;
+/// The file a path names: the file a symbolic link points to, else the path itself.
+fn followed(path: &Path) -> io::Result<PathBuf> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_symlink() => fs::canonicalize(path),
+        // A path that is no link, or cannot be inspected, is used as it is; its own errors come later.
+        _ => Ok(path.to_owned()),
+    }
+}
+
+/// The permissions of an existing `target`, None when it does not exist yet, and `PermissionDenied` when it is read-only.
+fn writable_permissions(target: &Path) -> io::Result<Option<Permissions>> {
+    match fs::metadata(target) {
+        Ok(metadata) if metadata.permissions().readonly() => Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "the file is read-only",
+        )),
+        Ok(metadata) => Ok(Some(metadata.permissions())),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
+/// Writes `bytes` to a new `temporary` file with the target's `permissions`, flushes it to disk and renames it over `target`.
+fn write_and_rename(
+    temporary: &Path,
+    target: &Path,
+    permissions: Option<&Permissions>,
+    bytes: &[u8],
+) -> io::Result<()> {
+    let mut file = create_temporary(temporary, permissions)?;
     file.write_all(bytes)?;
     file.sync_all()?;
-    match fs::metadata(target) {
-        Ok(metadata) => file.set_permissions(metadata.permissions())?,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-        Err(error) => return Err(error),
-    }
     drop(file);
     fs::rename(temporary, target)
+}
+
+/// Creates the temporary file of an atomic write with `permissions` (those of the file it replaces) before any byte is written.
+/// On Unix it is created with that mode, which the umask can only narrow, so other users never see more than the target shows them.
+fn create_temporary(path: &Path, permissions: Option<&Permissions>) -> io::Result<File> {
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    if let Some(permissions) = permissions {
+        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+        options.mode(permissions.mode() & 0o777);
+    }
+    let file = options.open(path)?;
+    if let Some(permissions) = permissions {
+        // Restores what the umask removed from the creation mode.
+        file.set_permissions(permissions.clone())?;
+    }
+    Ok(file)
 }
 
 /// The grant list in a store file: empty when the file is missing.
@@ -421,4 +465,39 @@ fn file_name(path: &Path) -> String {
         .unwrap_or(path.as_os_str())
         .to_string_lossy()
         .into_owned()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn a_temporary_file_has_the_target_permissions_before_any_byte_is_written() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let folder = tempfile::tempdir().expect("a temporary folder can be created");
+        // Group write is a bit the usual umask removes, so the result shows the permissions were restored.
+        let target_permissions = Permissions::from_mode(0o660);
+        let path = folder.path().join(".part.ptsm.1-0.partsmith.tmp");
+
+        let file = create_temporary(&path, Some(&target_permissions))
+            .expect("the temporary file can be created");
+
+        let metadata = file.metadata().expect("the temporary file has metadata");
+        assert_eq!(metadata.len(), 0, "nothing is written yet");
+        assert_eq!(metadata.permissions().mode() & 0o777, 0o660);
+    }
+
+    #[test]
+    fn a_temporary_file_never_replaces_an_existing_file() {
+        let folder = tempfile::tempdir().expect("a temporary folder can be created");
+        let path = folder.path().join(".part.ptsm.1-0.partsmith.tmp");
+        fs::write(&path, b"other").expect("the test file can be written");
+
+        let error = create_temporary(&path, None).expect_err("an existing file is not reused");
+
+        assert_eq!(error.kind(), io::ErrorKind::AlreadyExists);
+        assert_eq!(fs::read(&path).expect("the file is still there"), b"other");
+    }
 }

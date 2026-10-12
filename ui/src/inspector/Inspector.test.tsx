@@ -16,9 +16,15 @@ import {
   readyState,
   rectSketchDocumentState,
   regionItem,
+  sketchPointItem,
 } from '../layout/fixtures.testing'
 import { createModelApp, renderWithApp, stubMatchMedia } from '../layout/test-app.testing'
-import type { ActiveCommand, AppState, DocumentState } from '../state/store'
+import {
+  createAppStore,
+  type ActiveCommand,
+  type AppState,
+  type DocumentState,
+} from '../state/store'
 import {
   CUBE_FEATURES_DOCUMENT,
   CUBE_FRONT_FACE,
@@ -26,6 +32,7 @@ import {
   CUBE_TOP_FRONT_EDGE,
   featuresOf,
   RECT_REGION,
+  RECT_SKETCH_SOLUTION,
 } from '../test/fakes/documents'
 import { settle } from '../test/fakes/settle'
 import { COLOR_CLASSES, FONT_CLASSES } from '../theme/roles'
@@ -269,6 +276,22 @@ describe('the command inspector (3.7)', () => {
   })
 })
 
+describe('the regions a profile field can choose (3.7)', () => {
+  it('leaves out a sketch that is hidden by default because a feature uses it', () => {
+    renderInspector(cubeDocumentState(), { command: NEW_EXTRUDE })
+    expect(within(field('profile')).queryByRole('button', { name: /Choose/ })).toBeNull()
+  })
+
+  it('lists the regions of a sketch shown this session', async () => {
+    const { user } = renderInspector(cubeDocumentState(), {
+      command: NEW_EXTRUDE,
+      view: { ...createAppStore().getState().view, sessionVisible: { 'feature:f-sk1': true } },
+    })
+    await user.click(within(field('profile')).getByRole('button', { name: /Choose/ }))
+    expect(screen.getByRole('menuitem', { name: /^Region 1 \(/ })).toBeInTheDocument()
+  })
+})
+
 describe('feature status in the inspector (3.7, 4.2)', () => {
   it('U-87 shows an error message with a field under that field', async () => {
     renderInspector(filletDocument(status([TOO_LARGE])), {
@@ -385,6 +408,35 @@ describe('the selection inspector (3.8)', () => {
     })
   })
 
+  it('offers "Use {suggestion}" for a feature message at rest, labeled "Change {label}"', async () => {
+    const document = documentState(CUBE_FEATURES_DOCUMENT, {
+      meshes: { 'b-cube': meshSummary(1, CUBE_BOUNDS) },
+    })
+    const failed = {
+      ...document,
+      featureStatus: { ...document.featureStatus, 'f-fil1': status([TOO_LARGE]) },
+    }
+    const { core, user } = renderInspector(failed, {
+      selection: [featureItem('f-fil1', 'Fillet 1')],
+    })
+    expect(inspector()).toHaveTextContent(TOO_LARGE.message)
+    await user.click(within(inspector()).getByRole('button', { name: 'Use 2.3 mm' }))
+    await waitFor(() => {
+      expect(core.callsTo('applyEdits')).toEqual([
+        [
+          1,
+          'Change Fillet 1',
+          [
+            {
+              type: 'update_feature',
+              feature: { ...featuresOf(CUBE_FEATURES_DOCUMENT)[2], radius: '2.3 mm' },
+            },
+          ],
+        ],
+      ])
+    })
+  })
+
   it('shows one flat face with its surface and area, and suggests Sketch, Hole and Shell', () => {
     renderInspector(cubeDocumentState(), { selection: [elementItem(CUBE_TOP_FACE)] })
     const panel = inspector()
@@ -447,6 +499,37 @@ describe('the selection inspector (3.8)', () => {
       selection: [bodyItem('b-cube', 'Cube'), parameterItem('p-size', 'size')],
     })
     expect(within(inspector()).getByTestId('selection-title')).toHaveTextContent('2 items')
+  })
+
+  it('offers Construction for a point entity selected by its point reference in a sketch', () => {
+    const solution = {
+      ...RECT_SKETCH_SOLUTION,
+      entities: [
+        ...RECT_SKETCH_SOLUTION.entities,
+        {
+          id: 'e-p1',
+          type: 'point' as const,
+          position: [10, 5] as [number, number],
+          constrained: 'under_constrained' as const,
+        },
+      ],
+      points: [...RECT_SKETCH_SOLUTION.points, { point: 'e-p1', at: [10, 5] as [number, number] }],
+    }
+    renderInspector(
+      rectSketchDocumentState({ sketches: { 'f-sk1': { solution, display: null } } }),
+      {
+        context: 'sketch',
+        sketch: {
+          sketchId: 'f-sk1',
+          tool: null,
+          construction: false,
+          showConstraints: true,
+          selection: [sketchPointItem('f-sk1', 'e-p1')],
+          dragging: false,
+        },
+      },
+    )
+    expect(within(inspector()).getByRole('switch', { name: 'Construction' })).not.toBeChecked()
   })
 
   it('places itself at a runtime position only', () => {

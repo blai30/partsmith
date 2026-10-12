@@ -8,11 +8,12 @@ import { Button } from '../../components/Button'
 import { IconButton } from '../../components/IconButton'
 import { Menu, type MenuEntry } from '../../components/Menu'
 import type { SelectionKind } from '../../generated/protocol'
-import type { AppState, OriginName, SelectionItem } from '../../state/store'
+import type { AppState, SelectionItem } from '../../state/store'
 import { COLOR_CLASSES } from '../../theme/roles'
+import { isSessionVisible } from '../../viewport/scene'
 import { formatArea } from '../area'
 import type { InspectorField } from '../model'
-import { itemsFromValue } from '../selection-values'
+import { itemsFromValue, originItem } from '../selection-values'
 import { fieldInputId } from './field-id'
 
 // A selection param (3.7): a box that receives viewport and browser picks while it is the active
@@ -57,10 +58,6 @@ function candidate(
     sketchItem: data.sketchItem ?? null,
     origin: data.origin ?? null,
   }
-}
-
-function originItem(name: OriginName, kind: SelectionItem['kind'], label: string): SelectionItem {
-  return candidate(`origin:${name}`, kind, label, { origin: name })
 }
 
 /** The text of the box: the placeholder, the one item's label, or a count. */
@@ -109,9 +106,9 @@ function candidatesFor(
         )
     case 'plane':
       return [
-        originItem('XY', 'origin_plane', 'XY plane'),
-        originItem('XZ', 'origin_plane', 'XZ plane'),
-        originItem('YZ', 'origin_plane', 'YZ plane'),
+        originItem('XY'),
+        originItem('XZ'),
+        originItem('YZ'),
         ...features
           .filter((feature) => feature.type === 'datum_plane')
           .map((feature) =>
@@ -124,11 +121,7 @@ function candidatesFor(
           ),
       ]
     case 'axis':
-      return [
-        originItem('X', 'origin_axis', 'X axis'),
-        originItem('Y', 'origin_axis', 'Y axis'),
-        originItem('Z', 'origin_axis', 'Z axis'),
-      ]
+      return [originItem('X'), originItem('Y'), originItem('Z')]
     case 'sketch_region': {
       const current =
         typeof value === 'object' && value !== null ? Reflect.get(value, 'sketch') : undefined
@@ -138,8 +131,7 @@ function candidatesFor(
           : features
               .filter(
                 (feature) =>
-                  feature.type === 'sketch' &&
-                  state.view.sessionVisible[`feature:${feature.id}`] !== false,
+                  feature.type === 'sketch' && isSessionVisible(state, `feature:${feature.id}`),
               )
               .map((feature) => feature.id)
       const units = recipe.units

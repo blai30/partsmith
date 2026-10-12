@@ -53,7 +53,9 @@ fn files_of<R: Runtime>(app: &App<R>) -> Files {
     match app.path().app_data_dir() {
         Ok(folder) => Files::load(folder.join(GRANT_STORE)),
         Err(error) => {
-            eprintln!("partsmith-desktop: file grants will not be kept after this session: {error}");
+            eprintln!(
+                "partsmith-desktop: file grants will not be kept after this session: {error}"
+            );
             Files::in_memory()
         }
     }

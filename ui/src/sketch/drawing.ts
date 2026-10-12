@@ -22,7 +22,7 @@ import {
   type InferenceResult,
   type SnapTarget,
 } from './inference'
-import { solvedEntity } from './operands'
+import { pointPosition, solvedEntity } from './operands'
 import {
   arcAngles,
   arcThreePointRecipe,
@@ -69,8 +69,12 @@ export type DrawState =
       readonly start: Placed
       /** The end of the previous segment of the chain, which the new segment's start joins. */
       readonly previousEnd: PointRef | null
-      /** The chain's first point, where a click closes the chain. */
-      readonly chainStart: Vector2
+      /**
+       * The references of the chain's first point: the point its first click snapped to, and the
+       * first line's start once that line is committed. A click that snaps to one of them, or to a
+       * point where the solution has one of them now, closes the chain.
+       */
+      readonly chainStart: readonly PointRef[]
     }
   | { readonly stage: 'second'; readonly first: Placed }
   | { readonly stage: 'third'; readonly first: Placed; readonly second: Placed }
@@ -123,6 +127,8 @@ export type DrawStep = { readonly state: DrawState; readonly commit: DrawCommit 
 const MINIMUM_SIZE_PIXELS = 2
 /** Typed angles within this of a multiple of 90 degrees become horizontal or vertical. */
 const ANGLE_TOLERANCE = 1e-9
+/** Points this close (mm) are at the same place. */
+const SAME_PLACE_MILLIMETERS = 1e-9
 
 const LABELS: Readonly<Record<DrawingTool, string>> = {
   line: 'Line',
@@ -337,6 +343,18 @@ function angleConstraint(typed: TypedValue, line: string, id: string): SketchCon
   return { id, type: 'angle', lines: [X_AXIS, line], expr: typed.text }
 }
 
+/** Whether a point snap is on the chain's first point, as solved now (the solver may have moved it). */
+function startsChain(
+  chainStart: readonly PointRef[],
+  snap: Extract<SnapTarget, { kind: 'point' }>,
+  solution: SketchSolution,
+): boolean {
+  return chainStart.some((point) => {
+    const at = pointPosition(solution, point)
+    return point === snap.point || (at !== null && distance(at, snap.at) <= SAME_PLACE_MILLIMETERS)
+  })
+}
+
 function lineCommit(
   state: Extract<DrawState, { stage: 'line' }>,
   input: DrawInput,
@@ -381,15 +399,16 @@ function lineCommit(
   // A click on the chain's first point closes the chain (3.16.4).
   const closes =
     snap?.kind === 'point' &&
-    distance(snap.at, state.chainStart) <= 1e-9 &&
-    state.previousEnd !== null
+    state.previousEnd !== null &&
+    startsChain(state.chainStart, snap, input.solution)
   const next: DrawState = closes
     ? IDLE
     : {
         stage: 'line',
         start: { at: end, snap: null },
         previousEnd: `${line.id}.end`,
-        chainStart: state.chainStart,
+        chainStart:
+          state.previousEnd === null ? [...state.chainStart, `${line.id}.start`] : state.chainStart,
       }
   return { state: next, commit: commitOf('line', addition, inferred, dimensions) }
 }
@@ -782,8 +801,14 @@ export function drawClick(
         return { state: IDLE, commit: commitOf('point', addition, inferred, []) }
       }
       if (tool === 'line') {
+        const snapped = snappedPoint(placed.snap)
         return {
-          state: { stage: 'line', start: placed, previousEnd: null, chainStart: placed.at },
+          state: {
+            stage: 'line',
+            start: placed,
+            previousEnd: null,
+            chainStart: snapped === null ? [] : [snapped],
+          },
           commit: null,
         }
       }

@@ -135,7 +135,7 @@ describe('line', () => {
     stage: 'line',
     start: { at: [0, 30], snap: null },
     previousEnd: null,
-    chainStart: [0, 30],
+    chainStart: [],
   }
 
   it('a typed angle of 90 degrees makes the line vertical', () => {
@@ -165,7 +165,7 @@ describe('line', () => {
       stage: 'line',
       start: { at: [10, 40], snap: null },
       previousEnd: 'e-8.end',
-      chainStart: [0, 30],
+      chainStart: ['e-7.start'],
     }
     const step = drawClick('line', chained, input([0.02, 30], { solution }), sequentialIds(), false)
     expect(step.state).toBe(IDLE)
@@ -173,6 +173,67 @@ describe('line', () => {
       { type: 'coincident', points: ['e-8.end', 'e-1.start'] },
       { type: 'coincident', points: ['e-1.end', 'e-7.start'] },
     ])
+  })
+
+  it('a click on the chain start closes the chain after the solver moved that start', () => {
+    // The first click was at (0, 30); the solver has since moved the first line's start.
+    const solution = solutionFor([lineEntity('e-7', [0.5, 30], [10, 30])])
+    const chained: DrawState = {
+      stage: 'line',
+      start: { at: [10, 40], snap: null },
+      previousEnd: 'e-8.end',
+      chainStart: ['e-7.start'],
+    }
+    const step = drawClick('line', chained, input([0.52, 30], { solution }), sequentialIds(), false)
+    expect(step.state).toBe(IDLE)
+    expect(withoutIds(step.commit?.change.add?.constraints).at(-1)).toEqual({
+      type: 'coincident',
+      points: ['e-1.end', 'e-7.start'],
+    })
+  })
+
+  it('remembers the first line start and a point the first click snapped to as the chain start', () => {
+    const ids = sequentialIds()
+    const first = drawClick('line', IDLE, input([20.02, 5]), ids, false)
+    expect(first.state).toMatchObject({ stage: 'line', chainStart: ['e-edge.start'] })
+    const second = drawClick('line', first.state, input([20, 25]), ids, false)
+    expect(second.state).toMatchObject({ chainStart: ['e-edge.start', 'e-1.start'] })
+    const third = drawClick('line', second.state, input([35, 25]), ids, false)
+    expect(third.state).toMatchObject({ chainStart: ['e-edge.start', 'e-1.start'] })
+  })
+
+  it('a click on another point at the chain start closes the chain too', () => {
+    // e-7 starts where the chain's first line e-5 starts, and comes first in the solution.
+    const solution = solutionFor([
+      lineEntity('e-7', [0, 30], [-10, 30]),
+      lineEntity('e-5', [0, 30], [0, 20]),
+    ])
+    const chained: DrawState = {
+      stage: 'line',
+      start: { at: [10, 40], snap: null },
+      previousEnd: 'e-8.end',
+      chainStart: ['e-5.start'],
+    }
+    const step = drawClick('line', chained, input([0.02, 30], { solution }), sequentialIds(), false)
+    expect(step.state).toBe(IDLE)
+  })
+
+  it('a click on a point away from the chain start continues the chain', () => {
+    const solution = solutionFor([lineEntity('e-7', [0, 30], [10, 30])])
+    const chained: DrawState = {
+      stage: 'line',
+      start: { at: [10, 40], snap: null },
+      previousEnd: 'e-8.end',
+      chainStart: ['e-7.start'],
+    }
+    const step = drawClick(
+      'line',
+      chained,
+      input([10.02, 30], { solution }),
+      sequentialIds(),
+      false,
+    )
+    expect(step.state).toMatchObject({ stage: 'line', previousEnd: 'e-1.end' })
   })
 
   it('suppression gives the raw cursor and no glyphs', () => {

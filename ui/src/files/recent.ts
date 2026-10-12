@@ -1,11 +1,11 @@
 import { createConnection, RECENT_STORE, requestResult, withStore } from './database'
-import { isFileHandle } from './file-service'
+import { isFileHandle, type FileHandle } from './file-service'
 
 export type RecentFile = {
   readonly id: string
   readonly name: string
   readonly openedAt: number
-  readonly handle: FileSystemFileHandle | null
+  readonly handle: FileHandle | null
   /** The file's text when there is no handle, so it reopens without file access; else null. */
   readonly text: string | null
 }
@@ -15,7 +15,7 @@ export type RecentFilesStore = {
   list(): Promise<readonly RecentFile[]>
   remember(file: {
     readonly name: string
-    readonly handle: FileSystemFileHandle | null
+    readonly handle: FileHandle | null
     readonly text: string
   }): Promise<void>
   forget(id: string): Promise<void>
@@ -41,8 +41,17 @@ async function isSameFile(entry: RecentFile, file: OpenedFile): Promise<boolean>
   if (file.handle === null || entry.handle === null) {
     return file.handle === null && entry.handle === null && entry.name === file.name
   }
+  return isSameHandle(file.handle, entry.handle)
+}
+
+/** Whether two handles name one file: desktop handles with equal grants, or web handles to the same entry. */
+async function isSameHandle(first: FileHandle, second: FileHandle): Promise<boolean> {
+  // Each host's handles come only from that host, so a desktop and a web handle are never the same file.
+  if (first.kind === 'desktop' || second.kind === 'desktop') {
+    return first.kind === 'desktop' && second.kind === 'desktop' && first.grant === second.grant
+  }
   try {
-    return await file.handle.isSameEntry(entry.handle)
+    return await first.isSameEntry(second)
   } catch {
     // A handle whose file is gone cannot be compared; it is a different entry.
     return false

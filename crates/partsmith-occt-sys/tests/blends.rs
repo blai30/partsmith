@@ -74,6 +74,23 @@ fn assert_every_face_has_an_origin(result: &OpResult) {
     }
 }
 
+/// Asserts that every output face appears in an input face's `modified` or `generated` list
+/// (test 102), which is stricter than section 3.4.9 item 4: an edge or vertex origin does not
+/// count.
+fn assert_every_face_comes_from_an_input_face(result: &OpResult) {
+    for face in 1..=result.shape.count(SubShapeKind::Face) {
+        let modified = result.history.modified_from(SubShapeKind::Face, face);
+        let generated = result.history.generated_from(SubShapeKind::Face, face);
+        assert!(
+            !modified.is_empty()
+                || generated
+                    .iter()
+                    .any(|origin| origin.element.kind == SubShapeKind::Face),
+            "output face {face} has no input face origin: generated from {generated:?}"
+        );
+    }
+}
+
 /// The L-shaped prism: 20 x 20 with a 10 x 10 notch, 10 mm tall, with its `EndCap` index and the
 /// index of its concave vertical edge at (10, 10).
 fn l_prism() -> (Shape, u32, u32) {
@@ -834,10 +851,10 @@ fn t102_kept_faces_keep_their_image_and_generate_their_inner_offset() {
 }
 
 #[test]
-fn t102_every_face_of_the_cavity_cut_has_an_origin() {
+fn t102_every_face_of_the_cavity_cut_comes_from_an_input_face() {
     let (_, _, result) = l_shell();
 
-    assert_every_face_has_an_origin(&result);
+    assert_every_face_comes_from_an_input_face(&result);
 }
 
 #[test]
@@ -971,4 +988,25 @@ fn shell_leaves_its_input_unchanged() {
     open_box_shell(&block);
 
     assert!(block.shape.to_brep().expect("BRep bytes") == before);
+}
+
+#[test]
+fn shell_beside_a_concave_edge_leaves_its_input_unchanged() {
+    let (body, step) = l_body();
+    let before = body.to_brep().expect("BRep bytes");
+
+    shell(&body, &[step], 2.0).expect("the fallback shells L");
+
+    assert!(body.to_brep().expect("BRep bytes") == before);
+}
+
+#[test]
+fn failed_shell_leaves_its_input_unchanged() {
+    let cylinder = make_cylinder(&Plane::XY, 20.0, 40.0).expect("CYL20 builds");
+    let top = face_with_role(&cylinder, PrimitiveFace::Top);
+    let before = cylinder.shape.to_brep().expect("BRep bytes");
+
+    shell(&cylinder.shape, &[top], 25.0).expect_err("a 25 mm wall does not fit");
+
+    assert!(cylinder.shape.to_brep().expect("BRep bytes") == before);
 }

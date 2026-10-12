@@ -746,7 +746,7 @@ After every operation that returns a solid result (profiles, sweeps, booleans, f
 
 ### 3.6 Measurement and element geometry
 
-1. `volume`: sum of `BRepGProp` volume properties over solids. `area`: sum over faces. `center_of_mass`: volume centroid over solids; `InvalidInput` when the absolute volume is below 1e-12 mm cubed. `bounding_box`: tight bounds from `BRepBndLib::AddOptimal` without triangulation and without shape tolerance; `InvalidInput` for an empty shape.
+1. `volume`: sum of `BRepGProp` volume properties over solids. `area`: sum of the face areas of item 3 over faces. `center_of_mass`: volume centroid over solids; `InvalidInput` when the absolute volume is below 1e-12 mm cubed. `bounding_box`: tight bounds from `BRepBndLib::AddOptimal` without triangulation and without shape tolerance; `InvalidInput` for an empty shape.
 2. Accuracy: for shapes bounded only by planes, cylinders, cones, spheres and tori, volume, area, centroids and element measures have relative error at most 1e-9 (the shim uses `BRepGProp` with an explicit relative precision where the default integration is not accurate enough); otherwise at most 1e-6. Bounding boxes are exact within 1e-6 mm for those analytic surfaces and contain the shape otherwise.
 3. Element geometry per kind (`kind` from `BRepAdaptor_Surface::GetType` or `BRepAdaptor_Curve::GetType`, mapped one to one to `GeometryKind`):
 
@@ -764,7 +764,7 @@ After every operation that returns a solid result (profiles, sweeps, booleans, f
 | degenerated edge | none (kind `OtherCurve`) | none | none |
 | `Point` | none | none | none |
 
-`centroid` is the area centroid of a face (`BRepGProp::SurfaceProperties`), the length centroid of an edge (`BRepGProp::LinearProperties`), the vertex position for a vertex, and the vertex position for a degenerated edge; `measure` is area, length, or 0 (vertices and degenerated edges).
+`centroid` is the area centroid of a face, the length centroid of an edge (`BRepGProp::LinearProperties`), the vertex position for a vertex, and the vertex position for a degenerated edge; `measure` is area, length, or 0 (vertices and degenerated edges). A face's area and area centroid are integrated exactly from its boundary (Green's theorem) when its location does not scale and it lies on a plane bounded by lines and circular arcs in its parameter plane, or on a cylinder bounded by lines in its parameter plane; every other face uses `BRepGProp::SurfaceProperties`, which integrates numerically with 18 x 18 points per boundary edge and made element queries of faces with many edges too slow for the budgets of section 5.
 
 4. `topology()`: built from `TopExp::MapShapesAndUniqueAncestors`. `seam` is true when `BRep_Tool::IsClosed(edge, face)` holds for a face containing it; `degenerate` is `BRep_Tool::Degenerated(edge)`. Lists are distinct and ascending.
 5. `edge_normals(edge)` describes an edge at its middle, so callers can compare the faces that meet there (the smooth-edge rule of fillet.md section 3.3 step 4). Errors use operation `Query`.

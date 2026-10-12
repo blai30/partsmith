@@ -8,9 +8,10 @@ use std::time::Duration;
 
 use feature_support::{
     Run, assert_bounding_box, assert_canonical_example, assert_element_repair, assert_error_field,
-    assert_face_area, assert_face_count, assert_face_kind, assert_face_position, assert_list_field,
-    assert_solid_count, assert_unchanged, assert_volume, body_update, document, example_paths,
-    face, face_index, face_names_with_prefix, load_example, median_build_time, suggested_limit,
+    assert_face_area, assert_face_count, assert_face_kind, assert_face_normal,
+    assert_face_position, assert_list_field, assert_solid_count, assert_unchanged, assert_volume,
+    body_update, document, example_paths, face, face_index, face_names_with_prefix, load_example,
+    median_build_time, suggested_limit,
 };
 use partsmith_features::{BodyChange, FeatureError};
 use partsmith_model::{Document, Units};
@@ -25,6 +26,17 @@ const TOP_FACE: &str = r#"{"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,30|a=40
 
 /// `F-LOST`: a face reference that matches nothing.
 const LOST_FACE: &str = r#"{"q": "f-box9/top", "fp": "plane|n=0,0,1|c=500,500,500|a=1"}"#;
+
+/// The L-shaped body of fillet.md test 4: a 40 x 20 x 10 mm box with a 20 x 20 x 10 mm box
+/// joined on the right half of its top, spanning [-20,-10,0]-[20,10,20].
+const L_BODY: [&str; 2] = [
+    r#"{"id": "f-box1", "type": "box", "body": "b-1", "size": ["40", "20", "10"], "op": "new"}"#,
+    r#"{"id": "f-box2", "type": "box", "body": "b-1", "size": ["20", "20", "10"], "position": ["10", "0", "10"], "op": "join"}"#,
+];
+
+/// The step face of `L_BODY`, the left half of the lower box's top, which meets the taller box at
+/// a concave edge.
+const STEP_FACE: &str = r#"{"q": "f-box1/top", "fp": "plane|n=0,0,1|c=-10,0,10|a=400"}"#;
 
 /// `SHELL(thickness, faces)`: the shell `f-sh1` of `b-1`, without `remove_faces` when `faces` is
 /// empty.
@@ -256,6 +268,57 @@ fn t011_empty_body() {
             "Body 'Body 1' is empty at this point, so this feature has nothing to work on. Pick a body that has a solid."
         ]
     );
+}
+
+/// shell.md open issue 3: a removed face beside a concave edge. The step face of the L-shaped body
+/// borders the concave edge where it meets the taller box, which the kernel's first attempt cannot
+/// open; its fallback (kernel.md section 3.4.8 item 3) cuts out the cavity instead.
+#[test]
+fn removed_face_beside_a_concave_edge() {
+    let run = Run::example("shell/step-face-removed.ptsm");
+
+    run.assert_all_ok();
+    let body = run.body("b-1");
+    let shape = run.shape("b-1");
+    assert_volume(shape, 5344.0);
+    assert_face_count(shape, 16);
+    assert_solid_count(shape, 1);
+    assert_bounding_box(shape, [-20.0, -10.0, 0.0], [20.0, 10.0, 20.0]);
+    let rim = face(body, "f-sh1/rim/f-box1/top");
+    assert_face_kind(&rim, GeometryKind::Plane);
+    assert_face_position(&rim, 2, 10.0);
+    assert_face_area(&rim, 112.0);
+    let wall_bottom = face(body, "f-sh1/inner/f-box1/top");
+    assert_face_kind(&wall_bottom, GeometryKind::Plane);
+    assert_face_position(&wall_bottom, 2, 10.0);
+    assert_face_normal(&wall_bottom, [0.0, 0.0, -1.0]);
+    assert_face_area(&wall_bottom, 32.0);
+    let step_wall = face(body, "f-sh1/inner/f-box2/left");
+    assert_face_kind(&step_wall, GeometryKind::Plane);
+    assert_face_position(&step_wall, 0, 2.0);
+    assert_face_area(&step_wall, 128.0);
+    assert_eq!(
+        face_index(body, "f-box1/top"),
+        None,
+        "the removed step face disappears"
+    );
+    assert_eq!(
+        face_names_with_prefix(body, "f-sh1/inner/").len(),
+        8,
+        "one inner wall per kept face and the bottom of the wall over the opening"
+    );
+    assert_eq!(
+        face_names_with_prefix(body, "f-sh1/face"),
+        Vec::<String>::new(),
+        "every face has a name from its origin"
+    );
+
+    let thin = Run::records(
+        &["b-1"],
+        &[L_BODY[0], L_BODY[1], &shell_record("0.5", &[STEP_FACE])],
+    );
+    thin.assert_all_ok();
+    assert_volume(thin.shape("b-1"), 1531.0);
 }
 
 #[test]

@@ -1,13 +1,23 @@
 export type FileKind = 'ptsm' | '3mf' | 'stl' | 'obj' | 'step'
 
+/** A file the desktop host granted through a native dialog. Plain data, so IndexedDB stores it. */
+export type DesktopFileHandle = {
+  readonly kind: 'desktop'
+  readonly name: string
+  readonly grant: string
+}
+
+/** A file the user chose, which Save and Open recent reach again without a dialog. */
+export type FileHandle = FileSystemFileHandle | DesktopFileHandle
+
 export type OpenedFile = {
   readonly name: string
   readonly bytes: Uint8Array
-  readonly handle: FileSystemFileHandle | null
+  readonly handle: FileHandle | null
 }
 
 export type SaveTarget =
-  | { readonly kind: 'handle'; readonly name: string; readonly handle: FileSystemFileHandle }
+  | { readonly kind: 'handle'; readonly name: string; readonly handle: FileHandle }
   | { readonly kind: 'download'; readonly name: string }
 
 export type FileServiceErrorReason = 'permission' | 'not_found' | 'io'
@@ -27,7 +37,7 @@ export type FileService = {
   readonly fileSystemAccess: boolean
   /** Null when the user cancels. */
   pickToOpen(): Promise<OpenedFile | null>
-  readHandle(handle: FileSystemFileHandle): Promise<OpenedFile>
+  readHandle(handle: FileHandle): Promise<OpenedFile>
   /** Asks where to save. Null when the user cancels. Without the File System Access API it returns a download target at once. */
   chooseSaveTarget(suggestedName: string, kind: FileKind): Promise<SaveTarget | null>
   /** Writes the bytes to the target (a download for download targets). */
@@ -98,9 +108,23 @@ function pickersOf(environment: Window & typeof globalThis): Pickers | null {
   }
 }
 
-/** Whether a value is a file handle, such as one read back from IndexedDB. */
-export function isFileHandle(value: unknown): value is FileSystemFileHandle {
-  return typeof value === 'object' && value !== null && Reflect.get(value, 'kind') === 'file'
+/** Whether a value is a file handle of either host, such as one read back from IndexedDB. */
+export function isFileHandle(value: unknown): value is FileHandle {
+  if (typeof value !== 'object' || value === null) {
+    return false
+  }
+  const kind: unknown = Reflect.get(value, 'kind')
+  return (
+    kind === 'file' ||
+    (kind === 'desktop' &&
+      typeof Reflect.get(value, 'name') === 'string' &&
+      typeof Reflect.get(value, 'grant') === 'string')
+  )
+}
+
+/** The error for a file Partsmith cannot reach, such as a handle that belongs to the other host. */
+export function noAccessError(name: string, options?: ErrorOptions): FileServiceError {
+  return new FileServiceError('permission', `Partsmith has no access to ${name}.`, options)
 }
 
 function pickerType(kind: FileKind): FilePickerType {
@@ -141,12 +165,10 @@ async function ensurePermission(handle: FileSystemFileHandle, mode: PermissionMo
       state = await methods.requestPermission.call(handle, { mode })
     }
   } catch (error) {
-    throw new FileServiceError('permission', `Partsmith has no access to ${handle.name}.`, {
-      cause: error,
-    })
+    throw noAccessError(handle.name, { cause: error })
   }
   if (state !== 'granted') {
-    throw new FileServiceError('permission', `Partsmith has no access to ${handle.name}.`)
+    throw noAccessError(handle.name)
   }
 }
 
@@ -271,6 +293,10 @@ export function createWebFileService(environment: Window & typeof globalThis): F
     },
 
     async readHandle(handle) {
+      // A desktop handle reaches this service only if IndexedDB data moved between hosts.
+      if (handle.kind === 'desktop') {
+        throw noAccessError(handle.name)
+      }
       await ensurePermission(handle, 'read')
       return readFileHandle(handle)
     },
@@ -295,8 +321,12 @@ export function createWebFileService(environment: Window & typeof globalThis): F
         download(environment, target.name, kind, bytes)
         return
       }
-      await ensurePermission(target.handle, 'readwrite')
-      await writeFileHandle(target.handle, bytes)
+      const { handle } = target
+      if (handle.kind === 'desktop') {
+        throw noAccessError(handle.name)
+      }
+      await ensurePermission(handle, 'readwrite')
+      await writeFileHandle(handle, bytes)
     },
   }
 }

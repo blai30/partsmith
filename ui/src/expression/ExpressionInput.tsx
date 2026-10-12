@@ -136,6 +136,20 @@ export function ExpressionInput({
     }
   }, [value, state])
 
+  // Enter pressed while the text is evaluated commits it once its result arrives.
+  const commitWhenSettled = useRef<string | null>(null)
+  const latestOnCommit = useRef(onCommit)
+  useEffect(() => {
+    latestOnCommit.current = onCommit
+  })
+  useEffect(() => {
+    if (commitWhenSettled.current !== value || state.state === 'pending') {
+      return
+    }
+    commitWhenSettled.current = null
+    settleEnter(value, state)
+  })
+
   useEffect(() => {
     if (autoFocus) {
       input.current?.focus()
@@ -143,26 +157,41 @@ export function ExpressionInput({
   }, [autoFocus])
 
   function change(next: string): void {
+    commitWhenSettled.current = null
     const nextState = optional && next.trim() === '' ? EMPTY : PENDING
     reported.current = { value: next, state: nextState }
     onChange(next, nextState)
   }
 
+  /** What Enter does for a settled state: selects the offending range or commits. Returns whether it acted. */
+  function settleEnter(text: string, settled: ExpressionState): boolean {
+    if (settled.state === 'invalid' && settled.range !== null) {
+      input.current?.setSelectionRange(settled.range.start, settled.range.end)
+      return true
+    }
+    const commit = latestOnCommit.current
+    if (commit !== undefined && (settled.state === 'valid' || settled.state === 'empty')) {
+      commit(text, settled)
+      return true
+    }
+    return false
+  }
+
   function onKeyDown(event: KeyboardEvent<HTMLInputElement>): void {
     switch (event.key) {
       case 'Enter': {
-        if (state.state === 'invalid' && state.range !== null) {
+        if (state.state === 'pending' && onCommit !== undefined) {
           event.preventDefault()
-          input.current?.setSelectionRange(state.range.start, state.range.end)
+          commitWhenSettled.current = value
           return
         }
-        if (onCommit !== undefined && (state.state === 'valid' || state.state === 'empty')) {
+        if (settleEnter(value, state)) {
           event.preventDefault()
-          onCommit(value, state)
         }
         return
       }
       case 'Escape':
+        commitWhenSettled.current = null
         if (onCancel !== undefined) {
           event.preventDefault()
           onCancel()

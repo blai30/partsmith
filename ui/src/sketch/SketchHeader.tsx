@@ -1,6 +1,7 @@
 import { clsx } from 'clsx/lite'
 import { ChevronDown } from 'lucide-react'
-import { useCallback, useId, useRef, useState, useSyncExternalStore } from 'react'
+import { useId, useRef, useState } from 'react'
+import { useShallow } from 'zustand/react/shallow'
 import { useApp, useAppState } from '../app/AppProvider'
 import {
   createSketchOn,
@@ -18,11 +19,12 @@ import { constraintTitle } from './constraints'
 import { entitySelectionItem } from './hit'
 import { profileFindingMessage } from './issues'
 import { SKETCH_PROMPTS } from './prompts'
-import { outlineProblems, sketchModelOf, sketchStepHint, watchSketchModel } from './session'
+import { outlineProblems, sketchStepHint, type SketchOverlayModel } from './session'
 
 // The sketch header and hint (ui.md 3.16.1, 3.16.3, 3.16.8): the sketch's name and constraint
-// status at the top of the viewport, opening the list of the sketch's problems, and under it the
-// step prompt. While a plane is picked for a new sketch, it offers the three origin planes.
+// status in the viewport's top-center slot (3.2), opening the list of the sketch's problems, and
+// under it the step prompt. While a plane is picked for a new sketch, it offers the three origin
+// planes. The sketch overlay renders it with the sketch controller's hint.
 
 function plural(count: number, singular: string, several: string): string {
   return `${String(count)} ${count === 1 ? singular : several}`
@@ -74,16 +76,23 @@ function originPlaneItem(plane: (typeof ORIGIN_PLANES)[number]): SelectionItem {
   }
 }
 
-/** The sketch header chip and the sketch hint; nothing outside sketch mode. */
-export function SketchHeader() {
+export type SketchHeaderProps = {
+  /** The active tool's hint from the sketch controller (3.16.3), or null without one. */
+  readonly hint?: SketchOverlayModel['hint']
+  /** Whether inference glyphs show, so the hint names the key that places freely (3.16.5). */
+  readonly freePlacement?: boolean
+}
+
+/** The sketch header chip and the sketch hint in the top-center slot; nothing outside sketch mode. */
+export function SketchHeader({ hint = null, freePlacement = false }: SketchHeaderProps) {
   const sketchId = useAppState(selectEditedSketch)
   if (sketchId === undefined) {
     return null
   }
   return (
-    <div className="pointer-events-none absolute top-3 left-1/2 z-10 flex max-w-[calc(100%-2rem)] -translate-x-1/2 flex-col items-center gap-2">
+    <div className="pointer-events-none absolute inset-x-32 top-4 z-10 flex flex-col items-center gap-2">
       {sketchId === null ? <PlanePicking /> : <EditingHeader sketchId={sketchId} />}
-      <SketchHint sketchId={sketchId} />
+      <SketchHint sketchId={sketchId} hint={hint} freePlacement={freePlacement} />
     </div>
   )
 }
@@ -128,7 +137,8 @@ function selectOutlineCount(sketchId: string): (state: AppState) => number {
 }
 
 function EditingHeader({ sketchId }: { readonly sketchId: string }) {
-  const dof = useAppState(selectSketchDof)
+  // Compared by value: a drag replaces the solution every frame without changing these counts.
+  const dof = useAppState(useShallow(selectSketchDof))
   const label = useAppState((state) => selectFeatureLabel(state, sketchId))
   const outline = useAppState((state) => {
     const solution = state.document?.sketches[sketchId]?.solution
@@ -197,18 +207,28 @@ function EditingHeader({ sketchId }: { readonly sketchId: string }) {
         />
       </button>
       <Popover label="Sketch problems" open={open} anchor={anchor} onOpenChange={setOpen}>
-        <SketchProblems id={popoverId} sketchId={sketchId} />
+        <div
+          id={popoverId}
+          data-testid="sketch-problems"
+          className="flex w-80 max-w-full flex-col gap-4"
+        >
+          {/* Rendered only while open: a drag changes the solution every frame. */}
+          {open ? <SketchProblems sketchId={sketchId} /> : null}
+        </div>
       </Popover>
     </>
   )
 }
 
+type SketchHintProps = {
+  readonly sketchId: string | null
+  readonly hint: SketchOverlayModel['hint']
+  readonly freePlacement: boolean
+}
+
 /** The sketch hint under the header (3.16.3): the step prompt, or what replaces it for now. */
-function SketchHint({ sketchId }: { readonly sketchId: string | null }) {
+function SketchHint({ sketchId, hint, freePlacement }: SketchHintProps) {
   const app = useApp()
-  const subscribe = useCallback((listener: () => void) => watchSketchModel(app, listener), [app])
-  const read = useCallback(() => sketchModelOf(app), [app])
-  const model = useSyncExternalStore(subscribe, read)
   const pickHint = useAppState((state) =>
     state.pickHint !== null && state.pickHint.field === null ? state.pickHint.message : null,
   )
@@ -220,9 +240,8 @@ function SketchHint({ sketchId }: { readonly sketchId: string | null }) {
   )
   const idleStep = idle ? sketchStepHint({ kind: 'idle', empty }, app.platform) : null
   const text =
-    pickHint ??
-    (sketchId === null ? SKETCH_PROMPTS.plane_pick_hint() : (model.hint?.text ?? idleStep))
-  const warning = pickHint !== null || model.hint?.warning === true
+    pickHint ?? (sketchId === null ? SKETCH_PROMPTS.plane_pick_hint() : (hint?.text ?? idleStep))
+  const warning = pickHint !== null || hint?.warning === true
   return (
     <output
       data-testid="sketch-hint"
@@ -237,7 +256,7 @@ function SketchHint({ sketchId }: { readonly sketchId: string | null }) {
       )}
     >
       {text}
-      {text !== null && sketchId !== null && model.freePlacement ? (
+      {text !== null && sketchId !== null && freePlacement ? (
         <span aria-live="off">{` ${SKETCH_PROMPTS.sketch_free_placement(app.platform)}`}</span>
       ) : null}
     </output>
@@ -271,7 +290,7 @@ function freeGeometry(solution: SketchSolution): string {
 }
 
 /** The conflicting and extra constraints, the outline problems and the free geometry of the sketch. */
-function SketchProblems({ id, sketchId }: { readonly id: string; readonly sketchId: string }) {
+function SketchProblems({ sketchId }: { readonly sketchId: string }) {
   const app = useApp()
   const document = useAppState((state) => state.document)
   const solution = document?.sketches[sketchId]?.solution ?? null
@@ -291,7 +310,7 @@ function SketchProblems({ id, sketchId }: { readonly id: string; readonly sketch
   const free = solution !== null && solution.dof > 0 ? freeGeometry(solution) : ''
 
   return (
-    <div id={id} data-testid="sketch-problems" className="flex w-80 max-w-full flex-col gap-4">
+    <>
       {problems.length > 0 ? (
         <section aria-label="Constraints" className="flex flex-col gap-2">
           <h2 className={clsx('text-xs font-medium', COLOR_CLASSES.textMuted.foreground)}>
@@ -379,6 +398,6 @@ function SketchProblems({ id, sketchId }: { readonly id: string; readonly sketch
       <p className={clsx('text-xs', COLOR_CLASSES.textMuted.foreground)}>
         {SKETCH_PROMPTS.sketch_dof_help(app.platform)}
       </p>
-    </div>
+    </>
   )
 }

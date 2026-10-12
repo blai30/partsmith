@@ -1,11 +1,12 @@
 import { clsx } from 'clsx/lite'
-import { CircleX, TriangleAlert } from 'lucide-react'
+import { CircleX, Info, TriangleAlert } from 'lucide-react'
 import { useId } from 'react'
 import { editFeature } from '../app/actions/command'
 import { select } from '../app/actions/selection'
 import { useApp, useAppState } from '../app/AppProvider'
 import { Button } from '../components/Button'
 import type { Severity } from '../generated/protocol'
+import { UseSuggestion } from '../inspector/UseSuggestion'
 import { PanelHeader } from '../layout/PanelHeader'
 import { selectProblems } from '../state/selectors'
 import { COLOR_CLASSES } from '../theme/roles'
@@ -23,9 +24,18 @@ function StatusIcon({ severity }: { readonly severity: Severity }) {
       />
     )
   }
+  if (severity === 'info') {
+    return (
+      <Info
+        aria-label="Info"
+        strokeWidth={1.75}
+        className={clsx('mt-0.5 size-4 shrink-0', COLOR_CLASSES.textMuted.foreground)}
+      />
+    )
+  }
   return (
     <TriangleAlert
-      aria-label={severity === 'warning' ? 'Warning' : 'Info'}
+      aria-label="Warning"
       strokeWidth={1.75}
       className={clsx(
         'mt-0.5 size-4 shrink-0',
@@ -40,6 +50,7 @@ export function ProblemsPanel() {
   const app = useApp()
   const titleId = useId()
   const problems = useAppState(selectProblems)
+  const records = useAppState((state) => state.document?.recipe.features)
   return (
     <section
       data-testid="problems-panel"
@@ -95,13 +106,23 @@ export function ProblemsPanel() {
                         Edit
                       </Button>
                     </div>
-                    {problem.messages.map((message, messageIndex) => (
-                      // Messages carry no id; their order is the core's.
-                      // oxlint-disable-next-line react/no-array-index-key
-                      <p key={messageIndex} className="text-sm">
-                        {message.message}
-                      </p>
-                    ))}
+                    {problem.messages.map((message, messageIndex) => {
+                      const record = records?.find((entry) => entry.id === problem.featureId)
+                      return (
+                        // Messages carry no id; their order is the core's.
+                        // oxlint-disable-next-line react/no-array-index-key
+                        <div key={messageIndex} className="flex flex-col gap-1">
+                          <p className="text-sm">{message.message}</p>
+                          {record === undefined ? null : (
+                            <UseSuggestion
+                              record={record}
+                              label={problem.label}
+                              message={message}
+                            />
+                          )}
+                        </div>
+                      )
+                    })}
                   </div>
                 </li>
               ) : (

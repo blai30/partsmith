@@ -6,7 +6,8 @@ import { useEffect, useRef, type RefObject } from 'react'
 /** Tailwind's lg breakpoint; media queries measure rem in the browser's default font size. */
 const NARROW_QUERY = '(width < 64rem)'
 
-function narrow(): boolean {
+/** Whether the window is narrower than lg, where the browser and the side panel are overlays. */
+export function isNarrowWindow(): boolean {
   return typeof matchMedia === 'function' && matchMedia(NARROW_QUERY).matches
 }
 
@@ -27,7 +28,7 @@ export function useOverlayDismiss(
       const element = panel.current
       const target = event.target
       if (
-        !narrow() ||
+        !isNarrowWindow() ||
         element === null ||
         !(target instanceof Element) ||
         element.contains(target)
@@ -45,7 +46,7 @@ export function useOverlayDismiss(
     }
     const onKeyDown = (event: KeyboardEvent): void => {
       // Menus and editors inside the panel take their Esc first and prevent its default.
-      if (event.key === 'Escape' && !event.defaultPrevented && narrow()) {
+      if (event.key === 'Escape' && !event.defaultPrevented && isNarrowWindow()) {
         event.preventDefault()
         latest.current()
       }

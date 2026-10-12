@@ -217,6 +217,64 @@ fn t018_write_keeps_the_permissions_of_the_file_it_replaces() {
     assert_eq!(mode & 0o777, 0o640);
 }
 
+#[cfg(unix)]
+#[test]
+fn write_through_a_symbolic_link_replaces_the_file_it_points_to_and_keeps_the_link() {
+    let folder = temporary_folder();
+    let synced = folder.path().join("synced");
+    fs::create_dir(&synced).expect("the test can create a folder");
+    let real = file_with(&synced, "part.ptsm", b"old contents");
+    let link = folder.path().join("link.ptsm");
+    std::os::unix::fs::symlink(&real, &link).expect("the test can create a symbolic link");
+    let files = Files::in_memory();
+    let grant = grant_by_open(&files, &link).grant;
+
+    files
+        .write(&grant, b"new")
+        .expect("writing through a granted link succeeds");
+
+    let link_metadata = fs::symlink_metadata(&link).expect("the link exists");
+    assert!(
+        link_metadata.file_type().is_symlink(),
+        "the link is still a link"
+    );
+    assert_eq!(fs::read(&real).expect("the linked file exists"), b"new");
+    assert_eq!(folder_entries(&synced), vec!["part.ptsm".to_owned()]);
+    assert_eq!(
+        folder_entries(folder.path()),
+        vec!["link.ptsm".to_owned(), "synced".to_owned()]
+    );
+}
+
+#[test]
+fn write_to_a_read_only_file_fails_with_denied_and_leaves_it_unchanged() {
+    let folder = temporary_folder();
+    let path = file_with(folder.path(), "part.ptsm", b"old contents");
+    let mut permissions = fs::metadata(&path).expect("the file exists").permissions();
+    permissions.set_readonly(true);
+    fs::set_permissions(&path, permissions).expect("the test can make the file read-only");
+    let files = Files::in_memory();
+    let grant = grant_by_open(&files, &path).grant;
+
+    let error = files
+        .write(&grant, b"new")
+        .expect_err("a read-only file is not replaced");
+
+    assert_eq!(
+        error,
+        FileError::Denied {
+            name: "part.ptsm".to_owned(),
+            detail: "the file is read-only".to_owned(),
+        }
+    );
+    assert_eq!(error.reason(), "permission");
+    assert_eq!(
+        fs::read(&path).expect("the file is still there"),
+        b"old contents"
+    );
+    assert_eq!(folder_entries(folder.path()), vec!["part.ptsm".to_owned()]);
+}
+
 #[test]
 fn write_creates_a_granted_save_path_that_does_not_exist_yet() {
     let folder = temporary_folder();

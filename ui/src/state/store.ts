@@ -1,6 +1,6 @@
 import { createStore, type StoreApi } from 'zustand/vanilla'
 import type { SolvedSketch } from '../core/api'
-import type { OpenedFile } from '../files/file-service'
+import type { FileHandle } from '../files/file-service'
 import type {
   BoundingBox,
   Diagnostic,
@@ -101,7 +101,7 @@ export type MeshSummary = {
 }
 
 /** The file a document was opened from or saved to: a web file handle or a desktop grant. */
-export type FileReference = { readonly name: string; readonly handle: OpenedFile['handle'] }
+export type FileReference = { readonly name: string; readonly handle: FileHandle | null }
 
 /** The kinds of selection items, declared once with the picking code that produces them. */
 export type { SelectionItemKind }

@@ -408,6 +408,8 @@ fn main() -> ExitCode {
         milliseconds(40),
         &|| {
             let (body, step) = l_body();
+            // A failed shell returns early, so its time would say nothing about the budget.
+            shell(&body, &[step], 2.0).expect("the fallback shells L");
             median_time(|| shell(&body, &[step], 2.0))
         },
     );

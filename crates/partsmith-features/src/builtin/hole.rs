@@ -8,10 +8,10 @@
 
 use std::f64::consts::{PI, TAU};
 
+use partsmith_mesh::BoundingBox;
 use partsmith_model::{
     Category, Expr, FeatureManifest, FieldUnit, Id, LINEAR_TOLERANCE, SelectionKind,
 };
-use partsmith_mesh::BoundingBox;
 use partsmith_naming::{FaceSource, Generator, roles};
 use partsmith_occt_sys::{
     Axis, PlanarCurve, PlanarLoop, PlanarRegion, Plane, Point, Point2, Shape, SweepFace,
@@ -263,8 +263,8 @@ impl Feature for Hole {
         let mut tools = Vec::new();
         for (point, candidate) in drilled {
             // The shared volumes follow the candidates in point order.
-            let overlapping = candidate
-                .filter(|_| shared.next().is_some_and(|volume| volume > threshold));
+            let overlapping =
+                candidate.filter(|_| shared.next().is_some_and(|volume| volume > threshold));
             match overlapping {
                 Some(candidate) => tools.push(candidate.tool),
                 None => warnings.push(FeatureWarning::HoleMissesBody {
@@ -703,8 +703,8 @@ struct Candidate {
 /// The volume each candidate shares with the body, in candidate order. Candidates whose bounding
 /// boxes are apart are grouped into one compound and intersected with the body in one kernel
 /// `common`, each solid of the result counting for the candidate whose box is nearest to its
-/// center; the kernel's work grows with the body, so this costs about one boolean instead of one
-/// per hole. Candidates whose boxes come closer each get their own `common`.
+/// center: the kernel's work grows with the body, so one boolean replaces one per hole.
+/// Candidates whose boxes come closer each get their own `common`.
 fn shared_volumes(body: &Shape, candidates: &[&Candidate]) -> Result<Vec<f64>, FeatureError> {
     let bounds: Vec<&BoundingBox> = candidates
         .iter()

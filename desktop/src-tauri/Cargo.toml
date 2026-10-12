@@ -16,6 +16,10 @@ name = "partsmith_desktop"
 name = "partsmith-desktop"
 path = "src/main.rs"
 
+[[bench]]
+name = "budgets"
+harness = false
+
 [build-dependencies]
 tauri-build.workspace = true
 

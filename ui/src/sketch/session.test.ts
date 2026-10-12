@@ -15,7 +15,6 @@ import {
 import {
   createSketchController,
   outlineProblems,
-  sketchModelOf,
   sketchStepHint,
   type OverlayPaint,
   type SketchController,
@@ -262,6 +261,52 @@ describe('line tool (3.16.4)', () => {
     expect(sketch.getModel().hint?.text).toMatch(/^Click to end the segment/)
     expect(pressKey('Enter').defaultPrevented).toBe(true)
     expect(sketch.getModel().hint?.text).toBe('Click to start a line.')
+  })
+
+  it('leaves Esc and Enter to an open popover: the chain goes on (3.5)', async () => {
+    const harness = sketchHarness()
+    const sketch = start(harness, 'line')
+    clickAt(canvas(), [0, 0])
+    clickAt(canvas(), [20, 2])
+    await settleCommits()
+    const popover = document.createElement('div')
+    popover.setAttribute('popover', 'auto')
+    document.body.append(popover)
+    // jsdom never matches :popover-open, so the document reports the popover open as a browser does.
+    const querySelector = document.querySelector.bind(document)
+    vi.spyOn(document, 'querySelector').mockImplementation((selectors: string) =>
+      selectors.includes(':popover-open') ? popover : querySelector(selectors),
+    )
+    expect(pressKey('Escape').defaultPrevented).toBe(false)
+    expect(pressKey('Enter').defaultPrevented).toBe(false)
+    expect(sketch.getModel().hint?.text).toMatch(/^Click to end the segment/)
+    popover.remove()
+  })
+
+  it('leaves Esc to the open palette', () => {
+    const harness = sketchHarness()
+    const sketch = start(harness, 'line')
+    clickAt(canvas(), [0, 0])
+    pointerAt(canvas(), 'pointermove', [10, 3])
+    harness.app.store.setState((state) => ({ panels: { ...state.panels, paletteOpen: true } }))
+    expect(pressKey('Escape').defaultPrevented).toBe(false)
+    expect(sketch.getModel().drawInputs.map((input) => input.name)).toEqual(['Length', 'Angle'])
+  })
+
+  it('Enter on a focused button activates the button and keeps the chain', async () => {
+    const harness = sketchHarness()
+    const sketch = start(harness, 'line')
+    clickAt(canvas(), [0, 0])
+    clickAt(canvas(), [20, 2])
+    await settleCommits()
+    const button = document.createElement('button')
+    document.body.append(button)
+    button.focus()
+    expect(pressKey('Enter', {}, button).defaultPrevented).toBe(false)
+    expect(sketch.getModel().hint?.text).toMatch(/^Click to end the segment/)
+    expect(pressKey('Enter', {}, view?.focusTarget).defaultPrevented).toBe(true)
+    expect(sketch.getModel().hint?.text).toBe('Click to start a line.')
+    button.remove()
   })
 
   it('a double-click ends the chain after committing the segment', async () => {
@@ -711,16 +756,5 @@ describe('painting (3.12, 3.16.2)', () => {
     expect(paint().labels.get('c-1')).not.toBeNull()
     expect(paint().dimensionLines).not.toBe('')
     expect(paint().issues).toEqual([[672, 512]])
-  })
-})
-
-describe('the sketch model registry', () => {
-  it('serves the controller model to the sketch hint while it lives', () => {
-    const harness = sketchHarness()
-    const sketch = start(harness, 'point')
-    expect(sketchModelOf(harness.app)).toBe(sketch.getModel())
-    sketch.dispose()
-    controller = null
-    expect(sketchModelOf(harness.app).hint).toBeNull()
   })
 })

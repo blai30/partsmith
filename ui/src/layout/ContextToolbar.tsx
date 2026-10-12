@@ -137,10 +137,12 @@ function CommandButton({ view }: { readonly view: CommandView }) {
 
 type GroupEntry = Extract<ToolbarEntry, { readonly kind: 'group' }>
 
-/** A group button opening a menu of its commands with icon, title and shortcut (3.3). */
+/** A group button opening a menu of its commands with icon, title and shortcut (3.3); nothing when all of them are hidden. */
 function GroupButton({ entry }: { readonly entry: GroupEntry }) {
   const app = useApp()
-  const views = useCommandViews(app, entry.commands)
+  const views = useCommandViews(app, entry.commands).filter(
+    (view) => view.availability.state !== 'hidden',
+  )
   const anchor = useRef<HTMLButtonElement>(null)
   const [open, setOpen] = useState(false)
   if (views.length === 0) {

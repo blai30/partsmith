@@ -7,6 +7,7 @@ import type {
   DocHandle,
   Edit,
   FeatureRecord,
+  FeatureStatus,
   ProfileFinding,
   SketchConstraint,
   SketchEntity,
@@ -26,6 +27,7 @@ import {
   referencedEntities,
   type ConstraintType,
 } from '../../sketch/constraints'
+import { pointSelectionItem } from '../../sketch/hit'
 import { failedSolveMessage, findingPoints } from '../../sketch/issues'
 import { worldBounds } from '../../sketch/placement'
 import type { Vector2 } from '../../sketch/geometry'
@@ -40,6 +42,7 @@ import { cancelCommand } from './command'
 import { coreRedo, coreUndo } from './document'
 import { commitEdits, documentOf, reportNewFailures, showCoreError } from './edits'
 import { dismiss, notify, showPickHint } from './notifications'
+import { select } from './selection'
 
 // Sketch mode (ui.md 3.16): entering, leaving and navigating it (3.16.1, 3.16.11, 3.20), and the
 // changes its tools commit: geometry, constraints, dimensions, construction and deletion.
@@ -49,9 +52,15 @@ type HistoryEntry =
   | { readonly kind: 'view'; readonly camera: Camera }
   | { readonly kind: 'document' }
 
-type SketchHistory = { readonly undo: HistoryEntry[]; readonly redo: HistoryEntry[] }
+/** What sketch mode keeps for its session beside the store's `SketchSession` (3.16.11, 3.20). */
+type SketchModeRecord = {
+  readonly undo: HistoryEntry[]
+  readonly redo: HistoryEntry[]
+  /** Feature statuses when the session started; failures since then are reported on finishing (4.2). */
+  readonly statusesBefore: Readonly<Record<string, FeatureStatus>>
+}
 
-const histories = new WeakMap<AppStore, SketchHistory>()
+const sessionRecords = new WeakMap<AppStore, SketchModeRecord>()
 
 /** A fresh session on a sketch, or plane picking for a new one. */
 function sketchSession(sketchId: string | null): SketchSession {
@@ -75,7 +84,7 @@ function editedSketch(app: App): string | null {
  * burst, a view cube click, fit, home or look at), so Mod+Z can go back to it.
  */
 export function recordSketchView(app: App, before: Camera): void {
-  const history = histories.get(app.store)
+  const history = sessionRecords.get(app.store)
   if (history === undefined || editedSketch(app) === null) {
     return
   }
@@ -85,7 +94,7 @@ export function recordSketchView(app: App, before: Camera): void {
 
 /** Records a committed sketch edit, which Mod+Z in sketch mode undoes in the core. */
 export function recordSketchEdit(app: App): void {
-  const history = histories.get(app.store)
+  const history = sessionRecords.get(app.store)
   if (history === undefined || editedSketch(app) === null) {
     return
   }
@@ -93,9 +102,9 @@ export function recordSketchEdit(app: App): void {
   history.redo.length = 0
 }
 
-/** Discards the sketch view history, as leaving sketch mode does. */
+/** Discards the sketch view history and the session's starting statuses, as leaving sketch mode does. */
 export function leaveSketchHistory(app: App): void {
-  histories.delete(app.store)
+  sessionRecords.delete(app.store)
 }
 
 /** Steps back through the sketch view history; false when there is no step to take here. */
@@ -109,7 +118,7 @@ export async function redoInSketch(app: App): Promise<boolean> {
 }
 
 async function stepSketchHistory(app: App, direction: 'undo' | 'redo'): Promise<boolean> {
-  const history = histories.get(app.store)
+  const history = sessionRecords.get(app.store)
   if (history === undefined || editedSketch(app) === null) {
     return false
   }
@@ -275,6 +284,9 @@ export async function enterSketch(app: App, sketchId: string): Promise<void> {
     await cancelCommand(app)
   }
   const before = app.viewport()?.getCamera() ?? null
+  // A session that moves on to another sketch keeps its starting statuses until it finishes.
+  const statusesBefore =
+    sessionRecords.get(app.store)?.statusesBefore ?? documentOf(app)?.featureStatus ?? {}
   app.store.setState((state) => ({
     context: 'sketch',
     sketch: sketchSession(sketchId),
@@ -304,16 +316,90 @@ export async function enterSketch(app: App, sketchId: string): Promise<void> {
     lookAtSketch(app, solution)
   }
   // Set after the camera moved onto the sketch, so the history starts with the camera from before.
-  histories.set(app.store, {
+  sessionRecords.set(app.store, {
     undo: before === null ? [] : [{ kind: 'view', camera: before }],
     redo: [],
+    statusesBefore,
   })
 }
 
-/** Ends sketch mode: Model context, the sketch kept visible for the session, the camera kept (3.16.11). */
-export async function finishSketch(app: App): Promise<void> {
+export type FinishSketchOptions = {
+  /**
+   * Selects what the finished sketch makes (3.16.11), as Finish sketch and the Model radio do. A
+   * feature command preselects by its own rule (3.3), and the Print radio keeps the selection.
+   */
+  readonly selectResult?: boolean
+}
+
+/** The selection item of a sketch's region, labeled by its position in the solution. */
+function regionSelectionItem(
+  sketchId: string,
+  solution: SketchSolution,
+  index: number,
+): SelectionItem | null {
+  const region = solution.regions[index]
+  return region === undefined
+    ? null
+    : {
+        key: `region:${sketchId}:${region.reference.key}`,
+        kind: 'sketch_region',
+        label: `Region ${String(index + 1)}`,
+        body: null,
+        feature: sketchId,
+        element: null,
+        sketchItem: { kind: 'region', sketch: sketchId, region },
+        origin: null,
+      }
+}
+
+/**
+ * What finishing a sketch selects (3.16.11): its region when it has exactly one; without regions,
+ * its non-construction point entities; otherwise, when it has entities, the sketch feature.
+ */
+function finishedSketchSelection(
+  app: App,
+  sketchId: string,
+  solution: SketchSolution,
+): SelectionItem[] {
+  if (solution.regions.length === 1) {
+    const region = regionSelectionItem(sketchId, solution, 0)
+    return region === null ? [] : [region]
+  }
+  if (solution.regions.length === 0) {
+    const points = solution.entities.filter(
+      (entity) => entity.type === 'point' && entity.construction !== true,
+    )
+    if (points.length > 0) {
+      return points.map((point) => pointSelectionItem(sketchId, point.id))
+    }
+  }
+  const recipe = documentOf(app)?.recipe
+  if (solution.entities.length === 0 || recipe === undefined) {
+    return []
+  }
+  return [
+    {
+      key: `feature:${sketchId}`,
+      kind: 'feature',
+      label: featureLabel(recipe, sketchId, app.store.getState().catalog),
+      body: null,
+      feature: sketchId,
+      element: null,
+      sketchItem: null,
+      origin: null,
+    },
+  ]
+}
+
+/**
+ * Ends sketch mode (3.16.11): Model context, the sketch kept visible for the session, the camera
+ * kept. Features the session's edits made fail are reported now rather than after each edit, and
+ * an outline with problems is named in a warning that leads back to the sketch.
+ */
+export async function finishSketch(app: App, options: FinishSketchOptions = {}): Promise<void> {
   const state = app.store.getState()
   const sketchId = state.sketch?.sketchId ?? null
+  const statusesBefore = sessionRecords.get(app.store)?.statusesBefore ?? null
   leaveSketchHistory(app)
   app.store.setState((current) => ({
     context: 'model',
@@ -330,10 +416,18 @@ export async function finishSketch(app: App): Promise<void> {
   if (sketchId === null || document === null) {
     return
   }
-  const problems = document.sketches[sketchId]?.solution.profile_findings.length ?? 0
+  if (statusesBefore !== null) {
+    reportNewFailures(app, statusesBefore)
+  }
+  const solution = document.sketches[sketchId]?.solution ?? null
+  if (options.selectResult === true && solution !== null) {
+    select(app, finishedSketchSelection(app, sketchId, solution), 'replace')
+  }
+  const problems = solution?.profile_findings.length ?? 0
   if (problems > 0) {
+    // A warning: the sketch stays valid and its other shapes still extrude (3.16.2).
     notify(app, {
-      severity: 'info',
+      severity: 'warning',
       message: MESSAGES.profile_problems(
         featureLabel(document.recipe, sketchId, state.catalog),
         problems,
@@ -549,22 +643,6 @@ function solvedEntities(
 
 // Commits.
 
-/** Sketch commits run one at a time per store, so each probe sees the result of the one before. */
-const commitQueues = new WeakMap<AppStore, Promise<unknown>>()
-
-function serialized<Result>(app: App, task: () => Promise<Result>): Promise<Result> {
-  const previous = commitQueues.get(app.store) ?? Promise.resolve()
-  const result = previous.then(task, task)
-  commitQueues.set(
-    app.store,
-    result.then(
-      () => undefined,
-      () => undefined,
-    ),
-  )
-  return result
-}
-
 /** How many times a probe superseded by another solve of the same sketch is sent again. */
 const SUPERSEDED_RETRIES = 3
 
@@ -581,14 +659,15 @@ function failure(error: unknown): SketchCommitResult {
  * first; a requested constraint that is redundant or conflicting refuses the change, inferred ones
  * are dropped silently, and a failed solve or a refused probe applies nothing. The committed
  * entities carry the solved geometry, and a sketch on a face records the solved placement as its
- * fallback.
+ * fallback. Reading the params, probing and applying are one task of the mutation queue, so no
+ * drag end, undo or other commit lands between them.
  */
 export function commitSketchChange(
   app: App,
   label: string,
   change: SketchChange,
 ): Promise<SketchCommitResult> {
-  return serialized(app, () => commitNow(app, label, change))
+  return app.mutations.run(() => commitNow(app, label, change))
 }
 
 async function commitNow(
@@ -677,6 +756,7 @@ async function probe(app: App, label: string, current: Probe): Promise<SketchCom
   return applyCandidate(app, label, current.record, current.candidate, solution)
 }
 
+/** Applies a probed candidate; it runs inside the commit's task of the mutation queue. */
 async function applyCandidate(
   app: App,
   label: string,
@@ -701,17 +781,14 @@ async function applyCandidate(
       constraints: [...(candidate.constraints ?? [])],
     },
   }
-  const before = document.featureStatus
   let revision: number
   try {
-    revision = await app.mutations.run(() =>
-      app.core.applyEdits(document.documentHandle, label, [edit]),
-    )
+    revision = await app.core.applyEdits(document.documentHandle, label, [edit])
   } catch (error) {
     return failure(error)
   }
+  // Features this edit made fail are reported when the sketch is finished (U-110).
   recordSketchEdit(app)
-  reportNewFailures(app, before)
   return { outcome: 'committed', revision }
 }
 
@@ -796,6 +873,23 @@ function storedConstraints(app: App, sketchId: string): ReadonlyMap<string, Sket
 }
 
 /**
+ * Stored constraints named for a message by their titles (dimensions with their value, "Distance
+ * 40"), joined with ", " and " and " (3.16.6).
+ */
+function conflictList(app: App, sketchId: string | null, ids: readonly string[]): string {
+  const stored =
+    sketchId === null ? new Map<string, SketchConstraint>() : storedConstraints(app, sketchId)
+  const solution = sketchId === null ? null : solutionOf(app, sketchId)
+  const units = documentOf(app)?.recipe.units ?? 'mm'
+  return joinTitles(
+    ids.map((id) => {
+      const constraint = stored.get(id)
+      return constraint === undefined ? id : constraintTitle(constraint, solution, units)
+    }),
+  )
+}
+
+/**
  * Applies new constraints of one type (3.16.6): committed under the constraint's title, with the
  * over-constrained warning and its "Replace them" action, or the redundancy note, when the solver
  * refuses them. Resolves whether they were added.
@@ -842,17 +936,10 @@ function offerReplacement(
   change: SketchChange,
   conflicting: readonly string[],
 ): void {
-  const stored = storedConstraints(app, sketchId)
-  const solution = solutionOf(app, sketchId)
-  const units = documentOf(app)?.recipe.units ?? 'mm'
-  const titles = conflicting.map((id) => {
-    const constraint = stored.get(id)
-    return constraint === undefined ? id : constraintTitle(constraint, solution, units)
-  })
   let id = ''
   id = notify(app, {
     severity: 'warning',
-    message: MESSAGES.over_constrained(title, joinTitles(titles)),
+    message: MESSAGES.over_constrained(title, conflictList(app, sketchId, conflicting)),
     actions: [
       {
         label: 'Replace them',
@@ -886,9 +973,10 @@ async function replaceConstraints(
     return
   }
   if (result.outcome === 'over_constrained') {
+    const sketchId = editingSession(app)?.sketchId ?? null
     notify(app, {
       severity: 'warning',
-      message: MESSAGES.over_constrained(title, result.conflicting.join(', ')),
+      message: MESSAGES.over_constrained(title, conflictList(app, sketchId, result.conflicting)),
       actions: [],
     })
     return
@@ -948,6 +1036,8 @@ export function startSketchDrag(app: App, sketchId: string, point: string): Sket
   const { documentHandle } = document
   const before = document.sketches[sketchId] ?? null
   let sent = false
+  // Closing: finish or cancel was called. Ended: solved frames are no longer shown.
+  let closing = false
   let ended = false
   const frames = createLatestOnly<DragRequest, SolvedSketch | null>(
     (request) =>
@@ -968,9 +1058,20 @@ export function startSketchDrag(app: App, sketchId: string, point: string): Sket
   )
   setSketchDragging(app, true)
 
+  /**
+   * Ends the drag in the core as one task of the mutation queue, queued when the drag closes: a
+   * commit or undo asked for right after the release runs after it and sees the dragged geometry.
+   * A committing end first waits for the last drag frame.
+   */
   async function end(commit: boolean): Promise<void> {
     try {
-      await app.mutations.run(() => app.core.endSketchDrag(documentHandle, sketchId, commit))
+      await app.mutations.run(async () => {
+        if (commit) {
+          await frames.flush()
+        }
+        ended = true
+        await app.core.endSketchDrag(documentHandle, sketchId, commit)
+      })
       if (commit) {
         recordSketchEdit(app)
       }
@@ -986,28 +1087,28 @@ export function startSketchDrag(app: App, sketchId: string, point: string): Sket
 
   return {
     move(to, startedAt) {
-      if (ended) {
+      if (closing) {
         return
       }
       sent = true
       frames.submit({ to, startedAt })
     },
     async finish() {
-      if (ended) {
+      if (closing) {
         return
       }
+      closing = true
       if (sent) {
-        await frames.flush()
-        ended = true
         await end(true)
       }
       ended = true
       setSketchDragging(app, false)
     },
     async cancel() {
-      if (ended) {
+      if (closing) {
         return
       }
+      closing = true
       ended = true
       frames.cancel()
       if (before !== null) {
@@ -1070,17 +1171,11 @@ export async function addSketchShape(
       const units = documentOf(app)?.recipe.units ?? 'mm'
       const solution = sketchId === null ? null : solutionOf(app, sketchId)
       const title = added === undefined ? label : constraintTitle(added, solution, units)
-      const stored =
-        sketchId === null ? new Map<string, SketchConstraint>() : storedConstraints(app, sketchId)
-      const titles = result.conflicting.map((id) => {
-        const constraint = stored.get(id)
-        return constraint === undefined ? id : constraintTitle(constraint, solution, units)
-      })
       notify(app, {
         severity: result.redundant ? 'info' : 'warning',
         message: result.redundant
           ? MESSAGES.redundant_constraint(title)
-          : MESSAGES.over_constrained(title, joinTitles(titles)),
+          : MESSAGES.over_constrained(title, conflictList(app, sketchId, result.conflicting)),
         actions: [],
       })
       return false

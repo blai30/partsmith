@@ -9,8 +9,8 @@ use std::time::Duration;
 use feature_support::{
     Run, assert_bounding_box, assert_canonical_example, assert_element_repair, assert_error_field,
     assert_face_area, assert_face_count, assert_face_kind, assert_list_field, assert_unchanged,
-    assert_volume, body_update, document, example_paths, face, load_example, median_build_time,
-    suggested_limit,
+    assert_volume, body_update, document, example_paths, face, face_names, load_example,
+    median_build_time, suggested_limit,
 };
 use partsmith_features::{BodyChange, FeatureError, FeatureWarning, IgnoredReason};
 use partsmith_model::{Document, Units};
@@ -35,6 +35,23 @@ const PLATE_TOP_EDGES: [&str; 4] = [
     r#"{"q": "edge(f-box1/left|f-box1/top)", "fp": "line|n=0,1,0|c=-10,0,2.4|l=20"}"#,
     r#"{"q": "edge(f-box1/right|f-box1/top)", "fp": "line|n=0,1,0|c=10,0,2.4|l=20"}"#,
 ];
+
+/// The box of fillet.md test 11, 30 x 20 x 10 mm in `b-1` spanning [-15,-10,0]-[15,10,10].
+const BOX302010: &str =
+    r#"{"id": "f-box1", "type": "box", "body": "b-1", "size": ["30", "20", "10"], "op": "new"}"#;
+
+/// `f-fil1` of fillet.md test 11: the four vertical edges of `BOX302010` filleted at radius 3, so
+/// the top loop is one tangent chain of four lines and four arcs.
+const VERTICAL_FILLETS: &str = r#"{"id": "f-fil1", "type": "fillet", "body": "b-1", "edges": [{"q": "edge(f-box1/front|f-box1/left)", "fp": "line|n=0,0,1|c=-15,-10,5|l=10"}, {"q": "edge(f-box1/front|f-box1/right)", "fp": "line|n=0,0,1|c=15,-10,5|l=10"}, {"q": "edge(f-box1/back|f-box1/left)", "fp": "line|n=0,0,1|c=-15,10,5|l=10"}, {"q": "edge(f-box1/back|f-box1/right)", "fp": "line|n=0,0,1|c=15,10,5|l=10"}], "radius": "3"}"#;
+
+/// The front top edge of the box after `VERTICAL_FILLETS`, between the arcs of the front corners.
+/// Its first face is the front wall.
+const FILLETED_FRONT_TOP_EDGE: &str =
+    r#"{"q": "edge(f-box1/front|f-box1/top)", "fp": "line|n=1,0,0|c=0,-10,10|l=24"}"#;
+
+/// The top arc of the front left fillet after `VERTICAL_FILLETS` (radius 3 around (-12,-7,10)),
+/// in the same tangent chain as `FILLETED_FRONT_TOP_EDGE`. Its first face is the top.
+const FRONT_LEFT_TOP_ARC: &str = r#"{"q": "edge(f-box1/top|f-fil1/fillet/edge(f-box1/front|f-box1/left))", "fp": "circle|n=0,0,1|c=-13.909859,-8.909859,10|l=4.712389|r=3"}"#;
 
 /// `CHA(edges, distance)`: the chamfer `f-cha1` of `b-1`, with `distance` a JSON object.
 fn chamfer_record(edges: &[&str], distance: &str) -> String {
@@ -315,5 +332,43 @@ fn t011_performance() {
     assert!(
         top_loop < Duration::from_millis(60),
         "chamfering the top loop took {top_loop:?}, the budget is 60 ms"
+    );
+}
+
+#[test]
+fn t012_edge_order_does_not_matter() {
+    let distance = r#"{"kind": "two_distances", "expr": "1", "second_expr": "2"}"#;
+    let orders = [
+        [FILLETED_FRONT_TOP_EDGE, FRONT_LEFT_TOP_ARC],
+        [FRONT_LEFT_TOP_ARC, FILLETED_FRONT_TOP_EDGE],
+    ];
+
+    let runs = orders.map(|edges| {
+        Run::records(
+            &["b-1"],
+            &[
+                BOX302010,
+                VERTICAL_FILLETS,
+                &chamfer_record(&edges, distance),
+            ],
+        )
+    });
+
+    for run in &runs {
+        run.assert_all_ok();
+    }
+    let [listed, reversed] = runs.each_ref().map(|run| {
+        run.shape("b-1")
+            .volume()
+            .expect("the chamfered body has a volume")
+    });
+    assert!(
+        (listed - reversed).abs() <= 1e-9 * listed.abs(),
+        "the volume is {listed} with the edges in listed order and {reversed} in reversed order"
+    );
+    assert_eq!(
+        face_names(runs[0].body("b-1")),
+        face_names(runs[1].body("b-1")),
+        "both orders name the same faces"
     );
 }

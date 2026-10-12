@@ -220,6 +220,31 @@ describe('completeness and errors', () => {
     expect(field(model, 'extent.expr').error).toBe('Distance needs a value.')
   })
 
+  it('forces More open for a required empty body in More beside op join', () => {
+    const model = extrudeModel({ ...DISTANCE_PARAMS, op: 'join', profile: PROFILE })
+    expect(model.forceMore).toBe(true)
+    expect(extrudeModel({ ...DISTANCE_PARAMS, profile: PROFILE }).forceMore).toBe(false)
+  })
+
+  it('U-117 forces More open for a hole whose points are set and whose body is empty', () => {
+    const hole = testFeature('hole')
+    const points = { points: ['e-p1'], sketch: 'f-sk1' }
+    expect(buildInspectorModel({ feature: hole, params: points, errors: {} }).forceMore).toBe(true)
+    expect(
+      buildInspectorModel({ feature: hole, params: { ...points, body: 'b-cube' }, errors: {} })
+        .forceMore,
+    ).toBe(false)
+  })
+
+  it('U-117 keeps More closed for a fillet with no edges and no body, which the first pick fills', () => {
+    const model = buildInspectorModel({
+      feature: testFeature('fillet'),
+      params: { radius: '2 mm' },
+      errors: {},
+    })
+    expect(model.forceMore).toBe(false)
+  })
+
   it('leaves error null for fields without one', () => {
     expect(field(extrudeModel(DISTANCE_PARAMS), 'op').error).toBeNull()
   })

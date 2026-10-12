@@ -8,8 +8,7 @@ import type {
   SolvedEntity,
   Units,
 } from '../../generated/protocol'
-import type { OpenedFile } from '../../files/file-service'
-import type { OpenedFileHandle } from './files'
+import type { FileHandle, OpenedFile } from '../../files/file-service'
 
 // Recipes of the e2e fixtures (ui.md 6.2) as the core sends them in document_changed, the sketch
 // solutions the test core reports for their sketches, and element descriptors of the cube.
@@ -66,7 +65,7 @@ export function documentText(document: Document): string {
 export function documentFile(
   name: string,
   document: Document,
-  handle: OpenedFileHandle | null = null,
+  handle: FileHandle | null = null,
 ): OpenedFile {
   // Copied into this realm's Uint8Array: under jsdom, TextEncoder returns Node's.
   return { name, bytes: Uint8Array.from(new TextEncoder().encode(documentText(document))), handle }

@@ -64,7 +64,7 @@ describe('pickVerdict', () => {
 
   it('fills symmetric with two points and a line in any order', () => {
     expect(verdict('symmetric', [LINE])).toBe('partial')
-    expect(verdict('symmetric', [POINT, LINE])).toBe('partial')
+    expect(verdict('symmetric', [OTHER_POINT, LINE])).toBe('partial')
     expect(verdict('symmetric', [pointItem('e-5'), LINE, OTHER_POINT])).toBe('complete')
     expect(verdict('symmetric', [LINE, OTHER_LINE])).toBe('refused')
   })
@@ -72,6 +72,26 @@ describe('pickVerdict', () => {
   it('completes fix with any point or curve, but never the origin', () => {
     expect(verdict('fix', [CIRCLE])).toBe('complete')
     expect(verdict('fix', [originSelectionItem(SKETCH_ID, 'point')])).toBe('refused')
+  })
+
+  it('refuses a first pick no later pick can complete (axes and a point on its own line)', () => {
+    const xAxis = originSelectionItem(SKETCH_ID, 'x_axis')
+    expect(verdict('midpoint', [xAxis])).toBe('refused')
+    expect(verdict('equal', [xAxis])).toBe('refused')
+    expect(verdict('horizontal', [xAxis])).toBe('refused')
+    expect(verdict('symmetric', [LINE, POINT])).toBe('refused')
+    expect(verdict('symmetric', [POINT, LINE])).toBe('refused')
+    expect(verdict('midpoint', [LINE, POINT])).toBe('refused')
+    expect(verdict('coincident', [pointItem('e-1.start'), pointItem('e-1.end')])).toBe('refused')
+  })
+
+  it('keeps picks that later picks can complete, axes included where sketch.md takes them', () => {
+    const xAxis = originSelectionItem(SKETCH_ID, 'x_axis')
+    expect(verdict('parallel', [xAxis])).toBe('partial')
+    expect(verdict('symmetric', [xAxis])).toBe('partial')
+    expect(verdict('coincident', [xAxis])).toBe('partial')
+    expect(verdict('midpoint', [POINT])).toBe('partial')
+    expect(verdict('equal', [CIRCLE])).toBe('partial')
   })
 
   it('refuses the same item twice and an axis where sketch.md takes no axis', () => {

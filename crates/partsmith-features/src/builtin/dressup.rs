@@ -10,8 +10,8 @@ use partsmith_naming::{
     ElementKind, ElementName, FaceSource, Generator, NamingMap, Reference, roles,
 };
 use partsmith_occt_sys::{
-    EdgeTopology, ElementGeometry, GeometryKind, InputHistory, KernelError, KernelErrorKind,
-    OpResult, Point, Shape, SubShapeKind, Topology, Vector,
+    EdgeNormals, EdgeTopology, InputHistory, KernelError, KernelErrorKind, OpResult, Shape,
+    SubShapeKind, Topology, Vector,
 };
 
 use super::common::{bodies, face_name, unchanged};
@@ -22,7 +22,7 @@ use crate::{
 };
 
 /// Largest angle in radians between the outward normals of an edge's two faces at the edge's
-/// midpoint for which the faces meet without a corner (fillet.md section 3.3 step 4).
+/// middle for which the faces meet without a corner (fillet.md section 3.3 step 4).
 const SMOOTH_ANGLE: f64 = 1e-6;
 
 /// The edges a fillet or chamfer works on.
@@ -80,125 +80,43 @@ fn edge_topology(topology: &Topology, edge: u32) -> Result<&EdgeTopology, Featur
         .ok_or_else(|| FeatureError::internal(format!("edge {edge} is not in the body's topology")))
 }
 
-/// True when `edge` of `shape` is a seam, or when its two faces meet without a corner: the angle
-/// between their outward normals at the edge's midpoint is at most `SMOOTH_ANGLE`.
-///
-/// This implements fillet.md section 3.3 step 4 only in part (fillet.md open issue 3). The kernel
-/// facade describes a face by its surface (an axis, a point and one radius), not by its outward
-/// normal at a point, so the normals come from that description: flat faces give their outward
-/// normal, cylinders and spheres their normal up to its sign. An edge whose midpoint or face
-/// normals cannot be found that way (an edge that is not a line or circle, or a face on a cone,
-/// torus, surface of revolution or freeform surface) counts as having a corner and goes to the
-/// kernel, and a knife edge between a flat face and a cylinder or sphere (outward normals
-/// opposite) counts as smooth. The full rule needs a kernel query for the oriented outward
-/// normals of an edge's faces at its middle.
-pub(super) fn is_smooth(
-    shape: &Shape,
-    topology: &Topology,
+/// True when `edge` of `shape` is smooth (fillet.md section 3.3 step 4): `topology` lists fewer
+/// than two faces for it (a seam, or a degenerated edge such as a sphere pole), or its two faces
+/// meet without a corner at the edge's middle. An edge of three or more faces has a corner.
+fn is_smooth(shape: &Shape, topology: &Topology, edge: u32) -> Result<bool, FeatureError> {
+    match edge_topology(topology, edge)?.faces.len() {
+        0 | 1 => Ok(true),
+        2 => meets_without_corner(edge, shape.edge_normals(edge)),
+        _ => Ok(false),
+    }
+}
+
+/// Whether the two faces of `edge` meet without a corner, from the kernel's description of the
+/// edge at its middle (`Shape::edge_normals`): their outward normals there make an angle of at
+/// most `SMOOTH_ANGLE`. Opposite normals (a knife edge) are a corner, and so is an edge the kernel
+/// rejects as invalid input, which happens where a face has no defined normal; any other kernel
+/// failure is reported.
+fn meets_without_corner(
     edge: u32,
+    normals: Result<EdgeNormals, KernelError>,
 ) -> Result<bool, FeatureError> {
-    let entry = edge_topology(topology, edge)?;
-    if entry.seam || entry.faces.len() == 1 {
-        return Ok(true);
-    }
-    let [first, second] = entry.faces[..] else {
-        return Ok(false);
+    let normals = match normals {
+        Ok(normals) => normals,
+        Err(error) if error.kind == KernelErrorKind::InvalidInput => return Ok(false),
+        Err(error) => return Err(kernel(error)),
     };
-    let Some(midpoint) = edge_midpoint(shape, entry, edge)? else {
-        return Ok(false);
+    let [first, second] = normals.faces[..] else {
+        return Err(FeatureError::internal(format!(
+            "the kernel describes edge {edge} with {} faces instead of 2",
+            normals.faces.len()
+        )));
     };
-    let face = |index| shape.element(SubShapeKind::Face, index).map_err(kernel);
-    let normals = (
-        face_normal(&face(first)?, midpoint),
-        face_normal(&face(second)?, midpoint),
-    );
-    Ok(match normals {
-        (Some(first), Some(second)) => angle_between(first, second) <= SMOOTH_ANGLE,
-        _ => false,
-    })
+    Ok(angle_between(first.normal, second.normal) <= SMOOTH_ANGLE)
 }
 
-/// The midpoint of a straight or circular edge: a line's length centroid, the middle of an arc,
-/// or the vertex of a full circle (every point of which is alike). None for other curves.
-fn edge_midpoint(
-    shape: &Shape,
-    entry: &EdgeTopology,
-    edge: u32,
-) -> Result<Option<Point>, FeatureError> {
-    let geometry = shape.element(SubShapeKind::Edge, edge).map_err(kernel)?;
-    let (GeometryKind::Circle, Some(center), Some(radius)) =
-        (geometry.kind, geometry.location, geometry.radius)
-    else {
-        return Ok((geometry.kind == GeometryKind::Line).then_some(geometry.centroid));
-    };
-    if let [vertex] = entry.vertices[..] {
-        let position = shape
-            .element(SubShapeKind::Vertex, vertex)
-            .map_err(kernel)?
-            .centroid;
-        return Ok(Some(position));
-    }
-    // The length centroid of an arc lies on the ray from the center through the arc's middle.
-    Ok(difference(geometry.centroid, center)
-        .normalized()
-        .map(|direction| center.offset(direction.scaled(radius))))
-}
-
-/// A face's unit normal at a point. The kernel gives the outward sign of flat faces only, so the
-/// normal of a curved face is known up to its sign.
-#[derive(Clone, Copy, Debug, PartialEq)]
-struct Normal {
-    /// The unit normal.
-    direction: Vector,
-    /// True when `direction` points out of the material.
-    outward: bool,
-}
-
-/// The normal of `face` at `point` (a point on the face): the outward normal of a flat face, the
-/// radial direction of a cylinder or sphere. None for other surfaces.
-fn face_normal(face: &ElementGeometry, point: Point) -> Option<Normal> {
-    let unoriented = |direction: Vector| {
-        direction.normalized().map(|direction| Normal {
-            direction,
-            outward: false,
-        })
-    };
-    match face.kind {
-        GeometryKind::Plane => face.direction.map(|direction| Normal {
-            direction,
-            outward: true,
-        }),
-        GeometryKind::Cylinder => {
-            let axis = face.direction?;
-            let offset = difference(point, face.location?);
-            unoriented(subtract(offset, axis.scaled(offset.dot(axis))))
-        }
-        GeometryKind::Sphere => unoriented(difference(point, face.location?)),
-        _ => None,
-    }
-}
-
-/// The angle between two normals in [0, pi]; between their lines in [0, pi / 2] when the sign of
-/// either is unknown.
-fn angle_between(first: Normal, second: Normal) -> f64 {
-    let cross = first.direction.cross(second.direction).length();
-    let dot = first.direction.dot(second.direction);
-    let dot = if first.outward && second.outward {
-        dot
-    } else {
-        dot.abs()
-    };
-    cross.atan2(dot)
-}
-
-/// The vector from `from` to `to`.
-fn difference(to: Point, from: Point) -> Vector {
-    Vector::new(to.x - from.x, to.y - from.y, to.z - from.z)
-}
-
-/// `first - second`.
-fn subtract(first: Vector, second: Vector) -> Vector {
-    Vector::new(first.x - second.x, first.y - second.y, first.z - second.z)
+/// The angle in radians between two vectors, in [0, pi].
+fn angle_between(first: Vector, second: Vector) -> f64 {
+    first.cross(second).length().atan2(first.dot(second))
 }
 
 /// Runs a fillet, chamfer or shell `operation` at the `requested` value. When the kernel fails for
@@ -415,7 +333,13 @@ pub(super) mod test_fixtures {
 
 #[cfg(test)]
 mod tests {
-    use partsmith_occt_sys::{EdgeRadius, ElementFate, Plane, SubShape, fillet, make_cylinder};
+    use std::f64::consts::PI;
+
+    use partsmith_occt_sys::{
+        EdgeRadius, ElementFate, FaceNormal, GeometryKind, Operation, PlanarCurve, PlanarLoop,
+        PlanarRegion, Plane, Point, Point2, SubShape, TaggedCurve, extrude, fillet, make_cylinder,
+        make_profile,
+    };
 
     use super::*;
     use crate::test_support::{Fixture, box_body, face_names as sorted_face_names, id, named_box};
@@ -461,16 +385,127 @@ mod tests {
         )
     }
 
-    fn normal(x: f64, y: f64, z: f64, outward: bool) -> Normal {
-        Normal {
-            direction: Vector::new(x, y, z),
-            outward,
+    /// A cylinder of radius 10 and height 20 with its top rim filleted at radius 2 (kernel.md
+    /// test 97), and the index of each face by surface kind.
+    fn filleted_rim() -> (Shape, impl Fn(GeometryKind) -> Vec<u32>) {
+        let cylinder = make_cylinder(&Plane::XY, 10.0, 20.0)
+            .expect("cylinder")
+            .shape;
+        let topology = cylinder.topology().expect("topology");
+        let rim = (1_u32..)
+            .zip(&topology.edges)
+            .find(|(index, edge)| {
+                edge.faces.len() == 2
+                    && cylinder
+                        .element(SubShapeKind::Edge, *index)
+                        .expect("edge")
+                        .centroid
+                        .z
+                        > 19.0
+            })
+            .map(|(index, _)| index)
+            .expect("the top rim");
+        let shape = fillet(
+            &cylinder,
+            &[EdgeRadius {
+                edge: rim,
+                radius: 2.0,
+            }],
+        )
+        .expect("fillets")
+        .shape;
+        let kinds: Vec<GeometryKind> = shape
+            .elements(SubShapeKind::Face)
+            .expect("faces")
+            .iter()
+            .map(|face| face.kind)
+            .collect();
+        let faces_of = move |kind: GeometryKind| -> Vec<u32> {
+            (1_u32..)
+                .zip(&kinds)
+                .filter(|(_, face)| **face == kind)
+                .map(|(index, _)| index)
+                .collect()
+        };
+        (shape, faces_of)
+    }
+
+    /// A 10 mm prism over the square [0, 10] x [0, 10] minus the half disc of radius 5 around
+    /// (0, 5), whose arc touches the bottom and top sides at the left corners, and the index of
+    /// the edge along the Z axis, where the flat face y = 0 meets the cylinder with the material
+    /// between them coming to a knife edge.
+    fn knife_edge_prism() -> (Shape, u32) {
+        let point = |[x, y]: [f64; 2]| Point2 { x, y };
+        let line = |tag, start, end| TaggedCurve {
+            tag,
+            curve: PlanarCurve::Line {
+                start: point(start),
+                end: point(end),
+            },
+        };
+        let arc = TaggedCurve {
+            tag: 4,
+            curve: PlanarCurve::Arc {
+                center: point([0.0, 5.0]),
+                radius: 5.0,
+                start: point([0.0, 0.0]),
+                end: point([0.0, 10.0]),
+            },
+        };
+        let region = PlanarRegion {
+            outer: PlanarLoop {
+                curves: vec![
+                    line(1, [0.0, 0.0], [10.0, 0.0]),
+                    line(2, [10.0, 0.0], [10.0, 10.0]),
+                    line(3, [10.0, 10.0], [0.0, 10.0]),
+                    arc,
+                ],
+            },
+            holes: Vec::new(),
+        };
+        let profile = make_profile(&Plane::XY, &[region]).expect("the profile is valid");
+        let shape = extrude(&profile, Vector::new(0.0, 0.0, 1.0), 0.0, 10.0)
+            .expect("extrudes")
+            .shape;
+        let edges = shape.elements(SubShapeKind::Edge).expect("edges");
+        let knife = (1_u32..)
+            .zip(&edges)
+            .find(|(_, edge)| {
+                edge.kind == GeometryKind::Line
+                    && edge.centroid.x.abs() < 1e-9
+                    && edge.centroid.y.abs() < 1e-9
+            })
+            .map(|(index, _)| index)
+            .expect("the edge along the Z axis");
+        (shape, knife)
+    }
+
+    /// Kernel edge normals of an edge between two faces with these outward normals.
+    fn two_faces(first: Vector, second: Vector) -> EdgeNormals {
+        EdgeNormals {
+            point: Point::new(0.0, 0.0, 0.0),
+            tangent: Vector::new(1.0, 0.0, 0.0),
+            faces: vec![
+                FaceNormal {
+                    face: 1,
+                    normal: first,
+                },
+                FaceNormal {
+                    face: 2,
+                    normal: second,
+                },
+            ],
         }
+    }
+
+    /// The unit vector at `angle` radians from the Z axis, toward the Y axis.
+    fn tilted(angle: f64) -> Vector {
+        Vector::new(0.0, angle.sin(), angle.cos())
     }
 
     fn kernel_error(kind: KernelErrorKind) -> KernelError {
         KernelError {
-            operation: partsmith_occt_sys::Operation::Fillet,
+            operation: Operation::Fillet,
             kind,
             exception: "StdFail_NotDone".to_string(),
             message: String::new(),
@@ -590,49 +625,105 @@ mod tests {
     }
 
     #[test]
-    fn the_midpoint_of_an_arc_lies_on_its_middle() {
-        let (shape, fillet_face) = filleted_cube();
+    fn edges_next_to_a_torus_are_smooth() {
+        let (shape, faces_of) = filleted_rim();
         let topology = shape.topology().expect("topology");
-        let (index, entry) = (1_u32..)
+        let [side] = faces_of(GeometryKind::Cylinder)[..] else {
+            panic!("one cylinder face");
+        };
+        let [torus] = faces_of(GeometryKind::Torus)[..] else {
+            panic!("one torus face");
+        };
+
+        let tangent: Vec<u32> = (1_u32..)
             .zip(&topology.edges)
-            .find(|(index, edge)| {
-                edge.faces.contains(&fillet_face)
-                    && shape
-                        .element(SubShapeKind::Edge, *index)
-                        .expect("edge")
-                        .kind
-                        == GeometryKind::Circle
+            .filter(|(_, edge)| edge.faces.contains(&torus) && !edge.seam)
+            .map(|(index, _)| index)
+            .collect();
+
+        assert_eq!(tangent.len(), 2, "the torus meets the side and the top");
+        for edge in tangent {
+            assert!(
+                is_smooth(&shape, &topology, edge).expect("checked"),
+                "edge {edge}"
+            );
+        }
+        let bottom_rim = (1_u32..)
+            .zip(&topology.edges)
+            .find(|(_, edge)| {
+                edge.faces.contains(&side) && !edge.faces.contains(&torus) && !edge.seam
             })
-            .expect("the fillet has an arc edge");
-
-        let midpoint = edge_midpoint(&shape, entry, index)
-            .expect("measured")
-            .expect("an arc has a midpoint");
-
-        // The quarter arc of radius 2 around (x, 2, 8) runs from (x, 0, 8) to (x, 2, 10).
-        let offset = 2.0 - 2.0 * std::f64::consts::FRAC_1_SQRT_2;
-        assert!((midpoint.y - offset).abs() < 1e-9, "{midpoint:?}");
-        assert!((midpoint.z - (10.0 - offset)).abs() < 1e-9, "{midpoint:?}");
+            .map(|(index, _)| index)
+            .expect("the bottom rim");
+        assert!(!is_smooth(&shape, &topology, bottom_rim).expect("checked"));
     }
 
     #[test]
-    fn oriented_normals_compare_with_their_signs() {
-        let up = normal(0.0, 0.0, 1.0, true);
-        let down = normal(0.0, 0.0, -1.0, true);
+    fn a_knife_edge_between_a_flat_face_and_a_cylinder_has_a_corner() {
+        let (shape, knife) = knife_edge_prism();
+        let topology = shape.topology().expect("topology");
+
+        let normals = shape.edge_normals(knife).expect("described");
+
+        let [first, second] = normals.faces[..] else {
+            panic!("two faces: {normals:?}");
+        };
+        assert!(
+            angle_between(first.normal, second.normal) > PI - 1e-9,
+            "the outward normals are opposite: {normals:?}"
+        );
+        assert!(!is_smooth(&shape, &topology, knife).expect("checked"));
+    }
+
+    #[test]
+    fn normals_within_the_smooth_angle_meet_without_a_corner() {
+        let up = Vector::new(0.0, 0.0, 1.0);
+
+        assert!(meets_without_corner(1, Ok(two_faces(up, up))).expect("decided"));
+        assert!(meets_without_corner(1, Ok(two_faces(up, tilted(0.9e-6)))).expect("decided"));
+        assert!(!meets_without_corner(1, Ok(two_faces(up, tilted(1.1e-6)))).expect("decided"));
+    }
+
+    #[test]
+    fn opposite_normals_are_a_knife_edge_with_a_corner() {
+        let up = Vector::new(0.0, 0.0, 1.0);
+        let down = Vector::new(0.0, 0.0, -1.0);
+
+        assert!(!meets_without_corner(1, Ok(two_faces(up, down))).expect("decided"));
+    }
+
+    #[test]
+    fn an_edge_the_kernel_rejects_as_invalid_input_has_a_corner() {
+        let rejected = meets_without_corner(1, Err(kernel_error(KernelErrorKind::InvalidInput)));
+
+        assert_eq!(rejected, Ok(false));
+    }
+
+    #[test]
+    fn other_kernel_failures_of_the_edge_query_are_reported() {
+        let error = meets_without_corner(1, Err(kernel_error(KernelErrorKind::Failed)))
+            .expect_err("the query failed");
+
+        assert_eq!(error, kernel(kernel_error(KernelErrorKind::Failed)));
+    }
+
+    #[test]
+    fn edge_normals_with_other_than_two_faces_are_internal() {
+        let mut normals = two_faces(Vector::new(0.0, 0.0, 1.0), Vector::new(0.0, 0.0, 1.0));
+        normals.faces.pop();
+
+        let error = meets_without_corner(7, Ok(normals)).expect_err("one face");
+
+        assert_eq!(error.code(), "internal");
+    }
+
+    #[test]
+    fn the_angle_between_vectors_ignores_their_lengths() {
+        let up = Vector::new(0.0, 0.0, 2.0);
 
         assert_eq!(angle_between(up, up), 0.0);
-        assert!((angle_between(up, down) - std::f64::consts::PI).abs() < 1e-12);
-        assert!(
-            (angle_between(up, normal(1.0, 0.0, 0.0, true)) - std::f64::consts::FRAC_PI_2).abs()
-                < 1e-12
-        );
-    }
-
-    #[test]
-    fn a_normal_without_its_sign_compares_as_a_line() {
-        let up = normal(0.0, 0.0, 1.0, true);
-
-        assert_eq!(angle_between(up, normal(0.0, 0.0, -1.0, false)), 0.0);
+        assert!((angle_between(up, Vector::new(0.0, 0.0, -1.0)) - PI).abs() < 1e-12);
+        assert!((angle_between(up, Vector::new(3.0, 0.0, 0.0)) - PI / 2.0).abs() < 1e-12);
     }
 
     #[test]

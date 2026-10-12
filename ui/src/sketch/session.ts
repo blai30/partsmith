@@ -23,7 +23,7 @@ import type {
   SketchSolution,
 } from '../generated/protocol'
 import { MESSAGES } from '../messages'
-import type { AppState, AppStore, SelectionItem, SketchSession } from '../state/store'
+import type { AppState, SelectionItem, SketchSession } from '../state/store'
 import type { Camera } from '../viewport/camera'
 import type { ViewportController, ViewportHandle } from '../viewport/controller'
 import { dimensionGeometry, dimensionLabelText, hasGlyph } from './annotations'
@@ -267,6 +267,8 @@ export type OverlayPaint = {
   readonly glyphs: ReadonlyMap<string, Vector2 | null>
   /** Center of each dimension label by constraint id; null hides it. */
   readonly labels: ReadonlyMap<string, Vector2 | null>
+  /** Text of each dimension label by constraint id: its solved value changes during a drag. */
+  readonly labelTexts: ReadonlyMap<string, string>
   /** Center of each profile issue ring, in `issueRings` order. */
   readonly issues: readonly (Vector2 | null)[]
   /** SVG path data: dimension lines (stroked) and their arrowheads (filled). */
@@ -343,6 +345,7 @@ const VALUE_START = /^[\d.\-(]$/
 const EMPTY_PAINT: OverlayPaint = {
   glyphs: new Map(),
   labels: new Map(),
+  labelTexts: new Map(),
   issues: [],
   dimensionLines: '',
   dimensionArrows: '',
@@ -410,6 +413,11 @@ function isEditable(target: EventTarget | null): boolean {
   )
 }
 
+/** Whether a menu or a light-dismiss popover is open, which takes Esc and Enter first (3.5). */
+function hasOpenPopover(document: Document): boolean {
+  return document.querySelector('[popover=""]:popover-open, [popover="auto"]:popover-open') !== null
+}
+
 /** Animation frames, or a timer where the environment has none. */
 function requestFrame(callback: () => void): () => void {
   if (typeof requestAnimationFrame === 'function') {
@@ -474,35 +482,6 @@ function constrainedItems(
     }
   }
   return { points, curves }
-}
-
-/** The model of each app's sketch controller, which the sketch hint beside the header reads. */
-const activeModels = new WeakMap<AppStore, () => SketchOverlayModel>()
-const modelWatchers = new WeakMap<AppStore, Set<() => void>>()
-
-function notifyModelWatchers(store: AppStore): void {
-  for (const watcher of Array.from(modelWatchers.get(store) ?? [])) {
-    watcher()
-  }
-}
-
-/** Hears changes of the sketch controller's model, and controllers coming and going. */
-export function watchSketchModel(app: App, listener: () => void): () => void {
-  let watchers = modelWatchers.get(app.store)
-  if (watchers === undefined) {
-    watchers = new Set()
-    modelWatchers.set(app.store, watchers)
-  }
-  const registered = watchers
-  registered.add(listener)
-  return () => {
-    registered.delete(listener)
-  }
-}
-
-/** The sketch controller's model, or the empty model while no sketch overlay is mounted. */
-export function sketchModelOf(app: App): SketchOverlayModel {
-  return activeModels.get(app.store)?.() ?? EMPTY_SKETCH_MODEL
 }
 
 /** What the dimension tool has picked, for its step prompt. */
@@ -815,7 +794,6 @@ export function createSketchController(options: SketchControllerOptions): Sketch
     for (const listener of Array.from(listeners)) {
       listener()
     }
-    notifyModelWatchers(store)
   }
 
   // Painting.
@@ -839,6 +817,8 @@ export function createSketchController(options: SketchControllerOptions): Sketch
       ? glyphCenters(constraints.filter(hasGlyph), solved, project, scale)
       : new Map<string, Vector2 | null>()
     const labels = new Map<string, Vector2 | null>()
+    const labelTexts = new Map<string, string>()
+    const values = new Map(solved.constraints.map((entry) => [entry.id, entry.value ?? null]))
     const dimensionLines: string[] = []
     const dimensionArrows: string[] = []
     for (const constraint of constraints) {
@@ -848,6 +828,10 @@ export function createSketchController(options: SketchControllerOptions): Sketch
       const labelAt =
         labelPositions.get(constraint.id) ?? defaultLabelPosition(constraint, solved, pixelSize)
       labels.set(constraint.id, project(labelAt))
+      labelTexts.set(
+        constraint.id,
+        dimensionLabelText(constraint, values.get(constraint.id) ?? null, units),
+      )
       const paths = dimensionPaths(
         dimensionGeometry(constraint, solved, labelAt),
         project,
@@ -951,6 +935,7 @@ export function createSketchController(options: SketchControllerOptions): Sketch
     return {
       glyphs,
       labels,
+      labelTexts,
       issues,
       dimensionLines: dimensionLines.filter((path) => path !== '').join(' '),
       dimensionArrows: dimensionArrows.filter((path) => path !== '').join(' '),
@@ -1581,11 +1566,7 @@ export function createSketchController(options: SketchControllerOptions): Sketch
     ) {
       return
     }
-    const target = event.target
-    const onView =
-      target === canvas.ownerDocument.body ||
-      (target instanceof Node && !isEditable(target) && target.contains(canvas))
-    if (!onView) {
+    if (!onView(event.target)) {
       return
     }
     const [first] = model.drawInputs
@@ -1602,11 +1583,23 @@ export function createSketchController(options: SketchControllerOptions): Sketch
     }
   }
 
+  /** Whether a key press is meant for the view: the body or an element around the canvas has focus. */
+  function onView(target: EventTarget | null): boolean {
+    return (
+      target === canvas.ownerDocument.body ||
+      (target instanceof Node && !isEditable(target) && target.contains(canvas))
+    )
+  }
+
   function onKeyDown(event: KeyboardEvent): void {
     if (event.key === 'Control' || event.key === 'Meta') {
       updateSuppressed(event)
     }
     if (event.defaultPrevented || event.isComposing || current() === null) {
+      return
+    }
+    // An open palette, menu or popover takes Esc first and Enter belongs to it (3.5).
+    if (store.getState().panels.paletteOpen || hasOpenPopover(canvas.ownerDocument)) {
       return
     }
     if (event.key === 'Escape' && cancelOperation()) {
@@ -1618,10 +1611,10 @@ export function createSketchController(options: SketchControllerOptions): Sketch
       event.preventDefault()
       return
     }
-    // Enter ends the line chain when no draw input has focus (3.5 Enter ladder).
+    // Enter on the view ends the line chain; on a button it only activates the button (3.5).
     if (
       event.key === 'Enter' &&
-      !isEditable(event.target) &&
+      onView(event.target) &&
       current()?.tool === 'line' &&
       draw.stage === 'line'
     ) {
@@ -1633,8 +1626,8 @@ export function createSketchController(options: SketchControllerOptions): Sketch
   }
 
   function isUndoChord(event: KeyboardEvent): boolean {
-    const mod = app.platform.operatingSystem === 'mac' ? event.metaKey : event.ctrlKey
-    return mod && !event.shiftKey && !event.altKey && event.key.toLowerCase() === 'z'
+    const primary = app.platform.operatingSystem === 'mac' ? event.metaKey : event.ctrlKey
+    return primary && !event.shiftKey && !event.altKey && event.key.toLowerCase() === 'z'
   }
 
   function updateSuppressed(event: KeyboardEvent): void {
@@ -1690,9 +1683,6 @@ export function createSketchController(options: SketchControllerOptions): Sketch
   )
 
   model = computeModel()
-  const readModel = (): SketchOverlayModel => model
-  activeModels.set(store, readModel)
-  notifyModelWatchers(store)
   updateCursor()
   schedulePaint()
 
@@ -1791,10 +1781,6 @@ export function createSketchController(options: SketchControllerOptions): Sketch
       canvas.classList.remove('cursor-crosshair!', 'cursor-not-allowed!')
       listeners.clear()
       painter = null
-      if (activeModels.get(store) === readModel) {
-        activeModels.delete(store)
-        notifyModelWatchers(store)
-      }
     },
   }
 }

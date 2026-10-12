@@ -423,21 +423,48 @@ function fitsSlot(operand: Operand, slot: Slot): boolean {
   }
 }
 
-/** Whether each operand can take a different one of the slots. */
-function fitsSlots(operands: readonly Operand[], slots: readonly Slot[]): boolean {
+/** The slots left open by each way of giving every operand a different slot that fits it. */
+function openSlots(operands: readonly Operand[], slots: readonly Slot[]): (readonly Slot[])[] {
   const [first, ...rest] = operands
   if (first === undefined) {
-    return true
+    return [slots]
   }
-  return slots.some(
-    (slot, index) => fitsSlot(first, slot) && fitsSlots(rest, slots.toSpliced(index, 1)),
+  return slots.flatMap((slot, index) =>
+    fitsSlot(first, slot) ? openSlots(rest, slots.toSpliced(index, 1)) : [],
+  )
+}
+
+/**
+ * A stand-in for a pick still to come in an open slot: a new point, line or circle with an id no
+ * stored entity can have, so it breaks no rule of `build` on its own.
+ */
+function laterPick(slot: Slot, index: number): Operand {
+  const id = `?pick-${String(index)}`
+  switch (slot) {
+    case 'point':
+      return { kind: 'point', point: id, owner: id }
+    case 'line':
+      return { kind: 'line', line: id, axis: false }
+    case 'round':
+    case 'curve':
+      return { kind: 'circle', curve: id }
+  }
+}
+
+/** Whether sorted operands are an operand set of `type`; coincident also takes a point on object. */
+function completes(type: Exclude<ConstraintType, 'fix'>, sorted: Sorted): boolean {
+  return (
+    build(type, sorted, '') !== null ||
+    (type === 'coincident' && build('point_on_object', sorted, '') !== null)
   )
 }
 
 /**
  * Whether a constraint tool's picks, in pick order, form a valid operand set (`complete`), can still
  * become one with more picks (`partial`), or cannot (`refused`): a pick that makes the list
- * `refused` is not added (3.16.6).
+ * `refused` is not added (3.16.6). Picks are partial only when some later picks complete them under
+ * the same rules as `build` (axes, distinct items, a point not on its own curve), so a pick that
+ * can never complete is refused at once.
  */
 export function pickVerdict(
   type: ConstraintType,
@@ -452,18 +479,17 @@ export function pickVerdict(
   if (type === 'fix') {
     return fixTargets(operands) === null ? 'refused' : 'complete'
   }
-  const sorted = sortOperands(operands)
-  const complete =
-    build(type, sorted, '') !== null ||
-    (type === 'coincident' && build('point_on_object', sorted, '') !== null)
-  if (complete) {
+  if (completes(type, sortOperands(operands))) {
     return 'complete'
   }
-  return OPERAND_SETS[type].some(
-    (slots) => operands.length < slots.length && fitsSlots(operands, slots),
+  const completable = OPERAND_SETS[type].some(
+    (slots) =>
+      operands.length < slots.length &&
+      openSlots(operands, slots).some((open) =>
+        completes(type, sortOperands([...operands, ...open.map(laterPick)])),
+      ),
   )
-    ? 'partial'
-    : 'refused'
+  return completable ? 'partial' : 'refused'
 }
 
 /** Whether a constraint is a dimension (it has an expression). */

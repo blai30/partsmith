@@ -1,4 +1,4 @@
-import { cleanup, screen, within } from '@testing-library/react'
+import { act, cleanup, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { installPopoverPolyfill } from '../components/popover-polyfill.testing'
@@ -63,10 +63,38 @@ describe('notifications (3.22)', () => {
       notification('n-1', 'error', 'It failed.'),
       notification('n-2', 'warning', 'Careful.'),
     ])
-    const [error, warning] = screen.getAllByTestId('notification')
-    expect(error?.closest('[role="alert"]')).not.toBeNull()
-    expect(warning?.closest('[role="status"]')).not.toBeNull()
-    expect(warning?.closest('[role="alert"]')).toBeNull()
+    const alerts = screen.getByTestId('notification-alerts')
+    const status = screen.getByTestId('notification-status')
+    expect(alerts).toHaveAttribute('role', 'alert')
+    // An output element is a status region.
+    expect(status.tagName).toBe('OUTPUT')
+    expect(alerts).toHaveTextContent('It failed.')
+    expect(alerts).not.toHaveTextContent('Careful.')
+    expect(status).toHaveTextContent('Careful.')
+    expect(status).not.toHaveTextContent('It failed.')
+  })
+
+  it('keeps one alert and one status region mounted, and adds new messages to them', () => {
+    const { app } = renderWith([])
+    const alerts = screen.getByTestId('notification-alerts')
+    const status = screen.getByTestId('notification-status')
+    expect(alerts).toBeEmptyDOMElement()
+    expect(status).toBeEmptyDOMElement()
+    act(() => {
+      app.store.setState({
+        notifications: [
+          notification('n-1', 'info', 'Exported cube.3mf.'),
+          notification('n-2', 'error', 'It failed.'),
+        ],
+      })
+    })
+    expect(screen.getByTestId('notification-alerts')).toBe(alerts)
+    expect(screen.getByTestId('notification-status')).toBe(status)
+    expect(alerts).toHaveTextContent('It failed.')
+    expect(status).toHaveTextContent('Exported cube.3mf.')
+    for (const card of screen.getAllByTestId('notification')) {
+      expect(card.closest('[role="alert"], [role="status"], output')).toBeNull()
+    }
   })
 
   it('dismisses a notification with its Dismiss button', async () => {

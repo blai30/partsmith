@@ -1,0 +1,33 @@
+{
+  "format": "partsmith",
+  "format_version": 1,
+  "units": "mm",
+  "parameters": [],
+  "bodies": [
+    {"id": "b-1", "name": "Body 1"}
+  ],
+  "features": [
+    {"id": "f-cyl1", "type": "cylinder", "body": "b-1", "radius": "10", "height": "20", "op": "new"},
+    {
+      "id": "f-fil1",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-cyl1/side|f-cyl1/top)", "fp": "circle|n=0,0,1|c=0,0,20|l=62.831853|r=10"}
+      ],
+      "radius": "2"
+    },
+    {
+      "id": "f-fil2",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {
+          "q": "edge(f-cyl1/side|f-fil1/fillet/edge(f-cyl1/side|f-cyl1/top))",
+          "fp": "circle|n=0,0,1|c=0,0,18|l=62.831853|r=10"
+        }
+      ],
+      "radius": "1"
+    }
+  ]
+}

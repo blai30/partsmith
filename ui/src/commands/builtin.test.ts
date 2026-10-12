@@ -10,8 +10,10 @@ import {
   IMPORT_DOCUMENT,
   originItem,
   readyState,
+  rectSketchDocumentState,
 } from '../layout/fixtures.testing'
 import { createFakeViewport, createModelApp, stubMatchMedia } from '../layout/test-app.testing'
+import { onUiRequest, type UiRequest } from '../layout/requests'
 import { MESSAGES } from '../messages'
 import { DEFAULT_SETTINGS } from '../settings/settings'
 import type { ActiveCommand, AppContext, AppState } from '../state/store'
@@ -428,6 +430,59 @@ describe('running built-in commands', () => {
     const { app } = cubeApp({ selection: [bodyItem('b-cube', 'Cube')] })
     await app.commands.run(app, 'edit.clear_selection', 'palette')
     expect(app.store.getState().selection).toEqual([])
+  })
+
+  it('V shows a sketch that is hidden by default because a feature uses it, in one press', async () => {
+    const { app } = cubeApp({ selection: [featureItem('f-sk1', 'Sketch 1')] })
+    expect(app.store.getState().view.sessionVisible['feature:f-sk1']).toBeUndefined()
+    await app.commands.run(app, 'view.visibility', 'shortcut')
+    expect(app.store.getState().view.sessionVisible['feature:f-sk1']).toBe(true)
+    await app.commands.run(app, 'view.visibility', 'shortcut')
+    expect(app.store.getState().view.sessionVisible['feature:f-sk1']).toBe(false)
+  })
+
+  it('V shows an origin plane, which is hidden by default, in one press', async () => {
+    const { app } = cubeApp({ selection: [originItem('XY')] })
+    await app.commands.run(app, 'view.visibility', 'shortcut')
+    expect(app.store.getState().view.sessionVisible['origin:XY']).toBe(true)
+  })
+
+  it('V hides a sketch that is shown by default', async () => {
+    const { app } = createModelApp({
+      state: readyState(rectSketchDocumentState(), {
+        selection: [featureItem('f-sk1', 'Sketch 1')],
+      }),
+    })
+    await app.commands.run(app, 'view.visibility', 'shortcut')
+    expect(app.store.getState().view.sessionVisible['feature:f-sk1']).toBe(false)
+  })
+
+  it('F2 renames a feature without a browser row in the timeline, also with focus in the browser', async () => {
+    const { app } = cubeApp({ selection: [featureItem('f-ext1', 'Extrude 1')] })
+    const requests: UiRequest[] = []
+    const stop = onUiRequest(app, (request) => {
+      requests.push(request)
+      return true
+    })
+    const browser = document.createElement('nav')
+    browser.dataset['testid'] = 'browser'
+    const row = document.createElement('button')
+    browser.append(row)
+    document.body.append(browser)
+    row.focus()
+    await app.commands.run(app, 'edit.rename', 'shortcut')
+    const sketch = cubeApp({ selection: [featureItem('f-sk1', 'Sketch 1')] }).app
+    const sketchRequests: UiRequest[] = []
+    const stopSketch = onUiRequest(sketch, (request) => {
+      sketchRequests.push(request)
+      return true
+    })
+    await sketch.commands.run(sketch, 'edit.rename', 'shortcut')
+    stop()
+    stopSketch()
+    browser.remove()
+    expect(requests).toEqual([{ kind: 'rename', key: 'feature:f-ext1', where: 'timeline' }])
+    expect(sketchRequests).toEqual([{ kind: 'rename', key: 'feature:f-sk1', where: 'browser' }])
   })
 
   it('locks and unlocks the selected bodies for the session', async () => {

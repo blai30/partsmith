@@ -1,10 +1,10 @@
 //! Pieces the built-in features share: manifest hints, range checks, body states, the reach of
 //! through-all extents, tool naming and Python arguments.
 
+use partsmith_mesh::BoundingBox;
 use partsmith_model::{
     Category, Expr, FeatureManifest, FieldHint, FieldUnit, Id, OptionHint, SelectionKind,
 };
-use partsmith_mesh::BoundingBox;
 use partsmith_naming::{ElementName, FaceSource, Generator, NamingError, Reference, roles};
 use partsmith_occt_sys::{Point, Primitive, PrimitiveFace, Shape, SweepFace, SweepResult, Vector};
 

@@ -3,8 +3,10 @@ import { createAppStore, type AppStore, type DocumentState } from '../state/stor
 import { emptyDocument } from '../test/fakes/documents'
 import { settle } from '../test/fakes/settle'
 import { stateWithDocument } from '../test/fakes/state'
+import { createFakeApp } from '../test/fakes/app'
 import { createFakeTauri, rejects, resolves, type FakeTauri } from '../test/fakes/tauri'
 import { installCloseGuard } from './close-guard'
+import { installUnloadGuard } from './createApp'
 
 const WARNING = 'Partsmith could not tell the desktop host about unsaved changes.'
 
@@ -151,5 +153,30 @@ describe('installCloseGuard', () => {
     await settle()
 
     expect(reported(fake)).toEqual([{ unsaved: true }, { unsaved: false }])
+  })
+})
+
+describe('installCloseGuard and the beforeunload guard', () => {
+  /** Document states, null for no open document. */
+  const states: readonly (Partial<DocumentState> | null)[] = [
+    null,
+    { dirty: false, localUnsaved: false },
+    { dirty: true, localUnsaved: false },
+    { dirty: false, localUnsaved: true },
+    { dirty: true, localUnsaved: true },
+  ]
+
+  it.each(states)('agree on whether closing loses changes for the document %j', async (changes) => {
+    const store = changes === null ? createAppStore() : storeWithDocument(changes)
+    const fake = acceptingHost()
+    installCloseGuard(store, fake.tauri)
+    const stopUnloadGuard = installUnloadGuard(createFakeApp({ store }).app, window)
+    const unload = new Event('beforeunload', { cancelable: true })
+
+    window.dispatchEvent(unload)
+    stopUnloadGuard()
+    await settle()
+
+    expect(reported(fake)).toEqual([{ unsaved: unload.defaultPrevented }])
   })
 })

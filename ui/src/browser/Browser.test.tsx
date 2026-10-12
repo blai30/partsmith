@@ -1,9 +1,10 @@
-import { cleanup, screen, within } from '@testing-library/react'
+import { act, cleanup, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { installPopoverPolyfill } from '../components/popover-polyfill.testing'
 import type { Document } from '../generated/protocol'
 import { cubeDocumentState, documentState, readyState } from '../layout/fixtures.testing'
+import { requestUi } from '../layout/requests'
 import { createModelApp, renderWithApp, stubMatchMedia } from '../layout/test-app.testing'
 import {
   INITIAL_STATE,
@@ -293,6 +294,48 @@ describe('body rows (3.10)', () => {
     expect(core.callsTo('applyEdits')).toEqual([
       [1, 'Rename', [{ type: 'update_body', body: { id: 'b-cube', name: 'Block' } }]],
     ])
+  })
+})
+
+/** A group's treeitem in the browser, found by its title. */
+function group(browser: HTMLElement, title: string): HTMLElement {
+  const found = within(browser)
+    .getAllByRole('treeitem')
+    .find((element) => element.getAttribute('aria-level') === '1' && element.textContent === title)
+  if (found === undefined) {
+    throw new Error(`No group ${title}`)
+  }
+  return found
+}
+
+describe('renaming from F2 (3.10)', () => {
+  it('expands a collapsed Construction group to rename a datum plane', async () => {
+    const { app, user, browser } = renderBrowser(documentState(DATUM_DOCUMENT))
+    await user.click(group(browser, 'Construction'))
+    act(() => {
+      requestUi(app, { kind: 'rename', key: 'feature:f-dp1', where: 'browser' })
+    })
+    expect(group(browser, 'Construction')).toHaveAttribute('aria-expanded', 'true')
+    expect(within(row('datum', 'f-dp1')).getByRole('textbox')).toHaveValue('Datum plane 1')
+  })
+
+  it('expands a collapsed Sketches group to rename a sketch', async () => {
+    const { app, user, browser } = renderBrowser()
+    await user.click(group(browser, 'Sketches'))
+    expect(group(browser, 'Sketches')).toHaveAttribute('aria-expanded', 'false')
+    act(() => {
+      requestUi(app, { kind: 'rename', key: 'feature:f-sk1', where: 'browser' })
+    })
+    expect(group(browser, 'Sketches')).toHaveAttribute('aria-expanded', 'true')
+    expect(within(row('sketch', 'f-sk1')).getByRole('textbox')).toHaveValue('Sketch 1')
+  })
+
+  it('leaves a rename of a feature the browser does not show to the timeline', () => {
+    const { app, browser } = renderBrowser()
+    act(() => {
+      requestUi(app, { kind: 'rename', key: 'feature:f-ext1', where: 'browser' })
+    })
+    expect(within(browser).queryByRole('textbox')).toBeNull()
   })
 })
 

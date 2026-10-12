@@ -17,7 +17,7 @@ use common::{
 use partsmith_occt_sys::{
     EdgeNormals, EdgeRadius, GeometryKind, Operation, Plane, Point, PrimitiveFace, Shape,
     ShapeKind, SubShapeKind, Vector, cut, fillet, make_box, make_cone, make_cylinder, make_profile,
-    make_torus, shell,
+    make_torus, section, shell,
 };
 
 const BOX_MESSAGE: &str = "A box needs a length, width and height greater than 0 mm.";
@@ -1033,6 +1033,42 @@ fn t101_degenerated_edges_have_no_middle_point() {
             &format!("Edge {edge} is a degenerated edge, so it has no middle point."),
         );
     }
+}
+
+#[test]
+fn free_edges_of_a_section_have_no_faces() {
+    let edges = section(&box_primitive().shape, &xy_plane_at(0.0, 0.0, 15.0))
+        .expect("the section is computed");
+    assert_eq!(edges.count(SubShapeKind::Edge), 4);
+    let mut points = Vec::new();
+
+    for edge in 1..=edges.count(SubShapeKind::Edge) {
+        let normals = checked_edge_normals(&edges, edge);
+
+        assert!(normals.faces.is_empty(), "edge {edge}: {normals:?}");
+        let direction = geometry(&edges, SubShapeKind::Edge, edge)
+            .direction
+            .expect("a line has a direction");
+        assert_vector_near(
+            normals.tangent,
+            direction,
+            POINT_TOLERANCE,
+            &format!("tangent of edge {edge}"),
+        );
+        points.push(normals.point);
+    }
+
+    assert_same_points(
+        &points,
+        &[
+            Point::new(5.0, 0.0, 15.0),
+            Point::new(10.0, 10.0, 15.0),
+            Point::new(5.0, 20.0, 15.0),
+            Point::new(0.0, 10.0, 15.0),
+        ],
+        POINT_TOLERANCE,
+        "middle points",
+    );
 }
 
 #[test]

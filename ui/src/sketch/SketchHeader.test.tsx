@@ -277,3 +277,53 @@ describe('sketch hint (3.16.3)', () => {
     expect(screen.getByTestId('sketch-hint')).toHaveTextContent('')
   })
 })
+
+describe('top-center slot (3.2)', () => {
+  it('sits in the slot of 3.2, clear of the view cube and passing picks through', () => {
+    renderWith(editing([LINE]))
+    const slot = screen.getByTestId('sketch-header').parentElement
+    expect(slot).toHaveClass(
+      'pointer-events-none',
+      'absolute',
+      'top-4',
+      'inset-x-32',
+      'flex',
+      'flex-col',
+      'items-center',
+      'gap-2',
+    )
+    expect(slot).toContainElement(screen.getByTestId('sketch-hint'))
+  })
+
+  it('shows the hint it is given in place of the step prompt', () => {
+    const app = createSketchTestApp({ core: createFakeCore({}), state: editing([]) })
+    render(
+      <AppProvider app={app}>
+        <SketchHeader
+          hint={{ text: 'Select a line or two points.', warning: false }}
+          freePlacement
+        />
+      </AppProvider>,
+    )
+    expect(screen.getByTestId('sketch-hint')).toHaveTextContent(
+      'Select a line or two points. Hold Ctrl to place freely.',
+    )
+  })
+})
+
+describe('sketch problems (3.16.8)', () => {
+  it('lists the free geometry once opened, ending with the DOF help', async () => {
+    const solution = solutionFor([LINE], {
+      dof: 4,
+      entities: [solvedEntity(LINE, 'under_constrained')],
+    })
+    renderHeader([LINE], solution)
+    const problems = screen.getByTestId('sketch-problems')
+    expect(problems).toBeEmptyDOMElement()
+    await userEvent.click(screen.getByTestId('sketch-header'))
+    expect(problems).toHaveTextContent('Free geometry: 1 line')
+    expect(problems).toHaveTextContent(
+      'Blue geometry can still move or change size. Add dimensions (D) or constraints where the size matters; you can extrude at any time.',
+    )
+  })
+})

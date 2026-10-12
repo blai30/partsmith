@@ -9,7 +9,7 @@ import {
   sequentialIds,
   solutionFor,
 } from './fixtures.testing'
-import { dimensionFor, dimensionTypeFor, measuredValue } from './dimensions'
+import { defaultLabelPosition, dimensionFor, dimensionTypeFor, measuredValue } from './dimensions'
 
 const DIGITS = 9
 const DEGREE = Math.PI / 180
@@ -169,5 +169,120 @@ describe('dimensionFor', () => {
       expr: 'hole_d',
       driving: false,
     })
+  })
+})
+
+describe('dimensionFor operand order (3.16.7)', () => {
+  it('orders the points of a horizontal distance so it reads positive', () => {
+    const constraint = dimensionFor(
+      'horizontal_distance',
+      [pointItem('e-2'), pointItem('e-1')],
+      '10',
+      true,
+      [5, 10],
+      sequentialIds(),
+      SKEWED_POINTS,
+    )
+    expect(constraint).toMatchObject({ type: 'horizontal_distance', points: ['e-1', 'e-2'] })
+  })
+
+  it('orders the ends of a line for a vertical distance so it reads positive', () => {
+    const solution = solutionFor([lineEntity('e-1', [0, 5], [10, 0])])
+    const constraint = dimensionFor(
+      'vertical_distance',
+      [curveItem('e-1', 'line')],
+      '5',
+      true,
+      [15, 2],
+      sequentialIds(),
+      solution,
+    )
+    expect(constraint).toMatchObject({
+      type: 'vertical_distance',
+      points: ['e-1.end', 'e-1.start'],
+    })
+  })
+
+  it('starts an angle at the line that bounds the labeled sector counterclockwise', () => {
+    const solution = solutionFor([
+      lineEntity('e-1', [0, 0], [1, 0]),
+      lineEntity('e-2', [0, 0], [Math.cos(60 * DEGREE), Math.sin(60 * DEGREE)]),
+    ])
+    const lines = [curveItem('e-1', 'line'), curveItem('e-2', 'line')]
+    const inside = dimensionFor(
+      'angle',
+      lines,
+      '60 deg',
+      true,
+      [Math.cos(30 * DEGREE), Math.sin(30 * DEGREE)],
+      sequentialIds(),
+      solution,
+    )
+    expect(inside).toMatchObject({ type: 'angle', lines: ['e-1', 'e-2'] })
+    const outside = dimensionFor(
+      'angle',
+      lines,
+      '120 deg',
+      true,
+      [-1, 0.5],
+      sequentialIds(),
+      solution,
+    )
+    expect(outside).toMatchObject({ type: 'angle', lines: ['e-2', 'e-1'] })
+  })
+
+  it('keeps the selection order without a solution', () => {
+    const constraint = dimensionFor(
+      'horizontal_distance',
+      [pointItem('e-2'), pointItem('e-1')],
+      '10',
+      true,
+      [5, 10],
+      sequentialIds(),
+    )
+    expect(constraint).toMatchObject({ points: ['e-2', 'e-1'] })
+  })
+})
+
+describe('defaultLabelPosition', () => {
+  const MILLIMETERS_PER_PIXEL = 0.1
+  // Labels sit 28 CSS pixels from their geometry.
+  const OFFSET = 28 * MILLIMETERS_PER_PIXEL
+
+  it('puts a length beside its line, on the side away from the middle of the sketch', () => {
+    const solution = solutionFor([lineEntity('e-1', [0, 0], [20, 0]), pointEntity('e-2', [10, 20])])
+    const at = defaultLabelPosition(
+      { id: 'c-1', type: 'distance', line: 'e-1', expr: '20' },
+      solution,
+      MILLIMETERS_PER_PIXEL,
+    )
+    expect(at[0]).toBeCloseTo(10, DIGITS)
+    expect(at[1]).toBeCloseTo(-OFFSET, DIGITS)
+  })
+
+  it('puts a horizontal distance above or below its points, away from the middle', () => {
+    const solution = solutionFor([
+      pointEntity('e-1', [0, 10]),
+      pointEntity('e-2', [10, 15]),
+      pointEntity('e-3', [5, 0]),
+    ])
+    const at = defaultLabelPosition(
+      { id: 'c-1', type: 'horizontal_distance', points: ['e-1', 'e-2'], expr: '10' },
+      solution,
+      MILLIMETERS_PER_PIXEL,
+    )
+    expect(at[0]).toBeCloseTo(5, DIGITS)
+    expect(at[1]).toBeCloseTo(15 + OFFSET, DIGITS)
+  })
+
+  it('puts a diameter outside its circle at 45 degrees', () => {
+    const solution = solutionFor([circleEntity('e-1', [0, 0], 5)])
+    const at = defaultLabelPosition(
+      { id: 'c-1', type: 'diameter', curve: 'e-1', expr: '10' },
+      solution,
+      MILLIMETERS_PER_PIXEL,
+    )
+    expect(at[0]).toBeCloseTo((5 + OFFSET) * Math.SQRT1_2, DIGITS)
+    expect(at[1]).toBeCloseTo((5 + OFFSET) * Math.SQRT1_2, DIGITS)
   })
 })

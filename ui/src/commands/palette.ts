@@ -90,9 +90,9 @@ function documentItems(app: App, state: AppState): PaletteItem[] {
   const features = (recipe.features ?? []).map((feature) => {
     const label = featureLabel(recipe, feature.id, state.catalog)
     const key = `feature:${feature.id}`
-    // The timeline scrolls the selected feature into view.
     return documentItem(key, 'feature', label, null, () => {
       select(app, [selectionItem(key, 'feature', label, { feature: feature.id })], 'replace')
+      requestUi(app, { kind: 'reveal', feature: feature.id })
     })
   })
   const bodies = (recipe.bodies ?? []).map((body) => {

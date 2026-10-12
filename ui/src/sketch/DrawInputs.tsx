@@ -60,11 +60,15 @@ export function DrawInputs({ ref, controller, inputs, focusRequest }: DrawInputs
   }
 
   return (
-    <fieldset ref={ref} className="pointer-events-auto absolute top-0 left-0 flex gap-1">
+    <fieldset
+      ref={ref}
+      className="pointer-events-auto absolute top-0 left-0 flex flex-col items-start gap-1"
+    >
       <legend className="sr-only">Dimensions as you draw</legend>
-      {inputs.map((input, index) => (
-        <span key={input.name} className="flex">
+      <div className="flex gap-1">
+        {inputs.map((input, index) => (
           <input
+            key={input.name}
             ref={(element) => {
               fields.current[index] = element
             }}
@@ -94,13 +98,24 @@ export function DrawInputs({ ref, controller, inputs, focusRequest }: DrawInputs
                 : COLOR_CLASSES.errorMark.border,
             )}
           />
-          {input.error === null ? null : (
-            <span id={`${errorId}-${input.name}`} className="sr-only">
-              {input.error}
-            </span>
-          )}
-        </span>
-      ))}
+        ))}
+      </div>
+      {/* Why a typed value is not used, on a chip under the inputs (3.24). */}
+      {inputs.map((input) =>
+        input.error === null ? null : (
+          <p
+            key={input.name}
+            id={`${errorId}-${input.name}`}
+            className={clsx(
+              'w-max max-w-64 rounded-sm px-1.5 py-0.5 text-xs shadow-sm',
+              COLOR_CLASSES.errorFill.background,
+              COLOR_CLASSES.errorFill.foreground,
+            )}
+          >
+            {input.error}
+          </p>
+        ),
+      )}
     </fieldset>
   )
 }

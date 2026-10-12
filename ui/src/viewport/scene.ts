@@ -12,7 +12,7 @@ import type {
 } from '../generated/protocol'
 import { buildInspectorModel, getParam } from '../inspector/model'
 import type { Rectangle } from '../inspector/placement'
-import { itemsFromValue } from '../inspector/selection-values'
+import { itemsFromValue, originItem } from '../inspector/selection-values'
 import { resolvedTheme } from '../layout/color-scheme'
 import { bedOutline } from '../print/bed'
 import { overhangAnalysis, overhangFields } from '../print/overhang'
@@ -130,16 +130,6 @@ const ORIGIN_AXES: readonly { readonly name: 'X' | 'Y' | 'Z'; readonly direction
   { name: 'Y', direction: [0, 1, 0] },
   { name: 'Z', direction: [0, 0, 1] },
 ]
-
-const ORIGIN_LABELS = {
-  XY: 'XY plane',
-  XZ: 'XZ plane',
-  YZ: 'YZ plane',
-  X: 'X axis',
-  Y: 'Y axis',
-  Z: 'Z axis',
-  O: 'Origin',
-} as const
 
 /** The item kinds each selection field kind takes (2.12 table); faces, edges and vertices of a body field pick their body. */
 const FIELD_ACCEPTS: Readonly<Record<SelectionKind, ReadonlySet<SelectionItemKind>>> = {
@@ -338,25 +328,23 @@ function segmentsOnPlane(
   return { positions: new Float32Array(positions), elementIds: new Uint32Array(elementIds) }
 }
 
-/** The selection item of a sketch entity: points by their point reference, curves by entity. */
+/** The selection item of a sketch point reference. */
+function pointItem(sketch: string, point: string): SelectionItem {
+  return plainItem(`point:${sketch}:${point}`, 'sketch_point', `Point ${point}`, {
+    feature: sketch,
+    sketchItem: { kind: 'point', sketch, point },
+  })
+}
+
+/** The selection item of a sketch entity: a point entity by its point reference (its id), a curve by entity. */
 function entityItem(sketch: string, entity: SolvedEntity): SelectionItem {
   if (entity.type === 'point') {
-    return plainItem(`point:${sketch}:${entity.id}`, 'sketch_point', `Point ${entity.id}`, {
-      feature: sketch,
-      sketchItem: { kind: 'entity', sketch, entity: entity.id, entityType: 'point' },
-    })
+    return pointItem(sketch, entity.id)
   }
   const noun = entity.type === 'line' ? 'Line' : entity.type === 'circle' ? 'Circle' : 'Arc'
   return plainItem(`sketch:${sketch}:${entity.id}`, 'sketch_curve', `${noun} ${entity.id}`, {
     feature: sketch,
     sketchItem: { kind: 'entity', sketch, entity: entity.id, entityType: entity.type },
-  })
-}
-
-function pointItem(sketch: string, point: string): SelectionItem {
-  return plainItem(`point:${sketch}:${point}`, 'sketch_point', `Point ${point}`, {
-    feature: sketch,
-    sketchItem: { kind: 'point', sketch, point },
   })
 }
 
@@ -734,7 +722,11 @@ function placementScale(entity: SolvedEntity): number {
   return entity.type === 'circle' || entity.type === 'arc' ? entity.radius * 0.01 : 1
 }
 
-function modelBounds(state: AppState): BoundingBox | null {
+/** Bounds of visible bodies, sketches (through `boundsOf`, which may cache) and datum planes. */
+function modelBounds(
+  state: AppState,
+  boundsOf: (solution: SketchSolution) => BoundingBox | null,
+): BoundingBox | null {
   const document = state.document
   if (document === null) {
     return null
@@ -747,7 +739,7 @@ function modelBounds(state: AppState): BoundingBox | null {
     }
   }
   for (const sketch of visibleSketches(state)) {
-    const box = sketchBounds(sketch.solution)
+    const box = boundsOf(sketch.solution)
     if (box !== null) {
       bounds = extend(bounds, boxCorners(box))
     }
@@ -756,11 +748,6 @@ function modelBounds(state: AppState): BoundingBox | null {
     bounds = extend(bounds, [datum.placement.origin])
   }
   return bounds
-}
-
-function visibleBounds(state: AppState): BoundingBox | null {
-  const bounds = modelBounds(state)
-  return bounds === null ? null : normalizedBox(bounds)
 }
 
 /** The four sides of a square as line segments, two points each. */
@@ -788,6 +775,35 @@ export function createScene(backend: RenderBackend): Scene {
   const sectionOffsets = new Map<string, number>()
   let ranges: readonly PickRange[] = []
   let lastState: AppState | null = null
+  // Solutions are replaced, never changed, so their bounds and identities can be kept by object.
+  const sketchBoxes = new WeakMap<SketchSolution, BoundingBox | null>()
+  const solutionNumbers = new WeakMap<SketchSolution, number>()
+  let nextSolutionNumber = 1
+
+  function cachedSketchBounds(solution: SketchSolution): BoundingBox | null {
+    let box = sketchBoxes.get(solution)
+    if (box === undefined) {
+      box = sketchBounds(solution)
+      sketchBoxes.set(solution, box)
+    }
+    return box
+  }
+
+  /** A number for each solution object, so generated geometry is signed without serializing it. */
+  function solutionNumber(solution: SketchSolution): number {
+    let number = solutionNumbers.get(solution)
+    if (number === undefined) {
+      number = nextSolutionNumber
+      nextSolutionNumber += 1
+      solutionNumbers.set(solution, number)
+    }
+    return number
+  }
+
+  function visibleBounds(state: AppState): BoundingBox | null {
+    const bounds = modelBounds(state, cachedSketchBounds)
+    return bounds === null ? null : normalizedBox(bounds)
+  }
 
   function upload(id: string, geometry: Geometry): void {
     backend.upload(id, geometry)
@@ -914,7 +930,7 @@ export function createScene(backend: RenderBackend): Scene {
     const selection = shownSelection(state)
     const selectedKeys = new Set(selection.map((item) => item.key))
     const pending: PendingDraw[] = []
-    const bounds = modelBounds(state)
+    const bounds = modelBounds(state, cachedSketchBounds)
     let sceneBounds = bounds
 
     // Bodies (3.12 passes 2 to 5).
@@ -928,11 +944,14 @@ export function createScene(backend: RenderBackend): Scene {
       const fields = overhangFields(state, overhang)
       for (const body of document.recipe.bodies ?? []) {
         const model = modelOf(state, body.id)
-        if (!bodyVisible(body) || model === undefined) {
+        const preview = previewShown ? previewOf(state, body.id) : undefined
+        // A body the command creates has a preview but no model mesh yet.
+        if (!bodyVisible(body) || (model === undefined && preview === undefined)) {
           continue
         }
-        sceneBounds = extend(sceneBounds, boxCorners(model.data.boundingBox))
-        const preview = previewShown ? previewOf(state, body.id) : undefined
+        if (model !== undefined) {
+          sceneBounds = extend(sceneBounds, boxCorners(model.data.boundingBox))
+        }
         pending.push(
           ...bodyDraws(state, {
             body,
@@ -969,9 +988,7 @@ export function createScene(backend: RenderBackend): Scene {
         (plane) => originPlanesShown(state) || sessionVisible(state, `origin:${plane.name}`, null),
       ).map((plane) => ({
         key: `origin:${plane.name}`,
-        item: plainItem(`origin:${plane.name}`, 'origin_plane', ORIGIN_LABELS[plane.name], {
-          origin: plane.name,
-        }),
+        item: originItem(plane.name),
         placement: plane.placement,
       })),
     ]
@@ -1033,7 +1050,7 @@ export function createScene(backend: RenderBackend): Scene {
 
     // Sketches (3.12 pass 7, 3.16.2).
     for (const sketch of visibleSketches(state)) {
-      const box = sketchBounds(sketch.solution)
+      const box = cachedSketchBounds(sketch.solution)
       if (box !== null) {
         sceneBounds = extend(sceneBounds, boxCorners(box))
       }
@@ -1149,7 +1166,8 @@ export function createScene(backend: RenderBackend): Scene {
 
   type BodyInput = {
     readonly body: Body
-    readonly model: MeshEntry
+    /** Undefined for a body that exists only in the preview layer. */
+    readonly model: MeshEntry | undefined
     readonly preview: MeshEntry | undefined
     readonly theme: ThemeName
     readonly scale: number
@@ -1160,7 +1178,7 @@ export function createScene(backend: RenderBackend): Scene {
   }
 
   function bodyDraws(state: AppState, input: BodyInput): PendingDraw[] {
-    const { body, model, preview, theme, scale, picking, hoverKey } = input
+    const { body, model, preview, theme, scale } = input
     const base = linearFromHex(body.color ?? VIEWPORT_COLORS[theme].body)
     const baseHex = body.color ?? VIEWPORT_COLORS[theme].body
     const edgeRole: ViewportRole =
@@ -1172,6 +1190,79 @@ export function createScene(backend: RenderBackend): Scene {
     const part = (body.role ?? 'part') === 'part'
     const layer: DrawCall['layer'] = part ? 'opaque' : 'translucent'
     const opacity = part ? 1 : NON_PART_OPACITY
+    const shaded = (id: string, color: Rgb): Omit<DrawCall, 'pickBase'> => ({
+      id,
+      layer,
+      color,
+      elementColors: null,
+      opacity,
+      size: 0,
+      dashed: false,
+      shading: 'matcap',
+      depthTest: true,
+      clipped: true,
+      pickSize: 0,
+      analysis: input.field !== null,
+    })
+    const lines = (id: string, width: number): Omit<DrawCall, 'pickBase'> => ({
+      id,
+      layer: 'opaque',
+      color: edgeColor,
+      elementColors: null,
+      opacity: 1,
+      size: width,
+      dashed: false,
+      shading: 'flat',
+      depthTest: true,
+      clipped: true,
+      pickSize: EDGE_PICK_WIDTH * scale,
+      analysis: false,
+    })
+    const draws: PendingDraw[] =
+      model === undefined
+        ? []
+        : modelDraws(state, input, model, {
+            base,
+            shaded,
+            lines,
+            previewing: preview !== undefined,
+          })
+    if (preview !== undefined) {
+      const previewIds = meshIds('preview', preview)
+      draws.push({
+        call: shaded(previewIds.faces, base),
+        elementCount: preview.data.faceCount,
+        target: null,
+        states: null,
+        scalars: null,
+      })
+      draws.push({
+        call: lines(previewIds.edges, EDGE_WIDTH * scale),
+        elementCount: preview.data.edgeCount,
+        target: null,
+        states: null,
+      })
+    }
+    return draws
+  }
+
+  type BodyStyle = {
+    readonly base: Rgb
+    readonly shaded: (id: string, color: Rgb) => Omit<DrawCall, 'pickBase'>
+    readonly lines: (id: string, width: number) => Omit<DrawCall, 'pickBase'>
+    /** During a preview the model stays pickable but only shows its highlighted edges and vertices. */
+    readonly previewing: boolean
+  }
+
+  /** The model-layer faces, edges and vertices of a body, with their pick targets and states. */
+  function modelDraws(
+    state: AppState,
+    input: BodyInput,
+    model: MeshEntry,
+    style: BodyStyle,
+  ): PendingDraw[] {
+    const { body, scale, picking, hoverKey } = input
+    const { base, shaded, lines, previewing } = style
     const locked = state.view.locked.includes(body.id)
     const mesh = model.data
     const ids = meshIds('model', model)
@@ -1227,78 +1318,32 @@ export function createScene(backend: RenderBackend): Scene {
     }
     const faceKind: SelectionItemKind = picking.facesPickBodies ? 'body' : 'face'
     const pickable = (kind: SelectionItemKind): boolean => !locked && picking.accepts(kind)
-    const shaded = (id: string, color: Rgb): Omit<DrawCall, 'pickBase'> => ({
-      id,
-      layer,
-      color,
-      elementColors: null,
-      opacity,
-      size: 0,
-      dashed: false,
-      shading: 'matcap',
-      depthTest: true,
-      clipped: true,
-      pickSize: 0,
-      analysis: input.field !== null,
-    })
-    const lines = (id: string, width: number): Omit<DrawCall, 'pickBase'> => ({
-      id,
-      layer: 'opaque',
-      color: edgeColor,
-      elementColors: null,
-      opacity: 1,
-      size: width,
-      dashed: false,
-      shading: 'flat',
-      depthTest: true,
-      clipped: true,
-      pickSize: EDGE_PICK_WIDTH * scale,
-      analysis: false,
-    })
-    const draws: PendingDraw[] = []
-    // During a preview the model stays pickable but only shows its highlighted edges and vertices.
-    const previewing = preview !== undefined
-    draws.push({
-      call: previewing
-        ? { ...shaded(ids.faces, base), layer: 'translucent', opacity: 0, analysis: false }
-        : shaded(ids.faces, base),
-      elementCount: mesh.faceCount,
-      target: pickable(faceKind) ? meshTarget('face', 'area') : null,
-      states: elementStates('face', mesh.faceCount),
-      scalars: previewing ? null : input.field,
-    })
-    draws.push({
-      call: lines(ids.edges, previewing ? 0 : EDGE_WIDTH * scale),
-      elementCount: mesh.edgeCount,
-      target: pickable('edge') ? meshTarget('edge', 'curve') : null,
-      states: elementStates('edge', mesh.edgeCount),
-    })
-    draws.push({
-      call: {
-        ...lines(ids.vertices, 0),
-        pickSize: VERTEX_PICK_SIZE * scale,
+    return [
+      {
+        call: previewing
+          ? { ...shaded(ids.faces, base), layer: 'translucent', opacity: 0, analysis: false }
+          : shaded(ids.faces, base),
+        elementCount: mesh.faceCount,
+        target: pickable(faceKind) ? meshTarget('face', 'area') : null,
+        states: elementStates('face', mesh.faceCount),
+        scalars: previewing ? null : input.field,
       },
-      elementCount: mesh.vertexCount,
-      target: pickable('vertex') ? meshTarget('vertex', 'point') : null,
-      states: elementStates('vertex', mesh.vertexCount),
-    })
-    if (preview !== undefined) {
-      const previewIds = meshIds('preview', preview)
-      draws.push({
-        call: shaded(previewIds.faces, base),
-        elementCount: preview.data.faceCount,
-        target: null,
-        states: null,
-        scalars: null,
-      })
-      draws.push({
-        call: lines(previewIds.edges, EDGE_WIDTH * scale),
-        elementCount: preview.data.edgeCount,
-        target: null,
-        states: null,
-      })
-    }
-    return draws
+      {
+        call: lines(ids.edges, previewing ? 0 : EDGE_WIDTH * scale),
+        elementCount: mesh.edgeCount,
+        target: pickable('edge') ? meshTarget('edge', 'curve') : null,
+        states: elementStates('edge', mesh.edgeCount),
+      },
+      {
+        call: {
+          ...lines(ids.vertices, 0),
+          pickSize: VERTEX_PICK_SIZE * scale,
+        },
+        elementCount: mesh.vertexCount,
+        target: pickable('vertex') ? meshTarget('vertex', 'point') : null,
+        states: elementStates('vertex', mesh.vertexCount),
+      },
+    ]
   }
 
   function originDraws(
@@ -1348,11 +1393,7 @@ export function createScene(backend: RenderBackend): Scene {
         elementCount: axes.length,
         target: picking.accepts('origin_axis')
           ? itemTarget(
-              axes.map((axis) =>
-                plainItem(`origin:${axis.name}`, 'origin_axis', ORIGIN_LABELS[axis.name], {
-                  origin: axis.name,
-                }),
-              ),
+              axes.map((axis) => originItem(axis.name)),
               'curve',
             )
           : null,
@@ -1375,12 +1416,7 @@ export function createScene(backend: RenderBackend): Scene {
           pickSize: SKETCH_POINT_PICK_SIZE * scale,
         },
         elementCount: 1,
-        target: picking.accepts('origin_point')
-          ? itemTarget(
-              [plainItem('origin:O', 'origin_point', ORIGIN_LABELS.O, { origin: 'O' })],
-              'point',
-            )
-          : null,
+        target: picking.accepts('origin_point') ? itemTarget([originItem('O')], 'point') : null,
         states: statesFor(1, () => 'origin:O', highlight),
       })
     }
@@ -1442,15 +1478,13 @@ export function createScene(backend: RenderBackend): Scene {
         remove(id)
         continue
       }
-      const polylines = chosen.map((entity, element) => ({
-        element,
-        points: curvePolyline(entity, tolerance) ?? new Float32Array(),
-      }))
-      const signature = JSON.stringify([
-        solution.placement,
-        polylines.map((line) => Array.from(line.points)),
-      ])
+      // The curves follow from the solution, the tolerance and whether the sketch is active.
+      const signature = `${String(solutionNumber(solution))}:${String(tolerance)}:${String(sketch.active)}`
       uploadGenerated(id, signature, () => {
+        const polylines = chosen.map((entity, element) => ({
+          element,
+          points: curvePolyline(entity, tolerance) ?? new Float32Array(),
+        }))
         const { positions, elementIds } = segmentsOnPlane(solution.placement, polylines)
         return { kind: 'lines', positions, elementIds, elementCount: chosen.length }
       })
@@ -1496,7 +1530,7 @@ export function createScene(backend: RenderBackend): Scene {
       remove(pointsId)
     } else {
       const yAxis = yAxisOf(solution.placement)
-      const signature = JSON.stringify([solution.placement, solvedPoints])
+      const signature = `${String(solutionNumber(solution))}:${String(sketch.active)}`
       uploadGenerated(pointsId, signature, () => ({
         kind: 'points',
         positions: new Float32Array(
@@ -1506,12 +1540,7 @@ export function createScene(backend: RenderBackend): Scene {
         elementCount: solvedPoints.length,
       }))
       const owners = new Map(solution.entities.map((entity) => [entity.id, entity]))
-      const items = solvedPoints.map((point) => {
-        const owner = owners.get(point.point)
-        return owner?.type === 'point'
-          ? entityItem(sketch.id, owner)
-          : pointItem(sketch.id, point.point)
-      })
+      const items = solvedPoints.map((point) => pointItem(sketch.id, point.point))
       const colors = solvedPoints.flatMap((point) => {
         const ownerId = point.point.split('.')[0] ?? point.point
         const owner = owners.get(ownerId)
@@ -1630,7 +1659,7 @@ export function createScene(backend: RenderBackend): Scene {
       elementCount: 1,
     }))
     const axisItems = [sketchOriginItem(sketch.id, 'x_axis'), sketchOriginItem(sketch.id, 'y_axis')]
-    const originItem = sketchOriginItem(sketch.id, 'point')
+    const sketchOrigin = sketchOriginItem(sketch.id, 'point')
     draws.push({
       call: {
         ...overlayCall(reference, 'overlay', 1, REFERENCE_CURVE_WIDTH * scale, true, true),
@@ -1648,8 +1677,8 @@ export function createScene(backend: RenderBackend): Scene {
         pickSize: SKETCH_POINT_PICK_SIZE * scale,
       },
       elementCount: 1,
-      target: picking.accepts('sketch_point') ? itemTarget([originItem], 'point') : null,
-      states: statesFor(1, () => originItem.key, highlight),
+      target: picking.accepts('sketch_point') ? itemTarget([sketchOrigin], 'point') : null,
+      states: statesFor(1, () => sketchOrigin.key, highlight),
     })
     return draws
   }
@@ -1683,7 +1712,9 @@ export function createScene(backend: RenderBackend): Scene {
         }
         case 'point': {
           const point = solution.points.find((candidate) => candidate.point === reference.point)
-          return point === undefined ? [] : [onPlane(placement, yAxis, point.at)]
+          const entity = solution.entities.find((candidate) => candidate.id === reference.point)
+          const at = point?.at ?? (entity?.type === 'point' ? entity.position : null)
+          return at === null ? [] : [onPlane(placement, yAxis, at)]
         }
         case 'region':
           return [onPlane(placement, yAxis, reference.region.centroid)]

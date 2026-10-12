@@ -345,21 +345,24 @@ fn t012_smooth_edge_skipped() {
 }
 
 /// Step 4 next to a torus: the edge where the side of a cylinder meets the fillet of its top rim
-/// is smooth, so a second fillet of it is skipped as in test 12. The kernel facade gives no
-/// outward normals of a torus, so the edge reaches the kernel today, which fails (fillet.md open
-/// issue 3). Once this passes, the document becomes an example under `examples/fillet/`.
+/// (a torus) is smooth, so a second fillet of it is skipped as in test 12 (fillet.md open issue 3).
 #[test]
-#[ignore = "needs the kernel's outward face normals at an edge (fillet.md open issue 3)"]
 fn smooth_edge_next_to_a_torus_skipped() {
-    let cylinder = r#"{"id": "f-cyl1", "type": "cylinder", "body": "b-1", "radius": "10", "height": "20", "op": "new"}"#;
-    let rim = r#"{"id": "f-fil1", "type": "fillet", "body": "b-1", "edges": [{"q": "edge(f-cyl1/side|f-cyl1/top)", "fp": "circle|n=0,0,1|c=0,0,20|l=62.831853|r=10"}], "radius": "2"}"#;
-    let tangent = r#"{"id": "f-fil2", "type": "fillet", "body": "b-1", "edges": [{"q": "edge(f-cyl1/side|f-fil1/fillet/edge(f-cyl1/side|f-cyl1/top))", "fp": "circle|n=0,0,1|c=0,0,18|l=62.831853|r=10"}], "radius": "1"}"#;
-    let run = Run::records(&["b-1"], &[cylinder, rim, tangent]);
+    let run = Run::example("fillet/smooth-edge-next-to-torus.ptsm");
 
     run.assert_ok("f-cyl1");
     run.assert_ok("f-fil1");
     run.assert_warnings("f-fil2", &["ignored", "no_effect"]);
+    let warning = &run.feature("f-fil2").warnings[0];
+    let FeatureWarning::Ignored { reason, .. } = warning else {
+        panic!("expected an Ignored warning, got {warning:?}");
+    };
+    assert!(
+        matches!(reason, IgnoredReason::SmoothEdge),
+        "the edge is skipped as smooth, got {reason:?}"
+    );
     assert_unchanged(&run, "f-fil2", "b-1");
+    assert_face_count(run.shape("b-1"), 4);
 }
 
 #[test]

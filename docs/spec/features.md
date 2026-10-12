@@ -390,6 +390,8 @@ impl BodyState {
     pub fn is_empty(&self) -> bool;
     /// Element infos (names, kinds, fingerprints, adjacency) of the shape, computed once on first use and shared by clones.
     pub fn elements(&self) -> Result<Arc<[ElementInfo]>, FeatureError>;
+    /// Volume of the shape in cubic millimeters (0 for an empty body), computed once on first use and shared by clones. `apply_op` reads V_before (section 3.5) here, so a feature that also needs the body's volume measures it once.
+    pub fn volume(&self) -> Result<f64, FeatureError>;
 }
 
 /// Result of resolving a list of references.

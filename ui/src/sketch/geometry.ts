@@ -209,7 +209,7 @@ export function distancePointToArc(
   return distance(point, closestPointOnArc(point, center, radius, start, end))
 }
 
-/** The intersection of the infinite lines through (a, b) and (c, d), or null when they are parallel. */
+/** The intersection of the infinite lines through the two pairs of points, or null when they are parallel. */
 export function lineIntersection(
   firstStart: Vector2,
   firstEnd: Vector2,

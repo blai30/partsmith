@@ -167,7 +167,8 @@ const NO_ITEM_DATA = {
   origin: null,
 } as const
 
-function originItem(origin: OriginName): SelectionItem {
+/** The selection item of an origin plane, axis or point; the one place that names them. */
+export function originItem(origin: OriginName): SelectionItem {
   const plane = ORIGIN_PLANES.has(origin)
   const axis = ORIGIN_AXES.has(origin)
   return {

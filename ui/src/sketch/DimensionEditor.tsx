@@ -1,5 +1,5 @@
 import { clsx } from 'clsx/lite'
-import { useEffect, useId, useRef, type Ref } from 'react'
+import { useEffect, useId, useRef } from 'react'
 import { Button } from '../components/Button'
 import { SegmentedControl } from '../components/SegmentedControl'
 import { ExpressionInput } from '../expression/ExpressionInput'
@@ -11,8 +11,6 @@ import type { DimensionEditorModel, SketchController } from './session'
 // whether it only measures, and for circles and arcs whether it is a diameter or a radius.
 
 export type DimensionEditorProps = {
-  /** The positioned container, which the sketch controller moves onto the label. */
-  readonly ref?: Ref<HTMLFieldSetElement>
   readonly controller: SketchController
   readonly editor: DimensionEditorModel
 }
@@ -26,7 +24,8 @@ function report(error: unknown): void {
   console.error('Committing the dimension failed.', error)
 }
 
-export function DimensionEditor({ ref, controller, editor }: DimensionEditorProps) {
+/** The editor, centered on its position: the overlay moves a wrapper onto the label (3.12). */
+export function DimensionEditor({ controller, editor }: DimensionEditorProps) {
   const inputId = useId()
   const focused = useRef<number | null>(null)
 
@@ -45,11 +44,10 @@ export function DimensionEditor({ ref, controller, editor }: DimensionEditorProp
 
   return (
     <fieldset
-      ref={ref}
       data-testid="dimension-editor"
       aria-busy={editor.busy}
       className={clsx(
-        'pointer-events-auto absolute top-0 left-0 flex w-64 flex-col gap-2 rounded-md border p-2 shadow-lg',
+        'pointer-events-auto flex w-64 -translate-x-1/2 -translate-y-1/2 flex-col gap-2 rounded-md border p-2 shadow-lg',
         COLOR_CLASSES.surfaceRaised.background,
         COLOR_CLASSES.border.border,
         COLOR_CLASSES.text.foreground,

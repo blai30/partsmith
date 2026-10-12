@@ -12,6 +12,8 @@ import {
   applicableConstraints,
   constraintFor,
   constraintRequirement,
+  constraintTitle,
+  joinTitles,
   type ConstraintType,
 } from './constraints'
 
@@ -178,5 +180,40 @@ describe('constraintRequirement', () => {
 
   it.each(REQUIREMENTS)('the requirement text of %s is "%s" (3.16.6)', (type, text) => {
     expect(constraintRequirement(type)).toBe(text)
+  })
+})
+
+describe('joinTitles (3.16.6)', () => {
+  it('joins titles as a sentence list', () => {
+    expect(joinTitles([])).toBe('')
+    expect(joinTitles(['Horizontal'])).toBe('Horizontal')
+    expect(joinTitles(['Horizontal', 'Distance 40'])).toBe('Horizontal and Distance 40')
+    expect(joinTitles(['Horizontal', 'Equal', 'Distance 40'])).toBe(
+      'Horizontal, Equal and Distance 40',
+    )
+  })
+})
+
+describe('constraintTitle (3.16.6)', () => {
+  it('titles a dimension with its solved value as the label shows it', () => {
+    const solution = solutionFor([], {
+      constraints: [
+        { id: 'c-1', state: 'satisfied', value: 40 },
+        { id: 'c-2', state: 'satisfied', value: Math.PI / 6 },
+      ],
+    })
+    expect(
+      constraintTitle({ id: 'c-1', type: 'distance', line: 'e-1', expr: 'w' }, solution, 'mm'),
+    ).toBe('Distance 40')
+    expect(
+      constraintTitle(
+        { id: 'c-2', type: 'angle', lines: ['x_axis', 'e-1'], expr: '30 deg' },
+        solution,
+        'mm',
+      ),
+    ).toBe('Angle 30°')
+    expect(
+      constraintTitle({ id: 'c-3', type: 'parallel', lines: ['e-1', 'e-2'] }, null, 'mm'),
+    ).toBe('Parallel')
   })
 })

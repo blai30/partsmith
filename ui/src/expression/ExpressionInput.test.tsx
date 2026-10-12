@@ -163,6 +163,67 @@ describe('ExpressionInput', () => {
     expect(onCommit).not.toHaveBeenCalled()
   })
 
+  it('Enter pressed while the evaluation is pending commits once the result arrives', async () => {
+    const onCommit = vi.fn<(value: string, state: ExpressionState) => void>()
+    const result = deferred<Evaluation>()
+    const { input, user } = setUp({ initial: '25', onCommit }, (core) => {
+      core.stub('evaluate', () => result.promise)
+    })
+    await user.click(input)
+    await user.keyboard('{Enter}')
+    expect(onCommit).not.toHaveBeenCalled()
+    await act(async () => {
+      result.resolve({ value: 25, dimension: { length: 0, angle: 0 } })
+      await settle()
+    })
+    expect(onCommit).toHaveBeenCalledTimes(1)
+    expect(onCommit).toHaveBeenCalledWith('25', { state: 'valid', value: 25, dimension: LENGTH })
+  })
+
+  it('Enter pressed while pending is dropped when the text changes before the result', async () => {
+    const onCommit = vi.fn<(value: string, state: ExpressionState) => void>()
+    const results: Deferred<Evaluation>[] = []
+    const { input, user } = setUp({ initial: '25', onCommit }, (core) => {
+      core.stub('evaluate', () => {
+        const result = deferred<Evaluation>()
+        results.push(result)
+        return result.promise
+      })
+    })
+    await user.click(input)
+    await user.keyboard('{Enter}0')
+    await act(async () => {
+      for (const result of results) {
+        result.resolve({ value: 250, dimension: { length: 0, angle: 0 } })
+      }
+      await settle()
+    })
+    expect(input).toHaveValue('250')
+    expect(onCommit).not.toHaveBeenCalled()
+  })
+
+  it('Enter pressed while pending on an expression that fails selects the offending range', async () => {
+    const onCommit = vi.fn<(value: string, state: ExpressionState) => void>()
+    const result = deferred<Evaluation>()
+    const { input, user } = setUp({ initial: '2 * x', onCommit }, (core) => {
+      core.stub('evaluate', () => result.promise)
+    })
+    const coreError = await coreErrorFor({
+      code: 'expression_error',
+      message: "Unknown name 'x'.",
+      span: { start: 4, end: 5 },
+    })
+    await user.click(input)
+    await user.keyboard('{Enter}')
+    await act(async () => {
+      result.reject(coreError)
+      await settle()
+    })
+    expect(onCommit).not.toHaveBeenCalled()
+    expect(input.selectionStart).toBe(4)
+    expect(input.selectionEnd).toBe(5)
+  })
+
   it('U-43 Esc calls onCancel', async () => {
     const onCancel = vi.fn<() => void>()
     const { input, user } = setUp({ initial: '10 mm', onCancel })

@@ -57,10 +57,13 @@ function AxisLabels({ scene }: { readonly scene: Scene }) {
     if (state.context === 'sketch' && state.sketch?.sketchId !== null) {
       return ''
     }
+    const axes = AXIS_LABELS.filter((axis) => isSessionVisible(state, `origin:${axis}`))
+    // The bounds are needed only for shown axes; this selector runs on every store change.
+    if (axes.length === 0) {
+      return ''
+    }
     const half = planeExtent(scene.visibleBounds(state)).side / 2
-    return AXIS_LABELS.filter((axis) => isSessionVisible(state, `origin:${axis}`))
-      .map((axis) => `${axis}:${String(half)}`)
-      .join(' ')
+    return axes.map((axis) => `${axis}:${String(half)}`).join(' ')
   })
   if (labels === '') {
     return null

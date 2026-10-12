@@ -311,10 +311,10 @@ ShellAttempt thick_solid(const Shape &copy, const std::vector<bool> &removed, do
 
 // True when a removed face shares an edge with a kept face along which the solid is concave,
 // classified with the angular tolerance of BRepOffset_MakeOffset (kernel spec section 3.4.8,
-// item 3). OCCT's thick solid cannot close the wall there.
-bool borders_concave_edge(const Shape &copy, const std::vector<bool> &removed,
+// item 3). OCCT's thick solid cannot close the wall there. Only reads `shape`.
+bool borders_concave_edge(const Shape &shape, const std::vector<bool> &removed,
                           double thickness) {
-  const TopoDS_Shape &solid = copy.solids()(1);
+  const TopoDS_Shape &solid = shape.solids()(1);
   const double angle =
       4.0 * std::asin(std::min(kLinear / (thickness / 2.0 + Precision::Confusion()), 1.0));
   const BRepOffset_Analyse analyse(solid, angle);
@@ -324,7 +324,7 @@ bool borders_concave_edge(const Shape &copy, const std::vector<bool> &removed,
     bool beside_removed = false;
     bool beside_kept = false;
     for (const TopoDS_Shape &face : edge_faces(index)) {
-      const bool is_removed = removed[static_cast<std::size_t>(copy.faces().FindIndex(face))];
+      const bool is_removed = removed[static_cast<std::size_t>(shape.faces().FindIndex(face))];
       beside_removed = beside_removed || is_removed;
       beside_kept = beside_kept || !is_removed;
     }
@@ -446,9 +446,10 @@ OpResultData shell(const Shape &shape, rust::Slice<const std::uint32_t> remove_f
   } catch (const Standard_Failure &) {
     const std::exception_ptr first_failure = std::current_exception();
     try {
-      // A fresh copy keeps the fallback independent of what the first attempt wrote to its own.
-      const Shape fresh = copy_shape(shape);
-      if (borders_concave_edge(fresh, removed, thickness)) {
+      // BRepOffset_Analyse only reads, so the input is checked before anything is copied.
+      if (borders_concave_edge(shape, removed, thickness)) {
+        // A fresh copy, independent of what the first attempt wrote to its own.
+        const Shape fresh = copy_shape(shape);
         return checked_shell(fresh, cavity_cut(fresh, removed, thickness), removed, thickness);
       }
     } catch (const Standard_Failure &) {

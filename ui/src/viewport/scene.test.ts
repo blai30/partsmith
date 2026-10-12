@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { BodyMeshData } from '../core/events'
-import type { Document } from '../generated/protocol'
+import type { Document, SketchSolution } from '../generated/protocol'
 import {
   bodyMeshEvent,
   boxMesh,
@@ -10,6 +10,7 @@ import {
   meshSummary,
   PEG_BOUNDS,
   readyState,
+  rectSketchDocumentState,
 } from '../layout/fixtures.testing'
 import { DEFAULT_SETTINGS } from '../settings/settings'
 import {
@@ -17,9 +18,11 @@ import {
   type ActiveCommand,
   type AppState,
   type DocumentState,
+  type SelectionItem,
 } from '../state/store'
 import { createFakeBackend, type FakeBackend } from '../test/fakes/backend'
-import { CUBE_DOCUMENT, TWO_BODIES_DOCUMENT } from '../test/fakes/documents'
+import { CUBE_DOCUMENT, RECT_SKETCH_SOLUTION, TWO_BODIES_DOCUMENT } from '../test/fakes/documents'
+import { acceptsTarget } from '../inspector/selection-values'
 import { linearFromHex, VIEWPORT_COLORS, viewportTheme } from '../theme/roles'
 import type { DrawCall, Geometry, RenderFrame } from './backend'
 import { DEFAULT_CAMERA, eye, standardViewRotation, viewMatrix, type Camera } from './camera'
@@ -315,6 +318,42 @@ describe('pickable kinds (3.6 and the ID pass contract of DrawCall.pickBase)', (
     expect(draw.pickBase).toBeNull()
     expect(draw.shading).toBe('matcap')
   })
+
+  it('draws the preview of a body the command creates, which has no model-layer mesh yet', () => {
+    const fixture = cubeScene()
+    const base = cubeDocumentState()
+    const document = documentState({
+      ...base.recipe,
+      bodies: [...(base.recipe.bodies ?? []), { id: 'b-new', name: 'Body 1' }],
+    })
+    const preview = boxMesh([30, 30, 0], [40, 40, 10])
+    fixture.scene.applyEvent(
+      bodyMeshEvent({ body: 'b-new', meshId: 9, mesh: preview, layer: 'preview', revision: 2 }),
+    )
+    const command: ActiveCommand = {
+      ...FILLET_EDGES_COMMAND,
+      featureType: 'box',
+      featureId: 'f-box1',
+      params: {},
+      activeField: null,
+      applied: true,
+      newBody: { id: 'b-new', name: 'Body 1' },
+      preview: 'shown',
+    }
+    const frame = render(fixture, stateOf(document, { command }))
+    const shadedFaces = faces(fixture, frame, preview)
+    expect(shadedFaces.pickBase).toBeNull()
+    expect(shadedFaces.shading).toBe('matcap')
+    expect(shadedFaces.opacity).toBe(1)
+    const outline = edges(fixture, frame, preview)
+    expect(outline.pickBase).toBeNull()
+    expect(outline.size).toBeCloseTo(1.25, 9)
+    expect(
+      frame.draws.some((draw) => draw.id.startsWith('model:') && draw.id.includes('b-new')),
+    ).toBe(false)
+    const hidden = render(fixture, stateOf(document, { command: { ...command, preview: 'none' } }))
+    expect(hidden.draws.some((draw) => draw.id.includes('b-new'))).toBe(false)
+  })
 })
 
 describe('frames', () => {
@@ -600,5 +639,57 @@ describe('sketches and datum planes', () => {
       kind: 'item',
       item: { key: 'feature:f-dp1', kind: 'datum_plane' },
     })
+  })
+})
+
+describe('sketch point entities', () => {
+  const POINT_SOLUTION: SketchSolution = {
+    ...RECT_SKETCH_SOLUTION,
+    entities: [
+      ...RECT_SKETCH_SOLUTION.entities,
+      { id: 'e-p1', type: 'point', position: [10, 5], constrained: 'under_constrained' },
+    ],
+    points: [...RECT_SKETCH_SOLUTION.points, { point: 'e-p1', at: [10, 5] }],
+  }
+  const HOLE_POINTS_COMMAND: ActiveCommand = {
+    ...FILLET_EDGES_COMMAND,
+    featureType: 'hole',
+    featureId: 'f-hole1',
+    title: 'Hole',
+    params: {},
+    activeField: 'points',
+  }
+
+  function pointTarget(overrides: Partial<AppState>): SelectionItem | null {
+    const scene = createScene(createFakeBackend())
+    const document = rectSketchDocumentState({
+      sketches: { 'f-sk1': { solution: POINT_SOLUTION, display: null } },
+    })
+    const state = stateOf(document, overrides)
+    const frame = scene.frame(state, DEFAULT_CAMERA, SIZE)
+    const draw = frame.draws.find((candidate) => candidate.id === 'sketch:f-sk1:points')
+    if (draw === undefined || draw.pickBase === null) {
+      return null
+    }
+    const target = scene.targetFor(draw.pickBase)
+    return target?.result.kind === 'item' ? target.result.item : null
+  }
+
+  it('picks a point entity by its point reference, which a Hole points field accepts', () => {
+    const item = pointTarget({ command: HOLE_POINTS_COMMAND })
+    expect(item).toMatchObject({
+      key: 'point:f-sk1:e-p1',
+      kind: 'sketch_point',
+      sketchItem: { kind: 'point', sketch: 'f-sk1', point: 'e-p1' },
+    })
+    expect(item !== null && acceptsTarget('sketch_point', item)).toBe(true)
+  })
+
+  it('selects a point entity in the Model context as the same item a field takes', () => {
+    const item = pointTarget({
+      view: { ...stateOf(null).view, sessionVisible: { 'feature:f-sk1': true } },
+    })
+    expect(item?.sketchItem).toEqual({ kind: 'point', sketch: 'f-sk1', point: 'e-p1' })
+    expect(item !== null && acceptsTarget('sketch_point', item)).toBe(true)
   })
 })

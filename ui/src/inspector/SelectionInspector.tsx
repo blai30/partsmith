@@ -28,6 +28,7 @@ import {
 import type { AppState, DocumentState, SelectionItem } from '../state/store'
 import { COLOR_CLASSES, FONT_CLASSES } from '../theme/roles'
 import { formatArea } from './area'
+import { UseSuggestion } from './UseSuggestion'
 
 // The selection inspector (ui.md 3.8): what the selection is, its measures, and the commands that
 // fit it, so the next step is one click away.
@@ -280,13 +281,18 @@ function FeatureSection({
               // Messages carry no id; their order is the core's.
               // oxlint-disable-next-line react/no-array-index-key
               key={index}
-              className={
-                message.severity === 'error'
-                  ? COLOR_CLASSES.errorText.foreground
-                  : COLOR_CLASSES.warningText.foreground
-              }
+              className="flex flex-col gap-1"
             >
-              {message.message}
+              <span
+                className={
+                  message.severity === 'error'
+                    ? COLOR_CLASSES.errorText.foreground
+                    : COLOR_CLASSES.warningText.foreground
+                }
+              >
+                {message.message}
+              </span>
+              <UseSuggestion record={record} label={label} message={message} />
             </li>
           ))}
         </ul>
@@ -521,9 +527,17 @@ function SketchSection({
   const uniform =
     firstType !== null && firstType !== undefined && entityTypes.every((type) => type === firstType)
   const title = uniform ? counted(items.length, ENTITY_NOUNS[firstType]) : itemsCount(items.length)
-  const entities = items.flatMap((item) =>
-    item.sketchItem?.kind === 'entity' ? [item.sketchItem.entity] : [],
-  )
+  const entities = items.flatMap((item) => {
+    const reference = item.sketchItem
+    if (reference?.kind === 'entity') {
+      return [reference.entity]
+    }
+    // A point entity is selected by its point reference, which is its bare id.
+    return reference?.kind === 'point' &&
+      solution?.entities.some((entity) => entity.id === reference.point) === true
+      ? [reference.point]
+      : []
+  })
   const construction =
     entities.length > 0 &&
     entities.every(

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { commitSketchChange, deleteSketchItems } from '../app/actions/sketch'
+import { commitSketchChange, deleteSketchItems, startSketchDrag } from '../app/actions/sketch'
 import type { App } from '../app/createApp'
 import type { CoreApi, SolvedSketch } from '../core/api'
 import type { Edit, SketchConstraint, SketchParams, SketchSolution } from '../generated/protocol'
@@ -292,6 +292,72 @@ describe('deleteSketchItems', () => {
         type: 'update_feature',
         feature: expect.objectContaining({ entities: [otherLine], constraints: [remaining] }),
       },
+    ])
+  })
+})
+
+describe('commit order (3.16.3, 3.16.9)', () => {
+  it('a change asked for right after a drag release is built from the dragged geometry', async () => {
+    const dragged = lineEntity('e-1', [0, 0], [10, 4])
+    const calls: string[] = []
+    const applied: Edit[][] = []
+    const dragFrame: { answer: ((solved: SolvedSketch) => void) | null } = { answer: null }
+    const store: { app: App | null } = { app: null }
+    const app = appWith({
+      dragSketch: () =>
+        new Promise<SolvedSketch>((resolve) => {
+          dragFrame.answer = resolve
+        }),
+      endSketchDrag: () => {
+        calls.push('endSketchDrag')
+        // The core stores the dragged geometry, as its document_changed event reports.
+        store.app?.store.setState((state) =>
+          state.document === null
+            ? {}
+            : {
+                document: {
+                  ...state.document,
+                  recipe: {
+                    ...state.document.recipe,
+                    features: [sketchRecord({ entities: [dragged], constraints: [] })],
+                  },
+                },
+              },
+        )
+        return Promise.resolve(2)
+      },
+      solveSketch: (_documentHandle, _feature, candidate) => {
+        calls.push('solveSketch')
+        return Promise.resolve(solvedSketch(solutionFor(candidate?.entities ?? [])))
+      },
+      applyEdits: (_documentHandle, _label, edits) => {
+        calls.push('applyEdits')
+        applied.push([...edits])
+        return Promise.resolve(3)
+      },
+    })
+    store.app = app
+    const drag = startSketchDrag(app, SKETCH_ID, 'e-1.end')
+    drag?.move([10, 4], 0)
+    const releasing = drag?.finish()
+    const committing = commitSketchChange(app, 'Fix', {
+      add: { entities: [], constraints: [{ id: 'c-5', type: 'fix', target: 'e-1' }] },
+      requested: ['c-5'],
+      inferred: [],
+    })
+    dragFrame.answer?.(solvedSketch(solutionFor([dragged])))
+    await releasing
+    const result = await committing
+
+    expect(result.outcome).toBe('committed')
+    expect(calls).toEqual(['endSketchDrag', 'solveSketch', 'applyEdits'])
+    expect(applied).toEqual([
+      [
+        {
+          type: 'update_feature',
+          feature: expect.objectContaining({ entities: [dragged] }),
+        },
+      ],
     ])
   })
 })

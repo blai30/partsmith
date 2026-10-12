@@ -1,11 +1,11 @@
 import { createConnection, RECOVERY_STORE, requestResult, withStore } from './database'
-import { isFileHandle } from './file-service'
+import { isFileHandle, type FileHandle } from './file-service'
 
 export type RecoveryEntry = {
   readonly name: string
   readonly text: string
   readonly savedAt: number
-  readonly handle: FileSystemFileHandle | null
+  readonly handle: FileHandle | null
   readonly reason: 'autosave' | 'replaced'
 }
 

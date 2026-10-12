@@ -1,8 +1,10 @@
 import { fireEvent, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { undo } from '../app/actions/document'
+import { enterSketch } from '../app/actions/sketch'
 import type { App } from '../app/createApp'
 import type { BodyMeshData } from '../core/events'
-import type { ElementDescriptor, ElementRef, Resolution } from '../generated/protocol'
+import type { BoundingBox, ElementDescriptor, ElementRef, Resolution } from '../generated/protocol'
 import {
   bodyItem,
   bodyMeshEvent,
@@ -164,6 +166,13 @@ function click(
   fireEvent.pointerDown(canvas, { ...init, buttons: 1 })
   fireEvent.pointerUp(canvas, { ...init, buttons: 0 })
   fireEvent.click(canvas, { button: 0, clientX: x, clientY: y, ...modifiers })
+}
+
+/** A middle-button press and release at one point. */
+function middleClick(canvas: HTMLCanvasElement, x: number, y: number): void {
+  const init = { pointerId: 1, pointerType: 'mouse', button: 1, clientX: x, clientY: y }
+  fireEvent.pointerDown(canvas, { ...init, buttons: 4 })
+  fireEvent.pointerUp(canvas, { ...init, buttons: 0 })
 }
 
 function setDocument(app: App, change: Partial<DocumentState>): void {
@@ -346,7 +355,7 @@ describe('the camera handle (2.11, 3.14)', () => {
 
   it('fit with bounds and zoomToBounds frame the given box with their margins', () => {
     const fixture = setUp()
-    const box = { min: [0, 0, 0], max: [4, 4, 4] } as const
+    const box: BoundingBox = { min: [0, 0, 0], max: [4, 4, 4] }
     fixture.controller.fit(box)
     fixture.frames.flush()
     expect(
@@ -447,6 +456,58 @@ describe('navigation (3.13)', () => {
     expect(fixture.controller.getCamera().rotation).not.toEqual(DEFAULT_CAMERA.rotation)
   })
 
+  it('fits the view on a middle double-click in the Fusion preset', () => {
+    const fixture = setUp()
+    middleClick(fixture.canvas, 400, 300)
+    middleClick(fixture.canvas, 401, 300)
+    fixture.frames.flush()
+    expect(
+      cameraDifference(
+        fixture.controller.getCamera(),
+        fitBounds(DEFAULT_CAMERA, CUBE_BOUNDS, ASPECT, 0.1),
+      ),
+    ).toBeLessThan(1e-6)
+  })
+
+  it('does not fit on two middle clicks far apart in time', () => {
+    const fixture = setUp()
+    middleClick(fixture.canvas, 400, 300)
+    // Each rendered frame advances the stubbed clock by 16 ms: 40 frames are 640 ms.
+    for (let i = 0; i < 40; i++) {
+      fixture.controller.requestRender()
+      fixture.frames.flush(1)
+    }
+    middleClick(fixture.canvas, 400, 300)
+    fixture.frames.flush()
+    expect(cameraDifference(fixture.controller.getCamera(), DEFAULT_CAMERA)).toBeLessThan(1e-9)
+  })
+
+  it('does not fit on a middle double-click in the FreeCAD preset', () => {
+    const fixture = setUp({
+      state: { settings: { ...DEFAULT_SETTINGS, theme: 'light', navigation: 'freecad' } },
+    })
+    middleClick(fixture.canvas, 400, 300)
+    middleClick(fixture.canvas, 400, 300)
+    fixture.frames.flush()
+    expect(cameraDifference(fixture.controller.getCamera(), DEFAULT_CAMERA)).toBeLessThan(1e-9)
+  })
+
+  it('records Home, a standard view and a fit, as one sketch view entry', async () => {
+    const fixture = setUp()
+    fixture.app.attachViewport(fixture.controller)
+    await enterSketch(fixture.app, 'f-sk1')
+    fixture.frames.flush()
+    const before = fixture.controller.getCamera()
+    fixture.controller.setStandardView('iso')
+    fixture.controller.fit()
+    fixture.frames.flush()
+    await settle()
+    expect(cameraDifference(fixture.controller.getCamera(), before)).toBeGreaterThan(1e-3)
+    await undo(fixture.app)
+    fixture.frames.flush()
+    expect(cameraDifference(fixture.controller.getCamera(), before)).toBeLessThan(1e-6)
+  })
+
   it('prevents the context menu on the canvas', () => {
     const fixture = setUp()
     expect(fireEvent.contextMenu(fixture.canvas)).toBe(false)
@@ -521,6 +582,36 @@ describe('hover (3.6)', () => {
     })
     fixture.frames.flush()
     expect(fixture.app.store.getState().hover).toEqual({ key: 'mesh:1:vertex:5', kind: 'vertex' })
+  })
+})
+
+describe('hover while the camera moves (3.13)', () => {
+  it('waits until the camera has been still for 100 ms before picking under the pointer', () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    cleanups.push(() => {
+      vi.useRealTimers()
+    })
+    const fixture = setUp()
+    let now = 5000
+    vi.spyOn(performance, 'now').mockImplementation(() => now)
+    fireEvent.wheel(fixture.canvas, { deltaY: 100, deltaMode: 0, clientX: 400, clientY: 300 })
+    fixture.frames.flush()
+    const picks = () => fixture.backend.calls.filter((call) => call.method === 'pick').length
+    const before = picks()
+    now += 50
+    fireEvent.pointerMove(fixture.canvas, {
+      pointerId: 1,
+      pointerType: 'mouse',
+      buttons: 0,
+      clientX: 120,
+      clientY: 80,
+    })
+    fixture.frames.flush()
+    expect(picks()).toBe(before)
+    now += 50
+    vi.advanceTimersByTime(50)
+    fixture.frames.flush()
+    expect(picks()).toBe(before + 1)
   })
 })
 
@@ -600,6 +691,22 @@ describe('clicks (3.6)', () => {
     await settle()
     expect(fixture.core.callsTo('pickReference')).toEqual([])
     expect(fixture.app.store.getState().selection.map((item) => item.key)).toEqual(['body:b-cube'])
+  })
+
+  it('treats a press that moved 4 pixels as a click', async () => {
+    const fixture = setUp({
+      prepare: (core) => {
+        core.stub('pickReference', () => Promise.resolve(CUBE_TOP_FACE))
+      },
+    })
+    pickElement(fixture, 'face', 0)
+    const init = { pointerId: 1, pointerType: 'mouse', button: 0 }
+    fireEvent.pointerDown(fixture.canvas, { ...init, buttons: 1, clientX: 200, clientY: 150 })
+    fireEvent.pointerMove(fixture.canvas, { ...init, buttons: 1, clientX: 204, clientY: 150 })
+    fireEvent.pointerUp(fixture.canvas, { ...init, buttons: 0, clientX: 204, clientY: 150 })
+    await settle()
+    expect(fixture.core.callsTo('pickReference')).toHaveLength(1)
+    expect(fixture.app.store.getState().selection.map((item) => item.kind)).toEqual(['face'])
   })
 
   it('sends clicks to the active selection field during a feature command', async () => {

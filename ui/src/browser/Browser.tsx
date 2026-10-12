@@ -38,6 +38,7 @@ import { pickRow, togglesSelection } from '../layout/pick-row'
 import { RenameField } from '../layout/RenameField'
 import { BROWSER_PANEL_ID } from '../layout/panel-ids'
 import { requestUi, useUiRequest } from '../layout/requests'
+import { originItem } from '../inspector/selection-values'
 import { useOverlayDismiss } from '../layout/use-overlay-dismiss'
 import type { AppState, OriginName, SelectionItem, SelectionItemKind } from '../state/store'
 import { COLOR_CLASSES, FONT_CLASSES } from '../theme/roles'
@@ -59,6 +60,28 @@ type RowKind =
   | 'datum'
   | 'parameter'
 
+/** The group that shows the row a rename names: bodies, sketches or datum planes; null for anything else. */
+function renameGroup(
+  key: string,
+  bodies: readonly Body[],
+  features: readonly FeatureRecord[],
+): GroupId | null {
+  if (key.startsWith('body:')) {
+    const id = key.slice('body:'.length)
+    return bodies.some((body) => body.id === id) ? 'bodies' : null
+  }
+  const id = key.startsWith('feature:') ? key.slice('feature:'.length) : null
+  const record = features.find((feature) => feature.id === id)
+  switch (record?.type) {
+    case 'sketch':
+      return 'sketches'
+    case 'datum_plane':
+      return 'construction'
+    default:
+      return null
+  }
+}
+
 const DEFAULT_EXPANDED: Readonly<Record<GroupId, boolean>> = {
   origin: false,
   bodies: true,
@@ -73,16 +96,15 @@ const sessionExpansion = new WeakMap<App, Record<GroupId, boolean>>()
 const ORIGIN_ROWS: readonly {
   readonly origin: OriginName
   readonly kind: 'origin_plane' | 'origin_axis' | 'origin_point'
-  readonly name: string
   readonly icon: LucideIcon
 }[] = [
-  { origin: 'XY', kind: 'origin_plane', name: 'XY plane', icon: Square },
-  { origin: 'XZ', kind: 'origin_plane', name: 'XZ plane', icon: Square },
-  { origin: 'YZ', kind: 'origin_plane', name: 'YZ plane', icon: Square },
-  { origin: 'X', kind: 'origin_axis', name: 'X axis', icon: MoveRight },
-  { origin: 'Y', kind: 'origin_axis', name: 'Y axis', icon: MoveRight },
-  { origin: 'Z', kind: 'origin_axis', name: 'Z axis', icon: MoveRight },
-  { origin: 'O', kind: 'origin_point', name: 'Origin', icon: Dot },
+  { origin: 'XY', kind: 'origin_plane', icon: Square },
+  { origin: 'XZ', kind: 'origin_plane', icon: Square },
+  { origin: 'YZ', kind: 'origin_plane', icon: Square },
+  { origin: 'X', kind: 'origin_axis', icon: MoveRight },
+  { origin: 'Y', kind: 'origin_axis', icon: MoveRight },
+  { origin: 'Z', kind: 'origin_axis', icon: MoveRight },
+  { origin: 'O', kind: 'origin_point', icon: Dot },
 ]
 
 function item(
@@ -338,18 +360,18 @@ function SessionEye({ itemKey, name }: { readonly itemKey: string; readonly name
 
 function OriginRows({ selected }: { readonly selected: ReadonlySet<string> }) {
   return ORIGIN_ROWS.map((row) => {
-    const key = `origin:${row.origin}`
+    const selection = originItem(row.origin)
     return (
       <Row
-        key={key}
+        key={selection.key}
         kind={row.kind}
         id={row.origin}
-        selection={item(key, row.kind, row.name, { origin: row.origin })}
-        selected={selected.has(key)}
+        selection={selection}
+        selected={selected.has(selection.key)}
         icon={rowIcon(row.icon)}
-        actions={<SessionEye itemKey={key} name={row.name} />}
+        actions={<SessionEye itemKey={selection.key} name={selection.label} />}
       >
-        <span className="truncate">{row.name}</span>
+        <span className="truncate">{selection.label}</span>
       </Row>
     )
   })
@@ -617,8 +639,11 @@ export function Browser() {
     if (request.where !== 'browser') {
       return false
     }
-    const group: GroupId = request.key.startsWith('body:') ? 'bodies' : 'sketches'
-    if (!expanded[group] && group === 'bodies') {
+    const group = renameGroup(request.key, bodies, features)
+    if (group === null) {
+      return false
+    }
+    if (!expanded[group]) {
       toggle(group)
     }
     setRenaming(request.key)

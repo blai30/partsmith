@@ -16,6 +16,8 @@ export type UiRequest =
   | { readonly kind: 'rename'; readonly key: string; readonly where: 'timeline' | 'browser' }
   /** Focus a parameter's expression in the Parameters panel (3.4). */
   | { readonly kind: 'parameter'; readonly id: string }
+  /** Scroll a feature's timeline item into view (3.4). */
+  | { readonly kind: 'reveal'; readonly feature: string }
 
 export type UiRequestKind = UiRequest['kind']
 

@@ -5,6 +5,7 @@ import { finishSketch, setSketchTool } from '../app/actions/sketch'
 import type { App } from '../app/createApp'
 import { buildInspectorModel } from '../inspector/model'
 import type { AppState } from '../state/store'
+import { isNarrowWindow } from './use-overlay-dismiss'
 
 // The Esc and Enter ladders (ui.md 3.5): what the two keys do when no focused control takes them.
 
@@ -84,7 +85,10 @@ export function useEscapeLadder(app: App): void {
       if (event.key !== 'Escape' || event.defaultPrevented || event.isComposing) {
         return
       }
-      if (layerOpenAtPress || app.store.getState().panels.paletteOpen) {
+      const { panels } = app.store.getState()
+      // An overlay panel in a narrow window closes on this press itself, whenever it registered.
+      const overlayOpen = isNarrowWindow() && (panels.browserOpen || panels.side !== null)
+      if (layerOpenAtPress || panels.paletteOpen || overlayOpen) {
         return
       }
       if (escapeStep(app)) {
@@ -113,6 +117,17 @@ export function commandComplete(state: AppState): boolean {
   )
 }
 
+/** The Enter ladder's last step (3.5): confirms the active feature command when it is complete. Returns whether it did. */
+export function confirmIfComplete(app: App): boolean {
+  if (!commandComplete(app.store.getState())) {
+    return false
+  }
+  confirmCommand(app).catch((error: unknown) => {
+    console.error('Confirming the command failed.', error)
+  })
+  return true
+}
+
 /** Whether Enter on the element belongs to the element itself (a button activates, a list opens). */
 function handlesOwnEnter(element: Element): boolean {
   return (
@@ -125,7 +140,8 @@ function handlesOwnEnter(element: Element): boolean {
 /**
  * The last step of the Enter ladder (3.5): with focus in the inspector (not on a button) or on the
  * viewport, Enter confirms the active feature command when it is complete. Inline editors and the
- * line tool take Enter first and prevent its default.
+ * line tool take Enter first and prevent its default; an inspector expression field confirms
+ * through `confirmIfComplete` itself, after its text is evaluated.
  */
 export function useEnterLadder(app: App): void {
   useEffect(() => {
@@ -148,13 +164,9 @@ export function useEnterLadder(app: App): void {
       const onViewport =
         target.getAttribute('role') === 'application' &&
         target.closest('[data-testid="viewport"]') !== null
-      if ((!inInspector && !onViewport) || !commandComplete(app.store.getState())) {
-        return
+      if ((inInspector || onViewport) && confirmIfComplete(app)) {
+        event.preventDefault()
       }
-      event.preventDefault()
-      confirmCommand(app).catch((error: unknown) => {
-        console.error('Confirming the command failed.', error)
-      })
     }
     window.addEventListener('keydown', onKeyDown)
     return () => {

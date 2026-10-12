@@ -151,6 +151,35 @@ describe('panels as overlays in narrow windows (3.2)', () => {
     expect(app.store.getState().panels.browserOpen).toBe(false)
   })
 
+  it('closes a browser opened after the app started on Esc before the selection clears', () => {
+    stubNarrowWindow()
+    const { app } = createModelApp({
+      state: readyState(cubeDocumentState(), {
+        selection: [bodyItem('b-cube', 'Cube')],
+        panels: {
+          browserOpen: false,
+          timelineCollapsed: false,
+          paletteOpen: false,
+          side: null,
+          inspectorPosition: null,
+        },
+      }),
+    })
+    renderWithApp(app)
+    expect(screen.queryByTestId('browser')).toBeNull()
+    act(() => {
+      app.store.setState((state) => ({
+        panels: { ...state.panels, browserOpen: true, side: null },
+      }))
+    })
+    expect(screen.getByTestId('browser')).toBeInTheDocument()
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(app.store.getState().panels.browserOpen).toBe(false)
+    expect(app.store.getState().selection).toHaveLength(1)
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(app.store.getState().selection).toEqual([])
+  })
+
   it('leaves the browser toggle to open and close the browser', () => {
     stubNarrowWindow()
     const { app } = renderWithPanels()

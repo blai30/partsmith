@@ -1,10 +1,11 @@
 import { act, cleanup, render, screen, within } from '@testing-library/react'
+import { Profiler } from 'react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it } from 'vitest'
 import { AppProvider } from '../app/AppProvider'
 import type { App } from '../app/createApp'
 import type { SketchConstraint } from '../generated/protocol'
-import { circleEntity, lineEntity, SKETCH_ID, solutionFor } from './fixtures.testing'
+import { circleEntity, lineEntity, SKETCH_ID, solutionFor, solvedSketch } from './fixtures.testing'
 import type { SketchToolId } from './session'
 import { SketchOverlay } from './SketchOverlay'
 import {
@@ -67,6 +68,44 @@ function setTool(app: App, tool: SketchToolId | null): void {
   })
 }
 
+/** A line along X to `end` with a satisfied horizontal c-1 and a reference length c-3 of `end`. */
+function referenceSolution(end: number) {
+  return solutionFor([lineEntity('e-1', [0, 0], [end, 0])], {
+    constraints: [
+      { id: 'c-1', state: 'satisfied' },
+      { id: 'c-3', state: 'satisfied', value: end },
+    ],
+  })
+}
+
+describe('SketchOverlay in sketch mode (3.2, 3.16.3)', () => {
+  it('holds the sketch header and the hint the controller gives for the active tool', async () => {
+    const harness = sketchHarness({ entities: [BASE] })
+    renderOverlay(harness, 'line')
+    await nextFrame()
+    expect(screen.getByTestId('sketch-header')).toHaveAttribute('data-state', 'full')
+    expect(screen.getByTestId('sketch-hint')).toHaveTextContent('Click to start a line.')
+  })
+
+  it('shows the plane picking header without an overlay while a plane is picked', () => {
+    const harness = sketchHarness({
+      state: {
+        sketch: {
+          sketchId: null,
+          tool: null,
+          construction: false,
+          showConstraints: true,
+          selection: [],
+          dragging: false,
+        },
+      },
+    })
+    renderOverlay(harness)
+    expect(screen.getByTestId('sketch-header')).toHaveAttribute('data-state', 'picking')
+    expect(screen.queryByTestId('sketch-overlay')).toBeNull()
+  })
+})
+
 describe('SketchOverlay annotations (3.16.2)', () => {
   it('renders nothing outside sketch mode', () => {
     const harness = sketchHarness({ state: { context: 'model' } })
@@ -86,8 +125,12 @@ describe('SketchOverlay annotations (3.16.2)', () => {
     expect(glyph).toHaveAttribute('data-type', 'horizontal')
     expect(glyph).toHaveAttribute('data-state', 'redundant')
     expect(glyph).toHaveAccessibleName('Horizontal')
-    expect(glyph).toHaveAttribute('data-positioned')
-    expect(glyph.getAttribute('style')).toMatch(/^translate: 592px 498px;?$/)
+    // The wrapper sits at the anchor; the glyph centers itself on it with translate classes.
+    const anchor = glyph.parentElement
+    expect(anchor).toHaveAttribute('data-positioned')
+    expect(anchor?.getAttribute('style')).toMatch(/^translate: 592px 498px;?$/)
+    expect(glyph).toHaveClass('-translate-x-1/2', '-translate-y-1/2')
+    expect(glyph).toBeVisible()
   })
 
   it('hides glyphs while "Show constraints" is off', () => {
@@ -117,9 +160,109 @@ describe('SketchOverlay annotations (3.16.2)', () => {
     expect(driving).toHaveAttribute('data-type', 'distance')
     expect(driving).toHaveAttribute('data-driving', 'true')
     expect(driving).toHaveAccessibleName('Distance 20')
-    expect(driving).toHaveAttribute('data-positioned')
+    expect(driving?.parentElement).toHaveAttribute('data-positioned')
     expect(measuring).toHaveTextContent('(20)')
     expect(measuring).toHaveAttribute('data-driving', 'false')
+  })
+
+  it('names a dimension label with its kind and its visible text (WCAG 2.5.3)', () => {
+    const circle = circleEntity('e-2', [30, 0], 5)
+    const diameter: SketchConstraint = { id: 'c-4', type: 'diameter', curve: 'e-2', expr: '10' }
+    const formula: SketchConstraint = { ...LENGTH, id: 'c-5', expr: 'width / 2', driving: false }
+    const harness = sketchHarness({
+      entities: [BASE, circle],
+      constraints: [diameter, formula],
+      solution: solutionFor([BASE, circle], {
+        constraints: [
+          { id: 'c-4', state: 'satisfied', value: 10 },
+          { id: 'c-5', state: 'satisfied', value: 20 },
+        ],
+      }),
+    })
+    renderOverlay(harness)
+    const [round, measured] = screen.getAllByTestId('sketch-dimension')
+    expect(round).toHaveAccessibleName('Diameter ⌀10')
+    expect(measured).toHaveAccessibleName('Distance (fx 20)')
+  })
+
+  it('a drag frame repaints label values and positions without rendering React again (ADR 0002)', async () => {
+    const reference: SketchConstraint = { ...LENGTH, id: 'c-3', driving: false }
+    const harness = sketchHarness({
+      entities: [BASE],
+      constraints: [HORIZONTAL, reference],
+      solution: referenceSolution(20),
+    })
+    harness.app.store.setState((state) =>
+      state.sketch === null ? {} : { sketch: { ...state.sketch, tool: null } },
+    )
+    view = mountView()
+    const container = document.createElement('div')
+    view.region.append(container)
+    let commits = 0
+    render(
+      <AppProvider app={harness.app}>
+        <Profiler
+          id="sketch"
+          onRender={() => {
+            commits += 1
+          }}
+        >
+          <SketchOverlay />
+        </Profiler>
+      </AppProvider>,
+      { container },
+    )
+    await nextFrame()
+    await nextFrame()
+    const label = screen.getByTestId('sketch-dimension')
+    expect(label).toHaveTextContent('(20)')
+    const before = commits
+    act(() => {
+      harness.app.store.setState((state) =>
+        state.document === null
+          ? {}
+          : {
+              document: {
+                ...state.document,
+                sketches: {
+                  ...state.document.sketches,
+                  [SKETCH_ID]: solvedSketch(referenceSolution(30)),
+                },
+              },
+            },
+      )
+    })
+    await nextFrame()
+    expect(commits).toBe(before)
+    expect(label).toHaveTextContent('(30)')
+    expect(screen.getByTestId('constraint-glyph').parentElement?.getAttribute('style')).toMatch(
+      /^translate: 632px 498px;?$/,
+    )
+  })
+
+  it('renders a glyph again when its solve state changes', async () => {
+    const harness = sketchHarness({ entities: [BASE], constraints: [HORIZONTAL] })
+    renderOverlay(harness)
+    expect(screen.getByTestId('constraint-glyph')).toHaveAttribute('data-state', 'satisfied')
+    act(() => {
+      harness.app.store.setState((state) =>
+        state.document === null
+          ? {}
+          : {
+              document: {
+                ...state.document,
+                sketches: {
+                  ...state.document.sketches,
+                  [SKETCH_ID]: solvedSketch(
+                    solutionFor([BASE], { constraints: [{ id: 'c-1', state: 'conflicting' }] }),
+                  ),
+                },
+              },
+            },
+      )
+    })
+    await nextFrame()
+    expect(screen.getByTestId('constraint-glyph')).toHaveAttribute('data-state', 'conflicting')
   })
 
   it('rings profile issues with their titles', () => {
@@ -229,6 +372,22 @@ describe('SketchOverlay drawing (3.16.4, 3.16.5)', () => {
     await user.keyboard('{Escape}')
     expect(width).toHaveValue('')
     expect(harness.app.store.getState().sketch?.tool).toBe('rectangle_2point')
+  })
+
+  it('shows why a typed value is not used on a visible chip under the inputs', async () => {
+    const harness = sketchHarness()
+    const canvas = renderOverlay(harness, 'line')
+    act(() => {
+      clickAt(canvas, [0, 0])
+      pointerAt(canvas, 'pointermove', [15, 0])
+    })
+    const user = userEvent.setup()
+    const length = screen.getByRole('textbox', { name: 'Length' })
+    await user.type(length, 'widht')
+    await act(settleCommits)
+    expect(length).toHaveAttribute('aria-invalid', 'true')
+    expect(length).toHaveAccessibleDescription("Unknown name 'widht'.")
+    expect(screen.getByText("Unknown name 'widht'.")).toBeVisible()
   })
 
   it('draws the rubber band dashed in construction mode', async () => {

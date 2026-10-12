@@ -1,5 +1,6 @@
 import { clsx } from 'clsx/lite'
 import {
+  memo,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -10,15 +11,22 @@ import {
   type MouseEvent,
   type RefObject,
 } from 'react'
+import { useShallow } from 'zustand/react/shallow'
 import { sketchParamsOf } from '../app/actions/sketch'
 import { useApp, useAppState } from '../app/AppProvider'
 import { CONSTRAINT_ICONS } from '../commands/icons'
-import type { SketchConstraint, SketchSolution, Units } from '../generated/protocol'
+import type { ConstraintSolveState, SketchConstraint, SketchSolution } from '../generated/protocol'
 import { useResolvedTheme } from '../layout/use-resolved-theme'
+import type { AppState } from '../state/store'
 import { COLOR_CLASSES, FONT_CLASSES, VIEWPORT_COLORS } from '../theme/roles'
 import { positionElement } from '../viewport/overlay'
-import { dimensionLabelText, hasGlyph, solvedValue } from './annotations'
-import { constraintTitle, isDimension, type ConstraintType } from './constraints'
+import { hasGlyph } from './annotations'
+import {
+  CONSTRAINT_TITLES,
+  DIMENSION_TITLES,
+  isDimension,
+  type ConstraintType,
+} from './constraints'
 import { DimensionEditor } from './DimensionEditor'
 import { DrawInputs } from './DrawInputs'
 import type { Vector2 } from './geometry'
@@ -29,18 +37,23 @@ import {
   type OverlayPaint,
   type SketchController,
 } from './session'
+import { SketchHeader } from './SketchHeader'
 
-// The sketch overlay (ui.md 3.12, 3.16): constraint glyphs, dimensions, profile issue rings, the
-// rubber band, inference glyphs, draw inputs, the dimension editor and the selection box over the
-// canvas. React renders the elements; the sketch controller writes their positions each frame.
+// Sketch mode over the view (ui.md 3.2, 3.12, 3.16): the sketch header and hint in the top-center
+// slot and, while a sketch is edited, its overlay: constraint glyphs, dimensions, profile issue
+// rings, the rubber band, inference glyphs, draw inputs, the dimension editor and the selection
+// box. React renders the elements; the sketch controller writes their positions and the dimension
+// values each frame, so a drag re-renders nothing (ADR 0002).
 
 type GlyphConstraint = Exclude<SketchConstraint, { expr: string }>
 type DimensionConstraint = Extract<SketchConstraint, { expr: string }>
+type ConstraintStates = Readonly<Record<string, ConstraintSolveState>>
 
-/** The elements the painter writes positions and path data into. */
+/** The elements the painter writes positions, path data and text into. */
 type OverlayElements = {
   readonly glyphs: ReadonlyMap<string, HTMLElement>
   readonly labels: ReadonlyMap<string, HTMLElement>
+  readonly labelTexts: ReadonlyMap<string, HTMLElement>
   readonly issues: ReadonlyMap<number, SVGCircleElement>
   readonly dimensionLines: SVGPathElement | null
   readonly dimensionArrows: SVGPathElement | null
@@ -50,11 +63,14 @@ type OverlayElements = {
   readonly box: SVGRectElement | null
   readonly inference: HTMLDivElement | null
   readonly drawInputs: HTMLFieldSetElement | null
-  readonly editor: HTMLFieldSetElement | null
-  readonly placing: HTMLSpanElement | null
+  readonly editor: HTMLDivElement | null
+  readonly placing: HTMLDivElement | null
 }
 
-/** Places an element with its top left at a canvas pixel, or hides it. */
+/**
+ * Places an element at a canvas pixel, or hides it. Elements centered on their anchor translate
+ * their content back by half its size with classes, so nothing is measured (3.12).
+ */
 function placeAt(element: HTMLElement | null, at: Vector2 | null): void {
   if (element === null) {
     return
@@ -67,33 +83,25 @@ function placeAt(element: HTMLElement | null, at: Vector2 | null): void {
   positionElement(element, at[0], at[1])
 }
 
-/** Places an element centered on a canvas pixel, or hides it. */
-function placeCentered(element: HTMLElement | null, at: Vector2 | null): void {
-  if (element === null) {
-    return
-  }
-  if (at === null) {
-    element.hidden = true
-    return
-  }
-  // Shown first, so its size can be measured.
-  element.hidden = false
-  positionElement(element, at[0] - element.offsetWidth / 2, at[1] - element.offsetHeight / 2)
-}
-
 function setAttribute(element: Element | null, name: string, value: string): void {
   if (element !== null && element.getAttribute(name) !== value) {
     element.setAttribute(name, value)
   }
 }
 
-/** Writes a frame's positions and path data into the overlay (3.12 runtime positions). */
+/** Writes a frame's positions, path data and dimension values into the overlay (3.12). */
 function paintOverlay(paint: OverlayPaint, elements: OverlayElements): void {
   for (const [id, element] of elements.glyphs) {
-    placeCentered(element, paint.glyphs.get(id) ?? null)
+    placeAt(element, paint.glyphs.get(id) ?? null)
   }
   for (const [id, element] of elements.labels) {
-    placeCentered(element, paint.labels.get(id) ?? null)
+    placeAt(element, paint.labels.get(id) ?? null)
+  }
+  for (const [id, element] of elements.labelTexts) {
+    const text = paint.labelTexts.get(id) ?? ''
+    if (element.textContent !== text) {
+      element.textContent = text
+    }
   }
   for (const [index, ring] of elements.issues) {
     const at = paint.issues[index] ?? null
@@ -117,8 +125,8 @@ function paintOverlay(paint: OverlayPaint, elements: OverlayElements): void {
   }
   placeAt(elements.inference, paint.inference)
   placeAt(elements.drawInputs, paint.drawInputs)
-  placeCentered(elements.editor, paint.editor)
-  placeCentered(elements.placing, paint.placing)
+  placeAt(elements.editor, paint.editor)
+  placeAt(elements.placing, paint.placing)
   // Empty draw inputs show the rubber band's measured values, written here and never by React.
   for (const input of elements.drawInputs?.querySelectorAll('input') ?? []) {
     const name = input.dataset['field']
@@ -140,12 +148,32 @@ function toggles(event: MouseEvent | KeyboardEvent): boolean {
   return event.shiftKey || event.ctrlKey || event.metaKey
 }
 
-/** The overlay of the sketch being edited; nothing outside sketch mode and while picking a plane. */
+/** The edited sketch's id: undefined outside sketch mode, null while picking a plane. */
+function selectEditedSketch(state: AppState): string | null | undefined {
+  return state.context === 'sketch' && state.sketch !== null ? state.sketch.sketchId : undefined
+}
+
+/** The solve state of each constraint by id. */
+function constraintStatesOf(solution: SketchSolution | undefined): ConstraintStates {
+  return Object.fromEntries((solution?.constraints ?? []).map((entry) => [entry.id, entry.state]))
+}
+
+/** The titles of the profile issue rings, in `issueRings` order. */
+function ringTitlesOf(solution: SketchSolution | undefined): readonly string[] {
+  return solution === undefined ? [] : issueRings(solution).map((ring) => ring.title)
+}
+
+/**
+ * Sketch mode over the view: the sketch header and hint while a plane is picked, and the sketch
+ * overlay with its controller while a sketch is edited; nothing outside sketch mode. It is the one
+ * sketch element the viewport holds.
+ */
 export function SketchOverlay() {
-  const sketchId = useAppState((state) =>
-    state.context === 'sketch' ? (state.sketch?.sketchId ?? null) : null,
-  )
-  return sketchId === null ? null : <SketchLayer key={sketchId} sketchId={sketchId} />
+  const sketchId = useAppState(selectEditedSketch)
+  if (sketchId === undefined) {
+    return null
+  }
+  return sketchId === null ? <SketchHeader /> : <SketchLayer key={sketchId} sketchId={sketchId} />
 }
 
 function SketchLayer({ sketchId }: { readonly sketchId: string }) {
@@ -156,11 +184,18 @@ function SketchLayer({ sketchId }: { readonly sketchId: string }) {
     controller?.subscribe ?? subscribeNothing,
     controller?.getModel ?? emptyModel,
   )
-  const solution = useAppState((state) => state.document?.sketches[sketchId]?.solution ?? null)
+  // Slices compared by value: a drag replaces the solution every frame, and only a changed
+  // constraint state or outline problem renders again.
+  const solved = useAppState((state) => state.document?.sketches[sketchId] !== undefined)
+  const states = useAppState(
+    useShallow((state) => constraintStatesOf(state.document?.sketches[sketchId]?.solution)),
+  )
+  const ringTitles = useAppState(
+    useShallow((state) => ringTitlesOf(state.document?.sketches[sketchId]?.solution)),
+  )
   const record = useAppState(
     (state) => state.document?.recipe.features?.find((feature) => feature.id === sketchId) ?? null,
   )
-  const units = useAppState((state) => state.document?.recipe.units ?? 'mm')
   const showConstraints = useAppState((state) => state.sketch?.showConstraints ?? true)
   const selection = useAppState((state) => state.sketch?.selection ?? null)
   const theme = useResolvedTheme()
@@ -186,11 +221,11 @@ function SketchLayer({ sketchId }: { readonly sketchId: string }) {
       ),
     [constraints],
   )
-  const rings = useMemo(() => (solution === null ? [] : issueRings(solution)), [solution])
   const selected = useMemo(() => new Set((selection ?? []).map((item) => item.key)), [selection])
 
   const glyphElements = useRef(new Map<string, HTMLElement>())
   const labelElements = useRef(new Map<string, HTMLElement>())
+  const labelTextElements = useRef(new Map<string, HTMLElement>())
   const issueElements = useRef(new Map<number, SVGCircleElement>())
   const dimensionLines = useRef<SVGPathElement>(null)
   const dimensionArrows = useRef<SVGPathElement>(null)
@@ -200,8 +235,8 @@ function SketchLayer({ sketchId }: { readonly sketchId: string }) {
   const box = useRef<SVGRectElement>(null)
   const inference = useRef<HTMLDivElement>(null)
   const drawInputs = useRef<HTMLFieldSetElement>(null)
-  const editor = useRef<HTMLFieldSetElement>(null)
-  const placing = useRef<HTMLSpanElement>(null)
+  const editor = useRef<HTMLDivElement>(null)
+  const placing = useRef<HTMLDivElement>(null)
 
   // The controller reads pointer input on the viewport's canvas, beside the viewport controller.
   useEffect(() => {
@@ -227,6 +262,7 @@ function SketchLayer({ sketchId }: { readonly sketchId: string }) {
       paintOverlay(paint, {
         glyphs: glyphElements.current,
         labels: labelElements.current,
+        labelTexts: labelTextElements.current,
         issues: issueElements.current,
         dimensionLines: dimensionLines.current,
         dimensionArrows: dimensionArrows.current,
@@ -251,141 +287,147 @@ function SketchLayer({ sketchId }: { readonly sketchId: string }) {
   })
 
   return (
-    <div
-      ref={layer}
-      data-testid="sketch-overlay"
-      className="pointer-events-none absolute inset-0 overflow-hidden"
-    >
-      <svg className="absolute inset-0 size-full overflow-visible">
-        <path
-          ref={dimensionLines}
-          aria-hidden="true"
-          fill="none"
-          stroke={colors.sketchReference}
-          strokeWidth={1}
-        />
-        <path ref={dimensionArrows} aria-hidden="true" fill={colors.sketchReference} />
-        <path
-          ref={highlight}
-          aria-hidden="true"
-          fill="none"
-          stroke={colors.highlight}
-          strokeWidth={2.5 * uiScale}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-        <path
-          ref={rubberBand}
-          aria-hidden="true"
-          data-testid="rubber-band"
-          fill="none"
-          stroke={colors.sketchUnder}
-          strokeWidth={1.5 * uiScale}
-          strokeDasharray={model.construction ? '6 4' : undefined}
-          strokeLinejoin="round"
-        />
-        <path
-          ref={markers}
-          aria-hidden="true"
-          fill="none"
-          stroke={colors.highlight}
-          strokeWidth={1.5 * uiScale}
-        />
-        {rings.map((ring, index) => (
-          <circle
-            // Rings follow the solution's findings, which have no ids (sketch.md 3.13.7).
-            // oxlint-disable-next-line react/no-array-index-key
-            key={index}
-            ref={(element) => {
-              if (element === null) {
-                return undefined
-              }
-              issueElements.current.set(index, element)
-              return () => {
-                issueElements.current.delete(index)
-              }
-            }}
-            data-testid="profile-issue"
-            r={6}
+    <>
+      <SketchHeader hint={model.hint} freePlacement={model.freePlacement} />
+      <div
+        ref={layer}
+        data-testid="sketch-overlay"
+        className="pointer-events-none absolute inset-0 overflow-hidden"
+      >
+        <svg className="absolute inset-0 size-full overflow-visible">
+          <path
+            ref={dimensionLines}
+            aria-hidden="true"
             fill="none"
-            strokeWidth={1.5}
-            visibility="hidden"
-            className={COLOR_CLASSES.errorMark.stroke}
-          >
-            <title>{ring.title}</title>
-          </circle>
-        ))}
-        {model.box === null ? null : (
-          <rect
-            ref={box}
-            data-testid="box-selection"
-            data-mode={model.box}
-            fill="none"
+            stroke={colors.sketchReference}
             strokeWidth={1}
-            strokeDasharray={model.box === 'crossing' ? '4 3' : undefined}
-            className={COLOR_CLASSES.accent.stroke}
+          />
+          <path ref={dimensionArrows} aria-hidden="true" fill={colors.sketchReference} />
+          <path
+            ref={highlight}
+            aria-hidden="true"
+            fill="none"
+            stroke={colors.highlight}
+            strokeWidth={2.5 * uiScale}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+          <path
+            ref={rubberBand}
+            aria-hidden="true"
+            data-testid="rubber-band"
+            fill="none"
+            stroke={colors.sketchUnder}
+            strokeWidth={1.5 * uiScale}
+            strokeDasharray={model.construction ? '6 4' : undefined}
+            strokeLinejoin="round"
+          />
+          <path
+            ref={markers}
+            aria-hidden="true"
+            fill="none"
+            stroke={colors.highlight}
+            strokeWidth={1.5 * uiScale}
+          />
+          {ringTitles.map((title, index) => (
+            <circle
+              // Rings follow the solution's findings, which have no ids (sketch.md 3.13.7).
+              // oxlint-disable-next-line react/no-array-index-key
+              key={index}
+              ref={(element) => {
+                if (element === null) {
+                  return undefined
+                }
+                issueElements.current.set(index, element)
+                return () => {
+                  issueElements.current.delete(index)
+                }
+              }}
+              data-testid="profile-issue"
+              r={6}
+              fill="none"
+              strokeWidth={1.5}
+              visibility="hidden"
+              className={COLOR_CLASSES.errorMark.stroke}
+            >
+              <title>{title}</title>
+            </circle>
+          ))}
+          {model.box === null ? null : (
+            <rect
+              ref={box}
+              data-testid="box-selection"
+              data-mode={model.box}
+              fill="none"
+              strokeWidth={1}
+              strokeDasharray={model.box === 'crossing' ? '4 3' : undefined}
+              className={COLOR_CLASSES.accent.stroke}
+            />
+          )}
+        </svg>
+        {showConstraints && solved
+          ? glyphConstraints.map((constraint) => (
+              <ConstraintGlyph
+                key={constraint.id}
+                constraint={constraint}
+                state={states[constraint.id] ?? 'satisfied'}
+                selected={selected.has(`constraint:${sketchId}:${constraint.id}`)}
+                controller={controller}
+                elements={glyphElements}
+              />
+            ))
+          : null}
+        {solved
+          ? dimensions.map((constraint) => (
+              <DimensionLabel
+                key={constraint.id}
+                constraint={constraint}
+                state={states[constraint.id] ?? 'satisfied'}
+                selected={selected.has(`constraint:${sketchId}:${constraint.id}`)}
+                controller={controller}
+                elements={labelElements}
+                texts={labelTextElements}
+              />
+            ))
+          : null}
+        {model.placing === null ? null : (
+          <div ref={placing} hidden className="absolute top-0 left-0">
+            <span
+              className={clsx(
+                'block -translate-x-1/2 -translate-y-1/2 rounded-sm px-1 text-xs whitespace-nowrap opacity-90',
+                FONT_CLASSES.values,
+                COLOR_CLASSES.surfaceRaised.background,
+                COLOR_CLASSES.text.foreground,
+              )}
+            >
+              {model.placing}
+            </span>
+          </div>
+        )}
+        {model.inference.length === 0 ? null : (
+          <div ref={inference} className="absolute top-0 left-0 flex gap-1">
+            {model.inference.map((type, index) => (
+              // Glyphs are listed snap first, then direction; a type can appear once per role.
+              // oxlint-disable-next-line react/no-array-index-key
+              <InferenceGlyph key={index} type={type} />
+            ))}
+          </div>
+        )}
+        {controller === null || model.drawInputs.length === 0 ? null : (
+          <DrawInputs
+            ref={drawInputs}
+            controller={controller}
+            inputs={model.drawInputs}
+            focusRequest={model.focusRequest}
           />
         )}
-      </svg>
-      {showConstraints && solution !== null
-        ? glyphConstraints.map((constraint) => (
-            <ConstraintGlyph
-              key={constraint.id}
-              constraint={constraint}
-              solution={solution}
-              selected={selected.has(`constraint:${sketchId}:${constraint.id}`)}
-              controller={controller}
-              elements={glyphElements}
-            />
-          ))
-        : null}
-      {solution === null
-        ? null
-        : dimensions.map((constraint) => (
-            <DimensionLabel
-              key={constraint.id}
-              constraint={constraint}
-              solution={solution}
-              units={units}
-              selected={selected.has(`constraint:${sketchId}:${constraint.id}`)}
-              controller={controller}
-              elements={labelElements}
-            />
-          ))}
-      {model.placing === null ? null : (
-        <span
-          ref={placing}
-          className={clsx(
-            'absolute top-0 left-0 rounded-sm px-1 text-xs whitespace-nowrap opacity-90',
-            FONT_CLASSES.values,
-            COLOR_CLASSES.surfaceRaised.background,
-            COLOR_CLASSES.text.foreground,
-          )}
-        >
-          {model.placing}
-        </span>
-      )}
-      {model.inference.length === 0 ? null : (
-        <div ref={inference} className="absolute top-0 left-0 flex gap-1">
-          {model.inference.map((type, index) => (
-            // Glyphs are listed snap first, then direction; a type can appear once per role.
-            // oxlint-disable-next-line react/no-array-index-key
-            <InferenceGlyph key={index} type={type} />
-          ))}
-        </div>
-      )}
-      {controller === null || model.drawInputs.length === 0 ? null : (
-        <DrawInputs
-          ref={drawInputs}
-          controller={controller}
-          inputs={model.drawInputs}
-          focusRequest={model.focusRequest}
-        />
-      )}
-      {controller === null || model.editor === null ? null : (
-        <DimensionEditor ref={editor} controller={controller} editor={model.editor} />
-      )}
-    </div>
+        {controller === null || model.editor === null ? null : (
+          <div ref={editor} hidden className="absolute top-0 left-0">
+            <DimensionEditor controller={controller} editor={model.editor} />
+          </div>
+        )}
+      </div>
+    </>
   )
 }
 
@@ -425,126 +467,136 @@ function register(
 
 type GlyphProps = {
   readonly constraint: GlyphConstraint
-  readonly solution: SketchSolution
+  readonly state: ConstraintSolveState
   readonly selected: boolean
   readonly controller: SketchController | null
   readonly elements: RefObject<Map<string, HTMLElement>>
 }
 
-/** A constraint glyph (3.16.2): a chip with the constraint's icon in its solve state. */
-function ConstraintGlyph({ constraint, solution, selected, controller, elements }: GlyphProps) {
-  const Icon = CONSTRAINT_ICONS[constraint.type]
-  const state =
-    solution.constraints.find((entry) => entry.id === constraint.id)?.state ?? 'satisfied'
-  const title = constraintTitle(constraint, solution, 'mm')
-  return (
-    <button
-      ref={register(elements, constraint.id)}
-      type="button"
-      data-testid="constraint-glyph"
-      data-constraint-id={constraint.id}
-      data-type={constraint.type}
-      data-state={state}
-      aria-label={title}
-      aria-pressed={selected}
-      onClick={(event) => {
-        controller?.selectConstraint(constraint.id, toggles(event))
-      }}
-      onPointerEnter={() => {
-        controller?.hoverConstraint(constraint.id)
-      }}
-      onPointerLeave={() => {
-        controller?.hoverConstraint(null)
-      }}
-      onFocus={() => {
-        controller?.hoverConstraint(constraint.id)
-      }}
-      onBlur={() => {
-        controller?.hoverConstraint(null)
-      }}
-      className={clsx(
-        'pointer-events-auto absolute top-0 left-0 flex size-4.5 items-center justify-center rounded-sm border',
-        COLOR_CLASSES.focusRing.outline,
-        selected ? COLOR_CLASSES.accent.border : COLOR_CLASSES.border.border,
-        (state === 'satisfied' || state === 'unsatisfied') && 'opacity-90',
-        (state === 'satisfied' || state === 'unsatisfied') &&
-          COLOR_CLASSES.surfaceRaised.background,
-        (state === 'satisfied' || state === 'unsatisfied') && COLOR_CLASSES.textMuted.foreground,
-        state === 'redundant' && COLOR_CLASSES.warningFill.background,
-        state === 'redundant' && COLOR_CLASSES.warningFill.foreground,
-        state === 'conflicting' && COLOR_CLASSES.errorFill.background,
-        state === 'conflicting' && COLOR_CLASSES.errorFill.foreground,
-      )}
-    >
-      <Icon aria-hidden="true" strokeWidth={1.75} className="size-3.5" />
-    </button>
-  )
-}
-
-type LabelProps = {
-  readonly constraint: DimensionConstraint
-  readonly solution: SketchSolution
-  readonly units: Units
-  readonly selected: boolean
-  readonly controller: SketchController | null
-  readonly elements: RefObject<Map<string, HTMLElement>>
-}
-
-/** A dimension's label (3.16.2): its solved value; double-click or Enter edits it. */
-function DimensionLabel({
+/**
+ * A constraint glyph (3.16.2): a chip with the constraint's icon in its solve state, centered on
+ * the position the painter gives its wrapper.
+ */
+const ConstraintGlyph = memo(function ConstraintGlyph({
   constraint,
-  solution,
-  units,
+  state,
   selected,
   controller,
   elements,
+}: GlyphProps) {
+  const Icon = CONSTRAINT_ICONS[constraint.type]
+  const muted = state === 'satisfied' || state === 'unsatisfied'
+  return (
+    <div ref={register(elements, constraint.id)} hidden className="absolute top-0 left-0">
+      <button
+        type="button"
+        data-testid="constraint-glyph"
+        data-constraint-id={constraint.id}
+        data-type={constraint.type}
+        data-state={state}
+        aria-label={CONSTRAINT_TITLES[constraint.type]}
+        aria-pressed={selected}
+        onClick={(event) => {
+          controller?.selectConstraint(constraint.id, toggles(event))
+        }}
+        onPointerEnter={() => {
+          controller?.hoverConstraint(constraint.id)
+        }}
+        onPointerLeave={() => {
+          controller?.hoverConstraint(null)
+        }}
+        onFocus={() => {
+          controller?.hoverConstraint(constraint.id)
+        }}
+        onBlur={() => {
+          controller?.hoverConstraint(null)
+        }}
+        className={clsx(
+          'pointer-events-auto flex size-4.5 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-sm border',
+          COLOR_CLASSES.focusRing.outline,
+          selected ? COLOR_CLASSES.accent.border : COLOR_CLASSES.border.border,
+          muted && 'opacity-90',
+          muted && COLOR_CLASSES.surfaceRaised.background,
+          muted && COLOR_CLASSES.textMuted.foreground,
+          state === 'redundant' && COLOR_CLASSES.warningFill.background,
+          state === 'redundant' && COLOR_CLASSES.warningFill.foreground,
+          state === 'conflicting' && COLOR_CLASSES.errorFill.background,
+          state === 'conflicting' && COLOR_CLASSES.errorFill.foreground,
+        )}
+      >
+        <Icon aria-hidden="true" strokeWidth={1.75} className="size-3.5" />
+      </button>
+    </div>
+  )
+})
+
+type LabelProps = {
+  readonly constraint: DimensionConstraint
+  readonly state: ConstraintSolveState
+  readonly selected: boolean
+  readonly controller: SketchController | null
+  readonly elements: RefObject<Map<string, HTMLElement>>
+  readonly texts: RefObject<Map<string, HTMLElement>>
+}
+
+/**
+ * A dimension's label (3.16.2): its solved value, which the painter writes because a drag changes
+ * it every frame; the accessible name is the dimension's kind followed by that text, so it holds
+ * the visible label. Double-click or Enter edits it.
+ */
+const DimensionLabel = memo(function DimensionLabel({
+  constraint,
+  state,
+  selected,
+  controller,
+  elements,
+  texts,
 }: LabelProps) {
-  const state = solution.constraints.find((entry) => entry.id === constraint.id)?.state
-  const text = dimensionLabelText(constraint, solvedValue(constraint, solution), units)
   const plain = state !== 'conflicting' && state !== 'redundant'
   return (
-    <button
-      ref={register(elements, constraint.id)}
-      type="button"
-      data-testid="sketch-dimension"
-      data-constraint-id={constraint.id}
-      data-type={constraint.type}
-      data-driving={String(constraint.driving !== false)}
-      aria-label={constraintTitle(constraint, solution, units)}
-      aria-pressed={selected}
-      onClick={(event) => {
-        controller?.selectConstraint(constraint.id, toggles(event))
-      }}
-      onDoubleClick={() => {
-        controller?.editDimension(constraint.id)
-      }}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter') {
-          event.preventDefault()
+    <div ref={register(elements, constraint.id)} hidden className="absolute top-0 left-0">
+      <button
+        type="button"
+        data-testid="sketch-dimension"
+        data-constraint-id={constraint.id}
+        data-type={constraint.type}
+        data-driving={String(constraint.driving !== false)}
+        aria-pressed={selected}
+        onClick={(event) => {
+          controller?.selectConstraint(constraint.id, toggles(event))
+        }}
+        onDoubleClick={() => {
           controller?.editDimension(constraint.id)
-        }
-      }}
-      onPointerEnter={() => {
-        controller?.hoverConstraint(constraint.id)
-      }}
-      onPointerLeave={() => {
-        controller?.hoverConstraint(null)
-      }}
-      className={clsx(
-        'pointer-events-auto absolute top-0 left-0 rounded-sm border px-1 text-xs whitespace-nowrap',
-        FONT_CLASSES.values,
-        COLOR_CLASSES.focusRing.outline,
-        selected ? COLOR_CLASSES.accent.border : 'border-transparent',
-        plain && 'opacity-90',
-        plain && COLOR_CLASSES.surfaceRaised.background,
-        plain && COLOR_CLASSES.text.foreground,
-        state === 'redundant' && COLOR_CLASSES.warningFill.background,
-        state === 'redundant' && COLOR_CLASSES.warningFill.foreground,
-        state === 'conflicting' && COLOR_CLASSES.errorFill.background,
-        state === 'conflicting' && COLOR_CLASSES.errorFill.foreground,
-      )}
-    >
-      {text}
-    </button>
+        }}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') {
+            event.preventDefault()
+            controller?.editDimension(constraint.id)
+          }
+        }}
+        onPointerEnter={() => {
+          controller?.hoverConstraint(constraint.id)
+        }}
+        onPointerLeave={() => {
+          controller?.hoverConstraint(null)
+        }}
+        className={clsx(
+          'pointer-events-auto block -translate-x-1/2 -translate-y-1/2 rounded-sm border px-1 text-xs whitespace-nowrap',
+          FONT_CLASSES.values,
+          COLOR_CLASSES.focusRing.outline,
+          selected ? COLOR_CLASSES.accent.border : 'border-transparent',
+          plain && 'opacity-90',
+          plain && COLOR_CLASSES.surfaceRaised.background,
+          plain && COLOR_CLASSES.text.foreground,
+          state === 'redundant' && COLOR_CLASSES.warningFill.background,
+          state === 'redundant' && COLOR_CLASSES.warningFill.foreground,
+          state === 'conflicting' && COLOR_CLASSES.errorFill.background,
+          state === 'conflicting' && COLOR_CLASSES.errorFill.foreground,
+        )}
+      >
+        <span className="sr-only">{DIMENSION_TITLES[constraint.type]}</span>{' '}
+        <span ref={register(texts, constraint.id)} />
+      </button>
+    </div>
   )
-}
+})

@@ -1,7 +1,8 @@
-import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { installShortcutDispatcher } from '../commands/dispatcher'
+import { paletteItems } from '../commands/palette'
 import { installPopoverPolyfill } from '../components/popover-polyfill.testing'
 import type { Document, FeatureStatus } from '../generated/protocol'
 import {
@@ -196,6 +197,23 @@ describe('timeline items (3.9)', () => {
     expect(
       carriers.some((element) => background.every((name) => element.classList.contains(name))),
     ).toBe(true)
+  })
+})
+
+describe('scrolling (3.4, 3.9)', () => {
+  it('scrolls a feature chosen in the palette into view and selects it', () => {
+    const { app } = renderTimeline()
+    const strip = within(screen.getByTestId('timeline')).getByRole('toolbar', { name: 'Features' })
+    Object.defineProperty(strip, 'clientWidth', { value: 100 })
+    const target = item('f-ext1')
+    Object.defineProperty(target, 'offsetLeft', { value: 400 })
+    Object.defineProperty(target, 'offsetWidth', { value: 40 })
+    const option = paletteItems(app, []).find((entry) => entry.id === 'feature:f-ext1')
+    act(() => {
+      option?.run()
+    })
+    expect(app.store.getState().selection.map((entry) => entry.key)).toEqual(['feature:f-ext1'])
+    expect(strip.scrollLeft).toBe(340)
   })
 })
 

@@ -1,4 +1,4 @@
-import type { Diagnostic } from '../generated/protocol'
+import type { Diagnostic, FeatureRecord } from '../generated/protocol'
 
 // Mapping a feature status message to the inspector field it is about (ui.md 3.7): a hint path
 // `a.b[1]` is the JSON pointer `/a/b/1`; a message's `field` maps to the field whose pointer equals
@@ -40,4 +40,58 @@ export function messagesByField(
     }
   }
   return byField
+}
+
+/** A JSON pointer's reference tokens (RFC 6901), or null for a pointer that does not start with `/`. */
+function pointerTokens(pointer: string): string[] | null {
+  if (!pointer.startsWith('/')) {
+    return null
+  }
+  return pointer
+    .slice(1)
+    .split('/')
+    .map((token) => token.replaceAll('~1', '/').replaceAll('~0', '~'))
+}
+
+/** A copy of a value with the value at the tokens replaced, or null when the path is not in it. */
+function replacedAt(value: unknown, tokens: readonly string[], replacement: unknown): unknown {
+  const [token, ...rest] = tokens
+  if (token === undefined) {
+    return replacement
+  }
+  if (Array.isArray(value)) {
+    const index = /^\d+$/.test(token) ? Number(token) : -1
+    if (index < 0 || index >= value.length) {
+      return null
+    }
+    const inner = replacedAt(value[index], rest, replacement)
+    return inner === null
+      ? null
+      : value.map((entry, position) => (position === index ? inner : entry))
+  }
+  if (typeof value !== 'object' || value === null || (rest.length > 0 && !(token in value))) {
+    return null
+  }
+  const inner = replacedAt(Reflect.get(value, token), rest, replacement)
+  return inner === null ? null : { ...value, [token]: inner }
+}
+
+/**
+ * The record a status message's suggestion makes at rest (4.2): the value at its `field` replaced
+ * by its `suggestion`; null when the message has no suggestion or its field is not in the record.
+ */
+export function suggestedRecord(record: FeatureRecord, message: Diagnostic): FeatureRecord | null {
+  const suggestion = message.suggestion ?? null
+  const pointer = message.field ?? null
+  const tokens = pointer === null ? null : pointerTokens(pointer)
+  const [first, ...rest] = tokens ?? []
+  // The record's own id and type are not params.
+  if (suggestion === null || first === undefined || first === 'id' || first === 'type') {
+    return null
+  }
+  if (rest.length > 0 && !(first in record)) {
+    return null
+  }
+  const inner = replacedAt(record[first], rest, suggestion)
+  return inner === null ? null : { ...record, [first]: inner }
 }

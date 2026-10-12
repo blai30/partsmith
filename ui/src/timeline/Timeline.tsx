@@ -349,6 +349,17 @@ function Strip() {
     return true
   })
 
+  // A feature chosen in the palette scrolls into view (3.4); a strip that is not shown drops it.
+  useUiRequest(app, 'reveal', (request) => {
+    const element = strip.current
+    const target =
+      element?.querySelector<HTMLElement>(`[data-feature-id="${request.feature}"]`) ?? null
+    if (element !== null && target !== null) {
+      keepInViewHorizontally(element, target)
+    }
+    return true
+  })
+
   // One item, or the marker, keeps the strip's tab stop (3.24).
   useLayoutEffect(() => {
     const element = strip.current
