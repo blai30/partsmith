@@ -722,9 +722,18 @@ mod tests {
 
         let python = Extrude::python(&params, &names).expect("a dedicated form");
 
+        // The call is longer than 88 characters on one line, so it takes one argument per line.
         assert_eq!(
             python.render(0),
-            r#"extrude(sketch_1, 4, regions=[Region("e-1,e-2,e-3,e-4", "c=40,25|a=4000")], symmetric=True)"#
+            [
+                "extrude(",
+                "    sketch_1,",
+                "    4,",
+                r#"    regions=[Region("e-1,e-2,e-3,e-4", "c=40,25|a=4000")],"#,
+                "    symmetric=True,",
+                ")",
+            ]
+            .join("\n")
         );
     }
 }

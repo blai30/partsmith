@@ -4,9 +4,9 @@
 mod common;
 
 use common::{
-    Harness, assert_bounds, assert_volume, bodies, datum_height, document, document_json,
-    error_code, final_state, load, message_texts, owned, parameter, parameter_value, reused,
-    status, test_datum, with_action,
+    Harness, assert_absolute, assert_bounding_box, assert_volume, bodies, datum_height, document,
+    document_json, error_code, final_state, load, message_texts, owned, parameter,
+    parameter_value, reused, shape, status, test_datum, with_action,
 };
 use partsmith_model::{Expr, ExprErrorKind, Quantity};
 use serde_json::json;
@@ -20,7 +20,6 @@ fn parse_error(source: &str) -> partsmith_model::ExprError {
 }
 
 #[test]
-#[ignore = "needs built-in box"]
 fn t031_context_values_drive_expressions_and_cache_keys() {
     let mut harness = Harness::builtins();
     let document = document(json!({
@@ -46,16 +45,12 @@ fn t031_context_values_drive_expressions_and_cache_keys() {
     harness.context.clear();
     let missing = harness.run(&document);
 
-    assert_volume(final_state(&first, "b-1"), 2000.0);
-    assert_bounds(
-        final_state(&first, "b-1"),
-        [-10.0, -5.0, 0.0],
-        [10.0, 5.0, 10.0],
-    );
+    assert_volume(shape(final_state(&first, "b-1")), 2000.0);
+    assert_bounding_box(shape(final_state(&first, "b-1")), [-10.0, -5.0, 0.0], [10.0, 5.0, 10.0]);
     assert!(reused(&second).is_empty());
-    assert_volume(final_state(&second, "b-1"), 3000.0);
+    assert_volume(shape(final_state(&second, "b-1")), 3000.0);
     assert_eq!(reused(&third), owned(&["f-box1"]));
-    assert_volume(final_state(&third, "b-1"), 2000.0);
+    assert_volume(shape(final_state(&third, "b-1")), 2000.0);
     assert_eq!(error_code(&missing, "f-box1"), "expression");
     assert_eq!(
         message_texts(&missing, "f-box1"),
@@ -66,7 +61,6 @@ fn t031_context_values_drive_expressions_and_cache_keys() {
 }
 
 #[test]
-#[ignore = "needs built-in box"]
 fn t032_a_units_change_rebuilds_only_features_with_bare_numbers() {
     let mut harness = Harness::builtins();
     let mut document = document_json(json!({
@@ -86,7 +80,6 @@ fn t032_a_units_change_rebuilds_only_features_with_bare_numbers() {
 }
 
 #[test]
-#[ignore = "needs built-in box"]
 fn t033_a_parameter_that_does_not_parse_reports_its_error() {
     let mut harness = Harness::builtins();
     let document = document(json!({
@@ -121,19 +114,9 @@ fn context_values_reach_feature_expressions() {
         .insert("printer.fit.slip".to_string(), Quantity::length(0.2));
     let third = harness.run(&document);
 
-    common::assert_close(
-        datum_height(&first, "f-d1"),
-        20.0,
-        1e-9,
-        "height with 0.2 mm",
-    );
+    assert_absolute("height with 0.2 mm", datum_height(&first, "f-d1"), 20.0, 1e-9);
     assert!(reused(&second).is_empty());
-    common::assert_close(
-        datum_height(&second, "f-d1"),
-        30.0,
-        1e-9,
-        "height with 0.3 mm",
-    );
+    assert_absolute("height with 0.3 mm", datum_height(&second, "f-d1"), 30.0, 1e-9);
     assert_eq!(reused(&third), owned(&["f-d1"]));
 }
 
@@ -165,18 +148,8 @@ fn bare_numbers_take_the_document_units() {
 
     let report = harness.run(&document);
 
-    common::assert_close(
-        datum_height(&report, "f-d1"),
-        50.8,
-        1e-9,
-        "bare 2 in an inch document",
-    );
-    common::assert_close(
-        datum_height(&report, "f-d2"),
-        2.0,
-        1e-9,
-        "2 mm in an inch document",
-    );
+    assert_absolute("bare 2 in an inch document", datum_height(&report, "f-d1"), 50.8, 1e-9);
+    assert_absolute("2 mm in an inch document", datum_height(&report, "f-d2"), 2.0, 1e-9);
 }
 
 #[test]
@@ -193,8 +166,8 @@ fn a_units_change_rebuilds_only_features_whose_values_change() {
 
     assert_eq!(with_action(&plan, "build"), owned(&["f-d1"]));
     assert_eq!(with_action(&plan, "reuse"), owned(&["f-d2"]));
-    common::assert_close(datum_height(&report, "f-d1"), 254.0, 1e-9, "f-d1 height");
-    common::assert_close(datum_height(&report, "f-d2"), 10.0, 1e-9, "f-d2 height");
+    assert_absolute("f-d1 height", datum_height(&report, "f-d1"), 254.0, 1e-9);
+    assert_absolute("f-d2 height", datum_height(&report, "f-d2"), 10.0, 1e-9);
 }
 
 #[test]

@@ -5,9 +5,9 @@
 mod common;
 
 use common::{
-    Harness, all_element_names, assert_bounds, assert_volume, bodies, document, error_code,
-    face_count, feature, final_state, first_message, message_texts, owned, solid_count,
-    state_before, status, suppressed, warning_codes,
+    Harness, all_element_names, assert_bounding_box, assert_solid_count, assert_volume, bodies,
+    document, error_code, face_count, feature, final_state, first_message, message_texts, owned,
+    shape, state_before, status, suppressed, warning_codes,
 };
 use partsmith_model::Document;
 use serde_json::{Value, json};
@@ -36,7 +36,6 @@ fn cube_then(second: Value) -> Document {
 }
 
 #[test]
-#[ignore = "needs built-in box"]
 fn t001_op_new_needs_an_empty_body() {
     let mut harness = Harness::builtins();
     let document = cube_then(box_record("f-box2", "b-1", ["10", "10", "10"], None, "new"));
@@ -45,11 +44,10 @@ fn t001_op_new_needs_an_empty_body() {
 
     assert_eq!(status(&report, "f-box1"), "ok");
     assert_eq!(error_code(&report, "f-box2"), "body_not_empty");
-    assert_volume(final_state(&report, "b-1"), 1000.0);
+    assert_volume(shape(final_state(&report, "b-1")), 1000.0);
 }
 
 #[test]
-#[ignore = "needs built-in box"]
 fn t002_op_join_needs_a_solid() {
     let mut harness = Harness::builtins();
     let document = document(json!({
@@ -68,7 +66,6 @@ fn t002_op_join_needs_a_solid() {
 }
 
 #[test]
-#[ignore = "needs built-in box"]
 fn t003_a_cut_that_removes_everything_is_an_error() {
     let mut harness = Harness::builtins();
     let document = cube_then(box_record(
@@ -88,12 +85,11 @@ fn t003_a_cut_that_removes_everything_is_an_error() {
             "This cut removes all of body 'Body 1'. Make the cut smaller, or change its position or direction."
         ])
     );
-    assert_volume(final_state(&report, "b-1"), 1000.0);
+    assert_volume(shape(final_state(&report, "b-1")), 1000.0);
     assert_eq!(face_count(final_state(&report, "b-1")), 6);
 }
 
 #[test]
-#[ignore = "needs built-in box"]
 fn t004_an_intersection_without_overlap_is_an_error() {
     let mut harness = Harness::builtins();
     let document = cube_then(box_record(
@@ -113,11 +109,10 @@ fn t004_an_intersection_without_overlap_is_an_error() {
             "The shapes do not overlap body 'Body 1', so the intersection is empty. Move them so they overlap the body."
         ])
     );
-    assert_volume(final_state(&report, "b-1"), 1000.0);
+    assert_volume(shape(final_state(&report, "b-1")), 1000.0);
 }
 
 #[test]
-#[ignore = "needs built-in box"]
 fn t005_a_cut_that_misses_warns_and_keeps_the_body_exactly() {
     let mut harness = Harness::builtins();
     let document = cube_then(box_record(
@@ -133,7 +128,7 @@ fn t005_a_cut_that_misses_warns_and_keeps_the_body_exactly() {
     assert_eq!(status(&report, "f-box2"), "warning");
     assert_eq!(warning_codes(&report, "f-box2"), vec!["no_effect"]);
     let after = final_state(&report, "b-1");
-    assert_volume(after, 1000.0);
+    assert_volume(shape(after), 1000.0);
     assert_eq!(face_count(after), 6);
     assert_eq!(
         all_element_names(after),
@@ -142,7 +137,6 @@ fn t005_a_cut_that_misses_warns_and_keeps_the_body_exactly() {
 }
 
 #[test]
-#[ignore = "needs built-in box"]
 fn t006_a_join_inside_the_body_warns() {
     let mut harness = Harness::builtins();
     let document = cube_then(box_record(
@@ -157,12 +151,11 @@ fn t006_a_join_inside_the_body_warns() {
 
     assert_eq!(status(&report, "f-box2"), "warning");
     assert_eq!(warning_codes(&report, "f-box2"), vec!["no_effect"]);
-    assert_volume(final_state(&report, "b-1"), 1000.0);
+    assert_volume(shape(final_state(&report, "b-1")), 1000.0);
     assert_eq!(face_count(final_state(&report, "b-1")), 6);
 }
 
 #[test]
-#[ignore = "needs built-in box"]
 fn t007_a_disjoint_join_makes_a_body_of_two_solids() {
     let mut harness = Harness::builtins();
     let document = cube_then(box_record(
@@ -177,14 +170,13 @@ fn t007_a_disjoint_join_makes_a_body_of_two_solids() {
 
     assert_eq!(status(&report, "f-box2"), "ok");
     let after = final_state(&report, "b-1");
-    assert_volume(after, 2000.0);
+    assert_volume(shape(after), 2000.0);
     assert_eq!(face_count(after), 12);
-    assert_eq!(solid_count(after), 2);
-    assert_bounds(after, [-5.0, -5.0, 0.0], [25.0, 5.0, 10.0]);
+    assert_solid_count(shape(after), 2);
+    assert_bounding_box(shape(after), [-5.0, -5.0, 0.0], [25.0, 5.0, 10.0]);
 }
 
 #[test]
-#[ignore = "needs built-in box, boolean"]
 fn t008_a_consumed_tool_body_can_be_started_again() {
     let mut harness = Harness::builtins();
     let document = document(json!({
@@ -202,12 +194,11 @@ fn t008_a_consumed_tool_body_can_be_started_again() {
     for feature_id in ["f-box1", "f-box2", "f-bool1", "f-box3"] {
         assert_eq!(status(&report, feature_id), "ok", "status of {feature_id}");
     }
-    assert_volume(final_state(&report, "b-1"), 12000.0);
-    assert_volume(final_state(&report, "b-2"), 125.0);
+    assert_volume(shape(final_state(&report, "b-1")), 12000.0);
+    assert_volume(shape(final_state(&report, "b-2")), 125.0);
 }
 
 #[test]
-#[ignore = "needs built-in box, fillet"]
 fn t009_a_feature_on_an_undeclared_body_fails() {
     let mut harness = Harness::builtins();
     let document = cube_then(json!({
@@ -231,7 +222,6 @@ fn t009_a_feature_on_an_undeclared_body_fails() {
 }
 
 #[test]
-#[ignore = "needs built-in box"]
 fn t010_a_body_whose_writers_failed_or_are_suppressed_is_still_empty() {
     let mut harness = Harness::builtins();
     let document = document(json!({
@@ -248,5 +238,5 @@ fn t010_a_body_whose_writers_failed_or_are_suppressed_is_still_empty() {
     assert_eq!(error_code(&report, "f-box1"), "out_of_range");
     assert_eq!(status(&report, "f-box2"), "suppressed");
     assert_eq!(status(&report, "f-box3"), "ok");
-    assert_volume(final_state(&report, "b-1"), 1000.0);
+    assert_volume(shape(final_state(&report, "b-1")), 1000.0);
 }

@@ -11,7 +11,7 @@ use std::time::Duration;
 
 use common::{
     Harness, all_features, assert_volume, bodies, chain_json, doc_a, document, final_state, load,
-    reused, status, statuses, suppressed, test_block, test_datum, with_action,
+    reused, shape, status, statuses, suppressed, test_block, test_datum, with_action,
 };
 use partsmith_features::CancelToken;
 use partsmith_model::Document;
@@ -68,7 +68,6 @@ fn wait_between_blocks() -> Document {
 }
 
 #[test]
-#[ignore = "needs built-in sketch, extrude, box, fillet, datum_plane"]
 fn t029_a_token_canceled_before_the_run_runs_nothing() {
     let mut harness = Harness::builtins();
     let document = doc_a();
@@ -92,7 +91,6 @@ fn t029_a_token_canceled_before_the_run_runs_nothing() {
 }
 
 #[test]
-#[ignore = "needs built-in box"]
 fn t030_canceling_during_a_build_stops_the_run() {
     let mut harness = Harness::builtins();
     let document = wait_between_boxes();
@@ -104,7 +102,7 @@ fn t030_canceling_during_a_build_stops_the_run() {
     assert_eq!(status(&first, "f-w1"), "not_run");
     assert_eq!(status(&first, "f-box2"), "not_run");
     assert!(first.canceled);
-    assert_volume(final_state(&first, "b-1"), 1000.0);
+    assert_volume(shape(final_state(&first, "b-1")), 1000.0);
     assert!(final_state(&first, "b-2").is_empty());
     assert_eq!(reused(&second), vec!["f-box1".to_string()]);
     assert_eq!(status(&second, "f-w1"), "not_run");
@@ -160,7 +158,7 @@ fn canceling_during_a_build_keeps_the_finished_features_and_stops() {
     assert_eq!(status(&report, "f-w1"), "not_run");
     assert_eq!(status(&report, "f-b"), "not_run");
     assert!(report.canceled);
-    assert_volume(final_state(&report, "b-1"), 1000.0);
+    assert_volume(shape(final_state(&report, "b-1")), 1000.0);
     assert!(final_state(&report, "b-2").is_empty());
     assert!(common::feature(&report, "f-w1").output.is_none());
 }

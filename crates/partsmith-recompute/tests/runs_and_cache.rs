@@ -8,13 +8,13 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use common::{
-    Harness, PLACEMENT_TOLERANCE, all_element_names, all_features, assert_vector, assert_volume,
-    bodies, body, body_record, builtin_registry, chain_json, datum_height, datum_placement, doc_a,
+    AXIS_TOLERANCE, Harness, all_element_names, all_features, assert_coordinates, assert_volume,
+    bodies, body, body_record, builtin_registry, chain_json, datum_height, datum_origin, doc_a,
     doc_a_json, document, document_json, error_code, face_count, feature, final_state,
     first_message, key, keys, load, message_texts, messages, not_reused, owned, parameter_record,
     parameter_value, record, record_position, records, reused, severity_name, status, statuses,
-    test_block, test_datum, test_datum_on, test_probe, test_registry, volume, warning_codes,
-    with_action,
+    shape, test_block, test_datum, test_datum_on, test_probe, test_registry, volume,
+    warning_codes, with_action,
 };
 use partsmith_features::Repair;
 use partsmith_model::Quantity;
@@ -52,7 +52,6 @@ fn doc_a_with_missing_cut() -> Value {
 }
 
 #[test]
-#[ignore = "needs built-in sketch, extrude, box, fillet, datum_plane"]
 fn t006_first_run_of_doc_a() {
     let mut harness = Harness::builtins();
 
@@ -63,24 +62,20 @@ fn t006_first_run_of_doc_a() {
     for (feature, key) in keys(&report) {
         assert!(key.is_some(), "{feature} has no key");
     }
-    assert_volume(
-        final_state(&report, "b-1"),
-        40000.0 - (1.0 - PI / 4.0) * 80.0,
-    );
+    assert_volume(shape(final_state(&report, "b-1")), 40000.0 - (1.0 - PI / 4.0) * 80.0);
     assert_eq!(face_count(final_state(&report, "b-1")), 7);
-    assert_volume(final_state(&report, "b-2"), 1000.0);
+    assert_volume(shape(final_state(&report, "b-2")), 1000.0);
     assert_eq!(parameter_value(&report, "p-h"), &Ok(Quantity::length(10.0)));
     assert_eq!(parameter_value(&report, "p-w"), &Ok(Quantity::length(5.0)));
-    assert_vector(
-        datum_placement(&report, "f-dp1").origin,
-        [0.0, 0.0, 5.0],
-        PLACEMENT_TOLERANCE,
+    assert_coordinates(
         "f-dp1 origin",
+        datum_origin(&report, "f-dp1"),
+        [0.0, 0.0, 5.0],
+        AXIS_TOLERANCE,
     );
 }
 
 #[test]
-#[ignore = "needs built-in sketch, extrude, box, fillet, datum_plane"]
 fn t007_second_run_reuses_every_result() {
     let mut harness = Harness::builtins();
     let document = doc_a();
@@ -95,7 +90,6 @@ fn t007_second_run_reuses_every_result() {
 }
 
 #[test]
-#[ignore = "needs built-in sketch, extrude, box, fillet, datum_plane"]
 fn t008_editing_an_extent_rebuilds_the_extrude_and_the_fillet() {
     let mut harness = Harness::builtins();
     harness.run(&doc_a());
@@ -115,7 +109,6 @@ fn t008_editing_an_extent_rebuilds_the_extrude_and_the_fillet() {
 }
 
 #[test]
-#[ignore = "needs built-in sketch, extrude, box, fillet, datum_plane"]
 fn t009_a_parameter_edit_that_keeps_its_value_rebuilds_nothing() {
     let mut harness = Harness::builtins();
     let first = harness.run(&doc_a());
@@ -128,7 +121,6 @@ fn t009_a_parameter_edit_that_keeps_its_value_rebuilds_nothing() {
 }
 
 #[test]
-#[ignore = "needs built-in sketch, extrude, box, fillet, datum_plane"]
 fn t010_a_parameter_edit_rebuilds_its_users() {
     let mut harness = Harness::builtins();
     harness.run(&doc_a());
@@ -141,7 +133,6 @@ fn t010_a_parameter_edit_rebuilds_its_users() {
 }
 
 #[test]
-#[ignore = "needs built-in sketch, extrude, box, fillet, datum_plane"]
 fn t011_renaming_keeps_every_key() {
     let mut harness = Harness::builtins();
     let first = harness.run(&doc_a());
@@ -156,7 +147,6 @@ fn t011_renaming_keeps_every_key() {
 }
 
 #[test]
-#[ignore = "needs built-in sketch, extrude, box, fillet, datum_plane"]
 fn t012_undo_reuses_the_earlier_results() {
     let mut harness = Harness::builtins();
     let mut edited = doc_a_json();
@@ -170,7 +160,6 @@ fn t012_undo_reuses_the_earlier_results() {
 }
 
 #[test]
-#[ignore = "needs built-in sketch, extrude, box, fillet, datum_plane"]
 fn t013_documents_share_the_cache() {
     let mut harness = Harness::builtins();
     let text = doc_a_json().to_string();
@@ -184,7 +173,6 @@ fn t013_documents_share_the_cache() {
 }
 
 #[test]
-#[ignore = "needs built-in sketch, extrude, box, fillet, datum_plane"]
 fn t014_stored_key_order_does_not_change_keys() {
     let mut harness = Harness::builtins();
     let first = harness.run(&doc_a());
@@ -204,7 +192,6 @@ fn t014_stored_key_order_does_not_change_keys() {
 }
 
 #[test]
-#[ignore = "needs built-in sketch, extrude, box, fillet, datum_plane"]
 fn t015_unknown_keys_warn_and_do_not_change_keys() {
     let mut harness = Harness::builtins();
     let first = harness.run(&doc_a());
@@ -228,7 +215,6 @@ fn t015_unknown_keys_warn_and_do_not_change_keys() {
 }
 
 #[test]
-#[ignore = "needs built-in sketch, extrude, box, fillet, datum_plane"]
 fn t016_cached_warnings_render_with_current_names() {
     let mut harness = Harness::builtins();
     let mut document = doc_a_with_missing_cut();
@@ -254,7 +240,6 @@ fn t016_cached_warnings_render_with_current_names() {
 }
 
 #[test]
-#[ignore = "needs built-in box"]
 fn t034_eviction_keeps_the_latest_run_and_drops_older_entries() {
     let mut harness = Harness::with_cache_limit(builtin_registry(), 2);
     let three_boxes = document(json!({
@@ -283,7 +268,6 @@ fn t034_eviction_keeps_the_latest_run_and_drops_older_entries() {
 }
 
 #[test]
-#[ignore = "needs built-in sketch, extrude, box, fillet, datum_plane"]
 fn t035_two_fresh_recomputes_give_identical_results() {
     let document = doc_a();
 
@@ -324,7 +308,6 @@ fn t035_two_fresh_recomputes_give_identical_results() {
 }
 
 #[test]
-#[ignore = "needs built-in sketch, extrude, box, fillet, datum_plane"]
 fn t036_lost_references_carry_repair_data() {
     let mut harness = Harness::builtins();
     let lost =
@@ -371,8 +354,8 @@ fn a_first_run_builds_every_feature_and_reports_its_results() {
     assert!(reused(&report).is_empty());
     assert_eq!(datum_height(&report, "f-d1"), 5.0);
     assert_eq!(datum_height(&report, "f-d2"), 7.0);
-    assert_volume(final_state(&report, "b-1"), 16.0);
-    assert_volume(final_state(&report, "b-2"), 27.0);
+    assert_volume(shape(final_state(&report, "b-1")), 16.0);
+    assert_volume(shape(final_state(&report, "b-2")), 27.0);
     assert_eq!(parameter_value(&report, "p-h"), &Ok(Quantity::length(2.0)));
     assert_eq!(harness.cache_len(), 6);
 }
@@ -414,7 +397,7 @@ fn a_second_run_reuses_every_result_with_zero_build_time() {
     assert_eq!(keys(&second), keys(&first));
     assert_eq!(statuses(&second), statuses(&first));
     assert_eq!(datum_height(&second, "f-d2"), 7.0);
-    assert_volume(final_state(&second, "b-1"), 16.0);
+    assert_volume(shape(final_state(&second, "b-1")), 16.0);
     assert_eq!(harness.cache_len(), 6);
 }
 
@@ -431,7 +414,7 @@ fn editing_a_feature_rebuilds_it_and_its_dependents_only() {
     assert_eq!(with_action(&plan, "build"), owned(&["f-a", "f-b", "f-p"]));
     assert_eq!(with_action(&plan, "reuse"), owned(&["f-d1", "f-d2", "f-c"]));
     assert_eq!(not_reused(&report), owned(&["f-a", "f-b", "f-p"]));
-    assert_volume(final_state(&report, "b-1"), 35.0);
+    assert_volume(shape(final_state(&report, "b-1")), 35.0);
 }
 
 #[test]
@@ -446,7 +429,7 @@ fn a_parameter_edit_rebuilds_the_features_that_use_it() {
 
     assert_eq!(with_action(&plan, "build"), owned(&["f-d2", "f-b", "f-p"]));
     assert_eq!(datum_height(&report, "f-d2"), 8.0);
-    assert_volume(final_state(&report, "b-1"), 35.0);
+    assert_volume(shape(final_state(&report, "b-1")), 35.0);
 }
 
 #[test]

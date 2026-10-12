@@ -1004,7 +1004,11 @@ mod tests {
             panic!("expected AddFeature, got {edit:?}");
         };
         assert_eq!(
-            feature.params.keys().map(String::as_str).collect::<Vec<_>>(),
+            feature
+                .params
+                .keys()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
             ["size", "note"]
         );
     }

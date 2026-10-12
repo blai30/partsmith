@@ -10,8 +10,8 @@ use common::{
     Harness, all_features, assert_relative, assert_volume, bodies, bodies_before_ids, body,
     chain_json, datum_height, doc_a, doc_a_json, document, error_code, face_count, feature,
     final_state, first_message, key, keys, load, message_texts, not_reused, output_update, owned,
-    record, record_position, records, reused, severity_name, state_before, status, statuses,
-    suppressed, test_block, test_datum, test_datum_on, test_node, test_on_body, test_probe,
+    record, record_position, records, reused, severity_name, shape, state_before, status,
+    statuses, suppressed, test_block, test_datum, test_datum_on, test_node, test_on_body, test_probe,
     upstream, with_action,
 };
 use partsmith_occt_sys::{Plane, StepBody, SubShapeKind, make_box, write_step};
@@ -51,7 +51,6 @@ fn zero_asset() -> String {
 }
 
 #[test]
-#[ignore = "needs built-in sketch, extrude, box, fillet, datum_plane"]
 fn t017_rollback_stops_before_the_marker() {
     let mut harness = Harness::builtins();
     harness.run(&doc_a());
@@ -69,7 +68,7 @@ fn t017_rollback_stops_before_the_marker() {
         );
         assert_eq!(key(&report, feature_id), None, "key of {feature_id}");
     }
-    assert_volume(final_state(&report, "b-1"), 40000.0);
+    assert_volume(shape(final_state(&report, "b-1")), 40000.0);
     assert_eq!(face_count(final_state(&report, "b-1")), 6);
     assert_eq!(last_feature(&report, "b-1").as_deref(), Some("f-ext1"));
     assert!(final_state(&report, "b-2").is_empty());
@@ -77,7 +76,6 @@ fn t017_rollback_stops_before_the_marker() {
 }
 
 #[test]
-#[ignore = "needs built-in sketch, extrude, box, fillet, datum_plane"]
 fn t018_stop_point_runs_up_to_and_including_the_stop_feature() {
     let mut harness = Harness::builtins();
     let mut rolled = doc_a_json();
@@ -100,7 +98,6 @@ fn t018_stop_point_runs_up_to_and_including_the_stop_feature() {
 }
 
 #[test]
-#[ignore = "needs built-in sketch, extrude, box, fillet, datum_plane"]
 fn t019_unknown_stop_point_rebuilds_the_whole_timeline() {
     let mut harness = Harness::builtins();
 
@@ -114,7 +111,6 @@ fn t019_unknown_stop_point_rebuilds_the_whole_timeline() {
 }
 
 #[test]
-#[ignore = "needs built-in box, fillet, chamfer"]
 fn t020_a_failing_feature_does_not_stop_the_run() {
     let mut harness = Harness::builtins();
     let top_edge = |q: &str, fp: &str| json!({"q": q, "fp": fp});
@@ -157,14 +153,13 @@ fn t020_a_failing_feature_does_not_stop_the_run() {
         )
     );
     assert_eq!(status(&report, "f-cha1"), "ok");
-    assert_volume(state_before(&report, "f-cha1", "b-1"), 960.0);
-    assert_volume(final_state(&report, "b-1"), 950.0);
+    assert_volume(shape(state_before(&report, "f-cha1", "b-1")), 960.0);
+    assert_volume(shape(final_state(&report, "b-1")), 950.0);
     assert_eq!(face_count(final_state(&report, "b-1")), 7);
     assert_eq!(last_feature(&report, "b-1").as_deref(), Some("f-cha1"));
 }
 
 #[test]
-#[ignore = "needs built-in sketch, extrude, box, fillet, datum_plane"]
 fn t021_features_that_read_a_failed_output_report_upstream_failed() {
     let mut harness = Harness::builtins();
     let mut document = doc_a_json();
@@ -186,7 +181,6 @@ fn t021_features_that_read_a_failed_output_report_upstream_failed() {
 }
 
 #[test]
-#[ignore = "needs built-in sketch, extrude, box, fillet, datum_plane"]
 fn t022_features_that_read_a_suppressed_output_report_upstream_suppressed() {
     let mut harness = Harness::builtins();
     let mut document = doc_a_json();
@@ -200,7 +194,6 @@ fn t022_features_that_read_a_suppressed_output_report_upstream_suppressed() {
 }
 
 #[test]
-#[ignore = "needs built-in sketch, extrude, box, fillet, datum_plane"]
 fn t023_an_unknown_type_fails_alone() {
     let reference = Harness::builtins().run(&doc_a());
     let mut harness = Harness::builtins();
@@ -220,7 +213,6 @@ fn t023_an_unknown_type_fails_alone() {
 }
 
 #[test]
-#[ignore = "needs built-in sketch, extrude, box, fillet, datum_plane"]
 fn t024_a_link_to_an_unknown_body_fails() {
     let mut harness = Harness::builtins();
     let mut document = doc_a_json();
@@ -240,7 +232,6 @@ fn t024_a_link_to_an_unknown_body_fails() {
 }
 
 #[test]
-#[ignore = "needs built-in sketch, extrude, box, fillet, datum_plane"]
 fn t025_a_link_to_a_later_feature_is_a_forward_reference() {
     let mut harness = Harness::builtins();
     let mut document = doc_a_json();
@@ -258,7 +249,6 @@ fn t025_a_link_to_a_later_feature_is_a_forward_reference() {
 }
 
 #[test]
-#[ignore = "needs built-in sketch, extrude, box, fillet, datum_plane"]
 fn t026_an_undeclared_read_fails_and_later_features_run() {
     let mut harness = Harness::builtins();
     let document = doc_a_with_after_box2(test_on_body("f-t1", "test_peek", "b-2"));
@@ -270,7 +260,6 @@ fn t026_an_undeclared_read_fails_and_later_features_run() {
 }
 
 #[test]
-#[ignore = "needs built-in sketch, extrude, box, fillet, datum_plane"]
 fn t027_an_undeclared_update_is_not_applied() {
     let mut harness = Harness::builtins();
     let document = doc_a_with_after_box2(test_on_body("f-t2", "test_stray", "b-2"));
@@ -278,11 +267,10 @@ fn t027_an_undeclared_update_is_not_applied() {
     let report = harness.run(&load(&document));
 
     assert_eq!(error_code(&report, "f-t2"), "undeclared_dependency");
-    assert_volume(final_state(&report, "b-2"), 1000.0);
+    assert_volume(shape(final_state(&report, "b-2")), 1000.0);
 }
 
 #[test]
-#[ignore = "needs built-in sketch, extrude, box, fillet, datum_plane"]
 fn t028_a_panic_is_an_internal_error_and_is_never_cached() {
     let mut harness = Harness::builtins();
     let document = load(&doc_a_with_after_box2(
@@ -308,7 +296,6 @@ fn t028_a_panic_is_an_internal_error_and_is_never_cached() {
 }
 
 #[test]
-#[ignore = "needs built-in sketch, extrude, box, fillet, datum_plane"]
 fn t038_rollback_before_the_first_feature_runs_nothing() {
     let mut harness = Harness::builtins();
     let mut document = doc_a_json();
@@ -330,7 +317,6 @@ fn t038_rollback_before_the_first_feature_runs_nothing() {
 }
 
 #[test]
-#[ignore = "needs built-in sketch, extrude, box, fillet, datum_plane"]
 fn t039_a_link_to_an_unknown_feature_fails() {
     let mut harness = Harness::builtins();
     let mut document = doc_a_json();
@@ -348,7 +334,6 @@ fn t039_a_link_to_an_unknown_feature_fails() {
 }
 
 #[test]
-#[ignore = "needs built-in import"]
 fn t040_a_missing_asset_fails_before_building() {
     let mut harness = Harness::builtins();
     let asset = zero_asset();
@@ -414,7 +399,7 @@ fn rollback_rolls_back_the_marker_record_and_every_later_one() {
             "bodies before {feature_id}"
         );
     }
-    assert_volume(final_state(&report, "b-1"), 8.0);
+    assert_volume(shape(final_state(&report, "b-1")), 8.0);
     assert_eq!(last_feature(&report, "b-1").as_deref(), Some("f-a"));
     assert_eq!(body(&report, "b-1").key, key(&report, "f-a"));
     assert!(final_state(&report, "b-2").is_empty());
@@ -471,15 +456,11 @@ fn a_stop_point_runs_up_to_and_including_the_stop_feature() {
         ],
     );
     assert_eq!(bodies_before_ids(&report, "f-b"), owned(&["b-1"]));
-    assert_volume(state_before(&report, "f-b", "b-1"), 8.0);
+    assert_volume(shape(state_before(&report, "f-b", "b-1")), 8.0);
     let update = output_update(&report, "f-b", "b-1");
     let updated = update.shape.as_ref().expect("f-b outputs a solid");
-    assert_relative(
-        updated.volume().expect("the kernel measures"),
-        16.0,
-        "output volume",
-    );
-    assert_volume(final_state(&report, "b-1"), 16.0);
+    assert_relative("output volume", updated.volume().expect("the kernel measures"), 16.0);
+    assert_volume(shape(final_state(&report, "b-1")), 16.0);
     assert!(final_state(&report, "b-2").is_empty());
     assert!(report.messages.is_empty());
 }
@@ -562,7 +543,7 @@ fn a_body_whose_earlier_writers_are_inactive_can_be_started_with_op_new() {
     let report = harness.run(&document);
 
     assert_eq!(status(&report, "f-b"), "ok");
-    assert_volume(final_state(&report, "b-1"), 27.0);
+    assert_volume(shape(final_state(&report, "b-1")), 27.0);
 }
 
 #[test]
@@ -588,7 +569,7 @@ fn an_unknown_type_is_an_error_without_key_that_writes_nothing() {
     );
     assert_eq!(key(&report, "f-g"), None);
     assert!(feature(&report, "f-g").output.is_none());
-    assert_volume(state_before(&report, "f-p", "b-1"), 8.0);
+    assert_volume(shape(state_before(&report, "f-p", "b-1")), 8.0);
     assert_eq!(last_feature(&report, "b-1").as_deref(), Some("f-a"));
 }
 
@@ -615,7 +596,7 @@ fn invalid_params_are_an_error_without_key() {
     );
     assert_eq!(key(&report, "f-bad"), None);
     assert_eq!(last_feature(&report, "b-1").as_deref(), Some("f-a"));
-    assert_volume(state_before(&report, "f-p", "b-1"), 8.0);
+    assert_volume(shape(state_before(&report, "f-p", "b-1")), 8.0);
 }
 
 #[test]
@@ -793,7 +774,7 @@ fn a_feature_that_fails_its_checks_still_provides_its_bodies() {
     assert_eq!(error_code(&report, "f-z"), "unknown_feature");
     assert!(bodies_before_ids(&report, "f-z").is_empty());
     assert_eq!(upstream(&graph, "f-p"), owned(&["body b-1 f-z"]));
-    assert_volume(state_before(&report, "f-p", "b-1"), 8.0);
+    assert_volume(shape(state_before(&report, "f-p", "b-1")), 8.0);
     assert_eq!(last_feature(&report, "b-1").as_deref(), Some("f-z"));
     assert_eq!(body(&report, "b-1").key, key(&report, "f-z"));
 }
@@ -815,8 +796,8 @@ fn features_after_a_failed_writer_build_on_the_state_before_it() {
     assert_eq!(error_code(&report, "f-b"), "body_not_empty");
     assert!(feature(&report, "f-b").output.is_none());
     assert_eq!(status(&report, "f-p"), "warning");
-    assert_volume(state_before(&report, "f-p", "b-1"), 8.0);
-    assert_volume(final_state(&report, "b-1"), 8.0);
+    assert_volume(shape(state_before(&report, "f-p", "b-1")), 8.0);
+    assert_volume(shape(final_state(&report, "b-1")), 8.0);
     assert_eq!(last_feature(&report, "b-1").as_deref(), Some("f-b"));
 }
 
@@ -871,8 +852,8 @@ fn an_update_of_a_body_that_is_not_written_is_rejected_and_not_applied() {
 
     assert_eq!(error_code(&report, "f-t2"), "undeclared_dependency");
     assert!(feature(&report, "f-t2").output.is_none());
-    assert_volume(state_before(&report, "f-p", "b-1"), 8.0);
-    assert_volume(final_state(&report, "b-1"), 8.0);
+    assert_volume(shape(state_before(&report, "f-p", "b-1")), 8.0);
+    assert_volume(shape(final_state(&report, "b-1")), 8.0);
     assert_eq!(last_feature(&report, "b-1").as_deref(), Some("f-a"));
 }
 
@@ -894,7 +875,7 @@ fn two_updates_of_one_body_are_rejected_and_not_applied() {
         message_texts(&report, "f-t"),
         ["This feature read body 'b-1' again to update it a second time without declaring it. This is a bug in the feature; please report it."]
     );
-    assert_volume(final_state(&report, "b-1"), 8.0);
+    assert_volume(shape(final_state(&report, "b-1")), 8.0);
 }
 
 #[test]
@@ -941,9 +922,9 @@ fn bodies_before_lists_read_then_written_bodies_in_declaration_order() {
         bodies_before_ids(&report, "f-n"),
         owned(&["b-2", "b-3", "b-1"])
     );
-    assert_volume(state_before(&report, "f-n", "b-2"), 27.0);
+    assert_volume(shape(state_before(&report, "f-n", "b-2")), 27.0);
     assert!(state_before(&report, "f-n", "b-3").is_empty());
-    assert_volume(state_before(&report, "f-n", "b-1"), 8.0);
+    assert_volume(shape(state_before(&report, "f-n", "b-1")), 8.0);
 }
 
 #[test]
@@ -956,7 +937,7 @@ fn bodies_before_is_recorded_for_reused_results_too() {
 
     assert!(feature(&report, "f-p").timing.from_cache);
     assert_eq!(bodies_before_ids(&report, "f-p"), owned(&["b-1"]));
-    assert_volume(state_before(&report, "f-p", "b-1"), 16.0);
+    assert_volume(shape(state_before(&report, "f-p", "b-1")), 16.0);
     assert!(bodies_before_ids(&report, "f-d1").is_empty());
 }
 
@@ -1001,7 +982,7 @@ fn every_body_is_reported_in_document_order() {
         .collect();
     assert_eq!(order, vec!["b-3", "b-1", "b-2"]);
     assert!(final_state(&report, "b-3").is_empty());
-    assert_volume(final_state(&report, "b-1"), 8.0);
+    assert_volume(shape(final_state(&report, "b-1")), 8.0);
     assert!(final_state(&report, "b-2").is_empty());
 }
 

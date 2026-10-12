@@ -23,5 +23,9 @@ proptest.workspace = true
 schemars.workspace = true
 serde.workspace = true
 
+[[bench]]
+name = "budgets"
+harness = false
+
 [lints]
 workspace = true

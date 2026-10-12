@@ -52,7 +52,6 @@ fn body_chain(box3_suppressed: bool) -> Document {
 }
 
 #[test]
-#[ignore = "needs built-in sketch, extrude, box, fillet, datum_plane"]
 fn t001_graph_of_doc_a() {
     let harness = Harness::builtins();
 
@@ -77,7 +76,6 @@ fn t001_graph_of_doc_a() {
 }
 
 #[test]
-#[ignore = "needs built-in sketch, extrude, box, fillet, datum_plane"]
 fn t002_affected_by_in_doc_a() {
     let harness = Harness::builtins();
 
@@ -102,7 +100,6 @@ fn t002_affected_by_in_doc_a() {
 }
 
 #[test]
-#[ignore = "needs built-in box, fillet"]
 fn t003_body_chain_follows_the_last_active_writer() {
     let harness = Harness::builtins();
 
@@ -116,7 +113,6 @@ fn t003_body_chain_follows_the_last_active_writer() {
 }
 
 #[test]
-#[ignore = "needs built-in box"]
 fn t004_parameters_include_referenced_parameters() {
     let harness = Harness::builtins();
     let document = document(json!({
@@ -135,7 +131,6 @@ fn t004_parameters_include_referenced_parameters() {
 }
 
 #[test]
-#[ignore = "needs built-in box"]
 fn t005_context_names_of_expressions() {
     let harness = Harness::builtins();
     let document = document(json!({

@@ -5,9 +5,9 @@
 mod common;
 
 use common::{
-    BOUNDS_TOLERANCE, Harness, PLACEMENT_TOLERANCE, assert_has_element, assert_vector, bodies,
-    document, element_names, face_centroid, face_count, face_names, face_normal, final_state,
-    owned, rectangle, rectangle_region, sketch, state_before, status,
+    Harness, assert_face_normal, assert_face_position, assert_has_element, bodies, document,
+    element_names, face, face_count, face_names, final_state, owned, rectangle, rectangle_region,
+    sketch, state_before, status,
 };
 use partsmith_features::BodyState;
 use partsmith_model::Document;
@@ -52,13 +52,6 @@ fn sorted(names: &[&str]) -> Vec<String> {
     names
 }
 
-/// The edge or vertex names of a body state, sorted.
-fn sorted_names(state: &BodyState, kind: ElementKind) -> Vec<String> {
-    let mut names = element_names(state, kind);
-    names.sort();
-    names
-}
-
 /// The canonical fingerprint text of the named element of a body state.
 fn fingerprint_text(state: &BodyState, name: &str) -> String {
     let elements = state.elements().expect("element infos of the body");
@@ -76,7 +69,6 @@ fn element(name: &str) -> ElementName {
 }
 
 #[test]
-#[ignore = "needs built-in sketch, extrude"]
 fn t081_extrude_names_laterals_after_their_entities_and_caps_by_role() {
     let mut harness = Harness::builtins();
 
@@ -103,10 +95,10 @@ fn t081_extrude_names_laterals_after_their_entities_and_caps_by_role() {
         ("f-ext1/end-cap", [0.0, 0.0, 1.0]),
     ];
     for (name, normal) in normals {
-        assert_vector(face_normal(body, name), normal, PLACEMENT_TOLERANCE, name);
+        assert_face_normal(&face(body, name), normal);
     }
-    assert!((face_centroid(body, "f-ext1/start-cap")[2]).abs() <= BOUNDS_TOLERANCE);
-    assert!((face_centroid(body, "f-ext1/end-cap")[2] - 30.0).abs() <= BOUNDS_TOLERANCE);
+    assert_face_position(&face(body, "f-ext1/start-cap"), 2, 0.0);
+    assert_face_position(&face(body, "f-ext1/end-cap"), 2, 30.0);
     assert_eq!(
         fingerprint_text(body, "f-ext1/end-cap"),
         "plane|n=0,0,1|c=40,25,30|a=4000|adj=4,4"
@@ -120,7 +112,6 @@ fn t081_extrude_names_laterals_after_their_entities_and_caps_by_role() {
 }
 
 #[test]
-#[ignore = "needs built-in sketch, extrude"]
 fn t082_a_symmetric_extrude_puts_the_start_cap_on_the_far_side() {
     let mut harness = Harness::builtins();
     let document = document(json!({
@@ -131,18 +122,12 @@ fn t082_a_symmetric_extrude_puts_the_start_cap_on_the_far_side() {
     let report = harness.run(&document);
 
     let body = final_state(&report, "b-1");
-    assert!((face_centroid(body, "f-ext1/start-cap")[2] + 15.0).abs() <= BOUNDS_TOLERANCE);
-    assert_vector(
-        face_normal(body, "f-ext1/start-cap"),
-        [0.0, 0.0, -1.0],
-        PLACEMENT_TOLERANCE,
-        "start cap normal",
-    );
-    assert!((face_centroid(body, "f-ext1/end-cap")[2] - 15.0).abs() <= BOUNDS_TOLERANCE);
+    assert_face_position(&face(body, "f-ext1/start-cap"), 2, -15.0);
+    assert_face_normal(&face(body, "f-ext1/start-cap"), [0.0, 0.0, -1.0]);
+    assert_face_position(&face(body, "f-ext1/end-cap"), 2, 15.0);
 }
 
 #[test]
-#[ignore = "needs built-in sketch, extrude"]
 fn t083_a_through_all_cut_names_its_wall_and_the_edges_it_makes() {
     let mut harness = Harness::builtins();
     let document = model_81_then(vec![
@@ -171,7 +156,6 @@ fn t083_a_through_all_cut_names_its_wall_and_the_edges_it_makes() {
 }
 
 #[test]
-#[ignore = "needs built-in sketch, extrude, datum_plane, fillet"]
 fn t084_a_split_cap_keeps_its_name_with_suffixes_and_old_references_follow_it() {
     let mut harness = Harness::builtins();
     let edge_reference = json!({
@@ -196,8 +180,8 @@ fn t084_a_split_cap_keeps_its_name_with_suffixes_and_old_references_follow_it() 
     let report = harness.run(&document);
 
     let slotted = state_before(&report, "f-fil1", "b-1");
-    assert!((face_centroid(slotted, "f-ext1/end-cap#1")[0] - 15.0).abs() <= BOUNDS_TOLERANCE);
-    assert!((face_centroid(slotted, "f-ext1/end-cap#2")[0] - 65.0).abs() <= BOUNDS_TOLERANCE);
+    assert_face_position(&face(slotted, "f-ext1/end-cap#1"), 0, 15.0);
+    assert_face_position(&face(slotted, "f-ext1/end-cap#2"), 0, 65.0);
     let reference: Reference =
         serde_json::from_value(edge_reference).expect("the edge reference is valid");
     let infos = slotted
@@ -247,7 +231,6 @@ fn revolve_model(extent: Value) -> Document {
 }
 
 #[test]
-#[ignore = "needs built-in sketch, revolve"]
 fn t085_a_full_revolve_has_laterals_only_and_a_partial_one_has_caps() {
     let mut harness = Harness::builtins();
 
@@ -267,7 +250,6 @@ fn t085_a_full_revolve_has_laterals_only_and_a_partial_one_has_caps() {
 }
 
 #[test]
-#[ignore = "needs built-in box, cylinder, sphere, cone, torus"]
 fn t086_primitives_name_their_faces_by_role() {
     let mut harness = Harness::builtins();
     let document = document(json!({
@@ -284,24 +266,12 @@ fn t086_primitives_name_their_faces_by_role() {
     let report = harness.run(&document);
 
     let block = final_state(&report, "b-1");
-    assert_vector(
-        face_normal(block, "f-box1/front"),
-        [0.0, -1.0, 0.0],
-        PLACEMENT_TOLERANCE,
-        "front normal",
-    );
-    assert_vector(
-        face_centroid(block, "f-box1/front"),
-        [0.0, -10.0, 15.0],
-        BOUNDS_TOLERANCE,
-        "front centroid",
-    );
-    assert_vector(
-        face_normal(block, "f-box1/right"),
-        [1.0, 0.0, 0.0],
-        PLACEMENT_TOLERANCE,
-        "right normal",
-    );
+    let front = face(block, "f-box1/front");
+    assert_face_normal(&front, [0.0, -1.0, 0.0]);
+    for (axis, position) in [0.0, -10.0, 15.0].into_iter().enumerate() {
+        assert_face_position(&front, axis, position);
+    }
+    assert_face_normal(&face(block, "f-box1/right"), [1.0, 0.0, 0.0]);
 
     let cylinder = final_state(&report, "b-2");
     assert_eq!(
@@ -309,7 +279,7 @@ fn t086_primitives_name_their_faces_by_role() {
         sorted(&["f-cyl1/side", "f-cyl1/top", "f-cyl1/bottom"])
     );
     assert_eq!(
-        sorted_names(cylinder, ElementKind::Edge),
+        element_names(cylinder, ElementKind::Edge),
         sorted(&[
             "edge(f-cyl1/side|f-cyl1/top)",
             "edge(f-cyl1/side)",
@@ -317,7 +287,7 @@ fn t086_primitives_name_their_faces_by_role() {
         ])
     );
     assert_eq!(
-        sorted_names(cylinder, ElementKind::Vertex),
+        element_names(cylinder, ElementKind::Vertex),
         sorted(&[
             "vertex(f-cyl1/side|f-cyl1/top)",
             "vertex(f-cyl1/bottom|f-cyl1/side)"
@@ -327,11 +297,11 @@ fn t086_primitives_name_their_faces_by_role() {
     let sphere = final_state(&report, "b-3");
     assert_eq!(face_names(sphere), owned(&["f-sph1/surface"]));
     assert_eq!(
-        sorted_names(sphere, ElementKind::Edge),
+        element_names(sphere, ElementKind::Edge),
         owned(&["edge(f-sph1/surface)"])
     );
     assert_eq!(
-        sorted_names(sphere, ElementKind::Vertex),
+        element_names(sphere, ElementKind::Vertex),
         sorted(&["vertex(f-sph1/surface)#1", "vertex(f-sph1/surface)#2"])
     );
 
@@ -344,17 +314,16 @@ fn t086_primitives_name_their_faces_by_role() {
     let torus = final_state(&report, "b-5");
     assert_eq!(face_names(torus), owned(&["f-tor1/surface"]));
     assert_eq!(
-        sorted_names(torus, ElementKind::Edge),
+        element_names(torus, ElementKind::Edge),
         sorted(&["edge(f-tor1/surface)#1", "edge(f-tor1/surface)#2"])
     );
     assert_eq!(
-        sorted_names(torus, ElementKind::Vertex),
+        element_names(torus, ElementKind::Vertex),
         owned(&["vertex(f-tor1/surface)"])
     );
 }
 
 #[test]
-#[ignore = "needs built-in box, fillet"]
 fn t087_a_fillet_face_is_named_after_its_edge_and_other_faces_keep_their_names() {
     let mut harness = Harness::builtins();
     let document = document(json!({
@@ -386,7 +355,6 @@ fn t087_a_fillet_face_is_named_after_its_edge_and_other_faces_keep_their_names()
 }
 
 #[test]
-#[ignore = "needs built-in sketch, extrude, shell"]
 fn t088_a_shell_names_inner_faces_after_the_kept_faces_and_the_rim_after_the_removed_face() {
     let mut harness = Harness::builtins();
     let document = model_81_then(vec![json!({
@@ -430,7 +398,6 @@ fn pattern_model(spacing: &str, into_new_body: bool) -> Document {
 }
 
 #[test]
-#[ignore = "needs built-in box, linear_pattern"]
 fn t089_pattern_copies_take_instance_suffixes_and_merged_faces_keep_aliases() {
     let mut harness = Harness::builtins();
 
@@ -453,7 +420,6 @@ fn t089_pattern_copies_take_instance_suffixes_and_merged_faces_keep_aliases() {
 }
 
 #[test]
-#[ignore = "needs built-in box, datum_plane, split_body"]
 fn t090_a_split_numbers_the_pieces_and_names_the_section_faces_by_side() {
     let mut harness = Harness::builtins();
     let document = document(json!({
@@ -469,18 +435,8 @@ fn t090_a_split_numbers_the_pieces_and_names_the_section_faces_by_side() {
 
     let upper = final_state(&report, "b-1");
     let lower = final_state(&report, "b-2");
-    assert!((face_centroid(lower, "f-box1/front#1")[2] - 5.0).abs() <= BOUNDS_TOLERANCE);
-    assert!((face_centroid(upper, "f-box1/front#2")[2] - 20.0).abs() <= BOUNDS_TOLERANCE);
-    assert_vector(
-        face_normal(upper, "f-split1/split-positive"),
-        [0.0, 0.0, -1.0],
-        PLACEMENT_TOLERANCE,
-        "split-positive normal",
-    );
-    assert_vector(
-        face_normal(lower, "f-split1/split-negative"),
-        [0.0, 0.0, 1.0],
-        PLACEMENT_TOLERANCE,
-        "split-negative normal",
-    );
+    assert_face_position(&face(lower, "f-box1/front#1"), 2, 5.0);
+    assert_face_position(&face(upper, "f-box1/front#2"), 2, 20.0);
+    assert_face_normal(&face(upper, "f-split1/split-positive"), [0.0, 0.0, -1.0]);
+    assert_face_normal(&face(lower, "f-split1/split-negative"), [0.0, 0.0, 1.0]);
 }
