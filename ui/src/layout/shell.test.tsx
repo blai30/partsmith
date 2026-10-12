@@ -1,5 +1,6 @@
 import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { announce } from '../app/actions/notifications'
 import { select } from '../app/actions/selection'
 import { installPopoverPolyfill } from '../components/popover-polyfill.testing'
 import { MESSAGES } from '../messages'
@@ -69,6 +70,22 @@ describe('selection announcements (3.6)', () => {
       vi.advanceTimersByTime(500)
     })
     expect(screen.getByText('Selection cleared')).toBeInTheDocument()
+  })
+})
+
+describe('undo and redo announcements (3.20, 3.24)', () => {
+  it('says each announcement in a polite live region, a repeated text again', () => {
+    const { app } = renderApp()
+    act(() => {
+      announce(app, 'Undid Rename')
+    })
+    const first = screen.getByText('Undid Rename')
+    expect(first.closest('[aria-live="polite"]')).not.toBeNull()
+    act(() => {
+      announce(app, 'Undid Rename')
+    })
+    // A new element, so screen readers read the same words again.
+    expect(screen.getByText('Undid Rename')).not.toBe(first)
   })
 })
 
