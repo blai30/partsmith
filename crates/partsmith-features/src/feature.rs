@@ -6,7 +6,7 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 
 use crate::context::BuildContext;
-use crate::dependencies::Dependencies;
+use crate::deps::Dependencies;
 use crate::error::FeatureError;
 use crate::output::FeatureOutput;
 use crate::python::{PythonCall, PythonNames};

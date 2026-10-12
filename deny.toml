@@ -25,6 +25,12 @@ allow-wildcard-paths = true
 
 [advisories]
 yanked = "deny"
+# Both come from the gtk-rs 0.18 stack of Tauri's WebKitGTK webview on Linux (ADR 0014, delivery.md 3.2).
+# Remove them when Tauri moves past gtk-rs 0.18.
+ignore = [
+  { id = "RUSTSEC-2024-0429", reason = "glib 0.18 VariantStrIter is unsound; Partsmith does not call it. It comes with Tauri's gtk-rs 0.18 stack; remove when Tauri moves past gtk-rs 0.18." },
+  { id = "RUSTSEC-2024-0370", reason = "proc-macro-error is unmaintained; it is a build-time dependency of the gtk-rs 0.18 macros. Remove when Tauri moves past gtk-rs 0.18." },
+]
 
 [sources]
 unknown-registry = "deny"

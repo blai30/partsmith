@@ -13,14 +13,14 @@ use partsmith_naming::{
 use partsmith_occt_sys::{Axis, ElementGeometry, GeometryKind, Point, Shape, SubShape, Vector};
 use partsmith_sketch::{Geometry, MatchMethod, OriginPlane, Placement, RegionMatch, match_region};
 
-use crate::dependencies::ExprUse;
+use crate::deps::ExprUse;
 use crate::error::FeatureError;
-use crate::field::FieldRef;
-use crate::message::{Bound, Noun};
+use crate::error::FieldRef;
+use crate::error::{Bound, Noun};
 use crate::naming::{kernel, naming, sub_shape_kind, topology_info};
 use crate::output::{DatumResult, FeatureOutput, OutputData, SketchResult};
 use crate::params::{AxisRef, PlaneRef, ProfileRef, point, vector};
-use crate::warning::FeatureWarning;
+use crate::error::FeatureWarning;
 
 /// Largest distance from a whole number that a count may have (section 3.4).
 const WHOLE_NUMBER_TOLERANCE: f64 = 1e-9;
@@ -922,7 +922,7 @@ mod tests {
         assert_eq!(error.code(), "reference_not_found");
         assert!(matches!(
             error.repair(),
-            Some(crate::message::Repair::Element { pointer, ambiguous: false, .. }) if pointer == "/plane/face"
+            Some(crate::error::Repair::Element { pointer, ambiguous: false, .. }) if pointer == "/plane/face"
         ));
     }
 

@@ -6,7 +6,7 @@ use partsmith_model::{FeatureManifest, FeatureRecord};
 use schemars::Schema;
 use serde_json::{Map, Value};
 
-use crate::field::{Segment, segments};
+use crate::error::field::{Segment, segments};
 use crate::registry::RegistryError;
 
 /// Deepest chain of `$ref`s and combinators followed when looking through a schema.

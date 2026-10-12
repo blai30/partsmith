@@ -1,14 +1,22 @@
-//! Feature errors, their messages, suggested fixes and repair data (features.md sections 2.8, 4.1 and 4.4).
+//! Errors and warnings of features, the parts of their messages, suggested fixes and repair data
+//! (features.md sections 2.8, 3.12 and 4).
+
+pub(crate) mod field;
+mod message;
+mod warning;
 
 use partsmith_model::{Expr, ExprError, FieldUnit, Id, Units};
 use partsmith_naming::{ElementKind, ElementName, Reference};
 use partsmith_occt_sys::KernelError;
 use partsmith_sketch::{SketchError, SolveIssue};
 
-use crate::field::FieldRef;
-use crate::message::{
-    Bound, IdNames, Names, Noun, Renderer, Repair, format_value, plural, suggested_limit,
+pub use field::FieldRef;
+use message::{IdNames, Renderer, plural, suggested_limit};
+pub use message::{
+    Bound, DocumentNames, FallbackReason, IgnoredReason, Names, Noun, Repair, format_value,
 };
+pub use warning::FeatureWarning;
+
 use crate::params::BodyOp;
 
 /// Why a feature could not be built. Stores ids and internal-unit numbers, never display names or

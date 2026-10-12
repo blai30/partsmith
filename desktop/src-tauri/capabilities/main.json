@@ -1,0 +1,14 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "main",
+  "description": "The main window may call the engine, ask for files in native dialogs, use the files the user chose, and report unsaved changes.",
+  "windows": ["main"],
+  "permissions": [
+    "allow-call",
+    "allow-pick-open-file",
+    "allow-pick-save-file",
+    "allow-read-file",
+    "allow-write-file",
+    "allow-set-unsaved"
+  ]
+}

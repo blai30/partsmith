@@ -6,8 +6,10 @@ use partsmith_model::{Id, Units};
 use partsmith_naming::{ElementKind, ElementName, Reference};
 use partsmith_sketch::{RegionRef, SolveIssue};
 
-use crate::field::FieldRef;
-use crate::message::{FallbackReason, IdNames, IgnoredReason, Names, Renderer, Repair, plural};
+use super::field::FieldRef;
+use super::message::{
+    FallbackReason, IdNames, IgnoredReason, Names, Renderer, Repair, plural,
+};
 
 /// Something a feature built around: a lost reference, a remapped region, an unchanged body.
 /// Stores ids, never display names, so it renders correctly after a rename. `Display` renders the

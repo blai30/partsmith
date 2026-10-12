@@ -344,6 +344,16 @@ mod tests {
     }
 
     #[test]
+    fn print_report_ignores_unknown_orientation_fields() {
+        let text = r#"{"profile":"generic-fdm","orientation":{"kind":"as_modeled","note":"x"},"summary":{"health":"ok","errors":0,"warnings":0,"infos":0,"label":"Ready to print"},"bodies":[]}"#;
+
+        let report: PrintReport = serde_json::from_str(text)
+            .expect("a report orientation with an unknown field deserializes");
+
+        assert_eq!(report.orientation, Orientation::AsModeled);
+    }
+
+    #[test]
     fn body_print_without_display_omits_mesh_and_overhang() {
         let text = r#"{"body":"b-1","transform":[1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0],"report":{"profile":"generic-fdm","rotation":{"rows":[[1.0,0.0,0.0],[0.0,1.0,0.0],[0.0,0.0,1.0]]},"health":"ok","checks":[]}}"#;
 

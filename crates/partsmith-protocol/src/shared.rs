@@ -7,7 +7,6 @@ use partsmith_sketch::Placement;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::strict::no_fields;
 use crate::{BufferIndex, MAX_SAFE_INTEGER};
 
 /// Handle of an open document; starts at 1 per session and is never reused.
@@ -162,11 +161,12 @@ pub struct ElementDescriptor {
 }
 
 /// How bodies are rotated onto the build plate.
+// Unknown fields are ignored here, as in every result and event (section 3.6); the request fields
+// that hold an orientation reject them through `crate::strict`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
-#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+#[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Orientation {
     /// No rotation.
-    #[serde(deserialize_with = "no_fields")]
     AsModeled,
     /// Rotation by a proper orthonormal 3 × 3 matrix, row-major.
     Matrix {
@@ -212,8 +212,9 @@ pub struct Diagnostic {
 }
 
 /// A file passed into or out of the engine.
+// Unknown fields are ignored here, as in every result (section 3.6); the `open_document` request
+// rejects them through `crate::strict`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
 pub struct AssetData {
     /// File name inside the document's `assets/` folder.
     pub name: String,
@@ -272,10 +273,11 @@ mod tests {
     }
 
     #[test]
-    fn as_modeled_rejects_unknown_fields() {
-        let result = serde_json::from_str::<Orientation>(r#"{"kind":"as_modeled","rows":[]}"#);
+    fn orientation_ignores_unknown_fields() {
+        let orientation: Orientation =
+            serde_json::from_str(r#"{"kind":"as_modeled","note":"x"}"#).expect("deserializes");
 
-        assert!(result.is_err(), "got {result:?}");
+        assert_eq!(orientation, Orientation::AsModeled);
     }
 
     #[test]
@@ -356,10 +358,17 @@ mod tests {
     }
 
     #[test]
-    fn asset_data_rejects_unknown_fields() {
-        let result = serde_json::from_str::<AssetData>(r#"{"name":"a.step","data":0,"size":14}"#);
+    fn asset_data_ignores_unknown_fields() {
+        let asset: AssetData =
+            serde_json::from_str(r#"{"name":"a.step","data":0,"size":14}"#).expect("deserializes");
 
-        assert!(result.is_err(), "got {result:?}");
+        assert_eq!(
+            asset,
+            AssetData {
+                name: "a.step".to_string(),
+                data: BufferIndex(0)
+            }
+        );
     }
 
     #[test]

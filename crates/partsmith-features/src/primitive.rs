@@ -4,7 +4,7 @@ use partsmith_model::{Expr, FieldHint, FieldUnit, SelectionKind};
 use partsmith_sketch::Placement;
 
 use crate::context::BuildContext;
-use crate::dependencies::Dependencies;
+use crate::deps::Dependencies;
 use crate::error::FeatureError;
 use crate::params::{PlacementExt, PlaneRef};
 use crate::python::{PythonNames, PythonValue};

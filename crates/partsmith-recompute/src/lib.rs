@@ -106,33 +106,12 @@ impl Recompute {
 
     /// The dependency graph of a document (no evaluation, no building).
     pub fn graph(&self, input: &Input<'_>) -> Graph {
-        let mut validations = self
-            .validations
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
-        let timeline = Timeline::prepare(
-            &self.registry,
-            &mut validations,
-            input.document,
-            input.stop_at,
-        );
-        validations.prune(self.cache.limit(), input.document);
-        timeline.graph
+        self.prepare(input).graph
     }
 
     /// What a run would build or reuse, with every key (evaluates, never builds). Never changes the cache.
     pub fn plan(&self, input: &Input<'_>) -> Plan {
-        let mut validations = self
-            .validations
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
-        let timeline = Timeline::prepare(
-            &self.registry,
-            &mut validations,
-            input.document,
-            input.stop_at,
-        );
-        validations.prune(self.cache.limit(), input.document);
+        let timeline = self.prepare(input);
         let parameters = input.document.evaluate_parameters(input.context);
         plan::plan(
             &timeline,
@@ -145,31 +124,21 @@ impl Recompute {
     /// Runs the timeline up to the stop point.
     pub fn run(&mut self, input: &Input<'_>, cancel: &CancelToken) -> Report {
         let started = Instant::now();
-        let Recompute {
-            registry,
-            cache,
-            validations,
-        } = self;
-        let registry: &Registry = registry;
-        let validations = validations
-            .get_mut()
-            .unwrap_or_else(PoisonError::into_inner);
-        let timeline = Timeline::prepare(registry, validations, input.document, input.stop_at);
-        validations.prune(cache.limit(), input.document);
+        let timeline = prepare(&self.registry, &self.validations, self.cache.limit(), input);
         let parameters = input.document.evaluate_parameters(input.context);
         let scope = input.scope(&parameters);
-        cache.begin_run();
+        self.cache.begin_run();
         let ran = run::run(
             &Inputs {
                 timeline: &timeline,
-                registry,
+                registry: &self.registry,
                 scope: &scope,
                 assets: input.assets,
                 cancel,
             },
-            cache,
+            &mut self.cache,
         );
-        cache.end_run();
+        self.cache.end_run();
         Report {
             features: ran.features,
             bodies: ran.bodies,
@@ -189,6 +158,26 @@ impl Recompute {
     pub fn clear_cache(&mut self) {
         self.cache.clear();
     }
+
+    /// The prepared timeline of `input`.
+    fn prepare<'a>(&'a self, input: &Input<'a>) -> Timeline<'a> {
+        prepare(&self.registry, &self.validations, self.cache.limit(), input)
+    }
+}
+
+/// Prepares the timeline of `input` through the validation memo, then prunes the memo when it
+/// holds more than `limit` outcomes.
+fn prepare<'a>(
+    registry: &'a Registry,
+    validations: &Mutex<Validations>,
+    limit: usize,
+    input: &Input<'a>,
+) -> Timeline<'a> {
+    // The memo is a pure cache, so one left behind by a panicking feature is still consistent.
+    let mut validations = validations.lock().unwrap_or_else(PoisonError::into_inner);
+    let timeline = Timeline::prepare(registry, &mut validations, input.document, input.stop_at);
+    validations.prune(limit, input.document);
+    timeline
 }
 
 /// What to recompute.
@@ -451,6 +440,13 @@ mod tests {
         recompute.clear_cache();
 
         assert_eq!(recompute.cache_len(), 0);
+    }
+
+    #[test]
+    fn recompute_can_be_shared_between_threads() {
+        fn assert_send_and_sync<T: Send + Sync>() {}
+
+        assert_send_and_sync::<Recompute>();
     }
 
     #[test]

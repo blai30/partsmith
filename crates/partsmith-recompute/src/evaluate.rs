@@ -58,7 +58,7 @@ mod tests {
     use crate::timeline::StepKind;
     use crate::validation::Validations;
 
-    /// The keys of every active record of `features`, computed in timeline order.
+    /// The key of every record of `features` in timeline order, None for records that do not run.
     fn keys(features: serde_json::Value) -> Vec<Option<CacheKey>> {
         let registry = registry();
         let document = document(features);

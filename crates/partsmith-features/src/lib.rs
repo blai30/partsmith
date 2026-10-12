@@ -21,38 +21,33 @@
     reason = "FeatureError keeps the payload types the spec gives; errors end a build"
 )]
 
-mod builtin;
-mod context;
-mod dependencies;
+pub mod builtin;
+pub mod context;
+pub mod deps;
 mod deserializer;
-mod error;
-mod feature;
-mod field;
-mod message;
+pub mod error;
+pub mod feature;
 mod naming;
-mod output;
-mod params;
+pub mod output;
+pub mod params;
 mod primitive;
 mod profile;
-mod python;
-mod registry;
+pub mod python;
+pub mod registry;
 mod schema;
 mod search;
 #[cfg(test)]
 mod test_support;
-mod warning;
 
-pub use builtin::register_builtins;
 pub use context::{
     BodyState, BuildContext, BuildInputs, CancelToken, Resolved, ResolvedProfile, Values,
 };
-pub use dependencies::{AssetLink, Dependencies, ExprUse, Link};
-pub use error::FeatureError;
-pub use feature::{FEATURE_API_VERSION, Feature};
-pub use field::FieldRef;
-pub use message::{
-    Bound, DocumentNames, FallbackReason, IgnoredReason, Names, Noun, Repair, format_value,
+pub use deps::{AssetLink, Dependencies, ExprUse, Link};
+pub use error::{
+    Bound, DocumentNames, FallbackReason, FeatureError, FeatureWarning, FieldRef, IgnoredReason,
+    Names, Noun, Repair, format_value,
 };
+pub use feature::{FEATURE_API_VERSION, Feature};
 pub use naming::{modified_sources, name_by_history, name_shape, topology_info};
 pub use output::{
     BodyChange, BodyUpdate, DatumResult, FeatureOutput, OutputData, SketchResult, Tool, apply_op,
@@ -65,9 +60,10 @@ pub use partsmith_occt_sys::OCCT_VERSION;
 pub use primitive::{PrimitivePlacement, default_position, is_default_position};
 pub use profile::ProfileFaces;
 pub use python::{PythonCall, PythonNames, PythonValue};
-pub use registry::{Canonical, DynFeature, Registry, RegistryError, Validated};
+pub use registry::{
+    Canonical, DynFeature, Registry, RegistryError, Validated, register_builtins,
+};
 pub use search::too_large_search;
-pub use warning::FeatureWarning;
 
 /// Version of this crate. Recompute puts it and `OCCT_VERSION` into every cache key (recompute.md section 3.4).
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

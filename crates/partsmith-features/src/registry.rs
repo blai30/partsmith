@@ -14,13 +14,13 @@ use partsmith_model::{
 use schemars::Schema;
 use serde_json::{Map, Value};
 
-use crate::builtin::register_builtins;
+use crate::builtin::BUILTINS;
 use crate::context::BuildContext;
-use crate::dependencies::Dependencies;
+use crate::deps::Dependencies;
 use crate::deserializer::from_params;
 use crate::error::FeatureError;
 use crate::feature::Feature;
-use crate::field::pointer;
+use crate::error::field::pointer;
 use crate::output::FeatureOutput;
 use crate::python::{PythonCall, PythonNames, PythonValue, is_keyword_name};
 use crate::schema;
@@ -227,6 +227,14 @@ impl Registry {
                 type_name: record.kind.clone(),
             })
     }
+}
+
+/// Registers every built-in feature type through `Registry::register`, exactly as a plugin would.
+pub fn register_builtins(registry: &mut Registry) -> Result<(), RegistryError> {
+    for register in BUILTINS {
+        register(registry)?;
+    }
+    Ok(())
 }
 
 /// Lets the model validate documents without reading params (model.md section 2.7).

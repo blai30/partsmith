@@ -8,7 +8,7 @@ use partsmith_sketch::{PointRef, SketchParams};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::strict::no_fields;
+use crate::strict::{self, no_fields};
 use crate::{
     AssetData, Axis, BufferIndex, CurveKind, Diagnostic, DocHandle, ElementDescriptor, ElementRef,
     ExportFile, MeshElement, Orientation, Pick, SketchSolution, SurfaceKind, TessellationQuality,
@@ -47,7 +47,8 @@ pub enum Command {
         /// The `.ptsm` text.
         text: String,
         /// Files of the document's `assets/` folder.
-        #[serde(default)]
+        #[serde(default, deserialize_with = "strict::assets")]
+        #[schemars(schema_with = "strict::closed_list::<AssetData>")]
         assets: Vec<AssetData>,
     },
     /// Canonical `.ptsm` text plus every asset the document references.
@@ -212,6 +213,8 @@ pub enum Command {
         #[serde(skip_serializing_if = "Option::is_none")]
         profile: Option<String>,
         /// How the bodies are placed on the bed.
+        #[serde(deserialize_with = "strict::orientation")]
+        #[schemars(schema_with = "strict::closed::<Orientation>")]
         orientation: Orientation,
         /// Bodies to analyze; visible part bodies with geometry when absent.
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -227,10 +230,20 @@ pub enum Command {
         #[serde(skip_serializing_if = "Option::is_none")]
         bodies: Option<Vec<Id>>,
         /// Mesh tolerances; derived from the printer profile when absent.
-        #[serde(skip_serializing_if = "Option::is_none")]
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "strict::optional_tolerance"
+        )]
+        #[schemars(schema_with = "strict::closed_or_null::<TessellationTolerance>")]
         tolerance: Option<TessellationTolerance>,
         /// How the bodies are rotated; as modeled when absent.
-        #[serde(skip_serializing_if = "Option::is_none")]
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "strict::optional_orientation"
+        )]
+        #[schemars(schema_with = "strict::closed_or_null::<Orientation>")]
         orientation: Option<Orientation>,
     },
     /// Stores a STEP file as an asset and adds one body and one `import` feature.
@@ -728,5 +741,135 @@ mod tests {
                 .expect("a result with an unknown field deserializes");
 
         assert_eq!(result, CommandResult::ApplyEdits { revision: 4 });
+    }
+
+    #[test]
+    fn open_document_rejects_unknown_asset_fields() {
+        let result = command(
+            r#"{"type":"open_document","text":"{}","assets":[{"name":"a.step","data":0,"size":14}]}"#,
+        );
+
+        let error = result.expect_err("an unknown asset field is rejected");
+        assert!(error.to_string().contains("unknown field `size`"), "{error}");
+    }
+
+    #[test]
+    fn open_document_reads_its_assets() {
+        let open = command(r#"{"type":"open_document","text":"{}","assets":[{"name":"a.step","data":0}]}"#)
+            .expect("the command deserializes");
+
+        let Command::OpenDocument { assets, .. } = open else {
+            panic!("an open_document command, got {open:?}");
+        };
+        assert_eq!(
+            assets,
+            [AssetData {
+                name: "a.step".to_string(),
+                data: BufferIndex(0)
+            }]
+        );
+    }
+
+    #[test]
+    fn save_document_result_ignores_unknown_asset_fields() {
+        let result: CommandResult = serde_json::from_str(
+            r#"{"type":"save_document","text":"{}","assets":[{"name":"a.step","data":0,"size":14}],"revision":0}"#,
+        )
+        .expect("a result asset with an unknown field deserializes");
+
+        let CommandResult::SaveDocument { assets, .. } = result else {
+            panic!("a save_document result, got {result:?}");
+        };
+        assert_eq!(assets[0].name, "a.step");
+    }
+
+    #[test]
+    fn analyze_print_rejects_unknown_orientation_fields() {
+        for orientation in [
+            r#"{"kind":"as_modeled","note":"x"}"#,
+            r#"{"kind":"matrix","rows":[[1.0,0.0,0.0],[0.0,1.0,0.0],[0.0,0.0,1.0]],"note":"x"}"#,
+        ] {
+            let result = command(&format!(
+                r#"{{"type":"analyze_print","doc":1,"orientation":{orientation}}}"#
+            ));
+
+            assert!(result.is_err(), "{orientation}: got {result:?}");
+        }
+    }
+
+    #[test]
+    fn analyze_print_reads_its_orientation() {
+        let analyze = command(r#"{"type":"analyze_print","doc":1,"orientation":{"kind":"as_modeled"}}"#)
+            .expect("the command deserializes");
+
+        assert!(
+            matches!(
+                analyze,
+                Command::AnalyzePrint {
+                    orientation: Orientation::AsModeled,
+                    ..
+                }
+            ),
+            "got {analyze:?}"
+        );
+    }
+
+    #[test]
+    fn export_rejects_unknown_orientation_fields() {
+        let result = command(
+            r#"{"type":"export","doc":1,"format":{"kind":"obj"},"orientation":{"kind":"as_modeled","note":"x"}}"#,
+        );
+
+        assert!(result.is_err(), "got {result:?}");
+    }
+
+    #[test]
+    fn export_rejects_unknown_tolerance_fields() {
+        let result = command(
+            r#"{"type":"export","doc":1,"format":{"kind":"obj"},"tolerance":{"chord_deviation":0.1,"angular_deviation":0.1,"extra":1}}"#,
+        );
+
+        let error = result.expect_err("an unknown tolerance field is rejected");
+        assert!(error.to_string().contains("unknown field `extra`"), "{error}");
+    }
+
+    #[test]
+    fn export_reads_missing_and_null_options_as_absent() {
+        for text in [
+            r#"{"type":"export","doc":1,"format":{"kind":"obj"}}"#,
+            r#"{"type":"export","doc":1,"format":{"kind":"obj"},"tolerance":null,"orientation":null}"#,
+        ] {
+            let export = command(text).expect("the command deserializes");
+
+            assert!(
+                matches!(
+                    export,
+                    Command::Export {
+                        tolerance: None,
+                        orientation: None,
+                        ..
+                    }
+                ),
+                "{text}: got {export:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn set_tessellation_result_ignores_unknown_tolerance_fields() {
+        let result: CommandResult = serde_json::from_str(
+            r#"{"type":"set_tessellation","tolerance":{"chord_deviation":0.1,"angular_deviation":0.2,"extra":1}}"#,
+        )
+        .expect("a result tolerance with an unknown field deserializes");
+
+        assert_eq!(
+            result,
+            CommandResult::SetTessellation {
+                tolerance: TessellationTolerance {
+                    chord_deviation: 0.1,
+                    angular_deviation: 0.2
+                }
+            }
+        );
     }
 }

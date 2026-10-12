@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/*"]
+members = ["crates/*", "desktop/src-tauri"]
 
 [workspace.package]
 version = "0.1.0"
@@ -42,6 +42,10 @@ proptest = "1"
 approx = "0.5"
 pretty_assertions = "1"
 tempfile = "3"
+# Tauri's crates move together, so they are pinned exactly (ADR 0014).
+tauri = "=2.12.3"
+tauri-build = "=2.7.2"
+tauri-plugin-dialog = "=2.8.2"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

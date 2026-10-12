@@ -10,6 +10,7 @@ Project-wide style guides that every change follows, in addition to the code sty
 
 Applying [frontend-design.md](frontend-design.md) to a CAD tool used for hours at a time:
 
+- **Audience:** easy to pick up for a beginner, never dumbed down for an expert. Beginners coming from Tinkercad find FreeCAD and Fusion overwhelming, so the default surface is small, labeled and forgiving: sensible defaults, plain words, live previews, undo for everything, and errors that offer a fix. Experts keep full power one step away (the command palette, the inspector's "More" section, expressions and parameters, shortcuts, precise numeric entry) and are never forced through wizards or confirmations. Every new control earns its place on screen; when in doubt, put it behind progressive disclosure rather than removing the capability.
 - **Tone:** a precision instrument. Graphite and zinc surfaces, hairline borders, generous spacing, restrained motion. The model in the viewport is the hero; chrome recedes.
 - **Accent:** one signal orange for selection, focus and primary actions. It stays distinct from sketch blue (under-constrained geometry) and red (conflicts and errors).
 - **Type:** Inter for interface text; JetBrains Mono for numbers, dimensions, expressions and code.
