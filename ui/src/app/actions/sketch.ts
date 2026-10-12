@@ -787,7 +787,7 @@ async function applyCandidate(
   } catch (error) {
     return failure(error)
   }
-  // Features this edit made fail are reported when the sketch is finished (U-110).
+  // No failure notification here: features this edit made fail are reported on finishing (U-110).
   recordSketchEdit(app)
   return { outcome: 'committed', revision }
 }
