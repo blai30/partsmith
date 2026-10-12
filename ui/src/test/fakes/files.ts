@@ -1,4 +1,5 @@
 import type {
+  FileHandle,
   FileKind,
   FileService,
   FileServiceError,
@@ -20,7 +21,7 @@ export type FakeFileService = FileService & {
   /** The arguments of every `chooseSaveTarget` call. */
   readonly saveRequests: readonly { readonly suggestedName: string; readonly kind: FileKind }[]
   /** The handles passed to `readHandle`. */
-  readonly reads: readonly FileSystemFileHandle[]
+  readonly reads: readonly FileHandle[]
   /** The file the next `pickToOpen` returns; null means the user cancels. */
   nextOpen: OpenedFile | null
   /**
@@ -33,7 +34,7 @@ export type FakeFileService = FileService & {
   /** When set, every `readHandle` throws it. */
   readError: FileServiceError | null
   /** The text `readHandle` returns for a handle; set by `write` to a handle too. */
-  readonly contents: Map<FileSystemFileHandle, string>
+  readonly contents: Map<FileHandle, string>
 }
 
 /** A file handle with the parts of the File System Access API the app uses. */
@@ -54,8 +55,8 @@ export function createFakeFileService(
   const fileSystemAccess = options.fileSystemAccess ?? true
   const writes: FileWrite[] = []
   const saveRequests: { suggestedName: string; kind: FileKind }[] = []
-  const reads: FileSystemFileHandle[] = []
-  const contents = new Map<FileSystemFileHandle, string>()
+  const reads: FileHandle[] = []
+  const contents = new Map<FileHandle, string>()
 
   const service: FakeFileService = {
     fileSystemAccess,

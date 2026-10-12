@@ -393,7 +393,8 @@ struct Typed<F> {
     manifest: FeatureManifest,
     /// The schemars root schema of `F::Params`, computed once.
     schema: Schema,
-    /// The top-level params keys the type knows: the properties of its schema.
+    /// The top-level params keys the type knows: the properties of its schema's root and of its
+    /// root branches.
     known_keys: BTreeSet<String>,
     /// The feature type.
     feature: PhantomData<fn() -> F>,
@@ -403,11 +404,7 @@ impl<F: Feature> Typed<F> {
     /// The adapter of `F`, with its manifest, schema and known keys computed once.
     fn new() -> Self {
         let schema = schemars::schema_for!(F::Params);
-        let known_keys = schema
-            .get("properties")
-            .and_then(Value::as_object)
-            .map(|properties| properties.keys().cloned().collect())
-            .unwrap_or_default();
+        let known_keys = schema::known_keys(schema.as_value()).into_iter().collect();
         Typed {
             manifest: F::manifest(),
             schema,
@@ -474,5 +471,157 @@ impl<F: Feature> DynFeature for Typed<F> {
 
     fn python(&self, params: &Map<String, Value>, names: &dyn PythonNames) -> Option<PythonCall> {
         F::python(&from_params(params).ok()?, names)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use partsmith_model::{Expr, FieldHint, FieldUnit, OptionHint};
+    use schemars::JsonSchema;
+    use serde::{Deserialize, Serialize};
+    use serde_json::json;
+
+    use super::*;
+    use crate::output::OutputData;
+    use crate::test_support::{id, manifest};
+
+    /// Params that flatten a tagged enum into the params root.
+    #[derive(Clone, Serialize, Deserialize, JsonSchema)]
+    struct FlatParams {
+        /// The body.
+        body: Id,
+        /// The extent, flattened.
+        #[serde(flatten)]
+        extent: FlatExtent,
+    }
+
+    /// A tagged extent.
+    #[derive(Clone, Serialize, Deserialize, JsonSchema)]
+    #[serde(tag = "kind", rename_all = "snake_case")]
+    enum FlatExtent {
+        /// One distance.
+        Distance {
+            /// The distance.
+            expr: Expr,
+        },
+        /// Through everything.
+        ThroughAll,
+    }
+
+    /// The hints of every key `FlatParams` knows.
+    fn flat_hints() -> Vec<FieldHint> {
+        let hint = |path: &str| FieldHint {
+            path: path.to_string(),
+            label: path.to_string(),
+            essential: false,
+            unit: None,
+            selection: None,
+            options: Vec::new(),
+        };
+        let option = |value: &str| OptionHint {
+            value: value.to_string(),
+            label: value.to_string(),
+        };
+        vec![
+            hint("body"),
+            FieldHint {
+                options: vec![option("distance"), option("through_all")],
+                ..hint("kind")
+            },
+            FieldHint {
+                unit: Some(FieldUnit::Length),
+                ..hint("expr")
+            },
+        ]
+    }
+
+    /// A feature whose params flatten an enum, with hints for every key.
+    struct Flat;
+
+    impl Feature for Flat {
+        const TYPE: &'static str = "flat";
+        type Params = FlatParams;
+
+        fn manifest() -> FeatureManifest {
+            manifest(flat_hints())
+        }
+
+        fn dependencies(_params: &FlatParams) -> Dependencies {
+            Dependencies::default()
+        }
+
+        fn build(
+            _params: &FlatParams,
+            _context: &BuildContext<'_>,
+        ) -> Result<FeatureOutput, FeatureError> {
+            Ok(FeatureOutput {
+                data: OutputData::Nothing,
+                warnings: Vec::new(),
+            })
+        }
+    }
+
+    /// `Flat` without a hint for the flattened tag `kind`.
+    struct FlatWithoutKindHint;
+
+    impl Feature for FlatWithoutKindHint {
+        const TYPE: &'static str = "flat_without_kind_hint";
+        type Params = FlatParams;
+
+        fn manifest() -> FeatureManifest {
+            let mut hints = flat_hints();
+            hints.retain(|hint| hint.path != "kind");
+            manifest(hints)
+        }
+
+        fn dependencies(params: &FlatParams) -> Dependencies {
+            Flat::dependencies(params)
+        }
+
+        fn build(
+            params: &FlatParams,
+            context: &BuildContext<'_>,
+        ) -> Result<FeatureOutput, FeatureError> {
+            Flat::build(params, context)
+        }
+    }
+
+    fn flat_record(params: serde_json::Value) -> FeatureRecord {
+        let mut record = FeatureRecord::new(id("f-flat1"), "flat");
+        record.params = params
+            .as_object()
+            .expect("the params are an object")
+            .clone();
+        record
+    }
+
+    #[test]
+    fn flattened_fields_are_known_keys() {
+        let mut registry = Registry::new();
+        registry.register::<Flat>().expect("flat registers");
+
+        let validated = registry
+            .validate_and_canonicalize(&flat_record(
+                json!({"body": "b-1", "kind": "distance", "expr": "5", "taper": 1}),
+            ))
+            .expect("the params are valid");
+
+        assert_eq!(validated.unknown_keys, ["taper"]);
+        assert_eq!(
+            serde_json::to_string(&validated.record.params).expect("params serialize"),
+            r#"{"body":"b-1","kind":"distance","expr":"5","taper":1}"#
+        );
+    }
+
+    #[test]
+    fn flattened_fields_need_hints() {
+        let mut registry = Registry::new();
+
+        let result = registry.register::<FlatWithoutKindHint>();
+
+        assert!(
+            matches!(&result, Err(RegistryError::ManifestMismatch { path, .. }) if path == "kind"),
+            "got {result:?}"
+        );
     }
 }

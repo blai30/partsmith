@@ -457,7 +457,7 @@ The viewport fills the screen, and everything else appears only when needed. The
 1. **The model is the interface.** Edit by double-clicking geometry or timeline items, drag on-canvas handles, and type values in place. Panels serve the canvas, not the reverse.
 2. **One toolbar per context, no ribbons.** The toolbar shows the roughly 10 most-used tools for that context. The rest live in the command palette and the right-click marking menu. Users can pin their own tools.
 3. **No modal dialogs.** Feature options appear in a small floating inspector next to the selection. It shows the 2–4 essential options, and a "More" toggle reveals the rest. Enter confirms, Esc cancels, and the preview is always live.
-4. **Progressive disclosure.** Beginners see a clean, approachable surface. FreeCAD-level power (attachment modes, solver options, expression editor) is there, but only when asked for.
+4. **Progressive disclosure.** Beginners see a clean, approachable surface. FreeCAD-level power (attachment modes, solver options, expression editor) is there, but only when asked for. There is one interface for everyone: no beginner or expert modes, and the same screens that a newcomer finds approachable carry the full power an experienced user needs.
 5. **Errors explain and offer a fix.** Every failure names the cause in plain words and offers a fix where possible ("Fillet too large: max 2.4 mm. Use 2.4 mm?").
 6. **Everything is undoable,** including view changes in sketch mode, and undo history survives a save.
 

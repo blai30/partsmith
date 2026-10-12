@@ -18,10 +18,10 @@ Spec (the definition of done): `docs/spec/protocol.md`. Acceptance tests in `tes
 
 ## Internals
 
-- `src/frame/`: `buffer.rs` (buffer types, little-endian element reads and writes), `encode.rs` (borrowed `MessageRef` and `HeaderRef` so encoding never clones messages; one zeroed allocation, then header and buffers copied in), `decode.rs` (the twelve checks of section 3.2 in order: the header is parsed to a `serde_json::Value` first so version and layout are checked before messages are typed).
-- `src/strict.rs`: `no_fields`, put on the unit variants of request enums (`Command`, `ExportFormat`, `Orientation`) because serde ignores unknown fields of unit variants in internally tagged enums.
+- `src/frame/`: `buffer.rs` (buffer types, little-endian element reads and writes), `encode.rs` (borrowed `MessageRef` and `HeaderRef` so encoding never clones messages; one zeroed allocation, then header and buffers copied in), `decode.rs` (the twelve checks of section 3.2 in order: the header is parsed to a `serde_json::Value` first so version and layout are checked before messages are typed). The header parse (`UniqueKeys`) refuses any object that repeats a key, as `InvalidMessage` without a request id, because a plain `Value` would keep only the last value and hide the repeat from serde. Request ids above `MAX_SAFE_INTEGER` are never put in a `FrameError`, so a host answers them with id 0.
+- `src/strict.rs`: `no_fields`, put on the unit variants of request enums (`Command`, `ExportFormat`) because serde ignores unknown fields of unit variants in internally tagged enums. Also the request side of types that results and events share: `Orientation`, `AssetData` and partsmith-mesh's `TessellationTolerance` accept unknown fields, and the request fields holding them use strict private mirrors (`deserialize_with`) and closed schemas (`schema_with = "strict::closed..."`, `allOf` around the `$ref` plus `unevaluatedProperties: false`, which keeps the generated TypeScript type a reference).
 - `src/message.rs`: two schemars transforms keep `Request` a named `$defs` entry while the `request` variant of `Message` stays closed (`unevaluatedProperties: false`).
-- Request types reject unknown fields (`deny_unknown_fields`); result and event types accept them, so additive changes stay compatible (section 3.6).
+- Request types reject unknown fields (`deny_unknown_fields`, or `strict.rs` for shared types); result and event types accept them, so additive changes stay compatible (section 3.6). Core types keep the strictness their own specs give them; `partsmith_model::Edit` accepts unknown fields in `apply_edits` until model.md decides otherwise.
 
 ## Commands
 

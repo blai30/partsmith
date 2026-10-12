@@ -130,7 +130,9 @@ pub(crate) fn optional_orientation<'de, D: Deserializer<'de>>(
 }
 
 /// Reads a request's assets, rejecting unknown fields.
-pub(crate) fn assets<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec<AssetData>, D::Error> {
+pub(crate) fn assets<'de, D: Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Vec<AssetData>, D::Error> {
     let assets = Vec::<RequestAsset>::deserialize(deserializer)?;
     Ok(assets.into_iter().map(AssetData::from).collect())
 }
@@ -178,8 +180,8 @@ mod tests {
         json!({"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,40|a=600|adj=4,4"})
     }
 
-    /// Every orientation variant; the match makes a new variant fail to compile here until
-    /// `RequestOrientation` has it too.
+    /// One orientation of every variant. A new `Orientation` variant stops the match below from
+    /// compiling, a reminder to add a sample here and the variant to `RequestOrientation`.
     fn every_orientation() -> Vec<Orientation> {
         let samples = vec![
             Orientation::AsModeled,
@@ -193,7 +195,9 @@ mod tests {
         ];
         for sample in &samples {
             match sample {
-                Orientation::AsModeled | Orientation::Matrix { .. } | Orientation::FaceDown { .. } => {}
+                Orientation::AsModeled
+                | Orientation::Matrix { .. }
+                | Orientation::FaceDown { .. } => {}
             }
         }
         samples
@@ -262,13 +266,19 @@ mod tests {
 
             let error = orientation(&text).expect_err("an unknown field is rejected");
 
-            assert!(error.to_string().contains("unknown field `note`"), "{error}");
+            assert!(
+                error.to_string().contains("unknown field `note`"),
+                "{error}"
+            );
         }
     }
 
     #[test]
     fn optional_request_orientation_reads_null_as_absent() {
-        assert_eq!(optional_orientation(&Value::Null).expect("null deserializes"), None);
+        assert_eq!(
+            optional_orientation(&Value::Null).expect("null deserializes"),
+            None
+        );
     }
 
     #[test]
@@ -305,7 +315,10 @@ mod tests {
 
         let error = assets(&text).expect_err("an unknown field is rejected");
 
-        assert!(error.to_string().contains("unknown field `size`"), "{error}");
+        assert!(
+            error.to_string().contains("unknown field `size`"),
+            "{error}"
+        );
     }
 
     #[test]
@@ -352,7 +365,10 @@ mod tests {
         let schema = closed_or_null::<AssetData>(&mut generator);
 
         assert_eq!(schema.as_value()["anyOf"][1], json!({"type": "null"}));
-        assert_eq!(schema.as_value()["anyOf"][0]["unevaluatedProperties"], false);
+        assert_eq!(
+            schema.as_value()["anyOf"][0]["unevaluatedProperties"],
+            false
+        );
     }
 
     #[test]

@@ -410,23 +410,23 @@ impl<'a> BuildContext<'a> {
         shape.element(first.kind, first.index).map_err(kernel)
     }
 
-    /// The axis of a sketch line: from its solved start to its end, in world space.
+    /// The axis of a sketch line: from its solved start to its end, in world space. An unknown
+    /// entity or one that is not a line names the axis field itself (features/revolve.md test 21).
     fn sketch_line(&self, field: &str, sketch: &Id, line: &Id) -> Result<Axis, FeatureError> {
         let result = self.sketch(&format!("{field}.sketch"), sketch)?;
-        let line_field = format!("{field}.line");
         let entity = result
             .solved
             .entities
             .iter()
             .find(|entity| entity.id == *line)
             .ok_or_else(|| FeatureError::UnknownEntity {
-                field: self.field(&line_field),
+                field: self.field(field),
                 sketch: sketch.clone(),
                 entity: line.to_string(),
                 noun: Noun::Line,
             })?;
         let not_a_line = || FeatureError::NotALine {
-            field: self.field(&line_field),
+            field: self.field(field),
             sketch: sketch.clone(),
             entity: line.clone(),
         };
@@ -770,7 +770,7 @@ fn canonical_axis(through: Point, direction: Vector) -> Result<Axis, FeatureErro
 mod tests {
     use partsmith_model::{EmptyContext, ParameterValues};
     use partsmith_naming::Fingerprint;
-    use partsmith_occt_sys::{Plane as KernelPlane, make_cylinder};
+    use partsmith_occt_sys::{Plane as KernelPlane, make_cone, make_cylinder, make_sphere, make_torus};
     use partsmith_sketch::{SketchEntity, build_profile};
     use serde_json::json;
 
@@ -881,6 +881,171 @@ mod tests {
 
     fn codes(warnings: &[FeatureWarning]) -> Vec<&'static str> {
         warnings.iter().map(FeatureWarning::code).collect()
+    }
+
+    /// A fixture whose `b-1` is the primitive `feature` made by `make` at `origin`.
+    fn primitive_fixture(
+        feature: &str,
+        origin: Point,
+        make: impl FnOnce(&KernelPlane) -> partsmith_occt_sys::Primitive,
+    ) -> Fixture {
+        let placement = KernelPlane {
+            origin,
+            ..KernelPlane::XY
+        };
+        let primitive = named_primitive(feature, make(&placement));
+        Fixture::new("f-test1").with_body(
+            "b-1",
+            BodyState::new(primitive.shape, Arc::new(primitive.naming)),
+        )
+    }
+
+    /// The axis of the face `face` of `b-1`.
+    fn face_axis(fixture: &Fixture, face: &str, fingerprint: &str) -> Result<Axis, FeatureError> {
+        fixture.context().axis(
+            "axis",
+            &AxisRef::Face {
+                body: id("b-1"),
+                face: reference(face, fingerprint),
+            },
+        )
+    }
+
+    fn assert_axis(axis: &Axis, origin: [f64; 3], direction: [f64; 3]) {
+        let actual = [axis.origin.x, axis.origin.y, axis.origin.z];
+        for (component, expected) in actual.iter().zip(origin) {
+            assert!((component - expected).abs() < 1e-9, "origin {actual:?}");
+        }
+        assert_eq!(axis.direction, vector(direction));
+    }
+
+    /// A fingerprint that six faces of a 10 mm box match equally: only the kind and the area.
+    const ANY_BOX_FACE: &str = "plane|a=100";
+
+    #[test]
+    fn an_ambiguous_required_reference_lists_its_candidates() {
+        let fixture = box_fixture();
+
+        let error = fixture
+            .context()
+            .resolve(
+                "plane.face",
+                &id("b-1"),
+                &reference("f-box1/nothing", ANY_BOX_FACE),
+                ElementKind::Face,
+            )
+            .expect_err("six faces match equally");
+
+        let FeatureError::ReferenceNotFound { candidates, .. } = &error else {
+            panic!("expected ReferenceNotFound, got {error:?}");
+        };
+        assert_eq!(candidates.len(), 6);
+        assert!(matches!(
+            error.repair(),
+            Some(crate::error::Repair::Element { ambiguous: true, .. })
+        ));
+        assert_eq!(
+            error.to_string(),
+            "The face selected for plane.face now matches 6 faces. Pick the one you mean in the repair panel."
+        );
+    }
+
+    #[test]
+    fn an_ambiguous_listed_reference_is_skipped_with_its_candidates() {
+        let fixture = box_fixture();
+        let faces = [
+            reference("f-box1/nothing", ANY_BOX_FACE),
+            reference("f-box1/top", "plane|n=0,0,1"),
+        ];
+
+        let resolved = fixture
+            .context()
+            .resolve_all("remove_faces", &id("b-1"), &faces, ElementKind::Face)
+            .expect("the top resolves");
+
+        assert_eq!(resolved.elements.len(), 1);
+        assert_eq!(codes(&resolved.warnings), ["reference_ambiguous"]);
+        let FeatureWarning::ReferenceAmbiguous {
+            position,
+            candidates,
+            field,
+            ..
+        } = &resolved.warnings[0]
+        else {
+            panic!("expected ReferenceAmbiguous, got {:?}", resolved.warnings[0]);
+        };
+        assert_eq!(*position, 0);
+        assert_eq!(candidates.len(), 6);
+        assert_eq!(field.pointer(), "/remove_faces/0");
+    }
+
+    #[test]
+    fn an_ambiguous_profile_region_is_skipped() {
+        let mut output = sketch_output(OriginPlane::Xy.placement(), rectangle_with_circle());
+        let OutputData::Sketch(sketch) = &mut Arc::make_mut(&mut output).data else {
+            unreachable!("sketch_output makes a sketch");
+        };
+        let disc = sketch
+            .profile
+            .regions
+            .iter()
+            .find(|region| region.key.to_string() == "e-5")
+            .expect("the circle bounds a region")
+            .clone();
+        sketch.profile.regions.push(disc);
+        let mut fixture = Fixture::new("f-ext1");
+        fixture.upstream.insert(id("f-sk1"), output);
+        let context = fixture.context();
+
+        let resolved = context
+            .profile(
+                "profile",
+                &profile(json!([
+                    {"key": "e-5", "fp": "c=40,25|a=314.159265"},
+                    {"key": "e-1,e-2,e-3,e-4;~e-5", "fp": "c=40,25|a=3685.840735"}
+                ])),
+            )
+            .expect("the second region resolves");
+
+        assert_eq!(resolved.regions.len(), 1);
+        assert_eq!(codes(&resolved.warnings), ["region_ambiguous"]);
+        assert!(matches!(
+            resolved.warnings[0].repair(),
+            Some(crate::error::Repair::Region { pointer, ambiguous: true, .. }) if pointer == "/profile/regions/0"
+        ));
+    }
+
+    #[test]
+    fn a_sphere_axis_runs_along_z_through_its_center() {
+        let fixture = primitive_fixture("f-sph1", Point::new(3.0, 4.0, 5.0), |placement| {
+            make_sphere(placement, 2.0).expect("the sphere builds")
+        });
+
+        let axis = face_axis(&fixture, "f-sph1/surface", "sphere").expect("a sphere has an axis");
+
+        assert_axis(&axis, [3.0, 4.0, 0.0], [0.0, 0.0, 1.0]);
+    }
+
+    #[test]
+    fn a_cone_face_gives_its_axis() {
+        let fixture = primitive_fixture("f-cone1", Point::new(3.0, 4.0, 0.0), |placement| {
+            make_cone(placement, 5.0, 2.0, 10.0).expect("the cone builds")
+        });
+
+        let axis = face_axis(&fixture, "f-cone1/side", "cone").expect("a cone has an axis");
+
+        assert_axis(&axis, [3.0, 4.0, 0.0], [0.0, 0.0, 1.0]);
+    }
+
+    #[test]
+    fn a_torus_face_gives_its_axis() {
+        let fixture = primitive_fixture("f-tor1", Point::new(3.0, 4.0, 2.0), |placement| {
+            make_torus(placement, 10.0, 2.0).expect("the torus builds")
+        });
+
+        let axis = face_axis(&fixture, "f-tor1/surface", "torus").expect("a torus has an axis");
+
+        assert_axis(&axis, [3.0, 4.0, 0.0], [0.0, 0.0, 1.0]);
     }
 
     #[test]
@@ -1234,10 +1399,13 @@ mod tests {
             .axis("axis", &unknown)
             .expect_err("no e-77");
 
-        assert_eq!(not_a_line.code(), "not_a_line");
+        assert!(matches!(
+            not_a_line,
+            FeatureError::NotALine { ref field, .. } if field.path == "axis"
+        ));
         assert!(matches!(
             missing,
-            FeatureError::UnknownEntity { noun: Noun::Line, ref field, .. } if field.path == "axis.line"
+            FeatureError::UnknownEntity { noun: Noun::Line, ref field, .. } if field.path == "axis"
         ));
     }
 

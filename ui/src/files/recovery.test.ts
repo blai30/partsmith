@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createFakeIndexedDb } from '../test/fakes/indexed-db'
+import type { DesktopFileHandle } from './file-service'
 import { createIndexedDbRecovery, createMemoryRecovery, type RecoveryEntry } from './recovery'
 
 const ENTRY: RecoveryEntry = {
@@ -107,6 +108,18 @@ describe('createIndexedDbRecovery', () => {
     const fake = createFakeIndexedDb()
     await createIndexedDbRecovery(fake.factory).write(ENTRY)
     expect(await createIndexedDbRecovery(fake.factory).read()).toEqual(ENTRY)
+  })
+
+  it('desktop test 47: an entry with a desktop handle round-trips unchanged', async () => {
+    const fake = createFakeIndexedDb()
+    const handle: DesktopFileHandle = { kind: 'desktop', name: 'bracket.ptsm', grant: 'g1' }
+    const entry: RecoveryEntry = { ...ENTRY, handle, reason: 'replaced' }
+    await createIndexedDbRecovery(fake.factory).write(entry)
+    expect(await createIndexedDbRecovery(fake.factory).read()).toEqual({
+      ...ENTRY,
+      handle: { kind: 'desktop', name: 'bracket.ptsm', grant: 'g1' },
+      reason: 'replaced',
+    })
   })
 
   it.each([

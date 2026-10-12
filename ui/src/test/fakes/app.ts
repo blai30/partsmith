@@ -1,5 +1,6 @@
 import { openFile, startCore } from '../../app/actions/document'
 import { createApp, type App, type Platform } from '../../app/createApp'
+import type { FileHandle } from '../../files/file-service'
 import { createMemoryRecentFiles, type RecentFilesStore } from '../../files/recent'
 import { createMemoryRecovery, type RecoveryStore } from '../../files/recovery'
 import type { Document } from '../../generated/protocol'
@@ -93,7 +94,7 @@ export async function openTestDocument(
   fake: FakeApp,
   name: string,
   document: Document,
-  handle: FileSystemFileHandle | null = null,
+  handle: FileHandle | null = null,
 ): Promise<DocumentState> {
   await openFile(fake.app, documentFile(name, document, handle))
   await settle()
@@ -108,7 +109,7 @@ export async function openTestDocument(
 export async function startWithDocument(
   name: string,
   document: Document,
-  options: FakeAppOptions & { readonly handle?: FileSystemFileHandle | null } = {},
+  options: FakeAppOptions & { readonly handle?: FileHandle | null } = {},
 ): Promise<FakeApp> {
   const fake = await startFakeApp(options)
   await openTestDocument(fake, name, document, options.handle ?? null)

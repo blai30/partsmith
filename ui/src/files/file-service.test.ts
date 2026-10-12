@@ -1,6 +1,12 @@
 import { fireEvent } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi, type Mock } from 'vitest'
-import { createWebFileService, FILE_TYPES, FileServiceError } from './file-service'
+import {
+  createWebFileService,
+  type DesktopFileHandle,
+  FILE_TYPES,
+  FileServiceError,
+  isFileHandle,
+} from './file-service'
 
 const CONTENT = '{"format": 1}'
 // Copied into this realm's Uint8Array: under jsdom, TextEncoder returns Node's, which toEqual tells apart.
@@ -394,6 +400,38 @@ describe('web file service with the File System Access API', () => {
     const error = await rejectionOf(createWebFileService(window).readHandle(fake.handle))
     expect(error).toBeInstanceOf(FileServiceError)
     expect(error).toMatchObject({ reason: 'not_found' })
+  })
+})
+
+describe('desktop handles in the web file service', () => {
+  it('desktop test 42: readHandle of a desktop handle is a permission error naming the file', async () => {
+    const handle: DesktopFileHandle = { kind: 'desktop', name: 'a.ptsm', grant: 'g1' }
+
+    const error = await rejectionOf(createWebFileService(window).readHandle(handle))
+
+    expect(error).toBeInstanceOf(FileServiceError)
+    expect(error).toMatchObject({
+      reason: 'permission',
+      message: 'Partsmith has no access to a.ptsm.',
+    })
+  })
+})
+
+describe('isFileHandle', () => {
+  it('desktop test 45: accepts a desktop handle', () => {
+    expect(isFileHandle({ kind: 'desktop', name: 'a', grant: 'g' })).toBe(true)
+  })
+
+  it('desktop test 45: accepts a web handle', () => {
+    expect(isFileHandle(fakeHandle({ name: 'a.ptsm' }).handle)).toBe(true)
+  })
+
+  it('desktop test 45: rejects a desktop handle without a grant', () => {
+    expect(isFileHandle({ kind: 'desktop', name: 'a' })).toBe(false)
+  })
+
+  it('desktop test 45: rejects a desktop handle without a name', () => {
+    expect(isFileHandle({ kind: 'desktop', grant: 'g' })).toBe(false)
   })
 })
 

@@ -30,10 +30,9 @@ pub(crate) fn check(
     let root = open_object(schema).ok_or_else(|| RegistryError::NotOpenObject {
         type_name: type_name.to_string(),
     })?;
-    let properties = root.get("properties").and_then(Value::as_object);
-    if let Some(field) = properties
-        .into_iter()
-        .flat_map(Map::keys)
+    let keys = known_keys(schema.as_value());
+    if let Some(field) = keys
+        .iter()
         .find(|key| FeatureRecord::RESERVED_KEYS.contains(&key.as_str()))
     {
         return Err(RegistryError::ReservedField {
@@ -52,13 +51,36 @@ pub(crate) fn check(
             });
         }
     }
-    check_manifest(manifest, schema.as_value(), properties).map_err(|(path, problem)| {
+    check_manifest(manifest, schema.as_value(), &keys).map_err(|(path, problem)| {
         RegistryError::ManifestMismatch {
             type_name: type_name.to_string(),
             path,
             problem,
         }
     })
+}
+
+/// The top-level params keys a root schema knows, in schema order without duplicates: the
+/// `properties` of the root and of every object schema its `$ref` and its `anyOf`, `oneOf` and
+/// `allOf` branches stand for, recursively. A params struct that flattens an enum gets the enum's
+/// fields in root branches, not in the root's own `properties`.
+pub(crate) fn known_keys(root: &Value) -> Vec<String> {
+    let schema = SchemaView {
+        root,
+        definitions: root.as_object().and_then(own_definitions),
+    };
+    let mut keys: Vec<String> = Vec::new();
+    for key in schema
+        .expand(root)
+        .into_iter()
+        .filter_map(|object| object.get("properties").and_then(Value::as_object))
+        .flat_map(Map::keys)
+    {
+        if !keys.contains(key) {
+            keys.push(key.clone());
+        }
+    }
+    keys
 }
 
 /// The `$defs` of a root schema.
@@ -77,12 +99,12 @@ fn open_object(schema: &Schema) -> Option<&Map<String, Value>> {
     .then_some(root)
 }
 
-/// Checks every hint against the schema, then that every top-level property has a hint. A
-/// problem is the path it is about and a description.
+/// Checks every hint against the schema, then that every top-level key has a hint. A problem is
+/// the path it is about and a description.
 fn check_manifest(
     manifest: &FeatureManifest,
     root: &Value,
-    properties: Option<&Map<String, Value>>,
+    keys: &[String],
 ) -> Result<(), (String, String)> {
     let schema = SchemaView {
         root,
@@ -129,7 +151,7 @@ fn check_manifest(
             }
         }
     }
-    for property in properties.into_iter().flat_map(Map::keys) {
+    for property in keys {
         let covered = manifest.fields.iter().any(|hint| {
             hint.path
                 .strip_prefix(property.as_str())

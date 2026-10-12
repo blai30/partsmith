@@ -43,7 +43,7 @@ pub fn decode_frame(bytes: &[u8]) -> Result<Frame, FrameError> {
         });
     }
 
-    // 5 to 7: the header is JSON with protocol version 1 and a buffer table.
+    // 5 to 7: the header is JSON without repeated keys, with protocol version 1 and a buffer table.
     let header = parse_header(&bytes[PREFIX_LENGTH..header_end])?;
     let request_id = header
         .pointer("/messages/0/id")
@@ -108,7 +108,11 @@ pub fn decode_frame(bytes: &[u8]) -> Result<Frame, FrameError> {
 /// Decodes a frame that must contain exactly one request message.
 pub fn decode_request_frame(bytes: &[u8]) -> Result<(Request, Vec<Buffer>), FrameError> {
     let frame = decode_frame(bytes)?;
-    let request_id = frame.messages.first().and_then(Message::id).and_then(echoable);
+    let request_id = frame
+        .messages
+        .first()
+        .and_then(Message::id)
+        .and_then(echoable);
     let message = match <[Message; 1]>::try_from(frame.messages) {
         Ok([Message::Request(request)]) => return Ok((request, frame.buffers)),
         Ok([other]) => format!(
@@ -129,7 +133,11 @@ pub fn decode_request_frame(bytes: &[u8]) -> Result<(Request, Vec<Buffer>), Fram
 /// Decodes a frame that must contain zero or more events followed by exactly one response.
 pub fn decode_response_frame(bytes: &[u8]) -> Result<ResponseFrame, FrameError> {
     let frame = decode_frame(bytes)?;
-    let request_id = frame.messages.first().and_then(Message::id).and_then(echoable);
+    let request_id = frame
+        .messages
+        .first()
+        .and_then(Message::id)
+        .and_then(echoable);
     let invalid = |message: String| FrameError::InvalidMessage {
         message,
         request_id,
@@ -667,10 +675,10 @@ mod tests {
 
     #[test]
     fn composition_error_does_not_echo_an_id_above_the_safe_maximum() {
-        let request = r#"{"kind":"request","id":9007199254740992,"command":{"type":"engine_info"}}"#;
-        let header = format!(
-            r#"{{"protocol_version":1,"messages":[{request},{request}],"buffers":[]}}"#
-        );
+        let request =
+            r#"{"kind":"request","id":9007199254740992,"command":{"type":"engine_info"}}"#;
+        let header =
+            format!(r#"{{"protocol_version":1,"messages":[{request},{request}],"buffers":[]}}"#);
 
         let error = decode_request_frame(&frame(&header, &[])).expect_err("two requests");
 
@@ -684,7 +692,8 @@ mod tests {
     #[test]
     fn request_with_an_id_above_the_safe_maximum_still_decodes() {
         // The engine answers it with malformed_request (engine.md 3.1); the frame itself is well formed.
-        let message = r#"{"kind":"request","id":9007199254740992,"command":{"type":"engine_info"}}"#;
+        let message =
+            r#"{"kind":"request","id":9007199254740992,"command":{"type":"engine_info"}}"#;
 
         let (request, _) =
             decode_request_frame(&frame_with_message(message)).expect("the frame decodes");
@@ -723,9 +732,8 @@ mod tests {
 
     #[test]
     fn repeated_buffer_table_field_is_refused() {
-        let header = header_with_buffers(
-            r#"[{"offset":0,"offset":0,"length":1,"element_type":"u8"}]"#,
-        );
+        let header =
+            header_with_buffers(r#"[{"offset":0,"offset":0,"length":1,"element_type":"u8"}]"#);
 
         assert_repeated_key(decode_frame(&frame(&header, &[7])), "offset");
     }

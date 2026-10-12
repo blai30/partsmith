@@ -750,13 +750,18 @@ mod tests {
         );
 
         let error = result.expect_err("an unknown asset field is rejected");
-        assert!(error.to_string().contains("unknown field `size`"), "{error}");
+        assert!(
+            error.to_string().contains("unknown field `size`"),
+            "{error}"
+        );
     }
 
     #[test]
     fn open_document_reads_its_assets() {
-        let open = command(r#"{"type":"open_document","text":"{}","assets":[{"name":"a.step","data":0}]}"#)
-            .expect("the command deserializes");
+        let open = command(
+            r#"{"type":"open_document","text":"{}","assets":[{"name":"a.step","data":0}]}"#,
+        )
+        .expect("the command deserializes");
 
         let Command::OpenDocument { assets, .. } = open else {
             panic!("an open_document command, got {open:?}");
@@ -799,8 +804,9 @@ mod tests {
 
     #[test]
     fn analyze_print_reads_its_orientation() {
-        let analyze = command(r#"{"type":"analyze_print","doc":1,"orientation":{"kind":"as_modeled"}}"#)
-            .expect("the command deserializes");
+        let analyze =
+            command(r#"{"type":"analyze_print","doc":1,"orientation":{"kind":"as_modeled"}}"#)
+                .expect("the command deserializes");
 
         assert!(
             matches!(
@@ -830,7 +836,10 @@ mod tests {
         );
 
         let error = result.expect_err("an unknown tolerance field is rejected");
-        assert!(error.to_string().contains("unknown field `extra`"), "{error}");
+        assert!(
+            error.to_string().contains("unknown field `extra`"),
+            "{error}"
+        );
     }
 
     #[test]

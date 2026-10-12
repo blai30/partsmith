@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createFakeIndexedDb } from '../test/fakes/indexed-db'
+import type { DesktopFileHandle, FileHandle } from './file-service'
 import {
   createIndexedDbRecentFiles,
   createMemoryRecentFiles,
@@ -17,6 +18,10 @@ function fakeHandle(name: string, file: string): FileSystemFileHandle {
       typeof other === 'object' && other !== null && Reflect.get(other, 'file') === file,
   }
   return handle as unknown as FileSystemFileHandle
+}
+
+function desktopHandle(name: string, grant: string): DesktopFileHandle {
+  return { kind: 'desktop', name, grant }
 }
 
 function recentFile(id: string, name: string, openedAt: number): RecentFile {
@@ -51,7 +56,7 @@ async function rememberInOrder(
   store: RecentFilesStore,
   entries: readonly {
     readonly name: string
-    readonly handle: FileSystemFileHandle | null
+    readonly handle: FileHandle | null
     readonly text: string
   }[],
   tick: () => void,
@@ -177,6 +182,66 @@ describe('createMemoryRecentFiles', () => {
     })
     const [entry] = await store.list()
     expect(entry?.text).toBeNull()
+  })
+
+  it('desktop test 46: remembering desktop handles with the same grant twice keeps one entry', async () => {
+    const time = clock(1000)
+    const store = createMemoryRecentFiles(time.now)
+    const again = desktopHandle('bracket.ptsm', 'g1')
+    await rememberInOrder(
+      store,
+      [
+        { name: 'bracket.ptsm', handle: desktopHandle('bracket.ptsm', 'g1'), text: '{}' },
+        { name: 'bracket.ptsm', handle: again, text: '{}' },
+      ],
+      time.tick,
+    )
+    const list = await store.list()
+    expect(list).toHaveLength(1)
+    expect(list[0]?.handle).toBe(again)
+    expect(list[0]?.openedAt).toBe(2000)
+  })
+
+  it('desktop test 46: desktop handles with different grants and the same name keep two entries', async () => {
+    const time = clock(1000)
+    const store = createMemoryRecentFiles(time.now)
+    await rememberInOrder(
+      store,
+      [
+        { name: 'bracket.ptsm', handle: desktopHandle('bracket.ptsm', 'g1'), text: '{}' },
+        { name: 'bracket.ptsm', handle: desktopHandle('bracket.ptsm', 'g2'), text: '{}' },
+      ],
+      time.tick,
+    )
+    expect((await store.list()).map((entry) => entry.handle)).toEqual([
+      desktopHandle('bracket.ptsm', 'g2'),
+      desktopHandle('bracket.ptsm', 'g1'),
+    ])
+  })
+
+  it('desktop test 46: an entry with a desktop handle stores text null', async () => {
+    const store = createMemoryRecentFiles()
+    await store.remember({
+      name: 'bracket.ptsm',
+      handle: desktopHandle('bracket.ptsm', 'g1'),
+      text: '{"format": 1}',
+    })
+    const [entry] = await store.list()
+    expect(entry?.text).toBeNull()
+  })
+
+  it('a desktop handle and a web handle are never the same file', async () => {
+    const time = clock(1000)
+    const store = createMemoryRecentFiles(time.now)
+    await rememberInOrder(
+      store,
+      [
+        { name: 'bracket.ptsm', handle: fakeHandle('bracket.ptsm', 'bracket.ptsm'), text: '{}' },
+        { name: 'bracket.ptsm', handle: desktopHandle('bracket.ptsm', 'bracket.ptsm'), text: '{}' },
+      ],
+      time.tick,
+    )
+    expect(await store.list()).toHaveLength(2)
   })
 
   it('forget removes the entry with that id', async () => {
@@ -330,6 +395,25 @@ describe('createIndexedDbRecentFiles', () => {
     await store.forget(newest?.id ?? '')
     expect((await store.list()).map((entry) => entry.name)).toEqual(['a.ptsm'])
     expect(fake.records('partsmith', 'recent')).toHaveLength(1)
+  })
+
+  it('desktop test 47: an entry with a desktop handle round-trips unchanged', async () => {
+    const fake = createFakeIndexedDb()
+    await createIndexedDbRecentFiles(fake.factory, () => 1000).remember({
+      name: 'bracket.ptsm',
+      handle: desktopHandle('bracket.ptsm', 'g1'),
+      text: '{"format": 1}',
+    })
+    const later = await createIndexedDbRecentFiles(fake.factory).list()
+    expect(later).toEqual([
+      {
+        id: expect.any(String),
+        name: 'bracket.ptsm',
+        openedAt: 1000,
+        handle: { kind: 'desktop', name: 'bracket.ptsm', grant: 'g1' },
+        text: null,
+      },
+    ])
   })
 
   it('keeps the entries for a later session', async () => {

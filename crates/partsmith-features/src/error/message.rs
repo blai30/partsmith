@@ -183,18 +183,34 @@ pub(crate) fn suggested_limit(millimeters: f64, units: Units) -> String {
     format_value(FieldUnit::Length, truncated * factor, units)
 }
 
-/// Relative slack that keeps a value already at two significant digits, such as 2.3, from
-/// dropping a digit through binary rounding (2.3 / 0.1 is 22.999999999999996).
-const DIGIT_SLACK: f64 = 1e-9;
-
 /// `value` rounded toward zero to two significant digits. Zero, negative and non-finite values
 /// are returned unchanged.
+///
+/// The digits are cut from the shortest decimal text that reads back as `value`, so a value
+/// already at two digits keeps them (2.3, although 2.3 / 0.1 is 22.999999999999996 in binary),
+/// and the result never exceeds `value`: the cut text is at most that decimal, and reading
+/// decimals rounds monotonically.
 fn round_down_to_two_digits(value: f64) -> f64 {
     if !(value.is_finite() && value > 0.0) {
         return value;
     }
-    let step = 10f64.powf(value.log10().floor() - 1.0);
-    ((value / step) * (1.0 + DIGIT_SLACK)).floor() * step
+    // `{:e}` writes the shortest round-trip mantissa and its exponent, for example `2.396e0`.
+    let text = format!("{value:e}");
+    let (mantissa, exponent) = text
+        .split_once('e')
+        .expect("scientific notation always has an exponent");
+    let exponent: i32 = exponent
+        .parse()
+        .expect("the exponent of scientific notation is an integer");
+    let digits: String = mantissa
+        .chars()
+        .filter(char::is_ascii_digit)
+        .take(2)
+        .collect();
+    let shift = i32::try_from(digits.len()).expect("at most two digits") - 1;
+    format!("{digits}e{}", exponent - shift)
+        .parse()
+        .expect("digits followed by an exponent are a number")
 }
 
 /// Renders the parts of messages with current names and document units.
@@ -301,6 +317,20 @@ mod tests {
         assert_eq!(suggested_limit(2.3, Units::Mm), "2.3 mm");
         assert_eq!(suggested_limit(0.1, Units::Mm), "0.1 mm");
         assert_eq!(suggested_limit(25.4, Units::In), "1 in");
+    }
+
+    #[test]
+    fn limits_just_under_two_digits_round_down() {
+        assert_eq!(suggested_limit(2.39999999995, Units::Mm), "2.3 mm");
+        assert_eq!(suggested_limit(0.99999999999, Units::Mm), "0.99 mm");
+        assert_eq!(suggested_limit(19.9999999999, Units::Mm), "19 mm");
+    }
+
+    #[test]
+    fn limits_never_exceed_the_value() {
+        for value in [2.39999999995, 0.30000000000000004, 1.0, 7.77, 99.99999999999, 1e-7] {
+            assert!(round_down_to_two_digits(value) <= value, "value {value}");
+        }
     }
 
     #[test]
