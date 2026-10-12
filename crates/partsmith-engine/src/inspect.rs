@@ -13,7 +13,7 @@ use partsmith_protocol::{
 
 use crate::display::{ElementTable, kernel_failure};
 use crate::document::OpenDocument;
-use crate::elements::{describe, element_fields, sub_shape_kind};
+use crate::elements::{describe, describe_element, element_fields, sub_shape_kind};
 use crate::error::EngineError;
 use crate::session::Session;
 use crate::state::{BodyView, display_body};
@@ -63,21 +63,21 @@ impl Session {
                 EngineError::StalePick
             });
         };
-        let table = Arc::clone(&shown.mesh.table);
+        let table = &shown.mesh.table;
         if pick.index >= table.count(pick.kind) {
             return Err(EngineError::InvalidPick { kind: pick.kind });
         }
         let view = body_with_geometry(open, body)?;
-        let descriptors = descriptors(&table, &view, &timeline(&open.document))?;
-        let offset = match pick.kind {
-            ElementKind::Face => 0,
-            ElementKind::Edge => table.count(ElementKind::Face),
-            ElementKind::Vertex => table.count(ElementKind::Face) + table.count(ElementKind::Edge),
-        };
-        descriptors
-            .get((offset + pick.index) as usize)
-            .cloned()
-            .ok_or_else(|| EngineError::internal("a picked element has no descriptor"))
+        // Only the picked element is described, so a pick in a new body state does not query
+        // the geometry of every element (section 5).
+        describe_element(
+            table,
+            &view.state,
+            &view.body,
+            &timeline(&open.document),
+            pick.kind,
+            pick.index,
+        )
     }
 
     /// Resolves references, each within its body, against the display state.

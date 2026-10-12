@@ -335,7 +335,7 @@ export function createLatestOnly<Input, Output>(
 
 `createLatestOnly` semantics: when an in-flight send settles and a newer input is waiting, the settled result is discarded (neither callback runs) and the waiting input is sent; otherwise the matching callback runs. `flush()` resolves after the last callback has run, so a caller that awaits it never overtakes the last submitted input. A task that fails in `MutationQueue` rejects its own promise and does not block later tasks.
 
-Every document-mutating `CoreApi` call (apply, rename parameter, transaction, focus, undo, redo, open, new, close, end of drag, save, mark saved) runs through one `MutationQueue` per app, so the UI's order of edits is the core's order on both transports. Inspector previews and live rollback-marker drags (unlabeled `apply_edits` inside a transaction) go through a `LatestOnly` whose `send` enqueues on that queue, so they stay ordered with other mutations and coalesce while waiting. Sketch drags, sketch probes, evaluations and print analysis change nothing in the document; they use `LatestOnly` outside the queue.
+Every document-mutating `CoreApi` call (apply, rename parameter, transaction, focus, undo, redo, open, new, close, end of drag, save, mark saved) runs through one `MutationQueue` per app, so the UI's order of edits is the core's order on both transports. Inspector previews and live rollback-marker drags (unlabeled `apply_edits` inside a transaction) go through a `LatestOnly` whose `send` enqueues on that queue, so they stay ordered with other mutations and coalesce while waiting. Sketch drags, sketch probes, evaluations, measurements (3.8) and print analysis change nothing in the document; they use `LatestOnly` outside the queue.
 
 ### 2.6 Core API
 
@@ -345,7 +345,7 @@ Every document-mutating `CoreApi` call (apply, rename parameter, transaction, fo
 import type {
   CatalogEntry, DocHandle, Edit, ElementDescriptor, ElementKind, ElementRef, ExportFormat, Diagnostic,
   Health, Pick, PointRef, PrinterProfile, Resolution, SketchParams, SketchSolution,
-  Units, Dimension, Orientation,
+  Units, Dimension, Orientation, Measurement, MeasureTarget,
 } from '../generated/protocol'
 
 export type CoreApi = {
@@ -372,8 +372,9 @@ export type CoreApi = {
   listElements(documentHandle: DocHandle, body: string, kind?: ElementKind): Promise<readonly ElementDescriptor[]>
   pickReference(documentHandle: DocHandle, pick: Pick): Promise<ElementDescriptor>
   resolveReferences(documentHandle: DocHandle, references: readonly ElementRef[]): Promise<readonly Resolution[]>
+  measure(documentHandle: DocHandle, target: MeasureTarget): Promise<Measurement>
   analyzePrint(documentHandle: DocHandle, options: { profile?: string; orientation: Orientation }): Promise<Health | null>
-  exportBodies(documentHandle: DocHandle, format: ExportFormat, bodies?: readonly string[]): Promise<{ files: readonly ExportedFile[]; warnings: readonly Diagnostic[] }>
+  exportBodies(documentHandle: DocHandle, format: ExportFormat, bodies?: readonly string[], orientation?: Orientation): Promise<{ files: readonly ExportedFile[]; warnings: readonly Diagnostic[] }>
 }
 
 /** A sketch solution with its region fill buffers (2.7). */
@@ -388,8 +389,9 @@ export function createCoreApi(client: CoreClient): CoreApi
 Rules:
 
 - `solveSketch`, `dragSketch` and `analyzePrint` resolve with `null` when the core answers `superseded`; every other method rejects with that `CoreError`.
-- `exportBodies` copies each file's `u8` buffer into a new `Uint8Array` (the frame is not retained).
-- The UI uses no other command in M1. `get_document`, `measure`, `set_tessellation`, `put_printer_profile`, `import_step` and `export_python` are unused.
+- `exportBodies` copies each file's `u8` buffer into a new `Uint8Array` (the frame is not retained); it sends `orientation` only when given (3.18).
+- `measure` sends `{targets: [target]}`: the core takes exactly one target in M1 (protocol.md command 25).
+- The UI uses no other command in M1. `get_document`, `set_tessellation`, `put_printer_profile`, `import_step` and `export_python` are unused.
 
 ### 2.7 Core events
 
@@ -549,9 +551,28 @@ export type ActiveCommand = {
   readonly fieldErrors: Readonly<Record<string, string>>
   /** Whether the feature record has been applied inside the transaction yet. */
   readonly applied: boolean
-  /** Body this command creates for op new, if any. */
-  readonly newBody: { readonly id: string; readonly name: string } | null
+  /** Body this command creates (for op new, or for a body-creating target, 2.12) and the field it fills, if any. */
+  readonly newBody: { readonly id: string; readonly name: string; readonly path: 'body' | 'target' } | null
+  /** The helper sketch of "Placing holes on a face" (3.7), or null. */
+  readonly helper: HelperSketch | null
+  /** Paths the user changed in this command, least recent first, each listed once at its latest change (3.7: the value field, the cut direction). */
+  readonly changedPaths: readonly string[]
+  /** The state before each user change in this command, newest last (3.7, command history). */
+  readonly history: readonly CommandStep[]
+  /** Changes undone with Mod+Z, for Mod+Shift+Z, newest last. */
+  readonly future: readonly CommandStep[]
   readonly preview: 'none' | 'pending' | 'shown' | 'failed'
+}
+
+/** A sketch record the command writes for holes placed on a face (3.7): one point entity per hole center, no constraints. */
+export type HelperSketch = { readonly id: string; readonly params: SketchParams; readonly applied: boolean }
+
+/** The command state before one user change, with the label of the field the change touched. */
+export type CommandStep = {
+  readonly params: Readonly<Record<string, unknown>>
+  readonly helper: HelperSketch | null
+  readonly activeField: string | null
+  readonly field: string
 }
 
 export type SketchSession = {
@@ -563,15 +584,23 @@ export type SketchSession = {
   /** In-sketch selection (entities, points, constraints), separate from the app selection. */
   readonly selection: readonly SelectionItem[]
   readonly dragging: boolean
+  /** Camera before enterSketch moved it, for leaving the sketch (3.16.11); null during plane picking. */
+  readonly cameraBefore: Camera | null
 }
 
 export type PrintState = {
   readonly report: PrintReport | null
   /** Revision the report describes; the badge is stale when it differs from the document revision. */
   readonly reportRevision: number | null
+  /** Orientation the report was computed with; the badge is also stale when it differs from `orientation`. */
+  readonly reportOrientation: Orientation | null
   readonly running: boolean
   readonly overhangMap: boolean
   readonly focusedFinding: FindingKey | null
+  /** Session print orientation set by Lay on face (3.17); null prints as modeled. */
+  readonly orientation: Orientation | null
+  /** True while Lay on face waits for a face. */
+  readonly pickingFace: boolean
 }
 
 /** A finding of the print report: the `BodyPrint.body` id, the check, and the finding's index in that check's `findings`. */
@@ -586,6 +615,8 @@ export type ViewState = {
   readonly sessionVisible: Readonly<Record<string, boolean>>
   /** Session-only locked bodies (not pickable). */
   readonly locked: readonly string[]
+  /** Session-only: whether the ground and sketch grid is drawn (3.12). */
+  readonly grid: boolean
 }
 export type SectionState = { readonly plane: 'XY' | 'XZ' | 'YZ'; readonly offset: string; readonly flipped: boolean }
 
@@ -593,7 +624,7 @@ export type PanelsState = {
   readonly browserOpen: boolean
   readonly timelineCollapsed: boolean
   readonly paletteOpen: boolean
-  readonly side: 'parameters' | 'health' | 'problems' | null
+  readonly side: 'parameters' | 'health' | 'problems' | 'keys' | null
   readonly inspectorPosition: { readonly x: number; readonly y: number } | null
 }
 
@@ -603,6 +634,8 @@ export type Notification = {
   readonly message: string
   readonly actions: readonly { readonly label: string; readonly run: () => void }[]
   readonly createdAt: number
+  /** Feature ids a failure notification names; it is dismissed once none of them is in error (4.2). Absent for other notifications. */
+  readonly features?: readonly string[]
 }
 
 export type AppStore = StoreApi<AppState>
@@ -610,9 +643,9 @@ export const INITIAL_STATE: AppState
 export function createAppStore(overrides?: Partial<AppState>): AppStore
 ```
 
-`INITIAL_STATE`: core loading; no catalog, printers or document; context `model`; empty selection; no hover, command or sketch; print report null, overhang map on; view perspective, named `iso`, no section, filter `{ body: false, face: true, edge: true, vertex: true }`; browser open (closed when `window.innerWidth < 1024` at startup), timeline expanded, palette closed, no side panel; settings from `loadSettings()` (2.15); no notifications.
+`INITIAL_STATE`: core loading; no catalog, printers or document; context `model`; empty selection; no hover, command or sketch; print report null, overhang map on, orientation null, not picking a face; view perspective, named `iso`, no section, filter `{ body: false, face: true, edge: true, vertex: true }`, grid on; browser open (closed when `window.innerWidth < 1024` at startup), timeline expanded, palette closed, no side panel; settings from `loadSettings()` (2.15); no notifications.
 
-`src/state/selectors.ts` exports at least `selectFeatureLabel(state, id)`, `selectActiveFeatureIds(state)`, `selectSketchDof(state)`, `selectHealthBadge(state)` and `selectProblems(state)`; components read state only through selectors or `useAppState(selector)` so each panel re-renders only for the slice it shows.
+`src/state/selectors.ts` exports at least `selectFeatureLabel(state, id)`, `selectActiveFeatureIds(state)`, `selectSketchDof(state)`, `selectHealthBadge(state)`, `selectProblems(state)`, `selectEmptyState(state)` (3.2) and `selectOriginVisible(state, key)` (3.10); components read state only through selectors or `useAppState(selector)` so each panel re-renders only for the slice it shows.
 
 ### 2.9 App and actions
 
@@ -676,14 +709,18 @@ export function setUnits(app: App, units: Units): Promise<void>
 export function select(app: App, items: readonly SelectionItem[], mode: 'replace' | 'toggle'): void
 export function clearSelection(app: App): void
 export function setHover(app: App, target: HoverTarget | null): void
-export function pickAt(app: App, sample: PickResult, modifiers: { toggle: boolean }): Promise<void>
+export function pickAt(app: App, sample: PickResult, modifiers: { toggle: boolean }, pointer?: PointerRay): Promise<void>
 
 // command.ts
 export function startFeatureCommand(app: App, featureType: string): Promise<void>
 export function editFeature(app: App, featureId: string): Promise<void>
 export function setCommandField(app: App, path: string, value: unknown): void
 export function setActiveField(app: App, path: string | null): void
-export function capturePick(app: App, item: SelectionItem): Promise<void>
+/** `pointer` is where the click's ray went; a flat face picked for a `sketch_point` field needs it (3.7). */
+export function capturePick(app: App, item: SelectionItem, pointer?: PointerRay): Promise<void>
+/** Mod+Z and Mod+Shift+Z inside a command (3.7, command history). */
+export function undoCommandChange(app: App): Promise<void>
+export function redoCommandChange(app: App): Promise<void>
 export function confirmCommand(app: App): Promise<void>
 export function cancelCommand(app: App): Promise<void>
 
@@ -725,6 +762,10 @@ export function setPrinter(app: App, profileId: string | null): Promise<void>
 export function setCheckHidden(app: App, check: string, hidden: boolean): void
 export function runPrintAnalysis(app: App): Promise<void>
 export function focusFinding(app: App, finding: FindingKey): void
+/** Starts the Lay on face pick (3.17). */
+export function startLayOnFace(app: App): void
+/** Sets the session print orientation; null prints as modeled. */
+export function setPrintOrientation(app: App, orientation: Orientation | null): void
 
 // export.ts
 export function exportModel(app: App, request: ExportRequest): Promise<void>
@@ -734,7 +775,7 @@ export function notify(app: App, notification: Omit<Notification, 'id' | 'create
 export function dismiss(app: App, id: string): void
 ```
 
-`ExportRequest` is `{ format: '3mf' | 'stl' | 'obj' | 'step'; scope: 'visible' | 'selected' }`. `SketchChange`, `SketchCommitResult` and `PickResult` are defined in 2.14 and 2.11. Every action that changes the document goes through `app.mutations`.
+`ExportRequest` is `{ format: '3mf' | 'stl' | 'obj' | 'step'; scope: 'visible' | 'selected' }`. `SketchChange`, `SketchCommitResult`, `PickResult` and `PointerRay` are defined in 2.14 and 2.11. Every action that changes the document goes through `app.mutations`.
 
 ### 2.10 Commands, shortcuts, toolbars and palette search
 
@@ -750,6 +791,9 @@ export type Availability =
 
 export type InvocationSource = 'toolbar' | 'palette' | 'shortcut' | 'menu' | 'inspector'
 
+/** A search word; a tagged word is another app's name for the command (2.10, `COMMAND_KEYWORDS`). */
+export type Keyword = string | { readonly word: string; readonly app: 'Fusion' | 'FreeCAD' }
+
 export type CommandDefinition = {
   /** Unique id, for example 'file.save' or 'feature.extrude'. */
   readonly id: string
@@ -757,8 +801,10 @@ export type CommandDefinition = {
   readonly category: CommandCategory
   /** lucide-react icon component, or null. */
   readonly icon: LucideIcon | null
-  /** Extra search words, for example ['pad', 'pocket']. */
-  readonly keywords: readonly string[]
+  /** Extra search words; a tagged word is shown as "{app}: {word}" when it matched (Scoring, below). */
+  readonly keywords: readonly Keyword[]
+  /** At most two short plain sentences, 120 characters in all, ending with a period, saying what the command does. Required for feature commands, sketch tools, `sketch.finish` and constraints (the description table below). */
+  readonly description?: string
   /** Shortcut specs (2.10, grammar below); the first is the one displayed. */
   readonly shortcuts: readonly string[]
   /** Contexts in which the command is listed in the palette and its shortcuts are active. */
@@ -831,25 +877,30 @@ export function fuzzyScore(query: string, text: string): number | null
 export type PaletteItem = {
   readonly id: string
   readonly kind: 'command' | 'feature' | 'body' | 'parameter' | 'recent' | 'setting'
-  /** The command category for `command` and `setting` items; null for every other kind. With an empty query, items sort by category order, and items with a null category follow Settings, grouped by kind. */
+  /** The command category for `command` and `setting` items; null for every other kind. With an empty query, command and setting items are grouped by category in the context order of the Scoring rules, and items with a null category are not listed. */
   readonly category: CommandCategory | null
   readonly title: string
-  readonly keywords: readonly string[]
+  readonly keywords: readonly Keyword[]
   readonly detail: string | null
+  /** The command's description (shown in the palette footer, 3.4), or null. */
+  readonly description: string | null
   readonly shortcut: string | null
   readonly disabledReason: string | null
   readonly run: () => void
 }
 
-export function rankPaletteItems(query: string, items: readonly PaletteItem[], recentIds: readonly string[]): readonly PaletteItem[]
+export function rankPaletteItems(query: string, items: readonly PaletteItem[], recentIds: readonly string[], context: AppContext): readonly PaletteItem[]
 ```
 
 Scoring, exactly:
 
 - Comparison is case-insensitive (`toLocaleLowerCase('en')`) on both strings; leading and trailing whitespace of the query is removed and inner runs of whitespace are kept as single spaces, and a space in the query matches a space in the text.
 - A match assigns each query character to a strictly increasing text position with an equal character. Its score is the sum over matched characters of: 1, plus 8 if the position is 0, else plus 6 if the position is a word start (the previous text character is a space, `-`, `_`, `/`, `.`, `:` or `(`, or the original text has a lowercase letter followed by an uppercase letter there), plus 4 if the previous query character matched the immediately preceding text position. `fuzzyScore` is the maximum over all matches (dynamic programming, O(query length × text length)) minus `0.01 × text length`.
-- An item's score is the maximum of its title score and each keyword score minus 2. Items with no score are excluded.
-- `rankPaletteItems` sorts by score descending, then by position in `recentIds` (most recent first; items not in it after), then by title (`localeCompare` with locale `en`). With an empty query, it returns items in `recentIds` order (at most 5) followed by the remaining items in category order (File, Edit, View, Create, Modify, Pattern, Construct, Sketch, Constrain, Print, Settings, then features, bodies, parameters, recent files) and title order. It returns at most 50 items.
+- An item's score is the maximum of its title score and each keyword score minus 2 (a tagged keyword scores its `word`). Items with no score are excluded.
+- In Sketch context, items of category Sketch or Constrain add 3 to their score; in Print context, items of category Print add 3.
+- When an item's score comes from a keyword tagged with an app, its detail is "{app}: {word}" (for example "FreeCAD: Pad") unless it has a disabled reason. In Sketch context a feature command with no other detail has the detail "Finishes the sketch".
+- `rankPaletteItems` sorts by score descending, then by position in `recentIds` (most recent first; items not in it after), then by title (`localeCompare` with locale `en`). It returns at most 50 items for a non-empty query.
+- With an empty query, `rankPaletteItems` returns the items in `recentIds` order (at most 5), then every item of kind `command` or `setting`, grouped by category in the context order below and by title within a category, with no limit; features, bodies, parameters and recent files appear only for a non-empty query. Context order: Model: Create, Modify, Pattern, Construct, Edit, View, File, Print, Settings; Sketch: Sketch, Constrain, Edit, View, Create, Modify, Pattern, Construct, File, Print, Settings; Print: Print, View, Edit, File, Create, Modify, Pattern, Construct, Settings. A category a context order does not name follows it, in the order of `CommandCategory`.
 
 Example scores (tested): `fuzzyScore('ext', 'Extrude')` is 9 + 5 + 5 - 0.07 = 18.93; `fuzzyScore('ext', 'Export 3MF')` is 9 + 5 + 1 - 0.10 = 14.9; `fuzzyScore('ext', 'Text')` is 1 + 5 + 5 - 0.04 = 10.96; `fuzzyScore('xyz', 'Extrude')` is null.
 
@@ -865,11 +916,114 @@ export const TOOLBARS: Readonly<Record<AppContext, readonly ToolbarEntry[]>>
 
 The exact entries are in section 3.3. A toolbar entry whose command is not registered (a catalog without that feature type) is not rendered.
 
-`src/commands/features.ts` registers one command per catalog entry: id `feature.<type>`, title the manifest label, category from the manifest category (`create` Create, `modify` Modify, `pattern` Pattern, `construct` Construct, `sketch` Create), icon from `FEATURE_ICONS[manifest.icon]` (fallback `Shapes`), keywords from `FEATURE_KEYWORDS[type]`, shortcuts from `FEATURE_SHORTCUTS[type]` (3.5), contexts `model`, `sketch` and `print` (running it from Sketch or Print switches to Model first, 3.3). The `sketch` type's command runs `startNewSketch` instead of the inspector. The `import` type gets no command (STEP import UI is later). Its timeline item can be selected, renamed, suppressed and deleted; Edit is disabled with `import_not_editable` (4.3).
+`src/commands/features.ts` registers one command per catalog entry: id `feature.<type>`, title the manifest label, category from the manifest category (`create` Create, `modify` Modify, `pattern` Pattern, `construct` Construct, `sketch` Create), icon from `FEATURE_ICONS[manifest.icon]` (fallback `Shapes`), keywords from `COMMAND_KEYWORDS['feature.' + type]`, description from `FEATURE_DESCRIPTIONS['feature.' + type]`, shortcuts from `FEATURE_SHORTCUTS[type]` (3.5), contexts `model`, `sketch` and `print` (running it from Sketch or Print switches to Model first, 3.3). The `sketch` type's command runs `startNewSketch` instead of the inspector. The `import` type gets no command (STEP import UI is later). Its timeline item can be selected, renamed, suppressed and deleted; Edit is disabled with `import_not_editable` (4.3).
+
+Feature command availability (`FEATURE_REQUIREMENTS` in `src/commands/features.ts`) is computed from the store, so a tool that has nothing to act on says what is missing before it is clicked; editing an existing feature is never affected:
+
+- `extrude`, `revolve`: disabled with `needs_sketch_region` when no active sketch (not suppressed, not rolled back) has a region in its latest solution (`document.sketches`); the sketch being edited in a sketch session counts.
+- `hole`, `fillet`, `chamfer`, `shell`, `mirror`, `linear_pattern`, `circular_pattern`, `move_body`, `split_body`: disabled with `needs_solid` when no body has model-layer geometry.
+- `boolean`: disabled with `needs_two_bodies` when fewer than two bodies have model-layer geometry.
+- Every other type is always enabled.
 
 `src/commands/icons.ts` maps manifest icon names (features.md 3.13) to lucide icons: `sketch` PencilRuler, `extrude` ArrowUpFromLine, `revolve` Rotate3d, `hole` CircleDot, `box` Box, `cylinder` Cylinder, `sphere` Globe, `cone` Cone, `torus` Torus, `fillet` SquareRoundCorner, `chamfer` Octagon, `shell` PackageOpen, `boolean` Combine, `move-body` Move3d, `split-body` SquareSplitVertical, `mirror` FlipHorizontal2, `linear-pattern` Columns3, `circular-pattern` Orbit, `datum-plane` Layers2, `import` FileInput. Constraint glyphs are an in-house set of line icons drawn in the lucide style (24 by 24 `viewBox`, stroke width 2, round caps and joins, `currentColor`), one per constraint type, because lucide has no parallel, perpendicular or coincident symbols.
 
-`FEATURE_KEYWORDS`: `extrude` pad, pocket, extrusion; `revolve` revolution, groove, lathe; `hole` drill, counterbore, countersink; `fillet` round, radius; `chamfer` bevel; `shell` hollow, thickness; `boolean` combine, union, subtract, intersect, join, cut; `mirror` mirrored, symmetry; `linear_pattern` array, rectangular pattern; `circular_pattern` polar pattern, array; `datum_plane` construction plane, offset plane, work plane; `move_body` placement, translate, rotate; `split_body` slice, cut body; `box` cube, block; `cylinder` rod, pin; `sphere` ball; `cone` taper; `torus` ring, donut; `sketch` drawing, profile.
+`COMMAND_KEYWORDS` (`src/commands/keywords.ts`) holds the keywords of every command, feature and built-in alike, by command id; a command without an entry has none. It replaces the former `FEATURE_KEYWORDS`, because built-in commands (sketch tools, view commands, Finish sketch) need other apps' names too. A tagged keyword is written "Word (App)" below and stored as `{word: 'Word', app: 'App'}`; it is how someone coming from Fusion or FreeCAD finds a command by its old name and sees the mapping in the option itself.
+
+| Command | Keywords |
+| --- | --- |
+| `feature.sketch` | drawing, profile, new sketch, Create Sketch (Fusion), sketcher |
+| `feature.extrude` | Pad (FreeCAD), Pocket (FreeCAD), Press Pull (Fusion), extrusion, pull, push |
+| `feature.revolve` | Revolution (FreeCAD), Groove (FreeCAD), lathe, spin |
+| `feature.hole` | drill, counterbore, countersink, screw hole |
+| `feature.fillet` | round, radius, rounded edge |
+| `feature.chamfer` | bevel |
+| `feature.shell` | hollow, Thickness (FreeCAD) |
+| `feature.boolean` | Combine (Fusion), union, subtract, intersect, join, cut, merge, group |
+| `feature.mirror` | Mirrored (FreeCAD), symmetry |
+| `feature.linear_pattern` | Rectangular Pattern (Fusion), LinearPattern (FreeCAD), array |
+| `feature.circular_pattern` | PolarPattern (FreeCAD), polar pattern, array |
+| `feature.datum_plane` | Offset Plane (Fusion), construction plane, work plane |
+| `feature.move_body` | Move/Copy (Fusion), Placement (FreeCAD), translate, rotate, transform |
+| `feature.split_body` | slice, cut body |
+| `feature.box` | Additive Box (FreeCAD), cube, block, primitive, shape |
+| `feature.cylinder` | Additive Cylinder (FreeCAD), rod, pin, primitive, shape |
+| `feature.sphere` | Additive Sphere (FreeCAD), ball, primitive, shape |
+| `feature.cone` | Additive Cone (FreeCAD), taper, primitive, shape |
+| `feature.torus` | Additive Torus (FreeCAD), ring, donut, primitive, shape |
+| `sketch.line` | Polyline (FreeCAD), segment |
+| `sketch.rectangle_2point` | rectangle |
+| `sketch.rectangle_center` | Centered Rectangle (FreeCAD), rectangle |
+| `sketch.circle` | Center Diameter Circle (Fusion) |
+| `sketch.arc_3point` | 3-Point Arc (Fusion) |
+| `sketch.point` | hole center |
+| `sketch.construction` | Toggle Construction (FreeCAD), construction geometry, reference |
+| `sketch.dimension` | Sketch Dimension (Fusion), Constrain Distance (FreeCAD), distance, length, radius, diameter, angle |
+| `sketch.constrain_fix` | Lock (FreeCAD), Block (FreeCAD), fixed, ground |
+| `sketch.constrain_symmetric` | Symmetry (Fusion), symmetrical |
+| `sketch.constrain_point_on_object` | on curve, on line |
+| `sketch.constrain_equal` | same size |
+| `sketch.constrain_midpoint` | middle |
+| `sketch.finish` | Close (FreeCAD), close sketch, leave sketch, exit sketch |
+| `view.fit` | Fit All (FreeCAD), zoom all, zoom extents |
+| `view.home` | isometric, home |
+| `view.projection` | perspective |
+| `view.section` | Section Analysis (Fusion), Clipping Plane (FreeCAD), cross section |
+| `view.parameters` | Change Parameters (Fusion), Spreadsheet (FreeCAD), user parameters, variables |
+| `view.problems` | warnings, errors |
+| `view.health` | printability, health |
+| `view.visibility` | hide, show |
+| `view.grid` | grid, floor |
+| `app.keys` | help, shortcuts, hotkeys, navigation, mouse |
+| `edit.suppress` | disable, turn off, skip |
+| `edit.edit_feature` | change, modify |
+| `edit.repeat` | again, last command |
+| `file.export` | 3MF, STL, OBJ, STEP |
+
+`FEATURE_DESCRIPTIONS` (`src/commands/descriptions.ts`) gives feature commands their `description`; a type without an entry has none. Sketch tool, Finish sketch and constraint commands carry theirs in their definitions. Descriptions use the words of the interface, never schema or code terms, and are shown in the toolbar tooltip (3.24) and the palette footer (3.4).
+
+| Command | Description |
+| --- | --- |
+| `feature.sketch` | Draws a 2D shape on a plane or a flat face, to extrude, revolve or place holes from. |
+| `feature.extrude` | Pulls a closed sketch shape straight out into a solid, or cuts it into one. |
+| `feature.revolve` | Spins a closed sketch shape around an axis into a round solid, or cuts with it. |
+| `feature.hole` | Drills round holes where you click on a flat face or at sketch points. |
+| `feature.box` | Adds a box of the given length, width and height. |
+| `feature.cylinder` | Adds a cylinder of the given radius and height. |
+| `feature.sphere` | Adds a ball of the given radius. |
+| `feature.cone` | Adds a cone, or a tapered cylinder, from two radii and a height. |
+| `feature.torus` | Adds a ring from the radius of its center line and the radius of its tube. |
+| `feature.fillet` | Rounds the selected edges. |
+| `feature.chamfer` | Bevels the selected edges with a flat cut. |
+| `feature.shell` | Hollows out a body, leaving walls of the given thickness and the picked faces open. |
+| `feature.boolean` | Joins, cuts or intersects one body with other bodies. |
+| `feature.move_body` | Moves and rotates a whole body. |
+| `feature.split_body` | Cuts a body in two along a plane, for example to fit a large part on the bed. |
+| `feature.mirror` | Mirrors a body across a plane, joined to it or as a new body. |
+| `feature.linear_pattern` | Repeats a body in a row, or in a grid with a second direction. |
+| `feature.circular_pattern` | Repeats a body around an axis. |
+| `feature.datum_plane` | Adds a plane offset from another plane, to sketch on or mirror across. |
+| `sketch.line` | Draws connected straight lines. Enter or a double-click ends the line. |
+| `sketch.rectangle_2point` | Draws a rectangle from two opposite corners. |
+| `sketch.rectangle_center` | Draws a rectangle from its center and a corner. |
+| `sketch.circle` | Draws a circle from its center and a point on it. |
+| `sketch.arc_3point` | Draws an arc through its start, its end and a point on it. |
+| `sketch.point` | Places a point, for example to mark a hole center. |
+| `sketch.construction` | Turns lines and curves into construction geometry, which guides the shape but is not part of it. |
+| `sketch.dimension` | Sets an exact length, distance, diameter, radius or angle. Type a value or a parameter name. |
+| `sketch.finish` | Leaves the sketch and returns to the 3D model. |
+| `sketch.constrain_coincident` | Makes two points meet, or puts a point on a curve. |
+| `sketch.constrain_point_on_object` | Keeps a point on a line, circle or arc. |
+| `sketch.constrain_horizontal` | Makes a line horizontal, or lines up two points horizontally. |
+| `sketch.constrain_vertical` | Makes a line vertical, or lines up two points vertically. |
+| `sketch.constrain_parallel` | Makes two lines parallel. |
+| `sketch.constrain_perpendicular` | Makes two lines meet at a right angle. |
+| `sketch.constrain_tangent` | Makes a line and a curve, or two curves, touch smoothly. |
+| `sketch.constrain_collinear` | Puts two lines on the same straight line. |
+| `sketch.constrain_concentric` | Gives two circles or arcs the same center. |
+| `sketch.constrain_equal` | Makes two lines the same length, or two circles or arcs the same size. |
+| `sketch.constrain_symmetric` | Places two points symmetrically about a line. |
+| `sketch.constrain_midpoint` | Puts a point at the middle of a line. |
+| `sketch.constrain_fix` | Locks points or curves where they are. |
 
 ### 2.11 Viewport: camera, render backend, picking, scene
 
@@ -915,6 +1069,8 @@ export function zoomAt(camera: Camera, factor: number, cursorNormalized: readonl
 export function fitBounds(camera: Camera, bounds: BoundingBox, aspect: number, margin?: number): Camera
 export function withProjection(camera: Camera, projection: 'perspective' | 'orthographic'): Camera
 export function wheelZoomFactor(event: { deltaY: number; deltaMode: number; ctrlKey: boolean }, viewportHeightPixels: number): number
+/** The camera to animate to when a sketch with plane normal `normal` is left (3.16.11), or null to stay. */
+export function cameraAfterSketch(current: Camera, before: Camera | null, normal: Vector3): Camera | null
 ```
 
 Definitions:
@@ -927,6 +1083,7 @@ Definitions:
 - `wheelZoomFactor`: the pixel delta is `deltaY` for `deltaMode` 0, `deltaY × 16` for mode 1, `deltaY × viewportHeightPixels` for mode 2; the factor is `1.0015 ^ pixels`, or `1.01 ^ pixels` when `ctrlKey` is true (trackpad pinch).
 - `fitBounds`: keeps the rotation; sets the target to the box center; transforms the 8 corners into camera space; with `w` and `h` the camera-space x and y extents, the required visible height is `max(h, w / aspect) / (1 - 2 × margin)` (margin default 0.1, so the content fills 80 percent of the limiting dimension). Orthographic sets `orthographicHeight` to it; perspective sets `distance = visibleHeight / (2 tan(verticalFieldOfView / 2)) + d / 2`, where `d` is the camera-space z extent. An empty or degenerate box (all extents below 1e-9) is treated as a 100 mm cube around its center.
 - `withProjection` preserves the apparent size at the target: switching to orthographic sets `orthographicHeight = 2 × distance × tan(verticalFieldOfView / 2)`; switching to perspective sets `distance = orthographicHeight / (2 tan(verticalFieldOfView / 2))`.
+- `cameraAfterSketch`: when the angle between `forward(current)` and `normal` or `-normal` is more than 10 degrees, null (the user already turned the view, so it stays). Otherwise `before` when it is not null and its forward vector is itself more than 10 degrees from `normal` and `-normal`; otherwise `current` with the `iso` rotation (`standardViewRotation('iso')`), keeping target, distance, projection and orthographic height. It never returns a camera looking straight at the sketch plane, so the next feature's preview is seen in depth.
 - `depthRange` covers the scene's bounding sphere with 10 percent slack: with `c` the distance of the sphere center along the forward axis, perspective uses `near = max(c - 1.1 × r, 0.001 × (c + 1.1 × r), 0.01)` and `far = c + 1.1 × r`; orthographic uses `near = c - 1.1 × r`, `far = c + 1.1 × r` (near may be negative).
 
 `src/viewport/backend.ts` (ADR 0007):
@@ -1038,6 +1195,9 @@ export function choosePick(candidates: readonly PickCandidate[], accepts: (kind:
 export type PickResult =
   | { readonly kind: 'mesh'; readonly body: string; readonly meshId: number; readonly element: 'face' | 'edge' | 'vertex'; readonly index: number; readonly key: string; readonly world: Vector3 | null }
   | { readonly kind: 'item'; readonly item: SelectionItem; readonly world: Vector3 | null }
+
+/** The camera ray through the pointer at a click, in model millimeters, and the world size of one CSS pixel at the picked point multiplied by the UI scale. */
+export type PointerRay = { readonly origin: Vector3; readonly direction: Vector3; readonly millimetersPerPixel: number }
 ```
 
 `src/viewport/scene.ts` keeps every drawable's CPU-side data (so a lost WebGL context can be restored), allocates pick id ranges (consecutive, starting at 1, each draw's range is its element count), maps pick ids back to pick targets, and builds the `RenderFrame` for a camera and the store state:
@@ -1084,11 +1244,41 @@ Camera animations run 250 ms with a cubic ease-out, and are instant when `matchM
 ```ts
 export type NavigationPreset = 'fusion' | 'freecad'
 export type Gesture = 'orbit' | 'pan' | 'none'
+/** The presets in menu order; `rows` are the preset's column of the 3.13 table, in table order, as `{action, gesture}` pairs (the keyboard and mouse panel renders them, 3.5). */
+export const NAVIGATION_PRESETS: readonly {
+  readonly id: NavigationPreset
+  readonly label: string
+  readonly middleDoubleClickFits: boolean
+  readonly rows: readonly { readonly action: string; readonly gesture: string }[]
+}[]
 /** The camera gesture for the pressed buttons (PointerEvent.buttons: 1 left, 2 right, 4 middle) and modifiers (section 3.13). */
 export function gestureFor(preset: NavigationPreset, buttons: number, modifiers: { readonly shift: boolean }): Gesture
+/** One-line legend of the preset's camera gestures, shown in the empty state (3.2). */
+export function navigationLegend(preset: NavigationPreset): string
 ```
 
-`gestureFor`: Fusion: middle alone is `pan`, middle with Shift is `orbit`; FreeCAD: middle alone is `pan`, middle with left or middle with right is `orbit`; every other combination is `none` (left alone selects or box-selects).
+`gestureFor`: in both presets, right alone is `orbit` and right with Shift is `pan` (so a mouse without a middle button, a macOS trackpad's two-finger press and drag, and the Tinkercad and Onshape habit all orbit and pan). Fusion: middle alone is `pan`, middle with Shift is `orbit`; FreeCAD: middle alone is `pan`, middle with left or middle with right is `orbit`; every other combination is `none` (left alone selects or box-selects).
+
+`navigationLegend`: Fusion "Orbit: Shift+middle-drag, right-drag or drag the view cube. Pan: middle-drag or Shift+right-drag. Zoom: wheel or pinch."; FreeCAD "Orbit: middle+left-drag, right-drag or drag the view cube. Pan: middle-drag or Shift+right-drag. Zoom: wheel or pinch."
+
+`src/viewport/grid.ts`:
+
+```ts
+/** Minor grid spacing in millimeters for the scale at the camera target (3.12). */
+export function gridSpacing(millimetersPerPixel: number, units: Units): number
+```
+
+`gridSpacing` returns the smallest of 1, 10, 100 and 1000 mm (in inch documents 2.54, 25.4, 254 and 2540 mm, that is 0.1, 1, 10 and 100 in) whose lines are at least 8 CSS pixels (times the UI scale) apart, that is `spacing / millimetersPerPixel >= 8`, where `millimetersPerPixel` is the world size of one CSS pixel at the camera target multiplied by the UI scale; the largest step when none is. Centimeter and meter documents use the millimeter steps.
+
+`src/viewport/menu.ts`:
+
+```ts
+export type ViewportMenuItem =
+  | { readonly kind: 'command'; readonly command: string; readonly label: string; readonly shortcut: string | null; readonly run: () => void }
+  | { readonly kind: 'separator' }
+/** The items of the viewport context menu for the current state (3.13), disabled commands left out. */
+export function viewportMenuItems(app: App): readonly ViewportMenuItem[]
+```
 
 ### 2.12 Inspector generation
 
@@ -1104,6 +1294,7 @@ export type FieldControl =
   | { readonly type: 'selection'; readonly accepts: SelectionKind; readonly multiple: boolean; readonly minimum: number }
   | { readonly type: 'choice'; readonly options: readonly { value: string; label: string }[]; readonly presentation: 'segmented' | 'select' }
   | { readonly type: 'switch' }
+  | { readonly type: 'toggle' }
   | { readonly type: 'text' }
   | { readonly type: 'number'; readonly integer: boolean }
   | { readonly type: 'unsupported' }
@@ -1117,13 +1308,17 @@ export type InspectorField = {
   readonly control: FieldControl
   readonly value: unknown
   readonly error: string | null
+  /** For an inline toggle, the path of the field whose row it sits on; otherwise null. */
+  readonly attachedTo: string | null
 }
 
 export type InspectorModel = {
   readonly essential: readonly InspectorField[]
   readonly more: readonly InspectorField[]
-  /** True when a field in `more` has an error, which forces the More section open. */
+  /** True when a field in `more` has an error (including a mapped status message, 3.7) or when a required field in `more` is empty; it forces the More section open. */
   readonly forceMore: boolean
+  /** Labels of shown More fields whose value differs from its starting value, in display order; `body`, `sketch` and `target` fields never count (rules of 2.12 fill them). */
+  readonly changedMore: readonly string[]
   /** True when every required field has a value and no field has an error. */
   readonly complete: boolean
 }
@@ -1131,12 +1326,23 @@ export type InspectorModel = {
 export function buildInspectorModel(input: {
   readonly feature: CatalogFeature
   readonly params: Readonly<Record<string, unknown>>
+  /** Field errors by path, including the status messages mapped to fields (3.7). */
   readonly errors: Readonly<Record<string, string>>
+  /** The starting values the params are compared with for `changedMore`: `defaultParams` without the reuse step. */
+  readonly startParams: Readonly<Record<string, unknown>>
 }): InspectorModel
 export function defaultParams(feature: CatalogFeature, context: DefaultsContext): Record<string, unknown>
 export function setParam(feature: CatalogFeature, params: Readonly<Record<string, unknown>>, path: string, value: unknown): Record<string, unknown>
 export function getParam(params: Readonly<Record<string, unknown>>, path: string): unknown
-export type DefaultsContext = { readonly bodies: readonly Body[]; readonly bodiesWithGeometry: readonly string[]; readonly lastTargetBody: string | null }
+export type DefaultsContext = {
+  readonly bodies: readonly Body[]
+  readonly bodiesWithGeometry: readonly string[]
+  readonly lastTargetBody: string | null
+  /** The recipe, for the reuse rule; null skips it. */
+  readonly document: Document | null
+  /** Feature statuses by id, so the reuse rule skips records in error. */
+  readonly featureStatus: Readonly<Record<string, FeatureStatus>>
+}
 ```
 
 Schema subset (draft 2020-12 as schemars 1 emits it). `buildInspectorModel` resolves `$ref` against the schema's `$defs`, then maps each manifest field hint, in manifest order, to a control:
@@ -1153,14 +1359,68 @@ Schema subset (draft 2020-12 as schemars 1 emits it). `buildInspectorModel` reso
 
 - A field is shown only when its path exists in the current value's schema branch: for a tagged union, a hint like `extent.opposite_expr` is shown only while the selected variant (by its `kind` value) declares `opposite_expr`.
 - `required` is true when every object on the path lists the property in `required` (for tag-dependent fields, in the selected variant).
-- `label` is the hint label; `help` is the schema `description` at the path, else null.
+- `label` is the hint label; `help` is `FIELD_HELP[type][path]` (`src/inspector/help.ts`, table below), else null. Schema descriptions are developer documentation and are never shown.
 - `essential` fields go to `essential` in manifest order; the others to `more` in manifest order.
+- Inline Reverse: in a feature whose params have a top-level boolean `reverse` and a top-level tagged union `extent` (Extrude, Revolve, Hole), `reverse` gets the `toggle` control and goes to `essential` right after the field it attaches to, whatever its manifest `essential` flag (the one place the UI overrides a manifest hint, open issue 15): the first shown expression field whose path starts with `extent.`, else `extent.kind`; `attachedTo` is that path. It is not shown while `extent.kind` is `symmetric` or `full`, where the feature ignores it (features/extrude.md open issue 1); its value is kept.
 - `error` is `errors[path]` when present.
 - `Option<T>` (`anyOf` with `{ "type": "null" }`) is the inner control with `required` false; clearing it removes the key from params.
 
-`defaultParams`: every property with a schema `default` gets it; a tagged union gets its first variant (in schema order) with that variant's defaults; an `expression` field without a default gets `"10 mm"` for length, `"90 deg"` for angle, `"1"` for scalar and `"2"` for count; a choice without default gets its first option. Op fields (path `op` with options containing `new`): `new` when `bodiesWithGeometry` is empty, else `join`; a `body` field with selection `body`: `lastTargetBody` when op is not `new`. Selection fields start empty. Defaults are a starting point only; the core validates.
+`FIELD_HELP` holds the hover help of fields whose label alone does not say what they do, in the interface's words; a field without an entry has no help.
 
-`setParam` writes a value at a path, creating intermediate objects. Changing a tagged union's tag replaces the union object with the new variant's defaults, keeping properties whose names exist in both variants (switching `distance` to `symmetric` keeps `expr`). Unknown keys present in edited params are preserved untouched (features.md 3.2).
+| Type | Path | Help |
+| --- | --- | --- |
+| `extrude` | `profile` | The closed sketch shapes to extrude. Click inside a shape to add it. |
+| `extrude` | `extent.kind` | Distance goes one way, Symmetric the same distance both ways, Two sides sets each side, Through all goes through the whole body. |
+| `extrude`, `revolve` | `op` | New body makes a separate part. Join adds to the body, Cut removes from it, and Intersect keeps only the overlap. |
+| `extrude` | `reverse` | Extrudes to the other side of the sketch. |
+| `extrude`, `revolve` | `body` | The body that Join, Cut and Intersect change. |
+| `revolve` | `axis` | The line to spin around: an origin axis, a sketch line or a straight edge. |
+| `revolve` | `extent.kind` | Full makes a complete turn. Angle stops part way. |
+| `revolve` | `reverse` | Turns the other way around the axis. |
+| `hole` | `points` | Where the holes go: click a flat face, or pick points of a sketch. |
+| `hole` | `hole_type.kind` | Counterbore adds a wider flat recess for a screw head. Countersink adds a cone for a flat-head screw. |
+| `hole` | `hole_type.diameter` | Diameter of the wider recess at the top of the hole. |
+| `hole` | `hole_type.depth` | Depth of the recess. |
+| `hole` | `hole_type.angle` | Angle of the countersink cone. 90° fits most flat-head screws. |
+| `hole` | `extent.kind` | Depth stops at a set depth. Through all goes through the whole body. |
+| `hole` | `tip_angle` | Gives the bottom a drill-point cone of this angle. Leave it empty for a flat bottom. |
+| `hole` | `reverse` | Drills out of the face instead of into it. |
+| `fillet` | `edges` | The edges to round. Click a face to add all of its edges. |
+| `chamfer` | `edges` | The edges to bevel. Click a face to add all of its edges. |
+| `chamfer` | `distance.kind` | Equal distance cuts the same amount from both faces. Two distances sets each side. |
+| `shell` | `remove_faces` | Faces to leave open. With none, the body becomes a closed hollow. |
+| `shell` | `thickness` | Wall thickness. For FDM printing, a multiple of the nozzle width prints best. |
+| `boolean` | `target` | The body that changes. |
+| `boolean` | `tools` | The bodies that join, cut or intersect the target. They are used up unless Keep tools is on. |
+| `boolean` | `op` | Join merges the bodies, Cut removes the tools from the target, and Intersect keeps only the overlap. |
+| `boolean` | `keep_tools` | Keeps the tool bodies after the operation instead of using them up. |
+| `mirror` | `op` | Join adds the mirrored copy to the body. New body puts it in a separate body. |
+| `split_body` | `target` | The body that gets the other part. Leave it empty to discard that part. |
+| `split_body` | `flip` | Keeps the back part in Body instead of the front part. |
+| `linear_pattern` | `direction.count` | How many instances along this direction, counting the original. |
+| `linear_pattern` | `direction.spacing` | Distance between neighboring instances. |
+| `circular_pattern` | `count` | How many instances around the axis, counting the original. |
+| `circular_pattern` | `angle` | The angle the instances spread over. |
+| `datum_plane` | `offset` | Distance from the base plane along its normal. |
+| `move_body` | `rotation.axis` | The axis to rotate around. Leave it empty to only move. |
+
+`defaultParams`: each expression field takes the first of (1) reuse: the text at the same path in the latest record of the same type in timeline order that has a value there and whose status is not `error`, when the path's union variant is the same (selection, body, op and other choice fields never carry over); (2) `START_VALUES[type][path]` (`src/inspector/start-values.ts`, below); (3) the schema `default`; (4) `"10 mm"` for length, `"90 deg"` for angle, `"1"` for scalar and `"2"` for count. Other properties with a schema `default` get it. A tagged union starts with the variant `START_VALUES` names for its tag path, else its first variant in schema order, with that variant's values by the same rules. A choice without default gets its first option. Op fields (path `op` with options containing `new`): `new` when `bodiesWithGeometry` is empty, else `join`. A `body` field with selection `body` starts at `lastTargetBody` when the feature's op is not `new` (or it has no op) and the field's parent object has no `face` or `edge` field, whose first pick fills it (rule below); otherwise it starts empty. Other selection fields start empty. Defaults are a starting point only; the core validates. Copying from the document, not from a setting, keeps parameter names valid (a radius of `edge_r` carries over) and carries a project's conventions with no hidden state.
+
+| Type | Path | Start value |
+| --- | --- | --- |
+| `fillet` | `radius` | `1 mm` |
+| `chamfer` | `distance.expr`, `distance.second_expr` | `1 mm` |
+| `shell` | `thickness` | `2 mm` |
+| `hole` | `diameter` | `3.2 mm` |
+| `hole` | `extent.kind` | `through_all` |
+| `hole` | `hole_type.depth` | `3 mm` |
+| `hole` | `hole_type.angle` | `90 deg` |
+| `revolve` | `extent.kind` | `full` |
+| `datum_plane` | `offset` | `10 mm` |
+
+Start values carry explicit units, so they mean the same in every document unit and work on printed parts of 20 to 60 mm, where 10 mm would make the first fillet, chamfer or shell preview fail. `hole_type.diameter` (the head of a counterbore or countersink) starts at twice Diameter: when Diameter's text is a plain number (`isPlainNumber`), the doubled number with the same unit word and spacing (`3.2 mm` gives `6.4 mm`); otherwise `2 * ({text})`.
+
+`setParam` writes a value at a path, creating intermediate objects. Changing a tagged union's tag replaces the union object with the new variant's starting values (rules 2 to 4 above and the head diameter rule; never the reuse rule, which needs the document), keeping properties whose names exist in both variants (switching `distance` to `symmetric` keeps `expr`). Unknown keys present in edited params are preserved untouched (features.md 3.2).
 
 `src/inspector/selection-values.ts` builds param values from selection items, exactly in the shapes of features.md 2.5:
 
@@ -1184,7 +1444,11 @@ export function itemsFromValue(accepts: SelectionKind, value: unknown, state: Ap
 | `plane` | origin planes, datum planes, faces whose `surface` is `plane` | `{"kind": "origin", "plane": "XY"}`, `{"kind": "datum", "feature": id}` or `{"kind": "face", "body": id, "face": <Reference>}` |
 | `axis` | origin axes, sketch lines, edges whose `curve` is `line`, faces whose `surface` is `cylinder`, `cone`, `sphere` or `torus` | `{"kind": "origin", "axis": "Z"}`, `{"kind": "sketch_line", "sketch": id, "line": id}`, `{"kind": "edge", "body": id, "edge": <Reference>}` or `{"kind": "face", "body": id, "face": <Reference>}` |
 
-When a `face` or `edge` field's parent object also has a `body` field (selection `body`) that is empty, the first accepted pick fills it with the item's body; later picks from another body are refused with the hint "Pick {kind}s of '{body name}', or clear Body first." Likewise a `sketch` field (selection `sketch`) beside a `sketch_point` field is set to the points' sketch.
+During a command, `capturePick` also takes two kinds that no row of this table names, and converts them, so no face is ever stored for them (3.7): flat faces for a `sketch_point` field (holes placed on a face) and faces for a `multiple` `edge` field (all of the face's edges). Preselection (3.7 step 4) uses this table only, plus the sketch feature rule of 3.7 step 4.
+
+When a `face` or `edge` field's parent object also has a `body` field (selection `body`) that is empty, the first accepted pick fills it with the item's body; later picks from another body are refused with `pick_same_body` (4.3). When that `face` or `edge` field becomes empty again and its first pick filled the `body` field, the `body` field is cleared too. Likewise a `sketch` field (selection `sketch`) beside a `sketch_point` field is set to the points' sketch, and a `body` field beside them is set to that sketch's `plane.body` when its `plane.kind` is `face` (a hole drills the body it was sketched on).
+
+Body-creating targets: a `target` field with selection `body` receives the body the command creates, in place of the `body` field, in two cases: (a) features whose `op` options include `new` (Mirror, Linear pattern, Circular pattern): the field is shown only while op is `new`, and op `new` sets it to a new body; (b) features without an `op` field whose `target` is not required (Split body): it starts set to a new body, so both parts are kept. The `body` field of these features never receives a created body.
 
 `src/inspector/placement.ts`:
 
@@ -1276,6 +1540,12 @@ export function useExpression(text: string, unit: FieldUnit | 'any', label: stri
 
 Pressing Enter in an `invalid` state with a non-null `range` keeps the input focused and selects that range (`setSelectionRange(range.start, range.end)`), so the user can retype the offending part; the message stays in `field-error`.
 
+Name completion, in every `ExpressionInput` (inspector fields, the selection inspector's dimension and size fields, the Parameters panel and the section offset; the sketch draw inputs and the dimension editor are plain text inputs and have none):
+
+- Names: the document's parameters, shown as "{name} = {value}" (the value formatted as in 3.11), and the `printer.*` names of print.md (`printer.fit.press`, `printer.fit.snug`, `printer.fit.slip`, `printer.fit.loose`, `printer.layer_height`, and `printer.nozzle` for an FDM profile), shown as the name.
+- Opening: while the caret ends an identifier (letters, digits, `_` and `.`, starting with a letter or `_`) that some name matches with a non-null `fuzzyScore`, a listbox under the input (`data-testid="expression-suggestions"`, options `role="option"` in `FONT_CLASSES.values`) lists up to 8 such names, best score first, then by name. It never opens for an identifier that directly follows a number (`10 mm`, `1 in`), that is a unit word, `pi` or a function name of expressions.md, or that equals a name exactly. A character that cannot be part of a name closes it.
+- Keys: the input becomes a `role="combobox"` with `aria-expanded`, `aria-controls` and `aria-activedescendant`. No option is active until ArrowDown or ArrowUp moves through the list (they step plain numbers only while it is closed). Tab inserts the active option, or the first one, replacing the identifier, and keeps focus in the input. Enter inserts the active option when one was chosen with the arrow keys, and otherwise acts as if the list were closed (it commits, so typing a full name and pressing Enter never needs a second Enter). Esc closes the list (Esc ladder step 1). Clicking an option inserts it. Inserting closes the list without committing or moving focus.
+
 `src/expression/span.ts` converts expression error spans. expressions.md reports a span as UTF-8 byte offsets into the expression source (`Span { start, end }`, end exclusive), while JavaScript strings, `setSelectionRange` and the DOM index UTF-16 code units, so the UI converts every span against the exact source string it sent:
 
 ```ts
@@ -1366,6 +1636,18 @@ export type SketchCommitResult =
   | { readonly outcome: 'committed'; readonly revision: number }
   | { readonly outcome: 'over_constrained'; readonly constraint: string; readonly conflicting: readonly string[]; readonly redundant: boolean }
   | { readonly outcome: 'failed'; readonly message: string }
+/** The step the sketch session waits for, which picks the step prompt (3.16.3). */
+export type SketchStep =
+  | { readonly kind: 'idle'; readonly empty: boolean }
+  | { readonly kind: 'line'; readonly chain: boolean }
+  | { readonly kind: 'rectangle_2point' | 'rectangle_center' | 'circle'; readonly clicks: 0 | 1 }
+  | { readonly kind: 'arc_3point'; readonly clicks: 0 | 1 | 2 }
+  | { readonly kind: 'point' }
+  | { readonly kind: 'dimension'; readonly picked: 'nothing' | 'line' | 'point' | 'round' | 'pair' }
+/** The step prompt for a step, shortcuts rendered with formatShortcut, or null when there is none. */
+export function sketchStepHint(step: SketchStep, platform: Platform): string | null
+/** The outline summary of the header (3.16.8): "1 open end", "{n} open ends", "1 outline problem" or "{n} outline problems"; null without profile findings. */
+export function outlineProblems(solution: SketchSolution): string | null
 ```
 
 `SketchEntity`, `SketchConstraint`, `SketchParams` and `PointRef` are the generated types from sketch.md's JSON. The recipes produce entities and constraints exactly as listed in section 3.16; their JSON is whatever sketch.md defines for those entity and constraint types.
@@ -1471,7 +1753,7 @@ There is no other CSS file, no CSS variable defined by the app and no `@theme` b
 
 ```ts
 export type ThemeName = 'light' | 'dark'
-export type Facet = 'background' | 'active' | 'foreground' | 'border' | 'outline' | 'stroke' | 'fill'
+export type Facet = 'background' | 'active' | 'foreground' | 'placeholder' | 'border' | 'outline' | 'stroke' | 'fill'
 
 /** sRGB '#rrggbb' of every Tailwind palette step the mapping uses (2.16.5), declared `as const`. */
 export const PALETTE_HEX: { readonly white: '#ffffff'; readonly 'zinc-50': '#fafafa' /* ...one entry per row of 2.16.5 */ }
@@ -1485,7 +1767,7 @@ export type ColorRole = keyof typeof COLOR_CLASSES
 export type ViewportRole =
   | 'viewportTop' | 'viewportBottom' | 'body' | 'edgeDark' | 'edgeLight' | 'highlight' | 'problem'
   | 'sketchUnder' | 'sketchFull' | 'sketchOver' | 'sketchConstruction' | 'sketchRegion' | 'sketchReference'
-  | 'datum' | 'bed' | 'analysisLow' | 'analysisHigh'
+  | 'datum' | 'bed' | 'grid' | 'analysisLow' | 'analysisHigh'
 /** Palette step of each viewport role per theme (2.16.4). */
 export const VIEWPORT_STEPS: Readonly<Record<ViewportRole, Readonly<Record<ThemeName, PaletteStep>>>>
 /** '#rrggbb' of each viewport role per theme: PALETTE_HEX[VIEWPORT_STEPS[role][theme]]. */
@@ -1518,7 +1800,7 @@ Each role names its Tailwind classes for the light theme and, with the `dark:` v
 | Role | Facet | Classes | Use |
 | --- | --- | --- | --- |
 | `surface` | background | `bg-zinc-100 dark:bg-zinc-950` | App root, top bar, browser, timeline, status bar, side panel |
-| `surfaceRaised` | background | `bg-white dark:bg-zinc-900` | Inspector, menus, popovers, palette, tooltips, notifications, the sketch header, the legend and the chips over the viewport |
+| `surfaceRaised` | background | `bg-white dark:bg-zinc-900` | Inspector, menus, popovers, palette, tooltips, notifications, the sketch header, the legend and the chips over the viewport (empty state, hints, plane labels) |
 | `field` | background | `bg-white dark:bg-zinc-950` | Text inputs, selects, selection boxes, segmented control tracks |
 | `hover` | background | `hover:bg-zinc-200 dark:hover:bg-zinc-800` | Hovered rows, menu items, toolbar and icon buttons |
 | | active | `bg-zinc-200 dark:bg-zinc-800` | The palette's active option and a menu's keyboard-active item |
@@ -1527,6 +1809,7 @@ Each role names its Tailwind classes for the light theme and, with the `dark:` v
 | `borderControl` | border | `border-zinc-500` | Boundaries of inputs, selects, switches, swatches and selection boxes |
 | `text` | foreground | `text-zinc-900 dark:text-zinc-100` | Primary text and icons |
 | `textMuted` | foreground | `text-zinc-600 dark:text-zinc-400` | Secondary text, captions, units, palette details, idle icons, the info notification icon |
+| | placeholder | `placeholder:text-zinc-600 dark:placeholder:text-zinc-400` | Input placeholders, such as the live measured value in an empty draw input (3.16.4) |
 | `textDisabled` | foreground | `text-zinc-400 dark:text-zinc-600` | Disabled text and icons (incidental, exempt from contrast) |
 | `accent` | background | `bg-orange-600 dark:bg-orange-500` | Primary button fill (OK, Finish sketch, Export 3MF, Export), the rollback marker line |
 | | foreground | `text-zinc-950` | Text and icons on the accent fill |
@@ -1544,7 +1827,7 @@ Each role names its Tailwind classes for the light theme and, with the `dark:` v
 | | foreground | `text-white` | Text and icons on the error fill |
 | `warningMark` | fill | `fill-yellow-400` | Fill of the `triangle-alert` icon, drawn as a hazard sign |
 | | foreground | `text-zinc-950` | Outline and exclamation mark of that icon (lucide strokes use `currentColor`) |
-| `warningText` | foreground | `text-yellow-800 dark:text-yellow-300` | Warning text (" · {n} redundant" in the sketch header) |
+| `warningText` | foreground | `text-yellow-800 dark:text-yellow-300` | Warning text (the outline and extra-constraint suffixes of the sketch header, 3.16.8) |
 | `warningSubtle` | background | `bg-yellow-50 dark:bg-yellow-950` | Warning banners (`inspector-error` with warnings only) |
 | `warningFill` | background | `bg-yellow-400` | Chips of redundant constraint glyphs and dimension labels |
 | | foreground | `text-zinc-950` | Text and icons on the warning fill |
@@ -1574,8 +1857,11 @@ The WebGL viewport needs numbers. `VIEWPORT_STEPS` holds the steps below and `VI
 | `sketchReference` | `zinc-500` `#71717b` | `zinc-400` `#9f9fa9` | Origin axes, other sketches, dimension lines |
 | `datum` | `zinc-400` `#9f9fa9` | `zinc-500` `#71717b` | Datum and origin plane fill at 15 percent, outline at 60 percent |
 | `bed` | `zinc-500` `#71717b` | `zinc-400` `#9f9fa9` | Printer bed outline |
+| `grid` | `zinc-300` `#d4d4d8` | `zinc-600` `#52525c` | Ground and sketch grid lines (minor at 35 percent, major at 70 percent opacity, 3.12) |
 | `analysisLow` | `sky-200` `#b8e6fe` | `sky-200` `#b8e6fe` | Overhang color map at the limit angle |
 | `analysisHigh` | `violet-700` `#7008e7` | `violet-700` `#7008e7` | Overhang color map at 90 degrees |
+
+The grid is decorative and never the only signal of anything (the status bar states its spacing, 3.21), so it has no row in 2.16.6.
 
 The viewport is the brightest surface in the light theme and lighter than the chrome in the dark theme, so the model sits on a lit stage and the chrome recedes. Edges are drawn in `edgeDark` or `edgeLight`, whichever has the higher contrast ratio against the body's base color, so they stay visible on any body color. The analysis ramp is cool because orange, yellow and red already mean selection, warnings and errors; both of its ends lie inside the sRGB gamut, so the legend and the viewport show the same colors.
 
@@ -1718,7 +2004,7 @@ The lowest ratios are the light theme's `accent` marks (3.13 to 3.59); they use 
 `FONT_CLASSES.interfaceText` (`font-[Inter,ui-sans-serif,system-ui,sans-serif]`) and `FONT_CLASSES.values` (`font-['JetBrains_Mono',ui-monospace,monospace]`) are arbitrary font-family values, because no `@theme` defines font tokens; Tailwind emits `font-family: Inter,ui-sans-serif,system-ui,sans-serif` and `font-family: 'JetBrains Mono',ui-monospace,monospace`. Both families come from the Google Fonts import in `src/index.css`.
 
 - `interfaceText` is on the app root element and on the unsupported page's root, so all interface text inherits Inter.
-- `values` is on values only: expression inputs and `expression-result`, draw inputs, the dimension editor's input, sketch dimension labels, parameter expressions and `parameter-value`, `body-size`, `body-center` and the area, length and position values of the selection inspector, the number in `status-recompute` and `status-dof`, and the hex field of the color popover. Labels, headings, buttons, menus, tooltips and shortcut hints stay in Inter (the frontend guideline's avoid list names monospace labels).
+- `values` is on values only: expression inputs and `expression-result`, the options of `expression-suggestions`, draw inputs, the dimension editor's input, sketch dimension labels, parameter expressions and `parameter-value`, `body-size`, `body-center`, `entity-size`, the values of `measure-row` and the area, length and position values of the selection inspector, the number in `status-recompute` and `status-dof`, and the hex field of the color popover. Labels, headings, buttons, menus, tooltips and shortcut hints stay in Inter (the frontend guideline's avoid list names monospace labels).
 - When the fonts cannot load (offline), the stacks fall back to the system UI and monospace fonts (open issue 10).
 
 #### 2.16.8 Theme switching
@@ -1807,8 +2093,8 @@ The window is a fixed layout with no page scroll. The app root element (`data-te
 | --- | --- | --- | --- |
 | Top bar | `<header>`, `data-testid="top-bar"` | full width, `h-12` | Browser toggle, document name and save state, context switcher, context toolbar, palette button, Export button, theme toggle |
 | Browser | `<nav aria-label="Browser">`, `data-testid="browser"` | `w-66`, left | Tree (3.10) |
-| Viewport | `<main aria-label="3D view">`, `data-testid="viewport"` | remaining space | Canvas, DOM overlay, view cube, viewport controls, sketch header, legends, inspector, notifications |
-| Side panel | `<aside>`, `data-testid="side-panel"` | `w-90`, right, only while open | Parameters, Print health or Problems (one at a time) |
+| Viewport | `<main aria-label="3D view">`, `data-testid="viewport"` | remaining space | Canvas, DOM overlay, view cube, viewport controls, top-center slot (empty state, sketch header and hint, print hint), legends, inspector, notifications |
+| Side panel | `<aside>`, `data-testid="side-panel"` | `w-90`, right, only while open | Parameters, Print check, Problems or Keyboard and mouse (one at a time) |
 | Timeline | `<section aria-label="Timeline">`, `data-testid="timeline"` | full width, `h-14` (`h-7` collapsed) | Timeline (3.9) |
 | Status bar | `<footer>`, `data-testid="status-bar"` | full width, `h-7` | Status items (3.21) |
 
@@ -1827,10 +2113,19 @@ Document menu (`role="menu"`, `data-testid="document-menu"`), in order: New (des
 Responsive rules:
 
 - When the window is narrower than 1024 CSS pixels at startup (`window.innerWidth < 1024`), the browser starts closed. Below the `lg` breakpoint (64rem, 1024 CSS pixels) the browser and side panel open as overlays above the viewport (`max-lg:absolute`; they do not resize it) and close on Esc or on a pointer press outside them.
-- The top bar is a container (`@container`). Toolbar buttons show icon and label when it is at least 80rem wide (`@7xl:`, 1280 CSS pixels at 100 percent UI scale and proportionally more at larger scales) and icon only below (the label stays the accessible name and appears in the tooltip).
+- The top bar is a container (`@container`). Toolbar buttons show icon and label when it is at least 80rem wide (`@7xl:`, 1280 CSS pixels at 100 percent UI scale and proportionally more at larger scales) and icon only below (the label stays the accessible name and appears in the tooltip). Primary-style toolbar buttons (Finish sketch, Export 3MF) keep their label down to 64rem (`@5xl:`, 1024 CSS pixels at 100 percent), so the way out of a sketch is named on common laptop windows; below that they are icon only like the others (3.24).
 - The minimum supported window is 800 by 600 CSS pixels at 100 percent scale.
 
 Floating elements (all `surfaceRaised` with a `border` hairline, `rounded-md` and `shadow-lg`): the inspector (3.7, 3.8) inside the viewport; the notifications stack at the viewport's bottom-right (3.22); the palette, `w-140 max-w-full`, centered in a layer `fixed inset-x-4 top-1/6 flex justify-center` (so it keeps 1rem from the window's sides at any UI scale); menus, popovers and tooltips anchored to their triggers (native Popover API, light dismiss), positioned at runtime (3.12).
+
+Top-center slot: a column at the viewport's top (`absolute top-4 inset-x-32 flex flex-col items-center gap-2 pointer-events-none`; the `inset-x-32` margin keeps it clear of the `size-24` view cube at any UI scale) holding, from top, the empty-state chip, or the sketch header (3.16.8) with the sketch hint (3.16.3) under it, or the print hint (3.17). These never show together. Interactive children are `pointer-events-auto`, so the slot never blocks picking.
+
+Empty state: while `selectEmptyState(state)` holds (a ready core, a document without features, no feature command, no sketch session), the slot shows a chip (`data-testid="empty-state"`, `role="group"`, `aria-label="First step"`, `surfaceRaised` with a `border` hairline, `rounded-sm`, `p-3`, `max-w-140`):
+
+- Line 1 (`text-sm`): "Start with a sketch on a plane, or add a box." followed by the buttons "Sketch" (runs `feature.sketch`) and "Box" (runs `feature.box`; left out when the catalog has no `box`).
+- Line 2 (`text-xs`, `textMuted`): `navigationLegend(settings.navigation)` (2.11), a space, and "Search every command: {formatShortcut('Mod+K')}."
+
+The chip follows the document only: it disappears with the first feature, returns whenever the document has no features again (Delete, Undo, New), and has no first-run flag and no setting, so an experienced user sees it only in an empty document, where it costs nothing. In a document without features the origin axes and point are shown too (3.10), and the ground grid gives scale (3.12).
 
 ### 3.3 Contexts and toolbars
 
@@ -1838,30 +2133,32 @@ Floating elements (all `surfaceRaised` with a `border` hairline, `rounded-md` an
 
 | Context | Entries in order |
 | --- | --- |
-| Model | Sketch (`feature.sketch`), Extrude, Revolve, Hole, Fillet, Chamfer, Shell, group "Primitive" (`cuboid` icon: Box, Cylinder, Sphere, Cone, Torus), group "Pattern" (`grid-3x3` icon: Linear pattern, Circular pattern), Mirror, Boolean |
+| Model | Sketch (`feature.sketch`), Extrude, Revolve, Hole, Fillet, Chamfer, Shell, group "Shapes" (`cuboid` icon: Box, Cylinder, Sphere, Cone, Torus), group "Pattern" (`grid-3x3` icon: Linear pattern, Circular pattern), Mirror, Boolean |
 | Sketch | Line, group "Rectangle" (`rectangle-horizontal`: 2-point rectangle, Center rectangle), Circle, Arc, Point, Construction, Dimension, group "Constrain" (`magnet`: the 13 constraint commands in the order of 3.16.6), separator, Finish sketch (primary style) |
-| Print | Printer (menu button showing "Printer: {name}"), Overhangs (toggle), Checks (popover), Health (opens the health panel; shows the finding count), separator, Export 3MF (primary style), group "Export" (`file-output`: STL, OBJ, STEP) |
+| Print | Printer (menu button showing "Printer: {name}"), Overhang map (toggle), Checks (popover), Print check (opens the print check panel; shows the finding count), Lay on face (toggle, 3.17), separator, Export 3MF (primary style), group "Export" (`file-output`: STL, OBJ, STEP) |
 
-Datum plane, Move body and Split body are in the palette only. A group button opens a menu (`role="menu"`) of its commands with icon, title and shortcut. Disabled toolbar commands render with `aria-disabled="true"` and show the reason in their tooltip.
+Datum plane, Move body and Split body are in the palette only; the selection inspector also suggests them for what is selected (3.8). A group button opens a menu (`role="menu"`) of its commands with icon, title and shortcut. Disabled toolbar commands render with `aria-disabled="true"`, keep their place, show the reason in their tooltip, and show it as an info notification when clicked (as their shortcut does, 2.10). A group button whose commands are all disabled is disabled the same way with the first command's reason.
 
 Context rules:
 
 - The app starts in Model. `data-context` on the `app` root mirrors the context.
 - Model to Print, or Print to Model: an active feature command is canceled first (`cancel_transaction`). The selection is kept.
-- Choosing the Sketch radio outside sketch mode runs `startNewSketch` (3.16.1). In sketch mode, choosing Model or Print finishes the sketch (3.16.11) and then switches.
-- A feature command run from Sketch finishes the sketch, switches to Model and starts the command. If the finished sketch has exactly one closed region and the command has a `sketch_region` field, that region is preselected. Run from Print, it switches to Model first.
+- Choosing the Sketch radio (or `context.sketch`) outside sketch mode runs `enterSketch` when the app selection is exactly one sketch feature, or items of one sketch (curves, points, regions), and `startNewSketch` (3.16.1) otherwise; its tooltip reads "Edit {label}" or "New sketch". The toolbar's Sketch (`feature.sketch`) always starts a new sketch. In sketch mode, choosing Model or Print finishes the sketch (3.16.11) and then switches.
+- A feature command run from Sketch finishes the sketch, switches to Model and starts the command. When the app selection is empty, the finished sketch preselects: for a `sketch_region` field, its region when it has exactly one; for a `sketch_point` field, its non-construction point entities, or, when it has none, the centers (`{entity}.center`) of its non-construction circles and arcs. Run from Print, it switches to Model first.
 - Print commands are listed and active in Print only. Sketch tools are listed and active in Sketch only, and only while a sketch is being edited (not during plane picking).
 
 ### 3.4 Command palette
 
 - Opens with `Mod+K` (from anywhere, including text fields) or `S` (when focus is not editable), or the palette button. `Mod+K` while open closes it.
-- Layout: a container `role="dialog"` with `aria-label="Command palette"` and `data-testid="palette"`, holding a `role="combobox"` input (`data-testid="palette-input"`, placeholder "Search commands, bodies and parameters") with `aria-controls` pointing at a `role="listbox"`. Options (`role="option"`, `data-testid="palette-option"`, `data-item-id`, `data-kind`) show icon, title, detail (`textMuted`), a kind tag for non-commands ("Feature", "Body", "Parameter", "Recent file", `text-xs` in `textMuted`), and the formatted shortcut (`data-testid="palette-shortcut"`, `textMuted`, Inter). The active option has the `hover` role's `active` background.
+- Layout: a container `role="dialog"` with `aria-label="Command palette"` and `data-testid="palette"`, holding a `role="combobox"` input (`data-testid="palette-input"`, placeholder "Search commands, features, bodies, parameters and settings") with `aria-controls` pointing at a `role="listbox"`, and a footer. Options (`role="option"`, `data-testid="palette-option"`, `data-item-id`, `data-kind`) show icon, title, detail (`textMuted`), a kind tag for non-commands ("Feature", "Body", "Parameter", "Recent file", `text-xs` in `textMuted`), and the formatted shortcut (`data-testid="palette-shortcut"`, `textMuted`, Inter). The active option has the `hover` role's `active` background.
 - Items (`paletteItems`): every registered command whose availability is not `hidden` in the current context; every feature in the document ("{label}", kind feature, runs: select it in the timeline and scroll it into view); every body ("{name}", kind body, runs: select it and frame it); every parameter ("{name} = {expr}", kind parameter, runs: open the Parameters panel with that row's expression input focused); recent files ("Open recent: {name}", kind recent). Settings are ordinary commands of category Settings: "Theme: System", "Theme: Light", "Theme: Dark", "Navigation: Fusion", "Navigation: FreeCAD", "UI scale: 100%" to "UI scale: 300%", each with `checked` showing the current value.
-- Ranking: `rankPaletteItems` with `settings.paletteRecent` (2.10). The first option is active when the list changes.
+- Ranking: `rankPaletteItems` with `settings.paletteRecent` and the current context (2.10). The first option is active when the list changes.
+- With an empty query the options are grouped under headings (`role="group"` with `aria-label` the heading; the heading is `text-xs` in `textMuted`, `data-testid="palette-heading"`, and is not an option): "Recent" when there are recent items, then the category names in the context order of 2.10. So every command can be browsed without knowing its name. Arrow keys move over options only.
+- When a non-empty query matches nothing, the listbox shows one row that is not an option (`data-testid="palette-empty"`, `textMuted`): "Nothing matches {query}."
 - Keys: ArrowDown and ArrowUp move the active option and wrap; PageDown and PageUp move by 8; Enter runs the active option and closes the palette; Esc closes it. Focus stays in the input. Tab is ignored.
 - Mouse: hovering an option makes it active; clicking runs it.
-- A disabled option is dimmed with its reason as the detail; Enter on it shows the reason in the palette footer (`role="status"`) and keeps the palette open.
-- Running any item records its id at the front of `settings.paletteRecent`.
+- Footer (`data-testid="palette-footer"`, `text-xs` in `textMuted`): the active option's description (2.10), which the option references with `aria-describedby` (the footer is not a live region, so arrow keys are not announced twice). A disabled option is dimmed with its reason as the detail; Enter on it shows the reason in a `role="status"` line of the footer instead and keeps the palette open.
+- Running any item records its id at the front of `settings.paletteRecent`; running a feature command from any other source (toolbar, shortcut, menu, suggestion) records it too.
 - Closing returns focus to the element that had it before the palette opened. A pointer press outside closes it.
 - Each keystroke re-ranks synchronously; `ps:palette` measures it.
 
@@ -1872,6 +2169,7 @@ Registry shortcuts (displayed with `formatShortcut`; `Mod` is Cmd on macOS and C
 | Command id | Title | Shortcut | Contexts |
 | --- | --- | --- | --- |
 | `app.palette` | Command palette | Mod+K, S | all |
+| `app.keys` | Keyboard and mouse | F1 | all |
 | `edit.undo` | Undo | Mod+Z | all |
 | `edit.redo` | Redo | Mod+Shift+Z, Mod+Y | all |
 | `file.new` | New | Mod+N (desktop only) | all |
@@ -1910,17 +2208,19 @@ Commands without a default shortcut (ids and titles; all listed in the palette i
 | `feature.<type>` for every other catalog type | Manifest label (Sketch, Revolve, Chamfer, Shell, Box, Cylinder, Sphere, Cone, Torus, Boolean, Mirror, Linear pattern, Circular pattern, Datum plane, Split body) | all (Sketch switches to plane picking) |
 | `context.model`, `context.sketch`, `context.print` | Model, Sketch, Print | all |
 | `edit.edit_feature` | Edit feature | model, print (one feature selected) |
+| `edit.repeat` | Repeat {title} (the last feature command run in this session from any source; "Repeat" before any): runs `startFeatureCommand` of that type with the current selection preselected; disabled with `nothing_to_repeat` | model, print |
 | `edit.suppress`, `edit.unsuppress` | Suppress, Unsuppress | model, print (features selected) |
 | `edit.clear_selection` | Clear selection | all |
-| `view.parameters`, `view.problems`, `view.health` | Parameters, Problems, Print health | all |
+| `view.parameters`, `view.problems`, `view.health` | Parameters, Problems, Print check | all |
 | `view.timeline` | Toggle timeline | all |
+| `view.grid` | Show grid (toggle, `checked` while the grid is drawn; session state, 3.12) | model, sketch |
 | `view.standard.<view>` for the seven standard views | View: Top, View: Bottom, View: Front, View: Back, View: Left, View: Right, View: Home | all |
 | `view.filter.body`, `view.filter.face`, `view.filter.edge`, `view.filter.vertex` | Select bodies, Select faces, Select edges, Select vertices (toggles) | model, print |
 | `view.lock`, `view.unlock` | Lock selection, Unlock selection | model, print |
 | `sketch.rectangle_center`, `sketch.arc_3point`, `sketch.point` | Center rectangle, Arc, Point | sketch |
 | `sketch.constrain_<type>` for the constraints without a key | Point on object, Parallel, Perpendicular, Tangent, Collinear, Concentric, Equal, Symmetric, Midpoint, Fix | sketch |
 | `sketch.show_constraints` | Show constraints (toggle) | sketch |
-| `print.printer`, `print.overhangs`, `print.checks`, `print.check_now` | Choose printer, Overhangs (toggle), Checks, Check print | print (`print.check_now` all) |
+| `print.printer`, `print.overhangs`, `print.checks`, `print.check_now`, `print.lay_on_face` | Choose printer, Overhang map (toggle), Checks, Check print, Lay on face (toggle, 3.17) | print (`print.check_now` all) |
 | `print.export_3mf`, `print.export_stl`, `print.export_obj`, `print.export_step` | Export 3MF, Export STL, Export OBJ, Export STEP | all |
 | `document.units.mm`, `document.units.cm`, `document.units.m`, `document.units.in` | Units: mm, Units: cm, Units: m, Units: in | all |
 | `settings.theme.system`, `settings.theme.light`, `settings.theme.dark` | Theme: System, Theme: Light, Theme: Dark | all |

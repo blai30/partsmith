@@ -1,11 +1,14 @@
 //! Regression tests for behavior that `docs/spec/engine.md` states in section 3 but section 6
 //! does not number: validation of sketch entity references and reference dimensions (3.19),
-//! the order of print analysis bodies (3.12), printer profile changes (3.7, 3.4) and the
-//! unknown printer warning (3.4, 3.13).
+//! the order of print analysis bodies (3.12), printer profile changes (3.7, 3.4), the unknown
+//! printer warning (3.4, 3.13) and picks that come before any listing (3.9).
 
 mod common;
 
-use common::{doc_handle, fixture, number, open_doc, open_text, replace_once, send, session};
+use common::{
+    count, doc_handle, elements, fixture, measure_body, number, open, open_doc, open_text,
+    replace_once, send, session,
+};
 use partsmith_engine::{ValidateOptions, ValidationReport};
 use partsmith_print::Severity;
 use partsmith_protocol::{DocHandle, TessellationQuality};
@@ -277,4 +280,46 @@ fn a_profile_change_that_keeps_the_layer_height_keeps_the_meshes() {
     let renamed = send(&mut session, put_shop_printer("Workshop", 0.1));
 
     assert_eq!(renamed.event_types(), ["recomputed"]);
+}
+
+#[test]
+fn picks_in_a_new_body_state_equal_the_listed_descriptors() {
+    for (name, body) in [
+        ("fillet.ptsm", "b-1"),
+        ("two-bodies.ptsm", "b-2"),
+        ("circle.ptsm", "b-1"),
+    ] {
+        let counts = element_counts(name, body);
+        let mut session = session();
+        let opened = open(&mut session, name);
+        let doc = doc_handle(&opened);
+        let mesh_id = opened.body_mesh(body, "model")["mesh_id"].clone();
+
+        let mut picked = Vec::new();
+        for (kind, count) in counts {
+            for index in 0..count {
+                let sent = send(
+                    &mut session,
+                    json!({"type": "pick_reference", "doc": doc, "pick": {"mesh_id": mesh_id, "kind": kind, "index": index}}),
+                );
+                picked.push(sent.ok()["element"].clone());
+            }
+        }
+        let listed = elements(&mut session, doc, body, None);
+
+        assert_eq!(picked, listed, "{name}");
+    }
+}
+
+/// The displayed element counts of a fixture body by kind, measured in a session of their own
+/// so that the session under test picks before it lists.
+fn element_counts(name: &str, body: &str) -> [(&'static str, usize); 3] {
+    let mut session = session();
+    let doc = open_doc(&mut session, name);
+    let measured = measure_body(&mut session, doc, body);
+    [
+        ("face", count(&measured["face_count"])),
+        ("edge", count(&measured["edge_count"])),
+        ("vertex", count(&measured["vertex_count"])),
+    ]
 }

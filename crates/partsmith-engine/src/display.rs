@@ -9,7 +9,9 @@ use partsmith_mesh::{
     BoundingBox, EdgePolyline, Mesh, RenderBuffers, TessellationTolerance, VertexMarker,
 };
 use partsmith_naming::{ElementKind, ElementName};
-use partsmith_occt_sys::{KernelError, Shape, SubShapeKind, Topology};
+use partsmith_occt_sys::{
+    EdgeTopology, FaceTopology, KernelError, Shape, SubShapeKind, Topology, VertexTopology,
+};
 use partsmith_protocol::ElementDescriptor;
 
 use crate::error::EngineError;
@@ -46,6 +48,8 @@ pub(crate) struct ElementTable {
     edge_ids: Vec<Option<u32>>,
     /// Display id of each vertex by kernel index minus one.
     vertex_ids: Vec<Option<u32>>,
+    /// The kernel topology of the shape, which descriptors read for their adjacent elements.
+    topology: Topology,
     /// Descriptors in table order, computed on first use.
     descriptors: OnceLock<Result<Arc<[ElementDescriptor]>, EngineError>>,
 }
@@ -108,8 +112,14 @@ impl ElementTable {
             faces,
             edges,
             vertices,
+            topology,
             descriptors: OnceLock::new(),
         })
+    }
+
+    /// The kernel topology of the shape the table was built from.
+    pub(crate) fn topology(&self) -> &Topology {
+        &self.topology
     }
 
     /// The displayed elements of `kind` in display id order.
@@ -163,7 +173,28 @@ impl ElementTable {
             .map(|entry| entry.name.as_str().len() + size_of::<TableEntry>())
             .sum();
         let ids = self.face_ids.len() + self.edge_ids.len() + self.vertex_ids.len();
-        names + ids * size_of::<Option<u32>>()
+        let topology = &self.topology;
+        let indices: usize = topology
+            .faces
+            .iter()
+            .map(|face| face.edges.len() + face.vertices.len())
+            .chain(
+                topology
+                    .edges
+                    .iter()
+                    .map(|edge| edge.faces.len() + edge.vertices.len()),
+            )
+            .chain(
+                topology
+                    .vertices
+                    .iter()
+                    .map(|vertex| vertex.edges.len() + vertex.faces.len()),
+            )
+            .sum();
+        let elements = topology.faces.len() * size_of::<FaceTopology>()
+            + topology.edges.len() * size_of::<EdgeTopology>()
+            + topology.vertices.len() * size_of::<VertexTopology>();
+        names + ids * size_of::<Option<u32>>() + indices * size_of::<u32>() + elements
     }
 }
 
@@ -501,6 +532,11 @@ mod tests {
             vertices: Vec::new(),
             edge_ids: Vec::new(),
             vertex_ids: Vec::new(),
+            topology: Topology {
+                faces: Vec::new(),
+                edges: Vec::new(),
+                vertices: Vec::new(),
+            },
             descriptors: OnceLock::new(),
         }
     }
@@ -657,6 +693,68 @@ mod tests {
 
         assert!(session.cache.meshes.is_empty());
         assert!(session.cache.tables.is_empty());
+    }
+
+    #[test]
+    fn a_pick_describes_only_the_picked_element() {
+        let (mut session, doc) =
+            session_without_budget(true, include_str!("../tests/fixtures/box.ptsm"));
+        let mut output = crate::events::Output::default();
+        session
+            .collect_events(doc, &mut output)
+            .expect("the box displays");
+        let shown = |session: &crate::Session| {
+            session.documents[&doc]
+                .emitted
+                .model
+                .values()
+                .next()
+                .cloned()
+                .expect("the box has a model mesh")
+        };
+        let mesh_id = shown(&session).mesh_id;
+
+        let picked = session
+            .pick_reference(
+                doc,
+                partsmith_protocol::Pick {
+                    mesh_id,
+                    kind: ElementKind::Edge,
+                    index: 3,
+                },
+            )
+            .expect("the pick names an edge");
+
+        let table = Arc::clone(&shown(&session).mesh.table);
+        assert_eq!(picked.name, table.entries(ElementKind::Edge)[3].name.as_str());
+        assert!(
+            table.descriptors.get().is_none(),
+            "a pick leaves the other descriptors undescribed"
+        );
+    }
+
+    #[test]
+    fn element_tables_keep_the_topology_they_were_built_from() {
+        let (mut session, doc) =
+            session_without_budget(false, include_str!("../tests/fixtures/box.ptsm"));
+        let view = crate::inspect::body_with_geometry(
+            &session.documents[&doc],
+            &Id::new("b-1").expect("a valid id"),
+        )
+        .expect("the box has geometry");
+
+        let table = session.table_of(&view).expect("the box has a table");
+
+        let topology = table.topology();
+        assert_eq!(
+            (
+                topology.faces.len(),
+                topology.edges.len(),
+                topology.vertices.len()
+            ),
+            (6, 12, 8)
+        );
+        assert!(topology.faces.iter().all(|face| face.edges.len() == 4));
     }
 
     #[test]

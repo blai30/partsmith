@@ -21,7 +21,8 @@ Spec: `docs/spec/engine.md`.
 
 - `session.rs` owns `OpenDocument`s (`document.rs`); `editing.rs`, `sketching.rs`, `inspect.rs`, `analysis.rs`, `exchange.rs`, `python.rs` add `Session` methods per area; `dispatch.rs` maps protocol commands to them.
 - `state.rs` reads model, display and preview body states from the recompute report; a state is identified by (feature cache key, body id).
-- `display.rs` builds element tables and display meshes and keeps them in an LRU cache under the byte budget; `events.rs` diffs what a document last emitted against its current state to produce events.
+- `display.rs` builds element tables (which keep the kernel topology) and display meshes and keeps them in an LRU cache under the byte budget; `events.rs` diffs what a document last emitted against its current state to produce events.
+- `elements.rs` builds descriptors: `describe` for a whole table (`list_elements`, computed once per table), `describe_element` for one element (`pick_reference`, one kernel query), both through the same `Describer` so a pick equals its listed entry.
 - `sketch.rs` and `triangulate.rs` turn solved sketches into `sketch_solved` displays with region fills.
 - `status.rs` derives feature statuses, diagnostics and repairs; `validate.rs` implements `validate` and `format`.
 
@@ -34,6 +35,9 @@ cargo test -p partsmith-engine --lib
 cargo test -p partsmith-engine --test python_codegen
 cargo clippy -p partsmith-engine --all-targets -- -D warnings
 cargo fmt -p partsmith-engine
+# performance budgets of engine.md section 5 (release build); fails when one is over
+cargo bench -p partsmith-engine --bench budgets
+cargo bench -p partsmith-engine --bench budgets -- pick list   # only operations whose names contain a word
 ```
 
 ## Rules

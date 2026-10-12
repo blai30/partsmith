@@ -96,7 +96,8 @@ mod tests {
     use super::*;
     use crate::params::PlaneRef;
     use crate::primitive::default_position;
-    use crate::test_support::{ScriptNames, id, run};
+    use crate::builtin::sphere::Sphere;
+    use crate::test_support::{ScriptNames, build, id, params};
 
     /// Params with the sizes `radius` and `height`, then this placement and op.
     fn with_parts<'a>(
@@ -221,13 +222,13 @@ mod tests {
     fn a_kernel_failure_is_a_kernel_error() {
         // The size passes the feature's check (greater than 0) but is below the kernel's
         // modeling tolerance, so the kernel rejects it.
-        let run = run(
-            &["b-1"],
-            &[
-                json!({"id": "f-sph1", "type": "sphere", "body": "b-1", "radius": "0.0000005", "op": "new"}),
-            ],
+        let params = params::<Sphere>(
+            json!({"id": "f-sph1", "type": "sphere", "body": "b-1", "radius": "0.0000005", "op": "new"}),
         );
 
-        assert_eq!(run.error_code("f-sph1"), "kernel");
+        let error = build::<Sphere>("f-sph1", &params, Vec::new(), Vec::new())
+            .expect_err("the kernel rejects the size");
+
+        assert_eq!(error.code(), "kernel");
     }
 }

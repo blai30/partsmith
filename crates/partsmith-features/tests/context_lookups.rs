@@ -1,13 +1,15 @@
-//! Acceptance tests for build context lookups, origin planes, placement helpers, cancellation, shared constants and assets (features.md section 6.3, tests 6 to 9, 14, 16 and 17).
+//! Acceptance tests for build context lookups, origin planes, placement helpers, cancellation, shared constants, assets and face placements (features.md section 6.3, tests 6 to 9, 14, 16, 17 and 22).
 
 mod common;
 
 use std::sync::Arc;
 
-use common::{ContextFixture, assert_vector_close, empty_sketch_output, id};
-use partsmith_features::{FeatureError, Noun, PlacementExt, PlaneRef};
+use common::{ContextFixture, assert_vector_close, built_body, empty_sketch_output, id};
+use partsmith_features::{BodyState, FallbackReason, FeatureError, Noun, PlacementExt, PlaneRef};
 use partsmith_model::Units;
+use partsmith_naming::Reference;
 use partsmith_sketch::{OriginPlane, Placement};
+use serde_json::json;
 
 /// Asserts that `result` is an `UndeclaredDependency` error.
 #[track_caller]
@@ -216,4 +218,105 @@ fn t017_undeclared_asset_is_undeclared() {
         .insert("a.step".to_string(), Arc::from(&b"abc"[..]));
 
     assert_undeclared(fixture.context().asset("asset", "b.step"));
+}
+
+/// The box of features/box.md test 1: 10 x 20 x 30 centered on the XY origin, top face at z = 30.
+fn box_test_1() -> BodyState {
+    built_body(
+        json!({"id": "f-box1", "type": "box", "body": "b-1", "size": ["10", "20", "30"], "op": "new"}),
+    )
+}
+
+/// The cylinder of features/cylinder.md test 1: radius 5, height 10, standing on the XY origin.
+fn cylinder_test_1() -> BodyState {
+    built_body(
+        json!({"id": "f-cyl1", "type": "cylinder", "body": "b-1", "radius": "5", "height": "10", "op": "new"}),
+    )
+}
+
+/// The hint placement of features.md section 6.3 test 22.
+fn tilted_hint() -> Placement {
+    Placement {
+        origin: [1.0, 2.0, 3.0],
+        x_axis: [0.6, 0.0, 0.8],
+        normal: [-0.8, 0.0, 0.6],
+    }
+}
+
+/// A stored reference from its query and fingerprint text.
+fn reference(query: &str, fingerprint: &str) -> Reference {
+    serde_json::from_value(json!({"q": query, "fp": fingerprint}))
+        .expect("references written in tests are valid")
+}
+
+/// `face_placement` of `face` in `b-1` holding `state`, with the tilted hint.
+fn face_placement(
+    state: BodyState,
+    face: &Reference,
+) -> Result<Result<Placement, FallbackReason>, FeatureError> {
+    let mut fixture = ContextFixture::new(Units::Mm, &[]);
+    fixture.bodies.insert(id("b-1"), state);
+    fixture
+        .context()
+        .face_placement(&id("b-1"), face, &tilted_hint())
+}
+
+#[test]
+fn t022_flat_face_projects_the_hint_onto_its_plane() {
+    let placement = face_placement(
+        box_test_1(),
+        &reference("f-box1/top", "plane|n=0,0,1|c=0,0,30|a=200"),
+    )
+    .expect("nothing fails")
+    .expect("the top face is flat");
+
+    assert_vector_close(placement.origin, [1.0, 2.0, 30.0], "origin");
+    assert_vector_close(placement.x_axis, [1.0, 0.0, 0.0], "x axis");
+    assert_vector_close(placement.normal, [0.0, 0.0, 1.0], "normal");
+}
+
+#[test]
+fn t022_missing_reference_is_missing() {
+    let result = face_placement(
+        box_test_1(),
+        &reference("f-box9/top", "plane|n=0,0,1|c=500,500,500|a=1"),
+    );
+
+    assert_eq!(result, Ok(Err(FallbackReason::Missing)));
+}
+
+#[test]
+fn t022_any_reference_in_an_empty_body_is_missing() {
+    let result = face_placement(
+        BodyState::empty(),
+        &reference("f-box1/top", "plane|n=0,0,1|c=0,0,30|a=200"),
+    );
+
+    assert_eq!(result, Ok(Err(FallbackReason::Missing)));
+}
+
+#[test]
+fn t022_cylinder_side_is_not_planar() {
+    let result = face_placement(
+        cylinder_test_1(),
+        &reference("f-cyl1/side", "cylinder|n=0,0,1|c=0,0,5|a=314.159265|r=5"),
+    );
+
+    assert_eq!(result, Ok(Err(FallbackReason::NotPlanar)));
+}
+
+#[test]
+fn t022_undeclared_body_is_undeclared() {
+    let fixture = ContextFixture::new(Units::Mm, &[]);
+
+    let result = fixture.context().face_placement(
+        &id("b-9"),
+        &reference("f-box1/top", "plane|n=0,0,1|c=0,0,30|a=200"),
+        &tilted_hint(),
+    );
+
+    assert!(
+        matches!(result, Err(FeatureError::UndeclaredDependency { .. })),
+        "expected UndeclaredDependency, got {result:?}"
+    );
 }

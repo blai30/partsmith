@@ -407,20 +407,87 @@ mod tests {
     }
 
     #[test]
-    fn no_tool_is_internal() {
-        let result = apply(BodyState::empty(), BodyOp::New, Vec::new());
+    fn no_tool_is_internal_for_every_op() {
+        for op in [BodyOp::New, BodyOp::Join, BodyOp::Cut, BodyOp::Intersect] {
+            let result = apply(
+                box_body("f-box1", [0.0, 0.0, 0.0], 10.0),
+                op,
+                Vec::new(),
+            );
 
-        assert_eq!(
-            result.map(|_| ()).map_err(|error| error.code()),
-            Err("internal")
-        );
+            assert_eq!(
+                result.map(|_| ()).map_err(|error| error.code()),
+                Err("internal"),
+                "{op:?}"
+            );
+        }
     }
 
     #[test]
-    fn intersect_with_two_tools_is_internal() {
+    fn join_with_several_tools_adds_them_all() {
         let tools = vec![
-            named_box("f-a", [0.0, 0.0, 0.0], 10.0),
-            named_box("f-b", [0.0, 0.0, 0.0], 5.0),
+            named_box("f-a", [20.0, 0.0, 0.0], 10.0),
+            named_box("f-b", [40.0, 0.0, 0.0], 10.0),
+        ];
+
+        let (update, warnings) = apply(
+            box_body("f-box1", [0.0, 0.0, 0.0], 10.0),
+            BodyOp::Join,
+            tools,
+        )
+        .expect("join builds");
+
+        assert_eq!(update.change, BodyChange::Join);
+        assert!((volume(shape(&update)) - 3000.0).abs() < 1e-6);
+        assert_eq!(shape(&update).count(SubShapeKind::Solid), 3);
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn cut_with_several_tools_removes_them_all() {
+        let tools = vec![
+            named_box("f-a", [5.0, 5.0, 5.0], 10.0),
+            named_box("f-b", [-5.0, -5.0, -5.0], 10.0),
+        ];
+
+        let (update, _) = apply(
+            box_body("f-box1", [0.0, 0.0, 0.0], 10.0),
+            BodyOp::Cut,
+            tools,
+        )
+        .expect("cut builds");
+
+        assert!((volume(shape(&update)) - 750.0).abs() < 1e-6);
+        let names = face_names(&update.naming);
+        assert!(names.contains(&"f-a/bottom".to_string()));
+        assert!(names.contains(&"f-b/top".to_string()));
+    }
+
+    #[test]
+    fn intersect_with_several_tools_keeps_what_is_inside_every_tool() {
+        let tools = vec![
+            named_box("f-a", [5.0, 0.0, 0.0], 10.0),
+            named_box("f-b", [0.0, 0.0, 8.0], 10.0),
+        ];
+
+        let (update, warnings) = apply(
+            box_body("f-box1", [0.0, 0.0, 0.0], 10.0),
+            BodyOp::Intersect,
+            tools,
+        )
+        .expect("intersect builds");
+
+        assert_eq!(update.change, BodyChange::Intersect);
+        assert!((volume(shape(&update)) - 100.0).abs() < 1e-6);
+        assert_eq!(shape(&update).count(SubShapeKind::Face), 6);
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn intersect_with_a_tool_that_misses_is_an_empty_result() {
+        let tools = vec![
+            named_box("f-a", [5.0, 0.0, 0.0], 10.0),
+            named_box("f-b", [100.0, 0.0, 0.0], 10.0),
         ];
 
         let result = apply(
@@ -430,8 +497,11 @@ mod tests {
         );
 
         assert_eq!(
-            result.map(|_| ()).map_err(|error| error.code()),
-            Err("internal")
+            result.map(|_| ()),
+            Err(FeatureError::EmptyResult {
+                body: id("b-1"),
+                op: BodyOp::Intersect
+            })
         );
     }
 

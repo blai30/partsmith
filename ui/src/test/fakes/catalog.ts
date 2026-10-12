@@ -1,4 +1,4 @@
-import type { CatalogEntry, FeatureManifest } from '../../generated/protocol'
+import type { CatalogEntry, FeatureManifest, FieldHint } from '../../generated/protocol'
 import type { Catalog, CatalogFeature } from '../../state/store'
 
 // The test feature catalog: every built-in feature type of features.md 3.13 with its manifest exactly
@@ -7,7 +7,6 @@ import type { Catalog, CatalogFeature } from '../../state/store'
 // struct has them).
 
 type Schema = { readonly [key: string]: unknown }
-type FieldHint = FeatureManifest['fields'][number]
 type HintDetails = Omit<FieldHint, 'path' | 'label'>
 
 function hint(path: string, label: string, details: HintDetails = {}): FieldHint {

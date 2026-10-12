@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import type { Edit } from '../generated/protocol'
+import type { Edit, ElementDescriptor } from '../generated/protocol'
 import { currentDocument, startWithDocument } from '../test/fakes/app'
 import {
   CUBE_DOCUMENT,
   CUBE_FRONT_FACE,
   CUBE_TOP_FACE,
   CUBE_FEATURES_DOCUMENT,
+  TWO_BODIES_DOCUMENT,
 } from '../test/fakes/documents'
 import { bodyItem, elementItem, featureItem } from '../test/fakes/selection'
 import { settle } from '../test/fakes/settle'
@@ -47,6 +48,36 @@ describe('selection after rebuilds (3.6)', () => {
       },
     ])
     expect(selectedKeys(fake)).toEqual([front.key])
+  })
+
+  it('resolves the selected faces of every body when several bodies are remeshed by one change', async () => {
+    const fake = await startWithDocument('two-bodies.ptsm', TWO_BODIES_DOCUMENT)
+    const pegSide: ElementDescriptor = {
+      ...CUBE_FRONT_FACE,
+      name: 'f-cyl1/side',
+      body: 'b-peg',
+      feature: 'f-cyl1',
+      reference: { q: 'f-cyl1/side', fp: 'cylinder|n=0,0,1|c=0,0,20|a=502.65|adj=2,2' },
+      surface: 'cylinder',
+    }
+    select(
+      fake.app,
+      [elementItem(CUBE_TOP_FACE, 'Cube'), elementItem(pegSide, 'Peg')],
+      'replace',
+    )
+    fake.transport.handle('resolve_references', (command) => ({
+      result: {
+        type: 'resolve_references',
+        results: (command.references ?? []).map(() => ({ status: 'missing', matches: [] })),
+      },
+    }))
+    await applyEdits(fake.app, 'Rename', RENAME)
+    await settle()
+    // Both bodies get a new mesh in their own body_mesh event; the request that is answered
+    // last must still ask about the faces of both.
+    const asked = fake.transport.commandsOfType('resolve_references').at(-1)?.references ?? []
+    expect(asked.map((reference) => reference.body)).toEqual(['b-cube', 'b-peg'])
+    expect(selectedKeys(fake)).toEqual([])
   })
 
   it('an ambiguous face leaves the selection too', async () => {

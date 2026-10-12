@@ -94,19 +94,19 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::test_support::{ScriptNames, run};
+    use crate::test_support::{ScriptNames, build, params};
 
     #[test]
     fn the_radius_is_checked_first() {
-        let run = run(
-            &["b-1"],
-            &[
-                json!({"id": "f-cyl1", "type": "cylinder", "body": "b-1", "radius": "0", "height": "0", "op": "new"}),
-            ],
+        let params = params::<Cylinder>(
+            json!({"id": "f-cyl1", "type": "cylinder", "body": "b-1", "radius": "0", "height": "0", "op": "new"}),
         );
 
+        let error = build::<Cylinder>("f-cyl1", &params, Vec::new(), Vec::new())
+            .expect_err("a radius of 0 fails");
+
         assert_eq!(
-            run.error("f-cyl1").field().map(|field| field.path.as_str()),
+            error.field().map(|field| field.path.as_str()),
             Some("radius")
         );
     }

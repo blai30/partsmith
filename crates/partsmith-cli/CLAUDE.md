@@ -26,7 +26,7 @@ partsmith schema [--write | --check] [--out-dir <DIR>] [<NAME>]
 ## Internals
 
 - `main.rs`: panic containment (with `RUST_BACKTRACE` set, the standard panic report with its location comes before `internal error:`) and exit status; a broken standard output pipe ends the run with exit 3 and no message. `arguments.rs`: the clap grammar, `Format`, `SchemaAction` and the version text from `engine_info`.
-- `commands/`: one module per command; `commands/mod.rs` opens a document with its assets (file first, then the `--printer` check, then `open_document`) and applies `--printer` for `rebuild` and `export`. A document that does not load is reported with the load diagnostic `Session::validate` gives it, so `fmt`, `rebuild` and `export` name the same JSON Pointer `validate` does.
+- `commands/`: one module per command; `commands/mod.rs` opens a document with its assets (file and assets first, then `open_document`, then the `--printer` check, as cli.md 3.3 orders them) and applies `--printer` for `rebuild` and `export`. A document that does not load is reported with the load diagnostic `Session::validate` gives it, so `fmt`, `rebuild` and `export` name the same JSON Pointer `validate` does.
 - `error.rs`: `CliError` and `UsageError` with exit status, code and report line; `status.rs`: `Status`, ordered so the largest wins.
 - `files.rs`: inputs (`-` is standard input) read as bytes, where bytes that are not UTF-8 are a `parse_error` load error with the file format's `NotUtf8` message; asset discovery in `assets/`; atomic writes that keep an existing file's permissions.
 - `output.rs`: standard output and error, human numbers, diagnostic lines, JSON diagnostics; `rotation.rs`: `--rotate` values to an `Orientation::Matrix`.

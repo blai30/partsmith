@@ -5,8 +5,8 @@ import { featureLabel } from '../../core/labels'
 import { CoreFatalError } from '../../core/transport'
 import type {
   DocHandle,
-  Document,
   Edit,
+  FeatureRecord,
   ProfileFinding,
   SketchConstraint,
   SketchEntity,
@@ -447,8 +447,6 @@ export function createSketchIds(app: App): IdSource {
     },
   }
 }
-
-type FeatureRecord = NonNullable<Document['features']>[number]
 
 /** The sketch record with this id in the recipe, or null. */
 function sketchRecord(app: App, sketchId: string): FeatureRecord | null {

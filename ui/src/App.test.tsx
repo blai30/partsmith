@@ -163,7 +163,7 @@ describe('the app shell (3.2)', () => {
     // Parameters that are not a list break the browser's Parameters group.
     const recipe = {
       ...broken.recipe,
-      parameters: null as unknown as typeof broken.recipe.parameters,
+      parameters: null as unknown as NonNullable<typeof broken.recipe.parameters>,
     }
     renderApp({ document: { ...broken, recipe } })
     expect(screen.getByText(MESSAGES.region_crashed())).toBeInTheDocument()

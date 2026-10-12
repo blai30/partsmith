@@ -18,11 +18,10 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use super::common::{
-    bodies, body_hint, call, check_range, empty_selection, essential, face_name, flag, hint,
-    is_false, manifest, one_or_list, options_hint, selection_hint, solid_body, unchanged,
-    unit_hint,
+    THROUGH_ALL_MARGIN, bodies, body_hint, call, check_range, empty_selection, essential,
+    face_name, farthest_corner, flag, hint, is_false, manifest, one_or_list, options_hint,
+    selection_hint, solid_body, unchanged, unit_hint,
 };
-use super::extrude::{THROUGH_ALL_MARGIN, farthest_corner};
 use crate::context::BuildContext;
 use crate::deps::Dependencies;
 use crate::error::{Bound, FeatureError, FeatureWarning, IgnoredReason, Noun};
@@ -699,26 +698,11 @@ fn plane_point([x, y]: [f64; 2]) -> Point2 {
 
 #[cfg(test)]
 mod tests {
-    use partsmith_occt_sys::{GeometryKind, SubShapeKind};
     use serde_json::json;
 
     use super::*;
     use crate::registry::Registry;
-    use crate::test_support::{ScriptNames, assert_point, id, run};
-
-    /// `BOX-BELOW`: spans [-20,-20,-10]-[20,20,0], top face at z = 0.
-    fn box_below() -> serde_json::Value {
-        json!({"id": "f-box1", "type": "box", "body": "b-1", "size": ["40", "40", "10"], "position": ["0", "0", "-10"], "op": "new"})
-    }
-
-    /// `SK-PTS`: the points `e-p1` (0, 0), `e-p2` (10, 10) and `e-p3` (100, 0) on XY.
-    fn points_sketch() -> serde_json::Value {
-        json!({"id": "f-sk1", "type": "sketch", "plane": {"kind": "origin", "plane": "XY"}, "entities": [
-            {"id": "e-p1", "type": "point", "position": [0, 0]},
-            {"id": "e-p2", "type": "point", "position": [10, 10]},
-            {"id": "e-p3", "type": "point", "position": [100, 0]}
-        ]})
-    }
+    use crate::test_support::{ScriptNames, id};
 
     /// `HOLE(points, extra)` of the spec: diameter 6, plus `extra` members.
     fn record(points: serde_json::Value, extra: serde_json::Value) -> serde_json::Value {
@@ -940,114 +924,6 @@ mod tests {
 
         assert_eq!(plane.y_axis(), frame.direction);
         assert_eq!(plane.origin, frame.position);
-    }
-
-    #[test]
-    fn a_blind_hole_with_a_tip_ends_at_its_apex() {
-        let document = run(
-            &["b-1"],
-            &[
-                box_below(),
-                points_sketch(),
-                record(
-                    json!(["e-p1"]),
-                    json!({"extent": {"kind": "distance", "expr": "5"}, "tip_angle": "118 deg"}),
-                ),
-            ],
-        );
-
-        document.assert_ok("f-hole1");
-        document.assert_volume("b-1", 15841.639397);
-        assert_eq!(
-            document.face("b-1", "f-hole1/tip/e-p1").kind,
-            GeometryKind::Cone
-        );
-        let apex = document.element("b-1", "vertex(f-hole1/tip/e-p1)", SubShapeKind::Vertex);
-        assert_point("tip apex", apex.centroid, [0.0, 0.0, -6.802582]);
-    }
-
-    #[test]
-    fn a_counterbore_through_all_names_every_wall() {
-        let document = run(
-            &["b-1"],
-            &[
-                box_below(),
-                points_sketch(),
-                record(
-                    json!(["e-p1"]),
-                    json!({"hole_type": {"kind": "counterbore", "diameter": "11", "depth": "4"}, "extent": {"kind": "through_all"}}),
-                ),
-            ],
-        );
-
-        document.assert_ok("f-hole1");
-        document.assert_volume("b-1", 15450.221286);
-        assert_eq!(
-            document.faces_named("b-1", "f-hole1/"),
-            [
-                "f-hole1/bore/e-p1",
-                "f-hole1/counterbore-floor/e-p1",
-                "f-hole1/counterbore/e-p1"
-            ]
-        );
-    }
-
-    #[test]
-    fn a_point_off_the_body_is_left_out_with_a_warning() {
-        let document = run(
-            &["b-1"],
-            &[
-                box_below(),
-                points_sketch(),
-                record(json!(["e-p3"]), through_all()),
-            ],
-        );
-
-        assert_eq!(
-            document.warning_codes("f-hole1"),
-            ["hole_misses_body", "no_effect"]
-        );
-        document.assert_unchanged_by("f-hole1", "b-1");
-    }
-
-    #[test]
-    fn a_tip_on_a_through_hole_is_ignored() {
-        let document = run(
-            &["b-1"],
-            &[
-                box_below(),
-                points_sketch(),
-                record(
-                    json!(["e-p1"]),
-                    json!({"extent": {"kind": "through_all"}, "tip_angle": "118 deg"}),
-                ),
-            ],
-        );
-
-        assert_eq!(document.warning_codes("f-hole1"), ["ignored"]);
-        document.assert_volume("b-1", 15717.256661);
-    }
-
-    #[test]
-    fn a_countersink_deeper_than_the_hole_names_the_largest_head() {
-        let document = run(
-            &["b-1"],
-            &[
-                box_below(),
-                points_sketch(),
-                record(
-                    json!(["e-p1"]),
-                    json!({"hole_type": {"kind": "countersink", "diameter": "20", "angle": "90 deg"}, "extent": {"kind": "distance", "expr": "5"}}),
-                ),
-            ],
-        );
-
-        assert_eq!(
-            document.messages("f-hole1"),
-            [
-                "Head diameter must be less than the largest that fits the hole depth (16 mm), but it is 20 mm. Use a value less than 16 mm."
-            ]
-        );
     }
 
     #[test]

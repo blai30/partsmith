@@ -48,10 +48,9 @@ struct OpenedDocument {
     printer: String,
 }
 
-/// Opens the document at `path` with its assets and applies `printer` (the `--printer` value) as
-/// an in-memory `set_printer` edit. The file and its assets are read first, so an unreadable file
-/// is an input error whatever the printer; an unknown printer is refused before the document is
-/// opened, which saves a recompute.
+/// Opens the document at `path` with its assets, then applies `printer` (the `--printer` value) as
+/// an in-memory `set_printer` edit (cli.md section 3.3, step 1). So an unreadable file is an input
+/// error and a document that does not load is reported as such, whatever the printer.
 fn open(
     session: &mut Session,
     path: &Path,
@@ -59,17 +58,6 @@ fn open(
 ) -> Result<OpenedDocument, CliError> {
     let text = files::read_text(path)?;
     let assets = files::read_assets(path)?;
-    let installed: Vec<String> = session
-        .printer_profiles()
-        .into_iter()
-        .map(|profile| profile.id.as_str().to_owned())
-        .collect();
-    let is_installed = |id: &str| installed.iter().any(|installed| installed == id);
-    if let Some(id) = printer
-        && !is_installed(id)
-    {
-        return Err(EngineError::UnknownPrinterProfile { id: id.to_owned() }.into());
-    }
     let doc = match session.open_document(&text, assets) {
         Ok(opened) => opened.doc,
         Err(error) => {
@@ -81,6 +69,17 @@ fn open(
             ));
         }
     };
+    let installed: Vec<String> = session
+        .printer_profiles()
+        .into_iter()
+        .map(|profile| profile.id.as_str().to_owned())
+        .collect();
+    let is_installed = |id: &str| installed.iter().any(|installed| installed == id);
+    if let Some(id) = printer
+        && !is_installed(id)
+    {
+        return Err(EngineError::UnknownPrinterProfile { id: id.to_owned() }.into());
+    }
     let document_printer = session.document(doc)?.printer.clone();
     if let Some(id) = printer
         && document_printer.as_deref() != Some(id)
@@ -127,6 +126,10 @@ mod tests {
     /// A document whose body id has a space, which the file format rejects at `/bodies/0/id`.
     const BAD_ID: &str = r#"{"format": "partsmith", "format_version": 1, "units": "mm",
         "parameters": [], "bodies": [{"id": "b 1", "name": "Block"}], "features": []}"#;
+
+    /// A document without parameters, bodies or features.
+    const EMPTY: &str = r#"{"format": "partsmith", "format_version": 1, "units": "mm",
+        "parameters": [], "bodies": [], "features": []}"#;
 
     fn session() -> Session {
         Session::new(SessionOptions::headless())
@@ -193,14 +196,17 @@ mod tests {
         assert_eq!(missing.status(), Status::Io);
     }
 
-    #[test]
-    fn an_unknown_printer_is_refused_for_a_readable_file() {
-        let mut session = session();
+    /// Writes `text` as `model.ptsm` in a new temporary directory and opens it with `printer`.
+    fn open_text(text: &str, printer: Option<&str>) -> Result<OpenedDocument, CliError> {
         let directory = tempfile::tempdir().expect("a temporary directory");
         let path = directory.path().join("model.ptsm");
-        std::fs::write(&path, BAD_ID).expect("written");
+        std::fs::write(&path, text).expect("written");
+        open(&mut session(), &path, printer)
+    }
 
-        let refused = open(&mut session, &path, Some("nope"))
+    #[test]
+    fn an_unknown_printer_is_refused_for_a_document_that_loads() {
+        let refused = open_text(EMPTY, Some("nope"))
             .err()
             .expect("the printer is not installed");
 
@@ -208,5 +214,35 @@ mod tests {
             refused.report_line(),
             "error: Printer profile \"nope\" is not installed."
         );
+    }
+
+    #[test]
+    fn a_document_that_does_not_load_is_reported_before_an_unknown_printer() {
+        let refused = open_text(BAD_ID, Some("nope"))
+            .err()
+            .expect("the document does not load");
+
+        assert_eq!(refused.code(), "parse_error");
+        assert_eq!(refused.diagnostic().path.as_deref(), Some("/bodies/0/id"));
+    }
+
+    #[test]
+    fn the_effective_printer_is_the_given_one() {
+        let opened = open_text(EMPTY, Some("generic-resin")).expect("the document opens");
+
+        assert_eq!(opened.printer, "generic-resin");
+    }
+
+    #[test]
+    fn the_effective_printer_falls_back_to_the_default_profile() {
+        let unset = open_text(EMPTY, None).expect("the document opens");
+        let unknown = open_text(
+            &EMPTY.replace("\"mm\"", "\"mm\", \"printer\": \"nope\""),
+            None,
+        )
+        .expect("the document opens");
+
+        assert_eq!(unset.printer, "generic-fdm");
+        assert_eq!(unknown.printer, "generic-fdm");
     }
 }

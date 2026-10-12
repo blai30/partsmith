@@ -117,13 +117,13 @@ mod tests {
     use serde_json::{Value, json};
 
     use super::*;
-    use crate::builtin::copy::testing::{
-        assert_bounds, assert_volume, build, params_with, python, update, updated_shape, updates,
-    };
     use crate::context::BodyState;
     use crate::output::{BodyChange, DatumResult, OutputData};
     use crate::registry::Registry;
-    use crate::test_support::{box_body, face_names, id};
+    use crate::test_support::{
+        assert_bounds, assert_volume, box_body, build, face_names, id, params_with, python, update,
+        updated_shape, updates,
+    };
 
     const YZ: &str = r#"{"kind": "origin", "plane": "YZ"}"#;
 

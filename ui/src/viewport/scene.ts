@@ -287,12 +287,14 @@ function curvePolyline(entity: SolvedEntity, tolerance: number): Float32Array | 
       return new Float32Array([...entity.start, ...entity.end])
     case 'circle':
       return tessellateArc(entity.center, entity.radius, 0, 2 * Math.PI, tolerance)
-    case 'arc': {
-      const [centerX, centerY] = entity.center
-      const start = Math.atan2(entity.start[1] - centerY, entity.start[0] - centerX)
-      const end = Math.atan2(entity.end[1] - centerY, entity.end[0] - centerX)
-      return tessellateArc(entity.center, entity.radius, start, end, tolerance)
-    }
+    case 'arc':
+      return tessellateArc(
+        entity.center,
+        entity.radius,
+        entity.start_angle,
+        entity.end_angle,
+        tolerance,
+      )
   }
 }
 

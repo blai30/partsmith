@@ -1,5 +1,4 @@
 import type {
-  FileHandle,
   FileKind,
   FileService,
   FileServiceError,
@@ -8,6 +7,9 @@ import type {
 } from '../../files/file-service'
 
 // A FileService for app tests: no pickers, no downloads, every call recorded.
+
+/** The handle of a chosen file, as `OpenedFile` carries it and the store keeps it (ui.md 2.8). */
+export type OpenedFileHandle = NonNullable<OpenedFile['handle']>
 
 /** One `write` call. */
 export type FileWrite = {
@@ -21,7 +23,7 @@ export type FakeFileService = FileService & {
   /** The arguments of every `chooseSaveTarget` call. */
   readonly saveRequests: readonly { readonly suggestedName: string; readonly kind: FileKind }[]
   /** The handles passed to `readHandle`. */
-  readonly reads: readonly FileHandle[]
+  readonly reads: readonly OpenedFileHandle[]
   /** The file the next `pickToOpen` returns; null means the user cancels. */
   nextOpen: OpenedFile | null
   /**
@@ -34,7 +36,7 @@ export type FakeFileService = FileService & {
   /** When set, every `readHandle` throws it. */
   readError: FileServiceError | null
   /** The text `readHandle` returns for a handle; set by `write` to a handle too. */
-  readonly contents: Map<FileHandle, string>
+  readonly contents: Map<OpenedFileHandle, string>
 }
 
 /** A file handle with the parts of the File System Access API the app uses. */
@@ -55,8 +57,8 @@ export function createFakeFileService(
   const fileSystemAccess = options.fileSystemAccess ?? true
   const writes: FileWrite[] = []
   const saveRequests: { suggestedName: string; kind: FileKind }[] = []
-  const reads: FileHandle[] = []
-  const contents = new Map<FileHandle, string>()
+  const reads: OpenedFileHandle[] = []
+  const contents = new Map<OpenedFileHandle, string>()
 
   const service: FakeFileService = {
     fileSystemAccess,

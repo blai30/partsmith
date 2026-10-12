@@ -50,9 +50,12 @@ pub use error::{
 pub use feature::{FEATURE_API_VERSION, Feature};
 pub use naming::{modified_sources, name_by_history, name_shape, topology_info};
 pub use output::{
-    BodyChange, BodyUpdate, DatumResult, FeatureOutput, OutputData, SketchResult, Tool, apply_op,
+    BodyChange, BodyUpdate, DatumResult, FeatureOutput, OutputData, SketchResult, Tool,
+    VOLUME_TOLERANCE, apply_op,
 };
-pub use params::{AxisRef, BodyOp, CopyOp, OriginAxis, PlacementExt, PlaneRef, ProfileRef};
+pub use params::{
+    AxisRef, BodyOp, CopyOp, OriginAxis, PlacementExt, PlaneRef, ProfileRef, point, vector,
+};
 pub use partsmith_model::manifest::{
     Category, FeatureManifest, FieldHint, FieldUnit, OptionHint, SelectionKind,
 };

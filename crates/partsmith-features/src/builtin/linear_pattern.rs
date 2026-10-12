@@ -80,7 +80,7 @@ impl Step {
         field: &str,
         direction: &LinearPatternDirection,
     ) -> Result<Step, FeatureError> {
-        let count = copy::instance_count(context, &format!("{field}.count"), &direction.count)?;
+        let count = context.eval_count(&format!("{field}.count"), &direction.count, 1)?;
         let spacing_field = format!("{field}.spacing");
         let spacing = context.eval_length(&spacing_field, &direction.spacing)?;
         check_range(
@@ -265,14 +265,13 @@ mod tests {
     use serde_json::{Value, json};
 
     use super::*;
-    use crate::builtin::copy::testing::{
-        assert_bounds, assert_volume, build, fixture, params_with, python, python_with, update,
-        updated_shape, updates,
-    };
     use crate::context::BodyState;
     use crate::output::BodyChange;
     use crate::registry::Registry;
-    use crate::test_support::{ScriptNames, box_body, face_names, id};
+    use crate::test_support::{
+        ScriptNames, assert_bounds, assert_volume, box_body, build, face_names, fixture, id,
+        params_with, python, python_with, update, updated_shape, updates,
+    };
 
     const X: &str = r#"{"kind": "origin", "axis": "X"}"#;
     const Y: &str = r#"{"kind": "origin", "axis": "Y"}"#;

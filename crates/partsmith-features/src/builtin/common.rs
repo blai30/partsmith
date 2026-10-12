@@ -1,15 +1,15 @@
-//! Pieces the built-in features share: manifest hints, range checks, body states, tool naming and
-//! Python arguments.
+//! Pieces the built-in features share: manifest hints, range checks, body states, the reach of
+//! through-all extents, tool naming and Python arguments.
 
 use partsmith_model::{
     Category, Expr, FeatureManifest, FieldHint, FieldUnit, Id, OptionHint, SelectionKind,
 };
 use partsmith_naming::{ElementName, FaceSource, Generator, Reference, roles};
-use partsmith_occt_sys::{Primitive, PrimitiveFace, Shape, SweepFace, SweepResult};
+use partsmith_occt_sys::{Point, Primitive, PrimitiveFace, Shape, SweepFace, SweepResult, Vector};
 
 use crate::context::{BodyState, BuildContext};
 use crate::error::{Bound, FeatureError, FeatureWarning, FieldRef, Noun};
-use crate::naming::{name_shape, naming};
+use crate::name_shape;
 use crate::output::{BodyChange, BodyUpdate, FeatureOutput, OutputData, Tool, apply_op};
 use crate::params::{BodyOp, CopyOp, ProfileRef};
 use crate::python::{PythonCall, PythonNames, PythonValue};
@@ -24,6 +24,10 @@ pub(crate) const BODY_OP_OPTIONS: [(&str, &str); 4] = [
 
 /// The options of a `CopyOp` field, with their labels.
 pub(crate) const COPY_OP_OPTIONS: [(&str, &str); 2] = [("join", "Join"), ("new", "New body")];
+
+/// How far past the farthest corner of the body's bounding box a through-all extrusion or hole
+/// goes, in millimeters (decision D21).
+pub(crate) const THROUGH_ALL_MARGIN: f64 = 1.0;
 
 /// For `skip_serializing_if` on flags that default to false.
 pub(crate) fn is_false(value: &bool) -> bool {
@@ -213,13 +217,37 @@ pub(crate) fn apply_tool(
     Ok(bodies(vec![update], warnings))
 }
 
+/// The largest signed distance `(corner - origin) · direction` over the eight corners of the
+/// shape's tight bounding box: how far a through-all extrusion or hole must reach.
+pub(crate) fn farthest_corner(
+    shape: &Shape,
+    origin: Point,
+    direction: Vector,
+) -> Result<f64, FeatureError> {
+    let bounds = shape.bounding_box()?;
+    let mut farthest = f64::NEG_INFINITY;
+    for corner in 0..8 {
+        let [x, y, z] = [0, 1, 2].map(|axis| {
+            if corner & (1 << axis) == 0 {
+                bounds.min[axis]
+            } else {
+                bounds.max[axis]
+            }
+        });
+        let offset = Vector::new(x - origin.x, y - origin.y, z - origin.z);
+        farthest = farthest.max(offset.dot(direction));
+    }
+    Ok(farthest)
+}
+
 /// A new face name `<feature>/<role>`, or `<feature>/<role>/<generator>` (naming.md section 3.2).
 pub(crate) fn face_name(
     feature: &Id,
     role: &str,
     generator: Option<Generator<'_>>,
 ) -> Result<ElementName, FeatureError> {
-    ElementName::generated(feature, role, generator).map_err(naming)
+    ElementName::generated(feature, role, generator)
+        .map_err(|error| FeatureError::internal(format!("naming the result failed: {error}")))
 }
 
 /// The tool of a primitive: each face named `<feature>/<role>` from its kernel role (naming.md
@@ -387,11 +415,47 @@ pub(crate) fn call(
 
 #[cfg(test)]
 mod tests {
-    use partsmith_occt_sys::{Plane, make_cylinder};
+    use partsmith_occt_sys::{Plane, make_box, make_cylinder};
     use partsmith_sketch::RegionRef;
 
     use super::*;
     use crate::test_support::{Fixture, ScriptNames, id};
+
+    /// The farthest corner of the box x 0..10, y 0..20, z 0..30 from `origin` along `direction`.
+    fn farthest_box_corner(origin: [f64; 3], direction: [f64; 3]) -> f64 {
+        let shape = make_box(&Plane::XY, 10.0, 20.0, 30.0)
+            .expect("the box builds")
+            .shape;
+        let [x, y, z] = origin;
+        let [dx, dy, dz] = direction;
+        farthest_corner(&shape, Point::new(x, y, z), Vector::new(dx, dy, dz))
+            .expect("the box has bounds")
+    }
+
+    #[test]
+    fn the_farthest_corner_is_measured_along_the_direction() {
+        let up = farthest_box_corner([0.0, 0.0, 5.0], [0.0, 0.0, 1.0]);
+        let down = farthest_box_corner([0.0, 0.0, 5.0], [0.0, 0.0, -1.0]);
+
+        assert!((up - 25.0).abs() < 1e-9, "{up}");
+        assert!((down - 5.0).abs() < 1e-9, "{down}");
+    }
+
+    #[test]
+    fn a_body_behind_the_plane_has_no_positive_reach() {
+        let reach = farthest_box_corner([0.0, 0.0, 40.0], [0.0, 0.0, 1.0]);
+
+        assert!((reach + 10.0).abs() < 1e-9, "{reach}");
+    }
+
+    #[test]
+    fn a_tilted_direction_measures_the_projection() {
+        let diagonal = std::f64::consts::FRAC_1_SQRT_2;
+
+        let reach = farthest_box_corner([0.0, 0.0, 0.0], [diagonal, diagonal, 0.0]);
+
+        assert!((reach - 30.0 * diagonal).abs() < 1e-9, "{reach}");
+    }
 
     #[test]
     fn bounds_are_strict_or_inclusive() {

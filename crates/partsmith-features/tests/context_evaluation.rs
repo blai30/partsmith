@@ -1,4 +1,4 @@
-//! Acceptance tests for evaluating declared expressions through the build context (features.md section 6.3, tests 1 to 5).
+//! Acceptance tests for evaluating declared expressions through the build context (features.md section 6.3, tests 1 to 5 and 19).
 //!
 //! Each test builds a `BuildContext` for the `probe` test feature, whose manifest labels its fields
 //! Distance, Angle and Count, with one declared expression use.
@@ -10,6 +10,27 @@ use std::f64::consts::FRAC_PI_2;
 use common::{ContextFixture, NoNames, TOLERANCE};
 use partsmith_features::{Bound, FeatureError, FieldUnit};
 use partsmith_model::{Expr, Units};
+
+/// The count `expr` declared at `count` gives with `minimum`.
+fn count(expr: &str, minimum: u32) -> Result<u32, FeatureError> {
+    let fixture = ContextFixture::new(Units::Mm, &[("count", expr, FieldUnit::Count)]);
+    fixture
+        .context()
+        .eval_count("count", &Expr::new(expr), minimum)
+}
+
+/// Asserts that `result` is an `OutOfRange` error on `count` with `bound`.
+#[track_caller]
+fn assert_count_out_of_range(result: Result<u32, FeatureError>, bound: Bound) {
+    assert!(
+        matches!(
+            &result,
+            Err(FeatureError::OutOfRange { field, bound: found, .. })
+                if field.path == "count" && *found == bound
+        ),
+        "expected {bound:?}, got {result:?}"
+    );
+}
 
 /// Asserts that `result` is an `UndeclaredDependency` error.
 #[track_caller]
@@ -74,7 +95,7 @@ fn t003_count_within_1e_9_of_a_whole_number_is_that_number() {
 
     let count = fixture
         .context()
-        .eval_count("count", &Expr::new("3.0000000001"));
+        .eval_count("count", &Expr::new("3.0000000001"), 0);
 
     assert_eq!(count, Ok(3));
 }
@@ -85,7 +106,7 @@ fn t003_count_with_a_fraction_is_not_a_whole_number() {
 
     let error = fixture
         .context()
-        .eval_count("count", &Expr::new("2.5"))
+        .eval_count("count", &Expr::new("2.5"), 0)
         .expect_err("2.5 is not a whole number");
 
     assert_eq!(error.code(), "not_whole_number");
@@ -99,7 +120,7 @@ fn t003_count_with_a_fraction_is_not_a_whole_number() {
 fn t003_negative_count_is_out_of_range() {
     let fixture = ContextFixture::new(Units::Mm, &[("count", "-1", FieldUnit::Count)]);
 
-    let result = fixture.context().eval_count("count", &Expr::new("-1"));
+    let result = fixture.context().eval_count("count", &Expr::new("-1"), 0);
 
     assert!(
         matches!(
@@ -117,7 +138,7 @@ fn t003_count_above_u32_is_out_of_range() {
 
     let result = fixture
         .context()
-        .eval_count("count", &Expr::new("4294967296"));
+        .eval_count("count", &Expr::new("4294967296"), 0);
 
     assert!(
         matches!(
@@ -135,7 +156,7 @@ fn t003_count_with_a_length_is_an_expression_error() {
 
     let error = fixture
         .context()
-        .eval_count("count", &Expr::new("2 mm"))
+        .eval_count("count", &Expr::new("2 mm"), 0)
         .expect_err("a length is not a count");
 
     assert_eq!(error.code(), "expression");
@@ -206,4 +227,47 @@ fn t005_evaluating_with_a_different_unit_than_declared_is_undeclared() {
             .context()
             .eval_angle("distance", &Expr::new("30 mm")),
     );
+}
+
+#[test]
+fn t019_count_below_the_minimum_suggests_the_minimum() {
+    let error = count("0.5", 1).expect_err("0.5 is below 1");
+
+    assert_count_out_of_range(Err(error.clone()), Bound::AtLeast(1.0));
+    assert_eq!(
+        error.render(&NoNames, Units::Mm),
+        "Count must be at least 1, but it is 0.5. Use 1 or more."
+    );
+    assert_eq!(error.suggestion(Units::Mm).as_deref(), Some("1"));
+}
+
+#[test]
+fn t019_count_zero_is_below_a_minimum_of_one() {
+    assert_count_out_of_range(count("0", 1), Bound::AtLeast(1.0));
+}
+
+#[test]
+fn t019_count_within_1e_9_of_the_minimum_is_the_minimum() {
+    assert_eq!(count("0.9999999999", 1), Ok(1));
+}
+
+#[test]
+fn t019_fraction_in_range_is_not_a_whole_number() {
+    let error = count("1.5", 1).expect_err("1.5 is not a whole number");
+
+    assert_eq!(error.code(), "not_whole_number");
+    assert_eq!(
+        error.render(&NoNames, Units::Mm),
+        "Count must be a whole number, but it is 1.5. Use 1 or 2."
+    );
+}
+
+#[test]
+fn t019_fraction_above_u32_is_out_of_range() {
+    assert_count_out_of_range(count("4294967295.5", 1), Bound::AtMost(4294967295.0));
+}
+
+#[test]
+fn t019_range_is_checked_before_the_whole_number() {
+    assert_count_out_of_range(count("-0.5", 0), Bound::AtLeast(0.0));
 }

@@ -1,19 +1,21 @@
 import type {
   Document,
   ElementDescriptor,
+  FeatureRecord,
   Placement,
   RegionInfo,
   SketchSolution,
+  SolvedEntity,
   Units,
 } from '../../generated/protocol'
-import type { FileHandle, OpenedFile } from '../../files/file-service'
+import type { OpenedFile } from '../../files/file-service'
+import type { OpenedFileHandle } from './files'
 
 // Recipes of the e2e fixtures (ui.md 6.2) as the core sends them in document_changed, the sketch
 // solutions the test core reports for their sketches, and element descriptors of the cube.
 
-/** One timeline record of a document. */
-export type FeatureRecord = NonNullable<Document['features']>[number]
-type SolvedEntity = SketchSolution['entities'][number]
+/** One timeline record of a document, re-exported for the tests that build recipes. */
+export type { FeatureRecord }
 type Point2 = [number, number]
 
 /** The parameters of a recipe; the protocol may omit the empty list. */
@@ -64,7 +66,7 @@ export function documentText(document: Document): string {
 export function documentFile(
   name: string,
   document: Document,
-  handle: FileHandle | null = null,
+  handle: OpenedFileHandle | null = null,
 ): OpenedFile {
   // Copied into this realm's Uint8Array: under jsdom, TextEncoder returns Node's.
   return { name, bytes: Uint8Array.from(new TextEncoder().encode(documentText(document))), handle }

@@ -5,7 +5,7 @@ import type { App } from './createApp'
 
 // Keeps the selection valid across rebuilds (ui.md 3.6): items whose feature, body, parameter or
 // sketch item is gone leave the selection, and selected faces, edges and vertices are resolved again
-// whenever their body gets a new model mesh.
+// whenever a body gets a new model mesh.
 
 /** Whether an item still names something in the document. */
 function exists(document: DocumentState, item: SelectionItem): boolean {
@@ -55,15 +55,11 @@ function isElement(item: SelectionItem): boolean {
   )
 }
 
-/** Bodies whose model-layer mesh changed between two document states. */
-function remeshedBodies(document: DocumentState, previous: DocumentState | null): Set<string> {
-  const bodies = new Set<string>()
-  for (const [body, mesh] of Object.entries(document.meshes)) {
-    if (previous?.meshes[body]?.meshId !== mesh.meshId) {
-      bodies.add(body)
-    }
-  }
-  return bodies
+/** Whether some body got a new model-layer mesh between two document states. */
+function remeshed(document: DocumentState, previous: DocumentState | null): boolean {
+  return Object.entries(document.meshes).some(
+    ([body, mesh]) => previous?.meshes[body]?.meshId !== mesh.meshId,
+  )
 }
 
 type ResolutionRequest = {
@@ -129,13 +125,12 @@ export function installSelectionUpkeep(app: App): () => void {
     ) {
       prune(state, document)
     }
-    const remeshed = remeshedBodies(document, previous.document)
-    if (remeshed.size === 0) {
+    if (!remeshed(document, previous.document)) {
       return
     }
-    const items = app.store
-      .getState()
-      .selection.filter((item) => isElement(item) && item.body !== null && remeshed.has(item.body))
+    // Each body's mesh arrives in its own event, and a newer request replaces a waiting one, so
+    // every request covers all selected elements, not only those of the body just remeshed.
+    const items = app.store.getState().selection.filter(isElement)
     if (items.length > 0) {
       resolutions.submit({ documentHandle: document.documentHandle, items })
     }

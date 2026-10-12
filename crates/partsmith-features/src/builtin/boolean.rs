@@ -192,13 +192,12 @@ mod tests {
     use serde_json::{Value, json};
 
     use super::*;
-    use crate::builtin::copy::testing::{
-        assert_bounds, assert_volume, build, params, python, python_with, update, updated_shape,
-        updates,
-    };
     use crate::error::FeatureWarning;
     use crate::registry::Registry;
-    use crate::test_support::{ScriptNames, box_body, face_names, id};
+    use crate::test_support::{
+        ScriptNames, assert_bounds, assert_volume, box_body, build, face_names, id, params, python,
+        python_with, update, updated_shape, updates,
+    };
 
     fn boolean(tools: Value, op: &str) -> BooleanParams {
         params::<Boolean>(json!({
@@ -395,12 +394,8 @@ mod tests {
     #[test]
     fn a_canceled_run_does_not_combine() {
         let params = boolean(json!(["b-2"]), "join");
-        let fixture = crate::builtin::copy::testing::fixture::<Boolean>(
-            "f-bool1",
-            &params,
-            three_boxes(),
-            Vec::new(),
-        );
+        let fixture =
+            crate::test_support::fixture::<Boolean>("f-bool1", &params, three_boxes(), Vec::new());
         fixture.cancel.cancel();
 
         let result = Boolean::build(&params, &fixture.context());

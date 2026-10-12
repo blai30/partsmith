@@ -629,14 +629,16 @@ fn examples_follow_the_layout() {
     let present: BTreeSet<&str> = files.iter().map(String::as_str).collect();
     let mut problems = Problems::default();
     for file in &files {
+        // Problems sort by the path relative to the repository root, as every message names it.
+        let path = format!("examples/{file}");
         match placement(file, &types) {
             Placement::NotAllowed => problems.add(
-                file,
-                format!("examples/{file}: not an allowed example path (docs/spec/delivery.md section 2.8)."),
+                &path,
+                format!("{path}: not an allowed example path (docs/spec/delivery.md section 2.8)."),
             ),
             Placement::Example { example, role } if role != Role::Model => {
                 if !present.contains(format!("{example}.ptsm").as_str()) {
-                    problems.add(file, format!("examples/{file}: has no .ptsm next to it."));
+                    problems.add(&path, format!("{path}: has no .ptsm next to it."));
                 }
             }
             Placement::Example { .. } | Placement::Asset => {}

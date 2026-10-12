@@ -120,7 +120,7 @@ impl Feature for CircularPattern {
         context: &BuildContext<'_>,
     ) -> Result<FeatureOutput, FeatureError> {
         let source = Source::new(context, &params.body)?;
-        let count = copy::instance_count(context, "count", &params.count)?;
+        let count = context.eval_count("count", &params.count, 1)?;
         copy::check_instance_limit(u64::from(count))?;
         let angle = context.eval_angle("angle", &params.angle)?;
         check_range(
@@ -199,13 +199,13 @@ mod tests {
     use serde_json::{Value, json};
 
     use super::*;
-    use crate::builtin::copy::testing::{
-        assert_bounds, assert_volume, build, params_with, python, update, updated_shape,
-    };
     use crate::context::BodyState;
     use crate::output::BodyChange;
     use crate::registry::Registry;
-    use crate::test_support::{box_body, face_names, id, named_primitive};
+    use crate::test_support::{
+        assert_bounds, assert_volume, box_body, build, face_names, id, named_primitive,
+        params_with, python, update, updated_shape,
+    };
 
     fn pattern(extra: Value) -> CircularPatternParams {
         params_with::<CircularPattern>(

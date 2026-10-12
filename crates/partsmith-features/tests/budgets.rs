@@ -193,7 +193,11 @@ fn context_overhead_of_one_build_within_50_microseconds() {
                 .eval_angle("angle", &"90 deg".into())
                 .expect("declared"),
         );
-        black_box(context.eval_count("count", &"3".into()).expect("declared"));
+        black_box(
+            context
+                .eval_count("count", &"3".into(), 0)
+                .expect("declared"),
+        );
         black_box(
             registry
                 .build(black_box(&probe), &context)

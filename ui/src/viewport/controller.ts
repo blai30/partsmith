@@ -5,7 +5,6 @@ import { onCoreEvent, type App } from '../app/createApp'
 import { CoreError } from '../core/client'
 import { createLatestOnly, type LatestOnly } from '../core/queue'
 import type {
-  BoundingBox,
   DocHandle,
   ElementDescriptor,
   ElementRef,
@@ -33,6 +32,7 @@ import {
   wheelZoomFactor,
   withProjection,
   zoomAt,
+  type Bounds,
   type Camera,
   type StandardView,
   type Vector3,
@@ -41,7 +41,7 @@ import { scale } from './math'
 import { gestureFor, GESTURE_THRESHOLD_PIXELS, type KeyNavigation } from './navigation'
 import { positionElement } from './overlay'
 import { choosePick, type PickCandidate, type PickResult } from './picking'
-import { commandSelectionFields, type ElementHighlights, type Scene } from './scene'
+import { commandSelectionFields, type Scene } from './scene'
 
 // The viewport controller (ui.md 2.11, 3.6, 3.12, 3.13): the camera, rendering on demand, mouse
 // and wheel navigation, hover and click picking, and the highlights that need the core. It
@@ -50,12 +50,12 @@ import { commandSelectionFields, type ElementHighlights, type Scene } from './sc
 export type ViewportHandle = {
   getCamera(): Camera
   setCamera(camera: Camera, options?: { animate?: boolean; record?: boolean }): void
-  fit(bounds?: BoundingBox): void
+  fit(bounds?: Bounds): void
   setStandardView(view: StandardView): void
   toggleProjection(): void
   /** Puts the eye on the `normal` side of `target`, looking along -normal, with up from `upHint`. */
   lookAlong(normal: Vector3, upHint: Vector3, target: Vector3): void
-  zoomToBounds(bounds: BoundingBox, margin: number): void
+  zoomToBounds(bounds: Bounds, margin: number): void
   screenRectangle(items: readonly SelectionItem[]): Rectangle | null
   requestRender(): void
 }
@@ -214,7 +214,7 @@ function coordinateText(value: number): string {
   return String(rounded + 0)
 }
 
-function emptyFitBounds(): BoundingBox {
+function emptyFitBounds(): Bounds {
   const half = EMPTY_FIT_SIDE / 2
   return { min: [-half, -half, -half], max: [half, half, half] }
 }
@@ -399,7 +399,7 @@ export function createViewportController(options: {
     setCamera(next, { animate: true, record: true })
   }
 
-  function fit(bounds?: BoundingBox): void {
+  function fit(bounds?: Bounds): void {
     const framed = bounds ?? scene.visibleBounds(store.getState()) ?? emptyFitBounds()
     moveCamera(fitBounds(goalCamera(), framed, aspect(), FIT_MARGIN))
   }

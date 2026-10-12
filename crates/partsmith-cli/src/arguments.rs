@@ -145,12 +145,7 @@ pub struct SchemaArguments {
     #[arg(long)]
     pub check: bool,
     /// Directory for --write and --check.
-    #[arg(
-        long,
-        value_name = "DIR",
-        default_value = "docs/format",
-        conflicts_with = "name"
-    )]
+    #[arg(long, value_name = "DIR", default_value = "docs/format")]
     pub out_dir: PathBuf,
 }
 
@@ -459,11 +454,17 @@ mod tests {
             &["schema"][..],
             &["schema", "ptsm", "--write"],
             &["schema", "--write", "--check"],
-            &["schema", "protocol", "--out-dir", "s"],
         ] {
             let error = parse(arguments).expect_err("the action is ambiguous or missing");
 
             assert_eq!(error.exit_code(), 2, "{arguments:?}");
         }
+    }
+
+    #[test]
+    fn a_schema_name_takes_an_out_dir_it_does_not_use() {
+        let printed = schema(&["schema", "protocol", "--out-dir", "s"]);
+
+        assert_eq!(printed.action(), SchemaAction::Print(SchemaName::Protocol));
     }
 }

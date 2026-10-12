@@ -1,25 +1,26 @@
 //! Fixtures shared by the unit tests: ids, a build context over owned inputs, named boxes, script
-//! names for Python hooks, and a small timeline runner for documents of built-in features.
+//! names for Python hooks, and features built from JSON params without a timeline. Documents of
+//! built-in features are tested in `partsmith-recompute`.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use partsmith_mesh::BoundingBox;
 use partsmith_model::{
-    Category, Document, EmptyContext, FeatureManifest, FieldHint, Id, Scope, Units,
+    Category, EmptyContext, FeatureManifest, FeatureRecord, FieldHint, Id, ParameterValues, Scope,
+    Units,
 };
-use partsmith_naming::{ElementKind, ElementName, NamingMap};
-use partsmith_occt_sys::{ElementGeometry, Plane, Point, Primitive, Shape, SubShapeKind, make_box};
+use partsmith_naming::{ElementKind, NamingMap};
+use partsmith_occt_sys::{Plane, Point, Primitive, Shape, make_box};
 use partsmith_sketch::RegionRef;
 use serde_json::Value;
 
 use crate::builtin::common::primitive_tool;
 use crate::context::{BodyState, BuildContext, BuildInputs, CancelToken, Values};
-use crate::error::{DocumentNames, FeatureError, FeatureWarning};
-use crate::output::{FeatureOutput, OutputData, SketchResult, Tool};
+use crate::error::FeatureError;
+use crate::feature::Feature;
+use crate::output::{BodyUpdate, FeatureOutput, OutputData, Tool};
 use crate::params::BodyOp;
 use crate::python::PythonNames;
-use crate::registry::Registry;
 
 /// A valid id written in a test.
 pub(crate) fn id(text: &str) -> Id {
@@ -204,369 +205,126 @@ impl PythonNames for ScriptNames {
     }
 }
 
+/// The typed params of a feature record written as JSON.
+pub(crate) fn params<F: Feature>(record: Value) -> F::Params {
+    let record: FeatureRecord =
+        serde_json::from_value(record).expect("records written in tests are well-formed");
+    serde_json::from_value(Value::Object(record.params))
+        .expect("params written in tests deserialize")
+}
+
+/// The typed params of a feature record written as JSON, with the members of the JSON object
+/// `extra` added to it or replacing its own.
+pub(crate) fn params_with<F: Feature>(mut record: Value, extra: Value) -> F::Params {
+    let Value::Object(members) = extra else {
+        panic!("extra members written in tests are a JSON object, not {extra}");
+    };
+    for (key, value) in members {
+        record[key] = value;
+    }
+    params::<F>(record)
+}
+
+/// The fixture of feature `feature` with `params` in a millimeter document without parameters:
+/// its declared expressions evaluated, every declared body empty unless `bodies` gives its state,
+/// and `upstream` as the outputs of the features it reads.
+pub(crate) fn fixture<F: Feature>(
+    feature: &str,
+    params: &F::Params,
+    bodies: Vec<(&str, BodyState)>,
+    upstream: Vec<(&str, FeatureOutput)>,
+) -> Fixture {
+    let dependencies = F::dependencies(params);
+    let mut fixture = Fixture::new(feature);
+    fixture.manifest = F::manifest();
+    let parameters = ParameterValues::default();
+    let scope = Scope {
+        units: Units::Mm,
+        parameters: &parameters,
+        context: &EmptyContext,
+    };
+    fixture.values = Values::evaluate(&dependencies.expressions, &scope, &fixture.manifest);
+    for link in dependencies
+        .bodies_written
+        .iter()
+        .chain(&dependencies.bodies_read)
+    {
+        fixture.bodies.insert(link.id.clone(), BodyState::empty());
+    }
+    for (body, state) in bodies {
+        fixture.bodies.insert(id(body), state);
+    }
+    for (feature, output) in upstream {
+        fixture.upstream.insert(id(feature), Arc::new(output));
+    }
+    fixture
+}
+
+/// Builds `params` as feature `feature` over the fixture that `fixture` makes for them.
+pub(crate) fn build<F: Feature>(
+    feature: &str,
+    params: &F::Params,
+    bodies: Vec<(&str, BodyState)>,
+    upstream: Vec<(&str, FeatureOutput)>,
+) -> Result<FeatureOutput, FeatureError> {
+    let fixture = fixture::<F>(feature, params, bodies, upstream);
+    F::build(params, &fixture.context())
+}
+
+/// The body updates of an output.
+pub(crate) fn updates(output: &FeatureOutput) -> &[BodyUpdate] {
+    match &output.data {
+        OutputData::Bodies(updates) => updates,
+        other => panic!("expected body updates, got {other:?}"),
+    }
+}
+
+/// The update of `body` in an output.
+pub(crate) fn update<'a>(output: &'a FeatureOutput, body: &str) -> &'a BodyUpdate {
+    updates(output)
+        .iter()
+        .find(|update| update.body.as_str() == body)
+        .unwrap_or_else(|| panic!("no update of {body}"))
+}
+
+/// The shape the update of `body` gives it; fails the test when it empties the body.
+pub(crate) fn updated_shape<'a>(output: &'a FeatureOutput, body: &str) -> &'a Shape {
+    update(output, body)
+        .shape
+        .as_ref()
+        .unwrap_or_else(|| panic!("{body} is empty after the feature"))
+}
+
+/// Asserts a shape's volume within the relative tolerance of features.md section 6.1.
+pub(crate) fn assert_volume(shape: &Shape, expected: f64) {
+    assert_relative("volume", volume(shape), expected);
+}
+
+/// Asserts a shape's tight bounding box within the 1e-5 mm per coordinate of features.md section
+/// 6.1.
+pub(crate) fn assert_bounds(shape: &Shape, min: [f64; 3], max: [f64; 3]) {
+    let bounds = shape.bounding_box().expect("the shape has bounds");
+    let corner = |[x, y, z]: [f64; 3]| Point::new(x, y, z);
+    assert_point("bounding box minimum", corner(bounds.min), min);
+    assert_point("bounding box maximum", corner(bounds.max), max);
+}
+
+/// The dedicated Python call of `params` with the default `ScriptNames`, rendered at indentation
+/// 0, or None.
+pub(crate) fn python<F: Feature>(params: &F::Params) -> Option<String> {
+    python_with::<F>(params, &ScriptNames::default())
+}
+
+/// The dedicated Python call of `params` with `names`, rendered at indentation 0, or None.
+pub(crate) fn python_with<F: Feature>(params: &F::Params, names: &ScriptNames) -> Option<String> {
+    F::python(params, names).map(|call| call.render(0))
+}
+
 /// Relative tolerance of volumes and areas (features.md section 6.1).
 const MEASURE_TOLERANCE: f64 = 1e-6;
 
 /// Absolute tolerance of bounding box coordinates and positions in millimeters.
 const LENGTH_TOLERANCE: f64 = 1e-5;
-
-/// A document run through the built-in registry feature by feature, as recompute runs a
-/// timeline: suppressed features are skipped, a feature whose declared feature failed reports
-/// `UpstreamFailed`, and the body updates of each successful build are applied in order.
-pub(crate) struct DocumentRun {
-    /// The document.
-    pub(crate) document: Document,
-    /// The registry with every built-in feature.
-    pub(crate) registry: Registry,
-    /// The result of every feature that ran.
-    pub(crate) results: BTreeMap<Id, Result<Arc<FeatureOutput>, FeatureError>>,
-    /// The state of every body at the end.
-    pub(crate) bodies: BTreeMap<Id, BodyState>,
-    /// The states of the declared bodies just before each feature.
-    pub(crate) before: BTreeMap<Id, BTreeMap<Id, BodyState>>,
-}
-
-/// A millimeter document with these test bodies (`b-<n>` named `Body <n>`) and feature records.
-pub(crate) fn run(bodies: &[&str], features: &[Value]) -> DocumentRun {
-    run_document("mm", &[], bodies, features, &BTreeMap::new())
-}
-
-/// A document in `units` with these parameter records, test bodies, feature records and assets.
-pub(crate) fn run_document(
-    units: &str,
-    parameters: &[Value],
-    bodies: &[&str],
-    features: &[Value],
-    assets: &BTreeMap<String, Arc<[u8]>>,
-) -> DocumentRun {
-    let bodies: Vec<Value> = bodies
-        .iter()
-        .map(|body| {
-            let number = body.strip_prefix("b-").expect("test bodies look like b-1");
-            serde_json::json!({"id": body, "name": format!("Body {number}")})
-        })
-        .collect();
-    let text = serde_json::json!({
-        "format": "partsmith",
-        "format_version": 1,
-        "units": units,
-        "parameters": parameters,
-        "bodies": bodies,
-        "features": features,
-    })
-    .to_string();
-    let document = partsmith_model::load(&text)
-        .unwrap_or_else(|error| panic!("the test document does not load: {error}"))
-        .document;
-    DocumentRun::new(document, assets)
-}
-
-impl DocumentRun {
-    /// Runs every feature of `document` in timeline order.
-    fn new(document: Document, assets: &BTreeMap<String, Arc<[u8]>>) -> DocumentRun {
-        let registry = Registry::with_builtins();
-        let parameters = document.evaluate_parameters(&EmptyContext);
-        let scope = Scope {
-            units: document.units,
-            parameters: &parameters,
-            context: &EmptyContext,
-        };
-        let cancel = CancelToken::new();
-        let mut run = DocumentRun {
-            bodies: document
-                .bodies
-                .iter()
-                .map(|body| (body.id.clone(), BodyState::empty()))
-                .collect(),
-            document: document.clone(),
-            registry,
-            results: BTreeMap::new(),
-            before: BTreeMap::new(),
-        };
-        for record in document.features.iter().filter(|record| !record.suppressed) {
-            let result = run.build(record, &scope, assets, &cancel);
-            if let Ok(output) = &result
-                && let OutputData::Bodies(updates) = &output.data
-            {
-                for update in updates {
-                    let state = match &update.shape {
-                        Some(shape) => BodyState::new(shape.clone(), update.naming.clone()),
-                        None => BodyState::empty(),
-                    };
-                    run.bodies.insert(update.body.clone(), state);
-                }
-            }
-            run.results.insert(record.id.clone(), result.map(Arc::new));
-        }
-        run
-    }
-
-    /// Validates, evaluates and builds one record with the states and outputs so far.
-    fn build(
-        &mut self,
-        record: &partsmith_model::FeatureRecord,
-        scope: &Scope<'_>,
-        assets: &BTreeMap<String, Arc<[u8]>>,
-        cancel: &CancelToken,
-    ) -> Result<FeatureOutput, FeatureError> {
-        let validated = self.registry.validate_and_canonicalize(record)?;
-        let dependencies = self.registry.dependencies(&validated.record)?;
-        let manifest = self
-            .registry
-            .get(&record.kind)
-            .expect("a validated record has a registered type")
-            .manifest()
-            .clone();
-        let values = Values::evaluate(&dependencies.expressions, scope, &manifest);
-        let mut upstream = BTreeMap::new();
-        for link in &dependencies.features {
-            match self.results.get(&link.id) {
-                Some(Ok(output)) => {
-                    upstream.insert(link.id.clone(), Arc::clone(output));
-                }
-                _ => {
-                    return Err(FeatureError::UpstreamFailed {
-                        feature: link.id.clone(),
-                    });
-                }
-            }
-        }
-        let mut bodies = BTreeMap::new();
-        for link in dependencies
-            .bodies_written
-            .iter()
-            .chain(&dependencies.bodies_read)
-        {
-            let state = self
-                .bodies
-                .get(&link.id)
-                .ok_or_else(|| FeatureError::UnknownBody {
-                    field: crate::error::FieldRef::new(&link.field, &manifest),
-                    body: link.id.clone(),
-                })?;
-            bodies.insert(link.id.clone(), state.clone());
-        }
-        self.before.insert(record.id.clone(), bodies.clone());
-        let assets: BTreeMap<String, Arc<[u8]>> = dependencies
-            .assets
-            .iter()
-            .filter_map(|asset| {
-                let bytes = assets.get(&asset.name)?;
-                Some((asset.name.clone(), Arc::clone(bytes)))
-            })
-            .collect();
-        let context = BuildContext::new(BuildInputs {
-            feature: &record.id,
-            manifest: &manifest,
-            units: scope.units,
-            values: &values,
-            bodies: &bodies,
-            upstream: &upstream,
-            assets: &assets,
-            cancel,
-        });
-        self.registry.build(&validated.record, &context)
-    }
-
-    /// The output of a feature that built; fails the test otherwise.
-    pub(crate) fn output(&self, feature: &str) -> &FeatureOutput {
-        match self.results.get(&id(feature)) {
-            Some(Ok(output)) => output,
-            Some(Err(error)) => panic!("{feature} failed: {error}"),
-            None => panic!("{feature} did not run"),
-        }
-    }
-
-    /// The error of a feature that failed; fails the test otherwise.
-    pub(crate) fn error(&self, feature: &str) -> &FeatureError {
-        match self.results.get(&id(feature)) {
-            Some(Err(error)) => error,
-            Some(Ok(output)) => panic!("{feature} built with warnings {:?}", output.warnings),
-            None => panic!("{feature} did not run"),
-        }
-    }
-
-    /// Asserts that a feature built without warnings.
-    pub(crate) fn assert_ok(&self, feature: &str) {
-        let output = self.output(feature);
-        assert!(
-            output.warnings.is_empty(),
-            "{feature} warned: {:?}",
-            self.messages(feature)
-        );
-    }
-
-    /// The error code of a failed feature.
-    pub(crate) fn error_code(&self, feature: &str) -> &'static str {
-        self.error(feature).code()
-    }
-
-    /// The warning codes of a feature that built.
-    pub(crate) fn warning_codes(&self, feature: &str) -> Vec<&'static str> {
-        self.output(feature)
-            .warnings
-            .iter()
-            .map(FeatureWarning::code)
-            .collect()
-    }
-
-    /// The rendered messages of a feature: its error, or its warnings.
-    pub(crate) fn messages(&self, feature: &str) -> Vec<String> {
-        let names = DocumentNames {
-            document: &self.document,
-            registry: &self.registry,
-        };
-        let units = self.document.units;
-        match self.results.get(&id(feature)) {
-            Some(Ok(output)) => output
-                .warnings
-                .iter()
-                .map(|warning| warning.render(&names, units))
-                .collect(),
-            Some(Err(error)) => vec![error.render(&names, units)],
-            None => Vec::new(),
-        }
-    }
-
-    /// The sketch result of a sketch feature.
-    pub(crate) fn sketch(&self, feature: &str) -> &SketchResult {
-        match &self.output(feature).data {
-            OutputData::Sketch(sketch) => sketch,
-            _ => panic!("{feature} is not a sketch"),
-        }
-    }
-
-    /// The final state of a body.
-    pub(crate) fn state(&self, body: &str) -> &BodyState {
-        self.bodies
-            .get(&id(body))
-            .unwrap_or_else(|| panic!("the document has no body {body}"))
-    }
-
-    /// The final shape of a body; fails the test when it is empty.
-    pub(crate) fn shape(&self, body: &str) -> &Shape {
-        self.state(body)
-            .shape()
-            .unwrap_or_else(|| panic!("body {body} is empty"))
-    }
-
-    /// True when a body is empty at the end.
-    pub(crate) fn is_empty(&self, body: &str) -> bool {
-        self.state(body).is_empty()
-    }
-
-    /// The face names of a body, sorted.
-    pub(crate) fn face_names(&self, body: &str) -> Vec<String> {
-        face_names(self.state(body).naming())
-    }
-
-    /// The names of a body's faces that start with `prefix`, sorted.
-    pub(crate) fn faces_named(&self, body: &str, prefix: &str) -> Vec<String> {
-        self.face_names(body)
-            .into_iter()
-            .filter(|name| name.starts_with(prefix))
-            .collect()
-    }
-
-    /// The geometry of the face of a body named `name`.
-    pub(crate) fn face(&self, body: &str, name: &str) -> ElementGeometry {
-        self.element(body, name, SubShapeKind::Face)
-    }
-
-    /// The geometry of the element of a body named `name`.
-    pub(crate) fn element(&self, body: &str, name: &str, kind: SubShapeKind) -> ElementGeometry {
-        let element = ElementName::parse(name).expect("valid element name");
-        let index = self
-            .state(body)
-            .naming()
-            .index(&element)
-            .unwrap_or_else(|| {
-                panic!(
-                    "body {body} has no element {name}; faces {:?}",
-                    self.face_names(body)
-                )
-            });
-        self.shape(body)
-            .element(kind, index)
-            .expect("the kernel reads element geometry")
-    }
-
-    /// Asserts a body's volume within the relative tolerance.
-    pub(crate) fn assert_volume(&self, body: &str, expected: f64) {
-        assert_relative("volume", volume(self.shape(body)), expected);
-    }
-
-    /// Asserts the number of faces of a body.
-    pub(crate) fn assert_faces(&self, body: &str, expected: u32) {
-        assert_eq!(
-            self.shape(body).count(SubShapeKind::Face),
-            expected,
-            "face count of {body}: {:?}",
-            self.face_names(body)
-        );
-    }
-
-    /// Asserts a body's tight bounding box within 1e-5 mm per coordinate.
-    pub(crate) fn assert_bounding_box(&self, body: &str, min: [f64; 3], max: [f64; 3]) {
-        let BoundingBox {
-            min: actual_min,
-            max: actual_max,
-        } = self
-            .shape(body)
-            .bounding_box()
-            .expect("the body has bounds");
-        for (actual, expected) in actual_min
-            .iter()
-            .chain(&actual_max)
-            .zip(min.iter().chain(&max))
-        {
-            assert!(
-                (actual - expected).abs() <= LENGTH_TOLERANCE,
-                "bounding box of {body}: {actual_min:?}-{actual_max:?}, expected {min:?}-{max:?}"
-            );
-        }
-    }
-
-    /// Asserts the area of a body's face within the relative tolerance.
-    pub(crate) fn assert_face_area(&self, body: &str, face: &str, expected: f64) {
-        assert_relative(face, self.face(body, face).measure, expected);
-    }
-
-    /// The state of `body` just before `feature` ran.
-    pub(crate) fn before(&self, feature: &str, body: &str) -> &BodyState {
-        &self.before[&id(feature)][&id(body)]
-    }
-
-    /// Asserts that a body is the same at the end as just before `feature`: same shape volume, face
-    /// count and element names.
-    pub(crate) fn assert_unchanged_by(&self, feature: &str, body: &str) {
-        let before = self.before(feature, body);
-        let after = self.state(body);
-        match (before.shape(), after.shape()) {
-            (Some(before_shape), Some(after_shape)) => {
-                assert_relative("volume", volume(after_shape), volume(before_shape));
-                assert_eq!(
-                    after_shape.count(SubShapeKind::Face),
-                    before_shape.count(SubShapeKind::Face)
-                );
-            }
-            (None, None) => {}
-            _ => panic!("{body} changed between empty and solid"),
-        }
-        for kind in [ElementKind::Face, ElementKind::Edge, ElementKind::Vertex] {
-            let names = |state: &BodyState| -> Vec<String> {
-                let mut names: Vec<String> = state
-                    .naming()
-                    .names(kind)
-                    .map(|(_, name)| name.to_string())
-                    .collect();
-                names.sort();
-                names
-            };
-            assert_eq!(names(after), names(before), "{kind:?} names of {body}");
-        }
-    }
-}
 
 /// Asserts `actual` equals `expected` within the relative tolerance (absolute near zero).
 pub(crate) fn assert_relative(what: &str, actual: f64, expected: f64) {

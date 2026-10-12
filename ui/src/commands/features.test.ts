@@ -100,8 +100,13 @@ describe('featureCommands', () => {
   })
 
   it('lists every feature command in the Model, Sketch and Print contexts', () => {
+    // 3.5 limits Hole (H), Fillet (F) and Move body (M) to Model and Print, so Sketch keeps H for
+    // Horizontal and U-22 finds no conflict.
+    const modelAndPrint = new Set(['feature.hole', 'feature.fillet', 'feature.move_body'])
     for (const command of featureCommands(TEST_CATALOG)) {
-      expect([...command.contexts].toSorted()).toEqual(['model', 'print', 'sketch'])
+      expect([...command.contexts].toSorted()).toEqual(
+        modelAndPrint.has(command.id) ? ['model', 'print'] : ['model', 'print', 'sketch'],
+      )
     }
   })
 

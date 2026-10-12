@@ -296,17 +296,7 @@ mod tests {
 
     use super::*;
     use crate::registry::Registry;
-    use crate::test_support::{ScriptNames, id, run};
-
-    /// `SK-RING`: the rectangle x 10..20, z 0..30 on XZ.
-    fn ring_sketch() -> serde_json::Value {
-        json!({"id": "f-sk1", "type": "sketch", "plane": {"kind": "origin", "plane": "XZ"}, "entities": [
-            {"id": "e-1", "type": "line", "start": [10, 0], "end": [20, 0]},
-            {"id": "e-2", "type": "line", "start": [20, 0], "end": [20, 30]},
-            {"id": "e-3", "type": "line", "start": [20, 30], "end": [10, 30]},
-            {"id": "e-4", "type": "line", "start": [10, 30], "end": [10, 0]}
-        ]})
-    }
+    use crate::test_support::{ScriptNames, id};
 
     /// `REV(axis, extent, op)` with `P-RING`, plus `extra` members.
     fn record(
@@ -525,90 +515,6 @@ mod tests {
     fn a_reversed_partial_turn_is_negative() {
         assert_eq!(Turn::Partial(1.5).sweep_angle(false), 1.5);
         assert_eq!(Turn::Partial(1.5).sweep_angle(true), -1.5);
-    }
-
-    #[test]
-    fn a_full_ring_has_four_lateral_faces_and_no_caps() {
-        let document = run(
-            &["b-1"],
-            &[
-                ring_sketch(),
-                record(axis_z(), json!({"kind": "full"}), "new", json!({})),
-            ],
-        );
-
-        document.assert_ok("f-rev1");
-        document.assert_volume("b-1", 28274.333882);
-        assert_eq!(
-            document.face_names("b-1"),
-            [
-                "f-rev1/lateral/e-1",
-                "f-rev1/lateral/e-2",
-                "f-rev1/lateral/e-3",
-                "f-rev1/lateral/e-4"
-            ]
-        );
-    }
-
-    #[test]
-    fn a_reversed_quarter_turn_goes_the_other_way() {
-        let document = run(
-            &["b-1"],
-            &[
-                ring_sketch(),
-                record(
-                    axis_z(),
-                    json!({"kind": "angle", "expr": "90 deg"}),
-                    "new",
-                    json!({"reverse": true}),
-                ),
-            ],
-        );
-
-        document.assert_ok("f-rev1");
-        document.assert_bounding_box("b-1", [0.0, -20.0, 0.0], [20.0, 0.0, 30.0]);
-        assert!(
-            document
-                .face_names("b-1")
-                .contains(&"f-rev1/end-cap".to_string())
-        );
-    }
-
-    #[test]
-    fn an_angle_over_a_full_turn_is_out_of_range() {
-        let document = run(
-            &["b-1"],
-            &[
-                ring_sketch(),
-                record(
-                    axis_z(),
-                    json!({"kind": "angle", "expr": "400 deg"}),
-                    "new",
-                    json!({}),
-                ),
-            ],
-        );
-
-        assert_eq!(
-            document.messages("f-rev1"),
-            ["Angle must be at most 360 deg, but it is 400 deg. Use 360 deg or less."]
-        );
-    }
-
-    #[test]
-    fn a_profile_across_the_axis_is_refused() {
-        let across = json!({"id": "f-sk1", "type": "sketch", "plane": {"kind": "origin", "plane": "XZ"}, "entities": [
-            {"id": "e-1", "type": "line", "start": [-5, 0], "end": [5, 0]},
-            {"id": "e-2", "type": "line", "start": [5, 0], "end": [5, 30]},
-            {"id": "e-3", "type": "line", "start": [5, 30], "end": [-5, 30]},
-            {"id": "e-4", "type": "line", "start": [-5, 30], "end": [-5, 0]}
-        ]});
-        let mut revolve = record(axis_z(), json!({"kind": "full"}), "new", json!({}));
-        revolve["profile"]["regions"][0]["fp"] = json!("c=0,15|a=300");
-
-        let document = run(&["b-1"], &[across, revolve]);
-
-        assert_eq!(document.error_code("f-rev1"), "profile_crosses_axis");
     }
 
     #[test]

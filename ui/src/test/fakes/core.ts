@@ -11,6 +11,7 @@ import {
   type Edit,
   type ElementDescriptor,
   type Event as ProtocolEvent,
+  type FeatureState,
   type FeatureStatus,
   type ParameterValue,
   type PrinterProfile,
@@ -34,7 +35,6 @@ import { meshParts, type ErrorReply } from './protocol'
 // baseline of save and mark_saved, and the events every change emits. Geometry is not computed: a body
 // has geometry when an active feature names it as its `body`, and its mesh is a single triangle.
 
-type FeatureState = FeatureStatus['status']
 type CommandOfType<Type extends Command['type']> = Extract<Command, { type: Type }>
 
 /** What the fake core answers to one request. */

@@ -83,12 +83,12 @@ async function rectSketchWithRegionSelected(): Promise<FakeApp> {
 describe('startFeatureCommand (3.7)', () => {
   it('U-64 with a preselected region and no bodies: begins "Extrude", applies the new body and the feature in one batch, then focuses the feature', async () => {
     const fake = await rectSketchWithRegionSelected()
-    const doc = currentDocument(fake.app).documentHandle
+    const documentHandle = currentDocument(fake.app).documentHandle
     await startFeatureCommand(fake.app, 'extrude')
     await settle()
     expect(relevantTypes(fake)).toEqual(['begin_transaction', 'apply_edits', 'set_focus'])
     expect(fake.transport.commandsOfType('begin_transaction')).toEqual([
-      { type: 'begin_transaction', doc, label: 'Extrude' },
+      { type: 'begin_transaction', doc: documentHandle, label: 'Extrude' },
     ])
     const [apply] = fake.transport.commandsOfType('apply_edits')
     expect(apply?.label ?? null).toBeNull()
@@ -115,7 +115,7 @@ describe('startFeatureCommand (3.7)', () => {
     })
     expect('name' in feature).toBe(false)
     expect(fake.transport.commandsOfType('set_focus')).toEqual([
-      { type: 'set_focus', doc, feature: feature.id },
+      { type: 'set_focus', doc: documentHandle, feature: feature.id },
     ])
   })
 
@@ -267,14 +267,14 @@ describe('setCommandField and setActiveField', () => {
 describe('editFeature (3.7)', () => {
   it('U-67 begins "Edit Extrude 1" and focuses f-ext1, with the record as params', async () => {
     const fake = await startWithDocument('cube.ptsm', CUBE_DOCUMENT)
-    const doc = currentDocument(fake.app).documentHandle
+    const documentHandle = currentDocument(fake.app).documentHandle
     await editFeature(fake.app, 'f-ext1')
     await settle()
     expect(fake.transport.commandsOfType('begin_transaction')).toEqual([
-      { type: 'begin_transaction', doc, label: 'Edit Extrude 1' },
+      { type: 'begin_transaction', doc: documentHandle, label: 'Edit Extrude 1' },
     ])
     expect(fake.transport.commandsOfType('set_focus')).toEqual([
-      { type: 'set_focus', doc, feature: 'f-ext1' },
+      { type: 'set_focus', doc: documentHandle, feature: 'f-ext1' },
     ])
     expect(fake.app.store.getState().command).toMatchObject({
       featureType: 'extrude',

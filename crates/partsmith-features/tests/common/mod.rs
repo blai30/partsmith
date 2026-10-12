@@ -14,7 +14,7 @@ use partsmith_features::{
     BodyOp, BodyState, BuildContext, BuildInputs, CancelToken, Category, Dependencies, ExprUse,
     Feature, FeatureError, FeatureManifest, FeatureOutput, FieldHint, FieldRef, FieldUnit, Link,
     Names, Noun, OptionHint, OutputData, ProfileRef, PythonCall, PythonNames, PythonValue,
-    SelectionKind, SketchResult, Values,
+    Registry, SelectionKind, SketchResult, Values,
 };
 use partsmith_model::{EmptyContext, Expr, FeatureRecord, Id, ParameterValues, Scope, Units};
 use partsmith_sketch::{OriginPlane, RegionRef, SolveResult, build_profile};
@@ -575,4 +575,38 @@ pub fn assert_vector_close(actual: [f64; 3], expected: [f64; 3], what: &str) {
             .all(|(value, wanted)| (value - wanted).abs() <= TOLERANCE),
         "{what}: expected {expected:?} within {TOLERANCE}, got {actual:?}"
     );
+}
+
+/// The state that a solid feature record of the built-in registry, such as a box or a cylinder
+/// with op new, gives its empty body in a millimeter document without parameters.
+pub fn built_body(value: Value) -> BodyState {
+    let registry = Registry::with_builtins();
+    let validated = registry
+        .validate_and_canonicalize(&record(value))
+        .expect("records written in tests are valid");
+    let dependencies = registry
+        .dependencies(&validated.record)
+        .expect("valid records have dependencies");
+    let manifest = registry
+        .get(&validated.record.kind)
+        .expect("the type is built in")
+        .manifest()
+        .clone();
+    let mut fixture = ContextFixture::with_manifest(
+        validated.record.id.clone(),
+        manifest,
+        Units::Mm,
+        &dependencies.expressions,
+    );
+    for link in &dependencies.bodies_written {
+        fixture.bodies.insert(link.id.clone(), BodyState::empty());
+    }
+    let output = registry
+        .build(&validated.record, &fixture.context())
+        .expect("the record builds");
+    let OutputData::Bodies(updates) = output.data else {
+        panic!("a solid feature updates bodies");
+    };
+    let update = updates.into_iter().next().expect("one body update");
+    BodyState::new(update.shape.expect("the body holds a solid"), update.naming)
 }

@@ -85,7 +85,8 @@ With several files, each file is processed independently and the exit code is th
 - Paths are printed exactly as given on the command line; standard input is shown as `<stdin>`.
 - Human numbers are printed with at most 6 decimal places, trailing zeros and a trailing point removed, and `-0` printed as `0` (`24000`, `5163.946891`, `0.5`).
 - Human diagnostic lines have one of these forms:
-  - `<path>:<line>:<column>: <severity>[<code>]: <message>` when the line is known.
+  - `<path>:<line>:<column>: <severity>[<code>]: <message>` when the line and column are known.
+  - `<path>:<line>: <severity>[<code>]: <message>` when only the line is known (for example `not_canonical`, engine.md section 3.19 step 9).
   - `<path>: <severity>[<code>] at <pointer>: <message>` when only the JSON Pointer is known.
   - `<path>: <severity>[<code>]: <message>` otherwise.
   - `<severity>` is `error`, `warning` or `info`.
@@ -219,7 +220,7 @@ One line per feature in timeline order: `  <id> <type> <status>`, followed by on
 2. Option checks (exit 2): `--ascii` only with STL; `--per-body` only with STL; `--chord`, `--angle` only with mesh formats; `--body`, `--chord`, `--angle`, `--rotate`, `--per-body` and `--ascii` are invalid with `py`. Invalid numbers: `--chord` not finite and positive, `--angle` not in (0, 90].
 3. Opens the file with its assets, applies `--printer` as in `rebuild`, and recomputes. If any feature has status `error` and `--allow-errors` is absent, prints `error: <path>: <n> feature(s) failed (<ids, comma-separated>). Fix them or pass --allow-errors to export anyway.` and exits 1.
 4. `--body` values are matched to bodies by exact id, else by exact name. No match: `error: There is no body named or with id "<value>".`; two bodies with that name: `error: Two bodies are named "<value>". Use the body id.`; both exit 1.
-5. Calls `Session::export` (mesh and STEP formats) with `ExportRequest { format, bodies, tolerance, orientation }`, where `tolerance` is present when `--chord` or `--angle` is given (the other value from `Session::tolerance(doc, Standard)`) and `orientation` is present when `--rotate` is given. For `py`, calls `export_python`.
+5. Calls `Session::export` (mesh and STEP formats) with `ExportRequest { format, bodies, tolerance, orientation }`, where `tolerance` is present when `--chord` or `--angle` is given (the other value from `Session::tolerance(doc, Standard)`) and `orientation` is present when `--rotate` is given. For `py`, calls `export_python`; with `--json` the file's `media_type` is `text/x-python`.
 6. Without `--per-body`, writes the single file to `--output`; the parent directory must exist (exit 3 otherwise). With `--per-body`, `--output` is a directory, created with its parents when missing, and each engine file is written inside it under its engine name. Existing files are overwritten. Writes are atomic (temporary file, then rename).
 7. Human output: each written path on its own line on standard output; engine warnings on standard error as `warning[<code>]: <message>`.
 8. JSON output:

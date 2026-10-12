@@ -1,4 +1,10 @@
-import type { Document, PrintReport } from '../../generated/protocol'
+import type {
+  BodyPrint,
+  CheckResult,
+  Document,
+  Finding,
+  PrintReport,
+} from '../../generated/protocol'
 import type { AppState, DocumentState } from '../../state/store'
 import { INITIAL_STATE } from '../../state/store'
 import { TEST_CATALOG } from './catalog'
@@ -50,9 +56,6 @@ export function stateWithDocument(
   }
 }
 
-type BodyPrint = PrintReport['bodies'][number]
-type CheckResult = BodyPrint['report']['checks'][number]
-type Finding = CheckResult['findings'][number]
 
 /** A print finding of one check at a point. */
 export function finding(

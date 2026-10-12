@@ -134,12 +134,12 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::builtin::copy::testing::{
-        assert_bounds, assert_volume, fixture, params, python, update, updated_shape,
-    };
     use crate::output::BodyChange;
     use crate::registry::Registry;
-    use crate::test_support::{box_body, face_names};
+    use crate::test_support::{
+        assert_bounds, assert_volume, box_body, face_names, fixture, params, python, update,
+        updated_shape,
+    };
 
     fn asset() -> String {
         format!("{}.step", "0".repeat(64))

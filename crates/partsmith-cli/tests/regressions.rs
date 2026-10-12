@@ -1,7 +1,7 @@
 //! Regression tests for behavior that sections 2 to 4 of the cli spec require and the acceptance
-//! tests of section 6 do not cover: documents that are not UTF-8, the order of the file and
+//! tests of section 6 do not cover: documents that are not UTF-8, the order of the file, load and
 //! printer checks, load diagnostics with a JSON Pointer, the effective printer, the Python media
-//! type and a closed standard output.
+//! type, a closed standard output and `--out-dir` next to a schema name.
 
 mod common;
 
@@ -121,6 +121,17 @@ fn export_reads_the_file_before_it_checks_the_printer() {
         "{}",
         run.stderr
     );
+}
+
+#[test]
+fn rebuild_reports_a_document_that_does_not_load_before_an_unknown_printer() {
+    let workspace = Workspace::new();
+    workspace.write("badid.ptsm", box_with_invalid_body_id());
+
+    let run = workspace.run(&["rebuild", "--printer", "nope", "badid.ptsm"]);
+
+    run.assert_code(1);
+    assert!(run.stderr.starts_with(BAD_ID_LINE_START), "{}", run.stderr);
 }
 
 #[test]
@@ -252,4 +263,16 @@ fn a_closed_standard_output_ends_the_run_without_a_message() {
 
     assert_eq!(status.code(), Some(3), "{stderr}");
     assert_eq!(stderr, "");
+}
+
+#[test]
+fn a_schema_name_with_an_out_dir_prints_the_schema() {
+    let workspace = Workspace::new();
+
+    let run = workspace.run(&["schema", "ptsm", "--out-dir", "s"]);
+
+    run.assert_code(0);
+    assert_eq!(run.stdout, partsmith_engine::ptsm_schema());
+    assert_eq!(run.stderr, "");
+    assert!(!workspace.exists("s"), "printing writes no files");
 }

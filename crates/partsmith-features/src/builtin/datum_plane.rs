@@ -98,124 +98,11 @@ impl Feature for DatumPlane {
 #[cfg(test)]
 mod tests {
     use partsmith_model::FeatureRecord;
-    use partsmith_sketch::Placement;
     use serde_json::json;
 
     use super::*;
     use crate::registry::Registry;
-    use crate::test_support::{DocumentRun, ScriptNames, run};
-
-    fn placement(run: &DocumentRun, feature: &str) -> Placement {
-        match &run.output(feature).data {
-            OutputData::Datum(DatumResult::Plane(placement)) => *placement,
-            other => panic!("{feature} output {other:?}"),
-        }
-    }
-
-    fn assert_close(actual: [f64; 3], expected: [f64; 3]) {
-        for (component, wanted) in actual.iter().zip(expected) {
-            assert!(
-                (component - wanted).abs() <= 1e-9,
-                "expected {expected:?}, got {actual:?}"
-            );
-        }
-    }
-
-    fn datum(base: serde_json::Value, extra: serde_json::Value) -> serde_json::Value {
-        let mut record = json!({"id": "f-dp1", "type": "datum_plane", "base": base});
-        if let (Some(record), Some(extra)) = (record.as_object_mut(), extra.as_object()) {
-            record.extend(extra.clone());
-        }
-        record
-    }
-
-    #[test]
-    fn an_origin_plane_offset_moves_along_its_normal() {
-        let run = run(
-            &[],
-            &[datum(
-                json!({"kind": "origin", "plane": "XZ"}),
-                json!({"offset": "10"}),
-            )],
-        );
-
-        let plane = placement(&run, "f-dp1");
-        assert_close(plane.origin, [0.0, -10.0, 0.0]);
-        assert_close(plane.normal, [0.0, -1.0, 0.0]);
-        assert_close(plane.y_axis(), [0.0, 0.0, 1.0]);
-    }
-
-    #[test]
-    fn flip_reverses_the_normal_and_keeps_the_x_axis() {
-        let run = run(
-            &[],
-            &[datum(
-                json!({"kind": "origin", "plane": "XY"}),
-                json!({"offset": "10", "flip": true}),
-            )],
-        );
-
-        let plane = placement(&run, "f-dp1");
-        assert_close(plane.origin, [0.0, 0.0, 10.0]);
-        assert_close(plane.x_axis, [1.0, 0.0, 0.0]);
-        assert_close(plane.normal, [0.0, 0.0, -1.0]);
-    }
-
-    #[test]
-    fn a_side_face_takes_its_x_axis_from_world_y() {
-        let run = run(
-            &["b-1"],
-            &[
-                json!({"id": "f-box1", "type": "box", "body": "b-1", "size": ["10", "10", "10"], "position": ["3", "4", "0"], "op": "new"}),
-                datum(
-                    json!({"kind": "face", "body": "b-1", "face": {"q": "f-box1/right", "fp": "plane|n=1,0,0|c=8,4,5|a=100"}}),
-                    json!({}),
-                ),
-            ],
-        );
-
-        let plane = placement(&run, "f-dp1");
-        assert_close(plane.origin, [8.0, 0.0, 0.0]);
-        assert_close(plane.normal, [1.0, 0.0, 0.0]);
-        assert_close(plane.x_axis, [0.0, 1.0, 0.0]);
-    }
-
-    #[test]
-    fn chained_datums_add_their_offsets() {
-        let run = run(
-            &[],
-            &[
-                datum(
-                    json!({"kind": "origin", "plane": "XY"}),
-                    json!({"offset": "10"}),
-                ),
-                json!({"id": "f-dp2", "type": "datum_plane", "base": {"kind": "datum", "feature": "f-dp1"}, "offset": "5"}),
-            ],
-        );
-
-        assert_close(placement(&run, "f-dp2").origin, [0.0, 0.0, 15.0]);
-    }
-
-    #[test]
-    fn a_curved_face_is_not_a_base_plane() {
-        let run = run(
-            &["b-1"],
-            &[
-                json!({"id": "f-cyl1", "type": "cylinder", "body": "b-1", "radius": "5", "height": "10", "op": "new"}),
-                datum(
-                    json!({"kind": "face", "body": "b-1", "face": {"q": "f-cyl1/side", "fp": "cylinder|n=0,0,1|c=0,0,5|a=314.159265|r=5"}}),
-                    json!({}),
-                ),
-            ],
-        );
-
-        assert_eq!(
-            run.messages("f-dp1"),
-            [
-                "The face selected for Base plane is not flat. Pick a flat face, a datum plane or an origin plane."
-            ]
-        );
-    }
+    use crate::test_support::{ScriptNames, id};
 
     /// The Python of a datum plane record, with the record keywords the registry appends.
     fn python(record: serde_json::Value) -> String {
@@ -223,6 +110,23 @@ mod tests {
         Registry::with_builtins()
             .python(&record, &ScriptNames::default())
             .render(0)
+    }
+
+    #[test]
+    fn dependencies_read_the_face_body_and_the_offset() {
+        let params: DatumPlaneParams = serde_json::from_value(json!({
+            "base": {"kind": "face", "body": "b-1", "face": {"q": "f-box1/top", "fp": "plane|n=0,0,1"}},
+            "offset": "5"
+        }))
+        .expect("valid params");
+
+        let dependencies = DatumPlane::dependencies(&params);
+
+        assert!(dependencies.features.is_empty());
+        assert_eq!(dependencies.bodies_read[0].id, id("b-1"));
+        assert_eq!(dependencies.bodies_read[0].field, "base.body");
+        assert!(dependencies.bodies_written.is_empty());
+        assert_eq!(dependencies.expressions[0].field, "offset");
     }
 
     #[test]

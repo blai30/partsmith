@@ -39,9 +39,7 @@ def bless_mode(environment: Mapping[str, str]) -> bool:
 
 def example_models() -> list[Path]:
     """Every example's `.ptsm` path, sorted."""
-    return sorted(
-        path for path in EXAMPLES.rglob("*.ptsm") if "assets" not in path.relative_to(EXAMPLES).parts
-    )
+    return sorted(path for path in EXAMPLES.rglob("*.ptsm") if "assets" not in path.relative_to(EXAMPLES).parts)
 
 
 def example_id(model: Path) -> str:
