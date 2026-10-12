@@ -175,7 +175,13 @@ function GroupButton({ entry }: { readonly entry: GroupEntry }) {
           setOpen((current) => !current)
         }}
       />
-      <Menu label={entry.title} open={open} anchor={anchor} entries={entries} onOpenChange={setOpen} />
+      <Menu
+        label={entry.title}
+        open={open}
+        anchor={anchor}
+        entries={entries}
+        onOpenChange={setOpen}
+      />
     </>
   )
 }
@@ -327,9 +333,7 @@ function commandIds(entries: readonly ToolbarEntry[]): readonly string[] {
 
 /** Moves focus between the toolbar's buttons with arrow keys, Home and End. */
 function moveFocus(event: KeyboardEvent<HTMLDivElement>): void {
-  const items = [
-    ...event.currentTarget.querySelectorAll<HTMLButtonElement>('[data-toolbar-item]'),
-  ]
+  const items = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('[data-toolbar-item]')]
   const index = items.findIndex((item) => item === document.activeElement)
   if (index === -1) {
     return

@@ -21,7 +21,9 @@ function referencesSketch(value: unknown, sketchId: string): boolean {
  * Session visibility for a newly opened recipe, or for a document whose recipe has not arrived yet
  * (null): sketches that a feature uses and origin items start hidden (3.10).
  */
-export function initialSessionVisibility(recipe: Document | null): Readonly<Record<string, boolean>> {
+export function initialSessionVisibility(
+  recipe: Document | null,
+): Readonly<Record<string, boolean>> {
   const features = recipe?.features ?? []
   const visibility: Record<string, boolean> = {}
   for (const feature of features) {

@@ -85,13 +85,7 @@ import { requestUi } from '../layout/requests'
 import { MESSAGES } from '../messages'
 import type { Settings } from '../settings/settings'
 import type { SketchToolId } from '../sketch/session'
-import type {
-  AppContext,
-  AppState,
-  OriginName,
-  SelectionItem,
-  ViewState,
-} from '../state/store'
+import type { AppContext, AppState, OriginName, SelectionItem, ViewState } from '../state/store'
 import { toggledTheme } from '../theme/theme'
 import type { StandardView, Vector3 } from '../viewport/camera'
 import { cross } from '../viewport/math'
@@ -558,18 +552,23 @@ async function toggleConstruction(app: App): Promise<void> {
 
 // Settings commands.
 
-const THEMES: readonly { readonly theme: Settings['theme']; readonly title: string; readonly icon: LucideIcon }[] =
-  [
-    { theme: 'system', title: 'Theme: System', icon: Monitor },
-    { theme: 'light', title: 'Theme: Light', icon: Sun },
-    { theme: 'dark', title: 'Theme: Dark', icon: Moon },
-  ]
+const THEMES: readonly {
+  readonly theme: Settings['theme']
+  readonly title: string
+  readonly icon: LucideIcon
+}[] = [
+  { theme: 'system', title: 'Theme: System', icon: Monitor },
+  { theme: 'light', title: 'Theme: Light', icon: Sun },
+  { theme: 'dark', title: 'Theme: Dark', icon: Moon },
+]
 
-const NAVIGATIONS: readonly { readonly navigation: Settings['navigation']; readonly title: string }[] =
-  [
-    { navigation: 'fusion', title: 'Navigation: Fusion' },
-    { navigation: 'freecad', title: 'Navigation: FreeCAD' },
-  ]
+const NAVIGATIONS: readonly {
+  readonly navigation: Settings['navigation']
+  readonly title: string
+}[] = [
+  { navigation: 'fusion', title: 'Navigation: Fusion' },
+  { navigation: 'freecad', title: 'Navigation: FreeCAD' },
+]
 
 const SCALES: readonly Settings['uiScale'][] = [1, 1.25, 1.5, 2, 3]
 

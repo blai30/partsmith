@@ -56,7 +56,6 @@ export function stateWithDocument(
   }
 }
 
-
 /** A print finding of one check at a point. */
 export function finding(
   check: Finding['check'],

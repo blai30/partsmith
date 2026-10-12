@@ -43,11 +43,20 @@ function sameRequest(first: Request, second: Request): boolean {
 }
 
 /** The field's state for the core's answer. */
-function stateFor(request: Request, result: { value: number; dimension: Dimension }): ExpressionState {
+function stateFor(
+  request: Request,
+  result: { value: number; dimension: Dimension },
+): ExpressionState {
   if (request.unit === 'any') {
     return { state: 'valid', value: result.value, dimension: result.dimension }
   }
-  const converted = convertForField(result, request.unit, request.units, request.label, request.text)
+  const converted = convertForField(
+    result,
+    request.unit,
+    request.units,
+    request.label,
+    request.text,
+  )
   // The converted value has the field's dimension: a plain 2 in a length field is 2 document units.
   return converted.ok
     ? { state: 'valid', value: converted.value, dimension: FIELD_DIMENSIONS[request.unit] }
@@ -69,7 +78,11 @@ function stateForError(request: Request, error: unknown): ExpressionState {
  * is pending. A change of the document revision evaluates again, keeping the last result shown
  * until the new one arrives.
  */
-export function useExpression(text: string, unit: FieldUnit | 'any', label: string): ExpressionState {
+export function useExpression(
+  text: string,
+  unit: FieldUnit | 'any',
+  label: string,
+): ExpressionState {
   const app = useApp()
   const documentHandle = useAppState((state) => state.document?.documentHandle ?? null)
   const revision = useAppState((state) => state.document?.revision ?? null)

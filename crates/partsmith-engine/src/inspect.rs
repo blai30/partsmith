@@ -30,13 +30,17 @@ impl Session {
             let open = self.open(doc)?;
             (body_with_geometry(open, body)?, timeline(&open.document))
         };
+        let t0 = std::time::Instant::now();
         let table = self.table_of(&view)?;
         let descriptors = descriptors(&table, &view, &timeline)?;
-        Ok(descriptors
+        let t1 = std::time::Instant::now();
+        let result = descriptors
             .iter()
             .filter(|descriptor| kind.is_none_or(|kind| descriptor.kind == kind))
             .cloned()
-            .collect())
+            .collect();
+        eprintln!("TIMING list describe {:?} clone {:?}", t1 - t0, t1.elapsed());
+        Ok(result)
     }
 
     /// Converts a pick in a current model-layer mesh into an element descriptor.
@@ -45,6 +49,7 @@ impl Session {
         doc: DocHandle,
         pick: Pick,
     ) -> Result<ElementDescriptor, EngineError> {
+        let t0 = std::time::Instant::now();
         let open = self.open(doc)?;
         let Some((body, shown)) = open
             .emitted
@@ -68,6 +73,7 @@ impl Session {
             return Err(EngineError::InvalidPick { kind: pick.kind });
         }
         let view = body_with_geometry(open, body)?;
+        eprintln!("TIMING before describe {:?}", t0.elapsed());
         // Only the picked element is described, so a pick in a new body state does not query
         // the geometry of every element (section 5).
         describe_element(

@@ -77,39 +77,43 @@ function documentItems(app: App, state: AppState): PaletteItem[] {
       detail: null,
       run: () => {
         // The timeline scrolls the selected feature into view.
-        select(app, [selectionItem(`feature:${feature.id}`, 'feature', label, { feature: feature.id })], 'replace')
+        select(
+          app,
+          [selectionItem(`feature:${feature.id}`, 'feature', label, { feature: feature.id })],
+          'replace',
+        )
       },
     }
   })
-  const bodies = (recipe.bodies ?? []).map(
-    (body): PaletteItem => ({
-      ...plain,
-      id: `body:${body.id}`,
-      kind: 'body',
-      title: body.name,
-      detail: null,
-      run: () => {
-        select(app, [selectionItem(`body:${body.id}`, 'body', body.name, { body: body.id })], 'replace')
-        const bounds = app.store.getState().document?.meshes[body.id]?.boundingBox
-        if (bounds !== undefined) {
-          app.viewport()?.fit(bounds)
-        }
-      },
-    }),
-  )
-  const parameters = (recipe.parameters ?? []).map(
-    (parameter): PaletteItem => ({
-      ...plain,
-      id: `parameter:${parameter.id}`,
-      kind: 'parameter',
-      title: `${parameter.name} = ${parameter.expr}`,
-      detail: parameter.comment ?? null,
-      run: () => {
-        app.store.setState((current) => ({ panels: { ...current.panels, side: 'parameters' } }))
-        requestUi(app, { kind: 'parameter', id: parameter.id })
-      },
-    }),
-  )
+  const bodies = (recipe.bodies ?? []).map((body): PaletteItem => ({
+    ...plain,
+    id: `body:${body.id}`,
+    kind: 'body',
+    title: body.name,
+    detail: null,
+    run: () => {
+      select(
+        app,
+        [selectionItem(`body:${body.id}`, 'body', body.name, { body: body.id })],
+        'replace',
+      )
+      const bounds = app.store.getState().document?.meshes[body.id]?.boundingBox
+      if (bounds !== undefined) {
+        app.viewport()?.fit(bounds)
+      }
+    },
+  }))
+  const parameters = (recipe.parameters ?? []).map((parameter): PaletteItem => ({
+    ...plain,
+    id: `parameter:${parameter.id}`,
+    kind: 'parameter',
+    title: `${parameter.name} = ${parameter.expr}`,
+    detail: parameter.comment ?? null,
+    run: () => {
+      app.store.setState((current) => ({ panels: { ...current.panels, side: 'parameters' } }))
+      requestUi(app, { kind: 'parameter', id: parameter.id })
+    },
+  }))
   return [...features, ...bodies, ...parameters]
 }
 
@@ -120,22 +124,20 @@ export function paletteItems(app: App, recent: readonly RecentFile[]): PaletteIt
     .list()
     .filter((definition) => listed(app, state, definition))
     .map((definition) => commandItem(app, definition))
-  const recentItems = recent.map(
-    (entry): PaletteItem => ({
-      id: `recent:${entry.id}`,
-      kind: 'recent',
-      category: null,
-      title: `Open recent: ${entry.name}`,
-      keywords: [],
-      detail: null,
-      shortcut: null,
-      disabledReason: state.core.status === 'ready' ? null : MESSAGES.core_not_running(),
-      run: () => {
-        openRecent(app, entry).catch((error: unknown) => {
-          console.error(`Opening ${entry.name} failed.`, error)
-        })
-      },
-    }),
-  )
+  const recentItems = recent.map((entry): PaletteItem => ({
+    id: `recent:${entry.id}`,
+    kind: 'recent',
+    category: null,
+    title: `Open recent: ${entry.name}`,
+    keywords: [],
+    detail: null,
+    shortcut: null,
+    disabledReason: state.core.status === 'ready' ? null : MESSAGES.core_not_running(),
+    run: () => {
+      openRecent(app, entry).catch((error: unknown) => {
+        console.error(`Opening ${entry.name} failed.`, error)
+      })
+    },
+  }))
   return [...commands, ...documentItems(app, state), ...recentItems]
 }

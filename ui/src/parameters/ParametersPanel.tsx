@@ -64,7 +64,11 @@ function ParameterValueText({
   return (
     <span
       data-testid="parameter-value"
-      className={clsx('text-xs tabular-nums', FONT_CLASSES.values, COLOR_CLASSES.textMuted.foreground)}
+      className={clsx(
+        'text-xs tabular-nums',
+        FONT_CLASSES.values,
+        COLOR_CLASSES.textMuted.foreground,
+      )}
     >
       {number === undefined || number === null || dimension === undefined || dimension === null
         ? ''

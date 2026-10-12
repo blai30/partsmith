@@ -34,7 +34,12 @@ describe('fieldForPointer', () => {
 describe('messagesByField', () => {
   it('keeps the first message per field and skips messages without a field', () => {
     const first: Diagnostic = { severity: 'error', code: 'a', message: 'First.', field: '/radius' }
-    const second: Diagnostic = { severity: 'warning', code: 'b', message: 'Second.', field: '/radius' }
+    const second: Diagnostic = {
+      severity: 'warning',
+      code: 'b',
+      message: 'Second.',
+      field: '/radius',
+    }
     const general: Diagnostic = { severity: 'warning', code: 'c', message: 'General.' }
     const byField = messagesByField(['radius'], [general, first, second])
     expect(byField.get('radius')).toBe(first)

@@ -1150,7 +1150,7 @@ Frame codec used by the worker and the main thread (`ui/src/core/frame.ts`):
 ```ts
 export type BufferView = Uint8Array | Uint32Array | Float32Array
 export interface DecodedFrame { header: FrameHeader; buffers: BufferView[] }
-/** Encodes a header (without its buffers table) and buffers into a frame, byte-identical to the Rust encoder. */
+/** Encodes a header (without its buffers table) and buffers into a frame that the Rust decoder reads as the same frame. The bytes can differ from the Rust encoder's: keys keep insertion order and integral floats have no fraction (`20`, where serde_json writes `20.0`). */
 export function encodeFrame(header: Omit<FrameHeader, 'buffers'>, buffers: BufferView[]): ArrayBuffer
 /** Decodes a frame; buffer views alias the input ArrayBuffer (no copy). Throws FrameDecodeError. */
 export function decodeFrame(frame: ArrayBuffer): DecodedFrame

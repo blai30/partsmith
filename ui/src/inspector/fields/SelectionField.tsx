@@ -106,15 +106,13 @@ function candidatesFor(
         originItem('YZ', 'origin_plane', 'YZ plane'),
         ...features
           .filter((feature) => feature.type === 'datum_plane')
-          .map(
-            (feature): SelectionItem => ({
-              ...NO_ITEM_DATA,
-              key: `feature:${feature.id}`,
-              kind: 'datum_plane',
-              label: featureLabel(recipe, feature.id, state.catalog),
-              feature: feature.id,
-            }),
-          ),
+          .map((feature): SelectionItem => ({
+            ...NO_ITEM_DATA,
+            key: `feature:${feature.id}`,
+            kind: 'datum_plane',
+            label: featureLabel(recipe, feature.id, state.catalog),
+            feature: feature.id,
+          })),
       ]
     case 'axis':
       return [
@@ -137,16 +135,14 @@ function candidatesFor(
               .map((feature) => feature.id)
       const units = recipe.units
       return sketches.flatMap((sketch) =>
-        (document.sketches[sketch]?.solution.regions ?? []).map(
-          (region, index): SelectionItem => ({
-            ...NO_ITEM_DATA,
-            key: `region:${sketch}:${region.reference.key}`,
-            kind: 'sketch_region',
-            label: `Region ${String(index + 1)} (${formatArea(region.area, units)})`,
-            feature: sketch,
-            sketchItem: { kind: 'region', sketch, region },
-          }),
-        ),
+        (document.sketches[sketch]?.solution.regions ?? []).map((region, index): SelectionItem => ({
+          ...NO_ITEM_DATA,
+          key: `region:${sketch}:${region.reference.key}`,
+          kind: 'sketch_region',
+          label: `Region ${String(index + 1)} (${formatArea(region.area, units)})`,
+          feature: sketch,
+          sketchItem: { kind: 'region', sketch, region },
+        })),
       )
     }
     default:
@@ -214,7 +210,10 @@ export function SelectionField({
 
   return (
     <div className="flex min-w-0 flex-col gap-1">
-      <span id={labelId} className={clsx('text-xs font-medium', COLOR_CLASSES.textMuted.foreground)}>
+      <span
+        id={labelId}
+        className={clsx('text-xs font-medium', COLOR_CLASSES.textMuted.foreground)}
+      >
         {field.label}
       </span>
       <div className="flex min-w-0 items-center gap-2">
@@ -269,7 +268,12 @@ export function SelectionField({
           </Button>
         )}
       </div>
-      <p id={errorId} data-testid="field-error" aria-live="polite" className={clsx('text-xs', COLOR_CLASSES.errorText.foreground)}>
+      <p
+        id={errorId}
+        data-testid="field-error"
+        aria-live="polite"
+        className={clsx('text-xs', COLOR_CLASSES.errorText.foreground)}
+      >
         {message}
       </p>
       <Menu

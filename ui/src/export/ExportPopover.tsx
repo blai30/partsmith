@@ -72,7 +72,9 @@ export function ExportPopover({ anchor, onClose }: ExportPopoverProps) {
                   key={option.value}
                   className={clsx(
                     'flex h-8 items-center gap-2 text-sm',
-                    disabled ? COLOR_CLASSES.textDisabled.foreground : COLOR_CLASSES.text.foreground,
+                    disabled
+                      ? COLOR_CLASSES.textDisabled.foreground
+                      : COLOR_CLASSES.text.foreground,
                   )}
                 >
                   <input

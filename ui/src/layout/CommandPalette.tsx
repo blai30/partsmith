@@ -1,5 +1,13 @@
 import { clsx } from 'clsx/lite'
-import { Box, Check, History, Search, Shapes, SlidersHorizontal, type LucideIcon } from 'lucide-react'
+import {
+  Box,
+  Check,
+  History,
+  Search,
+  Shapes,
+  SlidersHorizontal,
+  type LucideIcon,
+} from 'lucide-react'
 import {
   useEffect,
   useId,
@@ -239,7 +247,12 @@ function OpenPalette() {
           COLOR_CLASSES.text.foreground,
         )}
       >
-        <div className={clsx('flex h-12 shrink-0 items-center gap-2 border-b px-3', COLOR_CLASSES.border.border)}>
+        <div
+          className={clsx(
+            'flex h-12 shrink-0 items-center gap-2 border-b px-3',
+            COLOR_CLASSES.border.border,
+          )}
+        >
           <Search
             aria-hidden="true"
             strokeWidth={1.75}
@@ -315,14 +328,19 @@ function OpenPalette() {
                 <span className="min-w-0 truncate">{item.title}</span>
                 {detail === null ? null : (
                   <span
-                    className={clsx('min-w-0 shrink truncate text-xs', COLOR_CLASSES.textMuted.foreground)}
+                    className={clsx(
+                      'min-w-0 shrink truncate text-xs',
+                      COLOR_CLASSES.textMuted.foreground,
+                    )}
                   >
                     {detail}
                   </span>
                 )}
                 <span className="ml-auto flex shrink-0 items-center gap-3">
                   {tag === null ? null : (
-                    <span className={clsx('text-xs', COLOR_CLASSES.textMuted.foreground)}>{tag}</span>
+                    <span className={clsx('text-xs', COLOR_CLASSES.textMuted.foreground)}>
+                      {tag}
+                    </span>
                   )}
                   {item.shortcut === null ? null : (
                     <span

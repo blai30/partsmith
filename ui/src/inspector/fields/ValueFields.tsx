@@ -79,7 +79,8 @@ export function NumberField({
         setText(next)
         const trimmed = next.trim()
         const number = Number(trimmed)
-        const valid = trimmed !== '' && Number.isFinite(number) && (!integer || Number.isInteger(number))
+        const valid =
+          trimmed !== '' && Number.isFinite(number) && (!integer || Number.isInteger(number))
         if (trimmed === '' && !field.required) {
           setError(null)
           setFieldStatus(app, field.path, { error: null, pending: false })

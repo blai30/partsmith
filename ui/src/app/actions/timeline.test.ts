@@ -224,18 +224,18 @@ describe('renameFeature (3.9)', () => {
   })
 })
 
-describe('startRollbackDrag (3.9)', () => {
-  /** A drag of the marker of cube-features.ptsm (4 features, nothing rolled back) from the end. */
-  async function dragFromEnd(): Promise<{ fake: FakeApp; drag: RollbackDrag }> {
-    const fake = await cubeFeatures()
-    fake.transport.clearRequests()
-    const drag = startRollbackDrag(fake.app, 4)
-    if (drag === null) {
-      throw new Error('The drag did not start.')
-    }
-    return { fake, drag }
+/** A drag of the marker of cube-features.ptsm (4 features, nothing rolled back) from the end. */
+async function dragFromEnd(): Promise<{ fake: FakeApp; drag: RollbackDrag }> {
+  const fake = await cubeFeatures()
+  fake.transport.clearRequests()
+  const drag = startRollbackDrag(fake.app, 4)
+  if (drag === null) {
+    throw new Error('The drag did not start.')
   }
+  return { fake, drag }
+}
 
+describe('startRollbackDrag (3.9)', () => {
   it('begins "Roll back" and moves the model live with unlabeled set_rollback edits', async () => {
     const { fake, drag } = await dragFromEnd()
     drag.move(2)

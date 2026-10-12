@@ -60,11 +60,7 @@ describe('selection after rebuilds (3.6)', () => {
       reference: { q: 'f-cyl1/side', fp: 'cylinder|n=0,0,1|c=0,0,20|a=502.65|adj=2,2' },
       surface: 'cylinder',
     }
-    select(
-      fake.app,
-      [elementItem(CUBE_TOP_FACE, 'Cube'), elementItem(pegSide, 'Peg')],
-      'replace',
-    )
+    select(fake.app, [elementItem(CUBE_TOP_FACE, 'Cube'), elementItem(pegSide, 'Peg')], 'replace')
     fake.transport.handle('resolve_references', (command) => ({
       result: {
         type: 'resolve_references',

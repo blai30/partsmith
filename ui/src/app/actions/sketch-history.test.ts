@@ -7,7 +7,7 @@ import {
   notificationWith,
   startWithDocument,
 } from '../../test/fakes/app'
-import { createFakeCoreApi } from '../../test/fakes/core-api'
+import { coreErrorFor, createFakeCoreApi } from '../../test/fakes/core-api'
 import {
   CUBE_DOCUMENT,
   CUBE_SKETCH_SOLUTION,
@@ -112,6 +112,29 @@ describe('sketch view history (3.20)', () => {
     expect(core.callsTo('redo')).toHaveLength(1)
     await redo(app)
     expect(viewport.getCamera()).toBe(LATER)
+  })
+
+  it('a refused solve shows the core message, and the history still starts with the camera from before', async () => {
+    const core = createFakeCoreApi()
+    const refusal = await coreErrorFor({
+      code: 'invalid_params',
+      message: "Sketch 1 has a constraint on 'e-9', which does not exist.",
+    })
+    core.stub('solveSketch', () => Promise.reject(refusal))
+    const viewport = recordingViewport(BEFORE)
+    const app = createTestApp({
+      core,
+      viewport,
+      store: createAppStore({ document: documentStateFor(CUBE_DOCUMENT) }),
+    })
+    await enterSketch(app, 'f-sk1')
+    expect(notificationWith(app, refusal.message).severity).toBe('error')
+    expect(app.store.getState().sketch?.sketchId).toBe('f-sk1')
+    expect(viewport.lookAlong).not.toHaveBeenCalled()
+    viewport.setCamera(LATER)
+    await undo(app)
+    expect(viewport.getCamera()).toBe(BEFORE)
+    expect(core.callsTo('undo')).toEqual([])
   })
 
   it('finishing the sketch discards the history', async () => {

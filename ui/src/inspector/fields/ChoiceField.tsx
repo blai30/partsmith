@@ -20,7 +20,10 @@ export function ChoiceField({ field, options, presentation }: ChoiceFieldProps) 
   if (presentation === 'segmented') {
     return (
       <div className="flex min-w-0 flex-col gap-1">
-        <span aria-hidden="true" className={clsx('text-xs font-medium', COLOR_CLASSES.textMuted.foreground)}>
+        <span
+          aria-hidden="true"
+          className={clsx('text-xs font-medium', COLOR_CLASSES.textMuted.foreground)}
+        >
           {field.label}
         </span>
         <SegmentedControl
@@ -37,7 +40,10 @@ export function ChoiceField({ field, options, presentation }: ChoiceFieldProps) 
   }
   return (
     <div className="flex min-w-0 flex-col gap-1">
-      <label htmlFor={id} className={clsx('text-xs font-medium', COLOR_CLASSES.textMuted.foreground)}>
+      <label
+        htmlFor={id}
+        className={clsx('text-xs font-medium', COLOR_CLASSES.textMuted.foreground)}
+      >
         {field.label}
       </label>
       <select

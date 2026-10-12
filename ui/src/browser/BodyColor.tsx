@@ -1,9 +1,9 @@
 import { clsx } from 'clsx/lite'
-import { useId, useRef, useState } from 'react'
+import { useId, useRef, useState, type RefObject } from 'react'
 import { setBodyColor } from '../app/actions/bodies'
-import { useApp, useAppState } from '../app/AppProvider'
+import { useApp } from '../app/AppProvider'
 import { Popover } from '../components/Popover'
-import { resolvedTheme } from '../layout/color-scheme'
+import { useResolvedTheme } from '../layout/use-resolved-theme'
 import type { Body } from '../generated/protocol'
 import { BODY_SWATCHES, COLOR_CLASSES, FONT_CLASSES, VIEWPORT_COLORS } from '../theme/roles'
 
@@ -30,8 +30,7 @@ export type BodyColorButtonProps = {
 
 /** The color swatch button of a body with its popover of swatches and a hex field. */
 export function BodyColorButton({ body, tabbable = true, size = 'row' }: BodyColorButtonProps) {
-  const app = useApp()
-  const theme = useAppState((state) => resolvedTheme(state.settings))
+  const theme = useResolvedTheme()
   const anchor = useRef<HTMLButtonElement>(null)
   const [open, setOpen] = useState(false)
   const defaultHex = VIEWPORT_COLORS[theme].body
@@ -70,7 +69,7 @@ export function BodyColorButton({ body, tabbable = true, size = 'row' }: BodyCol
 
 type ColorPopoverProps = {
   readonly body: Body
-  readonly anchor: React.RefObject<HTMLElement | null>
+  readonly anchor: RefObject<HTMLElement | null>
   readonly current: string
   readonly onClose: () => void
 }

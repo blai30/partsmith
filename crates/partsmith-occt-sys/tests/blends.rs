@@ -1,22 +1,22 @@
 //! Acceptance tests for fillet, chamfer and shell (kernel spec sections 2.8, 3.4.6 to 3.4.9 and
-//! tests 44 to 53 and 68), including the history behavior the spec asks to verify on the built
-//! library (section 7, open issues 3 and 4).
+//! tests 44 to 53, 68, 102 and 103), including the history behavior the spec asks to verify on
+//! the built library (section 7, open issues 3 and 4).
 
 mod common;
 
 use std::f64::consts::PI;
 
 use common::{
-    POINT_TOLERANCE, UP, assert_argument_error, assert_invalid_input, assert_near, assert_parallel,
-    assert_point_near, assert_relative, assert_vector_near, box_primitive, cube_a, cube_at,
-    cylinder_primitive, face_direction, face_groups, face_with_role, faces_of_kind,
+    POINT_TOLERANCE, UP, assert_argument_error, assert_bounds, assert_invalid_input, assert_near,
+    assert_parallel, assert_point_near, assert_relative, assert_vector_near, box_primitive, cube_a,
+    cube_at, cylinder_primitive, face_direction, face_groups, face_with_role, faces_of_kind,
     generated_faces, geometry, index_from_position, line, rectangle_profile, region, swept_face,
-    top_front_edge, volume,
+    top_front_edge, volume, xy_plane_at,
 };
 use partsmith_occt_sys::{
-    ChamferEdge, ChamferSize, EdgeRadius, ElementFate, GeometryKind, KernelErrorKind, OpResult,
-    Operation, Plane, Point, Primitive, PrimitiveFace, Shape, SubShapeKind, SweepFace, Vector,
-    chamfer, extrude, fillet, fuse, make_profile, shell,
+    ChamferEdge, ChamferSize, EdgeRadius, ElementFate, GeometryKind, KernelError, KernelErrorKind,
+    OpResult, Operation, Plane, Point, Primitive, PrimitiveFace, Shape, SubShapeKind, SweepFace,
+    Vector, chamfer, extrude, fillet, fuse, make_box, make_cylinder, make_profile, shell,
 };
 
 const FILLET_FAILED: &str = "The fillet failed. The radius is probably too large for the selected edges or the faces next to them. Try a smaller radius.";
@@ -102,6 +102,59 @@ fn l_prism() -> (Shape, u32, u32) {
         .map(index_from_position)
         .expect("the L prism has a vertical edge at (10, 10)");
     (prism.shape, end_cap, concave)
+}
+
+/// `L` of test 102: a 40 x 20 x 10 box fused with a 20 x 20 x 10 box standing on its right
+/// half (volume 12000, 8 faces), with the index of `STEP`, the top of the low half.
+fn l_body() -> (Shape, u32) {
+    let low = make_box(&xy_plane_at(-20.0, -10.0, 0.0), 40.0, 20.0, 10.0)
+        .expect("the low box builds")
+        .shape;
+    let high = make_box(&xy_plane_at(0.0, -10.0, 10.0), 20.0, 20.0, 10.0)
+        .expect("the high box builds")
+        .shape;
+    let body = fuse(&low, &[high]).expect("the boxes fuse").shape;
+    assert_relative(volume(&body), 12000.0, 1e-9, "L volume");
+    assert_eq!(body.count(SubShapeKind::Face), 8);
+    let step = faces_of_kind(&body, GeometryKind::Plane)
+        .into_iter()
+        .find(|face| {
+            let element = geometry(&body, SubShapeKind::Face, *face);
+            let up = element
+                .direction
+                .is_some_and(|direction| (direction.z - 1.0).abs() <= POINT_TOLERANCE);
+            up && (element.centroid.x + 10.0).abs() <= POINT_TOLERANCE
+                && element.centroid.y.abs() <= POINT_TOLERANCE
+                && (element.centroid.z - 10.0).abs() <= POINT_TOLERANCE
+        })
+        .expect("L has its step face");
+    assert_relative(
+        geometry(&body, SubShapeKind::Face, step).measure,
+        400.0,
+        1e-9,
+        "STEP area",
+    );
+    (body, step)
+}
+
+/// Test 102: `L` shelled with `STEP` removed and a 2 mm wall.
+fn l_shell() -> (Shape, u32, OpResult) {
+    let (body, step) = l_body();
+    let result = shell(&body, &[step], 2.0).expect("the fallback shells L");
+    (body, step, result)
+}
+
+/// Asserts that a shell failed with the shell's failure message.
+fn assert_shell_failed(error: &KernelError) {
+    assert!(
+        matches!(
+            error.kind,
+            KernelErrorKind::Failed | KernelErrorKind::InvalidResult
+        ),
+        "{error:?}"
+    );
+    assert_eq!(error.operation, Operation::Shell);
+    assert_eq!(error.user_message(), SHELL_FAILED);
 }
 
 #[test]
@@ -683,6 +736,146 @@ fn shell_of_l_prism_gives_every_face_an_origin() {
     let result = shell(&prism, &[end_cap], 1.0).expect("the L prism is shelled");
 
     assert_every_face_has_an_origin(&result);
+}
+
+#[test]
+fn t102_shell_beside_a_concave_edge_cuts_a_cavity() {
+    let (_, _, result) = l_shell();
+
+    assert!(result.shape.is_valid().expect("validity check"));
+    assert_eq!(result.shape.count(SubShapeKind::Solid), 1);
+    assert_relative(volume(&result.shape), 5344.0, 1e-9, "volume");
+    assert_eq!(result.shape.count(SubShapeKind::Face), 16);
+    assert_bounds(
+        &result.shape,
+        [-20.0, -10.0, 0.0],
+        [20.0, 10.0, 20.0],
+        POINT_TOLERANCE,
+    );
+}
+
+#[test]
+fn t102_removed_face_keeps_its_rim_and_generates_the_wall_bottom() {
+    let (_, step, result) = l_shell();
+
+    let fate = face_fate(&result, step);
+
+    assert_eq!(fate.modified.len(), 1, "{fate:?}");
+    let rim = geometry(&result.shape, SubShapeKind::Face, fate.modified[0]);
+    assert_eq!(rim.kind, GeometryKind::Plane);
+    assert_vector_near(
+        rim.direction.expect("a plane has a direction"),
+        UP,
+        POINT_TOLERANCE,
+        "rim direction",
+    );
+    assert_relative(rim.measure, 112.0, 1e-9, "rim area");
+    assert_point_near(
+        rim.centroid,
+        Point::new(-12.571428571428571, 0.0, 10.0),
+        POINT_TOLERANCE,
+        "rim centroid",
+    );
+    let bottoms = generated_faces(fate);
+    assert_eq!(bottoms.len(), 1, "{fate:?}");
+    let bottom = geometry(&result.shape, SubShapeKind::Face, bottoms[0]);
+    assert_eq!(bottom.kind, GeometryKind::Plane);
+    assert_vector_near(
+        bottom.direction.expect("a plane has a direction"),
+        Vector::new(0.0, 0.0, -1.0),
+        POINT_TOLERANCE,
+        "wall bottom direction",
+    );
+    assert_relative(bottom.measure, 32.0, 1e-9, "wall bottom area");
+    assert_point_near(
+        bottom.centroid,
+        Point::new(1.0, 0.0, 10.0),
+        POINT_TOLERANCE,
+        "wall bottom centroid",
+    );
+}
+
+#[test]
+fn t102_kept_faces_keep_their_image_and_generate_their_inner_offset() {
+    let (body, step, result) = l_shell();
+
+    for face in (1..=body.count(SubShapeKind::Face)).filter(|face| *face != step) {
+        let original = geometry(&body, SubShapeKind::Face, face);
+        let normal = original.direction.expect("every face of L is planar");
+        let fate = face_fate(&result, face);
+        assert_eq!(fate.modified.len(), 1, "face {face}: {fate:?}");
+        let image = geometry(&result.shape, SubShapeKind::Face, fate.modified[0]);
+        assert_relative(
+            image.measure,
+            original.measure,
+            1e-9,
+            &format!("face {face} image area"),
+        );
+        let inner_faces = generated_faces(fate);
+        assert_eq!(inner_faces.len(), 1, "face {face}: {fate:?}");
+        let inner = geometry(&result.shape, SubShapeKind::Face, inner_faces[0]);
+        assert_eq!(inner.kind, GeometryKind::Plane, "face {face} inner face");
+        assert_vector_near(
+            inner.direction.expect("a plane has a direction"),
+            Vector::new(-normal.x, -normal.y, -normal.z),
+            POINT_TOLERANCE,
+            &format!("face {face} inner direction"),
+        );
+        let distance = (inner.centroid.x - original.centroid.x) * normal.x
+            + (inner.centroid.y - original.centroid.y) * normal.y
+            + (inner.centroid.z - original.centroid.z) * normal.z;
+        assert_near(
+            distance,
+            -2.0,
+            POINT_TOLERANCE,
+            &format!("face {face} wall thickness"),
+        );
+    }
+}
+
+#[test]
+fn t102_every_face_of_the_cavity_cut_has_an_origin() {
+    let (_, _, result) = l_shell();
+
+    assert_every_face_has_an_origin(&result);
+}
+
+#[test]
+fn t102_thin_wall_beside_a_concave_edge() {
+    let (body, step) = l_body();
+
+    let result = shell(&body, &[step], 0.5).expect("a 0.5 mm wall fits");
+
+    assert_relative(volume(&result.shape), 1531.0, 1e-9, "volume");
+}
+
+#[test]
+fn t102_wall_too_thick_beside_a_concave_edge_fails() {
+    let (body, step) = l_body();
+
+    let error = shell(&body, &[step], 10.0).expect_err("a 10 mm wall does not fit");
+
+    assert_shell_failed(&error);
+}
+
+#[test]
+fn t103_wall_thinner_than_a_cylinder_radius() {
+    let cylinder = make_cylinder(&Plane::XY, 20.0, 40.0).expect("CYL20 builds");
+    let top = face_with_role(&cylinder, PrimitiveFace::Top);
+
+    let result = shell(&cylinder.shape, &[top], 19.0).expect("a 19 mm wall leaves a bore");
+
+    assert_relative(volume(&result.shape), 50199.50901171131, 1e-9, "volume");
+}
+
+#[test]
+fn t103_wall_thicker_than_a_cylinder_radius_fails() {
+    let cylinder = make_cylinder(&Plane::XY, 20.0, 40.0).expect("CYL20 builds");
+    let top = face_with_role(&cylinder, PrimitiveFace::Top);
+
+    let error = shell(&cylinder.shape, &[top], 25.0).expect_err("a 25 mm wall does not fit");
+
+    assert_shell_failed(&error);
 }
 
 #[test]

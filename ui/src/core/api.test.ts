@@ -326,9 +326,9 @@ describe('rebuildsDocument and rebuiltDocument', () => {
   })
 
   it('names the document from the command, or from the result of open_document', () => {
-    expect(rebuiltDocument({ type: 'undo', doc: 3 }, { type: 'undo', revision: 4, label: 'Edit' })).toBe(
-      3,
-    )
+    expect(
+      rebuiltDocument({ type: 'undo', doc: 3 }, { type: 'undo', revision: 4, label: 'Edit' }),
+    ).toBe(3)
     expect(
       rebuiltDocument(
         { type: 'open_document', text: '{}' },

@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest'
-import type { Command, Edit } from '../../generated/protocol'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { Command, Edit, ElementDescriptor } from '../../generated/protocol'
+import { MESSAGES } from '../../messages'
 import { currentDocument, type FakeApp, startWithDocument } from '../../test/fakes/app'
 import {
   CUBE_DOCUMENT,
@@ -72,6 +73,32 @@ describe('createSketchOn (3.16.1)', () => {
     const { command, edit } = newSketchEdit(fake)
     expect(edit?.index).toBe(2)
     expect(editsOf(command).some((candidate) => candidate.type === 'set_rollback')).toBe(false)
+  })
+})
+
+describe('plane picking (3.16.1)', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('a face that is not flat shows pick_plane in the sketch header for 3 s and adds nothing', async () => {
+    const fake = await cube()
+    await startNewSketch(fake.app)
+    const roundFace: ElementDescriptor = {
+      ...CUBE_FRONT_FACE,
+      name: 'f-cyl1/side',
+      surface: 'cylinder',
+      placement: null,
+    }
+    vi.useFakeTimers()
+    await createSketchOn(fake.app, elementItem(roundFace, 'Cube'))
+    const state = fake.app.store.getState()
+    expect(state.pickHint).toEqual({ message: MESSAGES.pick_plane(), field: null })
+    expect(state.notifications).toEqual([])
+    expect(state.sketch?.sketchId).toBeNull()
+    expect(fake.transport.commandTypes()).not.toContain('apply_edits')
+    vi.advanceTimersByTime(3_000)
+    expect(fake.app.store.getState().pickHint).toBeNull()
   })
 })
 

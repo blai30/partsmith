@@ -187,9 +187,7 @@ function highlightedReferences(state: AppState): {
 }
 
 function prefersReducedMotion(): boolean {
-  return (
-    typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
-  )
+  return typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
 }
 
 /** Animation frames, or a timer where the environment has none. */
@@ -443,8 +441,10 @@ export function createViewportController(options: {
     const samples = backend
       .pick(frame, x, y, pickRadius)
       .toSorted((first, second) => first.pickId - second.pickId)
-    const candidates: (PickCandidate & { readonly result: PickResult; readonly depth: number | null })[] =
-      []
+    const candidates: (PickCandidate & {
+      readonly result: PickResult
+      readonly depth: number | null
+    })[] = []
     for (const sample of samples) {
       const target = scene.targetFor(sample.pickId)
       if (target === null) {
@@ -517,7 +517,9 @@ export function createViewportController(options: {
   }
 
   /** The selection item of a mesh pick through the core, or null when the pick went stale. */
-  async function meshItem(result: Extract<PickResult, { kind: 'mesh' }>): Promise<SelectionItem | null> {
+  async function meshItem(
+    result: Extract<PickResult, { kind: 'mesh' }>,
+  ): Promise<SelectionItem | null> {
     const document = store.getState().document
     if (document === null) {
       return null
@@ -550,7 +552,12 @@ export function createViewportController(options: {
           body: result.body,
           meshId: result.meshId,
           matches: [
-            { body: result.body, mesh_id: result.meshId, kind: result.element, index: result.index },
+            {
+              body: result.body,
+              mesh_id: result.meshId,
+              kind: result.element,
+              index: result.index,
+            },
           ],
         })
       }
@@ -650,7 +657,9 @@ export function createViewportController(options: {
     }
     const item = result.item
     if (
-      (item.kind === 'sketch_curve' || item.kind === 'sketch_point' || item.kind === 'sketch_region') &&
+      (item.kind === 'sketch_curve' ||
+        item.kind === 'sketch_point' ||
+        item.kind === 'sketch_region') &&
       item.feature !== null
     ) {
       await enterSketch(app, item.feature)
@@ -863,7 +872,11 @@ export function createViewportController(options: {
   // Highlights through the core.
 
   const resolutions = createLatestOnly<
-    { readonly documentHandle: DocHandle; readonly references: readonly ElementRef[]; readonly meshIds: readonly number[] },
+    {
+      readonly documentHandle: DocHandle
+      readonly references: readonly ElementRef[]
+      readonly meshIds: readonly number[]
+    },
     readonly Resolution[]
   >(
     (request) => app.core.resolveReferences(request.documentHandle, request.references),
@@ -947,7 +960,10 @@ export function createViewportController(options: {
   function faceRequestOf(body: string): LatestOnly<{ documentHandle: DocHandle; meshId: number }> {
     let request = faceRequests.get(body)
     if (request === undefined) {
-      request = createLatestOnly<{ documentHandle: DocHandle; meshId: number }, readonly ElementDescriptor[]>(
+      request = createLatestOnly<
+        { documentHandle: DocHandle; meshId: number },
+        readonly ElementDescriptor[]
+      >(
         (input) => app.core.listElements(input.documentHandle, body, 'face'),
         (faces, input) => {
           const current = store.getState().document?.meshes[body]?.meshId
@@ -999,7 +1015,10 @@ export function createViewportController(options: {
       }
       faceLists.delete(body.id)
       requestedFaces.set(body.id, mesh.meshId)
-      faceRequestOf(body.id).submit({ documentHandle: document.documentHandle, meshId: mesh.meshId })
+      faceRequestOf(body.id).submit({
+        documentHandle: document.documentHandle,
+        meshId: mesh.meshId,
+      })
     }
   }
 
@@ -1183,10 +1202,9 @@ export function createViewportController(options: {
           return
         case 'pan': {
           const height = Math.max(size.height, 1)
-          setCamera(
-            pan(goal, navigation.deltaX * height, navigation.deltaY * height, height),
-            { record: true },
-          )
+          setCamera(pan(goal, navigation.deltaX * height, navigation.deltaY * height, height), {
+            record: true,
+          })
           return
         }
         case 'zoom':
@@ -1221,4 +1239,3 @@ export function createViewportController(options: {
     },
   }
 }
-

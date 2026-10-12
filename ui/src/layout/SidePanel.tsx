@@ -55,7 +55,9 @@ export function SidePanel() {
   return (
     <aside
       data-testid="side-panel"
-      aria-label={side === 'parameters' ? 'Parameters' : side === 'problems' ? 'Problems' : 'Print health'}
+      aria-label={
+        side === 'parameters' ? 'Parameters' : side === 'problems' ? 'Problems' : 'Print health'
+      }
       className={clsx(
         'flex w-90 max-w-full shrink-0 flex-col border-l max-lg:absolute max-lg:inset-y-0 max-lg:right-0 max-lg:z-30 max-lg:shadow-lg',
         COLOR_CLASSES.surface.background,

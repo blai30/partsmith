@@ -1,12 +1,12 @@
 import type { Finding, Location, PrintReport, Severity } from '../generated/protocol'
 import type { AppState, FindingKey } from '../state/store'
 import type { Vector3 } from '../viewport/math'
-import { PRINT_CHECKS } from './checks'
+import { isCheckHidden, PRINT_CHECKS } from './checks'
 import { memoized } from './memoize'
 
-// The rows of the health panel and the findings they point at (ui.md 3.17).
+// The rows of the print check panel and the findings they point at (ui.md 3.17).
 
-/** One finding of the health panel. */
+/** One finding of the print check panel. */
 export type HealthRow = {
   readonly key: FindingKey
   readonly severity: Severity
@@ -37,11 +37,10 @@ export const healthRows: (state: AppState) => readonly HealthRow[] = memoized(
     if (report === null) {
       return []
     }
-    const hidden = new Set(hiddenChecks)
     const names = new Map((bodies ?? []).map((body) => [body.id, body.name]))
     const rows = report.bodies.flatMap((body) =>
       body.report.checks
-        .filter((check) => !hidden.has(check.check))
+        .filter((check) => !isCheckHidden(hiddenChecks, check.check))
         .flatMap((check) =>
           check.findings.map((finding, index) => ({
             key: { body: body.body, check: check.check, index },
@@ -102,7 +101,7 @@ export const hasPrintableBody: (state: AppState) => boolean = memoized(
     ),
 )
 
-/** Why the health panel has no report to list: the first analysis is running, or none has run. */
+/** Why the print check panel has no report to list: the first analysis is running, or none has run. */
 export type MissingReport = 'checking' | 'unchecked'
 
 /** Why there is no report to list, or null when there is one (a stale report is still listed). */

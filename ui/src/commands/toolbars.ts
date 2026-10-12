@@ -1,4 +1,11 @@
-import { Cuboid, FileOutput, Grid3x3, Magnet, RectangleHorizontal, type LucideIcon } from 'lucide-react'
+import {
+  Cuboid,
+  FileOutput,
+  Grid3x3,
+  Magnet,
+  RectangleHorizontal,
+  type LucideIcon,
+} from 'lucide-react'
 import type { AppContext } from '../state/store'
 
 // The toolbar of each context (ui.md 3.3). Entries name registry commands; an entry whose command

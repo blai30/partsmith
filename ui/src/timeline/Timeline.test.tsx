@@ -154,7 +154,9 @@ describe('timeline items (3.9)', () => {
   it('marks suppressed features', () => {
     const suppressed: Document = {
       ...CUBE_DOCUMENT,
-      features: [CUBE_SKETCH, { ...CUBE_EXTRUDE, suppressed: true }] as NonNullable<Document['features']>,
+      features: [CUBE_SKETCH, { ...CUBE_EXTRUDE, suppressed: true }] as NonNullable<
+        Document['features']
+      >,
     }
     renderTimeline(
       withStatus(documentState(suppressed), {
@@ -333,7 +335,9 @@ describe('selecting and editing (3.9)', () => {
   it('unsuppresses a suppressed feature with "Unsuppress {label}"', async () => {
     const suppressed: Document = {
       ...CUBE_DOCUMENT,
-      features: [CUBE_SKETCH, { ...CUBE_EXTRUDE, suppressed: true }] as NonNullable<Document['features']>,
+      features: [CUBE_SKETCH, { ...CUBE_EXTRUDE, suppressed: true }] as NonNullable<
+        Document['features']
+      >,
     }
     const { core, user } = renderTimeline(documentState(suppressed))
     await user.pointer({ keys: '[MouseRight]', target: itemButton('Extrude 1') })
@@ -382,7 +386,9 @@ describe('selecting and editing (3.9)', () => {
   it('removes the name when the rename is empty, so the default label returns', async () => {
     const named: Document = {
       ...CUBE_DOCUMENT,
-      features: [CUBE_SKETCH, { ...CUBE_EXTRUDE, name: 'Base' }] as NonNullable<Document['features']>,
+      features: [CUBE_SKETCH, { ...CUBE_EXTRUDE, name: 'Base' }] as NonNullable<
+        Document['features']
+      >,
     }
     const { core, user } = renderTimeline(documentState(named))
     itemButton('Base').focus()

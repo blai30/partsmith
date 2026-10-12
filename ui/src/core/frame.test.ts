@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import type { Command } from '../generated/protocol'
 import { decodeFrame, encodeFrame, FrameDecodeError, ProtocolVersionError } from './frame'
 
 // Example frames A and B of protocol.md 2.2, byte for byte as the spec's hex dumps list them.
@@ -163,6 +164,24 @@ describe('encodeFrame', () => {
       { kind: 'request', id: 9, command: { type: 'undo', doc: 3 } },
     ])
     expect(decoded.buffers.map((buffer) => Array.from(buffer))).toEqual([[1, 2, 3], [0.5, -2], [7]])
+  })
+
+  it('writes integral floats as JSON.stringify does and decodes them to the same values', () => {
+    // serde_json would write 20.0; the Rust decoder reads 20 as the same f64, so only the bytes differ.
+    const command: Command = {
+      type: 'drag_sketch',
+      doc: 1,
+      feature: 'f-sk1',
+      point: 'e-1.end',
+      to: [20, 5.5],
+    }
+    const frame = encodeFrame(
+      { protocol_version: 1, messages: [{ kind: 'request', id: 4, command }] },
+      [],
+    )
+    const header = new TextDecoder().decode(new Uint8Array(frame, 8))
+    expect(header).toContain('"to":[20,5.5]')
+    expect(decodeFrame(frame).header.messages).toEqual([{ kind: 'request', id: 4, command }])
   })
 })
 

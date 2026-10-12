@@ -13,13 +13,12 @@ const MAXIMUM_COUNT = 4_294_967_295
 /** How close to a whole number a count may be. */
 const WHOLE_TOLERANCE = 1e-9
 
-const EXPECTED: Readonly<Record<FieldUnit, { readonly name: string; readonly example: string }>> =
-  {
-    length: { name: 'a length', example: 'a value such as 10 mm' },
-    angle: { name: 'an angle', example: 'a value such as 45 deg' },
-    scalar: { name: 'a plain number', example: 'a plain number such as 2' },
-    count: { name: 'a whole number', example: 'a whole number such as 4' },
-  }
+const EXPECTED: Readonly<Record<FieldUnit, { readonly name: string; readonly example: string }>> = {
+  length: { name: 'a length', example: 'a value such as 10 mm' },
+  angle: { name: 'an angle', example: 'a value such as 45 deg' },
+  scalar: { name: 'a plain number', example: 'a plain number such as 2' },
+  count: { name: 'a whole number', example: 'a whole number such as 4' },
+}
 
 function isDimension(dimension: Dimension, length: number, angle: number): boolean {
   return dimension.length === length && dimension.angle === angle
@@ -134,6 +133,8 @@ export function convertForField(
     case 'scalar':
       return plain ? { ok: true, value } : wrongDimension(unit, dimension, label, source)
     case 'count':
-      return plain ? countValue(value, label, units) : wrongDimension(unit, dimension, label, source)
+      return plain
+        ? countValue(value, label, units)
+        : wrongDimension(unit, dimension, label, source)
   }
 }

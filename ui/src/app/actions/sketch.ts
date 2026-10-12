@@ -282,32 +282,31 @@ export async function enterSketch(app: App, sketchId: string): Promise<void> {
       sessionVisible: { ...state.view.sessionVisible, [`feature:${sketchId}`]: true },
     },
   }))
-  // The history starts with the camera from before entering, whether or not the sketch solves.
-  histories.set(app.store, {
-    undo: before === null ? [] : [{ kind: 'view', camera: before }],
-    redo: [],
-  })
   const document = documentOf(app)
   if (document === null) {
     return
   }
   let solution = document.sketches[sketchId]?.solution ?? null
   if (solution === null) {
-    let solved: SolvedSketch | null = null
     try {
-      solved = await app.core.solveSketch(document.documentHandle, sketchId)
+      const solved = await app.core.solveSketch(document.documentHandle, sketchId)
+      if (solved !== null) {
+        solution = solved.solution
+        showSketchSolution(app, sketchId, solved)
+      }
     } catch (error) {
-      // A refused solve leaves the sketch without geometry to show; the camera stays.
+      // A refused solve leaves nothing to look at; the session still starts.
       showCoreError(app, error)
-    }
-    if (solved !== null) {
-      solution = solved.solution
-      showSketchSolution(app, sketchId, solved)
     }
   }
   if (solution !== null) {
     lookAtSketch(app, solution)
   }
+  // Set after the camera moved onto the sketch, so the history starts with the camera from before.
+  histories.set(app.store, {
+    undo: before === null ? [] : [{ kind: 'view', camera: before }],
+    redo: [],
+  })
 }
 
 /** Ends sketch mode: Model context, the sketch kept visible for the session, the camera kept (3.16.11). */

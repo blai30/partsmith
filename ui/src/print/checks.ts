@@ -9,7 +9,7 @@ export type PrintCheck = {
 
 /**
  * Every check in display order: the order of the Checks popover's switches and the tie-break order
- * of the health list. Mesh validity comes last because it cannot be switched off.
+ * of the print check list. Mesh validity comes last because it cannot be switched off.
  */
 export const PRINT_CHECKS: readonly PrintCheck[] = [
   { check: 'overhangs', title: 'Overhangs' },
@@ -24,3 +24,11 @@ export const PRINT_CHECKS: readonly PrintCheck[] = [
 
 /** The check that always runs and is always shown: every export depends on a valid mesh. */
 export const ALWAYS_SHOWN_CHECK: CheckKind = 'mesh_validity'
+
+/**
+ * Whether a check's findings are hidden by `settings.hiddenChecks`. Mesh validity is never hidden,
+ * even when stored settings (an older build, a hand edit) list it.
+ */
+export function isCheckHidden(hiddenChecks: readonly string[], check: string): boolean {
+  return check !== ALWAYS_SHOWN_CHECK && hiddenChecks.includes(check)
+}

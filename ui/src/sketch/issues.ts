@@ -93,3 +93,20 @@ export function findingPoints(finding: ProfileFinding): readonly Vector2[] {
       return []
   }
 }
+
+/** A profile finding's ring on the sketch (3.16.2). */
+export type IssueRing = {
+  /** Where the ring goes, in sketch coordinates. */
+  readonly at: Vector2
+  /** The ring's SVG title: "Open end", "Overlapping curves" or "Curves cross". */
+  readonly title: string
+}
+
+/** The rings of a solution's profile findings, in finding order; zero-length curves get none. */
+export function issueRings(solution: SketchSolution): readonly IssueRing[] {
+  return solution.profile_findings.flatMap((finding) => {
+    const at = profileIssuePosition(finding)
+    const title = profileIssueTitle(finding)
+    return at === null || title === null ? [] : [{ at, title }]
+  })
+}

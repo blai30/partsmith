@@ -1,6 +1,11 @@
 import { clsx } from 'clsx/lite'
 import { ChevronDown, ChevronRight, CircleX, TriangleAlert } from 'lucide-react'
-import { cancelCommand, confirmCommand, setActiveField, setCommandField } from '../app/actions/command'
+import {
+  cancelCommand,
+  confirmCommand,
+  setActiveField,
+  setCommandField,
+} from '../app/actions/command'
 import { updateSettings } from '../app/actions/settings'
 import { useApp, useAppState } from '../app/AppProvider'
 import { Button } from '../components/Button'
@@ -85,7 +90,8 @@ function StatusBanner({
 }) {
   const app = useApp()
   const errors = messages.filter((message) => message.severity === 'error')
-  const shown = errors.length > 0 ? errors : messages.filter((message) => message.severity === 'warning')
+  const shown =
+    errors.length > 0 ? errors : messages.filter((message) => message.severity === 'warning')
   if (shown.length === 0) {
     return null
   }

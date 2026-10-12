@@ -409,11 +409,7 @@ mod tests {
     #[test]
     fn no_tool_is_internal_for_every_op() {
         for op in [BodyOp::New, BodyOp::Join, BodyOp::Cut, BodyOp::Intersect] {
-            let result = apply(
-                box_body("f-box1", [0.0, 0.0, 0.0], 10.0),
-                op,
-                Vec::new(),
-            );
+            let result = apply(box_body("f-box1", [0.0, 0.0, 0.0], 10.0), op, Vec::new());
 
             assert_eq!(
                 result.map(|_| ()).map_err(|error| error.code()),

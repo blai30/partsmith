@@ -72,7 +72,12 @@ function unitSymbol(unit: FieldUnit | 'any', units: Units): string {
 }
 
 /** The text after the field: the implied unit, `= {value}`, or nothing while empty or pending. */
-function resultText(text: string, state: ExpressionState, unit: FieldUnit | 'any', units: Units): string {
+function resultText(
+  text: string,
+  state: ExpressionState,
+  unit: FieldUnit | 'any',
+  units: Units,
+): string {
   if (state.state !== 'valid') {
     return ''
   }

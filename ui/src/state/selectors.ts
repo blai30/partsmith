@@ -159,15 +159,25 @@ export type Problem =
     }
   | { readonly kind: 'document'; readonly diagnostic: Diagnostic }
 
-/** Features with warnings or errors in timeline order, then the document diagnostics. */
+/**
+ * Features with warnings or errors in timeline order, then the document diagnostics. It depends on
+ * the recipe, the statuses and the diagnostics only, so meshes and rebuild times arriving while the
+ * user types in the inspector give the same list back.
+ */
 export const selectProblems: (state: AppState) => readonly Problem[] = memoized(
-  (state) => [state.document, state.catalog] as const,
-  (document, catalog): readonly Problem[] => {
-    if (document === null) {
+  (state) =>
+    [
+      state.document?.recipe,
+      state.document?.featureStatus,
+      state.document?.diagnostics,
+      state.catalog,
+    ] as const,
+  (recipe, featureStatus, diagnostics, catalog): readonly Problem[] => {
+    if (recipe === undefined || featureStatus === undefined || diagnostics === undefined) {
       return []
     }
-    const features: Problem[] = (document.recipe.features ?? []).flatMap((feature) => {
-      const status = document.featureStatus[feature.id]
+    const features: Problem[] = (recipe.features ?? []).flatMap((feature) => {
+      const status = featureStatus[feature.id]
       if (status === undefined || (status.status !== 'warning' && status.status !== 'error')) {
         return []
       }
@@ -175,16 +185,16 @@ export const selectProblems: (state: AppState) => readonly Problem[] = memoized(
         {
           kind: 'feature',
           featureId: feature.id,
-          label: featureLabel(document.recipe, feature.id, catalog),
+          label: featureLabel(recipe, feature.id, catalog),
           status: status.status,
           messages: status.messages,
         },
       ]
     })
-    const diagnostics: Problem[] = document.diagnostics.map((diagnostic) => ({
+    const documentProblems: Problem[] = diagnostics.map((diagnostic) => ({
       kind: 'document',
       diagnostic,
     }))
-    return [...features, ...diagnostics]
+    return [...features, ...documentProblems]
   },
 )

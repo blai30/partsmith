@@ -57,7 +57,11 @@ function NotificationCard({ notification }: { readonly notification: Notificatio
         hold('focus', true)
       }}
       onBlur={(event) => {
-        if (!(event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget))) {
+        if (
+          !(
+            event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)
+          )
+        ) {
           hold('focus', false)
         }
       }}

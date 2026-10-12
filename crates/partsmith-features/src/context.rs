@@ -759,7 +759,10 @@ fn coordinates(point: Point) -> [f64; 3] {
 /// The face placement rule (section 3.6) on a face with this geometry: its plane through the face
 /// centroid with the outward normal, origin and x-axis taken from `hint` as `Placement::on_plane`
 /// does. None when the face is not flat.
-fn on_face(geometry: &ElementGeometry, hint: &Placement) -> Result<Option<Placement>, FeatureError> {
+fn on_face(
+    geometry: &ElementGeometry,
+    hint: &Placement,
+) -> Result<Option<Placement>, FeatureError> {
     if geometry.kind != GeometryKind::Plane {
         return Ok(None);
     }
@@ -1278,11 +1281,9 @@ mod tests {
         query: &str,
         fingerprint: &str,
     ) -> Result<Result<Placement, FallbackReason>, FeatureError> {
-        fixture.context().face_placement(
-            &id("b-1"),
-            &reference(query, fingerprint),
-            &tilted_hint(),
-        )
+        fixture
+            .context()
+            .face_placement(&id("b-1"), &reference(query, fingerprint), &tilted_hint())
     }
 
     #[test]
@@ -1742,7 +1743,9 @@ mod tests {
         );
         assert_eq!(error.suggestion(Units::Mm).as_deref(), Some("1"));
         assert_eq!(
-            context.eval_count("count", &expr, 0).map_err(|error| error.code()),
+            context
+                .eval_count("count", &expr, 0)
+                .map_err(|error| error.code()),
             Err("not_whole_number")
         );
     }

@@ -388,11 +388,11 @@ fn main() -> ExitCode {
             median_time(|| (prism.elements(SubShapeKind::Face), prism.topology()))
         },
     );
-    let plate = plate();
     measure(
         "elements of every kind and topology(), PLATE",
         milliseconds(8),
         &|| {
+            let plate = plate();
             median_time(|| {
                 (
                     plate.elements(SubShapeKind::Face),
@@ -403,22 +403,14 @@ fn main() -> ExitCode {
             })
         },
     );
-    measure("TEMP elements(Face), PLATE", milliseconds(8), &|| {
-        median_time(|| plate.elements(SubShapeKind::Face))
-    });
-    measure("TEMP elements(Edge), PLATE", milliseconds(8), &|| {
-        median_time(|| plate.elements(SubShapeKind::Edge))
-    });
-    measure("TEMP elements(Vertex), PLATE", milliseconds(8), &|| {
-        median_time(|| plate.elements(SubShapeKind::Vertex))
-    });
-    measure("TEMP topology(), PLATE", milliseconds(8), &|| {
-        median_time(|| plate.topology())
-    });
-    measure("shell, L with its step face removed", milliseconds(40), &|| {
-        let (body, step) = l_body();
-        median_time(|| shell(&body, &[step], 2.0))
-    });
+    measure(
+        "shell, L with its step face removed",
+        milliseconds(40),
+        &|| {
+            let (body, step) = l_body();
+            median_time(|| shell(&body, &[step], 2.0))
+        },
+    );
 
     let part = part();
     println!(

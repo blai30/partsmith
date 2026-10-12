@@ -140,7 +140,13 @@ function Suggestions({ ids }: { readonly ids: readonly string[] }) {
   )
 }
 
-function BodySection({ document, bodyId }: { readonly document: DocumentState; readonly bodyId: string }) {
+function BodySection({
+  document,
+  bodyId,
+}: {
+  readonly document: DocumentState
+  readonly bodyId: string
+}) {
   const app = useApp()
   const materialId = useId()
   const listId = useId()
@@ -270,7 +276,14 @@ function FeatureSection({
           {messages.map((message, index) => (
             // Messages carry no id; their order is the core's.
             // oxlint-disable-next-line react/no-array-index-key
-            <li key={index} className={message.severity === 'error' ? COLOR_CLASSES.errorText.foreground : COLOR_CLASSES.warningText.foreground}>
+            <li
+              key={index}
+              className={
+                message.severity === 'error'
+                  ? COLOR_CLASSES.errorText.foreground
+                  : COLOR_CLASSES.warningText.foreground
+              }
+            >
               {message.message}
             </li>
           ))}
@@ -442,7 +455,9 @@ function SketchSection({
   const params = record === undefined ? null : sketchParamsOf(record)
   const [only] = items
   const constraintId =
-    items.length === 1 && only?.sketchItem?.kind === 'constraint' ? only.sketchItem.constraint : null
+    items.length === 1 && only?.sketchItem?.kind === 'constraint'
+      ? only.sketchItem.constraint
+      : null
   const remove = (
     <Button
       onClick={() => {
@@ -456,7 +471,7 @@ function SketchSection({
     </Button>
   )
   if (constraintId !== null) {
-    const constraint = params?.constraints.find((candidate) => candidate.id === constraintId)
+    const constraint = params?.constraints?.find((candidate) => candidate.id === constraintId)
     if (constraint === undefined) {
       return (
         <>
@@ -510,7 +525,8 @@ function SketchSection({
   const construction =
     entities.length > 0 &&
     entities.every(
-      (entity) => solution?.entities.find((candidate) => candidate.id === entity)?.construction === true,
+      (entity) =>
+        solution?.entities.find((candidate) => candidate.id === entity)?.construction === true,
     )
   const constraints: readonly ConstraintType[] =
     solution === null ? [] : applicableConstraints(items, solution)
@@ -620,7 +636,9 @@ export function SelectionInspector({ items }: { readonly items: readonly Selecti
       )
     }
   }
-  if (items.every((item) => item.kind === 'face' || item.kind === 'edge' || item.kind === 'vertex')) {
+  if (
+    items.every((item) => item.kind === 'face' || item.kind === 'edge' || item.kind === 'vertex')
+  ) {
     return <ElementsSection document={document} items={items} />
   }
   if (items.every((item) => item.kind === 'sketch_region')) {

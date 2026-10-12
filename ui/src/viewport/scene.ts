@@ -238,8 +238,16 @@ function extend(bounds: BoundingBox | null, points: Iterable<Point3>): BoundingB
       result === null
         ? { min: [x, y, z], max: [x, y, z] }
         : {
-            min: [Math.min(result.min[0], x), Math.min(result.min[1], y), Math.min(result.min[2], z)],
-            max: [Math.max(result.max[0], x), Math.max(result.max[1], y), Math.max(result.max[2], z)],
+            min: [
+              Math.min(result.min[0], x),
+              Math.min(result.min[1], y),
+              Math.min(result.min[2], z),
+            ],
+            max: [
+              Math.max(result.max[0], x),
+              Math.max(result.max[1], y),
+              Math.max(result.max[2], z),
+            ],
           }
   }
   return result
@@ -528,7 +536,11 @@ type Highlight = {
   readonly selected: ReadonlySet<string>
 }
 
-function statesFor(count: number, keyOf: (index: number) => string, highlight: Highlight): Uint8Array {
+function statesFor(
+  count: number,
+  keyOf: (index: number) => string,
+  highlight: Highlight,
+): Uint8Array {
   const states = new Uint8Array(count)
   for (let i = 0; i < count; i++) {
     const key = keyOf(i)
@@ -746,7 +758,11 @@ export function createScene(backend: RenderBackend): Scene {
 
   function visibleSketches(
     state: AppState,
-  ): readonly { readonly id: string; readonly solution: SketchSolution; readonly active: boolean }[] {
+  ): readonly {
+    readonly id: string
+    readonly solution: SketchSolution
+    readonly active: boolean
+  }[] {
     const document = state.document
     if (document === null) {
       return []
@@ -855,7 +871,9 @@ export function createScene(backend: RenderBackend): Scene {
     if (document !== null) {
       const previewShown = state.command !== null && state.command.preview !== 'none'
       const selectedBodies = new Set(
-        selection.flatMap((item) => (item.kind === 'body' && item.body !== null ? [item.body] : [])),
+        selection.flatMap((item) =>
+          item.kind === 'body' && item.body !== null ? [item.body] : [],
+        ),
       )
       const fields = overhangFields(state, overhang)
       for (const body of document.recipe.bodies ?? []) {
@@ -898,8 +916,7 @@ export function createScene(backend: RenderBackend): Scene {
         placement: datum.placement,
       })),
       ...ORIGIN_PLANES.filter(
-        (plane) =>
-          originPlanesShown(state) || sessionVisible(state, `origin:${plane.name}`, null),
+        (plane) => originPlanesShown(state) || sessionVisible(state, `origin:${plane.name}`, null),
       ).map((plane) => ({
         key: `origin:${plane.name}`,
         item: plainItem(`origin:${plane.name}`, 'origin_plane', ORIGIN_LABELS[plane.name], {
@@ -1343,7 +1360,10 @@ export function createScene(backend: RenderBackend): Scene {
         },
         elementCount: 1,
         target: picking.accepts('origin_point')
-          ? itemTarget([plainItem('origin:O', 'origin_point', ORIGIN_LABELS.O, { origin: 'O' })], 'point')
+          ? itemTarget(
+              [plainItem('origin:O', 'origin_point', ORIGIN_LABELS.O, { origin: 'O' })],
+              'point',
+            )
           : null,
         states: statesFor(1, () => 'origin:O', highlight),
       })
@@ -1418,7 +1438,10 @@ export function createScene(backend: RenderBackend): Scene {
         element,
         points: curvePolyline(entity, tolerance) ?? new Float32Array(),
       }))
-      const signature = JSON.stringify([solution.placement, polylines.map((line) => Array.from(line.points))])
+      const signature = JSON.stringify([
+        solution.placement,
+        polylines.map((line) => Array.from(line.points)),
+      ])
       uploadGenerated(id, signature, () => {
         const { positions, elementIds } = segmentsOnPlane(solution.placement, polylines)
         return { kind: 'lines', positions, elementIds, elementCount: chosen.length }
@@ -1449,9 +1472,7 @@ export function createScene(backend: RenderBackend): Scene {
         },
         elementCount: chosen.length,
         target:
-          pickableSketch && picking.accepts('sketch_curve')
-            ? itemTarget(items, 'curve')
-            : null,
+          pickableSketch && picking.accepts('sketch_curve') ? itemTarget(items, 'curve') : null,
         states,
       })
     }
@@ -1479,7 +1500,9 @@ export function createScene(backend: RenderBackend): Scene {
       const owners = new Map(solution.entities.map((entity) => [entity.id, entity]))
       const items = solvedPoints.map((point) => {
         const owner = owners.get(point.point)
-        return owner?.type === 'point' ? entityItem(sketch.id, owner) : pointItem(sketch.id, point.point)
+        return owner?.type === 'point'
+          ? entityItem(sketch.id, owner)
+          : pointItem(sketch.id, point.point)
       })
       const colors = solvedPoints.flatMap((point) => {
         const ownerId = point.point.split('.')[0] ?? point.point
@@ -1503,9 +1526,7 @@ export function createScene(backend: RenderBackend): Scene {
         },
         elementCount: solvedPoints.length,
         target:
-          pickableSketch && picking.accepts('sketch_point')
-            ? itemTarget(items, 'point')
-            : null,
+          pickableSketch && picking.accepts('sketch_point') ? itemTarget(items, 'point') : null,
         states: statesFor(solvedPoints.length, (index) => items[index]?.key ?? '', highlight),
       })
     }
@@ -1545,14 +1566,19 @@ export function createScene(backend: RenderBackend): Scene {
       const items = solution.regions.map((_, index) => regionItem(sketch.id, solution, index))
       draws.push({
         call: {
-          ...overlayCall(colorOf(theme, 'sketchRegion'), 'overlay', sketch.active ? REGION_OPACITY : 0, 0, false, false),
+          ...overlayCall(
+            colorOf(theme, 'sketchRegion'),
+            'overlay',
+            sketch.active ? REGION_OPACITY : 0,
+            0,
+            false,
+            false,
+          ),
           id: regionsId,
         },
         elementCount: solution.regions.length,
         target:
-          pickableSketch && picking.accepts('sketch_region')
-            ? itemTarget(items, 'area')
-            : null,
+          pickableSketch && picking.accepts('sketch_region') ? itemTarget(items, 'area') : null,
         states: statesFor(solution.regions.length, (index) => items[index]?.key ?? '', highlight),
       })
     }
@@ -1576,7 +1602,12 @@ export function createScene(backend: RenderBackend): Scene {
     const quantum = Math.max(reach / 8, 1e-6)
     const centerX = Math.round(alongX / quantum) * quantum
     const centerY = Math.round(alongY / quantum) * quantum
-    const axisSignature = JSON.stringify([solution.placement, centerX, centerY, Math.round(reach / quantum)])
+    const axisSignature = JSON.stringify([
+      solution.placement,
+      centerX,
+      centerY,
+      Math.round(reach / quantum),
+    ])
     uploadGenerated(axesId, axisSignature, () => {
       const { positions } = segmentsOnPlane(solution.placement, [
         { element: 0, points: new Float32Array([centerX - reach, 0, centerX + reach, 0]) },

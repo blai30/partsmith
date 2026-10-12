@@ -40,7 +40,5 @@ export function togglesSelection(
   app: App,
   event: { readonly shiftKey: boolean; readonly metaKey: boolean; readonly ctrlKey: boolean },
 ): boolean {
-  return (
-    event.shiftKey || (app.platform.operatingSystem === 'mac' ? event.metaKey : event.ctrlKey)
-  )
+  return event.shiftKey || (app.platform.operatingSystem === 'mac' ? event.metaKey : event.ctrlKey)
 }

@@ -1,13 +1,14 @@
 import { clsx } from 'clsx/lite'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type DragEvent } from 'react'
 import { cancelCommand } from './app/actions/command'
+import { openFile } from './app/actions/document'
 import { clearSelection } from './app/actions/selection'
 import { finishSketch, setSketchTool } from './app/actions/sketch'
 import { useApp, useAppState } from './app/AppProvider'
 import type { App as AppHandle } from './app/createApp'
 import { Browser } from './browser/Browser'
 import { Inspector } from './inspector/Inspector'
-import { useResolvedTheme } from './layout/color-scheme'
+import { useResolvedTheme } from './layout/use-resolved-theme'
 import { CommandPalette } from './layout/CommandPalette'
 import { Notifications } from './layout/Notifications'
 import { RegionBoundary } from './layout/RegionBoundary'
@@ -149,7 +150,9 @@ function selectionMessage(selection: readonly SelectionItem[]): string {
   if (only === undefined) {
     return 'Selection cleared'
   }
-  return selection.length === 1 ? `${only.label} selected` : `${String(selection.length)} items selected`
+  return selection.length === 1
+    ? `${only.label} selected`
+    : `${String(selection.length)} items selected`
 }
 
 /** The polite live regions: undo and redo announcements, and the debounced selection (3.6, 3.20). */
@@ -183,8 +186,87 @@ function LiveRegions() {
   )
 }
 
+/** Whether a drag carries files, the only thing a drop opens. */
+function carriesFiles(event: DragEvent): boolean {
+  return event.dataTransfer.types.includes('Files')
+}
+
+/** Opening a .ptsm file dropped on the window, with an overlay while it is dragged over (3.19). */
+function useFileDrop(app: AppHandle) {
+  const [over, setOver] = useState(false)
+  // Nested elements fire their own enter and leave events; the depth tells when the window is left.
+  const depth = useRef(0)
+  return {
+    over,
+    handlers: {
+      onDragEnter: (event: DragEvent) => {
+        if (!carriesFiles(event)) {
+          return
+        }
+        event.preventDefault()
+        depth.current += 1
+        setOver(true)
+      },
+      onDragOver: (event: DragEvent) => {
+        if (carriesFiles(event)) {
+          event.preventDefault()
+          event.dataTransfer.dropEffect = 'copy'
+        }
+      },
+      onDragLeave: (event: DragEvent) => {
+        if (!carriesFiles(event)) {
+          return
+        }
+        depth.current = Math.max(0, depth.current - 1)
+        if (depth.current === 0) {
+          setOver(false)
+        }
+      },
+      onDrop: (event: DragEvent) => {
+        if (!carriesFiles(event)) {
+          return
+        }
+        event.preventDefault()
+        depth.current = 0
+        setOver(false)
+        const [file] = event.dataTransfer.files
+        if (file === undefined) {
+          return
+        }
+        file.arrayBuffer().then(
+          (buffer) =>
+            openFile(app, { name: file.name, bytes: new Uint8Array(buffer), handle: null }),
+          (error: unknown) => {
+            console.error(`Reading ${file.name} failed.`, error)
+          },
+        )
+      },
+    },
+  }
+}
+
+function DropOverlay() {
+  return (
+    <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center p-8">
+      <div
+        data-testid="drop-overlay"
+        className={clsx(
+          'rounded-md border-2 border-dashed px-8 py-6 text-base font-semibold shadow-lg',
+          COLOR_CLASSES.surfaceRaised.background,
+          COLOR_CLASSES.accent.border,
+          COLOR_CLASSES.text.foreground,
+        )}
+      >
+        Drop a .ptsm file to open it
+      </div>
+    </div>
+  )
+}
+
 function PrintLegend() {
-  const limit = useAppState((state) => (state.context === 'print' ? overhangLegendLimit(state) : null))
+  const limit = useAppState((state) =>
+    state.context === 'print' ? overhangLegendLimit(state) : null,
+  )
   return limit === null ? null : <OverhangLegend limit={limit} />
 }
 
@@ -193,6 +275,7 @@ export function App() {
   const status = useAppState(selectCoreStatus)
   const context = useAppState((state) => state.context)
   const browserOpen = useAppState((state) => state.panels.browserOpen)
+  const drop = useFileDrop(app)
   useRootClasses()
   useEscapeLadder(app)
   return (
@@ -200,6 +283,7 @@ export function App() {
       data-testid="app"
       data-core-status={status}
       data-context={context}
+      {...drop.handlers}
       className={clsx(
         'flex h-dvh w-dvw flex-col overflow-hidden antialiased',
         FONT_CLASSES.interfaceText,
@@ -236,6 +320,7 @@ export function App() {
       </RegionBoundary>
       <CommandPalette />
       <LiveRegions />
+      {drop.over ? <DropOverlay /> : null}
     </div>
   )
 }

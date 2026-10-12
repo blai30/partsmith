@@ -550,6 +550,91 @@ mod tests {
         assert_eq!(error.exception, "StdFail_NotDone");
     }
 
+    /// A box with its corner at `(x, y, z)`.
+    fn block_at(x: f64, y: f64, z: f64, length: f64, width: f64, height: f64) -> Shape {
+        let corner = Plane {
+            origin: crate::Point::new(x, y, z),
+            ..Plane::XY
+        };
+        make_box(&corner, length, width, height)
+            .expect("the box builds")
+            .shape
+    }
+
+    /// The L-shaped body of spec test 102: a 40 x 20 x 10 box with a 20 x 20 x 10 box on its
+    /// right half, so the top of the low half meets the high half's wall at a concave edge.
+    fn l_body() -> Shape {
+        let low = block_at(-20.0, -10.0, 0.0, 40.0, 20.0, 10.0);
+        let high = block_at(0.0, -10.0, 10.0, 20.0, 20.0, 10.0);
+        crate::fuse(&low, &[high]).expect("the boxes fuse").shape
+    }
+
+    /// The face of a shape whose centroid is `centroid`.
+    fn face_at(shape: &Shape, centroid: crate::Point) -> u32 {
+        let position = shape
+            .elements(SubShapeKind::Face)
+            .expect("faces")
+            .iter()
+            .position(|face| face.centroid.distance(centroid) < 1e-9)
+            .expect("the face exists");
+        u32::try_from(position + 1).expect("few faces")
+    }
+
+    /// Asserts a volume within 1e-9 relative.
+    fn assert_volume(shape: &Shape, expected: f64) {
+        let volume = shape.volume().expect("volume");
+        assert!(
+            (volume - expected).abs() <= 1e-9 * expected,
+            "volume {volume}, expected {expected}"
+        );
+    }
+
+    #[test]
+    fn cavity_cut_opens_the_wall_above_a_concave_edge() {
+        let body = l_body();
+        let wall = face_at(&body, crate::Point::new(0.0, 0.0, 15.0));
+
+        let result = shell(&body, &[wall], 2.0).expect("the wall face is opened");
+
+        // L minus the cavity of the low half below z = 8 and the high half right of x = 0.
+        assert_volume(
+            &result.shape,
+            12000.0 - (36.0 * 16.0 * 6.0 + 18.0 * 16.0 * 10.0),
+        );
+    }
+
+    #[test]
+    fn cavity_cut_opens_several_faces() {
+        let body = l_body();
+        let step = face_at(&body, crate::Point::new(-10.0, 0.0, 10.0));
+        let bottom = face_at(&body, crate::Point::new(0.0, 0.0, 0.0));
+
+        let result = shell(&body, &[step, bottom], 2.0).expect("both faces are opened");
+
+        // L minus the cavity through the low half and inside the high half above it.
+        assert_volume(
+            &result.shape,
+            12000.0 - (36.0 * 16.0 * 10.0 + 16.0 * 16.0 * 8.0),
+        );
+    }
+
+    #[test]
+    fn cavity_cut_can_cut_a_boss_loose() {
+        let plate = block_at(0.0, 0.0, 0.0, 40.0, 40.0, 10.0);
+        let boss = block_at(15.0, 15.0, 10.0, 10.0, 10.0, 10.0);
+        let body = crate::fuse(&plate, &[boss]).expect("the boss fuses").shape;
+        let top = face_at(&body, crate::Point::new(20.0, 20.0, 10.0));
+
+        let result = shell(&body, &[top], 2.0).expect("the plate top is opened");
+
+        // The open tray and the hollow boss, which no longer touch.
+        assert_eq!(result.shape.count(SubShapeKind::Solid), 2);
+        assert_volume(
+            &result.shape,
+            17000.0 - (36.0 * 36.0 * 8.0 + 6.0 * 6.0 * 8.0),
+        );
+    }
+
     #[test]
     fn shell_of_an_empty_shape_needs_one_solid() {
         let error = shell(&Shape::empty(), &[], 1.0).expect_err("no solid");

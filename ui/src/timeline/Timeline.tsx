@@ -26,6 +26,7 @@ import { Tooltip } from '../components/Tooltip'
 import { featureLabel } from '../core/labels'
 import type { FeatureRecord, FeatureStatus } from '../generated/protocol'
 import { pickRow, togglesSelection } from '../layout/pick-row'
+import { RenameField } from '../layout/RenameField'
 import { useUiRequest } from '../layout/requests'
 import { keepInViewHorizontally } from '../layout/scroll'
 import { selectProblems } from '../state/selectors'
@@ -94,9 +95,9 @@ function statusText(status: FeatureStatus | undefined, suppressed: boolean): str
 
 /** The x positions (client CSS pixels) of the gaps 0 to N around the strip's items. */
 function gapPositions(strip: HTMLElement): readonly number[] {
-  const rectangles = [
-    ...strip.querySelectorAll<HTMLElement>('[data-testid="timeline-item"]'),
-  ].map((item) => item.getBoundingClientRect())
+  const rectangles = [...strip.querySelectorAll<HTMLElement>('[data-testid="timeline-item"]')].map(
+    (item) => item.getBoundingClientRect(),
+  )
   const [first] = rectangles
   const last = rectangles.at(-1)
   if (first === undefined || last === undefined) {
@@ -297,6 +298,7 @@ function TimelineItem({
       {renaming ? (
         <RenameField
           initial={label}
+          className="absolute top-1/2 left-0 z-10 w-40 -translate-y-1/2 shadow-lg"
           onDone={(name) => {
             onRename(null)
             if (name !== null && name.trim() !== label) {
@@ -306,62 +308,6 @@ function TimelineItem({
         />
       ) : null}
     </div>
-  )
-}
-
-/** The inline rename field over an item: Enter or leaving it commits, Esc cancels (3.9). */
-function RenameField({
-  initial,
-  onDone,
-}: {
-  readonly initial: string
-  readonly onDone: (name: string | null) => void
-}) {
-  const input = useRef<HTMLInputElement>(null)
-  const [value, setValue] = useState(initial)
-  const done = useRef(false)
-
-  useLayoutEffect(() => {
-    input.current?.focus()
-    input.current?.select()
-  }, [])
-
-  function finish(name: string | null): void {
-    if (!done.current) {
-      done.current = true
-      onDone(name)
-    }
-  }
-
-  return (
-    <input
-      ref={input}
-      type="text"
-      aria-label="Name"
-      value={value}
-      onChange={(event) => {
-        setValue(event.currentTarget.value)
-      }}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter') {
-          event.preventDefault()
-          finish(value)
-        } else if (event.key === 'Escape') {
-          event.preventDefault()
-          finish(null)
-        }
-      }}
-      onBlur={() => {
-        finish(value)
-      }}
-      className={clsx(
-        'absolute top-1/2 left-0 z-10 h-8 w-40 -translate-y-1/2 rounded-sm border px-2 text-sm shadow-lg',
-        COLOR_CLASSES.field.background,
-        COLOR_CLASSES.accent.border,
-        COLOR_CLASSES.text.foreground,
-        COLOR_CLASSES.focusRing.outline,
-      )}
-    />
   )
 }
 
@@ -421,7 +367,11 @@ function Marker({ position, count, valueText, onPress }: MarkerProps) {
 }
 
 /** The marker's spoken position: "At the start", "After {label}" or "At the end" (3.9). */
-function markerText(records: readonly FeatureRecord[], position: number, labelOf: (id: string) => string): string {
+function markerText(
+  records: readonly FeatureRecord[],
+  position: number,
+  labelOf: (id: string) => string,
+): string {
   const record = records[position - 1]
   if (position >= records.length) {
     return 'At the end'
@@ -450,7 +400,11 @@ function Strip() {
 
   useUiRequest(app, 'rename', (request) => {
     const id = request.key.startsWith('feature:') ? request.key.slice('feature:'.length) : null
-    if (request.where !== 'timeline' || id === null || !records.some((record) => record.id === id)) {
+    if (
+      request.where !== 'timeline' ||
+      id === null ||
+      !records.some((record) => record.id === id)
+    ) {
       return false
     }
     setRenaming(id)
@@ -522,7 +476,11 @@ function Strip() {
       .map((record) => record.id)
   }
 
-  function startPress(event: PointerEvent<HTMLElement>, featureId: string | null, index: number): void {
+  function startPress(
+    event: PointerEvent<HTMLElement>,
+    featureId: string | null,
+    index: number,
+  ): void {
     if (event.button !== 0 || renaming !== null) {
       return
     }
@@ -792,7 +750,11 @@ function ProblemsButton() {
       <TriangleAlert
         aria-hidden="true"
         strokeWidth={1.75}
-        className={clsx('size-4', COLOR_CLASSES.warningMark.fill, COLOR_CLASSES.warningMark.foreground)}
+        className={clsx(
+          'size-4',
+          COLOR_CLASSES.warningMark.fill,
+          COLOR_CLASSES.warningMark.foreground,
+        )}
       />
       {plural(count, 'problem', 'problems')}
     </Button>

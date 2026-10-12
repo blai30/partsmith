@@ -99,11 +99,18 @@ function CoreStatus({ restoring }: { readonly restoring: boolean }) {
   if (status === 'loading') {
     return (
       <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-        <div data-testid="core-overlay" role="status" className={clsx(chip, 'flex-row items-center')}>
+        <div
+          data-testid="core-overlay"
+          role="status"
+          className={clsx(chip, 'flex-row items-center')}
+        >
           <LoaderCircle
             aria-hidden="true"
             strokeWidth={1.75}
-            className={clsx('size-4 animate-spin motion-reduce:animate-none', COLOR_CLASSES.textMuted.foreground)}
+            className={clsx(
+              'size-4 animate-spin motion-reduce:animate-none',
+              COLOR_CLASSES.textMuted.foreground,
+            )}
           />
           Loading the geometry core
         </div>
@@ -150,7 +157,10 @@ function CoreStatus({ restoring }: { readonly restoring: boolean }) {
           <LoaderCircle
             aria-hidden="true"
             strokeWidth={1.75}
-            className={clsx('size-4 animate-spin motion-reduce:animate-none', COLOR_CLASSES.textMuted.foreground)}
+            className={clsx(
+              'size-4 animate-spin motion-reduce:animate-none',
+              COLOR_CLASSES.textMuted.foreground,
+            )}
           />
           Restoring the 3D view
         </div>
@@ -312,10 +322,7 @@ export function Viewport({ children }: ViewportProps) {
       >
         <canvas ref={canvas} className="absolute inset-0 block size-full touch-none" />
       </div>
-      <div
-        ref={overlay}
-        className="pointer-events-none absolute inset-0 overflow-hidden"
-      >
+      <div ref={overlay} className="pointer-events-none absolute inset-0 overflow-hidden">
         <svg aria-hidden="true" className="absolute inset-0 size-full" />
         {scene === null ? null : <AxisLabels scene={scene} />}
       </div>

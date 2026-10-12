@@ -1,9 +1,15 @@
 import { describe, expect, it } from 'vitest'
+import type { Diagnostic, FeatureStatus } from '../generated/protocol'
 import { DEFAULT_SETTINGS } from '../settings/settings'
 import { CUBE_DOCUMENT, CUBE_FEATURES_DOCUMENT, withFeatureChanges } from '../test/fakes/documents'
 import { checkResult, finding, printReport, stateWithDocument } from '../test/fakes/state'
-import { selectActiveFeatureIds, selectFeatureLabel, selectHealthBadge } from './selectors'
-import type { AppState, PrintState } from './store'
+import {
+  selectActiveFeatureIds,
+  selectFeatureLabel,
+  selectHealthBadge,
+  selectProblems,
+} from './selectors'
+import type { AppState, DocumentState, PrintState } from './store'
 
 describe('selectFeatureLabel', () => {
   it('labels features with the catalog (features.md 3.12)', () => {
@@ -137,5 +143,98 @@ describe('selectHealthBadge (U-81)', () => {
     expect(selectHealthBadge(withPrint({ report, reportRevision: 4 }))).toMatchObject({
       stale: false,
     })
+  })
+})
+
+/** The state with the document changed as a mesh or rebuild-time update changes it. */
+function remeshed(state: AppState): AppState {
+  const document = state.document
+  if (document === null) {
+    return state
+  }
+  return {
+    ...state,
+    document: {
+      ...document,
+      revision: document.revision + 1,
+      lastRebuildMilliseconds: 42,
+      meshes: {},
+    },
+  }
+}
+
+describe('selectProblems', () => {
+  const FILLET_ERROR: FeatureStatus = {
+    id: 'f-fil1',
+    status: 'error',
+    messages: [
+      { severity: 'error', code: 'fillet_too_large', message: 'The fillet is too large.' },
+    ],
+    repairs: [],
+  }
+  const SHELL_WARNING: FeatureStatus = {
+    id: 'f-sh1',
+    status: 'warning',
+    messages: [{ severity: 'warning', code: 'thin_wall', message: 'A wall is thin.' }],
+    repairs: [],
+  }
+  const UNUSED: Diagnostic = {
+    severity: 'warning',
+    code: 'unused_parameter',
+    message: 'The parameter width is not used.',
+  }
+
+  function withProblems(changes: Partial<DocumentState> = {}): AppState {
+    return stateWithDocument(
+      CUBE_FEATURES_DOCUMENT,
+      {},
+      {
+        featureStatus: {
+          'f-ext1': { id: 'f-ext1', status: 'ok', messages: [], repairs: [] },
+          'f-sh1': SHELL_WARNING,
+          'f-fil1': FILLET_ERROR,
+        },
+        diagnostics: [UNUSED],
+        ...changes,
+      },
+    )
+  }
+
+  it('lists failing and warning features in timeline order, then the document diagnostics', () => {
+    expect(selectProblems(withProblems())).toEqual([
+      {
+        kind: 'feature',
+        featureId: 'f-fil1',
+        label: 'Fillet 1',
+        status: 'error',
+        messages: FILLET_ERROR.messages,
+      },
+      {
+        kind: 'feature',
+        featureId: 'f-sh1',
+        label: 'Shell 1',
+        status: 'warning',
+        messages: SHELL_WARNING.messages,
+      },
+      { kind: 'document', diagnostic: UNUSED },
+    ])
+  })
+
+  it('gives the same list back when only meshes or the rebuild time changed', () => {
+    const state = withProblems()
+    const problems = selectProblems(state)
+    expect(selectProblems(remeshed(state))).toBe(problems)
+  })
+
+  it('gives a new list when the statuses change', () => {
+    const state = withProblems()
+    const problems = selectProblems(state)
+    const fixed = withProblems({ featureStatus: {}, diagnostics: [] })
+    expect(selectProblems(fixed)).not.toBe(problems)
+    expect(selectProblems(fixed)).toEqual([])
+  })
+
+  it('is empty without a document', () => {
+    expect(selectProblems({ ...withProblems(), document: null })).toEqual([])
   })
 })

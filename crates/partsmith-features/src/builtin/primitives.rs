@@ -94,9 +94,9 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+    use crate::builtin::sphere::Sphere;
     use crate::params::PlaneRef;
     use crate::primitive::default_position;
-    use crate::builtin::sphere::Sphere;
     use crate::test_support::{ScriptNames, build, id, params};
 
     /// Params with the sizes `radius` and `height`, then this placement and op.

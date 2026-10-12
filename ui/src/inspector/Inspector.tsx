@@ -62,7 +62,16 @@ type PanelProps = {
   readonly children: ReactNode
 }
 
-function Panel({ mode, heading, name, preview, closeLabel, onClose, onEnter, children }: PanelProps) {
+function Panel({
+  mode,
+  heading,
+  name,
+  preview,
+  closeLabel,
+  onClose,
+  onEnter,
+  children,
+}: PanelProps) {
   const app = useApp()
   const panel = useRef<HTMLDivElement>(null)
   const titleId = useId()
@@ -108,7 +117,9 @@ function Panel({ mode, heading, name, preview, closeLabel, onClose, onEnter, chi
     const state = app.store.getState()
     const target =
       state.command?.activeField === null
-        ? element.querySelector<HTMLInputElement>('[data-testid="inspector-field"] input[type="text"]')
+        ? element.querySelector<HTMLInputElement>(
+            '[data-testid="inspector-field"] input[type="text"]',
+          )
         : element.querySelector<HTMLElement>('[data-testid="selection-field"][data-active="true"]')
     if (target !== null) {
       target.focus()
@@ -271,7 +282,11 @@ export function Inspector() {
   }
 
   const items =
-    context === 'sketch' ? (sketch !== null && sketch.tool === null ? sketch.selection : []) : selection
+    context === 'sketch'
+      ? sketch !== null && sketch.tool === null
+        ? sketch.selection
+        : []
+      : selection
   if (items.length === 0) {
     return null
   }
@@ -280,7 +295,12 @@ export function Inspector() {
       key="selection"
       mode="selection"
       heading={
-        <span className={clsx('flex min-w-0 flex-1 items-center gap-2 text-xs font-medium', COLOR_CLASSES.textMuted.foreground)}>
+        <span
+          className={clsx(
+            'flex min-w-0 flex-1 items-center gap-2 text-xs font-medium',
+            COLOR_CLASSES.textMuted.foreground,
+          )}
+        >
           <GripHorizontal aria-hidden="true" strokeWidth={1.75} className="size-4" />
           Selection
         </span>

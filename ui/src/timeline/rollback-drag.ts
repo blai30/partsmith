@@ -17,7 +17,9 @@ export type RollbackDrag = {
 /** The set_rollback edit for marker position p: features 1 to p are active (3.9). */
 export function rollbackEdit(records: readonly FeatureRecord[], position: number): Edit {
   const first = records[position]
-  return first === undefined ? { type: 'set_rollback' } : { type: 'set_rollback', rollback: first.id }
+  return first === undefined
+    ? { type: 'set_rollback' }
+    : { type: 'set_rollback', rollback: first.id }
 }
 
 /** Starts a marker drag from `start`; null without a document. */
