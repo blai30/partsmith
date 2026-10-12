@@ -127,7 +127,6 @@ impl SparseQr {
     /// so the norm is taken as at least 1: a column shorter than `tolerance` is zero up to rounding
     /// (an exactly zero column always is dependent).
     pub(crate) fn add(&mut self, column: &[(usize, f64)], tolerance: f64) -> Added {
-        COLUMNS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         for &(row, value) in column {
             self.workspace.add(row, value);
         }
@@ -168,8 +167,6 @@ impl SparseQr {
             self.touching[row].push(index);
         }
         self.pivot_of[pivot] = Some(index);
-        REFLECTORS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        REFLECTOR_SIZE.fetch_add(rows.len(), std::sync::atomic::Ordering::Relaxed);
         self.queued.push(false);
         self.reflectors.push(Reflector {
             pivot,
@@ -297,15 +294,7 @@ impl SparseQr {
 }
 
 /// Applies one reflector to the workspace; rows it touches for the first time are appended to its support.
-pub static CALLS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-pub static ZERO: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-pub static SIZE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-pub static COLUMNS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-pub static REFLECTOR_SIZE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-pub static REFLECTORS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 fn reflect(reflector: &Reflector, workspace: &mut Workspace) {
-    CALLS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    SIZE.fetch_add(reflector.rows.len(), std::sync::atomic::Ordering::Relaxed);
     let product: f64 = reflector
         .rows
         .iter()
@@ -313,7 +302,6 @@ fn reflect(reflector: &Reflector, workspace: &mut Workspace) {
         .map(|(&row, &value)| value * workspace.values[row])
         .sum();
     if product == 0.0 {
-        ZERO.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         return;
     }
     let factor = reflector.beta * product;
