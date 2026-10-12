@@ -15,7 +15,7 @@ import { Menu, type MenuEntry } from '../components/Menu'
 import { Tooltip } from '../components/Tooltip'
 import { ChecksPopover } from '../print/ChecksPopover'
 import { PrinterMenu } from '../print/PrinterMenu'
-import { printerName } from '../print/printers'
+import { printerButtonText } from '../print/printer'
 import { selectHealthBadge } from '../state/selectors'
 import type { AppContext, AppState } from '../state/store'
 import { COLOR_CLASSES } from '../theme/roles'
@@ -36,7 +36,7 @@ const TOOLBAR_NAMES: Readonly<Record<AppContext, string>> = {
 /** Commands the Print toolbar draws as its own controls (3.17). */
 const PRINTER_COMMAND = 'print.printer'
 const CHECKS_COMMAND = 'print.checks'
-const HEALTH_COMMAND = 'view.health'
+const PRINT_CHECK_COMMAND = 'view.health'
 
 type ButtonLook = {
   readonly label: string
@@ -177,8 +177,7 @@ function GroupButton({ entry }: { readonly entry: GroupEntry }) {
 }
 
 function selectPrinterText(state: AppState): string {
-  const printer = state.document?.recipe.printer ?? null
-  return printer === null ? 'Printer: none' : `Printer: ${printerName(state.printers, printer)}`
+  return printerButtonText(state.printers, state.document?.recipe.printer)
 }
 
 /** The Print toolbar's printer menu button, "Printer: {name}" (3.17). */
@@ -273,13 +272,16 @@ function selectFindingCount(state: AppState): number | null {
   return state.print.report === null ? null : badge.errors + badge.warnings
 }
 
-/** The Print toolbar's Health button with the shown finding count (3.17). */
-function HealthButton({ view }: { readonly view: CommandView }) {
+/**
+ * The Print toolbar's Print check button with the shown finding count (3.17). Its command opens the
+ * print check panel as the status bar badge does, checking a missing or stale report again.
+ */
+function PrintCheckButton({ view }: { readonly view: CommandView }) {
   const app = useApp()
   const count = useAppState(selectFindingCount)
   return (
     <ToolbarButton
-      label="Health"
+      label={view.definition.title}
       icon={view.definition.icon}
       disabledReason={disabledReasonOf(view)}
       shortcut={view.shortcut}
@@ -309,8 +311,8 @@ function EntryControl({ view }: { readonly view: CommandView }) {
       return <PrinterButton view={view} />
     case CHECKS_COMMAND:
       return <ChecksButton view={view} />
-    case HEALTH_COMMAND:
-      return <HealthButton view={view} />
+    case PRINT_CHECK_COMMAND:
+      return <PrintCheckButton view={view} />
     default:
       return <CommandButton view={view} />
   }

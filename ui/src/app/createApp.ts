@@ -18,6 +18,7 @@ import {
 import { createAppStore, type AppStore, type FileReference } from '../state/store'
 import { initialSessionVisibility } from '../state/visibility'
 import type { ViewportHandle } from '../viewport/controller'
+import { isUnsaved } from './actions/edits'
 import { installPrintAnalysis } from './actions/print'
 import { connectApp } from './connection'
 import { loadCoreData } from './core-data'
@@ -91,13 +92,13 @@ function scheduleRecovery(app: App, now: () => number): (event: CoreEvent) => vo
       clearTimeout(timer)
       timer = null
     }
-    if (!document.dirty && !document.localUnsaved) {
+    if (!isUnsaved(document)) {
       return
     }
     timer = setTimeout(() => {
       timer = null
       const current = app.store.getState().document
-      if (current === null || (!current.dirty && !current.localUnsaved)) {
+      if (current === null || !isUnsaved(current)) {
         return
       }
       void app.recovery.write({
@@ -291,7 +292,7 @@ export function createApp(options: CreateAppOptions): App {
 export function installUnloadGuard(app: App, target: Window): () => void {
   function onBeforeUnload(event: BeforeUnloadEvent): void {
     const document = app.store.getState().document
-    if (document !== null && (document.dirty || document.localUnsaved)) {
+    if (document !== null && isUnsaved(document)) {
       event.preventDefault()
     }
   }

@@ -378,6 +378,21 @@ describe('openWithPicker', () => {
     expect(fake.transport.commandTypes()).toEqual([])
     expect(currentDocument(fake.app).name).toBe('Untitled')
   })
+
+  it('a picker that fails shows its message as an error and opens nothing', async () => {
+    const fake = await startFakeApp()
+    fake.transport.clearRequests()
+    vi.spyOn(fake.files, 'pickToOpen').mockRejectedValue(
+      new FileServiceError('not_found', 'part.ptsm was not found.'),
+    )
+    await openWithPicker(fake.app)
+    await settle()
+    const notification = notificationWith(fake.app, 'part.ptsm was not found.')
+    expect(notification.severity).toBe('error')
+    expect(actionLabels(notification)).toEqual([])
+    expect(fake.transport.commandTypes()).toEqual([])
+    expect(currentDocument(fake.app).name).toBe('Untitled')
+  })
 })
 
 describe('openRecent (3.19)', () => {
@@ -537,6 +552,31 @@ describe('saveAs (3.19)', () => {
     expect(fake.files.saveRequests).toEqual([{ suggestedName: 'cube.ptsm', kind: 'ptsm' }])
     expect(fake.transport.commandTypes()).not.toContain('save_document')
     expect(fake.files.writes).toEqual([])
+  })
+
+  it('a picker that fails shows the Save message with Save as and never calls saveDocument', async () => {
+    const fake = await startWithDocument('cube.ptsm', CUBE_DOCUMENT)
+    const reason = 'cube.ptsm already exists. Choose it in the dialog to replace it.'
+    vi.spyOn(fake.files, 'chooseSaveTarget').mockRejectedValue(new FileServiceError('io', reason))
+    await saveAs(fake.app)
+    await settle()
+    const notification = notificationWith(fake.app, MESSAGES.save_io('cube.ptsm', reason))
+    expect(notification.severity).toBe('error')
+    expect(actionLabels(notification)).toEqual(['Save as'])
+    expect(fake.transport.commandTypes()).not.toContain('save_document')
+    expect(fake.files.writes).toEqual([])
+  })
+
+  it('a picker refused for permission shows save_permission with Save as', async () => {
+    const fake = await startWithDocument('cube.ptsm', CUBE_DOCUMENT)
+    vi.spyOn(fake.files, 'chooseSaveTarget').mockRejectedValue(
+      new FileServiceError('permission', 'Partsmith has no access to cube.ptsm: denied'),
+    )
+    await saveAs(fake.app)
+    await settle()
+    expect(actionLabels(notificationWith(fake.app, MESSAGES.save_permission('cube.ptsm')))).toEqual(
+      ['Save as'],
+    )
   })
 
   it('asks for the target before saving, writes it, then marks the revision saved', async () => {

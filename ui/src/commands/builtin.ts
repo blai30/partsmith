@@ -68,7 +68,7 @@ import {
 import { commitEdits } from '../app/actions/edits'
 import { exportModel, type ExportRequest } from '../app/actions/export'
 import { deleteParameter } from '../app/actions/parameters'
-import { runPrintAnalysis } from '../app/actions/print'
+import { openPrintHealth, runPrintAnalysis } from '../app/actions/print'
 import { clearSelection } from '../app/actions/selection'
 import { updateSettings } from '../app/actions/settings'
 import {
@@ -844,14 +844,13 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
     }),
     command({
       id: 'view.health',
-      title: 'Print health',
+      title: 'Print check',
       category: 'View',
       icon: HeartPulse,
       keywords: ['findings', 'checks'],
       contexts: ALL,
-      run: (app) => {
-        setSide(app, 'health')
-      },
+      // As the badge does (3.17): the panel opens, and a missing or stale report is checked again.
+      run: (app) => openPrintHealth(app),
     }),
     command({
       id: 'view.fit',
@@ -1096,7 +1095,8 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
       icon: Printer,
       keywords: ['profile', 'machine'],
       contexts: PRINT,
-      availability: needsDocument,
+      // Changing the printer is an edit, which waits for the active command (3.7).
+      availability: needsDocumentOutsideCommand,
       run: (app) => {
         requestUi(app, { kind: 'printer' })
       },

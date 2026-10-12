@@ -1,6 +1,7 @@
-import { cleanup, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { showPickHint } from '../app/actions/notifications'
 import { installPopoverPolyfill } from '../components/popover-polyfill.testing'
 import type { Diagnostic, FeatureStatus } from '../generated/protocol'
 import {
@@ -19,6 +20,7 @@ import {
   sketchPointItem,
 } from '../layout/fixtures.testing'
 import { createModelApp, renderWithApp, stubMatchMedia } from '../layout/test-app.testing'
+import { MESSAGES } from '../messages'
 import {
   createAppStore,
   type ActiveCommand,
@@ -47,6 +49,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup()
   uninstallPopovers()
+  vi.useRealTimers()
   vi.unstubAllGlobals()
 })
 
@@ -202,6 +205,33 @@ describe('the command inspector (3.7)', () => {
     expect(profile).toHaveAttribute('data-count', '0')
     expect(profile).toHaveAttribute('data-active', 'true')
     expect(hasRoleClasses(profile, 'border-dashed')).toBe(true)
+  })
+
+  it('shows the hint about a refused pick under its field for 3 s (3.7)', () => {
+    vi.useFakeTimers()
+    const { app } = renderInspector(rectSketchDocumentState(), { command: NEW_EXTRUDE })
+    const hint = MESSAGES.pick_kind('regions')
+    act(() => {
+      showPickHint(app, hint, 'profile')
+    })
+    const profile = within(field('profile')).getByTestId('selection-field')
+    const shown = within(field('profile')).getByText(hint)
+    expect(hasRoleClasses(shown, COLOR_CLASSES.textMuted.foreground)).toBe(true)
+    expect(profile).toHaveAccessibleDescription(hint)
+    expect(within(field('profile')).getByTestId('field-error')).toHaveTextContent('')
+    act(() => {
+      vi.advanceTimersByTime(3_000)
+    })
+    expect(within(field('profile')).queryByText(hint)).toBeNull()
+    expect(profile).not.toHaveAttribute('aria-describedby')
+  })
+
+  it('shows the sketch hint about a refused plane under no field', () => {
+    const { app } = renderInspector(rectSketchDocumentState(), { command: NEW_EXTRUDE })
+    act(() => {
+      showPickHint(app, MESSAGES.pick_plane(), null)
+    })
+    expect(within(inspector()).queryByText(MESSAGES.pick_plane())).toBeNull()
   })
 
   it('disables OK while incomplete, with the fill_fields reason', () => {

@@ -89,7 +89,7 @@ const UNBOUND_TABLE: readonly (readonly [string, string, readonly AppContext[]])
   ['edit.clear_selection', 'Clear selection', ALL],
   ['view.parameters', 'Parameters', ALL],
   ['view.problems', 'Problems', ALL],
-  ['view.health', 'Print health', ALL],
+  ['view.health', 'Print check', ALL],
   ['view.timeline', 'Toggle timeline', ALL],
   ['view.standard.top', 'View: Top', ALL],
   ['view.standard.bottom', 'View: Bottom', ALL],
@@ -235,6 +235,16 @@ describe('availability', () => {
     }
   })
 
+  it('disables Choose printer with finish_command_first while a feature command is active (3.17)', () => {
+    const { app } = cubeApp({ command: EXTRUDE_COMMAND })
+    expect(app.commands.get('print.printer')?.availability(app)).toEqual({
+      state: 'disabled',
+      reason: MESSAGES.finish_command_first('Extrude'),
+    })
+    app.store.setState({ command: null })
+    expect(app.commands.get('print.printer')?.availability(app)).toEqual({ state: 'enabled' })
+  })
+
   it('U-89 disables Edit feature with import_not_editable for an import feature', () => {
     const { app } = createModelApp({
       state: readyState(documentState(IMPORT_DOCUMENT), {
@@ -357,7 +367,7 @@ describe('running built-in commands', () => {
     expect(app.store.getState().panels.timelineCollapsed).toBe(true)
   })
 
-  it('opens the Parameters, Problems and Print health side panels', async () => {
+  it('opens the Parameters, Problems and Print check side panels', async () => {
     const { app } = cubeApp()
     await app.commands.run(app, 'view.parameters', 'palette')
     expect(app.store.getState().panels.side).toBe('parameters')
@@ -365,6 +375,13 @@ describe('running built-in commands', () => {
     expect(app.store.getState().panels.side).toBe('problems')
     await app.commands.run(app, 'view.health', 'palette')
     expect(app.store.getState().panels.side).toBe('health')
+  })
+
+  it('Print check runs the analysis when there is no report, as the badge does (3.17)', async () => {
+    const { app, core } = cubeApp()
+    await app.commands.run(app, 'view.health', 'toolbar')
+    expect(app.store.getState().panels.side).toBe('health')
+    expect(core.callsTo('analyzePrint')).toHaveLength(1)
   })
 
   it('drives the mounted viewport: fit, standard views, home and projection', async () => {

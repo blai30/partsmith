@@ -2,17 +2,20 @@ import { clsx } from 'clsx/lite'
 import { LoaderCircle } from 'lucide-react'
 import { useEffect, useRef, useState, type Ref } from 'react'
 import { setUnits } from '../app/actions/document'
+import { notify } from '../app/actions/notifications'
 import { openPrintHealth, setPrinter } from '../app/actions/print'
 import { useApp, useAppState } from '../app/AppProvider'
+import type { App } from '../app/createApp'
 import { Menu, type MenuEntry } from '../components/Menu'
 import { Tooltip } from '../components/Tooltip'
 import type { Units } from '../generated/protocol'
 import { HealthBadge } from '../print/HealthBadge'
 import { PrinterMenu } from '../print/PrinterMenu'
-import { printerName } from '../print/printers'
+import { printerLabel } from '../print/printer'
 import { selectHealthBadge, selectSketchDof } from '../state/selectors'
 import type { AppState } from '../state/store'
 import { COLOR_CLASSES, FONT_CLASSES } from '../theme/roles'
+import { useCommandViews } from './use-commands'
 
 // The status bar (ui.md 3.21): core status, sketch DOF, rebuild time, units, printer and the print
 // health badge.
@@ -122,13 +125,19 @@ function StatusButton({
   label,
   expanded,
   buttonRef,
+  disabled = false,
   onClick,
+  ...rest
 }: {
   readonly testId: string
   readonly label: string
   readonly expanded: boolean
   readonly buttonRef: Ref<HTMLButtonElement>
+  /** Shown with `aria-disabled`, so it stays focusable and a click can say why (3.3). */
+  readonly disabled?: boolean
   readonly onClick: () => void
+  /** Set by a wrapping `Tooltip`. */
+  readonly 'aria-describedby'?: string | undefined
 }) {
   return (
     <button
@@ -137,13 +146,16 @@ function StatusButton({
       data-testid={testId}
       aria-haspopup="menu"
       aria-expanded={expanded}
+      aria-disabled={disabled ? true : undefined}
+      aria-describedby={rest['aria-describedby']}
       onClick={onClick}
       className={clsx(
         'inline-flex h-6 shrink-0 items-center rounded-sm px-2 text-xs whitespace-nowrap transition-colors duration-150 motion-reduce:transition-none',
-        COLOR_CLASSES.text.foreground,
-        COLOR_CLASSES.hover.background,
         COLOR_CLASSES.focusRing.outline,
         COLOR_CLASSES.accent.outline,
+        disabled
+          ? clsx(COLOR_CLASSES.textDisabled.foreground, 'cursor-not-allowed')
+          : clsx(COLOR_CLASSES.text.foreground, COLOR_CLASSES.hover.background),
       )}
     >
       {label}
@@ -151,9 +163,26 @@ function StatusButton({
   )
 }
 
+/**
+ * Why a status bar control is disabled, from the command it stands for, or null while it is
+ * enabled: units and printer changes are edits, which wait for the active command (3.7).
+ */
+function useDisabledReason(commandId: string): string | null {
+  const app = useApp()
+  const [command] = useCommandViews(app, [commandId])
+  return command?.availability.state === 'disabled' ? command.availability.reason : null
+}
+
+/** A disabled control's click shows its reason, as a disabled toolbar command's does (3.3). */
+function explain(app: App, reason: string): void {
+  notify(app, { severity: 'info', message: reason, actions: [] })
+}
+
 function UnitsButton() {
   const app = useApp()
   const units = useAppState((state) => state.document?.recipe.units ?? null)
+  // Every unit command shares one availability rule.
+  const reason = useDisabledReason('document.units.mm')
   const anchor = useRef<HTMLButtonElement>(null)
   const [open, setOpen] = useState(false)
   if (units === null) {
@@ -171,43 +200,58 @@ function UnitsButton() {
   }))
   return (
     <>
-      <StatusButton
-        testId="status-units"
-        label={units}
-        expanded={open}
-        buttonRef={anchor}
-        onClick={() => {
-          setOpen((current) => !current)
-        }}
-      />
+      <Tooltip label={reason === null ? 'Units' : `Units: ${reason}`}>
+        <StatusButton
+          testId="status-units"
+          label={units}
+          expanded={open}
+          buttonRef={anchor}
+          disabled={reason !== null}
+          onClick={() => {
+            if (reason === null) {
+              setOpen((current) => !current)
+            } else {
+              explain(app, reason)
+            }
+          }}
+        />
+      </Tooltip>
       <Menu label="Units" open={open} anchor={anchor} entries={entries} onOpenChange={setOpen} />
     </>
   )
 }
 
 function selectPrinterLabel(state: AppState): string {
-  const printer = state.document?.recipe.printer ?? null
-  return printer === null ? 'No printer' : printerName(state.printers, printer)
+  return printerLabel(state.printers, state.document?.recipe.printer)
 }
 
+/** The printer button (3.21): the profile in use, opening the printer menu (3.17). */
 function PrinterButton() {
   const app = useApp()
   const label = useAppState(selectPrinterLabel)
   const printers = useAppState((state) => state.printers)
   const current = useAppState((state) => state.document?.recipe.printer ?? null)
+  const reason = useDisabledReason('print.printer')
   const anchor = useRef<HTMLButtonElement>(null)
   const [open, setOpen] = useState(false)
   return (
     <>
-      <StatusButton
-        testId="status-printer"
-        label={label}
-        expanded={open}
-        buttonRef={anchor}
-        onClick={() => {
-          setOpen((value) => !value)
-        }}
-      />
+      <Tooltip label={reason === null ? 'Choose printer' : `Choose printer: ${reason}`}>
+        <StatusButton
+          testId="status-printer"
+          label={label}
+          expanded={open}
+          buttonRef={anchor}
+          disabled={reason !== null}
+          onClick={() => {
+            if (reason === null) {
+              setOpen((value) => !value)
+            } else {
+              explain(app, reason)
+            }
+          }}
+        />
+      </Tooltip>
       <PrinterMenu
         open={open}
         anchor={anchor}

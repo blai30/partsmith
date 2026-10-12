@@ -47,10 +47,9 @@ function useRootClasses(): void {
   }, [scale])
 }
 
+/** The overhang legend while the overhang map is shown in Print context (3.17). */
 function PrintLegend() {
-  const limit = useAppState((state) =>
-    state.context === 'print' ? overhangLegendLimit(state) : null,
-  )
+  const limit = useAppState(overhangLegendLimit)
   return limit === null ? null : <OverhangLegend limit={limit} />
 }
 

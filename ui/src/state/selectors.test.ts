@@ -132,6 +132,15 @@ describe('selectHealthBadge (U-81)', () => {
     ).toMatchObject({ state: 'ok', errors: 0, warnings: 0 })
   })
 
+  it('U-81 always counts mesh validity, even when stored settings list it as hidden', () => {
+    const report = printReport({
+      'b-cube': [checkResult('mesh_validity', [finding('mesh_validity', 'error')])],
+    })
+    expect(
+      selectHealthBadge(withPrint({ report, reportRevision: 4 }, ['mesh_validity'])),
+    ).toMatchObject({ state: 'error', errors: 1 })
+  })
+
   it('U-81 a report for an older revision is stale and keeps its state', () => {
     const report = printReport({
       'b-cube': [checkResult('overhangs', [finding('overhangs', 'warning')])],

@@ -1,5 +1,6 @@
 import { featureLabel } from '../core/labels'
 import type { Diagnostic } from '../generated/protocol'
+import { isCheckHidden } from '../print/checks'
 import type { AppState } from './store'
 
 // Derived views of the state (ui.md 2.8). Selectors that build new values remember their last
@@ -7,9 +8,10 @@ import type { AppState } from './store'
 
 /**
  * Memoizes a derivation on the identity of its inputs: while every input is the same object as
- * last time, the last result is returned again.
+ * last time, the last result is returned again, so `useAppState` and the scene see a stable value
+ * until the inputs change.
  */
-function memoized<Inputs extends unknown[], Result>(
+export function memoized<Inputs extends unknown[], Result>(
   inputsOf: (state: AppState) => readonly [...Inputs],
   derive: (...inputs: Inputs) => Result,
 ): (state: AppState) => Result {
@@ -115,10 +117,9 @@ export const selectHealthBadge: (state: AppState) => HealthBadge = memoized(
   (report, reportRevision, running, revision, hiddenChecks): HealthBadge => {
     let errors = 0
     let warnings = 0
-    const hidden = new Set(hiddenChecks)
     for (const body of report?.bodies ?? []) {
       for (const check of body.report.checks) {
-        if (hidden.has(check.check)) {
+        if (isCheckHidden(hiddenChecks, check.check)) {
           continue
         }
         for (const finding of check.findings) {

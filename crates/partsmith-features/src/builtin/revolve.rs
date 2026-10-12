@@ -183,7 +183,7 @@ fn turn(params: &RevolveParams, context: &BuildContext<'_>) -> Result<Turn, Feat
         return Ok(Turn::Full);
     };
     let angle = context.eval_angle("extent.expr", expr)?;
-    if angle <= 0.0 {
+    if angle <= ANGULAR_TOLERANCE {
         return Err(out_of_range(
             context,
             "extent.expr",

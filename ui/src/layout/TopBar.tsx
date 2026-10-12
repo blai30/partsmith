@@ -2,6 +2,7 @@ import { clsx } from 'clsx/lite'
 import { Download, Moon, PanelLeft, Search } from 'lucide-react'
 import { useRef, useState } from 'react'
 import { setContext } from '../app/actions/context'
+import { isUnsaved } from '../app/actions/edits'
 import { updateSettings } from '../app/actions/settings'
 import { useApp, useAppState } from '../app/AppProvider'
 import { formatShortcut } from '../commands/shortcuts'
@@ -54,8 +55,7 @@ function BrowserToggle() {
 
 /** Whether the document has changes that are not in its file: the core's flag or a recovered copy. */
 function selectEdited(state: AppState): boolean {
-  const document = state.document
-  return document !== null && (document.dirty || document.localUnsaved)
+  return state.document !== null && isUnsaved(state.document)
 }
 
 function DocumentTitle() {

@@ -16,6 +16,8 @@ import {
   renameFeature,
   setRollback,
   setSuppressed,
+  startRollbackDrag,
+  type RollbackDrag,
 } from '../app/actions/timeline'
 import { useApp, useAppState } from '../app/AppProvider'
 import { FEATURE_ICONS } from '../commands/icons'
@@ -33,7 +35,6 @@ import { selectProblems } from '../state/selectors'
 import type { SelectionItem } from '../state/store'
 import { COLOR_CLASSES } from '../theme/roles'
 import { positionElement } from '../viewport/overlay'
-import { startRollbackDrag, type RollbackDrag } from './rollback-drag'
 import {
   gapPositions,
   itemStatus,

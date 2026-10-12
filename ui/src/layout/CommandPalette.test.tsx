@@ -60,8 +60,7 @@ describe('the command palette (3.4)', () => {
   it('is a dialog named "Command palette" with a combobox controlling a listbox', async () => {
     const { user } = renderApp()
     const palette = await openPalette(user)
-    expect(palette).toHaveAttribute('role', 'dialog')
-    expect(palette).toHaveAccessibleName('Command palette')
+    expect(screen.getByRole('dialog', { name: 'Command palette' })).toBe(palette)
     const input = within(palette).getByRole('combobox')
     expect(input).toBe(screen.getByTestId('palette-input'))
     expect(input).toHaveAttribute('placeholder', 'Search commands, bodies and parameters')

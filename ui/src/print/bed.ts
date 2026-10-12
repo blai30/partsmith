@@ -1,7 +1,7 @@
 import type { Bed, BodyPrint } from '../generated/protocol'
+import { memoized } from '../state/selectors'
 import type { AppState } from '../state/store'
 import { cross, dot, scale, subtract, type Vector3 } from '../viewport/math'
-import { memoized } from './memoize'
 
 // The print bed outline drawn in Print context after a report (ui.md 3.12 pass 8, 3.17).
 

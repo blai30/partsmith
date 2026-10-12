@@ -199,7 +199,7 @@ feature(
 
 ## 5. Performance
 
-- One hole in a box: 15 ms. Ten holes in a 200-face body: 80 ms.
+- One hole in a box: 15 ms. Ten holes in a 200-face body: 80 ms (over budget in the kernel's booleans, features.md open issue 5).
 
 ## 6. Acceptance tests
 

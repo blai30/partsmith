@@ -4,11 +4,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { installPopoverPolyfill } from '../components/popover-polyfill.testing'
 import type { Document } from '../generated/protocol'
 import { MESSAGES } from '../messages'
-import type { AppState, DocumentState } from '../state/store'
+import type { ActiveCommand, AppState, DocumentState } from '../state/store'
 import { CUBE_DOCUMENT, RECT_SKETCH_SOLUTION } from '../test/fakes/documents'
 import { settle } from '../test/fakes/settle'
 import { COLOR_CLASSES, FONT_CLASSES } from '../theme/roles'
 import { cubeDocumentState, readyState, rectSketchDocumentState } from './fixtures.testing'
+import { StatusBar } from './StatusBar'
 import { createModelApp, renderWithApp, stubMatchMedia } from './test-app.testing'
 
 let uninstallPopovers: () => void
@@ -27,8 +28,21 @@ afterEach(() => {
 
 function renderApp(state: Partial<AppState> = {}, document: DocumentState = cubeDocumentState()) {
   const test = createModelApp({ state: readyState(document, state) })
-  renderWithApp(test.app)
+  renderWithApp(test.app, <StatusBar />)
   return { ...test, user: userEvent.setup(), statusBar: screen.getByTestId('status-bar') }
+}
+
+const EXTRUDE_COMMAND: ActiveCommand = {
+  featureType: 'extrude',
+  featureId: 'f-new1',
+  editing: false,
+  title: 'Extrude',
+  params: { extent: { kind: 'distance', expr: '10 mm' }, op: 'join', body: 'b-cube' },
+  activeField: 'profile',
+  fieldErrors: {},
+  applied: false,
+  newBody: null,
+  preview: 'none',
 }
 
 describe('the status bar (3.21)', () => {
@@ -122,9 +136,9 @@ describe('the status bar (3.21)', () => {
     ).toContain(MESSAGES.units_changed('in'))
   })
 
-  it('shows "No printer" without a printer and the profile name with one', () => {
+  it('shows "{default name} (default)" without a printer and the profile name with one', () => {
     renderApp()
-    expect(screen.getByTestId('status-printer')).toHaveTextContent('No printer')
+    expect(screen.getByTestId('status-printer')).toHaveTextContent('Generic FDM 0.4 mm (default)')
     cleanup()
     const withPrinter: Document = { ...CUBE_DOCUMENT, printer: 'generic-fdm' }
     renderApp({}, cubeDocumentState({ recipe: withPrinter }))
@@ -135,6 +149,31 @@ describe('the status bar (3.21)', () => {
     const { user } = renderApp()
     await user.click(screen.getByTestId('status-printer'))
     expect(screen.getByTestId('printer-menu')).toBeVisible()
+  })
+
+  it('disables units and printer with finish_command_first during a feature command, and a click says why', async () => {
+    const { app, user } = renderApp({ command: EXTRUDE_COMMAND })
+    const reason = MESSAGES.finish_command_first('Extrude')
+    for (const testId of ['status-units', 'status-printer']) {
+      const button = screen.getByTestId(testId)
+      expect(button).toHaveAttribute('aria-disabled', 'true')
+      expect(button).toHaveAccessibleDescription(expect.stringContaining(reason))
+      await user.click(button)
+      expect(screen.queryByRole('menu')).toBeNull()
+      expect(screen.queryByTestId('printer-menu')).toBeNull()
+    }
+    expect(
+      app.store.getState().notifications.map((notification) => notification.message),
+    ).toEqual([reason])
+  })
+
+  it('enables units and printer again when the command ends', () => {
+    const { app } = renderApp({ command: EXTRUDE_COMMAND })
+    act(() => {
+      app.store.setState({ command: null })
+    })
+    expect(screen.getByTestId('status-units')).not.toHaveAttribute('aria-disabled')
+    expect(screen.getByTestId('status-printer')).not.toHaveAttribute('aria-disabled')
   })
 
   it('has the print health badge', () => {

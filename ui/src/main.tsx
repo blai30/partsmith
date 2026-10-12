@@ -4,12 +4,14 @@ import { createRoot } from 'react-dom/client'
 import { App } from './App'
 import { startCore } from './app/actions/document'
 import { AppProvider } from './app/AppProvider'
+import { installCloseGuard } from './app/close-guard'
 import { createApp, detectPlatform, installUnloadGuard } from './app/createApp'
 import { builtinCommands } from './commands/builtin'
 import { installShortcutDispatcher } from './commands/dispatcher'
 import type { TauriGlobal } from './core/tauri-transport'
 import { chooseTransport } from './core/transport'
-import { createWebFileService } from './files/file-service'
+import { chooseFileService } from './files/choose-file-service'
+import { tauriGlobalOf } from './files/desktop-file-service'
 import { createIndexedDbRecentFiles } from './files/recent'
 import { createIndexedDbRecovery } from './files/recovery'
 import { systemPrefersDark } from './layout/color-scheme'
@@ -73,7 +75,7 @@ if (missing !== null) {
   const platform = detectPlatform(navigator, environment)
   const app = createApp({
     transport: chooseTransport(environment),
-    files: createWebFileService(window),
+    files: chooseFileService(window),
     recent: createIndexedDbRecentFiles(indexedDB),
     recovery: createIndexedDbRecovery(indexedDB),
     platform,
@@ -84,6 +86,11 @@ if (missing !== null) {
   }
   installShortcutDispatcher(app, window)
   installUnloadGuard(app, window)
+  // The desktop host asks before closing a window with unsaved changes (desktop.md 3.6).
+  const tauri = tauriGlobalOf(window)
+  if (tauri !== null) {
+    installCloseGuard(app.store, tauri)
+  }
   createRoot(root).render(
     <StrictMode>
       <AppProvider app={app}>

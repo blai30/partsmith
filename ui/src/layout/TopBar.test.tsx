@@ -3,10 +3,11 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { installPopoverPolyfill } from '../components/popover-polyfill.testing'
 import { DEFAULT_SETTINGS, SETTINGS_KEY } from '../settings/settings'
-import type { AppState, SketchSession } from '../state/store'
+import { INITIAL_STATE, type AppState, type SketchSession } from '../state/store'
 import { catalogOf, TEST_CATALOG_ENTRIES } from '../test/fakes/catalog'
 import { RECT_REGION } from '../test/fakes/documents'
 import { settle } from '../test/fakes/settle'
+import { checkResult, finding, printReport } from '../test/fakes/state'
 import {
   cubeDocumentState,
   documentState,
@@ -410,5 +411,34 @@ describe('feature commands from the toolbar (3.7)', () => {
     expect(exportButton).toHaveAttribute('aria-disabled', 'true')
     await user.click(exportButton)
     expect(screen.queryByTestId('export-popover')).toBeNull()
+  })
+})
+
+describe('the Print toolbar (3.3, 3.17)', () => {
+  it('names the printer in use, the default one when the document has none', () => {
+    renderApp({ context: 'print' })
+    const toolbar = screen.getByRole('toolbar', { name: 'Print tools' })
+    expect(
+      within(toolbar).getByRole('button', { name: 'Printer: Generic FDM 0.4 mm (default)' }),
+    ).toBeInTheDocument()
+  })
+
+  it('shows the shown finding count on Print check and opens the print check panel', async () => {
+    const report = printReport({
+      'b-cube': [
+        checkResult('overhangs', [finding('overhangs', 'warning')]),
+        checkResult('bed_fit', [finding('bed_fit', 'error')]),
+      ],
+    })
+    const { app, user } = renderApp({
+      context: 'print',
+      print: { ...INITIAL_STATE.print, report, reportRevision: cubeDocumentState().revision },
+    })
+    const toolbar = screen.getByRole('toolbar', { name: 'Print tools' })
+    const button = within(toolbar).getByRole('button', { name: 'Print check' })
+    expect(button).toHaveTextContent('2')
+    await user.click(button)
+    expect(app.store.getState().panels.side).toBe('health')
+    expect(screen.getByTestId('health-list')).toBeInTheDocument()
   })
 })

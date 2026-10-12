@@ -1,12 +1,13 @@
-import { cleanup, screen, within } from '@testing-library/react'
+import { act, cleanup, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { installPopoverPolyfill } from './components/popover-polyfill.testing'
 import { bodyItem, cubeDocumentState, readyState } from './layout/fixtures.testing'
 import { createModelApp, renderWithApp, stubMatchMedia } from './layout/test-app.testing'
 import { MESSAGES } from './messages'
-import type { ActiveCommand, AppState } from './state/store'
+import { INITIAL_STATE, type ActiveCommand, type AppState } from './state/store'
 import { settle } from './test/fakes/settle'
+import { checkResult, finding, printReport } from './test/fakes/state'
 import { COLOR_CLASSES, FONT_CLASSES } from './theme/roles'
 
 let uninstallPopovers: () => void
@@ -155,6 +156,41 @@ describe('the app shell (3.2)', () => {
     const side = screen.getByTestId('side-panel')
     expect(side.tagName).toBe('ASIDE')
     expect(within(side).getByTestId('parameters-panel')).toBeInTheDocument()
+  })
+
+  it('names the print check side panel "Print check" and its region by the visible heading (3.17)', () => {
+    renderApp({
+      panels: {
+        browserOpen: true,
+        timelineCollapsed: false,
+        paletteOpen: false,
+        side: 'health',
+        inspectorPosition: null,
+      },
+    })
+    const side = screen.getByTestId('side-panel')
+    expect(side).toHaveAccessibleName('Print check')
+    const heading = within(side).getByRole('heading')
+    expect(heading).toHaveTextContent('Print check: Generic FDM 0.4 mm')
+    expect(within(side).getByRole('region')).toHaveAccessibleName(heading.textContent ?? '')
+    expect(within(side).getAllByRole('heading')).toHaveLength(1)
+  })
+
+  it('shows the overhang legend in the viewport in Print context while the overhang map is on (3.17)', () => {
+    const report = printReport({
+      'b-cube': [checkResult('overhangs', [finding('overhangs', 'warning')])],
+    })
+    const print = { ...INITIAL_STATE.print, report, reportRevision: cubeDocumentState().revision }
+    const { app } = renderApp({ context: 'print', print })
+    const legend = within(screen.getByTestId('viewport')).getByTestId('overhang-legend')
+    expect(legend).toHaveTextContent('Overhangs')
+    act(() => {
+      app.store.setState((state) => ({ print: { ...state.print, overhangMap: false } }))
+    })
+    expect(screen.queryByTestId('overhang-legend')).toBeNull()
+    cleanup()
+    renderApp({ context: 'model', print })
+    expect(screen.queryByTestId('overhang-legend')).toBeNull()
   })
 
   it('keeps the other regions working when one region crashes (4.4)', () => {

@@ -14,9 +14,11 @@ import {
 } from '../layout/test-app.testing'
 import { MESSAGES } from '../messages'
 import { DEFAULT_SETTINGS } from '../settings/settings'
-import type { AppState } from '../state/store'
+import { INITIAL_STATE, type AppState } from '../state/store'
 import type { FakeBackend } from '../test/fakes/backend'
 import { settle } from '../test/fakes/settle'
+import { checkResult, finding, printReport } from '../test/fakes/state'
+import { COLOR_CLASSES } from '../theme/roles'
 import { DEFAULT_CAMERA, forward, visibleHeightAtTarget, type Camera } from './camera'
 import { Viewport } from './Viewport'
 
@@ -338,6 +340,41 @@ describe('overlays', () => {
     flush()
     await settle()
     expect(screen.queryByText('Restoring the 3D view')).toBeNull()
+  })
+
+  it('draws the finding marker, a ring 16 pixels across in errorMark, at the focused finding (3.17)', () => {
+    const report = printReport({
+      'b-cube': [checkResult('overhangs', [finding('overhangs', 'warning')])],
+    })
+    const { app } = setUp({
+      context: 'print',
+      print: {
+        ...INITIAL_STATE.print,
+        report,
+        reportRevision: cubeDocumentState().revision,
+        focusedFinding: { body: 'b-cube', check: 'overhangs', index: 0 },
+      },
+    })
+    flush()
+    const marker = screen.getByTestId('finding-marker')
+    expect(marker.tagName.toLowerCase()).toBe('circle')
+    expect(marker).toHaveAttribute('r', '8')
+    expect(marker).toHaveClass(...COLOR_CLASSES.errorMark.stroke.split(' '))
+    // The finding is at the origin, which the default camera sees: the ring is placed and shown.
+    expect(marker).not.toHaveAttribute('display')
+    expect(Number(marker.getAttribute('cx'))).toBeGreaterThan(0)
+    expect(Number(marker.getAttribute('cy'))).toBeGreaterThan(0)
+    act(() => {
+      app.store.setState((state) => ({ print: { ...state.print, focusedFinding: null } }))
+    })
+    expect(screen.queryByTestId('finding-marker')).toBeNull()
+    act(() => {
+      app.store.setState((state) => ({
+        print: { ...state.print, focusedFinding: { body: 'b-cube', check: 'overhangs', index: 0 } },
+      }))
+    })
+    flush()
+    expect(screen.getByTestId('finding-marker')).not.toHaveAttribute('display')
   })
 
   it('renders with the settings’ UI scale', () => {

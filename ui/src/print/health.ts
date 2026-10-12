@@ -1,8 +1,8 @@
 import type { Finding, Location, PrintReport, Severity } from '../generated/protocol'
+import { memoized } from '../state/selectors'
 import type { AppState, FindingKey } from '../state/store'
 import type { Vector3 } from '../viewport/math'
 import { isCheckHidden, PRINT_CHECKS } from './checks'
-import { memoized } from './memoize'
 
 // The rows of the print check panel and the findings they point at (ui.md 3.17).
 

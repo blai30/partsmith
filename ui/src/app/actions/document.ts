@@ -274,9 +274,21 @@ export async function openFile(app: App, file: OpenedFile): Promise<void> {
   }
 }
 
-/** Open... with the platform's file picker; a canceled picker does nothing. */
+/**
+ * Open... with the platform's file picker; a canceled picker does nothing. A picker that fails (the
+ * desktop host could not read the chosen file, desktop.md 3.7) shows its message as an error (3.19).
+ */
 export async function openWithPicker(app: App): Promise<void> {
-  const file = await app.files.pickToOpen()
+  let file: OpenedFile | null
+  try {
+    file = await app.files.pickToOpen()
+  } catch (error) {
+    if (!(error instanceof FileServiceError)) {
+      throw error
+    }
+    notify(app, { severity: 'error', message: error.message, actions: [] })
+    return
+  }
   if (file !== null) {
     await openFile(app, file)
   }
@@ -396,13 +408,26 @@ export async function save(app: App): Promise<void> {
   await writeDocument(app, { kind: 'handle', name: file.name, handle: file.handle })
 }
 
-/** Save as (Mod+Shift+S): asks where first; a canceled picker changes nothing. */
+/**
+ * Save as (Mod+Shift+S): asks where first; a canceled picker changes nothing, and a picker that
+ * fails shows the Save messages with "Save as" (3.19).
+ */
 export async function saveAs(app: App): Promise<void> {
   const document = documentOf(app)
   if (document === null) {
     return
   }
-  const target = await app.files.chooseSaveTarget(`${document.name}.ptsm`, 'ptsm')
+  const fileName = `${document.name}.ptsm`
+  let target: SaveTarget | null
+  try {
+    target = await app.files.chooseSaveTarget(fileName, 'ptsm')
+  } catch (error) {
+    if (!(error instanceof FileServiceError)) {
+      throw error
+    }
+    showWriteError(app, fileName, error)
+    return
+  }
   if (target === null || !(await writeDocument(app, target))) {
     return
   }

@@ -151,6 +151,12 @@ function candidatesFor(
   }
 }
 
+/** The ids of the box's descriptions that are shown, or undefined when none is. */
+function describedBy(...ids: readonly (string | null)[]): string | undefined {
+  const shown = ids.filter((id) => id !== null)
+  return shown.length === 0 ? undefined : shown.join(' ')
+}
+
 export type SelectionFieldProps = {
   readonly field: InspectorField
   readonly accepts: SelectionKind
@@ -171,9 +177,14 @@ export function SelectionField({
   const labelId = useId()
   const textId = useId()
   const errorId = useId()
+  const hintId = useId()
   const chooseButton = useRef<HTMLButtonElement>(null)
   const [choosing, setChoosing] = useState(false)
   const active = useAppState((state) => state.command?.activeField === field.path)
+  // Why the field refused the last pick, for 3 s (3.7).
+  const pickHint = useAppState((state) =>
+    state.pickHint?.field === field.path ? state.pickHint.message : null,
+  )
   // Items and candidates read the document, the catalog and session visibility.
   useAppState((state) => state.document)
   useAppState((state) => state.catalog)
@@ -221,7 +232,7 @@ export function SelectionField({
           data-active={active}
           data-count={items.length}
           aria-labelledby={`${labelId} ${textId}`}
-          aria-describedby={message === '' ? undefined : errorId}
+          aria-describedby={describedBy(message === '' ? null : errorId, pickHint === null ? null : hintId)}
           aria-pressed={active}
           onClick={activate}
           className={clsx(
@@ -263,14 +274,23 @@ export function SelectionField({
           </Button>
         )}
       </div>
-      <p
-        id={errorId}
-        data-testid="field-error"
-        aria-live="polite"
-        className={clsx('text-xs', COLOR_CLASSES.errorText.foreground)}
-      >
-        {message}
-      </p>
+      <div className="flex flex-col">
+        <p
+          id={errorId}
+          data-testid="field-error"
+          aria-live="polite"
+          className={clsx('text-xs', COLOR_CLASSES.errorText.foreground)}
+        >
+          {message}
+        </p>
+        <p
+          id={hintId}
+          aria-live="polite"
+          className={clsx('text-xs', COLOR_CLASSES.textMuted.foreground)}
+        >
+          {pickHint}
+        </p>
+      </div>
       <Menu
         label={`Choose ${field.label}`}
         open={choosing}

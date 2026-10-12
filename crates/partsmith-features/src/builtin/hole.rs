@@ -23,9 +23,8 @@ use serde::{Deserialize, Serialize};
 
 use super::common::{
     THROUGH_ALL_MARGIN, bodies, body_hint, call, check_range, empty_selection, essential,
-    face_name, farthest_corner, flag, hint, is_false, manifest, one_or_list, options_hint,
-    is_positive_length, out_of_range, positive_length, selection_hint, solid_body, unchanged,
-    unit_hint,
+    face_name, farthest_corner, flag, hint, is_false, is_positive_length, manifest, one_or_list,
+    options_hint, out_of_range, positive_length, selection_hint, solid_body, unchanged, unit_hint,
 };
 use crate::context::BuildContext;
 use crate::deps::Dependencies;

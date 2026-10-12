@@ -242,7 +242,10 @@ fn plate_with_holes() -> Shape {
 }
 
 #[test]
-#[ignore = "over budget in the kernel: Shape::elements(Face) of a 200-face body takes about 25 ms on the reference machine (review finding 2); run with cargo test --release -- --ignored"]
+#[cfg_attr(
+    debug_assertions,
+    ignore = "performance budgets hold for release builds: run with cargo test --release"
+)]
 fn element_infos_of_a_200_face_body_within_10_milliseconds() {
     let plate = plate_with_holes();
     let face = ElementName::parse("f-plate1/face").expect("a valid name");

@@ -40,6 +40,7 @@ All types below live in `partsmith-features` unless a path says otherwise. Types
 - `partsmith_naming`: `Reference`, `ElementName`, `ElementKind`, `ElementInfo`, `NamingMap`, `FaceSource`, `Resolution`.
 - `partsmith_sketch`: `SketchParams`, `SketchPlane`, `Placement`, `OriginPlane`, `PointRef`, `RegionRef`, `SolveResult`, `SolveIssue`, `Profile`, `SketchError`, `NativeSolver`, `match_region`, `build_profile`.
 - `partsmith_occt_sys`: `Shape`, `SubShape`, `SubShapeKind`, `Axis`, `Plane`, `Point`, `Vector`, `KernelError`, `OCCT_VERSION`, `LINEAR_TOLERANCE`.
+- `partsmith_mesh`: `BoundingBox`, the type `Shape::bounding_box` returns (kernel.md), which features that reach past a body (through-all extents, hole overlap tests) name.
 
 Every public type derives `Debug` and `Clone`. Types stored in documents or sent to hosts also derive `serde::Serialize`, `serde::Deserialize`, `schemars::JsonSchema` and `PartialEq`, with snake_case field names.
 
@@ -802,7 +803,7 @@ pub trait PythonNames {
 
 ### 2.11 The public API is the feature API
 
-Built-in features use only the public API, like a plugin would: they are registered through `register_builtins` with `Registry::register` (section 2.9) and build with the public items of this crate and of the crates listed at the top of section 2, never with crate-private helpers. What a built-in needs that a plugin would need too is public:
+Built-in features use only the public API, like a plugin would: they are registered through `register_builtins` with `Registry::register` (section 2.9) and build with the public items of this crate and of the crates listed at the top of section 2, never with framework internals (the private parts of the context, registry, naming bridge and error modules). Helpers that several built-ins share (manifest hints, range checks, tool naming, Python arguments) may stay private to the crate when they are built only on public items, as a plugin crate could write them for itself. What a built-in needs that a plugin would need too is public:
 
 - `From<KernelError> for FeatureError` and `FeatureError::internal` (section 2.8).
 - `point` and `vector` (section 2.5), the kernel `Point` and `Vector` of `[f64; 3]` coordinates.
@@ -1323,3 +1324,4 @@ Run as documents (section 6.1).
 2. **Expression conversion.** Count fields evaluate with expected dimension `NONE` and then require a whole number; this spec adds the 1e-9 integer tolerance, the `u32` range and the per-feature minimum (section 3.4), which expressions.md does not define.
 3. **Examples layout.** Resolved by [delivery.md](delivery.md) section 2.8: every `.ptsm` under `examples/` is an example, with `<stem>.expected.json` and `<stem>.py` next to it.
 4. **Region union.** The union of selected regions (section 3.7) is computed by `partsmith-features` from sketch.md's `ProfileLoop`s because sketch.md lists a region-union helper as later. Moving it into the sketch crate later would not change behavior.
+5. **Hole budget over on a 200-face body.** Measured in release builds on the 4-core reference container under load (load average about 8), October 2026: a hole feature with 10 holes in a 200-face body (section 5, 80 ms) takes 651 ms, and no test enforces that budget yet. Kernel cost on that body (a 200 x 200 x 10 plate with 194 holes, 10 tools of radius 3), medians of 7: the overlap `common` of the body with the compound of the tools 166 ms; the `cut` 357 ms, of which about 157 ms is the `BRepCheck_Analyzer` check of the whole result that every kernel boolean ends with (kernel.md section 3.4.5); the result volume for the body rules 30 ms; element infos for naming 8 ms; the 10 tools under 1 ms. The two booleans and their validity check are about 80% of the build, so the budget cannot be met in this crate alone. Ways forward: a kernel validity check limited to what an operation changed; the overlap of each tool taken from the cut's history instead of a separate `common`; and the result volume and topology carried with the output (a change to `BodyUpdate` or `FeatureOutput`, section 2.7) so later features do not compute them again. A release test of this budget is added with those changes.
