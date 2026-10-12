@@ -277,6 +277,8 @@ pub struct ValidityReport {
     pub degenerate_triangles: Vec<u32>,
     /// `Mesh::signed_volume` of the mesh.
     pub signed_volume: f64,
+    /// Number of triangles in the mesh; watertightness requires at least one, which the edge lists alone cannot tell (an empty mesh and two coincident, oppositely wound triangles both list no edges).
+    pub triangle_count: usize,
 }
 
 impl ValidityReport {
@@ -554,7 +556,7 @@ Edges and corners are inclusive, so a ray through a shared edge hits both triang
 
 ### 3.11 Render buffers
 
-`render_buffers()` produces the protocol layout in which no render vertex is shared by two face ids (protocol spec, mesh buffer invariants), so a WebGL2 ID pass can use `face_ids` as a `flat` attribute:
+`render_buffers()` panics if the mesh would need more than `u32::MAX` render vertices; that cannot happen for a mesh within `MAX_ELEMENTS`, so the signature stays infallible, and the panic is documented as an invariant violation. It produces the protocol layout in which no render vertex is shared by two face ids (protocol spec, mesh buffer invariants), so a WebGL2 ID pass can use `face_ids` as a `flat` attribute:
 
 1. A render vertex is a pair (mesh vertex, face id). Scan triangles in index order and their corners in order; each pair gets a render index at its first occurrence. Mesh vertices used by no triangle produce no render vertex.
 2. `positions` holds each render vertex's mesh position converted with `as f32` (round to nearest); `source_vertices` holds its mesh vertex index; `face_ids` its face id.

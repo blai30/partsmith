@@ -17,14 +17,14 @@ pub struct ValidityReport {
     pub degenerate_triangles: Vec<u32>,
     /// [`Mesh::signed_volume`] of the mesh.
     pub signed_volume: f64,
-    /// True when the mesh has at least one triangle, which watertightness requires.
-    has_triangles: bool,
+    /// Number of triangles in the mesh; watertightness requires at least one.
+    pub triangle_count: usize,
 }
 
 impl ValidityReport {
     /// No boundary and no non-manifold edges, and at least one triangle.
     pub fn is_watertight(&self) -> bool {
-        self.has_triangles && self.boundary_edges.is_empty() && self.non_manifold_edges.is_empty()
+        self.triangle_count > 0 && self.boundary_edges.is_empty() && self.non_manifold_edges.is_empty()
     }
 
     /// No non-manifold edges.
@@ -97,7 +97,7 @@ impl Mesh {
             misoriented_edges,
             degenerate_triangles,
             signed_volume: self.signed_volume(),
-            has_triangles: !self.is_empty(),
+            triangle_count: self.triangle_count(),
         }
     }
 
