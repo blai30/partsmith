@@ -15,8 +15,8 @@ const MAX_SCHEMA_DEPTH: usize = 32;
 /// Prefix of a reference to a definition of the same root schema.
 const DEFINITION_PREFIX: &str = "#/$defs/";
 
-/// The definition name schemars gives `partsmith_model::Expr`.
-const EXPR_DEFINITION: &str = "Expr";
+/// A reference to the definition schemars gives `partsmith_model::Expr`.
+const EXPR_REFERENCE: &str = "#/$defs/Expr";
 
 /// Checks a params schema and its manifest before registration: an open object root, no reserved
 /// property, no definition that conflicts with `definitions`, and a manifest that matches the
@@ -52,7 +52,7 @@ pub(crate) fn check(
             });
         }
     }
-    check_manifest(manifest, schema.as_value(), root, properties).map_err(|(path, problem)| {
+    check_manifest(manifest, schema.as_value(), properties).map_err(|(path, problem)| {
         RegistryError::ManifestMismatch {
             type_name: type_name.to_string(),
             path,
@@ -81,13 +81,12 @@ fn open_object(schema: &Schema) -> Option<&Map<String, Value>> {
 /// problem is the path it is about and a description.
 fn check_manifest(
     manifest: &FeatureManifest,
-    schema_value: &Value,
-    root: &Map<String, Value>,
+    root: &Value,
     properties: Option<&Map<String, Value>>,
 ) -> Result<(), (String, String)> {
     let schema = SchemaView {
-        root: schema_value,
-        definitions: own_definitions(root),
+        root,
+        definitions: root.as_object().and_then(own_definitions),
     };
     for hint in &manifest.fields {
         let problem = |text: &str| (hint.path.clone(), text.to_string());
@@ -209,6 +208,7 @@ impl<'a> SchemaView<'a> {
         expanded
     }
 
+    /// Adds the object schemas `node` stands for to `expanded`, at most `MAX_SCHEMA_DEPTH` deep.
     fn expand_into(
         &self,
         node: &'a Value,
@@ -252,9 +252,7 @@ impl<'a> SchemaView<'a> {
         let Some(object) = node.as_object() else {
             return false;
         };
-        if object.get("$ref").and_then(Value::as_str)
-            == Some(&format!("{DEFINITION_PREFIX}{EXPR_DEFINITION}"))
-        {
+        if object.get("$ref").and_then(Value::as_str) == Some(EXPR_REFERENCE) {
             return true;
         }
         ["anyOf", "oneOf"].iter().any(|combinator| {
@@ -290,4 +288,238 @@ impl<'a> SchemaView<'a> {
 /// True for a schema that only allows null.
 fn is_null(node: &Value) -> bool {
     node.get("type").and_then(Value::as_str) == Some("null")
+}
+
+#[cfg(test)]
+mod tests {
+    use partsmith_model::{Expr, FieldHint, FieldUnit, Id, OptionHint};
+    use schemars::{JsonSchema, schema_for};
+    use serde::{Deserialize, Serialize};
+
+    use super::*;
+    use crate::params::BodyOp;
+    use crate::test_support::manifest;
+
+    /// Params exercising every kind of field the checks look at.
+    #[derive(Serialize, Deserialize, JsonSchema)]
+    struct Params {
+        /// A body.
+        body: Id,
+        /// A tagged union.
+        extent: Extent,
+        /// An enumeration with documented values.
+        op: BodyOp,
+        /// An optional expression.
+        #[serde(default)]
+        taper: Option<Expr>,
+        /// Fixed-size expressions.
+        size: [Expr; 2],
+        /// A plain string.
+        label: String,
+    }
+
+    /// A tagged union.
+    #[derive(Serialize, Deserialize, JsonSchema)]
+    #[serde(tag = "kind", rename_all = "snake_case")]
+    enum Extent {
+        /// One distance.
+        Distance {
+            /// The distance.
+            expr: Expr,
+        },
+        /// Through everything.
+        ThroughAll,
+    }
+
+    fn hint(path: &str) -> FieldHint {
+        FieldHint {
+            path: path.to_string(),
+            label: path.to_string(),
+            essential: false,
+            unit: None,
+            selection: None,
+            options: Vec::new(),
+        }
+    }
+
+    fn with_unit(path: &str) -> FieldHint {
+        FieldHint {
+            unit: Some(FieldUnit::Length),
+            ..hint(path)
+        }
+    }
+
+    fn with_options(path: &str, values: &[&str]) -> FieldHint {
+        FieldHint {
+            options: values
+                .iter()
+                .map(|value| OptionHint {
+                    value: value.to_string(),
+                    label: value.to_string(),
+                })
+                .collect(),
+            ..hint(path)
+        }
+    }
+
+    /// Hints that cover every field correctly.
+    fn complete_hints() -> Vec<FieldHint> {
+        vec![
+            hint("body"),
+            with_options("extent.kind", &["distance", "through_all"]),
+            with_unit("extent.expr"),
+            with_options("op", &["new", "join", "cut", "intersect"]),
+            with_unit("taper"),
+            with_unit("size[0]"),
+            with_unit("size[*]"),
+            hint("label"),
+        ]
+    }
+
+    fn check_hints(hints: Vec<FieldHint>) -> Result<(), RegistryError> {
+        check(
+            "params",
+            &manifest(hints),
+            &schema_for!(Params),
+            &BTreeMap::new(),
+        )
+    }
+
+    fn mismatch_path(result: Result<(), RegistryError>) -> String {
+        match result {
+            Err(RegistryError::ManifestMismatch { path, .. }) => path,
+            other => panic!("expected ManifestMismatch, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn complete_hints_pass() {
+        assert_eq!(check_hints(complete_hints()), Ok(()));
+    }
+
+    #[test]
+    fn a_unit_on_a_string_is_a_mismatch() {
+        let mut hints = complete_hints();
+        hints.push(with_unit("label"));
+
+        assert_eq!(mismatch_path(check_hints(hints)), "label");
+    }
+
+    #[test]
+    fn options_must_list_exactly_the_allowed_values() {
+        let mut missing = complete_hints();
+        missing[3] = with_options("op", &["new", "join", "cut"]);
+        let mut repeated = complete_hints();
+        repeated[1] = with_options("extent.kind", &["distance", "distance", "through_all"]);
+
+        assert_eq!(mismatch_path(check_hints(missing)), "op");
+        assert_eq!(mismatch_path(check_hints(repeated)), "extent.kind");
+    }
+
+    #[test]
+    fn options_on_a_field_without_values_are_a_mismatch() {
+        let mut hints = complete_hints();
+        hints[0] = with_options("body", &["b-1"]);
+
+        assert_eq!(mismatch_path(check_hints(hints)), "body");
+    }
+
+    #[test]
+    fn hints_beyond_a_fixed_size_list_or_inside_a_string_do_not_exist() {
+        let mut beyond = complete_hints();
+        beyond.push(with_unit("size[2].x"));
+        let mut malformed = complete_hints();
+        malformed.push(hint("size[x]"));
+
+        assert_eq!(mismatch_path(check_hints(beyond)), "size[2].x");
+        assert_eq!(mismatch_path(check_hints(malformed)), "size[x]");
+    }
+
+    #[test]
+    fn a_field_covered_only_by_a_sub_path_hint_is_covered() {
+        let hints: Vec<FieldHint> = complete_hints()
+            .into_iter()
+            .filter(|hint| hint.path != "body")
+            .chain([hint("body")])
+            .collect();
+
+        assert_eq!(check_hints(hints), Ok(()));
+    }
+
+    #[test]
+    fn a_reserved_root_property_is_rejected() {
+        let schema = Schema::try_from(serde_json::json!({
+            "type": "object",
+            "properties": {"suppressed": {"type": "boolean"}}
+        }))
+        .expect("an object schema");
+
+        let result = check(
+            "closed",
+            &manifest(vec![hint("suppressed")]),
+            &schema,
+            &BTreeMap::new(),
+        );
+
+        assert_eq!(
+            result,
+            Err(RegistryError::ReservedField {
+                type_name: "closed".to_string(),
+                field: "suppressed".to_string()
+            })
+        );
+    }
+
+    #[test]
+    fn unevaluated_properties_false_closes_the_object() {
+        let schema = Schema::try_from(serde_json::json!({
+            "type": "object",
+            "unevaluatedProperties": false
+        }))
+        .expect("an object schema");
+
+        let result = check("closed", &manifest(Vec::new()), &schema, &BTreeMap::new());
+
+        assert_eq!(
+            result,
+            Err(RegistryError::NotOpenObject {
+                type_name: "closed".to_string()
+            })
+        );
+    }
+
+    #[test]
+    fn identical_registered_definitions_do_not_conflict() {
+        let schema = schema_for!(Params);
+        let definitions: BTreeMap<String, Value> =
+            own_definitions(schema.as_object().expect("an object schema"))
+                .expect("the params have definitions")
+                .iter()
+                .map(|(name, definition)| (name.clone(), definition.clone()))
+                .collect();
+
+        assert_eq!(
+            check("params", &manifest(complete_hints()), &schema, &definitions),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn recursive_definitions_terminate() {
+        let schema = Schema::try_from(serde_json::json!({
+            "type": "object",
+            "properties": {"node": {"$ref": "#/$defs/Node"}},
+            "$defs": {"Node": {"anyOf": [{"$ref": "#/$defs/Node"}, {"type": "null"}]}}
+        }))
+        .expect("an object schema");
+
+        let result = check(
+            "recursive",
+            &manifest(vec![hint("node"), with_unit("node")]),
+            &schema,
+            &BTreeMap::new(),
+        );
+
+        assert_eq!(mismatch_path(result), "node");
+    }
 }

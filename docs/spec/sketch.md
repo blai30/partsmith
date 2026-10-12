@@ -11,7 +11,7 @@ Conventions in this document:
 
 ## 1. Purpose and scope
 
-`partsmith-sketch` is pure Rust with no kernel dependency. It depends on `partsmith-model` (`Id`, `Expr`, `LINEAR_TOLERANCE`) and `partsmith-naming` (`Reference`), plus `serde`, `schemars`, `thiserror` and `faer` (MIT; sparse and dense linear algebra for the solver and diagnosis, ADR 0004; a dependency that needs human review). It does not evaluate expressions, resolve face references, read datum results, build kernel profiles, record edits or define protocol messages; those belong to `partsmith-features`, `partsmith-engine` and `partsmith-protocol`, which call the API below.
+`partsmith-sketch` is pure Rust with no kernel dependency. It depends on `partsmith-model` (`Id`, `Expr`, `LINEAR_TOLERANCE`) and `partsmith-naming` (`Reference`), plus `serde`, `schemars` and `thiserror`. Its sparse rank-revealing QR is its own code (ADR 0015). It does not evaluate expressions, resolve face references, read datum results, build kernel profiles, record edits or define protocol messages; those belong to `partsmith-features`, `partsmith-engine` and `partsmith-protocol`, which call the API below.
 
 ### 1.1 In M1
 
@@ -1039,13 +1039,15 @@ Dog-leg (Powell's method as in Madsen, Nielsen and Tingleff, "Methods for non-li
 1. `F(z) = 0.5 * norm(r)^2`, `L(h) = 0.5 * norm(r + J h)^2`. Initial trust radius `Delta = max(norm(h_gn), 1e-6)` at the start point, so the first step is the full Gauss-Newton step.
 2. Each iteration: if converged, stop. `g = J^T r`; `alpha = norm(g)^2 / norm(J g)^2`; `h_sd = -alpha g`. Step: `h_gn` if `norm(h_gn) <= Delta`; else `-(Delta / norm(g)) g` if `norm(h_sd) >= Delta`; else `h_sd + beta (h_gn - h_sd)` with `beta >= 0` chosen so `norm(h) = Delta`.
 3. `rho = (F(z) - F(z + h)) / (L(0) - L(h))`. Accept the step when `rho > 0`. If `rho > 0.75`, `Delta = max(Delta, 3 norm(h))`; if `rho < 0.25`, `Delta = Delta / 2`.
-4. Stop as not converged after `MAX_ITERATIONS` iterations, when `norm(J g) = 0`, or when `norm(h) <= 1e-14 * (norm(z) + 1e-14)`.
+4. Stop as not converged after `MAX_ITERATIONS` iterations, when `norm(J g) = 0`, or when a step with `norm(h) <= 1e-14 * (norm(z) + 1e-14)` has been tried and the point is still not converged (the tiny step is evaluated first, because whether a step is tiny depends on the size of the coordinates).
 
 Levenberg-Marquardt (same reference, section 3.2), run only when dog-leg did not converge, from the same start values (not from where dog-leg stopped):
 
 1. `A = J^T J`, `g = J^T r`, `mu = 1e-3 * max(diag(A))`, `nu = 2`. If `mu = 0`, stop as not converged.
 2. Each iteration: if converged, stop. Solve `(A + mu I) h = -g`. `rho = (F(z) - F(z + h)) / (0.5 * h^T (mu h - g))`. If `rho > 0`: accept, `mu = mu * max(1/3, 1 - (2 rho - 1)^3)`, `nu = 2`; else `mu = mu * nu`, `nu = 2 nu`.
-3. Stop as not converged after `MAX_ITERATIONS` iterations or when `norm(h) <= 1e-14 * (norm(z) + 1e-14)`.
+3. Stop as not converged after `MAX_ITERATIONS` iterations or when a step with `norm(h) <= 1e-14 * (norm(z) + 1e-14)` has been tried and the point is still not converged.
+
+Refinement: after either method converges, up to three Gauss-Newton steps (computed as above) follow; each is kept only when it lowers the largest absolute residual, and refinement stops once every row is at most `1e-12`. This keeps converged results far enough below `SOLVER_TOLERANCE` that the arc conversion of section 3.7.6 cannot push a row back above it.
 
 These constants are part of the contract, so conforming implementations follow the same iteration path. Acceptance tests check outcomes, not iteration paths.
 
@@ -1060,15 +1062,15 @@ An entity none of whose parameters changed (bitwise) is returned exactly as give
 
 - point and line: the solved coordinates.
 - circle: `radius = abs(r)`.
-- arc: `center = c`; `radius = (norm(s - c) + norm(e - c)) / 2`; `start_angle = atan2(s.y - c.y, s.x - c.x)` and `end_angle` likewise from `e`, each mapped into `[0, 2 * pi)` by adding `2 * pi` to negative values, with `-0.0` written as `0.0`.
+- arc: `center = c`; `radius = (norm(s - c) + norm(e - c)) / 2`; `start_angle = atan2(s.y - c.y, s.x - c.x)` and `end_angle` likewise from `e`, each mapped into `[0, 2 * pi)` by adding `2 * pi` to negative values, with `-0.0` written as `0.0` and a sum that rounds to `2 * pi` written as `0.0`.
 
-Entities keep their order, ids and construction flags. Because a converged component satisfies its rows to `1e-10` and the arc conversion changes points by rounding only, every constraint of a converged component holds within `1e-9` when re-evaluated from the output entities, and solving the output again leaves it bitwise unchanged.
+Entities keep their order, ids and construction flags. The arc conversion averages the two radii, which can move a row by a few units of rounding. Because refinement (section 3.7.4) leaves converged rows near `1e-12`, every constraint of a converged component holds within `1e-9` when re-evaluated from the output entities, and solving the output again leaves it bitwise unchanged.
 
 ### 3.8 Diagnosis
 
 Diagnosis runs after every `solve` (and in `begin_drag`) on the full, unsubstituted system: all `n` entity parameters and all rows in the order of section 3.6.5, evaluated with the warm-start choices at the diagnosis point. The diagnosis point is the result for converged components, the warm start for untouched components, and the LM end point for failed components.
 
-Rank-revealing QR: factor `J^T` (columns are rows of `J`) column by column in row order, without pivoting. A row is dependent when its norm after orthogonalization against all accepted rows is at most `RANK_TOLERANCE` times its original norm (a zero row is dependent); otherwise it is accepted. Results must equal those of modified Gram-Schmidt with one re-orthogonalization pass up to rounding. Implementations may use `faer` (section 1) for this and the other factorizations as long as the accepted rows are those of this definition.
+Rank-revealing QR: factor `J^T` (columns are rows of `J`) column by column in row order, without pivoting. A row is dependent when its norm after orthogonalization against all accepted rows is at most `RANK_TOLERANCE * max(original norm, 1)` (a zero row is dependent); otherwise it is accepted. The floor of 1 keeps rows whose entries are tiny near a solution from being accepted on rounding noise. Results must equal those of modified Gram-Schmidt with one re-orthogonalization pass up to rounding. The crate implements this with its own sparse Householder QR (ADR 0015).
 
 - `rank` is the number of accepted rows; `dof = n - rank`.
 - For each dependent row `j`, let `alpha` be the coefficients that express it in the accepted rows (least squares) and `delta = r_j - sum(alpha_k * r_k)`.
@@ -1147,7 +1149,7 @@ For identical arguments, `solve`, every drag frame of identical session historie
 4. Overlaps. Two pieces with the same end vertices on the same underlying line, or on circles whose centers and radii agree within the tolerance with midpoints within the tolerance, are one edge: the piece of the entity with the smallest id (byte order) is kept and the other is dropped.
 5. Degrees. The degree of a vertex counts edge ends at it (a closed edge counts 2). Open endpoints are found here (section 3.13.3).
 6. Bridges. Edges that lie on no cycle of the graph (bridges, which include dangling chains) bound no area and are removed, repeatedly, until none is left.
-7. Faces. At each vertex, outgoing half-edges are sorted counterclockwise by the angle of their tangent direction at the vertex in `[0, 2 * pi)` from +u; ties within 1e-9 rad are broken by signed curvature ascending (a straight piece is 0, an arc piece traversed counterclockwise is `+1 / r`, clockwise `-1 / r`). For a half-edge `h` arriving at vertex `w`, the next half-edge of its loop is the outgoing half-edge at `w` that comes just before `twin(h)` in this counterclockwise order. Following `next` traces every loop with its face on the left. A closed edge forms a loop on its own.
+7. Faces. At each vertex, outgoing half-edges are sorted counterclockwise by the angle of their tangent direction at the vertex in `[0, 2 * pi)` from +u; ties within 1e-9 rad are broken by signed curvature ascending (a straight piece is 0, an arc piece traversed counterclockwise is `+1 / r`, clockwise `-1 / r`). For a half-edge `h` arriving at vertex `w`, the next half-edge of its loop is the outgoing half-edge at `w` that comes just before `twin(h)` in this counterclockwise order. Following `next` traces every loop with its face on the left. A closed edge forms a loop on its own. A closed piece of step 3 (a circle with one vertex, or an arc whose ends meet within the tolerance and that sweeps more than half a turn) is traced with the other edges at its vertex, so it joins that vertex's component, and is then split off into a loop of its own: a `Circle` edge is always alone in its loop (kernel.md section 3.4.2). In a bounded face the loop with the largest area is the outer loop and the others are holes. An arc whose ends meet within the tolerance but that sweeps half a turn or less is dropped as degenerate.
 8. Loops with positive signed area are outer boundaries of bounded faces; loops with negative signed area are outer boundaries of connected components seen from outside. Each negative loop becomes a hole of the positive loop with the smallest absolute area, among positive loops of other connected components (after step 6), whose interior strictly contains the negative loop's first vertex (winding number test on the exact curves). A negative loop that no positive loop contains bounds the unbounded face and is discarded.
 9. Each positive loop with its holes is a region. Regions with area at most `1e-12` mm^2 are dropped.
 
@@ -1272,7 +1274,7 @@ Deserialization errors (unknown `type`, unknown field, wrong shape) are `serde` 
 | Issue | Message |
 | --- | --- |
 | `Conflicting` with two or more ids | `Constraints {ids} conflict: they cannot all be satisfied at once. Delete one of them or change a dimension.` (`{ids}` joined with ", ") |
-| `Conflicting` with one id | `Constraint {id} ({label}) cannot be satisfied. Delete it or change a dimension.` |
+| `Conflicting` with one id | `Constraint {id} cannot be satisfied. Delete it or change a dimension.` (the variant carries no type name, so there is no label) |
 | `Redundant`, `dimension: false` | `Constraint {constraint} ({label}) is redundant: the other constraints already determine what it sets. Delete it.` |
 | `Redundant`, `dimension: true` | `Dimension {constraint} ({label}) is redundant: the other constraints already determine what it sets. Delete it or make it a reference dimension.` |
 | `NotConverged` | `The sketch could not be solved from its current shape. Undo the last change, or drag the geometry closer to the intended shape and try again.` |

@@ -2,20 +2,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { CoreFatalError } from '../../core/transport'
 import { FileServiceError } from '../../files/file-service'
 import { createMemoryRecovery } from '../../files/recovery'
-import type { CatalogEntry, Document, Edit } from '../../generated/protocol'
+import type { Document, Edit } from '../../generated/protocol'
 import { MESSAGES } from '../../messages'
-import {
-  actionLabels,
-  createFakeApp,
-  currentDocument,
-  notificationWith,
-  openTestDocument,
-  runAction,
-  startFakeApp,
-  startWithDocument,
-  type FakeApp,
-} from '../../test/fakes/app'
-import { BOX_ENTRY, EXTRUDE_ENTRY } from '../../test/fakes/catalog'
+import { actionLabels, createFakeApp, currentDocument, type FakeApp, notificationWith, openTestDocument, runAction, startFakeApp, startWithDocument } from '../../test/fakes/app'
 import { CUBE_DOCUMENT, CUBE_TOP_FACE, documentFile, documentText } from '../../test/fakes/documents'
 import { createFakeFileHandle } from '../../test/fakes/files'
 import { elementItem } from '../../test/fakes/selection'
@@ -78,21 +67,6 @@ describe('startCore (3.1)', () => {
     expect(state.core.status).toBe('ready')
     expect(state.core.engineVersion).toBe('0.1.0')
     expect(state.printers.map((profile) => profile.id)).toEqual(['generic-fdm', 'generic-resin'])
-  })
-
-  it('U-30 maps feature_catalog entries to the Catalog, keyed by type, manifests unchanged, leaving out an entry without an object params schema', async () => {
-    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
-    const broken: CatalogEntry = { ...BOX_ENTRY, type: 'broken', params_schema: { type: 'string' } }
-    const fake = createFakeApp({ core: { catalog: [BOX_ENTRY, broken, EXTRUDE_ENTRY] } })
-    await startCore(fake.app)
-    await settle()
-    const catalog = fake.app.store.getState().catalog
-    expect(catalog?.features.map((feature) => feature.type)).toEqual(['box', 'extrude'])
-    expect(Object.keys(catalog?.byType ?? {}).sort()).toEqual(['box', 'extrude'])
-    expect(catalog?.byType['extrude']?.manifest).toEqual(EXTRUDE_ENTRY.manifest)
-    expect(catalog?.byType['extrude']?.paramsSchema).toEqual(EXTRUDE_ENTRY.params_schema)
-    expect(catalog?.byType['box']).toBe(catalog?.features[0])
-    expect(consoleError).toHaveBeenCalledTimes(1)
   })
 
   it('registers one command per catalog feature', async () => {

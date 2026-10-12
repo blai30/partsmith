@@ -312,8 +312,7 @@ mod tests {
         let second = named_box("f-b", [20.0, 0.0, 0.0], 10.0);
         let result = fuse(&first.shape, std::slice::from_ref(&second.shape)).expect("fuses");
 
-        let sources =
-            modified_sources(&result, &[&first.naming, &second.naming]).expect("sources");
+        let sources = modified_sources(&result, &[&first.naming, &second.naming]).expect("sources");
 
         assert_eq!(sources.len(), 12);
         assert!(sources.iter().all(|names| names.len() == 1));

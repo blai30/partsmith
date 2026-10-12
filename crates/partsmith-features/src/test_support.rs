@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use partsmith_model::{Category, FeatureManifest, FieldHint, Id, Units};
 use partsmith_naming::{ElementName, FaceSource, NamingMap, roles};
-use partsmith_occt_sys::{Plane, Point, PrimitiveFace, Shape, make_box};
+use partsmith_occt_sys::{Plane, Point, Primitive, PrimitiveFace, Shape, make_box};
 
 use crate::context::{BodyState, BuildContext, BuildInputs, CancelToken, Values};
 use crate::naming::name_shape;
@@ -80,14 +80,8 @@ impl Fixture {
     }
 }
 
-/// An axis-aligned box from `corner` with edge length `size`, its faces named
-/// `<feature>/<role>` from the kernel's face roles.
-pub(crate) fn named_box(feature: &str, corner: [f64; 3], size: f64) -> Tool {
-    let placement = Plane {
-        origin: Point::new(corner[0], corner[1], corner[2]),
-        ..Plane::XY
-    };
-    let primitive = make_box(&placement, size, size, size).expect("the box builds");
+/// A primitive with its faces named `<feature>/<role>` from the kernel's face roles.
+pub(crate) fn named_primitive(feature: &str, primitive: Primitive) -> Tool {
     let faces = primitive
         .faces
         .iter()
@@ -99,16 +93,29 @@ pub(crate) fn named_box(feature: &str, corner: [f64; 3], size: f64) -> Tool {
                 PrimitiveFace::Back => roles::BACK,
                 PrimitiveFace::Left => roles::LEFT,
                 PrimitiveFace::Right => roles::RIGHT,
-                other => panic!("a box has no {other:?} face"),
+                PrimitiveFace::Side => roles::SIDE,
+                PrimitiveFace::Surface => roles::SURFACE,
             };
             FaceSource::New(ElementName::generated(&id(feature), role, None).expect("valid name"))
         })
         .collect();
-    let naming = name_shape(&primitive.shape, faces, &[]).expect("the box is named");
+    let naming = name_shape(&primitive.shape, faces, &[]).expect("the primitive is named");
     Tool {
         shape: primitive.shape,
         naming,
     }
+}
+
+/// An axis-aligned box from `corner` with edge length `size`, named like `named_primitive`.
+pub(crate) fn named_box(feature: &str, corner: [f64; 3], size: f64) -> Tool {
+    let placement = Plane {
+        origin: Point::new(corner[0], corner[1], corner[2]),
+        ..Plane::XY
+    };
+    named_primitive(
+        feature,
+        make_box(&placement, size, size, size).expect("the box builds"),
+    )
 }
 
 /// A body state holding a named box.

@@ -392,6 +392,7 @@ struct Typed<F> {
 }
 
 impl<F: Feature> Typed<F> {
+    /// The adapter of `F`, with its manifest, schema and known keys computed once.
     fn new() -> Self {
         let schema = schemars::schema_for!(F::Params);
         let known_keys = schema

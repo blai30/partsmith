@@ -16,16 +16,10 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-function expectRoles(element: HTMLElement, classes: readonly string[]): void {
-  for (const name of classes.flatMap((entry) => entry.split(' '))) {
-    expect(element).toHaveClass(name)
-  }
-}
-
 describe('the capability check (3.1)', () => {
   it('renders only the unsupported page with unsupported_webgl2 when WebGL2 is missing', async () => {
     // jsdom has WebAssembly but no WebGL2 context.
-    const worker = vi.fn()
+    const worker = vi.fn<() => void>()
     vi.stubGlobal('Worker', worker)
     await import('./main')
     const page = await screen.findByTestId('unsupported')
@@ -45,10 +39,9 @@ describe('the capability check (3.1)', () => {
   it('draws the unsupported page with the interface font and the surface and text roles', async () => {
     await import('./main')
     const page = await screen.findByTestId('unsupported')
-    expectRoles(page, [
-      FONT_CLASSES.interfaceText,
-      COLOR_CLASSES.surface.background,
-      COLOR_CLASSES.text.foreground,
-    ])
+    const classes = [FONT_CLASSES.interfaceText, COLOR_CLASSES.surface.background, COLOR_CLASSES.text.foreground]
+    for (const name of classes.flatMap((entry) => entry.split(' '))) {
+      expect(page).toHaveClass(name)
+    }
   })
 })

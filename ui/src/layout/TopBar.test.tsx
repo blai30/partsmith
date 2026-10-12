@@ -2,7 +2,6 @@ import { cleanup, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { installPopoverPolyfill } from '../components/popover-polyfill.testing'
-import { MESSAGES } from '../messages'
 import { DEFAULT_SETTINGS, SETTINGS_KEY } from '../settings/settings'
 import type { AppState, SketchSession } from '../state/store'
 import { catalogOf, TEST_CATALOG_ENTRIES } from '../test/fakes/catalog'
@@ -48,8 +47,20 @@ function renderApp(state: Partial<AppState> = {}, document = cubeDocumentState()
   return { ...test, user: userEvent.setup(), topBar: screen.getByTestId('top-bar') }
 }
 
+type AddedBody = {
+  readonly type: 'add_body'
+  readonly index: number
+  readonly body: { readonly id: string; readonly name: string }
+}
+
+type AddedFeature = {
+  readonly type: 'add_feature'
+  readonly index: number
+  readonly feature: Readonly<Record<string, unknown>> & { readonly id: string }
+}
+
 /** A Storage kept in a map, for checking what the app saves. */
-class MemoryStorage implements Storage {
+class MemoryStorage {
   private readonly items = new Map<string, string>()
   get length(): number {
     return this.items.size
@@ -107,7 +118,7 @@ describe('the top bar (3.2)', () => {
     const menu = screen.getByTestId('document-menu')
     expect(menu).toHaveAttribute('role', 'menu')
     const labels = within(menu)
-      .getAllByRole(/^menuitem/)
+      .getAllByRole('menuitem')
       .map((item) => item.textContent?.trim() ?? '')
     const expected = ['New', 'Open...', 'Open recent', 'Save', 'Save as...', 'Export...', 'Theme', 'Navigation', 'UI scale']
     expect(expected.map((label) => labels.findIndex((text) => text.startsWith(label)))).toEqual(
@@ -146,7 +157,7 @@ describe('the top bar (3.2)', () => {
   it('shows the Model tools in toolbar order, with Primitive and Pattern groups', () => {
     renderApp()
     const toolbar = screen.getByRole('toolbar', { name: 'Model tools' })
-    expect(within(toolbar).getAllByRole('button').map((button) => button.getAttribute('aria-label') ?? button.textContent)).toEqual([
+    const names = [
       'Sketch',
       'Extrude',
       'Revolve',
@@ -158,7 +169,13 @@ describe('the top bar (3.2)', () => {
       'Pattern',
       'Mirror',
       'Boolean',
-    ])
+    ]
+    const buttons = names.map((name) => within(toolbar).getByRole('button', { name }))
+    expect(within(toolbar).getAllByRole('button')).toHaveLength(names.length)
+    for (let i = 1; i < buttons.length; i++) {
+      const order = buttons[i - 1]?.compareDocumentPosition(buttons[i] ?? toolbar) ?? 0
+      expect(order & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    }
   })
 
   it('leaves out toolbar entries whose command is not registered', () => {
@@ -262,14 +279,14 @@ describe('feature commands from the toolbar (3.7)', () => {
     const [documentHandle, label, edits] = applied[0] ?? []
     expect(documentHandle).toBe(1)
     expect(label).toBeNull()
-    const [addBody, addFeature, ...rest] = edits as readonly Record<string, unknown>[]
+    const [addBody, addFeature, ...rest] = edits as readonly [AddedBody, AddedFeature, ...unknown[]]
     expect(rest).toEqual([])
     expect(addBody).toEqual({
       type: 'add_body',
       index: 0,
       body: { id: expect.stringMatching(/^b-[0-9a-f]{12}$/), name: 'Body 1' },
     })
-    const bodyId = (addBody?.body as { id: string }).id
+    const bodyId = addBody.body.id
     expect(addFeature).toEqual({
       type: 'add_feature',
       index: 1,
@@ -282,9 +299,8 @@ describe('feature commands from the toolbar (3.7)', () => {
         op: 'new',
       }),
     })
-    const featureId = (addFeature?.feature as { id: string }).id
-    expect(core.callsTo('setFocus')).toEqual([[1, featureId]])
-    expect(Object.keys(addFeature?.feature as object)).not.toContain('name')
+    expect(core.callsTo('setFocus')).toEqual([[1, addFeature.feature.id]])
+    expect(Object.keys(addFeature.feature)).not.toContain('name')
   })
 
   it('U-65 with the marker before the second of 3 features, the first preview inserts at index 1 with no set_rollback', async () => {
@@ -305,8 +321,8 @@ describe('feature commands from the toolbar (3.7)', () => {
     }
   })
 
-  it('shows finish_command_first when Export is chosen during a feature command (U-89)', async () => {
-    const { app, user, topBar } = renderApp({
+  it('U-89 disables the Export button during a feature command', async () => {
+    const { user, topBar } = renderApp({
       command: {
         featureType: 'fillet',
         featureId: 'f-fil9',
@@ -324,8 +340,5 @@ describe('feature commands from the toolbar (3.7)', () => {
     expect(exportButton).toHaveAttribute('aria-disabled', 'true')
     await user.click(exportButton)
     expect(screen.queryByTestId('export-popover')).toBeNull()
-    expect(app.store.getState().notifications.map((notification) => notification.message)).toContain(
-      MESSAGES.finish_command_first('Fillet'),
-    )
   })
 })

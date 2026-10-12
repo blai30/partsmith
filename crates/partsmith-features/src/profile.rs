@@ -6,6 +6,8 @@
 //! vertex the way the arrangement's own loops do, so the result keeps the region on its left:
 //! counterclockwise outer loops and clockwise holes.
 
+use std::collections::BTreeMap;
+
 use partsmith_model::Id;
 use partsmith_occt_sys::{
     PlanarCurve, PlanarLoop, PlanarProfile, PlanarRegion, Point2, TaggedCurve, make_profile,
@@ -67,8 +69,9 @@ struct HalfEdge<'a> {
     next: usize,
 }
 
-/// The union of `regions`: each component's outer loop with its holes, in order of the first
-/// selected region of each component. Fails only on a profile that is not an arrangement.
+/// The union of `regions`: the outer loop of each connected component with its holes, in the
+/// order the components' outer loops are found. Fails only on regions that are not faces of one
+/// arrangement.
 fn union(regions: &[&Region]) -> Result<Vec<(ProfileLoop, Vec<ProfileLoop>)>, FeatureError> {
     let half_edges = half_edges(regions);
     let twins = twins(&half_edges);
@@ -79,8 +82,9 @@ fn union(regions: &[&Region]) -> Result<Vec<(ProfileLoop, Vec<ProfileLoop>)>, Fe
         }
     }
 
-    let mut outers: Vec<(usize, ProfileLoop)> = Vec::new();
-    let mut holes: Vec<(usize, ProfileLoop)> = Vec::new();
+    let mut order = Vec::new();
+    let mut outers = BTreeMap::new();
+    let mut holes: BTreeMap<usize, Vec<ProfileLoop>> = BTreeMap::new();
     let mut visited = vec![false; half_edges.len()];
     for start in 0..half_edges.len() {
         if visited[start] || twins[start].is_some() {
@@ -102,33 +106,25 @@ fn union(regions: &[&Region]) -> Result<Vec<(ProfileLoop, Vec<ProfileLoop>)>, Fe
         let component = components.find(half_edges[start].region);
         let profile_loop = ProfileLoop { edges };
         if profile_loop.signed_area() > 0.0 {
-            outers.push((component, profile_loop));
+            // A connected union has exactly one outer boundary.
+            if outers.insert(component, profile_loop).is_some() {
+                return Err(malformed());
+            }
+            order.push(component);
         } else {
-            holes.push((component, profile_loop));
+            holes.entry(component).or_default().push(profile_loop);
         }
     }
 
-    let mut result = Vec::with_capacity(outers.len());
-    for (component, outer) in &outers {
-        if outers
-            .iter()
-            .filter(|(other, _)| other == component)
-            .count()
-            != 1
-        {
-            return Err(malformed());
-        }
-        let component_holes = holes
-            .iter()
-            .filter(|(hole_component, _)| hole_component == component)
-            .map(|(_, hole)| hole.clone())
-            .collect();
-        result.push((outer.clone(), component_holes));
+    let mut result = Vec::with_capacity(order.len());
+    for component in order {
+        let outer = outers
+            .remove(&component)
+            .expect("every component in the order has an outer loop");
+        result.push((outer, holes.remove(&component).unwrap_or_default()));
     }
-    if holes
-        .iter()
-        .any(|(component, _)| !outers.iter().any(|(outer, _)| outer == component))
-    {
+    // A hole left over lies in a component without an outer boundary.
+    if !holes.is_empty() {
         return Err(malformed());
     }
     Ok(result)
@@ -157,8 +153,7 @@ fn half_edges<'a>(regions: &[&'a Region]) -> Vec<HalfEdge<'a>> {
 /// selected region has it. Pieces are compared exactly: the arrangement gives both sides of a
 /// piece the same coordinates.
 fn twins(half_edges: &[HalfEdge<'_>]) -> Vec<Option<usize>> {
-    let mut by_key: std::collections::BTreeMap<EdgeKey<'_>, usize> =
-        std::collections::BTreeMap::new();
+    let mut by_key: BTreeMap<EdgeKey<'_>, usize> = BTreeMap::new();
     for (index, half_edge) in half_edges.iter().enumerate() {
         by_key.entry(EdgeKey::of(half_edge.edge)).or_insert(index);
     }
@@ -249,6 +244,7 @@ impl<'a> EdgeKey<'a> {
         EdgeKey::with(edge.entity.as_str(), &curve)
     }
 
+    /// The key of `curve` drawn from `entity`; `+ 0.0` turns -0 into 0 so both zeros compare equal.
     fn with(entity: &'a str, curve: &ProfileCurve) -> EdgeKey<'a> {
         let bits = |value: f64| (value + 0.0).to_bits();
         match *curve {
@@ -307,12 +303,14 @@ struct Components {
 }
 
 impl Components {
+    /// Every region in a set of its own.
     fn new(count: usize) -> Components {
         Components {
             parents: (0..count).collect(),
         }
     }
 
+    /// The root of the set holding `region`, shortening the path to it.
     fn find(&mut self, region: usize) -> usize {
         let mut root = region;
         while self.parents[root] != root {

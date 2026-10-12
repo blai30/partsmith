@@ -1,12 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Document, Edit, Event as ProtocolEvent } from '../generated/protocol'
-import {
-  createFakeApp,
-  currentDocument,
-  LINUX_WEB,
-  startFakeApp,
-  startWithDocument,
-} from '../test/fakes/app'
+import { createFakeApp, currentDocument, LINUX_WEB, startFakeApp, startWithDocument } from '../test/fakes/app'
 import { CUBE_DOCUMENT, CUBE_SKETCH_SOLUTION, CUBE_TOP_FACE } from '../test/fakes/documents'
 import { createFakeFileHandle } from '../test/fakes/files'
 import { elementItem } from '../test/fakes/selection'

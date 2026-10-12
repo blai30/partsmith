@@ -204,6 +204,8 @@ impl fmt::Display for SolveIssue {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             SolveIssue::Conflicting { constraints } => match constraints.as_slice() {
+                // Spec 4.2 also asks for "({label})" here, but the variant of spec 2.6 carries no
+                // type name; the label waits for a spec decision.
                 [single] => write!(
                     formatter,
                     "Constraint {single} cannot be satisfied. Delete it or change a dimension."
@@ -449,6 +451,7 @@ mod tests {
         assert!((0.0..std::f64::consts::TAU).contains(&end_angle));
     }
 
+    /// Without the "({label})" of spec 4.2, which the variant cannot give (see `Display`).
     #[test]
     fn single_conflict_message_names_the_constraint() {
         let issue = SolveIssue::Conflicting {

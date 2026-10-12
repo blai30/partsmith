@@ -1,63 +1,21 @@
-import { startCore, openFile } from '../../app/actions/document'
+import { openFile, startCore } from '../../app/actions/document'
 import { createApp, type App, type Platform } from '../../app/createApp'
-import { createCommandRegistry, type CommandRegistry } from '../../commands/registry'
-import type { CoreApi } from '../../core/api'
-import { createMutationQueue } from '../../core/queue'
-import type { FileService } from '../../files/file-service'
 import { createMemoryRecentFiles, type RecentFilesStore } from '../../files/recent'
 import { createMemoryRecovery, type RecoveryStore } from '../../files/recovery'
 import type { Document } from '../../generated/protocol'
-import {
-  createAppStore,
-  type AppStore,
-  type DocumentState,
-  type Notification,
-} from '../../state/store'
-import type { ViewportHandle } from '../../viewport/controller'
-import { createFakeCoreApi } from './core-api'
+import type { AppStore, DocumentState } from '../../state/store'
+import { currentDocument, LINUX_WEB } from './test-app'
 import { documentFile } from './documents'
 import { createFakeFileService, type FakeFileService } from './files'
 import { settle } from './settle'
 import { createFakeTransport, type FakeTransport, type FakeTransportOptions } from './transport'
 
-// Two ways to get an App in tests: createTestApp assembles one by hand around a FakeCoreApi (no
-// events reach the store), and createFakeApp builds the real one with createApp over a FakeTransport,
-// so actions, the core client and event handling run as in the product.
+// Two ways to get an App in tests: createTestApp (from ./test-app, re-exported here) assembles one by
+// hand around a FakeCoreApi, and createFakeApp builds the real one with createApp over a FakeTransport
+// (the in-memory core of ./core) and a FakeFileService, so actions, the core client and event
+// handling run as in the product.
 
-export const LINUX_WEB: Platform = { operatingSystem: 'linux', host: 'web' }
-export const MAC_WEB: Platform = { operatingSystem: 'mac', host: 'web' }
-export const WINDOWS_DESKTOP: Platform = { operatingSystem: 'windows', host: 'desktop' }
-
-export type TestAppOptions = {
-  readonly store?: AppStore
-  readonly core?: CoreApi
-  readonly commands?: CommandRegistry
-  readonly files?: FileService
-  readonly recent?: RecentFilesStore
-  readonly recovery?: RecoveryStore
-  readonly platform?: Platform
-  readonly viewport?: ViewportHandle | null
-}
-
-/** An App assembled by hand around a FakeCoreApi, a real mutation queue and in-memory stores. */
-export function createTestApp(options: TestAppOptions = {}): App {
-  let viewport = options.viewport ?? null
-  return {
-    store: options.store ?? createAppStore(),
-    core: options.core ?? createFakeCoreApi(),
-    mutations: createMutationQueue(),
-    commands: options.commands ?? createCommandRegistry(),
-    files: options.files ?? createFakeFileService(),
-    recent: options.recent ?? createMemoryRecentFiles(),
-    recovery: options.recovery ?? createMemoryRecovery(),
-    platform: options.platform ?? LINUX_WEB,
-    viewport: () => viewport,
-    attachViewport: (handle) => {
-      viewport = handle
-    },
-    restartCore: () => Promise.resolve(),
-  }
-}
+export * from './test-app'
 
 /** The real app over fakes, with the fakes for inspection. */
 export type FakeApp = {
@@ -121,15 +79,6 @@ export function createFakeApp(options: FakeAppOptions = {}): FakeApp {
   return { app, transport, files, recent, recovery, journal }
 }
 
-/** The open document; throws when there is none. */
-export function currentDocument(app: App): DocumentState {
-  const document = app.store.getState().document
-  if (document === null) {
-    throw new Error('The app has no open document.')
-  }
-  return document
-}
-
 /** createFakeApp, then startCore, which ends with the new "Untitled" document open (ui.md 3.1). */
 export async function startFakeApp(options: FakeAppOptions = {}): Promise<FakeApp> {
   const fake = createFakeApp(options)
@@ -168,33 +117,3 @@ export async function startWithDocument(
   return fake
 }
 
-/** The shown notification whose message matches exactly (a string) or by pattern; throws when there is none. */
-export function notificationWith(app: App, message: string | RegExp): Notification {
-  const found = app.store
-    .getState()
-    .notifications.find((notification) =>
-      typeof message === 'string' ? notification.message === message : message.test(notification.message),
-    )
-  if (found === undefined) {
-    const shown = app.store
-      .getState()
-      .notifications.map((notification) => notification.message)
-      .join(' | ')
-    throw new Error(`No notification matches ${String(message)}; shown: ${shown || 'none'}.`)
-  }
-  return found
-}
-
-/** The labels of a notification's actions, in order. */
-export function actionLabels(notification: Notification): readonly string[] {
-  return notification.actions.map((action) => action.label)
-}
-
-/** Runs the notification action with this label; throws when there is none. */
-export function runAction(notification: Notification, label: string): void {
-  const action = notification.actions.find((candidate) => candidate.label === label)
-  if (action === undefined) {
-    throw new Error(`The notification "${notification.message}" has no action ${label}.`)
-  }
-  action.run()
-}

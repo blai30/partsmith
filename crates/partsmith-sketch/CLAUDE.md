@@ -18,8 +18,9 @@ Spec: `docs/spec/sketch.md`. Pure Rust, no kernel dependency. Depends on `partsm
 ## Layout
 
 - `src/params.rs`, `plane.rs`, `entity.rs`, `point_ref.rs`, `constraint.rs`, `validation.rs`, `reserved.rs`, `error.rs`: the data model, its JSON and validation.
+- `src/vector.rs` (vector helpers for points, placements and the solver's vectors) and `src/union_find.rs` (the one union-find, used by components, identification, substitution and profile chains).
 - `src/solver/`: `system.rs` builds the rows of every constraint with their warm-start choices and splits components; `rows.rs` evaluates residuals with analytic gradients; `layout.rs` maps entities to the flat parameter vector and back; `substitution.rs` merges trivial equalities; `numeric.rs` runs dog-leg, the Levenberg-Marquardt fallback and a final Gauss-Newton refinement that keeps returned arcs within tolerance; `sparse_qr.rs` is the sequential rank-revealing Householder QR used by the steps and the diagnosis, with per-column plans worked out from sparsity patterns and reused across the factorizations of a solve and the frames of a drag; `diagnosis.rs`, `drag.rs`, `measure.rs`.
-- `src/profile/`: `arrangement.rs` (intersections, vertices, edges, bridges, faces, findings), `area.rs` (exact moments and winding numbers), `key.rs` (region keys and fingerprints), `matching.rs`.
+- `src/profile/`: `arrangement.rs` (intersections, vertices, edges, bridges, faces, findings; a circle with one vertex and an arc whose ends meet are closed pieces that take part in face tracing, then each closed edge is split off into a loop of its own), `area.rs` (exact moments and winding numbers), `key.rs` (region keys and fingerprints), `matching.rs`.
 - `benches/solver.rs`: the budgets of spec section 5, using `tests/common/benchmark.rs`.
 
 ## Commands

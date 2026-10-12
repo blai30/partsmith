@@ -70,7 +70,7 @@ A cross-spec review reconciled the drafts. These decisions are binding on the sp
 - **D4.** M1 has an `import` feature that puts a STEP asset into a body (params `body`, `asset`, `op`), and `Dependencies` gains `assets`.
 - **D5.** Python export writes readable build123d-style calls through a per-feature hook, with the generic `feature("<type>", ...)` form as the fallback; Python uses the exact param names of the feature specs.
 - **D6.** One deterministic id generator, `SequentialIds` (one counter per kind, for example `f-000000000001`), checked against the document; random ids stay for interactive edits.
-- **D7.** The sketch solver uses `faer` for linear algebra (ADR 0004, ADR 0012); benchmarks time with `std::time::Instant`, no benchmark framework.
+- **D7.** The sketch solver uses its own sparse rank-revealing QR, not `faer` (ADR 0015); benchmarks time with `std::time::Instant`, no benchmark framework.
 - **D8.** One `RegionKey` text format everywhere: sketch.md's, with `~` marking a boundary that runs against its entity.
 - **D9.** Feature messages carry an optional `field` (JSON Pointer into the params) and `suggestion` (a replacement value), so the UI can offer one-click fixes.
 - **D10.** Renaming a parameter rewrites every expression that uses it in the same transaction: the model builds the edit set and the protocol has a `rename_parameter` command.
@@ -93,7 +93,7 @@ A cross-spec review reconciled the drafts. These decisions are binding on the sp
 - **E4.** A suggestion is an expression string in display units (for example `2.3 mm`), produced by `FeatureError::suggestion(units)`, and the protocol `Diagnostic` carries it with `field`.
 - **E5.** A missing import asset is `FeatureError::AssetMissing { field, asset }`, code `asset_missing`, with one fixed message naming the `assets/` file.
 - **E6.** The features crate has no `ValueKind`; `partsmith_model::FieldUnit` is used everywhere it was.
-- **E7.** `blake3` is used by recompute and the engine, not by features (features expose `Values::iter`); blake3, faer and zip are logged in ADR 0012.
+- **E7.** `blake3` is used by recompute and the engine, not by features (features expose `Values::iter`); blake3 and zip are logged in ADR 0012 (faer was dropped by ADR 0015).
 - **E8.** Mesh types are named `BoundingBox` and `BoundingVolumeHierarchy` in every spec.
 - **E9.** American spelling "canceled" and "canceling" (identifiers `Canceled`, `is_canceled`), with "cancellation".
 - **E10.** Naming conformance tests live in `crates/partsmith-recompute/tests/naming_conformance.rs`.

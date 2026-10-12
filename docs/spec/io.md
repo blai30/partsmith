@@ -216,6 +216,9 @@ pub enum IoError {
     NoPrintedParts,
     /// The 3MF model part would exceed `u32::MAX` bytes before compression.
     PackageTooLarge,
+    /// An output buffer could not grow: the file is larger than this build can hold in memory
+    /// (any buffer above `isize::MAX` bytes, 2 GiB, on WebAssembly).
+    OutputTooLarge,
     /// The zip writer failed for another reason (an internal error).
     Package { detail: String },
     /// The kernel failed to write or read STEP.
@@ -242,7 +245,7 @@ Each mesh writer checks its input in this order and returns the first failure:
 4. `write_stl_binary` only: the total triangle count of all bodies exceeds `u32::MAX`: `TooManyTriangles` with that count.
 5. `write_3mf` only: the model part (section 3.6.4) would be longer than `u32::MAX` bytes: `PackageTooLarge`.
 
-Then the writer computes warnings (section 3.2) and writes the file. Any other zip failure is `Package` with the zip error's text; it cannot happen for in-memory output within the limits above.
+Then the writer computes warnings (section 3.2) and writes the file. Writers grow their output with `try_reserve` (binary STL reserves its exact size up front, the text writers reserve in chunks as they go), so a buffer that cannot grow returns `OutputTooLarge` instead of panicking. On 64-bit targets only a real allocation failure can cause it; on 32-bit targets (the web build) any single buffer above `isize::MAX` bytes does, which a binary STL reaches at 42,949,672 triangles and the text formats at about 1 GiB of text. Any other zip failure is `Package` with the zip error's text; it cannot happen for in-memory output within the limits above.
 
 #### 3.1.2 Names and text
 
@@ -504,6 +507,7 @@ Every 8-bit color survives `read_step(write_step(...))` exactly, because the rou
 | `TooManyTriangles { count }` | `The export has {count} triangles, more than the 4294967295 a binary STL file can hold. Export one file per body or use 3MF.` |
 | `NoPrintedParts` | `None of the bodies is a printed part, and 3MF export writes only printed parts in this version. Export modifier bodies as STL instead.` |
 | `PackageTooLarge` | `The 3MF model is larger than 4 GiB, which this version cannot write. Export fewer bodies or use a coarser tolerance.` |
+| `OutputTooLarge` | `The export is too large to hold in memory. Export fewer bodies per file, use a coarser tolerance, or use binary STL or 3MF.` |
 | `Package { detail }` | `The 3MF package could not be written ({detail}). Please report this.` |
 | `Kernel(error)` | The kernel error's user message, unchanged. |
 
@@ -641,7 +645,7 @@ Tests live in `crates/partsmith-io/tests/` and use only public APIs (this crate,
 48. A body `Speck` whose mesh is three vertices and the one triangle `[0,0,1]`: `write_stl_binary` returns 134 bytes with no warnings; `write_obj` and `write_3mf` return `EmptyBody { body: 0, name: "Speck" }`.
 49. `cube(10)` with vertex 7 at `(1e39, 10, 10)` named `Far`: each of the four writers returns `CoordinateOutOfRange { body: 0, name: "Far" }` with message `Body "Far" has a point too far from the origin for a mesh file (more than 3.4e38 mm).` `cube(10)` plus an unused vertex at `(1e39, 0, 0)` writes normally in all four formats.
 50. `[part("A", &cube(10)), part("B", &Mesh::empty()), part("C", &far)]`, where `far` is the mesh of test 49 with vertex 7 at `(1e39, 10, 10)`, returns `EmptyBody { body: 1, name: "B" }` (first failing body in order). `write_3mf` with only a support blocker whose mesh is empty returns `NoPrintedParts` (role check before mesh checks).
-51. Messages of variants that need gigabytes to trigger, built directly: `TooManyTriangles { count: 4294967296 }` displays `The export has 4294967296 triangles, more than the 4294967295 a binary STL file can hold. Export one file per body or use 3MF.`; `PackageTooLarge` displays `The 3MF model is larger than 4 GiB, which this version cannot write. Export fewer bodies or use a coarser tolerance.`; `Package { detail: "oops".into() }` displays `The 3MF package could not be written (oops). Please report this.`
+51. Messages of variants that need gigabytes to trigger, built directly: `TooManyTriangles { count: 4294967296 }` displays `The export has 4294967296 triangles, more than the 4294967295 a binary STL file can hold. Export one file per body or use 3MF.`; `PackageTooLarge` displays `The 3MF model is larger than 4 GiB, which this version cannot write. Export fewer bodies or use a coarser tolerance.`; `OutputTooLarge` displays `The export is too large to hold in memory. Export fewer bodies per file, use a coarser tolerance, or use binary STL or 3MF.`; `Package { detail: "oops".into() }` displays `The 3MF package could not be written (oops). Please report this.`
 
 ### 6.9 STEP
 
@@ -668,4 +672,4 @@ Tests live in `crates/partsmith-io/tests/` and use only public APIs (this crate,
 3. **Default display color.** `DEFAULT_DISPLAY_COLOR` (`#9f9fa9`) follows ui.md's `body` role (zinc-400). It is a design-system value and needs human review.
 4. **`f32` coordinates in every format** (decision 5). Text formats could carry full `f64` precision instead (about 40% larger files). The reviewer should confirm `f32`.
 5. **Dependency versions and golden bytes.** The pinned zip header values (test 21) and compressed bytes depend on `zip` 9 and its deflate backend (`zlib-rs` through `flate2`). The workspace's `deflate` feature also pulls in `zopfli`, which level 6 never uses; switching the workspace dependency to `deflate-flate2-zlib-rs` would drop it (a dependency change, needs human review).
-6. **Memory for large text exports.** Writers return `Vec<u8>`; an ASCII STL of 1,000,000 triangles is about 200 MB, which the web build may not afford. Streaming writers are later; the UI could steer large exports to binary STL or 3MF.
+6. **Memory for large text exports.** Writers return `Vec<u8>`; an ASCII STL of 1,000,000 triangles is about 200 MB, which the web build may not afford. Buffers grow with `try_reserve`, so an export too large for memory fails with `OutputTooLarge` rather than a panic (section 3.1.1). Streaming writers are later; the UI could steer large exports to binary STL or 3MF.

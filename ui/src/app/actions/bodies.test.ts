@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createTestApp, currentDocument, startWithDocument, type FakeApp } from '../../test/fakes/app'
+import { createTestApp, currentDocument, type FakeApp, startWithDocument } from '../../test/fakes/app'
 import { CUBE_DOCUMENT } from '../../test/fakes/documents'
 import { settle } from '../../test/fakes/settle'
 import {

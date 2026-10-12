@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use partsmith_model::Id;
 use partsmith_naming::NamingMap;
-use partsmith_occt_sys::{Shape, SubShapeKind, common, cut, fuse};
+use partsmith_occt_sys::{KernelError, OpResult, Shape, SubShapeKind, common, cut, fuse};
 use partsmith_sketch::{ORIGIN, Placement, PointRef, PointRole, Profile, SolveResult};
 
 use crate::context::BuildContext;
@@ -15,6 +15,9 @@ use crate::warning::FeatureWarning;
 
 /// Relative volume change at or below which a boolean leaves the body unchanged (section 3.5).
 const VOLUME_TOLERANCE: f64 = 1e-9;
+
+/// A kernel boolean of a target with every tool (`fuse`, `cut` or `common`).
+type KernelBoolean = fn(&Shape, &[Shape]) -> Result<OpResult, KernelError>;
 
 /// What a feature produced, plus warnings.
 #[derive(Clone, Debug)]
@@ -140,7 +143,7 @@ pub fn apply_op(
         naming,
         change,
     };
-    let (change, combine): (BodyChange, fn(&Shape, &[Shape]) -> _) = match op {
+    let (change, boolean): (BodyChange, KernelBoolean) = match op {
         BodyOp::New => {
             if !state.is_empty() {
                 return Err(FeatureError::BodyNotEmpty { body: body.clone() });
@@ -162,7 +165,7 @@ pub fn apply_op(
         return Err(FeatureError::Canceled);
     }
     let tool_shapes: Vec<Shape> = tools.iter().map(|tool| tool.shape.clone()).collect();
-    let result = combine(target, &tool_shapes).map_err(kernel)?;
+    let result = boolean(target, &tool_shapes).map_err(kernel)?;
     let before = target.volume().map_err(kernel)?;
     let after = result.shape.volume().map_err(kernel)?;
     let nothing_left =
@@ -264,7 +267,11 @@ mod tests {
     fn new_on_a_body_with_a_solid_is_body_not_empty() {
         let tool = named_box("f-box2", [0.0, 0.0, 0.0], 10.0);
 
-        let result = apply(box_body("f-box1", [0.0, 0.0, 0.0], 10.0), BodyOp::New, vec![tool]);
+        let result = apply(
+            box_body("f-box1", [0.0, 0.0, 0.0], 10.0),
+            BodyOp::New,
+            vec![tool],
+        );
 
         assert_eq!(
             result.map(|_| ()),
@@ -407,7 +414,10 @@ mod tests {
     fn no_tool_is_internal() {
         let result = apply(BodyState::empty(), BodyOp::New, Vec::new());
 
-        assert_eq!(result.map(|_| ()).map_err(|error| error.code()), Err("internal"));
+        assert_eq!(
+            result.map(|_| ()).map_err(|error| error.code()),
+            Err("internal")
+        );
     }
 
     #[test]
@@ -423,7 +433,10 @@ mod tests {
             tools,
         );
 
-        assert_eq!(result.map(|_| ()).map_err(|error| error.code()), Err("internal"));
+        assert_eq!(
+            result.map(|_| ()).map_err(|error| error.code()),
+            Err("internal")
+        );
     }
 
     #[test]

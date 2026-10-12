@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import type { App, Platform } from '../app/createApp'
 import type { AppContext } from '../state/store'
-import { createTestApp as createFakeTestApp, LINUX_WEB, MAC_WEB } from '../test/fakes/app'
+import { createTestApp as createFakeTestApp, LINUX_WEB, MAC_WEB } from '../test/fakes/test-app'
 import { installShortcutDispatcher } from './dispatcher'
 import {
   createCommandRegistry,

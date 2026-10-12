@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { currentDocument, startWithDocument, type FakeApp } from '../../test/fakes/app'
+import { currentDocument, type FakeApp, startWithDocument } from '../../test/fakes/app'
 import { PARAMETRIC_DOCUMENT } from '../../test/fakes/documents'
 import { withoutNulls } from '../../test/fakes/protocol'
 import { settle } from '../../test/fakes/settle'

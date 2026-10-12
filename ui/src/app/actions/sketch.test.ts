@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Command, Edit } from '../../generated/protocol'
-import { currentDocument, startWithDocument, type FakeApp } from '../../test/fakes/app'
+import { currentDocument, type FakeApp, startWithDocument } from '../../test/fakes/app'
 import {
   CUBE_DOCUMENT,
   CUBE_FEATURES_DOCUMENT,

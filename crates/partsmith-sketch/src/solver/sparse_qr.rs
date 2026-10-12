@@ -136,7 +136,8 @@ impl SparseQr {
     /// The column is dependent when its part orthogonal to the accepted columns has at most `tolerance`
     /// times its own norm. Columns are Jacobian rows, whose entries are dimensionless and of order 1,
     /// so the norm is taken as at least 1: a column shorter than `tolerance` is zero up to rounding
-    /// (an exactly zero column always is dependent).
+    /// (an exactly zero column always is dependent). Spec 3.8 states the test relative to the
+    /// column's own norm only; without the floor, the committed property test regressions fail.
     pub(crate) fn add(&mut self, column: &[(usize, f64)], tolerance: f64) -> Added {
         self.pattern.clear();
         for &(row, _) in column {

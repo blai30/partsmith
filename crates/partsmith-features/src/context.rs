@@ -4,8 +4,12 @@ use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
 
-use partsmith_model::{Dimension, Expr, FeatureManifest, FieldUnit, Id, Scope, Units};
-use partsmith_naming::{ElementInfo, ElementKind, ElementName, NamingMap, Reference, Resolution};
+use partsmith_model::{
+    Dimension, Expr, FeatureManifest, FieldUnit, Id, LINEAR_TOLERANCE, Scope, Units,
+};
+use partsmith_naming::{
+    ElementInfo, ElementKind, ElementName, NamingMap, Reference, Resolution, TopologyInfo,
+};
 use partsmith_occt_sys::{Axis, ElementGeometry, GeometryKind, Point, Shape, SubShape, Vector};
 use partsmith_sketch::{Geometry, MatchMethod, OriginPlane, Placement, RegionMatch, match_region};
 
@@ -15,7 +19,7 @@ use crate::field::FieldRef;
 use crate::message::{Bound, Noun};
 use crate::naming::{kernel, naming, sub_shape_kind, topology_info};
 use crate::output::{DatumResult, FeatureOutput, OutputData, SketchResult};
-use crate::params::{AxisRef, PlaneRef, point, vector};
+use crate::params::{AxisRef, PlaneRef, ProfileRef, point, vector};
 use crate::warning::FeatureWarning;
 
 /// Largest distance from a whole number that a count may have (section 3.4).
@@ -139,7 +143,7 @@ impl<'a> BuildContext<'a> {
     pub fn profile(
         &self,
         field: &str,
-        profile: &crate::params::ProfileRef,
+        profile: &ProfileRef,
     ) -> Result<ResolvedProfile<'a>, FeatureError> {
         let sketch = self.sketch(&format!("{field}.sketch"), &profile.sketch)?;
         let mut regions = Vec::new();
@@ -432,13 +436,13 @@ impl<'a> BuildContext<'a> {
         let start = result.to_world(start);
         let end = result.to_world(end);
         let direction = Vector::new(end[0] - start[0], end[1] - start[1], end[2] - start[2]);
-        if direction.length() < partsmith_model::LINEAR_TOLERANCE {
+        let length = direction.length();
+        if length < LINEAR_TOLERANCE {
             return Err(not_a_line());
         }
-        let unit = direction.normalized().ok_or_else(not_a_line)?;
         Ok(Axis {
             origin: point(start),
-            direction: unit,
+            direction: direction.scaled(1.0 / length),
         })
     }
 }
@@ -505,7 +509,7 @@ impl BodyState {
     pub fn empty() -> Self {
         let naming = NamingMap::build(
             Vec::new(),
-            &partsmith_naming::TopologyInfo {
+            &TopologyInfo {
                 faces: Vec::new(),
                 edges: Vec::new(),
                 vertices: Vec::new(),
@@ -764,19 +768,15 @@ fn canonical_axis(through: Point, direction: Vector) -> Result<Axis, FeatureErro
 
 #[cfg(test)]
 mod tests {
-    use partsmith_model::{Category, EmptyContext, ParameterValues};
+    use partsmith_model::{EmptyContext, ParameterValues};
+    use partsmith_naming::Fingerprint;
+    use partsmith_occt_sys::{Plane as KernelPlane, make_cylinder};
+    use partsmith_sketch::{SketchEntity, build_profile};
+    use serde_json::json;
 
     use super::*;
-
-    fn manifest() -> FeatureManifest {
-        FeatureManifest {
-            label: "Test".to_string(),
-            category: Category::Create,
-            icon: "test".to_string(),
-            version: 1,
-            fields: Vec::new(),
-        }
-    }
+    use crate::params::{OriginAxis, PlacementExt};
+    use crate::test_support::{Fixture, box_body, id, manifest, named_primitive};
 
     fn values(uses: &[(&str, &str, FieldUnit)]) -> Values {
         let uses: Vec<ExprUse> = uses
@@ -793,7 +793,599 @@ mod tests {
             parameters: &parameters,
             context: &EmptyContext,
         };
-        Values::evaluate(&uses, &scope, &manifest())
+        Values::evaluate(&uses, &scope, &manifest(Vec::new()))
+    }
+
+    fn reference(query: &str, fingerprint: &str) -> Reference {
+        Reference::new(
+            ElementName::parse(query).expect("valid name"),
+            Fingerprint::parse(fingerprint).expect("valid fingerprint"),
+        )
+        .expect("the kinds agree")
+    }
+
+    /// A far-away fingerprint that matches nothing.
+    const LOST_FACE: &str = "plane|n=0,0,1|c=500,500,500|a=1";
+
+    /// A fixture whose `b-1` is a 10 mm box with its corner at the origin.
+    fn box_fixture() -> Fixture {
+        Fixture::new("f-test1").with_body("b-1", box_body("f-box1", [0.0, 0.0, 0.0], 10.0))
+    }
+
+    /// A fixture whose `b-1` is a cylinder of radius 5 and height 10 standing on XY at (3, 4).
+    fn cylinder_fixture() -> Fixture {
+        let placement = KernelPlane {
+            origin: Point::new(3.0, 4.0, 0.0),
+            ..KernelPlane::XY
+        };
+        let cylinder = named_primitive(
+            "f-cyl1",
+            make_cylinder(&placement, 5.0, 10.0).expect("the cylinder builds"),
+        );
+        Fixture::new("f-test1").with_body(
+            "b-1",
+            BodyState::new(cylinder.shape, Arc::new(cylinder.naming)),
+        )
+    }
+
+    /// The output of a sketch on `placement` with these entities.
+    fn sketch_output(placement: Placement, entities: serde_json::Value) -> Arc<FeatureOutput> {
+        let entities: Vec<SketchEntity> =
+            serde_json::from_value(entities).expect("the entities deserialize");
+        let solved = serde_json::from_value(json!({
+            "status": "under_constrained",
+            "failed": false,
+            "entities": [],
+            "dof": 0,
+            "redundant": [],
+            "conflicting": [],
+            "entity_states": {},
+            "measured": {}
+        }))
+        .expect("the solve result deserializes");
+        Arc::new(FeatureOutput {
+            data: OutputData::Sketch(SketchResult {
+                placement,
+                profile: build_profile(&entities),
+                solved: partsmith_sketch::SolveResult { entities, ..solved },
+            }),
+            warnings: Vec::new(),
+        })
+    }
+
+    /// The rectangle (0, 0)-(80, 50) of lines e-1 to e-4, plus a circle e-5 of radius 10 at its center.
+    fn rectangle_with_circle() -> serde_json::Value {
+        json!([
+            {"id": "e-1", "type": "line", "start": [0, 0], "end": [80, 0]},
+            {"id": "e-2", "type": "line", "start": [80, 0], "end": [80, 50]},
+            {"id": "e-3", "type": "line", "start": [80, 50], "end": [0, 50]},
+            {"id": "e-4", "type": "line", "start": [0, 50], "end": [0, 0]},
+            {"id": "e-5", "type": "circle", "center": [40, 25], "radius": 10},
+            {"id": "e-9", "type": "line", "start": [0, 0], "end": [0, 10], "construction": true}
+        ])
+    }
+
+    fn sketch_fixture() -> Fixture {
+        let mut fixture = Fixture::new("f-ext1");
+        fixture.upstream.insert(
+            id("f-sk1"),
+            sketch_output(OriginPlane::Xy.placement(), rectangle_with_circle()),
+        );
+        fixture
+    }
+
+    fn profile(regions: serde_json::Value) -> ProfileRef {
+        serde_json::from_value(json!({"sketch": "f-sk1", "regions": regions}))
+            .expect("the profile deserializes")
+    }
+
+    fn codes(warnings: &[FeatureWarning]) -> Vec<&'static str> {
+        warnings.iter().map(FeatureWarning::code).collect()
+    }
+
+    #[test]
+    fn resolve_finds_a_face_by_name() {
+        let fixture = box_fixture();
+
+        let found = fixture
+            .context()
+            .resolve(
+                "face",
+                &id("b-1"),
+                &reference("f-box1/top", "plane|n=0,0,1"),
+                ElementKind::Face,
+            )
+            .expect("the top face resolves");
+
+        assert_eq!(found.len(), 1);
+        let shape = fixture.bodies[&id("b-1")].shape().expect("a solid");
+        let geometry = shape
+            .element(found[0].kind, found[0].index)
+            .expect("geometry");
+        assert_eq!(geometry.centroid, Point::new(5.0, 5.0, 10.0));
+    }
+
+    #[test]
+    fn resolve_of_a_lost_face_has_repair_data() {
+        let fixture = box_fixture();
+
+        let error = fixture
+            .context()
+            .resolve(
+                "plane.face",
+                &id("b-1"),
+                &reference("f-box1/nothing", LOST_FACE),
+                ElementKind::Face,
+            )
+            .expect_err("the face is lost");
+
+        assert_eq!(error.code(), "reference_not_found");
+        assert!(matches!(
+            error.repair(),
+            Some(crate::message::Repair::Element { pointer, ambiguous: false, .. }) if pointer == "/plane/face"
+        ));
+    }
+
+    #[test]
+    fn resolve_in_an_empty_body_is_body_empty() {
+        let fixture = Fixture::new("f-test1").with_body("b-1", BodyState::empty());
+
+        let error = fixture
+            .context()
+            .resolve(
+                "face",
+                &id("b-1"),
+                &reference("f-box1/top", "plane|n=0,0,1"),
+                ElementKind::Face,
+            )
+            .expect_err("the body is empty");
+
+        assert_eq!(
+            error,
+            FeatureError::BodyEmpty {
+                body: id("b-1"),
+                use_new: false
+            }
+        );
+    }
+
+    #[test]
+    fn resolve_all_skips_lost_references_with_a_warning() {
+        let fixture = box_fixture();
+        let edges = [
+            reference("edge(f-box1/front|f-box1/top)", "line|n=1,0,0"),
+            reference(
+                "edge(f-box1/front|f-box1/nothing)",
+                "line|n=0,0,1|c=500,500,500|l=1",
+            ),
+            reference("edge(f-box1/front|f-box1/top)", "line|n=1,0,0"),
+        ];
+
+        let resolved = fixture
+            .context()
+            .resolve_all("edges", &id("b-1"), &edges, ElementKind::Edge)
+            .expect("one edge resolves");
+
+        assert_eq!(resolved.elements.len(), 1);
+        assert_eq!(codes(&resolved.warnings), ["reference_missing"]);
+        assert_eq!(
+            resolved.warnings[0]
+                .field()
+                .map(FieldRef::pointer)
+                .as_deref(),
+            Some("/edges/1")
+        );
+    }
+
+    #[test]
+    fn resolve_all_with_nothing_found_counts_the_references() {
+        let fixture = box_fixture();
+        let edges = [
+            reference("edge(f-box1/a|f-box1/b)", "line|n=0,0,1|c=500,500,500|l=1"),
+            reference("edge(f-box1/c|f-box1/d)", "line|n=0,0,1|c=500,500,500|l=1"),
+        ];
+
+        let error = fixture
+            .context()
+            .resolve_all("edges", &id("b-1"), &edges, ElementKind::Edge)
+            .expect_err("nothing resolves");
+
+        assert!(matches!(
+            error,
+            FeatureError::ReferencesNotFound { count: 2, kind: ElementKind::Edge, ref field } if field.path == "edges"
+        ));
+    }
+
+    #[test]
+    fn a_reference_of_another_kind_is_missing() {
+        let fixture = box_fixture();
+        let faces = [reference("f-box1/top", "plane|n=0,0,1")];
+
+        let error = fixture
+            .context()
+            .resolve_all("edges", &id("b-1"), &faces, ElementKind::Edge)
+            .expect_err("a face is not an edge");
+
+        assert_eq!(error.code(), "references_not_found");
+    }
+
+    #[test]
+    fn face_planes_use_the_face_placement_rule() {
+        let fixture = box_fixture();
+        let plane = PlaneRef::Face {
+            body: id("b-1"),
+            face: reference("f-box1/top", "plane|n=0,0,1"),
+        };
+
+        let placement = fixture
+            .context()
+            .plane("plane", &plane)
+            .expect("the top is flat");
+
+        assert_eq!(placement.origin, [0.0, 0.0, 10.0]);
+        assert_eq!(placement.x_axis, [1.0, 0.0, 0.0]);
+        assert_eq!(placement.normal, [0.0, 0.0, 1.0]);
+    }
+
+    #[test]
+    fn a_face_plane_on_a_side_face_projects_world_x() {
+        let fixture = box_fixture();
+        let plane = PlaneRef::Face {
+            body: id("b-1"),
+            face: reference("f-box1/front", "plane|n=0,-1,0"),
+        };
+
+        let placement = fixture
+            .context()
+            .plane("plane", &plane)
+            .expect("the front is flat");
+
+        assert_eq!(placement.origin, [0.0, 0.0, 0.0]);
+        assert_eq!(placement.x_axis, [1.0, 0.0, 0.0]);
+        assert_eq!(placement.normal, [0.0, -1.0, 0.0]);
+    }
+
+    #[test]
+    fn a_round_face_is_not_a_plane() {
+        let fixture = cylinder_fixture();
+        let plane = PlaneRef::Face {
+            body: id("b-1"),
+            face: reference("f-cyl1/side", "cylinder|n=0,0,1"),
+        };
+
+        let error = fixture
+            .context()
+            .plane("plane", &plane)
+            .expect_err("a cylinder is round");
+
+        assert!(matches!(error, FeatureError::NotPlanar { field } if field.path == "plane.face"));
+    }
+
+    #[test]
+    fn datum_planes_use_the_datum_placement() {
+        let mut fixture = Fixture::new("f-test1");
+        let placement = OriginPlane::Yz.placement().offset(4.0);
+        fixture.upstream.insert(
+            id("f-dp1"),
+            Arc::new(FeatureOutput {
+                data: OutputData::Datum(DatumResult::Plane(placement)),
+                warnings: Vec::new(),
+            }),
+        );
+
+        let resolved = fixture
+            .context()
+            .plane(
+                "plane",
+                &PlaneRef::Datum {
+                    feature: id("f-dp1"),
+                },
+            )
+            .expect("the datum is declared");
+
+        assert_eq!(resolved, placement);
+    }
+
+    #[test]
+    fn a_sketch_as_a_datum_plane_names_the_feature_field() {
+        let fixture = sketch_fixture();
+
+        let error = fixture
+            .context()
+            .plane(
+                "plane",
+                &PlaneRef::Datum {
+                    feature: id("f-sk1"),
+                },
+            )
+            .expect_err("a sketch is no datum");
+
+        assert!(matches!(
+            error,
+            FeatureError::WrongFeatureType { field, expected: Noun::DatumPlane, .. } if field.path == "plane.feature"
+        ));
+    }
+
+    #[test]
+    fn origin_axes_run_through_the_origin() {
+        let fixture = Fixture::new("f-test1");
+
+        let axis = fixture
+            .context()
+            .axis(
+                "axis",
+                &AxisRef::Origin {
+                    axis: OriginAxis::Y,
+                },
+            )
+            .expect("origin axes always resolve");
+
+        assert_eq!(axis.origin, Point::new(0.0, 0.0, 0.0));
+        assert_eq!(axis.direction, Vector::new(0.0, 1.0, 0.0));
+    }
+
+    #[test]
+    fn straight_edges_give_canonical_axes() {
+        let fixture = box_fixture();
+        let axis = AxisRef::Edge {
+            body: id("b-1"),
+            edge: reference("edge(f-box1/back|f-box1/top)", "line|n=1,0,0"),
+        };
+
+        let resolved = fixture
+            .context()
+            .axis("axis", &axis)
+            .expect("the edge is straight");
+
+        assert_eq!(resolved.direction, Vector::new(1.0, 0.0, 0.0));
+        assert_eq!(resolved.origin, Point::new(0.0, 10.0, 10.0));
+    }
+
+    #[test]
+    fn round_edges_are_not_straight() {
+        let fixture = cylinder_fixture();
+        let axis = AxisRef::Edge {
+            body: id("b-1"),
+            edge: reference("edge(f-cyl1/side|f-cyl1/top)", "circle|n=0,0,1"),
+        };
+
+        let error = fixture
+            .context()
+            .axis("axis", &axis)
+            .expect_err("a circle is round");
+
+        assert!(matches!(error, FeatureError::NotStraight { field } if field.path == "axis.edge"));
+    }
+
+    #[test]
+    fn cylinder_faces_give_their_axis() {
+        let fixture = cylinder_fixture();
+        let axis = AxisRef::Face {
+            body: id("b-1"),
+            face: reference("f-cyl1/side", "cylinder|n=0,0,1"),
+        };
+
+        let resolved = fixture
+            .context()
+            .axis("axis", &axis)
+            .expect("a cylinder has an axis");
+
+        assert_eq!(resolved.direction, Vector::new(0.0, 0.0, 1.0));
+        assert!((resolved.origin.x - 3.0).abs() < 1e-9);
+        assert!((resolved.origin.y - 4.0).abs() < 1e-9);
+        assert!(resolved.origin.z.abs() < 1e-9);
+    }
+
+    #[test]
+    fn flat_faces_have_no_axis() {
+        let fixture = box_fixture();
+        let axis = AxisRef::Face {
+            body: id("b-1"),
+            face: reference("f-box1/top", "plane|n=0,0,1"),
+        };
+
+        let error = fixture
+            .context()
+            .axis("axis", &axis)
+            .expect_err("a plane has no axis");
+
+        assert!(matches!(error, FeatureError::NoAxis { field } if field.path == "axis.face"));
+    }
+
+    #[test]
+    fn sketch_lines_run_from_start_to_end_in_world_space() {
+        let mut fixture = Fixture::new("f-rev1");
+        fixture.upstream.insert(
+            id("f-sk1"),
+            sketch_output(OriginPlane::Xz.placement(), rectangle_with_circle()),
+        );
+        let axis = AxisRef::SketchLine {
+            sketch: id("f-sk1"),
+            line: id("e-9"),
+        };
+
+        let resolved = fixture
+            .context()
+            .axis("axis", &axis)
+            .expect("e-9 is a line");
+
+        assert_eq!(resolved.origin, Point::new(0.0, 0.0, 0.0));
+        assert_eq!(resolved.direction, Vector::new(0.0, 0.0, 1.0));
+    }
+
+    #[test]
+    fn sketch_axes_need_a_line_entity() {
+        let fixture = sketch_fixture();
+        let circle = AxisRef::SketchLine {
+            sketch: id("f-sk1"),
+            line: id("e-5"),
+        };
+        let unknown = AxisRef::SketchLine {
+            sketch: id("f-sk1"),
+            line: id("e-77"),
+        };
+
+        let not_a_line = fixture
+            .context()
+            .axis("axis", &circle)
+            .expect_err("e-5 is a circle");
+        let missing = fixture
+            .context()
+            .axis("axis", &unknown)
+            .expect_err("no e-77");
+
+        assert_eq!(not_a_line.code(), "not_a_line");
+        assert!(matches!(
+            missing,
+            FeatureError::UnknownEntity { noun: Noun::Line, ref field, .. } if field.path == "axis.line"
+        ));
+    }
+
+    #[test]
+    fn profile_regions_resolve_by_key() {
+        let fixture = sketch_fixture();
+        let context = fixture.context();
+
+        let resolved = context
+            .profile(
+                "profile",
+                &profile(json!([{"key": "e-1,e-2,e-3,e-4;~e-5", "fp": "c=40,25|a=3685.840735"}])),
+            )
+            .expect("the region resolves");
+
+        assert_eq!(resolved.regions.len(), 1);
+        assert!(resolved.warnings.is_empty());
+    }
+
+    #[test]
+    fn profile_regions_found_otherwise_are_remapped_and_used_once() {
+        let fixture = sketch_fixture();
+        let context = fixture.context();
+
+        let resolved = context
+            .profile(
+                "profile",
+                &profile(json!([
+                    {"key": "e-5", "fp": "c=40,25|a=314.159265"},
+                    {"key": "e-1,e-2,e-3,e-4;~e-6", "fp": "c=40,25|a=3685.840735"},
+                    {"key": "e-1,e-2,e-3,e-4;~e-5", "fp": "c=40,25|a=3685.840735"}
+                ])),
+            )
+            .expect("the regions resolve");
+
+        assert_eq!(resolved.regions.len(), 2);
+        assert_eq!(codes(&resolved.warnings), ["region_remapped"]);
+        assert_eq!(
+            resolved.warnings[0]
+                .field()
+                .map(FieldRef::pointer)
+                .as_deref(),
+            Some("/profile/regions/1")
+        );
+    }
+
+    #[test]
+    fn missing_profile_regions_are_skipped_or_fail_together() {
+        let fixture = sketch_fixture();
+        let context = fixture.context();
+        let lost = json!({"key": "e-7,e-8", "fp": "c=200,200|a=100"});
+
+        let partly = context
+            .profile(
+                "profile",
+                &profile(json!([lost, {"key": "e-5", "fp": "c=40,25|a=314.159265"}])),
+            )
+            .expect("one region resolves");
+        let error = context
+            .profile("profile", &profile(json!([lost])))
+            .expect_err("nothing resolves");
+
+        assert_eq!(codes(&partly.warnings), ["region_missing"]);
+        assert_eq!(
+            error,
+            FeatureError::ProfileNotFound {
+                field: FieldRef::new("profile", &manifest(Vec::new())),
+                sketch: id("f-sk1")
+            }
+        );
+    }
+
+    #[test]
+    fn profile_faces_of_a_region_with_a_hole() {
+        let fixture = sketch_fixture();
+        let context = fixture.context();
+        let resolved = context
+            .profile(
+                "profile",
+                &profile(json!([{"key": "e-1,e-2,e-3,e-4;~e-5", "fp": "c=40,25|a=3685.840735"}])),
+            )
+            .expect("the region resolves");
+
+        let faces = resolved.faces().expect("the profile builds");
+
+        let tags: Vec<&str> = faces
+            .profile
+            .edge_tags
+            .iter()
+            .map(|&tag| faces.entities[tag as usize].as_str())
+            .collect();
+        assert_eq!(
+            faces
+                .profile
+                .shape
+                .count(partsmith_occt_sys::SubShapeKind::Face),
+            1
+        );
+        assert_eq!(tags.len(), 5);
+        assert!(tags.contains(&"e-5"));
+        let area = faces.profile.shape.area().expect("the face has an area");
+        assert!((area - (4000.0 - std::f64::consts::PI * 100.0)).abs() < 1e-6);
+    }
+
+    #[test]
+    fn profile_faces_of_two_regions_are_their_union() {
+        let fixture = sketch_fixture();
+        let context = fixture.context();
+        let resolved = context
+            .profile(
+                "profile",
+                &profile(json!([
+                    {"key": "e-1,e-2,e-3,e-4;~e-5", "fp": "c=40,25|a=3685.840735"},
+                    {"key": "e-5", "fp": "c=40,25|a=314.159265"}
+                ])),
+            )
+            .expect("the regions resolve");
+
+        let faces = resolved.faces().expect("the profile builds");
+
+        assert_eq!(
+            faces
+                .profile
+                .shape
+                .count(partsmith_occt_sys::SubShapeKind::Face),
+            1
+        );
+        assert_eq!(faces.profile.edge_tags.len(), 4);
+        assert!(!faces.entities.contains(&id("e-5")));
+        let area = faces.profile.shape.area().expect("the face has an area");
+        assert!((area - 4000.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn field_labels_come_from_the_manifest() {
+        let mut fixture = Fixture::new("f-test1");
+        fixture.manifest = manifest(vec![partsmith_model::FieldHint {
+            path: "edges".to_string(),
+            label: "Edges".to_string(),
+            essential: true,
+            unit: None,
+            selection: None,
+            options: Vec::new(),
+        }]);
+
+        assert_eq!(fixture.context().field("edges[3]").label, "Edges");
+        assert_eq!(fixture.context().feature(), &id("f-test1"));
+        assert_eq!(fixture.context().units(), Units::Mm);
     }
 
     #[test]

@@ -1,13 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Command, Document, Edit } from '../../generated/protocol'
-import {
-  actionLabels,
-  currentDocument,
-  notificationWith,
-  runAction,
-  startWithDocument,
-  type FakeApp,
-} from '../../test/fakes/app'
+import { actionLabels, currentDocument, type FakeApp, notificationWith, runAction, startWithDocument } from '../../test/fakes/app'
 import {
   CUBE_DOCUMENT,
   CUBE_EXTRUDE,
