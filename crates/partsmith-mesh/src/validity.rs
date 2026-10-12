@@ -24,7 +24,9 @@ pub struct ValidityReport {
 impl ValidityReport {
     /// No boundary and no non-manifold edges, and at least one triangle.
     pub fn is_watertight(&self) -> bool {
-        self.triangle_count > 0 && self.boundary_edges.is_empty() && self.non_manifold_edges.is_empty()
+        self.triangle_count > 0
+            && self.boundary_edges.is_empty()
+            && self.non_manifold_edges.is_empty()
     }
 
     /// No non-manifold edges.
