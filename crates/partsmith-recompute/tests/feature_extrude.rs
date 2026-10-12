@@ -727,3 +727,67 @@ fn t042_pieces_of_one_line_that_stay_separate() {
     assert_face_area(&face(body, "f-ext1/lateral/e-5"), 314.159265);
     assert_no_face(body, "f-ext1/lateral/e-1");
 }
+
+#[test]
+fn t043_union_touching_itself_on_a_circle() {
+    // The circle touches e-3 at (40, 50), so the union's boundary runs round it between two visits
+    // to that point; its two arcs stay separate instead of closing on themselves.
+    let sketch = r#"{"id": "f-sk1", "type": "sketch", "plane": {"kind": "origin", "plane": "XY"}, "entities": [{"id": "e-1", "type": "line", "start": [0, 0], "end": [80, 0]}, {"id": "e-2", "type": "line", "start": [80, 0], "end": [80, 50]}, {"id": "e-3", "type": "line", "start": [80, 50], "end": [0, 50]}, {"id": "e-4", "type": "line", "start": [0, 50], "end": [0, 0]}, {"id": "e-5", "type": "circle", "center": [40, 40], "radius": 10}, {"id": "e-6", "type": "line", "start": [40, 0], "end": [40, 50]}]}"#;
+    let profile = r#"{"sketch": "f-sk1", "regions": [{"key": "e-1,e-2,e-3,~e-5,~e-6", "fp": "c=61.342937,23.721489|a=1842.920367"}, {"key": "e-1,e-3,e-4,~e-5,e-6", "fp": "c=18.657063,23.721489|a=1842.920367"}]}"#;
+
+    let run = Run::records(
+        &["b-1"],
+        &[sketch, &extrude(profile, &distance("10"), "new")],
+    );
+
+    run.assert_all_ok();
+    assert_volume_and_bounds(&run, 36858.407346, [0.0, 0.0, 0.0], [80.0, 50.0, 10.0]);
+    let body = run.body("b-1");
+    assert_face_names(
+        body,
+        &[
+            "f-ext1/end-cap",
+            "f-ext1/lateral/e-1",
+            "f-ext1/lateral/e-2",
+            "f-ext1/lateral/e-3#1",
+            "f-ext1/lateral/e-3#2",
+            "f-ext1/lateral/e-4",
+            "f-ext1/lateral/e-5#1",
+            "f-ext1/lateral/e-5#2",
+            "f-ext1/start-cap",
+        ],
+    );
+    assert_face_area(&face(body, "f-ext1/lateral/e-1"), 800.0);
+    assert_face_area(&face(body, "f-ext1/lateral/e-3#1"), 400.0);
+    assert_face_area(&face(body, "f-ext1/lateral/e-3#2"), 400.0);
+    assert_face_area(&face(body, "f-ext1/lateral/e-5#1"), 314.159265);
+    assert_face_area(&face(body, "f-ext1/lateral/e-5#2"), 314.159265);
+}
+
+#[test]
+fn t044_pieces_of_one_line_in_a_single_region_merge() {
+    // e-5 and e-7 end on e-3 and split it into three pieces that follow each other along the lower
+    // region's boundary, so they merge although no selected region shares them.
+    let sketch = r#"{"id": "f-sk1", "type": "sketch", "plane": {"kind": "origin", "plane": "XY"}, "entities": [{"id": "e-1", "type": "line", "start": [0, 0], "end": [80, 0]}, {"id": "e-2", "type": "line", "start": [80, 0], "end": [80, 50]}, {"id": "e-3", "type": "line", "start": [80, 50], "end": [0, 50]}, {"id": "e-4", "type": "line", "start": [0, 50], "end": [0, 0]}, {"id": "e-5", "type": "line", "start": [20, 50], "end": [20, 70]}, {"id": "e-6", "type": "line", "start": [20, 70], "end": [60, 70]}, {"id": "e-7", "type": "line", "start": [60, 70], "end": [60, 50]}]}"#;
+
+    let run = Run::records(
+        &["b-1"],
+        &[sketch, &extrude(RECTANGLE_PROFILE, &distance("10"), "new")],
+    );
+
+    run.assert_all_ok();
+    assert_volume_and_bounds(&run, 40000.0, [0.0, 0.0, 0.0], [80.0, 50.0, 10.0]);
+    let body = run.body("b-1");
+    assert_face_names(
+        body,
+        &[
+            "f-ext1/end-cap",
+            "f-ext1/lateral/e-1",
+            "f-ext1/lateral/e-2",
+            "f-ext1/lateral/e-3",
+            "f-ext1/lateral/e-4",
+            "f-ext1/start-cap",
+        ],
+    );
+    assert_face_area(&face(body, "f-ext1/lateral/e-3"), 800.0);
+}

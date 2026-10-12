@@ -15,7 +15,6 @@ use partsmith_occt_sys::{
 };
 
 use super::common::{bodies, face_name, unchanged};
-use crate::naming::kernel;
 use crate::{
     BodyChange, BodyState, BodyUpdate, BuildContext, FeatureError, FeatureOutput, FeatureWarning,
     IgnoredReason, name_shape, too_large_search,
@@ -52,7 +51,7 @@ pub(super) fn select_edges(
     edges: &[Reference],
 ) -> Result<EdgeSelection, FeatureError> {
     let resolved = context.resolve_all("edges", body, edges, ElementKind::Edge)?;
-    let topology = shape.topology().map_err(kernel)?;
+    let topology = shape.topology()?;
     let mut selection = EdgeSelection {
         edges: Vec::new(),
         warnings: resolved.warnings,
@@ -103,7 +102,7 @@ fn meets_without_corner(
     let normals = match normals {
         Ok(normals) => normals,
         Err(error) if error.kind == KernelErrorKind::InvalidInput => return Ok(false),
-        Err(error) => return Err(kernel(error)),
+        Err(error) => return Err(FeatureError::from(error)),
     };
     let [first, second] = normals.faces[..] else {
         return Err(FeatureError::internal(format!(
@@ -134,7 +133,7 @@ pub(super) fn run_or_search<T>(
     }
     match operation(requested) {
         Ok(result) => Ok(result),
-        Err(error) if error.kind == KernelErrorKind::InvalidInput => Err(kernel(error)),
+        Err(error) if error.kind == KernelErrorKind::InvalidInput => Err(FeatureError::from(error)),
         Err(cause) => {
             let max = too_large_search(context, requested, |value| operation(value).is_ok())?;
             Err(too_large(max, cause))
@@ -704,7 +703,10 @@ mod tests {
         let error = meets_without_corner(1, Err(kernel_error(KernelErrorKind::Failed)))
             .expect_err("the query failed");
 
-        assert_eq!(error, kernel(kernel_error(KernelErrorKind::Failed)));
+        assert_eq!(
+            error,
+            FeatureError::from(kernel_error(KernelErrorKind::Failed))
+        );
     }
 
     #[test]
@@ -763,12 +765,15 @@ mod tests {
             },
             |max, cause| {
                 largest.set(max);
-                kernel(cause)
+                FeatureError::from(cause)
             },
         )
         .expect_err("the requested value fails");
 
-        assert_eq!(error, kernel(kernel_error(KernelErrorKind::Failed)));
+        assert_eq!(
+            error,
+            FeatureError::from(kernel_error(KernelErrorKind::Failed))
+        );
         let max = largest.get().expect("some value works");
         assert!(max <= 2.0 && max > 1.99, "{max}");
     }
