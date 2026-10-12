@@ -89,7 +89,8 @@ class MeshBuilder {
         flat[static_cast<std::size_t>(node)] += normal;
       }
     }
-    const Handle(Geom_Surface) surface = BRep_Tool::Surface(TopoDS::Face(face.Located(TopLoc_Location())));
+    const Handle(Geom_Surface) surface =
+        BRep_Tool::Surface(TopoDS::Face(face.Located(TopLoc_Location())));
     std::vector<gp_Dir> normals(static_cast<std::size_t>(count) + 1, gp::DZ());
     for (int node = 1; node <= count; ++node) {
       gp_Dir normal = gp::DZ();
@@ -118,13 +119,12 @@ class MeshBuilder {
     const bool reversed = face.Orientation() == TopAbs_REVERSED;
     const std::uint32_t base = vertex_count();
 
-    // The face location applies to the triangulation and, without the face's own location,
-    // to the surface the normals come from.
+    // The triangulation and the normals are in the frame of the face without its location;
+    // the face location places both in model space.
     const std::vector<gp_Dir> normals = node_normals(face, triangulation);
-    const gp_Trsf face_transformation = face.Location().Transformation();
     for (int node = 1; node <= triangulation->NbNodes(); ++node) {
       push_point(data_.positions, triangulation->Node(node).Transformed(transformation).XYZ());
-      gp_Dir normal = normals[static_cast<std::size_t>(node)].Transformed(face_transformation);
+      gp_Dir normal = normals[static_cast<std::size_t>(node)].Transformed(transformation);
       if (reversed) {
         normal.Reverse();
       }

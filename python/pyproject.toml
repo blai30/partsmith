@@ -1,0 +1,25 @@
+[build-system]
+requires = ["maturin>=1.9,<2"]
+build-backend = "maturin"
+
+[project]
+name = "partsmith"
+version = "0.1.0"
+description = "Parametric CAD for 3D printing, from Python."
+requires-python = ">=3.12"
+license = "MIT OR Apache-2.0"
+dependencies = []
+
+[tool.maturin]
+manifest-path = "../crates/partsmith-py/Cargo.toml"
+module-name = "partsmith._core"
+python-source = "."
+features = ["pyo3/extension-module"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# The wheel build of test 76 compiles the release engine; run it with `pytest -m packaging`.
+addopts = "-m 'not packaging'"
+markers = [
+    "packaging: builds and installs the release wheel (slow; run with -m packaging)",
+]

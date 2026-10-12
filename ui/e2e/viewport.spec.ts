@@ -71,8 +71,7 @@ test('the WebGL2 backend renders a cube and reads back the pick id of the face u
   await openHarness(page)
   const result = await page.evaluate(
     ({ pickBase, width, height, pixelRatio }) => {
-      const harness = (window as unknown as { partsmithViewport: HarnessModule })
-        .partsmithViewport
+      const harness = (window as unknown as { partsmithViewport: HarnessModule }).partsmithViewport
       const { backend, drawingBuffer, frame, renderPixels, pickAt } = harness.createHarness(
         width,
         height,
@@ -82,7 +81,9 @@ test('the WebGL2 backend renders a cube and reads back the pick id of the face u
       backend.upload('cube', harness.cubeGeometry(10))
       const draws = [harness.drawCall('cube', { pickBase })]
       const colorAt = (pixels: Uint8ClampedArray, x: number, y: number): number[] =>
-        Array.from(pixels.slice((y * drawingBuffer.width + x) * 4, (y * drawingBuffer.width + x + 1) * 4))
+        Array.from(
+          pixels.slice((y * drawingBuffer.width + x) * 4, (y * drawingBuffer.width + x + 1) * 4),
+        )
 
       const front = frame(harness.cameraFor('front'), draws, Math.sqrt(300))
       const frontPixels = renderPixels(front)
@@ -130,8 +131,7 @@ test('a line with element colors draws on its first render, also after it is upl
   await openHarness(page)
   const result = await page.evaluate(
     ({ width, height, pixelRatio }) => {
-      const harness = (window as unknown as { partsmithViewport: HarnessModule })
-        .partsmithViewport
+      const harness = (window as unknown as { partsmithViewport: HarnessModule }).partsmithViewport
       const { backend, drawingBuffer, frame, renderPixels, takeErrors } = harness.createHarness(
         width,
         height,
@@ -177,8 +177,7 @@ test('the ID pass depth-tests overlay draws, which the color pass draws on top',
   await openHarness(page)
   const result = await page.evaluate(
     ({ width, height, pixelRatio }) => {
-      const harness = (window as unknown as { partsmithViewport: HarnessModule })
-        .partsmithViewport
+      const harness = (window as unknown as { partsmithViewport: HarnessModule }).partsmithViewport
       const { backend, drawingBuffer, frame, renderPixels, pickAt, takeErrors } =
         harness.createHarness(width, height, pixelRatio)
       // From the top: an opaque face at z = 0, a sketch line on it at y = 10 and one 5 mm below it at y = -10.
@@ -203,14 +202,14 @@ test('the ID pass depth-tests overlay draws, which the color pass draws on top',
       }
       // The line below the face is 105 mm away, so its screen position shrinks by 100 / 105.
       const belowY = height / 2 + (10 / millimetersPerPixel) * (100 / 105)
-      const result = {
+      const readings = {
         belowColor: colorAt(width / 2, belowY),
         belowPick: pickAt(view, width / 2, belowY, 1),
         onFacePick: pickAt(view, width / 2, screenY(10), 1),
         errors: takeErrors(),
       }
       backend.dispose()
-      return result
+      return readings
     },
     { width: CANVAS_WIDTH, height: CANVAS_HEIGHT, pixelRatio: PIXEL_RATIO },
   )
@@ -228,8 +227,7 @@ test('a line receding in depth keeps its screen width along its length', async (
   await openHarness(page)
   const result = await page.evaluate(
     ({ width, height, pixelRatio }) => {
-      const harness = (window as unknown as { partsmithViewport: HarnessModule })
-        .partsmithViewport
+      const harness = (window as unknown as { partsmithViewport: HarnessModule }).partsmithViewport
       const { backend, drawingBuffer, frame, renderPixels, takeErrors } = harness.createHarness(
         width,
         height,
@@ -272,8 +270,7 @@ test('hover draws B-rep edges in highlight at 70 percent and sketch curves in fu
   await openHarness(page)
   const result = await page.evaluate(
     ({ width, height, pixelRatio }) => {
-      const harness = (window as unknown as { partsmithViewport: HarnessModule })
-        .partsmithViewport
+      const harness = (window as unknown as { partsmithViewport: HarnessModule }).partsmithViewport
       const { backend, drawingBuffer, frame, renderPixels, takeErrors } = harness.createHarness(
         width,
         height,
@@ -309,8 +306,56 @@ test('hover draws B-rep edges in highlight at 70 percent and sketch curves in fu
   )
 
   expect(result.errors).toEqual([])
-  // Black mixed 70 percent toward the red highlight in linear space, then sRGB-encoded: 255 × encode(0.7).
-  expect(result.edge).toEqual([217, 0, 0, 255])
+  // Black mixed 70 percent toward the red highlight in linear space, then sRGB-encoded: 255 × encode(0.7) ≈ 217.85, within one step of the GPU's rounding.
+  const encodedSeventyPercent = 255 * (1.055 * 0.7 ** (1 / 2.4) - 0.055)
+  const [edgeRed, ...edgeRest] = result.edge
+  expect(Math.abs((edgeRed ?? 0) - encodedSeventyPercent)).toBeLessThan(1)
+  expect(edgeRest).toEqual([0, 0, 255])
   // The blue sketch line becomes the highlight itself.
   expect(result.sketch).toEqual([255, 0, 0, 255])
+})
+
+test('an edge left out of the ID pass no longer hides the face next to it', async ({ page }) => {
+  await openHarness(page)
+  const result = await page.evaluate(
+    ({ width, height, pixelRatio }) => {
+      const harness = (window as unknown as { partsmithViewport: HarnessModule }).partsmithViewport
+      const { backend, frame, renderPixels, pickAt, takeErrors } = harness.createHarness(
+        width,
+        height,
+        pixelRatio,
+      )
+      // From the top: a face at z = 0 and an edge on it along y = 0, drawn 7 pixels wide in the ID pass (3.6).
+      backend.upload('face', harness.squareGeometry(30, 0))
+      backend.upload('edge', harness.segmentGeometry([-20, 0, 0], [20, 0, 0]))
+      const camera = harness.cameraFor('top', { distance: 100 })
+      const face = harness.drawCall('face', { pickBase: 1 })
+      const edge = { color: [0, 0, 0], size: 1.25, pickSize: 7 } as const
+      // Two CSS pixels beside the edge, inside its 7-pixel ID footprint.
+      const beside = { x: width / 2, y: height / 2 + 2 }
+      const accepted = frame(
+        camera,
+        [face, harness.drawCall('edge', { ...edge, pickBase: 20 })],
+        50,
+      )
+      renderPixels(accepted)
+      const withEdge = pickAt(accepted, beside.x, beside.y, 0)
+      // What the scene draws when the selection filter rejects edges.
+      const rejected = frame(
+        camera,
+        [face, harness.drawCall('edge', { ...edge, pickBase: null })],
+        50,
+      )
+      renderPixels(rejected)
+      const withoutEdge = pickAt(rejected, beside.x, beside.y, 0)
+      const errors = takeErrors()
+      backend.dispose()
+      return { withEdge, withoutEdge, errors }
+    },
+    { width: CANVAS_WIDTH, height: CANVAS_HEIGHT, pixelRatio: PIXEL_RATIO },
+  )
+
+  expect(result.errors).toEqual([])
+  expect(distinctIds(result.withEdge)).toEqual([20])
+  expect(distinctIds(result.withoutEdge)).toEqual([1])
 })

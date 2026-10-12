@@ -7,7 +7,6 @@ import {
   cross,
   IDENTITY_QUATERNION,
   length,
-  multiplyMatrices,
   multiplyQuaternions,
   normalize,
   normalizeQuaternion,
@@ -15,7 +14,6 @@ import {
   quaternionFromBasis,
   rotateVector,
   slerp,
-  transformPoint,
   type Quaternion,
   type Vector3,
 } from './math'
@@ -141,20 +139,5 @@ describe('quaternions', () => {
     const middle = slerp(from, to, 0.5)
     expect(Math.hypot(...middle)).toBeCloseTo(1, 15)
     expect(alignedWith(middle, halfway)).toEqual(closeTo(halfway))
-  })
-})
-
-describe('matrices', () => {
-  // Column-major: a translation by (1, 2, 3) after scaling x by 2.
-  const transform = new Float32Array([2, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 1, 2, 3, 1])
-
-  it('transformPoint applies a column-major matrix to a point with w 1', () => {
-    expect(transformPoint(transform, [1, 1, 1])).toEqual([3, 3, 4, 1])
-  })
-
-  it('multiplyMatrices applies the second matrix first', () => {
-    const translateX = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 5, 0, 0, 1])
-    const product = multiplyMatrices(transform, translateX)
-    expect(transformPoint(product, [0, 0, 0])).toEqual([11, 2, 3, 1])
   })
 })

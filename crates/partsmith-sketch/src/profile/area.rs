@@ -11,7 +11,9 @@ use crate::vector::{cross, norm, subtract};
 /// Signed area and first moments (`integral of u dA`, `integral of v dA`) of one oriented curve, measured from `origin`.
 pub(crate) fn moments(curve: &ProfileCurve, origin: [f64; 2]) -> [f64; 3] {
     match *curve {
-        ProfileCurve::Line { start, end } => chord_moments(subtract(start, origin), subtract(end, origin)),
+        ProfileCurve::Line { start, end } => {
+            chord_moments(subtract(start, origin), subtract(end, origin))
+        }
         ProfileCurve::Arc {
             center,
             radius,

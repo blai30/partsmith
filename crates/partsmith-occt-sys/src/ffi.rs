@@ -249,6 +249,11 @@ pub(crate) mod bridge {
         warnings: Vec<String>,
     }
 
+    // SAFETY: each declaration matches its definition in cpp/shim.h, which the compiler checks
+    // when it builds the generated C++. No shim function throws past `trycatch` or keeps a
+    // reference to a Rust slice or string after it returns, returned shapes come from
+    // `std::make_shared` (the facade still rejects null), and the C++ `Shape` is immutable, so
+    // the calls are safe from any thread (kernel spec sections 3.9 and 3.10).
     unsafe extern "C++" {
         include!("partsmith-occt-sys/cpp/shim.h");
 

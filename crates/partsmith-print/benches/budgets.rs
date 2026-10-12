@@ -157,13 +157,14 @@ fn main() -> ExitCode {
         Duration::from_millis(250),
         &|| analyze_time(&body, &profile, &CheckKind::ALL),
     );
-    // The share of one check is the time with that check alone minus the time with none, which
-    // welds and places the body.
+    // The share of one check is the time with that check alone minus the time with only bed
+    // fit, which welds and places the body and then only measures its bounding box. (A request
+    // with no checks does not prepare the body at all.)
     measure(
         "of which thin_walls, 200k triangles",
         Duration::from_millis(120),
         &|| {
-            let placing = analyze_time(&body, &profile, &[]);
+            let placing = analyze_time(&body, &profile, &[CheckKind::BedFit]);
             analyze_time(&body, &profile, &[CheckKind::ThinWalls]).saturating_sub(placing)
         },
     );
@@ -171,7 +172,7 @@ fn main() -> ExitCode {
         "of which small_features, 200k triangles, 250 layers",
         Duration::from_millis(50),
         &|| {
-            let placing = analyze_time(&body, &profile, &[]);
+            let placing = analyze_time(&body, &profile, &[CheckKind::BedFit]);
             analyze_time(&body, &profile, &[CheckKind::SmallFeatures]).saturating_sub(placing)
         },
     );

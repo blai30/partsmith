@@ -32,7 +32,12 @@ const CATEGORY_ORDER: readonly CommandCategory[] = [
 ]
 
 /** Order of the items without a category, after every command category. */
-const UNCATEGORIZED_ORDER: readonly PaletteItem['kind'][] = ['feature', 'body', 'parameter', 'recent']
+const UNCATEGORIZED_ORDER: readonly PaletteItem['kind'][] = [
+  'feature',
+  'body',
+  'parameter',
+  'recent',
+]
 
 function lowercase(text: string): string {
   return text.toLocaleLowerCase('en')

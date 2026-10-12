@@ -8,6 +8,9 @@ const PLAIN_NUMBER = /^(\s*)([+-]?(?:\d+(?:\.\d*)?|\.\d+))(\s*)(mm|cm|m|in|deg|r
 /** Step of a length field per unit: the unit word typed, else the document unit. */
 const LENGTH_STEPS: Readonly<Record<Units, number>> = { mm: 1, cm: 0.1, m: 0.01, in: 0.1 }
 
+/** An angle steps by one degree, which is this many radians when the typed word is rad. */
+const RADIANS_PER_DEGREE = Math.PI / 180
+
 const RESULT_DECIMALS = 10
 
 type PlainNumber = {
@@ -39,6 +42,8 @@ function baseStep(unit: FieldUnit, word: string, units: Units): number {
     case 'length':
       return LENGTH_STEPS[isLengthUnit(word) ? word : units]
     case 'angle':
+      // A plain number in an angle field is in degrees, like a value typed with deg.
+      return word === 'rad' ? RADIANS_PER_DEGREE : 1
     case 'scalar':
     case 'count':
       return 1

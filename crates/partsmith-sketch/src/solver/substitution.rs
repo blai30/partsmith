@@ -71,8 +71,8 @@ impl Substitution {
                 used[substitution.root_of(parameter)] = true;
             }
         }
-        for root in 0..count {
-            if substitution.parents[root] == root && used[root] && substitution.frozen[root].is_none() {
+        for (root, &read) in used.iter().enumerate() {
+            if read && substitution.parents[root] == root && substitution.frozen[root].is_none() {
                 substitution.variable_of_root[root] = Some(substitution.variables.len());
                 substitution.variables.push(root);
             }
@@ -142,7 +142,10 @@ impl Substitution {
                 None if values.is_empty() => 0.0,
                 None => {
                     let first = values[0];
-                    if values.iter().all(|value| value.to_bits() == first.to_bits()) {
+                    if values
+                        .iter()
+                        .all(|value| value.to_bits() == first.to_bits())
+                    {
                         first
                     } else {
                         values.iter().sum::<f64>() / values.len() as f64
@@ -164,7 +167,10 @@ impl Substitution {
 
     /// The current values of the variables.
     pub(crate) fn variable_values(&self) -> Vec<f64> {
-        self.variables.iter().map(|&root| self.values[root]).collect()
+        self.variables
+            .iter()
+            .map(|&root| self.values[root])
+            .collect()
     }
 
     /// Starts each free class that contains a dragged parameter at that parameter's target (section 3.9):
@@ -220,7 +226,10 @@ mod tests {
         }
     }
 
-    fn substitution(entities: Vec<SketchEntity>, kinds: Vec<ConstraintKind>) -> (Substitution, Vec<f64>) {
+    fn substitution(
+        entities: Vec<SketchEntity>,
+        kinds: Vec<ConstraintKind>,
+    ) -> (Substitution, Vec<f64>) {
         let sketch = SketchParams {
             plane: SketchPlane::Origin {
                 plane: OriginPlane::Xy,
@@ -260,7 +269,10 @@ mod tests {
         substitution.write(&substitution.variable_values(), &mut solved);
 
         assert_eq!(&solved[2..6], &[10.0, 1.0, 10.0, 1.0]);
-        assert!(substitution.rows.is_empty(), "both coincident rows are skipped");
+        assert!(
+            substitution.rows.is_empty(),
+            "both coincident rows are skipped"
+        );
         assert_eq!(substitution.variable_count(), 0);
     }
 
@@ -294,7 +306,11 @@ mod tests {
             ],
         );
 
-        assert_eq!(substitution.rows.len(), 5, "the four fix rows and the horizontal row remain");
+        assert_eq!(
+            substitution.rows.len(),
+            5,
+            "the four fix rows and the horizontal row remain"
+        );
         assert_eq!(substitution.variable_count(), 0);
     }
 
@@ -302,7 +318,9 @@ mod tests {
     fn dragged_classes_start_at_the_lowest_parameter_target() {
         let (mut substitution, x) = substitution(
             vec![line("e-1", [0.0, 0.0], [10.0, 1.0])],
-            vec![ConstraintKind::Horizontal(crate::Alignment::Line { line: id("e-1") })],
+            vec![ConstraintKind::Horizontal(crate::Alignment::Line {
+                line: id("e-1"),
+            })],
         );
         let mut solved = x.clone();
 

@@ -89,10 +89,10 @@ class Shape {
 
  private:
   const TopoDS_Shape shape_;
-  TopTools_IndexedMapOfShape solids_;
-  TopTools_IndexedMapOfShape faces_;
-  TopTools_IndexedMapOfShape edges_;
-  TopTools_IndexedMapOfShape vertices_;
+  const TopTools_IndexedMapOfShape solids_;
+  const TopTools_IndexedMapOfShape faces_;
+  const TopTools_IndexedMapOfShape edges_;
+  const TopTools_IndexedMapOfShape vertices_;
 };
 
 // queries.cpp

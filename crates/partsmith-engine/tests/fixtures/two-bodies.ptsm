@@ -1,0 +1,22 @@
+{
+  "format": "partsmith",
+  "format_version": 1,
+  "units": "mm",
+  "parameters": [],
+  "bodies": [
+    {"id": "b-1", "name": "Block"},
+    {"id": "b-2", "name": "Peg"}
+  ],
+  "features": [
+    {"id": "f-box1", "type": "box", "body": "b-1", "size": ["20 mm", "30 mm", "40 mm"], "op": "new"},
+    {
+      "id": "f-cyl1",
+      "type": "cylinder",
+      "body": "b-2",
+      "radius": "5 mm",
+      "height": "10 mm",
+      "position": ["50 mm", "0 mm", "0 mm"],
+      "op": "new"
+    }
+  ]
+}

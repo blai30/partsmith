@@ -1,0 +1,21 @@
+{
+  "format": "partsmith",
+  "format_version": 1,
+  "units": "mm",
+  "parameters": [],
+  "bodies": [],
+  "features": [
+    {
+      "id": "f-sk1",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XY"},
+      "entities": [
+        {"id": "e-1", "type": "line", "start": [0, 0], "end": [10, 0]}
+      ],
+      "constraints": [
+        {"id": "c-1", "type": "fix", "target": "e-1.start"},
+        {"id": "c-2", "type": "horizontal", "line": "e-1"}
+      ]
+    }
+  ]
+}

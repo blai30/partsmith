@@ -56,9 +56,12 @@ fn distance(first: Point2, second: Point2) -> f64 {
 
 /// The convex hull by Andrew's monotone chain, counter-clockwise, without collinear points and
 /// without repeating the first point. Fewer than 3 distinct points come back as they are,
-/// sorted and without duplicates.
+/// sorted and without duplicates. A `-0.0` coordinate comes back as `0.0`.
 pub(crate) fn convex_hull(points: &[Point2]) -> Vec<Point2> {
-    let mut sorted = points.to_vec();
+    // `total_cmp` sorts -0.0 before 0.0, so a point written both ways could end up in two places
+    // that `dedup` does not see as neighbors. Adding 0.0 turns -0.0 into 0.0 and keeps every
+    // other value.
+    let mut sorted: Vec<Point2> = points.iter().map(|&[x, y]| [x + 0.0, y + 0.0]).collect();
     sorted.sort_by(|first, second| {
         first[0]
             .total_cmp(&second[0])
@@ -307,6 +310,68 @@ mod tests {
     fn hull_of_few_points_is_the_distinct_points() {
         assert_eq!(convex_hull(&[]), Vec::<Point2>::new());
         assert_eq!(convex_hull(&[[1.0, 2.0], [1.0, 2.0]]), vec![[1.0, 2.0]]);
+    }
+
+    /// True when every coordinate of every point has the same bits in both lists, so `-0.0`
+    /// and `0.0` differ.
+    fn same_bits(first: &[Point2], second: &[Point2]) -> bool {
+        first.len() == second.len()
+            && first.iter().zip(second).all(|(one, other)| {
+                one[0].to_bits() == other[0].to_bits() && one[1].to_bits() == other[1].to_bits()
+            })
+    }
+
+    #[test]
+    fn hull_treats_signed_zeros_as_one_point() {
+        // The same corner as (-0.0, -1) and (0, -1). Sorted with -0.0 first, the two copies were
+        // not neighbors, so the duplicate stayed and the zero turn it made popped (0, -200).
+        let points = [[-0.0, -1.0], [0.0, -200.0], [150.0, -100.0], [0.0, -1.0]];
+        let hull = convex_hull(&points);
+        let expected = [[0.0, -200.0], [150.0, -100.0], [0.0, -1.0]];
+        assert!(same_bits(&hull, &expected), "{hull:?}");
+        assert!((polygon_area(&hull) - 14925.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn hull_drops_duplicates_that_differ_only_in_the_sign_of_zero() {
+        // Duplicates far apart in the input, in both coordinates and both signs.
+        let points = [
+            [0.0, 0.0],
+            [2.0, -0.0],
+            [-0.0, 2.0],
+            [1.0, 1.0],
+            [-0.0, -0.0],
+            [2.0, 2.0],
+            [2.0, 0.0],
+            [0.0, 2.0],
+            [-0.0, 0.0],
+        ];
+        let hull = convex_hull(&points);
+        let expected = [[0.0, 0.0], [2.0, 0.0], [2.0, 2.0], [0.0, 2.0]];
+        assert!(same_bits(&hull, &expected), "{hull:?}");
+    }
+
+    #[test]
+    fn hull_of_signed_zero_copies_of_one_point_is_that_point() {
+        let hull = convex_hull(&[[-0.0, 3.0], [0.0, 3.0], [-0.0, 3.0]]);
+        assert!(same_bits(&hull, &[[0.0, 3.0]]), "{hull:?}");
+    }
+
+    #[test]
+    fn signed_zeros_do_not_change_hull_measures() {
+        let negative = [[-0.0, -1.0], [0.0, -200.0], [150.0, -100.0], [0.0, -1.0]];
+        let positive = [[0.0, -1.0], [0.0, -200.0], [150.0, -100.0], [0.0, -1.0]];
+        assert_eq!(
+            enclosing_circle_diameter(&negative),
+            enclosing_circle_diameter(&positive)
+        );
+        assert_eq!(
+            minimum_width(&convex_hull(&negative)),
+            minimum_width(&convex_hull(&positive))
+        );
+        // The triangle is acute, so its smallest enclosing circle is its circumcircle:
+        // 2 · abc / (4 · area) with sides 199, 180.278 and 179.725 and area 14925.
+        assert!((enclosing_circle_diameter(&negative) - 216.002_314_802_411_26).abs() < 1e-9);
     }
 
     #[test]

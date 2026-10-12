@@ -330,7 +330,7 @@ export function zoomAt(
 }
 
 /**
- * Frames `bounds` keeping the rotation (2.11): content fills `1 - 2 × margin` of the limiting dimension. An empty or degenerate box is framed as a 100 mm cube around its center.
+ * Frames `bounds` keeping the rotation (2.11): content fills `1 - 2 × margin` of the limiting dimension. An empty or degenerate box is framed as a 100 mm cube around its center. The resulting distance or orthographic height is clamped like a zoom, so a box that is flat in the view plane (a line seen end-on) still gives a valid projection.
  */
 export function fitBounds(
   camera: Camera,
@@ -362,10 +362,10 @@ export function fitBounds(
   const extent = (index: number): number => (maximum[index] ?? 0) - (minimum[index] ?? 0)
   const visibleHeight = Math.max(extent(1), extent(0) / aspect) / (1 - 2 * margin)
   if (camera.projection === 'orthographic') {
-    return { ...camera, target: center, orthographicHeight: visibleHeight }
+    return { ...camera, target: center, orthographicHeight: clampZoomExtent(visibleHeight) }
   }
   const distance = visibleHeight / (2 * Math.tan(camera.verticalFieldOfView / 2)) + extent(2) / 2
-  return { ...camera, target: center, distance }
+  return { ...camera, target: center, distance: clampZoomExtent(distance) }
 }
 
 /** Switches the projection keeping the apparent size at the target. */
@@ -438,19 +438,22 @@ export function easeOutCubic(amount: number): number {
 }
 
 /**
- * The camera `amount` of the way from `from` to `to` (0 to 1): the rotation turns along the shorter arc, lengths change geometrically and the projection is `to`'s.
+ * The camera `amount` of the way from `from` to `to` (0 to 1): the rotation turns along the shorter arc, lengths change geometrically and the projection is `to`'s. A projection switch starts from `from` in `to`'s projection (`withProjection`), so the apparent size changes smoothly from `from`'s.
  */
 export function interpolateCameras(from: Camera, to: Camera, amount: number): Camera {
   if (amount >= 1) {
     return to
   }
-  const geometric = (start: number, end: number): number =>
-    start > 0 && end > 0 ? start * (end / start) ** amount : start + (end - start) * amount
+  const start = withProjection(from, to.projection)
+  const geometric = (startLength: number, endLength: number): number =>
+    startLength > 0 && endLength > 0
+      ? startLength * (endLength / startLength) ** amount
+      : startLength + (endLength - startLength) * amount
   return {
     ...to,
-    target: addScaled(from.target, subtract(to.target, from.target), amount),
-    rotation: slerp(from.rotation, to.rotation, amount),
-    distance: geometric(from.distance, to.distance),
-    orthographicHeight: geometric(from.orthographicHeight, to.orthographicHeight),
+    target: addScaled(start.target, subtract(to.target, start.target), amount),
+    rotation: slerp(start.rotation, to.rotation, amount),
+    distance: geometric(start.distance, to.distance),
+    orthographicHeight: geometric(start.orthographicHeight, to.orthographicHeight),
   }
 }

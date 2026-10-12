@@ -27,6 +27,9 @@ export type ViewCubeProps = {
   readonly onOrbit: (deltaX: number, deltaY: number) => void
 }
 
+// Bit of PointerEvent.buttons for the primary button.
+const PRIMARY_BUTTON = 1
+
 type Press = {
   readonly pointerId: number
   readonly startX: number
@@ -54,7 +57,7 @@ function partAt(target: EventTarget | null): ViewCubePart | null {
 }
 
 /**
- * The view cube (3.14): 6 faces, 12 edges and 8 corners as buttons in a CSS 3D cube whose rotor follows the camera, a drag that orbits, and the Home view button. Each edge band and corner square also shows on the part's other faces, where it acts the same and highlights with it. The cube is not in the tab order: the viewport is one tab stop (3.24) and every view is also a command.
+ * The view cube (3.14): 6 faces, 12 edges and 8 corners as buttons in a CSS 3D cube whose rotor follows the camera, a drag that orbits, and the Home view button. Each edge band and corner square also shows on the part's other faces, where it acts the same and highlights with it. The cube is not in the tab order, since the viewport is one tab stop (3.24). Only the face views and the iso view are also commands (`view.standard.*`); the keyboard reaches the other views by orbiting with the arrow keys in 15 degree steps (3.5), exactly for the edge views and the top corners, but not for the bottom corners.
  */
 export function ViewCube({ rotorRef, onChooseView, onHome, onOrbit }: ViewCubeProps) {
   const [hovered, setHovered] = useState<string | null>(null)
@@ -85,6 +88,11 @@ export function ViewCube({ rotorRef, onChooseView, onHome, onOrbit }: ViewCubePr
   function handlePointerMove(event: PointerEvent<HTMLFieldSetElement>): void {
     const current = press.current
     if (current === null || current.pointerId !== event.pointerId) {
+      return
+    }
+    // The button was released where the cube did not see it, so this is a hover, not a drag.
+    if ((event.buttons & PRIMARY_BUTTON) === 0) {
+      press.current = null
       return
     }
     if (!current.dragging) {
@@ -119,6 +127,14 @@ export function ViewCube({ rotorRef, onChooseView, onHome, onOrbit }: ViewCubePr
     }, 0)
   }
 
+  // A press that has not become a drag has no pointer capture, so it ends when the pointer leaves the cube, where its release would go unseen.
+  function cancelPress(event: PointerEvent<HTMLFieldSetElement>): void {
+    const current = press.current
+    if (current !== null && current.pointerId === event.pointerId && !current.dragging) {
+      press.current = null
+    }
+  }
+
   function handlePointerOver(event: PointerEvent<HTMLFieldSetElement>): void {
     if (press.current?.dragging !== true) {
       setHovered(partAt(event.target)?.id ?? null)
@@ -134,8 +150,12 @@ export function ViewCube({ rotorRef, onChooseView, onHome, onOrbit }: ViewCubePr
       onPointerMove={handlePointerMove}
       onPointerUp={endPress}
       onPointerCancel={endPress}
+      onLostPointerCapture={endPress}
       onPointerOver={handlePointerOver}
-      onPointerLeave={() => setHovered(null)}
+      onPointerLeave={(event) => {
+        cancelPress(event)
+        setHovered(null)
+      }}
     >
       <div className="absolute inset-0 perspective-distant">
         <div ref={rotorRef} className="absolute inset-0 transform-3d">
@@ -143,7 +163,7 @@ export function ViewCube({ rotorRef, onChooseView, onHome, onOrbit }: ViewCubePr
             <div
               key={face}
               className={clsx(
-                'absolute inset-4 grid grid-cols-8 grid-rows-8 border backface-hidden',
+                'absolute inset-0 grid grid-cols-8 grid-rows-8 border backface-hidden',
                 COLOR_CLASSES.border.border,
                 FACE_PLACEMENT_CLASSES[face],
               )}

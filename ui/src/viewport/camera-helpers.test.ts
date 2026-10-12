@@ -13,8 +13,13 @@ import {
   pointAtDepth,
   right,
   rotationLookingAlong,
+  MAXIMUM_ZOOM_EXTENT,
+  MINIMUM_ZOOM_EXTENT,
+  projectionMatrix,
   standardViewRotation,
   up,
+  visibleHeightAtTarget,
+  withProjection,
   type Camera,
 } from './camera'
 import {
@@ -67,6 +72,28 @@ describe('fitBounds', () => {
     const bounds = { min: [0, 0, 0] as Vector3, max: [1, 1, 1] as Vector3 }
     expect(() => fitBounds(DEFAULT_CAMERA, bounds, 1, 0.5)).toThrow(RangeError)
     expect(() => fitBounds(DEFAULT_CAMERA, bounds, 1, -0.1)).toThrow(RangeError)
+  })
+
+  it('frames a line seen end-on with the smallest orthographic height, not zero', () => {
+    const rightView: Camera = {
+      ...frontOrthographic,
+      rotation: standardViewRotation('right'),
+    }
+    const fitted = fitBounds(rightView, { min: [0, 0, 0], max: [40, 0, 0] }, 1.5)
+    expect(fitted.orthographicHeight).toBe(MINIMUM_ZOOM_EXTENT)
+    expect(Array.from(projectionMatrix(fitted, 1.5, -10, 10)).every(Number.isFinite)).toBe(true)
+  })
+
+  it('keeps a tiny perspective fit at the smallest distance', () => {
+    const rightView: Camera = { ...front, rotation: standardViewRotation('right') }
+    const fitted = fitBounds(rightView, { min: [0, 0, 0], max: [1e-6, 0, 0] }, 1.5)
+    expect(fitted.distance).toBe(MINIMUM_ZOOM_EXTENT)
+  })
+
+  it('clamps a huge box to the largest zoom extent', () => {
+    const huge = { min: [-1e8, -1e8, -1e8] as Vector3, max: [1e8, 1e8, 1e8] as Vector3 }
+    expect(fitBounds(frontOrthographic, huge, 1).orthographicHeight).toBe(MAXIMUM_ZOOM_EXTENT)
+    expect(fitBounds(front, huge, 1).distance).toBe(MAXIMUM_ZOOM_EXTENT)
   })
 })
 
@@ -138,7 +165,7 @@ describe('interpolateCameras', () => {
     target: [0, 0, 0],
     distance: 400,
     orthographicHeight: 40,
-    projection: 'orthographic',
+    projection: 'perspective',
   }
 
   it('starts at the first camera and ends exactly at the second', () => {
@@ -154,7 +181,32 @@ describe('interpolateCameras', () => {
     expect(middle.distance).toBeCloseTo(200, 9)
     expect(middle.orthographicHeight).toBeCloseTo(20, 9)
     expect(middle.target).toEqual(closeTo([5, 0, 2.5]))
-    expect(middle.projection).toBe('orthographic')
+    expect(middle.projection).toBe('perspective')
+  })
+
+  it.each([
+    ['perspective to orthographic', { ...front, distance: 50 }, 'orthographic'],
+    ['orthographic to perspective', { ...frontOrthographic, distance: 900 }, 'perspective'],
+  ] as const)(
+    'keeps the apparent size through a projection switch, %s',
+    (_name, zoomed, projection) => {
+      const switched = withProjection(zoomed, projection)
+      for (const amount of [0, 0.01, 0.5, 0.99]) {
+        const frame = interpolateCameras(zoomed, switched, amount)
+        expect(frame.projection).toBe(projection)
+        expect(visibleHeightAtTarget(frame)).toBeCloseTo(visibleHeightAtTarget(zoomed), 9)
+      }
+    },
+  )
+
+  it('zooms smoothly from the first camera when the projection switches during a zoom', () => {
+    const zoomed: Camera = { ...front, distance: 50 }
+    const fitted: Camera = { ...frontOrthographic, orthographicHeight: 100 }
+    const heights = [0, 0.25, 0.5, 0.75, 1].map((amount) =>
+      visibleHeightAtTarget(interpolateCameras(zoomed, fitted, amount)),
+    )
+    expect(heights[0]).toBeCloseTo(visibleHeightAtTarget(zoomed), 9)
+    expect(heights.slice(1).every((height, index) => height > (heights[index] ?? 0))).toBe(true)
   })
 
   it('turns along the shorter arc', () => {

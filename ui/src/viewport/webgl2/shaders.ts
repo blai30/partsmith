@@ -200,6 +200,7 @@ void main() {
 `
 
 // Screen-space segment quads (3.12 pass 4), clipped to the near plane, widened for hover and selection in the color pass.
+// GLSL ES 3.00 has no noperspective, so the vertex shader writes the screen-space distances across and along the quad multiplied by clip w, together with w, and the fragment shader divides by the interpolated w. The distances then interpolate linearly on screen, which keeps the width and the dashes constant along a segment that recedes in depth.
 const LINES_VERTEX = `
 layout(location = ${String(LINE_ATTRIBUTES.start)}) in vec3 a_start;
 layout(location = ${String(LINE_ATTRIBUTES.end)}) in vec3 a_end;
@@ -213,8 +214,7 @@ uniform float u_emphasisWidth;
 
 out vec3 v_worldPosition;
 out float v_viewDepth;
-out float v_across;
-out float v_along;
+out vec3 v_screenDistances;
 flat out float v_halfWidth;
 flat out uint v_elementId;
 
@@ -256,8 +256,9 @@ void main() {
   float clippedWorldLength = max(worldLength * (endFraction - startFraction), 1e-9);
   v_worldPosition = mix(a_start, a_end, fraction);
   v_viewDepth = -mix(viewStart.z, viewEnd.z, fraction);
-  v_across = a_corner.y * reach;
-  v_along = (a_startDistance + worldLength * fraction) * (screenLength / clippedWorldLength);
+  float across = a_corner.y * reach;
+  float along = (a_startDistance + worldLength * fraction) * (screenLength / clippedWorldLength);
+  v_screenDistances = vec3(across, along, 1.0) * clip.w;
   v_halfWidth = halfWidth;
   gl_Position = vec4((screen / u_viewportSize * 2.0 - 1.0) * clip.w, clip.z, clip.w);
 }
@@ -266,24 +267,27 @@ void main() {
 const LINES_INPUTS = `
 in vec3 v_worldPosition;
 in float v_viewDepth;
-in float v_across;
-in float v_along;
+in vec3 v_screenDistances;
 flat in float v_halfWidth;
 flat in uint v_elementId;
 `
 
-// Anti-aliased with a 1-pixel smoothstep falloff; hovered edges in highlight at 70 percent, selected in highlight (3.6).
+// Anti-aliased with a 1-pixel smoothstep falloff; selected lines in highlight, hovered ones mixed toward it by u_hoverHighlight (3.6).
 const LINES_COLOR = `
 uniform bool u_dashed;
 uniform float u_dashLength;
 uniform float u_dashPeriod;
+uniform float u_hoverHighlight;
 
 void main() {
   clipSection(v_worldPosition);
-  if (u_dashed && mod(v_along, u_dashPeriod) > u_dashLength) {
+  vec2 screenDistances = v_screenDistances.xy / v_screenDistances.z;
+  float across = screenDistances.x;
+  float along = screenDistances.y;
+  if (u_dashed && mod(along, u_dashPeriod) > u_dashLength) {
     discard;
   }
-  float coverage = 1.0 - smoothstep(v_halfWidth - 0.5, v_halfWidth + 0.5, abs(v_across));
+  float coverage = 1.0 - smoothstep(v_halfWidth - 0.5, v_halfWidth + 0.5, abs(across));
   if (coverage <= 0.0) {
     discard;
   }
@@ -295,7 +299,7 @@ void main() {
   if ((state & STATE_SELECTED) != 0u) {
     color = u_highlight;
   } else if ((state & STATE_HOVER) != 0u) {
-    color = mix(color, u_highlight, 0.7);
+    color = mix(color, u_highlight, u_hoverHighlight);
   }
   o_color = vec4(encodeSrgb(color), coverage * u_opacity);
 }

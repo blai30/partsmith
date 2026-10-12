@@ -20,6 +20,10 @@ thiserror.workspace = true
 [build-dependencies]
 cxx-build.workspace = true
 
+[[bench]]
+name = "budgets"
+harness = false
+
 # The FFI crate is the one place allowed to use unsafe code.
 [lints.rust]
 missing_docs = "warn"

@@ -17,6 +17,9 @@ pub const DEFAULT_PROFILE_ID: &str = "generic-fdm";
 /// Id of the generic resin profile.
 const GENERIC_RESIN_ID: &str = "generic-resin";
 
+/// Nozzle diameter of `generic_fdm()` in mm.
+pub(crate) const GENERIC_FDM_NOZZLE_DIAMETER: f64 = 0.4;
+
 /// Longest profile name, in characters.
 const MAX_NAME_LENGTH: usize = 100;
 
@@ -386,6 +389,9 @@ impl PrinterProfile {
     }
 
     /// Check thresholds for this profile (section 3.6).
+    ///
+    /// Meant for valid profiles. An FDM profile edited in code to have no nozzle diameter gets
+    /// the limits of the `generic_fdm()` nozzle rather than an error.
     pub fn thresholds(&self) -> CheckThresholds {
         CheckThresholds::for_profile(self)
     }
@@ -432,7 +438,7 @@ pub fn generic_fdm() -> PrinterProfile {
             depth: 256.0,
             height: 256.0,
         },
-        nozzle_diameter: Some(0.4),
+        nozzle_diameter: Some(GENERIC_FDM_NOZZLE_DIAMETER),
         layer_height: 0.2,
         max_overhang_angle: PI / 4.0,
         max_bridge_length: 10.0,

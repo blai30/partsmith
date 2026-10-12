@@ -132,15 +132,15 @@ export function viewCubeRotorMatrix(rotation: Quaternion): Float32Array {
 }
 
 /**
- * Placement of each face in the rotor with Tailwind 3D utilities (3.14), for a cube of 4rem (half-size 2rem): the rotation turns the face so it reads upright from its standard view, and the translation, in the rotor's frame, moves it out along its direction.
+ * Placement of each face in the rotor with Tailwind 3D utilities (3.14), for a cube as large as the view cube's `size-24` box (half-size 3rem): the rotation turns the face so it reads upright from its standard view, and the translation, in the rotor's frame, moves it out along its direction.
  */
 export const FACE_PLACEMENT_CLASSES: Readonly<Record<CubeFace, string>> = {
-  front: '-rotate-x-90 translate-y-8',
-  back: '-rotate-x-90 rotate-y-180 -translate-y-8',
-  left: '-rotate-x-90 -rotate-y-90 -translate-x-8',
-  right: '-rotate-x-90 rotate-y-90 translate-x-8',
-  top: 'translate-z-8',
-  bottom: 'rotate-x-180 -translate-z-8',
+  front: '-rotate-x-90 translate-y-12',
+  back: '-rotate-x-90 rotate-y-180 -translate-y-12',
+  left: '-rotate-x-90 -rotate-y-90 -translate-x-12',
+  right: '-rotate-x-90 rotate-y-90 translate-x-12',
+  top: 'translate-z-12',
+  bottom: 'rotate-x-180 -translate-z-12',
 }
 
 /** The shape of a cell of a face's 3 × 3 grid: corner squares, edge bands along the sides and the center. */

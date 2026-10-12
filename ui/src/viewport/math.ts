@@ -121,44 +121,45 @@ export function rotateVector(rotation: Quaternion, vector: Vector3): Vector3 {
  * The rotation whose matrix has the columns `xAxis`, `yAxis`, `zAxis`, which must be orthonormal and right-handed.
  */
 export function quaternionFromBasis(xAxis: Vector3, yAxis: Vector3, zAxis: Vector3): Quaternion {
-  const [m00, m10, m20] = xAxis
-  const [m01, m11, m21] = yAxis
-  const [m02, m12, m22] = zAxis
-  const trace = m00 + m11 + m22
+  // The matrix entries by column (axis) and row (component): `yAxisZ` is row z of column y.
+  const [xAxisX, xAxisY, xAxisZ] = xAxis
+  const [yAxisX, yAxisY, yAxisZ] = yAxis
+  const [zAxisX, zAxisY, zAxisZ] = zAxis
+  const trace = xAxisX + yAxisY + zAxisZ
   // Shepperd's method: divide by the largest of the four candidates for numerical stability.
   if (trace > 0) {
     const factor = 0.5 / Math.sqrt(trace + 1)
     return normalizeQuaternion([
-      (m21 - m12) * factor,
-      (m02 - m20) * factor,
-      (m10 - m01) * factor,
+      (yAxisZ - zAxisY) * factor,
+      (zAxisX - xAxisZ) * factor,
+      (xAxisY - yAxisX) * factor,
       0.25 / factor,
     ])
   }
-  if (m00 > m11 && m00 > m22) {
-    const factor = 2 * Math.sqrt(1 + m00 - m11 - m22)
+  if (xAxisX > yAxisY && xAxisX > zAxisZ) {
+    const factor = 2 * Math.sqrt(1 + xAxisX - yAxisY - zAxisZ)
     return normalizeQuaternion([
       0.25 * factor,
-      (m01 + m10) / factor,
-      (m02 + m20) / factor,
-      (m21 - m12) / factor,
+      (yAxisX + xAxisY) / factor,
+      (zAxisX + xAxisZ) / factor,
+      (yAxisZ - zAxisY) / factor,
     ])
   }
-  if (m11 > m22) {
-    const factor = 2 * Math.sqrt(1 + m11 - m00 - m22)
+  if (yAxisY > zAxisZ) {
+    const factor = 2 * Math.sqrt(1 + yAxisY - xAxisX - zAxisZ)
     return normalizeQuaternion([
-      (m01 + m10) / factor,
+      (yAxisX + xAxisY) / factor,
       0.25 * factor,
-      (m12 + m21) / factor,
-      (m02 - m20) / factor,
+      (zAxisY + yAxisZ) / factor,
+      (zAxisX - xAxisZ) / factor,
     ])
   }
-  const factor = 2 * Math.sqrt(1 + m22 - m00 - m11)
+  const factor = 2 * Math.sqrt(1 + zAxisZ - xAxisX - yAxisY)
   return normalizeQuaternion([
-    (m02 + m20) / factor,
-    (m12 + m21) / factor,
+    (zAxisX + xAxisZ) / factor,
+    (zAxisY + yAxisZ) / factor,
     0.25 * factor,
-    (m10 - m01) / factor,
+    (xAxisY - yAxisX) / factor,
   ])
 }
 
@@ -188,37 +189,4 @@ export function slerp(from: Quaternion, to: Quaternion, amount: number): Quatern
     from[2] * fromWeight + target[2] * toWeight,
     from[3] * fromWeight + target[3] * toWeight,
   ])
-}
-
-/** Applies a column-major 4 × 4 matrix to a point with w = 1, returning x, y, z, w. */
-export function transformPoint(
-  matrix: ArrayLike<number>,
-  point: Vector3,
-): readonly [number, number, number, number] {
-  const [x, y, z] = point
-  const at = (index: number): number => matrix[index] ?? 0
-  return [
-    at(0) * x + at(4) * y + at(8) * z + at(12),
-    at(1) * x + at(5) * y + at(9) * z + at(13),
-    at(2) * x + at(6) * y + at(10) * z + at(14),
-    at(3) * x + at(7) * y + at(11) * z + at(15),
-  ]
-}
-
-/** The product `first × second` of two column-major 4 × 4 matrices. */
-export function multiplyMatrices(
-  first: ArrayLike<number>,
-  second: ArrayLike<number>,
-): Float32Array {
-  const product = new Float32Array(16)
-  for (let column = 0; column < 4; column++) {
-    for (let row = 0; row < 4; row++) {
-      let sum = 0
-      for (let i = 0; i < 4; i++) {
-        sum += (first[i * 4 + row] ?? 0) * (second[column * 4 + i] ?? 0)
-      }
-      product[column * 4 + row] = sum
-    }
-  }
-  return product
 }

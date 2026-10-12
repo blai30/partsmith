@@ -157,6 +157,13 @@ pub enum AnalysisError {
         /// Triangles the overlay has values for.
         triangles: usize,
     },
+    /// An overlay is asked for more vertices than a mesh can have
+    /// (`partsmith_mesh::MAX_ELEMENTS`) or than memory can hold.
+    #[error("The overlay was asked for {vertex_count} vertices, more than it can hold.")]
+    OverlayVertexCount {
+        /// The requested number of vertices.
+        vertex_count: usize,
+    },
     /// An overlay index buffer uses a vertex that does not exist.
     #[error("The index buffer uses vertex {index}, but there are only {vertex_count} vertices.")]
     OverlayIndexOutOfRange {
@@ -282,6 +289,21 @@ mod tests {
             }
             .to_string(),
             "The index buffer uses vertex 9, but there are only 5 vertices."
+        );
+        assert_eq!(
+            AnalysisError::OverlayVertexCount {
+                vertex_count: 5_000_000_000
+            }
+            .to_string(),
+            "The overlay was asked for 5000000000 vertices, more than it can hold."
+        );
+    }
+
+    #[test]
+    fn huge_coordinates_message_names_the_bound() {
+        assert_eq!(
+            AnalysisError::CoordinatesTooLarge.to_string(),
+            "The body reaches more than 1e100 mm from the origin, which is too large to check. Scale it down or move it near the origin."
         );
     }
 }

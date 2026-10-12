@@ -1,0 +1,170 @@
+//! Acceptance tests for the safe core of the bridge, `partsmith_wasm::call` (protocol.md section 2.10 and section 6, "WebAssembly bridge", tests 48 and 50 to 52), plus the frame handling rules of section 2.10: `call` never traps and answers every input with exactly one response frame.
+//!
+//! Every test thread has its own session in the bridge's `thread_local!` cell, so tests never read each other's documents.
+
+mod common;
+
+use common::{
+    EMPTY_DOCUMENT_TEXT, error_info, error_of, example_a, frame_from_header, ok_result,
+    request_frame, response_frame,
+};
+use partsmith_protocol::{ErrorCode, FrameError, MAX_SAFE_INTEGER};
+use partsmith_wasm::call;
+use proptest::prelude::*;
+
+#[test]
+fn t048_engine_info_through_call_reports_the_protocol_engine_and_format_versions() {
+    let frame = response_frame(&call(&example_a()));
+
+    assert!(frame.events.is_empty(), "engine_info emits no events");
+    assert_eq!(frame.response.id, 1);
+    let result = ok_result(&frame, "engine_info");
+    assert_eq!(result["protocol_version"], 1);
+    assert_eq!(result["engine_version"], env!("CARGO_PKG_VERSION"));
+    assert_eq!(result["format_version"], 1);
+}
+
+#[test]
+fn t050_bytes_that_are_not_a_frame_answer_malformed_frame_with_id_0() {
+    let frame = response_frame(&call(b"hello"));
+
+    assert_eq!(error_of(&frame), (0, &ErrorCode::MalformedFrame));
+}
+
+#[test]
+fn t051_protocol_version_2_answers_version_mismatch_with_the_request_id() {
+    let request = frame_from_header(
+        r#"{"protocol_version":2,"messages":[{"kind":"request","id":1,"command":{"type":"engine_info"}}],"buffers":[]}"#,
+    );
+
+    let frame = response_frame(&call(&request));
+
+    assert_eq!(error_of(&frame), (1, &ErrorCode::ProtocolVersionMismatch));
+}
+
+#[test]
+fn t052_the_session_keeps_a_new_document_for_the_next_call() {
+    let created = response_frame(&call(&request_frame(1, r#"{"type":"new_document"}"#)));
+    let doc = ok_result(&created, "new_document")["doc"].clone();
+
+    let saved = response_frame(&call(&request_frame(
+        2,
+        &format!(r#"{{"type":"save_document","doc":{doc}}}"#),
+    )));
+
+    let result = ok_result(&saved, "save_document");
+    assert_eq!(result["text"], EMPTY_DOCUMENT_TEXT);
+    assert_eq!(result["revision"], 0);
+}
+
+#[test]
+fn malformed_frame_response_carries_the_frame_error_message() {
+    let frame = response_frame(&call(b"hello"));
+
+    let expected = FrameError::Truncated {
+        length: 5,
+        expected: 8,
+    }
+    .to_string();
+    assert_eq!(error_info(&frame).message, expected);
+}
+
+#[test]
+fn empty_input_answers_malformed_frame_with_id_0() {
+    let frame = response_frame(&call(&[]));
+
+    assert_eq!(error_of(&frame), (0, &ErrorCode::MalformedFrame));
+}
+
+#[test]
+fn bytes_after_the_frame_answer_malformed_frame_with_id_0() {
+    let mut request = example_a();
+    request.extend_from_slice(&[0; 8]);
+
+    let frame = response_frame(&call(&request));
+
+    assert_eq!(error_of(&frame), (0, &ErrorCode::MalformedFrame));
+}
+
+#[test]
+fn version_mismatch_response_names_the_version_found() {
+    let request = frame_from_header(
+        r#"{"protocol_version":2,"messages":[{"kind":"request","id":1,"command":{"type":"engine_info"}}],"buffers":[]}"#,
+    );
+
+    let frame = response_frame(&call(&request));
+
+    assert_eq!(
+        error_info(&frame).message,
+        "The frame uses protocol version 2, but this engine speaks version 1. Reload the app."
+    );
+}
+
+#[test]
+fn unknown_command_answers_malformed_request_with_the_request_id() {
+    let request = request_frame(3, r#"{"type":"no_such_command"}"#);
+
+    let frame = response_frame(&call(&request));
+
+    assert_eq!(error_of(&frame), (3, &ErrorCode::MalformedRequest));
+}
+
+#[test]
+fn frame_holding_a_response_instead_of_a_request_answers_malformed_request() {
+    let request = frame_from_header(
+        r#"{"protocol_version":1,"messages":[{"kind":"response","id":5,"result":{"kind":"ok","type":"close_document"}}],"buffers":[]}"#,
+    );
+
+    let frame = response_frame(&call(&request));
+
+    assert_eq!(error_info(&frame).code, ErrorCode::MalformedRequest);
+}
+
+#[test]
+fn a_malformed_frame_leaves_the_session_working() {
+    let _rejected = call(b"hello");
+
+    let frame = response_frame(&call(&example_a()));
+
+    ok_result(&frame, "engine_info");
+}
+
+#[test]
+fn engine_info_echoes_the_largest_safe_request_id() {
+    let request = request_frame(MAX_SAFE_INTEGER, r#"{"type":"engine_info"}"#);
+
+    let frame = response_frame(&call(&request));
+
+    assert_eq!(frame.response.id, MAX_SAFE_INTEGER);
+}
+
+proptest! {
+    #[test]
+    fn any_bytes_get_one_response_frame_without_events_or_buffers(
+        bytes in proptest::collection::vec(any::<u8>(), 0..512),
+    ) {
+        let frame = response_frame(&call(&bytes));
+
+        prop_assert!(frame.events.is_empty() && frame.buffers.is_empty());
+    }
+
+    #[test]
+    fn example_a_with_any_byte_replaced_gets_one_response_frame_without_events(
+        index in 0usize..120,
+        value in any::<u8>(),
+    ) {
+        let mut request = example_a();
+        request[index] = value;
+
+        let frame = response_frame(&call(&request));
+
+        prop_assert!(frame.events.is_empty());
+    }
+
+    #[test]
+    fn engine_info_echoes_any_client_request_id(id in 1..=MAX_SAFE_INTEGER) {
+        let frame = response_frame(&call(&request_frame(id, r#"{"type":"engine_info"}"#)));
+
+        prop_assert_eq!(frame.response.id, id);
+    }
+}

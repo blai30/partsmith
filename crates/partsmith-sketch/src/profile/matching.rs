@@ -59,21 +59,23 @@ pub fn match_region(regions: &[Region], reference: &RegionRef) -> RegionMatch {
             offset(region) / stored_area.sqrt() + area_change / stored_area
         }
     };
-    let steps: [(MatchMethod, &dyn Fn(&Region) -> bool); 3] = [
-        (MatchMethod::Key, &|region| region.key == reference.key),
-        (MatchMethod::OuterBoundary, &|region| {
-            region.key.outer() == reference.key.outer()
-        }),
-        (MatchMethod::Fingerprint, &|region| {
+    let matches = |method: MatchMethod, region: &Region| match method {
+        MatchMethod::Key => region.key == reference.key,
+        MatchMethod::OuterBoundary => region.key.outer() == reference.key.outer(),
+        MatchMethod::Fingerprint => {
             (region.area - stored_area).abs() <= FINGERPRINT_TOLERANCE * stored_area
                 && offset(region) <= FINGERPRINT_TOLERANCE * stored_area.sqrt()
-        }),
-    ];
-    for (method, matches) in steps {
+        }
+    };
+    for method in [
+        MatchMethod::Key,
+        MatchMethod::OuterBoundary,
+        MatchMethod::Fingerprint,
+    ] {
         let candidates: Vec<(usize, f64)> = regions
             .iter()
             .enumerate()
-            .filter(|(_, region)| matches(region))
+            .filter(|(_, region)| matches(method, region))
             .map(|(index, region)| (index, score(region)))
             .collect();
         match candidates.as_slice() {

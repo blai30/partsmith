@@ -3,11 +3,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::profile::{PrinterProfile, Technology};
-
-/// Nozzle diameter of the generic FDM profile, used for an FDM profile without one (which
-/// validation rejects).
-const GENERIC_NOZZLE_DIAMETER: f64 = 0.4;
+use crate::profile::{GENERIC_FDM_NOZZLE_DIAMETER, PrinterProfile, Technology};
 
 /// Limits the checks compare against, derived from a profile (section 3.6).
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
@@ -30,10 +26,16 @@ pub struct CheckThresholds {
 impl CheckThresholds {
     /// FDM limits follow the nozzle (technical design section 11); resin limits are fixed
     /// (needs human review, print spec section 8).
+    ///
+    /// The spec leaves the thresholds of an invalid profile open. So that this never fails, an
+    /// FDM profile without a nozzle diameter (which validation rejects, and which `analyze`
+    /// never checks with) gets the nozzle of `generic_fdm()`.
     pub(crate) fn for_profile(profile: &PrinterProfile) -> CheckThresholds {
         match profile.technology {
             Technology::Fdm => {
-                let nozzle_diameter = profile.nozzle_diameter.unwrap_or(GENERIC_NOZZLE_DIAMETER);
+                let nozzle_diameter = profile
+                    .nozzle_diameter
+                    .unwrap_or(GENERIC_FDM_NOZZLE_DIAMETER);
                 CheckThresholds {
                     max_overhang_angle: profile.max_overhang_angle,
                     min_wall: 2.0 * nozzle_diameter,

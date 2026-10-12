@@ -1,17 +1,40 @@
 import { describe, expect, it } from 'vitest'
 import { fuzzyScore, rankPaletteItems, type PaletteItem } from './fuzzy'
+import type { CommandCategory } from './registry'
 
 type ItemOptions = {
-  readonly kind?: PaletteItem['kind']
+  readonly kind?: 'command' | 'setting'
   readonly keywords?: readonly string[]
+  readonly category?: CommandCategory
 }
 
+/** A command palette item; the kind defaults to command and the category to Edit. */
 function item(id: string, title: string, options: ItemOptions = {}): PaletteItem {
   return {
     id,
     kind: options.kind ?? 'command',
+    category: options.category ?? 'Edit',
     title,
     keywords: options.keywords ?? [],
+    detail: null,
+    shortcut: null,
+    disabledReason: null,
+    run: () => undefined,
+  }
+}
+
+/** A palette item for a document item or a recent file, which has no category. */
+function documentItem(
+  id: string,
+  title: string,
+  kind: 'feature' | 'body' | 'parameter' | 'recent',
+): PaletteItem {
+  return {
+    id,
+    kind,
+    category: null,
+    title,
+    keywords: [],
     detail: null,
     shortcut: null,
     disabledReason: null,
@@ -117,6 +140,17 @@ describe('rankPaletteItems', () => {
     ])
   })
 
+  it('scores each text on its own, though the texts share the scoring rows', () => {
+    // Extra text 20.9, Latex sheet 6.89, Context 10.93: rows left over from an earlier text would
+    // lift Latex sheet above Context.
+    const items = [item('a', 'Extra text'), item('b', 'Latex sheet'), item('c', 'Context')]
+    expect(titles(rankPaletteItems('ext', items, []))).toEqual([
+      'Extra text',
+      'Context',
+      'Latex sheet',
+    ])
+  })
+
   it('ranks by score before recency', () => {
     expect(titles(rankPaletteItems('ext', [text, exportThreeMf, extrude], ['text']))).toEqual([
       'Extrude',
@@ -127,9 +161,9 @@ describe('rankPaletteItems', () => {
 
   describe('equal scores', () => {
     const bodies = [
-      item('body:b-2', 'Body 2', { kind: 'body' }),
-      item('body:b-3', 'Body 3', { kind: 'body' }),
-      item('body:b-1', 'Body 1', { kind: 'body' }),
+      documentItem('body:b-2', 'Body 2', 'body'),
+      documentItem('body:b-3', 'Body 3', 'body'),
+      documentItem('body:b-1', 'Body 1', 'body'),
     ]
 
     it('U-27 order by title when none is recent', () => {
@@ -155,18 +189,18 @@ describe('rankPaletteItems', () => {
 
   describe('empty query', () => {
     const items = [
-      item('recent:bracket', 'Open recent: bracket', { kind: 'recent' }),
-      item('parameter:p-size', 'size = 20 mm', { kind: 'parameter' }),
-      item('body:b-peg', 'Peg', { kind: 'body' }),
-      item('settings.theme.dark', 'Theme: Dark', { kind: 'setting' }),
-      item('feature:f-ext1', 'Extrude 1', { kind: 'feature' }),
-      item('view.standard.top', 'View: Top'),
-      item('body:b-cube', 'Cube', { kind: 'body' }),
-      item('edit.undo', 'Undo'),
-      item('file.open', 'Open'),
+      documentItem('recent:bracket', 'Open recent: bracket', 'recent'),
+      documentItem('parameter:p-size', 'size = 20 mm', 'parameter'),
+      documentItem('body:b-peg', 'Peg', 'body'),
+      item('settings.theme.dark', 'Theme: Dark', { kind: 'setting', category: 'Settings' }),
+      documentItem('feature:f-ext1', 'Extrude 1', 'feature'),
+      item('view.standard.top', 'View: Top', { category: 'View' }),
+      documentItem('body:b-cube', 'Cube', 'body'),
+      item('edit.undo', 'Undo', { category: 'Edit' }),
+      item('file.open', 'Open', { category: 'File' }),
     ]
 
-    it('U-27 lists commands, settings, features, bodies, parameters and recent files, each in title order', () => {
+    it('U-27 lists commands by category, then features, bodies, parameters and recent files, each in title order', () => {
       expect(titles(rankPaletteItems('', items, []))).toEqual([
         'Open',
         'Undo',
@@ -177,6 +211,50 @@ describe('rankPaletteItems', () => {
         'Peg',
         'size = 20 mm',
         'Open recent: bracket',
+      ])
+    })
+
+    it('U-27 orders commands by category, not by title', () => {
+      const commands = [
+        item('view.fit', 'Fit to view', { category: 'View' }),
+        item('file.open', 'Open', { category: 'File' }),
+        item('edit.undo', 'Undo', { category: 'Edit' }),
+      ]
+      expect(titles(rankPaletteItems('', commands, []))).toEqual(['Open', 'Undo', 'Fit to view'])
+    })
+
+    it('U-27 follows the category order of 2.10 from File to Settings', () => {
+      const categories: readonly CommandCategory[] = [
+        'Settings',
+        'Print',
+        'Constrain',
+        'Sketch',
+        'Construct',
+        'Pattern',
+        'Modify',
+        'Create',
+        'View',
+        'Edit',
+        'File',
+      ]
+      // Titles run against the category order, so only the categories can put File first.
+      const commands = categories.map((category, index) =>
+        item(`command.${String(index)}`, `${String.fromCodePoint(65 + index)} ${category}`, {
+          category,
+        }),
+      )
+      expect(titles(rankPaletteItems('', commands, []))).toEqual([
+        'K File',
+        'J Edit',
+        'I View',
+        'H Create',
+        'G Modify',
+        'F Pattern',
+        'E Construct',
+        'D Sketch',
+        'C Constrain',
+        'B Print',
+        'A Settings',
       ])
     })
 
@@ -220,9 +298,11 @@ describe('rankPaletteItems', () => {
 
   describe('limit', () => {
     const many = Array.from({ length: 60 }, (_, index) =>
-      item(`parameter:p${String(index)}`, `p${String(index)} = ${String(index)} mm`, {
-        kind: 'parameter',
-      }),
+      documentItem(
+        `parameter:p${String(index)}`,
+        `p${String(index)} = ${String(index)} mm`,
+        'parameter',
+      ),
     )
 
     it('U-27 never returns more than 50 items for a query', () => {

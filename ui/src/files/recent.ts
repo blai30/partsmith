@@ -122,11 +122,11 @@ export function createIndexedDbRecentFiles(
   factory: IDBFactory,
   now: () => number = Date.now,
 ): RecentFilesStore {
-  const connect = createConnection(factory)
+  const connection = createConnection(factory)
   const queue = createQueue()
 
   async function readAll(): Promise<readonly RecentFile[]> {
-    const records = await withStore(connect, RECENT_STORE, 'readonly', (store) =>
+    const records = await withStore(connection, RECENT_STORE, 'readonly', (store) =>
       requestResult(store.getAll()),
     )
     return records
@@ -149,7 +149,7 @@ export function createIndexedDbRecentFiles(
       queue(async () => {
         try {
           const plan = await planRemember(await readAll(), file, now)
-          await withStore(connect, RECENT_STORE, 'readwrite', async (store) => {
+          await withStore(connection, RECENT_STORE, 'readwrite', async (store) => {
             const requests = plan.removedIds.map((id) => requestResult(store.delete(id)))
             requests.push(requestResult(store.put(plan.added)).then(() => undefined))
             await Promise.all(requests)
@@ -161,7 +161,7 @@ export function createIndexedDbRecentFiles(
     forget: (id) =>
       queue(async () => {
         try {
-          await withStore(connect, RECENT_STORE, 'readwrite', (store) =>
+          await withStore(connection, RECENT_STORE, 'readwrite', (store) =>
             requestResult(store.delete(id)),
           )
         } catch (error) {

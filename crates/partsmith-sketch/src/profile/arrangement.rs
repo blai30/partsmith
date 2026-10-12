@@ -388,20 +388,28 @@ fn line_line(
 
 /// The stretch two collinear lines share, along `first`, when it is longer than the tolerance.
 fn line_overlap(first: &Shape, second: &Shape) -> Option<[[f64; 2]; 2]> {
-    let (Shape::Line { start, end }, Shape::Line {
-        start: other_start,
-        end: other_end,
-    }) = (*first, *second)
+    let (
+        Shape::Line { start, end },
+        Shape::Line {
+            start: other_start,
+            end: other_end,
+        },
+    ) = (*first, *second)
     else {
         return None;
     };
     let length = norm(subtract(end, start));
     let direction = unit(subtract(end, start));
-    let mut projected = [other_start, other_end].map(|point| (dot(subtract(point, start), direction), point));
+    let mut projected =
+        [other_start, other_end].map(|point| (dot(subtract(point, start), direction), point));
     projected.sort_by(|a, b| a.0.total_cmp(&b.0));
     let [low, high] = projected;
     let from = if low.0 <= 0.0 { (0.0, start) } else { low };
-    let to = if high.0 >= length { (length, end) } else { high };
+    let to = if high.0 >= length {
+        (length, end)
+    } else {
+        high
+    };
     (to.0 - from.0 > PROFILE_TOLERANCE).then_some([from.1, to.1])
 }
 
@@ -450,10 +458,11 @@ fn circle_circle(
         };
         return vec![add(first_center, scale(direction, toward))];
     }
-    let along = (distance * distance + first_radius * first_radius
-        - second_radius * second_radius)
+    let along = (distance * distance + first_radius * first_radius - second_radius * second_radius)
         / (2.0 * distance);
-    let height = (first_radius * first_radius - along * along).max(0.0).sqrt();
+    let height = (first_radius * first_radius - along * along)
+        .max(0.0)
+        .sqrt();
     let base = add(first_center, scale(direction, along));
     let normal = [-direction[1], direction[0]];
     vec![
@@ -699,9 +708,9 @@ impl Graph {
         let mut kept: Vec<Ring> = Vec::new();
         for ring in &self.rings {
             let circle = curves[ring.curve].shape.circle();
-            let duplicate = kept.iter_mut().find(|other| {
-                same_circle(curves[other.curve].shape.circle(), circle)
-            });
+            let duplicate = kept
+                .iter_mut()
+                .find(|other| same_circle(curves[other.curve].shape.circle(), circle));
             match duplicate {
                 Some(other) if curves[ring.curve].entity < curves[other.curve].entity => {
                     *other = *ring;
@@ -739,7 +748,11 @@ impl Graph {
 
     /// Removes the pieces that lie on no cycle (step 6).
     fn remove_bridges(&mut self, vertex_count: usize) {
-        let ends: Vec<(usize, usize)> = self.pieces.iter().map(|piece| (piece.from, piece.to)).collect();
+        let ends: Vec<(usize, usize)> = self
+            .pieces
+            .iter()
+            .map(|piece| (piece.from, piece.to))
+            .collect();
         let bridges = bridges(vertex_count, &ends);
         let mut index = 0;
         self.pieces.retain(|_| {
@@ -753,7 +766,11 @@ impl Graph {
         let half_edges = 2 * self.pieces.len();
         let origin = |half_edge: usize| {
             let piece = &self.pieces[half_edge / 2];
-            if half_edge % 2 == 0 { piece.from } else { piece.to }
+            if half_edge.is_multiple_of(2) {
+                piece.from
+            } else {
+                piece.to
+            }
         };
         // Outgoing half-edges of every vertex in counterclockwise order of their tangents.
         let mut rotation: Vec<Vec<usize>> = vec![Vec::new(); vertices.len()];
@@ -841,7 +858,12 @@ impl Graph {
     }
 
     /// The tangent direction and signed curvature of a half-edge where it leaves its origin.
-    fn departure(&self, half_edge: usize, curves: &[Curve<'_>], vertices: &[[f64; 2]]) -> ([f64; 2], f64) {
+    fn departure(
+        &self,
+        half_edge: usize,
+        curves: &[Curve<'_>],
+        vertices: &[[f64; 2]],
+    ) -> ([f64; 2], f64) {
         let piece = &self.pieces[half_edge / 2];
         let backward = half_edge % 2 == 1;
         let (from, to) = if backward {
@@ -863,7 +885,12 @@ impl Graph {
     }
 
     /// The profile edge of a half-edge, in traversal direction.
-    fn profile_edge(&self, half_edge: usize, curves: &[Curve<'_>], vertices: &[[f64; 2]]) -> ProfileEdge {
+    fn profile_edge(
+        &self,
+        half_edge: usize,
+        curves: &[Curve<'_>],
+        vertices: &[[f64; 2]],
+    ) -> ProfileEdge {
         let piece = &self.pieces[half_edge / 2];
         let backward = half_edge % 2 == 1;
         let (start, end) = if backward {
@@ -890,7 +917,12 @@ impl Graph {
 }
 
 /// True when two pieces with the same end vertices cover the same stretch.
-fn same_stretch(first: &Piece, second: &Piece, curves: &[Curve<'_>], vertices: &[[f64; 2]]) -> bool {
+fn same_stretch(
+    first: &Piece,
+    second: &Piece,
+    curves: &[Curve<'_>],
+    vertices: &[[f64; 2]],
+) -> bool {
     match (first.sweep, second.sweep) {
         (None, None) => true,
         (Some(first_sweep), Some(second_sweep)) => {
@@ -928,8 +960,7 @@ fn counterclockwise_order(mut keys: Vec<(f64, f64, usize)>) -> Vec<usize> {
     let mut ordered = Vec::with_capacity(keys.len());
     let mut group_start = 0;
     for index in 1..=keys.len() {
-        let ends_group =
-            index == keys.len() || keys[index].0 - keys[index - 1].0 > TANGENT_TIE;
+        let ends_group = index == keys.len() || keys[index].0 - keys[index - 1].0 > TANGENT_TIE;
         if ends_group {
             let group = &mut keys[group_start..index];
             group.sort_by(|a, b| a.1.total_cmp(&b.1).then(a.2.cmp(&b.2)));
@@ -1006,7 +1037,12 @@ struct TracedLoop {
 }
 
 impl TracedLoop {
-    fn new(edges: Vec<ProfileEdge>, starts: Vec<Option<usize>>, component: usize, point: [f64; 2]) -> TracedLoop {
+    fn new(
+        edges: Vec<ProfileEdge>,
+        starts: Vec<Option<usize>>,
+        component: usize,
+        point: [f64; 2],
+    ) -> TracedLoop {
         let profile_loop = ProfileLoop { edges };
         let area = profile_loop.signed_area();
         let bounds = curve_bounds(&profile_loop.edges);
@@ -1052,7 +1088,12 @@ impl TracedLoop {
 
 /// Bounds of a loop's curves (circles and arcs by their whole circle).
 fn curve_bounds(edges: &[ProfileEdge]) -> [f64; 4] {
-    let mut bounds = [f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY];
+    let mut bounds = [
+        f64::INFINITY,
+        f64::INFINITY,
+        f64::NEG_INFINITY,
+        f64::NEG_INFINITY,
+    ];
     let mut include = |low: [f64; 2], high: [f64; 2]| {
         bounds = [
             bounds[0].min(low[0]),
@@ -1067,7 +1108,8 @@ fn curve_bounds(edges: &[ProfileEdge]) -> [f64; 4] {
                 include(start, start);
                 include(end, end);
             }
-            ProfileCurve::Arc { center, radius, .. } | ProfileCurve::Circle { center, radius, .. } => {
+            ProfileCurve::Arc { center, radius, .. }
+            | ProfileCurve::Circle { center, radius, .. } => {
                 include(
                     [center[0] - radius, center[1] - radius],
                     [center[0] + radius, center[1] + radius],
@@ -1152,10 +1194,17 @@ fn canonical_entries(mut entries: Vec<KeyEdge>) -> Vec<KeyEdge> {
 fn region(outer: TracedLoop, holes: Vec<TracedLoop>) -> Option<Region> {
     let origin = outer.point;
     let mut totals = [0.0; 3];
-    let edges = outer.edges.iter().chain(holes.iter().flat_map(|hole| &hole.edges));
+    let edges = outer
+        .edges
+        .iter()
+        .chain(holes.iter().flat_map(|hole| &hole.edges));
     for edge in edges {
         let part = moments(&edge.curve, origin);
-        totals = [totals[0] + part[0], totals[1] + part[1], totals[2] + part[2]];
+        totals = [
+            totals[0] + part[0],
+            totals[1] + part[1],
+            totals[2] + part[2],
+        ];
     }
     let area = totals[0];
     if area <= MIN_REGION_AREA {
@@ -1249,7 +1298,8 @@ mod tests {
 
     #[test]
     fn tied_tangents_order_by_curvature() {
-        let order = counterclockwise_order(vec![(1.0, 0.5, 0), (1.0 + 1e-12, -0.5, 1), (0.5, 0.0, 2)]);
+        let order =
+            counterclockwise_order(vec![(1.0, 0.5, 0), (1.0 + 1e-12, -0.5, 1), (0.5, 0.0, 2)]);
 
         assert_eq!(order, [2, 1, 0]);
     }

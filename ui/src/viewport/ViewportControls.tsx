@@ -82,7 +82,7 @@ function ControlButton({
 }
 
 /**
- * The viewport controls (3.14): Fit to view, Orthographic, Section view and the Selection filter, a vertical stack under the view cube. Turning the section on opens the section popover anchored to its control. Like the view cube, the stack is not in the tab order: the viewport is one tab stop (3.24), and every control is also a command with a shortcut or a palette entry.
+ * The viewport controls (3.14): Fit to view, Orthographic, Section view and the Selection filter, a vertical stack under the view cube. Turning the section on opens the section popover anchored to its control. The stack is not in the tab order, since the viewport is one tab stop (3.24): every control is also a command with a shortcut (`view.fit`, `view.projection`, `view.section`) or a palette entry (`view.filter.*`).
  */
 export function ViewportControls({
   orthographic,
@@ -125,10 +125,10 @@ export function ViewportControls({
           },
         }))
 
-  // The outer box, as wide as the view cube, centers the stack under it. The menu and the popover stay outside it, since they would inherit its pointer-events-none.
+  // The outer box, as wide as the view cube, centers the stack under it. It starts at 9.5rem, below the farthest reach of the turning cube: the 6rem cube is centered 4rem from the top, and its corners reach 3√3 ≈ 5.2rem from its center. The menu and the popover stay outside it, since they would inherit its pointer-events-none.
   return (
     <>
-      <div className="pointer-events-none absolute top-30 right-4 flex w-24 justify-center">
+      <div className="pointer-events-none absolute top-38 right-4 flex w-24 justify-center">
         <fieldset
           aria-label="View controls"
           data-testid="viewport-controls"

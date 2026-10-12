@@ -99,7 +99,9 @@ impl Layout {
                     let start = entity
                         .point(PointRole::Start)
                         .expect("an arc has a start point");
-                    let end = entity.point(PointRole::End).expect("an arc has an end point");
+                    let end = entity
+                        .point(PointRole::End)
+                        .expect("an arc has an end point");
                     values.extend(center);
                     values.extend(start);
                     values.extend(end);
@@ -206,7 +208,12 @@ mod tests {
     #[test]
     fn offsets_follow_parameter_counts() {
         let layout = Layout::new(&[
-            entity("e-1", Geometry::Point { position: [0.0, 0.0] }),
+            entity(
+                "e-1",
+                Geometry::Point {
+                    position: [0.0, 0.0],
+                },
+            ),
             entity(
                 "e-2",
                 Geometry::Arc {

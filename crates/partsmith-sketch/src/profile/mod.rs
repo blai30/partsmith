@@ -1,7 +1,7 @@
 //! Profiles: closed regions and check findings of a sketch's solved curves (spec sections 2.7 and 3.13 to 3.14).
 
-mod arrangement;
 mod area;
+mod arrangement;
 mod key;
 mod matching;
 

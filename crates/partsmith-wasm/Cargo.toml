@@ -9,7 +9,24 @@ repository.workspace = true
 authors.workspace = true
 publish = false
 
+# The web core module. Emscripten embeds the .wasm file name in the .js loader, so the binary
+# carries the published name `partsmith_core` (protocol.md section 2.10, scripts/build-wasm.sh).
+[[bin]]
+name = "partsmith_core"
+path = "src/main.rs"
+
 [dependencies]
 
-[lints]
-workspace = true
+[dev-dependencies]
+partsmith-protocol.workspace = true
+proptest.workspace = true
+serde_json.workspace = true
+
+# The workspace table with `unsafe_code` denied instead of forbidden, so exactly the three
+# C ABI exports can allow it (ADR 0010).
+[lints.rust]
+unsafe_code = "deny"
+missing_docs = "warn"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }

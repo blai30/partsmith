@@ -615,7 +615,11 @@ pub enum AnalysisError {
     InvalidAxis,
     InvalidProfile(ProfileError),
     OverlayIndexCount { indices: usize, triangles: usize },
+    /// More overlay vertices than a mesh may hold, or more than can be allocated.
+    OverlayVertexCount { vertex_count: usize },
     OverlayIndexOutOfRange { index: u32, vertex_count: usize },
+    /// A used vertex lies more than 1e100 mm from the origin.
+    CoordinatesTooLarge,
 }
 ```
 
@@ -703,7 +707,7 @@ Every other name, including `printer`, `printer.fit` and `printer.fit.SLIP`, res
 `analyze(mesh, profile, options)`:
 
 1. `profile.validate()` failing returns `InvalidProfile`. A mesh with no triangles returns `EmptyMesh`.
-2. The requested checks are de-duplicated and put in canonical order (`CheckKind::ALL`). An empty list is allowed and yields a report with no checks and health `ok`.
+2. The requested checks are de-duplicated and put in canonical order (`CheckKind::ALL`). An empty list is allowed and yields a report with no checks and health `ok`, without preparing the body. When at least one check is requested and a coordinate of a used vertex has magnitude above `1e100` mm, the result is `CoordinatesTooLarge` (needs human review, section 8); this keeps every rotated position, area and volume finite.
 3. **Weld.** `W = mesh.weld(WELD_TOLERANCE)`. Every check works on `W`, so display meshes with per-face vertices are analyzed as closed solids. Welded triangle `j` stands for input triangle `W.triangle_map[j]`; input triangles that welding dropped are "collapsed" and only the mesh validity check reports them.
 4. **Print frame.** With `R` the rotation, each welded vertex's print position is `R · p - (0, 0, z_min)`, where `z_min` is the smallest z of `R · p` over vertices used by `W`'s triangles. The bed is the plane `z = 0`, and the part rests on it. Horizontal placement does not affect any check: bed fit compares extents only. The engine computes the displayed bed placement itself (engine spec, print analysis).
 5. **Model frame.** Locations, split planes and drain hole points are reported in model coordinates. A welded vertex's model position is its input position. A print-frame point `q` maps to `Rᵀ · (q + (0, 0, z_min))` and a print-frame direction `d` to `Rᵀ · d`.
@@ -902,6 +906,8 @@ For `OutOfRange`, `{label}` is `Bed width`, `Bed depth`, `Bed diameter`, `Build 
 | `InvalidAxis` | `A rotation needs a nonzero, finite axis and a finite angle.` |
 | `InvalidProfile(error)` | the profile error's message |
 | `OverlayIndexCount { indices, triangles }` | `The index buffer has {indices} entries, but the overlay needs 3 per triangle for {triangles} triangles.` |
+| `OverlayVertexCount { vertex_count }` | `The overlay was asked for {vertex_count} vertices, more than it can hold.` |
+| `CoordinatesTooLarge` | `The body reaches more than 1e100 mm from the origin, which is too large to check. Scale it down or move it near the origin.` |
 | `OverlayIndexOutOfRange { index, vertex_count }` | `The index buffer uses vertex {index}, but there are only {vertex_count} vertices.` |
 
 Printability problems are findings, never errors: `analyze` fails only for the reasons above. No function panics on any input.
@@ -1110,6 +1116,7 @@ Tests in this section call `run_only(mesh, profile, ["bed_fit"])` unless they st
 6. **Profiles live only by id in documents.** A shared document whose printer is a custom profile falls back to `generic-fdm` with the engine's `unknown_printer_profile` warning, silently changing `printer.fit.*` values. Embedding the profile (or its fit values) in the document would need a file-format decision.
 7. **Messages use millimeters** regardless of the document's display units; findings carry `value` and `limit` so a host can reformat them.
 8. **Triangle indices in findings** refer to the analyzed mesh, which must be the mesh the engine ships for display (same triangle order) for highlights and overlays to line up. They are transient display data tied to a `mesh_id`, not stored references (CLAUDE.md invariant).
+9. **Thin walls budget not met.** Measured on the shared 4-core development machine: about 90 ms to build the bounding volume hierarchy for 200,000 triangles plus about 2.3 µs per ray, so `thin_walls` takes about 450 to 600 ms against its 120 ms budget, and all checks about 700 ms against 250 ms. Both mesh numbers are within mesh.md's own budgets (400 ms per million triangles, 3 µs per ray), so the two specs disagree. Options: a faster ray traversal in partsmith-mesh (a packet or SIMD traversal, or fewer rays per triangle), or a revised budget. Analysis runs on a background thread and never blocks modeling (technical design section 11), so the gap delays the health badge, not editing.
 
 ## 8. Needs human review
 
@@ -1122,3 +1129,5 @@ The technical design does not give these values. They are the M1 defaults and st
 - The tall-and-thin slenderness limit 10 (section 3.6).
 - `BED_CONTACT_TOLERANCE` 0.01 mm, `MIN_REPORTED_AREA` 1 mm² and `MAX_FINDINGS_PER_CHECK` 50 (section 2.1).
 - The profile value ranges of section 3.1.
+- Analysis bounds that keep every input finite and bounded: `CoordinatesTooLarge` above 1e100 mm (section 3.7); no split suggestion when an axis (or, for the footprint, either axis) needs more than 1000 pieces (section 3.9.2); at most 200,000 slice heights for small features (section 3.9.7).
+- The `thin_walls` budget of section 5 (see open issue 9).

@@ -140,18 +140,17 @@ impl<'mesh> BoundingVolumeHierarchy<'mesh> {
     /// Builds the hierarchy. Degenerate triangles are included but triangles without area are
     /// never hit. An empty mesh gives a hierarchy with no hits.
     pub fn new(mesh: &'mesh Mesh) -> BoundingVolumeHierarchy<'mesh> {
-        let mut scale = 0.0_f64;
+        // The box around every triangle corner holds the largest coordinate magnitude.
+        let scale = mesh.bounding_box().map_or(0.0, |corners| {
+            largest_magnitude(corners.min).max(largest_magnitude(corners.max))
+        });
         let mut bounds = Bounds::EMPTY;
         let mut items: Vec<BuildItem> = mesh
             .triangles()
             .iter()
             .enumerate()
             .map(|(triangle, &corners)| {
-                let points = mesh.corner_points(corners);
-                for point in points {
-                    scale = scale.max(largest_magnitude(point));
-                }
-                let item = BuildItem::new(to_u32(triangle), points);
+                let item = BuildItem::new(to_u32(triangle), mesh.corner_points(corners));
                 bounds.grow(item.min, item.max);
                 item
             })
@@ -569,8 +568,21 @@ struct BuildItem {
 impl BuildItem {
     /// The item for a triangle with these corners.
     fn new(triangle: u32, [first, second, third]: [Point3; 3]) -> BuildItem {
-        let min = [0, 1, 2].map(|axis| round_down(first[axis].min(second[axis]).min(third[axis])));
-        let max = [0, 1, 2].map(|axis| round_up(first[axis].max(second[axis]).max(third[axis])));
+        // Plain comparisons cost less than `f64::min` and `max`, whose NaN handling mesh
+        // positions never need.
+        let (mut lowest, mut highest) = (first, first);
+        for corner in [second, third] {
+            for axis in 0..3 {
+                if corner[axis] < lowest[axis] {
+                    lowest[axis] = corner[axis];
+                }
+                if corner[axis] > highest[axis] {
+                    highest[axis] = corner[axis];
+                }
+            }
+        }
+        let min = lowest.map(round_down);
+        let max = highest.map(round_up);
         BuildItem {
             min,
             max,
@@ -1129,6 +1141,33 @@ mod tests {
         let mesh = floor_grid(3, -7.0);
 
         assert_eq!(BoundingVolumeHierarchy::new(&mesh).scale, 7.0);
+    }
+
+    #[test]
+    fn scale_ignores_vertices_no_triangle_uses() {
+        // The largest magnitude is -9 along y; the unreferenced vertex 3 is farther away.
+        let mesh = Mesh::from_triangles(
+            vec![
+                [1.0, 2.0, 3.0],
+                [4.0, -9.0, 0.0],
+                [0.0, 0.0, 5.0],
+                [1000.0, 0.0, 0.0],
+            ],
+            vec![[0, 1, 2]],
+        )
+        .expect("valid mesh");
+
+        assert_eq!(BoundingVolumeHierarchy::new(&mesh).scale, 9.0);
+    }
+
+    #[test]
+    fn item_box_takes_each_extreme_from_whichever_corner_has_it() {
+        let item = BuildItem::new(3, [[0.5, 2.0, -1.0], [-1.5, 0.25, 4.0], [2.5, -3.0, 0.0]]);
+
+        assert_eq!(item.min, [-1.5, -3.0, -1.0]);
+        assert_eq!(item.max, [2.5, 2.0, 4.0]);
+        assert_eq!(item.center, [0.5, -0.5, 1.5]);
+        assert_eq!(item.triangle, 3);
     }
 
     #[test]

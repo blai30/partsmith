@@ -48,9 +48,9 @@ pub(crate) fn diagnose(sketch: &SketchParams, system: &System, x: &[f64]) -> Dia
                     .sum();
                 if (residual - explained).abs() > CONFLICT_TOLERANCE {
                     mark(row.owner, &mut conflicting);
-                    let largest = coefficients
-                        .iter()
-                        .fold(0.0_f64, |largest, coefficient| largest.max(coefficient.abs()));
+                    let largest = coefficients.iter().fold(0.0_f64, |largest, coefficient| {
+                        largest.max(coefficient.abs())
+                    });
                     for (coefficient, (_, owner)) in coefficients.iter().zip(&accepted_residuals) {
                         if coefficient.abs() > INVOLVED_TOLERANCE * largest {
                             mark(*owner, &mut conflicting);

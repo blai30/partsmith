@@ -61,11 +61,11 @@ function warn(error: unknown): void {
 
 /** The recovery copy in the IndexedDB object store `recovery`; every failure is logged and ignored. */
 export function createIndexedDbRecovery(factory: IDBFactory): RecoveryStore {
-  const connect = createConnection(factory)
+  const connection = createConnection(factory)
   return {
     read: async () => {
       try {
-        const record = await withStore(connect, RECOVERY_STORE, 'readonly', (store) =>
+        const record = await withStore(connection, RECOVERY_STORE, 'readonly', (store) =>
           requestResult<unknown>(store.get(SLOT)),
         )
         return entryFrom(record)
@@ -76,7 +76,7 @@ export function createIndexedDbRecovery(factory: IDBFactory): RecoveryStore {
     },
     write: async (entry) => {
       try {
-        await withStore(connect, RECOVERY_STORE, 'readwrite', (store) =>
+        await withStore(connection, RECOVERY_STORE, 'readwrite', (store) =>
           requestResult(store.put({ ...entry, slot: SLOT })),
         )
       } catch (error) {
@@ -85,7 +85,7 @@ export function createIndexedDbRecovery(factory: IDBFactory): RecoveryStore {
     },
     clear: async () => {
       try {
-        await withStore(connect, RECOVERY_STORE, 'readwrite', (store) =>
+        await withStore(connection, RECOVERY_STORE, 'readwrite', (store) =>
           requestResult(store.delete(SLOT)),
         )
       } catch (error) {

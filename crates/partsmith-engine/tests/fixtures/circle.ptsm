@@ -1,0 +1,35 @@
+{
+  "format": "partsmith",
+  "format_version": 1,
+  "units": "mm",
+  "parameters": [],
+  "bodies": [
+    {"id": "b-1", "name": "Disc"}
+  ],
+  "features": [
+    {
+      "id": "f-sk1",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XY"},
+      "entities": [
+        {"id": "e-1", "type": "circle", "center": [0, 0], "radius": 5}
+      ],
+      "constraints": [
+        {"id": "c-1", "type": "radius", "curve": "e-1", "expr": "5 mm"}
+      ]
+    },
+    {
+      "id": "f-ext1",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk1",
+        "regions": [
+          {"key": "e-1", "fp": "c=0,0|a=78.539816"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "10 mm"},
+      "op": "new"
+    }
+  ]
+}

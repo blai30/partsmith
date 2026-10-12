@@ -288,10 +288,9 @@ impl ConstraintKind {
             ConstraintKind::Tangent { curves }
             | ConstraintKind::Concentric { curves }
             | ConstraintKind::Equal { curves } => curves.iter().collect(),
-            ConstraintKind::Symmetric {
-                points: pair,
-                line,
-            } => vec![&pair[0].entity, &pair[1].entity, line],
+            ConstraintKind::Symmetric { points: pair, line } => {
+                vec![&pair[0].entity, &pair[1].entity, line]
+            }
             ConstraintKind::Midpoint { point, line } => vec![&point.entity, line],
             ConstraintKind::Fix { target } => vec![&target.entity],
             ConstraintKind::Distance { target, .. } => match target {
@@ -370,7 +369,10 @@ impl Serialize for SketchConstraint {
     }
 }
 
-fn serialize_alignment<M: SerializeMap>(map: &mut M, alignment: &Alignment) -> Result<(), M::Error> {
+fn serialize_alignment<M: SerializeMap>(
+    map: &mut M,
+    alignment: &Alignment,
+) -> Result<(), M::Error> {
     match alignment {
         Alignment::Line { line } => map.serialize_entry("line", line),
         Alignment::Points { points } => map.serialize_entry("points", points),
@@ -557,9 +559,7 @@ impl TryFrom<ConstraintRecord> for SketchConstraint {
                 (id, ConstraintKind::Perpendicular { lines })
             }
             ConstraintRecord::Tangent { id, curves } => (id, ConstraintKind::Tangent { curves }),
-            ConstraintRecord::Collinear { id, lines } => {
-                (id, ConstraintKind::Collinear { lines })
-            }
+            ConstraintRecord::Collinear { id, lines } => (id, ConstraintKind::Collinear { lines }),
             ConstraintRecord::Concentric { id, curves } => {
                 (id, ConstraintKind::Concentric { curves })
             }
@@ -809,7 +809,8 @@ mod tests {
 
     #[test]
     fn schema_has_one_shape_per_form() {
-        let schema = schemars::SchemaGenerator::default().into_root_schema_for::<SketchConstraint>();
+        let schema =
+            schemars::SchemaGenerator::default().into_root_schema_for::<SketchConstraint>();
         let shapes = schema
             .get("oneOf")
             .and_then(|value| value.as_array())

@@ -145,6 +145,27 @@ describe('shaderSources', () => {
     expect(fragment).toContain('color = mix(color, u_highlight, 0.2);')
   })
 
+  it('interpolates the screen distances of line quads linearly on screen, not perspective-correctly', () => {
+    const { vertex, fragment } = shaderSources('lines', 'color')
+    expect(vertex).toContain('out vec3 v_screenDistances;')
+    expect(vertex).toContain('v_screenDistances = vec3(across, along, 1.0) * clip.w;')
+    expect(vertex).toContain(
+      'gl_Position = vec4((screen / u_viewportSize * 2.0 - 1.0) * clip.w, clip.z, clip.w);',
+    )
+    expect(fragment).toContain('vec2 screenDistances = v_screenDistances.xy / v_screenDistances.z;')
+    expect(fragment).toContain('abs(across)')
+    expect(fragment).toContain('mod(along, u_dashPeriod)')
+    expect(`${vertex}${fragment}`).not.toMatch(/\bv_(across|along)\b/)
+  })
+
+  it('mixes hovered lines toward the highlight by u_hoverHighlight and selected lines fully', () => {
+    const fragment = shaderSources('lines', 'color').fragment
+    expect(fragment).toContain('uniform float u_hoverHighlight;')
+    expect(fragment).toContain('color = mix(color, u_highlight, u_hoverHighlight);')
+    expect(fragment).toContain('color = u_highlight;')
+    expect(fragment).not.toContain('0.7')
+  })
+
   it('mixes the analysis ramp in sRGB and linearizes the result', () => {
     expect(shaderSources('triangles', 'color').fragment).toContain(
       'vec3 ramp = decodeSrgb(mix(u_analysisLow, u_analysisHigh, amount));',

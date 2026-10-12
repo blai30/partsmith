@@ -239,15 +239,25 @@ describe('viewCubeRotorMatrix', () => {
 
 describe('FACE_PLACEMENT_CLASSES', () => {
   it.each(CUBE_FACES)(
-    'the %s face reads frontal and upright from its standard view, 2rem toward the viewer',
+    'the %s face reads frontal and upright from its standard view, 3rem toward the viewer',
     (face) => {
       const rotor = rotorRotation(face)
       const { rotation, translation } = placement(FACE_PLACEMENT_CLASSES[face])
       const seen = multiply(rotor, rotation)
       expect(seen.flat()).toEqual(closeTo(IDENTITY.flat()))
-      expect(apply(rotor, translation)).toEqual(closeTo([0, 0, 2]))
+      expect(apply(rotor, translation)).toEqual(closeTo([0, 0, 3]))
     },
   )
+
+  it('moves faces out only along the 3D utilities 3.14 allows: translate-z-12 and translate-x or -y of the same 3rem', () => {
+    for (const face of CUBE_FACES) {
+      const translations = FACE_PLACEMENT_CLASSES[face]
+        .split(' ')
+        .filter((name) => name.includes('translate'))
+      expect(translations).toHaveLength(1)
+      expect(translations[0]).toMatch(/^-?translate-[xyz]-12$/)
+    }
+  })
 })
 
 describe('faceCells', () => {

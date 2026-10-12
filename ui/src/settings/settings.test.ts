@@ -105,12 +105,10 @@ describe('loadSettings', () => {
     expect(loadSettings(localStorage).uiScale).toBe(uiScale)
   })
 
-  it('keeps at most 20 recent palette ids', () => {
+  it('keeps the first 20 recent palette ids', () => {
     const ids = Array.from({ length: 25 }, (_, index) => `command.${String(index)}`)
     localStorage.setItem(KEY, JSON.stringify({ paletteRecent: ids }))
-    const loaded = loadSettings(localStorage).paletteRecent
-    expect(loaded.length).toBeLessThanOrEqual(20)
-    expect(ids.slice(0, loaded.length)).toEqual(loaded)
+    expect(loadSettings(localStorage).paletteRecent).toEqual(ids.slice(0, 20))
   })
 })
 

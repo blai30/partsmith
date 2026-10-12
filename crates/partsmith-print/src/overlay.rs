@@ -1,5 +1,6 @@
 //! Per-triangle color map values and their conversion to per-vertex values (spec section 3.8).
 
+use partsmith_mesh::MAX_ELEMENTS;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -56,6 +57,8 @@ impl Overlay {
     ///
     /// Each vertex gets the worst value (largest for `above`, smallest for `below`) among the
     /// triangles that use it and have a value, or `OVERLAY_NO_VALUE` when none has.
+    /// `vertex_count` is at most `partsmith_mesh::MAX_ELEMENTS`, like the vertex count of any
+    /// mesh.
     pub fn per_vertex(
         &self,
         indices: &[u32],
@@ -67,6 +70,9 @@ impl Overlay {
                 triangles: self.values.len(),
             });
         }
+        if vertex_count > MAX_ELEMENTS {
+            return Err(AnalysisError::OverlayVertexCount { vertex_count });
+        }
         if let Some(&index) = indices
             .iter()
             .find(|&&index| index as usize >= vertex_count)
@@ -76,20 +82,29 @@ impl Overlay {
                 vertex_count,
             });
         }
-        let mut vertex_values: Vec<Option<f32>> = vec![None; vertex_count];
+        // Reserving also fails where one allocation cannot hold that many values (32-bit
+        // targets), which `vec!` would turn into a panic.
+        let mut vertex_values = Vec::new();
+        if vertex_values.try_reserve_exact(vertex_count).is_err() {
+            return Err(AnalysisError::OverlayVertexCount { vertex_count });
+        }
+        // A slot still holding `OVERLAY_NO_VALUE` has no value yet, because triangles without
+        // a value are skipped.
+        vertex_values.resize(vertex_count, OVERLAY_NO_VALUE);
         for (corners, &value) in indices.chunks_exact(3).zip(&self.values) {
             if value == OVERLAY_NO_VALUE {
                 continue;
             }
             for &vertex in corners {
                 let slot = &mut vertex_values[vertex as usize];
-                *slot = Some(slot.map_or(value, |current| self.worst(current, value)));
+                *slot = if *slot == OVERLAY_NO_VALUE {
+                    value
+                } else {
+                    self.worst(*slot, value)
+                };
             }
         }
-        Ok(vertex_values
-            .into_iter()
-            .map(|value| value.unwrap_or(OVERLAY_NO_VALUE))
-            .collect())
+        Ok(vertex_values)
     }
 
     /// The worse of two values.
@@ -154,6 +169,61 @@ mod tests {
                 index: 7,
                 vertex_count: 3
             })
+        );
+    }
+
+    #[test]
+    fn more_vertices_than_a_mesh_can_have_are_rejected() {
+        let overlay = thickness(vec![1.0]);
+        assert_eq!(
+            overlay.per_vertex(&[0, 0, 0], usize::MAX),
+            Err(AnalysisError::OverlayVertexCount {
+                vertex_count: usize::MAX
+            })
+        );
+        assert_eq!(
+            overlay.per_vertex(&[0, 0, 0], MAX_ELEMENTS + 1),
+            Err(AnalysisError::OverlayVertexCount {
+                vertex_count: MAX_ELEMENTS + 1
+            })
+        );
+    }
+
+    #[test]
+    fn index_count_is_checked_before_vertex_count() {
+        let overlay = thickness(vec![1.0]);
+        assert_eq!(
+            overlay.per_vertex(&[0], usize::MAX),
+            Err(AnalysisError::OverlayIndexCount {
+                indices: 1,
+                triangles: 1
+            })
+        );
+    }
+
+    #[test]
+    fn above_takes_the_steepest_overhang() {
+        let overlay = Overlay {
+            info: OverlayInfo {
+                check: CheckKind::Overhangs,
+                quantity: OverlayQuantity::OverhangAngle,
+                limit: 0.8,
+                worse: Worse::Above,
+            },
+            values: vec![0.0, 1.2, 0.5],
+        };
+        assert_eq!(
+            overlay.per_vertex(&[0, 1, 2, 2, 1, 3, 3, 4, 0], 5),
+            Ok(vec![0.5, 1.2, 1.2, 1.2, 0.5])
+        );
+    }
+
+    #[test]
+    fn triangles_without_a_value_do_not_count() {
+        let overlay = thickness(vec![OVERLAY_NO_VALUE, 2.0, OVERLAY_NO_VALUE]);
+        assert_eq!(
+            overlay.per_vertex(&[0, 1, 2, 1, 2, 3, 3, 4, 0], 5),
+            Ok(vec![OVERLAY_NO_VALUE, 2.0, 2.0, 2.0, OVERLAY_NO_VALUE])
         );
     }
 

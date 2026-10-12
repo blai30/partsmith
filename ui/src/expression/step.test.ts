@@ -49,9 +49,23 @@ describe('stepExpression', () => {
     expect(stepExpression('1', 1, 'none', 'length', 'in')).toBe('1.1')
   })
 
+  it('steps a length by the step of the unit word typed, not the document unit', () => {
+    expect(stepExpression('10 mm', 1, 'none', 'length', 'in')).toBe('11 mm')
+    expect(stepExpression('2 cm', 1, 'none', 'length', 'mm')).toBe('2.1 cm')
+    expect(stepExpression('1m', -1, 'none', 'length', 'mm')).toBe('0.99m')
+    expect(stepExpression('1 in', 1, 'coarse', 'length', 'mm')).toBe('2 in')
+  })
+
   it('steps angles by 1 whatever the document unit', () => {
     expect(stepExpression('45', -1, 'none', 'angle', 'in')).toBe('44')
     expect(stepExpression('45deg', 1, 'coarse', 'angle', 'mm')).toBe('55deg')
+  })
+
+  it('steps an angle typed in radians by one degree, rounded to 10 decimals', () => {
+    // π / 180 is 0.0174532925 to 10 decimals.
+    expect(stepExpression('1.5 rad', 1, 'none', 'angle', 'mm')).toBe('1.5174532925 rad')
+    expect(stepExpression('1.5rad', -1, 'coarse', 'angle', 'mm')).toBe('1.3254670748rad')
+    expect(stepExpression('1.5 rad', 1, 'fine', 'angle', 'mm')).toBe('1.5017453293 rad')
   })
 
   it('steps scalars and counts by 1', () => {

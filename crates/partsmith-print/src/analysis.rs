@@ -13,6 +13,7 @@ use crate::overlay::Overlay;
 use crate::profile::PrinterProfile;
 use crate::report::{BodyReport, CheckKind, CheckResult, Health};
 use crate::rotation::Rotation;
+use crate::thresholds::CheckThresholds;
 
 /// What to check and how the body is oriented.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
@@ -48,8 +49,8 @@ pub struct Analysis {
 ///
 /// The mesh is welded, rotated and lowered onto the bed; every check works on that welded mesh,
 /// while findings and overlays refer to the triangles of `mesh` and report locations in model
-/// coordinates. Fails only for an invalid profile, an empty mesh, or a mesh whose coordinates
-/// exceed `1e100` mm.
+/// coordinates. Fails only for an invalid profile, an empty mesh, or, when any check is
+/// requested, a mesh whose coordinates exceed `1e100` mm.
 pub fn analyze(
     mesh: &Mesh,
     profile: &PrinterProfile,
@@ -59,37 +60,19 @@ pub fn analyze(
     if mesh.is_empty() {
         return Err(AnalysisError::EmptyMesh);
     }
-    let body = Body::prepare(mesh, options.rotation)?;
-    let thresholds = profile.thresholds();
+    let requested: Vec<CheckKind> = CheckKind::ALL
+        .into_iter()
+        .filter(|check| options.checks.contains(check))
+        .collect();
     let mut checks = Vec::new();
     let mut overlays = Vec::new();
-    let requested = CheckKind::ALL
-        .into_iter()
-        .filter(|check| options.checks.contains(check));
-    for check in requested {
-        let result = match check {
-            CheckKind::MeshValidity => validity::check(&body),
-            CheckKind::Overhangs => {
-                let (result, overlay) = overhangs::run(&body, &thresholds);
-                overlays.push(overlay);
-                result
-            }
-            CheckKind::ThinWalls => {
-                let (result, overlay) = thin_walls::run(&body, &thresholds);
-                overlays.push(overlay);
-                result
-            }
-            // When every triangle collapsed, only mesh validity has something to report.
-            _ if body.triangle_count() == 0 => CheckResult::new(check, Vec::new(), 0),
-            CheckKind::BedFit => bed_fit::check(&body, &profile.bed),
-            CheckKind::FirstLayerContact => contact::check(&body, &thresholds),
-            CheckKind::Islands => islands::check(&body),
-            CheckKind::SmallFeatures => {
-                small_features::check(&body, profile.layer_height, &thresholds)
-            }
-            CheckKind::TrappedVolumes => trapped_volumes::check(&body, profile.technology),
-        };
-        checks.push(result);
+    // An empty request needs no body, so the mesh is not prepared (section 3.7 step 2).
+    if !requested.is_empty() {
+        let body = Body::prepare(mesh, options.rotation)?;
+        let thresholds = profile.thresholds();
+        for check in requested {
+            checks.push(run_check(check, &body, profile, &thresholds, &mut overlays));
+        }
     }
     let report = BodyReport {
         profile: profile.id.clone(),
@@ -98,6 +81,36 @@ pub fn analyze(
         checks,
     };
     Ok(Analysis { report, overlays })
+}
+
+/// Runs one check on a prepared body, adding its overlay, if it has one, to `overlays`.
+fn run_check(
+    check: CheckKind,
+    body: &Body,
+    profile: &PrinterProfile,
+    thresholds: &CheckThresholds,
+    overlays: &mut Vec<Overlay>,
+) -> CheckResult {
+    match check {
+        CheckKind::MeshValidity => validity::check(body),
+        CheckKind::Overhangs => {
+            let (result, overlay) = overhangs::run(body, thresholds);
+            overlays.push(overlay);
+            result
+        }
+        CheckKind::ThinWalls => {
+            let (result, overlay) = thin_walls::run(body, thresholds);
+            overlays.push(overlay);
+            result
+        }
+        // When every triangle collapsed, only mesh validity has something to report.
+        _ if body.triangle_count() == 0 => CheckResult::new(check, Vec::new(), 0),
+        CheckKind::BedFit => bed_fit::check(body, &profile.bed),
+        CheckKind::FirstLayerContact => contact::check(body, thresholds),
+        CheckKind::Islands => islands::check(body),
+        CheckKind::SmallFeatures => small_features::check(body, profile.layer_height, thresholds),
+        CheckKind::TrappedVolumes => trapped_volumes::check(body, profile.technology),
+    }
 }
 
 #[cfg(test)]
@@ -158,5 +171,47 @@ mod tests {
         };
         let analysis = analyze(&collapsed_mesh(), &generic_fdm(), &options).expect("runs");
         assert_eq!(analysis.report.rotation, rotation);
+    }
+
+    /// A triangle reaching `1e101` mm along x, beyond the coordinates the checks handle.
+    fn huge_mesh() -> Mesh {
+        let positions: Vec<Point3> = vec![[0.0, 0.0, 0.0], [1e101, 0.0, 0.0], [0.0, 1.0, 0.0]];
+        Mesh::from_triangles(positions, vec![[0, 1, 2]]).expect("valid mesh")
+    }
+
+    #[test]
+    fn empty_request_gives_an_ok_report_whatever_the_coordinates() {
+        let options = AnalysisOptions {
+            rotation: Rotation::identity(),
+            checks: Vec::new(),
+        };
+        let analysis = analyze(&huge_mesh(), &generic_fdm(), &options).expect("runs");
+        assert_eq!(analysis.report.health, Health::Ok);
+        assert!(analysis.report.checks.is_empty());
+        assert!(analysis.overlays.is_empty());
+    }
+
+    #[test]
+    fn requested_checks_reject_huge_coordinates() {
+        let options = AnalysisOptions {
+            rotation: Rotation::identity(),
+            checks: vec![CheckKind::MeshValidity],
+        };
+        assert_eq!(
+            analyze(&huge_mesh(), &generic_fdm(), &options),
+            Err(AnalysisError::CoordinatesTooLarge)
+        );
+    }
+
+    #[test]
+    fn empty_request_still_checks_the_profile_and_the_mesh() {
+        let options = AnalysisOptions {
+            rotation: Rotation::identity(),
+            checks: Vec::new(),
+        };
+        assert_eq!(
+            analyze(&Mesh::empty(), &generic_fdm(), &options),
+            Err(AnalysisError::EmptyMesh)
+        );
     }
 }

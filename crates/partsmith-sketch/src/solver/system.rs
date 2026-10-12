@@ -219,7 +219,8 @@ impl Builder<'_> {
                 .get(&constraint.id)
                 .expect("values of driving dimensions are checked before rows are built")
         };
-        let single = |terms: Vec<(f64, Term)>, constant: f64| vec![Row::new(owner, terms, constant)];
+        let single =
+            |terms: Vec<(f64, Term)>, constant: f64| vec![Row::new(owner, terms, constant)];
         let rows = match &constraint.kind {
             ConstraintKind::Coincident { points } => {
                 let (first, second) = (self.point(&points[0]), self.point(&points[1]));
@@ -406,11 +407,21 @@ impl Builder<'_> {
             }
             ConstraintKind::HorizontalDistance { target, dimension } if dimension.driving => {
                 let (first, second) = self.alignment(target);
-                vec![linear_row(owner, &[(1.0, second), (-1.0, first)], 0, -value())]
+                vec![linear_row(
+                    owner,
+                    &[(1.0, second), (-1.0, first)],
+                    0,
+                    -value(),
+                )]
             }
             ConstraintKind::VerticalDistance { target, dimension } if dimension.driving => {
                 let (first, second) = self.alignment(target);
-                vec![linear_row(owner, &[(1.0, second), (-1.0, first)], 1, -value())]
+                vec![linear_row(
+                    owner,
+                    &[(1.0, second), (-1.0, first)],
+                    1,
+                    -value(),
+                )]
             }
             ConstraintKind::Radius { curve, dimension } if dimension.driving => {
                 single(vec![(1.0, self.curve(curve).radius)], -value())
@@ -526,7 +537,11 @@ impl Builder<'_> {
         if external {
             vec![(1.0, centers), (-1.0, first.radius), (-1.0, second.radius)]
         } else {
-            let tau = if first_radius >= second_radius { 1.0 } else { -1.0 };
+            let tau = if first_radius >= second_radius {
+                1.0
+            } else {
+                -1.0
+            };
             vec![(1.0, centers), (-tau, first.radius), (tau, second.radius)]
         }
     }
@@ -596,7 +611,9 @@ impl Builder<'_> {
             Some(first) => first..first + 2,
             None => self.layout.parameters(index),
         };
-        parameters.map(|parameter| (parameter, self.x[parameter])).collect()
+        parameters
+            .map(|parameter| (parameter, self.x[parameter]))
+            .collect()
     }
 
     /// The rows of a `fix` on `target` with the fix values in `freeze`.
@@ -606,8 +623,9 @@ impl Builder<'_> {
                 .map(|axis| linear_row(owner, &[(1.0, PointTerm::Constant([0.0, 0.0]))], axis, 0.0))
                 .to_vec();
         }
-        let difference =
-            |&(parameter, value): &(usize, f64)| Row::new(owner, vec![(1.0, Term::Coordinate(parameter))], -value);
+        let difference = |&(parameter, value): &(usize, f64)| {
+            Row::new(owner, vec![(1.0, Term::Coordinate(parameter))], -value)
+        };
         let (_, geometry) = self.entity(&target.entity);
         let whole_arc = target.role == PointRole::Point && matches!(geometry, Geometry::Arc { .. });
         if !whole_arc {

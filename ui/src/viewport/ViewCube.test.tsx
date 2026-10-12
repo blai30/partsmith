@@ -12,6 +12,11 @@ afterEach(() => {
   cleanup()
 })
 
+// The primary button pressed: `button` names the button that changed, `buttons` every button held.
+const PRIMARY_BUTTONS = { button: 0, buttons: 1 } as const
+// The mouse, whose pointer id is always 1, with the primary button held.
+const PRIMARY = { pointerId: 1, ...PRIMARY_BUTTONS } as const
+
 function setUp() {
   const onChooseView = vi.fn<(rotation: Quaternion) => void>()
   const onHome = vi.fn<() => void>()
@@ -28,6 +33,22 @@ describe('ViewCube', () => {
     const { cube } = setUp()
     expect(screen.getByRole('group', { name: 'View cube' })).toBe(cube)
     expect(cube).toHaveClass('absolute', 'top-4', 'right-4', 'size-24')
+  })
+
+  it('fills its size-24 box with each face, so corners and edge bands are at least size-6 (3.24)', () => {
+    const { rotorRef } = setUp()
+    const faces = [...(rotorRef.current?.children ?? [])]
+    expect(faces).toHaveLength(6)
+    for (const face of faces) {
+      // Eighths of 6rem: corners 2 × 2 (1.5rem square), edge bands 2 deep.
+      expect(face).toHaveClass('absolute', 'inset-0', 'grid-cols-8', 'grid-rows-8')
+    }
+    const corner = screen.getByRole('button', { name: 'Front right top corner view' })
+    expect(corner).toHaveClass('col-span-2', 'row-span-2')
+    expect(screen.getByRole('button', { name: 'Front top edge view' })).toHaveClass(
+      'col-span-4',
+      'row-span-2',
+    )
   })
 
   it('has a button for each of its 6 faces, 12 edges and 8 corners, and the Home view button', () => {
@@ -91,11 +112,11 @@ describe('ViewCube', () => {
   it('a drag of more than 3 pixels orbits by the pointer motion and chooses no view', () => {
     const { onChooseView, onOrbit } = setUp()
     const face = screen.getByRole('button', { name: 'Front view' })
-    fireEvent.pointerDown(face, { pointerId: 1, button: 0, clientX: 100, clientY: 100 })
-    fireEvent.pointerMove(face, { pointerId: 1, clientX: 102, clientY: 101 })
+    fireEvent.pointerDown(face, { ...PRIMARY, clientX: 100, clientY: 100 })
+    fireEvent.pointerMove(face, { ...PRIMARY, clientX: 102, clientY: 101 })
     expect(onOrbit).not.toHaveBeenCalled()
-    fireEvent.pointerMove(face, { pointerId: 1, clientX: 110, clientY: 104 })
-    fireEvent.pointerMove(face, { pointerId: 1, clientX: 115, clientY: 100 })
+    fireEvent.pointerMove(face, { ...PRIMARY, clientX: 110, clientY: 104 })
+    fireEvent.pointerMove(face, { ...PRIMARY, clientX: 115, clientY: 100 })
     fireEvent.pointerUp(face, { pointerId: 1, button: 0, clientX: 115, clientY: 100 })
     fireEvent.click(face)
     expect(onOrbit.mock.calls).toEqual([
@@ -108,8 +129,8 @@ describe('ViewCube', () => {
   it('a press that moves 3 pixels or less is a click', () => {
     const { onChooseView, onOrbit } = setUp()
     const face = screen.getByRole('button', { name: 'Right view' })
-    fireEvent.pointerDown(face, { pointerId: 1, button: 0, clientX: 100, clientY: 100 })
-    fireEvent.pointerMove(face, { pointerId: 1, clientX: 102, clientY: 102 })
+    fireEvent.pointerDown(face, { ...PRIMARY, clientX: 100, clientY: 100 })
+    fireEvent.pointerMove(face, { ...PRIMARY, clientX: 102, clientY: 102 })
     fireEvent.pointerUp(face, { pointerId: 1, button: 0, clientX: 102, clientY: 102 })
     fireEvent.click(face)
     expect(onOrbit).not.toHaveBeenCalled()
@@ -119,11 +140,56 @@ describe('ViewCube', () => {
   it('ignores presses of other buttons and other pointers', () => {
     const { onOrbit } = setUp()
     const face = screen.getByRole('button', { name: 'Front view' })
-    fireEvent.pointerDown(face, { pointerId: 1, button: 1, clientX: 100, clientY: 100 })
-    fireEvent.pointerMove(face, { pointerId: 1, clientX: 140, clientY: 100 })
-    fireEvent.pointerDown(face, { pointerId: 2, button: 0, clientX: 100, clientY: 100 })
-    fireEvent.pointerMove(face, { pointerId: 3, clientX: 140, clientY: 100 })
+    fireEvent.pointerDown(face, { pointerId: 1, button: 1, buttons: 4, clientX: 100, clientY: 100 })
+    fireEvent.pointerMove(face, { pointerId: 1, buttons: 4, clientX: 140, clientY: 100 })
+    fireEvent.pointerDown(face, { pointerId: 2, ...PRIMARY_BUTTONS, clientX: 100, clientY: 100 })
+    fireEvent.pointerMove(face, { pointerId: 3, ...PRIMARY_BUTTONS, clientX: 140, clientY: 100 })
     expect(onOrbit).not.toHaveBeenCalled()
+  })
+
+  it('a press released outside the cube does not orbit when the pointer later hovers it', () => {
+    const { onOrbit } = setUp()
+    const face = screen.getByRole('button', { name: 'Front view' })
+    fireEvent.pointerDown(face, { ...PRIMARY, clientX: 100, clientY: 100 })
+    // The button goes up elsewhere, unseen; the mouse comes back with no button pressed.
+    fireEvent.pointerMove(face, { pointerId: 1, buttons: 0, clientX: 120, clientY: 100 })
+    fireEvent.pointerMove(face, { pointerId: 1, buttons: 0, clientX: 130, clientY: 100 })
+    expect(onOrbit).not.toHaveBeenCalled()
+  })
+
+  it('a later press drags again after a press whose release the cube missed', () => {
+    const { onOrbit } = setUp()
+    const face = screen.getByRole('button', { name: 'Front view' })
+    fireEvent.pointerDown(face, { ...PRIMARY, clientX: 100, clientY: 100 })
+    fireEvent.pointerMove(face, { pointerId: 1, buttons: 0, clientX: 120, clientY: 100 })
+    fireEvent.pointerDown(face, { ...PRIMARY, clientX: 50, clientY: 50 })
+    fireEvent.pointerMove(face, { ...PRIMARY, clientX: 60, clientY: 50 })
+    expect(onOrbit.mock.calls).toEqual([[10, 0]])
+  })
+
+  it('a press that leaves the cube before it drags ends there', () => {
+    const { onOrbit, cube } = setUp()
+    const face = screen.getByRole('button', { name: 'Front view' })
+    fireEvent.pointerDown(face, { ...PRIMARY, clientX: 100, clientY: 100 })
+    fireEvent.pointerLeave(cube, { pointerId: 1 })
+    // Pressed again elsewhere and dragged back over the cube: not a drag that started on it.
+    fireEvent.pointerMove(face, { ...PRIMARY, clientX: 140, clientY: 100 })
+    expect(onOrbit).not.toHaveBeenCalled()
+    fireEvent.pointerDown(face, { ...PRIMARY, clientX: 140, clientY: 100 })
+    fireEvent.pointerMove(face, { ...PRIMARY, clientX: 150, clientY: 100 })
+    expect(onOrbit.mock.calls).toEqual([[10, 0]])
+  })
+
+  it('a drag ends when it loses its pointer capture', () => {
+    const { onOrbit, onChooseView, cube } = setUp()
+    const face = screen.getByRole('button', { name: 'Front view' })
+    fireEvent.pointerDown(face, { ...PRIMARY, clientX: 100, clientY: 100 })
+    fireEvent.pointerMove(face, { ...PRIMARY, clientX: 110, clientY: 100 })
+    fireEvent.lostPointerCapture(cube, { pointerId: 1 })
+    fireEvent.pointerMove(face, { ...PRIMARY, clientX: 130, clientY: 100 })
+    fireEvent.click(face)
+    expect(onOrbit.mock.calls).toEqual([[10, 0]])
+    expect(onChooseView).not.toHaveBeenCalled()
   })
 
   it('highlights every copy of the hovered part with the hover role', () => {

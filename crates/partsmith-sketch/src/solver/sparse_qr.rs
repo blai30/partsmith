@@ -11,7 +11,6 @@
 //! With the accepted columns as `A`, the factorization is `A = Q [R; 0]` with `Q` the product of the
 //! reflectors and `R` upper triangular in acceptance order.
 
-use std::cmp::Reverse;
 use std::collections::BinaryHeap;
 
 /// One Householder reflector `I - beta v v^T` and the column of `R` it was made from.
@@ -57,14 +56,12 @@ impl Workspace {
         }
     }
 
-    fn add(&mut self, row: usize, value: f64) -> bool {
-        let new = !self.touched[row];
-        if new {
+    fn add(&mut self, row: usize, value: f64) {
+        if !self.touched[row] {
             self.touched[row] = true;
             self.support.push(row);
         }
         self.values[row] += value;
-        new
     }
 
     /// Returns the touched (row, value) pairs in ascending row order and clears the workspace.
@@ -93,6 +90,17 @@ pub(crate) struct SparseQr {
     /// For each row, the reflector it is the pivot of.
     pivot_of: Vec<Option<usize>>,
     workspace: Workspace,
+    /// For each reflector, whether it waits in the queue of `apply`; all false between calls.
+    queued: Vec<bool>,
+}
+
+/// The order in which `SparseQr::apply` applies reflectors.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Order {
+    /// First to last: `Q^T x`.
+    Ascending,
+    /// Last to first: `Q x`.
+    Descending,
 }
 
 impl SparseQr {
@@ -103,6 +111,7 @@ impl SparseQr {
             touching: vec![Vec::new(); dimension],
             pivot_of: vec![None; dimension],
             workspace: Workspace::new(dimension),
+            queued: Vec::new(),
         }
     }
 
@@ -118,11 +127,17 @@ impl SparseQr {
     /// so the norm is taken as at least 1: a column shorter than `tolerance` is zero up to rounding
     /// (an exactly zero column always is dependent).
     pub(crate) fn add(&mut self, column: &[(usize, f64)], tolerance: f64) -> Added {
+        COLUMNS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         for &(row, value) in column {
             self.workspace.add(row, value);
         }
-        let original_norm = norm(self.workspace.support.iter().map(|&row| self.workspace.values[row]));
-        self.apply_ascending();
+        let original_norm = norm(
+            self.workspace
+                .support
+                .iter()
+                .map(|&row| self.workspace.values[row]),
+        );
+        self.apply(Order::Ascending);
         let mut projection = Vec::new();
         let mut residual = Vec::new();
         for (row, value) in self.workspace.take() {
@@ -153,6 +168,9 @@ impl SparseQr {
             self.touching[row].push(index);
         }
         self.pivot_of[pivot] = Some(index);
+        REFLECTORS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        REFLECTOR_SIZE.fetch_add(rows.len(), std::sync::atomic::Ordering::Relaxed);
+        self.queued.push(false);
         self.reflectors.push(Reflector {
             pivot,
             rows,
@@ -164,55 +182,41 @@ impl SparseQr {
         Added::Accepted
     }
 
-    /// Applies, in ascending order, every reflector whose rows overlap the workspace (`Q^T x`).
-    fn apply_ascending(&mut self) {
+    /// Applies to the workspace, in ascending order (`Q^T x`) or descending order (`Q x`), every reflector
+    /// whose rows overlap it. A reflector that fills in new rows queues the reflectors after it in that
+    /// order which touch them; each reflector is queued at most once.
+    fn apply(&mut self, order: Order) {
+        let last = self.reflectors.len().saturating_sub(1);
+        // The heap pops its largest key first, so ascending order keys each reflector by its distance from the last one.
+        let key = |reflector: usize| match order {
+            Order::Ascending => last - reflector,
+            Order::Descending => reflector,
+        };
         let mut queue = BinaryHeap::new();
         for &row in &self.workspace.support {
-            if let Some(&first) = self.touching[row].first() {
-                queue.push(Reverse((first, row, 0)));
-            }
-        }
-        let mut last = None;
-        while let Some(Reverse((reflector, row, position))) = queue.pop() {
-            if let Some(&next) = self.touching[row].get(position + 1) {
-                queue.push(Reverse((next, row, position + 1)));
-            }
-            if last == Some(reflector) {
-                continue;
-            }
-            last = Some(reflector);
-            for new_row in reflect(&self.reflectors[reflector], &mut self.workspace) {
-                let list = &self.touching[new_row];
-                let position = list.partition_point(|&other| other <= reflector);
-                if let Some(&next) = list.get(position) {
-                    queue.push(Reverse((next, new_row, position)));
+            for &reflector in &self.touching[row] {
+                if !self.queued[reflector] {
+                    self.queued[reflector] = true;
+                    queue.push(key(reflector));
                 }
             }
         }
-    }
-
-    /// Applies, in descending order, every reflector whose rows overlap the workspace (`Q x`).
-    fn apply_descending(&mut self) {
-        let mut queue = BinaryHeap::new();
-        for &row in &self.workspace.support {
-            if let Some(position) = self.touching[row].len().checked_sub(1) {
-                queue.push((self.touching[row][position], row, position));
-            }
-        }
-        let mut last = None;
-        while let Some((reflector, row, position)) = queue.pop() {
-            if let Some(previous) = position.checked_sub(1) {
-                queue.push((self.touching[row][previous], row, previous));
-            }
-            if last == Some(reflector) {
-                continue;
-            }
-            last = Some(reflector);
-            for new_row in reflect(&self.reflectors[reflector], &mut self.workspace) {
-                let list = &self.touching[new_row];
-                let position = list.partition_point(|&other| other < reflector);
-                if let Some(previous) = position.checked_sub(1) {
-                    queue.push((list[previous], new_row, previous));
+        while let Some(top) = queue.pop() {
+            let reflector = key(top);
+            self.queued[reflector] = false;
+            let touched_before = self.workspace.support.len();
+            reflect(&self.reflectors[reflector], &mut self.workspace);
+            for &row in &self.workspace.support[touched_before..] {
+                let list = &self.touching[row];
+                let following = match order {
+                    Order::Ascending => &list[list.partition_point(|&other| other <= reflector)..],
+                    Order::Descending => &list[..list.partition_point(|&other| other < reflector)],
+                };
+                for &next in following {
+                    if !self.queued[next] {
+                        self.queued[next] = true;
+                        queue.push(key(next));
+                    }
                 }
             }
         }
@@ -283,7 +287,7 @@ impl SparseQr {
             }
             // Q e_row is a unit vector orthogonal to every accepted column; together they span the complement.
             self.workspace.add(row, 1.0);
-            self.apply_descending();
+            self.apply(Order::Descending);
             for (other, value) in self.workspace.take() {
                 squared[other] += value * value;
             }
@@ -292,8 +296,16 @@ impl SparseQr {
     }
 }
 
-/// Applies one reflector to the workspace and returns the rows it newly touched.
-fn reflect(reflector: &Reflector, workspace: &mut Workspace) -> Vec<usize> {
+/// Applies one reflector to the workspace; rows it touches for the first time are appended to its support.
+pub static CALLS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+pub static ZERO: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+pub static SIZE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+pub static COLUMNS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+pub static REFLECTOR_SIZE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+pub static REFLECTORS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+fn reflect(reflector: &Reflector, workspace: &mut Workspace) {
+    CALLS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    SIZE.fetch_add(reflector.rows.len(), std::sync::atomic::Ordering::Relaxed);
     let product: f64 = reflector
         .rows
         .iter()
@@ -301,16 +313,13 @@ fn reflect(reflector: &Reflector, workspace: &mut Workspace) -> Vec<usize> {
         .map(|(&row, &value)| value * workspace.values[row])
         .sum();
     if product == 0.0 {
-        return Vec::new();
+        ZERO.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        return;
     }
     let factor = reflector.beta * product;
-    let mut new_rows = Vec::new();
     for (&row, &value) in reflector.rows.iter().zip(&reflector.vector) {
-        if workspace.add(row, -factor * value) {
-            new_rows.push(row);
-        }
+        workspace.add(row, -factor * value);
     }
-    new_rows
 }
 
 /// Applies one reflector to a dense vector.
@@ -388,7 +397,10 @@ mod tests {
     fn column_that_is_zero_up_to_rounding_is_dependent() {
         let mut qr = SparseQr::new(2);
 
-        assert!(matches!(qr.add(&[(1, 1e-30)], 1e-8), Added::Dependent { .. }));
+        assert!(matches!(
+            qr.add(&[(1, 1e-30)], 1e-8),
+            Added::Dependent { .. }
+        ));
     }
 
     #[test]

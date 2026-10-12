@@ -98,7 +98,10 @@ impl EntityKind {
         matches!(
             (self, role),
             (EntityKind::Point, PointRole::Point)
-                | (EntityKind::Line | EntityKind::Arc, PointRole::Start | PointRole::End)
+                | (
+                    EntityKind::Line | EntityKind::Arc,
+                    PointRole::Start | PointRole::End
+                )
                 | (EntityKind::Circle | EntityKind::Arc, PointRole::Center)
         )
     }
@@ -391,7 +394,15 @@ mod tests {
 
     #[test]
     fn sweep_wraps_into_one_turn() {
-        assert!((arc(3.0 * FRAC_PI_2, FRAC_PI_2).geometry.arc_sweep().expect("arc") - PI).abs() < 1e-12);
+        assert!(
+            (arc(3.0 * FRAC_PI_2, FRAC_PI_2)
+                .geometry
+                .arc_sweep()
+                .expect("arc")
+                - PI)
+                .abs()
+                < 1e-12
+        );
         assert_eq!(arc(0.0, TAU).geometry.arc_sweep(), Some(0.0));
     }
 

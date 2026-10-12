@@ -82,9 +82,16 @@ fn main() {
     for toolkit in TOOLKITS {
         println!("cargo:rustc-link-lib=static={toolkit}");
     }
-    if target.contains("linux") {
-        println!("cargo:rustc-link-lib=dylib=pthread");
-        println!("cargo:rustc-link-lib=dylib=dl");
+    // macOS and Emscripten need nothing beyond the C++ standard library, which cxx-build links.
+    let system_libraries: &[&str] = if target.contains("linux") {
+        &["pthread", "dl"]
+    } else if target.contains("windows") {
+        &["advapi32", "gdi32", "user32", "wsock32", "psapi"]
+    } else {
+        &[]
+    };
+    for library in system_libraries {
+        println!("cargo:rustc-link-lib=dylib={library}");
     }
 
     println!("cargo:rerun-if-changed=src/ffi.rs");

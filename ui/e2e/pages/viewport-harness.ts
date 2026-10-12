@@ -160,7 +160,11 @@ export function cameraFor(view: StandardView, overrides: Partial<Camera> = {}): 
 }
 
 /** A plain copy of a pick sample for the trip back to the test. */
-export type Sample = { readonly pickId: number; readonly distance: number; readonly depth: number | null }
+export type Sample = {
+  readonly pickId: number
+  readonly distance: number
+  readonly depth: number | null
+}
 
 export type Harness = {
   readonly backend: RenderBackend

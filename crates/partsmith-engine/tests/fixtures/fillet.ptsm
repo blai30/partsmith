@@ -1,0 +1,23 @@
+{
+  "format": "partsmith",
+  "format_version": 1,
+  "units": "mm",
+  "parameters": [
+    {"id": "p-h", "name": "height", "expr": "40 mm"}
+  ],
+  "bodies": [
+    {"id": "b-1", "name": "Block"}
+  ],
+  "features": [
+    {"id": "f-box1", "type": "box", "body": "b-1", "size": ["20 mm", "30 mm", "height"], "op": "new"},
+    {
+      "id": "f-fil1",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-box1/front|f-box1/left)", "fp": "line|n=0,0,1|c=-10,-15,20|l=40|adj=2,2"}
+      ],
+      "radius": "2 mm"
+    }
+  ]
+}

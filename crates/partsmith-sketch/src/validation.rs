@@ -4,6 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use partsmith_model::Id;
 
+use crate::ORIGIN;
 use crate::constraint::{Alignment, ConstraintKind, DistanceTarget, SketchConstraint};
 use crate::entity::EntityKind;
 use crate::error::SketchError;
@@ -11,7 +12,6 @@ use crate::params::{DimensionValues, SketchParams};
 use crate::plane::SketchPlane;
 use crate::point_ref::{PointRef, PointRole};
 use crate::reserved::{is_axis, is_reserved};
-use crate::ORIGIN;
 
 /// Checks ids, the plane, geometry and references, returning the first problem in the order of section 3.4.
 pub(crate) fn validate(sketch: &SketchParams) -> Result<(), SketchError> {
@@ -20,7 +20,12 @@ pub(crate) fn validate(sketch: &SketchParams) -> Result<(), SketchError> {
         fallback.validate()?;
     }
     for entity in &sketch.entities {
-        if !entity.geometry.numbers().iter().all(|value| value.is_finite()) {
+        if !entity
+            .geometry
+            .numbers()
+            .iter()
+            .all(|value| value.is_finite())
+        {
             return Err(SketchError::NonFiniteGeometry {
                 entity: entity.id.clone(),
             });
@@ -61,10 +66,12 @@ pub(crate) fn check_values(
         }
         let type_name = constraint.type_name();
         let id = || constraint.id.clone();
-        let value = *values.get(&constraint.id).ok_or_else(|| SketchError::MissingValue {
-            constraint: id(),
-            type_name,
-        })?;
+        let value = *values
+            .get(&constraint.id)
+            .ok_or_else(|| SketchError::MissingValue {
+                constraint: id(),
+                type_name,
+            })?;
         if !value.is_finite() {
             return Err(SketchError::NonFiniteValue {
                 constraint: id(),
@@ -197,7 +204,9 @@ impl Checker<'_> {
             | ConstraintKind::VerticalDistance {
                 target: alignment, ..
             } => match alignment {
-                Alignment::Line { line } => self.curve(line, Accepts::Line { axis: false }).map(drop),
+                Alignment::Line { line } => {
+                    self.curve(line, Accepts::Line { axis: false }).map(drop)
+                }
                 Alignment::Points { points } => {
                     self.points(points)?;
                     self.distinct_points(points)

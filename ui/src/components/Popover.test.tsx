@@ -123,6 +123,29 @@ describe('Popover', () => {
     expect(dialog).toHaveClass('border', 'rounded-md', 'shadow-lg')
   })
 
+  it('puts layout classes on a wrapper of the content, never on the popover element', () => {
+    // A display class on the popover element would override the browser's display: none while
+    // it is closed.
+    const anchor = { current: null }
+    render(
+      <Popover
+        label="Section"
+        open={false}
+        anchor={anchor}
+        onOpenChange={() => undefined}
+        className="flex flex-col gap-3"
+      >
+        <p>Content</p>
+      </Popover>,
+    )
+    const element = popoverElement()
+    expect(element).not.toHaveClass('flex')
+    expect(element).not.toHaveClass('flex-col')
+    const wrapper = element.firstElementChild
+    expect(wrapper).toHaveClass('flex', 'flex-col', 'gap-3')
+    expect(wrapper).toContainElement(screen.getByText('Content'))
+  })
+
   it('is positioned at runtime next to its anchor', async () => {
     render(<Harness />)
     await userEvent.click(screen.getByRole('button', { name: 'Section view' }))

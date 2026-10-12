@@ -1,5 +1,5 @@
 /**
- * What a pick target or selection item is (ui.md 2.8). The store's selection items use this kind; it lives here so picking does not depend on the store.
+ * What a pick target or selection item is (ui.md 2.8, which places it with the store's `SelectionItem`). There is one declaration: the store imports this one, or this module imports the store's.
  */
 export type SelectionItemKind =
   | 'face'

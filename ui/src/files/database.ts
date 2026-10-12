@@ -68,29 +68,66 @@ function openDatabase(factory: IDBFactory): Promise<IDBDatabase> {
   })
 }
 
-/**
- * A lazily opened connection shared by one store's operations. A failed open is forgotten so the
- * next operation tries again, and a version change from another tab closes the connection.
- */
-export function createConnection(factory: IDBFactory): () => Promise<IDBDatabase> {
+/** A lazily opened database connection shared by one store's operations. */
+export type Connection = {
+  /**
+   * A transaction on one object store. The database is opened on first use, and opened again
+   * after a failed open, after a version change from another tab and after the browser closed the
+   * connection (cleared site data, evicted storage).
+   */
+  transaction(storeName: StoreName, mode: IDBTransactionMode): Promise<IDBTransaction>
+}
+
+function isInvalidState(error: unknown): boolean {
+  return error instanceof DOMException && error.name === 'InvalidStateError'
+}
+
+export function createConnection(factory: IDBFactory): Connection {
   let opening: Promise<IDBDatabase> | null = null
-  return () => {
-    if (opening === null) {
-      const attempt = openDatabase(factory).then((database) => {
-        database.addEventListener('versionchange', () => {
-          database.close()
-          opening = null
-        })
-        return database
-      })
-      attempt.catch(() => {
-        if (opening === attempt) {
-          opening = null
-        }
-      })
-      opening = attempt
+
+  // Forgets a connection, unless a newer one has replaced it already.
+  function forget(attempt: Promise<IDBDatabase>): void {
+    if (opening === attempt) {
+      opening = null
     }
-    return opening
+  }
+
+  function connect(): Promise<IDBDatabase> {
+    if (opening !== null) {
+      return opening
+    }
+    const attempt: Promise<IDBDatabase> = openDatabase(factory).then((database) => {
+      database.addEventListener('versionchange', () => {
+        database.close()
+        forget(attempt)
+      })
+      database.addEventListener('close', () => {
+        forget(attempt)
+      })
+      return database
+    })
+    attempt.catch(() => {
+      forget(attempt)
+    })
+    opening = attempt
+    return attempt
+  }
+
+  return {
+    async transaction(storeName, mode) {
+      const attempt = connect()
+      const database = await attempt
+      try {
+        return database.transaction(storeName, mode)
+      } catch (error) {
+        if (!isInvalidState(error)) {
+          throw error
+        }
+        // The browser closed the connection without a close event: open a new one, once.
+        forget(attempt)
+        return (await connect()).transaction(storeName, mode)
+      }
+    },
   }
 }
 
@@ -99,13 +136,12 @@ export function createConnection(factory: IDBFactory): () => Promise<IDBDatabase
  * commits.
  */
 export async function withStore<Result>(
-  connect: () => Promise<IDBDatabase>,
+  connection: Connection,
   storeName: StoreName,
   mode: IDBTransactionMode,
   operation: (store: IDBObjectStore) => Promise<Result>,
 ): Promise<Result> {
-  const database = await connect()
-  const transaction = database.transaction(storeName, mode)
+  const transaction = await connection.transaction(storeName, mode)
   const done = transactionDone(transaction)
   const [result] = await Promise.all([operation(transaction.objectStore(storeName)), done])
   return result

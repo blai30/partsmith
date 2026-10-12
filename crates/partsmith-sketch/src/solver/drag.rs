@@ -1,7 +1,6 @@
 //! Drag solving with a weakly pinned target (spec section 3.9).
 
 use super::layout::Layout;
-use crate::vector::{norm, subtract};
 use super::system::System;
 use super::{
     DragSession, DragTarget, Outcome, SolveResult, measure, solve_checked, solve_component,
@@ -11,6 +10,7 @@ use crate::error::SketchError;
 use crate::params::{DimensionValues, SketchParams};
 use crate::reserved::is_reserved;
 use crate::validation::check_values;
+use crate::vector::{norm, subtract};
 
 /// Drag state of `NativeSolver`: the prepared system and the previous frame's geometry.
 pub struct NativeDragSession {

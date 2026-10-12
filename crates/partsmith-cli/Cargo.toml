@@ -15,5 +15,12 @@ path = "src/main.rs"
 
 [dependencies]
 
+[dev-dependencies]
+blake3.workspace = true
+partsmith-protocol.workspace = true
+pretty_assertions.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
+
 [lints]
 workspace = true

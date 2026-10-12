@@ -53,7 +53,9 @@ export type DrawCall = {
   readonly shading: 'matcap' | 'flat'
   readonly depthTest: boolean
   readonly clipped: boolean
-  /** First pick id of this draw, or null when not pickable. Element i has pick id pickBase + i. */
+  /**
+   * First pick id of this draw, or null when not pickable. Element i has pick id pickBase + i. Also null for kinds the selection filter or the active selection field does not accept (3.6): the ID pass draws edges and points wider than they look, and `choosePick` takes areas only at distance 0, so a rejected edge in the ID pass would hide the face next to it.
+   */
   readonly pickBase: number | null
   /** Pick footprint in CSS pixels for lines and points in the ID pass. */
   readonly pickSize: number

@@ -326,11 +326,11 @@ function hexFromTailwind(value: string): string {
   const lightness = Number(match[1]) / 100
   const chroma = Number(match[2])
   const hue = match[3] === 'none' ? 0 : (Number(match[3]) * Math.PI) / 180
-  const a = chroma * Math.cos(hue)
-  const b = chroma * Math.sin(hue)
-  const long = (lightness + 0.3963377773761749 * a + 0.2158037573099136 * b) ** 3
-  const medium = (lightness - 0.1055613458156586 * a - 0.0638541728258133 * b) ** 3
-  const short = (lightness - 0.0894841775298119 * a - 1.2914855480194092 * b) ** 3
+  const greenRed = chroma * Math.cos(hue)
+  const blueYellow = chroma * Math.sin(hue)
+  const long = (lightness + 0.3963377773761749 * greenRed + 0.2158037573099136 * blueYellow) ** 3
+  const medium = (lightness - 0.1055613458156586 * greenRed - 0.0638541728258133 * blueYellow) ** 3
+  const short = (lightness - 0.0894841775298119 * greenRed - 1.2914855480194092 * blueYellow) ** 3
   const x = 1.2268798758459243 * long - 0.5578149944602171 * medium + 0.2813910456659647 * short
   const y = -0.0405757452148008 * long + 1.112286803280317 * medium - 0.0717110580655164 * short
   const z = -0.0763729366746601 * long - 0.4214933324022432 * medium + 1.5869240198367816 * short

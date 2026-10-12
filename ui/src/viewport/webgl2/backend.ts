@@ -18,6 +18,7 @@ import {
   packElementColors,
   packElementStates,
 } from './layout'
+import { drawState, hoverHighlight } from './draw-state'
 import { collectPickSamples, pickBlock } from './readback'
 import { shaderSources, type Pass, type ProgramKind } from './shaders'
 
@@ -119,8 +120,10 @@ function staticBuffer(gl: WebGL2RenderingContext, data: Float32Array): WebGLBuff
   return buffer
 }
 
-function nearestTexture(gl: WebGL2RenderingContext): WebGLTexture {
+// Creating a texture binds it, so the caller names the texture unit whose binding it may replace.
+function nearestTexture(gl: WebGL2RenderingContext, unit: number): WebGLTexture {
   const texture = gl.createTexture()
+  gl.activeTexture(gl.TEXTURE0 + unit)
   gl.bindTexture(gl.TEXTURE_2D, texture)
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
@@ -229,7 +232,7 @@ export function createWebGl2Backend(canvas: HTMLCanvasElement): RenderBackend | 
       'points-color': linkProgram(gl, 'points', 'color'),
       'points-id': linkProgram(gl, 'points', 'id'),
     }
-    const noElementColors = nearestTexture(gl)
+    const noElementColors = nearestTexture(gl, COLOR_TEXTURE_UNIT)
     uploadColors(gl, noElementColors, new Float32Array(3), 1)
     gl.disable(gl.DITHER)
     gl.cullFace(gl.BACK)
@@ -387,7 +390,7 @@ export function createWebGl2Backend(canvas: HTMLCanvasElement): RenderBackend | 
       }
     }
     gl.bindVertexArray(null)
-    const states = nearestTexture(gl)
+    const states = nearestTexture(gl, STATE_TEXTURE_UNIT)
     uploadStates(gl, states, new Uint8Array(0), geometry.elementCount)
     return {
       kind: geometry.kind,
@@ -446,10 +449,18 @@ export function createWebGl2Backend(canvas: HTMLCanvasElement): RenderBackend | 
     if (cached !== undefined && cached.source === drawCall.elementColors) {
       return cached.texture
     }
-    const texture = cached?.texture ?? nearestTexture(gl)
+    const texture = cached?.texture ?? nearestTexture(gl, COLOR_TEXTURE_UNIT)
     uploadColors(gl, texture, drawCall.elementColors, elementCount)
     colorTextures.set(drawCall.id, { source: drawCall.elementColors, texture })
     return texture
+  }
+
+  function setCapability(capability: GLenum, enabled: boolean): void {
+    if (enabled) {
+      gl.enable(capability)
+    } else {
+      gl.disable(capability)
+    }
   }
 
   function setDrawState(
@@ -458,36 +469,17 @@ export function createWebGl2Backend(canvas: HTMLCanvasElement): RenderBackend | 
     frame: RenderFrame,
     pass: Pass,
   ): void {
-    const sectionCut = frame.section !== null && drawCall.clipped
-    if (drawCall.depthTest) {
-      gl.enable(gl.DEPTH_TEST)
-    } else {
-      gl.disable(gl.DEPTH_TEST)
-    }
-    const surface = geometry.kind === 'triangles' || geometry.kind === 'fill'
-    if (pass === 'id') {
-      gl.disable(gl.BLEND)
-      gl.depthMask(true)
-    } else {
-      const opaqueSurface =
-        geometry.kind === 'triangles' && drawCall.layer === 'opaque' && drawCall.opacity >= 1
-      if (opaqueSurface) {
-        gl.disable(gl.BLEND)
-      } else {
-        gl.enable(gl.BLEND)
-      }
-      gl.depthMask(surface && drawCall.layer === 'opaque')
-    }
-    if (geometry.kind === 'triangles' && !sectionCut) {
-      gl.enable(gl.CULL_FACE)
-    } else {
-      gl.disable(gl.CULL_FACE)
-    }
-    if (geometry.kind === 'triangles') {
-      gl.enable(gl.POLYGON_OFFSET_FILL)
-    } else {
-      gl.disable(gl.POLYGON_OFFSET_FILL)
-    }
+    const state = drawState(
+      drawCall,
+      geometry.kind,
+      pass,
+      frame.section !== null && drawCall.clipped,
+    )
+    setCapability(gl.DEPTH_TEST, state.depthTest)
+    gl.depthMask(state.depthWrite)
+    setCapability(gl.BLEND, state.blend)
+    setCapability(gl.CULL_FACE, state.cullFace)
+    setCapability(gl.POLYGON_OFFSET_FILL, state.polygonOffset)
   }
 
   function renderDraw(
@@ -521,10 +513,11 @@ export function createWebGl2Backend(canvas: HTMLCanvasElement): RenderBackend | 
         section.offset,
       )
     }
+    // Resolving the colors may create or upload a texture, which changes texture bindings, so it comes before binding both units.
+    const colors = elementColorTexture(current, drawCall, geometry.elementCount)
     gl.activeTexture(gl.TEXTURE0 + STATE_TEXTURE_UNIT)
     gl.bindTexture(gl.TEXTURE_2D, geometry.states)
     gl.uniform1i(uniform('u_elementStates'), STATE_TEXTURE_UNIT)
-    const colors = elementColorTexture(current, drawCall, geometry.elementCount)
     gl.activeTexture(gl.TEXTURE0 + COLOR_TEXTURE_UNIT)
     gl.bindTexture(gl.TEXTURE_2D, colors)
     gl.uniform1i(uniform('u_elementColors'), COLOR_TEXTURE_UNIT)
@@ -537,6 +530,7 @@ export function createWebGl2Backend(canvas: HTMLCanvasElement): RenderBackend | 
       gl.uniform1f(uniform('u_size'), drawCall.pickSize * devicePixels)
     } else {
       setRgb(uniform('u_highlight'), frame.theme.highlight)
+      gl.uniform1f(uniform('u_hoverHighlight'), hoverHighlight(drawCall))
       setRgb(uniform('u_problem'), frame.theme.problem)
       gl.uniform1f(uniform('u_opacity'), drawCall.opacity)
       gl.uniform1f(uniform('u_width'), drawCall.size * devicePixels)
@@ -606,7 +600,7 @@ export function createWebGl2Backend(canvas: HTMLCanvasElement): RenderBackend | 
     const framebuffer = gl.createFramebuffer()
     gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer)
     const textures = [0, 1].map((attachment) => {
-      const texture = nearestTexture(gl)
+      const texture = nearestTexture(gl, STATE_TEXTURE_UNIT)
       gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA8, width, height)
       gl.framebufferTexture2D(
         gl.FRAMEBUFFER,

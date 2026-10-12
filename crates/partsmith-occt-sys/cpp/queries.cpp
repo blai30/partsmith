@@ -1,6 +1,7 @@
 // Shapes, indexing, measurement, element geometry and topology (kernel spec sections 3.2 and
 // 3.6).
 #include <algorithm>
+#include <utility>
 
 #include <BRepAdaptor_Curve.hxx>
 #include <BRepAdaptor_Surface.hxx>
@@ -33,12 +34,23 @@ namespace occt {
 
 using namespace detail;
 
-Shape::Shape(TopoDS_Shape shape) : shape_(std::move(shape)) {
-  TopExp::MapShapes(shape_, TopAbs_SOLID, solids_);
-  TopExp::MapShapes(shape_, TopAbs_FACE, faces_);
-  TopExp::MapShapes(shape_, TopAbs_EDGE, edges_);
-  TopExp::MapShapes(shape_, TopAbs_VERTEX, vertices_);
+namespace {
+
+// The sub-shapes of one type in TopExp::MapShapes order (kernel spec section 3.2, item 1).
+TopTools_IndexedMapOfShape index_map(const TopoDS_Shape &shape, TopAbs_ShapeEnum type) {
+  TopTools_IndexedMapOfShape map;
+  TopExp::MapShapes(shape, type, map);
+  return map;
 }
+
+}  // namespace
+
+Shape::Shape(TopoDS_Shape shape)
+    : shape_(std::move(shape)),
+      solids_(index_map(shape_, TopAbs_SOLID)),
+      faces_(index_map(shape_, TopAbs_FACE)),
+      edges_(index_map(shape_, TopAbs_EDGE)),
+      vertices_(index_map(shape_, TopAbs_VERTEX)) {}
 
 const TopTools_IndexedMapOfShape &Shape::map(ElementKind kind) const {
   switch (kind) {

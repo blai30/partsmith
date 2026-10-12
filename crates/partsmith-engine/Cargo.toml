@@ -11,5 +11,15 @@ publish = false
 
 [dependencies]
 
+[dev-dependencies]
+blake3.workspace = true
+partsmith-mesh.workspace = true
+partsmith-model.workspace = true
+partsmith-print.workspace = true
+partsmith-protocol.workspace = true
+pretty_assertions.workspace = true
+serde_json.workspace = true
+zip.workspace = true
+
 [lints]
 workspace = true

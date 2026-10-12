@@ -5,13 +5,13 @@ use std::f64::consts::PI;
 
 use partsmith_model::Id;
 
-use crate::vector::{cross, dot, norm, signed_distance, subtract};
 use crate::ORIGIN;
 use crate::constraint::{Alignment, ConstraintKind, DistanceTarget};
 use crate::entity::{Geometry, SketchEntity};
 use crate::params::SketchParams;
 use crate::point_ref::PointRef;
 use crate::reserved::axis_line;
+use crate::vector::{cross, dot, norm, signed_distance, subtract};
 
 /// The value of every dimensional constraint, driving or reference, measured on `entities`.
 pub(crate) fn measure(sketch: &SketchParams, entities: &[SketchEntity]) -> BTreeMap<Id, f64> {
@@ -51,7 +51,9 @@ pub(crate) fn measure(sketch: &SketchParams, entities: &[SketchEntity]) -> BTree
                     let (second_start, second_end) = shapes.line(&lines[1]);
                     let first = subtract(first_end, first_start);
                     let second = subtract(second_end, second_start);
-                    let angle = cross(first, second).atan2(dot(first, second)).rem_euclid(PI);
+                    let angle = cross(first, second)
+                        .atan2(dot(first, second))
+                        .rem_euclid(PI);
                     // Rounding can land exactly on pi, which is the same direction as 0.
                     if angle >= PI { 0.0 } else { angle }
                 }

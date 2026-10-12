@@ -13,6 +13,12 @@ const MIN_TRUST_RADIUS: f64 = 1e-6;
 /// Relative step length below which an iteration makes no progress.
 const MIN_RELATIVE_STEP: f64 = 1e-14;
 
+/// Largest residual (mm) at which a converged point needs no refinement; far below `SOLVER_TOLERANCE`.
+const REFINED_RESIDUAL: f64 = 1e-12;
+
+/// Most Gauss-Newton steps that refine a converged point.
+const MAX_REFINEMENT_STEPS: usize = 3;
+
 /// The numerical problem of one component: its remaining rows over its variables.
 pub(crate) struct Problem<'a> {
     system: &'a System,
@@ -54,6 +60,14 @@ impl Evaluation {
             .collect()
     }
 
+    /// The largest absolute residual, or 0 without rows.
+    fn largest_residual(&self) -> f64 {
+        self.residuals
+            .iter()
+            .fold(0.0, |largest, residual| largest.max(residual.abs()))
+    }
+
+    /// True when every row holds within `SOLVER_TOLERANCE`.
     fn converged(&self) -> bool {
         self.residuals
             .iter()
@@ -149,14 +163,24 @@ pub(crate) enum Outcome {
 }
 
 /// Runs dog-leg from `start`, then Levenberg-Marquardt from `start` again when dog-leg does not converge.
+/// A converged point is refined before it is returned.
 pub(crate) fn solve(problem: &mut Problem<'_>, start: &[f64]) -> Outcome {
-    if let Some(solution) = dog_leg(problem, start) {
-        return Outcome::Converged(solution);
-    }
-    match levenberg_marquardt(problem, start) {
-        Ok(solution) => Outcome::Converged(solution),
-        Err(end) => Outcome::Failed(end),
-    }
+    use std::sync::atomic::Ordering::Relaxed;
+    use super::sparse_qr::*;
+    for counter in [&CALLS, &ZERO, &SIZE, &COLUMNS, &REFLECTORS, &REFLECTOR_SIZE] { counter.store(0, Relaxed); }
+    let outcome = solve_inner(problem, start);
+    eprintln!("columns {} reflect calls {} zero {} applied size {} reflectors {} reflector size {}", COLUMNS.load(Relaxed), CALLS.load(Relaxed), ZERO.load(Relaxed), SIZE.load(Relaxed), REFLECTORS.load(Relaxed), REFLECTOR_SIZE.load(Relaxed));
+    outcome
+}
+fn solve_inner(problem: &mut Problem<'_>, start: &[f64]) -> Outcome {
+    let solution = match dog_leg(problem, start) {
+        Some(solution) => solution,
+        None => match levenberg_marquardt(problem, start) {
+            Ok(solution) => solution,
+            Err(end) => return Outcome::Failed(end),
+        },
+    };
+    Outcome::Converged(refine(problem, solution))
 }
 
 /// The minimum-norm Gauss-Newton step on the rows that pass the sequential rank test.
@@ -190,16 +214,19 @@ fn gain_ratio(actual: f64, predicted: f64) -> f64 {
 }
 
 /// Powell's dog-leg method; `None` when it stops without converging.
+///
+/// A step at most `MIN_RELATIVE_STEP` long ends the iteration, but only after it was tried, so a last
+/// tiny step that completes convergence is kept.
 fn dog_leg(problem: &mut Problem<'_>, start: &[f64]) -> Option<Vec<f64>> {
     let variables = start.len();
     let mut y = start.to_vec();
     let mut current = problem.evaluate(&y);
+    if current.converged() {
+        return Some(y);
+    }
     let mut gauss_newton = gauss_newton_step(&current, variables);
     let mut radius = norm(&gauss_newton).max(MIN_TRUST_RADIUS);
     for _ in 0..MAX_ITERATIONS {
-        if current.converged() {
-            return Some(y);
-        }
         let gradient = current.transpose_times(&current.residuals, variables);
         let curvature = norm_squared(&current.times(&gradient));
         if curvature == 0.0 {
@@ -218,9 +245,7 @@ fn dog_leg(problem: &mut Problem<'_>, start: &[f64]) -> Option<Vec<f64>> {
         } else {
             blend(&steepest, &gauss_newton, radius)
         };
-        if problem.too_small(&step, &y) {
-            return None;
-        }
+        let stalled = problem.too_small(&step, &y);
         let step_norm = norm(&step);
         let candidate = problem.advance(&y, &step);
         let trial = problem.evaluate(&candidate);
@@ -238,10 +263,16 @@ fn dog_leg(problem: &mut Problem<'_>, start: &[f64]) -> Option<Vec<f64>> {
         if rho > 0.0 {
             y = candidate;
             current = trial;
+            if current.converged() {
+                return Some(y);
+            }
             gauss_newton = gauss_newton_step(&current, variables);
         }
+        if stalled {
+            return None;
+        }
     }
-    current.converged().then_some(y)
+    None
 }
 
 /// The point on the segment from `steepest` to `gauss_newton` at distance `radius` from the origin.
@@ -268,10 +299,15 @@ fn blend(steepest: &[f64], gauss_newton: &[f64], radius: f64) -> Vec<f64> {
 }
 
 /// Levenberg-Marquardt; `Err` holds the point where it stopped without converging.
+///
+/// Like dog-leg, it tries a step at most `MIN_RELATIVE_STEP` long before it stops.
 fn levenberg_marquardt(problem: &mut Problem<'_>, start: &[f64]) -> Result<Vec<f64>, Vec<f64>> {
     let variables = start.len();
     let mut y = start.to_vec();
     let mut current = problem.evaluate(&y);
+    if current.converged() {
+        return Ok(y);
+    }
     let mut diagonal = vec![0.0; variables];
     for row in &current.jacobian {
         for &(variable, partial) in row {
@@ -284,14 +320,9 @@ fn levenberg_marquardt(problem: &mut Problem<'_>, start: &[f64]) -> Result<Vec<f
     }
     let mut growth = 2.0;
     for _ in 0..MAX_ITERATIONS {
-        if current.converged() {
-            return Ok(y);
-        }
         let gradient = current.transpose_times(&current.residuals, variables);
         let step = damped_step(&current, damping, variables);
-        if problem.too_small(&step, &y) {
-            return Err(y);
-        }
+        let stalled = problem.too_small(&step, &y);
         let candidate = problem.advance(&y, &step);
         let trial = problem.evaluate(&candidate);
         let predicted = 0.5
@@ -307,14 +338,48 @@ fn levenberg_marquardt(problem: &mut Problem<'_>, start: &[f64]) -> Result<Vec<f
         if rho > 0.0 {
             y = candidate;
             current = trial;
+            if current.converged() {
+                return Ok(y);
+            }
             damping *= (1.0 - (2.0 * rho - 1.0).powi(3)).max(1.0 / 3.0);
             growth = 2.0;
         } else {
             damping *= growth;
             growth *= 2.0;
         }
+        if stalled {
+            return Err(y);
+        }
     }
-    if current.converged() { Ok(y) } else { Err(y) }
+    Err(y)
+}
+
+/// Takes minimum-norm Gauss-Newton steps from a converged point while they lower its largest residual,
+/// until that is at most `REFINED_RESIDUAL`.
+///
+/// Converged rows hold within `SOLVER_TOLERANCE` only. Returning arcs moves their end points by up to
+/// half the arc rule's residual (section 3.7.6), so a solution that barely converged could come back
+/// with a row slightly above the tolerance, and solving the output again would move it. Refined, the
+/// conversion moves points far less than the tolerance, so the output solves back to itself bitwise.
+/// Every accepted step lowers the largest residual, so the point stays converged.
+fn refine(problem: &mut Problem<'_>, mut y: Vec<f64>) -> Vec<f64> {
+    let mut current = problem.evaluate(&y);
+    for _ in 0..MAX_REFINEMENT_STEPS {
+        let largest = current.largest_residual();
+        if largest <= REFINED_RESIDUAL {
+            break;
+        }
+        let step = gauss_newton_step(&current, y.len());
+        let candidate = problem.advance(&y, &step);
+        let trial = problem.evaluate(&candidate);
+        let finite = trial.residuals.iter().all(|residual| residual.is_finite());
+        if !finite || trial.largest_residual() >= largest {
+            break;
+        }
+        y = candidate;
+        current = trial;
+    }
+    y
 }
 
 /// The solution of `(J^T J + mu I) h = -J^T r`, as the least-squares solution of `[J; sqrt(mu) I] h = [-r; 0]`.

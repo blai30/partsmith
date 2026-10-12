@@ -263,7 +263,9 @@ mod tests {
 
     #[test]
     fn equal_holes_are_accepted() {
-        let key: RegionKey = "e-1;~e-2;~e-2".parse().expect("non-decreasing holes are canonical");
+        let key: RegionKey = "e-1;~e-2;~e-2"
+            .parse()
+            .expect("non-decreasing holes are canonical");
 
         assert_eq!(key.holes().len(), 2);
     }

@@ -16,7 +16,10 @@ export type PopoverProps = {
   /** Called with false when the browser light-dismisses the popover (Esc or a press outside). */
   readonly onOpenChange: (open: boolean) => void
   readonly children: ReactNode
-  /** Layout classes for the content, such as a width or padding. */
+  /**
+   * Layout classes for a wrapper around the content, such as a width or a flex layout. They never
+   * reach the popover element, whose display the browser controls while it is closed.
+   */
   readonly className?: string
 }
 
@@ -104,10 +107,9 @@ export function Popover({ label, open, anchor, onOpenChange, children, className
         COLOR_CLASSES.surfaceRaised.background,
         COLOR_CLASSES.border.border,
         COLOR_CLASSES.text.foreground,
-        className,
       )}
     >
-      {children}
+      <div className={className}>{children}</div>
     </dialog>
   )
 }

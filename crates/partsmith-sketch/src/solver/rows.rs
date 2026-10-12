@@ -140,14 +140,13 @@ impl Term {
                     let by_point = scale([-direction[1], direction[0]], 1.0 / safe_length);
                     let mut by_direction = scale([relative[1], -relative[0]], 1.0 / safe_length);
                     if length >= MIN_LENGTH {
-                        by_direction = subtract(by_direction, scale(direction, value / (length * length)));
+                        by_direction =
+                            subtract(by_direction, scale(direction, value / (length * length)));
                     }
                     point.add_gradient(scale(by_point, weight), gradient);
                     line.end.add_gradient(scale(by_direction, weight), gradient);
-                    line.start.add_gradient(
-                        scale(add(by_direction, by_point), -weight),
-                        gradient,
-                    );
+                    line.start
+                        .add_gradient(scale(add(by_direction, by_point), -weight), gradient);
                 }
                 value
             }
@@ -162,12 +161,14 @@ impl Term {
                     let by_span = scale(direction, 1.0 / safe_length);
                     let mut by_direction = scale(span, 1.0 / safe_length);
                     if length >= MIN_LENGTH {
-                        by_direction = subtract(by_direction, scale(direction, value / (length * length)));
+                        by_direction =
+                            subtract(by_direction, scale(direction, value / (length * length)));
                     }
                     to.add_gradient(scale(by_span, weight), gradient);
                     from.add_gradient(scale(by_span, -weight), gradient);
                     line.end.add_gradient(scale(by_direction, weight), gradient);
-                    line.start.add_gradient(scale(by_direction, -weight), gradient);
+                    line.start
+                        .add_gradient(scale(by_direction, -weight), gradient);
                 }
                 value
             }
@@ -181,7 +182,8 @@ impl Term {
                 let second_direction = subtract(second.end.value(x), second.start.value(x));
                 let first_unit = unit(first_direction);
                 let second_unit = unit(second_direction);
-                let value = cross(first_unit, second_unit) * cos - dot(first_unit, second_unit) * sin;
+                let value =
+                    cross(first_unit, second_unit) * cos - dot(first_unit, second_unit) * sin;
                 if let Some(gradient) = gradient {
                     let by_first_unit = subtract(
                         scale([second_unit[1], -second_unit[0]], cos),
@@ -196,7 +198,9 @@ impl Term {
                     first.end.add_gradient(scale(by_first, weight), gradient);
                     first.start.add_gradient(scale(by_first, -weight), gradient);
                     second.end.add_gradient(scale(by_second, weight), gradient);
-                    second.start.add_gradient(scale(by_second, -weight), gradient);
+                    second
+                        .start
+                        .add_gradient(scale(by_second, -weight), gradient);
                 }
                 value
             }
@@ -303,7 +307,10 @@ fn unit_gradient(direction: [f64; 2], unit_direction: [f64; 2], by_unit: [f64; 2
         return [0.0, 0.0];
     }
     let along = dot(unit_direction, by_unit);
-    scale(subtract(by_unit, scale(unit_direction, along)), 1.0 / length)
+    scale(
+        subtract(by_unit, scale(unit_direction, along)),
+        1.0 / length,
+    )
 }
 
 #[cfg(test)]
@@ -412,5 +419,4 @@ mod tests {
         assert_eq!(value, 5.5);
         assert!(gradient.is_empty());
     }
-
 }
