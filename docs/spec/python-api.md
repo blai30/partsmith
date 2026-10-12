@@ -78,7 +78,7 @@ python-source = "."
 features = ["pyo3/extension-module"]
 ```
 
-`crates/partsmith-py/Cargo.toml` declares `[lib] name = "_core"`, `crate-type = ["cdylib", "rlib"]`, and depends on `pyo3` (workspace) with feature `abi3-py312`, plus `partsmith-engine`. The `extension-module` feature is enabled only by maturin, so `cargo test -p partsmith-py` links against libpython. Wheels are tagged `cp312-abi3-<platform>` and install on every CPython 3.12 or later. The package has no runtime Python dependencies.
+`crates/partsmith-py/Cargo.toml` declares `[lib] name = "_core"`, `crate-type = ["cdylib", "rlib"]`, and depends on `pyo3` (workspace) with feature `abi3-py312`, plus `partsmith-engine`, `partsmith-model` (ids and `FORMAT_VERSION`) and `partsmith-protocol` (`PROTOCOL_VERSION`), as architecture.md allows for hosts. The `extension-module` feature is enabled only by maturin, so `cargo test -p partsmith-py` links against libpython. Wheels are tagged `cp312-abi3-<platform>` and install on every CPython 3.12 or later. The package has no runtime Python dependencies.
 
 Commands:
 

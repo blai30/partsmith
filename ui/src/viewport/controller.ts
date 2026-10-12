@@ -245,6 +245,8 @@ export function createViewportController(options: {
   // Highlights that need the core (3.6, 3.7).
   const resolved = new Map<string, ResolvedReference>()
   const faceLists = new Map<string, FaceList>()
+  /** The mesh id each body's face list was last asked for. */
+  const requestedFaces = new Map<string, number>()
   const faceRequests = new Map<string, LatestOnly<{ documentHandle: DocHandle; meshId: number }>>()
 
   function aspect(): number {
@@ -966,8 +968,6 @@ export function createViewportController(options: {
     }
     return request
   }
-
-  const requestedFaces = new Map<string, number>()
 
   function selectedFeatures(state: AppState): ReadonlySet<string> {
     if (state.command !== null) {
