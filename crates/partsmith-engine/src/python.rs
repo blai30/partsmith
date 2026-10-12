@@ -383,19 +383,13 @@ fn block_params(
 
 /// Every entity id a constraint names, reserved names included, in field order.
 fn constraint_entities(constraint: &SketchConstraint) -> Vec<&Id> {
-    let alignment = |alignment: &'_ Alignment| -> Vec<&'_ Id> {
-        match alignment {
-            Alignment::Line { line } => vec![line],
-            Alignment::Points { points } => points.iter().map(|point| &point.entity).collect(),
-        }
-    };
     match &constraint.kind {
         ConstraintKind::Coincident { points } => {
             points.iter().map(|point| &point.entity).collect()
         }
         ConstraintKind::PointOnObject { point, curve } => vec![&point.entity, curve],
         ConstraintKind::Horizontal(target) | ConstraintKind::Vertical(target) => {
-            alignment(target)
+            alignment_entities(target)
         }
         ConstraintKind::Parallel { lines }
         | ConstraintKind::Perpendicular { lines }
@@ -417,10 +411,18 @@ fn constraint_entities(constraint: &SketchConstraint) -> Vec<&Id> {
             DistanceTarget::Line { line } => vec![line],
         },
         ConstraintKind::HorizontalDistance { target, .. }
-        | ConstraintKind::VerticalDistance { target, .. } => alignment(target),
+        | ConstraintKind::VerticalDistance { target, .. } => alignment_entities(target),
         ConstraintKind::Radius { curve, .. } | ConstraintKind::Diameter { curve, .. } => {
             vec![curve]
         }
+    }
+}
+
+/// The entity ids of a line or point-pair target.
+fn alignment_entities(alignment: &Alignment) -> Vec<&Id> {
+    match alignment {
+        Alignment::Line { line } => vec![line],
+        Alignment::Points { points } => points.iter().map(|point| &point.entity).collect(),
     }
 }
 

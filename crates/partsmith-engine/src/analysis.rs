@@ -175,6 +175,9 @@ fn flat_face_normal(
     }
 }
 
+/// The low and high corners of a box.
+type Bounds = ([f64; 3], [f64; 3]);
+
 /// The bed transform of each mesh (step 6): the rotation, then a translation that rests each
 /// body on z = 0 and centers the rotated group on the bed.
 pub(crate) fn bed_transforms(
@@ -183,10 +186,10 @@ pub(crate) fn bed_transforms(
     profile: &PrinterProfile,
 ) -> Vec<Transform> {
     let rotated = rotation.to_transform();
-    let bounds: Vec<Option<([f64; 3], [f64; 3])>> = meshes
+    let bounds: Vec<Option<Bounds>> = meshes
         .iter()
         .map(|mesh| {
-            mesh.positions().iter().fold(None, |bounds, &position| {
+            mesh.positions().iter().fold(None::<Bounds>, |bounds, &position| {
                 let point = rotated.apply_point(position);
                 Some(match bounds {
                     None => (point, point),
