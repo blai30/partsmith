@@ -109,7 +109,11 @@ describe('createCoreClient', () => {
       buffers: [Uint8Array.of(1, 2, 3)],
     }))
     const client = createCoreClient(transport)
-    const reply = await client.request({ type: 'export', doc: 1, format: { kind: 'stl', binary: true, per_body: false } })
+    const reply = await client.request({
+      type: 'export',
+      doc: 1,
+      format: { kind: 'stl', binary: true, per_body: false },
+    })
     expect(reply.result).toEqual({
       type: 'export',
       files: [{ name: 'model.stl', media_type: 'model/stl', data: 0 }],
@@ -183,7 +187,11 @@ describe('createCoreClient', () => {
 
   it('a CoreError without an edit index has editIndex null, and carries an expression error span', async () => {
     const transport = scriptedTransport(() => ({
-      error: { code: 'expression_error', message: "Unknown name 'wal'.", span: { start: 4, end: 7 } },
+      error: {
+        code: 'expression_error',
+        message: "Unknown name 'wal'.",
+        span: { start: 4, end: 7 },
+      },
     }))
     const client = createCoreClient(transport)
     const error = await rejectionOf(client.request({ type: 'evaluate', doc: 1, expr: '2 * wal' }))

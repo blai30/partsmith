@@ -12,18 +12,17 @@ import {
   readyState,
 } from '../layout/fixtures.testing'
 import { DEFAULT_SETTINGS } from '../settings/settings'
-import { createAppStore, type ActiveCommand, type AppState, type DocumentState } from '../state/store'
+import {
+  createAppStore,
+  type ActiveCommand,
+  type AppState,
+  type DocumentState,
+} from '../state/store'
 import { createFakeBackend, type FakeBackend } from '../test/fakes/backend'
 import { CUBE_DOCUMENT, TWO_BODIES_DOCUMENT } from '../test/fakes/documents'
 import { linearFromHex, VIEWPORT_COLORS, viewportTheme } from '../theme/roles'
 import type { DrawCall, Geometry, RenderFrame } from './backend'
-import {
-  DEFAULT_CAMERA,
-  eye,
-  standardViewRotation,
-  viewMatrix,
-  type Camera,
-} from './camera'
+import { DEFAULT_CAMERA, eye, standardViewRotation, viewMatrix, type Camera } from './camera'
 import { createScene, type Scene } from './scene'
 
 const SIZE = { width: 800, height: 600, pixelRatio: 1 }
@@ -143,12 +142,19 @@ describe('uploads', () => {
     const fixture = cubeScene()
     render(fixture, cubeState())
     const replacement = boxMesh([-10, -10, 0], [10, 10, 30])
-    fixture.scene.applyEvent(bodyMeshEvent({ body: 'b-cube', meshId: 2, mesh: replacement, revision: 2 }))
-    const frame = render(fixture, cubeState({}, cubeDocumentState({ meshes: { 'b-cube': meshSummary(2, CUBE_BOUNDS) } })))
-    expect(faces(fixture, frame, replacement).pickBase).not.toBeNull()
-    expect([...fixture.backend.geometries.values()].some((geometry) => geometry.positions === CUBE_MESH.positions)).toBe(
-      false,
+    fixture.scene.applyEvent(
+      bodyMeshEvent({ body: 'b-cube', meshId: 2, mesh: replacement, revision: 2 }),
     )
+    const frame = render(
+      fixture,
+      cubeState({}, cubeDocumentState({ meshes: { 'b-cube': meshSummary(2, CUBE_BOUNDS) } })),
+    )
+    expect(faces(fixture, frame, replacement).pickBase).not.toBeNull()
+    expect(
+      [...fixture.backend.geometries.values()].some(
+        (geometry) => geometry.positions === CUBE_MESH.positions,
+      ),
+    ).toBe(false)
   })
 
   it('restore() uploads every drawable again after a lost context', () => {
@@ -179,7 +185,9 @@ describe('pick ids', () => {
       const previous = ranges[i - 1]
       expect(ranges[i]?.first).toBe((previous?.first ?? 0) + (previous?.count ?? 0))
     }
-    expect(ranges.map((range) => range.count).toSorted((first, second) => first - second)).toEqual([6, 8, 12])
+    expect(ranges.map((range) => range.count).toSorted((first, second) => first - second)).toEqual([
+      6, 8, 12,
+    ])
   })
 
   it('maps a face pick id back to the mesh face, an area', () => {
@@ -202,11 +210,21 @@ describe('pick ids', () => {
     const fixture = cubeScene()
     const frame = render(fixture, cubeState())
     expect(fixture.scene.targetFor(pickId(edges(fixture, frame), 11))).toEqual({
-      result: expect.objectContaining({ kind: 'mesh', element: 'edge', index: 11, key: 'mesh:1:edge:11' }),
+      result: expect.objectContaining({
+        kind: 'mesh',
+        element: 'edge',
+        index: 11,
+        key: 'mesh:1:edge:11',
+      }),
       pickClass: 'curve',
     })
     expect(fixture.scene.targetFor(pickId(vertices(fixture, frame), 0))).toEqual({
-      result: expect.objectContaining({ kind: 'mesh', element: 'vertex', index: 0, key: 'mesh:1:vertex:0' }),
+      result: expect.objectContaining({
+        kind: 'mesh',
+        element: 'vertex',
+        index: 0,
+        key: 'mesh:1:vertex:0',
+      }),
       pickClass: 'point',
     })
   })
@@ -242,9 +260,19 @@ describe('pickable kinds (3.6 and the ID pass contract of DrawCall.pickBase)', (
   it('leaves faces out with Faces and Bodies off, and keeps them with Bodies on (a face picks its body)', () => {
     const fixture = cubeScene()
     const view = cubeState().view
-    const off = render(fixture, cubeState({ view: { ...view, filter: { body: false, face: false, edge: true, vertex: true } } }))
+    const off = render(
+      fixture,
+      cubeState({
+        view: { ...view, filter: { body: false, face: false, edge: true, vertex: true } },
+      }),
+    )
     expect(faces(fixture, off).pickBase).toBeNull()
-    const bodies = render(fixture, cubeState({ view: { ...view, filter: { body: true, face: false, edge: true, vertex: true } } }))
+    const bodies = render(
+      fixture,
+      cubeState({
+        view: { ...view, filter: { body: true, face: false, edge: true, vertex: true } },
+      }),
+    )
     expect(faces(fixture, bodies).pickBase).not.toBeNull()
   })
 
@@ -258,7 +286,10 @@ describe('pickable kinds (3.6 and the ID pass contract of DrawCall.pickBase)', (
 
   it('makes nothing pickable during a feature command without an active field', () => {
     const fixture = cubeScene()
-    const frame = render(fixture, cubeState({ command: { ...FILLET_EDGES_COMMAND, activeField: null } }))
+    const frame = render(
+      fixture,
+      cubeState({ command: { ...FILLET_EDGES_COMMAND, activeField: null } }),
+    )
     expect(frame.draws.every((draw) => draw.pickBase === null)).toBe(true)
   })
 
@@ -273,8 +304,13 @@ describe('pickable kinds (3.6 and the ID pass contract of DrawCall.pickBase)', (
   it('draws the preview layer as shaded bodies that cannot be picked', () => {
     const fixture = cubeScene()
     const preview = boxMesh([-10, -10, 0], [10, 10, 25])
-    fixture.scene.applyEvent(bodyMeshEvent({ body: 'b-cube', meshId: 9, mesh: preview, layer: 'preview', revision: 2 }))
-    const frame = render(fixture, cubeState({ command: { ...FILLET_EDGES_COMMAND, preview: 'shown' } }))
+    fixture.scene.applyEvent(
+      bodyMeshEvent({ body: 'b-cube', meshId: 9, mesh: preview, layer: 'preview', revision: 2 }),
+    )
+    const frame = render(
+      fixture,
+      cubeState({ command: { ...FILLET_EDGES_COMMAND, preview: 'shown' } }),
+    )
     const draw = faces(fixture, frame, preview)
     expect(draw.pickBase).toBeNull()
     expect(draw.shading).toBe('matcap')
@@ -285,7 +321,11 @@ describe('frames', () => {
   it('carries the camera, the theme and the UI scale', () => {
     const fixture = cubeScene()
     const camera: Camera = { ...DEFAULT_CAMERA, rotation: standardViewRotation('front') }
-    const frame = render(fixture, cubeState({ settings: { ...DEFAULT_SETTINGS, theme: 'dark', uiScale: 2 } }), camera)
+    const frame = render(
+      fixture,
+      cubeState({ settings: { ...DEFAULT_SETTINGS, theme: 'dark', uiScale: 2 } }),
+      camera,
+    )
     expect([...frame.view]).toEqual([...viewMatrix(camera)])
     expect(frame.eye).toEqual(eye(camera))
     expect(frame.orthographic).toBe(false)
@@ -304,13 +344,22 @@ describe('frames', () => {
   it('shades bodies opaque with matcap in the default body color', () => {
     const fixture = cubeScene()
     const draw = faces(fixture, render(fixture, cubeState()))
-    expect(draw).toMatchObject({ layer: 'opaque', shading: 'matcap', opacity: 1, depthTest: true, clipped: true })
+    expect(draw).toMatchObject({
+      layer: 'opaque',
+      shading: 'matcap',
+      opacity: 1,
+      depthTest: true,
+      clipped: true,
+    })
     expect(draw.color).toEqual(linearFromHex(VIEWPORT_COLORS.light.body))
   })
 
   it('shades a body in its own color', () => {
     const fixture = cubeScene()
-    const red: Document = { ...CUBE_DOCUMENT, bodies: [{ id: 'b-cube', name: 'Cube', color: '#e7000b' }] }
+    const red: Document = {
+      ...CUBE_DOCUMENT,
+      bodies: [{ id: 'b-cube', name: 'Cube', color: '#e7000b' }],
+    }
     const draw = faces(fixture, render(fixture, cubeState({}, cubeDocumentState({ recipe: red }))))
     expect(draw.color).toEqual(linearFromHex('#e7000b'))
   })
@@ -320,10 +369,19 @@ describe('frames', () => {
     const light = edges(fixture, render(fixture, cubeState()))
     expect(light.color).toEqual(linearFromHex(VIEWPORT_COLORS.light.edgeDark))
     expect(light.size).toBeCloseTo(1.25, 9)
-    const black: Document = { ...CUBE_DOCUMENT, bodies: [{ id: 'b-cube', name: 'Cube', color: '#27272a' }] }
+    const black: Document = {
+      ...CUBE_DOCUMENT,
+      bodies: [{ id: 'b-cube', name: 'Cube', color: '#27272a' }],
+    }
     const scaled = edges(
       fixture,
-      render(fixture, cubeState({ settings: { ...DEFAULT_SETTINGS, theme: 'light', uiScale: 2 } }, cubeDocumentState({ recipe: black }))),
+      render(
+        fixture,
+        cubeState(
+          { settings: { ...DEFAULT_SETTINGS, theme: 'light', uiScale: 2 } },
+          cubeDocumentState({ recipe: black }),
+        ),
+      ),
     )
     expect(scaled.color).toEqual(linearFromHex(VIEWPORT_COLORS.light.edgeLight))
     expect(scaled.size).toBeCloseTo(2.5, 9)
@@ -335,7 +393,10 @@ describe('frames', () => {
       ...CUBE_DOCUMENT,
       bodies: [{ id: 'b-cube', name: 'Cube', role: 'support_blocker' }],
     }
-    const draw = faces(fixture, render(fixture, cubeState({}, cubeDocumentState({ recipe: blocker }))))
+    const draw = faces(
+      fixture,
+      render(fixture, cubeState({}, cubeDocumentState({ recipe: blocker }))),
+    )
     expect(draw.layer).toBe('translucent')
     expect(draw.opacity).toBeCloseTo(0.4, 9)
   })
@@ -344,7 +405,10 @@ describe('frames', () => {
     const fixture = cubeScene()
     render(fixture, cubeState())
     const id = uploadedId(fixture.backend, CUBE_MESH.positions)
-    const hidden: Document = { ...CUBE_DOCUMENT, bodies: [{ id: 'b-cube', name: 'Cube', visible: false }] }
+    const hidden: Document = {
+      ...CUBE_DOCUMENT,
+      bodies: [{ id: 'b-cube', name: 'Cube', visible: false }],
+    }
     const frame = render(fixture, cubeState({}, cubeDocumentState({ recipe: hidden })))
     expect(frame.draws.some((draw) => draw.id === id)).toBe(false)
   })
@@ -353,15 +417,30 @@ describe('frames', () => {
     const fixture = cubeScene()
     const view = cubeState().view
     expect(render(fixture, cubeState()).section).toBeNull()
-    expect(render(fixture, cubeState({ view: { ...view, section: { plane: 'XY', offset: '5', flipped: false } } })).section).toEqual({
+    expect(
+      render(
+        fixture,
+        cubeState({ view: { ...view, section: { plane: 'XY', offset: '5', flipped: false } } }),
+      ).section,
+    ).toEqual({
       normal: [0, 0, 1],
       offset: 5,
     })
-    expect(render(fixture, cubeState({ view: { ...view, section: { plane: 'XZ', offset: '5', flipped: false } } })).section).toEqual({
+    expect(
+      render(
+        fixture,
+        cubeState({ view: { ...view, section: { plane: 'XZ', offset: '5', flipped: false } } }),
+      ).section,
+    ).toEqual({
       normal: [0, -1, 0],
       offset: 5,
     })
-    expect(render(fixture, cubeState({ view: { ...view, section: { plane: 'YZ', offset: '5', flipped: true } } })).section).toEqual({
+    expect(
+      render(
+        fixture,
+        cubeState({ view: { ...view, section: { plane: 'YZ', offset: '5', flipped: true } } }),
+      ).section,
+    ).toEqual({
       normal: [-1, 0, 0],
       offset: -5,
     })
@@ -394,7 +473,10 @@ describe('visibleBounds', () => {
 
   it('is null when nothing is visible', () => {
     const fixture = cubeScene()
-    const hidden: Document = { ...CUBE_DOCUMENT, bodies: [{ id: 'b-cube', name: 'Cube', visible: false }] }
+    const hidden: Document = {
+      ...CUBE_DOCUMENT,
+      bodies: [{ id: 'b-cube', name: 'Cube', visible: false }],
+    }
     const state = cubeState(
       { view: { ...cubeState().view, sessionVisible: { 'feature:f-sk1': false } } },
       cubeDocumentState({ recipe: hidden }),
@@ -444,7 +526,9 @@ describe('screenRectangle', () => {
 
   it('is null for no items', () => {
     const fixture = cubeScene()
-    expect(fixture.scene.screenRectangle([], DEFAULT_CAMERA, { width: 1000, height: 500 })).toBeNull()
+    expect(
+      fixture.scene.screenRectangle([], DEFAULT_CAMERA, { width: 1000, height: 500 }),
+    ).toBeNull()
   })
 })
 
@@ -452,15 +536,29 @@ describe('sketches and datum planes', () => {
   it('draws a visible sketch in the Model context as reference lines 1.25 pixels wide, without region fill', () => {
     const fixture = cubeScene()
     const reference = linearFromHex(VIEWPORT_COLORS.light.sketchReference)
-    const shown = render(fixture, cubeState({ view: { ...cubeState().view, sessionVisible: { 'feature:f-sk1': true } } }))
+    const shown = render(
+      fixture,
+      cubeState({ view: { ...cubeState().view, sessionVisible: { 'feature:f-sk1': true } } }),
+    )
     const sketchDraws = shown.draws.filter((draw) => draw.layer === 'overlay')
-    expect(sketchDraws.some((draw) => draw.color.every((channel, index) => channel === reference[index]))).toBe(true)
-    expect(sketchDraws.some((draw) => fixture.backend.geometries.get(draw.id)?.kind === 'fill')).toBe(false)
-    const lines = sketchDraws.find((draw) => fixture.backend.geometries.get(draw.id)?.kind === 'lines')
+    expect(
+      sketchDraws.some((draw) =>
+        draw.color.every((channel, index) => channel === reference[index]),
+      ),
+    ).toBe(true)
+    expect(
+      sketchDraws.some((draw) => fixture.backend.geometries.get(draw.id)?.kind === 'fill'),
+    ).toBe(false)
+    const lines = sketchDraws.find(
+      (draw) => fixture.backend.geometries.get(draw.id)?.kind === 'lines',
+    )
     expect(lines?.size).toBeCloseTo(1.25, 9)
     expect(lines?.depthTest).toBe(false)
     expect(lines?.clipped).toBe(false)
-    const hidden = render(fixture, cubeState({ view: { ...cubeState().view, sessionVisible: { 'feature:f-sk1': false } } }))
+    const hidden = render(
+      fixture,
+      cubeState({ view: { ...cubeState().view, sessionVisible: { 'feature:f-sk1': false } } }),
+    )
     expect(hidden.draws.some((draw) => draw.layer === 'overlay')).toBe(false)
   })
 
@@ -470,7 +568,14 @@ describe('sketches and datum planes', () => {
     const document: Document = {
       ...CUBE_DOCUMENT,
       bodies: [],
-      features: [{ id: 'f-dp1', type: 'datum_plane', base: { kind: 'origin', plane: 'XY' }, offset: '10 mm' }],
+      features: [
+        {
+          id: 'f-dp1',
+          type: 'datum_plane',
+          base: { kind: 'origin', plane: 'XY' },
+          offset: '10 mm',
+        },
+      ],
     }
     const state = stateOf(
       documentState(document, {
@@ -481,12 +586,19 @@ describe('sketches and datum planes', () => {
     backend.render(frame)
     const datum = linearFromHex(VIEWPORT_COLORS.light.datum)
     const fill = frame.draws.find(
-      (draw) => draw.layer === 'translucent' && draw.opacity === 0.15 && draw.color.every((channel, index) => channel === datum[index]),
+      (draw) =>
+        draw.layer === 'translucent' &&
+        draw.opacity === 0.15 &&
+        draw.color.every((channel, index) => channel === datum[index]),
     )
     expect(fill).toBeDefined()
     expect(fill?.clipped).toBe(false)
-    const target = fill?.pickBase === null || fill === undefined ? null : scene.targetFor(fill.pickBase)
+    const target =
+      fill?.pickBase === null || fill === undefined ? null : scene.targetFor(fill.pickBase)
     expect(target?.pickClass).toBe('area')
-    expect(target?.result).toMatchObject({ kind: 'item', item: { key: 'feature:f-dp1', kind: 'datum_plane' } })
+    expect(target?.result).toMatchObject({
+      kind: 'item',
+      item: { key: 'feature:f-dp1', kind: 'datum_plane' },
+    })
   })
 })

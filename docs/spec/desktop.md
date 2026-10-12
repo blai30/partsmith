@@ -73,6 +73,8 @@ ui/src/
 
 `/desktop/src-tauri/gen` (generated ACL schemas) is already in `.gitignore`; build output goes to the workspace `target/`.
 
+`desktop/src-tauri/CLAUDE.md` states the crate's purpose, points at this spec, and lists its commands: `cargo test -p partsmith-desktop` and `cargo clippy -p partsmith-desktop --all-targets -- -D warnings` (both need `OCCT_ROOT` and, on Linux, the WebKitGTK development packages of delivery.md 3.2); `cargo install tauri-cli --version 2.12.2 --locked` once; `pnpm -C ui dev` and then `cargo tauri dev` in `desktop/src-tauri` to run the app against the Vite dev server; `pnpm -C ui build` and then `cargo tauri build` in `desktop/src-tauri` to bundle it.
+
 ### 2.2 Manifest and build script
 
 Root `Cargo.toml`: `members = ["crates/*", "desktop/src-tauri"]`, and in `[workspace.dependencies]` the exact pins:
@@ -409,7 +411,7 @@ Rules behind the values:
 - `version` is absent, so the app version is the crate version (the workspace version), one source for every artifact.
 - `mainBinaryName` keeps the desktop executable from colliding with the CLI's `partsmith` binary in `/usr/bin`.
 - `identifier` is permanent once the app ships (it names the app data directory, where the grant store and the webview's IndexedDB live). It uses the reverse-DNS form of the GitHub account the project controls today; section 8 asks for confirmation before the first public release.
-- There is no `beforeDevCommand` or `beforeBuildCommand`: the UI is built or served by its own commands first (2.11 in CLAUDE.md terms: `pnpm -C ui dev`, then `cargo tauri dev`; `pnpm -C ui build`, then `cargo tauri build`). This avoids working-directory rules that differ between Tauri CLI versions, and CI runs the steps explicitly (delivery.md).
+- There is no `beforeDevCommand` or `beforeBuildCommand`: the UI is served or built by its own command first (`pnpm -C ui dev`, then `cargo tauri dev`; `pnpm -C ui build`, then `cargo tauri build`), as the crate's `CLAUDE.md` lists. This keeps the working directory of those commands out of the Tauri configuration, and CI runs the steps explicitly (delivery.md).
 - Without the `custom-protocol` feature (plain `cargo build`, `cargo test`, `cargo clippy`), Tauri is in development mode and does not embed `frontendDist`, so workspace builds and tests do not need `ui/dist`. `cargo tauri build` enables the feature and embeds `ui/dist`.
 - `withGlobalTauri` injects `window.__TAURI__`, which the transport (ui.md 2.4) and the desktop file service read, so no `@tauri-apps/api` package is needed.
 - `dragDropEnabled: false` turns off Tauri's native drop handler, which on Windows replaces the webview's own; HTML5 drag and drop then works exactly as on the web (ui.md 3.19, the drop overlay). A dropped file has no handle, so Save asks where to save, as on the web without the File System Access API.
@@ -502,7 +504,7 @@ export function chooseFileService(environment: Window & typeof globalThis): File
 export function installCloseGuard(store: AppStore, tauri: TauriInvokeGlobal): () => void
 ```
 
-Startup (ui.md 3.1 step 2) creates the file service with `chooseFileService(window)`, next to `chooseTransport(window)`. After `createApp`, when `tauriGlobalOf(window)` is not null, it calls `installCloseGuard(app.store, thatGlobal)`. Recent files and recovery use the IndexedDB stores on both hosts (the webview keeps IndexedDB in the app data directory).
+Startup (ui.md 3.1 step 2) creates the file service with `chooseFileService(window)`, next to `chooseTransport(window)`. After `createApp`, when `tauriGlobalOf(window)` returns a global, it calls `installCloseGuard(app.store, global)` with it. Recent files and recovery use the IndexedDB stores on both hosts (the webview keeps IndexedDB in the app data directory).
 
 ## 3. Behavior
 

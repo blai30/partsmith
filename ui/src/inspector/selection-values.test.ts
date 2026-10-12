@@ -29,7 +29,10 @@ const SECOND_REGION = {
 
 describe('selectionValue', () => {
   it('U-35 origin XY for a plane gives {kind: origin, plane: XY}', () => {
-    expect(selectionValue('plane', [originItem('XY')], false)).toEqual({ kind: 'origin', plane: 'XY' })
+    expect(selectionValue('plane', [originItem('XY')], false)).toEqual({
+      kind: 'origin',
+      plane: 'XY',
+    })
   })
 
   it('U-35 a flat face for a plane gives {kind: face, body, face: reference}', () => {
@@ -85,9 +88,10 @@ describe('selectionValue', () => {
 
   it('U-35 edges with multiple give an array of references', () => {
     const second = { ...LINE_EDGE, name: 'edge(b)', reference: { q: 'edge(b)', fp: 'line|b' } }
-    expect(
-      selectionValue('edge', [elementItem(LINE_EDGE), elementItem(second)], true),
-    ).toEqual([LINE_EDGE.reference, second.reference])
+    expect(selectionValue('edge', [elementItem(LINE_EDGE), elementItem(second)], true)).toEqual([
+      LINE_EDGE.reference,
+      second.reference,
+    ])
   })
 
   it('one edge without multiple gives the reference itself', () => {

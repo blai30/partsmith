@@ -18,7 +18,14 @@ import {
   type SketchSolution,
 } from '../../generated/protocol'
 import { TEST_CATALOG_ENTRIES } from './catalog'
-import { documentText, emptyDocument } from './documents'
+import {
+  bodiesOf,
+  documentText,
+  emptyDocument,
+  featuresOf,
+  parametersOf,
+  type FeatureRecord,
+} from './documents'
 import { TEST_PRINTERS } from './printers'
 import { meshParts, type ErrorReply } from './protocol'
 
@@ -27,7 +34,6 @@ import { meshParts, type ErrorReply } from './protocol'
 // baseline of save and mark_saved, and the events every change emits. Geometry is not computed: a body
 // has geometry when an active feature names it as its `body`, and its mesh is a single triangle.
 
-type FeatureRecord = Document['features'][number]
 type FeatureState = FeatureStatus['status']
 type CommandOfType<Type extends Command['type']> = Extract<Command, { type: Type }>
 
@@ -175,9 +181,9 @@ function documentWith(
     format_version: recipe.format_version,
     units: recipe.units,
     ...(printer === null ? {} : { printer }),
-    parameters: recipe.parameters,
-    bodies: recipe.bodies,
-    features: recipe.features,
+    parameters: parametersOf(recipe),
+    bodies: bodiesOf(recipe),
+    features: featuresOf(recipe),
     ...(rollback === null ? {} : { rollback }),
   }
 }
@@ -232,9 +238,9 @@ function moveById<Item extends { readonly id: string }>(
 
 function usedIds(recipe: Document): Set<string> {
   return new Set([
-    ...recipe.parameters.map((parameter) => parameter.id),
-    ...recipe.bodies.map((body) => body.id),
-    ...recipe.features.map((feature) => feature.id),
+    ...parametersOf(recipe).map((parameter) => parameter.id),
+    ...bodiesOf(recipe).map((body) => body.id),
+    ...featuresOf(recipe).map((feature) => feature.id),
   ])
 }
 
@@ -249,39 +255,45 @@ function applyEdit(recipe: Document, edit: Edit): Document {
   switch (edit.type) {
     case 'add_parameter':
       requireFreeId(recipe, edit.parameter.id)
-      return { ...recipe, parameters: insertAt(recipe.parameters, edit.index, edit.parameter) }
+      return { ...recipe, parameters: insertAt(parametersOf(recipe), edit.index, edit.parameter) }
     case 'update_parameter':
-      return { ...recipe, parameters: replaceById(recipe.parameters, edit.parameter, 'parameter') }
+      return {
+        ...recipe,
+        parameters: replaceById(parametersOf(recipe), edit.parameter, 'parameter'),
+      }
     case 'remove_parameter':
-      return { ...recipe, parameters: removeById(recipe.parameters, edit.id, 'parameter') }
+      return { ...recipe, parameters: removeById(parametersOf(recipe), edit.id, 'parameter') }
     case 'move_parameter':
-      return { ...recipe, parameters: moveById(recipe.parameters, edit.id, edit.index, 'parameter') }
+      return {
+        ...recipe,
+        parameters: moveById(parametersOf(recipe), edit.id, edit.index, 'parameter'),
+      }
     case 'add_body':
       requireFreeId(recipe, edit.body.id)
-      return { ...recipe, bodies: insertAt(recipe.bodies, edit.index, edit.body) }
+      return { ...recipe, bodies: insertAt(bodiesOf(recipe), edit.index, edit.body) }
     case 'update_body':
-      return { ...recipe, bodies: replaceById(recipe.bodies, edit.body, 'body') }
+      return { ...recipe, bodies: replaceById(bodiesOf(recipe), edit.body, 'body') }
     case 'remove_body':
-      return { ...recipe, bodies: removeById(recipe.bodies, edit.id, 'body') }
+      return { ...recipe, bodies: removeById(bodiesOf(recipe), edit.id, 'body') }
     case 'move_body':
-      return { ...recipe, bodies: moveById(recipe.bodies, edit.id, edit.index, 'body') }
+      return { ...recipe, bodies: moveById(bodiesOf(recipe), edit.id, edit.index, 'body') }
     case 'add_feature':
       requireFreeId(recipe, edit.feature.id)
-      return { ...recipe, features: insertAt(recipe.features, edit.index, edit.feature) }
+      return { ...recipe, features: insertAt(featuresOf(recipe), edit.index, edit.feature) }
     case 'update_feature':
-      return { ...recipe, features: replaceById(recipe.features, edit.feature, 'feature') }
+      return { ...recipe, features: replaceById(featuresOf(recipe), edit.feature, 'feature') }
     case 'remove_feature': {
       if (recipe.rollback === edit.id) {
         reject('edit_rejected', `Feature ${edit.id} is the rollback marker; move the marker first.`)
       }
-      return { ...recipe, features: removeById(recipe.features, edit.id, 'feature') }
+      return { ...recipe, features: removeById(featuresOf(recipe), edit.id, 'feature') }
     }
     case 'move_feature':
-      return { ...recipe, features: moveById(recipe.features, edit.id, edit.index, 'feature') }
+      return { ...recipe, features: moveById(featuresOf(recipe), edit.id, edit.index, 'feature') }
     case 'set_rollback': {
       const rollback = edit.rollback ?? null
       if (rollback !== null) {
-        indexOfId(recipe.features, rollback, 'feature')
+        indexOfId(featuresOf(recipe), rollback, 'feature')
       }
       return documentWith(recipe, { rollback })
     }
@@ -295,14 +307,15 @@ function applyEdit(recipe: Document, edit: Edit): Document {
 function rollbackIndex(recipe: Document): number {
   const rollback = recipe.rollback ?? null
   const index =
-    rollback === null ? -1 : recipe.features.findIndex((feature) => feature.id === rollback)
-  return index === -1 ? recipe.features.length : index
+    rollback === null ? -1 : featuresOf(recipe).findIndex((feature) => feature.id === rollback)
+  return index === -1 ? featuresOf(recipe).length : index
 }
 
 /** Features that run at the display state: before the rollback marker and, with a focus, before the focused feature. */
 function modelFeatures(entry: DocumentEntry): readonly FeatureRecord[] {
-  const active = entry.recipe.features.slice(0, rollbackIndex(entry.recipe))
-  const focusIndex = entry.focus === null ? -1 : active.findIndex((feature) => feature.id === entry.focus)
+  const active = featuresOf(entry.recipe).slice(0, rollbackIndex(entry.recipe))
+  const focusIndex =
+    entry.focus === null ? -1 : active.findIndex((feature) => feature.id === entry.focus)
   return (focusIndex === -1 ? active : active.slice(0, focusIndex)).filter(
     (feature) => feature.suppressed !== true,
   )
@@ -331,6 +344,102 @@ function bodyOf(feature: FeatureRecord): string | null {
   return typeof body === 'string' ? body : null
 }
 
+function dirtyOf(entry: DocumentEntry): boolean {
+  return documentText(entry.recipe) !== entry.baseline
+}
+
+function parameterValues(recipe: Document): ParameterValue[] {
+  const names = new Map<string, Quantity>()
+  return parametersOf(recipe).map((parameter) => {
+    const result = evaluateExpression(parameter.expr, names)
+    if ('error' in result) {
+      return { id: parameter.id, error: result.error }
+    }
+    names.set(parameter.name, result)
+    return { id: parameter.id, value: result.value, dimension: result.dimension }
+  })
+}
+
+function defaultSolution(feature: FeatureRecord): SketchSolution {
+  return {
+    feature: feature.id,
+    status: 'under_constrained',
+    failed: false,
+    dof: 0,
+    redundant: [],
+    conflicting: [],
+    placement: { origin: [0, 0, 0], x_axis: [1, 0, 0], normal: [0, 0, 1] },
+    entities: [],
+    points: [],
+    constraints: [],
+    regions: [],
+    profile_findings: [],
+  }
+}
+
+function documentChanged(entry: DocumentEntry): ProtocolEvent {
+  const undo = entry.undo.at(-1)?.label ?? null
+  const redo = entry.redo.at(-1)?.label ?? null
+  return {
+    type: 'document_changed',
+    doc: entry.handle,
+    revision: entry.revision,
+    document: entry.recipe,
+    dirty: dirtyOf(entry),
+    ...(undo === null ? {} : { undo }),
+    ...(redo === null ? {} : { redo }),
+    transaction_open: entry.transaction !== null,
+    ...(entry.transaction === null ? {} : { transaction: entry.transaction.label }),
+    ...(entry.focus === null ? {} : { focus: entry.focus }),
+  }
+}
+
+function applyAll(recipe: Document, edits: readonly Edit[]): Document {
+  let next = recipe
+  edits.forEach((edit, index) => {
+    try {
+      next = applyEdit(next, edit)
+    } catch (error) {
+      if (error instanceof Rejection) {
+        throw new Rejection({ ...error.reply, edit_index: index })
+      }
+      throw error
+    }
+  })
+  return next
+}
+
+/** Records a change outside a transaction as one undo entry; inside one, the transaction keeps it. */
+function commitChange(entry: DocumentEntry, label: string | null, after: Document): void {
+  if (entry.transaction === null) {
+    entry.undo.push({ label: label ?? 'Edit', before: entry.recipe, after })
+    entry.redo = []
+  }
+  entry.recipe = after
+  entry.revision += 1
+}
+
+function rejectDuringTransaction(entry: DocumentEntry): void {
+  if (entry.transaction !== null) {
+    reject('transaction_open', `Finish or cancel "${entry.transaction.label}" first.`)
+  }
+}
+
+function requireTransaction(entry: DocumentEntry): {
+  readonly label: string
+  readonly before: Document
+} {
+  if (entry.transaction === null) {
+    reject('no_transaction', 'There is no edit in progress.')
+  }
+  return entry.transaction
+}
+
+function featureLabel(entry: DocumentEntry, id: string): string {
+  const feature = featuresOf(entry.recipe).find((record) => record.id === id)
+  return feature?.name ?? id
+}
+
 /** Creates a fake core with its own documents; `options` apply to every answer. */
 export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
   const documents = new Map<number, DocumentEntry>()
@@ -345,25 +454,9 @@ export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
     return entry
   }
 
-  function dirtyOf(entry: DocumentEntry): boolean {
-    return documentText(entry.recipe) !== entry.baseline
-  }
-
-  function parameterValues(recipe: Document): ParameterValue[] {
-    const names = new Map<string, Quantity>()
-    return recipe.parameters.map((parameter) => {
-      const result = evaluateExpression(parameter.expr, names)
-      if ('error' in result) {
-        return { id: parameter.id, error: result.error }
-      }
-      names.set(parameter.name, result)
-      return { id: parameter.id, value: result.value, dimension: result.dimension }
-    })
-  }
-
   function featureStatuses(recipe: Document): FeatureStatus[] {
     const end = rollbackIndex(recipe)
-    return recipe.features.map((feature, index) => {
+    return featuresOf(recipe).map((feature, index) => {
       let status: FeatureState = 'ok'
       let messages: readonly Diagnostic[] = []
       if (index >= end) {
@@ -381,42 +474,8 @@ export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
     })
   }
 
-  function defaultSolution(feature: FeatureRecord): SketchSolution {
-    return {
-      feature: feature.id,
-      status: 'under_constrained',
-      failed: false,
-      dof: 0,
-      redundant: [],
-      conflicting: [],
-      placement: { origin: [0, 0, 0], x_axis: [1, 0, 0], normal: [0, 0, 1] },
-      entities: [],
-      points: [],
-      constraints: [],
-      regions: [],
-      profile_findings: [],
-    }
-  }
-
   function solutionFor(feature: FeatureRecord): SketchSolution {
     return options.solutions?.[feature.id] ?? defaultSolution(feature)
-  }
-
-  function documentChanged(entry: DocumentEntry): ProtocolEvent {
-    const undo = entry.undo.at(-1)?.label ?? null
-    const redo = entry.redo.at(-1)?.label ?? null
-    return {
-      type: 'document_changed',
-      doc: entry.handle,
-      revision: entry.revision,
-      document: entry.recipe,
-      dirty: dirtyOf(entry),
-      ...(undo === null ? {} : { undo }),
-      ...(redo === null ? {} : { redo }),
-      transaction_open: entry.transaction !== null,
-      ...(entry.transaction === null ? {} : { transaction: entry.transaction.label }),
-      ...(entry.focus === null ? {} : { focus: entry.focus }),
-    }
   }
 
   /** The events of a recompute (engine.md 3.4 order) and the buffers their meshes reference. */
@@ -434,7 +493,7 @@ export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
       parameters: parameterValues(entry.recipe),
       diagnostics: [],
     })
-    for (const feature of entry.recipe.features) {
+    for (const feature of featuresOf(entry.recipe)) {
       if (feature.type === 'sketch') {
         events.push({
           type: 'sketch_solved',
@@ -446,7 +505,7 @@ export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
     }
     const withGeometry = new Set(modelFeatures(entry).map(bodyOf))
     const meshIds: Record<string, number> = {}
-    for (const body of entry.recipe.bodies) {
+    for (const body of bodiesOf(entry.recipe)) {
       if (!withGeometry.has(body.id)) {
         events.push({
           type: 'body_mesh',
@@ -473,7 +532,7 @@ export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
       })
     }
     entry.meshIds = meshIds
-    const focused = entry.recipe.features.find((feature) => feature.id === entry.focus)
+    const focused = featuresOf(entry.recipe).find((feature) => feature.id === entry.focus)
     const previewBody = focused === undefined ? null : bodyOf(focused)
     if (previewBody !== null) {
       const parts = meshParts(options.bounds?.[previewBody] ?? DEFAULT_BOUNDS, buffers.length)
@@ -513,49 +572,6 @@ export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
     return entry
   }
 
-  function applyAll(recipe: Document, edits: readonly Edit[]): Document {
-    let next = recipe
-    edits.forEach((edit, index) => {
-      try {
-        next = applyEdit(next, edit)
-      } catch (error) {
-        if (error instanceof Rejection) {
-          throw new Rejection({ ...error.reply, edit_index: index })
-        }
-        throw error
-      }
-    })
-    return next
-  }
-
-  /** Records a change outside a transaction as one undo entry; inside one, the transaction keeps it. */
-  function commitChange(entry: DocumentEntry, label: string | null, after: Document): void {
-    if (entry.transaction === null) {
-      entry.undo.push({ label: label ?? 'Edit', before: entry.recipe, after })
-      entry.redo = []
-    }
-    entry.recipe = after
-    entry.revision += 1
-  }
-
-  function rejectDuringTransaction(entry: DocumentEntry): void {
-    if (entry.transaction !== null) {
-      reject('transaction_open', `Finish or cancel "${entry.transaction.label}" first.`)
-    }
-  }
-
-  function requireTransaction(entry: DocumentEntry): { readonly label: string; readonly before: Document } {
-    if (entry.transaction === null) {
-      reject('no_transaction', 'There is no edit in progress.')
-    }
-    return entry.transaction
-  }
-
-  function featureLabel(entry: DocumentEntry, id: string): string {
-    const feature = entry.recipe.features.find((record) => record.id === id)
-    return feature?.name ?? id
-  }
-
   function applyEdits(command: CommandOfType<'apply_edits'>): FakeReply {
     const entry = entryFor(command.doc)
     const label = command.label ?? null
@@ -568,29 +584,30 @@ export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
         `Edits inside the transaction "${entry.transaction.label}" take the transaction's label.`,
       )
     }
-    commitChange(entry, label, applyAll(entry.recipe, command.edits))
+    commitChange(entry, label, applyAll(entry.recipe, command.edits ?? []))
     return changed(entry, { type: 'apply_edits', revision: entry.revision })
   }
 
   function renameParameter(command: CommandOfType<'rename_parameter'>): FakeReply {
     const entry = entryFor(command.doc)
-    const parameter = entry.recipe.parameters.find((existing) => existing.id === command.parameter)
+    const parameter = parametersOf(entry.recipe).find(
+      (existing) => existing.id === command.parameter,
+    )
     if (parameter === undefined) {
       reject('edit_rejected', `There is no parameter with id ${command.parameter}.`)
     }
-    if (entry.recipe.parameters.some((existing) => existing.name === command.name)) {
+    if (parametersOf(entry.recipe).some((existing) => existing.name === command.name)) {
       reject('edit_rejected', `The name ${command.name} is already used by another parameter.`)
     }
     const pattern = new RegExp(`\\b${parameter.name}\\b`, 'g')
     const rename = (expression: string): string => expression.replace(pattern, command.name)
-    const after: Document = {
-      ...entry.recipe,
-      parameters: entry.recipe.parameters.map((existing) =>
-        existing.id === parameter.id
-          ? { ...existing, name: command.name, expr: rename(existing.expr) }
-          : { ...existing, expr: rename(existing.expr) },
-      ),
-    }
+    const parameters = parametersOf(entry.recipe).map((existing) =>
+      Object.assign({}, existing, {
+        name: existing.id === parameter.id ? command.name : existing.name,
+        expr: rename(existing.expr),
+      }),
+    )
+    const after: Document = { ...entry.recipe, parameters }
     commitChange(entry, `Rename parameter ${parameter.name} to ${command.name}`, after)
     return changed(entry, { type: 'rename_parameter', revision: entry.revision })
   }
@@ -600,8 +617,8 @@ export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
     requireTransaction(entry)
     const focus = command.feature ?? null
     if (focus !== null) {
-      const index = indexOfId(entry.recipe.features, focus, 'feature')
-      const feature = entry.recipe.features[index]
+      const index = indexOfId(featuresOf(entry.recipe), focus, 'feature')
+      const feature = featuresOf(entry.recipe)[index]
       if (feature?.suppressed === true || index >= rollbackIndex(entry.recipe)) {
         reject(
           'focus_inactive',
@@ -645,10 +662,18 @@ export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
           },
         }
       case 'feature_catalog':
-        return { result: { type: 'feature_catalog', features: [...(options.catalog ?? TEST_CATALOG_ENTRIES)] } }
+        return {
+          result: {
+            type: 'feature_catalog',
+            features: [...(options.catalog ?? TEST_CATALOG_ENTRIES)],
+          },
+        }
       case 'list_printer_profiles':
         return {
-          result: { type: 'list_printer_profiles', profiles: [...(options.printers ?? TEST_PRINTERS)] },
+          result: {
+            type: 'list_printer_profiles',
+            profiles: [...(options.printers ?? TEST_PRINTERS)],
+          },
         }
       case 'new_document': {
         const entry = open(emptyDocument(command.units ?? 'mm'))
@@ -696,7 +721,9 @@ export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
         return { result: { type: 'close_document' } }
       case 'get_document': {
         const entry = entryFor(command.doc)
-        return { result: { type: 'get_document', revision: entry.revision, document: entry.recipe } }
+        return {
+          result: { type: 'get_document', revision: entry.revision, document: entry.recipe },
+        }
       }
       case 'apply_edits':
         return applyEdits(command)
@@ -716,14 +743,22 @@ export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
         const transaction = requireTransaction(entry)
         const recorded = documentText(transaction.before) !== documentText(entry.recipe)
         if (recorded) {
-          entry.undo.push({ label: transaction.label, before: transaction.before, after: entry.recipe })
+          entry.undo.push({
+            label: transaction.label,
+            before: transaction.before,
+            after: entry.recipe,
+          })
           entry.redo = []
         }
         const hadFocus = entry.focus !== null
         entry.transaction = null
         entry.focus = null
         entry.revision += 1
-        const result: CommandResult = { type: 'commit_transaction', revision: entry.revision, recorded }
+        const result: CommandResult = {
+          type: 'commit_transaction',
+          revision: entry.revision,
+          recorded,
+        }
         return hadFocus ? changed(entry, result) : { result, events: [documentChanged(entry)] }
       }
       case 'cancel_transaction': {
@@ -740,7 +775,9 @@ export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
         return undoOrRedo(command)
       case 'solve_sketch': {
         const entry = entryFor(command.doc)
-        const feature = entry.recipe.features[indexOfId(entry.recipe.features, command.feature, 'feature')]
+        const feature = featuresOf(entry.recipe)[
+          indexOfId(featuresOf(entry.recipe), command.feature, 'feature')
+        ]
         if (feature === undefined || feature.type !== 'sketch') {
           return reject('not_a_sketch', `${command.feature} is not a sketch.`)
         }
@@ -748,7 +785,9 @@ export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
       }
       case 'drag_sketch': {
         const entry = entryFor(command.doc)
-        const feature = entry.recipe.features[indexOfId(entry.recipe.features, command.feature, 'feature')]
+        const feature = featuresOf(entry.recipe)[
+          indexOfId(featuresOf(entry.recipe), command.feature, 'feature')
+        ]
         if (feature === undefined || feature.type !== 'sketch') {
           return reject('not_a_sketch', `${command.feature} is not a sketch.`)
         }
@@ -766,7 +805,7 @@ export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
         const entry = entryFor(command.doc)
         const names = new Map<string, Quantity>()
         for (const value of parameterValues(entry.recipe)) {
-          const parameter = entry.recipe.parameters.find((existing) => existing.id === value.id)
+          const parameter = parametersOf(entry.recipe).find((existing) => existing.id === value.id)
           const number = value.value ?? null
           const dimension = value.dimension ?? null
           if (parameter !== undefined && number !== null && dimension !== null) {
@@ -789,13 +828,16 @@ export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
       }
       case 'pick_reference':
         entryFor(command.doc)
-        return reject('stale_pick', 'The picked geometry changed since it was displayed. Pick again.')
+        return reject(
+          'stale_pick',
+          'The picked geometry changed since it was displayed. Pick again.',
+        )
       case 'resolve_references':
         entryFor(command.doc)
         return {
           result: {
             type: 'resolve_references',
-            results: command.references.map(resolvedWithoutMatches),
+            results: (command.references ?? []).map(resolvedWithoutMatches),
           },
         }
       case 'analyze_print': {
@@ -811,7 +853,13 @@ export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
               report: {
                 profile,
                 orientation: command.orientation,
-                summary: { health: 'ok', errors: 0, warnings: 0, infos: 0, label: 'Ready to print' },
+                summary: {
+                  health: 'ok',
+                  errors: 0,
+                  warnings: 0,
+                  infos: 0,
+                  label: 'Ready to print',
+                },
                 bodies: [],
               },
             },

@@ -9,7 +9,11 @@ import type {
 // A FileService for app tests: no pickers, no downloads, every call recorded.
 
 /** One `write` call. */
-export type FileWrite = { readonly target: SaveTarget; readonly kind: FileKind; readonly bytes: Uint8Array }
+export type FileWrite = {
+  readonly target: SaveTarget
+  readonly kind: FileKind
+  readonly bytes: Uint8Array
+}
 
 export type FakeFileService = FileService & {
   readonly writes: readonly FileWrite[]
@@ -75,7 +79,7 @@ export function createFakeFileService(
       }
       return {
         name: handle.name,
-        bytes: new TextEncoder().encode(contents.get(handle) ?? ''),
+        bytes: Uint8Array.from(new TextEncoder().encode(contents.get(handle) ?? '')),
         handle,
       }
     },

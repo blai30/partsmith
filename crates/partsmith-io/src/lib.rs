@@ -15,6 +15,7 @@ mod checks;
 mod error;
 mod export;
 mod obj;
+mod output;
 mod step;
 mod stl;
 #[cfg(test)]

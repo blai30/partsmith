@@ -26,13 +26,17 @@ import {
   CUBE_FRONT_FACE,
   CUBE_SKETCH_SOLUTION,
   CUBE_TOP_FACE,
+  featuresOf,
   RECT_SKETCH_DOCUMENT,
   RECT_SKETCH_SOLUTION,
+  type FeatureRecord,
 } from '../test/fakes/documents'
 import { TEST_PRINTERS } from '../test/fakes/printers'
 
 /** Every type of the test catalog, sorted. */
-export const CATALOG_TYPES: readonly string[] = TEST_CATALOG_ENTRIES.map((entry) => entry.type).toSorted()
+export const CATALOG_TYPES: readonly string[] = TEST_CATALOG_ENTRIES.map(
+  (entry) => entry.type,
+).toSorted()
 
 /** The catalog feature of one type of the test catalog. */
 export function testFeature(type: string): CatalogFeature {
@@ -61,6 +65,17 @@ export const IMPORT_DOCUMENT: Document = {
   ],
 }
 
+function boxRecord(index: number): FeatureRecord {
+  return {
+    id: `f-box${String(index + 1)}`,
+    type: 'box',
+    body: `b-${String(index + 1)}`,
+    size: ['10', '10', '10'],
+    position: [String(20 * index), '0', '0'],
+    op: 'new',
+  }
+}
+
 /** Three boxes on three bodies ("Box 1" to "Box 3"), for timeline, rollback and reorder tests. */
 export const THREE_BOXES_DOCUMENT: Document = {
   format: 'partsmith',
@@ -72,31 +87,19 @@ export const THREE_BOXES_DOCUMENT: Document = {
     { id: 'b-2', name: 'Body 2' },
     { id: 'b-3', name: 'Body 3' },
   ],
-  features: ['f-box1', 'f-box2', 'f-box3'].map((id, index) => ({
-    id,
-    type: 'box',
-    body: `b-${String(index + 1)}`,
-    size: ['10', '10', '10'],
-    position: [String(20 * index), '0', '0'],
-    op: 'new',
-  })),
+  features: [boxRecord(0), boxRecord(1), boxRecord(2)],
 }
 
 /** A document with four boxes, for reordering by gap. */
 export const FOUR_BOXES_DOCUMENT: Document = {
   ...THREE_BOXES_DOCUMENT,
-  bodies: [...THREE_BOXES_DOCUMENT.bodies, { id: 'b-4', name: 'Body 4' }],
-  features: [
-    ...THREE_BOXES_DOCUMENT.features,
-    {
-      id: 'f-box4',
-      type: 'box',
-      body: 'b-4',
-      size: ['10', '10', '10'],
-      position: ['60', '0', '0'],
-      op: 'new',
-    },
+  bodies: [
+    { id: 'b-1', name: 'Body 1' },
+    { id: 'b-2', name: 'Body 2' },
+    { id: 'b-3', name: 'Body 3' },
+    { id: 'b-4', name: 'Body 4' },
   ],
+  features: [boxRecord(0), boxRecord(1), boxRecord(2), boxRecord(3)],
 }
 
 // Element descriptors of the cube, in list_elements order (faces sorted by name): display face id i
@@ -115,7 +118,10 @@ function planarFace(spec: FaceSpec, feature = 'f-ext1'): ElementDescriptor {
     kind: 'face',
     body: 'b-cube',
     feature,
-    reference: { q: spec.name, fp: `plane|n=${spec.normal.join(',')}|c=${spec.centroid.join(',')}|a=400|adj=4,4` },
+    reference: {
+      q: spec.name,
+      fp: `plane|n=${spec.normal.join(',')}|c=${spec.centroid.join(',')}|a=400|adj=4,4`,
+    },
     surface: 'plane',
     centroid: [...spec.centroid],
     area: 400,
@@ -125,10 +131,30 @@ function planarFace(spec: FaceSpec, feature = 'f-ext1'): ElementDescriptor {
   }
 }
 
-const CUBE_RIGHT_FACE = planarFace({ name: 'f-ext1/side-1', centroid: [10, 0, 10], normal: [1, 0, 0], xAxis: [0, 1, 0] })
-const CUBE_BACK_FACE = planarFace({ name: 'f-ext1/side-2', centroid: [0, 10, 10], normal: [0, 1, 0], xAxis: [1, 0, 0] })
-const CUBE_LEFT_FACE = planarFace({ name: 'f-ext1/side-3', centroid: [-10, 0, 10], normal: [-1, 0, 0], xAxis: [0, 1, 0] })
-const CUBE_BOTTOM_FACE = planarFace({ name: 'f-ext1/start-cap', centroid: [0, 0, 0], normal: [0, 0, -1], xAxis: [1, 0, 0] })
+const CUBE_RIGHT_FACE = planarFace({
+  name: 'f-ext1/side-1',
+  centroid: [10, 0, 10],
+  normal: [1, 0, 0],
+  xAxis: [0, 1, 0],
+})
+const CUBE_BACK_FACE = planarFace({
+  name: 'f-ext1/side-2',
+  centroid: [0, 10, 10],
+  normal: [0, 1, 0],
+  xAxis: [1, 0, 0],
+})
+const CUBE_LEFT_FACE = planarFace({
+  name: 'f-ext1/side-3',
+  centroid: [-10, 0, 10],
+  normal: [-1, 0, 0],
+  xAxis: [0, 1, 0],
+})
+const CUBE_BOTTOM_FACE = planarFace({
+  name: 'f-ext1/start-cap',
+  centroid: [0, 0, 0],
+  normal: [0, 0, -1],
+  xAxis: [1, 0, 0],
+})
 
 /** The cube's six faces: top, front (-Y), right (+X), back (+Y), left (-X), bottom. */
 export const CUBE_FACES: readonly ElementDescriptor[] = [
@@ -186,7 +212,10 @@ export const CORNER_VERTEX: ElementDescriptor = {
   kind: 'vertex',
   body: 'b-cube',
   feature: 'f-ext1',
-  reference: { q: 'vertex(f-ext1/end-cap|f-ext1/side-0|f-ext1/side-1)', fp: 'vertex|c=10,-10,20|adj=3' },
+  reference: {
+    q: 'vertex(f-ext1/end-cap|f-ext1/side-0|f-ext1/side-1)',
+    fp: 'vertex|c=10,-10,20|adj=3',
+  },
   centroid: [10, -10, 20],
   adjacent: [],
 }
@@ -201,12 +230,60 @@ export function boxMesh(min: Point, max: Point): BodyMeshData {
   const [x1, y1, z1] = max
   // Corners of each face, counterclockwise seen from outside.
   const faces: readonly { readonly normal: Point; readonly corners: readonly Point[] }[] = [
-    { normal: [0, 0, 1], corners: [[x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]] },
-    { normal: [0, -1, 0], corners: [[x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1]] },
-    { normal: [1, 0, 0], corners: [[x1, y0, z0], [x1, y1, z0], [x1, y1, z1], [x1, y0, z1]] },
-    { normal: [0, 1, 0], corners: [[x1, y1, z0], [x0, y1, z0], [x0, y1, z1], [x1, y1, z1]] },
-    { normal: [-1, 0, 0], corners: [[x0, y1, z0], [x0, y0, z0], [x0, y0, z1], [x0, y1, z1]] },
-    { normal: [0, 0, -1], corners: [[x0, y1, z0], [x1, y1, z0], [x1, y0, z0], [x0, y0, z0]] },
+    {
+      normal: [0, 0, 1],
+      corners: [
+        [x0, y0, z1],
+        [x1, y0, z1],
+        [x1, y1, z1],
+        [x0, y1, z1],
+      ],
+    },
+    {
+      normal: [0, -1, 0],
+      corners: [
+        [x0, y0, z0],
+        [x1, y0, z0],
+        [x1, y0, z1],
+        [x0, y0, z1],
+      ],
+    },
+    {
+      normal: [1, 0, 0],
+      corners: [
+        [x1, y0, z0],
+        [x1, y1, z0],
+        [x1, y1, z1],
+        [x1, y0, z1],
+      ],
+    },
+    {
+      normal: [0, 1, 0],
+      corners: [
+        [x1, y1, z0],
+        [x0, y1, z0],
+        [x0, y1, z1],
+        [x1, y1, z1],
+      ],
+    },
+    {
+      normal: [-1, 0, 0],
+      corners: [
+        [x0, y1, z0],
+        [x0, y0, z0],
+        [x0, y0, z1],
+        [x0, y1, z1],
+      ],
+    },
+    {
+      normal: [0, 0, -1],
+      corners: [
+        [x0, y1, z0],
+        [x1, y1, z0],
+        [x1, y0, z0],
+        [x0, y0, z0],
+      ],
+    },
   ]
   const positions: number[] = []
   const normals: number[] = []
@@ -296,7 +373,10 @@ function okStatus(id: string): FeatureStatus {
 }
 
 /** The store's document state for a recipe (document handle 1): every feature ok, no meshes unless given. */
-export function documentState(recipe: Document, overrides: Partial<DocumentState> = {}): DocumentState {
+export function documentState(
+  recipe: Document,
+  overrides: Partial<DocumentState> = {},
+): DocumentState {
   return {
     documentHandle: 1,
     name: 'Untitled',
@@ -309,7 +389,9 @@ export function documentState(recipe: Document, overrides: Partial<DocumentState
     redoLabel: null,
     transactionOpen: false,
     focus: null,
-    featureStatus: Object.fromEntries(recipe.features.map((feature) => [feature.id, okStatus(feature.id)])),
+    featureStatus: Object.fromEntries(
+      featuresOf(recipe).map((feature) => [feature.id, okStatus(feature.id)]),
+    ),
     parameterValues: {},
     diagnostics: [],
     sketches: {},
@@ -341,7 +423,10 @@ export function rectSketchDocumentState(overrides: Partial<DocumentState> = {}):
 }
 
 /** A ready app state around a document: the test catalog and printers, the light theme, Fusion navigation. */
-export function readyState(document: DocumentState | null, overrides: Partial<AppState> = {}): Partial<AppState> {
+export function readyState(
+  document: DocumentState | null,
+  overrides: Partial<AppState> = {},
+): Partial<AppState> {
   return {
     core: { status: 'ready', engineVersion: '0.1.0', fatal: null, pendingMutations: 0 },
     catalog: TEST_CATALOG,
@@ -354,7 +439,13 @@ export function readyState(document: DocumentState | null, overrides: Partial<Ap
 
 // Selection items with the keys of ui.md 3.6.
 
-const NO_ITEM_DATA = { body: null, feature: null, element: null, sketchItem: null, origin: null } as const
+const NO_ITEM_DATA = {
+  body: null,
+  feature: null,
+  element: null,
+  sketchItem: null,
+  origin: null,
+} as const
 
 export function bodyItem(id: string, name: string): SelectionItem {
   return { ...NO_ITEM_DATA, key: `body:${id}`, kind: 'body', label: name, body: id }

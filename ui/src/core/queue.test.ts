@@ -9,13 +9,16 @@ type Deferred<Value> = {
 }
 
 function deferred<Value>(): Deferred<Value> {
-  let resolve: (value: Value) => void = () => undefined
-  let reject: (error: unknown) => void = () => undefined
-  const promise = new Promise<Value>((resolvePromise, rejectPromise) => {
-    resolve = resolvePromise
-    reject = rejectPromise
+  const settlers: { resolve?: (value: Value) => void; reject?: (error: unknown) => void } = {}
+  const promise = new Promise<Value>((resolve, reject) => {
+    settlers.resolve = resolve
+    settlers.reject = reject
   })
-  return { promise, resolve, reject }
+  return {
+    promise,
+    resolve: (value) => settlers.resolve?.(value),
+    reject: (error) => settlers.reject?.(error),
+  }
 }
 
 describe('createMutationQueue', () => {
@@ -222,7 +225,11 @@ describe('createLatestOnly', () => {
 
   it('does not call send again when nothing new was submitted', async () => {
     const send = vi.fn<(input: string) => Promise<string>>(async (input) => input)
-    const latest = createLatestOnly<string, string>(send, () => undefined, () => undefined)
+    const latest = createLatestOnly<string, string>(
+      send,
+      () => undefined,
+      () => undefined,
+    )
     latest.submit('a')
     await latest.flush()
     await settle()

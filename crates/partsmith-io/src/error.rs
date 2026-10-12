@@ -47,6 +47,13 @@ pub enum IoError {
          or use a coarser tolerance."
     )]
     PackageTooLarge,
+    /// An output buffer could not grow: the file is larger than this build can hold in memory
+    /// (any buffer above `isize::MAX` bytes, 2 GiB, on WebAssembly).
+    #[error(
+        "The export is too large to hold in memory. Export fewer bodies per file, use a coarser \
+         tolerance, or use binary STL or 3MF."
+    )]
+    OutputTooLarge,
     /// The zip writer failed for another reason (an internal error).
     #[error("The 3MF package could not be written ({detail}). Please report this.")]
     Package {

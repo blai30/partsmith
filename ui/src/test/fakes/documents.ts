@@ -11,9 +11,37 @@ import type { OpenedFile } from '../../files/file-service'
 // Recipes of the e2e fixtures (ui.md 6.2) as the core sends them in document_changed, the sketch
 // solutions the test core reports for their sketches, and element descriptors of the cube.
 
-type FeatureRecord = Document['features'][number]
+/** One timeline record of a document. */
+export type FeatureRecord = NonNullable<Document['features']>[number]
 type SolvedEntity = SketchSolution['entities'][number]
 type Point2 = [number, number]
+
+/** The parameters of a recipe; the protocol may omit the empty list. */
+export function parametersOf(document: Document): NonNullable<Document['parameters']> {
+  return document.parameters ?? []
+}
+
+/** The bodies of a recipe; the protocol may omit the empty list. */
+export function bodiesOf(document: Document): NonNullable<Document['bodies']> {
+  return document.bodies ?? []
+}
+
+/** The feature records of a recipe in timeline order; the protocol may omit the empty list. */
+export function featuresOf(document: Document): NonNullable<Document['features']> {
+  return document.features ?? []
+}
+
+/** The document with the fields of one feature record replaced. */
+export function withFeatureChanges(
+  document: Document,
+  featureId: string,
+  changes: Partial<FeatureRecord>,
+): Document {
+  const features = featuresOf(document).map((feature) =>
+    feature.id === featureId ? Object.assign({}, feature, changes) : feature,
+  )
+  return { ...document, features }
+}
 
 /** An empty document, as `new_document` creates it. */
 export function emptyDocument(units: Units = 'mm'): Document {
@@ -38,7 +66,8 @@ export function documentFile(
   document: Document,
   handle: FileSystemFileHandle | null = null,
 ): OpenedFile {
-  return { name, bytes: new TextEncoder().encode(documentText(document)), handle }
+  // Copied into this realm's Uint8Array: under jsdom, TextEncoder returns Node's.
+  return { name, bytes: Uint8Array.from(new TextEncoder().encode(documentText(document))), handle }
 }
 
 export const CUBE_REGION: RegionInfo = {
@@ -119,7 +148,10 @@ const VERTICAL_EDGES = [
   { q: 'edge(f-ext1/side-0|f-ext1/side-3)', fp: 'line|n=0,0,1|c=-10,-10,10|l=20|adj=2,2' },
 ] as const
 
-const TOP_FACE_REFERENCE = { q: 'f-ext1/end-cap', fp: 'plane|n=0,0,1|c=0,0,20|a=400|adj=4,4' } as const
+const TOP_FACE_REFERENCE = {
+  q: 'f-ext1/end-cap',
+  fp: 'plane|n=0,0,1|c=0,0,20|a=400|adj=4,4',
+} as const
 
 /** cube-features.ptsm: cube.ptsm plus `f-fil1` (fillet 2 mm on the vertical edges) and `f-sh1` (shell 2 mm without the top face). */
 export const CUBE_FEATURES_DOCUMENT: Document = {
@@ -128,7 +160,13 @@ export const CUBE_FEATURES_DOCUMENT: Document = {
     CUBE_SKETCH,
     CUBE_EXTRUDE,
     { id: 'f-fil1', type: 'fillet', body: 'b-cube', edges: VERTICAL_EDGES, radius: '2 mm' },
-    { id: 'f-sh1', type: 'shell', body: 'b-cube', thickness: '2 mm', remove_faces: [TOP_FACE_REFERENCE] },
+    {
+      id: 'f-sh1',
+      type: 'shell',
+      body: 'b-cube',
+      thickness: '2 mm',
+      remove_faces: [TOP_FACE_REFERENCE],
+    },
   ],
 }
 
@@ -251,14 +289,19 @@ export const CUBE_SKETCH_SOLUTION: SketchSolution = rectangleSolution(
 )
 
 /** The solution of rect-sketch.ptsm's `f-sk1`: fully constrained, one region of 40 by 20. */
-export const RECT_SKETCH_SOLUTION: SketchSolution = rectangleSolution(
-  0,
-  0,
-  40,
-  20,
-  RECT_REGION,
-  ['c-1', 'c-2', 'c-3', 'c-4', 'c-5', 'c-6', 'c-7', 'c-8', 'c-9', 'c-10', 'c-11'],
-)
+export const RECT_SKETCH_SOLUTION: SketchSolution = rectangleSolution(0, 0, 40, 20, RECT_REGION, [
+  'c-1',
+  'c-2',
+  'c-3',
+  'c-4',
+  'c-5',
+  'c-6',
+  'c-7',
+  'c-8',
+  'c-9',
+  'c-10',
+  'c-11',
+])
 
 /** The top face of the cube (cube.ptsm), as `pick_reference` describes it. */
 export const CUBE_TOP_FACE: ElementDescriptor = {

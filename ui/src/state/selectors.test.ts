@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { DEFAULT_SETTINGS } from '../settings/settings'
-import { CUBE_DOCUMENT, CUBE_FEATURES_DOCUMENT } from '../test/fakes/documents'
+import { CUBE_DOCUMENT, CUBE_FEATURES_DOCUMENT, withFeatureChanges } from '../test/fakes/documents'
 import { checkResult, finding, printReport, stateWithDocument } from '../test/fakes/state'
 import { selectActiveFeatureIds, selectFeatureLabel, selectHealthBadge } from './selectors'
 import type { AppState, PrintState } from './store'
@@ -13,12 +13,7 @@ describe('selectFeatureLabel', () => {
   })
 
   it('shows a record name', () => {
-    const state = stateWithDocument({
-      ...CUBE_DOCUMENT,
-      features: CUBE_DOCUMENT.features.map((feature) =>
-        feature.id === 'f-ext1' ? { ...feature, name: 'Base' } : feature,
-      ),
-    })
+    const state = stateWithDocument(withFeatureChanges(CUBE_DOCUMENT, 'f-ext1', { name: 'Base' }))
     expect(selectFeatureLabel(state, 'f-ext1')).toBe('Base')
   })
 })
@@ -39,7 +34,9 @@ describe('selectActiveFeatureIds', () => {
   })
 
   it('is empty without a document', () => {
-    expect(selectActiveFeatureIds({ ...stateWithDocument(CUBE_DOCUMENT), document: null })).toEqual([])
+    expect(selectActiveFeatureIds({ ...stateWithDocument(CUBE_DOCUMENT), document: null })).toEqual(
+      [],
+    )
   })
 })
 
@@ -76,7 +73,10 @@ describe('selectHealthBadge (U-81)', () => {
   it('is warning with the warning count when there are warnings and no errors', () => {
     const report = printReport({
       'b-cube': [
-        checkResult('overhangs', [finding('overhangs', 'warning'), finding('overhangs', 'warning')]),
+        checkResult('overhangs', [
+          finding('overhangs', 'warning'),
+          finding('overhangs', 'warning'),
+        ]),
         checkResult('thin_walls', [finding('thin_walls', 'warning')]),
       ],
     })
@@ -99,7 +99,7 @@ describe('selectHealthBadge (U-81)', () => {
     })
   })
 
-  it('adds each check\'s omitted findings to the count of its listed findings\' severity', () => {
+  it("adds each check's omitted findings to the count of its listed findings' severity", () => {
     const report = printReport({
       'b-cube': [checkResult('overhangs', [finding('overhangs', 'warning')], 4)],
     })
@@ -116,9 +116,11 @@ describe('selectHealthBadge (U-81)', () => {
         checkResult('bed_fit', [finding('bed_fit', 'error')]),
       ],
     })
-    expect(
-      selectHealthBadge(withPrint({ report, reportRevision: 4 }, ['bed_fit'])),
-    ).toMatchObject({ state: 'warning', errors: 0, warnings: 3 })
+    expect(selectHealthBadge(withPrint({ report, reportRevision: 4 }, ['bed_fit']))).toMatchObject({
+      state: 'warning',
+      errors: 0,
+      warnings: 3,
+    })
     expect(
       selectHealthBadge(withPrint({ report, reportRevision: 4 }, ['bed_fit', 'overhangs'])),
     ).toMatchObject({ state: 'ok', errors: 0, warnings: 0 })

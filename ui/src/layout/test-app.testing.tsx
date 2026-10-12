@@ -13,7 +13,7 @@ import { builtinCommands } from '../commands/builtin'
 import { featureCommands } from '../commands/features'
 import { createCommandRegistry } from '../commands/registry'
 import { createAppStore, type AppState } from '../state/store'
-import { createTestApp, LINUX_WEB } from '../test/fakes/app'
+import { createTestApp, LINUX_WEB } from '../test/fakes/test-app'
 import { createFakeCoreApi, type FakeCoreApi } from '../test/fakes/core-api'
 import { DEFAULT_CAMERA } from '../viewport/camera'
 import type { ViewportHandle } from '../viewport/controller'
@@ -58,7 +58,9 @@ export function renderWithApp(app: App, element: ReactElement = <AppShell />): R
 }
 
 /** A ViewportHandle whose every method is a mock. */
-export type FakeViewport = { readonly [Method in keyof ViewportHandle]: Mock<ViewportHandle[Method]> }
+export type FakeViewport = {
+  readonly [Method in keyof ViewportHandle]: Mock<ViewportHandle[Method]>
+}
 
 export function createFakeViewport(): FakeViewport {
   return {

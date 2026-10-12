@@ -61,7 +61,8 @@ export function regionItem(sketch: string, region: RegionInfo, number = 1): Sele
 
 /** An origin plane, axis or point row. */
 export function originItem(origin: OriginName): SelectionItem {
-  const kind = origin === 'O' ? 'origin_point' : origin.length === 2 ? 'origin_plane' : 'origin_axis'
+  const kind =
+    origin === 'O' ? 'origin_point' : origin.length === 2 ? 'origin_plane' : 'origin_axis'
   const label =
     origin === 'O' ? 'Origin' : origin.length === 2 ? `${origin} plane` : `${origin} axis`
   return {

@@ -19,4 +19,5 @@ Format: title, status (proposed, accepted, superseded by NNNN), context, decisio
 | [0011](0011-feature-contract-extensions.md) | Feature contract extensions and manifests in the model crate | Accepted, needs human review |
 | [0012](0012-dependency-log-m1.md) | New dependencies for M1: blake3, zip and faer | Accepted, needs human review |
 | [0013](0013-oxc-tooling-and-theme-stylesheet.md) | oxlint and oxfmt for the UI, and a minimal theme stylesheet | Accepted |
+| [0014](0014-desktop-host-and-dependencies.md) | Tauri 2 desktop host with tauri-build and tauri-plugin-dialog, and no Tauri npm package | Proposed, needs human review |
 | [0015](0015-sketch-solver-own-sparse-qr.md) | Sketch solver uses its own sparse rank-revealing QR instead of faer | Accepted, needs human review |

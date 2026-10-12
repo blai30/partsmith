@@ -14,11 +14,18 @@ function hint(path: string, label: string, details: HintDetails = {}): FieldHint
   return { path, label, ...details }
 }
 
-function options(...pairs: readonly (readonly [string, string])[]): HintDetails['options'] {
+function options(
+  ...pairs: readonly (readonly [string, string])[]
+): NonNullable<HintDetails['options']> {
   return pairs.map(([value, label]) => ({ value, label }))
 }
 
-const BODY_OPS = options(['new', 'New body'], ['join', 'Join'], ['cut', 'Cut'], ['intersect', 'Intersect'])
+const BODY_OPS = options(
+  ['new', 'New body'],
+  ['join', 'Join'],
+  ['cut', 'Cut'],
+  ['intersect', 'Intersect'],
+)
 const COPY_OPS = options(['join', 'Join'], ['new', 'New body'])
 
 const EXPR: Schema = { $ref: '#/$defs/Expr' }
@@ -47,7 +54,11 @@ function constant(value: string, description: string): Schema {
   return { type: 'string', const: value, description }
 }
 
-function variant(kind: string, properties: Readonly<Record<string, Schema>>, description: string): Schema {
+function variant(
+  kind: string,
+  properties: Readonly<Record<string, Schema>>,
+  description: string,
+): Schema {
   return {
     type: 'object',
     description,
@@ -81,13 +92,18 @@ const DEFINITIONS: Readonly<Record<string, Schema>> = {
   PlaneRef: {
     description: 'A plane given by an origin plane, a datum plane, or a flat face of a body.',
     oneOf: [
-      variant('origin', { plane: { $ref: '#/$defs/OriginPlane' } }, 'One of the three origin planes.'),
+      variant(
+        'origin',
+        { plane: { $ref: '#/$defs/OriginPlane' } },
+        'One of the three origin planes.',
+      ),
       variant('datum', { feature: ID }, 'A datum plane feature.'),
       variant('face', { body: ID, face: REFERENCE }, 'A flat face of a body.'),
     ],
   },
   AxisRef: {
-    description: 'An axis given by an origin axis, a sketch line, a straight edge, or a round face.',
+    description:
+      'An axis given by an origin axis, a sketch line, a straight edge, or a round face.',
     oneOf: [
       variant('origin', { axis: { $ref: '#/$defs/OriginAxis' } }, 'One of the three origin axes.'),
       variant('sketch_line', { sketch: ID, line: ID }, 'A line entity of a sketch.'),
@@ -111,12 +127,20 @@ const DEFINITIONS: Readonly<Record<string, Schema>> = {
   },
   Placement: {
     type: 'object',
-    properties: { origin: triple({ type: 'number' }), x_axis: triple({ type: 'number' }), normal: triple({ type: 'number' }) },
+    properties: {
+      origin: triple({ type: 'number' }),
+      x_axis: triple({ type: 'number' }),
+      normal: triple({ type: 'number' }),
+    },
     required: ['origin', 'x_axis', 'normal'],
   },
   SketchPlane: {
     oneOf: [
-      variant('origin', { plane: { $ref: '#/$defs/OriginPlane' } }, 'One of the three origin planes.'),
+      variant(
+        'origin',
+        { plane: { $ref: '#/$defs/OriginPlane' } },
+        'One of the three origin planes.',
+      ),
       variant('datum', { feature: ID }, 'The plane produced by a datum feature.'),
       variant(
         'face',
@@ -273,7 +297,8 @@ export const CHAMFER_ENTRY = entry(
           variant('equal', { expr: EXPR }, '`expr` on both faces.'),
           {
             type: 'object',
-            description: '`expr` on the first face and `second_expr` on the second face of each edge.',
+            description:
+              '`expr` on the first face and `second_expr` on the second face of each edge.',
             properties: {
               kind: { type: 'string', const: 'two_distances' },
               expr: EXPR,
@@ -400,10 +425,19 @@ export const EXTRUDE_ENTRY = entry(
       body: ID,
       profile: { $ref: '#/$defs/ProfileRef' },
       extent: {
-        description: 'How far the extrusion goes, measured along its direction from the sketch plane.',
+        description:
+          'How far the extrusion goes, measured along its direction from the sketch plane.',
         oneOf: [
-          variant('distance', { expr: EXPR }, 'From the sketch plane to `expr` along the direction.'),
-          variant('symmetric', { expr: EXPR }, 'Total length `expr`, centered on the sketch plane.'),
+          variant(
+            'distance',
+            { expr: EXPR },
+            'From the sketch plane to `expr` along the direction.',
+          ),
+          variant(
+            'symmetric',
+            { expr: EXPR },
+            'Total length `expr`, centered on the sketch plane.',
+          ),
           variant(
             'two_sides',
             { expr: EXPR, opposite_expr: EXPR },
@@ -452,7 +486,11 @@ export const HOLE_ENTRY = entry(
       hint('diameter', 'Diameter', LENGTH),
       hint('hole_type.kind', 'Type', {
         essential: true,
-        options: options(['simple', 'Simple'], ['counterbore', 'Counterbore'], ['countersink', 'Countersink']),
+        options: options(
+          ['simple', 'Simple'],
+          ['counterbore', 'Counterbore'],
+          ['countersink', 'Countersink'],
+        ),
       }),
       hint('hole_type.diameter', 'Head diameter', LENGTH),
       hint('hole_type.depth', 'Counterbore depth', LENGTH),

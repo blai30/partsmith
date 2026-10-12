@@ -43,17 +43,23 @@ describe('the status bar (3.21)', () => {
   })
 
   it('shows "Loading core" while the core loads', () => {
-    renderApp({ core: { status: 'loading', engineVersion: null, fatal: null, pendingMutations: 0 } })
+    renderApp({
+      core: { status: 'loading', engineVersion: null, fatal: null, pendingMutations: 0 },
+    })
     expect(screen.getByTestId('status-core')).toHaveTextContent('Loading core')
   })
 
   it('shows "Core stopped" in the error text role after a failure', () => {
-    renderApp({ core: { status: 'failed', engineVersion: '0.1.0', fatal: 'trap', pendingMutations: 0 } })
+    renderApp({
+      core: { status: 'failed', engineVersion: '0.1.0', fatal: 'trap', pendingMutations: 0 },
+    })
     const status = screen.getByTestId('status-core')
     expect(status).toHaveTextContent('Core stopped')
     const roleClasses = COLOR_CLASSES.errorText.foreground.split(' ')
     const carriers = [status, ...status.querySelectorAll('*')]
-    expect(carriers.some((element) => roleClasses.every((name) => element.classList.contains(name)))).toBe(true)
+    expect(
+      carriers.some((element) => roleClasses.every((name) => element.classList.contains(name))),
+    ).toBe(true)
   })
 
   it('shows "Rebuilding" only after a mutation has been pending for more than 300 ms', () => {
@@ -97,19 +103,23 @@ describe('the status bar (3.21)', () => {
     expect(units).toHaveTextContent('mm')
     await user.click(units)
     const menu = screen.getByRole('menu')
-    expect(within(menu).getAllByRole('menuitemradio').map((item) => item.textContent?.trim())).toEqual([
-      'mm',
-      'cm',
-      'm',
-      'in',
-    ])
-    expect(within(menu).getByRole('menuitemradio', { name: 'mm' })).toHaveAttribute('aria-checked', 'true')
+    expect(
+      within(menu)
+        .getAllByRole('menuitemradio')
+        .map((item) => item.textContent?.trim()),
+    ).toEqual(['mm', 'cm', 'm', 'in'])
+    expect(within(menu).getByRole('menuitemradio', { name: 'mm' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    )
     await user.click(within(menu).getByRole('menuitemradio', { name: 'in' }))
     await settle()
-    expect(core.callsTo('applyEdits')).toEqual([[1, 'Change units to in', [{ type: 'set_units', units: 'in' }]]])
-    expect(app.store.getState().notifications.map((notification) => notification.message)).toContain(
-      MESSAGES.units_changed('in'),
-    )
+    expect(core.callsTo('applyEdits')).toEqual([
+      [1, 'Change units to in', [{ type: 'set_units', units: 'in' }]],
+    ])
+    expect(
+      app.store.getState().notifications.map((notification) => notification.message),
+    ).toContain(MESSAGES.units_changed('in'))
   })
 
   it('shows "No printer" without a printer and the profile name with one', () => {

@@ -96,7 +96,8 @@ export function createFakeCoreApi(stubs: Partial<CoreApi> = {}): FakeCoreApi {
         message: 'The picked geometry changed since it was displayed. Pick again.',
       })
     },
-    resolveReferences: async (_documentHandle, references) => references.map(resolvedWithoutMatches),
+    resolveReferences: async (_documentHandle, references) =>
+      references.map(resolvedWithoutMatches),
     analyzePrint: async () => null,
     exportBodies: async () => ({ files: [], warnings: [] }),
   }

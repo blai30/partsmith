@@ -10,11 +10,7 @@ import { createModelApp, deferred, renderWithApp, type Deferred } from '../layou
 import { coreErrorFor, type FakeCoreApi } from '../test/fakes/core-api'
 import { settle } from '../test/fakes/settle'
 import { FONT_CLASSES } from '../theme/roles'
-import {
-  ExpressionInput,
-  type ExpressionInputProps,
-  type ExpressionState,
-} from './ExpressionInput'
+import { ExpressionInput, type ExpressionInputProps, type ExpressionState } from './ExpressionInput'
 import { useExpression } from './useExpression'
 
 afterEach(() => {
@@ -56,7 +52,10 @@ function setUp(props: HarnessProps, prepare: (core: FakeCoreApi) => void = () =>
 /** Makes `evaluate` reject every expression with this protocol error. */
 async function rejectEvaluations(
   core: FakeCoreApi,
-  error: { readonly message: string; readonly span?: { readonly start: number; readonly end: number } },
+  error: {
+    readonly message: string
+    readonly span?: { readonly start: number; readonly end: number }
+  },
 ): Promise<void> {
   const coreError = await coreErrorFor({ code: 'expression_error', ...error })
   core.stub('evaluate', () => Promise.reject(coreError))

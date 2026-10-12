@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import type { Document } from '../generated/protocol'
 import { TEST_CATALOG } from '../test/fakes/catalog'
-import { CUBE_DOCUMENT, emptyDocument } from '../test/fakes/documents'
+import { CUBE_DOCUMENT, emptyDocument, type FeatureRecord } from '../test/fakes/documents'
 import { featureLabel, nextBodyName } from './labels'
 
-type FeatureRecord = Document['features'][number]
-
-function documentWith(features: readonly FeatureRecord[], bodyNames: readonly string[] = []): Document {
+function documentWith(
+  features: readonly FeatureRecord[],
+  bodyNames: readonly string[] = [],
+): Document {
   return {
     ...emptyDocument(),
     bodies: bodyNames.map((name, index) => ({ id: `b-${String(index + 1)}`, name })),

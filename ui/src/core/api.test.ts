@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import type { Command, Edit } from '../generated/protocol'
-import { CUBE_DOCUMENT, CUBE_TOP_FACE, documentText, RECT_SKETCH_DOCUMENT, RECT_SKETCH_SOLUTION } from '../test/fakes/documents'
+import {
+  CUBE_DOCUMENT,
+  CUBE_TOP_FACE,
+  documentText,
+  RECT_SKETCH_DOCUMENT,
+  RECT_SKETCH_SOLUTION,
+} from '../test/fakes/documents'
 import { withoutNulls } from '../test/fakes/protocol'
 import { createFakeTransport, type FakeTransport } from '../test/fakes/transport'
 import { createCoreApi, type CoreApi } from './api'
@@ -20,9 +26,7 @@ function lastCommand(transport: FakeTransport): unknown {
 
 const SUPERSEDED = { code: 'superseded', message: 'A newer request replaced this one.' } as const
 
-const RENAME_EDITS: readonly Edit[] = [
-  { type: 'update_body', body: { id: 'b-cube', name: 'Box' } },
-]
+const RENAME_EDITS: readonly Edit[] = [{ type: 'update_body', body: { id: 'b-cube', name: 'Box' } }]
 
 describe('createCoreApi', () => {
   it('engineInfo returns the versions in camel case', async () => {
@@ -127,7 +131,10 @@ describe('createCoreApi', () => {
   it('renameParameter sends rename_parameter and resolves the revision', async () => {
     const { api, transport } = await setUp()
     const { documentHandle } = await api.openDocument(
-      documentText({ ...CUBE_DOCUMENT, parameters: [{ id: 'p-h', name: 'height', expr: '20 mm' }] }),
+      documentText({
+        ...CUBE_DOCUMENT,
+        parameters: [{ id: 'p-h', name: 'height', expr: '20 mm' }],
+      }),
     )
     await expect(api.renameParameter(documentHandle, 'p-h', 'h')).resolves.toBe(1)
     expect(lastCommand(transport)).toEqual({
@@ -144,7 +151,11 @@ describe('createCoreApi', () => {
     const solved = await api.solveSketch(documentHandle, 'f-sk1')
     expect(solved).toEqual({ solution: RECT_SKETCH_SOLUTION, display: null })
     expect(lastCommand(transport)).toEqual({ type: 'solve_sketch', doc: 1, feature: 'f-sk1' })
-    const candidate = { plane: { kind: 'origin', plane: 'XY' }, entities: [], constraints: [] } as const
+    const candidate = {
+      plane: { kind: 'origin', plane: 'XY' },
+      entities: [],
+      constraints: [],
+    } as const
     await api.solveSketch(documentHandle, 'f-sk1', {
       plane: { kind: 'origin', plane: 'XY' },
       entities: [],
@@ -181,7 +192,11 @@ describe('createCoreApi', () => {
   it.each<[string, (api: CoreApi) => Promise<unknown>, Command['type']]>([
     ['solveSketch', (api) => api.solveSketch(1, 'f-sk1'), 'solve_sketch'],
     ['dragSketch', (api) => api.dragSketch(1, 'f-sk1', 'e-1.end', [1, 2]), 'drag_sketch'],
-    ['analyzePrint', (api) => api.analyzePrint(1, { orientation: { kind: 'as_modeled' } }), 'analyze_print'],
+    [
+      'analyzePrint',
+      (api) => api.analyzePrint(1, { orientation: { kind: 'as_modeled' } }),
+      'analyze_print',
+    ],
   ])('%s resolves null when the core answers superseded', async (_name, call, type) => {
     const { api, transport } = await setUp()
     await api.openDocument(documentText(RECT_SKETCH_DOCUMENT))

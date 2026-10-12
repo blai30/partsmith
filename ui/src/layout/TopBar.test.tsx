@@ -120,7 +120,17 @@ describe('the top bar (3.2)', () => {
     const labels = within(menu)
       .getAllByRole('menuitem')
       .map((item) => item.textContent?.trim() ?? '')
-    const expected = ['New', 'Open...', 'Open recent', 'Save', 'Save as...', 'Export...', 'Theme', 'Navigation', 'UI scale']
+    const expected = [
+      'New',
+      'Open...',
+      'Open recent',
+      'Save',
+      'Save as...',
+      'Export...',
+      'Theme',
+      'Navigation',
+      'UI scale',
+    ]
     expect(expected.map((label) => labels.findIndex((text) => text.startsWith(label)))).toEqual(
       expected.map((_, index) => index),
     )
@@ -141,6 +151,38 @@ describe('the top bar (3.2)', () => {
     await settle()
     expect(app.store.getState().context).toBe('sketch')
     expect(app.store.getState().sketch?.sketchId).toBeNull()
+  })
+
+  it('cancels an active feature command when switching from Model to Print, keeping the selection', async () => {
+    const { app, core, user, topBar } = renderApp({
+      command: {
+        featureType: 'fillet',
+        featureId: 'f-fil9',
+        editing: false,
+        title: 'Fillet',
+        params: {},
+        activeField: 'edges',
+        fieldErrors: {},
+        applied: false,
+        newBody: null,
+        preview: 'none',
+      },
+      selection: [regionItem('f-sk1', RECT_REGION)],
+    })
+    await user.click(within(topBar).getByRole('radio', { name: 'Print' }))
+    await settle()
+    expect(core.callsTo('cancelTransaction')).toEqual([[1]])
+    expect(app.store.getState().command).toBeNull()
+    expect(app.store.getState().context).toBe('print')
+    expect(app.store.getState().selection).toHaveLength(1)
+  })
+
+  it('finishes the sketch when choosing Model in sketch mode', async () => {
+    const { app, user, topBar } = renderApp({ context: 'sketch', sketch: EDITING_SKETCH })
+    await user.click(within(topBar).getByRole('radio', { name: 'Model' }))
+    await settle()
+    expect(app.store.getState().context).toBe('model')
+    expect(app.store.getState().sketch).toBeNull()
   })
 
   it('names the context toolbar after the context', () => {
@@ -190,7 +232,11 @@ describe('the top bar (3.2)', () => {
     const { user } = renderApp()
     await user.click(screen.getByRole('button', { name: 'Primitive' }))
     const menu = screen.getByRole('menu')
-    expect(within(menu).getAllByRole('menuitem').map((item) => item.textContent?.trim())).toEqual([
+    expect(
+      within(menu)
+        .getAllByRole('menuitem')
+        .map((item) => item.textContent?.trim()),
+    ).toEqual([
       expect.stringContaining('Box'),
       expect.stringContaining('Cylinder'),
       expect.stringContaining('Sphere'),
@@ -200,15 +246,23 @@ describe('the top bar (3.2)', () => {
   })
 
   it('marks disabled toolbar commands with aria-disabled', () => {
-    renderApp({ core: { status: 'failed', engineVersion: null, fatal: 'HTTP 404', pendingMutations: 0 } })
+    renderApp({
+      core: { status: 'failed', engineVersion: null, fatal: 'HTTP 404', pendingMutations: 0 },
+    })
     expect(screen.getByRole('button', { name: 'Extrude' })).toHaveAttribute('aria-disabled', 'true')
   })
 
   it('presses the active sketch tool', () => {
     renderApp({ context: 'sketch', sketch: { ...EDITING_SKETCH, tool: 'line' } })
     const toolbar = screen.getByRole('toolbar', { name: 'Sketch tools' })
-    expect(within(toolbar).getByRole('button', { name: 'Line' })).toHaveAttribute('aria-pressed', 'true')
-    expect(within(toolbar).getByRole('button', { name: 'Circle' })).toHaveAttribute('aria-pressed', 'false')
+    expect(within(toolbar).getByRole('button', { name: 'Line' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+    expect(within(toolbar).getByRole('button', { name: 'Circle' })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    )
   })
 
   it('shows the formatted Mod+K hint on the Search button and opens the palette', async () => {
@@ -314,10 +368,14 @@ describe('feature commands from the toolbar (3.7)', () => {
       expect(core.callsTo('applyEdits')).toHaveLength(1)
     })
     const [, , edits] = core.callsTo('applyEdits')[0] ?? []
-    const addFeature = (edits as readonly Record<string, unknown>[]).find((edit) => edit.type === 'add_feature')
+    const addFeature = (edits as readonly Record<string, unknown>[]).find(
+      (edit) => edit.type === 'add_feature',
+    )
     expect(addFeature?.index).toBe(1)
     for (const [, , batch] of core.callsTo('applyEdits')) {
-      expect((batch as readonly Record<string, unknown>[]).some((edit) => edit.type === 'set_rollback')).toBe(false)
+      expect(
+        (batch as readonly Record<string, unknown>[]).some((edit) => edit.type === 'set_rollback'),
+      ).toBe(false)
     }
   })
 

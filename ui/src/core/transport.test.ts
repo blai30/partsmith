@@ -76,7 +76,9 @@ function undoResponse(id: number): ArrayBuffer {
 }
 
 /** Tracks a promise's state without awaiting it. */
-function track<Value>(promise: Promise<Value>): { readonly state: () => 'pending' | 'resolved' | 'rejected' } {
+function track<Value>(promise: Promise<Value>): {
+  readonly state: () => 'pending' | 'resolved' | 'rejected'
+} {
   let state: 'pending' | 'resolved' | 'rejected' = 'pending'
   promise.then(
     () => {
@@ -98,7 +100,7 @@ describe('createWorkerTransport', () => {
     expect(setUp().transport.kind).toBe('worker')
   })
 
-  it('U-1 start() resolves with the versions of the worker\'s ready message', async () => {
+  it("U-1 start() resolves with the versions of the worker's ready message", async () => {
     const { transport, worker } = setUp()
     const ready = transport.start()
     await settle()

@@ -1,0 +1,459 @@
+import { cleanup, screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { installPopoverPolyfill } from '../components/popover-polyfill.testing'
+import type { Diagnostic, FeatureStatus } from '../generated/protocol'
+import {
+  bodyItem,
+  cubeDocumentState,
+  documentState,
+  elementItem,
+  featureItem,
+  meshSummary,
+  CUBE_BOUNDS,
+  originItem,
+  parameterItem,
+  readyState,
+  rectSketchDocumentState,
+  regionItem,
+} from '../layout/fixtures.testing'
+import { createModelApp, renderWithApp, stubMatchMedia } from '../layout/test-app.testing'
+import type { ActiveCommand, AppState, DocumentState } from '../state/store'
+import {
+  CUBE_FEATURES_DOCUMENT,
+  CUBE_FRONT_FACE,
+  CUBE_TOP_FACE,
+  CUBE_TOP_FRONT_EDGE,
+  featuresOf,
+  RECT_REGION,
+} from '../test/fakes/documents'
+import { settle } from '../test/fakes/settle'
+import { COLOR_CLASSES, FONT_CLASSES } from '../theme/roles'
+
+let uninstallPopovers: () => void
+
+beforeEach(() => {
+  uninstallPopovers = installPopoverPolyfill()
+  stubMatchMedia()
+})
+
+afterEach(() => {
+  cleanup()
+  uninstallPopovers()
+  vi.unstubAllGlobals()
+})
+
+const FILLET_EDGES = featuresOf(CUBE_FEATURES_DOCUMENT)[2]?.edges as readonly unknown[]
+
+const EDIT_FILLET: ActiveCommand = {
+  featureType: 'fillet',
+  featureId: 'f-fil1',
+  editing: true,
+  title: 'Fillet 1',
+  params: { body: 'b-cube', edges: FILLET_EDGES, radius: '2 mm' },
+  activeField: null,
+  fieldErrors: {},
+  applied: true,
+  newBody: null,
+  preview: 'shown',
+}
+
+const NEW_EXTRUDE: ActiveCommand = {
+  featureType: 'extrude',
+  featureId: 'f-0123456789ab',
+  editing: false,
+  title: 'Extrude',
+  params: { extent: { kind: 'distance', expr: '10 mm' }, op: 'new' },
+  activeField: 'profile',
+  fieldErrors: {},
+  applied: false,
+  newBody: null,
+  preview: 'none',
+}
+
+function filletDocument(filletStatus: FeatureStatus | null = null): DocumentState {
+  const document = documentState(CUBE_FEATURES_DOCUMENT, {
+    name: 'cube-features',
+    meshes: { 'b-cube': meshSummary(1, CUBE_BOUNDS) },
+    focus: 'f-fil1',
+    transactionOpen: true,
+  })
+  return filletStatus === null
+    ? document
+    : { ...document, featureStatus: { ...document.featureStatus, [filletStatus.id]: filletStatus } }
+}
+
+function renderInspector(document: DocumentState, state: Partial<AppState> = {}) {
+  const test = createModelApp({ state: readyState(document, state) })
+  renderWithApp(test.app)
+  return { ...test, user: userEvent.setup() }
+}
+
+function inspector(): HTMLElement {
+  return screen.getByTestId('inspector')
+}
+
+function field(path: string): HTMLElement {
+  const found = within(inspector())
+    .getAllByTestId('inspector-field')
+    .find((element) => element.getAttribute('data-path') === path)
+  if (found === undefined) {
+    throw new Error(`No inspector field ${path}`)
+  }
+  return found
+}
+
+function fieldPaths(): (string | null)[] {
+  return within(inspector())
+    .getAllByTestId('inspector-field')
+    .map((element) => element.getAttribute('data-path'))
+}
+
+function hasRoleClasses(element: HTMLElement, classes: string): boolean {
+  const names = classes.split(' ')
+  return [element, ...element.querySelectorAll('*')].some((candidate) =>
+    names.every((name) => candidate.classList.contains(name)),
+  )
+}
+
+function status(
+  messages: readonly Diagnostic[],
+  state: FeatureStatus['status'] = 'error',
+): FeatureStatus {
+  return { id: 'f-fil1', status: state, messages: [...messages], repairs: [] }
+}
+
+const TOO_LARGE: Diagnostic = {
+  severity: 'error',
+  code: 'fillet_too_large',
+  message:
+    'Fillet radius 15 mm is too large for the selected edges. The largest radius that works is about 2.3 mm.',
+  field: '/radius',
+  suggestion: '2.3 mm',
+}
+
+describe('the command inspector (3.7)', () => {
+  it('is a non-modal dialog titled with the feature label, mirroring the preview state', () => {
+    renderInspector(filletDocument(), { command: EDIT_FILLET })
+    const panel = inspector()
+    expect(panel).toHaveAttribute('role', 'dialog')
+    expect(panel).toHaveAttribute('aria-modal', 'false')
+    expect(panel).toHaveAttribute('data-mode', 'command')
+    expect(panel).toHaveAttribute('data-preview', 'shown')
+    expect(panel).toHaveAccessibleName('Fillet 1')
+  })
+
+  it('titles a new feature with the manifest label', () => {
+    renderInspector(rectSketchDocumentState(), { command: NEW_EXTRUDE })
+    expect(inspector()).toHaveAccessibleName('Extrude')
+    expect(inspector()).toHaveAttribute('data-preview', 'none')
+  })
+
+  it('shows the essential fields, and the others behind "More options"', async () => {
+    const { app, user } = renderInspector(filletDocument(), { command: EDIT_FILLET })
+    expect(fieldPaths()).toEqual(['edges', 'radius'])
+    const more = within(inspector()).getByTestId('inspector-more')
+    expect(more).toHaveTextContent('More options')
+    expect(more).toHaveAttribute('aria-expanded', 'false')
+    await user.click(more)
+    expect(more).toHaveTextContent('Fewer options')
+    expect(more).toHaveAttribute('aria-expanded', 'true')
+    expect(fieldPaths()).toEqual(['edges', 'radius', 'body'])
+    expect(app.store.getState().settings.moreExpanded.fillet).toBe(true)
+  })
+
+  it('shows a selection field with its count, an expression field with its result', async () => {
+    renderInspector(filletDocument(), { command: EDIT_FILLET })
+    const edges = within(field('edges')).getByTestId('selection-field')
+    expect(edges).toHaveAttribute('role', 'button')
+    expect(edges).toHaveAttribute('data-count', '4')
+    expect(edges).toHaveAttribute('data-active', 'false')
+    expect(edges).toHaveTextContent('4 edges')
+    await waitFor(() => {
+      expect(within(field('radius')).getByTestId('expression-result')).toHaveTextContent('= 2 mm')
+    })
+    expect(within(field('radius')).getByRole('textbox', { name: 'Radius' })).toHaveClass(
+      ...FONT_CLASSES.values.split(' '),
+    )
+  })
+
+  it('makes a selection field active on click and empties it with its clear button', async () => {
+    const { app, user } = renderInspector(filletDocument(), { command: EDIT_FILLET })
+    const edges = within(field('edges')).getByTestId('selection-field')
+    await user.click(edges)
+    expect(app.store.getState().command?.activeField).toBe('edges')
+    expect(edges).toHaveAttribute('data-active', 'true')
+    expect(hasRoleClasses(edges, COLOR_CLASSES.accent.border)).toBe(true)
+    await user.click(within(field('edges')).getByRole('button', { name: 'Clear Edges' }))
+    expect(app.store.getState().command?.params.edges ?? []).toEqual([])
+  })
+
+  it('shows "Select regions" in an empty required selection field, dashed in the accent', () => {
+    renderInspector(rectSketchDocumentState(), { command: NEW_EXTRUDE })
+    const profile = within(field('profile')).getByTestId('selection-field')
+    expect(profile).toHaveTextContent('Select regions')
+    expect(profile).toHaveAttribute('data-count', '0')
+    expect(profile).toHaveAttribute('data-active', 'true')
+    expect(hasRoleClasses(profile, 'border-dashed')).toBe(true)
+  })
+
+  it('disables OK while incomplete, with the fill_fields reason', () => {
+    renderInspector(rectSketchDocumentState(), { command: NEW_EXTRUDE })
+    expect(within(inspector()).getByTestId('inspector-ok')).toHaveAttribute('aria-disabled', 'true')
+  })
+
+  it('shows a choice of up to 4 options as a segmented radio group', async () => {
+    const { app, user } = renderInspector(rectSketchDocumentState(), { command: NEW_EXTRUDE })
+    const extent = within(field('extent.kind')).getByRole('radiogroup')
+    expect(within(extent).getAllByRole('radio')).toHaveLength(4)
+    expect(within(extent).getByRole('radio', { name: 'Distance' })).toBeChecked()
+    await user.click(within(extent).getByRole('radio', { name: 'Symmetric' }))
+    expect(app.store.getState().command?.params.extent).toEqual({
+      kind: 'symmetric',
+      expr: '10 mm',
+    })
+  })
+
+  it('writes a typed expression into the command params', async () => {
+    const { app, user } = renderInspector(filletDocument(), { command: EDIT_FILLET })
+    const radius = within(field('radius')).getByRole('textbox', { name: 'Radius' })
+    await user.clear(radius)
+    await user.type(radius, '3 mm')
+    await waitFor(() => {
+      expect(app.store.getState().command?.params.radius).toBe('3 mm')
+    })
+  })
+
+  it('U-66 OK commits the transaction', async () => {
+    const { core, user } = renderInspector(filletDocument(), { command: EDIT_FILLET })
+    await user.click(within(inspector()).getByTestId('inspector-ok'))
+    await waitFor(() => {
+      expect(core.callsTo('commitTransaction')).toEqual([[1]])
+    })
+    expect(core.callsTo('cancelTransaction')).toEqual([])
+  })
+
+  it('U-66 Cancel cancels the transaction and closes the inspector', async () => {
+    const { app, core, user } = renderInspector(filletDocument(), { command: EDIT_FILLET })
+    const [cancel] = within(inspector()).getAllByRole('button', { name: 'Cancel' })
+    await user.click(cancel ?? inspector())
+    await waitFor(() => {
+      expect(core.callsTo('cancelTransaction')).toEqual([[1]])
+    })
+    expect(core.callsTo('commitTransaction')).toEqual([])
+    expect(app.store.getState().command).toBeNull()
+    expect(screen.queryByTestId('inspector')).toBeNull()
+  })
+
+  it('confirms with Enter in an expression field when complete', async () => {
+    const { core, user } = renderInspector(filletDocument(), { command: EDIT_FILLET })
+    const radius = within(field('radius')).getByRole('textbox', { name: 'Radius' })
+    await waitFor(() => {
+      expect(within(field('radius')).getByTestId('expression-result')).toHaveTextContent('= 2 mm')
+    })
+    await user.click(radius)
+    await user.keyboard('{Enter}')
+    await waitFor(() => {
+      expect(core.callsTo('commitTransaction')).toEqual([[1]])
+    })
+  })
+
+  it('fills a body field from its Choose menu of bodies with geometry', async () => {
+    const { app, user } = renderInspector(filletDocument(), {
+      command: { ...EDIT_FILLET, params: { radius: '2 mm' } },
+    })
+    await user.click(within(inspector()).getByTestId('inspector-more'))
+    await user.click(within(field('body')).getByRole('button', { name: /Choose/ }))
+    await user.click(screen.getByRole('menuitem', { name: /Cube/ }))
+    expect(app.store.getState().command?.params.body).toBe('b-cube')
+  })
+})
+
+describe('feature status in the inspector (3.7, 4.2)', () => {
+  it('U-87 shows an error message with a field under that field', async () => {
+    renderInspector(filletDocument(status([TOO_LARGE])), {
+      command: { ...EDIT_FILLET, preview: 'failed' },
+    })
+    await waitFor(() => {
+      expect(within(field('radius')).getByTestId('field-error')).toHaveTextContent(
+        TOO_LARGE.message,
+      )
+    })
+  })
+
+  it('U-87 its action "Use 2.3 mm" sets radius to 2.3 mm', async () => {
+    const { app, user } = renderInspector(filletDocument(status([TOO_LARGE])), {
+      command: { ...EDIT_FILLET, preview: 'failed' },
+    })
+    const [use] = within(inspector()).getAllByRole('button', { name: 'Use 2.3 mm' })
+    await user.click(use ?? inspector())
+    expect(app.store.getState().command?.params.radius).toBe('2.3 mm')
+  })
+
+  it('U-87 maps a message with field /edges/1 to the edges field', () => {
+    const lost: Diagnostic = {
+      severity: 'warning',
+      code: 'reference_ambiguous',
+      message: 'One of the edges selected for Edges now matches 2 edges, so it was skipped.',
+      field: '/edges/1',
+    }
+    renderInspector(filletDocument(status([lost], 'warning')), { command: EDIT_FILLET })
+    expect(within(field('edges')).getByTestId('field-error')).toHaveTextContent(lost.message)
+  })
+
+  it('shows errors in an alert banner on the error background', () => {
+    renderInspector(filletDocument(status([TOO_LARGE])), {
+      command: { ...EDIT_FILLET, preview: 'failed' },
+    })
+    const banner = within(inspector()).getByTestId('inspector-error')
+    expect(banner).toHaveTextContent(TOO_LARGE.message)
+    expect(
+      banner.closest('[role="alert"]') ?? banner.querySelector('[role="alert"]'),
+    ).not.toBeNull()
+    expect(hasRoleClasses(banner, COLOR_CLASSES.errorSubtle.background)).toBe(true)
+    expect(inspector()).toHaveAttribute('data-preview', 'failed')
+  })
+
+  it('shows warnings without an error on the warning background', () => {
+    const warning: Diagnostic = {
+      severity: 'warning',
+      code: 'no_effect',
+      message: "This feature does not change body 'Cube'.",
+    }
+    renderInspector(filletDocument(status([warning], 'warning')), { command: EDIT_FILLET })
+    const banner = within(inspector()).getByTestId('inspector-error')
+    expect(banner).toHaveTextContent(warning.message)
+    expect(hasRoleClasses(banner, COLOR_CLASSES.warningSubtle.background)).toBe(true)
+  })
+
+  it('shows no banner for an ok feature', () => {
+    renderInspector(filletDocument(), { command: EDIT_FILLET })
+    expect(within(inspector()).queryByTestId('inspector-error')).toBeNull()
+  })
+})
+
+describe('the selection inspector (3.8)', () => {
+  it('shows nothing with an empty selection', () => {
+    renderInspector(cubeDocumentState())
+    expect(screen.queryByTestId('inspector')).toBeNull()
+  })
+
+  it('shows one body with its size, center and visibility', () => {
+    renderInspector(cubeDocumentState(), { selection: [bodyItem('b-cube', 'Cube')] })
+    const panel = inspector()
+    expect(panel).toHaveAttribute('data-mode', 'selection')
+    expect(panel).toHaveAccessibleName('Selection')
+    expect(within(panel).getByTestId('selection-title')).toHaveTextContent('Cube')
+    expect(within(panel).getByTestId('body-size')).toHaveTextContent('20 × 20 × 20 mm')
+    expect(within(panel).getByTestId('body-center')).toHaveTextContent('0, 0, 10 mm')
+    expect(within(panel).getByTestId('body-size')).toHaveClass(...FONT_CLASSES.values.split(' '))
+    expect(within(panel).getByRole('switch', { name: 'Visible' })).toBeChecked()
+  })
+
+  it('shows "Empty" for a body without geometry', () => {
+    renderInspector(cubeDocumentState({ meshes: {} }), { selection: [bodyItem('b-cube', 'Cube')] })
+    expect(within(inspector()).getByTestId('body-size')).toHaveTextContent('Empty')
+  })
+
+  it('commits a material with Enter as "Change material"', async () => {
+    const { core, user } = renderInspector(cubeDocumentState(), {
+      selection: [bodyItem('b-cube', 'Cube')],
+    })
+    const material = within(inspector()).getByRole('combobox', { name: 'Material' })
+    await user.type(material, 'PETG{Enter}')
+    await settle()
+    expect(core.callsTo('applyEdits')).toEqual([
+      [
+        1,
+        'Change material',
+        [{ type: 'update_body', body: { id: 'b-cube', name: 'Cube', material: 'PETG' } }],
+      ],
+    ])
+  })
+
+  it('shows one feature with its type, Edit and Suppress', async () => {
+    const { core, user } = renderInspector(cubeDocumentState(), {
+      selection: [featureItem('f-ext1', 'Extrude 1')],
+    })
+    const panel = inspector()
+    expect(within(panel).getByTestId('selection-title')).toHaveTextContent('Extrude 1')
+    expect(panel).toHaveTextContent('Extrude')
+    expect(within(panel).getByRole('button', { name: 'Suppress' })).toBeInTheDocument()
+    await user.click(within(panel).getByRole('button', { name: 'Edit' }))
+    await waitFor(() => {
+      expect(core.callsTo('beginTransaction')).toEqual([[1, 'Edit Extrude 1']])
+    })
+  })
+
+  it('shows one flat face with its surface and area, and suggests Sketch, Hole and Shell', () => {
+    renderInspector(cubeDocumentState(), { selection: [elementItem(CUBE_TOP_FACE)] })
+    const panel = inspector()
+    expect(within(panel).getByTestId('selection-title')).toHaveTextContent('1 face')
+    expect(panel).toHaveTextContent('Flat face')
+    expect(panel).toHaveTextContent('400 mm²')
+    for (const name of ['Sketch', 'Hole', 'Shell']) {
+      expect(
+        within(panel).getByRole('button', { name: new RegExp(`^${name}`) }),
+      ).toBeInTheDocument()
+    }
+  })
+
+  it('counts several faces', () => {
+    renderInspector(cubeDocumentState(), {
+      selection: [elementItem(CUBE_TOP_FACE), elementItem(CUBE_FRONT_FACE)],
+    })
+    expect(within(inspector()).getByTestId('selection-title')).toHaveTextContent('2 faces')
+  })
+
+  it('shows one edge with its curve and length and suggests Fillet and Chamfer', () => {
+    renderInspector(cubeDocumentState(), { selection: [elementItem(CUBE_TOP_FRONT_EDGE)] })
+    const panel = inspector()
+    expect(within(panel).getByTestId('selection-title')).toHaveTextContent('1 edge')
+    expect(panel).toHaveTextContent('Straight edge')
+    expect(panel).toHaveTextContent('20 mm')
+    expect(within(panel).getByRole('button', { name: /^Fillet/ })).toBeInTheDocument()
+    expect(within(panel).getByRole('button', { name: /^Chamfer/ })).toBeInTheDocument()
+  })
+
+  it('runs a suggested command with the selection preselected', async () => {
+    const { app, core, user } = renderInspector(cubeDocumentState(), {
+      selection: [elementItem(CUBE_TOP_FRONT_EDGE)],
+    })
+    await user.click(within(inspector()).getByRole('button', { name: /^Fillet/ }))
+    await waitFor(() => {
+      expect(core.callsTo('beginTransaction')).toEqual([[1, 'Fillet']])
+    })
+    expect(app.store.getState().command?.params.edges).toEqual([CUBE_TOP_FRONT_EDGE.reference])
+    expect(app.store.getState().command?.params.body).toBe('b-cube')
+  })
+
+  it('shows regions with Extrude and Revolve', () => {
+    renderInspector(rectSketchDocumentState(), { selection: [regionItem('f-sk1', RECT_REGION)] })
+    const panel = inspector()
+    expect(within(panel).getByTestId('selection-title')).toHaveTextContent('1 region')
+    expect(within(panel).getByRole('button', { name: /^Extrude/ })).toBeInTheDocument()
+    expect(within(panel).getByRole('button', { name: /^Revolve/ })).toBeInTheDocument()
+  })
+
+  it('shows an origin plane as "XY plane" with Sketch', () => {
+    renderInspector(cubeDocumentState(), { selection: [originItem('XY')] })
+    const panel = inspector()
+    expect(within(panel).getByTestId('selection-title')).toHaveTextContent('XY plane')
+    expect(within(panel).getByRole('button', { name: /^Sketch/ })).toBeInTheDocument()
+  })
+
+  it('shows "{n} items" for a mixed selection', () => {
+    renderInspector(cubeDocumentState(), {
+      selection: [bodyItem('b-cube', 'Cube'), parameterItem('p-size', 'size')],
+    })
+    expect(within(inspector()).getByTestId('selection-title')).toHaveTextContent('2 items')
+  })
+
+  it('places itself at a runtime position only', () => {
+    renderInspector(cubeDocumentState(), { selection: [bodyItem('b-cube', 'Cube')] })
+    const panel = inspector()
+    const positioned = panel.closest('[data-positioned]') ?? panel
+    expect(positioned).toHaveAttribute('data-positioned')
+    expect(positioned.getAttribute('style')).toMatch(/^translate: [-\d.]+px [-\d.]+px;?$/)
+  })
+})

@@ -42,7 +42,12 @@ function commandOf(id: string, platform: Platform = LINUX_WEB): CommandDefinitio
 }
 
 // Registry shortcuts of ui.md 3.5 that builtin.ts owns: id, title, shortcuts, contexts.
-const SHORTCUT_TABLE: readonly (readonly [string, string, readonly string[], readonly AppContext[]])[] = [
+const SHORTCUT_TABLE: readonly (readonly [
+  string,
+  string,
+  readonly string[],
+  readonly AppContext[],
+])[] = [
   ['app.palette', 'Command palette', ['Mod+K', 'S'], ALL],
   ['edit.undo', 'Undo', ['Mod+Z'], ALL],
   ['edit.redo', 'Redo', ['Mod+Shift+Z', 'Mod+Y'], ALL],
@@ -248,7 +253,10 @@ describe('availability', () => {
   it('disables Undo with "Nothing to undo." and enables it with the undo label as detail', () => {
     const { app } = cubeApp()
     const undo = app.commands.get('edit.undo')
-    expect(undo?.availability(app)).toEqual({ state: 'disabled', reason: MESSAGES.nothing_to_undo() })
+    expect(undo?.availability(app)).toEqual({
+      state: 'disabled',
+      reason: MESSAGES.nothing_to_undo(),
+    })
     const document = app.store.getState().document
     app.store.setState({ document: document && { ...document, undoLabel: 'Extrude' } })
     expect(undo?.availability(app)).toEqual({ state: 'enabled' })
@@ -258,7 +266,10 @@ describe('availability', () => {
   it('disables Redo with "Nothing to redo." and shows the redo label as detail', () => {
     const { app } = cubeApp()
     const redo = app.commands.get('edit.redo')
-    expect(redo?.availability(app)).toEqual({ state: 'disabled', reason: MESSAGES.nothing_to_redo() })
+    expect(redo?.availability(app)).toEqual({
+      state: 'disabled',
+      reason: MESSAGES.nothing_to_redo(),
+    })
     const document = app.store.getState().document
     app.store.setState({ document: document && { ...document, redoLabel: 'Fillet' } })
     expect(redo?.availability(app)).toEqual({ state: 'enabled' })
@@ -377,6 +388,25 @@ describe('running built-in commands', () => {
     expect(viewport.fit).toHaveBeenCalled()
   })
 
+  it('Look at a flat face looks along its normal with its y-axis up, at its centroid', async () => {
+    const { app } = cubeApp({ selection: [elementItem(CUBE_TOP_FACE)] })
+    const viewport = createFakeViewport()
+    app.attachViewport(viewport)
+    await app.commands.run(app, 'view.look_at', 'shortcut')
+    expect(viewport.lookAlong).toHaveBeenCalledWith([0, 0, 1], [0, 1, 0], [0, 0, 20])
+  })
+
+  it('Look at the XZ origin plane looks along -Y from its front with +Z up, at the origin', async () => {
+    const { app } = cubeApp({ selection: [originItem('XZ')] })
+    const viewport = createFakeViewport()
+    app.attachViewport(viewport)
+    await app.commands.run(app, 'view.look_at', 'shortcut')
+    const [normal, upHint, target] = viewport.lookAlong.mock.calls[0] ?? []
+    expect(normal?.map((value) => value + 0)).toEqual([0, -1, 0])
+    expect(upHint?.map((value) => value + 0)).toEqual([0, 0, 1])
+    expect(target?.map((value) => value + 0)).toEqual([0, 0, 0])
+  })
+
   it('shows the projection toggle as checked in orthographic', () => {
     const { app } = cubeApp()
     const projection = app.commands.get('view.projection')
@@ -432,9 +462,9 @@ describe('running built-in commands', () => {
     expect(core.callsTo('applyEdits')).toEqual([
       [1, 'Change units to in', [{ type: 'set_units', units: 'in' }]],
     ])
-    expect(app.store.getState().notifications.map((notification) => notification.message)).toContain(
-      MESSAGES.units_changed('in'),
-    )
+    expect(
+      app.store.getState().notifications.map((notification) => notification.message),
+    ).toContain(MESSAGES.units_changed('in'))
   })
 
   it('chooses a theme, a navigation preset and a UI scale, each shown as checked', async () => {

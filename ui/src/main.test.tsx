@@ -39,7 +39,11 @@ describe('the capability check (3.1)', () => {
   it('draws the unsupported page with the interface font and the surface and text roles', async () => {
     await import('./main')
     const page = await screen.findByTestId('unsupported')
-    const classes = [FONT_CLASSES.interfaceText, COLOR_CLASSES.surface.background, COLOR_CLASSES.text.foreground]
+    const classes = [
+      FONT_CLASSES.interfaceText,
+      COLOR_CLASSES.surface.background,
+      COLOR_CLASSES.text.foreground,
+    ]
     for (const name of classes.flatMap((entry) => entry.split(' '))) {
       expect(page).toHaveClass(name)
     }

@@ -38,7 +38,13 @@ describe('TOOLBARS (3.3)', () => {
         id: expect.any(String),
         title: 'Primitive',
         icon: Cuboid,
-        commands: ['feature.box', 'feature.cylinder', 'feature.sphere', 'feature.cone', 'feature.torus'],
+        commands: [
+          'feature.box',
+          'feature.cylinder',
+          'feature.sphere',
+          'feature.cone',
+          'feature.torus',
+        ],
       },
       {
         kind: 'group',

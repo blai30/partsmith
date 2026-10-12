@@ -158,6 +158,15 @@ fn t051_package_too_large_message() {
 }
 
 #[test]
+fn t051_output_too_large_message() {
+    assert_eq!(
+        IoError::OutputTooLarge.to_string(),
+        "The export is too large to hold in memory. Export fewer bodies per file, use a coarser \
+         tolerance, or use binary STL or 3MF."
+    );
+}
+
+#[test]
 fn t051_package_failure_message() {
     let error = IoError::Package {
         detail: "oops".into(),

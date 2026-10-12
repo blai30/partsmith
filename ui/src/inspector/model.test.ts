@@ -145,7 +145,10 @@ describe('buildInspectorModel with the extrude entry', () => {
       'extent.opposite_expr',
       'op',
     ])
-    expect(field(model, 'extent.opposite_expr').control).toEqual({ type: 'expression', unit: 'length' })
+    expect(field(model, 'extent.opposite_expr').control).toEqual({
+      type: 'expression',
+      unit: 'length',
+    })
   })
 
   it('U-31 leaves out extent.expr for through all', () => {
@@ -232,7 +235,10 @@ describe('controls for other schema shapes', () => {
           path: 'style',
           label: 'Style',
           essential: true,
-          options: ['a', 'b', 'c', 'd', 'e'].map((value) => ({ value, label: value.toUpperCase() })),
+          options: ['a', 'b', 'c', 'd', 'e'].map((value) => ({
+            value,
+            label: value.toUpperCase(),
+          })),
         },
       ],
     )
@@ -362,7 +368,11 @@ describe('defaultParams', () => {
         { path: 'count', label: 'Count', essential: true, unit: 'count' },
       ],
     )
-    expect(defaultParams(feature, NO_BODIES)).toMatchObject({ angle: '90 deg', factor: '1', count: '2' })
+    expect(defaultParams(feature, NO_BODIES)).toMatchObject({
+      angle: '90 deg',
+      factor: '1',
+      count: '2',
+    })
   })
 
   it('gives a choice without default its first option', () => {
@@ -426,7 +436,12 @@ describe('setParam and getParam', () => {
   })
 
   it('writes an array item', () => {
-    const params = setParam(testFeature('box'), { size: ['1', '2', '3'], op: 'new' }, 'size[1]', '20 mm')
+    const params = setParam(
+      testFeature('box'),
+      { size: ['1', '2', '3'], op: 'new' },
+      'size[1]',
+      '20 mm',
+    )
     expect(params.size).toEqual(['1', '20 mm', '3'])
   })
 
@@ -436,7 +451,9 @@ describe('setParam and getParam', () => {
       [],
       [{ path: 'rotation.angle', label: 'Angle', unit: 'angle' }],
     )
-    expect(setParam(feature, {}, 'rotation.angle', '30 deg')).toEqual({ rotation: { angle: '30 deg' } })
+    expect(setParam(feature, {}, 'rotation.angle', '30 deg')).toEqual({
+      rotation: { angle: '30 deg' },
+    })
   })
 
   it('reads values at dotted and indexed paths, and undefined where nothing is', () => {

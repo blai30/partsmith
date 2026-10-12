@@ -5,7 +5,7 @@ import { createMemoryRecovery, type RecoveryStore } from '../../files/recovery'
 import type { Document } from '../../generated/protocol'
 import type { AppStore, DocumentState } from '../../state/store'
 import { currentDocument, LINUX_WEB } from './test-app'
-import { documentFile } from './documents'
+import { documentFile, featuresOf } from './documents'
 import { createFakeFileService, type FakeFileService } from './files'
 import { settle } from './settle'
 import { createFakeTransport, type FakeTransport, type FakeTransportOptions } from './transport'
@@ -98,7 +98,7 @@ export async function openTestDocument(
   await openFile(fake.app, documentFile(name, document, handle))
   await settle()
   const opened = currentDocument(fake.app)
-  if (opened.recipe.features.length !== document.features.length) {
+  if (featuresOf(opened.recipe).length !== featuresOf(document).length) {
     throw new Error(`${name} did not open.`)
   }
   return opened
@@ -116,4 +116,3 @@ export async function startWithDocument(
   fake.journal.length = 0
   return fake
 }
-

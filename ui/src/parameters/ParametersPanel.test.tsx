@@ -27,7 +27,10 @@ afterEach(() => {
 
 const SIZE_PARAMETER = { id: 'p-size', name: 'size', expr: '20 mm' }
 
-function parametric(overrides: Partial<DocumentState> = {}, recipe: Document = PARAMETRIC_DOCUMENT): DocumentState {
+function parametric(
+  overrides: Partial<DocumentState> = {},
+  recipe: Document = PARAMETRIC_DOCUMENT,
+): DocumentState {
   return documentState(recipe, {
     name: 'parametric',
     parameterValues: { 'p-size': { id: 'p-size', value: 20, dimension: { length: 1, angle: 0 } } },
@@ -37,7 +40,9 @@ function parametric(overrides: Partial<DocumentState> = {}, recipe: Document = P
 
 function renderPanel(document: DocumentState = parametric()) {
   const test = createModelApp({
-    state: readyState(document, { panels: { ...INITIAL_STATE.panels, browserOpen: true, side: 'parameters' } }),
+    state: readyState(document, {
+      panels: { ...INITIAL_STATE.panels, browserOpen: true, side: 'parameters' },
+    }),
   })
   renderWithApp(test.app)
   const panel = screen.getByTestId('parameters-panel')
@@ -45,7 +50,9 @@ function renderPanel(document: DocumentState = parametric()) {
 }
 
 function sizeRow(): HTMLElement {
-  const found = screen.getAllByTestId('parameter-row').find((element) => element.getAttribute('data-id') === 'p-size')
+  const found = screen
+    .getAllByTestId('parameter-row')
+    .find((element) => element.getAttribute('data-id') === 'p-size')
   if (found === undefined) {
     throw new Error('No row for p-size')
   }
@@ -56,7 +63,9 @@ describe('the Parameters panel (3.11)', () => {
   it('is titled "Parameters" with one row per parameter', () => {
     const { panel } = renderPanel()
     expect(panel).toHaveTextContent('Parameters')
-    expect(screen.getAllByTestId('parameter-row').map((element) => element.getAttribute('data-id'))).toEqual(['p-size'])
+    expect(
+      screen.getAllByTestId('parameter-row').map((element) => element.getAttribute('data-id')),
+    ).toEqual(['p-size'])
   })
 
   it('has name, expression and comment fields and a delete button named after the parameter', () => {
@@ -83,13 +92,19 @@ describe('the Parameters panel (3.11)', () => {
     expect(value).toHaveTextContent("Unknown name 'wal'.")
     const carriers = [value, ...value.querySelectorAll('*')]
     const roleClasses = COLOR_CLASSES.errorText.foreground.split(' ')
-    expect(carriers.some((element) => roleClasses.every((name) => element.classList.contains(name)))).toBe(true)
+    expect(
+      carriers.some((element) => roleClasses.every((name) => element.classList.contains(name))),
+    ).toBe(true)
     expect(value.querySelector('.lucide-circle-x')).not.toBeNull()
   })
 
   it('formats other dimensions in internal units with their exponents', () => {
     renderPanel(
-      parametric({ parameterValues: { 'p-size': { id: 'p-size', value: 6, dimension: { length: 2, angle: 0 } } } }),
+      parametric({
+        parameterValues: {
+          'p-size': { id: 'p-size', value: 6, dimension: { length: 2, angle: 0 } },
+        },
+      }),
     )
     expect(within(sizeRow()).getByTestId('parameter-value')).toHaveTextContent('6 mm^2')
   })
@@ -139,7 +154,10 @@ describe('the Parameters panel (3.11)', () => {
   })
 
   it('shows the core’s refusal of a name under the field', async () => {
-    const taken = await coreErrorFor({ code: 'edit_rejected', message: "The name 'pi' is reserved." })
+    const taken = await coreErrorFor({
+      code: 'edit_rejected',
+      message: "The name 'pi' is reserved.",
+    })
     const { core, user } = renderPanel()
     core.stub('renameParameter', () => Promise.reject(taken))
     const name = within(sizeRow()).getByRole('textbox', { name: 'Name of size' })
@@ -171,7 +189,11 @@ describe('the Parameters panel (3.11)', () => {
     await user.keyboard('{Enter}')
     await settle()
     expect(core.callsTo('applyEdits')).toEqual([
-      [1, 'Change size', [{ type: 'update_parameter', parameter: { ...SIZE_PARAMETER, expr: '25 mm' } }]],
+      [
+        1,
+        'Change size',
+        [{ type: 'update_parameter', parameter: { ...SIZE_PARAMETER, expr: '25 mm' } }],
+      ],
     ])
   })
 
@@ -223,7 +245,11 @@ describe('the Parameters panel (3.11)', () => {
     expect(draftExpression).toHaveValue('')
     await user.type(draftExpression, '5 mm')
     await waitFor(() => {
-      expect(screen.getAllByTestId('expression-result').some((result) => result.textContent?.includes('= 5 mm'))).toBe(true)
+      expect(
+        screen
+          .getAllByTestId('expression-result')
+          .some((result) => result.textContent?.includes('= 5 mm')),
+      ).toBe(true)
     })
     await user.keyboard('{Enter}')
     await settle()
@@ -235,7 +261,11 @@ describe('the Parameters panel (3.11)', () => {
           {
             type: 'add_parameter',
             index: 1,
-            parameter: { id: expect.stringMatching(/^p-[0-9a-f]{12}$/), name: 'depth', expr: '5 mm' },
+            parameter: {
+              id: expect.stringMatching(/^p-[0-9a-f]{12}$/),
+              name: 'depth',
+              expr: '5 mm',
+            },
           },
         ],
       ],

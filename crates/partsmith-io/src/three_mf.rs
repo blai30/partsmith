@@ -2,13 +2,15 @@
 //! 3.6).
 
 use std::fmt::{self, Write as _};
-use std::io::{Cursor, Write as _};
+use std::io::{self, Cursor, Seek, SeekFrom, Write as _};
 
 use partsmith_model::{BodyRole, Color};
+use zip::result::{ZipError, ZipResult};
 use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, System, ZipWriter};
 
 use crate::checks::{WeldedBody, check_not_empty};
+use crate::output::{TextOutput, reserve, too_large};
 use crate::text::{display_name, non_blank};
 use crate::{ExportBody, ExportOutput, ExportWarning, IoError, WarningCode};
 
@@ -86,9 +88,8 @@ pub fn write_3mf(
         BASE_MATERIALS_ID + 1
     };
 
-    let mut model = String::new();
-    write_model_start(&mut model, title.as_deref(), &bases)
-        .expect("formatting into a String cannot fail");
+    let mut model = TextOutput::default();
+    write_model_start(&mut model, title.as_deref(), &bases).map_err(too_large)?;
     let mut warnings = Vec::new();
     let mut object_count = 0;
     for (index, (body, base_index)) in bodies.iter().zip(&base_indices).enumerate() {
@@ -98,20 +99,17 @@ pub fn write_3mf(
         }
         let welded = WeldedBody::new(index, body)?;
         let id = first_object_id + object_count;
-        write_object(&mut model, id, *base_index, &welded)
-            .expect("formatting into a String cannot fail");
+        write_object(&mut model, id, *base_index, &welded).map_err(too_large)?;
         object_count += 1;
         warnings.extend(welded.warnings);
     }
     let object_ids = first_object_id..first_object_id + object_count;
-    write_model_end(&mut model, object_ids).expect("formatting into a String cannot fail");
+    write_model_end(&mut model, object_ids).map_err(too_large)?;
 
-    if u32::try_from(model.len()).is_err() {
+    if u32::try_from(model.as_bytes().len()).is_err() {
         return Err(IoError::PackageTooLarge);
     }
-    let bytes = package(&model).map_err(|error| IoError::Package {
-        detail: error.to_string(),
-    })?;
+    let bytes = package(model.as_bytes()).map_err(package_error)?;
     Ok(ExportOutput { bytes, warnings })
 }
 
@@ -220,8 +218,8 @@ impl fmt::Display for Escaped<'_> {
 }
 
 /// Writes the model part up to the first object: declaration, metadata and base materials.
-fn write_model_start(model: &mut String, title: Option<&str>, bases: &[Base]) -> fmt::Result {
-    model.push_str(MODEL_START);
+fn write_model_start(model: &mut TextOutput, title: Option<&str>, bases: &[Base]) -> fmt::Result {
+    model.write_str(MODEL_START)?;
     writeln!(
         model,
         r#" <metadata name="Application">{APPLICATION}</metadata>"#
@@ -233,7 +231,7 @@ fn write_model_start(model: &mut String, title: Option<&str>, bases: &[Base]) ->
             Escaped(title)
         )?;
     }
-    model.push_str(" <resources>\n");
+    model.write_str(" <resources>\n")?;
     if !bases.is_empty() {
         writeln!(model, r#"  <basematerials id="{BASE_MATERIALS_ID}">"#)?;
         for base in bases {
@@ -244,14 +242,14 @@ fn write_model_start(model: &mut String, title: Option<&str>, bases: &[Base]) ->
                 Hex(base.display_color)
             )?;
         }
-        model.push_str("  </basematerials>\n");
+        model.write_str("  </basematerials>\n")?;
     }
     Ok(())
 }
 
 /// Writes one object with its own vertex list and 0-based triangle indices.
 fn write_object(
-    model: &mut String,
+    model: &mut TextOutput,
     id: usize,
     base_index: Option<usize>,
     body: &WeldedBody,
@@ -264,49 +262,87 @@ fn write_object(
     if let Some(base_index) = base_index {
         write!(model, r#" pid="{BASE_MATERIALS_ID}" pindex="{base_index}""#)?;
     }
-    model.push_str(">\n   <mesh>\n    <vertices>\n");
+    model.write_str(">\n   <mesh>\n    <vertices>\n")?;
     for [x, y, z] in body.vertices() {
         writeln!(model, r#"     <vertex x="{x}" y="{y}" z="{z}"/>"#)?;
     }
-    model.push_str("    </vertices>\n    <triangles>\n");
+    model.write_str("    </vertices>\n    <triangles>\n")?;
     for [first, second, third] in body.triangles() {
         writeln!(
             model,
             r#"     <triangle v1="{first}" v2="{second}" v3="{third}"/>"#
         )?;
     }
-    model.push_str("    </triangles>\n   </mesh>\n  </object>\n");
+    model.write_str("    </triangles>\n   </mesh>\n  </object>\n")?;
     Ok(())
 }
 
 /// Writes the end of the model part: one build item per object, without transform.
-fn write_model_end(model: &mut String, object_ids: impl Iterator<Item = usize>) -> fmt::Result {
-    model.push_str(" </resources>\n <build>\n");
+fn write_model_end(model: &mut TextOutput, object_ids: impl Iterator<Item = usize>) -> fmt::Result {
+    model.write_str(" </resources>\n <build>\n")?;
     for id in object_ids {
         writeln!(model, r#"  <item objectid="{id}"/>"#)?;
     }
-    model.push_str(" </build>\n</model>\n");
-    Ok(())
+    model.write_str(" </build>\n</model>\n")
 }
 
 /// Packs the three parts into a zip archive with fixed timestamps, permissions and host system.
-fn package(model: &str) -> zip::result::ZipResult<Vec<u8>> {
+fn package(model: &[u8]) -> ZipResult<Vec<u8>> {
     let options = SimpleFileOptions::DEFAULT
         .compression_method(CompressionMethod::Deflated)
         .compression_level(Some(DEFLATE_LEVEL))
         .system(System::Unix)
         .unix_permissions(0o644);
     let parts = [
-        (CONTENT_TYPES_NAME, CONTENT_TYPES),
-        (RELATIONSHIPS_NAME, RELATIONSHIPS),
+        (CONTENT_TYPES_NAME, CONTENT_TYPES.as_bytes()),
+        (RELATIONSHIPS_NAME, RELATIONSHIPS.as_bytes()),
         (MODEL_NAME, model),
     ];
-    let mut archive = ZipWriter::new(Cursor::new(Vec::new()));
+    let mut archive = ZipWriter::new(PackageBytes::default());
     for (name, contents) in parts {
         archive.start_file(name, options)?;
-        archive.write_all(contents.as_bytes())?;
+        archive.write_all(contents)?;
     }
-    Ok(archive.finish()?.into_inner())
+    Ok(archive.finish()?.0.into_inner())
+}
+
+/// The error of a failed package: `OutputTooLarge` when its buffer could not grow, else
+/// `Package` with the zip error's text.
+fn package_error(error: ZipError) -> IoError {
+    match error {
+        ZipError::Io(error) if error.kind() == io::ErrorKind::OutOfMemory => {
+            IoError::OutputTooLarge
+        }
+        error => IoError::Package {
+            detail: error.to_string(),
+        },
+    }
+}
+
+/// The bytes of a package: a cursor whose buffer grows through [`reserve`]. A write the buffer
+/// cannot make room for fails with an `OutOfMemory` I/O error.
+#[derive(Debug, Default)]
+struct PackageBytes(Cursor<Vec<u8>>);
+
+impl io::Write for PackageBytes {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        // Room for the part of the write past the end of the buffer.
+        let end = self.0.position().saturating_add(bytes.len() as u64);
+        let past_end = end.saturating_sub(self.0.get_ref().len() as u64);
+        let additional = usize::try_from(past_end).map_err(|_| io::ErrorKind::OutOfMemory)?;
+        reserve(self.0.get_mut(), additional).map_err(|_| io::ErrorKind::OutOfMemory)?;
+        self.0.write(bytes)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+impl Seek for PackageBytes {
+    fn seek(&mut self, position: SeekFrom) -> io::Result<u64> {
+        self.0.seek(position)
+    }
 }
 
 #[cfg(test)]
@@ -473,7 +509,7 @@ mod tests {
 
     #[test]
     fn package_holds_three_parts_in_order() {
-        let bytes = package("<model/>\n").expect("the package is written");
+        let bytes = package(b"<model/>\n").expect("the package is written");
         let parts = unpack(&bytes);
         let names: Vec<&str> = parts.iter().map(|(name, _)| name.as_str()).collect();
         assert_eq!(
@@ -486,6 +522,42 @@ mod tests {
     }
 
     #[test]
+    fn package_error_of_a_buffer_that_cannot_grow_is_output_too_large() {
+        let error = ZipError::Io(io::ErrorKind::OutOfMemory.into());
+        assert_eq!(package_error(error), IoError::OutputTooLarge);
+    }
+
+    #[test]
+    fn package_error_of_another_failure_keeps_its_text() {
+        let error = ZipError::Io(io::Error::other("disk"));
+        assert_eq!(
+            package_error(error),
+            IoError::Package {
+                detail: "i/o error: disk".to_owned(),
+            }
+        );
+    }
+
+    #[test]
+    fn package_bytes_overwrite_after_seeking_back() {
+        let mut bytes = PackageBytes::default();
+        bytes.write_all(b"abcd").expect("the bytes are written");
+        bytes.seek(SeekFrom::Start(1)).expect("the cursor moves");
+        bytes.write_all(b"XY").expect("the bytes are written");
+        bytes.seek(SeekFrom::End(0)).expect("the cursor moves");
+        bytes.write_all(b"e").expect("the bytes are written");
+        assert_eq!(bytes.0.into_inner(), b"aXYde");
+    }
+
+    #[test]
+    fn package_bytes_fill_a_gap_past_the_end_with_zeros() {
+        let mut bytes = PackageBytes::default();
+        bytes.seek(SeekFrom::Start(2)).expect("the cursor moves");
+        bytes.write_all(b"a").expect("the bytes are written");
+        assert_eq!(bytes.0.into_inner(), [0, 0, b'a']);
+    }
+
+    #[test]
     fn fixed_parts_have_their_specified_lengths() {
         assert_eq!(CONTENT_TYPES.len(), 324);
         assert_eq!(RELATIONSHIPS.len(), 263);
@@ -493,8 +565,8 @@ mod tests {
 
     #[test]
     fn package_is_deterministic() {
-        let first = package("<model/>\n").expect("the package is written");
-        let second = package("<model/>\n").expect("the package is written");
+        let first = package(b"<model/>\n").expect("the package is written");
+        let second = package(b"<model/>\n").expect("the package is written");
         assert_eq!(first, second);
     }
 

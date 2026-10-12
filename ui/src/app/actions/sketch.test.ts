@@ -9,15 +9,10 @@ import {
   CUBE_TOP_FACE,
 } from '../../test/fakes/documents'
 import { elementItem, originItem } from '../../test/fakes/selection'
+import { editsOf } from '../../test/fakes/protocol'
 import { settle } from '../../test/fakes/settle'
 import { select } from './selection'
-import {
-  createSketchOn,
-  enterSketch,
-  finishSketch,
-  setSketchTool,
-  startNewSketch,
-} from './sketch'
+import { createSketchOn, enterSketch, finishSketch, setSketchTool, startNewSketch } from './sketch'
 
 type AddFeature = Extract<Edit, { type: 'add_feature' }>
 
@@ -26,7 +21,7 @@ function newSketchEdit(fake: FakeApp): {
   readonly edit: AddFeature | null
 } {
   const command = fake.transport.commandsOfType('apply_edits')[0]
-  const edit = command?.edits[0]
+  const edit = editsOf(command)[0]
   return { command, edit: edit?.type === 'add_feature' ? edit : null }
 }
 
@@ -43,7 +38,7 @@ describe('createSketchOn (3.16.1)', () => {
     await settle()
     const { command, edit } = newSketchEdit(fake)
     expect(command?.label).toBe('New sketch')
-    expect(command?.edits).toHaveLength(1)
+    expect(editsOf(command)).toHaveLength(1)
     expect(edit?.index).toBe(2)
     expect(edit?.feature).toMatchObject({
       type: 'sketch',
@@ -76,7 +71,7 @@ describe('createSketchOn (3.16.1)', () => {
     await settle()
     const { command, edit } = newSketchEdit(fake)
     expect(edit?.index).toBe(2)
-    expect(command?.edits.some((candidate) => candidate.type === 'set_rollback')).toBe(false)
+    expect(editsOf(command).some((candidate) => candidate.type === 'set_rollback')).toBe(false)
   })
 })
 

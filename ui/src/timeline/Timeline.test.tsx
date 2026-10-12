@@ -17,7 +17,7 @@ import { createModelApp, renderWithApp, stubMatchMedia } from '../layout/test-ap
 import { MESSAGES } from '../messages'
 import type { ActiveCommand, AppState, DocumentState } from '../state/store'
 import { coreErrorFor } from '../test/fakes/core-api'
-import { CUBE_DOCUMENT } from '../test/fakes/documents'
+import { CUBE_DOCUMENT, CUBE_EXTRUDE, CUBE_SKETCH, featuresOf } from '../test/fakes/documents'
 import { settle } from '../test/fakes/settle'
 import { COLOR_CLASSES } from '../theme/roles'
 
@@ -37,19 +37,27 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-function renderTimeline(document: DocumentState = cubeDocumentState(), state: Partial<AppState> = {}) {
+function renderTimeline(
+  document: DocumentState = cubeDocumentState(),
+  state: Partial<AppState> = {},
+) {
   const test = createModelApp({ state: readyState(document, state) })
   renderWithApp(test.app)
   uninstallDispatcher = installShortcutDispatcher(test.app, window)
   return { ...test, user: userEvent.setup(), timeline: screen.getByTestId('timeline') }
 }
 
-function boxes(rollback: string | null = null, document: Document = THREE_BOXES_DOCUMENT): DocumentState {
+function boxes(
+  rollback: string | null = null,
+  document: Document = THREE_BOXES_DOCUMENT,
+): DocumentState {
   return documentState(rollback === null ? document : { ...document, rollback })
 }
 
 function item(id: string): HTMLElement {
-  const found = screen.getAllByTestId('timeline-item').find((element) => element.getAttribute('data-feature-id') === id)
+  const found = screen
+    .getAllByTestId('timeline-item')
+    .find((element) => element.getAttribute('data-feature-id') === id)
   if (found === undefined) {
     throw new Error(`No timeline item ${id}`)
   }
@@ -99,7 +107,10 @@ describe('timeline items (3.9)', () => {
   it('lists the features in timeline order, named by their labels, with their status', () => {
     renderTimeline()
     const items = screen.getAllByTestId('timeline-item')
-    expect(items.map((element) => element.getAttribute('data-feature-id'))).toEqual(['f-sk1', 'f-ext1'])
+    expect(items.map((element) => element.getAttribute('data-feature-id'))).toEqual([
+      'f-sk1',
+      'f-ext1',
+    ])
     expect(items.map((element) => element.getAttribute('data-status'))).toEqual(['ok', 'ok'])
     expect(itemButton('Sketch 1')).toBeInTheDocument()
     expect(itemButton('Extrude 1')).toBeInTheDocument()
@@ -107,7 +118,10 @@ describe('timeline items (3.9)', () => {
 
   it('shows pending before the first status of a feature', () => {
     const document = cubeDocumentState()
-    renderTimeline({ ...document, featureStatus: { 'f-sk1': document.featureStatus['f-sk1'] as FeatureStatus } })
+    renderTimeline({
+      ...document,
+      featureStatus: { 'f-sk1': document.featureStatus['f-sk1'] as FeatureStatus },
+    })
     expect(item('f-ext1')).toHaveAttribute('data-status', 'pending')
   })
 
@@ -125,21 +139,30 @@ describe('timeline items (3.9)', () => {
       withStatus(cubeDocumentState(), {
         id: 'f-ext1',
         status: 'warning',
-        messages: [{ severity: 'warning', code: 'no_effect', message: 'This feature does not change it.' }],
+        messages: [
+          { severity: 'warning', code: 'no_effect', message: 'This feature does not change it.' },
+        ],
         repairs: [],
       }),
     )
-    expect(describedText(itemButton('Extrude 1'))).toContain('Warning: This feature does not change it.')
+    expect(describedText(itemButton('Extrude 1'))).toContain(
+      'Warning: This feature does not change it.',
+    )
     expect(item('f-ext1').querySelector('.lucide-triangle-alert')).not.toBeNull()
   })
 
   it('marks suppressed features', () => {
     const suppressed: Document = {
       ...CUBE_DOCUMENT,
-      features: [CUBE_DOCUMENT.features[0], { ...CUBE_DOCUMENT.features[1], suppressed: true }] as Document['features'],
+      features: [CUBE_SKETCH, { ...CUBE_EXTRUDE, suppressed: true }] as Document['features'],
     }
     renderTimeline(
-      withStatus(documentState(suppressed), { id: 'f-ext1', status: 'suppressed', messages: [], repairs: [] }),
+      withStatus(documentState(suppressed), {
+        id: 'f-ext1',
+        status: 'suppressed',
+        messages: [],
+        repairs: [],
+      }),
     )
     expect(item('f-ext1')).toHaveAttribute('data-suppressed', 'true')
     expect(item('f-sk1')).toHaveAttribute('data-suppressed', 'false')
@@ -158,7 +181,9 @@ describe('timeline items (3.9)', () => {
     const editing = item('f-ext1')
     const carriers = [editing, ...editing.querySelectorAll('*')]
     const outline = COLOR_CLASSES.accent.outline.split(' ')
-    expect(carriers.some((element) => outline.every((name) => element.classList.contains(name)))).toBe(true)
+    expect(
+      carriers.some((element) => outline.every((name) => element.classList.contains(name))),
+    ).toBe(true)
   })
 
   it('gives selected items the selection background', () => {
@@ -166,7 +191,9 @@ describe('timeline items (3.9)', () => {
     const selected = item('f-ext1')
     const carriers = [selected, ...selected.querySelectorAll('*')]
     const background = COLOR_CLASSES.selection.background.split(' ')
-    expect(carriers.some((element) => background.every((name) => element.classList.contains(name)))).toBe(true)
+    expect(
+      carriers.some((element) => background.every((name) => element.classList.contains(name))),
+    ).toBe(true)
   })
 })
 
@@ -202,21 +229,27 @@ describe('the rollback marker (3.9)', () => {
     const { core } = renderTimeline(boxes('f-box2'))
     fireEvent.keyDown(screen.getByTestId('timeline-marker'), { key: 'Home' })
     await settle()
-    expect(core.callsTo('applyEdits')).toEqual([[1, 'Roll back', [{ type: 'set_rollback', rollback: 'f-box1' }]]])
+    expect(core.callsTo('applyEdits')).toEqual([
+      [1, 'Roll back', [{ type: 'set_rollback', rollback: 'f-box1' }]],
+    ])
   })
 
   it('U-68 ArrowRight from position 1 sends set_rollback to the third feature', async () => {
     const { core } = renderTimeline(boxes('f-box2'))
     fireEvent.keyDown(screen.getByTestId('timeline-marker'), { key: 'ArrowRight' })
     await settle()
-    expect(core.callsTo('applyEdits')).toEqual([[1, 'Roll back', [{ type: 'set_rollback', rollback: 'f-box3' }]]])
+    expect(core.callsTo('applyEdits')).toEqual([
+      [1, 'Roll back', [{ type: 'set_rollback', rollback: 'f-box3' }]],
+    ])
   })
 
   it('ArrowLeft moves the marker one gap back', async () => {
     const { core } = renderTimeline(boxes('f-box3'))
     fireEvent.keyDown(screen.getByTestId('timeline-marker'), { key: 'ArrowLeft' })
     await settle()
-    expect(core.callsTo('applyEdits')).toEqual([[1, 'Roll back', [{ type: 'set_rollback', rollback: 'f-box2' }]]])
+    expect(core.callsTo('applyEdits')).toEqual([
+      [1, 'Roll back', [{ type: 'set_rollback', rollback: 'f-box2' }]],
+    ])
   })
 })
 
@@ -224,7 +257,9 @@ describe('selecting and editing (3.9)', () => {
   it('selects a feature on click and toggles with Shift', async () => {
     const { app, user } = renderTimeline()
     await user.click(itemButton('Extrude 1'))
-    expect(app.store.getState().selection.map((selected) => selected.key)).toEqual(['feature:f-ext1'])
+    expect(app.store.getState().selection.map((selected) => selected.key)).toEqual([
+      'feature:f-ext1',
+    ])
     await user.keyboard('{Shift>}')
     await user.click(itemButton('Sketch 1'))
     await user.keyboard('{/Shift}')
@@ -265,13 +300,11 @@ describe('selecting and editing (3.9)', () => {
     await user.pointer({ keys: '[MouseRight]', target: itemButton('Extrude 1') })
     const menu = screen.getByTestId('context-menu')
     expect(menu).toHaveAttribute('role', 'menu')
-    expect(within(menu).getAllByRole('menuitem').map((entry) => entry.textContent?.trim())).toEqual([
-      'Edit',
-      'Rename',
-      'Suppress',
-      'Roll back to here',
-      'Delete',
-    ])
+    expect(
+      within(menu)
+        .getAllByRole('menuitem')
+        .map((entry) => entry.textContent?.trim()),
+    ).toEqual(['Edit', 'Rename', 'Suppress', 'Roll back to here', 'Delete'])
   })
 
   it('opens the context menu with Shift+F10', async () => {
@@ -284,13 +317,15 @@ describe('selecting and editing (3.9)', () => {
   it('suppresses from the context menu with "Suppress {label}"', async () => {
     const { core, user } = renderTimeline()
     await user.pointer({ keys: '[MouseRight]', target: itemButton('Extrude 1') })
-    await user.click(within(screen.getByTestId('context-menu')).getByRole('menuitem', { name: 'Suppress' }))
+    await user.click(
+      within(screen.getByTestId('context-menu')).getByRole('menuitem', { name: 'Suppress' }),
+    )
     await settle()
     expect(core.callsTo('applyEdits')).toEqual([
       [
         1,
         'Suppress Extrude 1',
-        [{ type: 'update_feature', feature: { ...CUBE_DOCUMENT.features[1], suppressed: true } }],
+        [{ type: 'update_feature', feature: { ...CUBE_EXTRUDE, suppressed: true } }],
       ],
     ])
   })
@@ -298,15 +333,20 @@ describe('selecting and editing (3.9)', () => {
   it('unsuppresses a suppressed feature with "Unsuppress {label}"', async () => {
     const suppressed: Document = {
       ...CUBE_DOCUMENT,
-      features: [CUBE_DOCUMENT.features[0], { ...CUBE_DOCUMENT.features[1], suppressed: true }] as Document['features'],
+      features: [CUBE_SKETCH, { ...CUBE_EXTRUDE, suppressed: true }] as Document['features'],
     }
     const { core, user } = renderTimeline(documentState(suppressed))
     await user.pointer({ keys: '[MouseRight]', target: itemButton('Extrude 1') })
-    await user.click(within(screen.getByTestId('context-menu')).getByRole('menuitem', { name: 'Unsuppress' }))
+    await user.click(
+      within(screen.getByTestId('context-menu')).getByRole('menuitem', { name: 'Unsuppress' }),
+    )
     await settle()
     const [[, label, edits] = []] = core.callsTo('applyEdits')
     expect(label).toBe('Unsuppress Extrude 1')
-    const [edit] = edits as readonly { type: string; feature: { id: string; suppressed?: boolean } }[]
+    const [edit] = edits as readonly {
+      type: string
+      feature: { id: string; suppressed?: boolean }
+    }[]
     expect(edit?.type).toBe('update_feature')
     expect(edit?.feature.id).toBe('f-ext1')
     expect(edit?.feature.suppressed ?? false).toBe(false)
@@ -315,9 +355,15 @@ describe('selecting and editing (3.9)', () => {
   it('"Roll back to here" keeps the item active and rolls back what follows', async () => {
     const { core, user } = renderTimeline(boxes())
     await user.pointer({ keys: '[MouseRight]', target: itemButton('Box 1') })
-    await user.click(within(screen.getByTestId('context-menu')).getByRole('menuitem', { name: 'Roll back to here' }))
+    await user.click(
+      within(screen.getByTestId('context-menu')).getByRole('menuitem', {
+        name: 'Roll back to here',
+      }),
+    )
     await settle()
-    expect(core.callsTo('applyEdits')).toEqual([[1, 'Roll back', [{ type: 'set_rollback', rollback: 'f-box2' }]]])
+    expect(core.callsTo('applyEdits')).toEqual([
+      [1, 'Roll back', [{ type: 'set_rollback', rollback: 'f-box2' }]],
+    ])
   })
 
   it('renames inline with F2 and Enter, labeled "Rename"', async () => {
@@ -329,14 +375,14 @@ describe('selecting and editing (3.9)', () => {
     await user.type(field, 'Base{Enter}')
     await settle()
     expect(core.callsTo('applyEdits')).toEqual([
-      [1, 'Rename', [{ type: 'update_feature', feature: { ...CUBE_DOCUMENT.features[1], name: 'Base' } }]],
+      [1, 'Rename', [{ type: 'update_feature', feature: { ...CUBE_EXTRUDE, name: 'Base' } }]],
     ])
   })
 
   it('removes the name when the rename is empty, so the default label returns', async () => {
     const named: Document = {
       ...CUBE_DOCUMENT,
-      features: [CUBE_DOCUMENT.features[0], { ...CUBE_DOCUMENT.features[1], name: 'Base' }] as Document['features'],
+      features: [CUBE_SKETCH, { ...CUBE_EXTRUDE, name: 'Base' }] as Document['features'],
     }
     const { core, user } = renderTimeline(documentState(named))
     itemButton('Base').focus()
@@ -345,7 +391,7 @@ describe('selecting and editing (3.9)', () => {
     await user.keyboard('{Enter}')
     await settle()
     expect(core.callsTo('applyEdits')).toEqual([
-      [1, 'Rename', [{ type: 'update_feature', feature: CUBE_DOCUMENT.features[1] }]],
+      [1, 'Rename', [{ type: 'update_feature', feature: CUBE_EXTRUDE }]],
     ])
   })
 
@@ -364,7 +410,9 @@ describe('deleting (3.9)', () => {
   it('U-68 deleting the rollback feature first moves the marker to the next remaining feature', async () => {
     const { app, core, user } = renderTimeline(boxes('f-box2'))
     await user.pointer({ keys: '[MouseRight]', target: itemButton('Box 2') })
-    await user.click(within(screen.getByTestId('context-menu')).getByRole('menuitem', { name: 'Delete' }))
+    await user.click(
+      within(screen.getByTestId('context-menu')).getByRole('menuitem', { name: 'Delete' }),
+    )
     await settle()
     expect(core.callsTo('applyEdits')).toEqual([
       [
@@ -376,21 +424,21 @@ describe('deleting (3.9)', () => {
         ],
       ],
     ])
-    const notice = app.store.getState().notifications.find((entry) => entry.message === MESSAGES.deleted('Box 2'))
+    const notice = app.store
+      .getState()
+      .notifications.find((entry) => entry.message === MESSAGES.deleted('Box 2'))
     expect(notice?.actions.map((action) => action.label)).toEqual(['Undo'])
   })
 
   it('U-68 deleting the last feature at the marker clears the marker (no id)', async () => {
     const { core, user } = renderTimeline(boxes('f-box3'))
     await user.pointer({ keys: '[MouseRight]', target: itemButton('Box 3') })
-    await user.click(within(screen.getByTestId('context-menu')).getByRole('menuitem', { name: 'Delete' }))
+    await user.click(
+      within(screen.getByTestId('context-menu')).getByRole('menuitem', { name: 'Delete' }),
+    )
     await settle()
     expect(core.callsTo('applyEdits')).toEqual([
-      [
-        1,
-        'Delete Box 3',
-        [{ type: 'set_rollback' }, { type: 'remove_feature', id: 'f-box3' }],
-      ],
+      [1, 'Delete Box 3', [{ type: 'set_rollback' }, { type: 'remove_feature', id: 'f-box3' }]],
     ])
   })
 
@@ -417,8 +465,10 @@ describe('deleting (3.9)', () => {
 
 // Items 40 pixels wide, 4 apart, from x = 100; gap g lies at x = 98 + 44 g.
 function stubItemRectangles(): void {
-  const order = FOUR_BOXES_DOCUMENT.features.map((feature) => feature.id)
-  vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function rectangle(this: Element) {
+  const order = featuresOf(FOUR_BOXES_DOCUMENT).map((feature) => feature.id)
+  vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function rectangle(
+    this: Element,
+  ) {
     const id = this.closest('[data-feature-id]')?.getAttribute('data-feature-id') ?? null
     const index = id === null ? -1 : order.indexOf(id)
     return index === -1
@@ -441,7 +491,9 @@ describe('reordering by drag (3.9)', () => {
     const { core } = renderTimeline(boxes(null, FOUR_BOXES_DOCUMENT))
     drag(item('f-box4'), 252, 142)
     await settle()
-    expect(core.callsTo('applyEdits')).toEqual([[1, 'Reorder', [{ type: 'move_feature', id: 'f-box4', index: 1 }]]])
+    expect(core.callsTo('applyEdits')).toEqual([
+      [1, 'Reorder', [{ type: 'move_feature', id: 'f-box4', index: 1 }]],
+    ])
   })
 
   it('U-68 dropping feature index 3 at gap 4, its own position, sends no edit', async () => {
@@ -457,7 +509,9 @@ describe('reordering by drag (3.9)', () => {
     const { core } = renderTimeline(boxes(null, FOUR_BOXES_DOCUMENT))
     drag(item('f-box1'), 120, 230)
     await settle()
-    expect(core.callsTo('applyEdits')).toEqual([[1, 'Reorder', [{ type: 'move_feature', id: 'f-box1', index: 2 }]]])
+    expect(core.callsTo('applyEdits')).toEqual([
+      [1, 'Reorder', [{ type: 'move_feature', id: 'f-box1', index: 2 }]],
+    ])
   })
 
   it('a press that moves 4 pixels or less starts no drag', async () => {
@@ -477,9 +531,15 @@ describe('import features (U-89)', () => {
     await user.pointer({ keys: '[MouseRight]', target: itemButton('Import 1') })
     const menu = screen.getByTestId('context-menu')
     for (const name of ['Rename', 'Suppress', 'Delete']) {
-      expect(within(menu).getByRole('menuitem', { name })).not.toHaveAttribute('aria-disabled', 'true')
+      expect(within(menu).getByRole('menuitem', { name })).not.toHaveAttribute(
+        'aria-disabled',
+        'true',
+      )
     }
-    expect(within(menu).getByRole('menuitem', { name: 'Edit' })).toHaveAttribute('aria-disabled', 'true')
+    expect(within(menu).getByRole('menuitem', { name: 'Edit' })).toHaveAttribute(
+      'aria-disabled',
+      'true',
+    )
   })
 
   it('U-89 a double-click on an import starts no edit and explains why', async () => {
@@ -549,7 +609,9 @@ describe('keyboard (3.9)', () => {
     const { app, user } = renderTimeline()
     itemButton('Sketch 1').focus()
     await user.keyboard(' ')
-    expect(app.store.getState().selection.map((selected) => selected.key)).toEqual(['feature:f-sk1'])
+    expect(app.store.getState().selection.map((selected) => selected.key)).toEqual([
+      'feature:f-sk1',
+    ])
     itemButton('Extrude 1').focus()
     await user.keyboard('{Control>} {/Control}')
     expect(app.store.getState().selection.map((selected) => selected.key)).toEqual([

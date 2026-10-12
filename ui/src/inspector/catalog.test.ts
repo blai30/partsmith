@@ -35,7 +35,9 @@ describe('the catalog store (2.12)', () => {
     expect(Object.keys(catalog?.byType ?? {}).toSorted()).toEqual(
       TEST_CATALOG_ENTRIES.map((entry) => entry.type).toSorted(),
     )
-    expect(catalog?.byType.extrude).toBe(catalog?.features.find((feature) => feature.type === 'extrude'))
+    expect(catalog?.byType.extrude).toBe(
+      catalog?.features.find((feature) => feature.type === 'extrude'),
+    )
   })
 
   it('U-30 passes manifests and params schemas through unchanged', async () => {

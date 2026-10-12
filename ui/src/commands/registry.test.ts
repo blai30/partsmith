@@ -1,7 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { App, Platform } from '../app/createApp'
 import type { AppContext } from '../state/store'
-import { createTestApp as createFakeTestApp, LINUX_WEB, MAC_WEB, WINDOWS_DESKTOP } from '../test/fakes/test-app'
+import {
+  createTestApp as createFakeTestApp,
+  LINUX_WEB,
+  MAC_WEB,
+  WINDOWS_DESKTOP,
+} from '../test/fakes/test-app'
 import {
   createCommandRegistry,
   type Availability,

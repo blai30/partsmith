@@ -28,8 +28,8 @@ describe('callCore', () => {
     const lengths = module.allocations.map((block) => block.length)
     expect(lengths).toContain(requestLength)
     expect(lengths).toContain(4)
-    expect([...module.frees].sort((first, second) => first.pointer - second.pointer)).toEqual(
-      [...module.allocations].sort((first, second) => first.pointer - second.pointer),
+    expect(module.frees.toSorted((first, second) => first.pointer - second.pointer)).toEqual(
+      module.allocations.toSorted((first, second) => first.pointer - second.pointer),
     )
     expect(module.live.size).toBe(0)
   })
@@ -86,4 +86,3 @@ describe('callCore', () => {
     )
   })
 })
-

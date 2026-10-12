@@ -1,7 +1,18 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Document, Edit, Event as ProtocolEvent } from '../generated/protocol'
-import { createFakeApp, currentDocument, LINUX_WEB, startFakeApp, startWithDocument } from '../test/fakes/app'
-import { CUBE_DOCUMENT, CUBE_SKETCH_SOLUTION, CUBE_TOP_FACE } from '../test/fakes/documents'
+import {
+  createFakeApp,
+  currentDocument,
+  LINUX_WEB,
+  startFakeApp,
+  startWithDocument,
+} from '../test/fakes/app'
+import {
+  CUBE_DOCUMENT,
+  CUBE_SKETCH_SOLUTION,
+  CUBE_TOP_FACE,
+  bodiesOf,
+} from '../test/fakes/documents'
 import { createFakeFileHandle } from '../test/fakes/files'
 import { elementItem } from '../test/fakes/selection'
 import { settle } from '../test/fakes/settle'
@@ -10,7 +21,9 @@ import { applyEdits, save } from './actions/document'
 import { select } from './actions/selection'
 import { detectPlatform } from './createApp'
 
-const RENAME_TO_BOX: readonly Edit[] = [{ type: 'update_body', body: { id: 'b-cube', name: 'Box' } }]
+const RENAME_TO_BOX: readonly Edit[] = [
+  { type: 'update_body', body: { id: 'b-cube', name: 'Box' } },
+]
 const RENAME_TO_BLOCK: readonly Edit[] = [
   { type: 'update_body', body: { id: 'b-cube', name: 'Block' } },
 ]
@@ -23,16 +36,26 @@ function documentChanged(doc: number, revision: number, document: Document): Pro
   return { type: 'document_changed', doc, revision, document, dirty: true, transaction_open: false }
 }
 
+function navigatorWith(fields: {
+  readonly platform: string
+  readonly userAgentData?: { readonly platform: string }
+}): Navigator {
+  return fields as unknown as Navigator
+}
+
+/** cube.ptsm opened from a file handle; clean until a test edits it. */
+async function cubeWithHandle(): Promise<{ fake: FakeApp; handle: FileSystemFileHandle }> {
+  const handle = createFakeFileHandle('cube.ptsm')
+  const fake = await startWithDocument('cube.ptsm', CUBE_DOCUMENT, { handle })
+  return { fake, handle }
+}
+
 afterEach(() => {
   vi.useRealTimers()
   vi.restoreAllMocks()
 })
 
 describe('detectPlatform', () => {
-  function navigatorWith(fields: { platform: string; userAgentData?: { platform: string } }): Navigator {
-    return fields as unknown as Navigator
-  }
-
   it('maps navigator.platform strings containing Mac, Win and Linux', () => {
     expect(detectPlatform(navigatorWith({ platform: 'MacIntel' }), {}).operatingSystem).toBe('mac')
     expect(detectPlatform(navigatorWith({ platform: 'Win32' }), {}).operatingSystem).toBe('windows')
@@ -43,7 +66,10 @@ describe('detectPlatform', () => {
   })
 
   it('prefers navigator.userAgentData.platform when present', () => {
-    const navigator = navigatorWith({ platform: 'Linux x86_64', userAgentData: { platform: 'macOS' } })
+    const navigator = navigatorWith({
+      platform: 'Linux x86_64',
+      userAgentData: { platform: 'macOS' },
+    })
     expect(detectPlatform(navigator, {}).operatingSystem).toBe('mac')
   })
 
@@ -81,7 +107,6 @@ describe('createApp', () => {
     app.attachViewport(null)
     expect(app.viewport()).toBeNull()
   })
-
 })
 
 describe('core events in the store', () => {
@@ -111,7 +136,7 @@ describe('core events in the store', () => {
     await applyEdits(fake.app, 'Rename', RENAME_TO_BOX)
     await settle()
     const document = currentDocument(fake.app)
-    expect(document.recipe.bodies[0]?.name).toBe('Box')
+    expect(bodiesOf(document.recipe)[0]?.name).toBe('Box')
     expect(document.dirty).toBe(true)
     expect(document.undoLabel).toBe('Rename')
     expect(document.revision).toBe(fake.transport.core.document(document.documentHandle).revision)
@@ -129,7 +154,7 @@ describe('core events in the store', () => {
     await applyEdits(fake.app, 'Rename', RENAME_TO_BLOCK)
     await settle()
     expect(currentDocument(fake.app).revision).toBe(revision)
-    expect(currentDocument(fake.app).recipe.bodies[0]?.name).toBe('Box')
+    expect(bodiesOf(currentDocument(fake.app).recipe)[0]?.name).toBe('Box')
   })
 
   it('U-18 applies a document_changed whose revision equals the stored one', async () => {
@@ -144,7 +169,7 @@ describe('core events in the store', () => {
     await applyEdits(fake.app, 'Rename', RENAME_TO_BLOCK)
     await settle()
     expect(currentDocument(fake.app).revision).toBe(revision)
-    expect(currentDocument(fake.app).recipe.bodies[0]?.name).toBe('Block')
+    expect(bodiesOf(currentDocument(fake.app).recipe)[0]?.name).toBe('Block')
   })
 
   it('ignores a recomputed whose revision is lower than the stored one', async () => {
@@ -194,14 +219,8 @@ describe('core events in the store', () => {
 })
 
 describe('recovery copy (3.19)', () => {
-  async function dirtyCube() {
-    const handle = createFakeFileHandle('cube.ptsm')
-    const fake = await startWithDocument('cube.ptsm', CUBE_DOCUMENT, { handle })
-    return { fake, handle }
-  }
-
   it('U-77 a dirty document_changed writes an autosave entry 2 s later', async () => {
-    const { fake, handle } = await dirtyCube()
+    const { fake, handle } = await cubeWithHandle()
     vi.useFakeTimers()
     await applyEdits(fake.app, 'Rename', RENAME_TO_BOX)
     await settle()
@@ -221,7 +240,7 @@ describe('recovery copy (3.19)', () => {
   })
 
   it('U-77 another change within 2 s postpones the write', async () => {
-    const { fake } = await dirtyCube()
+    const { fake } = await cubeWithHandle()
     vi.useFakeTimers()
     await applyEdits(fake.app, 'Rename', RENAME_TO_BOX)
     await settle()
@@ -238,7 +257,7 @@ describe('recovery copy (3.19)', () => {
   })
 
   it('writes nothing for a clean document', async () => {
-    const { fake } = await dirtyCube()
+    const { fake } = await cubeWithHandle()
     vi.useFakeTimers()
     await vi.advanceTimersByTimeAsync(5_000)
     await settle()
@@ -246,7 +265,7 @@ describe('recovery copy (3.19)', () => {
   })
 
   it('U-77 a successful save clears the store', async () => {
-    const { fake } = await dirtyCube()
+    const { fake } = await cubeWithHandle()
     vi.useFakeTimers()
     await applyEdits(fake.app, 'Rename', RENAME_TO_BOX)
     await settle()

@@ -1,23 +1,29 @@
 import { describe, expect, it } from 'vitest'
 import type { Document } from '../../generated/protocol'
 import { MESSAGES } from '../../messages'
-import { actionLabels, currentDocument, type FakeApp, notificationWith, runAction, startWithDocument } from '../../test/fakes/app'
-import { CUBE_DOCUMENT, CUBE_FEATURES_DOCUMENT } from '../../test/fakes/documents'
-import { withoutNulls } from '../../test/fakes/protocol'
-import { settle } from '../../test/fakes/settle'
 import {
-  deleteFeatures,
-  moveFeature,
-  renameFeature,
-  setRollback,
-  setSuppressed,
-} from './timeline'
+  actionLabels,
+  currentDocument,
+  type FakeApp,
+  notificationWith,
+  runAction,
+  startWithDocument,
+} from '../../test/fakes/app'
+import {
+  CUBE_DOCUMENT,
+  CUBE_FEATURES_DOCUMENT,
+  featuresOf,
+  withFeatureChanges,
+} from '../../test/fakes/documents'
+import { withoutNulls, editsOf } from '../../test/fakes/protocol'
+import { settle } from '../../test/fakes/settle'
+import { deleteFeatures, moveFeature, renameFeature, setRollback, setSuppressed } from './timeline'
 
 /** The apply_edits requests as { label, edits }, null fields removed. */
 function appliedEdits(fake: FakeApp): unknown[] {
-  return fake.transport.commandsOfType('apply_edits').map((command) =>
-    withoutNulls({ label: command.label, edits: command.edits }),
-  )
+  return fake.transport
+    .commandsOfType('apply_edits')
+    .map((command) => withoutNulls({ label: command.label, edits: editsOf(command) }))
 }
 
 async function cubeFeatures(recipe: Partial<Document> = {}): Promise<FakeApp> {
@@ -63,7 +69,7 @@ describe('deleteFeatures (3.9)', () => {
     expect(appliedEdits(fake)).toEqual([
       { label: 'Delete Shell 1', edits: [{ type: 'remove_feature', id: 'f-sh1' }] },
     ])
-    expect(currentDocument(fake.app).recipe.features.map((feature) => feature.id)).toEqual([
+    expect(featuresOf(currentDocument(fake.app).recipe).map((feature) => feature.id)).toEqual([
       'f-sk1',
       'f-ext1',
       'f-fil1',
@@ -80,7 +86,9 @@ describe('deleteFeatures (3.9)', () => {
     runAction(notification, 'Undo')
     await settle()
     expect(fake.transport.commandTypes()).toContain('undo')
-    expect(currentDocument(fake.app).recipe.features.map((feature) => feature.id)).toContain('f-sh1')
+    expect(featuresOf(currentDocument(fake.app).recipe).map((feature) => feature.id)).toContain(
+      'f-sh1',
+    )
   })
 })
 
@@ -137,8 +145,8 @@ describe('setSuppressed (3.9)', () => {
     await settle()
     const [applied] = fake.transport.commandsOfType('apply_edits')
     expect(applied?.label).toBe('Suppress Fillet 1')
-    expect(applied?.edits).toHaveLength(1)
-    const [edit] = applied?.edits ?? []
+    expect(editsOf(applied)).toHaveLength(1)
+    const [edit] = editsOf(applied)
     expect(edit?.type === 'update_feature' ? edit.feature : null).toMatchObject({
       id: 'f-fil1',
       type: 'fillet',
@@ -149,16 +157,15 @@ describe('setSuppressed (3.9)', () => {
   })
 
   it('unsuppresses with update_feature labeled "Unsuppress {label}"', async () => {
-    const fake = await cubeFeatures({
-      features: CUBE_FEATURES_DOCUMENT.features.map((feature) =>
-        feature.id === 'f-fil1' ? { ...feature, suppressed: true } : feature,
-      ),
-    })
+    const fake = await startWithDocument(
+      'cube-features.ptsm',
+      withFeatureChanges(CUBE_FEATURES_DOCUMENT, 'f-fil1', { suppressed: true }),
+    )
     await setSuppressed(fake.app, ['f-fil1'], false)
     await settle()
     const [applied] = fake.transport.commandsOfType('apply_edits')
     expect(applied?.label).toBe('Unsuppress Fillet 1')
-    const [edit] = applied?.edits ?? []
+    const [edit] = editsOf(applied)
     const feature = edit?.type === 'update_feature' ? edit.feature : null
     expect(feature?.id).toBe('f-fil1')
     expect(feature?.suppressed ?? false).toBe(false)
@@ -170,9 +177,11 @@ describe('setSuppressed (3.9)', () => {
     await settle()
     const applied = fake.transport.commandsOfType('apply_edits')
     expect(applied).toHaveLength(1)
-    expect(applied[0]?.edits.map((edit) => (edit.type === 'update_feature' ? edit.feature.id : edit.type))).toEqual(
-      ['f-fil1', 'f-sh1'],
-    )
+    expect(
+      editsOf(applied[0]).map((edit) =>
+        edit.type === 'update_feature' ? edit.feature.id : edit.type,
+      ),
+    ).toEqual(['f-fil1', 'f-sh1'])
   })
 })
 
@@ -183,7 +192,7 @@ describe('renameFeature (3.9)', () => {
     await settle()
     const [applied] = fake.transport.commandsOfType('apply_edits')
     expect(applied?.label).toBe('Rename')
-    const [edit] = applied?.edits ?? []
+    const [edit] = editsOf(applied)
     expect(edit?.type === 'update_feature' ? edit.feature : null).toMatchObject({
       id: 'f-ext1',
       type: 'extrude',
@@ -193,16 +202,14 @@ describe('renameFeature (3.9)', () => {
   })
 
   it('an empty name removes the name so the default label returns', async () => {
-    const fake = await startWithDocument('cube.ptsm', {
-      ...CUBE_DOCUMENT,
-      features: CUBE_DOCUMENT.features.map((feature) =>
-        feature.id === 'f-ext1' ? { ...feature, name: 'Base' } : feature,
-      ),
-    })
+    const fake = await startWithDocument(
+      'cube.ptsm',
+      withFeatureChanges(CUBE_DOCUMENT, 'f-ext1', { name: 'Base' }),
+    )
     await renameFeature(fake.app, 'f-ext1', '')
     await settle()
     const [applied] = fake.transport.commandsOfType('apply_edits')
-    const [edit] = applied?.edits ?? []
+    const [edit] = editsOf(applied)
     const feature = edit?.type === 'update_feature' ? edit.feature : null
     expect(feature?.id).toBe('f-ext1')
     expect(feature?.name ?? null).toBeNull()

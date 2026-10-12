@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import type { Command, Document, Edit } from '../../generated/protocol'
-import { actionLabels, currentDocument, type FakeApp, notificationWith, runAction, startWithDocument } from '../../test/fakes/app'
+import {
+  actionLabels,
+  currentDocument,
+  type FakeApp,
+  notificationWith,
+  runAction,
+  startWithDocument,
+} from '../../test/fakes/app'
 import {
   CUBE_DOCUMENT,
   CUBE_EXTRUDE,
@@ -10,8 +17,12 @@ import {
   RECT_REGION,
   RECT_SKETCH_DOCUMENT,
   RECT_SKETCH_SOLUTION,
+  bodiesOf,
+  featuresOf,
+  withFeatureChanges,
 } from '../../test/fakes/documents'
 import { elementItem, regionItem } from '../../test/fakes/selection'
+import { editsOf } from '../../test/fakes/protocol'
 import { settle } from '../../test/fakes/settle'
 import {
   cancelCommand,
@@ -24,19 +35,14 @@ import {
 } from './command'
 import { select } from './selection'
 
-type ApplyEdits = Extract<Command, { type: 'apply_edits' }>
 type AddFeature = Extract<Edit, { type: 'add_feature' }>
 type UpdateFeature = Extract<Edit, { type: 'update_feature' }>
 
 const ID_PATTERN = /^[fb]-[0-9a-f]{12}$/
 
-function editsOf(command: ApplyEdits | undefined): readonly Edit[] {
-  return command?.edits ?? []
-}
-
 function addedFeature(fake: FakeApp): AddFeature['feature'] | null {
   for (const command of fake.transport.commandsOfType('apply_edits')) {
-    for (const edit of command.edits) {
+    for (const edit of editsOf(command)) {
       if (edit.type === 'add_feature') {
         return edit.feature
       }
@@ -48,20 +54,22 @@ function addedFeature(fake: FakeApp): AddFeature['feature'] | null {
 function updatedFeatures(fake: FakeApp): UpdateFeature['feature'][] {
   return fake.transport
     .commandsOfType('apply_edits')
-    .flatMap((command) => command.edits)
+    .flatMap((command) => editsOf(command))
     .flatMap((edit) => (edit.type === 'update_feature' ? [edit.feature] : []))
 }
 
+// The transaction and edit commands, which tests compare in order; queries are left out.
+const RELEVANT_TYPES: ReadonlySet<Command['type']> = new Set<Command['type']>([
+  'begin_transaction',
+  'apply_edits',
+  'set_focus',
+  'commit_transaction',
+  'cancel_transaction',
+  'undo',
+])
+
 function relevantTypes(fake: FakeApp): Command['type'][] {
-  const relevant: readonly Command['type'][] = [
-    'begin_transaction',
-    'apply_edits',
-    'set_focus',
-    'commit_transaction',
-    'cancel_transaction',
-    'undo',
-  ]
-  return fake.transport.commandTypes().filter((type) => relevant.includes(type))
+  return fake.transport.commandTypes().filter((type) => RELEVANT_TYPES.has(type))
 }
 
 async function rectSketchWithRegionSelected(): Promise<FakeApp> {
@@ -136,13 +144,15 @@ describe('startFeatureCommand (3.7)', () => {
   it('U-65 with rollback at the second of three features, the first preview adds the feature at index 1 and sets no rollback', async () => {
     const recipe: Document = {
       ...CUBE_FEATURES_DOCUMENT,
-      features: CUBE_FEATURES_DOCUMENT.features.slice(0, 3),
+      features: featuresOf(CUBE_FEATURES_DOCUMENT).slice(0, 3),
       rollback: 'f-ext1',
     }
     const fake = await startWithDocument('cube.ptsm', recipe)
     await startFeatureCommand(fake.app, 'box')
     await settle()
-    const edits = fake.transport.commandsOfType('apply_edits').flatMap((command) => command.edits)
+    const edits = fake.transport
+      .commandsOfType('apply_edits')
+      .flatMap((command) => editsOf(command))
     const added = edits.find((edit) => edit.type === 'add_feature')
     expect(added?.type === 'add_feature' ? added.index : null).toBe(1)
     expect(edits.some((edit) => edit.type === 'set_rollback')).toBe(false)
@@ -154,11 +164,9 @@ describe('startFeatureCommand (3.7)', () => {
     await settle()
     await startFeatureCommand(fake.app, 'cylinder')
     await settle()
-    expect(relevantTypes(fake).filter((type) => type !== 'apply_edits' && type !== 'set_focus')).toEqual([
-      'begin_transaction',
-      'cancel_transaction',
-      'begin_transaction',
-    ])
+    expect(
+      relevantTypes(fake).filter((type) => type !== 'apply_edits' && type !== 'set_focus'),
+    ).toEqual(['begin_transaction', 'cancel_transaction', 'begin_transaction'])
     expect(fake.app.store.getState().command?.featureType).toBe('cylinder')
   })
 })
@@ -173,8 +181,8 @@ describe('confirmCommand and cancelCommand (3.7)', () => {
     expect(relevantTypes(fake).at(-1)).toBe('commit_transaction')
     expect(fake.app.store.getState().command).toBeNull()
     const recipe = currentDocument(fake.app).recipe
-    expect(recipe.features.map((feature) => feature.type)).toEqual(['sketch', 'extrude'])
-    expect(recipe.bodies.map((body) => body.name)).toEqual(['Body 1'])
+    expect(featuresOf(recipe).map((feature) => feature.type)).toEqual(['sketch', 'extrude'])
+    expect(bodiesOf(recipe).map((body) => body.name)).toEqual(['Body 1'])
     expect(currentDocument(fake.app).undoLabel).toBe('Extrude')
   })
 
@@ -201,7 +209,7 @@ describe('confirmCommand and cancelCommand (3.7)', () => {
     const types = relevantTypes(fake)
     expect(types.at(-1)).toBe('commit_transaction')
     expect(types.at(-2)).toBe('apply_edits')
-    const extrude = currentDocument(fake.app).recipe.features[1]
+    const extrude = featuresOf(currentDocument(fake.app).recipe)[1]
     expect(extrude?.['extent']).toEqual({ kind: 'distance', expr: '30 mm' })
   })
 })
@@ -284,13 +292,11 @@ describe('editFeature (3.7)', () => {
   })
 
   it('U-67 focus_inactive on a suppressed feature cancels the transaction and offers "Unsuppress"', async () => {
-    const recipe: Document = {
-      ...CUBE_FEATURES_DOCUMENT,
-      features: CUBE_FEATURES_DOCUMENT.features.map((feature) =>
-        feature.id === 'f-fil1' ? { ...feature, suppressed: true } : feature,
-      ),
-    }
-    const message = 'Fillet 1 is not active. Move the rollback marker past it or unsuppress it first.'
+    const recipe: Document = withFeatureChanges(CUBE_FEATURES_DOCUMENT, 'f-fil1', {
+      suppressed: true,
+    })
+    const message =
+      'Fillet 1 is not active. Move the rollback marker past it or unsuppress it first.'
     const fake = await startWithDocument('cube.ptsm', recipe)
     fake.transport.handle('set_focus', (command, core) => {
       const reply = core.reply(command)
@@ -306,12 +312,9 @@ describe('editFeature (3.7)', () => {
   })
 
   it('"Unsuppress" unsuppresses the feature and retries the edit', async () => {
-    const recipe: Document = {
-      ...CUBE_FEATURES_DOCUMENT,
-      features: CUBE_FEATURES_DOCUMENT.features.map((feature) =>
-        feature.id === 'f-fil1' ? { ...feature, suppressed: true } : feature,
-      ),
-    }
+    const recipe: Document = withFeatureChanges(CUBE_FEATURES_DOCUMENT, 'f-fil1', {
+      suppressed: true,
+    })
     const fake = await startWithDocument('cube.ptsm', recipe)
     await editFeature(fake.app, 'f-fil1')
     await settle()
@@ -331,7 +334,10 @@ describe('editFeature (3.7)', () => {
   })
 
   it('focus_inactive on a rolled-back feature offers "Move marker to the end", which clears the rollback and retries', async () => {
-    const fake = await startWithDocument('cube.ptsm', { ...CUBE_FEATURES_DOCUMENT, rollback: 'f-fil1' })
+    const fake = await startWithDocument('cube.ptsm', {
+      ...CUBE_FEATURES_DOCUMENT,
+      rollback: 'f-fil1',
+    })
     await editFeature(fake.app, 'f-fil1')
     await settle()
     const notification = fake.app.store
@@ -346,7 +352,9 @@ describe('editFeature (3.7)', () => {
     fake.transport.clearRequests()
     runAction(notification, 'Move marker to the end')
     await settle()
-    const edits = fake.transport.commandsOfType('apply_edits').flatMap((command) => command.edits)
+    const edits = fake.transport
+      .commandsOfType('apply_edits')
+      .flatMap((command) => editsOf(command))
     expect(
       edits.some((edit) => edit.type === 'set_rollback' && (edit.rollback ?? null) === null),
     ).toBe(true)
@@ -366,5 +374,4 @@ describe('editFeature (3.7)', () => {
     expect(state.command).toBeNull()
     expect(fake.transport.commandTypes()).not.toContain('begin_transaction')
   })
-
 })

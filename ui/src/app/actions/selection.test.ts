@@ -38,7 +38,11 @@ describe('select', () => {
     const app = createTestApp()
     select(app, [CUBE, EXTRUDE], 'replace')
     select(app, [XY], 'toggle')
-    expect(keys(app.store.getState().selection)).toEqual(['body:b-cube', 'feature:f-ext1', 'origin:XY'])
+    expect(keys(app.store.getState().selection)).toEqual([
+      'body:b-cube',
+      'feature:f-ext1',
+      'origin:XY',
+    ])
     select(app, [EXTRUDE], 'toggle')
     expect(keys(app.store.getState().selection)).toEqual(['body:b-cube', 'origin:XY'])
   })

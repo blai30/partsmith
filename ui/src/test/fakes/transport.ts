@@ -57,7 +57,10 @@ function isCommandOfType<Type extends Command['type']>(
 
 export function createFakeTransport(options: FakeTransportOptions = {}): FakeTransport {
   const requests: Request[] = []
-  const handlers = new Map<Command['type'], (command: Command, core: FakeCore) => FakeReply | Promise<FakeReply>>()
+  const handlers = new Map<
+    Command['type'],
+    (command: Command, core: FakeCore) => FakeReply | Promise<FakeReply>
+  >()
   const fatalListeners = new Set<(error: CoreFatalError) => void>()
   let core: FakeCore | null = null
   let starts = 0

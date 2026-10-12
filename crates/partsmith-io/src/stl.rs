@@ -5,6 +5,7 @@ use std::fmt::{self, Write as _};
 use partsmith_mesh::Mesh;
 
 use crate::checks::{check_not_empty, check_unwelded, validity_warnings, weld};
+use crate::output::{TextOutput, exact_buffer, too_large};
 use crate::text::{display_name, written_point};
 use crate::{ExportBody, ExportOutput, ExportWarning, IoError};
 
@@ -41,13 +42,8 @@ pub fn write_stl_binary(bodies: &[ExportBody<'_>]) -> Result<ExportOutput, IoErr
     let count = u32::try_from(total).map_err(|_| IoError::TooManyTriangles { count: total })?;
     let warnings = warnings(bodies, &names);
 
-    let length = PREFIX_LENGTH + RECORD_LENGTH * u64::from(count);
-    // The whole file is reserved up front. On a 64-bit target this fails only when memory runs
-    // out, which aborts like any allocation failure (spec section 4). A 32-bit target (the web
-    // build) cannot hold a buffer over `isize::MAX` bytes (2 GiB, 42,949,672 triangles), and
-    // `Vec` stops there with a capacity overflow panic, also for a length beyond `usize`.
-    // Returning an error instead needs a new `IoError` variant (see the crate's CLAUDE.md).
-    let mut bytes = Vec::with_capacity(usize::try_from(length).unwrap_or(usize::MAX));
+    // The whole file is reserved up front, so writing it never grows the buffer.
+    let mut bytes = exact_buffer(PREFIX_LENGTH + RECORD_LENGTH * u64::from(count))?;
     bytes.extend_from_slice(&STL_HEADER);
     bytes.extend_from_slice(&count.to_le_bytes());
     for Facet { normal, corners } in facets(bodies) {
@@ -70,8 +66,8 @@ pub fn write_stl_ascii(bodies: &[ExportBody<'_>]) -> Result<ExportOutput, IoErro
         [name] => solid_name(name),
         _ => "model".to_owned(),
     };
-    let mut text = String::new();
-    write_solid(&mut text, &solid, bodies).expect("formatting into a String cannot fail");
+    let mut text = TextOutput::default();
+    write_solid(&mut text, &solid, bodies).map_err(too_large)?;
     Ok(ExportOutput {
         bytes: text.into_bytes(),
         warnings,
@@ -146,16 +142,16 @@ fn solid_name(display_name: &str) -> String {
 }
 
 /// Writes the ASCII STL text of one solid holding every triangle.
-fn write_solid(text: &mut String, solid: &str, bodies: &[ExportBody<'_>]) -> fmt::Result {
+fn write_solid(text: &mut TextOutput, solid: &str, bodies: &[ExportBody<'_>]) -> fmt::Result {
     writeln!(text, "solid {solid}")?;
     for Facet { normal, corners } in facets(bodies) {
         let [x, y, z] = normal;
         writeln!(text, "  facet normal {x} {y} {z}")?;
-        text.push_str("    outer loop\n");
+        text.write_str("    outer loop\n")?;
         for [x, y, z] in corners {
             writeln!(text, "      vertex {x} {y} {z}")?;
         }
-        text.push_str("    endloop\n  endfacet\n");
+        text.write_str("    endloop\n  endfacet\n")?;
     }
     writeln!(text, "endsolid {solid}")
 }
@@ -244,6 +240,13 @@ mod tests {
         assert_eq!(output.bytes[92..96], 1.0_f32.to_le_bytes());
         assert_eq!(output.bytes[108..112], 1.0_f32.to_le_bytes());
         assert_eq!(output.bytes[132..134], [0, 0]);
+    }
+
+    #[test]
+    fn binary_buffer_is_exactly_the_file() {
+        let mesh = unit_triangle();
+        let output = write_stl_binary(&[part("T", &mesh)]).expect("the triangle is written");
+        assert_eq!(output.bytes.capacity(), output.bytes.len());
     }
 
     #[test]

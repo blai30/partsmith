@@ -68,7 +68,9 @@ export function notificationWith(app: App, message: string | RegExp): Notificati
   const found = app.store
     .getState()
     .notifications.find((notification) =>
-      typeof message === 'string' ? notification.message === message : message.test(notification.message),
+      typeof message === 'string'
+        ? notification.message === message
+        : message.test(notification.message),
     )
   if (found === undefined) {
     const shown = app.store

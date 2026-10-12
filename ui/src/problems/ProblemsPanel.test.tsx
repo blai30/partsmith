@@ -39,22 +39,36 @@ const FILLET_TOO_LARGE: FeatureStatus = {
 const SHELL_WARNING: FeatureStatus = {
   id: 'f-sh1',
   status: 'warning',
-  messages: [{ severity: 'warning', code: 'no_effect', message: "This feature does not change body 'Cube'." }],
+  messages: [
+    {
+      severity: 'warning',
+      code: 'no_effect',
+      message: "This feature does not change body 'Cube'.",
+    },
+  ],
   repairs: [],
 }
 
-function withProblems(statuses: readonly FeatureStatus[], diagnostics: DocumentState['diagnostics'] = []): DocumentState {
+function withProblems(
+  statuses: readonly FeatureStatus[],
+  diagnostics: DocumentState['diagnostics'] = [],
+): DocumentState {
   const document = documentState(CUBE_FEATURES_DOCUMENT)
   return {
     ...document,
-    featureStatus: { ...document.featureStatus, ...Object.fromEntries(statuses.map((status) => [status.id, status])) },
+    featureStatus: {
+      ...document.featureStatus,
+      ...Object.fromEntries(statuses.map((status) => [status.id, status])),
+    },
     diagnostics,
   }
 }
 
 function renderPanel(document: DocumentState) {
   const test = createModelApp({
-    state: readyState(document, { panels: { ...INITIAL_STATE.panels, browserOpen: true, side: 'problems' } }),
+    state: readyState(document, {
+      panels: { ...INITIAL_STATE.panels, browserOpen: true, side: 'problems' },
+    }),
   })
   renderWithApp(test.app)
   return { ...test, user: userEvent.setup(), panel: screen.getByTestId('problems-panel') }
@@ -85,7 +99,8 @@ describe('the Problems panel (3.9)', () => {
           {
             severity: 'warning',
             code: 'unknown_printer_profile',
-            message: 'Printer profile "my-printer" is not installed, so the default FDM profile is used.',
+            message:
+              'Printer profile "my-printer" is not installed, so the default FDM profile is used.',
           },
         ],
       ),

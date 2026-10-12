@@ -77,19 +77,19 @@ export function checkResult(
   findings: readonly Finding[],
   omitted = 0,
 ): CheckResult {
-  const severities = findings.map((item) => item.severity)
-  const status = severities.includes('error')
+  const severities = new Set(findings.map((item) => item.severity))
+  const status = severities.has('error')
     ? 'error'
-    : severities.includes('warning')
+    : severities.has('warning')
       ? 'warning'
-      : severities.includes('info')
+      : severities.has('info')
         ? 'info'
         : 'ok'
   return { check, status, findings: [...findings], omitted }
 }
 
 function bodyPrint(body: string, checks: readonly CheckResult[]): BodyPrint {
-  const statuses = checks.map((check) => check.status)
+  const statuses = new Set(checks.map((check) => check.status))
   return {
     body,
     transform: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 128, 128, 0, 1],
@@ -102,7 +102,11 @@ function bodyPrint(body: string, checks: readonly CheckResult[]): BodyPrint {
           [0, 0, 1],
         ],
       },
-      health: statuses.includes('error') ? 'error' : statuses.includes('warning') ? 'warning' : 'ok',
+      health: statuses.includes('error')
+        ? 'error'
+        : statuses.includes('warning')
+          ? 'warning'
+          : 'ok',
       checks: [...checks],
     },
   }

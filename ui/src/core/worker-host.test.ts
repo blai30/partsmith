@@ -67,7 +67,10 @@ function setUp(
 ): HostSetup {
   const module = createFakeCoreModule((frame) => {
     const request = readRequest(frame)
-    return responseFrame({ id: request.id, result: resultFor(request, options.protocolVersion ?? 1) })
+    return responseFrame({
+      id: request.id,
+      result: resultFor(request, options.protocolVersion ?? 1),
+    })
   })
   const posted: Posted[] = []
   const tasks: (() => void)[] = []
@@ -86,9 +89,10 @@ function setUp(
     posted,
     async runScheduled() {
       await settle()
-      for (let task = tasks.shift(); task !== undefined; task = tasks.shift()) {
+      const task = tasks.shift()
+      if (task !== undefined) {
         task()
-        await settle()
+        await this.runScheduled()
       }
     },
     calledIds() {
@@ -133,11 +137,11 @@ async function readyHost(options: Parameters<typeof setUp>[0] = {}): Promise<Hos
 
 describe('createWorkerHost', () => {
   it('protocol test 65: posts ready with the core versions first, then answers calls received before it, in order', async () => {
-    let finishLoading: (() => void) | null = null
+    const loading: { finish: () => void } = { finish: () => undefined }
     const setup = setUp({
       load: (module) =>
         new Promise((resolve) => {
-          finishLoading = () => {
+          loading.finish = () => {
             resolve(module)
           }
         }),
@@ -146,7 +150,7 @@ describe('createWorkerHost', () => {
     setup.host.receive({ type: 'call', frame: edit(2) })
     await setup.runScheduled()
     expect(setup.posted).toEqual([])
-    finishLoading?.()
+    loading.finish()
     await setup.runScheduled()
     expect(setup.posted[0]?.message).toEqual({
       type: 'ready',
@@ -161,7 +165,10 @@ describe('createWorkerHost', () => {
     const setup = await readyHost()
     const first = setup.module.requests[0]
     expect(first).toBeDefined()
-    expect(readRequest(first ?? new ArrayBuffer(0))).toEqual({ id: 0, command: { type: 'engine_info' } })
+    expect(readRequest(first ?? new ArrayBuffer(0))).toEqual({
+      id: 0,
+      command: { type: 'engine_info' },
+    })
   })
 
   it('protocol test 58: a queued drag_sketch superseded by a later one is answered with superseded, and only the later one reaches the core', async () => {
@@ -213,10 +220,7 @@ describe('createWorkerHost', () => {
     await setup.runScheduled()
     expect(setup.frameIds()).toEqual([1, 2, 3, 4, 5])
     for (const { message, transfer } of setup.posted.slice(1)) {
-      expect(message.type).toBe('frame')
-      if (message.type === 'frame') {
-        expect(transfer).toContain(message.frame)
-      }
+      expect(message.type === 'frame' && transfer.includes(message.frame)).toBe(true)
     }
   })
 
@@ -236,7 +240,11 @@ describe('createWorkerHost', () => {
         {
           kind: 'response',
           id: 10,
-          result: { kind: 'error', code: 'superseded', message: 'A newer request replaced this one.' },
+          result: {
+            kind: 'error',
+            code: 'superseded',
+            message: 'A newer request replaced this one.',
+          },
         },
       ],
       buffers: [],

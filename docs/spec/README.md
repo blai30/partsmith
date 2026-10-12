@@ -22,6 +22,8 @@ Per-area behavior specs for M1. Each spec is the definition of done for its crat
 | [cli.md](cli.md) | `partsmith-cli` | The `partsmith` binary: `validate`, `fmt`, `rebuild`, `export` and `schema`. |
 | [python-api.md](python-api.md) | `partsmith-py`, `python/` | The build123d-style Python API, Python code generation and the round-trip rules. |
 | [ui.md](ui.md) | `ui/` | The React app: layout, interaction, sketching, inspectors, print context, the core bridge and end-to-end tests. |
+| [desktop.md](desktop.md) | `partsmith-desktop` (`desktop/src-tauri`), `ui/src/files`, `ui/src/app/close-guard.ts` | The Tauri 2 host: the `call` command, file grants with native dialogs, the close guard, the Tauri configuration, content security policy and capability, the desktop `FileService` and bundles. |
+| [delivery.md](delivery.md) | `.github/workflows/`, `ui/scripts/check-dist.mjs`, `examples/` | CI jobs, the Cloudflare Pages deploy, the 25 MiB per-file gate, cross-origin isolation headers, the desktop release workflow and the examples corpus with its runners. |
 
 Per-feature specs in [features/](features/), one per built-in feature type, each building on [features.md](features.md):
 
@@ -58,7 +60,8 @@ The crate graph in architecture.md implies this order; crates in one step do not
 4. `partsmith-features` (model, sketch, naming, occt-sys, mesh), `partsmith-protocol` (model, mesh, sketch, naming, print)
 5. `partsmith-recompute` (model, features)
 6. `partsmith-engine` (everything above)
-7. `partsmith-cli`, `partsmith-py` (engine), `partsmith-wasm` and the desktop host (engine, protocol), then `ui/`, whose TypeScript types are generated from the protocol schema.
+7. `partsmith-cli`, `partsmith-py` (engine), `partsmith-wasm` and the desktop host `partsmith-desktop` (engine, protocol; desktop.md), then `ui/`, whose TypeScript types are generated from the protocol schema.
+8. The delivery pieces of delivery.md: the CI jobs and checks as their crates and packages land, the examples runner with `partsmith-cli`, the Pages deploy once `web` builds the WebAssembly core, and the release workflow once the desktop host builds.
 
 ## Decisions made during spec review
 

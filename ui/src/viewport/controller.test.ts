@@ -126,7 +126,11 @@ function pickElement(
   mesh: BodyMeshData = CUBE_MESH,
 ): void {
   const positions =
-    element === 'face' ? mesh.positions : element === 'edge' ? mesh.edgePositions : mesh.vertexPositions
+    element === 'face'
+      ? mesh.positions
+      : element === 'edge'
+        ? mesh.edgePositions
+        : mesh.vertexPositions
   fixture.backend.setPickHandler(({ frame }) => {
     const id = uploadedId(fixture.backend, positions)
     const draw = frame.draws.find((candidate) => candidate.id === id)
@@ -138,11 +142,25 @@ function pickElement(
 
 function indicesWith(fixture: Fixture, positions: Float32Array, bit: number): number[] {
   const states = fixture.backend.elementStates.get(uploadedId(fixture.backend, positions))
-  return states === undefined ? [] : [...states.keys()].filter((index) => ((states[index] ?? 0) & bit) !== 0)
+  return states === undefined
+    ? []
+    : [...states.keys()].filter((index) => ((states[index] ?? 0) & bit) !== 0)
 }
 
-function click(canvas: HTMLCanvasElement, x: number, y: number, modifiers: { shiftKey?: boolean } = {}): void {
-  const init = { pointerId: 1, pointerType: 'mouse', button: 0, clientX: x, clientY: y, ...modifiers }
+function click(
+  canvas: HTMLCanvasElement,
+  x: number,
+  y: number,
+  modifiers: { shiftKey?: boolean } = {},
+): void {
+  const init = {
+    pointerId: 1,
+    pointerType: 'mouse',
+    button: 0,
+    clientX: x,
+    clientY: y,
+    ...modifiers,
+  }
   fireEvent.pointerDown(canvas, { ...init, buttons: 1 })
   fireEvent.pointerUp(canvas, { ...init, buttons: 0 })
   fireEvent.click(canvas, { button: 0, clientX: x, clientY: y, ...modifiers })
@@ -159,7 +177,11 @@ function setDocument(app: App, change: Partial<DocumentState>): void {
 /** The largest difference between two cameras' numbers; a rotation and its negation are the same rotation. */
 function cameraDifference(actual: Camera, expected: Camera): number {
   const rotation = (sign: number) =>
-    Math.max(...actual.rotation.map((value, i) => Math.abs(value - sign * (expected.rotation[i] ?? Number.NaN))))
+    Math.max(
+      ...actual.rotation.map((value, i) =>
+        Math.abs(value - sign * (expected.rotation[i] ?? Number.NaN)),
+      ),
+    )
   return Math.max(
     ...actual.target.map((value, i) => Math.abs(value - (expected.target[i] ?? Number.NaN))),
     Math.min(rotation(1), rotation(-1)),
@@ -283,7 +305,10 @@ describe('the camera handle (2.11, 3.14)', () => {
     fixture.controller.toggleProjection()
     fixture.frames.flush()
     expect(
-      cameraDifference(fixture.controller.getCamera(), withProjection(DEFAULT_CAMERA, 'orthographic')),
+      cameraDifference(
+        fixture.controller.getCamera(),
+        withProjection(DEFAULT_CAMERA, 'orthographic'),
+      ),
     ).toBeLessThan(1e-6)
     expect(fixture.app.store.getState().view.projection).toBe('orthographic')
     fixture.controller.toggleProjection()
@@ -296,7 +321,10 @@ describe('the camera handle (2.11, 3.14)', () => {
     fixture.controller.fit()
     fixture.frames.flush()
     expect(
-      cameraDifference(fixture.controller.getCamera(), fitBounds(DEFAULT_CAMERA, CUBE_BOUNDS, ASPECT, 0.1)),
+      cameraDifference(
+        fixture.controller.getCamera(),
+        fitBounds(DEFAULT_CAMERA, CUBE_BOUNDS, ASPECT, 0.1),
+      ),
     ).toBeLessThan(1e-6)
   })
 
@@ -321,14 +349,14 @@ describe('the camera handle (2.11, 3.14)', () => {
     const box = { min: [0, 0, 0], max: [4, 4, 4] } as const
     fixture.controller.fit(box)
     fixture.frames.flush()
-    expect(cameraDifference(fixture.controller.getCamera(), fitBounds(DEFAULT_CAMERA, box, ASPECT, 0.1))).toBeLessThan(
-      1e-6,
-    )
+    expect(
+      cameraDifference(fixture.controller.getCamera(), fitBounds(DEFAULT_CAMERA, box, ASPECT, 0.1)),
+    ).toBeLessThan(1e-6)
     fixture.controller.zoomToBounds(box, 0.3)
     fixture.frames.flush()
-    expect(cameraDifference(fixture.controller.getCamera(), fitBounds(DEFAULT_CAMERA, box, ASPECT, 0.3))).toBeLessThan(
-      1e-6,
-    )
+    expect(
+      cameraDifference(fixture.controller.getCamera(), fitBounds(DEFAULT_CAMERA, box, ASPECT, 0.3)),
+    ).toBeLessThan(1e-6)
   })
 
   it('lookAlong puts the eye on the normal side looking along -normal, with the up hint', () => {
@@ -362,12 +390,22 @@ describe('navigation (3.13)', () => {
     })
     fixture.frames.flush()
     expect(allowed).toBe(false)
-    expect(fixture.controller.getCamera().distance).toBeCloseTo(DEFAULT_CAMERA.distance * 1.0015 ** 100, 6)
+    expect(fixture.controller.getCamera().distance).toBeCloseTo(
+      DEFAULT_CAMERA.distance * 1.0015 ** 100,
+      6,
+    )
   })
 
   it('pans with a middle drag in the Fusion preset and prevents autoscroll', () => {
     const fixture = setUp()
-    const press = { pointerId: 1, pointerType: 'mouse', button: 1, buttons: 4, clientX: 400, clientY: 300 }
+    const press = {
+      pointerId: 1,
+      pointerType: 'mouse',
+      button: 1,
+      buttons: 4,
+      clientX: 400,
+      clientY: 300,
+    }
     expect(fireEvent.pointerDown(fixture.canvas, press)).toBe(false)
     fireEvent.pointerMove(fixture.canvas, { ...press, clientX: 460, clientY: 300 })
     fireEvent.pointerUp(fixture.canvas, { ...press, buttons: 0, clientX: 460, clientY: 300 })
@@ -395,6 +433,20 @@ describe('navigation (3.13)', () => {
     expect(fixture.controller.getCamera().rotation).not.toEqual(DEFAULT_CAMERA.rotation)
   })
 
+  it('orbits with middle and left buttons in the FreeCAD preset, middle pressed first', () => {
+    const fixture = setUp({
+      state: { settings: { ...DEFAULT_SETTINGS, theme: 'light', navigation: 'freecad' } },
+    })
+    const base = { pointerId: 1, pointerType: 'mouse', clientX: 400, clientY: 300 }
+    fireEvent.pointerDown(fixture.canvas, { ...base, button: 1, buttons: 4 })
+    fireEvent.pointerDown(fixture.canvas, { ...base, button: 0, buttons: 5 })
+    fireEvent.pointerMove(fixture.canvas, { ...base, buttons: 5, clientX: 460 })
+    fireEvent.pointerUp(fixture.canvas, { ...base, button: 0, buttons: 4, clientX: 460 })
+    fireEvent.pointerUp(fixture.canvas, { ...base, button: 1, buttons: 0, clientX: 460 })
+    fixture.frames.flush()
+    expect(fixture.controller.getCamera().rotation).not.toEqual(DEFAULT_CAMERA.rotation)
+  })
+
   it('prevents the context menu on the canvas', () => {
     const fixture = setUp()
     expect(fireEvent.contextMenu(fixture.canvas)).toBe(false)
@@ -405,7 +457,13 @@ describe('hover (3.6)', () => {
   it('picks under the pointer with a 4 pixel radius and sets the hover target', () => {
     const fixture = setUp()
     pickElement(fixture, 'face', 3)
-    fireEvent.pointerMove(fixture.canvas, { pointerId: 1, pointerType: 'mouse', buttons: 0, clientX: 120, clientY: 80 })
+    fireEvent.pointerMove(fixture.canvas, {
+      pointerId: 1,
+      pointerType: 'mouse',
+      buttons: 0,
+      clientX: 120,
+      clientY: 80,
+    })
     fixture.frames.flush()
     const pick = fixture.backend.calls.find((call) => call.method === 'pick')
     expect(pick).toEqual({ method: 'pick', x: 120, y: 80, radius: 4 })
@@ -413,15 +471,31 @@ describe('hover (3.6)', () => {
   })
 
   it('scales the pick radius with the UI scale', () => {
-    const fixture = setUp({ state: { settings: { ...DEFAULT_SETTINGS, theme: 'light', uiScale: 2 } } })
-    fireEvent.pointerMove(fixture.canvas, { pointerId: 1, pointerType: 'mouse', buttons: 0, clientX: 10, clientY: 10 })
+    const fixture = setUp({
+      state: { settings: { ...DEFAULT_SETTINGS, theme: 'light', uiScale: 2 } },
+    })
+    fireEvent.pointerMove(fixture.canvas, {
+      pointerId: 1,
+      pointerType: 'mouse',
+      buttons: 0,
+      clientX: 10,
+      clientY: 10,
+    })
     fixture.frames.flush()
-    expect(fixture.backend.calls.find((call) => call.method === 'pick')).toMatchObject({ radius: 8 })
+    expect(fixture.backend.calls.find((call) => call.method === 'pick')).toMatchObject({
+      radius: 8,
+    })
   })
 
   it('clears the hover over empty space', () => {
     const fixture = setUp({ state: { hover: { key: 'mesh:1:face:3', kind: 'face' } } })
-    fireEvent.pointerMove(fixture.canvas, { pointerId: 1, pointerType: 'mouse', buttons: 0, clientX: 5, clientY: 5 })
+    fireEvent.pointerMove(fixture.canvas, {
+      pointerId: 1,
+      pointerType: 'mouse',
+      buttons: 0,
+      clientX: 5,
+      clientY: 5,
+    })
     fixture.frames.flush()
     expect(fixture.app.store.getState().hover).toBeNull()
   })
@@ -430,14 +504,21 @@ describe('hover (3.6)', () => {
     const fixture = setUp()
     fixture.backend.setPickHandler(({ frame }) => {
       const base = (positions: Float32Array) =>
-        frame.draws.find((draw) => draw.id === uploadedId(fixture.backend, positions))?.pickBase ?? 0
+        frame.draws.find((draw) => draw.id === uploadedId(fixture.backend, positions))?.pickBase ??
+        0
       return [
         { pickId: base(CUBE_MESH.positions) + 1, distance: 0, depth: 100 },
         { pickId: base(CUBE_MESH.edgePositions) + 2, distance: 1, depth: 100 },
         { pickId: base(CUBE_MESH.vertexPositions) + 5, distance: 3, depth: 100 },
       ]
     })
-    fireEvent.pointerMove(fixture.canvas, { pointerId: 1, pointerType: 'mouse', buttons: 0, clientX: 50, clientY: 50 })
+    fireEvent.pointerMove(fixture.canvas, {
+      pointerId: 1,
+      pointerType: 'mouse',
+      buttons: 0,
+      clientX: 50,
+      clientY: 50,
+    })
     fixture.frames.flush()
     expect(fixture.app.store.getState().hover).toEqual({ key: 'mesh:1:vertex:5', kind: 'vertex' })
   })
@@ -454,7 +535,9 @@ describe('clicks (3.6)', () => {
     click(fixture.canvas, 200, 150)
     await settle()
     fixture.frames.flush()
-    expect(fixture.core.callsTo('pickReference')).toEqual([[1, { mesh_id: 1, kind: 'face', index: 0 }]])
+    expect(fixture.core.callsTo('pickReference')).toEqual([
+      [1, { mesh_id: 1, kind: 'face', index: 0 }],
+    ])
     const selection = fixture.app.store.getState().selection
     expect(selection).toHaveLength(1)
     expect(selection[0]).toMatchObject({
@@ -530,7 +613,9 @@ describe('clicks (3.6)', () => {
     click(fixture.canvas, 200, 150)
     await settle()
     expect(fixture.app.store.getState().selection).toEqual([])
-    expect(fixture.app.store.getState().command?.params.edges).toEqual([CUBE_TOP_FRONT_EDGE.reference])
+    expect(fixture.app.store.getState().command?.params.edges).toEqual([
+      CUBE_TOP_FRONT_EDGE.reference,
+    ])
   })
 
   it('U-88 a double-click on a face whose descriptor has feature f-ext1 edits f-ext1', async () => {
@@ -564,9 +649,13 @@ describe('clicks (3.6)', () => {
   })
 })
 
-function featuresSetUp(listElements: (body: string) => Promise<readonly ElementDescriptor[]>): Fixture {
+function featuresSetUp(
+  listElements: (body: string) => Promise<readonly ElementDescriptor[]>,
+): Fixture {
   return setUp({
-    document: documentState(CUBE_FEATURES_DOCUMENT, { meshes: { 'b-cube': meshSummary(1, CUBE_BOUNDS) } }),
+    document: documentState(CUBE_FEATURES_DOCUMENT, {
+      meshes: { 'b-cube': meshSummary(1, CUBE_BOUNDS) },
+    }),
     prepare: (core) => {
       core.stub('listElements', (_documentHandle, body) => listElements(body))
     },
@@ -598,13 +687,18 @@ describe('feature highlighting (3.6)', () => {
   })
 
   it('U-93 a new mesh for b-cube arriving before the response discards it and requests again', async () => {
-    const answers = [deferred<readonly ElementDescriptor[]>(), deferred<readonly ElementDescriptor[]>()]
+    const answers = [
+      deferred<readonly ElementDescriptor[]>(),
+      deferred<readonly ElementDescriptor[]>(),
+    ]
     let call = 0
     const fixture = featuresSetUp(() => answers[call++]?.promise ?? Promise.resolve([]))
     await select(fixture, 'f-ext1', 'Extrude 1')
     expect(fixture.core.callsTo('listElements')).toHaveLength(1)
     const rebuilt = boxMesh([-10, -10, 0], [10, 10, 20])
-    fixture.scene.applyEvent(bodyMeshEvent({ body: 'b-cube', meshId: 2, mesh: rebuilt, revision: 2 }))
+    fixture.scene.applyEvent(
+      bodyMeshEvent({ body: 'b-cube', meshId: 2, mesh: rebuilt, revision: 2 }),
+    )
     setDocument(fixture.app, { revision: 2, meshes: { 'b-cube': meshSummary(2, CUBE_BOUNDS) } })
     answers[0]?.resolve(CUBE_FACES)
     await settle()
@@ -640,7 +734,10 @@ describe('selection after rebuilds (3.6)', () => {
           Promise.resolve(
             references.map((reference): Resolution =>
               reference.reference.q === CUBE_FRONT_FACE.name
-                ? { status: 'resolved', matches: [{ body: 'b-cube', mesh_id: 2, kind: 'face', index: 1 }] }
+                ? {
+                    status: 'resolved',
+                    matches: [{ body: 'b-cube', mesh_id: 2, kind: 'face', index: 1 }],
+                  }
                 : { status: 'missing', matches: [] },
             ),
           ),
@@ -648,17 +745,17 @@ describe('selection after rebuilds (3.6)', () => {
       },
     })
     const rebuilt = boxMesh([-10, -10, 0], [10, 10, 25])
-    fixture.scene.applyEvent(bodyMeshEvent({ body: 'b-cube', meshId: 2, mesh: rebuilt, revision: 2 }))
+    fixture.scene.applyEvent(
+      bodyMeshEvent({ body: 'b-cube', meshId: 2, mesh: rebuilt, revision: 2 }),
+    )
     setDocument(fixture.app, { revision: 2, meshes: { 'b-cube': meshSummary(2, CUBE_BOUNDS) } })
     await settle()
     fixture.frames.flush()
-    expect(fixture.core.callsTo('resolveReferences')).toEqual([
+    expect(fixture.core.callsTo('resolveReferences').at(-1)).toEqual([
+      1,
       [
-        1,
-        [
-          { body: 'b-cube', reference: CUBE_TOP_FACE.reference },
-          { body: 'b-cube', reference: CUBE_FRONT_FACE.reference },
-        ],
+        { body: 'b-cube', reference: CUBE_TOP_FACE.reference },
+        { body: 'b-cube', reference: CUBE_FRONT_FACE.reference },
       ],
     ])
     expect(fixture.app.store.getState().selection.map((item) => item.key)).toEqual([

@@ -1,29 +1,37 @@
 import { describe, expect, it, vi } from 'vitest'
-import {
-  CUBE_DOCUMENT,
-  PARAMETRIC_DOCUMENT,
-  RECT_SKETCH_DOCUMENT,
-} from '../test/fakes/documents'
+import { CUBE_DOCUMENT, PARAMETRIC_DOCUMENT, RECT_SKETCH_DOCUMENT } from '../test/fakes/documents'
 import { generateId, usedIds } from './ids'
 
 describe('generateId', () => {
   it('U-19 formats the random value as 12 lowercase hex digits after the prefix', () => {
-    expect(generateId('f', () => false, () => 0x3fa91c0e72b4)).toBe('f-3fa91c0e72b4')
+    expect(
+      generateId(
+        'f',
+        () => false,
+        () => 0x3fa91c0e72b4,
+      ),
+    ).toBe('f-3fa91c0e72b4')
   })
 
   it('U-19 zero-pads small values', () => {
-    expect(generateId('b', () => false, () => 1)).toBe('b-000000000001')
+    expect(
+      generateId(
+        'b',
+        () => false,
+        () => 1,
+      ),
+    ).toBe('b-000000000001')
   })
 
   it('U-19 a predicate that rejects the first candidate gets the second', () => {
     const values = [1, 2]
-    const random = vi.fn(() => values.shift() ?? 3)
+    const random = vi.fn<() => number>(() => values.shift() ?? 3)
     expect(generateId('f', (id) => id === 'f-000000000001', random)).toBe('f-000000000002')
     expect(random).toHaveBeenCalledTimes(2)
   })
 
   it('U-19 throws after 64 rejected candidates', () => {
-    const random = vi.fn(() => 5)
+    const random = vi.fn<() => number>(() => 5)
     expect(() => generateId('e', () => true, random)).toThrow(
       new Error('Could not generate a free id after 64 attempts.'),
     )
@@ -32,7 +40,13 @@ describe('generateId', () => {
 
   it('uses every prefix of model.md 3.2', () => {
     for (const prefix of ['p', 'b', 'f', 'e', 'c'] as const) {
-      expect(generateId(prefix, () => false, () => 0xabc)).toBe(`${prefix}-000000000abc`)
+      expect(
+        generateId(
+          prefix,
+          () => false,
+          () => 0xabc,
+        ),
+      ).toBe(`${prefix}-000000000abc`)
     }
   })
 
@@ -58,7 +72,7 @@ describe('usedIds', () => {
   })
 
   it('holds nothing else', () => {
-    expect([...usedIds(RECT_SKETCH_DOCUMENT)].sort()).toEqual(
+    expect([...usedIds(RECT_SKETCH_DOCUMENT)].toSorted()).toEqual(
       [
         'f-sk1',
         'e-1',
@@ -76,7 +90,7 @@ describe('usedIds', () => {
         'c-9',
         'c-10',
         'c-11',
-      ].sort(),
+      ].toSorted(),
     )
   })
 })

@@ -86,7 +86,7 @@ describe('the command palette (3.4)', () => {
     expect(open(app)).toBe(true)
   })
 
-  it('U-26 ranks Extrude first for "ext" and makes the first option active', async () => {
+  it('ranks Extrude first for "ext" and makes the first option active', async () => {
     const { user } = renderApp()
     await openPalette(user)
     await user.type(screen.getByTestId('palette-input'), 'ext')
@@ -128,7 +128,9 @@ describe('the command palette (3.4)', () => {
     const { app, user } = renderApp()
     await openPalette(user)
     await user.type(screen.getByTestId('palette-input'), 'Theme: Dark')
-    await user.click(options().find((option) => option.textContent?.includes('Theme: Dark')) ?? document.body)
+    await user.click(
+      options().find((option) => option.textContent?.includes('Theme: Dark')) ?? document.body,
+    )
     expect(app.store.getState().settings.theme).toBe('dark')
     expect(open(app)).toBe(false)
   })
@@ -174,28 +176,38 @@ describe('the command palette (3.4)', () => {
     const { user } = renderApp()
     await openPalette(user)
     await user.type(screen.getByTestId('palette-input'), 'Save as')
-    const saveAs = options().find((option) => option.getAttribute('data-item-id') === 'file.save_as')
-    expect(within(saveAs ?? document.body).getByTestId('palette-shortcut')).toHaveTextContent('Ctrl+Shift+S')
+    const saveAs = options().find(
+      (option) => option.getAttribute('data-item-id') === 'file.save_as',
+    )
+    expect(within(saveAs ?? document.body).getByTestId('palette-shortcut')).toHaveTextContent(
+      'Ctrl+Shift+S',
+    )
   })
 
   it('formats shortcuts with symbols on macOS', async () => {
     const { user } = renderApp({}, MAC_WEB)
     await openPalette(user)
     await user.type(screen.getByTestId('palette-input'), 'Save as')
-    const saveAs = options().find((option) => option.getAttribute('data-item-id') === 'file.save_as')
+    const saveAs = options().find(
+      (option) => option.getAttribute('data-item-id') === 'file.save_as',
+    )
     expect(within(saveAs ?? document.body).getByTestId('palette-shortcut')).toHaveTextContent('⇧⌘S')
   })
 
   it('lists recent items first with an empty query', async () => {
     const { app, user } = renderApp()
     app.store.setState({
-      settings: { ...app.store.getState().settings, paletteRecent: ['view.parameters', 'file.save'] },
+      settings: {
+        ...app.store.getState().settings,
+        paletteRecent: ['view.parameters', 'file.save'],
+      },
     })
     await openPalette(user)
-    expect(options().slice(0, 2).map((option) => option.getAttribute('data-item-id'))).toEqual([
-      'view.parameters',
-      'file.save',
-    ])
+    expect(
+      options()
+        .slice(0, 2)
+        .map((option) => option.getAttribute('data-item-id')),
+    ).toEqual(['view.parameters', 'file.save'])
   })
 
   it('closes on a pointer press outside', async () => {

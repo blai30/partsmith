@@ -12,7 +12,11 @@ const BOUNDS: BoundingBox = { min: [-10, -10, 0], max: [10, 10, 20] }
 function received(
   event: ProtocolEvent,
   buffers: readonly BufferView[] = [],
-): { readonly event: ProtocolEvent; readonly buffers: readonly BufferView[]; readonly frame: ArrayBuffer } {
+): {
+  readonly event: ProtocolEvent
+  readonly buffers: readonly BufferView[]
+  readonly frame: ArrayBuffer
+} {
   const frame = responseFrame({
     id: 1,
     result: { type: 'close_document' },
@@ -81,10 +85,7 @@ describe('decodeEvent', () => {
 
   it('U-17 a buffer index out of range throws CoreFatalError', () => {
     const parts = meshParts(BOUNDS, 0)
-    const { event, buffers } = received(
-      bodyMesh({ ...parts.mesh, vertex_ids: 8 }),
-      parts.buffers,
-    )
+    const { event, buffers } = received(bodyMesh({ ...parts.mesh, vertex_ids: 8 }), parts.buffers)
     expect(() => decodeEvent(event, buffers)).toThrow(CoreFatalError)
   })
 
@@ -203,7 +204,13 @@ describe('decodeEvent', () => {
 
   it('datum_plane gives the placement, or null when the datum failed', () => {
     const placement = { origin: [0, 0, 10], x_axis: [1, 0, 0], normal: [0, 0, 1] }
-    const solved = received({ type: 'datum_plane', doc: 1, revision: 2, feature: 'f-dp1', placement: { origin: [0, 0, 10], x_axis: [1, 0, 0], normal: [0, 0, 1] } })
+    const solved = received({
+      type: 'datum_plane',
+      doc: 1,
+      revision: 2,
+      feature: 'f-dp1',
+      placement: { origin: [0, 0, 10], x_axis: [1, 0, 0], normal: [0, 0, 1] },
+    })
     expect(decodeEvent(solved.event, solved.buffers)).toEqual({
       type: 'datum_plane',
       documentHandle: 1,
@@ -234,7 +241,13 @@ describe('decodeEvent', () => {
               overhang: 0,
               report: {
                 profile: 'generic-fdm',
-                rotation: { rows: [[1, 0, 0], [0, 1, 0], [0, 0, 1]] },
+                rotation: {
+                  rows: [
+                    [1, 0, 0],
+                    [0, 1, 0],
+                    [0, 0, 1],
+                  ],
+                },
                 health: 'ok',
                 checks: [],
               },
@@ -244,7 +257,13 @@ describe('decodeEvent', () => {
               transform: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
               report: {
                 profile: 'generic-fdm',
-                rotation: { rows: [[1, 0, 0], [0, 1, 0], [0, 0, 1]] },
+                rotation: {
+                  rows: [
+                    [1, 0, 0],
+                    [0, 1, 0],
+                    [0, 0, 1],
+                  ],
+                },
                 health: 'ok',
                 checks: [],
               },

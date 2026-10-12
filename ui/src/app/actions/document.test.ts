@@ -4,8 +4,24 @@ import { FileServiceError } from '../../files/file-service'
 import { createMemoryRecovery } from '../../files/recovery'
 import type { Document, Edit } from '../../generated/protocol'
 import { MESSAGES } from '../../messages'
-import { actionLabels, createFakeApp, currentDocument, type FakeApp, notificationWith, openTestDocument, runAction, startFakeApp, startWithDocument } from '../../test/fakes/app'
-import { CUBE_DOCUMENT, CUBE_TOP_FACE, documentFile, documentText } from '../../test/fakes/documents'
+import {
+  actionLabels,
+  createFakeApp,
+  currentDocument,
+  type FakeApp,
+  notificationWith,
+  openTestDocument,
+  runAction,
+  startFakeApp,
+  startWithDocument,
+} from '../../test/fakes/app'
+import {
+  CUBE_DOCUMENT,
+  CUBE_TOP_FACE,
+  documentFile,
+  documentText,
+  bodiesOf,
+} from '../../test/fakes/documents'
 import { createFakeFileHandle } from '../../test/fakes/files'
 import { elementItem } from '../../test/fakes/selection'
 import { settle } from '../../test/fakes/settle'
@@ -25,7 +41,9 @@ import {
 } from './document'
 import { select } from './selection'
 
-const RENAME_TO_BOX: readonly Edit[] = [{ type: 'update_body', body: { id: 'b-cube', name: 'Box' } }]
+const RENAME_TO_BOX: readonly Edit[] = [
+  { type: 'update_body', body: { id: 'b-cube', name: 'Box' } },
+]
 
 function renamed(name: string): Document {
   return { ...CUBE_DOCUMENT, bodies: [{ id: 'b-cube', name }] }
@@ -117,7 +135,7 @@ describe('startCore (3.1)', () => {
     expect(currentDocument(fake.app).name).toBe('Untitled')
   })
 
-  it('the recovery notification\'s Open opens the text named after the entry, with its handle, as locally unsaved', async () => {
+  it("the recovery notification's Open opens the text named after the entry, with its handle, as locally unsaved", async () => {
     const handle = createFakeFileHandle('cube.ptsm')
     const recovery = createMemoryRecovery()
     await recovery.write({
@@ -132,12 +150,12 @@ describe('startCore (3.1)', () => {
     await settle()
     const document = currentDocument(fake.app)
     expect(document.name).toBe('cube')
-    expect(document.recipe.bodies[0]?.name).toBe('Box')
+    expect(bodiesOf(document.recipe)[0]?.name).toBe('Box')
     expect(document.file?.handle).toBe(handle)
     expect(document.localUnsaved).toBe(true)
   })
 
-  it('the recovery notification\'s Discard clears the store', async () => {
+  it("the recovery notification's Discard clears the store", async () => {
     const recovery = createMemoryRecovery()
     await recovery.write({
       name: 'cube',
@@ -219,7 +237,7 @@ describe('newDocument (3.19)', () => {
     await settle()
     const document = currentDocument(fake.app)
     expect(document.name).toBe('cube')
-    expect(document.recipe.bodies[0]?.name).toBe('Box')
+    expect(bodiesOf(document.recipe)[0]?.name).toBe('Box')
     expect(document.localUnsaved).toBe(true)
   })
 })
@@ -238,7 +256,11 @@ describe('openFile (3.19)', () => {
   it('U-79 bytes that are not UTF-8 show not_text and open nothing', async () => {
     const fake = await startFakeApp()
     fake.transport.clearRequests()
-    await openFile(fake.app, { name: 'bad.ptsm', bytes: Uint8Array.of(0x7b, 0xff, 0xfe, 0x7d), handle: null })
+    await openFile(fake.app, {
+      name: 'bad.ptsm',
+      bytes: Uint8Array.of(0x7b, 0xff, 0xfe, 0x7d),
+      handle: null,
+    })
     await settle()
     expect(errorMessages(fake)).toEqual([MESSAGES.not_text('bad.ptsm')])
     expect(fake.transport.commandTypes()).not.toContain('open_document')
@@ -251,7 +273,7 @@ describe('openFile (3.19)', () => {
     fake.transport.handle('open_document', () => ({ error: { code: 'parse_error', message } }))
     await openFile(fake.app, {
       name: 'broken.ptsm',
-      bytes: new TextEncoder().encode('not json'),
+      bytes: Uint8Array.from(new TextEncoder().encode('not json')),
       handle: null,
     })
     await settle()
@@ -280,7 +302,9 @@ describe('openFile (3.19)', () => {
     const handle = createFakeFileHandle('Cube.PTSM')
     await openFile(fake.app, documentFile('Cube.PTSM', CUBE_DOCUMENT, handle))
     await settle()
-    expect(fake.transport.commandsOfType('open_document')[0]?.text).toBe(documentText(CUBE_DOCUMENT))
+    expect(fake.transport.commandsOfType('open_document')[0]?.text).toBe(
+      documentText(CUBE_DOCUMENT),
+    )
     expect(fake.transport.commandsOfType('close_document')).toEqual([
       { type: 'close_document', doc: untitled },
     ])
@@ -304,7 +328,11 @@ describe('openFile (3.19)', () => {
     const fake = await startFakeApp()
     await openTestDocument(fake, 'cube.ptsm', CUBE_DOCUMENT)
     const [entry] = await fake.recent.list()
-    expect(entry).toMatchObject({ name: 'cube.ptsm', handle: null, text: documentText(CUBE_DOCUMENT) })
+    expect(entry).toMatchObject({
+      name: 'cube.ptsm',
+      handle: null,
+      text: documentText(CUBE_DOCUMENT),
+    })
   })
 
   it('a migrated file shows the migrated notification', async () => {
@@ -361,7 +389,13 @@ describe('openRecent (3.19)', () => {
     const fake = await startFakeApp()
     const handle = createFakeFileHandle('cube.ptsm')
     fake.files.contents.set(handle, documentText(CUBE_DOCUMENT))
-    await openRecent(fake.app, { id: 'recent-1', name: 'cube.ptsm', openedAt: 0, handle, text: null })
+    await openRecent(fake.app, {
+      id: 'recent-1',
+      name: 'cube.ptsm',
+      openedAt: 0,
+      handle,
+      text: null,
+    })
     await settle()
     expect(fake.files.reads).toEqual([handle])
     expect(currentDocument(fake.app).file?.handle).toBe(handle)
@@ -372,7 +406,13 @@ describe('openRecent (3.19)', () => {
     const fake = await startFakeApp()
     const handle = createFakeFileHandle('cube.ptsm')
     fake.files.readError = new FileServiceError('permission', 'Permission denied.')
-    await openRecent(fake.app, { id: 'recent-1', name: 'cube.ptsm', openedAt: 0, handle, text: null })
+    await openRecent(fake.app, {
+      id: 'recent-1',
+      name: 'cube.ptsm',
+      openedAt: 0,
+      handle,
+      text: null,
+    })
     await settle()
     const notification = notificationWith(fake.app, MESSAGES.recent_permission('cube.ptsm'))
     expect(notification.severity).toBe('error')
@@ -391,7 +431,9 @@ describe('openRecent (3.19)', () => {
     fake.files.readError = new FileServiceError('not_found', 'The file is gone.')
     await openRecent(fake.app, entry)
     await settle()
-    expect(notificationWith(fake.app, MESSAGES.recent_missing('cube.ptsm')).severity).toBe('warning')
+    expect(notificationWith(fake.app, MESSAGES.recent_missing('cube.ptsm')).severity).toBe(
+      'warning',
+    )
     await expect(fake.recent.list()).resolves.toEqual([])
   })
 })
@@ -402,7 +444,7 @@ describe('save (3.19)', () => {
     const revision = currentDocument(fake.app).revision
     await save(fake.app)
     await settle()
-    expect(fake.journal.filter((entry) => entry !== 'recovery.clear')).toEqual([
+    expect(fake.journal.filter((entry) => !entry.startsWith('recovery.'))).toEqual([
       'command:save_document',
       'files.write',
       'command:mark_saved',
@@ -418,7 +460,13 @@ describe('save (3.19)', () => {
 
   it('a successful save leaves the document clean and not locally unsaved, and clears the recovery store', async () => {
     const { fake } = await dirtyCubeWithHandle()
-    await fake.recovery.write({ name: 'cube', text: '{}', savedAt: 0, handle: null, reason: 'autosave' })
+    await fake.recovery.write({
+      name: 'cube',
+      text: '{}',
+      savedAt: 0,
+      handle: null,
+      reason: 'autosave',
+    })
     await save(fake.app)
     await settle()
     const document = currentDocument(fake.app)
@@ -484,7 +532,7 @@ describe('saveAs (3.19)', () => {
     const { fake } = await dirtyCubeWithHandle()
     await saveAs(fake.app)
     await settle()
-    expect(fake.journal.filter((entry) => entry !== 'recovery.clear')).toEqual([
+    expect(fake.journal.filter((entry) => !entry.startsWith('recovery.'))).toEqual([
       'files.chooseSaveTarget',
       'command:save_document',
       'files.write',
@@ -527,7 +575,9 @@ describe('saveAs (3.19)', () => {
     await settle()
     const hints = fake.app.store
       .getState()
-      .notifications.filter((notification) => notification.message === MESSAGES.download_hint('cube.ptsm'))
+      .notifications.filter(
+        (notification) => notification.message === MESSAGES.download_hint('cube.ptsm'),
+      )
     expect(hints).toHaveLength(1)
     expect(fake.transport.commandTypes().filter((type) => type === 'mark_saved')).toHaveLength(2)
   })
@@ -549,7 +599,9 @@ describe('applyEdits', () => {
 
   it('a CoreError resolves false and shows the core message as an error notification', async () => {
     const fake = await startWithDocument('cube.ptsm', CUBE_DOCUMENT)
-    const applied = await applyEdits(fake.app, 'Delete Widget 1', [{ type: 'remove_feature', id: 'f-x' }])
+    const applied = await applyEdits(fake.app, 'Delete Widget 1', [
+      { type: 'remove_feature', id: 'f-x' },
+    ])
     await settle()
     expect(applied).toBe(false)
     expect(errorMessages(fake)).toEqual(['There is no feature with id f-x.'])
@@ -574,11 +626,11 @@ describe('undo and redo (3.20)', () => {
     await applyEdits(fake.app, 'Rename', RENAME_TO_BOX)
     await undo(fake.app)
     await settle()
-    expect(currentDocument(fake.app).recipe.bodies[0]?.name).toBe('Cube')
+    expect(bodiesOf(currentDocument(fake.app).recipe)[0]?.name).toBe('Cube')
     expect(currentDocument(fake.app).redoLabel).toBe('Rename')
     await redo(fake.app)
     await settle()
-    expect(currentDocument(fake.app).recipe.bodies[0]?.name).toBe('Box')
+    expect(bodiesOf(currentDocument(fake.app).recipe)[0]?.name).toBe('Box')
     expect(fake.transport.commandTypes()).toEqual(['apply_edits', 'undo', 'redo'])
   })
 
@@ -594,7 +646,7 @@ describe('undo and redo (3.20)', () => {
     expect(fake.transport.commandTypes()).toContain('cancel_transaction')
     expect(fake.transport.commandTypes()).not.toContain('undo')
     expect(fake.app.store.getState().command).toBeNull()
-    expect(currentDocument(fake.app).recipe.bodies.map((body) => body.name)).toEqual(['Box'])
+    expect(bodiesOf(currentDocument(fake.app).recipe).map((body) => body.name)).toEqual(['Box'])
   })
 })
 

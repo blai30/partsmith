@@ -3,6 +3,7 @@
 use std::fmt::{self, Write as _};
 
 use crate::checks::{WeldedBody, check_not_empty};
+use crate::output::{TextOutput, too_large};
 use crate::{ExportBody, ExportOutput, IoError};
 
 /// The first line of every OBJ file.
@@ -14,13 +15,13 @@ const HEADER: &str = "# Partsmith OBJ: millimeters, Z up\n";
 /// in the file's whole vertex list. Colors, materials and roles are not written.
 pub fn write_obj(bodies: &[ExportBody<'_>]) -> Result<ExportOutput, IoError> {
     check_not_empty(bodies)?;
-    let mut text = String::from(HEADER);
+    let mut text = TextOutput::default();
+    text.write_str(HEADER).map_err(too_large)?;
     let mut warnings = Vec::new();
     let mut vertices_before: u64 = 0;
     for (index, body) in bodies.iter().enumerate() {
         let welded = WeldedBody::new(index, body)?;
-        write_object(&mut text, &welded, vertices_before)
-            .expect("formatting into a String cannot fail");
+        write_object(&mut text, &welded, vertices_before).map_err(too_large)?;
         vertices_before += welded.vertex_count() as u64;
         warnings.extend(welded.warnings);
     }
@@ -31,7 +32,7 @@ pub fn write_obj(bodies: &[ExportBody<'_>]) -> Result<ExportOutput, IoError> {
 }
 
 /// Writes one object whose face indices start after `vertices_before` earlier vertices.
-fn write_object(text: &mut String, body: &WeldedBody, vertices_before: u64) -> fmt::Result {
+fn write_object(text: &mut TextOutput, body: &WeldedBody, vertices_before: u64) -> fmt::Result {
     writeln!(text, "o {}", body.name)?;
     for [x, y, z] in body.vertices() {
         writeln!(text, "v {x} {y} {z}")?;

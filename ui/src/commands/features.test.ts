@@ -1,9 +1,15 @@
 import { ArrowUpFromLine, Layers2, PencilRuler, Shapes } from 'lucide-react'
 import { describe, expect, it } from 'vitest'
 import type { CatalogEntry } from '../generated/protocol'
-import { CATALOG_TYPES, cubeDocumentState, readyState } from '../layout/fixtures.testing'
+import {
+  CATALOG_TYPES,
+  cubeDocumentState,
+  readyState,
+  rectSketchDocumentState,
+} from '../layout/fixtures.testing'
 import { createModelApp } from '../layout/test-app.testing'
 import { catalogOf, TEST_CATALOG, TEST_CATALOG_ENTRIES } from '../test/fakes/catalog'
+import { RECT_REGION } from '../test/fakes/documents'
 import { settle } from '../test/fakes/settle'
 import { FEATURE_KEYWORDS, featureCommands } from './features'
 import type { CommandDefinition } from './registry'
@@ -46,7 +52,9 @@ const KEYWORDS: readonly (readonly [string, readonly string[]])[] = [
 describe('featureCommands', () => {
   it('U-29 makes one feature.<type> command per catalog entry, except import', () => {
     const ids = featureCommands(TEST_CATALOG).map((command) => command.id)
-    const expected = CATALOG_TYPES.filter((type) => type !== 'import').map((type) => `feature.${type}`)
+    const expected = CATALOG_TYPES.filter((type) => type !== 'import').map(
+      (type) => `feature.${type}`,
+    )
     expect(ids.toSorted()).toEqual(expected.toSorted())
   })
 
@@ -142,5 +150,30 @@ describe('running feature commands', () => {
     expect(app.store.getState().command).toBeNull()
     expect(app.store.getState().context).toBe('sketch')
     expect(app.store.getState().sketch?.sketchId).toBeNull()
+  })
+
+  it('finishes the sketch, switches to Model and preselects its only region for Extrude (3.3)', async () => {
+    const { app, core } = createModelApp({
+      state: readyState(rectSketchDocumentState(), {
+        context: 'sketch',
+        sketch: {
+          sketchId: 'f-sk1',
+          tool: null,
+          construction: false,
+          showConstraints: true,
+          selection: [],
+          dragging: false,
+        },
+      }),
+    })
+    await app.commands.run(app, 'feature.extrude', 'palette')
+    await settle()
+    expect(app.store.getState().context).toBe('model')
+    expect(app.store.getState().sketch).toBeNull()
+    expect(core.callsTo('beginTransaction')).toEqual([[1, 'Extrude']])
+    expect(app.store.getState().command?.params.profile).toEqual({
+      sketch: 'f-sk1',
+      regions: [RECT_REGION.reference],
+    })
   })
 })

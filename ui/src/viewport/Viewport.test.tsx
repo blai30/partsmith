@@ -54,7 +54,11 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-function setUp(state: Partial<AppState> = {}): { app: App; viewport: HTMLElement; surface: HTMLElement } {
+function setUp(state: Partial<AppState> = {}): {
+  app: App
+  viewport: HTMLElement
+  surface: HTMLElement
+} {
   const { app } = createModelApp({ state: readyState(cubeDocumentState(), state) })
   renderWithApp(app, <Viewport />)
   act(() => {
@@ -134,7 +138,10 @@ describe('the viewport region', () => {
   it('writes the camera target rounded to 2 decimals, trimmed, with -0 as 0', () => {
     const { app, viewport } = setUp()
     act(() => {
-      handleOf(app).setCamera({ ...DEFAULT_CAMERA, target: [1.234, -0.001, 10.5] }, { animate: false })
+      handleOf(app).setCamera(
+        { ...DEFAULT_CAMERA, target: [1.234, -0.001, 10.5] },
+        { animate: false },
+      )
     })
     flush()
     expect(viewport).toHaveAttribute('data-camera-target', '1.23,0,10.5')
@@ -227,6 +234,17 @@ describe('the view cube and viewport controls (3.14)', () => {
     expect(viewport).toHaveAttribute('data-view', 'front')
   })
 
+  it('returns to the iso view with the Home view button', async () => {
+    const { app, viewport } = setUp()
+    act(() => {
+      handleOf(app).setStandardView('top')
+    })
+    flush()
+    await userEvent.click(within(viewport).getByRole('button', { name: 'Home view' }))
+    flush()
+    expect(viewport).toHaveAttribute('data-view', 'iso')
+  })
+
   it('switches to orthographic with the Orthographic control', async () => {
     const { viewport } = setUp()
     const control = within(viewport).getByRole('button', { name: 'Orthographic' })
@@ -281,7 +299,9 @@ describe('overlays', () => {
   })
 
   it('shows the core load failure with Reload (4.4)', () => {
-    setUp({ core: { status: 'failed', engineVersion: null, fatal: 'HTTP 404', pendingMutations: 0 } })
+    setUp({
+      core: { status: 'failed', engineVersion: null, fatal: 'HTTP 404', pendingMutations: 0 },
+    })
     const panel = screen.getByTestId('core-fatal')
     expect(panel).toHaveAttribute('role', 'alert')
     expect(panel).toHaveTextContent(MESSAGES.core_load_failed('HTTP 404'))
@@ -290,7 +310,12 @@ describe('overlays', () => {
 
   it('shows a core that stopped later with Restart core, which restarts it', async () => {
     const { app } = setUp({
-      core: { status: 'failed', engineVersion: '0.1.0', fatal: 'out of memory', pendingMutations: 0 },
+      core: {
+        status: 'failed',
+        engineVersion: '0.1.0',
+        fatal: 'out of memory',
+        pendingMutations: 0,
+      },
     })
     const restart = vi.spyOn(app, 'restartCore')
     const panel = screen.getByTestId('core-fatal')

@@ -4,6 +4,7 @@ import {
   type BoundingBox,
   type Command,
   type CommandResult,
+  type Edit,
   type ErrorCode,
   type Event as ProtocolEvent,
   type MeshBuffers,
@@ -82,7 +83,7 @@ export function readRequest(frame: ArrayBuffer): Request {
   if (messages.length !== 1 || message === undefined || message.kind !== 'request') {
     throw new Error('The frame does not hold exactly one request.')
   }
-  return message
+  return { id: message.id, command: message.command }
 }
 
 /** The events, the response and the buffers of a response frame; throws for anything else. */
@@ -119,7 +120,17 @@ export function meshParts(bounds: BoundingBox, firstIndex: number): MeshParts {
   const [minimumX, minimumY, minimumZ] = bounds.min
   const [maximumX, maximumY, maximumZ] = bounds.max
   const buffers: BufferView[] = [
-    Float32Array.of(minimumX, minimumY, minimumZ, maximumX, minimumY, minimumZ, minimumX, maximumY, maximumZ),
+    Float32Array.of(
+      minimumX,
+      minimumY,
+      minimumZ,
+      maximumX,
+      minimumY,
+      minimumZ,
+      minimumX,
+      maximumY,
+      maximumZ,
+    ),
     Float32Array.of(0, -1, 0, 0, -1, 0, 0, -1, 0),
     Uint32Array.of(0, 1, 2),
     Uint32Array.of(0, 0, 0),
@@ -168,4 +179,11 @@ export function withoutNulls(value: unknown): unknown {
     )
   }
   return value
+}
+
+/** The edits of an apply_edits command; the protocol may omit the empty list. */
+export function editsOf(
+  command: Extract<Command, { type: 'apply_edits' }> | undefined,
+): readonly Edit[] {
+  return command?.edits ?? []
 }

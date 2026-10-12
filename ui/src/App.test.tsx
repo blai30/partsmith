@@ -109,10 +109,14 @@ describe('the app shell (3.2)', () => {
     renderApp()
     expect(screen.getByTestId('app')).toHaveAttribute('data-core-status', 'ready')
     cleanup()
-    renderApp({ core: { status: 'loading', engineVersion: null, fatal: null, pendingMutations: 0 } })
+    renderApp({
+      core: { status: 'loading', engineVersion: null, fatal: null, pendingMutations: 0 },
+    })
     expect(screen.getByTestId('app')).toHaveAttribute('data-core-status', 'loading')
     cleanup()
-    renderApp({ core: { status: 'failed', engineVersion: null, fatal: 'HTTP 404', pendingMutations: 0 } })
+    renderApp({
+      core: { status: 'failed', engineVersion: null, fatal: 'HTTP 404', pendingMutations: 0 },
+    })
     expect(screen.getByTestId('app')).toHaveAttribute('data-core-status', 'failed')
   })
 
@@ -124,7 +128,13 @@ describe('the app shell (3.2)', () => {
 
   it('leaves the browser out while it is closed', () => {
     renderApp({
-      panels: { browserOpen: false, timelineCollapsed: false, paletteOpen: false, side: null, inspectorPosition: null },
+      panels: {
+        browserOpen: false,
+        timelineCollapsed: false,
+        paletteOpen: false,
+        side: null,
+        inspectorPosition: null,
+      },
     })
     expect(screen.queryByTestId('browser')).toBeNull()
   })
@@ -151,7 +161,10 @@ describe('the app shell (3.2)', () => {
     const report = vi.spyOn(console, 'error').mockImplementation(() => undefined)
     const broken = cubeDocumentState()
     // Parameters that are not a list break the browser's Parameters group.
-    const recipe = { ...broken.recipe, parameters: null as unknown as typeof broken.recipe.parameters }
+    const recipe = {
+      ...broken.recipe,
+      parameters: null as unknown as typeof broken.recipe.parameters,
+    }
     renderApp({ document: { ...broken, recipe } })
     expect(screen.getByText(MESSAGES.region_crashed())).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Reload' })).toBeInTheDocument()

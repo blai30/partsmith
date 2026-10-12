@@ -107,7 +107,8 @@ describe('encodeFrame', () => {
           },
         ],
       },
-      [new TextEncoder().encode('ISO-10303-21;\n')],
+      // Copied into this realm's Uint8Array: under jsdom, TextEncoder returns Node's.
+      [Uint8Array.from(new TextEncoder().encode('ISO-10303-21;\n'))],
     )
     expect(new Uint8Array(frame)).toEqual(exampleB())
   })
@@ -115,7 +116,10 @@ describe('encodeFrame', () => {
   it('places a u32 buffer after a 14-byte u8 buffer at offset 16 with zero gap bytes', () => {
     const frame = new Uint8Array(
       encodeFrame(
-        { protocol_version: 1, messages: [{ kind: 'request', id: 1, command: { type: 'engine_info' } }] },
+        {
+          protocol_version: 1,
+          messages: [{ kind: 'request', id: 1, command: { type: 'engine_info' } }],
+        },
         [new Uint8Array(14).fill(7), Uint32Array.of(1, 2, 3)],
       ),
     )
@@ -128,13 +132,18 @@ describe('encodeFrame', () => {
     const start = 8 + headerLength + ((8 - (headerLength % 8)) % 8)
     expect(frame.length).toBe(start + 28)
     expect(Array.from(frame.slice(start + 14, start + 16))).toEqual([0, 0])
-    expect(Array.from(frame.slice(start + 16, start + 28))).toEqual([1, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0])
+    expect(Array.from(frame.slice(start + 16, start + 28))).toEqual([
+      1, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0,
+    ])
   })
 
   it('writes f32 values little-endian', () => {
     const frame = new Uint8Array(
       encodeFrame(
-        { protocol_version: 1, messages: [{ kind: 'request', id: 1, command: { type: 'engine_info' } }] },
+        {
+          protocol_version: 1,
+          messages: [{ kind: 'request', id: 1, command: { type: 'engine_info' } }],
+        },
         [Float32Array.of(1)],
       ),
     )
@@ -145,9 +154,7 @@ describe('encodeFrame', () => {
     const frame = encodeFrame(
       {
         protocol_version: 1,
-        messages: [
-          { kind: 'request', id: 9, command: { type: 'undo', doc: 3 } },
-        ],
+        messages: [{ kind: 'request', id: 9, command: { type: 'undo', doc: 3 } }],
       },
       [Uint8Array.of(1, 2, 3), Float32Array.of(0.5, -2), Uint32Array.of(7)],
     )
@@ -238,5 +245,4 @@ describe('protocol test 56: decodeFrame throws FrameDecodeError for malformed fr
     longerA.set(exampleA())
     expect(decodeError(longerA)).toBeInstanceOf(FrameDecodeError)
   })
-
 })

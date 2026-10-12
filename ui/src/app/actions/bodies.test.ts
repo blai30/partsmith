@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { createTestApp, currentDocument, type FakeApp, startWithDocument } from '../../test/fakes/app'
-import { CUBE_DOCUMENT } from '../../test/fakes/documents'
+import {
+  createTestApp,
+  currentDocument,
+  type FakeApp,
+  startWithDocument,
+} from '../../test/fakes/app'
+import { CUBE_DOCUMENT, bodiesOf } from '../../test/fakes/documents'
 import { settle } from '../../test/fakes/settle'
 import {
   renameBody,
@@ -33,7 +38,7 @@ describe('setBodyVisible (3.10)', () => {
       label: 'Hide Cube',
       body: { id: 'b-cube', name: 'Cube', visible: false },
     })
-    expect(currentDocument(fake.app).recipe.bodies[0]?.visible).toBe(false)
+    expect(bodiesOf(currentDocument(fake.app).recipe)[0]?.visible).toBe(false)
   })
 
   it('shows a hidden body with update_body labeled "Show {name}"', async () => {
@@ -46,7 +51,7 @@ describe('setBodyVisible (3.10)', () => {
     const { label, body } = bodyUpdate(fake)
     expect(label).toBe('Show Cube')
     expect(body).toMatchObject({ id: 'b-cube', name: 'Cube' })
-    expect(currentDocument(fake.app).recipe.bodies[0]?.visible ?? true).toBe(true)
+    expect(bodiesOf(currentDocument(fake.app).recipe)[0]?.visible ?? true).toBe(true)
   })
 })
 
@@ -71,7 +76,7 @@ describe('setBodyColor (3.10)', () => {
     const { label, body } = bodyUpdate(fake)
     expect(label).toBe('Change color')
     expect(body).toMatchObject({ id: 'b-cube', name: 'Cube' })
-    expect(currentDocument(fake.app).recipe.bodies[0]?.color ?? null).toBeNull()
+    expect(bodiesOf(currentDocument(fake.app).recipe)[0]?.color ?? null).toBeNull()
   })
 })
 
@@ -93,7 +98,7 @@ describe('setBodyMaterial (3.8)', () => {
     })
     await setBodyMaterial(fake.app, 'b-cube', null)
     await settle()
-    expect(currentDocument(fake.app).recipe.bodies[0]?.material ?? null).toBeNull()
+    expect(bodiesOf(currentDocument(fake.app).recipe)[0]?.material ?? null).toBeNull()
   })
 })
 

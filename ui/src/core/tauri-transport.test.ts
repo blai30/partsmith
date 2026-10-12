@@ -154,11 +154,15 @@ describe('createTauriTransport', () => {
     const second = transport.send(requestFrame(2, { type: 'redo', doc: 1 }))
     await settle()
     expect(invocations.map((invocation) => invocation.request.id)).toEqual([0, 1])
-    invocations[1]?.answer(responseFrame({ id: 1, result: { type: 'undo', revision: 1, label: 'Edit' } }))
+    invocations[1]?.answer(
+      responseFrame({ id: 1, result: { type: 'undo', revision: 1, label: 'Edit' } }),
+    )
     await first
     await settle()
     expect(invocations.map((invocation) => invocation.request.id)).toEqual([0, 1, 2])
-    invocations[2]?.answer(responseFrame({ id: 2, result: { type: 'redo', revision: 2, label: 'Edit' } }))
+    invocations[2]?.answer(
+      responseFrame({ id: 2, result: { type: 'redo', revision: 2, label: 'Edit' } }),
+    )
     expect(readResponse(await second).response.id).toBe(2)
   })
 
@@ -174,11 +178,8 @@ describe('createTauriTransport', () => {
     const { response, events } = readResponse(await reply)
     expect(events).toEqual([])
     expect(response.id).toBe(7)
-    expect(response.result.kind).toBe('error')
-    if (response.result.kind === 'error') {
-      expect(response.result.code).toBe('internal_error')
-      expect(response.result.message).toContain('boom')
-    }
+    expect(response.result).toMatchObject({ kind: 'error', code: 'internal_error' })
+    expect(response.result.kind === 'error' ? response.result.message : '').toContain('boom')
     expect(fatal).not.toHaveBeenCalled()
   })
 
@@ -192,7 +193,9 @@ describe('createTauriTransport', () => {
     invocations[1]?.fail(new Error('boom'))
     await failed
     await settle()
-    invocations[2]?.answer(responseFrame({ id: 2, result: { type: 'undo', revision: 2, label: 'Edit' } }))
+    invocations[2]?.answer(
+      responseFrame({ id: 2, result: { type: 'undo', revision: 2, label: 'Edit' } }),
+    )
     expect(readResponse(await next).response.id).toBe(2)
   })
 })

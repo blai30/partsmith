@@ -56,12 +56,11 @@ describe('the export popover (3.18)', () => {
   it('offers the formats 3MF, STL, OBJ and STEP with 3MF chosen', async () => {
     const { popover } = await openExport()
     const formats = within(popover).getByRole('radiogroup', { name: 'Format' })
-    expect(within(formats).getAllByRole('radio').map((radio) => radio.textContent?.trim() || radio.getAttribute('aria-label'))).toEqual([
-      '3MF',
-      'STL',
-      'OBJ',
-      'STEP',
-    ])
+    const radios = within(formats).getAllByRole('radio')
+    expect(radios).toHaveLength(4)
+    for (const [index, name] of ['3MF', 'STL', 'OBJ', 'STEP'].entries()) {
+      expect(radios[index]).toHaveAccessibleName(name)
+    }
     expect(within(formats).getByRole('radio', { name: '3MF' })).toBeChecked()
   })
 
@@ -100,7 +99,9 @@ describe('the export popover (3.18)', () => {
   })
 
   it('exports only the selected bodies when asked', async () => {
-    const { core, user, popover } = await openExport(twoBodies(), { selection: [bodyItem('b-peg', 'Peg')] })
+    const { core, user, popover } = await openExport(twoBodies(), {
+      selection: [bodyItem('b-peg', 'Peg')],
+    })
     await user.click(within(popover).getByRole('radio', { name: 'Selected bodies' }))
     await user.click(within(popover).getByRole('radio', { name: 'STEP' }))
     await user.click(within(popover).getByRole('button', { name: 'Export' }))
@@ -118,5 +119,23 @@ describe('the export popover (3.18)', () => {
       )
     })
     expect(core.callsTo('exportBodies')).toEqual([])
+  })
+
+  it('exports 3MF of all visible bodies directly from the Print toolbar', async () => {
+    const test = createModelApp({ state: readyState(twoBodies(), { context: 'print' }) })
+    test.core.stub('exportBodies', () =>
+      Promise.resolve({
+        files: [{ name: 'model.3mf', mediaType: 'model/3mf', bytes: new Uint8Array([1]) }],
+        warnings: [],
+      }),
+    )
+    renderWithApp(test.app)
+    const user = userEvent.setup()
+    const toolbar = screen.getByRole('toolbar', { name: 'Print tools' })
+    await user.click(within(toolbar).getByRole('button', { name: 'Export 3MF' }))
+    await waitFor(() => {
+      expect(test.core.callsTo('exportBodies')).toEqual([[1, { kind: '3mf' }, ['b-cube', 'b-peg']]])
+    })
+    expect(screen.queryByTestId('export-popover')).toBeNull()
   })
 })

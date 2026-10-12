@@ -651,7 +651,7 @@ For a canonical document text `T` whose features all build without an `error` st
 
 For a script `S` written by hand: `D1 = run_code(S)`, `D2 = run_code(D1.to_python())`, and `D2.to_text() == D1.to_text()`.
 
-CI runs the first form for every engine fixture and every `examples/**/model.ptsm`, and the second for every `examples/**/model.py`.
+CI runs the first form for every engine fixture and every example that has a Python twin, and the second for every Python twin; an example is any `.ptsm` file under `examples/`, and its twin is the same path with `.py` (delivery.md section 2.8).
 
 ### 3.10 Mapping onto engine commands
 

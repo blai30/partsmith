@@ -104,7 +104,7 @@ describe('notify', () => {
     expect(messages(app)).toEqual(['Error two.', 'Error three.', 'Error four.'])
   })
 
-  it('U-72 a duplicate of a visible message adds nothing and restarts the visible one\'s timer', () => {
+  it("U-72 a duplicate of a visible message adds nothing and restarts the visible one's timer", () => {
     const app = createTestApp()
     show(app, 'info', 'Nothing to undo.')
     vi.advanceTimersByTime(3_000)

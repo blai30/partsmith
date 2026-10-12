@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import type { RecentFile } from '../files/recent'
-import { CUBE_BOUNDS, cubeDocumentState, documentState, readyState } from '../layout/fixtures.testing'
+import {
+  CUBE_BOUNDS,
+  cubeDocumentState,
+  documentState,
+  readyState,
+} from '../layout/fixtures.testing'
 import { createFakeViewport, createModelApp } from '../layout/test-app.testing'
 import { MESSAGES } from '../messages'
 import type { SketchSession } from '../state/store'
@@ -17,10 +22,16 @@ const EDITING_SKETCH: SketchSession = {
   dragging: false,
 }
 
-function find(items: readonly PaletteItem[], kind: PaletteItem['kind'], title: string): PaletteItem {
+function find(
+  items: readonly PaletteItem[],
+  kind: PaletteItem['kind'],
+  title: string,
+): PaletteItem {
   const item = items.find((candidate) => candidate.kind === kind && candidate.title === title)
   if (item === undefined) {
-    throw new Error(`No ${kind} item "${title}" among ${items.map((candidate) => candidate.title).join(', ')}`)
+    throw new Error(
+      `No ${kind} item "${title}" among ${items.map((candidate) => candidate.title).join(', ')}`,
+    )
   }
   return item
 }
@@ -111,7 +122,9 @@ describe('paletteItems', () => {
       handle: null,
       text: '{}',
     }
-    expect(find(paletteItems(app, [recent]), 'recent', 'Open recent: bracket.ptsm').category).toBeNull()
+    expect(
+      find(paletteItems(app, [recent]), 'recent', 'Open recent: bracket.ptsm').category,
+    ).toBeNull()
   })
 
   it('running a feature item selects that feature', () => {

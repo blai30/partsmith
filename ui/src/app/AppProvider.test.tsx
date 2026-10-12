@@ -1,5 +1,5 @@
 import { act, cleanup, render, screen } from '@testing-library/react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createTestApp } from '../test/fakes/app'
 import { AppProvider, useApp, useAppState } from './AppProvider'
 import type { App } from './createApp'
@@ -8,31 +8,34 @@ afterEach(() => {
   cleanup()
 })
 
+function AppProbe(props: { readonly onRender: (app: App) => void }) {
+  props.onRender(useApp())
+  return null
+}
+
+function ContextProbe(props: { readonly onRender?: () => void }) {
+  props.onRender?.()
+  const context = useAppState((state) => state.context)
+  return <p data-testid="context">{context}</p>
+}
+
 describe('AppProvider', () => {
   it('useApp gives the provided app', () => {
     const app = createTestApp()
-    let seen: App | null = null
-    function Probe() {
-      seen = useApp()
-      return null
-    }
+    const onRender = vi.fn<(app: App) => void>()
     render(
       <AppProvider app={app}>
-        <Probe />
+        <AppProbe onRender={onRender} />
       </AppProvider>,
     )
-    expect(seen).toBe(app)
+    expect(onRender).toHaveBeenCalledWith(app)
   })
 
   it('useAppState reads a slice and follows its changes', () => {
     const app = createTestApp()
-    function Context() {
-      const context = useAppState((state) => state.context)
-      return <p data-testid="context">{context}</p>
-    }
     render(
       <AppProvider app={app}>
-        <Context />
+        <ContextProbe />
       </AppProvider>,
     )
     expect(screen.getByTestId('context')).toHaveTextContent('model')
@@ -44,25 +47,20 @@ describe('AppProvider', () => {
 
   it('useAppState re-renders only when its slice changes', () => {
     const app = createTestApp()
-    let renders = 0
-    function Context() {
-      renders += 1
-      const context = useAppState((state) => state.context)
-      return <p>{context}</p>
-    }
+    const onRender = vi.fn<() => void>()
     render(
       <AppProvider app={app}>
-        <Context />
+        <ContextProbe onRender={onRender} />
       </AppProvider>,
     )
-    const afterMount = renders
+    const afterMount = onRender.mock.calls.length
     act(() => {
       app.store.setState({ hover: { key: 'mesh:1:face:0', kind: 'face' } })
     })
-    expect(renders).toBe(afterMount)
+    expect(onRender).toHaveBeenCalledTimes(afterMount)
     act(() => {
       app.store.setState({ context: 'sketch' })
     })
-    expect(renders).toBe(afterMount + 1)
+    expect(onRender).toHaveBeenCalledTimes(afterMount + 1)
   })
 })

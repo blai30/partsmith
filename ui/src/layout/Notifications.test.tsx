@@ -52,12 +52,17 @@ describe('notifications (3.22)', () => {
   it('puts the newest notification at the bottom', () => {
     renderWith([notification('n-1', 'info', 'First.'), notification('n-2', 'info', 'Second.')])
     const [first, second] = screen.getAllByTestId('notification')
-    expect(first?.compareDocumentPosition(second ?? document.body)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+    expect(first?.compareDocumentPosition(second ?? document.body)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    )
     expect(second).toHaveTextContent('Second.')
   })
 
   it('announces errors in an alert region and the others in a status region', () => {
-    renderWith([notification('n-1', 'error', 'It failed.'), notification('n-2', 'warning', 'Careful.')])
+    renderWith([
+      notification('n-1', 'error', 'It failed.'),
+      notification('n-2', 'warning', 'Careful.'),
+    ])
     const [error, warning] = screen.getAllByTestId('notification')
     expect(error?.closest('[role="alert"]')).not.toBeNull()
     expect(warning?.closest('[role="status"]')).not.toBeNull()
@@ -66,7 +71,9 @@ describe('notifications (3.22)', () => {
 
   it('dismisses a notification with its Dismiss button', async () => {
     const { app, user } = renderWith([notification('n-1', 'info', 'Deleted Fillet 1.')])
-    await user.click(within(screen.getByTestId('notification')).getByRole('button', { name: 'Dismiss' }))
+    await user.click(
+      within(screen.getByTestId('notification')).getByRole('button', { name: 'Dismiss' }),
+    )
     expect(app.store.getState().notifications).toEqual([])
     expect(screen.queryByTestId('notification')).toBeNull()
   })
@@ -76,7 +83,9 @@ describe('notifications (3.22)', () => {
     const { app, user } = renderWith([
       notification('n-1', 'info', 'Deleted Fillet 1.', [{ label: 'Undo', run }]),
     ])
-    await user.click(within(screen.getByTestId('notification')).getByRole('button', { name: 'Undo' }))
+    await user.click(
+      within(screen.getByTestId('notification')).getByRole('button', { name: 'Undo' }),
+    )
     expect(run).toHaveBeenCalledTimes(1)
     expect(app.store.getState().notifications).toEqual([])
   })
