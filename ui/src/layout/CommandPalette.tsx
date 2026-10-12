@@ -95,7 +95,7 @@ function OpenPalette() {
   const app = useApp()
   const listId = useId()
   const optionPrefix = useId()
-  const palette = useRef<HTMLDivElement>(null)
+  const palette = useRef<HTMLDialogElement>(null)
   const input = useRef<HTMLInputElement>(null)
   const list = useRef<HTMLUListElement>(null)
   const recentIds = useAppState((state) => state.settings.paletteRecent)
@@ -235,13 +235,13 @@ function OpenPalette() {
 
   return (
     <div className="pointer-events-none fixed inset-x-4 top-1/6 z-50 flex justify-center">
-      <div
+      <dialog
         ref={palette}
-        role="dialog"
+        open
         aria-label="Command palette"
         data-testid="palette"
         className={clsx(
-          'pointer-events-auto flex w-140 max-w-full flex-col overflow-hidden rounded-md border shadow-lg transition-opacity duration-150 ease-out starting:opacity-0 motion-reduce:transition-none',
+          'pointer-events-auto relative m-0 flex w-140 max-w-full flex-col overflow-hidden rounded-md border p-0 shadow-lg transition-opacity duration-150 ease-out starting:opacity-0 motion-reduce:transition-none',
           COLOR_CLASSES.surfaceRaised.background,
           COLOR_CLASSES.border.border,
           COLOR_CLASSES.text.foreground,
@@ -280,6 +280,8 @@ function OpenPalette() {
         <ul
           ref={list}
           id={listId}
+          // The combobox pattern needs a listbox of rich options, which a native select cannot hold.
+          // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role, jsx-a11y/no-noninteractive-element-to-interactive-role
           role="listbox"
           aria-label="Results"
           className="relative max-h-96 overflow-y-auto p-1"
@@ -291,10 +293,12 @@ function OpenPalette() {
             const tag = KIND_TAGS[item.kind]
             const detail = item.disabledReason ?? item.detail
             return (
-              // Options take no focus: the input keeps it and points at the active option.
+              // Options take no focus or keys: the input keeps both and points at the active option.
+              // oxlint-disable-next-line jsx-a11y/click-events-have-key-events
               <li
                 key={item.id}
                 id={`${optionPrefix}-${String(index)}`}
+                // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role, jsx-a11y/no-noninteractive-element-to-interactive-role
                 role="option"
                 data-testid="palette-option"
                 data-item-id={item.id}
@@ -358,17 +362,16 @@ function OpenPalette() {
             )
           })}
         </ul>
-        <div
-          role="status"
+        <output
           className={clsx(
-            'shrink-0 border-t px-3 py-2 text-xs empty:hidden',
+            'block shrink-0 border-t px-3 py-2 text-xs empty:hidden',
             COLOR_CLASSES.border.border,
             COLOR_CLASSES.textMuted.foreground,
           )}
         >
           {footer}
-        </div>
-      </div>
+        </output>
+      </dialog>
     </div>
   )
 }

@@ -217,6 +217,54 @@ function emptyFitBounds(): Bounds {
   return { min: [-half, -half, -half], max: [half, half, half] }
 }
 
+/** Reports a viewport action that failed. */
+function report(error: unknown): void {
+  console.error('A viewport action failed.', error)
+}
+
+/** A middle-button press never starts the browser's autoscroll (3.13). */
+function onMouseDown(event: MouseEvent): void {
+  if (event.button === MIDDLE_BUTTON_INDEX) {
+    event.preventDefault()
+  }
+}
+
+/** The canvas opens no context menu in M1 (3.13). */
+function onContextMenu(event: Event): void {
+  event.preventDefault()
+}
+
+/** The features whose faces are highlighted: the selected ones while no command is active (3.6). */
+function selectedFeatures(state: AppState): ReadonlySet<string> {
+  if (state.command !== null) {
+    return new Set()
+  }
+  return new Set(
+    state.selection.flatMap((item) =>
+      (item.kind === 'feature' || item.kind === 'datum_plane') && item.feature !== null
+        ? [item.feature]
+        : [],
+    ),
+  )
+}
+
+/** Whether a store change can change what the view draws. */
+function relevantChange(state: AppState, previous: AppState): boolean {
+  return (
+    state.document !== previous.document ||
+    state.selection !== previous.selection ||
+    state.hover !== previous.hover ||
+    state.command !== previous.command ||
+    state.sketch !== previous.sketch ||
+    state.view !== previous.view ||
+    state.settings !== previous.settings ||
+    state.context !== previous.context ||
+    state.print !== previous.print ||
+    state.printers !== previous.printers ||
+    state.catalog !== previous.catalog
+  )
+}
+
 export function createViewportController(options: {
   app: App
   canvas: HTMLCanvasElement
@@ -670,9 +718,6 @@ export function createViewportController(options: {
 
   // Pointer and wheel input (3.13).
 
-  function report(error: unknown): void {
-    console.error('A viewport action failed.', error)
-  }
 
   function onPointerDown(event: PointerEvent): void {
     if (event.button === MIDDLE_BUTTON_INDEX) {
@@ -706,11 +751,6 @@ export function createViewportController(options: {
     }
   }
 
-  function onMouseDown(event: MouseEvent): void {
-    if (event.button === MIDDLE_BUTTON_INDEX) {
-      event.preventDefault()
-    }
-  }
 
   function onPointerMove(event: PointerEvent): void {
     const point = canvasPoint(event)
@@ -857,9 +897,6 @@ export function createViewportController(options: {
     }
   }
 
-  function onContextMenu(event: Event): void {
-    event.preventDefault()
-  }
 
   function onDoubleClick(event: MouseEvent): void {
     if (event.button !== 0) {
@@ -985,18 +1022,6 @@ export function createViewportController(options: {
     return request
   }
 
-  function selectedFeatures(state: AppState): ReadonlySet<string> {
-    if (state.command !== null) {
-      return new Set()
-    }
-    return new Set(
-      state.selection.flatMap((item) =>
-        (item.kind === 'feature' || item.kind === 'datum_plane') && item.feature !== null
-          ? [item.feature]
-          : [],
-      ),
-    )
-  }
 
   /** Lists the faces of visible bodies while features are selected (3.6 feature highlighting). */
   function requestFaces(state: AppState): void {
@@ -1068,21 +1093,6 @@ export function createViewportController(options: {
 
   // Store and core subscriptions.
 
-  function relevantChange(state: AppState, previous: AppState): boolean {
-    return (
-      state.document !== previous.document ||
-      state.selection !== previous.selection ||
-      state.hover !== previous.hover ||
-      state.command !== previous.command ||
-      state.sketch !== previous.sketch ||
-      state.view !== previous.view ||
-      state.settings !== previous.settings ||
-      state.context !== previous.context ||
-      state.print !== previous.print ||
-      state.printers !== previous.printers ||
-      state.catalog !== previous.catalog
-    )
-  }
 
   cleanups.push(
     store.subscribe((state, previous) => {

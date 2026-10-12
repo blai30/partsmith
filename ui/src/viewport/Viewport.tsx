@@ -1,7 +1,6 @@
 import { clsx } from 'clsx/lite'
 import { LoaderCircle } from 'lucide-react'
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
-import { confirmCommand } from '../app/actions/command'
 import { useApp, useAppState } from '../app/AppProvider'
 import type { App } from '../app/createApp'
 import { formatShortcut } from '../commands/shortcuts'
@@ -84,44 +83,58 @@ function AxisLabels({ scene }: { readonly scene: Scene }) {
   })
 }
 
+/** A centered chip over the view on the `surfaceRaised` role (3.24: text over the view sits on a chip). */
+function OverlayChip({ children }: { readonly children: ReactNode }) {
+  return (
+    <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-4">
+      <div
+        className={clsx(
+          'pointer-events-auto flex max-w-110 flex-col gap-3 rounded-md border p-4 text-sm shadow-lg',
+          COLOR_CLASSES.surfaceRaised.background,
+          COLOR_CLASSES.border.border,
+          COLOR_CLASSES.text.foreground,
+        )}
+      >
+        {children}
+      </div>
+    </div>
+  )
+}
+
+function Spinner() {
+  return (
+    <LoaderCircle
+      aria-hidden="true"
+      strokeWidth={1.75}
+      className={clsx(
+        'size-4 shrink-0 animate-spin motion-reduce:animate-none',
+        COLOR_CLASSES.textMuted.foreground,
+      )}
+    />
+  )
+}
+
 /** The loading, fatal and context-loss states drawn over the view (3.1, 3.12, 4.4). */
 function CoreStatus({ restoring }: { readonly restoring: boolean }) {
   const app = useApp()
   const status = useAppState((state) => state.core.status)
   const fatal = useAppState((state) => state.core.fatal)
   const started = useAppState((state) => state.core.engineVersion !== null)
-  const chip = clsx(
-    'pointer-events-auto flex max-w-110 flex-col gap-3 rounded-md border p-4 text-sm shadow-lg',
-    COLOR_CLASSES.surfaceRaised.background,
-    COLOR_CLASSES.border.border,
-    COLOR_CLASSES.text.foreground,
-  )
   if (status === 'loading') {
     return (
-      <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-        <div
-          data-testid="core-overlay"
-          role="status"
-          className={clsx(chip, 'flex-row items-center')}
-        >
-          <LoaderCircle
-            aria-hidden="true"
-            strokeWidth={1.75}
-            className={clsx(
-              'size-4 animate-spin motion-reduce:animate-none',
-              COLOR_CLASSES.textMuted.foreground,
-            )}
-          />
+      <OverlayChip>
+        <output data-testid="core-overlay" className="flex items-center gap-3">
+          <Spinner />
           Loading the geometry core
-        </div>
-      </div>
+        </output>
+      </OverlayChip>
     )
   }
   if (status === 'failed') {
     const reason = fatal ?? ''
     return (
-      <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-4">
-        <div data-testid="core-fatal" role="alert" className={chip}>
+      <OverlayChip>
+        <div data-testid="core-fatal" role="alert" className="flex flex-col gap-3">
           <p>{started ? MESSAGES.core_stopped(reason) : MESSAGES.core_load_failed(reason)}</p>
           <div className="flex justify-end">
             {started ? (
@@ -147,24 +160,22 @@ function CoreStatus({ restoring }: { readonly restoring: boolean }) {
             )}
           </div>
         </div>
-      </div>
+      </OverlayChip>
     )
   }
   if (restoring) {
     return (
-      <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-        <div role="status" className={clsx(chip, 'flex-row items-center')}>
-          <LoaderCircle
-            aria-hidden="true"
-            strokeWidth={1.75}
-            className={clsx(
-              'size-4 animate-spin motion-reduce:animate-none',
-              COLOR_CLASSES.textMuted.foreground,
-            )}
-          />
+      <OverlayChip>
+        <div
+          // ui.md 3.12 names the status role of this overlay.
+          // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+          role="status"
+          className="flex items-center gap-3"
+        >
+          <Spinner />
           Restoring the 3D view
         </div>
-      </div>
+      </OverlayChip>
     )
   }
   return null
@@ -268,15 +279,8 @@ export function Viewport({ children }: ViewportProps) {
   }, [app, scene, section])
 
   function onKeyDown(event: KeyboardEvent<HTMLDivElement>): void {
+    // Enter confirms a command through the app's Enter ladder (3.5); here are the camera keys.
     if (event.target !== event.currentTarget || event.defaultPrevented) {
-      return
-    }
-    if (event.key === 'Enter' && app.store.getState().command !== null) {
-      // The Enter ladder: confirm the command from the focused viewport (3.5).
-      event.preventDefault()
-      confirmCommand(app).catch((error: unknown) => {
-        console.error('Confirming the command failed.', error)
-      })
       return
     }
     const step = keyNavigation(event.key, {
@@ -309,10 +313,13 @@ export function Viewport({ children }: ViewportProps) {
       data-selection-count={selectionCount}
       className="relative min-h-0 min-w-0 flex-1 overflow-hidden"
     >
+      {/* The spec makes the view one focusable application that takes the camera keys (3.13). */}
+      {/* oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */}
       <div
         role="application"
         aria-roledescription="3D view"
         aria-label="3D view"
+        // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex
         tabIndex={0}
         onKeyDown={onKeyDown}
         className={clsx(

@@ -3,6 +3,7 @@ import { useAppState } from '../app/AppProvider'
 import type { App } from '../app/createApp'
 import type { Availability, CommandDefinition } from '../commands/registry'
 import { formatShortcut } from '../commands/shortcuts'
+import type { MenuEntry } from '../components/Menu'
 
 // Commands as the chrome shows them (ui.md 3.3, 3.24): a toolbar button or menu item re-renders
 // when a command registers or when its availability or checked state changes, not on every store
@@ -68,4 +69,19 @@ export function runCommand(app: App, id: string, source: 'toolbar' | 'menu'): vo
   app.commands.run(app, id, source).catch((error: unknown) => {
     console.error(`The command ${id} failed.`, error)
   })
+}
+
+/** The menu item that runs a command: its icon, title (or the given label) and shortcut. */
+export function commandMenuItem(app: App, view: CommandView, label?: string): MenuEntry {
+  const { definition } = view
+  return {
+    kind: 'item',
+    label: label ?? definition.title,
+    ...(definition.icon === null ? {} : { icon: definition.icon }),
+    ...(view.shortcut === null ? {} : { shortcut: view.shortcut }),
+    disabled: view.availability.state === 'disabled',
+    onSelect: () => {
+      runCommand(app, definition.id, 'menu')
+    },
+  }
 }

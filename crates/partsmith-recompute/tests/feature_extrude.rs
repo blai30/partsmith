@@ -646,6 +646,25 @@ fn t038_empty_profile() {
 }
 
 #[test]
+#[cfg_attr(
+    debug_assertions,
+    ignore = "performance budgets hold for release builds: run with cargo test --release"
+)]
+fn t039_builds_within_budget() {
+    let distance = median_build_time(&load_example("extrude/distance.ptsm"), "f-ext1", 21);
+    assert!(
+        distance < Duration::from_millis(3),
+        "test 1 took {distance:?} to build (median of 21 runs), over the 3 ms budget",
+    );
+    let through_all =
+        median_build_time(&load_example("extrude/through-all-cut.ptsm"), "f-ext1", 21);
+    assert!(
+        through_all < Duration::from_millis(30),
+        "test 21 took {through_all:?} to build (median of 21 runs), over the 30 ms budget",
+    );
+}
+
+#[test]
 fn t040_union_of_regions_split_by_a_line() {
     // Features.md sections 3.7 and 3.10: regions merged in 2D give the same solid as the one region
     // they cover, with one lateral face per entity.
@@ -667,23 +686,38 @@ fn t040_union_of_regions_split_by_a_line() {
     );
     assert_face_area(&face(body, "f-ext1/lateral/e-1"), 800.0);
     assert_face_area(&face(body, "f-ext1/lateral/e-3"), 800.0);
+    assert_no_face(body, "f-ext1/lateral/e-5");
 }
 
 #[test]
-#[cfg_attr(
-    debug_assertions,
-    ignore = "performance budgets hold for release builds: run with cargo test --release"
-)]
-fn t039_builds_within_budget() {
-    let distance = median_build_time(&load_example("extrude/distance.ptsm"), "f-ext1", 21);
-    assert!(
-        distance < Duration::from_millis(3),
-        "test 1 took {distance:?} to build (median of 21 runs), over the 3 ms budget",
-    );
-    let through_all =
-        median_build_time(&load_example("extrude/through-all-cut.ptsm"), "f-ext1", 21);
-    assert!(
-        through_all < Duration::from_millis(30),
-        "test 21 took {through_all:?} to build (median of 21 runs), over the 30 ms budget",
-    );
+fn t041_union_of_circle_halves() {
+    let sketch = r#"{"id": "f-sk1", "type": "sketch", "plane": {"kind": "origin", "plane": "XY"}, "entities": [{"id": "e-5", "type": "circle", "center": [0, 0], "radius": 10}, {"id": "e-6", "type": "line", "start": [-10, 0], "end": [10, 0]}]}"#;
+    let profile = r#"{"sketch": "f-sk1", "regions": [{"key": "e-5,e-6", "fp": "c=0,4.244132|a=157.079633"}, {"key": "e-5,~e-6", "fp": "c=0,-4.244132|a=157.079633"}]}"#;
+
+    let run = Run::records(&["b-1"], &[sketch, &extrude(profile, &distance("20"), "new")]);
+
+    run.assert_all_ok();
+    assert_volume_and_bounds(&run, 6283.185307, [-10.0, -10.0, 0.0], [10.0, 10.0, 20.0]);
+    assert_face_count(run.shape("b-1"), 3);
+    let body = run.body("b-1");
+    assert_face_area(&face(body, "f-ext1/lateral/e-5"), 1256.637061);
+    assert_no_face(body, "f-ext1/lateral/e-6");
+}
+
+#[test]
+fn t042_pieces_of_one_line_that_stay_separate() {
+    let sketch = r#"{"id": "f-sk1", "type": "sketch", "plane": {"kind": "origin", "plane": "XY"}, "entities": [{"id": "e-1", "type": "line", "start": [0, 0], "end": [80, 0]}, {"id": "e-2", "type": "line", "start": [80, 0], "end": [80, 50]}, {"id": "e-3", "type": "line", "start": [80, 50], "end": [0, 50]}, {"id": "e-4", "type": "line", "start": [0, 50], "end": [0, 0]}, {"id": "e-5", "type": "circle", "center": [40, 0], "radius": 10}]}"#;
+    let profile = r#"{"sketch": "f-sk1", "regions": [{"key": "e-1,e-2,e-3,e-4,~e-5", "fp": "c=40,25.848398|a=3842.920367"}]}"#;
+
+    let run = Run::records(&["b-1"], &[sketch, &extrude(profile, &distance("10"), "new")]);
+
+    run.assert_all_ok();
+    let shape = run.shape("b-1");
+    assert_volume(shape, 38429.203673);
+    assert_face_count(shape, 8);
+    let body = run.body("b-1");
+    assert_face_area(&face(body, "f-ext1/lateral/e-1#1"), 300.0);
+    assert_face_area(&face(body, "f-ext1/lateral/e-1#2"), 300.0);
+    assert_face_area(&face(body, "f-ext1/lateral/e-5"), 314.159265);
+    assert_no_face(body, "f-ext1/lateral/e-1");
 }

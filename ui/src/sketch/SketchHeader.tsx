@@ -1,21 +1,28 @@
 import { clsx } from 'clsx/lite'
 import { ChevronDown } from 'lucide-react'
-import { useId, useRef, useState } from 'react'
+import { useCallback, useId, useRef, useState, useSyncExternalStore } from 'react'
 import { useApp, useAppState } from '../app/AppProvider'
-import { deleteSketchConstraints, showSketchFinding } from '../app/actions/sketch'
+import {
+  createSketchOn,
+  deleteSketchConstraints,
+  selectInSketch,
+  showSketchFinding,
+} from '../app/actions/sketch'
 import { Button } from '../components/Button'
 import { Popover } from '../components/Popover'
-import type { ProfileFinding, SketchConstraint } from '../generated/protocol'
+import type { ProfileFinding, SketchConstraint, SketchSolution } from '../generated/protocol'
 import { selectFeatureLabel, selectSketchDof, type SketchDof } from '../state/selectors'
-import type { AppState } from '../state/store'
+import type { AppState, SelectionItem } from '../state/store'
 import { COLOR_CLASSES } from '../theme/roles'
 import { constraintTitle } from './constraints'
+import { entitySelectionItem } from './hit'
 import { profileFindingMessage } from './issues'
+import { SKETCH_PROMPTS } from './prompts'
+import { outlineProblems, sketchModelOf, sketchStepHint, watchSketchModel } from './session'
 
-// The sketch header (ui.md 3.16.8): the sketch's name and constraint status at the top of the
-// viewport, opening the list of the sketch's problems.
-
-const PICKING_TEXT = 'Pick a plane or a flat face'
+// The sketch header and hint (ui.md 3.16.1, 3.16.3, 3.16.8): the sketch's name and constraint
+// status at the top of the viewport, opening the list of the sketch's problems, and under it the
+// step prompt. While a plane is picked for a new sketch, it offers the three origin planes.
 
 function plural(count: number, singular: string, several: string): string {
   return `${String(count)} ${count === 1 ? singular : several}`
@@ -25,7 +32,7 @@ function plural(count: number, singular: string, several: string): string {
 function statusOf(dof: SketchDof): { readonly text: string; readonly error: boolean } {
   switch (dof.state) {
     case 'picking':
-      return { text: PICKING_TEXT, error: false }
+      return { text: 'Pick a plane or a flat face to draw on', error: false }
     case 'empty':
       return { text: 'No geometry yet', error: false }
     case 'conflict':
@@ -38,7 +45,7 @@ function statusOf(dof: SketchDof): { readonly text: string; readonly error: bool
     case 'full':
       return { text: 'Fully constrained', error: false }
     case 'under':
-      return { text: `${String(dof.dof)} DOF`, error: false }
+      return { text: `Not fully constrained · ${String(dof.dof)} DOF`, error: false }
   }
 }
 
@@ -47,39 +54,92 @@ function selectEditedSketch(state: AppState): string | null | undefined {
   return state.context === 'sketch' && state.sketch !== null ? state.sketch.sketchId : undefined
 }
 
-/** The sketch header chip; nothing outside sketch mode. */
+/** The three origin planes a new sketch can start on in one click (3.16.1). */
+const ORIGIN_PLANES = [
+  { plane: 'XY', label: 'Top', name: 'Top plane (XY)' },
+  { plane: 'XZ', label: 'Front', name: 'Front plane (XZ)' },
+  { plane: 'YZ', label: 'Right', name: 'Right plane (YZ)' },
+] as const
+
+function originPlaneItem(plane: (typeof ORIGIN_PLANES)[number]): SelectionItem {
+  return {
+    key: `origin:${plane.plane}`,
+    kind: 'origin_plane',
+    label: plane.name,
+    body: null,
+    feature: null,
+    element: null,
+    sketchItem: null,
+    origin: plane.plane,
+  }
+}
+
+/** The sketch header chip and the sketch hint; nothing outside sketch mode. */
 export function SketchHeader() {
   const sketchId = useAppState(selectEditedSketch)
-  const dof = useAppState(selectSketchDof)
-  const label = useAppState((state) =>
-    sketchId === undefined || sketchId === null ? '' : selectFeatureLabel(state, sketchId),
-  )
-  const anchor = useRef<HTMLButtonElement>(null)
-  const [open, setOpen] = useState(false)
-  const popoverId = useId()
-
   if (sketchId === undefined) {
     return null
   }
-  if (sketchId === null) {
-    return (
-      <output
-        data-testid="sketch-header"
-        data-state="picking"
-        data-dof="0"
-        className={clsx(
-          'absolute top-3 left-1/2 z-10 flex h-8 -translate-x-1/2 items-center rounded-md border px-3 text-sm font-medium whitespace-nowrap shadow-sm',
-          COLOR_CLASSES.surfaceRaised.background,
-          COLOR_CLASSES.border.border,
-          COLOR_CLASSES.text.foreground,
-        )}
-      >
-        {PICKING_TEXT}
-      </output>
-    )
-  }
+  return (
+    <div className="pointer-events-none absolute top-3 left-1/2 z-10 flex max-w-[calc(100%-2rem)] -translate-x-1/2 flex-col items-center gap-2">
+      {sketchId === null ? <PlanePicking /> : <EditingHeader sketchId={sketchId} />}
+      <SketchHint sketchId={sketchId} />
+    </div>
+  )
+}
 
+/** While a plane is picked for a new sketch: the prompt and the three origin planes. */
+function PlanePicking() {
+  const app = useApp()
+  return (
+    <fieldset
+      data-testid="sketch-header"
+      data-state="picking"
+      data-dof="0"
+      data-outline="0"
+      className={clsx(
+        'pointer-events-auto flex h-10 items-center gap-2 rounded-md border pr-1 pl-3 text-sm whitespace-nowrap shadow-sm',
+        COLOR_CLASSES.surfaceRaised.background,
+        COLOR_CLASSES.border.border,
+        COLOR_CLASSES.text.foreground,
+      )}
+    >
+      <legend className="float-left font-medium">Pick a plane or a flat face to draw on</legend>
+      {ORIGIN_PLANES.map((plane) => (
+        <Button
+          key={plane.plane}
+          aria-label={`Sketch on ${plane.name}`}
+          onClick={() => {
+            createSketchOn(app, originPlaneItem(plane)).catch((error: unknown) => {
+              console.error('Creating the sketch failed.', error)
+            })
+          }}
+        >
+          {plane.label}
+        </Button>
+      ))}
+    </fieldset>
+  )
+}
+
+/** The outline problems of a solution, for the header's `data-outline` (3.16.8). */
+function selectOutlineCount(sketchId: string): (state: AppState) => number {
+  return (state) => state.document?.sketches[sketchId]?.solution.profile_findings.length ?? 0
+}
+
+function EditingHeader({ sketchId }: { readonly sketchId: string }) {
+  const dof = useAppState(selectSketchDof)
+  const label = useAppState((state) => selectFeatureLabel(state, sketchId))
+  const outline = useAppState((state) => {
+    const solution = state.document?.sketches[sketchId]?.solution
+    return solution === undefined ? null : outlineProblems(solution)
+  })
+  const outlineCount = useAppState(selectOutlineCount(sketchId))
+  const anchor = useRef<HTMLButtonElement>(null)
+  const [open, setOpen] = useState(false)
+  const popoverId = useId()
   const status = dof === null ? null : statusOf(dof)
+
   return (
     <>
       <button
@@ -88,6 +148,7 @@ export function SketchHeader() {
         data-testid="sketch-header"
         data-state={dof?.state}
         data-dof={dof === null ? undefined : String(dof.dof)}
+        data-outline={String(outlineCount)}
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-controls={popoverId}
@@ -95,7 +156,7 @@ export function SketchHeader() {
           setOpen((wasOpen) => !wasOpen)
         }}
         className={clsx(
-          'absolute top-3 left-1/2 z-10 flex h-8 max-w-[calc(100%-2rem)] -translate-x-1/2 items-center gap-3 rounded-md border pr-2 pl-3 text-sm whitespace-nowrap shadow-sm transition-colors duration-150 motion-reduce:transition-none',
+          'pointer-events-auto flex h-8 max-w-full items-center gap-3 rounded-md border pr-2 pl-3 text-sm whitespace-nowrap shadow-sm transition-colors duration-150 motion-reduce:transition-none',
           COLOR_CLASSES.surfaceRaised.background,
           COLOR_CLASSES.border.border,
           COLOR_CLASSES.text.foreground,
@@ -105,7 +166,7 @@ export function SketchHeader() {
         )}
       >
         <span className="truncate font-medium">{label}</span>
-        {status === null ? null : (
+        {status === null || dof === null ? null : (
           <>
             <span className="sr-only">, </span>
             <span
@@ -118,9 +179,12 @@ export function SketchHeader() {
               )}
             >
               <span>{status.text}</span>
-              {dof !== null && dof.redundant > 0 ? (
+              {outline === null ? null : (
+                <span className={COLOR_CLASSES.warningText.foreground}>{` · ${outline}`}</span>
+              )}
+              {dof.redundant > 0 ? (
                 <span className={COLOR_CLASSES.warningText.foreground}>
-                  {` · ${String(dof.redundant)} redundant`}
+                  {` · ${plural(dof.redundant, 'extra constraint', 'extra constraints')}`}
                 </span>
               ) : null}
             </span>
@@ -139,9 +203,75 @@ export function SketchHeader() {
   )
 }
 
+/** The sketch hint under the header (3.16.3): the step prompt, or what replaces it for now. */
+function SketchHint({ sketchId }: { readonly sketchId: string | null }) {
+  const app = useApp()
+  const subscribe = useCallback((listener: () => void) => watchSketchModel(app, listener), [app])
+  const read = useCallback(() => sketchModelOf(app), [app])
+  const model = useSyncExternalStore(subscribe, read)
+  const pickHint = useAppState((state) =>
+    state.pickHint !== null && state.pickHint.field === null ? state.pickHint.message : null,
+  )
+  const idle = useAppState((state) => state.sketch?.tool === null)
+  const empty = useAppState(
+    (state) =>
+      sketchId !== null &&
+      (state.document?.sketches[sketchId]?.solution.entities.length ?? 0) === 0,
+  )
+  const idleStep = idle ? sketchStepHint({ kind: 'idle', empty }, app.platform) : null
+  const text =
+    pickHint ??
+    (sketchId === null ? SKETCH_PROMPTS.plane_pick_hint() : (model.hint?.text ?? idleStep))
+  const warning = pickHint !== null || model.hint?.warning === true
+  return (
+    <p
+      data-testid="sketch-hint"
+      role="status"
+      className={clsx(
+        text === null
+          ? 'sr-only'
+          : 'max-w-full rounded-md border px-3 py-1 text-center text-xs text-pretty shadow-sm',
+        text !== null && COLOR_CLASSES.surfaceRaised.background,
+        text !== null && COLOR_CLASSES.border.border,
+        text !== null && warning && COLOR_CLASSES.text.foreground,
+        text !== null && !warning && COLOR_CLASSES.textMuted.foreground,
+      )}
+    >
+      {text}
+      {text !== null && sketchId !== null && model.freePlacement ? (
+        <span aria-live="off">{` ${SKETCH_PROMPTS.sketch_free_placement(app.platform)}`}</span>
+      ) : null}
+    </p>
+  )
+}
+
 type ConstraintProblem = { readonly constraint: SketchConstraint; readonly conflicting: boolean }
 
-/** The conflicting and redundant constraints and the profile issues of the edited sketch. */
+const ENTITY_NOUNS = {
+  point: ['point', 'points'],
+  line: ['line', 'lines'],
+  circle: ['circle', 'circles'],
+  arc: ['arc', 'arcs'],
+} as const
+
+/** "3 lines, 1 circle": the under-constrained entities counted by type, in type order (3.16.8). */
+function freeGeometry(solution: SketchSolution): string {
+  const counts = new Map<keyof typeof ENTITY_NOUNS, number>()
+  for (const entity of solution.entities) {
+    if (entity.constrained === 'under_constrained') {
+      counts.set(entity.type, (counts.get(entity.type) ?? 0) + 1)
+    }
+  }
+  return (['line', 'circle', 'arc', 'point'] as const)
+    .flatMap((type) => {
+      const count = counts.get(type) ?? 0
+      const [singular, several] = ENTITY_NOUNS[type]
+      return count === 0 ? [] : [plural(count, singular, several)]
+    })
+    .join(', ')
+}
+
+/** The conflicting and extra constraints, the outline problems and the free geometry of the sketch. */
 function SketchProblems({ id, sketchId }: { readonly id: string; readonly sketchId: string }) {
   const app = useApp()
   const document = useAppState((state) => state.document)
@@ -159,14 +289,10 @@ function SketchProblems({ id, sketchId }: { readonly id: string; readonly sketch
       : []
   })
   const findings: readonly ProfileFinding[] = solution?.profile_findings ?? []
+  const free = solution !== null && solution.dof > 0 ? freeGeometry(solution) : ''
 
   return (
     <div id={id} data-testid="sketch-problems" className="flex w-80 max-w-full flex-col gap-4">
-      {problems.length === 0 && findings.length === 0 ? (
-        <p className={COLOR_CLASSES.textMuted.foreground}>
-          This sketch has no conflicting or redundant constraints and no profile problems.
-        </p>
-      ) : null}
       {problems.length > 0 ? (
         <section aria-label="Constraints" className="flex flex-col gap-2">
           <h2 className={clsx('text-xs font-medium', COLOR_CLASSES.textMuted.foreground)}>
@@ -187,13 +313,15 @@ function SketchProblems({ id, sketchId }: { readonly id: string; readonly sketch
                           : COLOR_CLASSES.warningText.foreground,
                       )}
                     >
-                      {conflicting ? 'Conflicting' : 'Redundant'}
+                      {conflicting ? 'Conflicting' : 'Extra'}
                     </span>
                   </span>
                   <Button
                     aria-label={`Delete ${title}`}
                     onClick={() => {
-                      void deleteSketchConstraints(app, [constraint.id])
+                      deleteSketchConstraints(app, [constraint.id]).catch((error: unknown) => {
+                        console.error('Deleting the constraint failed.', error)
+                      })
                     }}
                   >
                     Delete
@@ -205,9 +333,9 @@ function SketchProblems({ id, sketchId }: { readonly id: string; readonly sketch
         </section>
       ) : null}
       {findings.length > 0 ? (
-        <section aria-label="Profile" className="flex flex-col gap-2">
+        <section aria-label="Outline" className="flex flex-col gap-2">
           <h2 className={clsx('text-xs font-medium', COLOR_CLASSES.textMuted.foreground)}>
-            Profile
+            Outline
           </h2>
           <ul className="flex flex-col gap-2">
             {findings.map((finding, index) => {
@@ -231,6 +359,27 @@ function SketchProblems({ id, sketchId }: { readonly id: string; readonly sketch
           </ul>
         </section>
       ) : null}
+      {free === '' || solution === null ? null : (
+        <section aria-label="Free geometry" className="flex items-center justify-between gap-3">
+          <p className="min-w-0 text-sm">{`Free geometry: ${free}`}</p>
+          <Button
+            onClick={() => {
+              selectInSketch(
+                app,
+                solution.entities
+                  .filter((entity) => entity.constrained === 'under_constrained')
+                  .map((entity) => entitySelectionItem(sketchId, entity)),
+                'replace',
+              )
+            }}
+          >
+            Select them
+          </Button>
+        </section>
+      )}
+      <p className={clsx('text-xs', COLOR_CLASSES.textMuted.foreground)}>
+        {SKETCH_PROMPTS.sketch_dof_help(app.platform)}
+      </p>
     </div>
   )
 }

@@ -1,6 +1,6 @@
 import { clsx } from 'clsx/lite'
 import { X } from 'lucide-react'
-import { useId, useRef, useState, type KeyboardEvent } from 'react'
+import { useId, useRef, useState } from 'react'
 import { capturePick, setActiveField, setCommandField } from '../../app/actions/command'
 import { useApp, useAppState } from '../../app/AppProvider'
 import { featureLabel } from '../../core/labels'
@@ -40,20 +40,31 @@ const CHOOSABLE: ReadonlySet<SelectionKind> = new Set([
   'sketch_region',
 ])
 
-const NO_ITEM_DATA = {
-  body: null,
-  feature: null,
-  element: null,
-  sketchItem: null,
-  origin: null,
-} as const
+/** A selection item a Choose menu offers: no element, and only the data its kind carries. */
+function candidate(
+  key: string,
+  kind: SelectionItem['kind'],
+  label: string,
+  data: Partial<Pick<SelectionItem, 'body' | 'feature' | 'sketchItem' | 'origin'>> = {},
+): SelectionItem {
+  return {
+    key,
+    kind,
+    label,
+    body: data.body ?? null,
+    feature: data.feature ?? null,
+    element: null,
+    sketchItem: data.sketchItem ?? null,
+    origin: data.origin ?? null,
+  }
+}
 
 function originItem(name: OriginName, kind: SelectionItem['kind'], label: string): SelectionItem {
-  return { ...NO_ITEM_DATA, key: `origin:${name}`, kind, label, origin: name }
+  return candidate(`origin:${name}`, kind, label, { origin: name })
 }
 
 /** The text of the box: the placeholder, the one item's label, or a count. */
-export function selectionText(
+function selectionText(
   accepts: SelectionKind,
   multiple: boolean,
   items: readonly SelectionItem[],
@@ -82,23 +93,20 @@ function candidatesFor(
     case 'body':
       return (recipe.bodies ?? [])
         .filter((body) => document.meshes[body.id] !== undefined)
-        .map((body) => ({
-          ...NO_ITEM_DATA,
-          key: `body:${body.id}`,
-          kind: 'body',
-          label: body.name,
-          body: body.id,
-        }))
+        .map((body) => candidate(`body:${body.id}`, 'body', body.name, { body: body.id }))
     case 'sketch':
       return features
         .filter((feature) => feature.type === 'sketch')
-        .map((feature) => ({
-          ...NO_ITEM_DATA,
-          key: `feature:${feature.id}`,
-          kind: 'feature',
-          label: featureLabel(recipe, feature.id, state.catalog),
-          feature: feature.id,
-        }))
+        .map((feature) =>
+          candidate(
+            `feature:${feature.id}`,
+            'feature',
+            featureLabel(recipe, feature.id, state.catalog),
+            {
+              feature: feature.id,
+            },
+          ),
+        )
     case 'plane':
       return [
         originItem('XY', 'origin_plane', 'XY plane'),
@@ -106,13 +114,14 @@ function candidatesFor(
         originItem('YZ', 'origin_plane', 'YZ plane'),
         ...features
           .filter((feature) => feature.type === 'datum_plane')
-          .map((feature): SelectionItem => ({
-            ...NO_ITEM_DATA,
-            key: `feature:${feature.id}`,
-            kind: 'datum_plane',
-            label: featureLabel(recipe, feature.id, state.catalog),
-            feature: feature.id,
-          })),
+          .map((feature) =>
+            candidate(
+              `feature:${feature.id}`,
+              'datum_plane',
+              featureLabel(recipe, feature.id, state.catalog),
+              { feature: feature.id },
+            ),
+          ),
       ]
     case 'axis':
       return [
@@ -135,14 +144,14 @@ function candidatesFor(
               .map((feature) => feature.id)
       const units = recipe.units
       return sketches.flatMap((sketch) =>
-        (document.sketches[sketch]?.solution.regions ?? []).map((region, index): SelectionItem => ({
-          ...NO_ITEM_DATA,
-          key: `region:${sketch}:${region.reference.key}`,
-          kind: 'sketch_region',
-          label: `Region ${String(index + 1)} (${formatArea(region.area, units)})`,
-          feature: sketch,
-          sketchItem: { kind: 'region', sketch, region },
-        })),
+        (document.sketches[sketch]?.solution.regions ?? []).map((region, index) =>
+          candidate(
+            `region:${sketch}:${region.reference.key}`,
+            'sketch_region',
+            `Region ${String(index + 1)} (${formatArea(region.area, units)})`,
+            { feature: sketch, sketchItem: { kind: 'region', sketch, region } },
+          ),
+        ),
       )
     }
     default:
@@ -188,13 +197,6 @@ export function SelectionField({
     setActiveField(app, field.path)
   }
 
-  function onKeyDown(event: KeyboardEvent<HTMLDivElement>): void {
-    if (event.key === 'Enter' || event.key === ' ') {
-      event.preventDefault()
-      activate()
-    }
-  }
-
   const choices: readonly MenuEntry[] = CHOOSABLE.has(accepts)
     ? candidatesFor(state, accepts, field.value).map((item) => ({
         kind: 'item',
@@ -217,10 +219,12 @@ export function SelectionField({
         {field.label}
       </span>
       <div className="flex min-w-0 items-center gap-2">
-        <div
+        <button
+          type="button"
           id={fieldInputId(field.path)}
+          // ui.md 3.7 and 6.1 name the button role on the box.
+          // oxlint-disable-next-line jsx-a11y/no-redundant-roles
           role="button"
-          tabIndex={0}
           data-testid="selection-field"
           data-active={active}
           data-count={items.length}
@@ -228,9 +232,8 @@ export function SelectionField({
           aria-describedby={message === '' ? undefined : errorId}
           aria-pressed={active}
           onClick={activate}
-          onKeyDown={onKeyDown}
           className={clsx(
-            'flex h-8 min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-sm border px-2 text-sm',
+            'flex h-8 min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-sm border px-2 text-left text-sm',
             COLOR_CLASSES.field.background,
             COLOR_CLASSES.focusRing.outline,
             empty ? COLOR_CLASSES.textMuted.foreground : COLOR_CLASSES.text.foreground,
@@ -243,7 +246,7 @@ export function SelectionField({
           <span id={textId} className="min-w-0 truncate tabular-nums">
             {text}
           </span>
-        </div>
+        </button>
         {empty ? null : (
           <IconButton
             label={`Clear ${field.label}`}

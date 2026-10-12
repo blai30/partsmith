@@ -38,56 +38,56 @@ const ROWS: readonly Row[] = [
     badge: badgeState({ state: 'none' }),
     icon: 'lucide-circle-dashed',
     text: 'Check print',
-    name: 'Print health: not checked',
+    name: 'Print check: not checked',
   },
   {
     title: 'running',
     badge: badgeState({ state: 'running' }),
     icon: 'lucide-loader-circle',
     text: 'Checking',
-    name: 'Print health: checking',
+    name: 'Print check: checking',
   },
   {
     title: 'ok',
     badge: badgeState({ state: 'ok' }),
     icon: 'lucide-circle-check',
     text: 'Ready to print',
-    name: 'Print health: no problems',
+    name: 'Print check: no issues',
   },
   {
     title: 'one warning',
     badge: badgeState({ state: 'warning', warnings: 1 }),
     icon: 'lucide-triangle-alert',
     text: '1 warning',
-    name: 'Print health: 1 warning',
+    name: 'Print check: 1 warning',
   },
   {
     title: 'several warnings',
     badge: badgeState({ state: 'warning', warnings: 3 }),
     icon: 'lucide-triangle-alert',
     text: '3 warnings',
-    name: 'Print health: 3 warnings',
+    name: 'Print check: 3 warnings',
   },
   {
     title: 'one error and several warnings',
     badge: badgeState({ state: 'error', errors: 1, warnings: 2 }),
     icon: 'lucide-circle-x',
     text: '1 error',
-    name: 'Print health: 1 error, 2 warnings',
+    name: 'Print check: 1 error, 2 warnings',
   },
   {
     title: 'several errors and one warning',
     badge: badgeState({ state: 'error', errors: 2, warnings: 1 }),
     icon: 'lucide-circle-x',
     text: '2 errors',
-    name: 'Print health: 2 errors, 1 warning',
+    name: 'Print check: 2 errors, 1 warning',
   },
   {
     title: 'errors without warnings',
     badge: badgeState({ state: 'error', errors: 1, warnings: 0 }),
     icon: 'lucide-circle-x',
     text: '1 error',
-    name: 'Print health: 1 error, 0 warnings',
+    name: 'Print check: 1 error, 0 warnings',
   },
 ]
 
@@ -126,7 +126,7 @@ describe('HealthBadge', () => {
 
   it('U-81 marks a stale report: data-stale, opacity-50, "(out of date)" and ", out of date"', () => {
     const { badge } = renderBadge(badgeState({ state: 'warning', warnings: 1, stale: true }))
-    expect(badge).toBe(screen.getByRole('button', { name: 'Print health: 1 warning, out of date' }))
+    expect(badge).toBe(screen.getByRole('button', { name: 'Print check: 1 warning, out of date' }))
     expect(badge).toHaveAttribute('data-state', 'warning')
     expect(badge).toHaveAttribute('data-stale', 'true')
     expect(badge).toHaveClass('opacity-50')
@@ -148,11 +148,12 @@ describe('HealthBadge', () => {
 })
 
 describe('HealthBadge while checking', () => {
-  it('does not draw a running analysis as out of date, but keeps data-stale for the report', () => {
+  it('is not out of date while the analysis of the current revision runs', () => {
     const { badge } = renderBadge(badgeState({ state: 'running', warnings: 2, stale: true }))
-    expect(badge).toBe(screen.getByRole('button', { name: 'Print health: checking' }))
+    expect(badge).toBe(screen.getByRole('button', { name: 'Print check: checking' }))
     expect(badge).toHaveTextContent(/^Checking$/)
     expect(badge).not.toHaveClass('opacity-50')
-    expect(badge).toHaveAttribute('data-stale', 'true')
+    // The attribute agrees with what is drawn.
+    expect(badge).toHaveAttribute('data-stale', 'false')
   })
 })

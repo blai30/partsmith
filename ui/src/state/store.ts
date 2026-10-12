@@ -230,7 +230,7 @@ export type Announcement = { readonly id: number; readonly message: string }
 
 /**
  * A hint about a pick the target refused: under the active command's selection field at `field`,
- * or in the sketch header while picking a plane when `field` is null.
+ * or in the sketch hint while picking a plane when `field` is null.
  */
 export type PickHint = { readonly message: string; readonly field: string | null }
 

@@ -202,17 +202,17 @@ struct CylinderIntegrals {
   // Adds the segment from `start` to `end`, both relative to `reference`; `height` stays
   // relative to the reference's v.
   void add_segment(const gp_XY &start, const gp_XY &end, const gp_XY &reference) {
-    const double du = end.X() - start.X();
-    const double dv = end.Y() - start.Y();
+    const double u_span = end.X() - start.X();
+    const double v_span = end.Y() - start.Y();
     const double mean_u = reference.X() + 0.5 * (start.X() + end.X());
-    const double half = 0.5 * du;
+    const double half = 0.5 * u_span;
     // sin(half) / half, with its series where the quotient loses precision.
     const double sinc = std::abs(half) < 1e-4 ? 1.0 - half * half / 6.0 : std::sin(half) / half;
-    area += dv * 0.5 * (start.X() + end.X());
-    cosine += dv * std::sin(mean_u) * sinc;
-    sine -= dv * std::cos(mean_u) * sinc;
+    area += v_span * 0.5 * (start.X() + end.X());
+    cosine += v_span * std::sin(mean_u) * sinc;
+    sine -= v_span * std::cos(mean_u) * sinc;
     const double v0 = start.Y(), v1 = end.Y();
-    height -= du * (v0 * v0 + v0 * v1 + v1 * v1) / 6.0;
+    height -= u_span * (v0 * v0 + v0 * v1 + v1 * v1) / 6.0;
   }
 };
 
@@ -243,8 +243,8 @@ std::optional<FaceMass> analytic_face_mass(const TopoDS_Face &face,
   bool has_reference = false;
   // Coordinates are taken relative to the first boundary point to keep the sums accurate.
   gp_XY reference(0.0, 0.0);
-  PlaneIntegrals plane;
-  CylinderIntegrals cylinder;
+  PlaneIntegrals plane_integrals;
+  CylinderIntegrals cylinder_integrals;
   for (TopExp_Explorer edges(forward, TopAbs_EDGE); edges.More(); edges.Next()) {
     const TopoDS_Edge &edge = TopoDS::Edge(edges.Current());
     const TopAbs_Orientation orientation = edge.Orientation();
@@ -269,9 +269,9 @@ std::optional<FaceMass> analytic_face_mass(const TopoDS_Face &face,
     end -= reference;
     if (curve->IsKind(STANDARD_TYPE(Geom2d_Line))) {
       if (planar) {
-        plane.add_segment(start, end);
+        plane_integrals.add_segment(start, end);
       } else {
-        cylinder.add_segment(start, end, reference);
+        cylinder_integrals.add_segment(start, end, reference);
       }
     } else if (planar && curve->IsKind(STANDARD_TYPE(Geom2d_Circle))) {
       const gp_Circ2d circle = Handle(Geom2d_Circle)::DownCast(curve)->Circ2d();
@@ -279,8 +279,8 @@ std::optional<FaceMass> analytic_face_mass(const TopoDS_Face &face,
       const double sense = axes.XDirection().Crossed(axes.YDirection()) < 0.0 ? -1.0 : 1.0;
       const double angle = (last - first) * sense * (reversed ? -1.0 : 1.0);
       const gp_XY middle = curve->Value(0.5 * (first + last)).XY() - reference;
-      plane.add_arc(start, end, middle, circle.Location().XY() - reference, circle.Radius(),
-                    angle);
+      plane_integrals.add_arc(start, end, middle, circle.Location().XY() - reference,
+                              circle.Radius(), angle);
     } else {
       return std::nullopt;
     }
@@ -291,35 +291,36 @@ std::optional<FaceMass> analytic_face_mass(const TopoDS_Face &face,
   // The integrals assume the parametrization below; the face's own surface must agree.
   const gp_XYZ surface_point = surface.Value(reference.X(), reference.Y()).XYZ();
   if (planar) {
-    const gp_Pln pln = surface.Plane();
-    const gp_XYZ origin = pln.Location().XYZ();
-    const gp_XYZ x_axis = pln.XAxis().Direction().XYZ();
-    const gp_XYZ y_axis = pln.YAxis().Direction().XYZ();
+    const gp_Pln plane = surface.Plane();
+    const gp_XYZ origin = plane.Location().XYZ();
+    const gp_XYZ x_axis = plane.XAxis().Direction().XYZ();
+    const gp_XYZ y_axis = plane.YAxis().Direction().XYZ();
     const gp_XYZ expected = origin + x_axis * reference.X() + y_axis * reference.Y();
-    if ((surface_point - expected).Modulus() > kLinear || !(plane.area > 0.0)) {
+    if ((surface_point - expected).Modulus() > kLinear || !(plane_integrals.area > 0.0)) {
       return std::nullopt;
     }
-    const double x = reference.X() + plane.first_x / plane.area;
-    const double y = reference.Y() + plane.first_y / plane.area;
-    return FaceMass{plane.area, gp_Pnt(origin + x_axis * x + y_axis * y)};
+    const double x = reference.X() + plane_integrals.first_x / plane_integrals.area;
+    const double y = reference.Y() + plane_integrals.first_y / plane_integrals.area;
+    return FaceMass{plane_integrals.area, gp_Pnt(origin + x_axis * x + y_axis * y)};
   }
-  const gp_Cylinder cyl = surface.Cylinder();
-  const gp_Ax3 &frame = cyl.Position();
-  const double radius = cyl.Radius();
+  const gp_Cylinder cylinder = surface.Cylinder();
+  const gp_Ax3 &frame = cylinder.Position();
+  const double radius = cylinder.Radius();
   const gp_XYZ origin = frame.Location().XYZ();
   const gp_XYZ x_axis = frame.XDirection().XYZ();
   const gp_XYZ y_axis = frame.YDirection().XYZ();
   const gp_XYZ z_axis = frame.Direction().XYZ();
   const gp_XYZ expected = origin + x_axis * (radius * std::cos(reference.X())) +
                           y_axis * (radius * std::sin(reference.X())) + z_axis * reference.Y();
-  if ((surface_point - expected).Modulus() > kLinear || !(cylinder.area > 0.0)) {
+  if ((surface_point - expected).Modulus() > kLinear || !(cylinder_integrals.area > 0.0)) {
     return std::nullopt;
   }
   // The area element is radius du dv, and a point is origin + radius (cos u x + sin u y) + v z.
-  const gp_XYZ moment = x_axis * (radius * cylinder.cosine) + y_axis * (radius * cylinder.sine) +
-                        z_axis * cylinder.height;
-  return FaceMass{radius * cylinder.area,
-                  gp_Pnt(origin + z_axis * reference.Y() + moment / cylinder.area)};
+  const gp_XYZ moment = x_axis * (radius * cylinder_integrals.cosine) +
+                        y_axis * (radius * cylinder_integrals.sine) +
+                        z_axis * cylinder_integrals.height;
+  return FaceMass{radius * cylinder_integrals.area,
+                  gp_Pnt(origin + z_axis * reference.Y() + moment / cylinder_integrals.area)};
 }
 
 // The area and area centroid of a face: exact where `analytic_face_mass` applies, else from
@@ -678,6 +679,10 @@ bool bounds_face(const TopoDS_Face &face, const TopoDS_Edge &edge) {
 // (kernel spec section 3.6, item 5). `edge_index` and `face_index` name them in messages.
 gp_Dir normal_at_edge(const TopoDS_Face &face, const TopoDS_Edge &edge, double middle,
                       const gp_Pnt &point, std::uint32_t edge_index, int face_index) {
+  TopLoc_Location location;
+  if (BRep_Tool::Surface(face, location).IsNull()) {
+    raise_not_done("face " + std::to_string(face_index) + " has no surface");
+  }
   double first = 0.0, last = 0.0;
   const Handle(Geom2d_Curve) curve = BRep_Tool::CurveOnSurface(edge, face, first, last);
   gp_Pnt2d parameters;

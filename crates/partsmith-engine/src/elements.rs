@@ -158,11 +158,8 @@ pub(crate) fn describe(
     body: &Id,
     timeline: &BTreeMap<Id, usize>,
 ) -> Result<Vec<ElementDescriptor>, EngineError> {
-    let t0 = std::time::Instant::now();
     let shape = shape_of(state)?;
     let infos = element_infos(state)?;
-    eprintln!("TIMING describe infos {:?}", t0.elapsed());
-    let mut kernel = std::time::Duration::ZERO;
     // The first info of each name, as `describe_element` finds it.
     let mut by_name: BTreeMap<&ElementName, &ElementInfo> = BTreeMap::new();
     for info in infos.iter() {
@@ -176,11 +173,9 @@ pub(crate) fn describe(
     };
     let mut descriptors = Vec::new();
     for kind in [ElementKind::Face, ElementKind::Edge, ElementKind::Vertex] {
-        let t1 = std::time::Instant::now();
         let geometries = shape
             .elements(sub_shape_kind(kind))
             .map_err(kernel_failure)?;
-        kernel += t1.elapsed();
         for entry in table.entries(kind) {
             let geometry = slot(entry.index)
                 .and_then(|position| geometries.get(position))
@@ -191,7 +186,6 @@ pub(crate) fn describe(
             descriptors.push(describer.descriptor(kind, entry, geometry, info)?);
         }
     }
-    eprintln!("TIMING describe total {:?} kernel {:?}", t0.elapsed(), kernel);
     Ok(descriptors)
 }
 
@@ -209,13 +203,10 @@ pub(crate) fn describe_element(
         .ok()
         .and_then(|position| table.entries(kind).get(position))
         .ok_or_else(|| EngineError::internal("a display id names no displayed element"))?;
-    let t0 = std::time::Instant::now();
     let geometry = shape_of(state)?
         .element(sub_shape_kind(kind), entry.index)
         .map_err(kernel_failure)?;
-    let t1 = std::time::Instant::now();
     let infos = element_infos(state)?;
-    eprintln!("TIMING element {:?} infos {:?}", t1 - t0, t1.elapsed());
     let info = infos
         .iter()
         .find(|info| info.name == entry.name)
@@ -328,7 +319,10 @@ impl Describer<'_> {
         match kind {
             ElementKind::Face => {
                 let face = topology.faces.get(position)?;
-                Some((vec![index], self.names(ElementKind::Edge, &face.edges, true)))
+                Some((
+                    vec![index],
+                    self.names(ElementKind::Edge, &face.edges, true),
+                ))
             }
             ElementKind::Edge => {
                 let edge = topology.edges.get(position)?;

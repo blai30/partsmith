@@ -11,7 +11,7 @@ use crate::context::BuildContext;
 use crate::deps::Dependencies;
 use crate::error::{FeatureError, FeatureWarning};
 use crate::feature::Feature;
-use crate::naming::{kernel, name_shape};
+use crate::name_shape;
 use crate::output::{FeatureOutput, Tool};
 use crate::params::BodyOp;
 
@@ -85,7 +85,7 @@ impl Feature for Import {
         context: &BuildContext<'_>,
     ) -> Result<FeatureOutput, FeatureError> {
         let bytes = context.asset("asset", &params.asset)?;
-        let imported = read_step(bytes).map_err(kernel)?;
+        let imported = read_step(bytes)?;
         let warnings = imported
             .warnings
             .into_iter()
@@ -117,7 +117,7 @@ fn imported_tool(context: &BuildContext<'_>, mut solids: Vec<Shape>) -> Result<T
             ));
         }
         1 => solids.remove(0),
-        _ => compound(&solids).map_err(kernel)?.shape,
+        _ => compound(&solids)?.shape,
     };
     let name = face_name(context.feature(), roles::FACE, None)?;
     let faces = vec![FaceSource::New(name); shape.count(SubShapeKind::Face) as usize];

@@ -39,6 +39,8 @@ import { startRollbackDrag, type RollbackDrag } from './rollback-drag'
 // reordering by drag, inline rename, a context menu, and the problems count. The strip is a
 // toolbar with one tab stop: Left and Right move between the items and the marker.
 
+const NO_FEATURES: readonly FeatureRecord[] = []
+
 /** A press must move this far (CSS pixels) before it drags an item or the marker. */
 const DRAG_THRESHOLD_PIXELS = 4
 
@@ -344,7 +346,11 @@ function Marker({ position, count, valueText, onPress }: MarkerProps) {
 
   return (
     <div
+      // A slider over the strip's gaps: every step applies its own edit and a drag follows the
+      // items, which a native range input cannot do.
+      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
       role="slider"
+      tabIndex={-1}
       data-testid="timeline-marker"
       data-strip-item=""
       aria-label="Rollback marker"
@@ -392,7 +398,7 @@ function Strip() {
   const [menuFor, setMenuFor] = useState<string | null>(null)
   const [renaming, setRenaming] = useState<string | null>(null)
   const [dragging, setDragging] = useState<string | 'marker' | null>(null)
-  const records = recipe?.features ?? []
+  const records = recipe?.features ?? NO_FEATURES
   const rollback = recipe?.rollback ?? null
   const position = markerPosition(records, rollback)
   const editingIndex = editing === null ? -1 : records.findIndex((record) => record.id === editing)
@@ -425,18 +431,21 @@ function Strip() {
   })
 
   // A newly added item and the moved marker scroll into view (3.9).
-  const knownIds = useRef<ReadonlySet<string>>(new Set(records.map((record) => record.id)))
+  const shown = useRef({ ids: new Set(records.map((record) => record.id)), position })
   useEffect(() => {
     const element = strip.current
     if (element === null) {
       return
     }
-    const added = records.find((record) => !knownIds.current.has(record.id))
-    knownIds.current = new Set(records.map((record) => record.id))
+    const previous = shown.current
+    shown.current = { ids: new Set(records.map((record) => record.id)), position }
+    const added = records.find((record) => !previous.ids.has(record.id))
     const target =
-      added === undefined
-        ? element.querySelector<HTMLElement>('[data-testid="timeline-marker"]')
-        : element.querySelector<HTMLElement>(`[data-feature-id="${added.id}"]`)
+      added !== undefined
+        ? element.querySelector<HTMLElement>(`[data-feature-id="${added.id}"]`)
+        : position === previous.position
+          ? null
+          : element.querySelector<HTMLElement>('[data-testid="timeline-marker"]')
     if (target !== null) {
       keepInViewHorizontally(element, target)
     }
@@ -684,6 +693,7 @@ function Strip() {
       ref={strip}
       role="toolbar"
       aria-label="Features"
+      tabIndex={-1}
       onKeyDown={moveFocus}
       onFocus={(event) => {
         if (event.target.hasAttribute('data-strip-item')) {

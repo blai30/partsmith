@@ -207,6 +207,9 @@ void require_material_removed(const TopoDS_Shape &original, const TopoDS_Shape &
 // A face's surface, without a rectangular trim, so points beyond the face still project.
 Handle(Geom_Surface) untrimmed_surface(const TopoDS_Face &face) {
   Handle(Geom_Surface) surface = BRep_Tool::Surface(face);
+  if (surface.IsNull()) {
+    raise_not_done("a face of the shell's input has no surface");
+  }
   while (surface->IsKind(STANDARD_TYPE(Geom_RectangularTrimmedSurface))) {
     surface = Handle(Geom_RectangularTrimmedSurface)::DownCast(surface)->BasisSurface();
   }

@@ -23,7 +23,7 @@ import type {
   SketchSolution,
 } from '../generated/protocol'
 import { MESSAGES } from '../messages'
-import type { AppState, SelectionItem, SketchSession } from '../state/store'
+import type { AppState, AppStore, SelectionItem, SketchSession } from '../state/store'
 import type { Camera } from '../viewport/camera'
 import type { ViewportController, ViewportHandle } from '../viewport/controller'
 import { dimensionGeometry, dimensionLabelText, hasGlyph } from './annotations'
@@ -162,11 +162,13 @@ export function sketchStepHint(step: SketchStep, platform: Platform): string | n
         ? SKETCH_PROMPTS.sketch_step_center()
         : SKETCH_PROMPTS.sketch_step_circle_size()
     case 'arc_3point':
-      return [
-        SKETCH_PROMPTS.sketch_step_arc_start(),
-        SKETCH_PROMPTS.sketch_step_arc_end(),
-        SKETCH_PROMPTS.sketch_step_arc_shape(),
-      ][step.clicks] ?? null
+      return (
+        [
+          SKETCH_PROMPTS.sketch_step_arc_start(),
+          SKETCH_PROMPTS.sketch_step_arc_end(),
+          SKETCH_PROMPTS.sketch_step_arc_shape(),
+        ][step.clicks] ?? null
+      )
     case 'point':
       return SKETCH_PROMPTS.sketch_step_point()
     case 'dimension':
@@ -461,6 +463,35 @@ function constrainedItems(
     }
   }
   return { points, curves }
+}
+
+/** The model of each app's sketch controller, which the sketch hint beside the header reads. */
+const activeModels = new WeakMap<AppStore, () => SketchOverlayModel>()
+const modelWatchers = new WeakMap<AppStore, Set<() => void>>()
+
+function notifyModelWatchers(store: AppStore): void {
+  for (const watcher of Array.from(modelWatchers.get(store) ?? [])) {
+    watcher()
+  }
+}
+
+/** Hears changes of the sketch controller's model, and controllers coming and going. */
+export function watchSketchModel(app: App, listener: () => void): () => void {
+  let watchers = modelWatchers.get(app.store)
+  if (watchers === undefined) {
+    watchers = new Set()
+    modelWatchers.set(app.store, watchers)
+  }
+  const registered = watchers
+  registered.add(listener)
+  return () => {
+    registered.delete(listener)
+  }
+}
+
+/** The sketch controller's model, or the empty model while no sketch overlay is mounted. */
+export function sketchModelOf(app: App): SketchOverlayModel {
+  return activeModels.get(app.store)?.() ?? EMPTY_SKETCH_MODEL
 }
 
 /** What the dimension tool has picked, for its step prompt. */
@@ -773,6 +804,7 @@ export function createSketchController(options: SketchControllerOptions): Sketch
     for (const listener of Array.from(listeners)) {
       listener()
     }
+    notifyModelWatchers(store)
   }
 
   // Painting.
@@ -1648,6 +1680,9 @@ export function createSketchController(options: SketchControllerOptions): Sketch
   )
 
   model = computeModel()
+  const readModel = (): SketchOverlayModel => model
+  activeModels.set(store, readModel)
+  notifyModelWatchers(store)
   updateCursor()
   schedulePaint()
 
@@ -1746,6 +1781,10 @@ export function createSketchController(options: SketchControllerOptions): Sketch
       canvas.classList.remove('cursor-crosshair!', 'cursor-not-allowed!')
       listeners.clear()
       painter = null
+      if (activeModels.get(store) === readModel) {
+        activeModels.delete(store)
+        notifyModelWatchers(store)
+      }
     },
   }
 }

@@ -357,3 +357,96 @@ fn t021_two_points_build_within_25_ms() {
         "test 6 took {duration:?} to build (median of 21 runs), over the 25 ms budget",
     );
 }
+
+#[test]
+fn t022_zero_depth_with_a_counterbore() {
+    let run = run_hole(&hole(
+        r#"["e-p1"]"#,
+        r#""hole_type": {"kind": "counterbore", "diameter": "11", "depth": "4"}, "extent": {"kind": "distance", "expr": "0"}"#,
+    ));
+
+    let error = run.assert_error("f-hole1", "out_of_range");
+    assert_error_field(error, "extent.expr");
+    assert_eq!(
+        run.messages("f-hole1"),
+        ["Depth must be greater than 0 mm, but it is 0 mm. Use a value greater than 0 mm."],
+    );
+    assert_unchanged(&run, "f-hole1", "b-1");
+}
+
+#[test]
+fn t023_negative_depth_with_a_countersink() {
+    let run = run_hole(&hole(
+        r#"["e-p1"]"#,
+        r#""hole_type": {"kind": "countersink", "diameter": "12", "angle": "90 deg"}, "extent": {"kind": "distance", "expr": "-2"}"#,
+    ));
+
+    let error = run.assert_error("f-hole1", "out_of_range");
+    assert_error_field(error, "extent.expr");
+    assert_eq!(
+        run.messages("f-hole1"),
+        ["Depth must be greater than 0 mm, but it is -2 mm. Use a value greater than 0 mm."],
+    );
+}
+
+#[test]
+fn t024_through_all_with_a_head_deeper_than_the_body() {
+    let plate = r#"{"id": "f-box1", "type": "box", "body": "b-1", "size": ["40", "40", "2"], "position": ["0", "0", "-2"], "op": "new"}"#;
+    let counterbore = hole(
+        r#"["e-p1"]"#,
+        &format!(
+            r#""hole_type": {{"kind": "counterbore", "diameter": "11", "depth": "4"}}, {THROUGH_ALL}"#
+        ),
+    );
+
+    let run = Run::records(&["b-1"], &[plate, POINTS_SKETCH, &counterbore]);
+
+    run.assert_all_ok();
+    let shape = run.shape("b-1");
+    assert_volume(shape, 3009.933644);
+    assert_face_count(shape, 7);
+    assert_bounding_box(shape, [-20.0, -20.0, -2.0], [20.0, 20.0, 0.0]);
+    let body = run.body("b-1");
+    let wall = face(body, "f-hole1/counterbore/e-p1");
+    assert_face_kind(&wall, GeometryKind::Cylinder);
+    assert_face_radius(&wall, 5.5);
+    assert_face_area(&wall, 69.115038);
+    assert_no_face(body, "f-hole1/bore/e-p1");
+    assert_no_face(body, "f-hole1/counterbore-floor/e-p1");
+    let change = &body_update(&run, "f-hole1", "b-1").change;
+    assert!(matches!(change, BodyChange::Cut), "change {change:?}");
+}
+
+#[test]
+fn t025_counterbore_ending_at_the_shoulder_within_the_tolerance() {
+    let run = run_hole(&hole(
+        r#"["e-p1"]"#,
+        r#""hole_type": {"kind": "counterbore", "diameter": "11", "depth": "4.9999999"}, "extent": {"kind": "distance", "expr": "5"}"#,
+    ));
+
+    let error = run.assert_error("f-hole1", "out_of_range");
+    assert_error_field(error, "hole_type.depth");
+    assert_eq!(
+        run.messages("f-hole1"),
+        [
+            "Counterbore depth must be less than the hole depth (5 mm), but it is 5 mm. Use a value less than 5 mm."
+        ],
+    );
+}
+
+#[test]
+fn t026_countersink_ending_at_the_shoulder_within_the_tolerance() {
+    let run = run_hole(&hole(
+        r#"["e-p1"]"#,
+        r#""hole_type": {"kind": "countersink", "diameter": "15.9999999", "angle": "90 deg"}, "extent": {"kind": "distance", "expr": "5"}"#,
+    ));
+
+    let error = run.assert_error("f-hole1", "out_of_range");
+    assert_error_field(error, "hole_type.diameter");
+    assert_eq!(
+        run.messages("f-hole1"),
+        [
+            "Head diameter must be less than the largest that fits the hole depth (16 mm), but it is 16 mm. Use a value less than 16 mm."
+        ],
+    );
+}

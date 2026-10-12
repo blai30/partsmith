@@ -34,7 +34,3 @@ harness = false
 
 [lints]
 workspace = true
-
-[[bench]]
-name = "scratch_profile"
-harness = false

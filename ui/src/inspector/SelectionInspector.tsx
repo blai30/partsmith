@@ -214,7 +214,9 @@ function BodySection({
           />
           <datalist id={listId}>
             {MATERIALS.map((name) => (
-              <option key={name} value={name} />
+              <option key={name} value={name}>
+                {name}
+              </option>
             ))}
           </datalist>
         </div>
@@ -274,9 +276,9 @@ function FeatureSection({
       {messages.length === 0 ? null : (
         <ul className="flex flex-col gap-2 text-sm">
           {messages.map((message, index) => (
-            // Messages carry no id; their order is the core's.
-            // oxlint-disable-next-line react/no-array-index-key
             <li
+              // Messages carry no id; their order is the core's.
+              // oxlint-disable-next-line react/no-array-index-key
               key={index}
               className={
                 message.severity === 'error'

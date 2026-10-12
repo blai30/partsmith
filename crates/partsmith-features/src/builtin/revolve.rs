@@ -132,8 +132,7 @@ impl Feature for Revolve {
         if context.is_canceled() {
             return Err(FeatureError::Canceled);
         }
-        let sweep = revolve(&faces.profile, &axis, angle)
-            .map_err(|error| FeatureError::Kernel { error })?;
+        let sweep = revolve(&faces.profile, &axis, angle)?;
         let tool = sweep_tool(context.feature(), sweep, &faces.entities)?;
         apply_tool(context, &params.body, params.op, tool, profile.warnings)
     }

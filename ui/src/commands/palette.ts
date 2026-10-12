@@ -60,60 +60,63 @@ function commandItem(app: App, definition: CommandDefinition): PaletteItem {
   }
 }
 
+/** A palette item for something in the document: no category, keywords, shortcut or reason. */
+function documentItem(
+  id: string,
+  kind: 'feature' | 'body' | 'parameter',
+  title: string,
+  detail: string | null,
+  run: () => void,
+): PaletteItem {
+  return {
+    id,
+    kind,
+    category: null,
+    title,
+    keywords: [],
+    detail,
+    shortcut: null,
+    disabledReason: null,
+    run,
+  }
+}
+
 function documentItems(app: App, state: AppState): PaletteItem[] {
   const document = state.document
   if (document === null) {
     return []
   }
   const recipe = document.recipe
-  const plain = { category: null, keywords: [], shortcut: null, disabledReason: null } as const
-  const features = (recipe.features ?? []).map((feature): PaletteItem => {
+  const features = (recipe.features ?? []).map((feature) => {
     const label = featureLabel(recipe, feature.id, state.catalog)
-    return {
-      ...plain,
-      id: `feature:${feature.id}`,
-      kind: 'feature',
-      title: label,
-      detail: null,
-      run: () => {
-        // The timeline scrolls the selected feature into view.
-        select(
-          app,
-          [selectionItem(`feature:${feature.id}`, 'feature', label, { feature: feature.id })],
-          'replace',
-        )
-      },
-    }
+    const key = `feature:${feature.id}`
+    // The timeline scrolls the selected feature into view.
+    return documentItem(key, 'feature', label, null, () => {
+      select(app, [selectionItem(key, 'feature', label, { feature: feature.id })], 'replace')
+    })
   })
-  const bodies = (recipe.bodies ?? []).map((body): PaletteItem => ({
-    ...plain,
-    id: `body:${body.id}`,
-    kind: 'body',
-    title: body.name,
-    detail: null,
-    run: () => {
-      select(
-        app,
-        [selectionItem(`body:${body.id}`, 'body', body.name, { body: body.id })],
-        'replace',
-      )
+  const bodies = (recipe.bodies ?? []).map((body) => {
+    const key = `body:${body.id}`
+    return documentItem(key, 'body', body.name, null, () => {
+      select(app, [selectionItem(key, 'body', body.name, { body: body.id })], 'replace')
       const bounds = app.store.getState().document?.meshes[body.id]?.boundingBox
       if (bounds !== undefined) {
         app.viewport()?.fit(bounds)
       }
-    },
-  }))
-  const parameters = (recipe.parameters ?? []).map((parameter): PaletteItem => ({
-    ...plain,
-    id: `parameter:${parameter.id}`,
-    kind: 'parameter',
-    title: `${parameter.name} = ${parameter.expr}`,
-    detail: parameter.comment ?? null,
-    run: () => {
-      app.store.setState((current) => ({ panels: { ...current.panels, side: 'parameters' } }))
-      requestUi(app, { kind: 'parameter', id: parameter.id })
-    },
-  }))
+    })
+  })
+  const parameters = (recipe.parameters ?? []).map((parameter) =>
+    documentItem(
+      `parameter:${parameter.id}`,
+      'parameter',
+      `${parameter.name} = ${parameter.expr}`,
+      parameter.comment ?? null,
+      () => {
+        app.store.setState((current) => ({ panels: { ...current.panels, side: 'parameters' } }))
+        requestUi(app, { kind: 'parameter', id: parameter.id })
+      },
+    ),
+  )
   return [...features, ...bodies, ...parameters]
 }
 

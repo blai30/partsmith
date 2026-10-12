@@ -50,6 +50,12 @@ describe('OverhangLegend', () => {
     expect(bars).toHaveLength(1)
   })
 
+  it('lets presses through to the viewport, as it is not interactive', () => {
+    const legend = renderLegend(Math.PI / 4)
+    expect(legend).toHaveClass('pointer-events-none')
+    expect(legend).not.toHaveClass('pointer-events-auto')
+  })
+
   it('sits on a surfaceRaised chip over the viewport', () => {
     const legend = renderLegend(Math.PI / 4)
     expect(legend).toHaveClass(...classes(COLOR_CLASSES.surfaceRaised.background))

@@ -285,7 +285,14 @@ describe('selecting and editing (3.9)', () => {
       code: 'focus_inactive',
       message: "'Extrude 1' is suppressed, so it cannot be edited. Unsuppress it first.",
     })
-    const { app, core, user } = renderTimeline()
+    // The recipe says what the core refused: Extrude 1 is suppressed (3.7 picks the fix from it).
+    const suppressed: Document = {
+      ...CUBE_DOCUMENT,
+      features: [CUBE_SKETCH, { ...CUBE_EXTRUDE, suppressed: true }] as NonNullable<
+        Document['features']
+      >,
+    }
+    const { app, core, user } = renderTimeline(documentState(suppressed))
     core.stub('setFocus', () => Promise.reject(inactive))
     await user.dblClick(itemButton('Extrude 1'))
     await waitFor(() => {

@@ -1,6 +1,7 @@
 import { clsx } from 'clsx/lite'
 import { Check } from 'lucide-react'
 import {
+  Fragment,
   useEffect,
   useId,
   useLayoutEffect,
@@ -280,20 +281,24 @@ function PrinterMenuList({ anchor, onOpenChange, printers, current, onChoose }: 
         COLOR_CLASSES.text.foreground,
       )}
     >
-      {groups.map((group) => [
-        // A visual label; each item under it names it in its description.
-        <div
-          key={group.technology}
-          id={headingId(group.technology)}
-          aria-hidden="true"
-          className={clsx('px-2 pt-2 pb-1 text-xs font-medium', COLOR_CLASSES.textMuted.foreground)}
-        >
-          {group.title}
-        </div>,
-        ...choices.map((choice, index) =>
-          choice.technology === group.technology ? item(choice, index) : null,
-        ),
-      ])}
+      {groups.map((group) => (
+        <Fragment key={group.technology}>
+          {/* A visual label; each item under it names it in its description. */}
+          <div
+            id={headingId(group.technology)}
+            aria-hidden="true"
+            className={clsx(
+              'px-2 pt-2 pb-1 text-xs font-medium',
+              COLOR_CLASSES.textMuted.foreground,
+            )}
+          >
+            {group.title}
+          </div>
+          {choices.map((choice, index) =>
+            choice.technology === group.technology ? item(choice, index) : null,
+          )}
+        </Fragment>
+      ))}
       {groups.length === 0 ? null : (
         // Presentational: a separator would end the set of radio items.
         <hr aria-hidden="true" className={clsx('-mx-1 my-1', COLOR_CLASSES.border.border)} />

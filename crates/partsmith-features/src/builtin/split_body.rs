@@ -10,20 +10,17 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use super::common::{
-    bodies, essential, face_name, flag, hint, is_false, manifest, part, selection_hint, solid_body,
+    bodies, essential, face_name, flag, hint, is_false, manifest, naming_failed, part,
+    selection_hint, solid_body,
 };
 use crate::context::BuildContext;
 use crate::deps::Dependencies;
 use crate::error::{FeatureError, FieldRef};
 use crate::feature::Feature;
-use crate::naming::{kernel, modified_sources, name_shape, naming};
-use crate::output::{BodyChange, BodyUpdate, FeatureOutput};
+use crate::output::{BodyChange, BodyUpdate, FeatureOutput, VOLUME_TOLERANCE};
 use crate::params::{PlacementExt, PlaneRef};
 use crate::python::{PythonCall, PythonNames, PythonValue};
-
-/// Relative volume at or below which a side of the plane counts as holding no solid
-/// (split_body.md section 3.3).
-const VOLUME_TOLERANCE: f64 = 1e-9;
+use crate::{modified_sources, name_shape};
 
 /// Cuts a body in two with a plane.
 #[derive(Clone, Copy, Debug, Default)]
@@ -94,8 +91,10 @@ impl Feature for SplitBody {
     ) -> Result<FeatureOutput, FeatureError> {
         let (state, shape) = solid_body(context, &params.body)?;
         let plane = context.plane("plane", &params.plane)?;
-        let pieces = split(shape, &plane.to_kernel()).map_err(kernel)?;
-        let threshold = VOLUME_TOLERANCE * shape.volume().map_err(kernel)?;
+        let pieces = split(shape, &plane.to_kernel())?;
+        // A side holds no solid when its volume is at most the volume tolerance of the body
+        // (split_body.md section 3.3).
+        let threshold = VOLUME_TOLERANCE * shape.volume()?;
         let (positive, negative) = sides(&pieces, threshold)?;
         if !positive.reached || !negative.reached {
             return Err(FeatureError::PlaneMissesBody {
@@ -165,7 +164,7 @@ struct Side {
 
 /// The solids of `pieces` on the positive and on the negative side of the plane.
 fn sides(pieces: &SplitResult, threshold: f64) -> Result<(Side, Side), FeatureError> {
-    let solids = pieces.result.shape.solids().map_err(kernel)?;
+    let solids = pieces.result.shape.solids()?;
     if solids.len() != pieces.solid_sides.len() {
         return Err(FeatureError::internal(
             "the kernel gave a side for each solid of a split, but the counts differ",
@@ -174,7 +173,7 @@ fn sides(pieces: &SplitResult, threshold: f64) -> Result<(Side, Side), FeatureEr
     let mut positive = Side::default();
     let mut negative = Side::default();
     for (solid, side) in solids.into_iter().zip(&pieces.solid_sides) {
-        let reaches = solid.volume().map_err(kernel)? > threshold;
+        let reaches = solid.volume()? > threshold;
         let side = match side {
             PlaneSide::Positive => &mut positive,
             PlaneSide::Negative => &mut negative,
@@ -232,12 +231,11 @@ fn part_update(
     let shape = if solids.len() == 1 {
         solids.remove(0)
     } else {
-        compound(&solids).map_err(kernel)?.shape
+        compound(&solids)?.shape
     };
     let indices = |kind: SubShapeKind| -> Result<Vec<u32>, FeatureError> {
         result
-            .locate(&shape, kind)
-            .map_err(kernel)?
+            .locate(&shape, kind)?
             .into_iter()
             .collect::<Option<Vec<u32>>>()
             .ok_or_else(|| {
@@ -250,7 +248,7 @@ fn part_update(
             &indices(SubShapeKind::Edge)?,
             &indices(SubShapeKind::Vertex)?,
         )
-        .map_err(naming)?;
+        .map_err(naming_failed)?;
     Ok(BodyUpdate {
         body: body.clone(),
         shape: Some(shape),

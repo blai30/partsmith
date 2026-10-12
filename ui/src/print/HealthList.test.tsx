@@ -66,9 +66,19 @@ function item(index: number): HTMLElement {
 }
 
 describe('HealthList', () => {
-  it('shows the profile name in its header', () => {
+  it('reads "Print check: {profile name}" in its heading', () => {
     const { list } = renderList()
-    expect(within(list).getByText(PROFILE)).toBeInTheDocument()
+    expect(within(list).getByRole('heading', { level: 2 })).toHaveTextContent(
+      'Print check: Generic FDM 0.4 mm',
+    )
+  })
+
+  it('gives its heading the id the surrounding region is labeled by', () => {
+    const { list } = renderList({ headingId: 'print-check-title' })
+    expect(within(list).getByRole('heading', { level: 2 })).toHaveAttribute(
+      'id',
+      'print-check-title',
+    )
   })
 
   it('runs the analysis again from "Check again"', async () => {
@@ -143,16 +153,16 @@ describe('HealthList', () => {
     expect(onFocusFinding).toHaveBeenCalledWith({ body: 'b-slab', check: 'bed_fit', index: 0 })
   })
 
-  it('says "No problems found with {profile name}." without rows', () => {
+  it('says "No print issues found with {profile name}." without rows', () => {
     const { list } = renderList({ rows: [] })
     expect(within(list).queryAllByTestId('health-item')).toEqual([])
-    expect(list).toHaveTextContent('No problems found with Generic FDM 0.4 mm.')
+    expect(list).toHaveTextContent('No print issues found with Generic FDM 0.4 mm.')
   })
 
   it('asks for a body when no body has geometry', () => {
     const { list } = renderList({ rows: [], hasGeometry: false })
     expect(list).toHaveTextContent('Add a body to check it for printing.')
-    expect(list).not.toHaveTextContent('No problems found')
+    expect(list).not.toHaveTextContent('No print issues found')
   })
 })
 
@@ -176,13 +186,13 @@ describe('HealthList details', () => {
   it('closes from its close button when it can be closed', async () => {
     const onClose = vi.fn<() => void>()
     const { list } = renderList({ onClose })
-    await userEvent.click(within(list).getByRole('button', { name: 'Close print health' }))
+    await userEvent.click(within(list).getByRole('button', { name: 'Close print check' }))
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 
   it('has no close button otherwise', () => {
     const { list } = renderList()
-    expect(within(list).queryByRole('button', { name: 'Close print health' })).toBeNull()
+    expect(within(list).queryByRole('button', { name: 'Close print check' })).toBeNull()
   })
 })
 
@@ -190,13 +200,13 @@ describe('HealthList without a report', () => {
   it('says the model is being checked while the first analysis runs', () => {
     const { list } = renderList({ rows: [], missingReport: 'checking' })
     expect(list).toHaveTextContent('Checking the model for Generic FDM 0.4 mm.')
-    expect(list).not.toHaveTextContent('No problems found')
+    expect(list).not.toHaveTextContent('No print issues found')
   })
 
   it('says the model is not checked yet before any analysis', () => {
     const { list } = renderList({ rows: [], missingReport: 'unchecked' })
     expect(list).toHaveTextContent('Not checked yet.')
-    expect(list).not.toHaveTextContent('No problems found')
+    expect(list).not.toHaveTextContent('No print issues found')
   })
 
   it('asks for a body before anything else', () => {

@@ -57,41 +57,62 @@ function showWarnings(app: App, warnings: readonly Diagnostic[]): void {
   }
 }
 
-function showSaveError(app: App, fileName: string, error: FileServiceError): void {
+/** An exported file on its way to disk, with what the export reported about it. */
+type ExportResult = {
+  readonly suggestedName: string
+  readonly kind: FileKind
+  readonly file: ExportedFile
+  readonly warnings: readonly Diagnostic[]
+}
+
+/** A failed save of an exported file (4.3), with "Save as", which asks again where to save the same file. */
+function showSaveError(
+  app: App,
+  fileName: string,
+  error: FileServiceError,
+  exported: ExportResult,
+): void {
   const message =
     error.reason === 'permission'
       ? MESSAGES.save_permission(fileName)
       : error.reason === 'not_found'
         ? MESSAGES.save_not_found(fileName)
         : MESSAGES.save_io(fileName, error.message)
-  notify(app, { severity: 'error', message, actions: [] })
+  notify(app, {
+    severity: 'error',
+    message,
+    actions: [
+      {
+        label: 'Save as',
+        run: () => {
+          void saveExport(app, exported)
+        },
+      },
+    ],
+  })
 }
 
 /**
- * Asks where to save the file and writes it; resolves the saved file's name, or null when the
- * picker was canceled or saving failed (the failure is shown).
+ * Asks where to save the exported file and writes it, then announces it with the export's
+ * warnings. A canceled picker does nothing; a failed save is shown with "Save as".
  */
-async function saveFile(
-  app: App,
-  suggestedName: string,
-  kind: FileKind,
-  file: ExportedFile,
-): Promise<string | null> {
+async function saveExport(app: App, exported: ExportResult): Promise<void> {
   let target: SaveTarget | null = null
   try {
-    target = await app.files.chooseSaveTarget(suggestedName, kind)
+    target = await app.files.chooseSaveTarget(exported.suggestedName, exported.kind)
     if (target === null) {
-      return null
+      return
     }
-    await app.files.write(target, kind, file.bytes)
-    return target.name
+    await app.files.write(target, exported.kind, exported.file.bytes)
   } catch (error) {
     if (error instanceof FileServiceError) {
-      showSaveError(app, target?.name ?? suggestedName, error)
-      return null
+      showSaveError(app, target?.name ?? exported.suggestedName, error, exported)
+      return
     }
     throw error
   }
+  notify(app, { severity: 'success', message: MESSAGES.exported(target.name), actions: [] })
+  showWarnings(app, exported.warnings)
 }
 
 /** Exports the bodies the request names and saves the file where the user chooses. */
@@ -117,10 +138,10 @@ export async function exportModel(app: App, request: ExportRequest): Promise<voi
   if (file === undefined) {
     return
   }
-  const saved = await saveFile(app, `${document.name}.${request.format}`, request.format, file)
-  if (saved === null) {
-    return
-  }
-  notify(app, { severity: 'success', message: MESSAGES.exported(saved), actions: [] })
-  showWarnings(app, exported.warnings)
+  await saveExport(app, {
+    suggestedName: `${document.name}.${request.format}`,
+    kind: request.format,
+    file,
+    warnings: exported.warnings,
+  })
 }

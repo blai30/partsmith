@@ -4,6 +4,7 @@ import { useRef, useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { installPopoverPolyfill } from '../components/popover-polyfill.testing'
 import type { PrinterProfile } from '../generated/protocol'
+import { COLOR_CLASSES } from '../theme/roles'
 import { PrinterMenu } from './PrinterMenu'
 import { GENERIC_FDM } from '../test/fakes/printers'
 import { PRINTERS } from './fixtures.testing'
@@ -75,31 +76,54 @@ describe('PrinterMenu', () => {
 
   it('lists the FDM profiles under the heading "FDM" and the resin profiles under "Resin"', async () => {
     const { menu } = await openMenu()
-    const fdm = within(menu).getByRole('group', { name: 'FDM' })
-    const resin = within(menu).getByRole('group', { name: 'Resin' })
-    expect(within(fdm).getAllByRole('menuitemradio')).toEqual([
-      radio(fdm, 'Generic FDM 0.4 mm'),
-      radio(fdm, 'My MK4'),
-    ])
-    expect(within(resin).getAllByRole('menuitemradio')).toEqual([
-      radio(resin, 'Generic resin MSLA'),
-    ])
+    const order = [
+      within(menu).getByText('FDM'),
+      radio(menu, 'Generic FDM 0.4 mm'),
+      radio(menu, 'My MK4'),
+      within(menu).getByText('Resin'),
+      radio(menu, 'Generic resin MSLA'),
+    ]
+    // Each element comes after the one before it.
+    order.slice(1).forEach((element, index) => {
+      expect(order[index]?.compareDocumentPosition(element)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+    })
   })
 
-  it('offers "No printer" after the profiles', async () => {
+  it('keeps every radio item in one set: no groups and no separators between them', async () => {
+    const { menu } = await openMenu()
+    expect(within(menu).queryByRole('group')).toBeNull()
+    expect(within(menu).queryByRole('separator')).toBeNull()
+  })
+
+  it('describes each profile with its technology and key numbers, outside its name', async () => {
+    const { menu } = await openMenu()
+    expect(radio(menu, 'Generic FDM 0.4 mm')).toHaveAccessibleDescription(
+      'FDM 256 × 256 × 256 mm bed · 0.4 mm nozzle',
+    )
+    expect(radio(menu, 'My MK4')).toHaveAccessibleDescription(
+      'FDM 250 × 210 × 220 mm bed · 0.4 mm nozzle',
+    )
+    expect(radio(menu, 'Generic resin MSLA')).toHaveAccessibleDescription('Resin 130 × 80 × 160 mm')
+    expect(within(menu).getByText('130 × 80 × 160 mm')).toHaveClass(
+      ...COLOR_CLASSES.textMuted.foreground.split(' '),
+    )
+  })
+
+  it('offers "Default ({default name})" after the profiles', async () => {
     const { menu } = await openMenu()
     expect(within(menu).getAllByRole('menuitemradio')).toEqual([
       radio(menu, 'Generic FDM 0.4 mm'),
       radio(menu, 'My MK4'),
       radio(menu, 'Generic resin MSLA'),
-      radio(menu, 'No printer'),
+      radio(menu, 'Default (Generic FDM 0.4 mm)'),
     ])
+    expect(radio(menu, 'Default (Generic FDM 0.4 mm)')).not.toHaveAccessibleDescription()
   })
 
   it('leaves out a heading without profiles', async () => {
     const { menu } = await openMenu({ printers: [GENERIC_FDM] })
-    expect(within(menu).getByRole('group', { name: 'FDM' })).toBeInTheDocument()
-    expect(within(menu).queryByRole('group', { name: 'Resin' })).toBeNull()
+    expect(within(menu).getByText('FDM')).toBeInTheDocument()
+    expect(within(menu).queryByText('Resin')).toBeNull()
   })
 
   it("checks the document's printer", async () => {
@@ -107,12 +131,12 @@ describe('PrinterMenu', () => {
     expect(radio(menu, 'My MK4')).toBeChecked()
     expect(radio(menu, 'Generic FDM 0.4 mm')).not.toBeChecked()
     expect(radio(menu, 'Generic resin MSLA')).not.toBeChecked()
-    expect(radio(menu, 'No printer')).not.toBeChecked()
+    expect(radio(menu, 'Default (Generic FDM 0.4 mm)')).not.toBeChecked()
   })
 
-  it('checks "No printer" when the document has none', async () => {
+  it('checks the default item when the document has no printer', async () => {
     const { menu } = await openMenu({ current: null })
-    expect(radio(menu, 'No printer')).toBeChecked()
+    expect(radio(menu, 'Default (Generic FDM 0.4 mm)')).toBeChecked()
     expect(radio(menu, 'Generic FDM 0.4 mm')).not.toBeChecked()
   })
 
@@ -125,9 +149,9 @@ describe('PrinterMenu', () => {
     expect(screen.queryByRole('menu')).toBeNull()
   })
 
-  it('chooses null for "No printer"', async () => {
+  it('chooses null for the default item, which clears the printer', async () => {
     const { menu, onChoose } = await openMenu({ current: 'generic-fdm' })
-    await userEvent.click(radio(menu, 'No printer'))
+    await userEvent.click(radio(menu, 'Default (Generic FDM 0.4 mm)'))
     expect(onChoose).toHaveBeenCalledWith(null)
   })
 
@@ -164,11 +188,11 @@ describe('PrinterMenu keyboard and dismissal', () => {
   it('wraps around with the arrow keys and jumps with Home and End', async () => {
     const { menu } = await openMenu()
     await userEvent.keyboard('{ArrowUp}')
-    expect(radio(menu, 'No printer')).toHaveFocus()
+    expect(radio(menu, 'Default (Generic FDM 0.4 mm)')).toHaveFocus()
     await userEvent.keyboard('{ArrowDown}')
     expect(radio(menu, 'Generic FDM 0.4 mm')).toHaveFocus()
     await userEvent.keyboard('{End}')
-    expect(radio(menu, 'No printer')).toHaveFocus()
+    expect(radio(menu, 'Default (Generic FDM 0.4 mm)')).toHaveFocus()
     await userEvent.keyboard('{Home}')
     expect(radio(menu, 'Generic FDM 0.4 mm')).toHaveFocus()
   })
@@ -177,8 +201,8 @@ describe('PrinterMenu keyboard and dismissal', () => {
     const { menu } = await openMenu()
     await userEvent.keyboard('m')
     expect(radio(menu, 'My MK4')).toHaveFocus()
-    await userEvent.keyboard('n')
-    expect(radio(menu, 'No printer')).toHaveFocus()
+    await userEvent.keyboard('d')
+    expect(radio(menu, 'Default (Generic FDM 0.4 mm)')).toHaveFocus()
   })
 
   it('closes on Tab without choosing', async () => {
@@ -197,9 +221,11 @@ describe('PrinterMenu keyboard and dismissal', () => {
     expect(onChoose).not.toHaveBeenCalled()
   })
 
-  it('offers only "No printer" without profiles', async () => {
+  it('offers only the default item, named by its id, before the profiles are listed', async () => {
     const { menu } = await openMenu({ printers: [] })
-    expect(within(menu).getAllByRole('menuitemradio')).toEqual([radio(menu, 'No printer')])
-    expect(within(menu).queryByRole('group')).toBeNull()
+    expect(within(menu).getAllByRole('menuitemradio')).toEqual([
+      radio(menu, 'Default (generic-fdm)'),
+    ])
+    expect(within(menu).queryByText('FDM')).toBeNull()
   })
 })

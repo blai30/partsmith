@@ -20,7 +20,7 @@ import { selectHealthBadge } from '../state/selectors'
 import type { AppContext, AppState } from '../state/store'
 import { COLOR_CLASSES } from '../theme/roles'
 import { useUiRequest } from './requests'
-import { runCommand, useCommandViews, type CommandView } from './use-commands'
+import { commandMenuItem, runCommand, useCommandViews, type CommandView } from './use-commands'
 
 // The context toolbar of the top bar (ui.md 3.3): one short toolbar per context, built from
 // TOOLBARS. Buttons show icon and label when the top bar is at least 80rem wide and the icon only
@@ -147,19 +147,7 @@ function GroupButton({ entry }: { readonly entry: GroupEntry }) {
     return null
   }
   const pressed = views.some((view) => view.checked === true)
-  const entries: MenuEntry[] = views.map((view) => {
-    const reason = disabledReasonOf(view)
-    return {
-      kind: 'item',
-      label: view.definition.title,
-      ...(view.definition.icon === null ? {} : { icon: view.definition.icon }),
-      ...(view.shortcut === null ? {} : { shortcut: view.shortcut }),
-      disabled: reason !== null,
-      onSelect: () => {
-        runCommand(app, view.definition.id, 'menu')
-      },
-    }
-  })
+  const entries: MenuEntry[] = views.map((view) => commandMenuItem(app, view))
   return (
     <>
       <ToolbarButton
@@ -388,11 +376,10 @@ export function ContextToolbar() {
   entries.forEach((entry, index) => {
     if (entry.kind === 'separator') {
       controls.push(
-        <div
+        <hr
           key={`separator-${String(index)}`}
-          role="separator"
           aria-orientation="vertical"
-          className={clsx('mx-1 h-6 w-px shrink-0 border-l', COLOR_CLASSES.border.border)}
+          className={clsx('mx-1 h-6 w-0 shrink-0 border-0 border-l', COLOR_CLASSES.border.border)}
         />,
       )
       return
@@ -412,6 +399,7 @@ export function ContextToolbar() {
       ref={toolbar}
       role="toolbar"
       aria-label={TOOLBAR_NAMES[context]}
+      tabIndex={-1}
       onKeyDown={moveFocus}
       onFocus={(event) => {
         if (toolbar.current !== null && event.target.hasAttribute('data-toolbar-item')) {

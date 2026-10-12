@@ -259,9 +259,11 @@ impl Checks<'_, '_> {
                     continue;
                 };
                 let (exists, entity, noun) = match &link.target {
-                    EntityTarget::Point(point) => {
-                        (sketch.point(point).is_some(), point.to_string(), Noun::Point)
-                    }
+                    EntityTarget::Point(point) => (
+                        sketch.point(point).is_some(),
+                        point.to_string(),
+                        Noun::Point,
+                    ),
                     EntityTarget::Line(line) => {
                         (sketch.entity(line).is_some(), line.to_string(), Noun::Line)
                     }
@@ -692,10 +694,7 @@ mod tests {
         }))
         .expect("valid sketch params");
 
-        assert_eq!(
-            reference_dimension_fields(&params),
-            ["constraints[2].expr"]
-        );
+        assert_eq!(reference_dimension_fields(&params), ["constraints[2].expr"]);
     }
 
     #[test]

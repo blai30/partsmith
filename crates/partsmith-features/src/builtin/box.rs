@@ -7,16 +7,15 @@ use partsmith_sketch::Placement;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use super::common::positive_length;
-use super::primitives::{PrimitiveParams, primitive_manifest};
+use super::primitives::{PrimitiveParams, positive_size, primitive_manifest};
 use crate::context::BuildContext;
 use crate::deps::Dependencies;
 use crate::error::FeatureError;
 use crate::feature::Feature;
 use crate::output::FeatureOutput;
 use crate::params::{BodyOp, PlacementExt, PlaneRef};
-use crate::primitive::{PrimitivePlacement, default_position, is_default_position};
 use crate::python::{PythonCall, PythonNames};
+use crate::{PrimitivePlacement, default_position, is_default_position};
 
 /// Field paths of the three sizes.
 const SIZE_FIELDS: [&str; 3] = ["size[0]", "size[1]", "size[2]"];
@@ -82,7 +81,7 @@ impl Feature for BoxFeature {
     ) -> Result<FeatureOutput, FeatureError> {
         let mut size = [0.0; 3];
         for ((value, field), expr) in size.iter_mut().zip(SIZE_FIELDS).zip(&params.size) {
-            *value = positive_length(context, field, expr)?;
+            *value = positive_size(context, field, expr)?;
         }
         let [length, width, height] = size;
         params.primitive().build(context, |frame| {

@@ -726,7 +726,10 @@ mod tests {
             .expect("the pick names an edge");
 
         let table = Arc::clone(&shown(&session).mesh.table);
-        assert_eq!(picked.name, table.entries(ElementKind::Edge)[3].name.as_str());
+        assert_eq!(
+            picked.name,
+            table.entries(ElementKind::Edge)[3].name.as_str()
+        );
         assert!(
             table.descriptors.get().is_none(),
             "a pick leaves the other descriptors undescribed"

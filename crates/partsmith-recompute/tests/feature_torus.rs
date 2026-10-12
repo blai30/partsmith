@@ -7,9 +7,9 @@ mod feature_support;
 use std::time::Duration;
 
 use feature_support::{
-    Run, assert_bounding_box, assert_canonical_example, assert_error_field, assert_face_area,
-    assert_face_axis_direction, assert_face_count, assert_face_kind, assert_face_names,
-    assert_volume, example_paths, face, load_example, median_build_time,
+    Run, assert_bounding_box, assert_canonical_example, assert_empty, assert_error_field,
+    assert_face_area, assert_face_axis_direction, assert_face_count, assert_face_kind,
+    assert_face_names, assert_volume, example_paths, face, load_example, median_build_time,
 };
 use partsmith_features::{Bound, FeatureError};
 use partsmith_occt_sys::GeometryKind;
@@ -117,4 +117,17 @@ fn t006_default_torus_builds_within_2_ms() {
         duration < Duration::from_millis(2),
         "the default torus took {duration:?} to build (median of 21 runs), over the 2 ms budget",
     );
+}
+
+#[test]
+fn t007_tube_below_the_tolerance_is_out_of_range() {
+    let run = Run::records(&["b-1"], &[&torus_with_tube("0.0000001")]);
+
+    let error = run.assert_error("f-tor1", "out_of_range");
+    assert_error_field(error, "minor_radius");
+    assert_eq!(
+        run.messages("f-tor1"),
+        ["Tube radius must be greater than 0 mm, but it is 0 mm. Use a value greater than 0 mm."],
+    );
+    assert_empty(&run, "b-1");
 }

@@ -2,21 +2,20 @@
 //! manifest, dependencies, tool and Python form of a solid made from size fields, a placement and
 //! an op.
 
-use partsmith_model::{Category, Expr, FeatureManifest, FieldUnit, Id};
+use partsmith_model::{Category, Expr, FeatureManifest, FieldUnit, Id, LINEAR_TOLERANCE};
 use partsmith_occt_sys::{KernelError, Primitive};
 use partsmith_sketch::Placement;
 
 use super::common::{
-    apply_tool, body_hint, body_op_hint, call, essential, manifest, op_keyword, primitive_tool,
-    unit_hint,
+    apply_tool, body_hint, body_op_hint, call, essential, manifest, op_keyword, out_of_range,
+    primitive_tool, unit_hint,
 };
+use crate::PrimitivePlacement;
 use crate::context::BuildContext;
 use crate::deps::Dependencies;
-use crate::error::FeatureError;
-use crate::naming::kernel;
+use crate::error::{Bound, FeatureError};
 use crate::output::FeatureOutput;
 use crate::params::BodyOp;
-use crate::primitive::PrimitivePlacement;
 use crate::python::{PythonCall, PythonNames, PythonValue};
 
 /// The manifest of a primitive (category create, version 1): its `(path, label)` sizes as
@@ -34,6 +33,29 @@ pub(crate) fn primitive_manifest(
     fields.extend(PrimitivePlacement::hints());
     fields.push(body_hint());
     manifest(label, Category::Create, icon, fields)
+}
+
+/// The declared size at `field`, which must be greater than 0 (features.md section 3.14). A size
+/// below `LINEAR_TOLERANCE` is `OutOfRange` (`GreaterThan(0)`) like 0, so it never reaches the
+/// kernel, which builds nothing smaller than its modeling tolerance.
+pub(crate) fn positive_size(
+    context: &BuildContext<'_>,
+    field: &str,
+    expr: &Expr,
+) -> Result<f64, FeatureError> {
+    let value = context.eval_length(field, expr)?;
+    if value >= LINEAR_TOLERANCE {
+        Ok(value)
+    } else {
+        Err(out_of_range(
+            context,
+            field,
+            FieldUnit::Length,
+            value,
+            Bound::GreaterThan(0.0),
+            None,
+        ))
+    }
 }
 
 /// A primitive's params as the steps all primitives share read them.
@@ -70,7 +92,7 @@ impl PrimitiveParams<'_> {
         make: impl FnOnce(&Placement) -> Result<Primitive, KernelError>,
     ) -> Result<FeatureOutput, FeatureError> {
         let frame = self.placement.frame(context)?;
-        let solid = make(&frame).map_err(kernel)?;
+        let solid = make(&frame)?;
         let tool = primitive_tool(context.feature(), solid)?;
         apply_tool(context, self.body, self.op, tool, Vec::new())
     }
@@ -93,11 +115,25 @@ impl PrimitiveParams<'_> {
 mod tests {
     use serde_json::json;
 
+    use partsmith_occt_sys::make_sphere;
+
     use super::*;
-    use crate::builtin::sphere::Sphere;
-    use crate::params::PlaneRef;
-    use crate::primitive::default_position;
-    use crate::test_support::{ScriptNames, build, id, params};
+    use crate::builtin::cylinder::Cylinder;
+    use crate::default_position;
+    use crate::params::{PlacementExt, PlaneRef};
+    use crate::test_support::{ScriptNames, build, fixture, id, params};
+
+    /// `CYL` of cylinder.md with this radius.
+    fn cylinder(radius: &str) -> serde_json::Value {
+        json!({"id": "f-cyl1", "type": "cylinder", "body": "b-1", "radius": radius, "height": "10", "op": "new"})
+    }
+
+    /// The error of a cylinder of this radius.
+    fn cylinder_error(radius: &str) -> FeatureError {
+        let params = params::<Cylinder>(cylinder(radius));
+        build::<Cylinder>("f-cyl1", &params, Vec::new(), Vec::new())
+            .expect_err("the radius is out of range")
+    }
 
     /// Params with the sizes `radius` and `height`, then this placement and op.
     fn with_parts<'a>(
@@ -219,15 +255,42 @@ mod tests {
     }
 
     #[test]
-    fn a_kernel_failure_is_a_kernel_error() {
-        // The size passes the feature's check (greater than 0) but is below the kernel's
-        // modeling tolerance, so the kernel rejects it.
-        let params = params::<Sphere>(
-            json!({"id": "f-sph1", "type": "sphere", "body": "b-1", "radius": "0.0000005", "op": "new"}),
-        );
+    fn a_size_below_the_tolerance_is_out_of_range_like_zero() {
+        let tiny = cylinder_error("0.0000001");
+        let zero = cylinder_error("0");
 
-        let error = build::<Sphere>("f-sph1", &params, Vec::new(), Vec::new())
-            .expect_err("the kernel rejects the size");
+        assert_eq!(tiny.code(), "out_of_range");
+        assert_eq!(tiny.to_string(), zero.to_string());
+        assert_eq!(
+            tiny.to_string(),
+            "Radius must be greater than 0 mm, but it is 0 mm. Use a value greater than 0 mm."
+        );
+    }
+
+    #[test]
+    fn a_size_at_the_tolerance_builds() {
+        let params = params::<Cylinder>(cylinder("0.000001"));
+
+        let built = build::<Cylinder>("f-cyl1", &params, Vec::new(), Vec::new());
+
+        assert!(built.is_ok(), "{built:?}");
+    }
+
+    #[test]
+    fn a_kernel_failure_is_a_kernel_error() {
+        let params = params::<Cylinder>(cylinder("5"));
+        let fixture = fixture::<Cylinder>("f-cyl1", &params, Vec::new(), Vec::new());
+        let body = id("b-1");
+        let sizes = [Expr::new("5"), Expr::new("10")];
+        let plane = PlaneRef::default();
+        let position = default_position();
+
+        // A radius below the kernel's modeling tolerance, which the size check never lets through.
+        let error = with_parts(&body, &sizes, &plane, &position, BodyOp::New)
+            .build(&fixture.context(), |frame| {
+                make_sphere(&frame.to_kernel(), 0.0000005)
+            })
+            .expect_err("the kernel rejects the radius");
 
         assert_eq!(error.code(), "kernel");
     }

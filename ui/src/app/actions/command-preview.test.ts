@@ -2,15 +2,20 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ElementDescriptor, Edit } from '../../generated/protocol'
 import {
   CUBE_DOCUMENT,
+  CUBE_FEATURES_DOCUMENT,
   CUBE_REGION,
   CUBE_SKETCH_SOLUTION,
   CUBE_TOP_FACE,
   CUBE_TOP_FRONT_EDGE,
+  featuresOf,
   RECT_SKETCH_DOCUMENT,
   RECT_SKETCH_SOLUTION,
   withFeatureChanges,
 } from '../../test/fakes/documents'
-import { startWithDocument, type FakeApp } from '../../test/fakes/app'
+import { createTestApp, startWithDocument, type FakeApp } from '../../test/fakes/app'
+import { createFakeCoreApi } from '../../test/fakes/core-api'
+import { stateWithDocument } from '../../test/fakes/state'
+import { createAppStore, type ActiveCommand } from '../../state/store'
 import { editsOf } from '../../test/fakes/protocol'
 import { elementItem, regionItem } from '../../test/fakes/selection'
 import { settle } from '../../test/fakes/settle'
@@ -203,5 +208,40 @@ describe('editFeature', () => {
     await editFeature(fake.app, 'f-ext1')
     await settle()
     expect(fake.transport.commandTypes()).not.toContain('apply_edits')
+  })
+})
+
+describe('a command the store holds without a session', () => {
+  it('is driven from the store: a field change previews the record from its params', async () => {
+    const core = createFakeCoreApi()
+    const edges = featuresOf(CUBE_FEATURES_DOCUMENT).find((feature) => feature.id === 'f-fil1')?.[
+      'edges'
+    ]
+    const command: ActiveCommand = {
+      featureType: 'fillet',
+      featureId: 'f-fil1',
+      editing: true,
+      title: 'Fillet 1',
+      params: { body: 'b-cube', edges, radius: '2 mm' },
+      activeField: null,
+      fieldErrors: {},
+      applied: true,
+      newBody: null,
+      preview: 'shown',
+    }
+    const app = createTestApp({
+      core,
+      store: createAppStore(stateWithDocument(CUBE_FEATURES_DOCUMENT, { command })),
+    })
+    setCommandField(app, 'radius', '3 mm')
+    await settle()
+    const [call] = core.callsTo('applyEdits')
+    expect(call?.[1]).toBeNull()
+    expect(call?.[2]).toEqual([
+      {
+        type: 'update_feature',
+        feature: { id: 'f-fil1', type: 'fillet', body: 'b-cube', edges, radius: '3 mm' },
+      },
+    ])
   })
 })

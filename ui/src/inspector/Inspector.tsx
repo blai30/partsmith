@@ -1,15 +1,7 @@
 import { clsx } from 'clsx/lite'
 import { GripHorizontal, Shapes, X } from 'lucide-react'
-import {
-  useEffect,
-  useId,
-  useLayoutEffect,
-  useRef,
-  type KeyboardEvent,
-  type PointerEvent,
-  type ReactNode,
-} from 'react'
-import { cancelCommand, confirmCommand } from '../app/actions/command'
+import { useEffect, useId, useLayoutEffect, useRef, type PointerEvent, type ReactNode } from 'react'
+import { cancelCommand } from '../app/actions/command'
 import { clearSelection } from '../app/actions/selection'
 import { useApp, useAppState } from '../app/AppProvider'
 import type { App } from '../app/createApp'
@@ -20,7 +12,6 @@ import { COLOR_CLASSES } from '../theme/roles'
 import { positionElement } from '../viewport/overlay'
 import { commandSelectionFields } from '../viewport/scene'
 import { CommandInspector } from './CommandInspector'
-import { buildInspectorModel } from './model'
 import { placeInspector } from './placement'
 import { SelectionInspector } from './SelectionInspector'
 import { itemsFromValue } from './selection-values'
@@ -42,14 +33,6 @@ function anchorItems(app: App): readonly SelectionItem[] {
   )
 }
 
-/** Elements whose own Enter must not confirm the command (3.5 Enter ladder). */
-function handlesEnter(target: EventTarget): boolean {
-  return (
-    target instanceof HTMLElement &&
-    target.closest('button, a, select, textarea, [role="button"], [role="menu"]') !== null
-  )
-}
-
 type PanelProps = {
   readonly mode: 'command' | 'selection'
   readonly heading: ReactNode
@@ -58,20 +41,10 @@ type PanelProps = {
   readonly preview?: string
   readonly closeLabel: string
   readonly onClose: () => void
-  readonly onEnter?: () => void
   readonly children: ReactNode
 }
 
-function Panel({
-  mode,
-  heading,
-  name,
-  preview,
-  closeLabel,
-  onClose,
-  onEnter,
-  children,
-}: PanelProps) {
+function Panel({ mode, heading, name, preview, closeLabel, onClose, children }: PanelProps) {
   const app = useApp()
   const panel = useRef<HTMLDivElement>(null)
   const titleId = useId()
@@ -184,20 +157,12 @@ function Panel({
     }
   }
 
-  function onKeyDown(event: KeyboardEvent<HTMLDivElement>): void {
-    if (event.key !== 'Enter' || event.defaultPrevented || onEnter === undefined) {
-      return
-    }
-    if (handlesEnter(event.target)) {
-      return
-    }
-    event.preventDefault()
-    onEnter()
-  }
-
   return (
     <div
       ref={panel}
+      // The spec names the dialog role on this element (ui.md 3.7, 6.1). A native dialog element
+      // would bring browser placement styles to a panel the app positions itself.
+      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
       role="dialog"
       aria-modal="false"
       aria-labelledby={name === null ? undefined : titleId}
@@ -205,7 +170,6 @@ function Panel({
       data-testid="inspector"
       data-mode={mode}
       data-preview={preview}
-      onKeyDown={onKeyDown}
       className={clsx(
         'pointer-events-auto absolute top-0 left-0 z-20 flex max-h-[calc(100%-2rem)] w-80 flex-col gap-4 overflow-y-auto rounded-md border p-4 text-sm shadow-lg transition-opacity duration-150 ease-out starting:opacity-0 motion-reduce:transition-none',
         COLOR_CLASSES.surfaceRaised.background,
@@ -261,19 +225,6 @@ export function Inspector() {
         closeLabel="Cancel"
         onClose={() => {
           cancelCommand(app).catch(report)
-        }}
-        onEnter={() => {
-          const current = app.store.getState().command
-          const complete =
-            current !== null &&
-            buildInspectorModel({
-              feature,
-              params: current.params,
-              errors: current.fieldErrors,
-            }).complete
-          if (complete) {
-            confirmCommand(app).catch(report)
-          }
         }}
       >
         <CommandInspector command={command} feature={feature} />

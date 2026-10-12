@@ -299,6 +299,62 @@ describe('exportModel save failures', () => {
     ])
   })
 
+  it.each([
+    ['permission', MESSAGES.save_permission('cube.3mf')],
+    ['not_found', MESSAGES.save_not_found('cube.3mf')],
+    ['io', MESSAGES.save_io('cube.3mf', 'The disk is full.')],
+  ] as const)('offers "Save as" when the %s error stops the write', async (reason, message) => {
+    const harness = exportApp()
+    harness.files.writeError = new FileServiceError(reason, 'The disk is full.')
+    await exportModel(harness.app, THREE_MF)
+    const [failure] = harness.app.store.getState().notifications
+    expect(failure?.message).toBe(message)
+    expect(failure?.actions.map((action) => action.label)).toEqual(['Save as'])
+  })
+
+  it('"Save as" asks again where to save the same file, without exporting again', async () => {
+    const harness = exportApp()
+    harness.files.writeError = new FileServiceError('permission', 'No access.')
+    harness.core.stub('exportBodies', () =>
+      Promise.resolve({
+        files: [exportedFile('model.3mf', THREE_MF_BYTES)],
+        warnings: [warning('Peg has no color, so it is exported in the default color.')],
+      }),
+    )
+    await exportModel(harness.app, THREE_MF)
+    const saveAs = harness.app.store.getState().notifications[0]?.actions[0]
+    harness.files.writeError = null
+    harness.files.nextSaveTarget = { kind: 'download', name: 'cube-copy.3mf' }
+    saveAs?.run()
+    await vi.waitFor(() => {
+      expect(harness.files.writes).toHaveLength(1)
+    })
+    expect(harness.core.callsTo('exportBodies')).toHaveLength(1)
+    expect(harness.files.saveRequests).toEqual([
+      { suggestedName: 'cube.3mf', kind: '3mf' },
+      { suggestedName: 'cube.3mf', kind: '3mf' },
+    ])
+    expect(harness.files.writes[0]?.bytes).toBe(THREE_MF_BYTES)
+    await vi.waitFor(() => {
+      expect(notifications(harness)).toEqual([
+        { severity: 'error', message: MESSAGES.save_permission('cube.3mf') },
+        { severity: 'success', message: 'Exported cube-copy.3mf.' },
+        {
+          severity: 'warning',
+          message: 'Peg has no color, so it is exported in the default color.',
+        },
+      ])
+    })
+  })
+
+  it('rethrows a write error that is not a file service error', async () => {
+    const harness = exportApp()
+    const bug = new TypeError('bytes is not iterable')
+    vi.spyOn(harness.files, 'write').mockRejectedValue(bug)
+    await expect(exportModel(harness.app, THREE_MF)).rejects.toBe(bug)
+    expect(notifications(harness)).toEqual([])
+  })
+
   it('shows no export warnings when the file was not saved', async () => {
     const harness = exportApp()
     harness.files.nextSaveTarget = null

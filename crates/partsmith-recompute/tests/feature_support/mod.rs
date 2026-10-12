@@ -93,20 +93,7 @@ impl Run {
     /// Runs `document` with `Registry::with_builtins()`, an empty evaluation context, no assets and
     /// a new cancel token (features.md section 6.1).
     pub fn new(document: Document) -> Run {
-        let mut recompute = Recompute::new(Arc::new(Registry::with_builtins()));
-        let assets = BTreeMap::new();
-        let input = Input {
-            document: &document,
-            context: &EmptyContext,
-            stop_at: None,
-            assets: &assets,
-        };
-        let report = recompute.run(&input, &CancelToken::new());
-        Run {
-            document,
-            recompute,
-            report,
-        }
+        Run::with_assets(document, &Assets::new())
     }
 
     /// Loads and runs `examples/<relative_path>`.
@@ -325,13 +312,7 @@ pub fn assert_bounding_box(shape: &Shape, min: [f64; 3], max: [f64; 3]) {
 
 /// The face names of a body, sorted by byte order.
 pub fn face_names(state: &BodyState) -> Vec<String> {
-    let mut names: Vec<String> = state
-        .naming()
-        .names(ElementKind::Face)
-        .map(|(_, name)| name.as_str().to_owned())
-        .collect();
-    names.sort();
-    names
+    element_names(state, ElementKind::Face)
 }
 
 /// Asserts the face names of a body, in any order.
@@ -470,18 +451,23 @@ pub fn assert_face_axis_through(geometry: &ElementGeometry, point: [f64; 3]) {
 /// Median build time of `feature` over `runs` runs of `document`, each with a fresh `Recompute` so no
 /// result comes from the cache. For the performance budgets (features.md section 5).
 pub fn median_build_time(document: &Document, feature: &str, runs: usize) -> Duration {
+    median_build_time_with_assets(document, feature, runs, &Assets::new())
+}
+
+/// The median of `runs` durations, each one call of `measure`.
+fn median_duration(runs: usize, mut measure: impl FnMut() -> Duration) -> Duration {
     assert!(runs > 0, "at least one run");
-    let mut durations: Vec<Duration> = (0..runs)
-        .map(|_| {
-            let run = Run::new(document.clone());
-            run.assert_ok(feature);
-            let timing = &run.feature(feature).timing;
-            assert!(!timing.from_cache, "a fresh recompute builds {feature}");
-            timing.duration
-        })
-        .collect();
+    let mut durations: Vec<Duration> = (0..runs).map(|_| measure()).collect();
     durations.sort();
     durations[runs / 2]
+}
+
+/// How long `feature` took to build in `run`, which must have built it rather than reused a cached
+/// result.
+fn build_time(run: &Run, feature: &str) -> Duration {
+    let timing = &run.feature(feature).timing;
+    assert!(!timing.from_cache, "a fresh recompute builds {feature}");
+    timing.duration
 }
 
 // Helpers for the dress-up features (fillet, chamfer, shell): output states, unchanged bodies,
@@ -620,18 +606,11 @@ pub fn median_failed_build_time(
     code: &str,
     runs: usize,
 ) -> Duration {
-    assert!(runs > 0, "at least one run");
-    let mut durations: Vec<Duration> = (0..runs)
-        .map(|_| {
-            let run = Run::new(document.clone());
-            run.assert_error(feature, code);
-            let timing = &run.feature(feature).timing;
-            assert!(!timing.from_cache, "a fresh recompute builds {feature}");
-            timing.duration
-        })
-        .collect();
-    durations.sort();
-    durations[runs / 2]
+    median_duration(runs, || {
+        let run = Run::new(document.clone());
+        run.assert_error(feature, code);
+        build_time(&run, feature)
+    })
 }
 
 // Helpers for the sketch, extrude, revolve, hole and datum plane tests: sketch and datum outputs,
@@ -890,18 +869,11 @@ pub fn median_build_time_with_assets(
     runs: usize,
     assets: &Assets,
 ) -> Duration {
-    assert!(runs > 0, "at least one run");
-    let mut durations: Vec<Duration> = (0..runs)
-        .map(|_| {
-            let run = Run::with_assets(document.clone(), assets);
-            run.assert_ok(feature);
-            let timing = &run.feature(feature).timing;
-            assert!(!timing.from_cache, "a fresh recompute builds {feature}");
-            timing.duration
-        })
-        .collect();
-    durations.sort();
-    durations[runs / 2]
+    median_duration(runs, || {
+        let run = Run::with_assets(document.clone(), assets);
+        run.assert_ok(feature);
+        build_time(&run, feature)
+    })
 }
 
 /// Asserts that a body has a face named `name`.

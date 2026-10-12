@@ -596,7 +596,11 @@ mod tests {
             .new_document(Units::Mm, None)
             .expect("an empty document opens");
         session
-            .apply_edits(doc, Some("Units"), vec![Edit::SetUnits { units: Units::In }])
+            .apply_edits(
+                doc,
+                Some("Units"),
+                vec![Edit::SetUnits { units: Units::In }],
+            )
             .expect("the edit applies");
 
         let saved = session.save_document(doc).expect("the document saves");

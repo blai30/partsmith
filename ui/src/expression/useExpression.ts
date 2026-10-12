@@ -14,6 +14,8 @@ import { utf16Range } from './span'
 /** What an evaluation was asked for: the text and everything its conversion depends on. */
 type Request = {
   readonly documentHandle: DocHandle
+  /** The revision evaluated at; a newer one evaluates again while this result stays shown. */
+  readonly revision: number | null
   readonly text: string
   readonly unit: FieldUnit | 'any'
   readonly units: Units
@@ -32,6 +34,7 @@ const FIELD_DIMENSIONS: Readonly<Record<FieldUnit, Dimension>> = {
   count: { length: 0, angle: 0 },
 }
 
+/** Whether two requests ask the same, whatever the revision: an older revision's result stays shown. */
 function sameRequest(first: Request, second: Request): boolean {
   return (
     first.documentHandle === second.documentHandle &&
@@ -115,8 +118,7 @@ export function useExpression(
     if (empty || documentHandle === null) {
       return
     }
-    latest.submit({ documentHandle, text, unit, units, label })
-    // The revision is a dependency so a document change evaluates again.
+    latest.submit({ documentHandle, revision, text, unit, units, label })
   }, [latest, empty, documentHandle, revision, text, unit, units, label])
 
   const emptyState = useMemo<ExpressionState>(
@@ -129,6 +131,6 @@ export function useExpression(
   if (documentHandle === null) {
     return PENDING
   }
-  const current: Request = { documentHandle, text, unit, units, label }
+  const current: Request = { documentHandle, revision, text, unit, units, label }
   return evaluated !== null && sameRequest(evaluated.request, current) ? evaluated.state : PENDING
 }

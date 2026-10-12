@@ -589,7 +589,9 @@ mod tests {
                 .expect("the edit applies");
             panic!("after the edit")
         });
-        let saved = session.save_document(doc).expect("a poisoned document saves");
+        let saved = session
+            .save_document(doc)
+            .expect("a poisoned document saves");
 
         assert!(result.is_err());
         assert!(saved.text.contains("\"50 mm\""), "{}", saved.text);
@@ -604,7 +606,10 @@ mod tests {
             ),
             None
         );
-        assert_eq!(error_code(&mut session, Command::CloseDocument { doc }), None);
+        assert_eq!(
+            error_code(&mut session, Command::CloseDocument { doc }),
+            None
+        );
     }
 
     #[test]

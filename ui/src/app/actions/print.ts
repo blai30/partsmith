@@ -1,4 +1,4 @@
-import { createLatestOnly, type LatestOnly } from '../../core/queue'
+import { createLatestOnly } from '../../core/queue'
 import type { Health } from '../../generated/protocol'
 import { ALWAYS_SHOWN_CHECK } from '../../print/checks'
 import { findingAt, locationCenter } from '../../print/health'
@@ -7,8 +7,7 @@ import type { App } from '../createApp'
 import { commitEdits, showCoreError } from './edits'
 import { updateSettings } from './settings'
 
-// The Print context (ui.md 3.17): printer choice, check visibility, the overhang map, analysis
-// runs and findings.
+// The Print context (ui.md 3.17): printer choice, check visibility, analysis runs and findings.
 
 /** Delay after the last revision change before the analysis runs in Print context. */
 const ANALYSIS_DELAY_MILLISECONDS = 300
@@ -18,34 +17,66 @@ const MINIMUM_FOCUS_SIDE = 20
 const FOCUS_DIAGONAL_SHARE = 0.25
 const FOCUS_MARGIN = 0.3
 
-/** One analysis at a time per app, newest waiting input only (2.5). */
-const analyses = new WeakMap<AppStore, LatestOnly<number>>()
+/** What one analysis checks: a document at a revision. */
+type AnalysisInput = {
+  readonly documentHandle: number
+  readonly revision: number
+}
 
-function analysisOf(app: App): LatestOnly<number> {
-  let latest = analyses.get(app.store)
-  if (latest === undefined) {
-    const running = (value: boolean): void => {
-      app.store.setState((state) =>
-        state.print.running === value ? {} : { print: { ...state.print, running: value } },
-      )
-    }
-    latest = createLatestOnly<number, Health | null>(
-      (documentHandle) => {
-        running(true)
-        return app.core.analyzePrint(documentHandle, { orientation: { kind: 'as_modeled' } })
-      },
-      () => {
-        // The report itself arrives as a print_health event; a superseded (null) answer changes nothing.
-        running(false)
-      },
-      (error) => {
-        running(false)
-        showCoreError(app, error)
-      },
-    )
-    analyses.set(app.store, latest)
+/** The print analyses of one app: one at a time, newest waiting input only (2.5). */
+type Analyses = {
+  /** Sends an analysis unless the one in flight or waiting already checks the same revision. */
+  submit(input: AnalysisInput): void
+  /** Resolves when no analysis is left. */
+  flush(): Promise<void>
+}
+
+const analysesByStore = new WeakMap<AppStore, Analyses>()
+
+function analysesOf(app: App): Analyses {
+  const existing = analysesByStore.get(app.store)
+  if (existing !== undefined) {
+    return existing
   }
-  return latest
+  const running = (value: boolean): void => {
+    app.store.setState((state) =>
+      state.print.running === value ? {} : { print: { ...state.print, running: value } },
+    )
+  }
+  const latest = createLatestOnly<AnalysisInput, Health | null>(
+    ({ documentHandle }) => {
+      running(true)
+      return app.core.analyzePrint(documentHandle, { orientation: { kind: 'as_modeled' } })
+    },
+    () => {
+      // The report itself arrives as a print_health event; a superseded (null) answer changes nothing.
+      running(false)
+    },
+    (error) => {
+      running(false)
+      showCoreError(app, error)
+    },
+  )
+  // The input submitted last. While `latest` is busy it is the analysis whose report comes next:
+  // the waiting one, else the one in flight.
+  let submitted: AnalysisInput | null = null
+  const analyses: Analyses = {
+    submit(input) {
+      if (
+        latest.busy &&
+        submitted !== null &&
+        submitted.documentHandle === input.documentHandle &&
+        submitted.revision === input.revision
+      ) {
+        return
+      }
+      submitted = input
+      latest.submit(input)
+    },
+    flush: () => latest.flush(),
+  }
+  analysesByStore.set(app.store, analyses)
+  return analyses
 }
 
 /** Whether the open document has no report of its current revision. */
@@ -56,8 +87,22 @@ function reportStale(state: AppState): boolean {
   )
 }
 
-/** Chooses the document's printer profile, or none, labeled "Change printer". */
+/**
+ * Chooses the document's printer profile, or none, labeled "Change printer". Nothing happens while
+ * a feature command or transaction is open (its controls are disabled with `finish_command_first`,
+ * 3.7), or when the choice is the document's printer already, which would only add an undo entry.
+ */
 export async function setPrinter(app: App, profileId: string | null): Promise<void> {
+  const state = app.store.getState()
+  const document = state.document
+  if (
+    document === null ||
+    state.command !== null ||
+    document.transactionOpen ||
+    (document.recipe.printer ?? null) === profileId
+  ) {
+    return
+  }
   await commitEdits(app, 'Change printer', [
     profileId === null ? { type: 'set_printer' } : { type: 'set_printer', printer: profileId },
   ])
@@ -75,27 +120,23 @@ export function setCheckHidden(app: App, check: string, hidden: boolean): void {
   updateSettings(app, { hiddenChecks: hidden ? [...others, check] : others })
 }
 
-/** Turns the overhang color map and its legend on or off for this session (the Overhangs toggle). */
-export function setOverhangMap(app: App, shown: boolean): void {
-  app.store.setState((state) =>
-    state.print.overhangMap === shown ? {} : { print: { ...state.print, overhangMap: shown } },
-  )
-}
-
-/** Analyzes the open document as modeled, outside the mutation queue; resolves when no analysis is left. */
+/**
+ * Analyzes the open document as modeled, outside the mutation queue; resolves when no analysis is
+ * left. An analysis of the current revision that is already in flight or waiting is not sent again.
+ */
 export async function runPrintAnalysis(app: App): Promise<void> {
   const document = app.store.getState().document
   if (document === null) {
     return
   }
-  const latest = analysisOf(app)
-  latest.submit(document.documentHandle)
-  await latest.flush()
+  const analyses = analysesOf(app)
+  analyses.submit({ documentHandle: document.documentHandle, revision: document.revision })
+  await analyses.flush()
 }
 
 /**
- * The health badge's click (3.17): opens the health panel, and runs the analysis when the report
- * is missing or describes an older revision.
+ * The print check badge's click (3.17): opens the print check panel, and runs the analysis when
+ * the report is missing or describes an older revision.
  */
 export async function openPrintHealth(app: App): Promise<void> {
   app.store.setState((state) =>
@@ -135,7 +176,7 @@ export function focusFinding(app: App, finding: FindingKey): void {
   )
 }
 
-/** Whether the focused finding's marker must go: the health panel closed or the document changed (3.17). */
+/** Whether the focused finding's marker must go: the print check panel closed or the document changed (3.17). */
 function focusOutdated(state: AppState, previous: AppState): boolean {
   return (
     state.print.focusedFinding !== null &&
@@ -149,7 +190,7 @@ function focusOutdated(state: AppState, previous: AppState): boolean {
  * Keeps the Print context's derived state (3.17). The analysis runs on its own in Print context:
  * 300 ms after the document revision last changed with no transaction open (or after the
  * transaction closes), and at once on entering Print when the report is stale or missing. The
- * focused finding is dropped when the health panel closes or the document changes. Returns the
+ * focused finding is dropped when the print check panel closes or the document changes. Returns the
  * function that stops both.
  */
 export function installPrintAnalysis(app: App): () => void {

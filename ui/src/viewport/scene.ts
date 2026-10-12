@@ -506,8 +506,9 @@ export function commandSelectionFields(state: AppState): readonly CommandSelecti
     if (field.control.type !== 'selection') {
       return []
     }
-    const dot = field.path.lastIndexOf('.')
-    const parent = dot === -1 ? command.params : getParam(command.params, field.path.slice(0, dot))
+    const lastDot = field.path.lastIndexOf('.')
+    const parent =
+      lastDot === -1 ? command.params : getParam(command.params, field.path.slice(0, lastDot))
     return [
       {
         accepts: field.control.accepts,
@@ -613,6 +614,148 @@ export function planeExtent(bounds: BoundingBox | null): { side: number; center:
 /** Whether a sketch, datum plane or origin item is shown this session (3.10). */
 export function isSessionVisible(state: AppState, key: string): boolean {
   return sessionVisible(state, key, state.document?.recipe ?? null)
+}
+
+/** The 3D bounds of a visible sketch's entities. */
+function sketchBounds(solution: SketchSolution): BoundingBox | null {
+  const yAxis = yAxisOf(solution.placement)
+  let bounds: BoundingBox | null = null
+  for (const entity of solution.entities) {
+    const radius = entity.type === 'circle' || entity.type === 'arc' ? entity.radius : 1
+    const points = entityPoints(entity, Math.max(radius * 0.01, 1e-6)).map((point) =>
+      onPlane(solution.placement, yAxis, point),
+    )
+    bounds = extend(bounds, points)
+  }
+  return bounds
+}
+
+function visibleSketches(state: AppState): readonly {
+  readonly id: string
+  readonly solution: SketchSolution
+  readonly active: boolean
+}[] {
+  const document = state.document
+  if (document === null) {
+    return []
+  }
+  const activeId = state.context === 'sketch' ? (state.sketch?.sketchId ?? null) : null
+  return (document.recipe.features ?? []).flatMap((feature) => {
+    if (feature.type !== 'sketch') {
+      return []
+    }
+    const solution = document.sketches[feature.id]?.solution
+    const active = feature.id === activeId
+    if (
+      solution === undefined ||
+      (!active && !sessionVisible(state, `feature:${feature.id}`, document.recipe))
+    ) {
+      return []
+    }
+    return [{ id: feature.id, solution, active }]
+  })
+}
+
+function visibleDatums(
+  state: AppState,
+): readonly { readonly id: string; readonly placement: Placement }[] {
+  const document = state.document
+  if (document === null) {
+    return []
+  }
+  return (document.recipe.features ?? []).flatMap((feature) => {
+    const placement = document.datums[feature.id] ?? null
+    if (
+      feature.type !== 'datum_plane' ||
+      placement === null ||
+      !sessionVisible(state, `feature:${feature.id}`, document.recipe)
+    ) {
+      return []
+    }
+    return [{ id: feature.id, placement }]
+  })
+}
+
+/** The 4 corners of a square plane of this side centered at the projection of `center` onto it. */
+function squareCorners(placement: Placement, side: number, center: Vector3): Point3[] {
+  const normal = normalize(placement.normal) ?? [0, 0, 1]
+  const xAxis = normalize(placement.x_axis) ?? [1, 0, 0]
+  const yAxis = cross(normal, xAxis)
+  const offset = subtract(center, placement.origin)
+  const middle = addScaled(center, normal, -dot(offset, normal))
+  const half = side / 2
+  return [
+    addScaled(addScaled(middle, xAxis, -half), yAxis, -half),
+    addScaled(addScaled(middle, xAxis, half), yAxis, -half),
+    addScaled(addScaled(middle, xAxis, half), yAxis, half),
+    addScaled(addScaled(middle, xAxis, -half), yAxis, half),
+  ]
+}
+
+function originPlanesShown(state: AppState): boolean {
+  if (state.context === 'sketch' && state.sketch?.sketchId === null) {
+    return true
+  }
+  return activeFieldKind(state) === 'plane'
+}
+
+function overlayCall(
+  color: Rgb,
+  layer: DrawCall['layer'],
+  opacity: number,
+  width: number,
+  dashed: boolean,
+  pickable: boolean,
+): Omit<DrawCall, 'pickBase' | 'id'> {
+  return {
+    layer,
+    color,
+    elementColors: null,
+    opacity,
+    size: width,
+    dashed,
+    shading: 'flat',
+    depthTest: false,
+    clipped: false,
+    pickSize: pickable ? width : 0,
+    analysis: false,
+  }
+}
+
+/** The chord tolerance in mm for the camera, quantized so small zoom changes keep a tessellation. */
+function sketchTolerance(camera: Camera, height: number): number {
+  const millimetersPerPixel = visibleHeightAtTarget(camera) / Math.max(height, 1)
+  const exact = SKETCH_TOLERANCE_PIXELS * millimetersPerPixel
+  const step = Math.log(RETESSELLATION_FACTOR)
+  return Math.exp(Math.floor(Math.log(exact) / step) * step)
+}
+
+function placementScale(entity: SolvedEntity): number {
+  return entity.type === 'circle' || entity.type === 'arc' ? entity.radius * 0.01 : 1
+}
+
+function modelBounds(state: AppState): BoundingBox | null {
+  const document = state.document
+  if (document === null) {
+    return null
+  }
+  let bounds: BoundingBox | null = null
+  for (const body of document.recipe.bodies ?? []) {
+    const mesh = document.meshes[body.id]
+    if (bodyVisible(body) && mesh !== undefined) {
+      bounds = extend(bounds, boxCorners(mesh.boundingBox))
+    }
+  }
+  for (const sketch of visibleSketches(state)) {
+    const box = sketchBounds(sketch.solution)
+    if (box !== null) {
+      bounds = extend(bounds, boxCorners(box))
+    }
+  }
+  for (const datum of visibleDatums(state)) {
+    bounds = extend(bounds, [datum.placement.origin])
+  }
+  return bounds
 }
 
 export function createScene(backend: RenderBackend): Scene {
@@ -742,112 +885,15 @@ export function createScene(backend: RenderBackend): Scene {
     return document === null ? undefined : previews.get(bodyMeshKey(document.documentHandle, body))
   }
 
-  /** The 3D bounds of a visible sketch's entities. */
-  function sketchBounds(solution: SketchSolution): BoundingBox | null {
-    const yAxis = yAxisOf(solution.placement)
-    let bounds: BoundingBox | null = null
-    for (const entity of solution.entities) {
-      const radius = entity.type === 'circle' || entity.type === 'arc' ? entity.radius : 1
-      const points = entityPoints(entity, Math.max(radius * 0.01, 1e-6)).map((point) =>
-        onPlane(solution.placement, yAxis, point),
-      )
-      bounds = extend(bounds, points)
-    }
-    return bounds
-  }
 
-  function visibleSketches(
-    state: AppState,
-  ): readonly {
-    readonly id: string
-    readonly solution: SketchSolution
-    readonly active: boolean
-  }[] {
-    const document = state.document
-    if (document === null) {
-      return []
-    }
-    const activeId = state.context === 'sketch' ? (state.sketch?.sketchId ?? null) : null
-    return (document.recipe.features ?? []).flatMap((feature) => {
-      if (feature.type !== 'sketch') {
-        return []
-      }
-      const solution = document.sketches[feature.id]?.solution
-      const active = feature.id === activeId
-      if (
-        solution === undefined ||
-        (!active && !sessionVisible(state, `feature:${feature.id}`, document.recipe))
-      ) {
-        return []
-      }
-      return [{ id: feature.id, solution, active }]
-    })
-  }
 
-  function visibleDatums(
-    state: AppState,
-  ): readonly { readonly id: string; readonly placement: Placement }[] {
-    const document = state.document
-    if (document === null) {
-      return []
-    }
-    return (document.recipe.features ?? []).flatMap((feature) => {
-      const placement = document.datums[feature.id] ?? null
-      if (
-        feature.type !== 'datum_plane' ||
-        placement === null ||
-        !sessionVisible(state, `feature:${feature.id}`, document.recipe)
-      ) {
-        return []
-      }
-      return [{ id: feature.id, placement }]
-    })
-  }
 
-  function modelBounds(state: AppState): BoundingBox | null {
-    const document = state.document
-    if (document === null) {
-      return null
-    }
-    let bounds: BoundingBox | null = null
-    for (const body of document.recipe.bodies ?? []) {
-      const mesh = document.meshes[body.id]
-      if (bodyVisible(body) && mesh !== undefined) {
-        bounds = extend(bounds, boxCorners(mesh.boundingBox))
-      }
-    }
-    for (const sketch of visibleSketches(state)) {
-      const box = sketchBounds(sketch.solution)
-      if (box !== null) {
-        bounds = extend(bounds, boxCorners(box))
-      }
-    }
-    for (const datum of visibleDatums(state)) {
-      bounds = extend(bounds, [datum.placement.origin])
-    }
-    return bounds
-  }
 
   function visibleBounds(state: AppState): BoundingBox | null {
     const bounds = modelBounds(state)
     return bounds === null ? null : normalizedBox(bounds)
   }
 
-  /** The 4 corners of a square plane of this side centered at the projection of `center` onto it. */
-  function squareCorners(placement: Placement, side: number, center: Vector3): Point3[] {
-    const normal = normalize(placement.normal) ?? [0, 0, 1]
-    const xAxis = normalize(placement.x_axis) ?? [1, 0, 0]
-    const yAxis = cross(normal, xAxis)
-    const offset = subtract(center, placement.origin)
-    const middle = addScaled(center, normal, -dot(offset, normal))
-    const half = side / 2
-    return [
-      addScaled(addScaled(middle, xAxis, -half), yAxis, -half),
-      addScaled(addScaled(middle, xAxis, half), yAxis, -half),
-      addScaled(addScaled(middle, xAxis, half), yAxis, half),
-      addScaled(addScaled(middle, xAxis, -half), yAxis, half),
-    ]
-  }
 
   function frame(
     state: AppState,
@@ -1101,35 +1147,7 @@ export function createScene(backend: RenderBackend): Scene {
     }
   }
 
-  function originPlanesShown(state: AppState): boolean {
-    if (state.context === 'sketch' && state.sketch?.sketchId === null) {
-      return true
-    }
-    return activeFieldKind(state) === 'plane'
-  }
 
-  function overlayCall(
-    color: Rgb,
-    layer: DrawCall['layer'],
-    opacity: number,
-    width: number,
-    dashed: boolean,
-    pickable: boolean,
-  ): Omit<DrawCall, 'pickBase' | 'id'> {
-    return {
-      layer,
-      color,
-      elementColors: null,
-      opacity,
-      size: width,
-      dashed,
-      shading: 'flat',
-      depthTest: false,
-      clipped: false,
-      pickSize: pickable ? width : 0,
-      analysis: false,
-    }
-  }
 
   type BodyInput = {
     readonly body: Body
@@ -1381,13 +1399,6 @@ export function createScene(backend: RenderBackend): Scene {
     readonly selectedKeys: ReadonlySet<string>
   }
 
-  /** The chord tolerance in mm for the camera, quantized so small zoom changes keep a tessellation. */
-  function sketchTolerance(camera: Camera, height: number): number {
-    const millimetersPerPixel = visibleHeightAtTarget(camera) / Math.max(height, 1)
-    const exact = SKETCH_TOLERANCE_PIXELS * millimetersPerPixel
-    const step = Math.log(RETESSELLATION_FACTOR)
-    return Math.exp(Math.floor(Math.log(exact) / step) * step)
-  }
 
   function sketchDraws(
     state: AppState,
@@ -1693,9 +1704,6 @@ export function createScene(backend: RenderBackend): Scene {
     return []
   }
 
-  function placementScale(entity: SolvedEntity): number {
-    return entity.type === 'circle' || entity.type === 'arc' ? entity.radius * 0.01 : 1
-  }
 
   return {
     applyEvent(event) {

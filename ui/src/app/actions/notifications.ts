@@ -160,7 +160,7 @@ const PICK_HINT_MILLISECONDS = 3_000
 
 /**
  * Shows the hint about a refused pick for 3 s: under the active command's selection field `field`,
- * or in the sketch header for null (3.7, 3.16.1). A newer hint replaces it and gets its own 3 s.
+ * or in the sketch hint for null (3.7, 3.16.1). A newer hint replaces it and gets its own 3 s.
  */
 export function showPickHint(app: App, message: string, field: string | null): void {
   const hint: PickHint = { message, field }

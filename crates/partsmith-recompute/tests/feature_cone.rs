@@ -7,7 +7,8 @@ mod feature_support;
 use std::time::Duration;
 
 use feature_support::{
-    Run, assert_bounding_box, assert_canonical_example, assert_error_field, assert_face_area,
+    Run, assert_bounding_box, assert_canonical_example, assert_empty, assert_error_field,
+    assert_face_area,
     assert_face_count, assert_face_kind, assert_face_names, assert_volume, example_paths, face,
     face_index, load_example, median_build_time,
 };
@@ -131,12 +132,23 @@ fn t007_zero_height_is_out_of_range() {
     assert_error_field(error, "height");
 }
 
-// Radii within the kernel's modeling tolerance (kernel.md section 3.4.1): radii closer than 1e-6
-// mm make a cylinder, and a radius below 1e-6 mm is an apex, so every pair of radii the checks
-// accept builds.
+#[test]
+#[cfg_attr(
+    debug_assertions,
+    ignore = "performance budgets hold for release builds: run with cargo test --release"
+)]
+fn t008_frustum_builds_within_2_ms() {
+    let document = load_example("cone/frustum.ptsm");
+
+    let duration = median_build_time(&document, "f-cone1", 21);
+    assert!(
+        duration < Duration::from_millis(2),
+        "the frustum took {duration:?} to build (median of 21 runs), over the 2 ms budget",
+    );
+}
 
 #[test]
-fn nearly_equal_radii_make_a_cylinder() {
+fn t009_nearly_equal_radii_make_a_cylinder() {
     let run = Run::example("cone/nearly-equal-radii.ptsm");
 
     run.assert_all_ok();
@@ -151,7 +163,7 @@ fn nearly_equal_radii_make_a_cylinder() {
 }
 
 #[test]
-fn a_radius_below_the_tolerance_is_an_apex() {
+fn t010_apex_below_the_tolerance() {
     let run = Run::example("cone/apex-below-tolerance.ptsm");
 
     run.assert_all_ok();
@@ -163,7 +175,7 @@ fn a_radius_below_the_tolerance_is_an_apex() {
 }
 
 #[test]
-fn radii_below_the_tolerance_are_both_zero() {
+fn t011_both_radii_below_the_tolerance_are_zero() {
     let run = Run::records(&["b-1"], &[&cone("0.0000000001", "0", "10")]);
 
     run.assert_error("f-cone1", "cone_radii_zero");
@@ -174,16 +186,14 @@ fn radii_below_the_tolerance_are_both_zero() {
 }
 
 #[test]
-#[cfg_attr(
-    debug_assertions,
-    ignore = "performance budgets hold for release builds: run with cargo test --release"
-)]
-fn t008_frustum_builds_within_2_ms() {
-    let document = load_example("cone/frustum.ptsm");
+fn t012_height_below_the_tolerance_is_out_of_range() {
+    let run = Run::records(&["b-1"], &[&cone("10", "5", "0.0000001")]);
 
-    let duration = median_build_time(&document, "f-cone1", 21);
-    assert!(
-        duration < Duration::from_millis(2),
-        "the frustum took {duration:?} to build (median of 21 runs), over the 2 ms budget",
+    let error = run.assert_error("f-cone1", "out_of_range");
+    assert_error_field(error, "height");
+    assert_eq!(
+        run.messages("f-cone1"),
+        ["Height must be greater than 0 mm, but it is 0 mm. Use a value greater than 0 mm."],
     );
+    assert_empty(&run, "b-1");
 }

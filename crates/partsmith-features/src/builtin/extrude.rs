@@ -154,8 +154,7 @@ impl Feature for Extrude {
         if context.is_canceled() {
             return Err(FeatureError::Canceled);
         }
-        let sweep = extrude(&faces.profile, direction, start, end)
-            .map_err(|error| FeatureError::Kernel { error })?;
+        let sweep = extrude(&faces.profile, direction, start, end)?;
         let tool = sweep_tool(context.feature(), sweep, &faces.entities)?;
         apply_tool(context, &params.body, params.op, tool, profile.warnings)
     }

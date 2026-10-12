@@ -5,7 +5,7 @@ use std::f64::consts::TAU;
 use std::sync::Arc;
 
 use partsmith_model::{Category, Expr, FeatureManifest, FieldUnit, Id, SelectionKind};
-use partsmith_occt_sys::{Transform, Vector, transform};
+use partsmith_occt_sys::{Transform, transform};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -16,11 +16,10 @@ use crate::context::BuildContext;
 use crate::deps::Dependencies;
 use crate::error::{FeatureError, FeatureWarning};
 use crate::feature::Feature;
-use crate::naming::kernel;
 use crate::output::{BodyChange, BodyUpdate, FeatureOutput};
 use crate::params::AxisRef;
 use crate::python::{PythonCall, PythonNames, PythonValue};
-use crate::{default_position, is_default_position};
+use crate::{default_position, is_default_position, vector};
 
 /// Field paths of the three translation components.
 const TRANSLATION_FIELDS: [&str; 3] = ["translation[0]", "translation[1]", "translation[2]"];
@@ -141,13 +140,12 @@ impl Feature for MoveBody {
                 vec![warning],
             ));
         }
-        let [x, y, z] = translation;
         let motion = rotation
             .map_or(Transform::IDENTITY, |(axis, angle)| {
                 Transform::rotation(&axis, angle)
             })
-            .then(&Transform::translation(Vector::new(x, y, z)));
-        let moved = transform(shape, &motion).map_err(kernel)?;
+            .then(&Transform::translation(vector(translation)));
+        let moved = transform(shape, &motion)?;
         let update = BodyUpdate {
             body: params.body.clone(),
             shape: Some(moved.shape),

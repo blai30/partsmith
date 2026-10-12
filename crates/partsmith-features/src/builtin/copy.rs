@@ -7,11 +7,10 @@ use partsmith_model::{FeatureManifest, Id};
 use partsmith_naming::Instance;
 use partsmith_occt_sys::{Shape, Transform, transform};
 
-use super::common::{bodies, solid_body, unchanged};
+use super::common::{bodies, naming_failed, solid_body, unchanged};
 use crate::context::{BodyState, BuildContext};
 use crate::deps::Dependencies;
 use crate::error::{FeatureError, FeatureWarning, FieldRef};
-use crate::naming::{kernel, naming};
 use crate::output::{BodyChange, FeatureOutput, Tool, apply_op};
 use crate::params::{BodyOp, CopyOp};
 
@@ -106,12 +105,12 @@ impl<'a> Source<'a> {
         motion: &Transform,
         instance: Instance,
     ) -> Result<Tool, FeatureError> {
-        let moved = transform(self.shape, motion).map_err(kernel)?;
+        let moved = transform(self.shape, motion)?;
         let naming = self
             .state
             .naming()
             .with_instance(context.feature(), instance)
-            .map_err(naming)?;
+            .map_err(naming_failed)?;
         Ok(Tool {
             shape: moved.shape,
             naming,

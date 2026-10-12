@@ -181,14 +181,20 @@ describe('healthRows', () => {
 
   it('leaves out hidden checks', () => {
     const rows = healthRows(
-      printingState({ report: MIXED_REPORT, hiddenChecks: ['overhangs', 'mesh_validity'] }),
+      printingState({ report: MIXED_REPORT, hiddenChecks: ['overhangs', 'thin_walls'] }),
     )
     expect(rows.map((row) => row.message)).toEqual([
       TOO_LARGE.message,
-      THIN_WALL.message,
+      OPEN_EDGES.message,
       ISLAND.message,
       HOLLOW.message,
     ])
+  })
+
+  it('never leaves out mesh validity, even when stored settings hide it', () => {
+    const report = printReport([peg({ mesh_validity: [OPEN_EDGES] })])
+    const rows = healthRows(printingState({ report, hiddenChecks: ['mesh_validity'] }))
+    expect(rows.map((row) => row.message)).toEqual([OPEN_EDGES.message])
   })
 
   it('lists only the listed findings of a check, not its omitted count', () => {

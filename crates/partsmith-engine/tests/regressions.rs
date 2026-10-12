@@ -195,7 +195,11 @@ fn analyze_print_checks_requested_bodies_in_request_order() {
     );
 
     assert_eq!(sent.error_code(), "unknown_body");
-    assert!(sent.error_message().contains("b-9"), "{}", sent.error_message());
+    assert!(
+        sent.error_message().contains("b-9"),
+        "{}",
+        sent.error_message()
+    );
 }
 
 /// `box.ptsm` using the printer profile `shop-printer`, which is not installed.
@@ -222,7 +226,11 @@ fn codes(diagnostics: &Value) -> Vec<&str> {
         .as_array()
         .expect("a list of diagnostics")
         .iter()
-        .map(|diagnostic| diagnostic["code"].as_str().expect("diagnostics have a code"))
+        .map(|diagnostic| {
+            diagnostic["code"]
+                .as_str()
+                .expect("diagnostics have a code")
+        })
         .collect()
 }
 
@@ -244,7 +252,10 @@ fn an_unknown_printer_is_a_warning_of_recompute_and_export() {
         diagnostics[0]["message"],
         "Printer profile \"shop-printer\" is not installed, so the default FDM profile is used. Install it or pick another printer."
     );
-    assert_eq!(codes(&exported.ok()["warnings"]), ["unknown_printer_profile"]);
+    assert_eq!(
+        codes(&exported.ok()["warnings"]),
+        ["unknown_printer_profile"]
+    );
 }
 
 #[test]

@@ -79,7 +79,7 @@ import {
 } from '../app/actions/sketch'
 import { deleteFeatures, setSuppressed } from '../app/actions/timeline'
 import type { App, Platform } from '../app/createApp'
-import type { Edit, Placement, Units } from '../generated/protocol'
+import type { Edit, Placement, SketchSolution, Units } from '../generated/protocol'
 import { resolvedTheme } from '../layout/color-scheme'
 import { requestUi } from '../layout/requests'
 import { MESSAGES } from '../messages'
@@ -160,9 +160,9 @@ function needsCore(app: App): Availability {
 
 /** needsDocument, and disabled while a feature command is active (export uses the model state, 3.18). */
 function needsDocumentOutsideCommand(app: App): Availability {
-  const command = stateOf(app).command
-  if (command !== null) {
-    return { state: 'disabled', reason: MESSAGES.finish_command_first(command.title) }
+  const active = stateOf(app).command
+  if (active !== null) {
+    return { state: 'disabled', reason: MESSAGES.finish_command_first(active.title) }
   }
   return needsDocument(app)
 }
@@ -272,9 +272,8 @@ async function deleteSelection(app: App): Promise<void> {
       bodies.map((body): Edit => ({ type: 'remove_body', id: body.id })),
     )
   }
-  for (const parameter of selectedParameterIds(state)) {
-    await deleteParameter(app, parameter)
-  }
+  // The mutation queue applies the deletions in order.
+  await Promise.all(selectedParameterIds(state).map((parameter) => deleteParameter(app, parameter)))
   app.store.setState((current) => ({
     selection: current.selection.filter(
       (item) => item.kind !== 'body' && item.kind !== 'parameter' && !FEATURE_KINDS.has(item.kind),
@@ -423,16 +422,19 @@ function visibilityTargets(state: AppState): readonly SelectionItem[] {
 
 async function toggleVisibility(app: App): Promise<void> {
   const state = stateOf(app)
+  const edits: Promise<void>[] = []
   for (const item of visibilityTargets(state)) {
     if (item.kind === 'body' && item.body !== null) {
       const body = state.document?.recipe.bodies?.find((candidate) => candidate.id === item.body)
       if (body !== undefined) {
-        await setBodyVisible(app, body.id, body.visible === false)
+        edits.push(setBodyVisible(app, body.id, body.visible === false))
       }
     } else {
       setSessionVisible(app, item.key, state.view.sessionVisible[item.key] === false)
     }
   }
+  // The mutation queue applies the body edits in order.
+  await Promise.all(edits)
 }
 
 // Sketch commands.
@@ -491,29 +493,27 @@ function everySketchEntity(state: AppState): SelectionItem[] {
   if (sketchId === null || solution === undefined) {
     return []
   }
-  return solution.entities.map((entity): SelectionItem => {
-    const base = {
-      label: `${ENTITY_NOUNS[entity.type]} ${entity.id}`,
-      body: null,
-      feature: sketchId,
-      element: null,
-      origin: null,
-    }
-    if (entity.type === 'point') {
-      return {
-        ...base,
-        key: `point:${sketchId}:${entity.id}`,
-        kind: 'sketch_point',
-        sketchItem: { kind: 'point', sketch: sketchId, point: entity.id },
-      }
-    }
-    return {
-      ...base,
-      key: `sketch:${sketchId}:${entity.id}`,
-      kind: 'sketch_curve',
-      sketchItem: { kind: 'entity', sketch: sketchId, entity: entity.id, entityType: entity.type },
-    }
-  })
+  return solution.entities.map((entity) => sketchEntityItem(sketchId, entity))
+}
+
+/** The in-sketch selection item of a solved entity: a point by its reference, a curve by its id. */
+function sketchEntityItem(
+  sketchId: string,
+  entity: SketchSolution['entities'][number],
+): SelectionItem {
+  const point = entity.type === 'point'
+  return {
+    key: point ? `point:${sketchId}:${entity.id}` : `sketch:${sketchId}:${entity.id}`,
+    kind: point ? 'sketch_point' : 'sketch_curve',
+    label: `${ENTITY_NOUNS[entity.type]} ${entity.id}`,
+    body: null,
+    feature: sketchId,
+    element: null,
+    sketchItem: point
+      ? { kind: 'point', sketch: sketchId, point: entity.id }
+      : { kind: 'entity', sketch: sketchId, entity: entity.id, entityType: entity.type },
+    origin: null,
+  }
 }
 
 function setSketchSession(app: App, change: Partial<NonNullable<AppState['sketch']>>): void {
@@ -590,7 +590,6 @@ function setSide(app: App, side: AppState['panels']['side']): void {
 
 /** The built-in commands for a platform (the platform decides desktop-only shortcuts). */
 export function builtinCommands(platform: Platform): CommandDefinition[] {
-  const viewport = (app: App) => app.viewport()
   return [
     command({
       id: 'app.palette',
@@ -857,7 +856,7 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
       shortcuts: ['F6', 'Shift+F'],
       contexts: ALL,
       run: (app) => {
-        viewport(app)?.fit()
+        app.viewport()?.fit()
       },
     }),
     command({
@@ -869,7 +868,7 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
       shortcuts: ['Shift+H'],
       contexts: ALL,
       run: (app) => {
-        const handle = viewport(app)
+        const handle = app.viewport()
         handle?.setStandardView('iso')
         handle?.fit()
       },
@@ -889,7 +888,7 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
       run: (app) => {
         const look = lookTarget(stateOf(app))
         if (look !== null) {
-          viewport(app)?.lookAlong(look.normal, look.yAxis, look.target)
+          app.viewport()?.lookAlong(look.normal, look.yAxis, look.target)
         }
       },
     }),
@@ -903,7 +902,7 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
       contexts: ALL,
       checked: (app) => stateOf(app).view.projection === 'orthographic',
       run: (app) => {
-        viewport(app)?.toggleProjection()
+        app.viewport()?.toggleProjection()
       },
     }),
     command({
@@ -944,7 +943,7 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
         contexts: ALL,
         checked: (app) => stateOf(app).view.named === entry.view,
         run: (app) => {
-          viewport(app)?.setStandardView(entry.view)
+          app.viewport()?.setStandardView(entry.view)
         },
       }),
     ),

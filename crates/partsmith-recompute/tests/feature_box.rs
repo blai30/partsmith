@@ -6,8 +6,8 @@ mod feature_support;
 use std::time::Duration;
 
 use feature_support::{
-    Run, assert_bounding_box, assert_canonical_example, assert_error_field, assert_face_area,
-    assert_face_count, assert_face_kind, assert_face_names, assert_face_normal,
+    Run, assert_bounding_box, assert_canonical_example, assert_empty, assert_error_field,
+    assert_face_area, assert_face_count, assert_face_kind, assert_face_names, assert_face_normal,
     assert_face_position, assert_volume, example_paths, face, link_ids, load_example,
     median_build_time,
 };
@@ -220,4 +220,22 @@ fn t010_default_box_builds_within_2_ms() {
         duration < Duration::from_millis(2),
         "the default box took {duration:?} to build (median of 21 runs), over the 2 ms budget",
     );
+}
+
+#[test]
+fn t011_size_below_the_tolerance_is_out_of_range() {
+    let run = Run::records(
+        &["b-1"],
+        &[
+            r#"{"id": "f-box1", "type": "box", "body": "b-1", "size": ["10", "0.0000001", "30"], "op": "new"}"#,
+        ],
+    );
+
+    let error = run.assert_error("f-box1", "out_of_range");
+    assert_error_field(error, "size[1]");
+    assert_eq!(
+        run.messages("f-box1"),
+        ["Width must be greater than 0 mm, but it is 0 mm. Use a value greater than 0 mm."],
+    );
+    assert_empty(&run, "b-1");
 }

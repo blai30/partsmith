@@ -7,7 +7,9 @@
 
 use std::f64::consts::{PI, TAU};
 
-use partsmith_model::{Category, Expr, FeatureManifest, FieldUnit, Id, SelectionKind};
+use partsmith_model::{
+    Category, Expr, FeatureManifest, FieldUnit, Id, LINEAR_TOLERANCE, SelectionKind,
+};
 use partsmith_naming::{FaceSource, Generator, roles};
 use partsmith_occt_sys::{
     Axis, PlanarCurve, PlanarLoop, PlanarRegion, Plane, Point, Point2, Shape, SweepFace,
@@ -20,21 +22,16 @@ use serde::{Deserialize, Serialize};
 use super::common::{
     THROUGH_ALL_MARGIN, bodies, body_hint, call, check_range, empty_selection, essential,
     face_name, farthest_corner, flag, hint, is_false, manifest, one_or_list, options_hint,
-    selection_hint, solid_body, unchanged, unit_hint,
+    out_of_range, selection_hint, solid_body, unchanged, unit_hint,
 };
 use crate::context::BuildContext;
 use crate::deps::Dependencies;
 use crate::error::{Bound, FeatureError, FeatureWarning, IgnoredReason, Noun};
 use crate::feature::Feature;
 use crate::name_shape;
-use crate::output::{BodyChange, FeatureOutput, Tool, apply_op};
+use crate::output::{BodyChange, FeatureOutput, Tool, VOLUME_TOLERANCE, apply_op};
 use crate::params::{BodyOp, PlacementExt};
 use crate::python::{PythonCall, PythonNames, PythonValue};
-
-/// Relative common volume at or below which a tool does not touch the body (features/hole.md
-/// section 3.3 step 5). The same rule as "the volume does not change" in features.md section 3.5,
-/// whose constant the framework keeps private.
-const VOLUME_TOLERANCE: f64 = 1e-9;
 
 /// Cuts round holes at sketch points.
 #[derive(Clone, Copy, Debug)]
@@ -221,14 +218,11 @@ impl Feature for Hole {
                     noun: Noun::Point,
                 })?;
             if !points.iter().any(|(used, _)| *used == point) {
-                let [x, y, z] = sketch.to_world(position);
-                points.push((point, Point::new(x, y, z)));
+                points.push((point, crate::point(sketch.to_world(position))));
             }
         }
 
-        let body_volume = body
-            .volume()
-            .map_err(|error| FeatureError::Kernel { error })?;
+        let body_volume = body.volume()?;
         let mut tools = Vec::new();
         for (point, position) in points {
             if context.is_canceled() {
@@ -365,87 +359,93 @@ struct HoleSize {
 }
 
 impl HoleSize {
-    /// Evaluates the values and checks them in the order of features/hole.md section 3.3 step 2.
-    /// A tip angle on a through-all hole adds an `Ignored` warning and is not evaluated.
+    /// Evaluates the values and checks them in the order of features/hole.md section 3.3 step 2:
+    /// the diameter, the depth, the head, then the tip. A tip angle on a through-all hole adds an
+    /// `Ignored` warning and is not evaluated.
     fn checked(
         params: &HoleParams,
         context: &BuildContext<'_>,
         warnings: &mut Vec<FeatureWarning>,
     ) -> Result<HoleSize, FeatureError> {
-        let diameter = context.eval_length("diameter", &params.diameter)?;
-        let head = match &params.hole_type {
-            HoleType::Simple => None,
-            HoleType::Counterbore { diameter, depth } => Some((
-                context.eval_length("hole_type.diameter", diameter)?,
-                context.eval_length("hole_type.depth", depth)?,
-            )),
-            HoleType::Countersink { diameter, angle } => Some((
-                context.eval_length("hole_type.diameter", diameter)?,
-                context.eval_angle("hole_type.angle", angle)?,
-            )),
-        };
-        let depth = match &params.extent {
-            HoleExtent::Distance { expr } => Some(context.eval_length("extent.expr", expr)?),
-            HoleExtent::ThroughAll => None,
-        };
-
         let length = |field: &str, value: f64, bound: Bound, bound_name: Option<&str>| {
             check_range(context, field, FieldUnit::Length, value, bound, bound_name)
         };
         let angle = |field: &str, value: f64, bound: Bound| {
             check_range(context, field, FieldUnit::Angle, value, bound, None)
         };
+        let diameter = context.eval_length("diameter", &params.diameter)?;
         length("diameter", diameter, Bound::GreaterThan(0.0), None)?;
-        let wider = |head_diameter: f64| {
+        let depth = match &params.extent {
+            HoleExtent::Distance { expr } => {
+                let depth = context.eval_length("extent.expr", expr)?;
+                Some(length("extent.expr", depth, Bound::GreaterThan(0.0), None)?)
+            }
+            HoleExtent::ThroughAll => None,
+        };
+        let wider = |field: &str, expr: &Expr| {
+            let head_diameter = context.eval_length(field, expr)?;
             length(
-                "hole_type.diameter",
+                field,
                 head_diameter,
                 Bound::GreaterThan(diameter),
                 Some("the hole diameter"),
             )
         };
-        let head = match (&params.hole_type, head) {
-            (HoleType::Counterbore { .. }, Some((head_diameter, head_depth))) => {
-                wider(head_diameter)?;
+        let head = match &params.hole_type {
+            HoleType::Simple => Head::Simple,
+            HoleType::Counterbore {
+                diameter: head_diameter,
+                depth: head_depth,
+            } => {
+                let head_diameter = wider("hole_type.diameter", head_diameter)?;
+                let head_depth = context.eval_length("hole_type.depth", head_depth)?;
                 length("hole_type.depth", head_depth, Bound::GreaterThan(0.0), None)?;
-                if let Some(depth) = depth {
-                    length(
+                if let Some(depth) = depth
+                    && !ends_above_shoulder(head_depth, depth)
+                {
+                    return Err(out_of_range(
+                        context,
                         "hole_type.depth",
+                        FieldUnit::Length,
                         head_depth,
                         Bound::LessThan(depth),
                         Some("the hole depth"),
-                    )?;
+                    ));
                 }
                 Head::Counterbore {
                     radius: head_diameter / 2.0,
                     depth: head_depth,
                 }
             }
-            (HoleType::Countersink { .. }, Some((head_diameter, head_angle))) => {
-                wider(head_diameter)?;
+            HoleType::Countersink {
+                diameter: head_diameter,
+                angle: head_angle,
+            } => {
+                let head_diameter = wider("hole_type.diameter", head_diameter)?;
+                let head_angle = context.eval_angle("hole_type.angle", head_angle)?;
                 angle("hole_type.angle", head_angle, Bound::GreaterThan(0.0))?;
                 angle("hole_type.angle", head_angle, Bound::LessThan(PI))?;
                 let slope = (head_angle / 2.0).tan();
-                // The cone must end above the shoulder. The check compares the head diameter with
-                // the bound its message names, so the message and the decision always agree.
-                if let Some(depth) = depth {
-                    length(
+                let head_depth = (head_diameter - diameter) / 2.0 / slope;
+                // The message names the head diameter whose cone ends exactly at the shoulder.
+                if let Some(depth) = depth
+                    && !ends_above_shoulder(head_depth, depth)
+                {
+                    return Err(out_of_range(
+                        context,
                         "hole_type.diameter",
+                        FieldUnit::Length,
                         head_diameter,
                         Bound::LessThan(diameter + 2.0 * depth * slope),
                         Some("the largest that fits the hole depth"),
-                    )?;
+                    ));
                 }
                 Head::Countersink {
                     radius: head_diameter / 2.0,
-                    depth: (head_diameter - diameter) / 2.0 / slope,
+                    depth: head_depth,
                 }
             }
-            _ => Head::Simple,
         };
-        if let Some(depth) = depth {
-            length("extent.expr", depth, Bound::GreaterThan(0.0), None)?;
-        }
         let tip = match (&params.tip_angle, depth) {
             (None, _) => None,
             (Some(_), None) => {
@@ -479,12 +479,11 @@ impl HoleSize {
     }
 
     /// The length of a through-all hole at a point whose farthest body corner is `farthest` along
-    /// the drilling direction: 1 mm past it, and None when that distance is not positive
-    /// (features/hole.md section 3.3 step 4). It is also at least 1 mm past the head, so a head
-    /// deeper than the body still leaves a bore that closes the cross-section.
+    /// the drilling direction: 1 mm past that corner and past the head, so a head deeper than the
+    /// body still leaves a bore below it. None when the corner is not ahead of the point
+    /// (features/hole.md section 3.3 step 4).
     fn through_length(&self, farthest: f64) -> Option<f64> {
-        (farthest > 0.0)
-            .then(|| (farthest + THROUGH_ALL_MARGIN).max(self.head_depth() + THROUGH_ALL_MARGIN))
+        (farthest > 0.0).then(|| farthest.max(self.head_depth()) + THROUGH_ALL_MARGIN)
     }
 
     /// The half cross-section of a hole whose bore ends at `length`, as the end points of its
@@ -514,6 +513,13 @@ impl HoleSize {
         corners.push((Role::Axis, [0.0, 0.0]));
         corners
     }
+}
+
+/// True when a head whose lower end is at `head_depth` ends at least `LINEAR_TOLERANCE` above the
+/// shoulder at `depth`, so the bore between them is long enough for the kernel (features/hole.md
+/// section 3.3 step 2).
+fn ends_above_shoulder(head_depth: f64, depth: f64) -> bool {
+    head_depth <= depth - LINEAR_TOLERANCE
 }
 
 /// The role of one segment of a hole's half cross-section, which names the face it sweeps.
@@ -640,10 +646,8 @@ fn hole_tool(
         outer: PlanarLoop { curves },
         holes: Vec::new(),
     };
-    let profile =
-        make_profile(&frame.plane(), &[region]).map_err(|error| FeatureError::Kernel { error })?;
-    let sweep =
-        revolve(&profile, &frame.axis(), TAU).map_err(|error| FeatureError::Kernel { error })?;
+    let profile = make_profile(&frame.plane(), &[region])?;
+    let sweep = revolve(&profile, &frame.axis(), TAU)?;
     let point_text = point.to_string();
     let faces = sweep
         .faces
@@ -653,8 +657,8 @@ fn hole_tool(
                 SweepFace::Lateral { tag } => Role::of_tag(*tag).and_then(Role::word),
                 SweepFace::StartCap | SweepFace::EndCap => None,
             }
-            .ok_or_else(|| FeatureError::Internal {
-                message: format!("the hole tool has a face without a role: {face:?}"),
+            .ok_or_else(|| {
+                FeatureError::internal(format!("the hole tool has a face without a role: {face:?}"))
             })?;
             face_name(feature, word, Some(Generator::Sketch(&point_text))).map(FaceSource::New)
         })
@@ -666,15 +670,12 @@ fn hole_tool(
     })
 }
 
-/// True when the tool overlaps the body: their common volume is more than a billionth of the
-/// body's (features/hole.md section 3.3 step 5). Disjoint bounding boxes need no kernel boolean.
+/// True when the tool overlaps the body: their common volume is more than `VOLUME_TOLERANCE`
+/// times the body's (features/hole.md section 3.3 step 5). Disjoint bounding boxes need no kernel
+/// boolean.
 fn touches(body: &Shape, body_volume: f64, tool: &Shape) -> Result<bool, FeatureError> {
-    let body_bounds = body
-        .bounding_box()
-        .map_err(|error| FeatureError::Kernel { error })?;
-    let tool_bounds = tool
-        .bounding_box()
-        .map_err(|error| FeatureError::Kernel { error })?;
+    let body_bounds = body.bounding_box()?;
+    let tool_bounds = tool.bounding_box()?;
     let overlap = (0..3).all(|axis| {
         body_bounds.min[axis] <= tool_bounds.max[axis]
             && tool_bounds.min[axis] <= body_bounds.max[axis]
@@ -682,13 +683,8 @@ fn touches(body: &Shape, body_volume: f64, tool: &Shape) -> Result<bool, Feature
     if !overlap {
         return Ok(false);
     }
-    let shared =
-        common(body, std::slice::from_ref(tool)).map_err(|error| FeatureError::Kernel { error })?;
-    let volume = shared
-        .shape
-        .volume()
-        .map_err(|error| FeatureError::Kernel { error })?;
-    Ok(volume > VOLUME_TOLERANCE * body_volume)
+    let shared = common(body, std::slice::from_ref(tool))?;
+    Ok(shared.shape.volume()? > VOLUME_TOLERANCE * body_volume)
 }
 
 /// The kernel point of plane coordinates.
@@ -702,7 +698,7 @@ mod tests {
 
     use super::*;
     use crate::registry::Registry;
-    use crate::test_support::{ScriptNames, id};
+    use crate::test_support::{ScriptNames, fixture, id};
 
     /// `HOLE(points, extra)` of the spec: diameter 6, plus `extra` members.
     fn record(points: serde_json::Value, extra: serde_json::Value) -> serde_json::Value {
@@ -740,6 +736,14 @@ mod tests {
 
     fn python(record: serde_json::Value) -> Option<String> {
         Hole::python(&params(record), &names()).map(|call| call.render(0))
+    }
+
+    /// The error of checking the values of `HOLE(["e-p1"], extra)`.
+    fn size_error(extra: serde_json::Value) -> FeatureError {
+        let hole = params(record(json!(["e-p1"]), extra));
+        let fixture = fixture::<Hole>("f-hole1", &hole, Vec::new(), Vec::new());
+        HoleSize::checked(&hole, &fixture.context(), &mut Vec::new())
+            .expect_err("a value is out of range")
     }
 
     fn size(head: Head, depth: Option<f64>, tip: Option<f64>) -> HoleSize {
@@ -910,6 +914,52 @@ mod tests {
         assert_eq!(simple.through_length(0.0), None);
         assert_eq!(simple.through_length(-3.0), None);
         assert_eq!(simple.through_length(1e-9), Some(1.0 + 1e-9));
+    }
+
+    #[test]
+    fn a_head_must_end_a_tolerance_above_the_shoulder() {
+        assert!(ends_above_shoulder(4.0, 5.0));
+        assert!(!ends_above_shoulder(4.9999999, 5.0));
+        assert!(!ends_above_shoulder(5.0, 5.0));
+    }
+
+    #[test]
+    fn the_depth_is_checked_before_the_head() {
+        let error = size_error(json!({
+            "hole_type": {"kind": "counterbore", "diameter": "5", "depth": "4"},
+            "extent": {"kind": "distance", "expr": "0"}
+        }));
+
+        assert_eq!(
+            error.field().map(|field| field.path.as_str()),
+            Some("extent.expr")
+        );
+    }
+
+    #[test]
+    fn a_counterbore_within_the_tolerance_of_the_shoulder_is_too_deep() {
+        let error = size_error(json!({
+            "hole_type": {"kind": "counterbore", "diameter": "11", "depth": "4.9999999"},
+            "extent": {"kind": "distance", "expr": "5"}
+        }));
+
+        assert_eq!(
+            error.to_string(),
+            "Counterbore depth must be less than the hole depth (5 mm), but it is 5 mm. Use a value less than 5 mm."
+        );
+    }
+
+    #[test]
+    fn a_countersink_within_the_tolerance_of_the_shoulder_is_too_wide() {
+        let error = size_error(json!({
+            "hole_type": {"kind": "countersink", "diameter": "15.9999999", "angle": "90 deg"},
+            "extent": {"kind": "distance", "expr": "5"}
+        }));
+
+        assert_eq!(
+            error.to_string(),
+            "Head diameter must be less than the largest that fits the hole depth (16 mm), but it is 16 mm. Use a value less than 16 mm."
+        );
     }
 
     #[test]

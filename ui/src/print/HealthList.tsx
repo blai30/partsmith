@@ -1,5 +1,5 @@
 import { clsx } from 'clsx/lite'
-import { CircleCheck, LoaderCircle, Printer, RefreshCw, X } from 'lucide-react'
+import { CircleCheck, LoaderCircle, RefreshCw, X } from 'lucide-react'
 import { Button } from '../components/Button'
 import { IconButton } from '../components/IconButton'
 import type { Severity } from '../generated/protocol'
@@ -25,6 +25,8 @@ export type HealthListProps = {
   readonly focusedFinding?: FindingKey | null
   /** Closes the panel; without it the panel has no close button. */
   readonly onClose?: () => void
+  /** The id of the panel's heading, so the region around the panel can be labeled by it. */
+  readonly headingId?: string
 }
 
 /** Words for the severity icon, which screen readers read in its place. */
@@ -83,7 +85,7 @@ function noticeFor(
           strokeWidth={1.75}
           className={clsx('mt-0.5 size-4 shrink-0', COLOR_CLASSES.successMark.foreground)}
         />
-        <span>No problems found with {profileName}.</span>
+        <span>No print issues found with {profileName}.</span>
       </p>
     )
   }
@@ -91,8 +93,9 @@ function noticeFor(
 }
 
 /**
- * The print health panel (`health-list`, ui.md 3.17): the profile, "Check again", and one row per
- * finding. Clicking a row, or Enter on it, frames the finding in the viewport.
+ * The print check panel (`health-list`, ui.md 3.17): "Print check: {profile name}", "Check
+ * again", and one row per finding. Clicking a row, or Enter on it, frames the finding in the
+ * viewport.
  */
 export function HealthList({
   profileName,
@@ -103,24 +106,21 @@ export function HealthList({
   onFocusFinding,
   focusedFinding = null,
   onClose,
+  headingId,
 }: HealthListProps) {
   const notice = noticeFor(hasGeometry, missingReport, rows.length, profileName)
   return (
     <div data-testid="health-list" className="flex h-full min-h-0 flex-col">
       <div className={clsx('flex flex-col gap-3 border-b p-4', COLOR_CLASSES.border.border)}>
-        <div className="flex min-h-6 items-center justify-between gap-2">
-          <h2 className="text-base font-semibold">Print health</h2>
+        <div className="flex min-h-6 items-start justify-between gap-2">
+          <h2 id={headingId} className="min-w-0 text-base font-semibold break-words">
+            Print check: {profileName}
+          </h2>
           {onClose === undefined ? null : (
-            <IconButton size="compact" label="Close print health" icon={X} onClick={onClose} />
+            <IconButton size="compact" label="Close print check" icon={X} onClick={onClose} />
           )}
         </div>
-        <div className="flex items-center gap-2">
-          <Printer
-            aria-hidden="true"
-            strokeWidth={1.75}
-            className={clsx('size-4 shrink-0', COLOR_CLASSES.textMuted.foreground)}
-          />
-          <span className="min-w-0 flex-1 truncate text-sm">{profileName}</span>
+        <div className="flex">
           <Button onClick={onCheckAgain}>
             <RefreshCw aria-hidden="true" strokeWidth={1.75} className="size-4" />
             Check again

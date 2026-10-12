@@ -7,7 +7,7 @@ import { SeverityIcon } from './SeverityIcon'
 export type HealthBadgeProps = {
   /** The badge as `selectHealthBadge` derives it. */
   readonly badge: HealthBadgeState
-  /** Runs the analysis when the report is stale or missing and opens the health panel. */
+  /** Runs the analysis when the report is stale or missing and opens the print check panel. */
   readonly onClick: () => void
 }
 
@@ -23,7 +23,7 @@ function wording(badge: HealthBadgeState): { readonly text: string; readonly nam
     case 'running':
       return { text: 'Checking', name: 'checking' }
     case 'ok':
-      return { text: 'Ready to print', name: 'no problems' }
+      return { text: 'Ready to print', name: 'no issues' }
     case 'warning': {
       const warnings = plural(badge.warnings, 'warning')
       return { text: warnings, name: warnings }
@@ -71,21 +71,22 @@ function BadgeIcon({ state }: { readonly state: HealthBadgeState['state'] }) {
 }
 
 /**
- * The print health badge of the status bar (`health-badge`, ui.md 3.17): an icon and a short text
+ * The print check badge of the status bar (`health-badge`, ui.md 3.17): an icon and a short text
  * for the last report. A report of an older revision keeps its state, drawn at half opacity and
  * marked out of date.
  */
 export function HealthBadge({ badge, onClick }: HealthBadgeProps) {
   const { text, name } = wording(badge)
-  // A running analysis replaces the state the old report gave, so it is not drawn as out of date.
+  // A running analysis checks the current revision, so the badge is not out of date while it
+  // runs: not drawn, named or marked so.
   const outdated = badge.stale && badge.state !== 'running'
   return (
     <button
       type="button"
       data-testid="health-badge"
       data-state={badge.state}
-      data-stale={badge.stale ? 'true' : 'false'}
-      aria-label={`Print health: ${name}${outdated ? ', out of date' : ''}`}
+      data-stale={outdated ? 'true' : 'false'}
+      aria-label={`Print check: ${name}${outdated ? ', out of date' : ''}`}
       onClick={onClick}
       className={clsx(
         'inline-flex h-6 shrink-0 items-center gap-1.5 rounded-sm px-2 text-xs whitespace-nowrap tabular-nums transition-colors duration-150 motion-reduce:transition-none',

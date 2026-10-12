@@ -4,7 +4,7 @@
 use partsmith_model::{
     Category, Expr, FeatureManifest, FieldHint, FieldUnit, Id, OptionHint, SelectionKind,
 };
-use partsmith_naming::{ElementName, FaceSource, Generator, Reference, roles};
+use partsmith_naming::{ElementName, FaceSource, Generator, NamingError, Reference, roles};
 use partsmith_occt_sys::{Point, Primitive, PrimitiveFace, Shape, SweepFace, SweepResult, Vector};
 
 use crate::context::{BodyState, BuildContext};
@@ -129,6 +129,25 @@ fn satisfies(value: f64, bound: Bound) -> bool {
     }
 }
 
+/// `OutOfRange` at `field` for `value`, with the `bound` its message names (features.md section
+/// 4.1). `bound_name` says what the bound is when it comes from another value.
+pub(crate) fn out_of_range(
+    context: &BuildContext<'_>,
+    field: &str,
+    kind: FieldUnit,
+    value: f64,
+    bound: Bound,
+    bound_name: Option<&str>,
+) -> FeatureError {
+    FeatureError::OutOfRange {
+        field: context.field(field),
+        kind,
+        value,
+        bound,
+        bound_name: bound_name.map(str::to_string),
+    }
+}
+
 /// `value` when it satisfies `bound`, else `OutOfRange` at `field` (features.md section 4.1).
 /// `bound_name` says what the bound is when it comes from another value.
 pub(crate) fn check_range(
@@ -142,13 +161,7 @@ pub(crate) fn check_range(
     if satisfies(value, bound) {
         Ok(value)
     } else {
-        Err(FeatureError::OutOfRange {
-            field: context.field(field),
-            kind,
-            value,
-            bound,
-            bound_name: bound_name.map(str::to_string),
-        })
+        Err(out_of_range(context, field, kind, value, bound, bound_name))
     }
 }
 
@@ -240,14 +253,18 @@ pub(crate) fn farthest_corner(
     Ok(farthest)
 }
 
+/// A naming failure, which valid kernel output cannot cause, as an internal error.
+pub(crate) fn naming_failed(error: NamingError) -> FeatureError {
+    FeatureError::internal(format!("naming the result failed: {error}"))
+}
+
 /// A new face name `<feature>/<role>`, or `<feature>/<role>/<generator>` (naming.md section 3.2).
 pub(crate) fn face_name(
     feature: &Id,
     role: &str,
     generator: Option<Generator<'_>>,
 ) -> Result<ElementName, FeatureError> {
-    ElementName::generated(feature, role, generator)
-        .map_err(|error| FeatureError::internal(format!("naming the result failed: {error}")))
+    ElementName::generated(feature, role, generator).map_err(naming_failed)
 }
 
 /// The tool of a primitive: each face named `<feature>/<role>` from its kernel role (naming.md

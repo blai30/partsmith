@@ -185,7 +185,7 @@ export async function createSketchOn(app: App, plane: SelectionItem): Promise<vo
     return
   }
   if (sketchPlane === null) {
-    // While picking the plane of a new sketch, the hint shows in the sketch header (3.16.1).
+    // While picking the plane of a new sketch, the hint shows in the sketch hint (3.16.1).
     showPickHint(app, MESSAGES.pick_plane(), null)
     return
   }

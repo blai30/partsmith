@@ -335,3 +335,17 @@ fn t014_one_hundred_instances_build_within_500_ms() {
         "100 instances took {duration:?} to build (median of 5 runs), over the 500 ms budget",
     );
 }
+
+#[test]
+fn t015_fractional_count_below_1() {
+    let run = Run::records(&BODIES, &[CUBE10, &pattern(&direction(X, "0.5", "20"), "")]);
+
+    let error = run.assert_error("f-lp1", "out_of_range");
+    assert_error_field(error, "direction.count");
+    assert_eq!(
+        run.messages("f-lp1"),
+        ["Count must be at least 1, but it is 0.5. Use 1 or more."]
+    );
+    assert_eq!(error.suggestion(Units::Mm).as_deref(), Some("1"));
+    assert_unchanged(&run, "f-lp1", "b-1");
+}

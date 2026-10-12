@@ -160,7 +160,12 @@ impl Session {
                 output,
             };
             emit_layer(&mut open.emitted.model, Layer::Model, model, &mut meshes);
-            emit_layer(&mut open.emitted.preview, Layer::Preview, preview, &mut meshes);
+            emit_layer(
+                &mut open.emitted.preview,
+                Layer::Preview,
+                preview,
+                &mut meshes,
+            );
         }
         Ok(())
     }
@@ -465,7 +470,9 @@ fn display_failure(document: &Document, view: &BodyView, error: &EngineError) ->
     };
     DisplayFailure {
         feature: view.provider.clone(),
-        message: format!("Partsmith could not display body \"{name}\" ({detail}). Please report this."),
+        message: format!(
+            "Partsmith could not display body \"{name}\" ({detail}). Please report this."
+        ),
     }
 }
 

@@ -255,9 +255,7 @@ fn drag_sketch() -> String {
         let x = (rectangle % 9) as f64 * 30.0;
         let y = (rectangle / 9) as f64 * 30.0;
         let corners = [[x, y], [x + 20.0, y], [x + 20.0, y + 10.0], [x, y + 10.0]];
-        let lines: Vec<String> = (0..4)
-            .map(|side| format!("e-{rectangle}-{side}"))
-            .collect();
+        let lines: Vec<String> = (0..4).map(|side| format!("e-{rectangle}-{side}")).collect();
         for side in 0..4 {
             let next = (side + 1) % 4;
             entities.push(json!({
@@ -416,8 +414,8 @@ fn main() -> ExitCode {
             time(reference_operations[1], Duration::from_secs(1), &mut || {
                 median(|_| {
                     let mut driver = Driver::new();
-                    let (time, answer) = driver
-                        .timed(json!({"type": "open_document", "text": text, "assets": []}));
+                    let (time, answer) =
+                        driver.timed(json!({"type": "open_document", "text": text, "assets": []}));
                     answer.ok();
                     time
                 })
@@ -455,15 +453,20 @@ fn main() -> ExitCode {
                     })
                 },
             );
-            time(reference_operations[4], Duration::from_millis(20), &mut || {
-                let mut driver = Driver::new();
-                let doc = driver.open(&text).doc();
-                median(|_| {
-                    let (time, answer) = driver.timed(json!({"type": "export_python", "doc": doc}));
-                    answer.ok();
-                    time
-                })
-            });
+            time(
+                reference_operations[4],
+                Duration::from_millis(20),
+                &mut || {
+                    let mut driver = Driver::new();
+                    let doc = driver.open(&text).doc();
+                    median(|_| {
+                        let (time, answer) =
+                            driver.timed(json!({"type": "export_python", "doc": doc}));
+                        answer.ok();
+                        time
+                    })
+                },
+            );
         }
     }
 

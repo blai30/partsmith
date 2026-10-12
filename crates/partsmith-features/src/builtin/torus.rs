@@ -5,16 +5,16 @@ use partsmith_occt_sys::make_torus;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use super::common::{check_range, positive_length};
-use super::primitives::{PrimitiveParams, primitive_manifest};
+use super::common::check_range;
+use super::primitives::{PrimitiveParams, positive_size, primitive_manifest};
 use crate::context::BuildContext;
 use crate::deps::Dependencies;
 use crate::error::{Bound, FeatureError};
 use crate::feature::Feature;
 use crate::output::FeatureOutput;
 use crate::params::{BodyOp, PlacementExt, PlaneRef};
-use crate::primitive::{PrimitivePlacement, default_position, is_default_position};
 use crate::python::{PythonCall, PythonNames};
+use crate::{PrimitivePlacement, default_position, is_default_position};
 
 /// A ring torus.
 #[derive(Clone, Copy, Debug)]
@@ -83,8 +83,8 @@ impl Feature for Torus {
         params: &TorusParams,
         context: &BuildContext<'_>,
     ) -> Result<FeatureOutput, FeatureError> {
-        let major = positive_length(context, "major_radius", &params.major_radius)?;
-        let minor = positive_length(context, "minor_radius", &params.minor_radius)?;
+        let major = positive_size(context, "major_radius", &params.major_radius)?;
+        let minor = positive_size(context, "minor_radius", &params.minor_radius)?;
         check_range(
             context,
             "minor_radius",

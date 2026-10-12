@@ -16,7 +16,13 @@ import {
 } from '../../print/fixtures.testing'
 import { DEFAULT_SETTINGS } from '../../settings/settings'
 import { selectHealthBadge } from '../../state/selectors'
-import { INITIAL_STATE, type AppState, type FindingKey } from '../../state/store'
+import {
+  INITIAL_STATE,
+  type ActiveCommand,
+  type AppState,
+  type FindingKey,
+} from '../../state/store'
+import { coreErrorFor } from '../../test/fakes/core-api'
 import { settle } from '../../test/fakes/settle'
 import {
   focusFinding,
@@ -24,7 +30,6 @@ import {
   openPrintHealth,
   runPrintAnalysis,
   setCheckHidden,
-  setOverhangMap,
   setPrinter,
 } from './print'
 
@@ -62,6 +67,20 @@ function cube(center: readonly [number, number, number], side: number) {
     min: center.map((value) => expect.closeTo(value - side / 2, 9)),
     max: center.map((value) => expect.closeTo(value + side / 2, 9)),
   }
+}
+
+// An Extrude command with its transaction open.
+const EXTRUDE: ActiveCommand = {
+  featureType: 'extrude',
+  featureId: 'f-extrude',
+  editing: false,
+  title: 'Extrude',
+  params: {},
+  activeField: null,
+  fieldErrors: {},
+  applied: true,
+  newBody: null,
+  preview: 'shown',
 }
 
 function analyses(harness: PrintApp): readonly (readonly unknown[])[] {
@@ -105,6 +124,48 @@ describe('setPrinter', () => {
     await blocking
     await changing
     expect(harness.core.callsTo('applyEdits')).toHaveLength(1)
+  })
+
+  it("changes nothing when the choice is the document's printer already", async () => {
+    const harness = createPrintApp({ document: documentState({ printer: 'generic-fdm' }) })
+    await setPrinter(harness.app, 'generic-fdm')
+    expect(harness.core.callsTo('applyEdits')).toEqual([])
+  })
+
+  it('changes nothing when the default is chosen for a document without a printer', async () => {
+    const harness = createPrintApp({ document: documentState({ printer: null }) })
+    await setPrinter(harness.app, null)
+    expect(harness.core.callsTo('applyEdits')).toEqual([])
+  })
+
+  it('sets the default profile by id on a document without a printer', async () => {
+    const harness = createPrintApp({ document: documentState({ printer: null }) })
+    await setPrinter(harness.app, 'generic-fdm')
+    expect(harness.core.callsTo('applyEdits')).toEqual([
+      [DOCUMENT_HANDLE, 'Change printer', [{ type: 'set_printer', printer: 'generic-fdm' }]],
+    ])
+  })
+
+  it('changes nothing while a feature command is active (finish_command_first)', async () => {
+    const harness = createPrintApp({
+      command: EXTRUDE,
+      document: documentState({ transactionOpen: true }),
+    })
+    await setPrinter(harness.app, 'generic-resin')
+    expect(harness.core.callsTo('applyEdits')).toEqual([])
+    expect(harness.app.store.getState().notifications).toEqual([])
+  })
+
+  it('changes nothing while a transaction is open', async () => {
+    const harness = createPrintApp({ document: documentState({ transactionOpen: true }) })
+    await setPrinter(harness.app, 'generic-resin')
+    expect(harness.core.callsTo('applyEdits')).toEqual([])
+  })
+
+  it('does nothing without a document', async () => {
+    const harness = createPrintApp({ document: null })
+    await setPrinter(harness.app, 'generic-resin')
+    expect(harness.core.callsTo('applyEdits')).toEqual([])
   })
 })
 
@@ -202,7 +263,11 @@ describe('runPrintAnalysis', () => {
     await vi.waitFor(() => {
       expect(analyses(harness)).toHaveLength(1)
     })
-    pending.push(runPrintAnalysis(harness.app), runPrintAnalysis(harness.app))
+    // Two edits land while the first analysis runs; only the newest revision is analyzed next.
+    setRevision(harness.app, 4)
+    pending.push(runPrintAnalysis(harness.app))
+    setRevision(harness.app, 5)
+    pending.push(runPrintAnalysis(harness.app))
     await settle()
     expect(analyses(harness)).toHaveLength(1)
     first.resolve('ok')
@@ -219,6 +284,82 @@ describe('runPrintAnalysis', () => {
     const harness = createPrintApp({ document: null })
     await runPrintAnalysis(harness.app)
     expect(analyses(harness)).toEqual([])
+  })
+
+  it('sends nothing more while an analysis of the same revision is in flight', async () => {
+    const harness = createPrintApp()
+    const answer = deferred<Health | null>()
+    harness.core.stub('analyzePrint', () => answer.promise)
+    const first = runPrintAnalysis(harness.app)
+    await vi.waitFor(() => {
+      expect(analyses(harness)).toHaveLength(1)
+    })
+    const second = runPrintAnalysis(harness.app)
+    answer.resolve('ok')
+    await Promise.all([first, second])
+    expect(analyses(harness)).toHaveLength(1)
+    expect(running(harness)).toBe(false)
+  })
+
+  it('sends nothing more while an analysis of the same revision is waiting', async () => {
+    const harness = createPrintApp({ document: documentState({ revision: 3 }) })
+    const first = deferred<Health | null>()
+    const answers = [first]
+    harness.core.stub('analyzePrint', () => answers.shift()?.promise ?? Promise.resolve('ok'))
+    const pending = [runPrintAnalysis(harness.app)]
+    await vi.waitFor(() => {
+      expect(analyses(harness)).toHaveLength(1)
+    })
+    setRevision(harness.app, 4)
+    pending.push(runPrintAnalysis(harness.app), runPrintAnalysis(harness.app))
+    first.resolve('ok')
+    await Promise.all(pending)
+    expect(analyses(harness)).toHaveLength(2)
+  })
+
+  it('analyzes the same revision again once the earlier analysis has finished ("Check again")', async () => {
+    const harness = createPrintApp()
+    await runPrintAnalysis(harness.app)
+    await runPrintAnalysis(harness.app)
+    expect(analyses(harness)).toHaveLength(2)
+  })
+
+  it('analyzes the same revision of another document', async () => {
+    const harness = createPrintApp()
+    const answer = deferred<Health | null>()
+    harness.core.stub('analyzePrint', () => answer.promise)
+    const first = runPrintAnalysis(harness.app)
+    await vi.waitFor(() => {
+      expect(analyses(harness)).toHaveLength(1)
+    })
+    harness.app.store.setState((state) =>
+      state.document === null
+        ? {}
+        : { document: { ...state.document, documentHandle: DOCUMENT_HANDLE + 1 } },
+    )
+    const second = runPrintAnalysis(harness.app)
+    harness.core.stub('analyzePrint', () => Promise.resolve('ok'))
+    answer.resolve('ok')
+    await Promise.all([first, second])
+    expect(analyses(harness).map(([documentHandle]) => documentHandle)).toEqual([
+      DOCUMENT_HANDLE,
+      DOCUMENT_HANDLE + 1,
+    ])
+  })
+
+  it('shows a CoreError of the analysis as an error notification and stops running', async () => {
+    const harness = createPrintApp()
+    const error = await coreErrorFor({
+      code: 'internal_error',
+      message: 'The print check could not run.',
+    })
+    harness.core.stub('analyzePrint', () => Promise.reject(error))
+    await runPrintAnalysis(harness.app)
+    const state = harness.app.store.getState()
+    expect(state.notifications.map(({ severity, message }) => ({ severity, message }))).toEqual([
+      { severity: 'error', message: 'The print check could not run.' },
+    ])
+    expect(state.print.running).toBe(false)
   })
 })
 
@@ -316,6 +457,14 @@ describe('focusFinding', () => {
     const harness = focusApp(false)
     focusFinding(harness.app, OVERHANG)
     expect(harness.app.store.getState().print.focusedFinding).toEqual(OVERHANG)
+  })
+
+  it('does not move the camera for a finding the report does not have', () => {
+    const harness = focusApp()
+    focusFinding(harness.app, { body: MUSHROOM.id, check: 'overhangs', index: 1 })
+    focusFinding(harness.app, { body: SLAB.id, check: 'islands', index: 0 })
+    focusFinding(harness.app, { body: 'b-gone', check: 'bed_fit', index: 0 })
+    expect(harness.viewport.zoomToBounds).not.toHaveBeenCalled()
   })
 })
 
@@ -453,6 +602,59 @@ describe('automatic print analysis (installPrintAnalysis)', () => {
   })
 })
 
+describe('one analysis per revision (openPrintHealth and installPrintAnalysis)', () => {
+  const stops: (() => void)[] = []
+
+  afterEach(() => {
+    for (const stop of stops.splice(0)) {
+      stop()
+    }
+  })
+
+  // The cube document at revision 4 with a report of revision 3, in Model context.
+  function staleApp(): PrintApp {
+    const harness = createPrintApp({
+      context: 'model',
+      document: documentState({ revision: 4 }),
+      print: printState({ report: OVERHANG_REPORT, reportRevision: 3 }),
+    })
+    stops.push(installPrintAnalysis(harness.app))
+    return harness
+  }
+
+  it('a badge click in Model, then entering Print, sends one analyzePrint', async () => {
+    const harness = staleApp()
+    const answer = deferred<Health | null>()
+    harness.core.stub('analyzePrint', () => answer.promise)
+    const clicked = openPrintHealth(harness.app)
+    await vi.waitFor(() => {
+      expect(analyses(harness)).toHaveLength(1)
+    })
+    harness.app.store.setState({ context: 'print' })
+    await settle()
+    answer.resolve('warning')
+    await clicked
+    await settle()
+    expect(analyses(harness)).toHaveLength(1)
+  })
+
+  it('a badge click while the automatic analysis runs sends nothing more', async () => {
+    const harness = staleApp()
+    const answer = deferred<Health | null>()
+    harness.core.stub('analyzePrint', () => answer.promise)
+    harness.app.store.setState({ context: 'print' })
+    await vi.waitFor(() => {
+      expect(analyses(harness)).toHaveLength(1)
+    })
+    const clicked = openPrintHealth(harness.app)
+    await settle()
+    answer.resolve('warning')
+    await clicked
+    expect(analyses(harness)).toHaveLength(1)
+    expect(harness.app.store.getState().panels.side).toBe('health')
+  })
+})
+
 describe('setCheckHidden for mesh validity', () => {
   it('never hides mesh validity, which is always checked', () => {
     const harness = createPrintApp()
@@ -466,23 +668,6 @@ describe('setCheckHidden for mesh validity', () => {
     })
     setCheckHidden(harness.app, 'mesh_validity', false)
     expect(harness.app.store.getState().settings.hiddenChecks).toEqual(['islands'])
-  })
-})
-
-describe('setOverhangMap', () => {
-  it('turns the overhang map off and on again', () => {
-    const harness = createPrintApp()
-    setOverhangMap(harness.app, false)
-    expect(harness.app.store.getState().print.overhangMap).toBe(false)
-    setOverhangMap(harness.app, true)
-    expect(harness.app.store.getState().print.overhangMap).toBe(true)
-  })
-
-  it('leaves the print state as it is when the map already has that state', () => {
-    const harness = createPrintApp()
-    const before = harness.app.store.getState().print
-    setOverhangMap(harness.app, true)
-    expect(harness.app.store.getState().print).toBe(before)
   })
 })
 

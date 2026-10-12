@@ -1,6 +1,6 @@
 import { clsx } from 'clsx/lite'
 import { useEffect, useRef, useState, type DragEvent } from 'react'
-import { cancelCommand } from './app/actions/command'
+import { cancelCommand, confirmCommand } from './app/actions/command'
 import { openFile } from './app/actions/document'
 import { clearSelection } from './app/actions/selection'
 import { finishSketch, setSketchTool } from './app/actions/sketch'
@@ -8,6 +8,7 @@ import { useApp, useAppState } from './app/AppProvider'
 import type { App as AppHandle } from './app/createApp'
 import { Browser } from './browser/Browser'
 import { Inspector } from './inspector/Inspector'
+import { buildInspectorModel } from './inspector/model'
 import { useResolvedTheme } from './layout/use-resolved-theme'
 import { CommandPalette } from './layout/CommandPalette'
 import { Notifications } from './layout/Notifications'
@@ -137,6 +138,67 @@ function useEscapeLadder(app: AppHandle): void {
     return () => {
       document.removeEventListener('toggle', onToggle, true)
       window.removeEventListener('keydown', onKeyDownCapture, true)
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [app])
+}
+
+/** Whether the active feature command can be confirmed: every required field set, no field error. */
+function commandComplete(state: AppState): boolean {
+  const command = state.command
+  const feature = command === null ? undefined : state.catalog?.byType[command.featureType]
+  return (
+    command !== null &&
+    feature !== undefined &&
+    buildInspectorModel({ feature, params: command.params, errors: command.fieldErrors }).complete
+  )
+}
+
+/** Whether Enter on the element belongs to the element itself (a button activates, a list opens). */
+function handlesOwnEnter(element: Element): boolean {
+  return (
+    element.closest(
+      'button, a, select, textarea, [role="button"], [role="menu"], [role="listbox"]',
+    ) !== null
+  )
+}
+
+/**
+ * The last step of the Enter ladder (3.5): with focus in the inspector (not on a button) or on the
+ * viewport, Enter confirms the active feature command when it is complete. Inline editors and the
+ * line tool take Enter first and prevent its default.
+ */
+function useEnterLadder(app: AppHandle): void {
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent): void => {
+      const target = event.target
+      if (
+        event.key !== 'Enter' ||
+        event.defaultPrevented ||
+        event.isComposing ||
+        event.ctrlKey ||
+        event.metaKey ||
+        event.altKey ||
+        !(target instanceof Element)
+      ) {
+        return
+      }
+      const inInspector =
+        target.closest('[data-testid="inspector"][data-mode="command"]') !== null &&
+        !handlesOwnEnter(target)
+      const onViewport =
+        target.getAttribute('role') === 'application' &&
+        target.closest('[data-testid="viewport"]') !== null
+      if ((!inInspector && !onViewport) || !commandComplete(app.store.getState())) {
+        return
+      }
+      event.preventDefault()
+      confirmCommand(app).catch((error: unknown) => {
+        console.error('Confirming the command failed.', error)
+      })
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
       window.removeEventListener('keydown', onKeyDown)
     }
   }, [app])
@@ -278,6 +340,7 @@ export function App() {
   const drop = useFileDrop(app)
   useRootClasses()
   useEscapeLadder(app)
+  useEnterLadder(app)
   return (
     <div
       data-testid="app"

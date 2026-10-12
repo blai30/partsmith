@@ -1,18 +1,16 @@
 //! The `sketch` feature: places a sketch, evaluates its driving dimensions, solves it and outputs
 //! its geometry and closed regions (features/sketch.md).
 
-use partsmith_model::{Category, FeatureManifest, FieldUnit, Id, SelectionKind};
-use partsmith_naming::{ElementKind, Reference};
-use partsmith_occt_sys::GeometryKind;
+use partsmith_model::{Category, FeatureManifest, FieldUnit, SelectionKind};
 use partsmith_sketch::{
-    DimensionValues, NativeSolver, Placement, SketchParams, SketchPlane, SolveIssue, Solver,
-    ValueKind, build_profile,
+    DimensionValues, NativeSolver, SketchParams, SketchPlane, SolveIssue, Solver, ValueKind,
+    build_profile,
 };
 
 use super::common::{essential, hint, manifest, selection_hint};
 use crate::context::BuildContext;
 use crate::deps::Dependencies;
-use crate::error::{FallbackReason, FeatureError, FeatureWarning};
+use crate::error::{FeatureError, FeatureWarning};
 use crate::feature::Feature;
 use crate::output::{DatumResult, FeatureOutput, OutputData, SketchResult};
 
@@ -105,18 +103,18 @@ impl Feature for SketchFeature {
                 body,
                 face,
                 fallback,
-            } => {
-                let (placement, fallback_reason) = face_placement(context, body, face, fallback)?;
-                if let Some(reason) = fallback_reason {
+            } => match context.face_placement(body, face, fallback)? {
+                Ok(placement) => placement,
+                Err(reason) => {
                     warnings.push(FeatureWarning::PlaneFallback {
                         field: context.field(FACE_FIELD),
                         body: body.clone(),
                         reference: face.clone(),
                         reason,
                     });
+                    *fallback
                 }
-                placement
-            }
+            },
         };
         let values = driving_values(params, context)?;
         let solved = NativeSolver
@@ -173,60 +171,6 @@ fn driving_values(
         values.insert(constraint.id.clone(), value);
     }
     Ok(values)
-}
-
-/// The placement of a sketch on a face (features/sketch.md section 3.3): the face's plane with the
-/// origin and x-axis kept as close to the fallback as possible, or the fallback itself with the
-/// reason when the body is empty or the face is missing, ambiguous or not flat.
-fn face_placement(
-    context: &BuildContext<'_>,
-    body: &Id,
-    face: &Reference,
-    fallback: &Placement,
-) -> Result<(Placement, Option<FallbackReason>), FeatureError> {
-    let state = context.body(body)?;
-    let Some(shape) = state.shape() else {
-        return Ok((*fallback, Some(FallbackReason::Missing)));
-    };
-    let found = match context.resolve(FACE_FIELD, body, face, ElementKind::Face) {
-        Ok(found) => found,
-        Err(FeatureError::ReferenceNotFound { candidates, .. }) => {
-            let reason = if candidates.is_empty() {
-                FallbackReason::Missing
-            } else {
-                FallbackReason::Ambiguous
-            };
-            return Ok((*fallback, Some(reason)));
-        }
-        Err(error) => return Err(error),
-    };
-    let first = found
-        .first()
-        .ok_or_else(|| internal("a resolved face reference has no face"))?;
-    let geometry = shape
-        .element(first.kind, first.index)
-        .map_err(|error| FeatureError::Kernel { error })?;
-    if geometry.kind != GeometryKind::Plane {
-        return Ok((*fallback, Some(FallbackReason::NotPlanar)));
-    }
-    let normal = geometry
-        .direction
-        .ok_or_else(|| internal("the kernel gave a plane without a normal"))?;
-    let centroid = geometry.centroid;
-    let placement = Placement::on_plane(
-        [centroid.x, centroid.y, centroid.z],
-        [normal.x, normal.y, normal.z],
-        fallback,
-    )
-    .map_err(|error| internal(format!("placing the sketch failed: {error}")))?;
-    Ok((placement, None))
-}
-
-/// An internal error for a failure that valid kernel output cannot cause.
-fn internal(message: impl Into<String>) -> FeatureError {
-    FeatureError::Internal {
-        message: message.into(),
-    }
 }
 
 #[cfg(test)]

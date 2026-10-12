@@ -224,3 +224,17 @@ fn t010_six_around_builds_within_40_ms() {
         "the pattern took {duration:?} to build (median of 21 runs), over the 40 ms budget",
     );
 }
+
+#[test]
+fn t011_fractional_count_below_1() {
+    let run = Run::records(&BODIES, &[PEG, &pattern(r#""count": "0.5""#)]);
+
+    let error = run.assert_error("f-cp1", "out_of_range");
+    assert_error_field(error, "count");
+    assert_eq!(
+        run.messages("f-cp1"),
+        ["Count must be at least 1, but it is 0.5. Use 1 or more."]
+    );
+    assert_eq!(error.suggestion(Units::Mm).as_deref(), Some("1"));
+    assert_unchanged(&run, "f-cp1", "b-1");
+}

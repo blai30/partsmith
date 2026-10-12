@@ -5,7 +5,7 @@ import type { App } from '../app/createApp'
 import { Menu, type MenuEntry } from '../components/Menu'
 import type { RecentFile } from '../files/recent'
 import type { Settings } from '../settings/settings'
-import { runCommand, useCommandViews, type CommandView } from './use-commands'
+import { commandMenuItem, runCommand, useCommandViews, type CommandView } from './use-commands'
 
 // The Document menu under the document name (ui.md 3.2): New, Open..., Open recent, Save,
 // Save as..., Export..., then the Theme, Navigation and UI scale settings.
@@ -30,23 +30,11 @@ function openedText(openedAt: number): string {
   return new Date(openedAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })
 }
 
-/** The menu item of a command, labeled as the menu words it. */
+/** The menu item of a command, labeled as the menu words it; nothing for a hidden command. */
 function commandItem(app: App, view: CommandView | undefined, label: string): MenuEntry[] {
-  if (view === undefined || view.availability.state === 'hidden') {
-    return []
-  }
-  return [
-    {
-      kind: 'item',
-      label,
-      ...(view.definition.icon === null ? {} : { icon: view.definition.icon }),
-      ...(view.shortcut === null ? {} : { shortcut: view.shortcut }),
-      disabled: view.availability.state === 'disabled',
-      onSelect: () => {
-        runCommand(app, view.definition.id, 'menu')
-      },
-    },
-  ]
+  return view === undefined || view.availability.state === 'hidden'
+    ? []
+    : [commandMenuItem(app, view, label)]
 }
 
 function report(error: unknown): void {
