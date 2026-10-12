@@ -11,9 +11,12 @@ publish = false
 
 # The web core module. Emscripten embeds the .wasm file name in the .js loader, so the binary
 # carries the published name `partsmith_core` (protocol.md section 2.10, scripts/build-wasm.sh).
+# Its logic lives in the library, and a test harness linked with the module's link arguments
+# would never run, so the binary has no unit tests.
 [[bin]]
 name = "partsmith_core"
 path = "src/main.rs"
+test = false
 
 [dependencies]
 

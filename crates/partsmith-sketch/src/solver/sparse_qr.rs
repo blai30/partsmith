@@ -139,7 +139,6 @@ impl SparseQr {
     /// so the norm is taken as at least 1: a column shorter than `tolerance` is zero up to rounding
     /// (an exactly zero column always is dependent).
     pub(crate) fn add(&mut self, column: &[(usize, f64)], tolerance: f64) -> Added {
-        COLUMNS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         for &(row, value) in column {
             self.workspace.add(row, value);
         }
@@ -233,8 +232,6 @@ impl SparseQr {
             );
             for &row in &self.workspace.support[touched_before..] {
                 let list = &self.touching[row];
-                NEWROWS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                TOUCHLEN.fetch_add(list.len(), std::sync::atomic::Ordering::Relaxed);
                 let following = match order {
                     Order::Ascending => &list[list.partition_point(|&other| other <= reflector)..],
                     Order::Descending => &list[..list.partition_point(|&other| other < reflector)],
@@ -335,16 +332,7 @@ impl SparseQr {
 }
 
 /// Queues a reflector unless it already waits, keeping the queue sorted so that the next one in `order` is last.
-pub static ENQUEUE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-pub static INSERT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-pub static QUEUE_SHIFT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-pub static ADDS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-pub static REFLECTS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-pub static NEWROWS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-pub static TOUCHLEN: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-pub static COLUMNS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 fn enqueue(queue: &mut Vec<usize>, queued: &mut [bool], reflector: usize, order: Order) {
-    ENQUEUE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     if queued[reflector] {
         return;
     }
@@ -353,8 +341,6 @@ fn enqueue(queue: &mut Vec<usize>, queued: &mut [bool], reflector: usize, order:
         Order::Ascending => queue.partition_point(|&other| other > reflector),
         Order::Descending => queue.partition_point(|&other| other < reflector),
     };
-    INSERT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    QUEUE_SHIFT.fetch_add(queue.len() - position, std::sync::atomic::Ordering::Relaxed);
     queue.insert(position, reflector);
 }
 
@@ -370,8 +356,6 @@ fn reflect(rows: &[usize], vector: &[f64], beta: f64, workspace: &mut Workspace)
         return;
     }
     let factor = beta * product;
-    REFLECTS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    ADDS.fetch_add(rows.len(), std::sync::atomic::Ordering::Relaxed);
     for (&row, &value) in rows.iter().zip(vector) {
         workspace.add(row, -factor * value);
     }

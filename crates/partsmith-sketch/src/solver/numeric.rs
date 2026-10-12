@@ -197,16 +197,6 @@ pub(crate) enum Outcome {
 /// Runs dog-leg from `start`, then Levenberg-Marquardt from `start` again when dog-leg does not converge.
 /// A converged point is refined before it is returned.
 pub(crate) fn solve(problem: &mut Problem<'_>, start: &[f64]) -> Outcome {
-    use std::sync::atomic::Ordering::Relaxed;
-    use super::sparse_qr::*;
-    let all = [&ENQUEUE, &INSERT, &QUEUE_SHIFT, &ADDS, &REFLECTS, &NEWROWS, &TOUCHLEN, &COLUMNS];
-    for counter in all { counter.store(0, Relaxed); }
-    let outcome = solve_inner(problem, start);
-    let c = COLUMNS.load(Relaxed) as f64;
-    eprintln!("per column: enqueue {:.1} insert {:.1} shift {:.1} adds {:.1} reflects {:.1} newrows {:.1} touchlen {:.1}", ENQUEUE.load(Relaxed) as f64 / c, INSERT.load(Relaxed) as f64 / c, QUEUE_SHIFT.load(Relaxed) as f64 / c, ADDS.load(Relaxed) as f64 / c, REFLECTS.load(Relaxed) as f64 / c, NEWROWS.load(Relaxed) as f64 / c, TOUCHLEN.load(Relaxed) as f64 / c);
-    outcome
-}
-fn solve_inner(problem: &mut Problem<'_>, start: &[f64]) -> Outcome {
     let (solution, evaluation) = match dog_leg(problem, start) {
         Some(converged) => converged,
         None => match levenberg_marquardt(problem, start) {

@@ -6,7 +6,7 @@ mod layout;
 mod measure;
 mod numeric;
 mod rows;
-pub(crate) mod sparse_qr;
+mod sparse_qr;
 mod substitution;
 mod system;
 

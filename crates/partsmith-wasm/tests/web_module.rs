@@ -19,6 +19,9 @@ fn node() -> OsString {
 
 /// Why the test cannot run here, if it cannot.
 fn skip_reason(module: &Path, wasm: &Path) -> Option<String> {
+    if cfg!(target_family = "wasm") {
+        return Some("WebAssembly test builds cannot start Node as a subprocess.".to_string());
+    }
     for file in [module, wasm] {
         if !file.is_file() {
             return Some(format!(
