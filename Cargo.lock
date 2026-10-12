@@ -447,12 +447,14 @@ name = "partsmith-features"
 version = "0.1.0"
 dependencies = [
  "partsmith-model",
+ "partsmith-naming",
  "partsmith-occt-sys",
  "partsmith-sketch",
  "proptest",
  "schemars",
  "serde",
  "serde_json",
+ "thiserror",
 ]
 
 [[package]]
@@ -463,6 +465,7 @@ dependencies = [
  "partsmith-model",
  "partsmith-occt-sys",
  "pretty_assertions",
+ "thiserror",
  "zip",
 ]
 
@@ -530,10 +533,16 @@ dependencies = [
 name = "partsmith-protocol"
 version = "0.1.0"
 dependencies = [
+ "partsmith-mesh",
  "partsmith-model",
  "partsmith-naming",
+ "partsmith-print",
+ "partsmith-sketch",
  "proptest",
+ "schemars",
+ "serde",
  "serde_json",
+ "thiserror",
 ]
 
 [[package]]
