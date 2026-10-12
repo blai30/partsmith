@@ -1,32 +1,26 @@
-//! The `torus` feature: a ring torus centered on the placement origin, its axis along the plane
-//! normal (docs/spec/features/torus.md).
+//! The `torus` feature: a ring torus centered on the placement origin (features/torus.md).
 
-use partsmith_model::{Expr, Id};
+use partsmith_model::{Category, Expr, FeatureManifest, FieldUnit, Id};
 use partsmith_occt_sys::make_torus;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use super::primitives::{self, SizeField};
-use crate::{
-    BodyOp, Bound, BuildContext, Dependencies, Feature, FeatureError, FeatureManifest,
-    FeatureOutput, PlacementExt, PlaneRef, PrimitivePlacement, PythonCall, PythonNames,
-    default_position, is_default_position,
+use super::common::{
+    apply_tool, body_hint, body_op_hint, call, check_range, essential, manifest, op_keyword,
+    positive_length, primitive_tool, unit_hint,
 };
-
-/// The ring radius field.
-const MAJOR_RADIUS: SizeField = SizeField {
-    path: "major_radius",
-    label: "Ring radius",
-};
-
-/// The tube radius field.
-const MINOR_RADIUS: SizeField = SizeField {
-    path: "minor_radius",
-    label: "Tube radius",
-};
+use crate::context::BuildContext;
+use crate::deps::Dependencies;
+use crate::error::{Bound, FeatureError};
+use crate::feature::Feature;
+use crate::naming::kernel;
+use crate::output::FeatureOutput;
+use crate::params::{BodyOp, PlacementExt, PlaneRef};
+use crate::primitive::{PrimitivePlacement, default_position, is_default_position};
+use crate::python::{PythonCall, PythonNames, PythonValue};
 
 /// A ring torus.
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug)]
 pub struct Torus;
 
 /// Params of a torus feature.
@@ -66,151 +60,126 @@ impl Feature for Torus {
     type Params = TorusParams;
 
     fn manifest() -> FeatureManifest {
-        primitives::manifest("Torus", "torus", &[MAJOR_RADIUS, MINOR_RADIUS])
+        let mut fields = vec![
+            essential(unit_hint("major_radius", "Ring radius", FieldUnit::Length)),
+            essential(unit_hint("minor_radius", "Tube radius", FieldUnit::Length)),
+            body_op_hint(),
+        ];
+        fields.extend(PrimitivePlacement::hints());
+        fields.push(body_hint());
+        manifest("Torus", Category::Create, "torus", fields)
     }
 
     fn dependencies(params: &TorusParams) -> Dependencies {
-        primitives::dependencies(
-            &params.body,
-            &[
-                (MAJOR_RADIUS, &params.major_radius),
-                (MINOR_RADIUS, &params.minor_radius),
-            ],
-            params.placement(),
-        )
+        let mut dependencies = Dependencies::default();
+        dependencies.add_body_written(&params.body, "body");
+        dependencies.add_expression("major_radius", &params.major_radius, FieldUnit::Length);
+        dependencies.add_expression("minor_radius", &params.minor_radius, FieldUnit::Length);
+        params.placement().add_dependencies(&mut dependencies);
+        dependencies
     }
 
     fn build(
         params: &TorusParams,
         context: &BuildContext<'_>,
     ) -> Result<FeatureOutput, FeatureError> {
-        let major_radius =
-            primitives::positive_length(context, MAJOR_RADIUS.path, &params.major_radius)?;
-        let minor_radius =
-            primitives::positive_length(context, MINOR_RADIUS.path, &params.minor_radius)?;
-        if minor_radius >= major_radius {
-            return Err(primitives::out_of_range(
-                context,
-                MINOR_RADIUS.path,
-                minor_radius,
-                Bound::LessThan(major_radius),
-                Some("the ring radius"),
-            ));
-        }
+        let major = positive_length(context, "major_radius", &params.major_radius)?;
+        let minor = positive_length(context, "minor_radius", &params.minor_radius)?;
+        check_range(
+            context,
+            "minor_radius",
+            FieldUnit::Length,
+            minor,
+            Bound::LessThan(major),
+            Some("the ring radius"),
+        )?;
         let frame = params.placement().frame(context)?;
-        let primitive = make_torus(&frame.to_kernel(), major_radius, minor_radius)
-            .map_err(primitives::kernel)?;
-        primitives::combine(context, &params.body, params.op, primitive)
+        let primitive = make_torus(&frame.to_kernel(), major, minor).map_err(kernel)?;
+        let tool = primitive_tool(context.feature(), primitive)?;
+        apply_tool(context, &params.body, params.op, tool, Vec::new())
     }
 
     fn python(params: &TorusParams, names: &dyn PythonNames) -> Option<PythonCall> {
-        primitives::python(
-            "torus",
-            &[&params.major_radius, &params.minor_radius],
-            &params.body,
-            params.op,
-            params.placement(),
-            names,
-        )
+        let sizes = vec![
+            PythonValue::expression(&params.major_radius, names),
+            PythonValue::expression(&params.minor_radius, names),
+        ];
+        let mut keywords = params.placement().python_keywords(names)?;
+        keywords.extend(op_keyword(names, &params.body, params.op));
+        Some(call("torus", sizes, keywords))
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::f64::consts::PI;
+
+    use partsmith_occt_sys::GeometryKind;
     use serde_json::json;
 
     use super::*;
-    use crate::builtin::primitives::testing::{build, params, python};
-    use crate::test_support::face_names;
-    use crate::{OutputData, Registry};
+    use crate::error::Bound;
+    use crate::test_support::{ScriptNames, run};
 
-    /// The spec's `TOR` record with this tube radius.
-    fn torus(minor_radius: &str) -> TorusParams {
-        params::<Torus>(json!({
-            "id": "f-tor1", "type": "torus", "body": "b-1", "major_radius": "20",
-            "minor_radius": minor_radius, "op": "new"
-        }))
+    fn torus(extra: serde_json::Value) -> serde_json::Value {
+        let mut record = json!({"id": "f-tor1", "type": "torus", "body": "b-1", "major_radius": "20", "minor_radius": "5", "op": "new"});
+        if let (Some(record), Some(extra)) = (record.as_object_mut(), extra.as_object()) {
+            record.extend(extra.clone());
+        }
+        record
     }
 
     #[test]
-    fn registers_with_its_manifest() {
-        let mut registry = Registry::new();
+    fn a_default_torus_lies_in_xy() {
+        let run = run(&["b-1"], &[torus(json!({}))]);
 
-        registry
-            .register::<Torus>()
-            .expect("the torus passes the registration checks");
-
-        assert_eq!(registry.types().collect::<Vec<_>>(), ["torus"]);
+        run.assert_ok("f-tor1");
+        run.assert_volume("b-1", 2.0 * PI * PI * 20.0 * 25.0);
+        run.assert_faces("b-1", 1);
+        run.assert_bounding_box("b-1", [-25.0, -25.0, -5.0], [25.0, 25.0, 5.0]);
+        assert_eq!(run.face("b-1", "f-tor1/surface").kind, GeometryKind::Torus);
+        run.assert_face_area("b-1", "f-tor1/surface", 3947.841760);
     }
 
     #[test]
-    fn manifest_labels_ring_and_tube() {
-        let manifest = Torus::manifest();
+    fn a_torus_on_xz_has_its_axis_along_y() {
+        let run = run(
+            &["b-1"],
+            &[torus(json!({"plane": {"kind": "origin", "plane": "XZ"}}))],
+        );
 
-        assert_eq!(manifest.fields[0].label, "Ring radius");
-        assert_eq!(manifest.fields[1].label, "Tube radius");
+        run.assert_bounding_box("b-1", [-25.0, -5.0, -25.0], [25.0, 5.0, 25.0]);
     }
 
     #[test]
-    fn builds_one_surface() {
-        let output = build::<Torus>(&torus("5"), Vec::new()).expect("the torus builds");
+    fn the_tube_must_be_smaller_than_the_ring() {
+        let run = run(&["b-1"], &[torus(json!({"minor_radius": "20"}))]);
 
-        let OutputData::Bodies(updates) = &output.data else {
-            panic!("a torus outputs body updates");
-        };
-        assert_eq!(face_names(&updates[0].naming), ["f-prim1/surface"]);
-    }
-
-    #[test]
-    fn a_tube_as_large_as_the_ring_is_out_of_range() {
-        let error = build::<Torus>(&torus("20"), Vec::new()).expect_err("a horn torus fails");
-
-        assert_eq!(error.field().expect("names its field").path, "minor_radius");
         assert_eq!(
-            error.to_string(),
-            "Tube radius must be less than the ring radius (20 mm), but it is 20 mm. Use a value less than 20 mm."
+            run.messages("f-tor1"),
+            ["Tube radius must be less than the ring radius (20 mm), but it is 20 mm. Use a value less than 20 mm."]
         );
     }
 
     #[test]
-    fn a_zero_tube_is_greater_than_zero_out_of_range() {
-        let error = build::<Torus>(&torus("0"), Vec::new()).expect_err("no tube fails");
+    fn a_zero_tube_is_out_of_range() {
+        let run = run(&["b-1"], &[torus(json!({"minor_radius": "0"}))]);
 
-        assert!(
-            matches!(
-                error,
-                FeatureError::OutOfRange {
-                    bound: Bound::GreaterThan(0.0),
-                    ..
-                }
-            ),
-            "{error:?}"
-        );
+        assert!(matches!(
+            run.error("f-tor1"),
+            FeatureError::OutOfRange { bound: Bound::GreaterThan(0.0), field, .. } if field.path == "minor_radius"
+        ));
     }
 
     #[test]
-    fn a_zero_ring_is_checked_first() {
-        let mut params = torus("0");
-        params.major_radius = Expr::new("0");
+    fn python_writes_both_radii() {
+        let params: TorusParams = serde_json::from_value(
+            json!({"body": "b-1", "major_radius": "20", "minor_radius": "5", "op": "join"}),
+        )
+        .expect("valid params");
 
-        let error = build::<Torus>(&params, Vec::new()).expect_err("no ring fails");
+        let python = Torus::python(&params, &ScriptNames::default()).expect("a dedicated form");
 
-        assert_eq!(error.field().expect("names its field").path, "major_radius");
-    }
-
-    #[test]
-    fn python_writes_ring_and_tube() {
-        assert_eq!(
-            python::<Torus>(&torus("5"), BodyOp::New).as_deref(),
-            Some("torus(20, 5)")
-        );
-    }
-
-    #[test]
-    fn python_writes_the_op_when_it_is_not_the_default() {
-        assert_eq!(
-            python::<Torus>(&torus("5"), BodyOp::Join).as_deref(),
-            Some(r#"torus(20, 5, op="new")"#)
-        );
+        assert_eq!(python.render(0), r#"torus(20, 5, op="join")"#);
     }
 }

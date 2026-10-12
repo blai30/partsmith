@@ -1,0 +1,538 @@
+//! The `boolean` feature: joins, cuts or intersects a target body with tool bodies, and empties
+//! the tools unless they are kept (docs/spec/features/boolean.md).
+
+use std::sync::Arc;
+
+use partsmith_model::{Category, FeatureManifest, FieldHint, Id, SelectionKind};
+use partsmith_naming::NamingMap;
+use partsmith_occt_sys::{KernelError, OpResult, Shape, SubShapeKind, common, cut, fuse};
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
+
+use super::combine::{self, hint, is_false, options};
+use crate::context::{BodyState, BuildContext};
+use crate::deps::Dependencies;
+use crate::error::{FeatureError, FeatureWarning, FieldRef, Noun};
+use crate::feature::Feature;
+use crate::naming::{kernel, name_by_history};
+use crate::output::{BodyChange, BodyUpdate, FeatureOutput};
+use crate::params::BodyOp;
+use crate::python::{PythonCall, PythonNames, PythonValue};
+
+/// Relative volume change at or below which the target counts as unchanged, and relative volume
+/// at or below which nothing of it is left (features.md section 3.5).
+const VOLUME_TOLERANCE: f64 = 1e-9;
+
+/// Joins, cuts or intersects a target body with tool bodies.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Boolean;
+
+/// Params of a boolean feature.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct BooleanParams {
+    /// The body that receives the result.
+    pub target: Id,
+    /// Tool bodies, at least one, distinct, not the target.
+    pub tools: Vec<Id>,
+    /// The operation. Required.
+    pub op: BooleanOp,
+    /// Leave the tools unchanged instead of consuming them. Default false, omitted when false.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub keep_tools: bool,
+}
+
+/// The operation of a boolean feature.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum BooleanOp {
+    /// The target joined with every tool (kernel `fuse`).
+    Join,
+    /// The target minus the union of the tools (kernel `cut`).
+    Cut,
+    /// The part of the target inside every tool (kernel `common`).
+    Intersect,
+}
+
+/// A kernel boolean of a target with every tool.
+type KernelBoolean = fn(&Shape, &[Shape]) -> Result<OpResult, KernelError>;
+
+impl BooleanOp {
+    /// The stored name, which Python also writes.
+    fn name(self) -> &'static str {
+        match self {
+            BooleanOp::Join => "join",
+            BooleanOp::Cut => "cut",
+            BooleanOp::Intersect => "intersect",
+        }
+    }
+
+    /// What the operation does to the target body.
+    fn change(self) -> BodyChange {
+        match self {
+            BooleanOp::Join => BodyChange::Join,
+            BooleanOp::Cut => BodyChange::Cut,
+            BooleanOp::Intersect => BodyChange::Intersect,
+        }
+    }
+
+    /// The kernel call of the operation.
+    fn kernel(self) -> KernelBoolean {
+        match self {
+            BooleanOp::Join => fuse,
+            BooleanOp::Cut => cut,
+            BooleanOp::Intersect => common,
+        }
+    }
+
+    /// The body op an empty result reports. Only a cut or an intersection can leave nothing.
+    fn body_op(self) -> BodyOp {
+        match self {
+            BooleanOp::Join => BodyOp::Join,
+            BooleanOp::Cut => BodyOp::Cut,
+            BooleanOp::Intersect => BodyOp::Intersect,
+        }
+    }
+}
+
+impl Feature for Boolean {
+    const TYPE: &'static str = "boolean";
+    type Params = BooleanParams;
+
+    fn manifest() -> FeatureManifest {
+        combine::manifest(
+            "Boolean",
+            Category::Modify,
+            "boolean",
+            vec![
+                FieldHint {
+                    selection: Some(SelectionKind::Body),
+                    ..hint("target", "Target body", true)
+                },
+                FieldHint {
+                    selection: Some(SelectionKind::Body),
+                    ..hint("tools", "Tool bodies", true)
+                },
+                FieldHint {
+                    options: options(&[("join", "Join"), ("cut", "Cut"), ("intersect", "Intersect")]),
+                    ..hint("op", "Operation", true)
+                },
+                hint("keep_tools", "Keep tools", true),
+            ],
+        )
+    }
+
+    /// At least one tool, and no tool that is the target or repeats (boolean.md section 3.1).
+    fn validate(params: &BooleanParams) -> Result<(), FeatureError> {
+        let manifest = Boolean::manifest();
+        if params.tools.is_empty() {
+            return Err(FeatureError::EmptySelection {
+                field: FieldRef::new("tools", &manifest),
+                noun: Noun::Body,
+            });
+        }
+        for (position, tool) in params.tools.iter().enumerate() {
+            if *tool == params.target || params.tools[..position].contains(tool) {
+                return Err(FeatureError::SameBody {
+                    field: FieldRef::new(&format!("tools[{position}]"), &manifest),
+                    body: tool.clone(),
+                });
+            }
+        }
+        Ok(())
+    }
+
+    /// Writes the target, then the tools it consumes; kept tools are only read.
+    fn dependencies(params: &BooleanParams) -> Dependencies {
+        let mut dependencies = Dependencies::default();
+        dependencies.add_body_written(&params.target, "target");
+        for (position, tool) in params.tools.iter().enumerate() {
+            let field = format!("tools[{position}]");
+            if params.keep_tools {
+                dependencies.add_body_read(tool, &field);
+            } else {
+                dependencies.add_body_written(tool, &field);
+            }
+        }
+        dependencies
+    }
+
+    fn build(
+        params: &BooleanParams,
+        context: &BuildContext<'_>,
+    ) -> Result<FeatureOutput, FeatureError> {
+        let (target, target_shape) = combine::solid(context, &params.target)?;
+        let mut tools: Vec<&BodyState> = Vec::with_capacity(params.tools.len());
+        let mut tool_shapes: Vec<Shape> = Vec::with_capacity(params.tools.len());
+        for tool in &params.tools {
+            let state = context.body(tool)?;
+            let shape = state
+                .shape()
+                .ok_or_else(|| FeatureError::ToolEmpty { body: tool.clone() })?;
+            tools.push(state);
+            tool_shapes.push(shape.clone());
+        }
+        combine::check_canceled(context)?;
+        let result = (params.op.kernel())(target_shape, &tool_shapes).map_err(kernel)?;
+        let mut warnings = Vec::new();
+        let update = combined(context, params, target, target_shape, &tools, result, &mut warnings)?;
+        let mut updates = vec![update];
+        if !params.keep_tools {
+            let empty = BodyState::empty();
+            updates.extend(params.tools.iter().map(|tool| BodyUpdate {
+                body: tool.clone(),
+                shape: None,
+                naming: Arc::clone(empty.naming()),
+                change: BodyChange::Clear,
+            }));
+        }
+        Ok(combine::bodies(updates, warnings))
+    }
+
+    /// `boolean(tools, op=..., keep_tools=True)` (boolean.md section 2): the tools' parts, one
+    /// alone or several as a list, `op` when it is not `cut` (the function's default), and
+    /// `keep_tools=True` when set. None when a tool has no part variable.
+    fn python(params: &BooleanParams, names: &dyn PythonNames) -> Option<PythonCall> {
+        let mut parts = params
+            .tools
+            .iter()
+            .map(|tool| names.body(tool).map(PythonValue::Name))
+            .collect::<Option<Vec<_>>>()?;
+        let tools = if parts.len() == 1 {
+            parts.remove(0)
+        } else {
+            PythonValue::List(parts)
+        };
+        let mut call = PythonCall::new("boolean");
+        call.positional.push(tools);
+        if params.op != BooleanOp::Cut {
+            call.keywords.push((
+                "op".to_string(),
+                PythonValue::Str(params.op.name().to_string()),
+            ));
+        }
+        if params.keep_tools {
+            call.keywords
+                .push(("keep_tools".to_string(), PythonValue::Bool(true)));
+        }
+        Some(call)
+    }
+}
+
+/// The target's update from the kernel result, with the shared body semantics (features.md
+/// section 3.5): nothing left of a cut or intersection is `EmptyResult`; an unchanged volume keeps
+/// the target's shape and names exactly and warns `NoEffect`; otherwise the result is named by the
+/// boolean rule over the target and every tool (naming.md section 3.6.9).
+fn combined(
+    context: &BuildContext<'_>,
+    params: &BooleanParams,
+    target: &BodyState,
+    target_shape: &Shape,
+    tools: &[&BodyState],
+    result: OpResult,
+    warnings: &mut Vec<FeatureWarning>,
+) -> Result<BodyUpdate, FeatureError> {
+    let before = target_shape.volume().map_err(kernel)?;
+    let after = result.shape.volume().map_err(kernel)?;
+    let nothing_left =
+        result.shape.count(SubShapeKind::Solid) == 0 || after <= VOLUME_TOLERANCE * before;
+    if params.op != BooleanOp::Join && nothing_left {
+        return Err(FeatureError::EmptyResult {
+            body: params.target.clone(),
+            op: params.op.body_op(),
+        });
+    }
+    let change = params.op.change();
+    if (after - before).abs() <= VOLUME_TOLERANCE * before {
+        warnings.push(FeatureWarning::NoEffect {
+            body: params.target.clone(),
+        });
+        return Ok(BodyUpdate {
+            body: params.target.clone(),
+            shape: Some(target_shape.clone()),
+            naming: Arc::clone(target.naming()),
+            change,
+        });
+    }
+    let mut inputs: Vec<&NamingMap> = vec![target.naming()];
+    inputs.extend(tools.iter().map(|tool| tool.naming().as_ref()));
+    let naming = name_by_history(context.feature(), &result, &inputs)?;
+    Ok(BodyUpdate {
+        body: params.target.clone(),
+        shape: Some(result.shape),
+        naming: Arc::new(naming),
+        change,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use partsmith_model::FeatureRecord;
+    use serde_json::json;
+
+    use super::*;
+    use crate::builtin::combine::testing::{
+        assert_close, bounds, build, params, python, updated_shape, updates,
+    };
+    use crate::registry::Registry;
+    use crate::test_support::{box_body, face_names, id};
+
+    fn boolean(tools: serde_json::Value, op: &str) -> BooleanParams {
+        params::<Boolean>(json!({
+            "id": "f-bool1", "type": "boolean", "target": "b-1", "tools": tools, "op": op
+        }))
+    }
+
+    /// `b-1` spanning [0,0,0]-[20,20,20], `b-2` spanning [10,0,0]-[30,20,20] and `b-3` spanning
+    /// [5,5,15]-[15,15,25].
+    fn three_boxes() -> Vec<(&'static str, BodyState)> {
+        vec![
+            ("b-1", box_body("f-box1", [0.0, 0.0, 0.0], 20.0)),
+            ("b-2", box_body("f-box2", [10.0, 0.0, 0.0], 20.0)),
+            ("b-3", box_body("f-box3", [5.0, 5.0, 15.0], 10.0)),
+        ]
+    }
+
+    fn volume(shape: &Shape) -> f64 {
+        shape.volume().expect("the shape has a volume")
+    }
+
+    #[test]
+    fn registers_with_its_manifest() {
+        let mut registry = Registry::new();
+
+        registry
+            .register::<Boolean>()
+            .expect("the boolean passes the registration checks");
+
+        assert_eq!(registry.types().collect::<Vec<_>>(), ["boolean"]);
+    }
+
+    #[test]
+    fn canonical_params_omit_keep_tools_when_false() {
+        let mut registry = Registry::new();
+        registry.register::<Boolean>().expect("registers");
+        let record: FeatureRecord = serde_json::from_value(json!({
+            "id": "f-bool1", "type": "boolean", "keep_tools": false, "op": "cut",
+            "tools": ["b-2", "b-3"], "target": "b-1"
+        }))
+        .expect("the record is well-formed");
+
+        let validated = registry
+            .validate_and_canonicalize(&record)
+            .expect("the record is valid");
+
+        assert_eq!(
+            serde_json::to_string(&validated.record.params).expect("serializes"),
+            r#"{"target":"b-1","tools":["b-2","b-3"],"op":"cut"}"#
+        );
+    }
+
+    #[test]
+    fn no_tools_is_an_empty_selection() {
+        let error = Boolean::validate(&boolean(json!([]), "join")).expect_err("no tools");
+
+        assert_eq!(error.to_string(), "Select at least one body for Tool bodies.");
+    }
+
+    #[test]
+    fn the_target_as_a_tool_is_the_same_body() {
+        let error = Boolean::validate(&boolean(json!(["b-2", "b-1"]), "join"))
+            .expect_err("the target is a tool");
+
+        assert_eq!(error.field().expect("names a field").path, "tools[1]");
+        assert_eq!(
+            error.to_string(),
+            "Body 'b-1' cannot be used twice here. Pick a different body for Tool bodies."
+        );
+    }
+
+    #[test]
+    fn a_repeated_tool_is_the_same_body_at_its_second_entry() {
+        let error = Boolean::validate(&boolean(json!(["b-2", "b-3", "b-2"]), "join"))
+            .expect_err("b-2 repeats");
+
+        assert_eq!(
+            error,
+            FeatureError::SameBody {
+                field: FieldRef::new("tools[2]", &Boolean::manifest()),
+                body: id("b-2"),
+            }
+        );
+    }
+
+    #[test]
+    fn consumed_tools_are_written_after_the_target() {
+        let dependencies = Boolean::dependencies(&boolean(json!(["b-2", "b-3"]), "cut"));
+
+        let written: Vec<(&str, &str)> = dependencies
+            .bodies_written
+            .iter()
+            .map(|link| (link.id.as_str(), link.field.as_str()))
+            .collect();
+        assert_eq!(
+            written,
+            [("b-1", "target"), ("b-2", "tools[0]"), ("b-3", "tools[1]")]
+        );
+        assert!(dependencies.bodies_read.is_empty());
+        assert!(dependencies.expressions.is_empty());
+    }
+
+    #[test]
+    fn kept_tools_are_only_read() {
+        let mut params = boolean(json!(["b-2"]), "join");
+        params.keep_tools = true;
+
+        let dependencies = Boolean::dependencies(&params);
+
+        assert_eq!(dependencies.bodies_written.len(), 1);
+        assert_eq!(dependencies.bodies_read[0].id, id("b-2"));
+        assert_eq!(dependencies.bodies_read[0].field, "tools[0]");
+    }
+
+    #[test]
+    fn join_adds_the_tool_and_clears_it() {
+        let output =
+            build::<Boolean>("f-bool1", &boolean(json!(["b-2"]), "join"), three_boxes(), Vec::new())
+                .expect("the join builds");
+
+        let changes: Vec<(String, BodyChange, bool)> = updates(&output)
+            .iter()
+            .map(|update| (update.body.to_string(), update.change, update.shape.is_some()))
+            .collect();
+        assert_eq!(
+            changes,
+            [
+                ("b-1".to_string(), BodyChange::Join, true),
+                ("b-2".to_string(), BodyChange::Clear, false)
+            ]
+        );
+        assert!((volume(updated_shape(&output, "b-1")) - 12000.0).abs() < 1e-6);
+        let names = face_names(&updates(&output)[0].naming);
+        assert!(names.contains(&"f-box1/left".to_string()));
+        assert!(names.contains(&"f-box2/right".to_string()));
+    }
+
+    #[test]
+    fn kept_tools_get_no_update() {
+        let mut params = boolean(json!(["b-2"]), "join");
+        params.keep_tools = true;
+
+        let output = build::<Boolean>("f-bool1", &params, three_boxes(), Vec::new())
+            .expect("the join builds");
+
+        assert_eq!(updates(&output).len(), 1);
+    }
+
+    #[test]
+    fn cut_names_the_new_wall_after_the_tool_face() {
+        let output =
+            build::<Boolean>("f-bool1", &boolean(json!(["b-2"]), "cut"), three_boxes(), Vec::new())
+                .expect("the cut builds");
+
+        assert!((volume(updated_shape(&output, "b-1")) - 4000.0).abs() < 1e-6);
+        assert!(face_names(&updates(&output)[0].naming).contains(&"f-box2/left".to_string()));
+    }
+
+    #[test]
+    fn intersect_with_two_tools_keeps_what_is_inside_both() {
+        let output = build::<Boolean>(
+            "f-bool1",
+            &boolean(json!(["b-2", "b-3"]), "intersect"),
+            three_boxes(),
+            Vec::new(),
+        )
+        .expect("the intersection builds");
+
+        let shape = updated_shape(&output, "b-1");
+        assert!((volume(shape) - 250.0).abs() < 1e-6);
+        let (min, max) = bounds(shape);
+        assert_close(min, [10.0, 5.0, 15.0]);
+        assert_close(max, [15.0, 15.0, 20.0]);
+    }
+
+    #[test]
+    fn an_empty_target_has_nothing_to_work_on() {
+        let bodies = vec![("b-2", box_body("f-box2", [0.0; 3], 10.0))];
+
+        let result = build::<Boolean>("f-bool1", &boolean(json!(["b-2"]), "join"), bodies, Vec::new());
+
+        assert_eq!(
+            result.map(|_| ()),
+            Err(FeatureError::BodyEmpty {
+                body: id("b-1"),
+                use_new: false
+            })
+        );
+    }
+
+    #[test]
+    fn an_empty_tool_cannot_be_used() {
+        let bodies = vec![("b-1", box_body("f-box1", [0.0; 3], 10.0))];
+
+        let result = build::<Boolean>("f-bool1", &boolean(json!(["b-2"]), "join"), bodies, Vec::new());
+
+        assert_eq!(
+            result.map(|_| ()),
+            Err(FeatureError::ToolEmpty { body: id("b-2") })
+        );
+    }
+
+    #[test]
+    fn a_cut_that_misses_keeps_the_target_and_still_clears_the_tool() {
+        let bodies = vec![
+            ("b-1", box_body("f-box1", [0.0; 3], 10.0)),
+            ("b-2", box_body("f-box2", [50.0, 0.0, 0.0], 10.0)),
+        ];
+
+        let output = build::<Boolean>("f-bool1", &boolean(json!(["b-2"]), "cut"), bodies, Vec::new())
+            .expect("the cut builds");
+
+        assert_eq!(output.warnings, [FeatureWarning::NoEffect { body: id("b-1") }]);
+        let updates = updates(&output);
+        assert_eq!(updates[0].change, BodyChange::Cut);
+        assert_eq!(updates[0].naming.count(partsmith_naming::ElementKind::Face), 6);
+        assert_eq!(updates[1].change, BodyChange::Clear);
+    }
+
+    #[test]
+    fn a_cut_of_everything_is_an_empty_result() {
+        let bodies = vec![
+            ("b-1", box_body("f-box1", [0.0; 3], 10.0)),
+            ("b-2", box_body("f-box2", [-5.0, -5.0, -5.0], 20.0)),
+        ];
+
+        let result = build::<Boolean>("f-bool1", &boolean(json!(["b-2"]), "cut"), bodies, Vec::new());
+
+        assert_eq!(
+            result.map(|_| ()),
+            Err(FeatureError::EmptyResult {
+                body: id("b-1"),
+                op: BodyOp::Cut
+            })
+        );
+    }
+
+    #[test]
+    fn python_writes_one_tool_alone_and_omits_cut() {
+        assert_eq!(
+            python::<Boolean>(&boolean(json!(["b-2"]), "cut")).as_deref(),
+            Some("boolean(part_2)")
+        );
+    }
+
+    #[test]
+    fn python_writes_several_tools_as_a_list_with_op_and_keep_tools() {
+        let mut params = boolean(json!(["b-2", "b-3"]), "join");
+        params.keep_tools = true;
+
+        assert_eq!(
+            python::<Boolean>(&params).as_deref(),
+            Some(r#"boolean([part_2, part_3], op="join", keep_tools=True)"#)
+        );
+    }
+
+    #[test]
+    fn python_needs_every_tool_part() {
+        assert_eq!(python::<Boolean>(&boolean(json!(["body-x"]), "cut")), None);
+    }
+}

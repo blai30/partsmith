@@ -1,32 +1,26 @@
-//! The `cylinder` feature: a right circular cylinder standing on a plane, its base centered on the
-//! placement origin and its axis along the plane normal (docs/spec/features/cylinder.md).
+//! The `cylinder` feature: a right circular cylinder standing on a plane (features/cylinder.md).
 
-use partsmith_model::{Expr, Id};
+use partsmith_model::{Category, Expr, FeatureManifest, FieldUnit, Id};
 use partsmith_occt_sys::make_cylinder;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use super::primitives::{self, SizeField};
-use crate::{
-    BodyOp, BuildContext, Dependencies, Feature, FeatureError, FeatureManifest, FeatureOutput,
-    PlacementExt, PlaneRef, PrimitivePlacement, PythonCall, PythonNames, default_position,
-    is_default_position,
+use super::common::{
+    apply_tool, body_hint, body_op_hint, call, essential, manifest, op_keyword, positive_length,
+    primitive_tool, unit_hint,
 };
-
-/// The radius field.
-const RADIUS: SizeField = SizeField {
-    path: "radius",
-    label: "Radius",
-};
-
-/// The height field.
-const HEIGHT: SizeField = SizeField {
-    path: "height",
-    label: "Height",
-};
+use crate::context::BuildContext;
+use crate::deps::Dependencies;
+use crate::error::FeatureError;
+use crate::feature::Feature;
+use crate::naming::kernel;
+use crate::output::FeatureOutput;
+use crate::params::{BodyOp, PlacementExt, PlaneRef};
+use crate::primitive::{PrimitivePlacement, default_position, is_default_position};
+use crate::python::{PythonCall, PythonNames, PythonValue};
 
 /// A right circular cylinder.
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug)]
 pub struct Cylinder;
 
 /// Params of a cylinder feature.
@@ -66,161 +60,145 @@ impl Feature for Cylinder {
     type Params = CylinderParams;
 
     fn manifest() -> FeatureManifest {
-        primitives::manifest("Cylinder", "cylinder", &[RADIUS, HEIGHT])
+        let mut fields = vec![
+            essential(unit_hint("radius", "Radius", FieldUnit::Length)),
+            essential(unit_hint("height", "Height", FieldUnit::Length)),
+            body_op_hint(),
+        ];
+        fields.extend(PrimitivePlacement::hints());
+        fields.push(body_hint());
+        manifest("Cylinder", Category::Create, "cylinder", fields)
     }
 
     fn dependencies(params: &CylinderParams) -> Dependencies {
-        primitives::dependencies(
-            &params.body,
-            &[(RADIUS, &params.radius), (HEIGHT, &params.height)],
-            params.placement(),
-        )
+        let mut dependencies = Dependencies::default();
+        dependencies.add_body_written(&params.body, "body");
+        dependencies.add_expression("radius", &params.radius, FieldUnit::Length);
+        dependencies.add_expression("height", &params.height, FieldUnit::Length);
+        params.placement().add_dependencies(&mut dependencies);
+        dependencies
     }
 
     fn build(
         params: &CylinderParams,
         context: &BuildContext<'_>,
     ) -> Result<FeatureOutput, FeatureError> {
-        let radius = primitives::positive_length(context, RADIUS.path, &params.radius)?;
-        let height = primitives::positive_length(context, HEIGHT.path, &params.height)?;
+        let radius = positive_length(context, "radius", &params.radius)?;
+        let height = positive_length(context, "height", &params.height)?;
         let frame = params.placement().frame(context)?;
-        let primitive =
-            make_cylinder(&frame.to_kernel(), radius, height).map_err(primitives::kernel)?;
-        primitives::combine(context, &params.body, params.op, primitive)
+        let primitive = make_cylinder(&frame.to_kernel(), radius, height).map_err(kernel)?;
+        let tool = primitive_tool(context.feature(), primitive)?;
+        apply_tool(context, &params.body, params.op, tool, Vec::new())
     }
 
     fn python(params: &CylinderParams, names: &dyn PythonNames) -> Option<PythonCall> {
-        primitives::python(
-            "cylinder",
-            &[&params.radius, &params.height],
-            &params.body,
-            params.op,
-            params.placement(),
-            names,
-        )
+        let sizes = vec![
+            PythonValue::expression(&params.radius, names),
+            PythonValue::expression(&params.height, names),
+        ];
+        let mut keywords = params.placement().python_keywords(names)?;
+        keywords.extend(op_keyword(names, &params.body, params.op));
+        Some(call("cylinder", sizes, keywords))
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use partsmith_naming::ElementName;
-    use partsmith_occt_sys::{GeometryKind, SubShapeKind};
+    use std::f64::consts::PI;
+
+    use partsmith_occt_sys::{GeometryKind, Vector};
     use serde_json::json;
 
     use super::*;
-    use crate::builtin::primitives::testing::{build, params, python};
-    use crate::test_support::face_names;
-    use crate::{BodyUpdate, OutputData, Registry};
+    use crate::test_support::{ScriptNames, assert_point, run};
 
-    /// The `CYL` record of cylinder.md section 6.
-    fn cylinder() -> CylinderParams {
-        params::<Cylinder>(json!({
-            "id": "f-cyl1", "type": "cylinder", "body": "b-1", "radius": "5", "height": "10", "op": "new"
-        }))
-    }
-
-    fn update(output: &FeatureOutput) -> &BodyUpdate {
-        let OutputData::Bodies(updates) = &output.data else {
-            panic!("a cylinder outputs body updates");
-        };
-        &updates[0]
+    fn cylinder(extra: serde_json::Value) -> serde_json::Value {
+        let mut record = json!({"id": "f-cyl1", "type": "cylinder", "body": "b-1", "radius": "5", "height": "10", "op": "new"});
+        if let (Some(record), Some(extra)) = (record.as_object_mut(), extra.as_object()) {
+            record.extend(extra.clone());
+        }
+        record
     }
 
     #[test]
-    fn registers_with_its_manifest() {
-        let mut registry = Registry::new();
+    fn a_default_cylinder_stands_on_xy() {
+        let run = run(&["b-1"], &[cylinder(json!({}))]);
 
-        registry
-            .register::<Cylinder>()
-            .expect("the cylinder passes the registration checks");
-
-        assert_eq!(registry.types().collect::<Vec<_>>(), ["cylinder"]);
-    }
-
-    #[test]
-    fn dependencies_read_radius_then_height() {
-        let dependencies = Cylinder::dependencies(&cylinder());
-
-        let fields: Vec<&str> = dependencies
-            .expressions
-            .iter()
-            .map(|usage| usage.field.as_str())
-            .collect();
-        assert_eq!(fields[..2], ["radius", "height"]);
-        assert_eq!(fields.len(), 5);
-    }
-
-    #[test]
-    fn builds_side_top_and_bottom() {
-        let output = build::<Cylinder>(&cylinder(), Vec::new()).expect("the cylinder builds");
-
+        run.assert_ok("f-cyl1");
+        run.assert_volume("b-1", 250.0 * PI);
+        run.assert_faces("b-1", 3);
+        run.assert_bounding_box("b-1", [-5.0, -5.0, 0.0], [5.0, 5.0, 10.0]);
+        let side = run.face("b-1", "f-cyl1/side");
+        assert_eq!(side.kind, GeometryKind::Cylinder);
+        assert_eq!(side.radius, Some(5.0));
         assert_eq!(
-            face_names(&update(&output).naming),
-            ["f-prim1/bottom", "f-prim1/side", "f-prim1/top"]
+            side.direction.map(|direction| direction.z.abs()),
+            Some(1.0)
+        );
+        run.assert_face_area("b-1", "f-cyl1/top", 25.0 * PI);
+        assert_point("top", run.face("b-1", "f-cyl1/top").centroid, [0.0, 0.0, 10.0]);
+    }
+
+    #[test]
+    fn a_cylinder_on_yz_points_along_x() {
+        let run = run(
+            &["b-1"],
+            &[cylinder(json!({"plane": {"kind": "origin", "plane": "YZ"}}))],
+        );
+
+        run.assert_bounding_box("b-1", [0.0, -5.0, -5.0], [10.0, 5.0, 5.0]);
+        assert_eq!(
+            run.face("b-1", "f-cyl1/top").direction,
+            Some(Vector::new(1.0, 0.0, 0.0))
         );
     }
 
     #[test]
-    fn the_side_has_the_radius() {
-        let output = build::<Cylinder>(&cylinder(), Vec::new()).expect("the cylinder builds");
+    fn the_height_must_be_positive() {
+        let run = run(&["b-1"], &[cylinder(json!({"height": "-2"}))]);
 
-        let update = update(&output);
-        let side = ElementName::parse("f-prim1/side").expect("valid name");
-        let index = update.naming.index(&side).expect("the side is named");
-        let geometry = update
-            .shape
-            .as_ref()
-            .expect("the body holds the cylinder")
-            .element(SubShapeKind::Face, index)
-            .expect("the side has geometry");
-        assert_eq!(geometry.kind, GeometryKind::Cylinder);
-        assert!((geometry.radius.expect("a cylinder has a radius") - 5.0).abs() < 1e-9);
-    }
-
-    #[test]
-    fn a_zero_radius_is_out_of_range() {
-        let mut params = cylinder();
-        params.radius = Expr::new("0");
-
-        let error = build::<Cylinder>(&params, Vec::new()).expect_err("no radius fails");
-
-        assert_eq!(error.field().expect("names its field").path, "radius");
         assert_eq!(
-            error.to_string(),
-            "Radius must be greater than 0 mm, but it is 0 mm. Use a value greater than 0 mm."
+            run.messages("f-cyl1"),
+            ["Height must be greater than 0 mm, but it is -2 mm. Use a value greater than 0 mm."]
         );
     }
 
     #[test]
-    fn a_negative_height_is_out_of_range() {
-        let mut params = cylinder();
-        params.height = Expr::new("-2");
-
-        let error = build::<Cylinder>(&params, Vec::new()).expect_err("a negative height fails");
+    fn the_radius_is_checked_first() {
+        let run = run(&["b-1"], &[cylinder(json!({"radius": "0", "height": "0"}))]);
 
         assert_eq!(
-            error.to_string(),
-            "Height must be greater than 0 mm, but it is -2 mm. Use a value greater than 0 mm."
+            run.error("f-cyl1").field().map(|field| field.path.as_str()),
+            Some("radius")
+        );
+    }
+
+    #[test]
+    fn a_round_hole_keeps_the_cylinder_side_name() {
+        let run = run(
+            &["b-1"],
+            &[
+                json!({"id": "f-box1", "type": "box", "body": "b-1", "size": ["40", "40", "10"], "position": ["0", "0", "-10"], "op": "new"}),
+                json!({"id": "f-cyl1", "type": "cylinder", "body": "b-1", "radius": "3", "height": "10", "position": ["0", "0", "-10"], "op": "cut"}),
+            ],
+        );
+
+        run.assert_volume("b-1", 15717.256661);
+        run.assert_faces("b-1", 7);
+        assert!(
+            run.face_names("b-1")
+                .contains(&"f-cyl1/side".to_string())
         );
     }
 
     #[test]
     fn python_writes_radius_and_height() {
-        assert_eq!(
-            python::<Cylinder>(&cylinder(), BodyOp::New).as_deref(),
-            Some("cylinder(5, 10)")
-        );
-    }
+        let params: CylinderParams =
+            serde_json::from_value(json!({"body": "b-1", "radius": "5", "height": "10", "op": "new"}))
+                .expect("valid params");
 
-    #[test]
-    fn python_writes_a_plane_other_than_xy() {
-        let mut params = cylinder();
-        params.plane = serde_json::from_value(json!({"kind": "origin", "plane": "YZ"}))
-            .expect("an origin plane deserializes");
+        let python = Cylinder::python(&params, &ScriptNames::default()).expect("a dedicated form");
 
-        assert_eq!(
-            python::<Cylinder>(&params, BodyOp::New).as_deref(),
-            Some("cylinder(5, 10, plane=Plane.YZ)")
-        );
+        assert_eq!(python.render(0), "cylinder(5, 10)");
     }
 }

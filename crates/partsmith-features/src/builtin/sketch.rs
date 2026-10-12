@@ -13,6 +13,7 @@ use partsmith_sketch::{
     ValueKind, build_profile,
 };
 
+use super::extrude::hint;
 use crate::{
     BuildContext, DatumResult, Dependencies, FallbackReason, Feature, FeatureError, FeatureOutput,
     FeatureWarning, OutputData, SketchResult,
@@ -225,18 +226,6 @@ fn unit(kind: ValueKind) -> FieldUnit {
     match kind {
         ValueKind::Length => FieldUnit::Length,
         ValueKind::Angle => FieldUnit::Angle,
-    }
-}
-
-/// A manifest hint without unit, selection or options.
-fn hint(path: &str, label: &str, essential: bool) -> FieldHint {
-    FieldHint {
-        path: path.to_string(),
-        label: label.to_string(),
-        essential,
-        unit: None,
-        selection: None,
-        options: Vec::new(),
     }
 }
 

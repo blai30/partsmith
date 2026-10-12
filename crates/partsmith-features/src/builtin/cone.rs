@@ -1,42 +1,30 @@
-//! The `cone` feature: a right circular cone or frustum standing on a plane, its base centered on
-//! the placement origin and its axis along the plane normal (docs/spec/features/cone.md).
+//! The `cone` feature: a right circular cone or frustum standing on a plane (features/cone.md).
 
-use partsmith_model::{Expr, Id};
+use partsmith_model::{Category, Expr, FeatureManifest, FieldUnit, Id};
 use partsmith_occt_sys::{make_cone, make_cylinder};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use super::primitives::{self, SizeField};
-use crate::{
-    BodyOp, BuildContext, Dependencies, Feature, FeatureError, FeatureManifest, FeatureOutput,
-    PlacementExt, PlaneRef, PrimitivePlacement, PythonCall, PythonNames, default_position,
-    is_default_position,
+use super::common::{
+    apply_tool, body_hint, body_op_hint, call, check_range, essential, manifest, op_keyword,
+    positive_length, primitive_tool, unit_hint,
 };
+use crate::context::BuildContext;
+use crate::deps::Dependencies;
+use crate::error::{Bound, FeatureError};
+use crate::feature::Feature;
+use crate::naming::kernel;
+use crate::output::FeatureOutput;
+use crate::params::{BodyOp, PlacementExt, PlaneRef};
+use crate::primitive::{PrimitivePlacement, default_position, is_default_position};
+use crate::python::{PythonCall, PythonNames, PythonValue};
 
-/// The bottom radius field.
-const BOTTOM_RADIUS: SizeField = SizeField {
-    path: "bottom_radius",
-    label: "Bottom radius",
-};
-
-/// The top radius field.
-const TOP_RADIUS: SizeField = SizeField {
-    path: "top_radius",
-    label: "Top radius",
-};
-
-/// The height field.
-const HEIGHT: SizeField = SizeField {
-    path: "height",
-    label: "Height",
-};
-
-/// Largest difference in millimeters between radii that build a cylinder rather than a cone
-/// (cone.md section 3.2), because the kernel's cone needs different radii.
-const EQUAL_RADII: f64 = 1e-9;
+/// Radii closer than this, in millimeters, make a cylinder: the kernel's cone needs two different
+/// radii.
+const EQUAL_RADII_TOLERANCE: f64 = 1e-9;
 
 /// A right circular cone or frustum.
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug)]
 pub struct Cone;
 
 /// Params of a cone feature.
@@ -73,175 +61,173 @@ impl ConeParams {
     }
 }
 
+/// A radius that must be at least 0.
+fn radius(
+    context: &BuildContext<'_>,
+    field: &str,
+    expr: &Expr,
+) -> Result<f64, FeatureError> {
+    let value = context.eval_length(field, expr)?;
+    check_range(
+        context,
+        field,
+        FieldUnit::Length,
+        value,
+        Bound::AtLeast(0.0),
+        None,
+    )
+}
+
 impl Feature for Cone {
     const TYPE: &'static str = "cone";
     type Params = ConeParams;
 
     fn manifest() -> FeatureManifest {
-        primitives::manifest("Cone", "cone", &[BOTTOM_RADIUS, TOP_RADIUS, HEIGHT])
+        let mut fields = vec![
+            essential(unit_hint("bottom_radius", "Bottom radius", FieldUnit::Length)),
+            essential(unit_hint("top_radius", "Top radius", FieldUnit::Length)),
+            essential(unit_hint("height", "Height", FieldUnit::Length)),
+            body_op_hint(),
+        ];
+        fields.extend(PrimitivePlacement::hints());
+        fields.push(body_hint());
+        manifest("Cone", Category::Create, "cone", fields)
     }
 
     fn dependencies(params: &ConeParams) -> Dependencies {
-        primitives::dependencies(
-            &params.body,
-            &[
-                (BOTTOM_RADIUS, &params.bottom_radius),
-                (TOP_RADIUS, &params.top_radius),
-                (HEIGHT, &params.height),
-            ],
-            params.placement(),
-        )
+        let mut dependencies = Dependencies::default();
+        dependencies.add_body_written(&params.body, "body");
+        dependencies.add_expression("bottom_radius", &params.bottom_radius, FieldUnit::Length);
+        dependencies.add_expression("top_radius", &params.top_radius, FieldUnit::Length);
+        dependencies.add_expression("height", &params.height, FieldUnit::Length);
+        params.placement().add_dependencies(&mut dependencies);
+        dependencies
     }
 
-    fn build(
-        params: &ConeParams,
-        context: &BuildContext<'_>,
-    ) -> Result<FeatureOutput, FeatureError> {
-        let bottom_radius =
-            primitives::non_negative_length(context, BOTTOM_RADIUS.path, &params.bottom_radius)?;
-        let top_radius =
-            primitives::non_negative_length(context, TOP_RADIUS.path, &params.top_radius)?;
-        if bottom_radius == 0.0 && top_radius == 0.0 {
+    fn build(params: &ConeParams, context: &BuildContext<'_>) -> Result<FeatureOutput, FeatureError> {
+        let bottom = radius(context, "bottom_radius", &params.bottom_radius)?;
+        let top = radius(context, "top_radius", &params.top_radius)?;
+        if bottom == 0.0 && top == 0.0 {
             return Err(FeatureError::ConeRadiiZero);
         }
-        let height = primitives::positive_length(context, HEIGHT.path, &params.height)?;
-        let placement = params.placement().frame(context)?.to_kernel();
-        let primitive = if (bottom_radius - top_radius).abs() <= EQUAL_RADII {
-            make_cylinder(&placement, bottom_radius, height)
+        let height = positive_length(context, "height", &params.height)?;
+        let frame = params.placement().frame(context)?.to_kernel();
+        let primitive = if (bottom - top).abs() <= EQUAL_RADII_TOLERANCE {
+            make_cylinder(&frame, bottom, height)
         } else {
-            make_cone(&placement, bottom_radius, top_radius, height)
+            make_cone(&frame, bottom, top, height)
         }
-        .map_err(primitives::kernel)?;
-        primitives::combine(context, &params.body, params.op, primitive)
+        .map_err(kernel)?;
+        let tool = primitive_tool(context.feature(), primitive)?;
+        apply_tool(context, &params.body, params.op, tool, Vec::new())
     }
 
     fn python(params: &ConeParams, names: &dyn PythonNames) -> Option<PythonCall> {
-        primitives::python(
-            "cone",
-            &[&params.bottom_radius, &params.top_radius, &params.height],
-            &params.body,
-            params.op,
-            params.placement(),
-            names,
-        )
+        let sizes = [&params.bottom_radius, &params.top_radius, &params.height]
+            .into_iter()
+            .map(|expr| PythonValue::expression(expr, names))
+            .collect();
+        let mut keywords = params.placement().python_keywords(names)?;
+        keywords.extend(op_keyword(names, &params.body, params.op));
+        Some(call("cone", sizes, keywords))
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use partsmith_naming::ElementName;
-    use partsmith_occt_sys::{GeometryKind, SubShapeKind};
+    use std::f64::consts::PI;
+
+    use partsmith_occt_sys::GeometryKind;
     use serde_json::json;
 
     use super::*;
-    use crate::builtin::primitives::testing::{build, params, python};
-    use crate::test_support::face_names;
-    use crate::{BodyUpdate, OutputData, Registry};
+    use crate::test_support::{ScriptNames, run};
 
-    /// The spec's `CONE(r1, r2, h)` record.
-    fn cone(bottom_radius: &str, top_radius: &str, height: &str) -> ConeParams {
-        params::<Cone>(json!({
-            "id": "f-cone1", "type": "cone", "body": "b-1", "bottom_radius": bottom_radius,
-            "top_radius": top_radius, "height": height, "op": "new"
-        }))
-    }
-
-    fn update(output: &FeatureOutput) -> &BodyUpdate {
-        let OutputData::Bodies(updates) = &output.data else {
-            panic!("a cone outputs body updates");
-        };
-        &updates[0]
+    fn cone(bottom: &str, top: &str, height: &str) -> serde_json::Value {
+        json!({"id": "f-cone1", "type": "cone", "body": "b-1", "bottom_radius": bottom, "top_radius": top, "height": height, "op": "new"})
     }
 
     #[test]
-    fn registers_with_its_manifest() {
-        let mut registry = Registry::new();
+    fn a_frustum_has_three_faces() {
+        let run = run(&["b-1"], &[cone("10", "5", "10")]);
 
-        registry
-            .register::<Cone>()
-            .expect("the cone passes the registration checks");
-
-        assert_eq!(registry.types().collect::<Vec<_>>(), ["cone"]);
-    }
-
-    #[test]
-    fn a_frustum_has_side_top_and_bottom() {
-        let output = build::<Cone>(&cone("10", "5", "10"), Vec::new()).expect("the frustum builds");
-
-        assert_eq!(
-            face_names(&update(&output).naming),
-            ["f-prim1/bottom", "f-prim1/side", "f-prim1/top"]
-        );
+        run.assert_ok("f-cone1");
+        run.assert_volume("b-1", 1832.595715);
+        run.assert_faces("b-1", 3);
+        run.assert_bounding_box("b-1", [-10.0, -10.0, 0.0], [10.0, 10.0, 10.0]);
+        run.assert_face_area("b-1", "f-cone1/side", 526.861105);
+        run.assert_face_area("b-1", "f-cone1/bottom", 100.0 * PI);
+        run.assert_face_area("b-1", "f-cone1/top", 25.0 * PI);
     }
 
     #[test]
     fn a_pointed_cone_has_no_top() {
-        let output = build::<Cone>(&cone("10", "0", "10"), Vec::new()).expect("the cone builds");
+        let run = run(&["b-1"], &[cone("10", "0", "10")]);
 
+        run.assert_volume("b-1", 1047.197551);
         assert_eq!(
-            face_names(&update(&output).naming),
-            ["f-prim1/bottom", "f-prim1/side"]
+            run.face_names("b-1"),
+            ["f-cone1/bottom", "f-cone1/side"]
         );
     }
 
     #[test]
-    fn equal_radii_build_a_cylindrical_side() {
-        let output = build::<Cone>(&cone("5", "5", "10"), Vec::new()).expect("the cone builds");
+    fn an_inverted_cone_has_no_bottom() {
+        let run = run(&["b-1"], &[cone("0", "5", "10")]);
 
-        let update = update(&output);
-        let side = ElementName::parse("f-prim1/side").expect("valid name");
-        let index = update.naming.index(&side).expect("the side is named");
-        let geometry = update
-            .shape
-            .as_ref()
-            .expect("the body holds the cone")
-            .element(SubShapeKind::Face, index)
-            .expect("the side has geometry");
-        assert_eq!(geometry.kind, GeometryKind::Cylinder);
+        run.assert_volume("b-1", 261.799388);
+        assert_eq!(run.face_names("b-1"), ["f-cone1/side", "f-cone1/top"]);
+        run.assert_bounding_box("b-1", [-5.0, -5.0, 0.0], [5.0, 5.0, 10.0]);
     }
 
     #[test]
-    fn a_negative_radius_is_below_zero() {
-        let error = build::<Cone>(&cone("10", "-1", "10"), Vec::new())
-            .expect_err("a negative radius fails");
+    fn equal_radii_make_a_cylinder() {
+        let run = run(&["b-1"], &[cone("5", "5", "10")]);
 
-        assert_eq!(error.field().expect("names its field").path, "top_radius");
+        run.assert_volume("b-1", 250.0 * PI);
+        run.assert_faces("b-1", 3);
         assert_eq!(
-            error.to_string(),
-            "Top radius must be at least 0 mm, but it is -1 mm. Use 0 mm or more."
+            run.face("b-1", "f-cone1/side").kind,
+            GeometryKind::Cylinder
         );
     }
 
     #[test]
-    fn both_radii_zero_is_its_own_error() {
-        let error =
-            build::<Cone>(&cone("0", "0", "10"), Vec::new()).expect_err("no radius fails");
+    fn both_radii_zero_is_an_error() {
+        let run = run(&["b-1"], &[cone("0", "0", "10")]);
 
-        assert_eq!(error, FeatureError::ConeRadiiZero);
+        assert_eq!(
+            run.messages("f-cone1"),
+            ["Cone bottom and top radius cannot both be 0. Give one of them a size."]
+        );
     }
 
     #[test]
-    fn radii_are_checked_before_the_height() {
-        let error =
-            build::<Cone>(&cone("0", "0", "0"), Vec::new()).expect_err("nothing is sized");
+    fn a_negative_radius_is_out_of_range() {
+        let run = run(&["b-1"], &[cone("10", "-1", "10")]);
 
-        assert_eq!(error.code(), "cone_radii_zero");
+        assert_eq!(
+            run.messages("f-cone1"),
+            ["Top radius must be at least 0 mm, but it is -1 mm. Use 0 mm or more."]
+        );
     }
 
     #[test]
     fn a_zero_height_is_out_of_range() {
-        let error =
-            build::<Cone>(&cone("10", "5", "0"), Vec::new()).expect_err("a flat cone fails");
+        let run = run(&["b-1"], &[cone("10", "5", "0")]);
 
-        assert_eq!(error.code(), "out_of_range");
-        assert_eq!(error.field().expect("names its field").path, "height");
+        assert_eq!(
+            run.error("f-cone1").field().map(|field| field.path.as_str()),
+            Some("height")
+        );
     }
 
     #[test]
-    fn python_writes_both_radii_and_the_height() {
-        assert_eq!(
-            python::<Cone>(&cone("10", "5", "10"), BodyOp::New).as_deref(),
-            Some("cone(10, 5, 10)")
-        );
+    fn python_writes_the_three_sizes() {
+        let params: ConeParams = serde_json::from_value(json!({"body": "b-1", "bottom_radius": "10", "top_radius": "5", "height": "10", "op": "new"})).expect("valid params");
+
+        let python = Cone::python(&params, &ScriptNames::default()).expect("a dedicated form");
+
+        assert_eq!(python.render(0), "cone(10, 5, 10)");
     }
 }
