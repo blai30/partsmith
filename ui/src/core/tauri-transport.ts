@@ -101,6 +101,8 @@ export function createTauriTransport(tauri: TauriGlobal): Transport {
   return {
     kind: 'tauri',
     async start() {
+      // Starting again after stop() (a core restart) accepts sends again.
+      stopped = null
       const request = encodeFrame(
         {
           protocol_version: PROTOCOL_VERSION,

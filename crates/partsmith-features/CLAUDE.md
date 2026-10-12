@@ -29,7 +29,7 @@ The modules of features.md section 2.1 are public: `feature`, `deps`, `params`, 
 
 ## Built-in features
 
-Each type lives in `src/builtin/<type>.rs` and is registered by adding `Registry::register::<Type>` to `BUILTINS` in `src/builtin/mod.rs`. Tests that need all 20 types are marked `#[ignore = "needs all built-in features"]` until every type is registered.
+Each type lives in `src/builtin/<type>.rs` and is registered by adding `Registry::register::<Type>` to `BUILTINS` in `src/builtin/mod.rs`. All 20 types of features.md section 3.13 are registered, so the acceptance tests that need them run by default.
 
 Registered types:
 
@@ -42,8 +42,6 @@ Registered types:
 cargo test -p partsmith-features
 cargo clippy -p partsmith-features --all-targets -- -D warnings
 cargo fmt -p partsmith-features
-# also run the tests that need every built-in type, once they are registered
-cargo test -p partsmith-features -- --include-ignored
 # performance budgets (features.md section 5), release builds only
 cargo test -p partsmith-features --release --test budgets
 ```
