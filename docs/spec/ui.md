@@ -132,14 +132,16 @@ ui/
     viewport/
       math.ts                Vector3, Matrix4, Quaternion helpers
       camera.ts              Camera and camera functions
-      navigation.ts          NAVIGATION_PRESETS, gestureFor
+      navigation.ts          NAVIGATION_PRESETS, gestureFor, navigationLegend
+      grid.ts                gridSpacing
+      menu.ts                viewportMenuItems
       backend.ts             RenderBackend and its types
       webgl2/                createWebGl2Backend and shaders
       picking.ts             encodePickId, decodePickId, choosePick
       scene.ts               Scene, createScene
       controller.ts          ViewportController, ViewportHandle
       overlay.ts             positionElement, orientElement (runtime positions, 3.12)
-      Viewport.tsx, ViewCube.tsx, ViewportControls.tsx, SectionPopover.tsx
+      Viewport.tsx, ViewCube.tsx, ViewportControls.tsx, SectionPopover.tsx, EmptyState.tsx, ViewportMenu.tsx
     sketch/
       refs.ts                sketch origin and axis references (sketch.md)
       geometry.ts            circleThroughThreePoints, tessellateArc, distance helpers
@@ -147,14 +149,17 @@ ui/
       inference.ts           infer
       constraints.ts         applicableConstraints, constraintFor
       dimensions.ts          dimensionTypeFor, measuredValue, defaultLabelPosition
-      session.ts             SketchToolId, SketchChange, SketchCommitResult, the internal sketch controller
+      session.ts             SketchToolId, SketchChange, SketchCommitResult, SketchStep, sketchStepHint,
+                             outlineProblems, the internal sketch controller
       SketchOverlay.tsx, SketchHeader.tsx, DrawInputs.tsx, DimensionEditor.tsx
     timeline/ Timeline.tsx
     browser/ Browser.tsx
     parameters/ ParametersPanel.tsx
-    print/ PrinterMenu.tsx, ChecksPopover.tsx, HealthList.tsx, OverhangLegend.tsx
-    export/ ExportPopover.tsx
+    print/ PrinterMenu.tsx, ChecksPopover.tsx, HealthList.tsx, OverhangLegend.tsx,
+           printer.ts (printerDetail, printerButtonText)
+    export/ ExportPopover.tsx, status.ts (exportStatus)
     problems/ ProblemsPanel.tsx
+    keys/ KeysPanel.tsx
     files/
       file-service.ts        FileService, createWebFileService
       recent.ts              RecentFilesStore, createIndexedDbRecentFiles, createMemoryRecentFiles

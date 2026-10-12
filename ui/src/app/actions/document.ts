@@ -4,20 +4,23 @@ import type { RecentFile } from '../../files/recent'
 import type { RecoveryEntry } from '../../files/recovery'
 import type { Document, Edit, Units } from '../../generated/protocol'
 import { MESSAGES } from '../../messages'
+import { TIMING_NAMES } from '../../performance/marks'
 import { adoptDocument } from '../../state/core-events'
 import type { AppState, DocumentState, FileReference } from '../../state/store'
+import { initialSessionVisibility } from '../../state/visibility'
 import { DEFAULT_CAMERA } from '../../viewport/camera'
+import { nowOf, startTransport } from '../connection'
 import { loadCoreData } from '../core-data'
-import { nowOf, startTransport, type App } from '../createApp'
+import type { App } from '../createApp'
+import { measureToNextFrame } from '../timing'
 import { cancelCommand } from './command'
 import { commitEdits, documentOf, isUnsaved, mutate, showCoreError } from './edits'
-import { notify } from './notifications'
+import { announce, notify } from './notifications'
 import { leaveSketchHistory, redoInSketch, undoInSketch } from './sketch'
 
 // Starting the core, document files and undo (ui.md 3.1, 3.19, 3.20).
 
 const PTSM_EXTENSION = /\.ptsm$/i
-const ORIGIN_KEYS = ['XY', 'XZ', 'YZ', 'X', 'Y', 'Z', 'O'].map((name) => `origin:${name}`)
 
 /** Stores that already showed the download hint this session (3.19). */
 const downloadHintShown = new WeakSet<App['store']>()
@@ -35,38 +38,6 @@ function recoveryTime(savedAt: number): string {
   return new Date(savedAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })
 }
 
-/** Whether some feature of the recipe refers to the sketch (a `sketch` key anywhere in its params). */
-function referencesSketch(value: unknown, sketchId: string): boolean {
-  if (Array.isArray(value)) {
-    return value.some((item) => referencesSketch(item, sketchId))
-  }
-  if (typeof value !== 'object' || value === null) {
-    return false
-  }
-  return Object.entries(value).some(
-    ([key, item]) => (key === 'sketch' && item === sketchId) || referencesSketch(item, sketchId),
-  )
-}
-
-/** Session visibility for a newly opened recipe (3.10): used sketches and origin items start hidden. */
-export function initialSessionVisibility(recipe: Document): Readonly<Record<string, boolean>> {
-  const features = recipe.features ?? []
-  const visibility: Record<string, boolean> = {}
-  for (const feature of features) {
-    if (feature.type === 'sketch') {
-      visibility[`feature:${feature.id}`] = !features.some(
-        (other) => other.id !== feature.id && referencesSketch(other, feature.id),
-      )
-    } else if (feature.type === 'datum_plane') {
-      visibility[`feature:${feature.id}`] = true
-    }
-  }
-  for (const key of ORIGIN_KEYS) {
-    visibility[key] = false
-  }
-  return visibility
-}
-
 /** Clears what belonged to the previous document and returns to the Model context. */
 function startDocumentSession(app: App): void {
   leaveSketchHistory(app)
@@ -81,7 +52,7 @@ function startDocumentSession(app: App): void {
       print: { ...state.print, report: null, reportRevision: null, focusedFinding: null },
       view: {
         ...state.view,
-        sessionVisible: recipe === undefined ? {} : initialSessionVisibility(recipe),
+        sessionVisible: initialSessionVisibility(recipe ?? null),
         locked: [],
       },
     }
@@ -256,6 +227,7 @@ export async function startCore(app: App): Promise<void> {
   await offerRecovery(app)
   try {
     await openUntitled(app)
+    startDocumentSession(app)
   } catch (error) {
     showCoreError(app, error)
   }
@@ -276,6 +248,8 @@ export async function newDocument(app: App): Promise<void> {
 
 /** Opens a chosen or dropped file (3.19). */
 export async function openFile(app: App, file: OpenedFile): Promise<void> {
+  // ps:open runs from the read file bytes to the first frame with the opened document (2.18).
+  const started = performance.now()
   if (!PTSM_EXTENSION.test(file.name)) {
     notify(app, { severity: 'error', message: MESSAGES.not_ptsm(file.name), actions: [] })
     return
@@ -295,6 +269,7 @@ export async function openFile(app: App, file: OpenedFile): Promise<void> {
     fileName: file.name,
   })
   if (opened) {
+    measureToNextFrame(TIMING_NAMES.open, started)
     await app.recent.remember({ name: file.name, handle: file.handle, text })
   }
 }
@@ -503,27 +478,29 @@ function quietWhenNothingToDo(app: App, error: unknown): void {
   showCoreError(app, error)
 }
 
-/** The core's undo through the mutation queue. */
+/** The core's undo through the mutation queue, announced as "Undid {label}" (3.20). */
 export async function coreUndo(app: App): Promise<void> {
   const document = documentOf(app)
   if (document === null) {
     return
   }
   try {
-    await app.mutations.run(() => app.core.undo(document.documentHandle))
+    const { label } = await app.mutations.run(() => app.core.undo(document.documentHandle))
+    announce(app, `Undid ${label}`)
   } catch (error) {
     quietWhenNothingToDo(app, error)
   }
 }
 
-/** The core's redo through the mutation queue. */
+/** The core's redo through the mutation queue, announced as "Redid {label}" (3.20). */
 export async function coreRedo(app: App): Promise<void> {
   const document = documentOf(app)
   if (document === null) {
     return
   }
   try {
-    await app.mutations.run(() => app.core.redo(document.documentHandle))
+    const { label } = await app.mutations.run(() => app.core.redo(document.documentHandle))
+    announce(app, `Redid ${label}`)
   } catch (error) {
     quietWhenNothingToDo(app, error)
   }

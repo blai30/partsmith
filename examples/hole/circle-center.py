@@ -1,0 +1,11 @@
+from partsmith import *
+
+doc = Document(units="mm")
+
+body_1 = Part("Body 1", id="b-1")
+
+with body_1:
+    box(40, 40, 10, position=(0, 0, -10), id="f-box1")
+    with Sketch(Plane.XY, id="f-sk1"):
+        circle_1 = Circle(3, id="e-5")
+    hole(circle_1.center, 6, id="f-hole1")

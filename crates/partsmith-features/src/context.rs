@@ -1291,9 +1291,15 @@ mod tests {
             .expect("nothing fails")
             .expect("the top is flat");
 
-        assert_eq!(placement.origin, [1.0, 2.0, 10.0]);
-        assert_eq!(placement.x_axis, [1.0, 0.0, 0.0]);
-        assert_eq!(placement.normal, [0.0, 0.0, 1.0]);
+        let close = |actual: [f64; 3], expected: [f64; 3]| {
+            actual
+                .iter()
+                .zip(expected)
+                .all(|(value, wanted)| (value - wanted).abs() <= 1e-9)
+        };
+        assert!(close(placement.origin, [1.0, 2.0, 10.0]), "{placement:?}");
+        assert!(close(placement.x_axis, [1.0, 0.0, 0.0]), "{placement:?}");
+        assert!(close(placement.normal, [0.0, 0.0, 1.0]), "{placement:?}");
     }
 
     #[test]
