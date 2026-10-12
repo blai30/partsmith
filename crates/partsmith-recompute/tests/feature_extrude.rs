@@ -646,16 +646,16 @@ fn t038_empty_profile() {
 }
 
 #[test]
-#[ignore = "needs the profile union to rejoin the pieces of one entity (extrude.md open issue 2)"]
-fn union_of_regions_split_by_a_line() {
+fn t040_union_of_regions_split_by_a_line() {
     // Features.md sections 3.7 and 3.10: regions merged in 2D give the same solid as the one region
     // they cover, with one lateral face per entity.
     let run = Run::example("extrude/union-split-by-line.ptsm");
 
     run.assert_all_ok();
     assert_volume_and_bounds(&run, 40000.0, [0.0, 0.0, 0.0], [80.0, 50.0, 10.0]);
+    let body = run.body("b-1");
     assert_face_names(
-        run.body("b-1"),
+        body,
         &[
             "f-ext1/end-cap",
             "f-ext1/lateral/e-1",
@@ -665,6 +665,8 @@ fn union_of_regions_split_by_a_line() {
             "f-ext1/start-cap",
         ],
     );
+    assert_face_area(&face(body, "f-ext1/lateral/e-1"), 800.0);
+    assert_face_area(&face(body, "f-ext1/lateral/e-3"), 800.0);
 }
 
 #[test]

@@ -18,7 +18,6 @@ import {
   setSuppressed,
 } from '../app/actions/timeline'
 import { useApp, useAppState } from '../app/AppProvider'
-import type { App } from '../app/createApp'
 import { FEATURE_ICONS } from '../commands/icons'
 import { Button } from '../components/Button'
 import { IconButton } from '../components/IconButton'
@@ -29,9 +28,8 @@ import type { FeatureRecord, FeatureStatus } from '../generated/protocol'
 import { pickRow, togglesSelection } from '../layout/pick-row'
 import { useUiRequest } from '../layout/requests'
 import { keepInViewHorizontally } from '../layout/scroll'
-import { MESSAGES } from '../messages'
 import { selectProblems } from '../state/selectors'
-import type { AppState, SelectionItem } from '../state/store'
+import type { SelectionItem } from '../state/store'
 import { COLOR_CLASSES } from '../theme/roles'
 import { positionElement } from '../viewport/overlay'
 import { startRollbackDrag, type RollbackDrag } from './rollback-drag'
@@ -422,25 +420,19 @@ function Marker({ position, count, valueText, onPress }: MarkerProps) {
   )
 }
 
-function markerText(app: App, recipe: AppState['document'], position: number): string {
-  const records = recipe?.recipe.features ?? []
-  if (position === 0) {
-    return 'At the start'
-  }
+/** The marker's spoken position: "At the start", "After {label}" or "At the end" (3.9). */
+function markerText(records: readonly FeatureRecord[], position: number, labelOf: (id: string) => string): string {
+  const record = records[position - 1]
   if (position >= records.length) {
     return 'At the end'
   }
-  const record = records[position - 1]
-  return record === undefined || recipe === null
-    ? 'At the end'
-    : `After ${featureLabel(recipe.recipe, record.id, app.store.getState().catalog)}`
+  return record === undefined ? 'At the start' : `After ${labelOf(record.id)}`
 }
 
 /** The strip of items and the marker, with reordering, renaming and the context menu. */
 function Strip() {
   const app = useApp()
   const { recipe, statuses, catalog, selection, editing, editedSketch } = useTimelineState()
-  const document = useAppState((state) => state.document)
   const strip = useRef<HTMLDivElement>(null)
   const ghost = useRef<HTMLDivElement>(null)
   const bar = useRef<HTMLDivElement>(null)
@@ -501,7 +493,7 @@ function Strip() {
     if (dragging === null) {
       return undefined
     }
-    const onKeyDown = (event: KeyboardEvent | globalThis.KeyboardEvent): void => {
+    const onKeyDown = (event: globalThis.KeyboardEvent): void => {
       if (event.key === 'Escape') {
         event.preventDefault()
         const current = press.current
@@ -687,7 +679,7 @@ function Strip() {
       key="marker"
       position={position}
       count={records.length}
-      valueText={markerText(app, document, position)}
+      valueText={markerText(records, position, labelOf)}
       onPress={(event) => {
         startPress(event, null, position)
       }}
@@ -840,9 +832,6 @@ export function Timeline() {
         <Strip />
       )}
       <ProblemsButton />
-      {count === 0 && !collapsed ? (
-        <span className="sr-only">{MESSAGES.core_not_running.length > 0 ? '' : ''}</span>
-      ) : null}
     </section>
   )
 }

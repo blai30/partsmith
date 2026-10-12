@@ -20,7 +20,7 @@
       "id": "b-1",
       "name": "Body 1",
       "volume": 39999.99999999999,
-      "area": 10599.999999999998,
+      "area": 10600.0,
       "center_of_mass": [
         39.99999999999999,
         25.0,
@@ -38,9 +38,9 @@
           10.0
         ]
       },
-      "faces": 8,
-      "edges": 18,
-      "vertices": 12
+      "faces": 6,
+      "edges": 12,
+      "vertices": 8
     }
   ],
   "checks": {
