@@ -10,7 +10,7 @@ import {
   startSketchDrag,
   type SketchDrag,
 } from '../app/actions/sketch'
-import type { App } from '../app/createApp'
+import type { App, Platform } from '../app/createApp'
 import { CoreError } from '../core/client'
 import { createLatestOnly, type LatestOnly } from '../core/queue'
 import { convertForField } from '../expression/evaluate'
@@ -66,7 +66,7 @@ import {
   hitTest,
   type SketchHit,
 } from './hit'
-import { profileIssuePosition, profileIssueTitle } from './issues'
+import { issueRings } from './issues'
 import { ownerOf, pointPosition, solvedEntity } from './operands'
 import { millimetersPerPixelAt, pixelToSketch, sketchToPixel, type CanvasSize } from './placement'
 import type { SketchAddition } from './recipes'
@@ -83,6 +83,7 @@ import {
   shapePoints,
   type Projector,
 } from './screen'
+import { SKETCH_PROMPTS } from './prompts'
 import { constraintTool, isDrawingTool } from './tools'
 
 // Sketch mode's session (ui.md 2.14, 3.16): its tools and the changes they commit, the step
@@ -230,8 +231,13 @@ export type DimensionEditorModel = {
 
 /** What the overlay renders; it changes only when its structure does, not on every pointer move. */
 export type SketchOverlayModel = {
-  /** The sketch hint: a step prompt, or a warning (refused pick, collinear arc points). */
+  /**
+   * The active tool's sketch hint (3.16.3): its step prompt, a constraint tool's requirement, or a
+   * warning (a refused pick, collinear arc points); null with no tool.
+   */
   readonly hint: { readonly text: string; readonly warning: boolean } | null
+  /** Whether inference glyphs show, so the hint names the key that places freely. */
+  readonly freePlacement: boolean
   /** One inference glyph per inferred constraint, snap first (3.16.5). */
   readonly inference: readonly ConstraintType[]
   readonly drawInputs: readonly DrawInputModel[]
@@ -259,7 +265,7 @@ export type OverlayPaint = {
   readonly glyphs: ReadonlyMap<string, Vector2 | null>
   /** Center of each dimension label by constraint id; null hides it. */
   readonly labels: ReadonlyMap<string, Vector2 | null>
-  /** Center of each profile issue ring, in `outlineProblems` order. */
+  /** Center of each profile issue ring, in `issueRings` order. */
   readonly issues: readonly (Vector2 | null)[]
   /** SVG path data: dimension lines (stroked) and their arrowheads (filled). */
   readonly dimensionLines: string
@@ -349,8 +355,9 @@ const EMPTY_PAINT: OverlayPaint = {
   measures: {},
 }
 
-const EMPTY_MODEL: SketchOverlayModel = {
+export const EMPTY_SKETCH_MODEL: SketchOverlayModel = {
   hint: null,
+  freePlacement: false,
   inference: [],
   drawInputs: [],
   focusRequest: 0,
@@ -456,13 +463,29 @@ function constrainedItems(
   return { points, curves }
 }
 
+/** What the dimension tool has picked, for its step prompt. */
+function dimensionPicked(
+  picking: DimensionPicking,
+): Extract<SketchStep, { kind: 'dimension' }>['picked'] {
+  switch (picking.stage) {
+    case 'first':
+      return 'nothing'
+    case 'line':
+      return 'line'
+    case 'point':
+      return 'point'
+    case 'place':
+      return picking.picks.length === 1 ? 'round' : 'pair'
+  }
+}
+
 /** Creates the controller of the sketch being edited; it lives as long as the sketch overlay. */
 export function createSketchController(options: SketchControllerOptions): SketchController {
   const { app, canvas } = options
   const store = app.store
   const listeners = new Set<() => void>()
   const cleanups: (() => void)[] = []
-  let model: SketchOverlayModel = EMPTY_MODEL
+  let model: SketchOverlayModel = EMPTY_SKETCH_MODEL
   let painter: ((paint: OverlayPaint) => void) | null = null
   let cancelPaint: (() => void) | null = null
   let disposed = false
@@ -638,17 +661,27 @@ export function createSketchController(options: SketchControllerOptions): Sketch
 
   // The model React renders.
 
-  function step(session: EditingSession): SketchStep | null {
-    const tool = session.tool
-    if (isDrawingTool(tool)) {
-      const next = draw.stage === 'idle' ? 1 : draw.stage === 'third' ? 3 : 2
-      return { kind: 'draw', tool, click: next }
+  /** The step of the active tool; null with no tool or a constraint tool (3.16.3). */
+  function toolStep(tool: SketchToolId | null): SketchStep | null {
+    switch (tool) {
+      case 'line':
+        return { kind: 'line', chain: draw.stage === 'line' }
+      case 'rectangle_2point':
+      case 'rectangle_center':
+      case 'circle':
+        return { kind: tool, clicks: draw.stage === 'idle' ? 0 : 1 }
+      case 'arc_3point':
+        return {
+          kind: 'arc_3point',
+          clicks: draw.stage === 'idle' ? 0 : draw.stage === 'third' ? 2 : 1,
+        }
+      case 'point':
+        return { kind: 'point' }
+      case 'dimension':
+        return { kind: 'dimension', picked: dimensionPicked(picking) }
+      default:
+        return null
     }
-    if (tool === 'dimension') {
-      return { kind: 'dimension', stage: picking.stage }
-    }
-    const constraint = constraintTool(tool)
-    return constraint === null ? null : { kind: 'constrain', constraint }
   }
 
   function preview(session: EditingSession): DrawPreview | null {
@@ -695,21 +728,27 @@ export function createSketchController(options: SketchControllerOptions): Sketch
   function computeModel(): SketchOverlayModel {
     const session = current()
     if (session === null) {
-      return EMPTY_MODEL
+      return EMPTY_SKETCH_MODEL
     }
     const drawn = preview(session)
     const tool = session.tool
-    const prompt = step(session)
+    const constraint = constraintTool(tool)
+    const step = toolStep(tool)
+    const prompt = step === null ? null : sketchStepHint(step, app.platform)
     const warning = flash?.text ?? drawn?.hint ?? null
     const fields = isDrawingTool(tool) ? drawFields(tool, draw) : []
+    const inference = drawn?.glyphs ?? []
     return {
       hint:
         warning !== null
           ? { text: warning, warning: true }
-          : prompt === null
-            ? null
-            : { text: sketchStepHint(prompt), warning: false },
-      inference: drawn?.glyphs ?? [],
+          : constraint !== null
+            ? { text: constraintRequirement(constraint), warning: false }
+            : prompt === null
+              ? null
+              : { text: prompt, warning: false },
+      freePlacement: inference.length > 0,
+      inference,
       drawInputs: fields.map((field) => ({
         name: field.name,
         unit: field.unit,
@@ -775,7 +814,7 @@ export function createSketchController(options: SketchControllerOptions): Sketch
       dimensionLines.push(paths.lines)
       dimensionArrows.push(paths.arrows)
     }
-    const issues = outlineProblems(solved).map((problem) => project(problem.at))
+    const issues = issueRings(solved).map((ring) => project(ring.at))
 
     // The dimension being placed.
     const cursor = pointer === null ? null : toSketch(pointer)

@@ -2,6 +2,7 @@ import { clsx } from 'clsx/lite'
 import { Check } from 'lucide-react'
 import {
   useEffect,
+  useId,
   useLayoutEffect,
   useRef,
   useState,
@@ -11,7 +12,7 @@ import {
 import { showPopover, useAnchoredPosition } from '../components/floating'
 import type { PrinterProfile, Technology } from '../generated/protocol'
 import { COLOR_CLASSES } from '../theme/roles'
-import { printerGroups } from './printers'
+import { defaultPrinterName, printerDetail, printerGroups } from './printer'
 
 export type PrinterMenuProps = {
   readonly open: boolean
@@ -23,21 +24,25 @@ export type PrinterMenuProps = {
   readonly printers: readonly PrinterProfile[]
   /** The document's printer id, or null when it has none. */
   readonly current: string | null
-  /** Chooses a profile by id, or null for "No printer" (`setPrinter`). */
+  /** Chooses a profile by id, or null for the default item, which clears the printer (`setPrinter`). */
   readonly onChoose: (profileId: string | null) => void
 }
 
-/** One radio item of the menu: a profile under its technology, or "No printer" with the id null. */
+/** One radio item of the menu: a profile under its technology, or the default item with the id null. */
 type Choice = {
   readonly id: string | null
   readonly label: string
+  /** The profile's key numbers (`printerDetail`); null for the default item. */
+  readonly detail: string | null
   readonly technology: Technology | null
 }
 
 /**
  * The printer menu (`printer-menu`, ui.md 3.17) under the Print toolbar's printer button and the
- * status bar's: radio items for every profile under the headings "FDM" and "Resin", then "No
- * printer". It follows the WAI-ARIA menu button pattern like `Menu`, which has no groups.
+ * status bar's: radio items for every profile with its key numbers, under the headings "FDM" and
+ * "Resin", then "Default ({default name})". It follows the WAI-ARIA menu button pattern like `Menu`.
+ * The radio items are one set, so the headings are visual labels that each item's description
+ * repeats, not groups, which would split the set.
  */
 export function PrinterMenu(props: PrinterMenuProps) {
   return props.open ? <PrinterMenuList {...props} /> : null
@@ -52,6 +57,7 @@ function PrinterMenuList({ anchor, onOpenChange, printers, current, onChoose }: 
   const element = useRef<HTMLDivElement>(null)
   const items = useRef<(HTMLButtonElement | null)[]>([])
   const [active, setActive] = useState<number | null>(null)
+  const idPrefix = useId()
 
   const groups = printerGroups(printers)
   // Every item in display order, so an item's index is its position for the arrow keys.
@@ -60,11 +66,25 @@ function PrinterMenuList({ anchor, onOpenChange, printers, current, onChoose }: 
       group.printers.map((printer) => ({
         id: printer.id,
         label: printer.name,
+        detail: printerDetail(printer),
         technology: group.technology,
       })),
     ),
-    { id: null, label: 'No printer', technology: null },
+    {
+      id: null,
+      label: `Default (${defaultPrinterName(printers)})`,
+      detail: null,
+      technology: null,
+    },
   ]
+
+  function headingId(technology: Technology): string {
+    return `${idPrefix}-${technology}`
+  }
+
+  function detailId(index: number): string {
+    return `${idPrefix}-detail-${String(index)}`
+  }
 
   // The browser light-dismisses the menu on a press outside it; the owner learns it closed.
   const latestOnOpenChange = useRef(onOpenChange)
@@ -177,9 +197,10 @@ function PrinterMenuList({ anchor, onOpenChange, printers, current, onChoose }: 
 
   function item(choice: Choice, index: number) {
     const checked = choice.id === current
+    const technology = choice.technology
     return (
       <button
-        key={choice.id ?? 'none'}
+        key={choice.id ?? 'default'}
         ref={(button) => {
           items.current[index] = button
         }}
@@ -187,6 +208,9 @@ function PrinterMenuList({ anchor, onOpenChange, printers, current, onChoose }: 
         role="menuitemradio"
         tabIndex={-1}
         aria-checked={checked}
+        aria-describedby={
+          technology === null ? undefined : `${headingId(technology)} ${detailId(index)}`
+        }
         onFocus={() => {
           setActive(index)
         }}
@@ -205,7 +229,7 @@ function PrinterMenuList({ anchor, onOpenChange, printers, current, onChoose }: 
           choose(choice)
         }}
         className={clsx(
-          'flex h-8 w-full shrink-0 items-center gap-2 rounded-sm px-2 text-left whitespace-nowrap transition-colors duration-150 motion-reduce:transition-none',
+          'flex min-h-8 w-full shrink-0 items-center gap-2 rounded-sm px-2 py-1.5 text-left whitespace-nowrap transition-colors duration-150 motion-reduce:transition-none',
           COLOR_CLASSES.focusRing.outline,
           // A resting outline color equal to the ring's, so transition-colors does not fade the
           // ring in from the text color.
@@ -222,7 +246,19 @@ function PrinterMenuList({ anchor, onOpenChange, printers, current, onChoose }: 
         >
           {checked ? <Check aria-hidden="true" strokeWidth={1.75} className="size-4" /> : null}
         </span>
-        <span className="min-w-0 flex-1 truncate">{choice.label}</span>
+        <span className="flex min-w-0 flex-1 flex-col">
+          <span className="truncate">{choice.label}</span>
+          {choice.detail === null ? null : (
+            // Read as the item's description, not as part of its name.
+            <span
+              id={detailId(index)}
+              aria-hidden="true"
+              className={clsx('truncate text-xs', COLOR_CLASSES.textMuted.foreground)}
+            >
+              {choice.detail}
+            </span>
+          )}
+        </span>
       </button>
     )
   }
@@ -244,23 +280,23 @@ function PrinterMenuList({ anchor, onOpenChange, printers, current, onChoose }: 
         COLOR_CLASSES.text.foreground,
       )}
     >
-      {groups.map((group) => (
-        <fieldset key={group.technology} className="flex min-w-0 flex-col">
-          <legend
-            className={clsx(
-              'px-2 pt-2 pb-1 text-xs font-medium',
-              COLOR_CLASSES.textMuted.foreground,
-            )}
-          >
-            {group.title}
-          </legend>
-          {choices.map((choice, index) =>
-            choice.technology === group.technology ? item(choice, index) : null,
-          )}
-        </fieldset>
-      ))}
+      {groups.map((group) => [
+        // A visual label; each item under it names it in its description.
+        <div
+          key={group.technology}
+          id={headingId(group.technology)}
+          aria-hidden="true"
+          className={clsx('px-2 pt-2 pb-1 text-xs font-medium', COLOR_CLASSES.textMuted.foreground)}
+        >
+          {group.title}
+        </div>,
+        ...choices.map((choice, index) =>
+          choice.technology === group.technology ? item(choice, index) : null,
+        ),
+      ])}
       {groups.length === 0 ? null : (
-        <hr className={clsx('-mx-1 my-1', COLOR_CLASSES.border.border)} />
+        // Presentational: a separator would end the set of radio items.
+        <hr aria-hidden="true" className={clsx('-mx-1 my-1', COLOR_CLASSES.border.border)} />
       )}
       {choices.map((choice, index) => (choice.technology === null ? item(choice, index) : null))}
     </div>
