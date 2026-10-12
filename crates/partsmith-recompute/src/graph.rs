@@ -156,15 +156,12 @@ impl Graph {
 
     /// True when neither feature can reach the other through edges. A feature is never
     /// independent of itself; a feature that is not in the graph reaches nothing.
-    pub fn independent(&self, a: &Id, b: &Id) -> bool {
-        if a == b {
+    pub fn independent(&self, first: &Id, second: &Id) -> bool {
+        if first == second {
             return false;
         }
-        match (self.position(a), self.position(b)) {
-            (Some(first), Some(second)) => {
-                let (earlier, later) = (first.min(second), first.max(second));
-                !self.reaches(earlier, later)
-            }
+        match (self.position(first), self.position(second)) {
+            (Some(one), Some(other)) => !self.reaches(one.min(other), one.max(other)),
             _ => true,
         }
     }
