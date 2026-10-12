@@ -90,6 +90,16 @@ impl Dependencies {
         });
     }
 
+    /// Declares an asset read at `field`; an asset already declared keeps its first field.
+    pub fn add_asset(&mut self, name: &str, field: &str) {
+        if !self.assets.iter().any(|asset| asset.name == name) {
+            self.assets.push(AssetLink {
+                name: name.to_string(),
+                field: field.to_string(),
+            });
+        }
+    }
+
     /// Declares what the plane at `field` reads (section 2.4): a datum plane's feature, or the
     /// body of a face.
     pub fn add_plane(&mut self, field: &str, plane: &PlaneRef) {
@@ -193,6 +203,22 @@ mod tests {
             .map(|expression| expression.field.as_str())
             .collect();
         assert_eq!(fields, ["size[1]", "size[0]"]);
+    }
+
+    #[test]
+    fn an_asset_is_declared_once_with_its_first_field() {
+        let mut dependencies = Dependencies::default();
+
+        dependencies.add_asset("a.step", "asset");
+        dependencies.add_asset("b.step", "second");
+        dependencies.add_asset("a.step", "other");
+
+        let assets: Vec<(&str, &str)> = dependencies
+            .assets
+            .iter()
+            .map(|asset| (asset.name.as_str(), asset.field.as_str()))
+            .collect();
+        assert_eq!(assets, [("a.step", "asset"), ("b.step", "second")]);
     }
 
     #[test]
