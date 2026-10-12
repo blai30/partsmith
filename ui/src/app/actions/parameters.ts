@@ -22,7 +22,11 @@ export async function addParameter(
     return false
   }
   const taken = usedIds(document.recipe)
-  const parameter: Parameter = { id: generateId('p', (id) => taken.has(id)), name, expr: expression }
+  const parameter: Parameter = {
+    id: generateId('p', (id) => taken.has(id)),
+    name,
+    expr: expression,
+  }
   return commitEdits(
     app,
     `Add parameter ${name}`,

@@ -61,12 +61,13 @@ export function callCore(core: CoreModule, request: ArrayBuffer): ArrayBuffer {
 /** Wraps an instantiated Emscripten module as a CoreModule. */
 export function wrapEmscriptenModule(module: EmscriptenCoreModule): CoreModule {
   return {
-    alloc: (length) => module._ps_alloc(length),
+    // Emscripten prefixes C exports with an underscore.
+    alloc: (length) => module['_ps_alloc'](length),
     free: (pointer, length) => {
-      module._ps_free(pointer, length)
+      module['_ps_free'](pointer, length)
     },
     call: (request, requestLength, responseLengthOut) =>
-      module._ps_call(request, requestLength, responseLengthOut),
+      module['_ps_call'](request, requestLength, responseLengthOut),
     memory: () => module.HEAPU8,
   }
 }

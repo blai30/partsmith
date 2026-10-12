@@ -12,6 +12,7 @@ import { createAppStore, type AppStore } from '../state/store'
 import type { ViewportHandle } from '../viewport/controller'
 import { installPrintAnalysis } from './actions/print'
 import { loadCoreData } from './core-data'
+import { installSelectionUpkeep } from './selection-upkeep'
 
 // The app object every action takes (ui.md 2.9): the store, the core API, the mutation queue, the
 // command registry and the host services. createApp wires core events into the store, keeps a
@@ -171,7 +172,7 @@ export function createApp(options: CreateAppOptions): App {
 
   function dispatch(event: CoreEvent): void {
     applyCoreEvent(store, event)
-    for (const listener of [...eventListeners]) {
+    for (const listener of Array.from(eventListeners)) {
       try {
         listener(event)
       } catch (error) {
@@ -251,7 +252,22 @@ export function createApp(options: CreateAppOptions): App {
   connections.set(app, { transport: options.transport, now, eventListeners })
   eventListeners.add(scheduleRecovery(app, now))
   installPrintAnalysis(app)
+  installSelectionUpkeep(app)
   return app
+}
+
+/** Makes the browser ask before leaving the page while the document has unsaved changes (3.19). */
+export function installUnloadGuard(app: App, target: Window): () => void {
+  function onBeforeUnload(event: BeforeUnloadEvent): void {
+    const document = app.store.getState().document
+    if (document !== null && (document.dirty || document.localUnsaved)) {
+      event.preventDefault()
+    }
+  }
+  target.addEventListener('beforeunload', onBeforeUnload)
+  return () => {
+    target.removeEventListener('beforeunload', onBeforeUnload)
+  }
 }
 
 /** The operating system and host the app runs on (2.9). */
@@ -265,12 +281,13 @@ export function detectPlatform(
       ? Reflect.get(agentData, 'platform')
       : undefined
   const platform = typeof agentPlatform === 'string' ? agentPlatform : navigator.platform
-  const operatingSystem = platform.includes('Mac')
+  // navigator.platform says "MacIntel" or "Win32"; userAgentData says "macOS" or "Windows".
+  const operatingSystem = /mac/i.test(platform)
     ? 'mac'
-    : platform.includes('Win')
+    : /win/i.test(platform)
       ? 'windows'
-      : platform.includes('Linux')
+      : /linux/i.test(platform)
         ? 'linux'
         : 'other'
-  return { operatingSystem, host: environment.__TAURI__ === undefined ? 'web' : 'desktop' }
+  return { operatingSystem, host: environment['__TAURI__'] === undefined ? 'web' : 'desktop' }
 }

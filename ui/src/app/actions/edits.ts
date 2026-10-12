@@ -56,10 +56,7 @@ function statusesOf(app: App): Readonly<Record<string, FeatureStatus>> {
  * Shows the failure notification of 4.2 for features that a user change turned from not failing
  * into failing: "{label} failed. {message}" with Edit and Undo, or a count with Show problems.
  */
-export function reportNewFailures(
-  app: App,
-  before: Readonly<Record<string, FeatureStatus>>,
-): void {
+export function reportNewFailures(app: App, before: Readonly<Record<string, FeatureStatus>>): void {
   const document = documentOf(app)
   if (document === null) {
     return

@@ -10,7 +10,7 @@ use std::time::Duration;
 use feature_support::{
     Run, assert_bounding_box, assert_canonical_example, assert_element_repair, assert_error_field,
     assert_face_area, assert_face_count, assert_face_kind, assert_face_radius, assert_list_field,
-    assert_same_body, assert_volume, body_update, document, example_paths, face,
+    assert_same_body, assert_unchanged, assert_volume, body_update, document, example_paths, face,
     face_names_with_prefix, load_example, median_build_time, median_failed_build_time, output_body,
     suggested_limit,
 };
@@ -221,7 +221,7 @@ fn t007_every_edge_lost() {
         run.messages("f-fil1"),
         ["The edge selected for Edges can no longer be found. Re-pick it in the repair panel."]
     );
-    assert_same_body(run.body("b-1"), &output_body(&run, "f-box1", "b-1"));
+    assert_unchanged(&run, "f-fil1", "b-1");
     let shape = run.shape("b-1");
     assert_volume(shape, 8000.0);
     assert_face_count(shape, 6);
@@ -255,7 +255,7 @@ fn t008_radius_too_large() {
     );
     assert_eq!(run.messages("f-fil1"), [expected.as_str()]);
     assert_eq!(error.suggestion(Units::Mm), Some(format!("{limit} mm")));
-    assert_same_body(run.body("b-1"), &output_body(&run, "f-box1", "b-1"));
+    assert_unchanged(&run, "f-fil1", "b-1");
     assert_volume(run.shape("b-1"), 960.0);
 
     let rebuilt = Run::new(plate_document(&limit));
@@ -341,7 +341,25 @@ fn t012_smooth_edge_skipped() {
             "This feature does not change body 'Body 1'. Check its position, size and direction.",
         ]
     );
-    assert_same_body(run.body("b-1"), &output_body(&run, "f-fil1", "b-1"));
+    assert_unchanged(&run, "f-fil2", "b-1");
+}
+
+/// Step 4 next to a torus: the edge where the side of a cylinder meets the fillet of its top rim
+/// is smooth, so a second fillet of it is skipped as in test 12. The kernel facade gives no
+/// outward normals of a torus, so the edge reaches the kernel today, which fails (fillet.md open
+/// issue 3). Once this passes, the document becomes an example under `examples/fillet/`.
+#[test]
+#[ignore = "needs the kernel's outward face normals at an edge (fillet.md open issue 3)"]
+fn smooth_edge_next_to_a_torus_skipped() {
+    let cylinder = r#"{"id": "f-cyl1", "type": "cylinder", "body": "b-1", "radius": "10", "height": "20", "op": "new"}"#;
+    let rim = r#"{"id": "f-fil1", "type": "fillet", "body": "b-1", "edges": [{"q": "edge(f-cyl1/side|f-cyl1/top)", "fp": "circle|n=0,0,1|c=0,0,20|l=62.831853|r=10"}], "radius": "2"}"#;
+    let tangent = r#"{"id": "f-fil2", "type": "fillet", "body": "b-1", "edges": [{"q": "edge(f-cyl1/side|f-fil1/fillet/edge(f-cyl1/side|f-cyl1/top))", "fp": "circle|n=0,0,1|c=0,0,18|l=62.831853|r=10"}], "radius": "1"}"#;
+    let run = Run::records(&["b-1"], &[cylinder, rim, tangent]);
+
+    run.assert_ok("f-cyl1");
+    run.assert_ok("f-fil1");
+    run.assert_warnings("f-fil2", &["ignored", "no_effect"]);
+    assert_unchanged(&run, "f-fil2", "b-1");
 }
 
 #[test]
@@ -370,7 +388,8 @@ fn t014_edges_of_another_body() {
     run.assert_ok("f-box1");
     run.assert_ok("f-box2");
     run.assert_error("f-fil1", "references_not_found");
-    assert_same_body(run.body("b-1"), &output_body(&run, "f-box1", "b-1"));
+    assert_unchanged(&run, "f-fil1", "b-1");
+    // The fillet declares only b-1, so b-2 is compared with the box that made it.
     assert_same_body(run.body("b-2"), &output_body(&run, "f-box2", "b-2"));
 }
 

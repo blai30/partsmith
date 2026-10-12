@@ -19,6 +19,7 @@ path = "src/main.rs"
 test = false
 
 [dependencies]
+partsmith-engine.workspace = true
 
 [dev-dependencies]
 partsmith-protocol.workspace = true

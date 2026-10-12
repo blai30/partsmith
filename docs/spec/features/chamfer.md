@@ -105,7 +105,7 @@ feature(
 1. The body must hold a solid, else `BodyEmpty { use_new: false }`.
 2. Each distance must be greater than 0, else `OutOfRange` (`GreaterThan(0)`) on its field, checked in field order.
 3. Resolve `edges` as in [fillet.md](fillet.md) step 3, and skip smooth edges as in fillet step 4 (`Ignored { reason: SmoothEdge }`, `NoEffect` if none remain).
-4. Face assignment for two distances: for each edge, the first face is the adjacent face whose element name sorts first in byte order; `expr` is measured on it and `second_expr` on the other face (kernel `ChamferSize::TwoDistances { distance, other_distance, face }` with `face` the first face's index). `flip: true` swaps the two for every edge. Edges the kernel adds along a tangent chain follow the side of the edge they continue.
+4. Face assignment for two distances: for each edge, the first face is the adjacent face whose element name sorts first in byte order; `expr` is measured on it and `second_expr` on the other face (kernel `ChamferSize::TwoDistances { distance, other_distance, face }` with `face` the first face's index). `flip: true` swaps the two for every edge. The resolved edges are passed to the kernel sorted by their element names in byte order (for every distance kind), so the result never depends on the order of `edges`: the kernel takes the side of a whole tangent chain from the first of its edges it receives, which is the chain's edge whose name sorts first. Edges the kernel adds along a tangent chain follow that side.
 5. Kernel `chamfer` with every edge. On kernel failure (except `InvalidInput`), run the "too large" search (features.md section 4.3; both distances scale together) and fail with `ChamferTooLarge { field, distance, max, cause }`, where `field` is `distance.expr` for an equal distance and `distance` for two distances, `distance` is the larger requested distance and `max` the larger working scaled distance. Only the equal-distance error carries a suggestion (features.md section 4.4).
 6. Name and return one `BodyUpdate` with change `Modify`.
 
@@ -149,7 +149,9 @@ Conventions from features.md section 6.1; fixtures `CUBE20`, `E-FT`, `E-BT`, `E-
 9. **No edges.** `CHA([], {"kind": "equal", "expr": "1"})`. Expected: error `empty_selection`.
 10. **Edge lost.** `CUBE20`, `CHA([E-FT, E-LOST], {"kind": "equal", "expr": "2"})`. Expected: warning `reference_missing` with pointer `/edges/1`; volume 7960.
 11. **Performance.** Test 4 builds in under 60 ms (desktop, release).
+12. **Edge order does not matter.** The body after `f-fil1` of fillet.md test 11, `CHA([edge(f-box1/front|f-box1/top), edge(f-box1/top|f-fil1/fillet/edge(f-box1/front|f-box1/left))], {"kind": "two_distances", "expr": "1", "second_expr": "2"})` and the same chamfer with the two edges listed in the other order give the same volume (within 1e-9 relative) and the same face names.
 
 ## Open issues
 
 1. Assigning the first distance to the face whose name sorts first is deterministic but not visual. The inspector should preview which face gets which distance and offer Flip; a later version may add a reference face per edge set.
+2. **Resolved:** selected edges of one tangent chain can disagree on their first face (on a box whose vertical edges are filleted, `edge(f-box1/front|f-box1/top)` has the wall first and `edge(f-box1/top|f-fil1/fillet/edge(f-box1/front|f-box1/left))` the top first), and the kernel takes a chain's side from the first edge it receives. Step 4 now sorts the edges by name before the kernel call, so the chain's edge whose name sorts first sets the side and listing order no longer changes the geometry. A reference face per edge set (open issue 1) would make the side explicit.

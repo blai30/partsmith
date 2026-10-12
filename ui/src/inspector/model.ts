@@ -144,7 +144,9 @@ function typesOf(schema: JsonSchema): readonly string[] {
   if (typeof type === 'string') {
     return [type]
   }
-  return Array.isArray(type) ? type.filter((entry): entry is string => typeof entry === 'string') : []
+  return Array.isArray(type)
+    ? type.filter((entry): entry is string => typeof entry === 'string')
+    : []
 }
 
 function propertiesOf(schema: JsonSchema): Readonly<Record<string, unknown>> {
@@ -266,7 +268,10 @@ function isChoiceSchema(located: Located, root: JsonSchema): boolean {
   return (
     Array.isArray(choices) &&
     choices.length > 0 &&
-    choices.every((choice) => typeof schemaOrNull(resolved(schemaOrNull(choice) ?? {}, root))?.['const'] === 'string')
+    choices.every(
+      (choice) =>
+        typeof schemaOrNull(resolved(schemaOrNull(choice) ?? {}, root))?.['const'] === 'string',
+    )
   )
 }
 

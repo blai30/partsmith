@@ -9,11 +9,11 @@ import type { AppState } from './store'
  * Memoizes a derivation on the identity of its inputs: while every input is the same object as
  * last time, the last result is returned again.
  */
-function memoized<Inputs extends readonly unknown[], Result>(
-  inputsOf: (state: AppState) => Inputs,
+function memoized<Inputs extends unknown[], Result>(
+  inputsOf: (state: AppState) => readonly [...Inputs],
   derive: (...inputs: Inputs) => Result,
 ): (state: AppState) => Result {
-  let last: { readonly inputs: Inputs; readonly result: Result } | null = null
+  let last: { readonly inputs: readonly [...Inputs]; readonly result: Result } | null = null
   return (state) => {
     const inputs = inputsOf(state)
     if (

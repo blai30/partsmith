@@ -4,21 +4,40 @@ Emscripten entry point exporting `ps_alloc`, `ps_free`, `ps_call` (ADR 0009).
 
 Spec: `docs/spec/protocol.md` sections 2.10 and 2.11. Build with `scripts/build-wasm.sh`.
 
+## Public interface
+
+- `call(&[u8]) -> Vec<u8>`: the safe core of the bridge. Hands one request frame to the current thread's `Session` (`Session::call`) and returns one response frame; never panics.
+- `initialize_session()`: creates the current thread's session if it does not exist yet (display on, random ids). `main` calls it; `call` also creates the session on first use, so native tests need no setup.
+- C ABI exports (`#[unsafe(no_mangle)]`, in `src/exports.rs`):
+  - `ps_alloc(length) -> *mut u8`: 8-aligned block, null for 0 or when allocation fails. Safe to call.
+  - `unsafe ps_free(pointer, length)`: frees a block from `ps_alloc` or `ps_call`; null does nothing.
+  - `unsafe ps_call(request, request_length, response_length) -> *mut u8`: answers every request (a null request reads as empty) with a response block allocated like `ps_alloc`, writes its length, never frees the request; null and 0 only when the response cannot be allocated.
+- Binary `partsmith_core` (`src/main.rs`): the web core module, `ui/public/core/partsmith_core.mjs` (factory `createPartsmithCore`) and `partsmith_core.wasm`.
+
 ## Commands
 
 ```sh
+export OCCT_ROOT=/opt/occt/7.9.3/native
 cargo test -p partsmith-wasm
+cargo test -p partsmith-wasm --lib
 cargo clippy -p partsmith-wasm --all-targets -- -D warnings
+cargo fmt -p partsmith-wasm
 
-# Web core module into ui/public/core/ (needs an activated Emscripten SDK and OCCT built for wasm)
+# Web core module into ui/public/core/ (needs an activated Emscripten SDK and OCCT built for wasm);
+# prints the .wasm size, gzip and brotli sizes against the 25 MiB Cloudflare Pages per-file limit
 source /opt/emsdk/emsdk_env.sh >/dev/null 2>&1
 OCCT_ROOT_WASM32_UNKNOWN_EMSCRIPTEN=/opt/occt/7.9.3/wasm scripts/build-wasm.sh
+cargo test -p partsmith-wasm --test web_module
+
+# The bridge tests under Node, with every test on one thread and one session
+OCCT_ROOT_WASM32_UNKNOWN_EMSCRIPTEN=/opt/occt/7.9.3/wasm cargo test -p partsmith-wasm --target wasm32-unknown-emscripten
 ```
 
 `tests/web_module.rs` runs `tests/node/engine_info_round_trip.mjs` against the built module in `ui/public/core/`; it skips with a message when Node or the module is missing.
 
 ## Rules
 
-- `unsafe` only on the three exports, each block with a `// SAFETY:` comment; the crate's own lint table denies it everywhere else (ADR 0010).
+- `unsafe` only on the three exports, each block with a `// SAFETY:` comment; the crate's own lint table denies it everywhere else (ADR 0010). Unit tests in `src/` stay safe; tests that need raw pointers live in `tests/`.
+- `ps_free` and `ps_call` are `unsafe extern "C" fn` because they trust pointers from the caller; their C signatures are those of protocol.md 2.10.
 - The binary is named `partsmith_core` because Emscripten embeds the `.wasm` file name in the `.js` loader. Its link arguments live in `build.rs`, for the Emscripten target only.
 - `src/main.rs` must call into the library (it creates the session). Otherwise rustc leaves the library out of the link and emcc fails with `symbol exported via --export not found: ps_alloc`.

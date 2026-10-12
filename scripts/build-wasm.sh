@@ -41,11 +41,23 @@ mkdir -p "$destination"
 cp "$built/partsmith_core.js" "$destination/partsmith_core.mjs"
 cp "$built/partsmith_core.wasm" "$destination/partsmith_core.wasm"
 
-# Cloudflare Pages serves files of at most 25 MiB (technical design section 4).
+# Cloudflare Pages serves files of at most 25 MiB (technical design section 4). This line is
+# informational; the deploy gate is ui/scripts/check-dist.mjs (delivery.md section 3.5).
+wasm="$destination/partsmith_core.wasm"
 limit=$((25 * 1024 * 1024))
-size=$(($(wc -c <"$destination/partsmith_core.wasm")))
-gzipped=$(($(gzip -9 -c "$destination/partsmith_core.wasm" | wc -c)))
-echo "$destination/partsmith_core.wasm: $size bytes, $gzipped bytes gzipped (Cloudflare Pages limit: $limit bytes per file)"
+size=$(($(wc -c <"$wasm")))
+gzipped=$(($(gzip -9 -c "$wasm" | wc -c)))
+# The Emscripten SDK ships Node (EMSDK_NODE), whose zlib compresses with brotli at the highest quality.
+brotli=$("${EMSDK_NODE:-node}" -e '
+  const { readFileSync } = require("node:fs")
+  const { brotliCompressSync, constants } = require("node:zlib")
+  const options = { params: { [constants.BROTLI_PARAM_QUALITY]: constants.BROTLI_MAX_QUALITY } }
+  process.stdout.write(String(brotliCompressSync(readFileSync(process.argv[1]), options).length))
+' "$wasm")
+mebibytes() {
+  awk -v bytes="$1" 'BEGIN { printf "%.2f MiB", bytes / 1048576 }'
+}
+echo "$wasm: $size bytes ($(mebibytes "$size")), $gzipped bytes with gzip -9 ($(mebibytes "$gzipped")), $brotli bytes with brotli ($(mebibytes "$brotli")); Cloudflare Pages limit: $limit bytes ($(mebibytes "$limit")) per file"
 if [ "$size" -gt "$limit" ]; then
   echo "warning: partsmith_core.wasm is larger than the Cloudflare Pages per-file limit." >&2
 fi

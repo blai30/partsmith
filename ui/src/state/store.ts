@@ -20,6 +20,7 @@ import type { JsonSchema } from '../inspector/model'
 import { loadSettings, type Settings } from '../settings/settings'
 import type { SketchToolId } from '../sketch/session'
 import type { StandardView } from '../viewport/camera'
+import type { SelectionItemKind } from '../viewport/picking'
 
 // The app state (ui.md 2.8): one zustand vanilla store per app, so tests create isolated stores
 // without React. Actions are the only code that changes it in response to the user.
@@ -98,21 +99,8 @@ export type MeshSummary = {
 /** The file a document was opened from or saved to: a web file handle or a desktop grant. */
 export type FileReference = { readonly name: string; readonly handle: OpenedFile['handle'] }
 
-export type SelectionItemKind =
-  | 'face'
-  | 'edge'
-  | 'vertex'
-  | 'body'
-  | 'feature'
-  | 'parameter'
-  | 'sketch_region'
-  | 'sketch_curve'
-  | 'sketch_point'
-  | 'sketch_constraint'
-  | 'origin_plane'
-  | 'origin_axis'
-  | 'origin_point'
-  | 'datum_plane'
+/** The kinds of selection items, declared once with the picking code that produces them. */
+export type { SelectionItemKind }
 
 export type SelectionItem = {
   /** Stable key (3.6), equal for the same thing across rebuilds. */

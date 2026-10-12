@@ -61,41 +61,51 @@ export function createTauriTransport(tauri: TauriGlobal): Transport {
     return tauri.core.invoke('call', frame)
   }
 
-  async function runQueue(): Promise<void> {
-    if (running) {
-      return
-    }
-    running = true
-    try {
-      for (let current = queue[0]; current !== undefined; current = queue[0]) {
-        if (headIsSuperseded(queue)) {
-          queue.shift()
-          current.resolve(supersededFrame(current.request?.id ?? 0))
-          continue
-        }
-        let response: ArrayBuffer
-        try {
-          response = await invoke(current.frame)
-          if (stopped !== null) {
-            return
-          }
-        } catch (error) {
-          if (stopped !== null) {
-            return
-          }
-          // The desktop core lives in the app process, so a failed call is an error for this request only.
-          response = errorResponseFrame(
-            current.request?.id ?? 0,
-            'internal_error',
-            internalErrorMessage(reasonOf(error)),
-          )
-        }
-        queue.shift()
-        current.resolve(response)
+  /** Answers the head of the queue when nothing is in flight: superseded at once, else through the host. */
+  function runNext(): void {
+    while (!running) {
+      const current = queue[0]
+      if (current === undefined) {
+        return
       }
-    } finally {
-      running = false
+      if (!headIsSuperseded(queue)) {
+        running = true
+        call(current)
+        return
+      }
+      queue.shift()
+      current.resolve(supersededFrame(current.request?.id ?? 0))
     }
+  }
+
+  function call(current: QueuedSend): void {
+    let response: Promise<ArrayBuffer>
+    try {
+      response = invoke(current.frame)
+    } catch (error) {
+      response = Promise.reject(error)
+    }
+    response
+      .catch((error: unknown) =>
+        // The desktop core lives in the app process, so a failed call is an error for this request only.
+        errorResponseFrame(
+          current.request?.id ?? 0,
+          'internal_error',
+          internalErrorMessage(reasonOf(error)),
+        ),
+      )
+      .then((frame) => {
+        running = false
+        // A stop() while the call was in flight already rejected it.
+        if (queue[0] === current) {
+          queue.shift()
+          current.resolve(frame)
+        }
+        runNext()
+      })
+      .catch((error: unknown) => {
+        console.error('The desktop transport failed to answer a request.', error)
+      })
   }
 
   return {
@@ -131,7 +141,7 @@ export function createTauriTransport(tauri: TauriGlobal): Transport {
       }
       return new Promise<ArrayBuffer>((resolve, reject) => {
         queue.push({ frame, request: requestOf(frame), resolve, reject })
-        void runQueue()
+        runNext()
       })
     },
     stop() {

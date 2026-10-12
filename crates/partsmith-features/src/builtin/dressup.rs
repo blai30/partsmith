@@ -14,7 +14,8 @@ use partsmith_occt_sys::{
     OpResult, Point, Shape, SubShapeKind, Topology, Vector,
 };
 
-use super::common::{bodies, unchanged};
+use super::common::{bodies, face_name, unchanged};
+use crate::naming::kernel;
 use crate::{
     BodyChange, BodyState, BodyUpdate, BuildContext, FeatureError, FeatureOutput, FeatureWarning,
     IgnoredReason, name_shape, too_large_search,
@@ -24,25 +25,22 @@ use crate::{
 /// midpoint for which the faces meet without a corner (fillet.md section 3.3 step 4).
 const SMOOTH_ANGLE: f64 = 1e-6;
 
-/// A kernel failure as a feature error.
-pub(super) fn kernel(error: KernelError) -> FeatureError {
-    FeatureError::Kernel { error }
-}
-
-/// A failure that valid kernel output cannot cause.
-pub(super) fn internal(message: impl Into<String>) -> FeatureError {
-    FeatureError::Internal {
-        message: message.into(),
-    }
-}
-
 /// The edges a fillet or chamfer works on.
 #[derive(Clone, Debug, PartialEq)]
 pub(super) struct EdgeSelection {
-    /// Kernel indices of the selected edges that have a corner, in resolver order.
-    pub(super) edges: Vec<u32>,
+    /// The selected edges that have a corner, in resolver order.
+    pub(super) edges: Vec<SelectedEdge>,
     /// Warnings for lost or ambiguous references, then one per skipped smooth edge.
     pub(super) warnings: Vec<FeatureWarning>,
+}
+
+/// One selected edge of the body.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct SelectedEdge {
+    /// The edge's kernel index.
+    pub(super) index: u32,
+    /// Kernel indices of the faces next to the edge, ascending.
+    pub(super) faces: Vec<u32>,
 }
 
 /// Resolves the `edges` references in `body`, whose shape is `shape`, and skips the smooth edges
@@ -66,29 +64,40 @@ pub(super) fn select_edges(
                 reason: IgnoredReason::SmoothEdge,
             });
         } else {
-            selection.edges.push(element.index);
+            selection.edges.push(SelectedEdge {
+                index: element.index,
+                faces: edge_topology(&topology, element.index)?.faces.clone(),
+            });
         }
     }
     Ok(selection)
 }
 
+/// The adjacency of `edge` (a 1-based kernel index) in `topology`.
+fn edge_topology(topology: &Topology, edge: u32) -> Result<&EdgeTopology, FeatureError> {
+    edge.checked_sub(1)
+        .and_then(|position| topology.edges.get(position as usize))
+        .ok_or_else(|| FeatureError::internal(format!("edge {edge} is not in the body's topology")))
+}
+
 /// True when `edge` of `shape` is a seam, or when its two faces meet without a corner: the angle
 /// between their outward normals at the edge's midpoint is at most `SMOOTH_ANGLE`.
 ///
-/// The kernel describes faces by their surface, not by normals at a point, so the normals come
-/// from that description: flat faces give their outward normal, cylinders and spheres their
-/// normal up to its sign. An edge whose midpoint or face normals cannot be found that way (an
-/// edge that is not a line or circle, or a face on another kind of surface) counts as having a
-/// corner, and the kernel decides whether it can be blended.
+/// This implements fillet.md section 3.3 step 4 only in part (fillet.md open issue 3). The kernel
+/// facade describes a face by its surface (an axis, a point and one radius), not by its outward
+/// normal at a point, so the normals come from that description: flat faces give their outward
+/// normal, cylinders and spheres their normal up to its sign. An edge whose midpoint or face
+/// normals cannot be found that way (an edge that is not a line or circle, or a face on a cone,
+/// torus, surface of revolution or freeform surface) counts as having a corner and goes to the
+/// kernel, and a knife edge between a flat face and a cylinder or sphere (outward normals
+/// opposite) counts as smooth. The full rule needs a kernel query for the oriented outward
+/// normals of an edge's faces at its middle.
 pub(super) fn is_smooth(
     shape: &Shape,
     topology: &Topology,
     edge: u32,
 ) -> Result<bool, FeatureError> {
-    let entry = edge
-        .checked_sub(1)
-        .and_then(|position| topology.edges.get(position as usize))
-        .ok_or_else(|| internal(format!("edge {edge} is not in the body's topology")))?;
+    let entry = edge_topology(topology, edge)?;
     if entry.seam || entry.faces.len() == 1 {
         return Ok(true);
     }
@@ -245,7 +254,7 @@ pub(super) fn add_origins(
             .map(|position| position as usize)
             .filter(|&position| position < face_count)
             .ok_or_else(|| {
-                internal(format!(
+                FeatureError::internal(format!(
                     "the kernel history names result face {face}, which is not one of the {face_count} faces"
                 ))
             })
@@ -258,7 +267,7 @@ pub(super) fn add_origins(
     for (kind, fates) in kinds {
         for (input, fate) in (1_u32..).zip(fates) {
             let body = body_index(kind, input).ok_or_else(|| {
-                internal(format!(
+                FeatureError::internal(format!(
                     "the kernel history names {kind:?} {input}, which the body does not have"
                 ))
             })?;
@@ -287,7 +296,9 @@ pub(super) fn add_origins(
 /// One entry per face of a kernel result whose only input is the body, with that input's history.
 pub(super) fn single_input_origins(result: &OpResult) -> Result<Vec<FaceOrigins>, FeatureError> {
     let [history] = &result.history.inputs[..] else {
-        return Err(internal("a fillet or chamfer result has one history input"));
+        return Err(FeatureError::internal(
+            "a fillet or chamfer result has one history input",
+        ));
     };
     let mut origins = vec![FaceOrigins::default(); result.shape.count(SubShapeKind::Face) as usize];
     add_origins(&mut origins, history, |_, index| Some(index), Some)?;
@@ -305,7 +316,9 @@ pub(super) fn face_names(
             naming
                 .name(ElementKind::Face, face)
                 .cloned()
-                .ok_or_else(|| internal(format!("face {face} of the body has no name")))
+                .ok_or_else(|| {
+                    FeatureError::internal(format!("face {face} of the body has no name"))
+                })
         })
         .collect()
 }
@@ -331,9 +344,7 @@ pub(super) fn new_face(
     role: &str,
     element: Option<&ElementName>,
 ) -> Result<FaceSource, FeatureError> {
-    ElementName::generated(feature, role, element.map(Generator::Element))
-        .map(FaceSource::New)
-        .map_err(|error| internal(format!("naming the result failed: {error}")))
+    face_name(feature, role, element.map(Generator::Element)).map(FaceSource::New)
 }
 
 /// Names a fillet or chamfer result (naming.md sections 3.6.5 and 3.6.6). Each face keeps the
@@ -407,7 +418,7 @@ mod tests {
     use partsmith_occt_sys::{EdgeRadius, ElementFate, Plane, SubShape, fillet, make_cylinder};
 
     use super::*;
-    use crate::test_support::{Fixture, face_names as sorted_face_names, id, named_box};
+    use crate::test_support::{Fixture, box_body, face_names as sorted_face_names, id, named_box};
 
     /// The edges of `shape` whose faces are exactly these two.
     fn edge_between(shape: &Shape, first: u32, second: u32) -> u32 {
@@ -464,6 +475,34 @@ mod tests {
             exception: "StdFail_NotDone".to_string(),
             message: String::new(),
         }
+    }
+
+    #[test]
+    fn a_selected_edge_keeps_its_faces() {
+        let state = box_body("f-box1", [0.0, 0.0, 0.0], 10.0);
+        let shape = state.shape().expect("a solid").clone();
+        let front = face_index(state.naming(), "f-box1/front");
+        let top = face_index(state.naming(), "f-box1/top");
+        let fixture = Fixture::new("f-fil1").with_body("b-1", state);
+        let edges = [test_fixtures::reference(
+            r#"{"q": "edge(f-box1/front|f-box1/top)", "fp": "line|n=1,0,0|c=5,0,10|l=10"}"#,
+        )];
+
+        let selection =
+            select_edges(&fixture.context(), &id("b-1"), &shape, &edges).expect("resolved");
+
+        let mut faces = vec![front, top];
+        faces.sort_unstable();
+        assert_eq!(
+            selection,
+            EdgeSelection {
+                edges: vec![SelectedEdge {
+                    index: edge_between(&shape, front, top),
+                    faces,
+                }],
+                warnings: Vec::new(),
+            }
+        );
     }
 
     #[test]
@@ -608,7 +647,7 @@ mod tests {
                 attempts.set(attempts.get() + 1);
                 Err::<(), _>(kernel_error(KernelErrorKind::InvalidInput))
             },
-            |_, _| internal("not expected"),
+            |_, _| FeatureError::internal("not expected"),
         )
         .expect_err("invalid input fails");
 
@@ -647,8 +686,10 @@ mod tests {
     fn a_working_value_is_returned() {
         let fixture = Fixture::new("f-fil1");
 
-        let value = run_or_search(&fixture.context(), 3.0, Ok, |_, _| internal("not expected"))
-            .expect("works");
+        let value = run_or_search(&fixture.context(), 3.0, Ok, |_, _| {
+            FeatureError::internal("not expected")
+        })
+        .expect("works");
 
         assert_eq!(value, 3.0);
     }

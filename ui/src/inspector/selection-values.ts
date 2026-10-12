@@ -46,7 +46,8 @@ export function acceptsTarget(accepts: SelectionKind, item: SelectionItem): bool
     case 'sketch':
       return (
         (item.kind === 'feature' && item.feature !== null) ||
-        ((item.kind === 'sketch_curve' || item.kind === 'sketch_region') && item.sketchItem !== null)
+        ((item.kind === 'sketch_curve' || item.kind === 'sketch_region') &&
+          item.sketchItem !== null)
       )
     case 'sketch_region':
       return item.kind === 'sketch_region' && item.sketchItem?.kind === 'region'
@@ -198,7 +199,11 @@ function bodyItem(state: AppState, bodyId: string): SelectionItem {
   }
 }
 
-function featureItem(state: AppState, featureId: string, kind: 'feature' | 'datum_plane'): SelectionItem {
+function featureItem(
+  state: AppState,
+  featureId: string,
+  kind: 'feature' | 'datum_plane',
+): SelectionItem {
   return {
     ...NO_ITEM_DATA,
     key: `feature:${featureId}`,
@@ -209,7 +214,12 @@ function featureItem(state: AppState, featureId: string, kind: 'feature' | 'datu
 }
 
 /** A face or edge item for a stored reference; its element name is the reference's query. */
-function referenceItem(state: AppState, kind: ElementKind, bodyId: string, reference: Reference): SelectionItem {
+function referenceItem(
+  state: AppState,
+  kind: ElementKind,
+  bodyId: string,
+  reference: Reference,
+): SelectionItem {
   return {
     ...NO_ITEM_DATA,
     key: `element:${bodyId}:${reference.q}`,
@@ -226,7 +236,11 @@ function regionItems(state: AppState, value: unknown): readonly SelectionItem[] 
   const sketch = value['sketch']
   const solved = state.document?.sketches[sketch]?.solution.regions ?? []
   return value['regions'].flatMap((reference: unknown) => {
-    if (!isRecord(reference) || typeof reference['key'] !== 'string' || typeof reference['fp'] !== 'string') {
+    if (
+      !isRecord(reference) ||
+      typeof reference['key'] !== 'string' ||
+      typeof reference['fp'] !== 'string'
+    ) {
       return []
     }
     const index = solved.findIndex((region) => region.reference.key === reference['key'])
@@ -248,9 +262,16 @@ function regionItems(state: AppState, value: unknown): readonly SelectionItem[] 
   })
 }
 
-function planeItems(state: AppState, value: Readonly<Record<string, unknown>>): readonly SelectionItem[] {
+function planeItems(
+  state: AppState,
+  value: Readonly<Record<string, unknown>>,
+): readonly SelectionItem[] {
   const kind = value['kind']
-  if (kind === 'origin' && typeof value['plane'] === 'string' && ORIGIN_PLANES.has(value['plane'])) {
+  if (
+    kind === 'origin' &&
+    typeof value['plane'] === 'string' &&
+    ORIGIN_PLANES.has(value['plane'])
+  ) {
     return [originItem(value['plane'] as OriginName)]
   }
   if (kind === 'datum' && typeof value['feature'] === 'string') {
@@ -262,12 +283,19 @@ function planeItems(state: AppState, value: Readonly<Record<string, unknown>>): 
   return []
 }
 
-function axisItems(state: AppState, value: Readonly<Record<string, unknown>>): readonly SelectionItem[] {
+function axisItems(
+  state: AppState,
+  value: Readonly<Record<string, unknown>>,
+): readonly SelectionItem[] {
   const kind = value['kind']
   if (kind === 'origin' && typeof value['axis'] === 'string' && ORIGIN_AXES.has(value['axis'])) {
     return [originItem(value['axis'] as OriginName)]
   }
-  if (kind === 'sketch_line' && typeof value['sketch'] === 'string' && typeof value['line'] === 'string') {
+  if (
+    kind === 'sketch_line' &&
+    typeof value['sketch'] === 'string' &&
+    typeof value['line'] === 'string'
+  ) {
     const sketch = value['sketch']
     const line = value['line']
     return [
@@ -304,12 +332,18 @@ export function itemsFromValue(
   state: AppState,
   siblings: Readonly<Record<string, unknown>> = {},
 ): readonly SelectionItem[] {
-  const values: readonly unknown[] = Array.isArray(value) ? value : value === undefined || value === null ? [] : [value]
+  const values: readonly unknown[] = Array.isArray(value)
+    ? value
+    : value === undefined || value === null
+      ? []
+      : [value]
   switch (accepts) {
     case 'body':
       return values.flatMap((id) => (typeof id === 'string' ? [bodyItem(state, id)] : []))
     case 'sketch':
-      return values.flatMap((id) => (typeof id === 'string' ? [featureItem(state, id, 'feature')] : []))
+      return values.flatMap((id) =>
+        typeof id === 'string' ? [featureItem(state, id, 'feature')] : [],
+      )
     case 'sketch_region':
       return regionItems(state, value)
     case 'sketch_point': {

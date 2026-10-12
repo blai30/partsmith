@@ -16,7 +16,9 @@ import { notify } from './notifications'
 // and their commits belong to the sketch controller.
 
 /** One step of the sketch view history (3.20): a camera to go back to, or a committed sketch edit. */
-type HistoryEntry = { readonly kind: 'view'; readonly camera: Camera } | { readonly kind: 'document' }
+type HistoryEntry =
+  | { readonly kind: 'view'; readonly camera: Camera }
+  | { readonly kind: 'document' }
 
 type SketchHistory = { readonly undo: HistoryEntry[]; readonly redo: HistoryEntry[] }
 
@@ -82,7 +84,8 @@ async function stepSketchHistory(app: App, direction: 'undo' | 'redo'): Promise<
   if (history === undefined || editedSketch(app) === null) {
     return false
   }
-  const [from, to] = direction === 'undo' ? [history.undo, history.redo] : [history.redo, history.undo]
+  const [from, to] =
+    direction === 'undo' ? [history.undo, history.redo] : [history.redo, history.undo]
   const entry = from.pop()
   if (entry === undefined) {
     return false
@@ -102,15 +105,28 @@ async function stepSketchHistory(app: App, direction: 'undo' | 'redo'): Promise<
 
 /** The sketch.md plane of a plane-like selection item, or null for anything else. */
 export function sketchPlaneOf(item: SelectionItem): SketchPlane | null {
-  if (item.kind === 'origin_plane' && (item.origin === 'XY' || item.origin === 'XZ' || item.origin === 'YZ')) {
+  if (
+    item.kind === 'origin_plane' &&
+    (item.origin === 'XY' || item.origin === 'XZ' || item.origin === 'YZ')
+  ) {
     return { kind: 'origin', plane: item.origin }
   }
   if (item.kind === 'datum_plane' && item.feature !== null) {
     return { kind: 'datum', feature: item.feature }
   }
   const element = item.element
-  if (item.kind === 'face' && element?.surface === 'plane' && element.placement !== undefined && element.placement !== null) {
-    return { kind: 'face', body: element.body, face: element.reference, fallback: element.placement }
+  if (
+    item.kind === 'face' &&
+    element?.surface === 'plane' &&
+    element.placement !== undefined &&
+    element.placement !== null
+  ) {
+    return {
+      kind: 'face',
+      body: element.body,
+      face: element.reference,
+      fallback: element.placement,
+    }
   }
   return null
 }
@@ -149,7 +165,8 @@ export async function createSketchOn(app: App, plane: SelectionItem): Promise<vo
   const sketchId = generateId('f', (id) => taken.has(id))
   // A new feature goes in front of the rollback marker, so it is active (3.7).
   const rollback = document.recipe.rollback ?? null
-  const markerIndex = rollback === null ? -1 : features.findIndex((feature) => feature.id === rollback)
+  const markerIndex =
+    rollback === null ? -1 : features.findIndex((feature) => feature.id === rollback)
   const index = markerIndex === -1 ? features.length : markerIndex
   const added = await commitEdits(app, 'New sketch', [
     {
@@ -164,7 +181,9 @@ export async function createSketchOn(app: App, plane: SelectionItem): Promise<vo
 }
 
 /** The 2D extent of a solution's entities in sketch coordinates, or null without entities. */
-function sketchExtent(solution: SketchSolution): { min: [number, number]; max: [number, number] } | null {
+function sketchExtent(
+  solution: SketchSolution,
+): { min: [number, number]; max: [number, number] } | null {
   const xs: number[] = []
   const ys: number[] = []
   function include(x: number, y: number): void {
@@ -288,7 +307,10 @@ export async function finishSketch(app: App): Promise<void> {
   if (problems > 0) {
     notify(app, {
       severity: 'info',
-      message: MESSAGES.profile_problems(featureLabel(document.recipe, sketchId, state.catalog), problems),
+      message: MESSAGES.profile_problems(
+        featureLabel(document.recipe, sketchId, state.catalog),
+        problems,
+      ),
       actions: [
         {
           label: 'Back to sketch',
@@ -304,6 +326,8 @@ export async function finishSketch(app: App): Promise<void> {
 /** Activates a sketch tool, or none. */
 export function setSketchTool(app: App, tool: SketchToolId | null): void {
   app.store.setState((state) =>
-    state.sketch === null || state.sketch.sketchId === null ? {} : { sketch: { ...state.sketch, tool } },
+    state.sketch === null || state.sketch.sketchId === null
+      ? {}
+      : { sketch: { ...state.sketch, tool } },
   )
 }

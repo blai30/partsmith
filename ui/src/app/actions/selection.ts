@@ -13,7 +13,11 @@ const ELEMENT_NOUNS = { face: 'Face', edge: 'Edge', vertex: 'Vertex' } as const
 /** Pick errors that mean the click hit geometry that is gone or not pickable: ignored silently. */
 const IGNORED_PICK_ERRORS: ReadonlySet<string> = new Set(['stale_pick', 'preview_not_pickable'])
 
-export function select(app: App, items: readonly SelectionItem[], mode: 'replace' | 'toggle'): void {
+export function select(
+  app: App,
+  items: readonly SelectionItem[],
+  mode: 'replace' | 'toggle',
+): void {
   app.store.setState((state) => {
     if (mode === 'replace') {
       return { selection: [...items] }

@@ -9,9 +9,8 @@ use std::time::Duration;
 use feature_support::{
     Run, assert_bounding_box, assert_canonical_example, assert_element_repair, assert_error_field,
     assert_face_area, assert_face_count, assert_face_kind, assert_face_position, assert_list_field,
-    assert_same_body, assert_solid_count, assert_volume, body_update, document, example_paths,
-    face, face_index, face_names_with_prefix, load_example, median_build_time, output_body,
-    suggested_limit,
+    assert_solid_count, assert_unchanged, assert_volume, body_update, document, example_paths,
+    face, face_index, face_names_with_prefix, load_example, median_build_time, suggested_limit,
 };
 use partsmith_features::{BodyChange, FeatureError};
 use partsmith_model::{Document, Units};
@@ -174,7 +173,7 @@ fn t005_too_thick() {
     );
     assert_eq!(run.messages("f-sh1"), [expected.as_str()]);
     assert_eq!(error.suggestion(Units::Mm), Some(format!("{limit} mm")));
-    assert_same_body(run.body("b-1"), &output_body(&run, "f-box1", "b-1"));
+    assert_unchanged(&run, "f-sh1", "b-1");
 
     let rebuilt = Run::new(open_top_document(&limit));
     rebuilt.assert_all_ok();
@@ -202,7 +201,7 @@ fn t007_removed_face_lost() {
             "The face selected for Faces to remove can no longer be found. Re-pick it in the repair panel."
         ]
     );
-    assert_same_body(run.body("b-1"), &output_body(&run, "f-box1", "b-1"));
+    assert_unchanged(&run, "f-sh1", "b-1");
 }
 
 #[test]

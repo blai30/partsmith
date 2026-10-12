@@ -79,9 +79,7 @@ function removeNotification(store: AppStore, id: string): void {
 
 /** The notification to drop to make room: the oldest that is not an error, else the oldest. */
 function oldestRemovable(notifications: readonly Notification[]): Notification | undefined {
-  return (
-    notifications.find((notification) => notification.severity !== 'error') ?? notifications[0]
-  )
+  return notifications.find((notification) => notification.severity !== 'error') ?? notifications[0]
 }
 
 export type NotifyOptions = {

@@ -18,6 +18,8 @@ export function AppProvider({ app, children }: AppProviderProps): React.JSX.Elem
 }
 
 /** The app of the nearest AppProvider. */
+// The hooks live with their provider (ui.md 2.1); editing this file reloads instead of hot-swapping.
+// oxlint-disable-next-line react/only-export-components
 export function useApp(): App {
   const app = useContext(AppContext)
   if (app === null) {
@@ -31,6 +33,7 @@ export function useApp(): App {
  * (`Object.is`). The selector must return the same value for the same state, as the selectors of
  * state/selectors.ts do.
  */
+// oxlint-disable-next-line react/only-export-components
 export function useAppState<Selected>(selector: (state: AppState) => Selected): Selected {
   return useStore(useApp().store, selector)
 }

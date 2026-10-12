@@ -12,15 +12,16 @@ use super::common::{
     unit_hint,
 };
 use super::dressup::{
-    FaceOrigins, add_origins, face_names, internal, kernel, modified, new_face, run_or_search,
-    smallest_name,
+    FaceOrigins, add_origins, face_names, modified, new_face, run_or_search, smallest_name,
 };
+use crate::naming::kernel;
 use crate::{
     BuildContext, Dependencies, Feature, FeatureError, FeatureOutput, PythonCall, PythonNames,
     PythonValue, name_shape,
 };
 
 /// Hollows a body inward to a wall thickness.
+#[derive(Clone, Copy, Debug)]
 pub struct Shell;
 
 /// Params of a shell feature.
@@ -153,7 +154,7 @@ impl BodySolid {
 fn body_solids(shape: &Shape, removed: &[u32]) -> Result<Vec<BodySolid>, FeatureError> {
     let solids = shape.solids().map_err(kernel)?;
     if solids.is_empty() {
-        return Err(internal("a body with a shape has no solid"));
+        return Err(FeatureError::internal("a body with a shape has no solid"));
     }
     solids
         .into_iter()
@@ -227,12 +228,16 @@ fn name_shell(
     let mut origins = vec![FaceOrigins::default(); hollow.shape.count(SubShapeKind::Face) as usize];
     for (position, (solid, result)) in solids.iter().zip(&hollow.solids).enumerate() {
         let [history] = &result.history.inputs[..] else {
-            return Err(internal("a shell result has one history input"));
+            return Err(FeatureError::internal(
+                "a shell result has one history input",
+            ));
         };
         let placed = match &hollow.combined {
             None => None,
             Some(combined) => Some(combined.history.inputs.get(position).ok_or_else(|| {
-                internal("the compound of the shelled solids lacks the history of a solid")
+                FeatureError::internal(
+                    "the compound of the shelled solids lacks the history of a solid",
+                )
             })?),
         };
         let final_face = |face: u32| match placed {
@@ -337,15 +342,31 @@ mod tests {
     }
 
     #[test]
-    fn the_manifest_matches_the_params() {
+    fn the_manifest_matches_the_spec_table() {
         let registry = registry();
 
         let manifest = registry.get("shell").expect("registered").manifest();
 
-        assert_eq!(manifest.label, "Shell");
-        assert_eq!(manifest.category, Category::Modify);
-        assert_eq!(manifest.icon, "shell");
-        assert_eq!(manifest.version, 1);
+        assert_eq!(
+            serde_json::to_value(manifest).expect("a manifest serializes"),
+            json!({
+                "label": "Shell", "category": "modify", "icon": "shell", "version": 1,
+                "fields": [
+                    {"path": "remove_faces", "label": "Faces to remove", "essential": true, "selection": "face"},
+                    {"path": "thickness", "label": "Thickness", "essential": true, "unit": "length"},
+                    {"path": "body", "label": "Body", "selection": "body"},
+                ]
+            })
+        );
+    }
+
+    #[test]
+    fn the_feature_type_is_copy_and_debug() {
+        fn debug_text<T: Copy + std::fmt::Debug>(value: T) -> String {
+            format!("{value:?}")
+        }
+
+        assert_eq!(debug_text(Shell), "Shell");
     }
 
     #[test]

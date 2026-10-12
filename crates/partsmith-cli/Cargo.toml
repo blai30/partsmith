@@ -14,13 +14,20 @@ name = "partsmith"
 path = "src/main.rs"
 
 [dependencies]
+# The `string` feature lets the version text come from the engine at run time.
+clap = { workspace = true, features = ["string"] }
+partsmith-engine.workspace = true
+partsmith-model.workspace = true
+partsmith-print.workspace = true
+partsmith-protocol.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
+thiserror.workspace = true
 
 [dev-dependencies]
 blake3.workspace = true
-partsmith-protocol.workspace = true
 pretty_assertions.workspace = true
-serde_json.workspace = true
-tempfile.workspace = true
 
 [lints]
 workspace = true

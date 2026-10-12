@@ -33,7 +33,9 @@ function withProperty(record: FeatureRecord, key: string, value: unknown): Featu
 /** The set_rollback edit for marker position p: features 1 to p are active (3.9). */
 function rollbackEdit(records: readonly FeatureRecord[], position: number): Edit {
   const first = records[position]
-  return first === undefined ? { type: 'set_rollback' } : { type: 'set_rollback', rollback: first.id }
+  return first === undefined
+    ? { type: 'set_rollback' }
+    : { type: 'set_rollback', rollback: first.id }
 }
 
 /** Moves the rollback marker to position 0 to N, labeled "Roll back". */
@@ -97,7 +99,9 @@ export async function deleteFeatures(app: App, featureIds: readonly string[]): P
   if (rollback !== null && doomed.has(rollback)) {
     const rollbackIndex = records.findIndex((record) => record.id === rollback)
     const next = records.slice(rollbackIndex + 1).find((record) => !doomed.has(record.id))
-    edits.push(next === undefined ? { type: 'set_rollback' } : { type: 'set_rollback', rollback: next.id })
+    edits.push(
+      next === undefined ? { type: 'set_rollback' } : { type: 'set_rollback', rollback: next.id },
+    )
   }
   for (const record of deleted) {
     edits.push({ type: 'remove_feature', id: record.id })
@@ -129,6 +133,9 @@ export async function renameFeature(app: App, featureId: string, name: string): 
   }
   const trimmed = name.trim()
   await commitEdits(app, 'Rename', [
-    { type: 'update_feature', feature: withProperty(record, 'name', trimmed === '' ? undefined : trimmed) },
+    {
+      type: 'update_feature',
+      feature: withProperty(record, 'name', trimmed === '' ? undefined : trimmed),
+    },
   ])
 }

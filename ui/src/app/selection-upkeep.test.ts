@@ -1,0 +1,83 @@
+import { describe, expect, it } from 'vitest'
+import type { Edit } from '../generated/protocol'
+import { currentDocument, startWithDocument } from '../test/fakes/app'
+import {
+  CUBE_DOCUMENT,
+  CUBE_FRONT_FACE,
+  CUBE_TOP_FACE,
+  CUBE_FEATURES_DOCUMENT,
+} from '../test/fakes/documents'
+import { bodyItem, elementItem, featureItem } from '../test/fakes/selection'
+import { settle } from '../test/fakes/settle'
+import { applyEdits } from './actions/document'
+import { select } from './actions/selection'
+
+const RENAME: readonly Edit[] = [{ type: 'update_body', body: { id: 'b-cube', name: 'Box' } }]
+
+function selectedKeys(fake: Awaited<ReturnType<typeof startWithDocument>>): string[] {
+  return fake.app.store.getState().selection.map((item) => item.key)
+}
+
+describe('selection after rebuilds (3.6)', () => {
+  it('U-82 after a mesh change, a face that resolves missing leaves the selection and one that resolves stays', async () => {
+    const fake = await startWithDocument('cube.ptsm', CUBE_DOCUMENT)
+    const top = elementItem(CUBE_TOP_FACE, 'Cube')
+    const front = elementItem(CUBE_FRONT_FACE, 'Cube')
+    select(fake.app, [top, front], 'replace')
+    fake.transport.handle('resolve_references', (command) => ({
+      result: {
+        type: 'resolve_references',
+        results: (command.references ?? []).map((reference) =>
+          reference.reference.q === CUBE_TOP_FACE.reference.q
+            ? { status: 'missing', matches: [] }
+            : { status: 'resolved', matches: [] },
+        ),
+      },
+    }))
+    await applyEdits(fake.app, 'Rename', RENAME)
+    await settle()
+    expect(fake.transport.commandsOfType('resolve_references')).toEqual([
+      {
+        type: 'resolve_references',
+        doc: currentDocument(fake.app).documentHandle,
+        references: [
+          { body: 'b-cube', reference: CUBE_TOP_FACE.reference },
+          { body: 'b-cube', reference: CUBE_FRONT_FACE.reference },
+        ],
+      },
+    ])
+    expect(selectedKeys(fake)).toEqual([front.key])
+  })
+
+  it('an ambiguous face leaves the selection too', async () => {
+    const fake = await startWithDocument('cube.ptsm', CUBE_DOCUMENT)
+    select(fake.app, [elementItem(CUBE_TOP_FACE, 'Cube')], 'replace')
+    fake.transport.handle('resolve_references', () => ({
+      result: { type: 'resolve_references', results: [{ status: 'ambiguous', matches: [] }] },
+    }))
+    await applyEdits(fake.app, 'Rename', RENAME)
+    await settle()
+    expect(selectedKeys(fake)).toEqual([])
+  })
+
+  it('asks nothing when no face, edge or vertex is selected', async () => {
+    const fake = await startWithDocument('cube.ptsm', CUBE_DOCUMENT)
+    select(fake.app, [bodyItem('b-cube', 'Cube')], 'replace')
+    await applyEdits(fake.app, 'Rename', RENAME)
+    await settle()
+    expect(fake.transport.commandTypes()).not.toContain('resolve_references')
+    expect(selectedKeys(fake)).toEqual(['body:b-cube'])
+  })
+
+  it('features and bodies that no longer exist leave the selection', async () => {
+    const fake = await startWithDocument('cube-features.ptsm', CUBE_FEATURES_DOCUMENT)
+    select(
+      fake.app,
+      [featureItem('f-sh1', 'Shell 1'), featureItem('f-fil1', 'Fillet 1')],
+      'replace',
+    )
+    await applyEdits(fake.app, 'Delete Shell 1', [{ type: 'remove_feature', id: 'f-sh1' }])
+    await settle()
+    expect(selectedKeys(fake)).toEqual(['feature:f-fil1'])
+  })
+})

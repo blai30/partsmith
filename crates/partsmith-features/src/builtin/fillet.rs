@@ -7,16 +7,17 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use super::common::{
-    body_hint, essential, manifest, positive_length, references, selection_hint, solid_body,
-    unit_hint,
+    body_hint, empty_selection, essential, manifest, positive_length, references, selection_hint,
+    solid_body, unit_hint,
 };
 use super::dressup::{modified, name_blend, no_effect, run_or_search, select_edges};
 use crate::{
-    BuildContext, Dependencies, Feature, FeatureError, FeatureOutput, FieldRef, Noun, PythonCall,
+    BuildContext, Dependencies, Feature, FeatureError, FeatureOutput, Noun, PythonCall,
     PythonNames, PythonValue,
 };
 
 /// Rounds edges of a body with a constant radius.
+#[derive(Clone, Copy, Debug)]
 pub struct Fillet;
 
 /// Params of a fillet feature.
@@ -56,10 +57,7 @@ impl Feature for Fillet {
 
     fn validate(params: &FilletParams) -> Result<(), FeatureError> {
         if params.edges.is_empty() {
-            return Err(FeatureError::EmptySelection {
-                field: FieldRef::new("edges", &Self::manifest()),
-                noun: Noun::Edge,
-            });
+            return Err(empty_selection(&Self::manifest(), "edges", Noun::Edge));
         }
         Ok(())
     }
@@ -81,7 +79,10 @@ impl Feature for Fillet {
                 let edges: Vec<EdgeRadius> = selection
                     .edges
                     .iter()
-                    .map(|&edge| EdgeRadius { edge, radius })
+                    .map(|edge| EdgeRadius {
+                        edge: edge.index,
+                        radius,
+                    })
                     .collect();
                 fillet(shape, &edges)
             },
@@ -121,7 +122,7 @@ mod tests {
     use super::*;
     use crate::builtin::dressup::test_fixtures::reference;
     use crate::test_support::ScriptNames;
-    use crate::{Registry, test_support::id};
+    use crate::{FieldRef, Registry, test_support::id};
 
     /// `E-FT` of fillet.md section 6.
     const FRONT_TOP: &str =
@@ -144,15 +145,31 @@ mod tests {
     }
 
     #[test]
-    fn the_manifest_matches_the_params() {
+    fn the_manifest_matches_the_spec_table() {
         let registry = registry();
 
         let manifest = registry.get("fillet").expect("registered").manifest();
 
-        assert_eq!(manifest.label, "Fillet");
-        assert_eq!(manifest.category, Category::Modify);
-        assert_eq!(manifest.icon, "fillet");
-        assert_eq!(manifest.version, 1);
+        assert_eq!(
+            serde_json::to_value(manifest).expect("a manifest serializes"),
+            json!({
+                "label": "Fillet", "category": "modify", "icon": "fillet", "version": 1,
+                "fields": [
+                    {"path": "edges", "label": "Edges", "essential": true, "selection": "edge"},
+                    {"path": "radius", "label": "Radius", "essential": true, "unit": "length"},
+                    {"path": "body", "label": "Body", "selection": "body"},
+                ]
+            })
+        );
+    }
+
+    #[test]
+    fn the_feature_type_is_copy_and_debug() {
+        fn debug_text<T: Copy + std::fmt::Debug>(value: T) -> String {
+            format!("{value:?}")
+        }
+
+        assert_eq!(debug_text(Fillet), "Fillet");
     }
 
     #[test]
@@ -178,6 +195,10 @@ mod tests {
 
         assert_eq!(error.code(), "empty_selection");
         assert_eq!(error.to_string(), "Select at least one edge for Edges.");
+        assert_eq!(
+            error.field().map(FieldRef::pointer),
+            Some("/edges".to_string())
+        );
     }
 
     #[test]

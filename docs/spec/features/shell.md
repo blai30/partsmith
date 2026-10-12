@@ -146,3 +146,4 @@ Bodies `[b-1]`.
 
 1. Test 5 bounds the suggestion (the true limit is just under 25 mm, half the 50 mm width) instead of fixing it, because the exact point where the kernel's offset stops succeeding is a kernel property.
 2. The rim naming relies on kernel.md section 3.4.9 (removed faces list their rim faces in `modified`), which naming.md open issue 7 asks to verify against OCCT 7.9.3.
+3. The kernel's shell (kernel.md section 3.4.8, arc join) fails at any thickness when a removed face borders a concave edge. The L-shaped body of fillet.md test 4 with `f-box1/top` (the step face) removed fails with `ShellTooThick` and no working thickness, at 2 mm and at 0.5 mm, while removing `f-box1/bottom` works and names the arc join `f-sh1/inner/edge(f-box1/top|f-box2/left)`. The kernel's join and offset settings need a look before shells of such bodies can open next to the step.

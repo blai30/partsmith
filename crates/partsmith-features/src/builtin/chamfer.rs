@@ -2,23 +2,22 @@
 
 use partsmith_model::{Category, Expr, FeatureManifest, FieldUnit, Id, SelectionKind};
 use partsmith_naming::{ElementKind, NamingMap, Reference, roles};
-use partsmith_occt_sys::{ChamferEdge, ChamferSize, Topology, chamfer};
+use partsmith_occt_sys::{ChamferEdge, ChamferSize, chamfer};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use super::common::{
-    body_hint, essential, hint, is_false, manifest, options_hint, positive_length, references,
-    selection_hint, solid_body, unit_hint,
+    body_hint, empty_selection, essential, hint, is_false, manifest, options_hint, positive_length,
+    references, selection_hint, solid_body, unit_hint,
 };
-use super::dressup::{
-    internal, kernel, modified, name_blend, no_effect, run_or_search, select_edges,
-};
+use super::dressup::{SelectedEdge, modified, name_blend, no_effect, run_or_search, select_edges};
 use crate::{
-    BuildContext, Dependencies, Feature, FeatureError, FeatureOutput, FieldRef, Noun, PythonCall,
+    BuildContext, Dependencies, Feature, FeatureError, FeatureOutput, Noun, PythonCall,
     PythonNames, PythonValue,
 };
 
 /// Bevels edges of a body.
+#[derive(Clone, Copy, Debug)]
 pub struct Chamfer;
 
 /// Params of a chamfer feature.
@@ -77,19 +76,37 @@ impl Distances {
         }
     }
 
-    /// The kernel size of one edge with both distances multiplied by `scale`, where `first_face`
-    /// is the edge's face that sorts first.
-    fn size(self, scale: f64, first_face: u32) -> ChamferSize {
-        match self {
-            Distances::Equal(distance) => ChamferSize::Equal {
-                distance: distance * scale,
-            },
+    /// The kernel size of `edge` of a body named by `naming`. Two distances measure `on_first`
+    /// on the edge's face whose name sorts first (chamfer.md section 3.3 step 4); an equal
+    /// distance has no side.
+    fn size(self, edge: &SelectedEdge, naming: &NamingMap) -> Result<ChamferSize, FeatureError> {
+        Ok(match self {
+            Distances::Equal(distance) => ChamferSize::Equal { distance },
             Distances::TwoDistances { on_first, on_other } => ChamferSize::TwoDistances {
-                distance: on_first * scale,
-                other_distance: on_other * scale,
-                face: first_face,
+                distance: on_first,
+                other_distance: on_other,
+                face: first_face(naming, edge)?,
             },
-        }
+        })
+    }
+}
+
+/// `size` with every distance multiplied by `factor`: the "too large" search scales both
+/// distances of a two-distance chamfer together (features.md section 4.3).
+fn scaled(size: ChamferSize, factor: f64) -> ChamferSize {
+    match size {
+        ChamferSize::Equal { distance } => ChamferSize::Equal {
+            distance: distance * factor,
+        },
+        ChamferSize::TwoDistances {
+            distance,
+            other_distance,
+            face,
+        } => ChamferSize::TwoDistances {
+            distance: distance * factor,
+            other_distance: other_distance * factor,
+            face,
+        },
     }
 }
 
@@ -143,10 +160,7 @@ impl Feature for Chamfer {
 
     fn validate(params: &ChamferParams) -> Result<(), FeatureError> {
         if params.edges.is_empty() {
-            return Err(FeatureError::EmptySelection {
-                field: FieldRef::new("edges", &Self::manifest()),
-                noun: Noun::Edge,
-            });
+            return Err(empty_selection(&Self::manifest(), "edges", Noun::Edge));
         }
         Ok(())
     }
@@ -180,34 +194,30 @@ impl Feature for Chamfer {
         if selection.edges.is_empty() {
             return Ok(no_effect(&params.body, state, selection.warnings));
         }
-        // The first face of each edge sets the side of two distances; an equal distance has no
-        // side, so its entries are never read.
-        let first_faces = match distances {
-            Distances::Equal(_) => vec![0; selection.edges.len()],
-            Distances::TwoDistances { .. } => {
-                let topology = shape.topology().map_err(kernel)?;
-                selection
-                    .edges
-                    .iter()
-                    .map(|&edge| first_face(&topology, state.naming(), edge))
-                    .collect::<Result<_, FeatureError>>()?
-            }
-        };
+        let edges = selection
+            .edges
+            .iter()
+            .map(|edge| {
+                Ok(ChamferEdge {
+                    edge: edge.index,
+                    size: distances.size(edge, state.naming())?,
+                })
+            })
+            .collect::<Result<Vec<_>, FeatureError>>()?;
         let larger = distances.larger();
         let result = run_or_search(
             context,
             larger,
             |value| {
-                let edges: Vec<ChamferEdge> = selection
-                    .edges
+                let factor = value / larger;
+                let scaled_edges: Vec<ChamferEdge> = edges
                     .iter()
-                    .zip(&first_faces)
-                    .map(|(&edge, &face)| ChamferEdge {
-                        edge,
-                        size: distances.size(value / larger, face),
+                    .map(|edge| ChamferEdge {
+                        edge: edge.edge,
+                        size: scaled(edge.size, factor),
                     })
                     .collect();
-                chamfer(shape, &edges)
+                chamfer(shape, &scaled_edges)
             },
             |max, cause| FeatureError::ChamferTooLarge {
                 field: context.field(field),
@@ -243,18 +253,13 @@ impl Feature for Chamfer {
 
 /// The face next to `edge` whose element name sorts first in byte order: a two-distance chamfer
 /// measures its first distance on it (chamfer.md section 3.3 step 4).
-fn first_face(topology: &Topology, naming: &NamingMap, edge: u32) -> Result<u32, FeatureError> {
-    let faces = edge
-        .checked_sub(1)
-        .and_then(|position| topology.edges.get(position as usize))
-        .map(|entry| entry.faces.as_slice())
-        .ok_or_else(|| internal(format!("edge {edge} is not in the body's topology")))?;
-    faces
+fn first_face(naming: &NamingMap, edge: &SelectedEdge) -> Result<u32, FeatureError> {
+    edge.faces
         .iter()
         .filter_map(|&face| Some((naming.name(ElementKind::Face, face)?, face)))
         .min()
         .map(|(_, face)| face)
-        .ok_or_else(|| internal(format!("edge {edge} has no named face")))
+        .ok_or_else(|| FeatureError::internal(format!("edge {} has no named face", edge.index)))
 }
 
 #[cfg(test)]
@@ -266,7 +271,7 @@ mod tests {
     use super::*;
     use crate::builtin::dressup::test_fixtures::reference;
     use crate::test_support::ScriptNames;
-    use crate::{Registry, test_support::id, test_support::named_box};
+    use crate::{FieldRef, Registry, Tool, test_support::id, test_support::named_box};
 
     /// `E-FT` of fillet.md section 6.
     const FRONT_TOP: &str =
@@ -321,16 +326,52 @@ mod tests {
             .params
     }
 
+    /// The front top edge of a 10 mm cube `f-box1` with its two faces, and the index of the
+    /// front face.
+    fn front_top_edge(cube: &Tool) -> (SelectedEdge, u32) {
+        let index = |name: &str| {
+            cube.naming
+                .index(&ElementName::parse(name).expect("valid"))
+                .expect("named")
+        };
+        let edge = index("edge(f-box1/front|f-box1/top)");
+        let topology = cube.shape.topology().expect("topology");
+        let faces = topology.edges[edge as usize - 1].faces.clone();
+        (SelectedEdge { index: edge, faces }, index("f-box1/front"))
+    }
+
     #[test]
-    fn the_manifest_matches_the_params() {
+    fn the_manifest_matches_the_spec_table() {
         let registry = registry();
 
         let manifest = registry.get("chamfer").expect("registered").manifest();
 
-        assert_eq!(manifest.label, "Chamfer");
-        assert_eq!(manifest.category, Category::Modify);
-        assert_eq!(manifest.icon, "chamfer");
-        assert_eq!(manifest.version, 1);
+        assert_eq!(
+            serde_json::to_value(manifest).expect("a manifest serializes"),
+            json!({
+                "label": "Chamfer", "category": "modify", "icon": "chamfer", "version": 1,
+                "fields": [
+                    {"path": "edges", "label": "Edges", "essential": true, "selection": "edge"},
+                    {"path": "distance.kind", "label": "Type", "essential": true, "options": [
+                        {"value": "equal", "label": "Equal distance"},
+                        {"value": "two_distances", "label": "Two distances"},
+                    ]},
+                    {"path": "distance.expr", "label": "Distance", "essential": true, "unit": "length"},
+                    {"path": "distance.second_expr", "label": "Second distance", "essential": true, "unit": "length"},
+                    {"path": "distance.flip", "label": "Flip"},
+                    {"path": "body", "label": "Body", "selection": "body"},
+                ]
+            })
+        );
+    }
+
+    #[test]
+    fn the_feature_type_is_copy_and_debug() {
+        fn debug_text<T: Copy + std::fmt::Debug>(value: T) -> String {
+            format!("{value:?}")
+        }
+
+        assert_eq!(debug_text(Chamfer), "Chamfer");
     }
 
     #[test]
@@ -381,7 +422,12 @@ mod tests {
     fn no_edges_is_an_empty_selection() {
         let error = Chamfer::validate(&params(&[], equal("1"))).expect_err("no edges");
 
+        assert_eq!(error.code(), "empty_selection");
         assert_eq!(error.to_string(), "Select at least one edge for Edges.");
+        assert_eq!(
+            error.field().map(FieldRef::pointer),
+            Some("/edges".to_string())
+        );
     }
 
     #[test]
@@ -419,42 +465,83 @@ mod tests {
     #[test]
     fn the_first_face_of_an_edge_is_the_one_whose_name_sorts_first() {
         let cube = named_box("f-box1", [0.0, 0.0, 0.0], 10.0);
-        let topology = cube.shape.topology().expect("topology");
-        let index = |name: &str| {
-            cube.naming
-                .index(&ElementName::parse(name).expect("valid"))
-                .expect("named")
+        let (edge, front) = front_top_edge(&cube);
+
+        let first = first_face(&cube.naming, &edge).expect("a face");
+
+        assert_eq!(first, front);
+    }
+
+    #[test]
+    fn an_edge_without_named_faces_has_no_first_face() {
+        let cube = named_box("f-box1", [0.0, 0.0, 0.0], 10.0);
+        let edge = SelectedEdge {
+            index: 1,
+            faces: vec![99],
         };
-        let front_top = index("edge(f-box1/front|f-box1/top)");
 
-        let first = first_face(&topology, &cube.naming, front_top).expect("a face");
+        let error = first_face(&cube.naming, &edge).expect_err("face 99 has no name");
 
-        assert_eq!(first, index("f-box1/front"));
+        assert_eq!(error.code(), "internal");
     }
 
     #[test]
     fn two_distances_measure_the_first_on_the_first_face() {
+        let cube = named_box("f-box1", [0.0, 0.0, 0.0], 10.0);
+        let (edge, front) = front_top_edge(&cube);
         let distances = Distances::TwoDistances {
             on_first: 1.0,
             on_other: 3.0,
         };
 
+        let size = distances.size(&edge, &cube.naming).expect("sized");
+
         assert_eq!(
-            distances.size(0.5, 4),
+            size,
             ChamferSize::TwoDistances {
-                distance: 0.5,
-                other_distance: 1.5,
-                face: 4
+                distance: 1.0,
+                other_distance: 3.0,
+                face: front
             }
         );
         assert_eq!(distances.larger(), 3.0);
     }
 
     #[test]
-    fn an_equal_distance_scales_alone() {
+    fn an_equal_distance_reads_no_face() {
+        let cube = named_box("f-box1", [0.0, 0.0, 0.0], 10.0);
+        let edge = SelectedEdge {
+            index: 1,
+            faces: Vec::new(),
+        };
+
+        let size = Distances::Equal(2.0)
+            .size(&edge, &cube.naming)
+            .expect("an equal distance has no side");
+
+        assert_eq!(size, ChamferSize::Equal { distance: 2.0 });
+    }
+
+    #[test]
+    fn scaling_multiplies_every_distance_and_keeps_the_side() {
         assert_eq!(
-            Distances::Equal(2.0).size(0.25, 0),
+            scaled(ChamferSize::Equal { distance: 2.0 }, 0.25),
             ChamferSize::Equal { distance: 0.5 }
+        );
+        assert_eq!(
+            scaled(
+                ChamferSize::TwoDistances {
+                    distance: 1.0,
+                    other_distance: 3.0,
+                    face: 4
+                },
+                0.5
+            ),
+            ChamferSize::TwoDistances {
+                distance: 0.5,
+                other_distance: 1.5,
+                face: 4
+            }
         );
     }
 

@@ -63,7 +63,9 @@ function readResponse(frame: ArrayBuffer, id: number): DecodedResponse {
   messages.forEach((message, index) => {
     if (index < messages.length - 1) {
       if (message.kind !== 'event') {
-        throw new UnreadableResponse('a response frame holds a message other than events before its response')
+        throw new UnreadableResponse(
+          'a response frame holds a message other than events before its response',
+        )
       }
       events.push(message)
     }
@@ -101,7 +103,7 @@ export function createCoreClient(transport: Transport): CoreClient {
       return
     }
     broken = error
-    for (const listener of [...fatalListeners]) {
+    for (const listener of Array.from(fatalListeners)) {
       listener(error)
     }
   }
@@ -115,7 +117,7 @@ export function createCoreClient(transport: Transport): CoreClient {
   }
 
   function dispatch(event: CoreEvent): void {
-    for (const listener of [...eventListeners]) {
+    for (const listener of Array.from(eventListeners)) {
       try {
         listener(event)
       } catch (error) {

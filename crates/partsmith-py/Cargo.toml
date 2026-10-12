@@ -15,10 +15,11 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 partsmith-engine.workspace = true
+partsmith-model.workspace = true
+partsmith-protocol.workspace = true
 pyo3 = { workspace = true, features = ["abi3-py312"] }
 
 [dev-dependencies]
-partsmith-protocol.workspace = true
 serde_json.workspace = true
 
 [lints]

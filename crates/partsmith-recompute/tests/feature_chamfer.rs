@@ -8,11 +8,11 @@ use std::time::Duration;
 
 use feature_support::{
     Run, assert_bounding_box, assert_canonical_example, assert_element_repair, assert_error_field,
-    assert_face_area, assert_face_count, assert_face_kind, assert_list_field, assert_same_body,
+    assert_face_area, assert_face_count, assert_face_kind, assert_list_field, assert_unchanged,
     assert_volume, body_update, document, example_paths, face, load_example, median_build_time,
-    output_body, suggested_limit,
+    suggested_limit,
 };
-use partsmith_features::{BodyChange, FeatureError};
+use partsmith_features::{BodyChange, FeatureError, FeatureWarning, IgnoredReason};
 use partsmith_model::{Document, Units};
 use partsmith_occt_sys::GeometryKind;
 
@@ -163,7 +163,7 @@ fn t006_too_large() {
     );
     assert_eq!(run.messages("f-cha1"), [expected.as_str()]);
     assert_eq!(error.suggestion(Units::Mm), Some(format!("{limit} mm")));
-    assert_same_body(run.body("b-1"), &output_body(&run, "f-box1", "b-1"));
+    assert_unchanged(&run, "f-cha1", "b-1");
     assert_volume(run.shape("b-1"), 960.0);
 
     let rebuilt = Run::new(plate_document(&limit));
@@ -233,6 +233,76 @@ fn t010_edge_lost() {
         ]
     );
     assert_volume(run.shape("b-1"), 7960.0);
+}
+
+/// Step 5 for two distances: the plate of test 6 with 3 mm on each wall (whose name sorts before
+/// `f-box1/top`) and 4 mm on the top. The search scales both distances and reports the larger
+/// one; a working wall distance lies in [2, 2.4) as in test 6, so the larger scaled distance, 4/3
+/// of it, lies in [8/3, 3.2).
+#[test]
+fn two_distances_too_large() {
+    let distance = r#"{"kind": "two_distances", "expr": "3", "second_expr": "4"}"#;
+    let run = Run::records(
+        &["b-1"],
+        &[PLATE, &chamfer_record(&PLATE_TOP_EDGES, distance)],
+    );
+
+    run.assert_ok("f-box1");
+    let error = run.assert_error("f-cha1", "chamfer_too_large");
+    assert_error_field(error, "distance");
+    let FeatureError::ChamferTooLarge { distance, max, .. } = error else {
+        panic!("expected ChamferTooLarge, got {error:?}");
+    };
+    assert_eq!(*distance, 4.0, "the larger requested distance");
+    let max = max.unwrap_or_else(|| panic!("the search finds working distances: {error:?}"));
+    assert!(
+        (8.0 / 3.0..3.2).contains(&max),
+        "the larger working distance {max} lies in [8/3, 3.2)"
+    );
+    let bisection_steps = max * 1024.0 / 4.0;
+    assert_eq!(
+        bisection_steps,
+        bisection_steps.round(),
+        "the larger working distance {max} is a bisection point 4k/1024"
+    );
+    let limit = suggested_limit(max);
+    let expected = format!(
+        "Chamfer distance 4 mm is too large for the selected edges. The largest distance that works is about {limit} mm. Try {limit} mm or less."
+    );
+    assert_eq!(run.messages("f-cha1"), [expected.as_str()]);
+    assert_eq!(
+        error.suggestion(Units::Mm),
+        None,
+        "a two-distance limit scales both distances, so it has no one-step fix"
+    );
+    assert_unchanged(&run, "f-cha1", "b-1");
+}
+
+/// Step 3: an edge whose faces meet without a corner is skipped as in fillet.md test 12, here the
+/// edge where the front face meets the fillet of a vertical box edge.
+#[test]
+fn smooth_edge_skipped() {
+    let run = Run::example("chamfer/smooth-edge.ptsm");
+
+    run.assert_ok("f-box1");
+    run.assert_ok("f-fil1");
+    run.assert_warnings("f-cha1", &["ignored", "no_effect"]);
+    let warning = &run.feature("f-cha1").warnings[0];
+    let FeatureWarning::Ignored { reason, .. } = warning else {
+        panic!("expected an Ignored warning, got {warning:?}");
+    };
+    assert!(
+        matches!(reason, IgnoredReason::SmoothEdge),
+        "the edge is skipped as smooth, got {reason:?}"
+    );
+    assert_eq!(
+        run.messages("f-cha1"),
+        [
+            "One of the edges selected for Edges is smooth (its faces meet without a corner), so it was skipped.",
+            "This feature does not change body 'Body 1'. Check its position, size and direction.",
+        ]
+    );
+    assert_unchanged(&run, "f-cha1", "b-1");
 }
 
 #[test]

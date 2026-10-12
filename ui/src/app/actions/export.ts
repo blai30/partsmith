@@ -28,12 +28,12 @@ function bodiesToExport(app: App, scope: ExportRequest['scope']): readonly strin
     return []
   }
   const selected = new Set(
-    state.selection.flatMap((item) => (item.kind === 'body' && item.body !== null ? [item.body] : [])),
+    state.selection.flatMap((item) =>
+      item.kind === 'body' && item.body !== null ? [item.body] : [],
+    ),
   )
   return (document.recipe.bodies ?? [])
-    .filter((body) =>
-      scope === 'selected' ? selected.has(body.id) : body.visible !== false,
-    )
+    .filter((body) => (scope === 'selected' ? selected.has(body.id) : body.visible !== false))
     .filter((body) => document.meshes[body.id] !== undefined)
     .map((body) => body.id)
 }

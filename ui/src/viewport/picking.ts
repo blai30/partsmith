@@ -1,3 +1,6 @@
+import type { SelectionItem } from '../state/store'
+import type { Vector3 } from './math'
+
 /**
  * What a pick target or selection item is (ui.md 2.8, which places it with the store's `SelectionItem`). There is one declaration: the store imports this one, or this module imports the store's.
  */
@@ -28,6 +31,19 @@ export function decodePickId(red: number, green: number, blue: number, alpha: nu
 }
 
 export type PickClass = 'point' | 'curve' | 'area'
+
+/** What a pick resolved to before any core round trip. */
+export type PickResult =
+  | {
+      readonly kind: 'mesh'
+      readonly body: string
+      readonly meshId: number
+      readonly element: 'face' | 'edge' | 'vertex'
+      readonly index: number
+      readonly key: string
+      readonly world: Vector3 | null
+    }
+  | { readonly kind: 'item'; readonly item: SelectionItem; readonly world: Vector3 | null }
 export type PickCandidate = {
   readonly key: string
   readonly kind: SelectionItemKind

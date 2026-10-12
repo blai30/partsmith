@@ -100,9 +100,14 @@ function recoveryEntryFor(app: App, document: DocumentState): RecoveryEntry {
 
 /**
  * Closes the document the new one replaces: an unsaved one is first kept as a recovery copy, and
- * the returned function then offers to reopen it (3.19). A clean one clears the recovery store.
+ * the returned function then offers to reopen it (3.19). With `clearRecovery` (a New), a clean one
+ * clears the recovery store.
  */
-async function closeReplaced(app: App, replaced: DocumentState | null): Promise<() => void> {
+async function closeReplaced(
+  app: App,
+  replaced: DocumentState | null,
+  clearRecovery: boolean,
+): Promise<() => void> {
   if (replaced === null) {
     return () => undefined
   }
@@ -110,7 +115,7 @@ async function closeReplaced(app: App, replaced: DocumentState | null): Promise<
   if (isUnsaved(replaced)) {
     stashed = recoveryEntryFor(app, replaced)
     await app.recovery.write(stashed)
-  } else {
+  } else if (clearRecovery) {
     await app.recovery.clear()
   }
   try {
@@ -167,7 +172,7 @@ async function replaceDocument(app: App, source: DocumentSource): Promise<boolea
     showCoreError(app, error)
     return false
   }
-  const offerReopen = await closeReplaced(app, documentOf(app))
+  const offerReopen = await closeReplaced(app, documentOf(app), false)
   adoptDocument(app.store, opened.documentHandle, {
     name: source.name,
     file: source.file,
@@ -259,7 +264,7 @@ export async function startCore(app: App): Promise<void> {
 /** File > New (3.19). */
 export async function newDocument(app: App): Promise<void> {
   try {
-    const offerReopen = await closeReplaced(app, documentOf(app))
+    const offerReopen = await closeReplaced(app, documentOf(app), true)
     await openUntitled(app)
     startDocumentSession(app)
     app.viewport()?.setCamera(DEFAULT_CAMERA)
@@ -329,7 +334,11 @@ export async function openRecent(app: App, entry: RecentFile): Promise<void> {
         ],
       })
     } else if (error.reason === 'not_found') {
-      notify(app, { severity: 'warning', message: MESSAGES.recent_missing(entry.name), actions: [] })
+      notify(app, {
+        severity: 'warning',
+        message: MESSAGES.recent_missing(entry.name),
+        actions: [],
+      })
       await app.recent.forget(entry.id)
     } else {
       notify(app, {

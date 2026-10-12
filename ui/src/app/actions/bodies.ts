@@ -53,7 +53,11 @@ export async function setBodyColor(app: App, bodyId: string, color: string | nul
 }
 
 /** Sets a body's material, or none for null or an empty name. */
-export async function setBodyMaterial(app: App, bodyId: string, material: string | null): Promise<void> {
+export async function setBodyMaterial(
+  app: App,
+  bodyId: string,
+  material: string | null,
+): Promise<void> {
   const trimmed = material?.trim() ?? ''
   await updateBody(app, bodyId, (body) => ({
     label: 'Change material',

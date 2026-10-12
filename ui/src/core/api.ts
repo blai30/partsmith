@@ -55,7 +55,11 @@ export type CoreApi = {
   saveDocument(documentHandle: DocHandle): Promise<{ text: string; revision: number }>
   markSaved(documentHandle: DocHandle, revision: number): Promise<void>
   closeDocument(documentHandle: DocHandle): Promise<void>
-  applyEdits(documentHandle: DocHandle, label: string | null, edits: readonly Edit[]): Promise<number>
+  applyEdits(
+    documentHandle: DocHandle,
+    label: string | null,
+    edits: readonly Edit[],
+  ): Promise<number>
   renameParameter(documentHandle: DocHandle, parameter: string, name: string): Promise<number>
   beginTransaction(documentHandle: DocHandle, label: string): Promise<void>
   setFocus(documentHandle: DocHandle, feature: string | null): Promise<void>
@@ -144,7 +148,10 @@ export function createCoreApi(client: CoreClient): CoreApi {
     command: CommandOfType<'solve_sketch'> | CommandOfType<'drag_sketch'>,
   ): Promise<SolvedSketch> {
     const { result, buffers } = await call(command)
-    return { solution: result.solution, display: sketchDisplayData(result.solution.display, buffers) }
+    return {
+      solution: result.solution,
+      display: sketchDisplayData(result.solution.display, buffers),
+    }
   }
 
   return {

@@ -226,7 +226,8 @@ export function decodeEvent(event: Event, buffers: readonly BufferView[]): CoreE
         body: event.body,
         layer: event.layer,
         meshId: event.mesh_id,
-        mesh: event.mesh === null || event.mesh === undefined ? null : meshData(event.mesh, buffers),
+        mesh:
+          event.mesh === null || event.mesh === undefined ? null : meshData(event.mesh, buffers),
       }
     case 'print_health':
       return {

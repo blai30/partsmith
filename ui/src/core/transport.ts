@@ -37,16 +37,18 @@ type Settlers<Value> = {
   readonly reject: (error: CoreFatalError) => void
 }
 
-type Deferred<Value> = Settlers<Value> & { readonly promise: Promise<Value> }
+/** A promise with its settlers, for a start() that the worker's messages settle. */
+class Deferred<Value> implements Settlers<Value> {
+  readonly promise: Promise<Value>
+  resolve!: (value: Value) => void
+  reject!: (error: CoreFatalError) => void
 
-function deferred<Value>(): Deferred<Value> {
-  let resolve: (value: Value) => void = () => undefined
-  let reject: (error: CoreFatalError) => void = () => undefined
-  const promise = new Promise<Value>((settleResolve, settleReject) => {
-    resolve = settleResolve
-    reject = settleReject
-  })
-  return { promise, resolve, reject }
+  constructor() {
+    this.promise = new Promise<Value>((resolve, reject) => {
+      this.resolve = resolve
+      this.reject = reject
+    })
+  }
 }
 
 function createCoreWorker(): Worker {
@@ -102,7 +104,7 @@ export function createWorkerTransport(options: WorkerTransportOptions = {}): Tra
     }
     // A core that never became ready is reported through start(), not as a fatal error.
     if (reportFatal && ending.ready) {
-      for (const listener of [...fatalListeners]) {
+      for (const listener of Array.from(fatalListeners)) {
         listener(error)
       }
     }
@@ -177,7 +179,7 @@ export function createWorkerTransport(options: WorkerTransportOptions = {}): Tra
         return session.started
       }
       // A transport whose core ended starts a fresh worker (the restart of ui.md 4.4).
-      const startup = deferred<CoreReady>()
+      const startup = new Deferred<CoreReady>()
       const starting: WorkerSession = {
         started: startup.promise,
         startup,
@@ -192,7 +194,11 @@ export function createWorkerTransport(options: WorkerTransportOptions = {}): Tra
         starting.worker = createWorker()
         listen(starting, starting.worker)
       } catch (error) {
-        end(starting, new CoreFatalError(error instanceof Error ? error.message : String(error)), false)
+        end(
+          starting,
+          new CoreFatalError(error instanceof Error ? error.message : String(error)),
+          false,
+        )
         return starting.started
       }
       starting.startTimer = setTimeout(() => {
@@ -237,7 +243,7 @@ export function createWorkerTransport(options: WorkerTransportOptions = {}): Tra
 
 /** Picks the Tauri transport when the Tauri global is present, else the worker transport. */
 export function chooseTransport(environment: { readonly __TAURI__?: TauriGlobal }): Transport {
-  const tauri = environment.__TAURI__
+  const tauri = environment['__TAURI__']
   if (tauri !== undefined && typeof tauri.core?.invoke === 'function') {
     return createTauriTransport(tauri)
   }

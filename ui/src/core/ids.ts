@@ -20,7 +20,8 @@ export function generateId(
   random: () => number = randomBits,
 ): string {
   for (let attempt = 0; attempt < MAXIMUM_ATTEMPTS; attempt += 1) {
-    const id = `${prefix}-${random().toString(16).padStart(RANDOM_BYTES * 2, '0')}`
+    const digits = random().toString(16).padStart(RANDOM_BYTES * 2, '0')
+    const id = `${prefix}-${digits}`
     if (!isTaken(id)) {
       return id
     }

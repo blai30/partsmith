@@ -172,7 +172,12 @@ export function applyCoreEvent(store: AppStore, event: CoreEvent): void {
       return
     }
     registry.awaiting = null
-    const document = newDocumentState(event.documentHandle, event.revision, event.document, awaiting)
+    const document = newDocumentState(
+      event.documentHandle,
+      event.revision,
+      event.document,
+      awaiting,
+    )
     store.setState({ document: applied(document, event) ?? document })
     return
   }
