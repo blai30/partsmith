@@ -115,14 +115,14 @@ describe('confirmCommand', () => {
   })
 })
 
-describe('capturePick', () => {
-  async function filletOnCube(): Promise<FakeApp> {
-    const fake = await startWithDocument('cube.ptsm', CUBE_DOCUMENT)
-    await startFeatureCommand(fake.app, 'fillet')
-    await settle()
-    return fake
-  }
+async function filletOnCube(): Promise<FakeApp> {
+  const fake = await startWithDocument('cube.ptsm', CUBE_DOCUMENT)
+  await startFeatureCommand(fake.app, 'fillet')
+  await settle()
+  return fake
+}
 
+describe('capturePick', () => {
   it('refuses an item the active field does not take, with the field hint', async () => {
     const fake = await filletOnCube()
     await capturePick(fake.app, elementItem(CUBE_TOP_FACE, 'Cube'))

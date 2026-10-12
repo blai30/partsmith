@@ -21,6 +21,7 @@ pub mod import;
 pub mod linear_pattern;
 pub mod mirror;
 pub mod move_body;
+mod primitives;
 pub mod revolve;
 pub mod shell;
 pub mod sketch;

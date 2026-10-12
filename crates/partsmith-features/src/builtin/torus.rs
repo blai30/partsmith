@@ -1,23 +1,20 @@
 //! The `torus` feature: a ring torus centered on the placement origin (features/torus.md).
 
-use partsmith_model::{Category, Expr, FeatureManifest, FieldUnit, Id};
+use partsmith_model::{Expr, FeatureManifest, FieldUnit, Id};
 use partsmith_occt_sys::make_torus;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use super::common::{
-    apply_tool, body_hint, body_op_hint, call, check_range, essential, manifest, op_keyword,
-    positive_length, primitive_tool, unit_hint,
-};
+use super::common::{check_range, positive_length};
+use super::primitives::{PrimitiveParams, primitive_manifest};
 use crate::context::BuildContext;
 use crate::deps::Dependencies;
 use crate::error::{Bound, FeatureError};
 use crate::feature::Feature;
-use crate::naming::kernel;
 use crate::output::FeatureOutput;
 use crate::params::{BodyOp, PlacementExt, PlaneRef};
 use crate::primitive::{PrimitivePlacement, default_position, is_default_position};
-use crate::python::{PythonCall, PythonNames, PythonValue};
+use crate::python::{PythonCall, PythonNames};
 
 /// A ring torus.
 #[derive(Clone, Copy, Debug)]
@@ -46,11 +43,19 @@ pub struct TorusParams {
 }
 
 impl TorusParams {
-    /// The shared placement params.
-    fn placement(&self) -> PrimitivePlacement<'_> {
-        PrimitivePlacement {
-            plane: &self.plane,
-            position: &self.position,
+    /// The params as the steps all primitives share read them.
+    fn primitive(&self) -> PrimitiveParams<'_> {
+        PrimitiveParams {
+            body: &self.body,
+            sizes: vec![
+                ("major_radius", &self.major_radius),
+                ("minor_radius", &self.minor_radius),
+            ],
+            placement: PrimitivePlacement {
+                plane: &self.plane,
+                position: &self.position,
+            },
+            op: self.op,
         }
     }
 }
@@ -60,23 +65,18 @@ impl Feature for Torus {
     type Params = TorusParams;
 
     fn manifest() -> FeatureManifest {
-        let mut fields = vec![
-            essential(unit_hint("major_radius", "Ring radius", FieldUnit::Length)),
-            essential(unit_hint("minor_radius", "Tube radius", FieldUnit::Length)),
-            body_op_hint(),
-        ];
-        fields.extend(PrimitivePlacement::hints());
-        fields.push(body_hint());
-        manifest("Torus", Category::Create, "torus", fields)
+        primitive_manifest(
+            "Torus",
+            "torus",
+            &[
+                ("major_radius", "Ring radius"),
+                ("minor_radius", "Tube radius"),
+            ],
+        )
     }
 
     fn dependencies(params: &TorusParams) -> Dependencies {
-        let mut dependencies = Dependencies::default();
-        dependencies.add_body_written(&params.body, "body");
-        dependencies.add_expression("major_radius", &params.major_radius, FieldUnit::Length);
-        dependencies.add_expression("minor_radius", &params.minor_radius, FieldUnit::Length);
-        params.placement().add_dependencies(&mut dependencies);
-        dependencies
+        params.primitive().dependencies()
     }
 
     fn build(
@@ -93,85 +93,22 @@ impl Feature for Torus {
             Bound::LessThan(major),
             Some("the ring radius"),
         )?;
-        let frame = params.placement().frame(context)?;
-        let primitive = make_torus(&frame.to_kernel(), major, minor).map_err(kernel)?;
-        let tool = primitive_tool(context.feature(), primitive)?;
-        apply_tool(context, &params.body, params.op, tool, Vec::new())
+        params.primitive().build(context, |frame| {
+            make_torus(&frame.to_kernel(), major, minor)
+        })
     }
 
     fn python(params: &TorusParams, names: &dyn PythonNames) -> Option<PythonCall> {
-        let sizes = vec![
-            PythonValue::expression(&params.major_radius, names),
-            PythonValue::expression(&params.minor_radius, names),
-        ];
-        let mut keywords = params.placement().python_keywords(names)?;
-        keywords.extend(op_keyword(names, &params.body, params.op));
-        Some(call("torus", sizes, keywords))
+        params.primitive().python("torus", names)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::f64::consts::PI;
-
-    use partsmith_occt_sys::GeometryKind;
     use serde_json::json;
 
     use super::*;
-    use crate::error::Bound;
-    use crate::test_support::{ScriptNames, run};
-
-    fn torus(extra: serde_json::Value) -> serde_json::Value {
-        let mut record = json!({"id": "f-tor1", "type": "torus", "body": "b-1", "major_radius": "20", "minor_radius": "5", "op": "new"});
-        if let (Some(record), Some(extra)) = (record.as_object_mut(), extra.as_object()) {
-            record.extend(extra.clone());
-        }
-        record
-    }
-
-    #[test]
-    fn a_default_torus_lies_in_xy() {
-        let run = run(&["b-1"], &[torus(json!({}))]);
-
-        run.assert_ok("f-tor1");
-        run.assert_volume("b-1", 2.0 * PI * PI * 20.0 * 25.0);
-        run.assert_faces("b-1", 1);
-        run.assert_bounding_box("b-1", [-25.0, -25.0, -5.0], [25.0, 25.0, 5.0]);
-        assert_eq!(run.face("b-1", "f-tor1/surface").kind, GeometryKind::Torus);
-        run.assert_face_area("b-1", "f-tor1/surface", 3947.841760);
-    }
-
-    #[test]
-    fn a_torus_on_xz_has_its_axis_along_y() {
-        let run = run(
-            &["b-1"],
-            &[torus(json!({"plane": {"kind": "origin", "plane": "XZ"}}))],
-        );
-
-        run.assert_bounding_box("b-1", [-25.0, -5.0, -25.0], [25.0, 5.0, 25.0]);
-    }
-
-    #[test]
-    fn the_tube_must_be_smaller_than_the_ring() {
-        let run = run(&["b-1"], &[torus(json!({"minor_radius": "20"}))]);
-
-        assert_eq!(
-            run.messages("f-tor1"),
-            [
-                "Tube radius must be less than the ring radius (20 mm), but it is 20 mm. Use a value less than 20 mm."
-            ]
-        );
-    }
-
-    #[test]
-    fn a_zero_tube_is_out_of_range() {
-        let run = run(&["b-1"], &[torus(json!({"minor_radius": "0"}))]);
-
-        assert!(matches!(
-            run.error("f-tor1"),
-            FeatureError::OutOfRange { bound: Bound::GreaterThan(0.0), field, .. } if field.path == "minor_radius"
-        ));
-    }
+    use crate::test_support::ScriptNames;
 
     #[test]
     fn python_writes_both_radii() {

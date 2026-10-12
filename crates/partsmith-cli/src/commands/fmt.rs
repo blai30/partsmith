@@ -4,6 +4,7 @@ use std::io;
 
 use partsmith_engine::Session;
 
+use super::usage_error;
 use crate::arguments::FmtArguments;
 use crate::error::CliError;
 use crate::files::{Input, write_atomically};
@@ -31,11 +32,7 @@ pub fn run(
 ) -> io::Result<Status> {
     let inputs = match Input::list(&arguments.files) {
         Ok(inputs) => inputs,
-        Err(error) => {
-            let error = CliError::from(error);
-            output.error(&error);
-            return Ok(error.status());
-        }
+        Err(error) => return Ok(usage_error(output, error)),
     };
     let mut status = Status::Success;
     for input in &inputs {

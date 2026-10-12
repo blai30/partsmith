@@ -3,21 +3,21 @@
 //! how the copies are combined (features.md section 3.5, mirror.md section 3, naming.md sections
 //! 3.5.1, 3.6.10 and 3.6.11).
 
-use partsmith_model::{FeatureManifest, Id};
+use partsmith_model::{Expr, FeatureManifest, FieldUnit, Id};
 use partsmith_naming::Instance;
 use partsmith_occt_sys::{Shape, Transform, transform};
 
 use super::common::{bodies, solid_body, unchanged};
 use crate::context::{BodyState, BuildContext};
 use crate::deps::Dependencies;
-use crate::error::{FeatureError, FeatureWarning, FieldRef};
+use crate::error::{Bound, FeatureError, FeatureWarning, FieldRef};
 use crate::naming::{kernel, naming};
 use crate::output::{BodyChange, FeatureOutput, Tool, apply_op};
 use crate::params::{BodyOp, CopyOp};
 
 /// Most instances a pattern makes, the original included (linear_pattern.md and
 /// circular_pattern.md section 3.3).
-pub(super) const INSTANCE_LIMIT: u64 = 10_000;
+const INSTANCE_LIMIT: u64 = 10_000;
 
 /// Checks the `op` and `target` of a copy feature (mirror.md section 3.1): op new needs a target,
 /// op join takes none, and the target is not the source body.
@@ -52,6 +52,47 @@ pub(super) fn add_source(dependencies: &mut Dependencies, op: CopyOp, body: &Id)
 pub(super) fn add_target(dependencies: &mut Dependencies, op: CopyOp, target: Option<&Id>) {
     if let (CopyOp::New, Some(target)) = (op, target) {
         dependencies.add_body_written(target, "target");
+    }
+}
+
+/// The declared instance count of a pattern at `field`, the original included, which must be at
+/// least 1 (linear_pattern.md and circular_pattern.md section 3.3). Evaluation already rejects a
+/// negative count as below 0; it is reported against the bound of 1 instead, so the suggested fix
+/// is a count that works.
+pub(super) fn instance_count(
+    context: &BuildContext<'_>,
+    field: &str,
+    expr: &Expr,
+) -> Result<u32, FeatureError> {
+    let below_one = |value: f64| FeatureError::OutOfRange {
+        field: context.field(field),
+        kind: FieldUnit::Count,
+        value,
+        bound: Bound::AtLeast(1.0),
+        bound_name: None,
+    };
+    match context.eval_count(field, expr) {
+        Ok(0) => Err(below_one(0.0)),
+        Ok(count) => Ok(count),
+        Err(FeatureError::OutOfRange {
+            value,
+            bound: Bound::AtLeast(_),
+            ..
+        }) => Err(below_one(value)),
+        Err(error) => Err(error),
+    }
+}
+
+/// `TooManyInstances` when a pattern would make more than 10000 instances, the original included
+/// (linear_pattern.md and circular_pattern.md section 3.3).
+pub(super) fn check_instance_limit(total: u64) -> Result<(), FeatureError> {
+    if total > INSTANCE_LIMIT {
+        Err(FeatureError::TooManyInstances {
+            count: total,
+            limit: INSTANCE_LIMIT,
+        })
+    } else {
+        Ok(())
     }
 }
 
@@ -107,9 +148,10 @@ impl<'a> Source<'a> {
 
     /// Puts `copies` into the feature's destination with one kernel boolean (features.md sections
     /// 3.5 and 3.10): fused into the source with op join, fused with each other into the empty
-    /// `target` with op new. Without copies the destination keeps its state and the feature warns
-    /// `NoEffect`: the source gets an unchanged update with op join, and the target, still
-    /// empty, gets no update with op new.
+    /// `target` with op new. With op new a target that holds a solid is `BodyNotEmpty`, with or
+    /// without copies. Without copies the destination keeps its state and the feature warns
+    /// `NoEffect`: the source gets an unchanged update with op join, and the empty target gets no
+    /// update with op new.
     pub(super) fn place(
         &self,
         context: &BuildContext<'_>,
@@ -119,9 +161,19 @@ impl<'a> Source<'a> {
     ) -> Result<FeatureOutput, FeatureError> {
         let destination = match op {
             CopyOp::Join => self.body,
-            CopyOp::New => target.ok_or_else(|| {
-                FeatureError::internal("a copy feature with op new and no target passed validation")
-            })?,
+            CopyOp::New => {
+                let target = target.ok_or_else(|| {
+                    FeatureError::internal(
+                        "a copy feature with op new and no target passed validation",
+                    )
+                })?;
+                if !context.body(target)?.is_empty() {
+                    return Err(FeatureError::BodyNotEmpty {
+                        body: target.clone(),
+                    });
+                }
+                target
+            }
         };
         if copies.is_empty() {
             let warnings = vec![FeatureWarning::NoEffect {
@@ -149,14 +201,16 @@ pub(super) mod testing {
     use std::sync::Arc;
 
     use partsmith_model::{EmptyContext, FeatureRecord, ParameterValues, Scope, Units};
-    use partsmith_occt_sys::Shape;
+    use partsmith_occt_sys::{Point, Shape};
     use serde_json::Value;
 
     use crate::context::{BodyState, Values};
     use crate::error::FeatureError;
     use crate::feature::Feature;
     use crate::output::{BodyUpdate, FeatureOutput, OutputData};
-    use crate::test_support::{Fixture, ScriptNames, id};
+    use crate::test_support::{
+        Fixture, ScriptNames, assert_point, assert_relative, id, volume,
+    };
 
     /// The typed params of a feature record written as JSON.
     pub(crate) fn params<F: Feature>(record: Value) -> F::Params {
@@ -164,6 +218,18 @@ pub(super) mod testing {
             serde_json::from_value(record).expect("records written in tests are well-formed");
         serde_json::from_value(Value::Object(record.params))
             .expect("params written in tests deserialize")
+    }
+
+    /// The typed params of a feature record written as JSON, with the members of the JSON object
+    /// `extra` added to it or replacing its own.
+    pub(crate) fn params_with<F: Feature>(mut record: Value, extra: Value) -> F::Params {
+        let Value::Object(members) = extra else {
+            panic!("extra members written in tests are a JSON object, not {extra}");
+        };
+        for (key, value) in members {
+            record[key] = value;
+        }
+        params::<F>(record)
     }
 
     /// The fixture of feature `feature` with `params` in a millimeter document without
@@ -236,29 +302,18 @@ pub(super) mod testing {
             .unwrap_or_else(|| panic!("{body} is empty after the feature"))
     }
 
-    /// Asserts a shape's volume within 1e-6 mm³.
+    /// Asserts a shape's volume within the relative tolerance of features.md section 6.1.
     pub(crate) fn assert_volume(shape: &Shape, expected: f64) {
-        let volume = shape.volume().expect("the shape has a volume");
-        assert!(
-            (volume - expected).abs() < 1e-6,
-            "expected volume {expected}, got {volume}"
-        );
+        assert_relative("volume", volume(shape), expected);
     }
 
-    /// Asserts a shape's tight bounding box within 1e-6 mm per coordinate.
+    /// Asserts a shape's tight bounding box within the 1e-5 mm per coordinate of features.md
+    /// section 6.1.
     pub(crate) fn assert_bounds(shape: &Shape, min: [f64; 3], max: [f64; 3]) {
         let bounds = shape.bounding_box().expect("the shape has bounds");
-        let close = bounds
-            .min
-            .iter()
-            .chain(&bounds.max)
-            .zip(min.iter().chain(&max))
-            .all(|(actual, expected)| (actual - expected).abs() < 1e-6);
-        assert!(
-            close,
-            "expected bounds {min:?}-{max:?}, got {:?}-{:?}",
-            bounds.min, bounds.max
-        );
+        let corner = |[x, y, z]: [f64; 3]| Point::new(x, y, z);
+        assert_point("bounding box minimum", corner(bounds.min), min);
+        assert_point("bounding box maximum", corner(bounds.max), max);
     }
 
     /// The dedicated Python call of `params` with the default `ScriptNames`, rendered at

@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi, type Mock } from 'vitest'
+import type { BoundingBox, ProfileFinding } from '../../generated/protocol'
 import { MESSAGES } from '../../messages'
 import {
   actionLabels,
@@ -15,8 +16,9 @@ import {
 import { documentStateFor } from '../../test/fakes/state'
 import { settle } from '../../test/fakes/settle'
 import { createAppStore } from '../../state/store'
-import { DEFAULT_CAMERA, orbit, type Camera } from '../../viewport/camera'
-import type { ViewportHandle } from '../../viewport/controller'
+import { DEFAULT_CAMERA, orbit, type Camera, type StandardView } from '../../viewport/camera'
+import type { Vector3 } from '../../viewport/math'
+import type { App } from '../createApp'
 import { redo, undo } from './document'
 import {
   enterSketch,
@@ -28,23 +30,29 @@ import {
 
 // The sketch view history of ui.md 3.20 with a recording viewport, and entering and finishing.
 
-function recordingViewport(start: Camera): ViewportHandle & { readonly cameras: Camera[] } {
+type RecordingViewport = NonNullable<ReturnType<App['viewport']>> & {
+  readonly cameras: Camera[]
+  readonly lookAlong: Mock<(normal: Vector3, upHint: Vector3, target: Vector3) => void>
+  readonly zoomToBounds: Mock<(bounds: BoundingBox, margin: number) => void>
+}
+
+function recordingViewport(start: Camera): RecordingViewport {
   let camera = start
   const cameras: Camera[] = []
   return {
     cameras,
     getCamera: () => camera,
-    setCamera: (next) => {
+    setCamera: (next: Camera) => {
       camera = next
       cameras.push(next)
     },
-    fit: vi.fn(),
-    setStandardView: vi.fn(),
-    toggleProjection: vi.fn(),
-    lookAlong: vi.fn(),
-    zoomToBounds: vi.fn(),
+    fit: vi.fn<(bounds?: BoundingBox) => void>(),
+    setStandardView: vi.fn<(view: StandardView) => void>(),
+    toggleProjection: vi.fn<() => void>(),
+    lookAlong: vi.fn<(normal: Vector3, upHint: Vector3, target: Vector3) => void>(),
+    zoomToBounds: vi.fn<(bounds: BoundingBox, margin: number) => void>(),
     screenRectangle: () => null,
-    requestRender: vi.fn(),
+    requestRender: vi.fn<() => void>(),
   }
 }
 
@@ -125,14 +133,9 @@ describe('sketch view history (3.20)', () => {
 
 describe('finishSketch (3.16.11)', () => {
   it('reports profile problems with "Back to sketch"', async () => {
-    const solution = {
-      ...RECT_SKETCH_SOLUTION,
-      profile_findings: [{ type: 'open_endpoint', entity: 'e-1', point: [0, 0] }],
-    } as const
+    const openEnd: ProfileFinding = { type: 'open_endpoint', entity: 'e-1', point: [0, 0] }
     const fake = await startWithDocument('cube.ptsm', CUBE_DOCUMENT, {
-      core: {
-        solutions: { 'f-sk1': { ...solution, profile_findings: [...solution.profile_findings] } },
-      },
+      core: { solutions: { 'f-sk1': { ...RECT_SKETCH_SOLUTION, profile_findings: [openEnd] } } },
     })
     await enterSketch(fake.app, 'f-sk1')
     await finishSketch(fake.app)

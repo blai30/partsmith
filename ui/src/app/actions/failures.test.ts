@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { Diagnostic, Edit, Event as ProtocolEvent } from '../../generated/protocol'
+import type { Diagnostic, Edit } from '../../generated/protocol'
 import { MESSAGES } from '../../messages'
 import {
   actionLabels,
@@ -9,7 +9,7 @@ import {
   type FakeApp,
 } from '../../test/fakes/app'
 import { CUBE_FEATURES_DOCUMENT } from '../../test/fakes/documents'
-import type { FakeReply } from '../../test/fakes/core'
+import type { FakeFeatureStatus } from '../../test/fakes/core'
 import { settle } from '../../test/fakes/settle'
 import { applyEdits } from './document'
 
@@ -30,30 +30,27 @@ const RADIUS_15: readonly Edit[] = [
   },
 ]
 
-/** Answers apply_edits as the core does, with the given features failing in its recompute. */
-function failing(fake: FakeApp, featureIds: readonly string[]): void {
-  fake.transport.handle('apply_edits', (command, core): FakeReply => {
-    const reply = core.reply(command)
-    const events = (reply.events ?? []).map((event): ProtocolEvent =>
-      event.type === 'recomputed'
-        ? {
-            ...event,
-            features: event.features.map((status) =>
-              featureIds.includes(status.id)
-                ? { ...status, status: 'error', messages: [TOO_LARGE] }
-                : status,
-            ),
-          }
-        : event,
-    )
-    return { ...reply, events }
+/**
+ * Starts the cube with features, all ok, and returns the statuses the fake core reports from its
+ * next recompute on, so a test can make features fail as the result of a user change.
+ */
+async function cubeWithStatuses(): Promise<{
+  readonly fake: FakeApp
+  readonly statuses: Record<string, FakeFeatureStatus>
+}> {
+  const statuses: Record<string, FakeFeatureStatus> = {}
+  const fake = await startWithDocument('cube-features.ptsm', CUBE_FEATURES_DOCUMENT, {
+    core: { statuses },
   })
+  return { fake, statuses }
 }
+
+const FAILED: FakeFeatureStatus = { status: 'error', messages: [TOO_LARGE] }
 
 describe('failure notifications', () => {
   it('one feature that fails after a change: "{label} failed. {message}" with Edit and Undo', async () => {
-    const fake = await startWithDocument('cube-features.ptsm', CUBE_FEATURES_DOCUMENT)
-    failing(fake, ['f-fil1'])
+    const { fake, statuses } = await cubeWithStatuses()
+    statuses['f-fil1'] = FAILED
     await applyEdits(fake.app, 'Change Fillet 1', RADIUS_15)
     await settle()
     const notification = notificationWith(
@@ -62,15 +59,16 @@ describe('failure notifications', () => {
     )
     expect(notification.severity).toBe('error')
     expect(actionLabels(notification)).toEqual(['Edit', 'Undo'])
-    fake.transport.handle('apply_edits', null)
+    delete statuses['f-fil1']
     runAction(notification, 'Undo')
     await settle()
     expect(fake.transport.commandTypes()).toContain('undo')
   })
 
   it('several failing features: a count with Show problems and Undo', async () => {
-    const fake = await startWithDocument('cube-features.ptsm', CUBE_FEATURES_DOCUMENT)
-    failing(fake, ['f-fil1', 'f-sh1'])
+    const { fake, statuses } = await cubeWithStatuses()
+    statuses['f-fil1'] = FAILED
+    statuses['f-sh1'] = FAILED
     await applyEdits(fake.app, 'Change Fillet 1', RADIUS_15)
     await settle()
     const notification = notificationWith(fake.app, MESSAGES.features_failed(2))
@@ -81,7 +79,7 @@ describe('failure notifications', () => {
 
   it('a feature that already failed before the change is not reported again', async () => {
     const fake = await startWithDocument('cube-features.ptsm', CUBE_FEATURES_DOCUMENT, {
-      core: { statuses: { 'f-fil1': { status: 'error', messages: [TOO_LARGE] } } },
+      core: { statuses: { 'f-fil1': FAILED } },
     })
     await applyEdits(fake.app, 'Change Fillet 1', RADIUS_15)
     await settle()

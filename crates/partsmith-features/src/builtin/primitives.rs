@@ -98,7 +98,7 @@ mod tests {
     use crate::primitive::default_position;
     use crate::test_support::{ScriptNames, id, run};
 
-    /// A cylinder-like primitive with this plane and op.
+    /// Params with the sizes `radius` and `height`, then this placement and op.
     fn with_parts<'a>(
         body: &'a Id,
         sizes: &'a [Expr; 2],
@@ -152,8 +152,7 @@ mod tests {
         let plane = PlaneRef::default();
         let position = default_position();
 
-        let dependencies =
-            with_parts(&body, &sizes, &plane, &position, BodyOp::New).dependencies();
+        let dependencies = with_parts(&body, &sizes, &plane, &position, BodyOp::New).dependencies();
 
         let written: Vec<&str> = dependencies
             .bodies_written

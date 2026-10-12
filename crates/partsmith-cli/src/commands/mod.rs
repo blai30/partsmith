@@ -15,7 +15,7 @@ use partsmith_print::DEFAULT_PROFILE_ID;
 use partsmith_protocol::DocHandle;
 
 use crate::arguments::Command;
-use crate::error::CliError;
+use crate::error::{CliError, UsageError};
 use crate::files;
 use crate::output::Output;
 use crate::status::Status;
@@ -30,6 +30,13 @@ pub fn run(session: &mut Session, command: Command, output: &mut Output<'_>) -> 
         Command::Export(arguments) => export::run(session, &arguments, output),
         Command::Schema(arguments) => schema::run(&arguments, output),
     }
+}
+
+/// Reports a usage error found after argument parsing and returns its status.
+fn usage_error(output: &mut Output<'_>, error: UsageError) -> Status {
+    let error = CliError::from(error);
+    output.error(&error);
+    error.status()
 }
 
 /// A document opened for `rebuild` or `export`.
