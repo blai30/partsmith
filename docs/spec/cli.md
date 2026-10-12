@@ -210,7 +210,7 @@ One line per feature in timeline order: `  <id> <type> <status>`, followed by on
 }
 ```
 
-`printer` is the effective profile id. `messages` entries are `Diagnostic`s (protocol.md 2.4). A parameter that failed to evaluate has `error` instead of `value` and `dimension`. A body without geometry has only `id`, `name` and `"empty": true`. With `--checks` a final key `checks` holds the protocol `PrintReport` (protocol.md 2.7: `profile`, `orientation`, `summary`, `bodies` with each body's `transform` and print.md `report`), without `mesh_id` and `overhang`.
+`printer` is the effective profile id, the document's resolved profile after `--printer` (engine `printer_profile`, engine.md 3.7): the `--printer` value, else the document's `printer` when it is installed, else the default profile. `messages` entries are `Diagnostic`s (protocol.md 2.4). A parameter that failed to evaluate has `error` instead of `value` and `dimension`. A body without geometry has only `id`, `name` and `"empty": true`. With `--checks` a final key `checks` holds the protocol `PrintReport` (protocol.md 2.7: `profile`, `orientation`, `summary`, `bodies` with each body's `transform` and print.md `report`), without `mesh_id` and `overhang`.
 
 6. Exit 1 when any feature has status `error`, or `warning` with `--deny-warnings`. Print findings never change the exit code.
 
@@ -259,7 +259,7 @@ One line per feature in timeline order: `  <id> <type> <status>`, followed by on
 | --- | --- | --- |
 | Unreadable input | `error: cannot read "<path>": <os message>` | 3 |
 | Unwritable output | `error: cannot write "<path>": <os message>` | 3 |
-| Document does not load | the load diagnostic (2.2) | 1 |
+| Document does not load | the load diagnostic (2.2): the engine's `parse_error` or `unsupported_format_version` with the line, column and JSON Pointer the error carries (engine.md section 4), the same diagnostic `validate` reports for the text | 1 |
 | Unknown `--printer` | `error: Printer profile "<id>" is not installed.` | 1 |
 | Unknown `--body` | `error: There is no body named or with id "<value>".` | 1 |
 | Ambiguous `--body` | `error: Two bodies are named "<value>". Use the body id.` | 1 |

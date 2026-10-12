@@ -6,8 +6,10 @@ import { notify } from '../app/actions/notifications'
 import { openPrintHealth, setPrinter } from '../app/actions/print'
 import { useApp, useAppState } from '../app/AppProvider'
 import type { App } from '../app/createApp'
+import type { DisabledAvailability } from '../commands/registry'
 import { Menu, type MenuEntry } from '../components/Menu'
 import { Tooltip } from '../components/Tooltip'
+import { formatQuantity } from '../expression/format'
 import type { Units } from '../generated/protocol'
 import { HealthBadge } from '../print/HealthBadge'
 import { PrinterMenu } from '../print/PrinterMenu'
@@ -17,8 +19,8 @@ import type { AppState } from '../state/store'
 import { COLOR_CLASSES, FONT_CLASSES } from '../theme/roles'
 import { useCommandViews } from './use-commands'
 
-// The status bar (ui.md 3.21): core status, sketch DOF, rebuild time, units, printer and the print
-// health badge.
+// The status bar (ui.md 3.21): core status, sketch DOF, grid spacing, rebuild time, units, printer
+// and the print health badge.
 
 /** How long a mutation is pending before the status bar says "Rebuilding". */
 const REBUILDING_DELAY_MILLISECONDS = 300
@@ -86,14 +88,35 @@ function SketchDof() {
   if (dof === null || dof.state === 'picking') {
     return null
   }
+  // "DOF" is explained where it is shown, in plain words (3.16.8).
   return (
-    <span
-      data-testid="status-dof"
-      data-dof={dof.dof}
-      data-state={dof.state}
-      className="tabular-nums"
-    >
-      <span className={FONT_CLASSES.values}>{dof.dof}</span> DOF
+    <Tooltip label="Degrees of freedom: how many ways the sketch can still move.">
+      <span
+        data-testid="status-dof"
+        data-dof={dof.dof}
+        data-state={dof.state}
+        className="tabular-nums"
+      >
+        <span className={FONT_CLASSES.values}>{dof.dof}</span> DOF
+      </span>
+    </Tooltip>
+  )
+}
+
+/** "Grid 10 mm": the drawn grid's minor spacing in the document unit, while a grid is drawn (3.21). */
+function GridSpacing() {
+  const text = useAppState((state) => {
+    const spacing = state.view.gridSpacing
+    return spacing === null
+      ? null
+      : formatQuantity(spacing, 'length', state.document?.recipe.units ?? 'mm')
+  })
+  if (text === null) {
+    return null
+  }
+  return (
+    <span data-testid="status-grid" className="whitespace-nowrap">
+      Grid {text}
     </span>
   )
 }
@@ -167,22 +190,28 @@ function StatusButton({
  * Why a status bar control is disabled, from the command it stands for, or null while it is
  * enabled: units and printer changes are edits, which wait for the active command (3.7).
  */
-function useDisabledReason(commandId: string): string | null {
+function useDisabled(commandId: string): DisabledAvailability | null {
   const app = useApp()
   const [command] = useCommandViews(app, [commandId])
-  return command?.availability.state === 'disabled' ? command.availability.reason : null
+  return command?.availability.state === 'disabled' ? command.availability : null
 }
 
-/** A disabled control's click shows its reason, as a disabled toolbar command's does (3.3). */
-function explain(app: App, reason: string): void {
-  notify(app, { severity: 'info', message: reason, actions: [] })
+/** A disabled control's click shows its reason with its message id, as a disabled toolbar command's does (3.3). */
+function explain(app: App, disabled: DisabledAvailability): void {
+  notify(app, {
+    severity: 'info',
+    message: disabled.reason,
+    actions: [],
+    ...(disabled.code === undefined ? {} : { code: disabled.code }),
+  })
 }
 
 function UnitsButton() {
   const app = useApp()
   const units = useAppState((state) => state.document?.recipe.units ?? null)
   // Every unit command shares one availability rule.
-  const reason = useDisabledReason('document.units.mm')
+  const disabled = useDisabled('document.units.mm')
+  const reason = disabled?.reason ?? null
   const anchor = useRef<HTMLButtonElement>(null)
   const [open, setOpen] = useState(false)
   if (units === null) {
@@ -208,10 +237,10 @@ function UnitsButton() {
           buttonRef={anchor}
           disabled={reason !== null}
           onClick={() => {
-            if (reason === null) {
+            if (disabled === null) {
               setOpen((current) => !current)
             } else {
-              explain(app, reason)
+              explain(app, disabled)
             }
           }}
         />
@@ -231,7 +260,8 @@ function PrinterButton() {
   const label = useAppState(selectPrinterLabel)
   const printers = useAppState((state) => state.printers)
   const current = useAppState((state) => state.document?.recipe.printer ?? null)
-  const reason = useDisabledReason('print.printer')
+  const disabled = useDisabled('print.printer')
+  const reason = disabled?.reason ?? null
   const anchor = useRef<HTMLButtonElement>(null)
   const [open, setOpen] = useState(false)
   return (
@@ -244,10 +274,10 @@ function PrinterButton() {
           buttonRef={anchor}
           disabled={reason !== null}
           onClick={() => {
-            if (reason === null) {
+            if (disabled === null) {
               setOpen((value) => !value)
             } else {
-              explain(app, reason)
+              explain(app, disabled)
             }
           }}
         />
@@ -292,6 +322,7 @@ export function StatusBar() {
     >
       <CoreStatus />
       <SketchDof />
+      <GridSpacing />
       <RebuildTime />
       <div className="ml-auto flex shrink-0 items-center gap-1">
         <UnitsButton />

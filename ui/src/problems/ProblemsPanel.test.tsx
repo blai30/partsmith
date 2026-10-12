@@ -5,7 +5,8 @@ import { installPopoverPolyfill } from '../components/popover-polyfill.testing'
 import type { FeatureStatus } from '../generated/protocol'
 import { cubeDocumentState, documentState, readyState } from '../layout/fixtures.testing'
 import { createModelApp, renderWithApp, stubMatchMedia } from '../layout/test-app.testing'
-import { INITIAL_STATE, type DocumentState } from '../state/store'
+import { MESSAGES } from '../messages'
+import { INITIAL_STATE, type ActiveCommand, type DocumentState } from '../state/store'
 import { CUBE_FEATURES_DOCUMENT, featuresOf } from '../test/fakes/documents'
 
 let uninstallPopovers: () => void
@@ -64,10 +65,28 @@ function withProblems(
   }
 }
 
-function renderPanel(document: DocumentState) {
+const EXTRUDE_COMMAND: ActiveCommand = {
+  featureType: 'extrude',
+  featureId: 'f-new1',
+  editing: false,
+  title: 'Extrude',
+  params: { extent: { kind: 'distance', expr: '10 mm' }, op: 'join', body: 'b-cube' },
+  activeField: 'profile',
+  fieldErrors: {},
+  applied: false,
+  newBody: null,
+  helper: null,
+  changedPaths: [],
+  history: [],
+  future: [],
+  preview: 'none',
+}
+
+function renderPanel(document: DocumentState, command: ActiveCommand | null = null) {
   const test = createModelApp({
     state: readyState(document, {
       panels: { ...INITIAL_STATE.panels, browserOpen: true, side: 'problems' },
+      command,
     }),
   })
   renderWithApp(test.app)
@@ -161,6 +180,24 @@ describe('the Problems panel (3.9)', () => {
       {
         type: 'update_feature',
         feature: { ...featuresOf(CUBE_FEATURES_DOCUMENT)[2], radius: '2.3 mm' },
+      },
+    ])
+  })
+
+  it('during a feature command, "Use {suggestion}" waits: aria-disabled, it says why and sends nothing (3.7)', async () => {
+    const { app, core, user, panel } = renderPanel(
+      withProblems([FILLET_TOO_LARGE]),
+      EXTRUDE_COMMAND,
+    )
+    const use = within(panel).getByRole('button', { name: 'Use 2.3 mm' })
+    expect(use).toHaveAttribute('aria-disabled', 'true')
+    await user.click(use)
+    expect(core.callsTo('applyEdits')).toEqual([])
+    expect(app.store.getState().notifications).toMatchObject([
+      {
+        severity: 'info',
+        message: MESSAGES.finish_command_first('Extrude'),
+        code: 'finish_command_first',
       },
     ])
   })

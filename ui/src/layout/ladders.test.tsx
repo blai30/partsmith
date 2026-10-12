@@ -3,11 +3,12 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { installPopoverPolyfill } from '../components/popover-polyfill.testing'
 import type { ActiveCommand, AppState, SketchSession } from '../state/store'
-import { RECT_REGION } from '../test/fakes/documents'
+import { CUBE_TOP_FRONT_EDGE, RECT_REGION } from '../test/fakes/documents'
 import { settle } from '../test/fakes/settle'
 import {
   bodyItem,
   cubeDocumentState,
+  elementItem,
   readyState,
   rectSketchDocumentState,
   sketchLineItem,
@@ -43,6 +44,10 @@ const COMPLETE_EXTRUDE: ActiveCommand = {
   fieldErrors: {},
   applied: true,
   newBody: null,
+  helper: null,
+  changedPaths: [],
+  history: [],
+  future: [],
   preview: 'shown',
 }
 
@@ -104,6 +109,17 @@ describe('the Enter ladder (3.5)', () => {
     })
   })
 
+  it('a held Enter (repeated presses) confirms the command once', async () => {
+    const { core, app } = renderApp({ command: COMPLETE_EXTRUDE })
+    viewportSurface().focus()
+    fireEvent.keyDown(viewportSurface(), { key: 'Enter' })
+    fireEvent.keyDown(viewportSurface(), { key: 'Enter', repeat: true })
+    fireEvent.keyDown(viewportSurface(), { key: 'Enter', repeat: true })
+    await settle()
+    expect(core.callsTo('commitTransaction')).toEqual([[1]])
+    expect(app.store.getState().notifications).toEqual([])
+  })
+
   it('does nothing while the command is incomplete', async () => {
     const { core } = renderApp({ command: INCOMPLETE_EXTRUDE })
     fireEvent.keyDown(viewportSurface(), { key: 'Enter' })
@@ -123,7 +139,7 @@ describe('the Enter ladder (3.5)', () => {
     const { core, user } = renderApp({ command: COMPLETE_EXTRUDE })
     await settle()
     core.stub('evaluate', () => result.promise)
-    const distance = within(screen.getByTestId('inspector')).getByRole('textbox', {
+    const distance = within(screen.getByTestId('inspector')).getByRole('combobox', {
       name: 'Distance',
     })
     await user.clear(distance)
@@ -147,6 +163,55 @@ describe('the Enter ladder (3.5)', () => {
     fireEvent.keyDown(cancel ?? document.body, { key: 'Enter' })
     await settle()
     expect(core.callsTo('commitTransaction')).toEqual([])
+  })
+})
+
+function renderCube(state: Partial<AppState>) {
+  const test = createModelApp({ state: readyState(cubeDocumentState(), state) })
+  renderWithApp(test.app)
+  return test
+}
+
+describe('Repeat in the Enter ladder (3.5, step 4)', () => {
+  it('starts the last feature command on the selection with Enter on the focused viewport', async () => {
+    const { app } = renderCube({
+      selection: [elementItem(CUBE_TOP_FRONT_EDGE)],
+      lastFeatureType: 'chamfer',
+    })
+    viewportSurface().focus()
+    fireEvent.keyDown(viewportSurface(), { key: 'Enter' })
+    await waitFor(() => {
+      expect(app.store.getState().command?.featureType).toBe('chamfer')
+    })
+    expect(app.store.getState().command?.params['edges']).toEqual([CUBE_TOP_FRONT_EDGE.reference])
+  })
+
+  it('ignores the repeated presses of a held key', async () => {
+    const { app, core } = renderCube({
+      selection: [elementItem(CUBE_TOP_FRONT_EDGE)],
+      lastFeatureType: 'chamfer',
+    })
+    fireEvent.keyDown(viewportSurface(), { key: 'Enter', repeat: true })
+    await settle()
+    expect(core.callsTo('beginTransaction')).toEqual([])
+    expect(app.store.getState().command).toBeNull()
+  })
+
+  it('says there is no command to repeat yet before any feature command ran', async () => {
+    const { app } = renderCube({ selection: [elementItem(CUBE_TOP_FRONT_EDGE)] })
+    fireEvent.keyDown(viewportSurface(), { key: 'Enter' })
+    await settle()
+    expect(app.store.getState().notifications.map((shown) => shown.message)).toEqual([
+      'No command to repeat yet.',
+    ])
+  })
+
+  it('does nothing without a selection', async () => {
+    const { app, core } = renderCube({ lastFeatureType: 'chamfer' })
+    fireEvent.keyDown(viewportSurface(), { key: 'Enter' })
+    await settle()
+    expect(core.callsTo('beginTransaction')).toEqual([])
+    expect(app.store.getState().notifications).toEqual([])
   })
 })
 
@@ -202,5 +267,43 @@ describe('escapeStep (3.5)', () => {
     expect(escapeStep(app)).toBe(true)
     expect(app.store.getState().selection).toEqual([])
     expect(escapeStep(app)).toBe(false)
+  })
+
+  it('cancels the face pick of Lay on face before clearing the selection (step 5)', () => {
+    const { app } = createModelApp({
+      state: readyState(cubeDocumentState(), {
+        context: 'print',
+        selection: [bodyItem('b-cube', 'Cube')],
+      }),
+    })
+    app.store.setState((state) => ({ print: { ...state.print, pickingFace: true } }))
+    expect(escapeStep(app)).toBe(true)
+    expect(app.store.getState().print.pickingFace).toBe(false)
+    expect(app.store.getState().selection).toHaveLength(1)
+  })
+
+  it('E-102 five Esc presses in an edited sketch never leave sketch mode (3.5)', () => {
+    vi.useFakeTimers()
+    try {
+      const { app } = renderApp({
+        context: 'sketch',
+        sketch: {
+          ...EDITING_SKETCH,
+          tool: 'line',
+          selection: [sketchLineItem('f-sk1', 'e-1')],
+        },
+      })
+      for (let i = 0; i < 5; i++) {
+        fireEvent.keyDown(document.body, { key: 'Escape' })
+      }
+      const state = app.store.getState()
+      expect(state.context).toBe('sketch')
+      expect(state.sketch).toMatchObject({ sketchId: 'f-sk1', tool: null, selection: [] })
+      expect(state.pickHint?.message).toBe(
+        'To leave the sketch, click Finish sketch or press Ctrl+Enter.',
+      )
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

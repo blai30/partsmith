@@ -1,18 +1,23 @@
 //! Acceptance tests for thread safety and determinism (kernel spec sections 3.10, 3.11 and tests
-//! 90 to 92). The WebAssembly build has no threads, so the threaded tests are ignored there.
+//! 90 to 92 and 104 to 107). The WebAssembly build has no threads and cannot start processes,
+//! so the threaded tests and test 107 are ignored or left out there.
 
 mod common;
 
+use std::f64::consts::{FRAC_PI_2, TAU};
 use std::thread;
 
 use common::{
-    OPT, UP, box_primitive, cube_a, cube_b, face_with_role, rectangle_profile, top_front_edge,
-    xy_plane_at,
+    OPT, UP, box_primitive, box_with_displaced_corner, cube_a, cube_b, cube_c, face_with_role,
+    l_body, planar_face, rectangle_profile, rectangle_with_hole_profile, ring_profile,
+    top_front_edge, xy_plane_at, z_axis,
 };
 use partsmith_mesh::Mesh;
 use partsmith_occt_sys::{
-    Color, EdgeRadius, ElementGeometry, PrimitiveFace, Shape, StepBody, SubShapeKind, extrude,
-    fillet, fuse, make_box, read_step, shell, split, write_step,
+    ChamferEdge, ChamferSize, Color, EdgeRadius, ElementGeometry, OpResult, Plane, Point,
+    PrimitiveFace, Shape, StepBody, SubShapeKind, Topology, Transform, Vector, chamfer, common,
+    compound, cut, extrude, fillet, fuse, make_box, make_cone, make_cylinder, make_sphere,
+    make_torus, read_step, revolve, section, shell, split, transform, write_step,
 };
 
 /// Number of threads in the concurrency tests.
@@ -230,4 +235,486 @@ fn results_do_not_depend_on_earlier_operations() {
 
     assert!(before.shape.to_brep().expect("bytes") == after.shape.to_brep().expect("bytes"));
     assert_eq!(before.history, after.history);
+}
+
+/// Runs of each operation in tests 104 to 106.
+const REPEATS: usize = 4;
+
+/// What every run of an operation must reproduce exactly (section 3.11): the BRep bytes of its
+/// shape, the bits of the shape's volume and center of mass, its topology, and the rest of its
+/// output (history, roles, sides, meshes, bytes) in `Debug` form, which prints every `f64` so
+/// that it reads back to the same bits.
+#[derive(Debug, PartialEq)]
+struct Outcome {
+    brep: Vec<u8>,
+    volume_bits: u64,
+    center_bits: Option<[u64; 3]>,
+    topology: Option<Topology>,
+    rest: String,
+}
+
+impl Outcome {
+    /// The outcome of an operation returning a shape and `rest`.
+    fn of_shape(shape: &Shape, rest: String) -> Outcome {
+        Outcome {
+            brep: shape.to_brep().expect("BRep bytes"),
+            volume_bits: shape.volume().expect("volume").to_bits(),
+            center_bits: shape
+                .center_of_mass()
+                .ok()
+                .map(|center| [center.x.to_bits(), center.y.to_bits(), center.z.to_bits()]),
+            topology: Some(shape.topology().expect("topology")),
+            rest,
+        }
+    }
+
+    /// The outcome of an operation returning a shape with history.
+    fn of_result(result: &OpResult) -> Outcome {
+        Outcome::of_shape(&result.shape, format!("{:?}", result.history))
+    }
+
+    /// The outcome of an operation returning no shape.
+    fn of_value(rest: String) -> Outcome {
+        Outcome {
+            brep: Vec::new(),
+            volume_bits: 0,
+            center_bits: None,
+            topology: None,
+            rest,
+        }
+    }
+}
+
+/// Runs `operation` `REPEATS` times in this process and asserts that every run gives the first
+/// run's outcome. The outcomes and allocations of different sizes stay alive between runs, so
+/// OCCT meets other addresses each time, which reorders anything kept in maps keyed by them.
+fn assert_repeatable(operation: fn() -> Outcome) {
+    let first = operation();
+    let mut kept = Vec::new();
+    for run in 1..REPEATS {
+        kept.push(vec![0_u8; 4096 * run + 48 * run]);
+        let again = operation();
+        assert!(again == first, "run {} differs from the first", run + 1);
+        kept.push(Vec::from(again.rest.as_bytes()));
+    }
+}
+
+/// A plane through `origin` with a tilted normal, for the split and section cases.
+fn oblique_plane() -> Plane {
+    Plane {
+        origin: Point::new(0.0, 0.0, 30.0),
+        normal: Vector::new(0.0, 1.0, 1.0),
+        x_axis: Vector::new(1.0, 0.0, 0.0),
+    }
+}
+
+/// A cylinder of radius 20 and height 40 fused with a sphere of radius 15 on its top.
+fn knob() -> OpResult {
+    let cylinder = make_cylinder(&Plane::XY, 20.0, 40.0)
+        .expect("the cylinder builds")
+        .shape;
+    let sphere = make_sphere(&xy_plane_at(0.0, 0.0, 40.0), 15.0)
+        .expect("the sphere builds")
+        .shape;
+    fuse(&cylinder, &[sphere]).expect("the knob fuses")
+}
+
+/// The result of test 45: every BOX edge rounded at radius 1.
+fn rounded_box() -> Shape {
+    let edges: Vec<EdgeRadius> = (1..=12)
+        .map(|edge| EdgeRadius { edge, radius: 1.0 })
+        .collect();
+    fillet(&box_primitive().shape, &edges)
+        .expect("every edge rounds")
+        .shape
+}
+
+// Test 104: closed shells.
+
+fn closed_box_shell() -> Outcome {
+    Outcome::of_result(&shell(&box_primitive().shape, &[], 1.0).expect("BOX shells"))
+}
+
+fn closed_l_shell() -> Outcome {
+    Outcome::of_result(&shell(&l_body().0, &[], 2.0).expect("L shells"))
+}
+
+fn closed_rounded_box_shell() -> Outcome {
+    Outcome::of_result(&shell(&rounded_box(), &[], 0.5).expect("the rounded box shells"))
+}
+
+// Test 105: an open shell with an arc join, and the fallback of test 102.
+
+fn l_shell_with_arc_join() -> Outcome {
+    let (body, _) = l_body();
+    let bottom = planar_face(
+        &body,
+        Vector::new(0.0, 0.0, -1.0),
+        Point::new(0.0, 0.0, 0.0),
+    );
+    Outcome::of_result(&shell(&body, &[bottom], 2.0).expect("L shells without its bottom"))
+}
+
+fn l_shell_fallback() -> Outcome {
+    let (body, step) = l_body();
+    Outcome::of_result(&shell(&body, &[step], 2.0).expect("the fallback shells L"))
+}
+
+// Test 106: every other operation.
+
+fn box_primitive_case() -> Outcome {
+    let block = box_primitive();
+    Outcome::of_shape(&block.shape, format!("{:?}", block.faces))
+}
+
+fn cylinder_primitive_case() -> Outcome {
+    let cylinder = make_cylinder(&Plane::XY, 5.0, 10.0).expect("the cylinder builds");
+    Outcome::of_shape(&cylinder.shape, format!("{:?}", cylinder.faces))
+}
+
+fn sphere_primitive_case() -> Outcome {
+    let sphere = make_sphere(&Plane::XY, 10.0).expect("the sphere builds");
+    Outcome::of_shape(&sphere.shape, format!("{:?}", sphere.faces))
+}
+
+fn cone_primitive_case() -> Outcome {
+    let cone = make_cone(&Plane::XY, 5.0, 2.0, 10.0).expect("the cone builds");
+    Outcome::of_shape(&cone.shape, format!("{:?}", cone.faces))
+}
+
+fn torus_primitive_case() -> Outcome {
+    let torus = make_torus(&Plane::XY, 10.0, 2.0).expect("the torus builds");
+    Outcome::of_shape(&torus.shape, format!("{:?}", torus.faces))
+}
+
+fn profile_case() -> Outcome {
+    let profile = rectangle_with_hole_profile();
+    Outcome::of_shape(&profile.shape, format!("{:?}", profile.edge_tags))
+}
+
+fn extrude_case() -> Outcome {
+    let prism = extrude(&rectangle_with_hole_profile(), UP, 0.0, 30.0).expect("extruded");
+    Outcome::of_shape(&prism.shape, format!("{:?}", prism.faces))
+}
+
+fn partial_revolve_case() -> Outcome {
+    let ring = revolve(&ring_profile(), &z_axis(), FRAC_PI_2).expect("revolved");
+    Outcome::of_shape(&ring.shape, format!("{:?}", ring.faces))
+}
+
+fn full_revolve_case() -> Outcome {
+    let ring = revolve(&ring_profile(), &z_axis(), TAU).expect("revolved");
+    Outcome::of_shape(&ring.shape, format!("{:?}", ring.faces))
+}
+
+fn fuse_case() -> Outcome {
+    Outcome::of_result(&knob())
+}
+
+fn cut_case() -> Outcome {
+    let block = make_box(&Plane::XY, 80.0, 50.0, 30.0)
+        .expect("the block builds")
+        .shape;
+    let holes: Vec<Shape> = (0..6)
+        .map(|position| {
+            let x = 10.0 + 12.0 * f64::from(position);
+            make_cylinder(&xy_plane_at(x, 25.0, -1.0), 3.0, 32.0)
+                .expect("the hole builds")
+                .shape
+        })
+        .collect();
+    Outcome::of_result(&cut(&block, &holes).expect("the holes cut"))
+}
+
+fn common_case() -> Outcome {
+    let cylinder = make_cylinder(&Plane::XY, 20.0, 40.0)
+        .expect("the cylinder builds")
+        .shape;
+    let sphere = make_sphere(&xy_plane_at(0.0, 0.0, 20.0), 25.0)
+        .expect("the sphere builds")
+        .shape;
+    Outcome::of_result(&common(&cylinder, &[sphere]).expect("the intersection builds"))
+}
+
+fn fillet_case() -> Outcome {
+    let edges: Vec<EdgeRadius> = (1..=12)
+        .map(|edge| EdgeRadius { edge, radius: 1.0 })
+        .collect();
+    Outcome::of_result(&fillet(&box_primitive().shape, &edges).expect("every edge rounds"))
+}
+
+fn equal_chamfer_case() -> Outcome {
+    let edges: Vec<ChamferEdge> = (1..=12)
+        .map(|edge| ChamferEdge {
+            edge,
+            size: ChamferSize::Equal { distance: 1.0 },
+        })
+        .collect();
+    Outcome::of_result(&chamfer(&box_primitive().shape, &edges).expect("every edge bevels"))
+}
+
+fn two_distance_chamfer_case() -> Outcome {
+    let block = box_primitive();
+    let edge = ChamferEdge {
+        edge: top_front_edge(&block),
+        size: ChamferSize::TwoDistances {
+            distance: 2.0,
+            other_distance: 3.0,
+            face: face_with_role(&block, PrimitiveFace::Top),
+        },
+    };
+    Outcome::of_result(&chamfer(&block.shape, &[edge]).expect("TF bevels"))
+}
+
+fn rigid_transform_case() -> Outcome {
+    let axis = z_axis();
+    let motion =
+        Transform::translation(Vector::new(1.0, 2.0, 3.0)).then(&Transform::rotation(&axis, 0.3));
+    Outcome::of_result(&transform(&rounded_box(), &motion).expect("moved"))
+}
+
+fn mirror_transform_case() -> Outcome {
+    Outcome::of_result(
+        &transform(&rounded_box(), &Transform::mirror(&Plane::YZ)).expect("mirrored"),
+    )
+}
+
+fn scale_transform_case() -> Outcome {
+    let scale = Transform::scale(Point::new(1.0, 1.0, 1.0), 2.0);
+    Outcome::of_result(&transform(&rounded_box(), &scale).expect("scaled"))
+}
+
+fn split_case() -> Outcome {
+    let pieces = split(&knob().shape, &oblique_plane()).expect("the knob splits");
+    let mut outcome = Outcome::of_result(&pieces.result);
+    outcome.rest += &format!("{:?} {:?}", pieces.solid_sides, pieces.section_faces);
+    outcome
+}
+
+fn section_case() -> Outcome {
+    let curves = section(&knob().shape, &oblique_plane()).expect("the knob is cut");
+    Outcome::of_shape(&curves, String::new())
+}
+
+fn repaired_cut_case() -> Outcome {
+    let cylinder = make_cylinder(&xy_plane_at(5.0, 10.0, -1.0), 2.0, 32.0)
+        .expect("the cylinder builds")
+        .shape;
+    let result = cut(&box_with_displaced_corner(), &[cylinder]).expect("the hole is cut");
+    Outcome::of_result(&result)
+}
+
+fn compound_case() -> Outcome {
+    Outcome::of_result(&compound(&[cube_a().shape, cube_c().shape]).expect("grouped"))
+}
+
+fn tessellate_case() -> Outcome {
+    Outcome::of_value(format!(
+        "{:?}",
+        rounded_box().tessellate(&OPT).expect("meshed")
+    ))
+}
+
+fn write_step_case() -> Outcome {
+    let body = StepBody {
+        shape: rounded_box(),
+        name: "Rounded".to_owned(),
+        color: Some(Color {
+            red: 0.2,
+            green: 0.4,
+            blue: 0.6,
+        }),
+    };
+    Outcome::of_value(format!("{:?}", write_step(&[body]).expect("written")))
+}
+
+fn read_step_case() -> Outcome {
+    let body = StepBody {
+        shape: knob().shape,
+        name: "Knob".to_owned(),
+        color: None,
+    };
+    let bytes = write_step(&[body]).expect("written");
+    let import = read_step(&bytes).expect("read");
+    let first = &import.bodies[0];
+    let rest = format!("{} {:?} {:?}", first.name, first.color, import.warnings);
+    Outcome::of_shape(&first.shape, rest)
+}
+
+fn brep_round_trip_case() -> Outcome {
+    let bytes = knob().shape.to_brep().expect("BRep bytes");
+    Outcome::of_shape(&Shape::from_brep(&bytes).expect("read back"), String::new())
+}
+
+fn queries_case() -> Outcome {
+    let shape = rounded_box();
+    let topology = shape.topology().expect("topology");
+    let normals: Vec<String> = topology
+        .edges
+        .iter()
+        .enumerate()
+        .filter(|(_, edge)| !edge.degenerate)
+        .map(|(position, _)| {
+            let edge = u32::try_from(position + 1).expect("few edges");
+            format!("{:?}", shape.edge_normals(edge).expect("edge normals"))
+        })
+        .collect();
+    Outcome::of_value(format!(
+        "{:?} {:?} {:?} {:?} {:?} {:?}",
+        shape.elements(SubShapeKind::Face).expect("faces"),
+        shape.elements(SubShapeKind::Edge).expect("edges"),
+        shape.elements(SubShapeKind::Vertex).expect("vertices"),
+        normals,
+        shape.bounding_box().expect("bounds"),
+        shape.area().expect("area").to_bits(),
+    ))
+}
+
+/// Declares one test per case that runs it `REPEATS` times (tests 104 to 106).
+macro_rules! repeatable {
+    ($($test:ident => $case:ident,)*) => {
+        $(
+            #[test]
+            fn $test() {
+                assert_repeatable($case);
+            }
+        )*
+    };
+}
+
+repeatable! {
+    t104_closed_shell_of_box_is_repeatable => closed_box_shell,
+    t104_closed_shell_of_l_is_repeatable => closed_l_shell,
+    t104_closed_shell_of_rounded_box_is_repeatable => closed_rounded_box_shell,
+    t105_open_shell_with_arc_join_is_repeatable => l_shell_with_arc_join,
+    t105_shell_fallback_is_repeatable => l_shell_fallback,
+    t106_box_is_repeatable => box_primitive_case,
+    t106_cylinder_is_repeatable => cylinder_primitive_case,
+    t106_sphere_is_repeatable => sphere_primitive_case,
+    t106_cone_is_repeatable => cone_primitive_case,
+    t106_torus_is_repeatable => torus_primitive_case,
+    t106_profile_is_repeatable => profile_case,
+    t106_extrude_is_repeatable => extrude_case,
+    t106_partial_revolve_is_repeatable => partial_revolve_case,
+    t106_full_revolve_is_repeatable => full_revolve_case,
+    t106_fuse_is_repeatable => fuse_case,
+    t106_cut_is_repeatable => cut_case,
+    t106_common_is_repeatable => common_case,
+    t106_fillet_is_repeatable => fillet_case,
+    t106_equal_chamfer_is_repeatable => equal_chamfer_case,
+    t106_two_distance_chamfer_is_repeatable => two_distance_chamfer_case,
+    t106_rigid_transform_is_repeatable => rigid_transform_case,
+    t106_mirror_transform_is_repeatable => mirror_transform_case,
+    t106_scale_transform_is_repeatable => scale_transform_case,
+    t106_split_is_repeatable => split_case,
+    t106_section_is_repeatable => section_case,
+    t106_repaired_cut_is_repeatable => repaired_cut_case,
+    t106_compound_is_repeatable => compound_case,
+    t106_tessellate_is_repeatable => tessellate_case,
+    t106_write_step_is_repeatable => write_step_case,
+    t106_read_step_is_repeatable => read_step_case,
+    t106_brep_round_trip_is_repeatable => brep_round_trip_case,
+    t106_queries_are_repeatable => queries_case,
+}
+
+/// Test 107: the cases of tests 104 to 106 give the same outcomes in other processes, which
+/// place OCCT's shapes at other addresses. The test runs its binary again in child processes
+/// and compares digests of the outcomes. WebAssembly tests cannot start processes.
+#[cfg(not(target_os = "emscripten"))]
+mod other_processes {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+
+    use super::Outcome;
+
+    /// One operation of tests 104 to 106: its name and a run of it.
+    type Case = (&'static str, fn() -> Outcome);
+
+    /// Every case of tests 104 to 106.
+    const CASES: &[Case] = &[
+        ("closed_box_shell", super::closed_box_shell),
+        ("closed_l_shell", super::closed_l_shell),
+        ("closed_rounded_box_shell", super::closed_rounded_box_shell),
+        ("l_shell_with_arc_join", super::l_shell_with_arc_join),
+        ("l_shell_fallback", super::l_shell_fallback),
+        ("box", super::box_primitive_case),
+        ("cylinder", super::cylinder_primitive_case),
+        ("sphere", super::sphere_primitive_case),
+        ("cone", super::cone_primitive_case),
+        ("torus", super::torus_primitive_case),
+        ("profile", super::profile_case),
+        ("extrude", super::extrude_case),
+        ("partial_revolve", super::partial_revolve_case),
+        ("full_revolve", super::full_revolve_case),
+        ("fuse", super::fuse_case),
+        ("cut", super::cut_case),
+        ("common", super::common_case),
+        ("fillet", super::fillet_case),
+        ("equal_chamfer", super::equal_chamfer_case),
+        ("two_distance_chamfer", super::two_distance_chamfer_case),
+        ("rigid_transform", super::rigid_transform_case),
+        ("mirror_transform", super::mirror_transform_case),
+        ("scale_transform", super::scale_transform_case),
+        ("split", super::split_case),
+        ("section", super::section_case),
+        ("repaired_cut", super::repaired_cut_case),
+        ("compound", super::compound_case),
+        ("tessellate", super::tessellate_case),
+        ("write_step", super::write_step_case),
+        ("read_step", super::read_step_case),
+        ("brep_round_trip", super::brep_round_trip_case),
+        ("queries", super::queries_case),
+    ];
+
+    /// Set in the child processes of `t107_outcomes_do_not_depend_on_the_process`.
+    const PROBE_VARIABLE: &str = "PARTSMITH_OCCT_SYS_REPEAT_PROBE";
+    /// The start of each line a child writes for one case.
+    const LINE_PREFIX: &str = "<<outcome>> ";
+    /// Child processes started.
+    const CHILDREN: usize = 2;
+
+    /// One line per case: its name and a digest of its outcome. `DefaultHasher::new` uses fixed
+    /// keys, so the same binary gives the same digests in every process.
+    fn outcome_lines() -> Vec<String> {
+        CASES
+            .iter()
+            .map(|(name, case)| {
+                let outcome: Outcome = case();
+                let mut hasher = DefaultHasher::new();
+                format!("{outcome:?}").hash(&mut hasher);
+                format!("{LINE_PREFIX}{name} {:016x}", hasher.finish())
+            })
+            .collect()
+    }
+
+    #[test]
+    fn t107_outcomes_do_not_depend_on_the_process() {
+        if std::env::var_os(PROBE_VARIABLE).is_some() {
+            for line in outcome_lines() {
+                println!("{line}");
+            }
+            return;
+        }
+        let expected = outcome_lines();
+        let test_binary = std::env::current_exe().expect("the path of the test binary");
+        for child in 1..=CHILDREN {
+            let output = std::process::Command::new(&test_binary)
+                .args([
+                    "other_processes::t107_outcomes_do_not_depend_on_the_process",
+                    "--exact",
+                    "--nocapture",
+                    "--test-threads=1",
+                ])
+                .env(PROBE_VARIABLE, "1")
+                .output()
+                .expect("the test binary runs again");
+            assert!(output.status.success(), "child {child} failed: {output:?}");
+            // The harness writes the test's name on the line where the first outcome starts.
+            let lines: Vec<String> = String::from_utf8_lossy(&output.stdout)
+                .lines()
+                .filter_map(|line| line.find(LINE_PREFIX).map(|start| line[start..].to_owned()))
+                .collect();
+            assert_eq!(lines, expected, "child {child} differs from this process");
+        }
+    }
 }

@@ -1,4 +1,12 @@
-import { act, cleanup, renderHook, screen, waitFor } from '@testing-library/react'
+import {
+  act,
+  cleanup,
+  fireEvent,
+  renderHook,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useState, type ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -45,7 +53,7 @@ function setUp(props: HarnessProps, prepare: (core: FakeCoreApi) => void = () =>
   const test = createModelApp({ state: readyState(cubeDocumentState()) })
   prepare(test.core)
   renderWithApp(test.app, <Harness {...props} />)
-  const input = screen.getByRole<HTMLInputElement>('textbox', { name: 'Distance' })
+  const input = screen.getByRole<HTMLInputElement>('combobox', { name: 'Distance' })
   return { ...test, input, user: userEvent.setup() }
 }
 
@@ -140,6 +148,18 @@ describe('ExpressionInput', () => {
     await user.click(input)
     await user.keyboard('{Enter}')
     expect(onCommit).toHaveBeenCalledWith('10 mm', { state: 'valid', value: 10, dimension: LENGTH })
+  })
+
+  it('a held Enter commits once: repeated presses call no onCommit', async () => {
+    const onCommit = vi.fn<(value: string, state: ExpressionState) => void>()
+    const { input, user } = setUp({ initial: '10 mm', onCommit })
+    await waitFor(() => {
+      expect(screen.getByTestId('expression-result')).toHaveTextContent('= 10 mm')
+    })
+    await user.click(input)
+    fireEvent.keyDown(input, { key: 'Enter' })
+    fireEvent.keyDown(input, { key: 'Enter', repeat: true })
+    expect(onCommit).toHaveBeenCalledTimes(1)
   })
 
   it('U-43 Enter calls no onCommit in the invalid state', async () => {
@@ -375,5 +395,163 @@ describe('useExpression', () => {
     await waitFor(() => {
       expect(evaluations(core)).toEqual(['size', 'size'])
     })
+  })
+})
+
+/** cube.ptsm with the parameters `size` = 20 mm and `slot` = 3 mm. */
+function withParameters() {
+  const document = cubeDocumentState()
+  return {
+    ...document,
+    recipe: {
+      ...document.recipe,
+      parameters: [
+        { id: 'p-size', name: 'size', expr: '20 mm' },
+        { id: 'p-slot', name: 'slot', expr: '3 mm' },
+      ],
+    },
+    parameterValues: {
+      'p-size': { id: 'p-size', value: 20, dimension: LENGTH },
+      'p-slot': { id: 'p-slot', value: 3, dimension: LENGTH },
+    },
+  }
+}
+
+/** The texts of the open suggestion list's options. */
+function options(): string[] {
+  return within(screen.getByTestId('expression-suggestions'))
+    .getAllByRole('option')
+    .map((option) => option.textContent ?? '')
+}
+
+/** An ExpressionInput in a document with `size` and `slot`, whose evaluate answers in mm. */
+function setUpNames(props: Partial<HarnessProps> = {}) {
+  const test = createModelApp({ state: readyState(withParameters()) })
+  test.core.stub('evaluate', (_handle, expression) =>
+    Promise.resolve({ value: expression === 'size' ? 20 : 10, dimension: LENGTH }),
+  )
+  const onCommit = vi.fn<(value: string, state: ExpressionState) => void>()
+  const onCancel = vi.fn<() => void>()
+  renderWithApp(test.app, <Harness initial="" onCommit={onCommit} onCancel={onCancel} {...props} />)
+  const input = screen.getByRole<HTMLInputElement>('combobox', { name: 'Distance' })
+  return { ...test, input, onCommit, onCancel, user: userEvent.setup() }
+}
+
+describe('parameter name completion (2.13, U-118)', () => {
+  it('U-118 typing si lists size first with no option active, and Tab inserts it without committing', async () => {
+    const { input, user, onCommit } = setUpNames()
+    await user.type(input, 'si')
+    expect(options()[0]).toBe('size = 20 mm')
+    expect(input).toHaveAttribute('aria-expanded', 'true')
+    expect(input).not.toHaveAttribute('aria-activedescendant')
+    await user.keyboard('{Tab}')
+    expect(input).toHaveValue('size')
+    expect(input).toHaveFocus()
+    expect(screen.queryByTestId('expression-suggestions')).toBeNull()
+    expect(onCommit).not.toHaveBeenCalled()
+  })
+
+  it('U-118 a full name opens nothing, so Enter commits at once', async () => {
+    const { input, user, onCommit } = setUpNames()
+    await user.type(input, 'size')
+    expect(screen.queryByTestId('expression-suggestions')).toBeNull()
+    await user.keyboard('{Enter}')
+    await waitFor(() => {
+      expect(onCommit).toHaveBeenCalledWith('size', expect.anything())
+    })
+  })
+
+  it('U-118 ArrowDown then Enter inserts the chosen name without committing', async () => {
+    const { input, user, onCommit } = setUpNames()
+    await user.type(input, 'si')
+    await user.keyboard('{ArrowDown}')
+    expect(input.getAttribute('aria-activedescendant')).not.toBeNull()
+    await user.keyboard('{Enter}')
+    expect(input).toHaveValue('size')
+    await settle()
+    expect(onCommit).not.toHaveBeenCalled()
+  })
+
+  it('U-118 numbers with units and pi open nothing, and ArrowUp still steps a number', async () => {
+    const { input, user } = setUpNames()
+    await user.type(input, '10')
+    expect(screen.queryByTestId('expression-suggestions')).toBeNull()
+    await user.keyboard('{ArrowUp}')
+    expect(input).toHaveValue('11')
+    await user.clear(input)
+    await user.type(input, '1 in')
+    expect(screen.queryByTestId('expression-suggestions')).toBeNull()
+    await user.clear(input)
+    await user.type(input, '2 * pi')
+    expect(screen.queryByTestId('expression-suggestions')).toBeNull()
+  })
+
+  it('U-118 Esc closes an open list without calling onCancel', async () => {
+    const { input, user, onCancel } = setUpNames()
+    await user.type(input, 'sl')
+    expect(options()).toContain('slot = 3 mm')
+    await user.keyboard('{Escape}')
+    expect(screen.queryByTestId('expression-suggestions')).toBeNull()
+    expect(onCancel).not.toHaveBeenCalled()
+    expect(input).toHaveValue('sl')
+  })
+
+  it('U-118 lists printer.nozzle first for printer.n with an FDM profile', async () => {
+    const { input, user } = setUpNames()
+    await user.type(input, 'printer.n')
+    expect(options()[0]).toBe('printer.nozzle')
+  })
+
+  it('inserts a clicked option in place of the identifier and keeps the rest of the text', async () => {
+    const { input, user } = setUpNames()
+    await user.type(input, '2 * sl')
+    await user.click(within(screen.getByTestId('expression-suggestions')).getByText('slot = 3 mm'))
+    expect(input).toHaveValue('2 * slot')
+    expect(input).toHaveFocus()
+  })
+
+  it('shows the options in the values font', async () => {
+    const { input, user } = setUpNames()
+    await user.type(input, 'si')
+    const [first] = within(screen.getByTestId('expression-suggestions')).getAllByRole('option')
+    expect(first).toHaveClass(...FONT_CLASSES.values.split(' '))
+  })
+})
+
+describe('Add parameter {name} (3.7)', () => {
+  it('offers to add a name the text uses that no parameter has, with the last valid value', async () => {
+    const test = createModelApp({ state: readyState(cubeDocumentState()) })
+    const missing = await coreErrorFor({
+      code: 'expression_error',
+      message: "Unknown name 'wall'.",
+      span: { start: 0, end: 4 },
+    })
+    test.core.stub('evaluate', (_handle, expression) =>
+      expression === 'wall'
+        ? Promise.reject(missing)
+        : Promise.resolve({ value: 2, dimension: LENGTH }),
+    )
+    renderWithApp(test.app, <Harness initial="2 mm" offerParameter />)
+    const input = screen.getByRole<HTMLInputElement>('combobox', { name: 'Distance' })
+    const user = userEvent.setup()
+    await waitFor(() => {
+      expect(screen.getByTestId('expression-result')).toHaveTextContent('= 2 mm')
+    })
+    await user.clear(input)
+    await user.type(input, 'wall')
+    const add = await screen.findByRole('button', { name: 'Add parameter wall' })
+    await user.click(add)
+    expect(test.app.store.getState().panels.side).toBe('parameters')
+  })
+
+  it('offers nothing for a name that is a parameter or without a range', async () => {
+    const test = createModelApp({ state: readyState(cubeDocumentState()) })
+    const failed = await coreErrorFor({ code: 'expression_error', message: 'Something failed.' })
+    test.core.stub('evaluate', () => Promise.reject(failed))
+    renderWithApp(test.app, <Harness initial="wall" offerParameter />)
+    await waitFor(() => {
+      expect(screen.getByTestId('field-error')).toHaveTextContent('Something failed.')
+    })
+    expect(screen.queryByRole('button', { name: /^Add parameter/ })).toBeNull()
   })
 })

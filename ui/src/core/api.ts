@@ -11,6 +11,8 @@ import type {
   ElementRef,
   ExportFormat,
   Health,
+  MeasureTarget,
+  Measurement,
   Orientation,
   Pick,
   PointRef,
@@ -93,14 +95,18 @@ export type CoreApi = {
     documentHandle: DocHandle,
     references: readonly ElementRef[],
   ): Promise<readonly Resolution[]>
+  /** Measures one target at the display state (the core takes exactly one in M1). */
+  measure(documentHandle: DocHandle, target: MeasureTarget): Promise<Measurement>
   analyzePrint(
     documentHandle: DocHandle,
     options: { profile?: string; orientation: Orientation },
   ): Promise<Health | null>
+  /** Sends `orientation` only when given; without it the core exports as modeled (3.18). */
   exportBodies(
     documentHandle: DocHandle,
     format: ExportFormat,
     bodies?: readonly string[],
+    orientation?: Orientation,
   ): Promise<{ files: readonly ExportedFile[]; warnings: readonly Diagnostic[] }>
 }
 
@@ -311,6 +317,9 @@ export function createCoreApi(client: CoreClient): CoreApi {
       })
       return result.results
     },
+    async measure(documentHandle, target) {
+      return (await call({ type: 'measure', doc: documentHandle, targets: [target] })).result
+    },
     analyzePrint(documentHandle, options) {
       const command: CommandOfType<'analyze_print'> =
         options.profile === undefined
@@ -323,11 +332,14 @@ export function createCoreApi(client: CoreClient): CoreApi {
             }
       return unlessSuperseded(call(command).then(({ result }) => result.health))
     },
-    async exportBodies(documentHandle, format, bodies) {
-      const command: CommandOfType<'export'> =
-        bodies === undefined
-          ? { type: 'export', doc: documentHandle, format }
-          : { type: 'export', doc: documentHandle, format, bodies: [...bodies] }
+    async exportBodies(documentHandle, format, bodies, orientation) {
+      const command: CommandOfType<'export'> = {
+        type: 'export',
+        doc: documentHandle,
+        format,
+        ...(bodies === undefined ? {} : { bodies: [...bodies] }),
+        ...(orientation === undefined ? {} : { orientation }),
+      }
       const { result, buffers } = await call(command)
       return {
         // Copied so the files outlive the response frame.

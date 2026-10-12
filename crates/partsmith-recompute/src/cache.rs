@@ -33,13 +33,7 @@ impl Built {
         let bodies = match &output.data {
             OutputData::Bodies(updates) => updates
                 .iter()
-                .map(|update| {
-                    let state = match &update.shape {
-                        Some(shape) => BodyState::new(shape.clone(), Arc::clone(&update.naming)),
-                        None => BodyState::empty(),
-                    };
-                    (update.body.clone(), state)
-                })
+                .map(|update| (update.body.clone(), BodyState::from_update(update)))
                 .collect(),
             OutputData::Sketch(_) | OutputData::Datum(_) | OutputData::Nothing => Vec::new(),
         };
@@ -278,6 +272,7 @@ mod tests {
                 shape: None,
                 naming: BodyState::empty().naming().clone(),
                 change: partsmith_features::BodyChange::Clear,
+                measured: partsmith_features::Measurements::default(),
             }]),
             warnings: Vec::new(),
         });

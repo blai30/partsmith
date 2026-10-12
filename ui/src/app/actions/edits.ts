@@ -23,6 +23,24 @@ export function isUnsaved(document: DocumentState): boolean {
   return document.dirty || document.localUnsaved
 }
 
+/**
+ * Whether an active feature command blocks other document edits (3.7): it shows
+ * `finish_command_first` as an info notification and returns true, so the edit is not sent.
+ */
+export function refusedDuringCommand(app: App): boolean {
+  const command = app.store.getState().command
+  if (command === null) {
+    return false
+  }
+  notify(app, {
+    severity: 'info',
+    message: MESSAGES.finish_command_first(command.title),
+    actions: [],
+    code: 'finish_command_first',
+  })
+  return true
+}
+
 export type RefusalOptions = {
   /** Receives the core's refusal instead of an error notification, for errors shown next to a field. */
   readonly onRefused?: (message: string) => void
@@ -116,6 +134,16 @@ export function reportNewFailures(app: App, before: Readonly<Record<string, Feat
   })
 }
 
+/** Labeled edits built from the document as it is when they are sent. */
+export type BuiltEdits = { readonly label: string; readonly edits: readonly Edit[] }
+
+/**
+ * Builds edits from the document as it is when their turn in the mutation queue comes, so an edit
+ * made from one record never undoes another change queued before it (a rename, then a suppress of
+ * the same feature). Null sends nothing, such as for a record that is gone by then.
+ */
+export type EditsBuilder = (document: DocumentState) => BuiltEdits | null
+
 /**
  * Applies labeled edits as one undo entry through the mutation queue. A refusal shows the core's
  * message and resolves false; features the change made fail are reported (4.2).
@@ -126,19 +154,43 @@ export async function commitEdits(
   edits: readonly Edit[],
   options: RefusalOptions = {},
 ): Promise<boolean> {
-  const document = documentOf(app)
-  if (document === null) {
+  return commitBuiltEdits(app, () => ({ label, edits }), options)
+}
+
+/**
+ * Applies edits built inside their task of the mutation queue (`EditsBuilder`) as one undo entry.
+ * Resolves false when nothing was sent or the core refused it, whose message is then shown.
+ */
+export async function commitBuiltEdits(
+  app: App,
+  build: EditsBuilder,
+  options: RefusalOptions = {},
+): Promise<boolean> {
+  const handle = documentOf(app)?.documentHandle ?? null
+  if (handle === null) {
     return false
   }
   const before = statusesOf(app)
+  let sent: boolean
   try {
-    await app.mutations.run(() => app.core.applyEdits(document.documentHandle, label, edits))
+    sent = await app.mutations.run(async () => {
+      // Edits never follow their document into another one that replaced it meanwhile.
+      const document = documentOf(app)
+      const built = document?.documentHandle === handle ? build(document) : null
+      if (document === null || built === null) {
+        return false
+      }
+      await app.core.applyEdits(document.documentHandle, built.label, built.edits)
+      return true
+    })
   } catch (error) {
     showCoreError(app, error, options)
     return false
   }
-  reportNewFailures(app, before)
-  return true
+  if (sent) {
+    reportNewFailures(app, before)
+  }
+  return sent
 }
 
 /** Runs a core call that changes the document through the mutation queue, reporting failures; resolves null when it failed. */

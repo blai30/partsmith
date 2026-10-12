@@ -231,20 +231,44 @@ function ParameterRow({
   )
 }
 
-/** The row of a parameter being added: name, then expression, then Enter adds it (3.11). */
-function DraftRow({ onDone }: { readonly onDone: () => void }) {
+/** A draft row's starting name and expression, when a field asked for the parameter (3.7). */
+type Draft = {
+  readonly name: string
+  readonly expression: string
+  /** The element id of the field that asked, which gets focus back when the draft ends. */
+  readonly returnFocus: string | null
+}
+
+const EMPTY_DRAFT: Draft = { name: '', expression: '', returnFocus: null }
+
+/**
+ * The row of a parameter being added: name, then expression, then Enter adds it (3.11). A draft a
+ * field asked for starts named, with its expression focused, and gives focus back when it ends.
+ */
+function DraftRow({ draft, onDone }: { readonly draft: Draft; readonly onDone: () => void }) {
   const app = useApp()
   const nameInput = useRef<HTMLInputElement>(null)
-  const [name, setName] = useState('')
+  const [name, setName] = useState(draft.name)
   const [nameError, setNameError] = useState<string | null>(null)
-  const [expression, setExpression] = useState('')
+  const [expression, setExpression] = useState(draft.expression)
   const [expressionError, setExpressionError] = useState<string | null>(null)
   const id = useId()
   const draftExpressionId = `${id}-expression`
 
   useEffect(() => {
-    nameInput.current?.focus()
-  }, [])
+    if (draft.name === '') {
+      nameInput.current?.focus()
+    } else {
+      document.getElementById(draftExpressionId)?.focus()
+    }
+  }, [draft.name, draftExpressionId])
+
+  function done(): void {
+    onDone()
+    if (draft.returnFocus !== null) {
+      document.getElementById(draft.returnFocus)?.focus()
+    }
+  }
 
   return (
     <li
@@ -275,7 +299,7 @@ function DraftRow({ onDone }: { readonly onDone: () => void }) {
               document.getElementById(draftExpressionId)?.focus()
             } else if (event.key === 'Escape') {
               event.preventDefault()
-              onDone()
+              done()
             }
           }}
         />
@@ -303,12 +327,12 @@ function DraftRow({ onDone }: { readonly onDone: () => void }) {
               addParameter(app, trimmed, text, { onRefused: setExpressionError })
                 .then((added) => {
                   if (added) {
-                    onDone()
+                    done()
                   }
                 })
                 .catch(report)
             }}
-            onCancel={onDone}
+            onCancel={done}
           />
         </div>
       </div>
@@ -322,7 +346,8 @@ export function ParametersPanel() {
   const parameters = useAppState((state) => state.document?.recipe.parameters)
   const values = useAppState((state) => state.document?.parameterValues)
   const units = useAppState((state) => state.document?.recipe.units ?? 'mm')
-  const [drafting, setDrafting] = useState(false)
+  const commandTitle = useAppState((state) => state.command?.title ?? null)
+  const [draft, setDraft] = useState<Draft | null>(null)
 
   // The palette's parameter items focus their row's expression (3.4).
   useUiRequest(app, 'parameter', (request) => {
@@ -333,6 +358,15 @@ export function ParametersPanel() {
     input.focus()
     return true
   })
+  // "Add parameter {name}" under a field opens a draft named after it (3.7).
+  useUiRequest(app, 'parameter_draft', (request) => {
+    setDraft({
+      name: request.name,
+      expression: request.expression,
+      returnFocus: request.returnFocus,
+    })
+    return true
+  })
 
   return (
     <section
@@ -341,6 +375,14 @@ export function ParametersPanel() {
       className="flex min-h-0 flex-1 flex-col"
     >
       <PanelHeader title="Parameters" titleId={titleId} />
+      {commandTitle === null ? null : (
+        <p
+          data-testid="parameters-transaction"
+          className={clsx('px-4 pb-2 text-xs', COLOR_CLASSES.textMuted.foreground)}
+        >
+          Changes are part of {commandTitle} until you press OK.
+        </p>
+      )}
       <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
         <ul className="flex flex-col">
           {(parameters ?? []).map((parameter) => (
@@ -351,18 +393,30 @@ export function ParametersPanel() {
               units={units}
             />
           ))}
-          {drafting ? (
+          {draft === null ? null : (
             <DraftRow
+              // A new request starts a fresh draft.
+              key={`${draft.name}:${draft.returnFocus ?? ''}`}
+              draft={draft}
               onDone={() => {
-                setDrafting(false)
+                setDraft(null)
               }}
             />
-          ) : null}
+          )}
         </ul>
+        {(parameters ?? []).length === 0 ? (
+          <p
+            data-testid="parameters-empty"
+            className={clsx('text-xs', COLOR_CLASSES.textMuted.foreground)}
+          >
+            Parameters are named values, such as wall = 2 mm. Type a parameter&apos;s name in any
+            size or angle field to use it.
+          </p>
+        ) : null}
         <div className="pt-3">
           <Button
             onClick={() => {
-              setDrafting(true)
+              setDraft(EMPTY_DRAFT)
             }}
           >
             <Plus aria-hidden="true" strokeWidth={1.75} className="size-4" />

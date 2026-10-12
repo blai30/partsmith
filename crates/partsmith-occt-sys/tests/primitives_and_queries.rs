@@ -1,5 +1,5 @@
 //! Acceptance tests for primitives, element geometry and topology (kernel spec sections 2.2,
-//! 2.4, 2.10, 3.4.1, 3.6 and tests 5 to 14, 64 to 67, 69, 70 and 95 to 101).
+//! 2.4, 2.10, 3.4.1, 3.6 and tests 5 to 14, 64 to 67, 69, 70, 95 to 101, 108, 109 and 112).
 
 mod common;
 
@@ -15,9 +15,9 @@ use common::{
     top_front_edge, volume, xy_plane_at,
 };
 use partsmith_occt_sys::{
-    EdgeNormals, EdgeRadius, GeometryKind, Operation, Plane, Point, PrimitiveFace, Shape,
-    ShapeKind, SubShapeKind, Vector, cut, fillet, make_box, make_cone, make_cylinder, make_profile,
-    make_torus, section, shell,
+    Continuity, EdgeNormals, EdgeRadius, GeometryKind, Operation, Plane, Point, PrimitiveFace,
+    Shape, ShapeKind, SubShapeKind, Topology, Vector, compound, cut, fillet, fuse, make_box,
+    make_cone, make_cylinder, make_profile, make_torus, section, shell,
 };
 
 const BOX_MESSAGE: &str = "A box needs a length, width and height greater than 0 mm.";
@@ -758,8 +758,17 @@ fn t096_cylinder_rim_middle_is_opposite_its_vertex() {
     assert_vector_near(normal_of(&normals, top), UP, POINT_TOLERANCE, "top normal");
 }
 
-#[test]
-fn t097_faces_meeting_a_torus_tangentially_have_equal_normals() {
+/// `R` of test 97 with its faces: a cylinder of radius 10 and height 20 with its top rim
+/// filleted at radius 2.
+struct RoundedCylinder {
+    shape: Shape,
+    side: u32,
+    round: u32,
+    top: u32,
+    bottom: u32,
+}
+
+fn rounded_cylinder() -> RoundedCylinder {
     let cylinder = make_cylinder(&Plane::XY, 10.0, 20.0).expect("the cylinder builds");
     let rim = edge_between(
         &cylinder.shape,
@@ -780,14 +789,36 @@ fn t097_faces_meeting_a_torus_tangentially_have_equal_normals() {
     let round = faces_of_kind(&rounded, GeometryKind::Torus);
     let planes = faces_of_kind(&rounded, GeometryKind::Plane);
     assert_eq!((side.len(), round.len(), planes.len()), (1, 1, 2));
-    let top = planes
-        .iter()
-        .copied()
-        .find(|face| (geometry(&rounded, SubShapeKind::Face, *face).centroid.z - 20.0).abs() < 1e-9)
-        .expect("one plane lies at z = 20");
+    let at_height = |height: f64| {
+        planes
+            .iter()
+            .copied()
+            .find(|face| {
+                (geometry(&rounded, SubShapeKind::Face, *face).centroid.z - height).abs() < 1e-9
+            })
+            .unwrap_or_else(|| panic!("one plane lies at z = {height}"))
+    };
+    RoundedCylinder {
+        top: at_height(20.0),
+        bottom: at_height(0.0),
+        side: side[0],
+        round: round[0],
+        shape: rounded,
+    }
+}
 
-    let lower = checked_edge_normals(&rounded, edge_between(&rounded, side[0], round[0]));
-    let upper = checked_edge_normals(&rounded, edge_between(&rounded, round[0], top));
+#[test]
+fn t097_faces_meeting_a_torus_tangentially_have_equal_normals() {
+    let RoundedCylinder {
+        shape: rounded,
+        side,
+        round,
+        top,
+        ..
+    } = rounded_cylinder();
+
+    let lower = checked_edge_normals(&rounded, edge_between(&rounded, side, round));
+    let upper = checked_edge_normals(&rounded, edge_between(&rounded, round, top));
 
     assert_near(lower.point.z, 18.0, POINT_TOLERANCE, "lower edge height");
     assert_near(
@@ -1309,4 +1340,259 @@ fn primitive_on_an_offset_plane_is_moved_by_its_origin() {
         [6.0, -3.0, 5.0],
         BOUNDS_TOLERANCE,
     );
+}
+
+/// The continuity recorded at an edge, from its checked edge normals.
+fn continuity_of(shape: &Shape, edge: u32) -> Option<Continuity> {
+    checked_edge_normals(shape, edge).continuity
+}
+
+#[test]
+fn t108_box_edge_records_c0() {
+    let block = box_primitive();
+
+    assert_eq!(
+        continuity_of(&block.shape, top_front_edge(&block)),
+        Some(Continuity::C0)
+    );
+}
+
+#[test]
+fn t108_cylinder_rim_records_c0() {
+    let primitive = cylinder_primitive();
+    let rim = edge_between(
+        &primitive.shape,
+        face_with_role(&primitive, PrimitiveFace::Side),
+        face_with_role(&primitive, PrimitiveFace::Top),
+    );
+
+    assert_eq!(continuity_of(&primitive.shape, rim), Some(Continuity::C0));
+}
+
+#[test]
+fn t108_seams_record_a_smooth_continuity() {
+    for shape in [cylinder_primitive().shape, sphere_primitive().shape] {
+        assert_eq!(
+            continuity_of(&shape, seam_edge(&shape)),
+            Some(Continuity::G1OrBetter),
+            "seam of {shape:?}"
+        );
+    }
+}
+
+#[test]
+fn t108_boundary_edge_of_a_lone_face_has_no_continuity() {
+    let profile = rectangle_profile();
+
+    let edge = tagged_edge(&profile.edge_tags, 1);
+
+    assert_eq!(continuity_of(&profile.shape, edge), None);
+}
+
+/// Test 44's result: BOX with `TF` rounded at radius 2, with the round and the output images of
+/// `Top`, `Front`, `Left` and `Right`.
+struct RoundedBox {
+    shape: Shape,
+    round: u32,
+    top: u32,
+    front: u32,
+    left: u32,
+    right: u32,
+}
+
+fn rounded_box() -> RoundedBox {
+    let block = box_primitive();
+    let edge = top_front_edge(&block);
+    let result = fillet(&block.shape, &[EdgeRadius { edge, radius: 2.0 }]).expect("TF rounds");
+    let input = &result.history.inputs[0];
+    let rounds = generated_faces(&input.edges[edge as usize - 1]);
+    assert_eq!(rounds.len(), 1, "TF generates one face");
+    let image = |role: PrimitiveFace| {
+        let fate = &input.faces[face_with_role(&block, role) as usize - 1];
+        assert_eq!(fate.modified.len(), 1, "{role:?} keeps one image");
+        fate.modified[0]
+    };
+    RoundedBox {
+        round: rounds[0],
+        top: image(PrimitiveFace::Top),
+        front: image(PrimitiveFace::Front),
+        left: image(PrimitiveFace::Left),
+        right: image(PrimitiveFace::Right),
+        shape: result.shape,
+    }
+}
+
+#[test]
+fn t109_fillet_records_tangency_with_the_faces_it_blends_into() {
+    let rounded = rounded_box();
+
+    for face in [rounded.top, rounded.front] {
+        let edge = edge_between(&rounded.shape, rounded.round, face);
+        assert_eq!(
+            continuity_of(&rounded.shape, edge),
+            Some(Continuity::G1OrBetter),
+            "edge between the round and face {face}"
+        );
+    }
+}
+
+#[test]
+fn t109_fillet_ends_record_c0() {
+    let rounded = rounded_box();
+
+    for face in [rounded.left, rounded.right] {
+        let edge = edge_between(&rounded.shape, rounded.round, face);
+        assert_eq!(
+            continuity_of(&rounded.shape, edge),
+            Some(Continuity::C0),
+            "edge between the round and face {face}"
+        );
+    }
+}
+
+#[test]
+fn t109_fillet_of_a_cylinder_rim_records_tangency_on_both_sides() {
+    let rounded = rounded_cylinder();
+
+    for (first, second) in [(rounded.side, rounded.round), (rounded.round, rounded.top)] {
+        let edge = edge_between(&rounded.shape, first, second);
+        assert_eq!(
+            continuity_of(&rounded.shape, edge),
+            Some(Continuity::G1OrBetter),
+            "edge between faces {first} and {second}"
+        );
+    }
+    let rim = edge_between(&rounded.shape, rounded.side, rounded.bottom);
+    assert_eq!(continuity_of(&rounded.shape, rim), Some(Continuity::C0));
+}
+
+#[test]
+fn t109_fuse_keeps_the_records_of_the_edges_it_keeps() {
+    let rounded = rounded_box();
+    let tower = make_box(&xy_plane_at(5.0, 5.0, 25.0), 10.0, 10.0, 10.0)
+        .expect("the tower builds")
+        .shape;
+
+    let fused = fuse(&rounded.shape, &[tower])
+        .expect("the tower fuses")
+        .shape;
+
+    let rounds = faces_of_kind(&fused, GeometryKind::Cylinder);
+    assert_eq!(rounds.len(), 1, "the round survives the fuse");
+    let topology = fused.topology().expect("topology");
+    let mut lines = 0;
+    for &edge in &topology.faces[rounds[0] as usize - 1].edges {
+        let expected = match geometry(&fused, SubShapeKind::Edge, edge).kind {
+            GeometryKind::Line => Continuity::G1OrBetter,
+            _ => Continuity::C0,
+        };
+        lines += usize::from(expected == Continuity::G1OrBetter);
+        assert_eq!(continuity_of(&fused, edge), Some(expected), "edge {edge}");
+    }
+    assert_eq!(
+        lines, 2,
+        "the round meets the top and the front along lines"
+    );
+}
+
+/// Asserts that every list of a topology is ascending and distinct and that each relation and
+/// its inverse agree: face f lists edge e exactly when edge e lists face f, and likewise for
+/// faces and vertices and for edges and vertices.
+fn assert_consistent(topology: &Topology) {
+    let ascending = |list: &[u32]| list.windows(2).all(|pair| pair[0] < pair[1]);
+    let index = |position: usize| u32::try_from(position + 1).expect("few elements");
+    let mut face_edges = std::collections::BTreeSet::new();
+    let mut face_vertices = std::collections::BTreeSet::new();
+    for (position, face) in topology.faces.iter().enumerate() {
+        assert!(
+            ascending(&face.edges) && ascending(&face.vertices),
+            "face {}",
+            index(position)
+        );
+        face_edges.extend(face.edges.iter().map(|&edge| (index(position), edge)));
+        face_vertices.extend(
+            face.vertices
+                .iter()
+                .map(|&vertex| (index(position), vertex)),
+        );
+    }
+    let mut edge_faces = std::collections::BTreeSet::new();
+    let mut edge_vertices = std::collections::BTreeSet::new();
+    for (position, edge) in topology.edges.iter().enumerate() {
+        assert!(
+            ascending(&edge.faces) && ascending(&edge.vertices),
+            "edge {}",
+            index(position)
+        );
+        edge_faces.extend(edge.faces.iter().map(|&face| (face, index(position))));
+        edge_vertices.extend(
+            edge.vertices
+                .iter()
+                .map(|&vertex| (index(position), vertex)),
+        );
+    }
+    let mut vertex_edges = std::collections::BTreeSet::new();
+    let mut vertex_faces = std::collections::BTreeSet::new();
+    for (position, vertex) in topology.vertices.iter().enumerate() {
+        assert!(
+            ascending(&vertex.edges) && ascending(&vertex.faces),
+            "vertex {}",
+            index(position)
+        );
+        vertex_edges.extend(vertex.edges.iter().map(|&edge| (edge, index(position))));
+        vertex_faces.extend(vertex.faces.iter().map(|&face| (face, index(position))));
+    }
+    assert_eq!(face_edges, edge_faces, "faces of edges and edges of faces");
+    assert_eq!(
+        face_vertices, vertex_faces,
+        "faces of vertices and vertices of faces"
+    );
+    assert_eq!(
+        edge_vertices, vertex_edges,
+        "edges of vertices and vertices of edges"
+    );
+}
+
+#[test]
+fn t112_topology_relations_are_inverse_of_each_other() {
+    let edges: Vec<EdgeRadius> = (1..=12)
+        .map(|edge| EdgeRadius { edge, radius: 1.0 })
+        .collect();
+    let rounded = fillet(&box_primitive().shape, &edges)
+        .expect("every edge rounds")
+        .shape;
+    let pair = compound(&[
+        make_box(&Plane::XY, 10.0, 10.0, 10.0)
+            .expect("the first cube builds")
+            .shape,
+        make_box(&xy_plane_at(10.0, 0.0, 0.0), 10.0, 10.0, 10.0)
+            .expect("the second cube builds")
+            .shape,
+    ])
+    .expect("grouped")
+    .shape;
+    let shapes = [
+        rounded,
+        plate().clone(),
+        sphere_primitive().shape,
+        pair,
+        rectangle_profile().shape,
+    ];
+
+    for shape in &shapes {
+        let topology = shape.topology().expect("topology");
+        assert_eq!(
+            topology.faces.len(),
+            shape.count(SubShapeKind::Face) as usize
+        );
+        assert_eq!(
+            topology.edges.len(),
+            shape.count(SubShapeKind::Edge) as usize
+        );
+        assert_eq!(
+            topology.vertices.len(),
+            shape.count(SubShapeKind::Vertex) as usize
+        );
+        assert_consistent(&topology);
+    }
 }

@@ -379,7 +379,7 @@ fn panic_message(payload: &(dyn Any + Send)) -> String {
 
 #[cfg(test)]
 mod tests {
-    use partsmith_features::{BodyChange, BodyUpdate, DatumResult};
+    use partsmith_features::{BodyChange, BodyUpdate, DatumResult, Measurements};
     use partsmith_sketch::OriginPlane;
 
     use super::*;
@@ -403,6 +403,7 @@ mod tests {
                         shape: None,
                         naming: BodyState::empty().naming().clone(),
                         change: BodyChange::Clear,
+                        measured: Measurements::default(),
                     })
                     .collect(),
             ),

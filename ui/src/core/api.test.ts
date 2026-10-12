@@ -294,6 +294,36 @@ describe('createCoreApi', () => {
     expect(file?.bytes.buffer.byteLength).toBe(4)
   })
 
+  it('measure sends its one target and resolves the measurement', async () => {
+    const { api, transport } = await setUp()
+    const { documentHandle } = await api.openDocument(documentText(CUBE_DOCUMENT))
+    const measured = await api.measure(documentHandle, { kind: 'body', body: 'b-cube' })
+    expect(lastCommand(transport)).toEqual({
+      type: 'measure',
+      doc: 1,
+      targets: [{ kind: 'body', body: 'b-cube' }],
+    })
+    expect(measured.volume).toBe(8000)
+  })
+
+  it('exportBodies sends the orientation only when given', async () => {
+    const { api, transport } = await setUp()
+    const { documentHandle } = await api.openDocument(documentText(CUBE_DOCUMENT))
+    const orientation = {
+      kind: 'face_down',
+      body: 'b-cube',
+      face: CUBE_TOP_FACE.reference,
+    } as const
+    await api.exportBodies(documentHandle, { kind: '3mf' }, ['b-cube'], orientation)
+    expect(lastCommand(transport)).toEqual({
+      type: 'export',
+      doc: 1,
+      format: { kind: '3mf' },
+      bodies: ['b-cube'],
+      orientation: withoutNulls(orientation),
+    })
+  })
+
   it('exportBodies without bodies sends none', async () => {
     const { api, transport } = await setUp()
     const { documentHandle } = await api.openDocument(documentText(CUBE_DOCUMENT))

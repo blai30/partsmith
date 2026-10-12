@@ -215,3 +215,40 @@ describe('HealthList without a report', () => {
     expect(list).not.toHaveTextContent('Checking')
   })
 })
+
+describe('HealthList and Lay on face (3.17)', () => {
+  it('offers "Lay on a face" at the end of overhang, first layer and island rows only', async () => {
+    const onLayOnFace = vi.fn<() => void>()
+    const { onFocusFinding } = renderList({ onLayOnFace })
+    const buttons = screen.getAllByRole('button', { name: 'Lay on a face' })
+    expect(buttons).toHaveLength(1)
+    const row = item(1).closest('li')
+    expect(row).not.toBeNull()
+    expect(within(row ?? document.body).getByRole('button', { name: 'Lay on a face' })).toBe(
+      buttons[0],
+    )
+    // The finding text is its own button, so the two never nest.
+    expect(item(1).contains(buttons[0] ?? null)).toBe(false)
+    await userEvent.click(buttons[0] ?? document.body)
+    expect(onLayOnFace).toHaveBeenCalledTimes(1)
+    expect(onFocusFinding).not.toHaveBeenCalled()
+  })
+
+  it('offers no "Lay on a face" without the handler', () => {
+    renderList()
+    expect(screen.queryByRole('button', { name: 'Lay on a face' })).toBeNull()
+  })
+
+  it('says the picked face rests on the bed under the header, with "Print as modeled"', async () => {
+    const onPrintAsModeled = vi.fn<() => void>()
+    const { list } = renderList({ orientationBody: 'Mushroom', onPrintAsModeled })
+    expect(list).toHaveTextContent('Printing with the picked face of Mushroom on the bed.')
+    await userEvent.click(within(list).getByRole('button', { name: 'Print as modeled' }))
+    expect(onPrintAsModeled).toHaveBeenCalledTimes(1)
+  })
+
+  it('has no orientation line while printing as modeled', () => {
+    const { list } = renderList({ orientationBody: null, onPrintAsModeled: vi.fn<() => void>() })
+    expect(within(list).queryByRole('button', { name: 'Print as modeled' })).toBeNull()
+  })
+})

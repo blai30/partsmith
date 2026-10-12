@@ -93,6 +93,7 @@ fn decode(name: String, bytes: Vec<u8>) -> Result<String, CliError> {
             detail: not_utf8.to_string(),
             line: None,
             column: None,
+            path: None,
         };
         CliError::load(name, &error)
     })

@@ -1,12 +1,12 @@
-//! Acceptance tests for fuse, cut and common (kernel spec sections 2.7, 3.3, 3.4.5 and tests 34
-//! to 43).
+//! Acceptance tests for fuse, cut and common (kernel spec sections 2.7, 3.3, 3.4.5, 3.5 and
+//! tests 34 to 43, 110 and 111).
 
 mod common;
 
 use common::{
     POINT_TOLERANCE, assert_invalid_input, assert_near, assert_point_near, assert_relative,
-    box_primitive, cube_a, cube_at, cube_b, cube_c, cube_d, face_with_role, geometry, volume,
-    xy_plane_at,
+    box_primitive, box_with_displaced_corner, cube_a, cube_at, cube_b, cube_c, cube_d,
+    face_with_role, geometry, volume, xy_plane_at,
 };
 use partsmith_occt_sys::{
     OpResult, Operation, Origin, Point, Primitive, PrimitiveFace, Shape, ShapeKind, SubShape,
@@ -324,4 +324,32 @@ fn make_cuboid(corner: (f64, f64, f64), size: (f64, f64, f64)) -> Shape {
     )
     .expect("the box builds")
     .shape
+}
+
+#[test]
+fn t110_cut_through_a_face_with_an_invalid_corner_is_repaired() {
+    let invalid = box_with_displaced_corner();
+    let cylinder = piercing_cylinder(5.0, 10.0, 2.0);
+
+    let result = cut(&invalid, &[cylinder.shape]).expect("the hole is cut");
+
+    // The cut changes `Top`, which holds the displaced corner, so its check finds the corner
+    // and the repair makes the result valid.
+    assert_eq!(result.shape.count(SubShapeKind::Face), 7);
+    assert!(result.shape.is_valid().expect("validity check"));
+}
+
+#[test]
+fn t111_faces_a_cut_keeps_unchanged_are_not_checked_again() {
+    let invalid = box_with_displaced_corner();
+    let notch = make_box(&xy_plane_at(-1.0, -1.0, -1.0), 3.0, 3.0, 3.0)
+        .expect("the notch builds")
+        .shape;
+
+    let result = cut(&invalid, &[notch]).expect("the notch is cut");
+
+    // The notch changes `Left`, `Front` and `Bottom`; `Right`, `Back` and `Top`, which hold the
+    // displaced corner, are the input's own faces, so they are not checked again (section 3.5).
+    assert_eq!(result.shape.count(SubShapeKind::Face), 9);
+    assert!(!result.shape.is_valid().expect("validity check"));
 }

@@ -160,8 +160,7 @@ namespace {
 // or solid of an input. The rest of the result is the inputs' own unchanged elements.
 class ChangeCheck {
  public:
-  ChangeCheck(const TopoDS_Shape &shape, const std::vector<TopoDS_Shape> &inputs)
-      : shape_(shape) {
+  ChangeCheck(const TopoDS_Shape &shape, const std::vector<TopoDS_Shape> &inputs) : shape_(shape) {
     for (const TopoDS_Shape &input : inputs) {
       TopExp::MapShapes(input, TopAbs_FACE, input_faces_);
       TopExp::MapShapes(input, TopAbs_SHELL, input_shells_);
@@ -398,9 +397,12 @@ class ChangeCheck {
   bool keeps_input_faces_ = false;
 };
 
-// True when the result passes the checks of kernel spec section 3.5: those of ChangeCheck
-// when some face of the result is an input's face, else BRepCheck_Analyzer on the whole.
+}  // namespace
+
 bool changed_part_valid(const TopoDS_Shape &shape, const std::vector<TopoDS_Shape> &inputs) {
+  if (inputs.empty()) {
+    return BRepCheck_Analyzer(shape).IsValid();
+  }
   ChangeCheck check(shape, inputs);
   if (!check.keeps_input_faces()) {
     return BRepCheck_Analyzer(shape).IsValid();
@@ -412,8 +414,6 @@ bool changed_part_valid(const TopoDS_Shape &shape, const std::vector<TopoDS_Shap
     return false;
   }
 }
-
-}  // namespace
 
 void ensure_valid(TopoDS_Shape &shape, const Handle(BRepTools_History) &history,
                   const std::vector<TopoDS_Shape> &inputs, const char *algorithm) {

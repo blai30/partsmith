@@ -52,6 +52,8 @@ type ButtonLook = {
 
 type ToolbarButtonProps = ButtonLook & {
   readonly shortcut: string | null
+  /** What the command does, on the tooltip's second line (2.10, 3.24). */
+  readonly description?: string | null | undefined
   readonly onClick: () => void
   readonly buttonRef?: Ref<HTMLButtonElement> | undefined
 }
@@ -67,6 +69,7 @@ function ToolbarButton({
   expanded,
   extra,
   shortcut,
+  description = null,
   onClick,
   buttonRef,
 }: ToolbarButtonProps) {
@@ -74,7 +77,11 @@ function ToolbarButton({
   const accent = primary && !disabled
   const selected = pressed === true && !disabled
   return (
-    <Tooltip label={disabled ? `${label}: ${disabledReason}` : label} shortcut={shortcut}>
+    <Tooltip
+      label={disabled ? `${label}: ${disabledReason}` : label}
+      shortcut={shortcut}
+      description={description}
+    >
       <button
         ref={buttonRef}
         type="button"
@@ -128,6 +135,7 @@ function CommandButton({ view }: { readonly view: CommandView }) {
       pressed={view.checked ?? undefined}
       primary={PRIMARY_COMMANDS.has(definition.id)}
       shortcut={view.shortcut}
+      description={definition.description ?? null}
       onClick={() => {
         runCommand(app, definition.id, 'toolbar')
       }}
@@ -150,18 +158,29 @@ function GroupButton({ entry }: { readonly entry: GroupEntry }) {
   }
   const pressed = views.some((view) => view.checked === true)
   const entries: MenuEntry[] = views.map((view) => commandMenuItem(app, view))
+  // A group whose commands are all disabled says why, with its first command's reason (3.3).
+  const [first] = views
+  const reason = views.every((view) => disabledReasonOf(view) !== null)
+    ? first === undefined
+      ? null
+      : disabledReasonOf(first)
+    : null
   return (
     <>
       <ToolbarButton
         buttonRef={anchor}
         label={entry.title}
         icon={entry.icon}
-        disabledReason={null}
+        disabledReason={reason}
         pressed={pressed ? true : undefined}
         popup="menu"
         expanded={open}
         shortcut={null}
         onClick={() => {
+          if (reason !== null && first !== undefined) {
+            runCommand(app, first.definition.id, 'toolbar')
+            return
+          }
           setOpen((current) => !current)
         }}
       />

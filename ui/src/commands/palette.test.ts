@@ -8,9 +8,9 @@ import {
 } from '../layout/fixtures.testing'
 import { createFakeViewport, createModelApp } from '../layout/test-app.testing'
 import { MESSAGES } from '../messages'
-import type { SketchSession } from '../state/store'
+import type { AppContext, SketchSession } from '../state/store'
 import { PARAMETRIC_DOCUMENT } from '../test/fakes/documents'
-import type { PaletteItem } from './fuzzy'
+import { rankPaletteItems, type PaletteItem } from './fuzzy'
 import { paletteItems } from './palette'
 
 const EDITING_SKETCH: SketchSession = {
@@ -105,7 +105,10 @@ describe('paletteItems', () => {
     const extrude = find(items, 'command', 'Extrude')
     expect(extrude.id).toBe('feature.extrude')
     expect(extrude.category).toBe('Create')
-    expect(extrude.keywords).toContain('pad')
+    expect(extrude.keywords).toContainEqual({ word: 'Pad', app: 'FreeCAD' })
+    expect(extrude.description).toBe(
+      'Pulls a closed sketch shape straight out into a solid, or cuts it into one.',
+    )
     expect(extrude.disabledReason).toBeNull()
     const undo = find(items, 'command', 'Undo')
     expect(undo.disabledReason).toBe(MESSAGES.nothing_to_undo())
@@ -170,5 +173,59 @@ describe('paletteItems', () => {
     expect(kinds.has('feature')).toBe(false)
     expect(kinds.has('body')).toBe(false)
     expect(kinds.has('parameter')).toBe(false)
+  })
+})
+
+describe('finding commands by other apps’ names and by context (U-112)', () => {
+  // Context, query, first item, its detail ('' for none).
+  const CASES: readonly (readonly [AppContext, string, string, string])[] = [
+    ['sketch', 'symmetry', 'sketch.constrain_symmetric', 'Fusion: Symmetry'],
+    ['sketch', 'radius', 'sketch.dimension', ''],
+    ['sketch', 'lock', 'sketch.constrain_fix', 'FreeCAD: Lock'],
+    ['sketch', 'polyline', 'sketch.line', 'FreeCAD: Polyline'],
+    ['sketch', 'close sketch', 'sketch.finish', ''],
+    ['sketch', 'fillet', 'feature.fillet', 'Finishes the sketch'],
+    ['model', 'new sketch', 'feature.sketch', ''],
+    ['model', 'isometric', 'view.home', ''],
+    ['model', 'pad', 'feature.extrude', 'FreeCAD: Pad'],
+    ['model', 'press pull', 'feature.extrude', 'Fusion: Press Pull'],
+    ['model', 'spreadsheet', 'view.parameters', 'FreeCAD: Spreadsheet'],
+  ]
+
+  it.each(CASES)(
+    'U-112 in %s, "%s" lists %s first with detail "%s"',
+    (context, query, id, detail) => {
+      const { app } = createModelApp({
+        state: readyState(
+          cubeDocumentState(),
+          context === 'sketch' ? { context: 'sketch', sketch: EDITING_SKETCH } : {},
+        ),
+      })
+      const [first] = rankPaletteItems(query, paletteItems(app, []), [], context)
+      expect(first?.id).toBe(id)
+      expect(first?.detail ?? '').toBe(detail)
+    },
+  )
+})
+
+describe('descriptions and the sketch detail (2.10)', () => {
+  it('gives command items their description and other items none', () => {
+    const { app } = createModelApp({ state: readyState(cubeDocumentState()) })
+    const items = paletteItems(app, [])
+    expect(find(items, 'command', 'Fillet').description).toBe('Rounds the selected edges.')
+    expect(find(items, 'feature', 'Extrude 1').description).toBeNull()
+    expect(find(items, 'command', 'Save').description).toBeNull()
+  })
+
+  it('details feature commands in Sketch with "Finishes the sketch", and not in Model', () => {
+    const sketch = createModelApp({
+      state: readyState(cubeDocumentState(), { context: 'sketch', sketch: EDITING_SKETCH }),
+    })
+    expect(find(paletteItems(sketch.app, []), 'command', 'Extrude').detail).toBe(
+      'Finishes the sketch',
+    )
+    expect(find(paletteItems(sketch.app, []), 'command', 'Line').detail).toBeNull()
+    const model = createModelApp({ state: readyState(cubeDocumentState()) })
+    expect(find(paletteItems(model.app, []), 'command', 'Extrude').detail).toBeNull()
   })
 })

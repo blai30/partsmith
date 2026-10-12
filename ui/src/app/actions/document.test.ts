@@ -4,6 +4,7 @@ import { FileServiceError } from '../../files/file-service'
 import { createMemoryRecovery } from '../../files/recovery'
 import type { Document, Edit } from '../../generated/protocol'
 import { MESSAGES } from '../../messages'
+import { selectOriginVisible } from '../../state/selectors'
 import {
   actionLabels,
   createFakeApp,
@@ -105,15 +106,25 @@ describe('startCore (3.1)', () => {
     expect(document.recipe.units).toBe('mm')
   })
 
-  it('starts with the origin items hidden, as New and Open do (3.10)', async () => {
+  it('starts with the origin axes and point shown and the planes hidden, as New does (3.10)', async () => {
     const fake = await startFakeApp()
-    const visible = fake.app.store.getState().view.sessionVisible
-    for (const name of ['XY', 'XZ', 'YZ', 'X', 'Y', 'Z', 'O']) {
-      expect(visible[`origin:${name}`]).toBe(false)
+    const expectOriginOfEmptyDocument = (): void => {
+      const state = fake.app.store.getState()
+      for (const name of ['X', 'Y', 'Z', 'O']) {
+        expect(selectOriginVisible(state, `origin:${name}`)).toBe(true)
+      }
+      for (const name of ['XY', 'XZ', 'YZ']) {
+        expect(selectOriginVisible(state, `origin:${name}`)).toBe(false)
+      }
     }
+    expectOriginOfEmptyDocument()
+    // Origin items get no session entry until their eye button or V writes one.
+    const visible = fake.app.store.getState().view.sessionVisible
+    expect(Object.keys(visible).some((key) => key.startsWith('origin:'))).toBe(false)
     await newDocument(fake.app)
     await settle()
     expect(fake.app.store.getState().view.sessionVisible).toEqual(visible)
+    expectOriginOfEmptyDocument()
   })
 
   it('a transport that fails to start sets the core status to failed with the reason', async () => {
@@ -250,6 +261,64 @@ describe('newDocument (3.19)', () => {
     expect(document.name).toBe('cube')
     expect(bodiesOf(document.recipe)[0]?.name).toBe('Box')
     expect(document.localUnsaved).toBe(true)
+  })
+})
+
+describe('replacing a document during a feature command (3.7)', () => {
+  /** cube.ptsm, clean, with a Box command whose preview made the document dirty. */
+  async function cubeWithBoxPreview(): Promise<FakeApp> {
+    const fake = await startWithDocument('cube.ptsm', CUBE_DOCUMENT)
+    await startFeatureCommand(fake.app, 'box')
+    await settle()
+    expect(currentDocument(fake.app).dirty).toBe(true)
+    fake.transport.clearRequests()
+    fake.journal.length = 0
+    return fake
+  }
+
+  it('New cancels the command before closing the document, so the preview is not kept as changes', async () => {
+    const fake = await cubeWithBoxPreview()
+    await newDocument(fake.app)
+    await settle()
+    const cancel = fake.journal.indexOf('command:cancel_transaction')
+    expect(cancel).toBeGreaterThanOrEqual(0)
+    expect(cancel).toBeLessThan(fake.journal.indexOf('command:close_document'))
+    expect(fake.journal).not.toContain('recovery.write')
+    expect(fake.app.store.getState().notifications).toEqual([])
+    expect(fake.app.store.getState().command).toBeNull()
+  })
+
+  it('Open cancels the command before closing the document, so nothing is stashed', async () => {
+    const fake = await cubeWithBoxPreview()
+    await openFile(fake.app, documentFile('other.ptsm', renamed('Other')))
+    await settle()
+    const cancel = fake.journal.indexOf('command:cancel_transaction')
+    expect(cancel).toBeGreaterThanOrEqual(0)
+    expect(cancel).toBeLessThan(fake.journal.indexOf('command:close_document'))
+    expect(fake.journal).not.toContain('recovery.write')
+    expect(currentDocument(fake.app).name).toBe('other')
+    expect(fake.app.store.getState().notifications).toEqual([])
+  })
+})
+
+describe('document edits during a feature command (3.7)', () => {
+  it('Save, Save as and units are refused with finish_command_first and send nothing', async () => {
+    const fake = await startWithDocument('cube.ptsm', CUBE_DOCUMENT, {
+      handle: createFakeFileHandle('cube.ptsm'),
+    })
+    await startFeatureCommand(fake.app, 'box')
+    await settle()
+    fake.transport.clearRequests()
+    fake.journal.length = 0
+    await save(fake.app)
+    await saveAs(fake.app)
+    await setUnits(fake.app, 'in')
+    await settle()
+    expect(fake.transport.commandTypes()).toEqual([])
+    expect(fake.journal).toEqual([])
+    expect(fake.app.store.getState().notifications).toMatchObject([
+      { severity: 'info', message: MESSAGES.finish_command_first('Box'), code: 'finish_command_first' },
+    ])
   })
 })
 

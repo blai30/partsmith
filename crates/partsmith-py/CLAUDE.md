@@ -18,7 +18,7 @@ Python (`python/partsmith/`), a protocol client: every operation is one or more 
 - `_frames.py` (frame codec), `_client.py` (`Client`: one session per document, request ids, error mapping to `EngineError`/`ExpressionError`, and `State`, the latest `document_changed`, `recomputed`, `sketch_solved` and `datum_plane` events), `_files.py` (atomic writes).
 - `document.py`: `Document`, `Part`, `Param`, `param`, `rollback`, `current_document`, the `ContextVar`s (current document, current part, open sketch, documents of a `run_code` run), sequential id generation, and `Document._add_feature` (adds a record, undoes it and raises `FeatureError` on status `error` or an `invalid_params` rejection, warns on status `warning`).
 - `expressions.py`: `Expr` (operators with minimal parentheses), units, `printer`, `expr`, `render_value` (section 3.2) and the raw conversions `raw_length`, `raw_angle`, `raw_number`.
-- `sketch.py`: `Plane`, `Placement`, `Region`, `Sketch`, `PointRef`, the entities, `Rectangle`, `Polygon` and every constraint.
+- `sketch.py`: `Plane`, `Placement`, `Region`, `Sketch` (with the reserved references `Sketch.ORIGIN`, `Sketch.X_AXIS` and `Sketch.Y_AXIS`, instances of `SketchOrigin` and `SketchAxis`, stored as `origin`, `x_axis` and `y_axis`), `PointRef`, the entities, `Rectangle`, `Polygon` and every constraint.
 - `features.py`: `Feature`, `DatumPlane`, every feature function, and the argument mappings `plane_reference`, `axis_reference`, `sketch_plane`.
 - `selectors.py`: `Axis`, `Ref`, `Element`, `Selection`, `faces`/`edges`/`vertices`, `element_references`, `single_element`, `rotation_rows`.
 - `exporting.py`, `reports.py`, `running.py`, `errors.py`, `_core.pyi`, `py.typed`.

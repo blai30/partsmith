@@ -42,6 +42,10 @@ const EXTRUDE_COMMAND: ActiveCommand = {
   fieldErrors: {},
   applied: false,
   newBody: null,
+  helper: null,
+  changedPaths: [],
+  history: [],
+  future: [],
   preview: 'none',
 }
 
@@ -49,6 +53,28 @@ describe('the status bar (3.21)', () => {
   it('is a footer', () => {
     const { statusBar } = renderApp()
     expect(statusBar.tagName).toBe('FOOTER')
+  })
+
+  it('shows "Grid {spacing}" in the document unit while a grid is drawn (3.21)', () => {
+    const { app } = renderApp()
+    act(() => {
+      app.store.setState((state) => ({ view: { ...state.view, gridSpacing: 10 } }))
+    })
+    expect(screen.getByTestId('status-grid')).toHaveTextContent(/^Grid 10 mm$/)
+  })
+
+  it('shows the grid spacing in inches in an inch document', () => {
+    const document = cubeDocumentState({ recipe: { ...CUBE_DOCUMENT, units: 'in' } })
+    const { app } = renderApp({}, document)
+    act(() => {
+      app.store.setState((state) => ({ view: { ...state.view, gridSpacing: 2.54 } }))
+    })
+    expect(screen.getByTestId('status-grid')).toHaveTextContent(/^Grid 0\.1 in$/)
+  })
+
+  it('hides the grid spacing while no grid is drawn', () => {
+    renderApp()
+    expect(screen.queryByTestId('status-grid')).toBeNull()
   })
 
   it('shows no core status while the core is idle', () => {
@@ -164,8 +190,8 @@ describe('the status bar (3.21)', () => {
     expect(screen.queryByRole('menu')).toBeNull()
     await user.click(printer)
     expect(screen.queryByTestId('printer-menu')).toBeNull()
-    expect(app.store.getState().notifications.map((notification) => notification.message)).toEqual([
-      reason,
+    expect(app.store.getState().notifications).toMatchObject([
+      { message: reason, code: 'finish_command_first' },
     ])
   })
 
@@ -205,6 +231,10 @@ describe('the status bar (3.21)', () => {
     expect(dof).toHaveAttribute('data-dof', '3')
     expect(dof).toHaveAttribute('data-state', 'under')
     expect(within(dof).getByText('3')).toHaveClass(...FONT_CLASSES.values.split(' '))
+    // "DOF" is explained in plain words (3.16.8, 3.21).
+    expect(dof).toHaveAccessibleDescription(
+      'Degrees of freedom: how many ways the sketch can still move.',
+    )
   })
 
   it('shows no sketch DOF outside sketch mode', () => {

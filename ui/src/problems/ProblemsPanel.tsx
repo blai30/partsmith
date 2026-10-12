@@ -119,11 +119,7 @@ export function ProblemsPanel() {
                         <div key={messageIndex} className="flex flex-col gap-1">
                           <p className="text-sm">{message.message}</p>
                           {record === undefined ? null : (
-                            <UseSuggestion
-                              record={record}
-                              label={problem.label}
-                              message={message}
-                            />
+                            <UseSuggestion record={record} message={message} />
                           )}
                         </div>
                       )

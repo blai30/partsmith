@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import type { Platform } from '../app/createApp'
-import { chordFromEvent, chordToString, formatShortcut, parseShortcut } from './shortcuts'
+import {
+  ariaKeyShortcut,
+  chordFromEvent,
+  chordToString,
+  formatShortcut,
+  parseShortcut,
+} from './shortcuts'
 
 const MAC: Platform = { operatingSystem: 'mac', host: 'web' }
 const LINUX: Platform = { operatingSystem: 'linux', host: 'web' }
@@ -242,5 +248,16 @@ describe('chordFromEvent', () => {
 
   it('keeps digits as typed', () => {
     expect(chordString({ key: '1', code: 'Digit1', ctrlKey: true }, LINUX)).toBe('Mod+1')
+  })
+})
+
+describe('ariaKeyShortcut', () => {
+  it('writes Mod as Control outside macOS and as Meta on macOS, modifiers first', () => {
+    const linux = { operatingSystem: 'linux', host: 'web' } as const
+    const mac = { operatingSystem: 'mac', host: 'web' } as const
+    expect(ariaKeyShortcut('H', linux)).toBe('H')
+    expect(ariaKeyShortcut('Mod+Shift+S', linux)).toBe('Control+Shift+S')
+    expect(ariaKeyShortcut('Mod+Shift+S', mac)).toBe('Shift+Meta+S')
+    expect(ariaKeyShortcut('Ctrl+Alt+F2', mac)).toBe('Control+Alt+F2')
   })
 })

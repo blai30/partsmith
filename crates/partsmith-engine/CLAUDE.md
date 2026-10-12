@@ -12,17 +12,17 @@ Spec: `docs/spec/engine.md`.
 - Edits: `apply_edits`, `rename_parameter`, `begin_transaction`, `set_focus`, `commit_transaction`, `cancel_transaction`, `undo`, `redo`.
 - Sketches: `solve_sketch`, `drag_sketch`, `end_sketch_drag`.
 - Queries: `feature_statuses`, `parameter_values`, `evaluate`, `list_elements`, `pick_reference`, `resolve_references`, `measure`, `feature_catalog`, `engine_info`, `registry`.
-- Print and output: `printer_profiles`, `put_printer_profile`, `set_tessellation`, `tolerance`, `analyze_print`, `export` (STL, 3MF, OBJ, STEP), `import_step`, `export_python`.
+- Print and output: `printer_profiles`, `put_printer_profile`, `printer_profile` (a document's resolved profile id), `set_tessellation`, `tolerance`, `analyze_print`, `export` (STL, 3MF, OBJ, STEP), `import_step`, `export_python`.
 - Files without opening them: `validate` (a `ValidationReport` of diagnostics) and `format` (the canonical text).
 - Free items: `ptsm_schema`, `protocol_schema`, `ENGINE_VERSION`.
-- Errors: `EngineError` with `code()`, `edit_index()` and `to_info()` for the protocol `ErrorInfo`.
+- Errors: `EngineError` with `code()`, `edit_index()` and `to_info()` for the protocol `ErrorInfo`; `Parse` carries the line, column and JSON Pointer `validate` reports for the same text.
 
 ## Internals
 
 - `session.rs` owns `OpenDocument`s (`document.rs`); `editing.rs`, `sketching.rs`, `inspect.rs`, `analysis.rs`, `exchange.rs`, `python.rs` add `Session` methods per area; `dispatch.rs` maps protocol commands to them.
 - `state.rs` reads model, display and preview body states from the recompute report; a state is identified by (feature cache key, body id).
-- `display.rs` builds element tables (which keep the kernel topology) and display meshes and keeps them in an LRU cache under the byte budget; `events.rs` diffs what a document last emitted against its current state to produce events.
-- `elements.rs` builds descriptors: `describe` for a whole table (`list_elements`, computed once per table), `describe_element` for one element (`pick_reference`, one kernel query), both through the same `Describer` so a pick equals its listed entry.
+- `display.rs` builds element tables (which share the body state's topology, `BodyState::topology`, carried from the feature that built the state, so no kernel topology query) and display meshes and keeps them in an LRU cache under the byte budget; `events.rs` diffs what a document last emitted against its current state to produce events.
+- `elements.rs` builds descriptors: `describe` for a whole table (`list_elements`, computed once per table, one kernel geometry query per kind), `describe_element` for one element (`pick_reference`, one kernel query), both through the same `Describer` so a pick equals its listed entry. Names, adjacency, features and references come from the table and its topology, never from `BodyState::elements`.
 - `sketch.rs` and `triangulate.rs` turn solved sketches into `sketch_solved` displays with region fills.
 - `status.rs` derives feature statuses, diagnostics and repairs; `validate.rs` implements `validate` and `format`.
 

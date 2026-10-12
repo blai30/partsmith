@@ -1,6 +1,6 @@
-//! Acceptance tests for fillet, chamfer and shell (kernel spec sections 2.8, 3.4.6 to 3.4.9 and
-//! tests 44 to 53, 68, 102 and 103), including the history behavior the spec asks to verify on
-//! the built library (section 7, open issues 3 and 4).
+//! Acceptance tests for fillet, chamfer and shell (kernel spec sections 2.8, 3.4.6 to 3.4.9, 3.5
+//! and tests 44 to 53, 68, 102, 103 and 110), including the history behavior the spec asks to
+//! verify on the built library (section 7, open issues 3 and 4).
 
 mod common;
 
@@ -8,15 +8,15 @@ use std::f64::consts::PI;
 
 use common::{
     POINT_TOLERANCE, UP, assert_argument_error, assert_bounds, assert_invalid_input, assert_near,
-    assert_parallel, assert_point_near, assert_relative, assert_vector_near, box_primitive, cube_a,
-    cube_at, cylinder_primitive, face_direction, face_groups, face_with_role, faces_of_kind,
-    generated_faces, geometry, index_from_position, line, rectangle_profile, region, swept_face,
-    top_front_edge, volume, xy_plane_at,
+    assert_parallel, assert_point_near, assert_relative, assert_vector_near, box_primitive,
+    box_with_displaced_corner, cube_a, cube_at, cylinder_primitive, edge_between, face_direction,
+    face_groups, face_with_role, faces_of_kind, generated_faces, geometry, index_from_position,
+    l_body, line, rectangle_profile, region, swept_face, top_front_edge, volume,
 };
 use partsmith_occt_sys::{
     ChamferEdge, ChamferSize, EdgeRadius, ElementFate, GeometryKind, KernelError, KernelErrorKind,
     OpResult, Operation, Plane, Point, Primitive, PrimitiveFace, Shape, SubShapeKind, SweepFace,
-    Vector, chamfer, extrude, fillet, fuse, make_box, make_cylinder, make_profile, shell,
+    Vector, chamfer, extrude, fillet, fuse, make_cylinder, make_profile, shell,
 };
 
 const FILLET_FAILED: &str = "The fillet failed. The radius is probably too large for the selected edges or the faces next to them. Try a smaller radius.";
@@ -119,39 +119,6 @@ fn l_prism() -> (Shape, u32, u32) {
         .map(index_from_position)
         .expect("the L prism has a vertical edge at (10, 10)");
     (prism.shape, end_cap, concave)
-}
-
-/// `L` of test 102: a 40 x 20 x 10 box fused with a 20 x 20 x 10 box standing on its right
-/// half (volume 12000, 8 faces), with the index of `STEP`, the top of the low half.
-fn l_body() -> (Shape, u32) {
-    let low = make_box(&xy_plane_at(-20.0, -10.0, 0.0), 40.0, 20.0, 10.0)
-        .expect("the low box builds")
-        .shape;
-    let high = make_box(&xy_plane_at(0.0, -10.0, 10.0), 20.0, 20.0, 10.0)
-        .expect("the high box builds")
-        .shape;
-    let body = fuse(&low, &[high]).expect("the boxes fuse").shape;
-    assert_relative(volume(&body), 12000.0, 1e-9, "L volume");
-    assert_eq!(body.count(SubShapeKind::Face), 8);
-    let step = faces_of_kind(&body, GeometryKind::Plane)
-        .into_iter()
-        .find(|face| {
-            let element = geometry(&body, SubShapeKind::Face, *face);
-            let up = element
-                .direction
-                .is_some_and(|direction| (direction.z - 1.0).abs() <= POINT_TOLERANCE);
-            up && (element.centroid.x + 10.0).abs() <= POINT_TOLERANCE
-                && element.centroid.y.abs() <= POINT_TOLERANCE
-                && (element.centroid.z - 10.0).abs() <= POINT_TOLERANCE
-        })
-        .expect("L has its step face");
-    assert_relative(
-        geometry(&body, SubShapeKind::Face, step).measure,
-        400.0,
-        1e-9,
-        "STEP area",
-    );
-    (body, step)
 }
 
 /// Test 102: `L` shelled with `STEP` removed and a 2 mm wall.
@@ -1009,4 +976,21 @@ fn failed_shell_leaves_its_input_unchanged() {
     shell(&cylinder.shape, &[top], 25.0).expect_err("a 25 mm wall does not fit");
 
     assert!(cylinder.shape.to_brep().expect("BRep bytes") == before);
+}
+
+#[test]
+fn t110_fillet_next_to_an_invalid_corner_is_repaired() {
+    let invalid = box_with_displaced_corner();
+    // The edge between `Top` and `Back` ends at the displaced corner (10, 20, 30); BOX read back
+    // from its bytes keeps BOX's indices.
+    let block = box_primitive();
+    let edge = edge_between(
+        &invalid,
+        face_with_role(&block, PrimitiveFace::Top),
+        face_with_role(&block, PrimitiveFace::Back),
+    );
+
+    let result = fillet(&invalid, &[EdgeRadius { edge, radius: 1.0 }]).expect("the edge rounds");
+
+    assert!(result.shape.is_valid().expect("validity check"));
 }

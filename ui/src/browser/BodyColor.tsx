@@ -1,10 +1,13 @@
 import { clsx } from 'clsx/lite'
 import { useId, useRef, useState, type RefObject } from 'react'
 import { setBodyColor } from '../app/actions/bodies'
-import { useApp } from '../app/AppProvider'
+import { notify } from '../app/actions/notifications'
+import { useApp, useAppState } from '../app/AppProvider'
 import { Popover } from '../components/Popover'
+import { Tooltip } from '../components/Tooltip'
 import { useResolvedTheme } from '../layout/use-resolved-theme'
 import type { Body } from '../generated/protocol'
+import { selectCommandBlock } from '../state/selectors'
 import { BODY_SWATCHES, COLOR_CLASSES, FONT_CLASSES, VIEWPORT_COLORS } from '../theme/roles'
 
 // A body's display color (ui.md 3.10): a swatch drawn from document data, and the popover that
@@ -30,36 +33,53 @@ export type BodyColorButtonProps = {
 
 /** The color swatch button of a body with its popover of swatches and a hex field. */
 export function BodyColorButton({ body, tabbable = true, size = 'row' }: BodyColorButtonProps) {
+  const app = useApp()
   const theme = useResolvedTheme()
+  // A color change is a document edit, so it waits for an open command (3.7).
+  const blocked = useAppState(selectCommandBlock)
   const anchor = useRef<HTMLButtonElement>(null)
   const [open, setOpen] = useState(false)
   const defaultHex = VIEWPORT_COLORS[theme].body
   const hex = body.color ?? defaultHex
+  const button = (
+    <button
+      ref={anchor}
+      type="button"
+      tabIndex={tabbable ? 0 : -1}
+      aria-label={`Color of ${body.name}`}
+      aria-haspopup="dialog"
+      aria-expanded={open}
+      aria-disabled={blocked === null ? undefined : true}
+      onClick={(event) => {
+        event.stopPropagation()
+        if (blocked !== null) {
+          notify(app, {
+            severity: 'info',
+            message: blocked,
+            actions: [],
+            code: 'finish_command_first',
+          })
+          return
+        }
+        setOpen((current) => !current)
+      }}
+      onDoubleClick={(event) => {
+        event.stopPropagation()
+      }}
+      className={clsx(
+        'inline-flex shrink-0 overflow-hidden rounded-sm border',
+        size === 'row' ? 'size-4' : 'size-6',
+        COLOR_CLASSES.borderControl.border,
+        COLOR_CLASSES.focusRing.outline,
+        blocked !== null && 'cursor-not-allowed',
+      )}
+    >
+      <SwatchGraphic hex={hex} />
+    </button>
+  )
   return (
     <>
-      <button
-        ref={anchor}
-        type="button"
-        tabIndex={tabbable ? 0 : -1}
-        aria-label={`Color of ${body.name}`}
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        onClick={(event) => {
-          event.stopPropagation()
-          setOpen((current) => !current)
-        }}
-        onDoubleClick={(event) => {
-          event.stopPropagation()
-        }}
-        className={clsx(
-          'inline-flex shrink-0 overflow-hidden rounded-sm border',
-          size === 'row' ? 'size-4' : 'size-6',
-          COLOR_CLASSES.borderControl.border,
-          COLOR_CLASSES.focusRing.outline,
-        )}
-      >
-        <SwatchGraphic hex={hex} />
-      </button>
+      {blocked === null ? button : <Tooltip label={blocked}>{button}</Tooltip>}
       {open ? (
         <ColorPopover body={body} anchor={anchor} current={hex} onClose={() => setOpen(false)} />
       ) : null}

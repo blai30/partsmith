@@ -16,7 +16,7 @@ use crate::context::BuildContext;
 use crate::deps::Dependencies;
 use crate::error::{FeatureError, FeatureWarning};
 use crate::feature::Feature;
-use crate::output::{BodyChange, BodyUpdate, FeatureOutput};
+use crate::output::{BodyChange, BodyUpdate, FeatureOutput, Measurements};
 use crate::params::AxisRef;
 use crate::python::{PythonCall, PythonNames, PythonValue};
 use crate::{default_position, is_default_position, vector};
@@ -151,6 +151,7 @@ impl Feature for MoveBody {
             shape: Some(moved.shape),
             naming: Arc::clone(state.naming()),
             change: BodyChange::Modify,
+            measured: Measurements::default(),
         };
         Ok(bodies(vec![update], Vec::new()))
     }

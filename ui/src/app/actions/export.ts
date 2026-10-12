@@ -1,10 +1,12 @@
 import type { ExportedFile } from '../../core/api'
+import { exportFailedText } from '../../export/status'
 import { FileServiceError, type FileKind, type SaveTarget } from '../../files/file-service'
-import type { Body, Diagnostic, ExportFormat } from '../../generated/protocol'
+import type { Body, Diagnostic, ExportFormat, Orientation } from '../../generated/protocol'
 import { MESSAGES } from '../../messages'
 import type { App } from '../createApp'
 import { documentOf, showCoreError } from './edits'
 import { notify } from './notifications'
+import { showOrientationError } from './print'
 
 // Export to 3MF, STL, OBJ and STEP (ui.md 3.18).
 
@@ -12,6 +14,9 @@ export type ExportRequest = {
   readonly format: '3mf' | 'stl' | 'obj' | 'step'
   readonly scope: 'visible' | 'selected'
 }
+
+/** Formats that go to a printer, so they are exported in the Lay on face orientation (3.17). */
+const ORIENTED_FORMATS: ReadonlySet<ExportRequest['format']> = new Set(['3mf', 'stl'])
 
 const FORMATS: Readonly<Record<ExportRequest['format'], ExportFormat>> = {
   '3mf': { kind: '3mf' },
@@ -65,12 +70,12 @@ type ExportResult = {
   readonly warnings: readonly Diagnostic[]
 }
 
-/** A failed save of an exported file (4.3), with "Save as", which asks again where to save the same file. */
+/** A failed choice or save of an export file (4.3), with "Save as", which tries again. */
 function showSaveError(
   app: App,
   fileName: string,
   error: FileServiceError,
-  exported: ExportResult,
+  saveAs: () => Promise<void>,
 ): void {
   const [code, message] =
     error.reason === 'permission'
@@ -86,7 +91,7 @@ function showSaveError(
       {
         label: 'Save as',
         run: () => {
-          void saveExport(app, exported)
+          void saveAs()
         },
       },
     ],
@@ -94,34 +99,82 @@ function showSaveError(
 }
 
 /**
- * Asks where to save the exported file and writes it, then announces it with the export's
- * warnings. A canceled picker does nothing; a failed save is shown with "Save as".
+ * Asks where to save an export file. A canceled picker resolves null; a picker that fails is shown
+ * with "Save as", which runs `saveAs`, and resolves null.
  */
-async function saveExport(app: App, exported: ExportResult): Promise<void> {
-  let target: SaveTarget | null = null
+async function chooseTarget(
+  app: App,
+  suggestedName: string,
+  kind: FileKind,
+  saveAs: () => Promise<void>,
+): Promise<SaveTarget | null> {
   try {
-    target = await app.files.chooseSaveTarget(exported.suggestedName, exported.kind)
-    if (target === null) {
-      return
+    return await app.files.chooseSaveTarget(suggestedName, kind)
+  } catch (error) {
+    if (error instanceof FileServiceError) {
+      showSaveError(app, suggestedName, error, saveAs)
+      return null
     }
+    throw error
+  }
+}
+
+/**
+ * Writes an exported file to its target, then announces it with the export's warnings. A failed
+ * write is shown with "Save as", which asks again where to save the same file.
+ */
+async function writeExport(app: App, target: SaveTarget, exported: ExportResult): Promise<void> {
+  try {
     await app.files.write(target, exported.kind, exported.file.bytes)
   } catch (error) {
     if (error instanceof FileServiceError) {
-      showSaveError(app, target?.name ?? exported.suggestedName, error, exported)
+      showSaveError(app, target.name, error, () => saveExport(app, exported))
       return
     }
     throw error
   }
-  notify(app, {
-    severity: 'success',
-    message: MESSAGES.exported(target.name),
-    actions: [],
-    code: 'exported',
-  })
+  // The file leaves out features in error, so the announcement says which (3.18).
+  const failed = exportFailedText(app.store.getState())
+  if (failed === null) {
+    notify(app, {
+      severity: 'success',
+      message: MESSAGES.exported(target.name),
+      actions: [],
+      code: 'exported',
+    })
+  } else {
+    notify(app, {
+      severity: 'warning',
+      message: MESSAGES.exported_with_failures(target.name, failed),
+      code: 'exported_with_failures',
+      actions: [
+        {
+          label: 'Show problems',
+          run: () => {
+            app.store.setState((state) => ({ panels: { ...state.panels, side: 'problems' } }))
+          },
+        },
+      ],
+    })
+  }
   showWarnings(app, exported.warnings)
 }
 
-/** Exports the bodies the request names and saves the file where the user chooses. */
+/** "Save as" after a failed save: asks again where to save the file already exported, and writes it. */
+async function saveExport(app: App, exported: ExportResult): Promise<void> {
+  const target = await chooseTarget(app, exported.suggestedName, exported.kind, () =>
+    saveExport(app, exported),
+  )
+  if (target !== null) {
+    await writeExport(app, target, exported)
+  }
+}
+
+/**
+ * Exports the bodies the request names and saves the file where the user chooses. The save dialog
+ * opens first, while the click that asked for the export still lets the page open it; a slow
+ * export then cannot lose that permission (3.18). A canceled dialog exports nothing.
+ */
 export async function exportModel(app: App, request: ExportRequest): Promise<void> {
   const document = documentOf(app)
   const bodies = bodiesToExport(app, request)
@@ -134,14 +187,35 @@ export async function exportModel(app: App, request: ExportRequest): Promise<voi
     })
     return
   }
+  const suggestedName = `${document.name}.${request.format}`
+  const target = await chooseTarget(app, suggestedName, request.format, () =>
+    exportModel(app, request),
+  )
+  if (target === null) {
+    return
+  }
+  // 3MF and STL are placed on the bed as Lay on face set; OBJ and STEP stay as modeled (3.18).
+  const sessionOrientation = app.store.getState().print.orientation
+  const orientation: Orientation | null = ORIENTED_FORMATS.has(request.format)
+    ? sessionOrientation
+    : null
   let exported: { files: readonly ExportedFile[]; warnings: readonly Diagnostic[] }
   try {
     // Through the mutation queue, so the export sees every edit sent before it.
     exported = await app.mutations.run(() =>
-      app.core.exportBodies(document.documentHandle, FORMATS[request.format], bodies),
+      orientation === null
+        ? app.core.exportBodies(document.documentHandle, FORMATS[request.format], bodies)
+        : app.core.exportBodies(
+            document.documentHandle,
+            FORMATS[request.format],
+            bodies,
+            orientation,
+          ),
     )
   } catch (error) {
-    showCoreError(app, error)
+    if (!showOrientationError(app, error, orientation)) {
+      showCoreError(app, error)
+    }
     return
   }
   // STL with per_body false, 3MF, OBJ and STEP come back as one file (engine.md 3.13).
@@ -149,8 +223,8 @@ export async function exportModel(app: App, request: ExportRequest): Promise<voi
   if (file === undefined) {
     return
   }
-  await saveExport(app, {
-    suggestedName: `${document.name}.${request.format}`,
+  await writeExport(app, target, {
+    suggestedName,
     kind: request.format,
     file,
     warnings: exported.warnings,

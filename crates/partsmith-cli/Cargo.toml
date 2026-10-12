@@ -18,7 +18,6 @@ path = "src/main.rs"
 clap = { workspace = true, features = ["string"] }
 partsmith-engine.workspace = true
 partsmith-model.workspace = true
-partsmith-print.workspace = true
 partsmith-protocol.workspace = true
 serde.workspace = true
 serde_json.workspace = true

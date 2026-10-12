@@ -7,6 +7,7 @@ import type { Edit, SketchEntity } from './generated/protocol'
 import { bodyItem, cubeDocumentState, documentState, readyState } from './layout/fixtures.testing'
 import { createModelApp, renderWithApp, stubMatchMedia } from './layout/test-app.testing'
 import { MESSAGES } from './messages'
+import { DEFAULT_SETTINGS } from './settings/settings'
 import { INITIAL_STATE, type ActiveCommand, type AppState } from './state/store'
 import { solutionFor, solvedSketch } from './sketch/fixtures.testing'
 import {
@@ -46,6 +47,10 @@ const EXTRUDE_COMMAND: ActiveCommand = {
   fieldErrors: {},
   applied: false,
   newBody: null,
+  helper: null,
+  changedPaths: [],
+  history: [],
+  future: [],
   preview: 'none',
 }
 
@@ -203,6 +208,34 @@ describe('the app shell (3.2)', () => {
     cleanup()
     renderApp({ context: 'model', print })
     expect(screen.queryByTestId('overhang-legend')).toBeNull()
+  })
+
+  it('E-50 keeps the overhang map while the Overhangs check is hidden; the toggle alone hides it (3.17)', () => {
+    const report = printReport({
+      'b-cube': [checkResult('overhangs', [finding('overhangs', 'warning')])],
+    })
+    const print = { ...INITIAL_STATE.print, report, reportRevision: cubeDocumentState().revision }
+    renderApp({
+      context: 'print',
+      print,
+      settings: { ...DEFAULT_SETTINGS, theme: 'light', hiddenChecks: ['overhangs'] },
+    })
+    expect(within(screen.getByTestId('viewport')).getByTestId('overhang-legend')).toBeVisible()
+  })
+
+  it('"Lay on a face" in the print check panel switches to Print and starts the face pick (3.17)', async () => {
+    const report = printReport({
+      'b-cube': [checkResult('overhangs', [finding('overhangs', 'warning')])],
+    })
+    const { app } = renderApp({
+      print: { ...INITIAL_STATE.print, report, reportRevision: cubeDocumentState().revision },
+      panels: { ...INITIAL_STATE.panels, side: 'health' },
+    })
+    await userEvent.click(screen.getByRole('button', { name: 'Lay on a face' }))
+    await settle()
+    expect(app.store.getState().context).toBe('print')
+    expect(app.store.getState().print.pickingFace).toBe(true)
+    expect(screen.getByTestId('print-hint')).toHaveTextContent(MESSAGES.print_pick_face())
   })
 
   it('keeps the other regions working when one region crashes (4.4)', () => {

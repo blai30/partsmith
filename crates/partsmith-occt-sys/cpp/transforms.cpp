@@ -121,13 +121,14 @@ SplitData split(const Shape &shape, const Frame &plane_frame) {
   Handle(BRepTools_History) history = new BRepTools_History;
   merge_history(history, splitter.History());
 
+  const TopoDS_Shape split_solids = solids_only(splitter.Shape());
+  require_solid(split_solids, "BRepAlgoAPI_Splitter");
   // The pieces are checked as the splitter built them, where the faces the plane does not cut
   // are still the input's own (kernel spec section 3.5); copying keeps them valid.
-  const TopoDS_Shape checked =
-      finish_solid(splitter.Shape(), history, {shape.get()}, "BRepAlgoAPI_Splitter");
+  const bool valid = changed_part_valid(split_solids, {shape.get()});
   // Copy each piece on its own so the pieces share no sub-shapes.
   TopTools_IndexedMapOfShape pieces;
-  TopExp::MapShapes(checked, TopAbs_SOLID, pieces);
+  TopExp::MapShapes(split_solids, TopAbs_SOLID, pieces);
   Handle(BRepTools_History) copies = new BRepTools_History;
   BRep_Builder builder;
   TopoDS_Compound compound;
@@ -147,7 +148,12 @@ SplitData split(const Shape &shape, const Frame &plane_frame) {
     }
   }
   merge_history(history, copies);
-  const TopoDS_Shape result = solids_only(compound);
+  TopoDS_Shape result = solids_only(compound);
+  if (!valid) {
+    // Repair the separated pieces: ShapeFix_Shape merges solids that share a face.
+    ensure_valid(result, history, {}, "BRepAlgoAPI_Splitter");
+    result = solids_only(result);
+  }
 
   std::shared_ptr<Shape> pieces_shape = make_shape(result);
   const Shape &output = *pieces_shape;

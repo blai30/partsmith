@@ -185,10 +185,8 @@ fn state_before(computed: &Computed, position: usize, body: &Id) -> BodyState {
             continue;
         };
         if let Some(update) = updates.iter().find(|update| update.body == *body) {
-            return match &update.shape {
-                Some(shape) => BodyState::new(shape.clone(), update.naming.clone()),
-                None => BodyState::empty(),
-            };
+            // Keeps the topology and volume the feature carried (features.md section 2.7).
+            return BodyState::from_update(update);
         }
     }
     BodyState::empty()

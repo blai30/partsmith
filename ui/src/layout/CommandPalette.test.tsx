@@ -63,7 +63,10 @@ describe('the command palette (3.4)', () => {
     expect(screen.getByRole('dialog', { name: 'Command palette' })).toBe(palette)
     const input = within(palette).getByRole('combobox')
     expect(input).toBe(screen.getByTestId('palette-input'))
-    expect(input).toHaveAttribute('placeholder', 'Search commands, bodies and parameters')
+    expect(input).toHaveAttribute(
+      'placeholder',
+      'Search commands, features, bodies, parameters and settings',
+    )
     const listbox = within(palette).getByRole('listbox')
     expect(input).toHaveAttribute('aria-controls', listbox.id)
     expect(input).toHaveFocus()
@@ -207,6 +210,94 @@ describe('the command palette (3.4)', () => {
         .slice(0, 2)
         .map((option) => option.getAttribute('data-item-id')),
     ).toEqual(['view.parameters', 'file.save'])
+  })
+
+  it('groups every command under category headings with an empty query, Create first in Model', async () => {
+    const { user } = renderApp()
+    await openPalette(user)
+    const headings = screen.getAllByTestId('palette-heading').map((heading) => heading.textContent)
+    expect(headings[0]).toBe('Create')
+    expect(headings.slice(0, 5)).toEqual(['Create', 'Modify', 'Pattern', 'Construct', 'Edit'])
+    const create = screen.getByRole('group', { name: 'Create' })
+    expect(
+      within(create)
+        .getAllByRole('option')
+        .map((option) => option.textContent),
+    ).toContain('Box')
+    expect(
+      within(screen.getByRole('group', { name: 'Modify' }))
+        .getAllByRole('option')
+        .some((option) => option.getAttribute('data-item-id') === 'feature.fillet'),
+    ).toBe(true)
+    // Document items appear only for a query.
+    expect(options().some((option) => option.getAttribute('data-kind') === 'body')).toBe(false)
+  })
+
+  it('starts with the Sketch heading in sketch mode', async () => {
+    const { user } = renderApp({
+      context: 'sketch',
+      sketch: {
+        sketchId: 'f-sk1',
+        tool: null,
+        construction: false,
+        showConstraints: true,
+        selection: [],
+        dragging: false,
+        cameraBefore: null,
+      },
+    })
+    await openPalette(user)
+    expect(screen.getAllByTestId('palette-heading')[0]).toHaveTextContent('Sketch')
+  })
+
+  it('heads the recent items "Recent"', async () => {
+    const { app, user } = renderApp()
+    app.store.setState({
+      settings: { ...app.store.getState().settings, paletteRecent: ['view.parameters'] },
+    })
+    await openPalette(user)
+    expect(screen.getAllByTestId('palette-heading')[0]).toHaveTextContent('Recent')
+    expect(
+      within(screen.getByRole('group', { name: 'Recent' }))
+        .getAllByRole('option')
+        .map((option) => option.getAttribute('data-item-id')),
+    ).toEqual(['view.parameters'])
+  })
+
+  it('shows no headings for a query', async () => {
+    const { user } = renderApp()
+    await openPalette(user)
+    await user.type(screen.getByTestId('palette-input'), 'ext')
+    expect(screen.queryAllByTestId('palette-heading')).toEqual([])
+  })
+
+  it('says "Nothing matches {query}." in a row that is not an option', async () => {
+    const { user } = renderApp()
+    await openPalette(user)
+    await user.type(screen.getByTestId('palette-input'), 'zzz')
+    expect(screen.getByTestId('palette-empty')).toHaveTextContent(/^Nothing matches zzz\.$/)
+    expect(screen.queryAllByRole('option')).toEqual([])
+  })
+
+  it('describes the active option in the footer, which the option references', async () => {
+    const { user } = renderApp()
+    await openPalette(user)
+    await user.type(screen.getByTestId('palette-input'), 'shell')
+    const active = activeOption()
+    expect(active).toHaveAttribute('data-item-id', 'feature.shell')
+    const footer = screen.getByTestId('palette-footer')
+    expect(footer).toHaveTextContent('Hollows out a body')
+    const description = within(footer).getByText(/Hollows out a body/)
+    expect(active).toHaveAttribute('aria-describedby', description.id)
+    expect(description).not.toHaveAttribute('role')
+  })
+
+  it('shows another app’s name that matched as the detail', async () => {
+    const { user } = renderApp()
+    await openPalette(user)
+    await user.type(screen.getByTestId('palette-input'), 'pad')
+    expect(activeOption()).toHaveAttribute('data-item-id', 'feature.extrude')
+    expect(activeOption()).toHaveTextContent('FreeCAD: Pad')
   })
 
   it('closes on a pointer press outside', async () => {

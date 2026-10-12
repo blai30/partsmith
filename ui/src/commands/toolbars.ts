@@ -55,7 +55,7 @@ export const TOOLBARS: Readonly<Record<AppContext, readonly ToolbarEntry[]>> = {
     {
       kind: 'group',
       id: 'model.primitive',
-      title: 'Primitive',
+      title: 'Shapes',
       icon: Cuboid,
       commands: [
         'feature.box',
@@ -104,6 +104,7 @@ export const TOOLBARS: Readonly<Record<AppContext, readonly ToolbarEntry[]>> = {
     command('print.overhangs'),
     command('print.checks'),
     command('view.health'),
+    command('print.lay_on_face'),
     { kind: 'separator' },
     command('print.export_3mf'),
     {

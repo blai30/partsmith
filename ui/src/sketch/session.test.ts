@@ -8,6 +8,7 @@ import {
   circleEntity,
   curveItem,
   lineEntity,
+  sketchSession,
   solutionFor,
   solvedEntity,
   solvedSketch,
@@ -424,6 +425,34 @@ describe('constraint tools in pick mode (3.16.6)', () => {
     ])
     expect(harness.app.store.getState().sketch?.selection).toEqual([])
     expect(harness.app.store.getState().sketch?.tool).toBe('constrain_horizontal')
+  })
+
+  it('E-103 H on a line whose horizontal is already implied says so and adds nothing (3.16.6)', async () => {
+    const TOP = lineEntity('e-3', [40, 20], [0, 20])
+    const IMPLIED: SketchConstraint = { id: 'c-6', type: 'horizontal', line: 'e-3' }
+    const harness = sketchHarness({
+      entities: [TOP],
+      constraints: [IMPLIED],
+      // The probe finds the new horizontal implied by the stored one.
+      solve: (candidate) => {
+        const added = (candidate.constraints ?? []).filter((constraint) => constraint.id !== 'c-6')
+        return solutionFor(candidate.entities ?? [], {
+          redundant: added.map((constraint) => constraint.id),
+        })
+      },
+      state: { sketch: sketchSession({ selection: [curveItem('e-3', 'line')] }) },
+    })
+    start(harness)
+    // H runs sketch.constrain_horizontal, which sets the tool; the selection fits, so it applies at once.
+    setSketchTool(harness.app, 'constrain_horizontal')
+    await settleCommits()
+    expect(harness.applied).toEqual([])
+    expect(harness.app.store.getState().notifications).toEqual([
+      expect.objectContaining({
+        severity: 'info',
+        message: 'Horizontal is already implied by other constraints, so it was not added.',
+      }),
+    ])
   })
 
   it('keeps a partial pick list in the sketch selection', () => {

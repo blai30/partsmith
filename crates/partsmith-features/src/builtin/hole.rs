@@ -3,9 +3,11 @@
 //!
 //! Each point gets its own tool, the full revolution of a half cross-section whose curves are
 //! tagged by role, so every tool face is named `<feature>/<role>/<point>` (naming.md section
-//! 3.6.8). Tools apart from each other are checked against the body with one kernel `common`, and
-//! the tools that overlap it are cut from the body with one kernel call.
+//! 3.6.8). The tools whose boxes meet the body's are cut from it with one kernel call, whose
+//! history tells which of them overlap it; only tools that leave no face of their own there are
+//! measured against the body with a kernel `common`.
 
+use std::collections::BTreeSet;
 use std::f64::consts::{PI, TAU};
 
 use partsmith_mesh::BoundingBox;
@@ -14,8 +16,8 @@ use partsmith_model::{
 };
 use partsmith_naming::{FaceSource, Generator, roles};
 use partsmith_occt_sys::{
-    Axis, PlanarCurve, PlanarLoop, PlanarRegion, Plane, Point, Point2, Shape, SweepFace,
-    TaggedCurve, Vector, common, compound, make_profile, revolve,
+    Axis, OpResult, PlanarCurve, PlanarLoop, PlanarRegion, Plane, Point, Point2, Shape, SweepFace,
+    TaggedCurve, Vector, common, compound, cut, make_profile, revolve,
 };
 use partsmith_sketch::{PointRef, PointRole};
 use schemars::JsonSchema;
@@ -26,12 +28,14 @@ use super::common::{
     face_name, farthest_corner, flag, hint, is_false, is_positive_length, manifest, one_or_list,
     options_hint, out_of_range, positive_length, selection_hint, solid_body, unchanged, unit_hint,
 };
-use crate::context::BuildContext;
+use crate::context::{BodyState, BuildContext};
 use crate::deps::Dependencies;
 use crate::error::{Bound, FeatureError, FeatureWarning, IgnoredReason, Noun};
 use crate::feature::Feature;
 use crate::name_shape;
-use crate::output::{BodyChange, FeatureOutput, Tool, VOLUME_TOLERANCE, apply_op};
+use crate::output::{
+    BodyChange, BodyUpdate, FeatureOutput, Tool, VOLUME_TOLERANCE, apply_op, apply_op_result,
+};
 use crate::params::{BodyOp, PlacementExt};
 use crate::python::{PythonCall, PythonNames, PythonValue};
 
@@ -193,9 +197,9 @@ impl Feature for Hole {
         dependencies
     }
 
-    /// Checks the values, builds one tool per sketch point that touches the body and cuts them
-    /// all with one kernel call (features/hole.md section 3.3). The body's bounding box is read
-    /// once for every point, and its volume once for the overlap test and the cut.
+    /// Checks the values, builds one tool per sketch point and cuts those that may touch the body
+    /// with one kernel call (features/hole.md section 3.3). The body's bounding box is read once
+    /// for every point; the cut is the result when every cut tool overlaps the body.
     fn build(
         params: &HoleParams,
         context: &BuildContext<'_>,
@@ -226,8 +230,10 @@ impl Feature for Hole {
         }
 
         let body_bounds = body.bounding_box()?;
-        // Each point with its tool, when it has one whose bounding box meets the body's.
-        let mut drilled: Vec<(&PointRef, Option<Candidate>)> = Vec::new();
+        // Each point with the position in `candidates` of its tool, when it has one whose bounding
+        // box meets the body's.
+        let mut drilled: Vec<(&PointRef, Option<usize>)> = Vec::new();
+        let mut candidates: Vec<Candidate> = Vec::new();
         for (point, position) in points {
             if context.is_canceled() {
                 return Err(FeatureError::Canceled);
@@ -241,49 +247,49 @@ impl Feature for Hole {
                 radial: plane.x_axis,
                 direction,
             };
-            let candidate = match length {
-                Some(length) => {
-                    let tool = hole_tool(context.feature(), point, &frame, &size.section(length))?;
-                    let bounds = tool.shape.bounding_box()?;
-                    bounds
-                        .intersects(&body_bounds)
-                        .then_some(Candidate { tool, bounds })
+            let mut candidate = None;
+            if let Some(length) = length {
+                let tool = hole_tool(context.feature(), point, &frame, &size.section(length))?;
+                let bounds = tool.shape.bounding_box()?;
+                if bounds.intersects(&body_bounds) {
+                    candidate = Some(candidates.len());
+                    candidates.push(Candidate { tool, bounds });
                 }
-                None => None,
-            };
+            }
             drilled.push((point, candidate));
         }
 
-        let candidates: Vec<&Candidate> = drilled
-            .iter()
-            .filter_map(|(_, candidate)| candidate.as_ref())
-            .collect();
-        let mut shared = shared_volumes(body, &candidates)?.into_iter();
-        let threshold = VOLUME_TOLERANCE * state.volume()?;
-        let mut tools = Vec::new();
-        for (point, candidate) in drilled {
-            // The shared volumes follow the candidates in point order.
-            let overlapping =
-                candidate.filter(|_| shared.next().is_some_and(|volume| volume > threshold));
-            match overlapping {
-                Some(candidate) => tools.push(candidate.tool),
-                None => warnings.push(FeatureWarning::HoleMissesBody {
+        let decision = cut_candidates(context, &params.body, state, body, &candidates)?;
+        for (point, candidate) in &drilled {
+            if !candidate.is_some_and(|position| decision.overlaps[position]) {
+                warnings.push(FeatureWarning::HoleMissesBody {
                     point: point.to_string(),
                     body: params.body.clone(),
-                }),
+                });
             }
         }
-
-        if tools.is_empty() {
-            warnings.push(FeatureWarning::NoEffect {
-                body: params.body.clone(),
-            });
-            return Ok(bodies(
-                vec![unchanged(&params.body, state, BodyChange::Cut)],
-                warnings,
-            ));
-        }
-        let (update, op_warnings) = apply_op(context, &params.body, BodyOp::Cut, tools)?;
+        let outcome = match decision.result {
+            Some(result) => result,
+            None => {
+                let tools: Vec<Tool> = candidates
+                    .into_iter()
+                    .zip(&decision.overlaps)
+                    .filter(|(_, overlaps)| **overlaps)
+                    .map(|(candidate, _)| candidate.tool)
+                    .collect();
+                if tools.is_empty() {
+                    warnings.push(FeatureWarning::NoEffect {
+                        body: params.body.clone(),
+                    });
+                    return Ok(bodies(
+                        vec![unchanged(&params.body, state, BodyChange::Cut)],
+                        warnings,
+                    ));
+                }
+                apply_op(context, &params.body, BodyOp::Cut, tools)
+            }
+        };
+        let (update, op_warnings) = outcome?;
         warnings.extend(op_warnings);
         Ok(bodies(vec![update], warnings))
     }
@@ -695,7 +701,7 @@ fn hole_tool(
             face_name(feature, word, Some(Generator::Sketch(&point_text))).map(FaceSource::New)
         })
         .collect::<Result<Vec<_>, FeatureError>>()?;
-    let naming = name_shape(&sweep.shape, faces, &[])?;
+    let naming = name_shape(&sweep.shape, faces, &[])?.naming;
     Ok(Tool {
         shape: sweep.shape,
         naming,
@@ -709,6 +715,103 @@ struct Candidate {
     tool: Tool,
     /// Its tight bounding box.
     bounds: BoundingBox,
+}
+
+/// Which candidates overlap the body, and the cut when it is the feature's result.
+struct Decision {
+    /// For each candidate, in order, whether it overlaps the body.
+    overlaps: Vec<bool>,
+    /// The body rules applied to the cut with every candidate, when every candidate overlaps
+    /// (its error included, such as `EmptyResult`); None when the body must be cut again with the
+    /// overlapping candidates only.
+    result: Option<Result<(BodyUpdate, Vec<FeatureWarning>), FeatureError>>,
+}
+
+/// Cuts the body with every candidate in one kernel call and decides from that cut which of them
+/// overlap the body (features/hole.md section 3.3 steps 5 and 6): none when the cut leaves the
+/// volume unchanged; a candidate that leaves a face of its own in the result; and, by its shared
+/// volume, a candidate that leaves none (it misses the body, touches it or swallows whole solids
+/// of it). The cut is the result when every candidate overlaps.
+fn cut_candidates(
+    context: &BuildContext<'_>,
+    body: &Id,
+    state: &BodyState,
+    shape: &Shape,
+    candidates: &[Candidate],
+) -> Result<Decision, FeatureError> {
+    if candidates.is_empty() {
+        return Ok(Decision {
+            overlaps: Vec::new(),
+            result: None,
+        });
+    }
+    if context.is_canceled() {
+        return Err(FeatureError::Canceled);
+    }
+    let tools: Vec<Tool> = candidates
+        .iter()
+        .map(|candidate| candidate.tool.clone())
+        .collect();
+    let shapes: Vec<Shape> = tools.iter().map(|tool| tool.shape.clone()).collect();
+    let result = cut(shape, &shapes)?;
+    let mut overlaps = tools_with_own_faces(&result);
+    let outcome = match apply_op_result(context, body, BodyOp::Cut, &tools, result) {
+        Err(error) if !matches!(error, FeatureError::EmptyResult { .. }) => return Err(error),
+        outcome => outcome,
+    };
+    let unchanged = outcome.as_ref().is_ok_and(|(_, warnings)| {
+        warnings
+            .iter()
+            .any(|warning| matches!(warning, FeatureWarning::NoEffect { .. }))
+    });
+    if unchanged {
+        return Ok(Decision {
+            overlaps: vec![false; candidates.len()],
+            result: None,
+        });
+    }
+    let undecided: Vec<usize> = (0..candidates.len())
+        .filter(|&position| !overlaps[position])
+        .collect();
+    if !undecided.is_empty() {
+        let undecided_candidates: Vec<&Candidate> = undecided
+            .iter()
+            .map(|&position| &candidates[position])
+            .collect();
+        let shared = shared_volumes(shape, &undecided_candidates)?;
+        let threshold = VOLUME_TOLERANCE * state.volume()?;
+        for (&position, volume) in undecided.iter().zip(shared) {
+            overlaps[position] = volume > threshold;
+        }
+    }
+    let every_one = overlaps.iter().all(|overlaps| *overlaps);
+    Ok(Decision {
+        overlaps,
+        result: every_one.then_some(outcome),
+    })
+}
+
+/// For each tool of a kernel cut, in order, whether a face of the result descends from one of the
+/// tool's faces and from no face of the body (the history's `modified` lists, whose first input is
+/// the body and the others the tools): such a face is the tool's boundary inside the body.
+fn tools_with_own_faces(result: &OpResult) -> Vec<bool> {
+    let Some((body, tools)) = result.history.inputs.split_first() else {
+        return Vec::new();
+    };
+    let body_faces: BTreeSet<u32> = body
+        .faces
+        .iter()
+        .flat_map(|fate| fate.modified.iter().copied())
+        .collect();
+    tools
+        .iter()
+        .map(|tool| {
+            tool.faces
+                .iter()
+                .flat_map(|fate| &fate.modified)
+                .any(|face| !body_faces.contains(face))
+        })
+        .collect()
 }
 
 /// The volume each candidate shares with the body, in candidate order. Candidates whose bounding
@@ -791,7 +894,9 @@ mod tests {
 
     use super::*;
     use crate::registry::Registry;
-    use crate::test_support::{ScriptNames, fixture, id, named_box, named_primitive};
+    use crate::test_support::{
+        Fixture, ScriptNames, box_body, fixture, id, named_box, named_primitive,
+    };
 
     /// `HOLE(points, extra)` of the spec: diameter 6, plus `extra` members.
     fn record(points: serde_json::Value, extra: serde_json::Value) -> serde_json::Value {
@@ -1143,6 +1248,73 @@ mod tests {
         let volumes = shared_with_cube(&[rod(5.0, 5.0, -1.0), rod(6.0, 5.0, 2.0)]);
 
         assert_volumes(&volumes, &[PI * 10.0, PI * 8.0]);
+    }
+
+    /// Decides which `candidates` overlap the cube [0, 10]^3 held by `b-1`.
+    fn decide_on_cube(candidates: &[Candidate]) -> Decision {
+        let state = box_body("f-box1", [0.0, 0.0, 0.0], 10.0);
+        let fixture = Fixture::new("f-hole1").with_body("b-1", state.clone());
+        let shape = state.shape().expect("a solid");
+        cut_candidates(&fixture.context(), &id("b-1"), &state, shape, candidates)
+            .expect("the candidates are decided")
+    }
+
+    #[test]
+    fn only_tools_that_drill_the_body_leave_faces_of_their_own() {
+        let cube = named_box("f-box1", [0.0, 0.0, 0.0], 10.0);
+        let rods = [
+            rod(5.0, 5.0, -1.0),
+            rod(20.0, 20.0, 0.0),
+            rod(5.0, 5.0, 10.0),
+        ];
+        let shapes: Vec<Shape> = rods.iter().map(|rod| rod.tool.shape.clone()).collect();
+
+        let result = cut(&cube.shape, &shapes).expect("the kernel cuts");
+
+        assert_eq!(tools_with_own_faces(&result), [true, false, false]);
+    }
+
+    #[test]
+    fn the_cut_is_the_result_when_every_tool_drills_the_body() {
+        let decision = decide_on_cube(&[rod(5.0, 5.0, -1.0), rod(2.0, 2.0, 5.0)]);
+
+        assert_eq!(decision.overlaps, [true, true]);
+        let (update, warnings) = decision
+            .result
+            .expect("the cut is the result")
+            .expect("the cut applies");
+        assert!(warnings.is_empty());
+        let shape = update.shape.expect("a solid");
+        let expected = 1000.0 - PI * 10.0 - PI * 5.0;
+        assert!((shape.volume().expect("a volume") - expected).abs() < 1e-6);
+    }
+
+    #[test]
+    fn tools_without_faces_of_their_own_are_decided_by_their_shared_volume() {
+        let decision = decide_on_cube(&[
+            rod(5.0, 5.0, -1.0),
+            rod(20.0, 20.0, 0.0),
+            rod(5.0, 5.0, 10.0),
+        ]);
+
+        assert_eq!(decision.overlaps, [true, false, false]);
+        assert!(decision.result.is_none(), "the body is cut again");
+    }
+
+    #[test]
+    fn tools_that_leave_the_volume_unchanged_do_not_overlap() {
+        let decision = decide_on_cube(&[rod(5.0, 5.0, 10.0), rod(20.0, 20.0, 0.0)]);
+
+        assert_eq!(decision.overlaps, [false, false]);
+        assert!(decision.result.is_none());
+    }
+
+    #[test]
+    fn no_candidate_leaves_nothing_to_decide() {
+        let decision = decide_on_cube(&[]);
+
+        assert!(decision.overlaps.is_empty());
+        assert!(decision.result.is_none());
     }
 
     #[test]

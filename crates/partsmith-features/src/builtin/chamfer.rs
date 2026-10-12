@@ -190,7 +190,7 @@ impl Feature for Chamfer {
                 (Distances::TwoDistances { on_first, on_other }, "distance")
             }
         };
-        let selection = select_edges(context, &params.body, shape, &params.edges)?;
+        let selection = select_edges(context, &params.body, &params.edges)?;
         if selection.edges.is_empty() {
             return Ok(no_effect(&params.body, state, selection.warnings));
         }
@@ -225,11 +225,11 @@ impl Feature for Chamfer {
                 cause,
             },
         )?;
-        let naming = name_blend(context.feature(), roles::CHAMFER, state.naming(), &result)?;
+        let named = name_blend(context.feature(), roles::CHAMFER, state.naming(), &result)?;
         Ok(modified(
             &params.body,
             result.shape,
-            naming,
+            named,
             selection.warnings,
         ))
     }

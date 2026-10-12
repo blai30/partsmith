@@ -9,8 +9,8 @@ use partsmith_mesh::{Mesh, Point3, TessellationTolerance};
 use partsmith_occt_sys::{
     Axis, ElementFate, ElementGeometry, GeometryKind, KernelError, KernelErrorKind, Operation,
     PlanarCurve, PlanarLoop, PlanarProfile, PlanarRegion, Plane, Point, Point2, Primitive,
-    PrimitiveFace, Shape, SubShapeKind, SweepFace, SweepResult, TaggedCurve, Vector, make_box,
-    make_cylinder, make_profile, make_sphere,
+    PrimitiveFace, Shape, SubShapeKind, SweepFace, SweepResult, TaggedCurve, Vector, fuse,
+    make_box, make_cylinder, make_profile, make_sphere,
 };
 
 /// Default tolerance for points and vectors: "vectors and points compare within 1e-9" (section 6).
@@ -71,6 +71,77 @@ pub fn cube_c() -> Primitive {
 /// `D`: the 10 x 10 x 10 box placed at (7, 7, 7).
 pub fn cube_d() -> Primitive {
     cube_at(7.0, 7.0, 7.0)
+}
+
+/// `L` of test 102: a 40 x 20 x 10 box fused with a 20 x 20 x 10 box standing on its right
+/// half (volume 12000, 8 faces), with the index of `STEP`, the top of the low half.
+pub fn l_body() -> (Shape, u32) {
+    let low = make_box(&xy_plane_at(-20.0, -10.0, 0.0), 40.0, 20.0, 10.0)
+        .expect("the low box builds")
+        .shape;
+    let high = make_box(&xy_plane_at(0.0, -10.0, 10.0), 20.0, 20.0, 10.0)
+        .expect("the high box builds")
+        .shape;
+    let body = fuse(&low, &[high]).expect("the boxes fuse").shape;
+    assert_relative(volume(&body), 12000.0, 1e-9, "L volume");
+    assert_eq!(body.count(SubShapeKind::Face), 8);
+    let step = planar_face(
+        &body,
+        Vector::new(0.0, 0.0, 1.0),
+        Point::new(-10.0, 0.0, 10.0),
+    );
+    assert_relative(
+        geometry(&body, SubShapeKind::Face, step).measure,
+        400.0,
+        1e-9,
+        "STEP area",
+    );
+    (body, step)
+}
+
+/// The planar face of a shape with the given direction and centroid.
+pub fn planar_face(shape: &Shape, direction: Vector, centroid: Point) -> u32 {
+    faces_of_kind(shape, GeometryKind::Plane)
+        .into_iter()
+        .find(|face| {
+            let element = geometry(shape, SubShapeKind::Face, *face);
+            element.direction.is_some_and(|actual| {
+                (actual.x - direction.x).abs() <= POINT_TOLERANCE
+                    && (actual.y - direction.y).abs() <= POINT_TOLERANCE
+                    && (actual.z - direction.z).abs() <= POINT_TOLERANCE
+            }) && element.centroid.distance(centroid) <= POINT_TOLERANCE
+        })
+        .unwrap_or_else(|| panic!("no planar face along {direction:?} at {centroid:?}"))
+}
+
+/// `BOX` read back from its BRep bytes with its corner (10, 20, 30) moved to (10, 20, 30.001),
+/// 1 um away from the ends of its three edges, so the box is invalid there (section 3.5).
+pub fn box_with_displaced_corner() -> Shape {
+    let mut bytes = box_primitive().shape.to_brep().expect("BOX serializes");
+    // A vertex is stored as its tolerance and then its coordinates, little endian.
+    let mut corner = Vec::new();
+    for value in [1e-7, 10.0, 20.0, 30.0] {
+        corner.extend_from_slice(&f64::to_le_bytes(value));
+    }
+    let positions: Vec<usize> = bytes
+        .windows(corner.len())
+        .enumerate()
+        .filter(|(_, window)| *window == corner.as_slice())
+        .map(|(position, _)| position)
+        .collect();
+    assert_eq!(
+        positions.len(),
+        1,
+        "BOX stores its corner (10, 20, 30) once"
+    );
+    let height = positions[0] + 24;
+    bytes[height..height + 8].copy_from_slice(&f64::to_le_bytes(30.001));
+    let corrupted = Shape::from_brep(&bytes).expect("the changed bytes still read");
+    assert!(
+        !corrupted.is_valid().expect("validity check"),
+        "the displaced corner makes BOX invalid"
+    );
+    corrupted
 }
 
 /// The cylinder of test 10: radius 5 and height 10 on `Plane::XY`.

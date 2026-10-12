@@ -1,10 +1,18 @@
 import { clsx } from 'clsx/lite'
 import { X } from 'lucide-react'
-import { useId, useRef, useState } from 'react'
-import { capturePick, setActiveField, setCommandField } from '../../app/actions/command'
+import { useEffect, useId, useRef, useState } from 'react'
+import {
+  capturePick,
+  chooseNewBody,
+  setActiveField,
+  setCommandField,
+  setHoveredField,
+} from '../../app/actions/command'
 import { useApp, useAppState } from '../../app/AppProvider'
 import { featureLabel } from '../../core/labels'
 import { Button } from '../../components/Button'
+import { describedBy } from '../../components/described-by'
+import { HelpLabel } from '../../components/HelpLabel'
 import { IconButton } from '../../components/IconButton'
 import { Menu, type MenuEntry } from '../../components/Menu'
 import type { SelectionKind } from '../../generated/protocol'
@@ -12,7 +20,7 @@ import type { AppState, SelectionItem } from '../../state/store'
 import { COLOR_CLASSES } from '../../theme/roles'
 import { isSessionVisible } from '../../viewport/scene'
 import { formatArea } from '../area'
-import type { InspectorField } from '../model'
+import { bodyCreatingTarget, type InspectorField } from '../model'
 import { itemsFromValue, originItem } from '../selection-values'
 import { fieldInputId } from './field-id'
 
@@ -60,18 +68,29 @@ function candidate(
   }
 }
 
+/** The placeholder of an empty box (3.7); point and multiple edge fields also take faces. */
+function placeholder(accepts: SelectionKind, multiple: boolean): string {
+  if (accepts === 'sketch_point') {
+    return 'Click a flat face or pick sketch points'
+  }
+  if (accepts === 'edge' && multiple) {
+    return 'Select edges or a face'
+  }
+  const noun = NOUNS[accepts]
+  return `Select ${multiple ? noun.plural : noun.single}`
+}
+
 /** The text of the box: the placeholder, the one item's label, or a count. */
 function selectionText(
   accepts: SelectionKind,
   multiple: boolean,
   items: readonly SelectionItem[],
 ): string {
-  const noun = NOUNS[accepts]
   const [first] = items
   if (items.length === 0 || first === undefined) {
-    return `Select ${multiple ? noun.plural : noun.single}`
+    return placeholder(accepts, multiple)
   }
-  return items.length === 1 ? first.label : `${String(items.length)} ${noun.plural}`
+  return items.length === 1 ? first.label : `${String(items.length)} ${NOUNS[accepts].plural}`
 }
 
 /** The items a field can choose from without a pointer, in a stable order. */
@@ -79,6 +98,7 @@ function candidatesFor(
   state: AppState,
   accepts: SelectionKind,
   value: unknown,
+  createsBody: boolean,
 ): readonly SelectionItem[] {
   const document = state.document
   if (document === null) {
@@ -88,8 +108,10 @@ function candidatesFor(
   const features = recipe.features ?? []
   switch (accepts) {
     case 'body':
+      // A body-creating target must be empty, so it lists bodies without geometry (2.12).
       return (recipe.bodies ?? [])
-        .filter((body) => document.meshes[body.id] !== undefined)
+        .filter((body) => (document.meshes[body.id] !== undefined) !== createsBody)
+        .filter((body) => body.id !== state.command?.newBody?.id)
         .map((body) => candidate(`body:${body.id}`, 'body', body.name, { body: body.id }))
     case 'sketch':
       return features
@@ -151,12 +173,6 @@ function candidatesFor(
   }
 }
 
-/** The ids of the box's descriptions that are shown, or undefined when none is. */
-function describedBy(...ids: readonly (string | null)[]): string | undefined {
-  const shown = ids.filter((id) => id !== null)
-  return shown.length === 0 ? undefined : shown.join(' ')
-}
-
 export type SelectionFieldProps = {
   readonly field: InspectorField
   readonly accepts: SelectionKind
@@ -178,9 +194,27 @@ export function SelectionField({
   const textId = useId()
   const errorId = useId()
   const hintId = useId()
+  const helpId = useId()
   const chooseButton = useRef<HTMLButtonElement>(null)
   const [choosing, setChoosing] = useState(false)
   const active = useAppState((state) => state.command?.activeField === field.path)
+  const path = field.path
+  // A box that goes away under the pointer (More options closing) stops highlighting its items.
+  useEffect(
+    () => () => {
+      if (app.store.getState().command?.hoveredField === path) {
+        setHoveredField(app, null)
+      }
+    },
+    [app, path],
+  )
+  const newBody = useAppState((state) => state.command?.newBody ?? null)
+  // A body-creating target lists "New body" first in its Choose menu (2.12, 3.7).
+  const createsBody = useAppState((state) => {
+    const feature =
+      state.command === null ? undefined : state.catalog?.byType[state.command.featureType]
+    return field.path === 'target' && feature !== undefined && bodyCreatingTarget(feature) !== null
+  })
   // Why the field refused the last pick, for 3 s (3.7).
   const pickHint = useAppState((state) =>
     state.pickHint?.field === field.path ? state.pickHint.message : null,
@@ -192,7 +226,11 @@ export function SelectionField({
   const state = app.store.getState()
   const items = itemsFromValue(accepts, field.value, state, siblings)
   const empty = items.length === 0
-  const text = selectionText(accepts, multiple, items)
+  // A field set to the body this command creates names it as new (3.7).
+  const text =
+    newBody !== null && field.value === newBody.id
+      ? `${newBody.name} (new)`
+      : selectionText(accepts, multiple, items)
   const invalid = statusMessage !== null || field.error !== null
   const message = statusMessage ?? field.error ?? ''
 
@@ -200,8 +238,8 @@ export function SelectionField({
     setActiveField(app, field.path)
   }
 
-  const choices: readonly MenuEntry[] = CHOOSABLE.has(accepts)
-    ? candidatesFor(state, accepts, field.value).map((item) => ({
+  const candidates: readonly MenuEntry[] = CHOOSABLE.has(accepts)
+    ? candidatesFor(state, accepts, field.value, createsBody).map((item) => ({
         kind: 'item',
         label: item.label,
         onSelect: () => {
@@ -212,15 +250,33 @@ export function SelectionField({
         },
       }))
     : []
+  const choices: readonly MenuEntry[] = createsBody
+    ? [
+        {
+          kind: 'item',
+          label: 'New body',
+          onSelect: () => {
+            chooseNewBody(app, field.path)
+          },
+        },
+        ...candidates,
+      ]
+    : candidates
 
   return (
     <div className="flex min-w-0 flex-col gap-1">
-      <span
-        id={labelId}
-        className={clsx('text-xs font-medium', COLOR_CLASSES.textMuted.foreground)}
-      >
-        {field.label}
-      </span>
+      <HelpLabel help={field.help} helpId={helpId}>
+        <span
+          id={labelId}
+          className={clsx(
+            'self-start text-xs font-medium',
+            COLOR_CLASSES.textMuted.foreground,
+            field.help !== null && 'cursor-help',
+          )}
+        >
+          {field.label}
+        </span>
+      </HelpLabel>
       <div className="flex min-w-0 items-center gap-2">
         <button
           type="button"
@@ -235,9 +291,17 @@ export function SelectionField({
           aria-describedby={describedBy(
             message === '' ? null : errorId,
             pickHint === null ? null : hintId,
+            field.help === null ? null : helpId,
           )}
           aria-pressed={active}
           onClick={activate}
+          onPointerEnter={() => {
+            // Hovering the box highlights its items in the viewport (3.7).
+            setHoveredField(app, field.path)
+          }}
+          onPointerLeave={() => {
+            setHoveredField(app, null)
+          }}
           className={clsx(
             'flex h-8 min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-sm border px-2 text-left text-sm',
             COLOR_CLASSES.field.background,

@@ -18,6 +18,7 @@ import { createFakeFileHandle } from '../test/fakes/files'
 import { elementItem } from '../test/fakes/selection'
 import { settle } from '../test/fakes/settle'
 import { CoreFatalError } from '../core/transport'
+import { selectOriginVisible } from '../state/selectors'
 import { createAppStore } from '../state/store'
 import { startFeatureCommand } from './actions/command'
 import { applyEdits, save, startCore } from './actions/document'
@@ -406,7 +407,7 @@ describe('restartCore (4.4)', () => {
     await settle()
     expect(fake.transport.commandTypes()).toContain('new_document')
     expect(currentDocument(fake.app)).toMatchObject({ name: 'Untitled', localUnsaved: false })
-    expect(fake.app.store.getState().view.sessionVisible['origin:XY']).toBe(false)
+    expect(selectOriginVisible(fake.app.store.getState(), 'origin:XY')).toBe(false)
     expect(fake.app.store.getState().core.status).toBe('ready')
   })
 

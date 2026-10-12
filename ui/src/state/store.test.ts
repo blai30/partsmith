@@ -24,14 +24,21 @@ describe('INITIAL_STATE', () => {
     expect(INITIAL_STATE.sketch).toBeNull()
   })
 
-  it('has no print report and the overhang map on', () => {
+  it('has no print report, the overhang map on, and prints as modeled without a face pick', () => {
     expect(INITIAL_STATE.print).toEqual({
       report: null,
       reportRevision: null,
+      reportOrientation: null,
       running: false,
       overhangMap: true,
       focusedFinding: null,
+      orientation: null,
+      pickingFace: false,
     })
+  })
+
+  it('has no feature command to repeat', () => {
+    expect(INITIAL_STATE.lastFeatureType).toBeNull()
   })
 
   it('views in perspective from iso with faces, edges and vertices selectable and bodies not, grid on', () => {

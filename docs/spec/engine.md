@@ -153,6 +153,8 @@ impl Session {
     pub fn set_tessellation(&mut self, doc: DocHandle, quality: TessellationQuality) -> Result<TessellationTolerance, EngineError>;
     /// The resolved tessellation tolerance for a quality (3.7); no side effects.
     pub fn tolerance(&self, doc: DocHandle, quality: TessellationQuality) -> Result<TessellationTolerance, EngineError>;
+    /// The id of the document's resolved printer profile (3.7); no side effects.
+    pub fn printer_profile(&self, doc: DocHandle) -> Result<String, EngineError>;
     /// Elements of a body at the display state.
     pub fn list_elements(&mut self, doc: DocHandle, body: &Id, kind: Option<ElementKind>) -> Result<Vec<ElementDescriptor>, EngineError>;
     /// Converts a pick in a current model-layer mesh into an element descriptor.
@@ -365,7 +367,7 @@ Sketch and datum events are not emitted for `suppressed` or `rolled_back` featur
 
 ### 3.7 Tessellation tolerances
 
-- **Profile resolution.** The document's resolved profile is the session profile with the document's `printer` id, else the built-in profile with that id, else the default FDM profile from print.md (also used when `printer` is `None`).
+- **Profile resolution.** The document's resolved profile is the session profile with the document's `printer` id, else the built-in profile with that id, else the default FDM profile from print.md (also used when `printer` is `None`). `printer_profile(doc)` returns its id, so a host reports the profile in effect without resolving it itself (the CLI's `printer`, cli.md 3.3).
 - **Base tolerance.** `chord = layer_height / 4` (mm) and `angle = 5°` (`0.08726646259971647` rad), from the resolved profile.
 - **Quality.** `draft` multiplies the chord by 4 and the angle by 2; `standard` by 1; `fine` multiplies both by 0.5. The chord is then clamped to `[0.001, 1.0]` mm.
 - Each document has a display quality, initially `SessionOptions::tessellation`; `set_tessellation` changes it, re-tessellates every body in both layers, emits `body_mesh` for every body with a mesh in each layer (new mesh ids), and returns the resolved tolerance. It is not a recipe change and is not undoable.
@@ -375,7 +377,7 @@ Sketch and datum events are not emitted for `suppressed` or `rolled_back` featur
 
 ### 3.8 Display meshes and element ids
 
-For each body with geometry at the display state, the engine takes from recompute the body's shape, its `NamingMap` and its `ElementInfo` list, and builds the **element table**:
+For each body with geometry at the display state, the engine takes from recompute the body's shape, its `NamingMap` and its topology (`BodyState::topology`: adjacency and fingerprints, which the feature that built the state usually carries, features.md 2.7), and builds the **element table**, which shares that topology:
 
 - **Faces:** every face, sorted by element name (byte order). The display face id is the position in this list.
 - **Edges:** every named edge except seam edges (edges with one distinct adjacent face, named `edge(<face>)` by naming.md), sorted by element name. Degenerate edges are unnamed and never displayed. The display edge id is the position.
@@ -392,6 +394,7 @@ The engine keeps the element table of the latest model-layer mesh of each body. 
 - `list_elements` fails with `unknown_body` or `body_empty`. It returns `ElementDescriptor`s in element-table order: faces, then edges, then vertices, filtered by `kind` when given. Element `i` of a kind has display id `i` in the body's current model-layer mesh.
 - Each descriptor holds the element name, its `Reference` (built by partsmith-naming from the name and the fingerprint of the element at the display state), and the geometry fields of protocol.md 2.4 from the kernel's element queries: `centroid`, `area` or `length`, `surface` or `curve`, `normal` (outward, planar faces), `direction` (line edges, first vertex to last), `axis` (cylinder, cone and torus faces, circle edges), `radius` (cylinder and sphere faces, circle edges), `placement` (planar faces: `Placement::on_plane(centroid, normal, &OriginPlane::Xy.placement())` from sketch.md, so a sketch on the top face of a box standing on XY has its origin above the model origin and its x axis along +X), and `adjacent` names (faces: their displayed edges; edges: their faces then their displayed vertices; vertices: their displayed edges; each group sorted by name).
 - `feature`: for a face, the feature of the last `@<feature>:<n>` instance suffix of its name when present, else the feature id that starts its name; for an edge or vertex, the latest in timeline order among the `feature`s of its adjacent faces.
+- Names, `adjacent`, `feature` and `reference` come from the element table and its topology; only the geometry fields query the kernel: `list_elements` once per kind for the whole table (its descriptors are then kept with the table), `pick_reference` for the picked element only.
 - `pick_reference` fails with `preview_not_pickable` when `mesh_id` names a preview mesh, `stale_pick` when it names any mesh that is not the latest model-layer mesh of its body (or was never issued), and `invalid_pick` when `index` is not below the mesh's count for `kind`. Otherwise it returns the descriptor of that element, identical to the corresponding `list_elements` entry.
 - `resolve_references` resolves each `ElementRef` with the partsmith-naming resolver against the element set of its body at the display state (`resolved`, `ambiguous`, `missing`; a body without geometry gives `missing`, and an unknown body fails with `unknown_body`). Matches are `MeshElement`s with the body's current model-layer `mesh_id` and the element's display id; in headless sessions `mesh_id` is 0 and `index` is the element's position in `list_elements` order. Matches are sorted by kind, then index.
 
@@ -508,7 +511,7 @@ pub enum EngineError {
     #[error("The request is not valid: {detail}")] MalformedRequest { detail: String },
     #[error("Document {doc} is not open.")] UnknownDocument { doc: DocHandle },
     #[error("This document hit an internal error. Save it and reopen it to continue.")] DocumentPoisoned { doc: DocHandle },
-    #[error("The file is not a valid Partsmith document: {detail}")] Parse { detail: String, line: Option<u32>, column: Option<u32> },
+    #[error("The file is not a valid Partsmith document: {detail}")] Parse { detail: String, line: Option<u32>, column: Option<u32>, path: Option<String> },
     #[error("This file needs a newer Partsmith (format version {found}; this version reads up to 1).")] UnsupportedFormatVersion { found: u32 },
     #[error("Asset {name} does not match its content hash.")] AssetMismatch { name: String },
     #[error("Finish or cancel \"{label}\" first.")] TransactionOpen { label: String },
@@ -556,6 +559,8 @@ impl EngineError {
     pub fn to_info(&self) -> ErrorInfo;
 }
 ```
+
+`Parse` carries the position of the problem exactly as `validate` reports the same text (3.19 step 1): `line` and `column` for JSON syntax errors and repeated keys, and `path`, the JSON Pointer of the field (for example `/bodies/0/id`), for structure errors that name one (model.md `LoadError::Invalid`). So a host reports a document that does not load with its position from the error alone, without validating the text again. Neither travels on the wire: `ErrorInfo` has the message only.
 
 `ExportFailed` and `ImportFailed` embed a partsmith-io error: `detail` is its `Display` text unchanged (io.md section 4, which passes kernel messages through), always one or more complete sentences ending with a period, so the message reads as a short lead sentence followed by the cause, for example `Export failed. Body "Ghost" has no triangles to export.` and `Import failed. The file is not a valid STEP file.` The engine never lowercases, trims or rewords `detail`.
 
@@ -728,6 +733,8 @@ Tests live in `crates/partsmith-engine/tests/`. "Session" means `Session::new(Se
 110. `format` of `box.ptsm` re-indented with 4 spaces returns the canonical fixture text; `format` of the `wedge_v9` document of test 11 keeps that feature's params as loaded; `format` of `{"format": "partsmith",` fails with `parse_error`.
 111. On `box.ptsm`, `tolerance(doc, Standard)` returns chord 0.05 and angle 0.08726646259971647, equal to what `set_tessellation` `standard` returns, and emits nothing.
 112. On `two-bodies.ptsm` with `set_rollback` `f-cyl1`, `import_step` of the STEP bytes of test 89 inserts the `import` feature at index 1 (before `f-cyl1`) with params `body`, `asset` and `op` `new`, in that order; the rollback stays `f-cyl1`, the import feature's status is `ok` and `f-cyl1` is `rolled_back`.
+113. On `box.ptsm`, `printer_profile` returns `generic-fdm`; after `set_printer` `generic-resin` it returns `generic-resin`; after `set_printer` `nope` it returns `generic-fdm`; after `put_printer_profile` of a valid FDM profile with id `nope` it returns `nope`. Asking changes nothing: the revision stays the same.
+114. `open_document` of `box.ptsm` with body id `b 1` fails with `parse_error` whose `path` is `/bodies/0/id` and whose `line` and `column` are absent; `open_document` of `{"format": "partsmith",` fails with `parse_error` with `line` 1, a `column` and no `path`. For both texts, `format` fails with the same error, and the `line`, `column` and `path` of the error equal those of the single diagnostic `validate` reports.
 
 ## 7. Open issues
 

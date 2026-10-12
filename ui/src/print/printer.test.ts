@@ -76,6 +76,12 @@ describe('healthProfileName', () => {
 })
 
 describe('printerDetail', () => {
+  it('U-121 gives generic-fdm "256 × 256 × 256 mm bed · 0.4 mm nozzle" and a round bed its diameter', () => {
+    expect(printerDetail(GENERIC_FDM)).toBe('256 × 256 × 256 mm bed · 0.4 mm nozzle')
+    const round = { ...GENERIC_FDM, bed: { kind: 'circle', diameter: 180, height: 180 } } as const
+    expect(printerDetail(round)).toBe('⌀180 × 180 mm bed · 0.4 mm nozzle')
+  })
+
   it('gives an FDM profile its bed and nozzle', () => {
     expect(printerDetail(GENERIC_FDM)).toBe('256 × 256 × 256 mm bed · 0.4 mm nozzle')
     expect(printerDetail(MY_MK4)).toBe('250 × 210 × 220 mm bed · 0.4 mm nozzle')
@@ -111,6 +117,10 @@ describe('printerDetail', () => {
 })
 
 describe('printerLabel and printerButtonText', () => {
+  it('U-121 printerButtonText for a document without a printer is "Printer: Generic FDM 0.4 mm (default)"', () => {
+    expect(printerButtonText(PRINTERS, null)).toBe('Printer: Generic FDM 0.4 mm (default)')
+  })
+
   it("name the document's printer", () => {
     expect(printerLabel(PRINTERS, 'my-mk4')).toBe('My MK4')
     expect(printerButtonText(PRINTERS, 'my-mk4')).toBe('Printer: My MK4')

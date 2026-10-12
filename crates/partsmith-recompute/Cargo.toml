@@ -23,6 +23,9 @@ proptest.workspace = true
 schemars.workspace = true
 serde.workspace = true
 
+[features]
+stability-study = []
+
 [[bench]]
 name = "budgets"
 harness = false

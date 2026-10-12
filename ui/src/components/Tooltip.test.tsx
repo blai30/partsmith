@@ -197,3 +197,87 @@ describe('Tooltip pointer and focus details', () => {
     expect(ids?.split(' ')[0]).toBe('state')
   })
 })
+
+describe('Tooltip with a description (3.24)', () => {
+  it('shows the description on a second line in the muted text role', async () => {
+    const user = userEvent.setup({
+      advanceTimers: (delay) => {
+        vi.advanceTimersByTime(delay)
+      },
+    })
+    render(
+      <Tooltip label="Shell" description="Hollows out a body.">
+        <button type="button">Shell</button>
+      </Tooltip>,
+    )
+    await user.hover(screen.getByRole('button', { name: 'Shell' }))
+    advance(500)
+    const description = screen.getByText('Hollows out a body.')
+    expect(shownTooltip()).toContainElement(description)
+    expect(description).toHaveClass(...COLOR_CLASSES.textMuted.foreground.split(' '))
+    expect(description.parentElement).toBe(shownTooltip())
+    expect(shownTooltip()?.firstElementChild).toHaveTextContent('Shell')
+  })
+})
+
+describe('Tooltip without a label', () => {
+  it('shows nothing and adds no description, keeping the same trigger element when the label comes and goes', async () => {
+    const user = userEvent.setup({
+      advanceTimers: (delay) => {
+        vi.advanceTimersByTime(delay)
+      },
+    })
+    const { rerender } = render(
+      <Tooltip label="New sketch">
+        <button type="button">Sketch</button>
+      </Tooltip>,
+    )
+    const trigger = screen.getByRole('button', { name: 'Sketch' })
+    expect(trigger).toHaveAccessibleDescription('New sketch')
+    rerender(
+      <Tooltip label={null}>
+        <button type="button">Sketch</button>
+      </Tooltip>,
+    )
+    expect(screen.getByRole('button', { name: 'Sketch' })).toBe(trigger)
+    expect(trigger).not.toHaveAttribute('aria-describedby')
+    await user.hover(trigger)
+    advance(500)
+    expect(shownTooltip()).toBeNull()
+    expect(document.querySelector('[role="tooltip"]')).toBeNull()
+  })
+})
+
+/** A tooltip on a "Sketch" button. */
+function tooltipFor(label: string | null) {
+  return (
+    <Tooltip label={label}>
+      <button type="button">Sketch</button>
+    </Tooltip>
+  )
+}
+
+describe('Tooltip whose label goes away while shown', () => {
+  it('closes, stays closed when a label returns, and opens on the next hover', async () => {
+    const user = userEvent.setup({
+      advanceTimers: (delay) => {
+        vi.advanceTimersByTime(delay)
+      },
+    })
+    const { rerender } = render(tooltipFor('New sketch'))
+    await user.hover(screen.getByRole('button', { name: 'Sketch' }))
+    advance(500)
+    expect(shownTooltip()).toHaveTextContent('New sketch')
+    rerender(tooltipFor(null))
+    expect(shownTooltip()).toBeNull()
+    rerender(tooltipFor('Edit Sketch 1'))
+    advance(500)
+    expect(shownTooltip()).toBeNull()
+    const trigger = screen.getByRole('button', { name: 'Sketch' })
+    await user.unhover(trigger)
+    advance(100)
+    await user.hover(trigger)
+    advance(500)
+    expect(shownTooltip()).toHaveTextContent('Edit Sketch 1')
+  })
+})

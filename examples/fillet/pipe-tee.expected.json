@@ -1,0 +1,253 @@
+{
+  "printer": "generic-fdm",
+  "features": [
+    {
+      "id": "f-cyl1",
+      "type": "cylinder",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-cyl2",
+      "type": "cylinder",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-fil1",
+      "type": "fillet",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-fil2",
+      "type": "fillet",
+      "status": "warning",
+      "messages": [
+        {
+          "severity": "warning",
+          "code": "ignored",
+          "message": "One of the edges selected for Edges is smooth (its faces meet without a corner), so it was skipped.",
+          "field": "/edges"
+        },
+        {
+          "severity": "warning",
+          "code": "no_effect",
+          "message": "This feature does not change body 'Body 1'. Check its position, size and direction."
+        }
+      ]
+    }
+  ],
+  "parameters": [],
+  "bodies": [
+    {
+      "id": "b-1",
+      "name": "Body 1",
+      "volume": 20616.73247172214,
+      "area": 4979.666004924609,
+      "center_of_mass": [
+        -1.1066675354371819e-6,
+        1.1675253970457573e-6,
+        1.4728510470999046
+      ],
+      "bounding_box": {
+        "min": [
+          -30.0000001,
+          -10.0000001,
+          -10.0000001
+        ],
+        "max": [
+          30.0000001,
+          10.0000001,
+          25.0000001
+        ]
+      },
+      "faces": 6,
+      "edges": 5,
+      "vertices": 5
+    }
+  ],
+  "checks": {
+    "profile": "generic-fdm",
+    "orientation": {
+      "kind": "as_modeled"
+    },
+    "summary": {
+      "health": "warning",
+      "errors": 0,
+      "warnings": 3,
+      "infos": 0,
+      "label": "3 warnings"
+    },
+    "bodies": [
+      {
+        "body": "b-1",
+        "transform": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          128.0,
+          128.0,
+          10.0,
+          1.0
+        ],
+        "report": {
+          "profile": "generic-fdm",
+          "rotation": {
+            "rows": [
+              [
+                1.0,
+                0.0,
+                0.0
+              ],
+              [
+                0.0,
+                1.0,
+                0.0
+              ],
+              [
+                0.0,
+                0.0,
+                1.0
+              ]
+            ]
+          },
+          "health": "warning",
+          "checks": [
+            {
+              "check": "mesh_validity",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "bed_fit",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "first_layer_contact",
+              "status": "warning",
+              "findings": [
+                {
+                  "check": "first_layer_contact",
+                  "code": "low_bed_contact",
+                  "severity": "warning",
+                  "message": "Only 4.4% of the part's footprint touches the bed (less than 5%). Lay a larger flat face on the bed or add a brim.",
+                  "location": {
+                    "kind": "bounds",
+                    "min": [
+                      -30.0,
+                      -0.4361938736534057,
+                      -10.0
+                    ],
+                    "max": [
+                      30.0,
+                      0.4361938736533133,
+                      -9.990482215818576
+                    ]
+                  },
+                  "value": 0.04362977006912219,
+                  "limit": 0.05,
+                  "faces": [
+                    1
+                  ]
+                }
+              ],
+              "omitted": 0
+            },
+            {
+              "check": "islands",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "overhangs",
+              "status": "warning",
+              "findings": [
+                {
+                  "check": "overhangs",
+                  "code": "overhang",
+                  "severity": "warning",
+                  "message": "Overhang steeper than 45 degrees over 445 mm². Add supports, add a chamfer, or reorient the part.",
+                  "location": {
+                    "kind": "bounds",
+                    "min": [
+                      -30.0,
+                      -7.071067811865501,
+                      -9.990482215818576
+                    ],
+                    "max": [
+                      30.0,
+                      -0.4361938736534057,
+                      -7.071067811865449
+                    ]
+                  },
+                  "value": 1.5053464798451037,
+                  "limit": 0.7853981633974483,
+                  "faces": [
+                    1
+                  ]
+                },
+                {
+                  "check": "overhangs",
+                  "code": "overhang",
+                  "severity": "warning",
+                  "message": "Overhang steeper than 45 degrees over 445 mm². Add supports, add a chamfer, or reorient the part.",
+                  "location": {
+                    "kind": "bounds",
+                    "min": [
+                      -30.0,
+                      0.4361938736533133,
+                      -9.99048221581858
+                    ],
+                    "max": [
+                      30.0,
+                      7.0710678118654355,
+                      -7.071067811865515
+                    ]
+                  },
+                  "value": 1.505346479845114,
+                  "limit": 0.7853981633974483,
+                  "faces": [
+                    1
+                  ]
+                }
+              ],
+              "omitted": 0
+            },
+            {
+              "check": "thin_walls",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "small_features",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "trapped_volumes",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

@@ -1,5 +1,5 @@
 //! Acceptance tests for tessellation into `partsmith_mesh::Mesh` (kernel spec sections 2.11, 3.7
-//! and tests 71 to 77).
+//! and tests 71 to 77 and 113).
 
 mod common;
 
@@ -324,4 +324,71 @@ fn box_faces_do_not_share_mesh_vertices() {
         }
     }
     assert!(faces_of_vertex.iter().all(|faces| faces.len() <= 1));
+}
+
+/// Test 113: OCCT's mesher picks its algorithm from the `CSF_MeshAlgo` environment variable
+/// unless the caller names one; the facade names one, so child processes started with the
+/// variable set to either algorithm mesh identically. WebAssembly tests cannot start processes.
+#[cfg(not(target_os = "emscripten"))]
+mod environment {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+
+    use partsmith_occt_sys::{EdgeRadius, fillet};
+
+    use crate::common::{OPT, box_primitive, sphere_primitive};
+
+    /// Set in the child process of `t113_meshes_do_not_depend_on_the_environment`.
+    const PROBE_VARIABLE: &str = "PARTSMITH_OCCT_SYS_MESH_PROBE";
+    /// The start of the line the child writes.
+    const LINE_PREFIX: &str = "<<meshes>> ";
+
+    /// A digest of the meshes of the result of test 45 and of the sphere of test 11 with `OPT`.
+    /// `DefaultHasher::new` uses fixed keys, so the same binary gives the same digest anywhere.
+    fn meshes_line() -> String {
+        let edges: Vec<EdgeRadius> = (1..=12)
+            .map(|edge| EdgeRadius { edge, radius: 1.0 })
+            .collect();
+        let rounded = fillet(&box_primitive().shape, &edges)
+            .expect("every edge rounds")
+            .shape;
+        let meshes = [rounded, sphere_primitive().shape]
+            .map(|shape| format!("{:?}", shape.tessellate(&OPT).expect("meshed")));
+        let mut hasher = DefaultHasher::new();
+        meshes.hash(&mut hasher);
+        format!("{LINE_PREFIX}{:016x}", hasher.finish())
+    }
+
+    #[test]
+    fn t113_meshes_do_not_depend_on_the_environment() {
+        if std::env::var_os(PROBE_VARIABLE).is_some() {
+            println!("{}", meshes_line());
+            return;
+        }
+        let expected = meshes_line();
+        let test_binary = std::env::current_exe().expect("the path of the test binary");
+
+        // Each of OCCT's two algorithms in turn, so one of them differs from the facade's.
+        for algorithm in ["watson", "delabella"] {
+            let output = std::process::Command::new(&test_binary)
+                .args([
+                    "environment::t113_meshes_do_not_depend_on_the_environment",
+                    "--exact",
+                    "--nocapture",
+                    "--test-threads=1",
+                ])
+                .env(PROBE_VARIABLE, "1")
+                .env("CSF_MeshAlgo", algorithm)
+                .output()
+                .expect("the test binary runs again");
+
+            assert!(output.status.success(), "the child run failed: {output:?}");
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let line = stdout
+                .lines()
+                .find_map(|line| line.find(LINE_PREFIX).map(|start| &line[start..]))
+                .unwrap_or_else(|| panic!("the child wrote its meshes: {stdout:?}"));
+            assert_eq!(line, expected, "CSF_MeshAlgo={algorithm}");
+        }
+    }
 }

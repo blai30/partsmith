@@ -1,6 +1,8 @@
 import type { LucideIcon } from 'lucide-react'
 import { notify } from '../app/actions/notifications'
+import { recordPaletteRecent } from '../app/actions/settings'
 import type { App, Platform } from '../app/createApp'
+import type { MessageId } from '../messages'
 import type { AppContext } from '../state/store'
 import { chordToString, parseShortcut, type Chord } from './shortcuts'
 
@@ -19,20 +21,46 @@ export type CommandCategory =
 
 export type Availability =
   | { readonly state: 'enabled' }
-  | { readonly state: 'disabled'; readonly reason: string }
+  | {
+      readonly state: 'disabled'
+      readonly reason: string
+      /** The 4.3 message id of the reason, which its notification carries as `data-code` (2.8). */
+      readonly code?: MessageId
+    }
   | { readonly state: 'hidden' }
 
+/** An availability that says why its command cannot run. */
+export type DisabledAvailability = Extract<Availability, { readonly state: 'disabled' }>
+
+/** A disabled availability whose reason is the 4.3 message `code`. */
+export function disabledWith(code: MessageId, reason: string): DisabledAvailability {
+  return { state: 'disabled', reason, code }
+}
+
 export type InvocationSource = 'toolbar' | 'palette' | 'shortcut' | 'menu' | 'inspector'
+
+/**
+ * A search word. A tagged word is another app's name for the command (`COMMAND_KEYWORDS`, 2.10),
+ * shown as "{app}: {word}" in the palette when it matched.
+ */
+export type Keyword = string | { readonly word: string; readonly app: 'Fusion' | 'FreeCAD' }
 
 export type CommandDefinition = {
   /** Unique id, for example 'file.save' or 'feature.extrude'. */
   readonly id: string
   readonly title: string
+  /** The title as shown now when it names the state, such as "Repeat Fillet" (3.5); absent means `title`. */
+  label?(app: App): string
   readonly category: CommandCategory
   /** lucide-react icon component, or null. */
   readonly icon: LucideIcon | null
-  /** Extra search words, for example ['pad', 'pocket']. */
-  readonly keywords: readonly string[]
+  /** Extra search words from `COMMAND_KEYWORDS`; a tagged word is shown as "{app}: {word}" when it matched. */
+  readonly keywords: readonly Keyword[]
+  /**
+   * At most two short plain sentences, 120 characters in all, ending with a period, saying what the
+   * command does (2.10). Required for feature commands, sketch tools, Finish sketch and constraints.
+   */
+  readonly description?: string
   /** Shortcut specs (ui.md 2.10); the first is the one displayed. */
   readonly shortcuts: readonly string[]
   /** Contexts in which the command is listed in the palette and its shortcuts are active. */
@@ -149,10 +177,19 @@ export function createCommandRegistry(): CommandRegistry {
       }
       const availability = definition.availability(app)
       if (availability.state === 'disabled') {
-        notify(app, { severity: 'info', message: availability.reason, actions: [] })
+        notify(app, {
+          severity: 'info',
+          message: availability.reason,
+          actions: [],
+          ...(availability.code === undefined ? {} : { code: availability.code }),
+        })
         return
       }
       if (availability.state === 'enabled') {
+        // A feature command run from anywhere is a recent palette item too; the palette records its own (3.4).
+        if (source !== 'palette' && definition.id.startsWith('feature.')) {
+          recordPaletteRecent(app, definition.id)
+        }
         await definition.run(app, source)
       }
     },

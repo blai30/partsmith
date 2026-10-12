@@ -106,12 +106,15 @@ pub enum CliError {
 }
 
 impl CliError {
-    /// The load error of the document at `path` for an engine error, with the line and column of
-    /// a JSON syntax error.
+    /// The load error of the document at `path` for an engine error, with the line, column and
+    /// JSON Pointer a parse error carries, so it equals the diagnostic `validate` reports for the
+    /// same text (engine.md section 4).
     pub fn load(path: String, error: &EngineError) -> CliError {
-        let (line, column) = match error {
-            EngineError::Parse { line, column, .. } => (*line, *column),
-            _ => (None, None),
+        let (line, column, pointer) = match error {
+            EngineError::Parse {
+                line, column, path, ..
+            } => (*line, *column, path.clone()),
+            _ => (None, None, None),
         };
         let diagnostic = ValidationDiagnostic {
             severity: Severity::Error,
@@ -119,7 +122,7 @@ impl CliError {
             message: error.to_string(),
             line,
             column,
-            path: None,
+            path: pointer,
         };
         CliError::Load { path, diagnostic }
     }
@@ -190,6 +193,7 @@ mod tests {
                 detail: "EOF while parsing an object at line 1 column 23.".to_owned(),
                 line: Some(1),
                 column: Some(23),
+                path: None,
             },
         )
     }
@@ -257,6 +261,22 @@ mod tests {
         assert_eq!(error.code(), "parse_error");
         assert_eq!(error.diagnostic().line, Some(1));
         assert_eq!(error.diagnostic().column, Some(23));
+    }
+
+    #[test]
+    fn load_errors_keep_the_pointer_of_a_parse_error() {
+        let error = CliError::load(
+            "badid.ptsm".to_owned(),
+            &EngineError::Parse {
+                detail: "Bad id.".to_owned(),
+                line: None,
+                column: None,
+                path: Some("/bodies/0/id".to_owned()),
+            },
+        );
+
+        assert_eq!(error.diagnostic().path.as_deref(), Some("/bodies/0/id"));
+        assert_eq!(error.diagnostic().line, None);
     }
 
     #[test]

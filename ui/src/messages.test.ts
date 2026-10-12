@@ -91,6 +91,21 @@ const CASES: readonly Case[] = [
     'There is no visible body with geometry to export.',
   ],
   ['exported', () => MESSAGES.exported('cube.3mf'), 'Exported cube.3mf.'],
+  [
+    'exported_with_failures',
+    () => MESSAGES.exported_with_failures('cube.3mf', MESSAGES.export_failed_feature('Fillet 1')),
+    'Exported cube.3mf. Fillet 1 failed, so it is not in the export.',
+  ],
+  [
+    'export_failed_feature',
+    () => MESSAGES.export_failed_feature('Fillet 1'),
+    'Fillet 1 failed, so it is not in the export.',
+  ],
+  [
+    'export_failed_features',
+    () => MESSAGES.export_failed_features(2),
+    '2 features failed, so they are not in the export.',
+  ],
   ['deleted', () => MESSAGES.deleted('Fillet 1'), 'Deleted Fillet 1.'],
   [
     'feature_failed',
@@ -149,10 +164,17 @@ const CASES: readonly Case[] = [
     'Pick a straight edge, a sketch line, a round face or an origin axis.',
   ],
   ['pick_kind', () => MESSAGES.pick_kind('edges'), 'Pick edges.'],
+  ['pick_points', () => MESSAGES.pick_points(), 'Click a flat face or pick sketch points.'],
+  ['pick_flat_face', () => MESSAGES.pick_flat_face(), 'Pick a flat face.'],
+  [
+    'hole_one_face',
+    () => MESSAGES.hole_one_face(),
+    'One Hole puts its holes on one face. Press Enter to finish this one, then start another.',
+  ],
   [
     'pick_same_body',
-    () => MESSAGES.pick_same_body('edge', 'Cube'),
-    "Pick edges of 'Cube', or clear Body first.",
+    () => MESSAGES.pick_same_body('edges', 'Cube'),
+    "All edges must be on 'Cube'. Remove them to pick edges of another body.",
   ],
   [
     'parameter_name',
@@ -164,6 +186,7 @@ const CASES: readonly Case[] = [
   ['look_at_disabled', () => MESSAGES.look_at_disabled(), 'Select a flat face or a plane first.'],
   ['nothing_to_undo', () => MESSAGES.nothing_to_undo(), 'Nothing to undo.'],
   ['nothing_to_redo', () => MESSAGES.nothing_to_redo(), 'Nothing to redo.'],
+  ['nothing_to_repeat', () => MESSAGES.nothing_to_repeat(), 'No command to repeat yet.'],
   [
     'finish_command_first',
     () => MESSAGES.finish_command_first('Extrude'),
@@ -176,6 +199,22 @@ const CASES: readonly Case[] = [
   ],
   ['fill_fields', () => MESSAGES.fill_fields(), 'Fill in the highlighted fields first.'],
   ['core_not_running', () => MESSAGES.core_not_running(), 'The geometry core is not running.'],
+  ['command_canceled', () => MESSAGES.command_canceled('Fillet'), 'Fillet was canceled.'],
+  [
+    'needs_sketch_region',
+    () => MESSAGES.needs_sketch_region(),
+    'Draw a closed shape in a sketch first.',
+  ],
+  [
+    'needs_solid',
+    () => MESSAGES.needs_solid(),
+    'Make a solid first, for example with Extrude or Box.',
+  ],
+  [
+    'needs_two_bodies',
+    () => MESSAGES.needs_two_bodies(),
+    'Boolean needs two bodies with geometry. Make a second body first, for example with Box.',
+  ],
   [
     'sketch_dof_help',
     () => MESSAGES.sketch_dof_help(LINUX),
@@ -248,6 +287,12 @@ const CASES: readonly Case[] = [
     () => MESSAGES.sketch_leave(LINUX),
     'To leave the sketch, click Finish sketch or press Ctrl+Enter.',
   ],
+  ['print_pick_face', () => MESSAGES.print_pick_face(), 'Pick the face that should touch the bed.'],
+  [
+    'orientation_set',
+    () => MESSAGES.orientation_set('Cube'),
+    'Printing with the picked face of Cube on the bed.',
+  ],
   [
     'region_crashed',
     () => MESSAGES.region_crashed(),
@@ -262,7 +307,7 @@ describe('MESSAGES', () => {
 
   it('U-73 has an entry for every message id of 4.3', () => {
     expect(Object.keys(MESSAGES)).toEqual(expect.arrayContaining(CASES.map(([id]) => id)))
-    expect(CASES).toHaveLength(64)
+    expect(CASES).toHaveLength(77)
   })
 
   it('renders shortcut placeholders and the free placement key for macOS', () => {

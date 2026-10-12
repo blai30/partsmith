@@ -103,7 +103,7 @@ feature(
 ### 3.3 Build
 
 1. The body must hold a solid, else `BodyEmpty { use_new: false }`.
-2. Each distance must be greater than 0, else `OutOfRange` (`GreaterThan(0)`) on its field, checked in field order.
+2. Each distance must be greater than 0, else `OutOfRange` (`GreaterThan(0)`) on its field, checked in field order, by the positive length rule of features.md section 3.4: a distance below `LINEAR_TOLERANCE` (1e-6 mm) is out of range like 0, before any kernel work.
 3. Resolve `edges` as in [fillet.md](fillet.md) step 3, and skip smooth edges as in fillet step 4 (`Ignored { reason: SmoothEdge }`, `NoEffect` if none remain).
 4. Face assignment for two distances: for each edge, the first face is the adjacent face whose element name sorts first in byte order; `expr` is measured on it and `second_expr` on the other face (kernel `ChamferSize::TwoDistances { distance, other_distance, face }` with `face` the first face's index). `flip: true` swaps the two for every edge. The resolved edges are passed to the kernel sorted by their element names in byte order (for every distance kind), so the result never depends on the order of `edges`: the kernel takes the side of a whole tangent chain from the first of its edges it receives, which is the chain's edge whose name sorts first. Edges the kernel adds along a tangent chain follow that side.
 5. Kernel `chamfer` with every edge. On kernel failure (except `InvalidInput`), run the "too large" search (features.md section 4.3; both distances scale together) and fail with `ChamferTooLarge { field, distance, max, cause }`, where `field` is `distance.expr` for an equal distance and `distance` for two distances, `distance` is the larger requested distance and `max` the larger working scaled distance. Only the equal-distance error carries a suggestion (features.md section 4.4).
@@ -122,8 +122,8 @@ feature(
 | --- | --- | --- |
 | No edges listed | `EmptySelection` | `Select at least one edge for Edges.` |
 | Body empty | `BodyEmpty` | `Body 'Body 1' is empty at this point, so this feature has nothing to work on. Pick a body that has a solid.` |
-| Distance ≤ 0 | `OutOfRange` | `Distance must be greater than 0 mm, but it is 0 mm. Use a value greater than 0 mm.` |
-| Second distance ≤ 0 | `OutOfRange` | `Second distance must be greater than 0 mm, but it is -1 mm. Use a value greater than 0 mm.` |
+| Distance below 1e-6 mm (0 and negative included) | `OutOfRange` | `Distance must be greater than 0 mm, but it is 0 mm. Use a value greater than 0 mm.` |
+| Second distance below 1e-6 mm | `OutOfRange` | `Second distance must be greater than 0 mm, but it is -1 mm. Use a value greater than 0 mm.` |
 | Expression or dimension error | `Expression` | `Distance: Expected a length, but this expression gives an angle.` |
 | No edge resolves | `ReferencesNotFound` | `The edge selected for Edges can no longer be found. Re-pick it in the repair panel.` |
 | Kernel failure | `ChamferTooLarge` | `Chamfer distance 3 mm is too large for the selected edges. The largest distance that works is about 2.3 mm. Try 2.3 mm or less.` |
@@ -150,6 +150,8 @@ Conventions from features.md section 6.1; fixtures `CUBE20`, `E-FT`, `E-BT`, `E-
 10. **Edge lost.** `CUBE20`, `CHA([E-FT, E-LOST], {"kind": "equal", "expr": "2"})`. Expected: warning `reference_missing` with pointer `/edges/1`; volume 7960.
 11. **Performance.** Test 4 builds in under 60 ms (desktop, release).
 12. **Edge order does not matter.** The body after `f-fil1` of fillet.md test 11, `CHA([edge(f-box1/front|f-box1/top), edge(f-box1/top|f-fil1/fillet/edge(f-box1/front|f-box1/left))], {"kind": "two_distances", "expr": "1", "second_expr": "2"})` and the same chamfer with the two edges listed in the other order give the same volume (within 1e-9 relative) and the same face names.
+13. **Chamfer beside a fillet on a pipe tee.** The features up to `f-fil1` of [fillet.md](fillet.md) test 16, then `CHA([{"q": "edge(f-cyl2/side|f-fil1/fillet/edge(f-cyl1/side|f-cyl2/side))", "fp": "bspline_curve|c=0,0,10.524948|l=40.038448"}], {"kind": "equal", "expr": "1"})`. Expected: f-cha1 status warning (`ignored` with reason `smooth_edge`, and `no_effect`); b-1 identical to the state after f-fil1.
+14. **Distance below the tolerance.** `CUBE20`, `CHA([E-FT], {"kind": "two_distances", "expr": "1", "second_expr": "0.0000001"})`. Expected: error `out_of_range`, field `distance.second_expr`, rendered `Second distance must be greater than 0 mm, but it is 0 mm. Use a value greater than 0 mm.`; b-1 unchanged.
 
 ## Open issues
 

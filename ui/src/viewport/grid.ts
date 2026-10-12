@@ -48,7 +48,11 @@ export function gridPlacement(state: AppState): Placement | null {
 }
 
 /** The world size of one CSS pixel at the camera target, times the UI scale. */
-export function millimetersPerPixelAtTarget(camera: Camera, height: number, uiScale: number): number {
+export function millimetersPerPixelAtTarget(
+  camera: Camera,
+  height: number,
+  uiScale: number,
+): number {
   return (visibleHeightAtTarget(camera) / Math.max(height, 1)) * uiScale
 }
 
@@ -90,8 +94,7 @@ export function gridSegments(placement: Placement, spacing: number, half: number
   const count = Math.round(half / spacing)
   const minor: number[] = []
   const major: number[] = []
-  const point = (u: number, v: number) =>
-    addScaled(addScaled(placement.origin, xAxis, u), yAxis, v)
+  const point = (u: number, v: number) => addScaled(addScaled(placement.origin, xAxis, u), yAxis, v)
   for (let i = -count; i <= count; i++) {
     const offset = i * spacing
     const target = i % MAJOR_EVERY === 0 ? major : minor
@@ -113,7 +116,5 @@ export function gridCorners(
     [half, -half],
     [half, half],
     [-half, half],
-  ].map(([u = 0, v = 0]) =>
-    addScaled(addScaled(placement.origin, placement.x_axis, u), yAxis, v),
-  )
+  ].map(([u = 0, v = 0]) => addScaled(addScaled(placement.origin, placement.x_axis, u), yAxis, v))
 }

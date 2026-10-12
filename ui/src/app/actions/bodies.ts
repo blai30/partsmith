@@ -1,6 +1,6 @@
 import type { Body } from '../../generated/protocol'
 import type { App } from '../createApp'
-import { commitEdits, documentOf } from './edits'
+import { commitBuiltEdits, documentOf, refusedDuringCommand } from './edits'
 
 // Body edits and session-only body view state (ui.md 3.8, 3.10).
 
@@ -21,18 +21,27 @@ function withProperty<Key extends OptionalBodyProperty>(
   return copy
 }
 
-/** Commits one update_body made from the current body. */
+/**
+ * Commits one update_body made from the body as it is when the edit's turn in the mutation queue
+ * comes, so a change queued before it (a rename, then a color) stays.
+ */
 async function updateBody(
   app: App,
   bodyId: string,
   change: (body: Body) => { readonly label: string; readonly body: Body },
 ): Promise<void> {
-  const body = documentOf(app)?.recipe.bodies?.find((candidate) => candidate.id === bodyId)
-  if (body === undefined) {
+  const exists = documentOf(app)?.recipe.bodies?.some((candidate) => candidate.id === bodyId)
+  if (exists !== true || refusedDuringCommand(app)) {
     return
   }
-  const update = change(body)
-  await commitEdits(app, update.label, [{ type: 'update_body', body: update.body }])
+  await commitBuiltEdits(app, (document) => {
+    const body = document.recipe.bodies?.find((candidate) => candidate.id === bodyId)
+    if (body === undefined) {
+      return null
+    }
+    const update = change(body)
+    return { label: update.label, edits: [{ type: 'update_body', body: update.body }] }
+  })
 }
 
 /** Shows or hides a body (undoable; `visible` is omitted when true). */

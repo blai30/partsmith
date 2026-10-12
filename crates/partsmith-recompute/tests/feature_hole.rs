@@ -9,10 +9,12 @@ use std::time::Duration;
 use feature_support::{
     LENGTH_TOLERANCE, Run, assert_bounding_box, assert_canonical_example, assert_coordinates,
     assert_error_field, assert_face_area, assert_face_count, assert_face_in_plane,
-    assert_face_kind, assert_face_radius, assert_has_face, assert_no_face, assert_unchanged,
-    assert_volume, body_update, example_paths, face, load_example, median_build_time, vertex,
+    assert_face_kind, assert_face_radius, assert_has_face, assert_no_face, assert_solid_count,
+    assert_unchanged, assert_volume, body_update, document, example_paths, face,
+    face_names_with_prefix, load_example, median_build_time, output_body, vertex,
 };
 use partsmith_features::{BodyChange, Bound, FeatureError};
+use partsmith_model::Document;
 use partsmith_occt_sys::GeometryKind;
 
 /// `BOX-BELOW`: spans [-20,-20,-10]-[20,20,0], volume 16000, top face at z = 0.
@@ -543,4 +545,105 @@ fn t031_head_within_the_tolerance_of_the_hole_diameter() {
         ],
     );
     assert_unchanged(&run, "f-hole1", "b-1");
+}
+
+#[test]
+fn t032_tools_decided_by_the_cut_and_by_their_shared_volume() {
+    let run = Run::example("hole/swallowed-solid.ptsm");
+
+    run.assert_ok("f-box2");
+    let joined = output_body(&run, "f-box2", "b-1");
+    let joined_shape = joined.shape().expect("the body holds the box and the cube");
+    assert_solid_count(joined_shape, 2);
+    assert_volume(joined_shape, 16008.0);
+    assert_bounding_box(joined_shape, [-20.0, -20.0, -10.0], [31.0, 20.0, 0.0]);
+    run.assert_warnings("f-hole1", &["hole_misses_body"]);
+    assert_eq!(
+        run.messages("f-hole1"),
+        [
+            "The hole at point 'e-p5' does not touch body 'Body 1'. Move the point, or turn on Reverse."
+        ],
+    );
+    let shape = run.shape("b-1");
+    assert_volume(shape, 15717.256661);
+    assert_face_count(shape, 7);
+    assert_solid_count(shape, 1);
+    assert_bounding_box(shape, [-20.0, -20.0, -10.0], [20.0, 20.0, 0.0]);
+    let body = run.body("b-1");
+    assert_has_face(body, "f-hole1/bore/e-p1");
+    assert_no_face(body, "f-hole1/bore/e-p4");
+    assert_no_face(body, "f-hole1/bore/e-p5");
+    assert_eq!(
+        face_names_with_prefix(body, "f-box2/"),
+        Vec::<String>::new(),
+        "the swallowed cube is gone"
+    );
+}
+
+/// Test 33: the 200 x 200 x 10 plate with 194 through holes of diameter 8 (200 faces), then ten
+/// holes of diameter 6 between them.
+fn ten_holes_in_a_200_face_body() -> Document {
+    let plate = r#"{"id": "f-box1", "type": "box", "body": "b-1", "size": ["200", "200", "10"], "position": ["0", "0", "-10"], "op": "new"}"#;
+    let sketch = |id: &str, points: &[[f64; 2]]| {
+        let entities: Vec<String> = (1..)
+            .zip(points)
+            .map(|(number, [x, y])| {
+                format!(r#"{{"id": "e-p{number}", "type": "point", "position": [{x}, {y}]}}"#)
+            })
+            .collect();
+        format!(
+            r#"{{"id": "{id}", "type": "sketch", "plane": {{"kind": "origin", "plane": "XY"}}, "entities": [{}]}}"#,
+            entities.join(", ")
+        )
+    };
+    let hole = |id: &str, sketch: &str, count: usize, diameter: &str| {
+        let points: Vec<String> = (1..=count)
+            .map(|number| format!(r#""e-p{number}""#))
+            .collect();
+        format!(
+            r#"{{"id": "{id}", "type": "hole", "body": "b-1", "sketch": "{sketch}", "points": [{}], "diameter": "{diameter}", {THROUGH_ALL}}}"#,
+            points.join(", ")
+        )
+    };
+    let existing: Vec<[f64; 2]> = (0..194_u32)
+        .map(|index| {
+            [
+                -90.0 + 13.5 * f64::from(index % 14),
+                -90.0 + 13.5 * f64::from(index / 14),
+            ]
+        })
+        .collect();
+    let new: Vec<[f64; 2]> = (0..10_u32)
+        .map(|index| [-83.25 + 13.5 * f64::from(index), -83.25])
+        .collect();
+    document(
+        &["b-1"],
+        &[
+            plate,
+            &sketch("f-sk1", &existing),
+            &hole("f-hole1", "f-sk1", existing.len(), "8"),
+            &sketch("f-sk2", &new),
+            &hole("f-hole2", "f-sk2", new.len(), "6"),
+        ],
+    )
+}
+
+#[test]
+#[cfg_attr(
+    debug_assertions,
+    ignore = "performance budgets hold for release builds: run with cargo test --release"
+)]
+fn t033_ten_holes_in_a_200_face_body_within_80_ms() {
+    let document = ten_holes_in_a_200_face_body();
+    let run = Run::new(document.clone());
+    run.assert_all_ok();
+    let plate = output_body(&run, "f-hole1", "b-1");
+    assert_face_count(plate.shape().expect("the plate is a solid"), 200);
+    assert_face_count(run.shape("b-1"), 210);
+
+    let duration = median_build_time(&document, "f-hole2", 7);
+    assert!(
+        duration < Duration::from_millis(80),
+        "ten holes in a 200-face body took {duration:?} to build (median of 7 runs), over the 80 ms budget",
+    );
 }

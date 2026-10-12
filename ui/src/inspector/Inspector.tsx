@@ -7,11 +7,14 @@ import { useApp, useAppState } from '../app/AppProvider'
 import type { App } from '../app/createApp'
 import { FEATURE_ICONS } from '../commands/icons'
 import { IconButton } from '../components/IconButton'
-import type { SelectionItem } from '../state/store'
+import { Tooltip } from '../components/Tooltip'
+import type { AppState, SelectionItem } from '../state/store'
 import { COLOR_CLASSES } from '../theme/roles'
 import { positionElement } from '../viewport/overlay'
 import { commandSelectionFields } from '../viewport/scene'
 import { CommandInspector } from './CommandInspector'
+import { fieldInputId } from './fields/field-id'
+import { buildInspectorModel } from './model'
 import { placeInspector } from './placement'
 import { SelectionInspector } from './SelectionInspector'
 import { itemsFromValue } from './selection-values'
@@ -38,13 +41,24 @@ type PanelProps = {
   readonly heading: ReactNode
   /** The accessible name: the command title, or "Selection". */
   readonly name: string | null
+  /** The command's description (2.10), the title's tooltip, or null. */
+  readonly description?: string | null
   readonly preview?: string
   readonly closeLabel: string
   readonly onClose: () => void
   readonly children: ReactNode
 }
 
-function Panel({ mode, heading, name, preview, closeLabel, onClose, children }: PanelProps) {
+function Panel({
+  mode,
+  heading,
+  name,
+  description = null,
+  preview,
+  closeLabel,
+  onClose,
+  children,
+}: PanelProps) {
   const app = useApp()
   const panel = useRef<HTMLDivElement>(null)
   const titleId = useId()
@@ -87,13 +101,8 @@ function Panel({ mode, heading, name, preview, closeLabel, onClose, children }: 
       return undefined
     }
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null
-    const state = app.store.getState()
-    const target =
-      state.command?.activeField === null
-        ? element.querySelector<HTMLInputElement>(
-            '[data-testid="inspector-field"] input[type="text"]',
-          )
-        : element.querySelector<HTMLElement>('[data-testid="selection-field"][data-active="true"]')
+    const opening = openingFocus(app.store.getState())
+    const target = opening === null ? null : document.getElementById(fieldInputId(opening))
     if (target !== null) {
       target.focus()
       if (target instanceof HTMLInputElement) {
@@ -185,16 +194,54 @@ function Panel({ mode, heading, name, preview, closeLabel, onClose, children }: 
         onPointerCancel={onHeaderPointerUp}
       >
         {heading}
-        {name === null ? null : (
+        {name === null ? null : description === null ? (
           <h2 id={titleId} className="min-w-0 flex-1 truncate text-base font-semibold">
             {name}
           </h2>
+        ) : (
+          <Tooltip label={description}>
+            <h2 id={titleId} className="min-w-0 flex-1 truncate text-base font-semibold">
+              {name}
+            </h2>
+          </Tooltip>
         )}
         <IconButton label={closeLabel} icon={X} size="compact" onClick={onClose} />
       </div>
       {children}
     </div>
   )
+}
+
+/**
+ * Where focus goes when a command's inspector opens (3.7 step 5): the active field when it is a
+ * required empty selection field, else the first essential expression field, else the active field.
+ */
+function openingFocus(state: AppState): string | null {
+  const command = state.command
+  const feature = command === null ? undefined : state.catalog?.byType[command.featureType]
+  if (command === null || feature === undefined) {
+    return null
+  }
+  const model = buildInspectorModel({ feature, params: command.params, errors: {} })
+  const fields = [...model.essential, ...model.more]
+  const active = fields.find((field) => field.path === command.activeField)
+  const waiting = active !== undefined && active.required && isEmptyField(active.value)
+  const expression = model.essential.find((field) => field.control.type === 'expression')
+  if (waiting || expression === undefined) {
+    return command.activeField
+  }
+  return expression.path
+}
+
+function isEmptyField(value: unknown): boolean {
+  if (value === undefined || value === null || value === '') {
+    return true
+  }
+  if (Array.isArray(value)) {
+    return value.length === 0
+  }
+  const regions: unknown = typeof value === 'object' ? Reflect.get(value, 'regions') : undefined
+  return Array.isArray(regions) && regions.length === 0
 }
 
 function report(error: unknown): void {
@@ -221,6 +268,7 @@ export function Inspector() {
         mode="command"
         heading={<Icon aria-hidden="true" strokeWidth={1.75} className="size-5 shrink-0" />}
         name={command.title}
+        description={app.commands.get(`feature.${command.featureType}`)?.description ?? null}
         preview={command.preview}
         closeLabel="Cancel"
         onClose={() => {

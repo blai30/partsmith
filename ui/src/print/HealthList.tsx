@@ -3,6 +3,7 @@ import { CircleCheck, LoaderCircle, RefreshCw, X } from 'lucide-react'
 import { Button } from '../components/Button'
 import { IconButton } from '../components/IconButton'
 import type { Severity } from '../generated/protocol'
+import { MESSAGES } from '../messages'
 import type { ReactNode } from 'react'
 import type { FindingKey } from '../state/store'
 import { COLOR_CLASSES } from '../theme/roles'
@@ -27,7 +28,20 @@ export type HealthListProps = {
   readonly onClose?: () => void
   /** The id of the panel's heading, so the region around the panel can be labeled by it. */
   readonly headingId?: string
+  /** The body whose picked face rests on the bed (Lay on face, 3.17); absent or null prints as modeled. */
+  readonly orientationBody?: string | null
+  /** Prints as modeled again; the orientation line's "Print as modeled". */
+  readonly onPrintAsModeled?: () => void
+  /** Starts the Lay on face pick; without it the rows offer no "Lay on a face". */
+  readonly onLayOnFace?: () => void
 }
+
+/** Checks whose findings another face on the bed can fix, so their rows offer "Lay on a face" (3.17). */
+const LAY_ON_FACE_CHECKS: ReadonlySet<string> = new Set([
+  'overhangs',
+  'first_layer_contact',
+  'islands',
+])
 
 /** Words for the severity icon, which screen readers read in its place. */
 const SEVERITY_NAMES: Readonly<Record<Severity, string>> = {
@@ -107,6 +121,9 @@ export function HealthList({
   focusedFinding = null,
   onClose,
   headingId,
+  orientationBody = null,
+  onPrintAsModeled,
+  onLayOnFace,
 }: HealthListProps) {
   const notice = noticeFor(hasGeometry, missingReport, rows.length, profileName)
   return (
@@ -124,6 +141,14 @@ export function HealthList({
           <RefreshCw aria-hidden="true" strokeWidth={1.75} className="size-4" />
           Check again
         </Button>
+        {orientationBody === null ? null : (
+          <div className="flex flex-wrap items-center gap-2 text-sm">
+            <p className="min-w-0">{MESSAGES.orientation_set(orientationBody)}</p>
+            {onPrintAsModeled === undefined ? null : (
+              <Button onClick={onPrintAsModeled}>Print as modeled</Button>
+            )}
+          </div>
+        )}
       </div>
       {notice ?? (
         <ul
@@ -132,8 +157,17 @@ export function HealthList({
         >
           {rows.map((row) => {
             const focused = sameFinding(row.key, focusedFinding)
+            // The finding text is the button that focuses the finding, so the row's other button
+            // never nests in it.
+            const layOnFace =
+              onLayOnFace !== undefined && LAY_ON_FACE_CHECKS.has(row.key.check)
+                ? onLayOnFace
+                : null
             return (
-              <li key={`${row.key.body}:${row.key.check}:${String(row.key.index)}`}>
+              <li
+                key={`${row.key.body}:${row.key.check}:${String(row.key.index)}`}
+                className="flex items-start gap-1"
+              >
                 <button
                   type="button"
                   data-testid="health-item"
@@ -145,7 +179,7 @@ export function HealthList({
                     onFocusFinding(row.key)
                   }}
                   className={clsx(
-                    'flex w-full items-start gap-2 rounded-sm px-2 py-2 text-left text-sm transition-colors duration-150 motion-reduce:transition-none',
+                    'flex min-w-0 flex-1 items-start gap-2 rounded-sm px-2 py-2 text-left text-sm transition-colors duration-150 motion-reduce:transition-none',
                     COLOR_CLASSES.text.foreground,
                     COLOR_CLASSES.focusRing.outline,
                     // A resting outline color equal to the ring's, so transition-colors does not
@@ -164,6 +198,11 @@ export function HealthList({
                     </span>
                   </span>
                 </button>
+                {layOnFace === null ? null : (
+                  <Button className="mt-1" onClick={layOnFace}>
+                    Lay on a face
+                  </Button>
+                )}
               </li>
             )
           })}

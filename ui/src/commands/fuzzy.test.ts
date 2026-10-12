@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { fuzzyScore, rankPaletteItems, type PaletteItem } from './fuzzy'
-import type { CommandCategory } from './registry'
+import { categoryOrder, fuzzyScore, rankPaletteItems, type PaletteItem } from './fuzzy'
+import type { CommandCategory, Keyword } from './registry'
 
 type ItemOptions = {
   readonly kind?: 'command' | 'setting'
-  readonly keywords?: readonly string[]
+  readonly keywords?: readonly Keyword[]
   readonly category?: CommandCategory
+  readonly detail?: string | null
+  readonly disabledReason?: string | null
 }
 
 /** A command palette item; the kind defaults to command and the category to Edit. */
@@ -16,9 +18,10 @@ function item(id: string, title: string, options: ItemOptions = {}): PaletteItem
     category: options.category ?? 'Edit',
     title,
     keywords: options.keywords ?? [],
-    detail: null,
+    detail: options.detail ?? null,
+    description: null,
     shortcut: null,
-    disabledReason: null,
+    disabledReason: options.disabledReason ?? null,
     run: () => undefined,
   }
 }
@@ -36,6 +39,7 @@ function documentItem(
     title,
     keywords: [],
     detail: null,
+    description: null,
     shortcut: null,
     disabledReason: null,
     run: () => undefined,
@@ -107,12 +111,15 @@ describe('fuzzyScore', () => {
 })
 
 describe('rankPaletteItems', () => {
-  const extrude = item('feature.extrude', 'Extrude', { keywords: ['pad', 'pocket', 'extrusion'] })
-  const exportThreeMf = item('print.export_3mf', 'Export 3MF')
+  const extrude = item('feature.extrude', 'Extrude', {
+    category: 'Create',
+    keywords: [{ word: 'Pad', app: 'FreeCAD' }, { word: 'Press Pull', app: 'Fusion' }, 'pull'],
+  })
+  const exportThreeMf = item('print.export_3mf', 'Export 3MF', { category: 'Print' })
   const text = item('text', 'Text')
 
   it('U-26 orders Extrude, Export 3MF, Text for ext', () => {
-    expect(titles(rankPaletteItems('ext', [text, exportThreeMf, extrude], []))).toEqual([
+    expect(titles(rankPaletteItems('ext', [text, exportThreeMf, extrude], [], 'model'))).toEqual([
       'Extrude',
       'Export 3MF',
       'Text',
@@ -121,19 +128,20 @@ describe('rankPaletteItems', () => {
 
   it('excludes items with no score', () => {
     const fillet = item('feature.fillet', 'Fillet')
-    expect(titles(rankPaletteItems('ext', [fillet, extrude], []))).toEqual(['Extrude'])
+    expect(titles(rankPaletteItems('ext', [fillet, extrude], [], 'model'))).toEqual(['Extrude'])
   })
 
-  it('U-26 pad matches Extrude through its keyword with score 18.97 - 2 = 16.97', () => {
-    expect((fuzzyScore('pad', 'pad') ?? Number.NaN) - 2).toBeCloseTo(16.97, 9)
-    expect(titles(rankPaletteItems('pad', [extrude], []))).toEqual(['Extrude'])
+  it('U-26 pad matches Extrude through its tagged keyword {word: Pad, app: FreeCAD} with score 16.97', () => {
+    expect((fuzzyScore('pad', 'Pad') ?? Number.NaN) - 2).toBeCloseTo(16.97, 9)
+    const [first] = rankPaletteItems('pad', [extrude], [], 'model')
+    expect(first?.title).toBe('Extrude')
   })
 
   it('U-26 a keyword score counts 2 less than the same title score', () => {
-    // Pads scores 18.96 and ranks above Extrude (16.97 through pad); Map pad scores 16.93 and ranks below.
+    // Pads scores 18.96 and ranks above Extrude (16.97 through Pad); Map pad scores 16.93 and ranks below.
     const pads = item('pads', 'Pads')
     const mapPad = item('map-pad', 'Map pad')
-    expect(titles(rankPaletteItems('pad', [mapPad, extrude, pads], []))).toEqual([
+    expect(titles(rankPaletteItems('pad', [mapPad, extrude, pads], [], 'model'))).toEqual([
       'Pads',
       'Extrude',
       'Map pad',
@@ -144,7 +152,7 @@ describe('rankPaletteItems', () => {
     // Extra text 20.9, Latex sheet 6.89, Context 10.93: rows left over from an earlier text would
     // lift Latex sheet above Context.
     const items = [item('a', 'Extra text'), item('b', 'Latex sheet'), item('c', 'Context')]
-    expect(titles(rankPaletteItems('ext', items, []))).toEqual([
+    expect(titles(rankPaletteItems('ext', items, [], 'model'))).toEqual([
       'Extra text',
       'Context',
       'Latex sheet',
@@ -152,11 +160,67 @@ describe('rankPaletteItems', () => {
   })
 
   it('ranks by score before recency', () => {
-    expect(titles(rankPaletteItems('ext', [text, exportThreeMf, extrude], ['text']))).toEqual([
-      'Extrude',
-      'Export 3MF',
-      'Text',
-    ])
+    expect(
+      titles(rankPaletteItems('ext', [text, exportThreeMf, extrude], ['text'], 'model')),
+    ).toEqual(['Extrude', 'Export 3MF', 'Text'])
+  })
+
+  describe('other apps’ names (2.10)', () => {
+    it('shows "{app}: {word}" as the detail when a tagged keyword matched', () => {
+      expect(rankPaletteItems('pad', [extrude], [], 'model')[0]?.detail).toBe('FreeCAD: Pad')
+      expect(rankPaletteItems('press pull', [extrude], [], 'model')[0]?.detail).toBe(
+        'Fusion: Press Pull',
+      )
+    })
+
+    it('keeps the item’s own detail when the title or an untagged keyword matched', () => {
+      const withDetail = { ...extrude, detail: 'Own detail' }
+      expect(rankPaletteItems('extr', [withDetail], [], 'model')[0]?.detail).toBe('Own detail')
+      expect(rankPaletteItems('pul', [withDetail], [], 'model')[0]?.detail).toBe('Own detail')
+    })
+
+    it('leaves the detail to a disabled reason', () => {
+      const disabled = { ...extrude, disabledReason: 'Draw a closed shape in a sketch first.' }
+      expect(rankPaletteItems('pad', [disabled], [], 'model')[0]?.detail).toBeNull()
+    })
+  })
+
+  describe('context ranking (2.10)', () => {
+    const symmetric = item('sketch.constrain_symmetric', 'Symmetric', {
+      category: 'Constrain',
+      keywords: [{ word: 'Symmetry', app: 'Fusion' }],
+    })
+    const mirror = item('feature.mirror', 'Mirror', {
+      category: 'Pattern',
+      keywords: [{ word: 'Mirrored', app: 'FreeCAD' }, 'symmetry'],
+    })
+
+    it('adds 3 to Sketch and Constrain items in Sketch context', () => {
+      expect(titles(rankPaletteItems('symmetry', [mirror, symmetric], [], 'sketch'))).toEqual([
+        'Symmetric',
+        'Mirror',
+      ])
+    })
+
+    it('adds nothing in Model context, where equal scores order by title', () => {
+      expect(titles(rankPaletteItems('symmetry', [symmetric, mirror], [], 'model'))).toEqual([
+        'Mirror',
+        'Symmetric',
+      ])
+    })
+
+    it('adds 3 to Print items in Print context', () => {
+      const exportStl = item('print.export_stl', 'Export STL', { category: 'Print' })
+      const exportFile = item('file.export', 'Export', { category: 'File', keywords: ['STL'] })
+      expect(titles(rankPaletteItems('stl', [exportStl, exportFile], [], 'model'))).toEqual([
+        'Export',
+        'Export STL',
+      ])
+      expect(titles(rankPaletteItems('stl', [exportStl, exportFile], [], 'print'))).toEqual([
+        'Export STL',
+        'Export',
+      ])
+    })
   })
 
   describe('equal scores', () => {
@@ -167,11 +231,15 @@ describe('rankPaletteItems', () => {
     ]
 
     it('U-27 order by title when none is recent', () => {
-      expect(titles(rankPaletteItems('body', bodies, []))).toEqual(['Body 1', 'Body 2', 'Body 3'])
+      expect(titles(rankPaletteItems('body', bodies, [], 'model'))).toEqual([
+        'Body 1',
+        'Body 2',
+        'Body 3',
+      ])
     })
 
     it('U-27 order by position in recentIds, then by title', () => {
-      expect(titles(rankPaletteItems('body', bodies, ['body:b-3']))).toEqual([
+      expect(titles(rankPaletteItems('body', bodies, ['body:b-3'], 'model'))).toEqual([
         'Body 3',
         'Body 1',
         'Body 2',
@@ -179,7 +247,7 @@ describe('rankPaletteItems', () => {
     })
 
     it('U-27 put the most recent first', () => {
-      expect(titles(rankPaletteItems('body', bodies, ['body:b-2', 'body:b-3']))).toEqual([
+      expect(titles(rankPaletteItems('body', bodies, ['body:b-2', 'body:b-3'], 'model'))).toEqual([
         'Body 2',
         'Body 3',
         'Body 1',
@@ -198,77 +266,72 @@ describe('rankPaletteItems', () => {
       documentItem('body:b-cube', 'Cube', 'body'),
       item('edit.undo', 'Undo', { category: 'Edit' }),
       item('file.open', 'Open', { category: 'File' }),
+      item('feature.fillet', 'Fillet', { category: 'Modify' }),
+      item('feature.box', 'Box', { category: 'Create' }),
+      item('sketch.line', 'Line', { category: 'Sketch' }),
+      item('sketch.constrain_fix', 'Fix', { category: 'Constrain' }),
+      item('print.check_now', 'Check print', { category: 'Print' }),
     ]
 
-    it('U-27 lists commands by category, then features, bodies, parameters and recent files, each in title order', () => {
-      expect(titles(rankPaletteItems('', items, []))).toEqual([
-        'Open',
+    it('U-27 lists every command and setting by the Model category order, and no document items or recent files', () => {
+      expect(titles(rankPaletteItems('', items, [], 'model'))).toEqual([
+        'Box',
+        'Fillet',
         'Undo',
         'View: Top',
+        'Open',
+        'Check print',
         'Theme: Dark',
-        'Extrude 1',
-        'Cube',
-        'Peg',
-        'size = 20 mm',
-        'Open recent: bracket',
+        'Line',
+        'Fix',
       ])
     })
 
-    it('U-27 orders commands by category, not by title', () => {
-      const commands = [
-        item('view.fit', 'Fit to view', { category: 'View' }),
-        item('file.open', 'Open', { category: 'File' }),
-        item('edit.undo', 'Undo', { category: 'Edit' }),
-      ]
-      expect(titles(rankPaletteItems('', commands, []))).toEqual(['Open', 'Undo', 'Fit to view'])
-    })
-
-    it('U-27 follows the category order of 2.10 from File to Settings', () => {
-      const categories: readonly CommandCategory[] = [
-        'Settings',
-        'Print',
-        'Constrain',
-        'Sketch',
-        'Construct',
-        'Pattern',
-        'Modify',
-        'Create',
-        'View',
-        'Edit',
-        'File',
-      ]
-      // Titles run against the category order, so only the categories can put File first.
-      const commands = categories.map((category, index) =>
-        item(`command.${String(index)}`, `${String.fromCodePoint(65 + index)} ${category}`, {
-          category,
-        }),
-      )
-      expect(titles(rankPaletteItems('', commands, []))).toEqual([
-        'K File',
-        'J Edit',
-        'I View',
-        'H Create',
-        'G Modify',
-        'F Pattern',
-        'E Construct',
-        'D Sketch',
-        'C Constrain',
-        'B Print',
-        'A Settings',
+    it('U-27 starts with the Sketch category in Sketch context', () => {
+      const ranked = rankPaletteItems('', items, [], 'sketch')
+      expect(ranked[0]?.category).toBe('Sketch')
+      expect(titles(ranked)).toEqual([
+        'Line',
+        'Fix',
+        'Undo',
+        'View: Top',
+        'Box',
+        'Fillet',
+        'Open',
+        'Check print',
+        'Theme: Dark',
       ])
     })
 
-    it('U-27 lists recent items first, in recentIds order', () => {
-      expect(titles(rankPaletteItems('', items, ['body:b-peg', 'feature:f-ext1']))).toEqual([
-        'Peg',
-        'Extrude 1',
-        'Open',
-        'Undo',
+    it('U-27 starts with the Print category in Print context', () => {
+      expect(titles(rankPaletteItems('', items, [], 'print'))).toEqual([
+        'Check print',
         'View: Top',
+        'Undo',
+        'Open',
+        'Box',
+        'Fillet',
         'Theme: Dark',
-        'Cube',
-        'size = 20 mm',
-        'Open recent: bracket',
+        'Line',
+        'Fix',
+      ])
+    })
+
+    it('U-27 lists recent items first, in recentIds order, whatever their kind', () => {
+      expect(
+        titles(rankPaletteItems('', items, ['body:b-peg', 'edit.undo', 'feature:f-ext1'], 'model')),
+      ).toEqual([
+        'Peg',
+        'Undo',
+        'Extrude 1',
+        'Box',
+        'Fillet',
+        'View: Top',
+        'Open',
+        'Check print',
+        'Theme: Dark',
+        'Line',
+        'Fix',
       ])
     })
 
@@ -282,17 +345,24 @@ describe('rankPaletteItems', () => {
         'file.open',
         'body:b-cube',
       ]
-      expect(titles(rankPaletteItems('', items, recentIds))).toEqual([
+      const ranked = titles(rankPaletteItems('', items, recentIds, 'model'))
+      expect(ranked.slice(0, 6)).toEqual([
         'size = 20 mm',
         'Peg',
         'Extrude 1',
         'Theme: Dark',
         'Undo',
-        'Open',
-        'View: Top',
-        'Cube',
-        'Open recent: bracket',
+        'Box',
       ])
+      expect(ranked).toContain('Open')
+      expect(ranked).not.toContain('Cube')
+    })
+
+    it('U-27 lists every command with no limit', () => {
+      const many = Array.from({ length: 60 }, (_, index) =>
+        item(`command.${String(index)}`, `Command ${String(index).padStart(2, '0')}`),
+      )
+      expect(rankPaletteItems('', many, [], 'model')).toHaveLength(60)
     })
   })
 
@@ -306,11 +376,51 @@ describe('rankPaletteItems', () => {
     )
 
     it('U-27 never returns more than 50 items for a query', () => {
-      expect(rankPaletteItems('p', many, [])).toHaveLength(50)
+      expect(rankPaletteItems('p', many, [], 'model')).toHaveLength(50)
     })
+  })
+})
 
-    it('U-27 never returns more than 50 items for an empty query', () => {
-      expect(rankPaletteItems('', many, [])).toHaveLength(50)
-    })
+describe('categoryOrder (2.10)', () => {
+  it('follows the context order, then the categories it does not name in CommandCategory order', () => {
+    expect(categoryOrder('model')).toEqual([
+      'Create',
+      'Modify',
+      'Pattern',
+      'Construct',
+      'Edit',
+      'View',
+      'File',
+      'Print',
+      'Settings',
+      'Sketch',
+      'Constrain',
+    ])
+    expect(categoryOrder('sketch')).toEqual([
+      'Sketch',
+      'Constrain',
+      'Edit',
+      'View',
+      'Create',
+      'Modify',
+      'Pattern',
+      'Construct',
+      'File',
+      'Print',
+      'Settings',
+    ])
+    expect(categoryOrder('print')).toEqual([
+      'Print',
+      'View',
+      'Edit',
+      'File',
+      'Create',
+      'Modify',
+      'Pattern',
+      'Construct',
+      'Settings',
+      'Sketch',
+      'Constrain',
+    ])
   })
 })

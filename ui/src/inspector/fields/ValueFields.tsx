@@ -16,6 +16,7 @@ export function SwitchField({ field }: { readonly field: InspectorField }) {
   return (
     <Switch
       label={field.label}
+      help={field.help}
       checked={field.value === true}
       onChange={(checked) => {
         setCommandField(app, field.path, checked)
@@ -36,6 +37,7 @@ export function TextValueField({
     <TextField
       id={fieldInputId(field.path)}
       label={field.label}
+      help={field.help}
       value={typeof field.value === 'string' ? field.value : ''}
       error={statusMessage}
       onChange={(next) => {
@@ -72,6 +74,7 @@ export function NumberField({
     <TextField
       id={fieldInputId(field.path)}
       label={field.label}
+      help={field.help}
       value={text}
       inputMode={integer ? 'numeric' : 'decimal'}
       error={error ?? statusMessage}

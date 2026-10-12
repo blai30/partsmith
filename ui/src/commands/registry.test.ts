@@ -174,6 +174,40 @@ describe('run', () => {
   })
 })
 
+describe('recent palette items (3.4)', () => {
+  it('records a feature command run from the toolbar, a shortcut, a menu or a suggestion', async () => {
+    const registry = createCommandRegistry()
+    registry.register(command('feature.fillet'))
+    registry.register(command('feature.chamfer'))
+    const app = createTestApp(registry)
+    await registry.run(app, 'feature.fillet', 'toolbar')
+    await registry.run(app, 'feature.chamfer', 'inspector')
+    expect(app.store.getState().settings.paletteRecent).toEqual([
+      'feature.chamfer',
+      'feature.fillet',
+    ])
+    await registry.run(app, 'feature.fillet', 'shortcut')
+    expect(app.store.getState().settings.paletteRecent).toEqual([
+      'feature.fillet',
+      'feature.chamfer',
+    ])
+  })
+
+  it('leaves palette runs to the palette, and records no other commands or disabled ones', async () => {
+    const registry = createCommandRegistry()
+    registry.register(command('feature.fillet'))
+    registry.register(command('file.save'))
+    registry.register(
+      command('feature.boolean', { availability: { state: 'disabled', reason: 'No.' } }),
+    )
+    const app = createTestApp(registry)
+    await registry.run(app, 'feature.fillet', 'palette')
+    await registry.run(app, 'file.save', 'toolbar')
+    await registry.run(app, 'feature.boolean', 'toolbar')
+    expect(app.store.getState().settings.paletteRecent).toEqual([])
+  })
+})
+
 describe('forChord', () => {
   it('finds the command bound to a chord in a context', () => {
     const registry = createCommandRegistry()

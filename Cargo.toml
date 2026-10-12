@@ -28,18 +28,14 @@ serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
 schemars = { version = "1", features = ["preserve_order"] }
 thiserror = "2"
 ryu = "1"
-indexmap = { version = "2", features = ["serde"] }
 getrandom = "0.4"
-nalgebra = "0.35"
 blake3 = "1"
 cxx = "1"
 cxx-build = "1"
 clap = { version = "4", features = ["derive"] }
 zip = { version = "9", default-features = false, features = ["deflate"] }
-quick-xml = "0.42"
 pyo3 = "0.29"
 proptest = "1"
-approx = "0.5"
 pretty_assertions = "1"
 tempfile = "3"
 # Tauri's crates move together, so they are pinned exactly (ADR 0014).

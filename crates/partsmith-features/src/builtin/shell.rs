@@ -14,10 +14,9 @@ use super::common::{
 use super::dressup::{
     FaceOrigins, add_origins, face_names, modified, new_face, run_or_search, smallest_name,
 };
-use crate::naming::kernel;
 use crate::{
-    BuildContext, Dependencies, Feature, FeatureError, FeatureOutput, PythonCall, PythonNames,
-    PythonValue, name_shape,
+    BuildContext, Dependencies, Feature, FeatureError, FeatureOutput, Named, PythonCall,
+    PythonNames, PythonValue, name_shape,
 };
 
 /// Hollows a body inward to a wall thickness.
@@ -97,14 +96,14 @@ impl Feature for Shell {
                 cause,
             },
         )?;
-        let naming = name_shell(
+        let named = name_shell(
             context.feature(),
             state.naming(),
             &removed,
             &solids,
             &hollow,
         )?;
-        Ok(modified(&params.body, hollow.shape, naming, warnings))
+        Ok(modified(&params.body, hollow.shape, named, warnings))
     }
 
     /// `shell(faces, thickness)`: the removed faces as references, or `None` for a closed hollow,
@@ -152,14 +151,14 @@ impl BodySolid {
 /// Each solid of `shape` with the body indices of its elements and the faces of `removed` (body
 /// indices) that belong to it.
 fn body_solids(shape: &Shape, removed: &[u32]) -> Result<Vec<BodySolid>, FeatureError> {
-    let solids = shape.solids().map_err(kernel)?;
+    let solids = shape.solids()?;
     if solids.is_empty() {
         return Err(FeatureError::internal("a body with a shape has no solid"));
     }
     solids
         .into_iter()
         .map(|solid| {
-            let locate = |kind| shape.locate(&solid, kind).map_err(kernel);
+            let locate = |kind| shape.locate(&solid, kind).map_err(FeatureError::from);
             let faces = locate(SubShapeKind::Face)?;
             let edges = locate(SubShapeKind::Edge)?;
             let vertices = locate(SubShapeKind::Vertex)?;
@@ -224,7 +223,7 @@ fn name_shell(
     removed: &[u32],
     solids: &[BodySolid],
     hollow: &Hollow,
-) -> Result<NamingMap, FeatureError> {
+) -> Result<Named, FeatureError> {
     let mut origins = vec![FaceOrigins::default(); hollow.shape.count(SubShapeKind::Face) as usize];
     for (position, (solid, result)) in solids.iter().zip(&hollow.solids).enumerate() {
         let [history] = &result.history.inputs[..] else {
@@ -337,8 +336,8 @@ mod tests {
     fn shelled(shape: &Shape, naming: &NamingMap, removed: &[u32]) -> (Hollow, NamingMap) {
         let solids = body_solids(shape, removed).expect("solids");
         let hollow = shell_solids(&solids, 1.0).expect("shells");
-        let names = name_shell(&id("f-sh1"), naming, removed, &solids, &hollow).expect("named");
-        (hollow, names)
+        let named = name_shell(&id("f-sh1"), naming, removed, &solids, &hollow).expect("named");
+        (hollow, named.naming)
     }
 
     #[test]
@@ -476,8 +475,9 @@ mod tests {
         let first = named_box("f-box1", [0.0, 0.0, 0.0], 10.0);
         let second = named_box("f-box2", [30.0, 0.0, 0.0], 10.0);
         let both = fuse(&first.shape, std::slice::from_ref(&second.shape)).expect("fuses");
-        let naming =
-            name_by_history(&id("f-box2"), &both, &[&first.naming, &second.naming]).expect("named");
+        let naming = name_by_history(&id("f-box2"), &both, &[&first.naming, &second.naming])
+            .expect("named")
+            .naming;
         let tops = [
             face_index(&naming, "f-box1/top"),
             face_index(&naming, "f-box2/top"),
@@ -499,8 +499,9 @@ mod tests {
         let first = named_box("f-box1", [0.0, 0.0, 0.0], 10.0);
         let second = named_box("f-box2", [30.0, 0.0, 0.0], 10.0);
         let both = fuse(&first.shape, std::slice::from_ref(&second.shape)).expect("fuses");
-        let naming =
-            name_by_history(&id("f-box2"), &both, &[&first.naming, &second.naming]).expect("named");
+        let naming = name_by_history(&id("f-box2"), &both, &[&first.naming, &second.naming])
+            .expect("named")
+            .naming;
         let top = face_index(&naming, "f-box1/top");
 
         let solids = body_solids(&both.shape, &[top]).expect("solids");

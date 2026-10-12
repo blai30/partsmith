@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use partsmith_model::Id;
-use partsmith_naming::NamingMap;
+use partsmith_naming::{NamingMap, TopologyInfo};
 use partsmith_occt_sys::{KernelError, OpResult, Shape, SubShapeKind, common, cut, fuse};
 use partsmith_sketch::{ORIGIN, Placement, PointRef, PointRole, Profile, SolveResult};
 
@@ -53,6 +53,22 @@ pub struct BodyUpdate {
     pub naming: Arc<NamingMap>,
     /// What happened to the body.
     pub change: BodyChange,
+    /// What the feature already measured on `shape`, which the body's next state reuses
+    /// (`BodyState::from_update`).
+    pub measured: Measurements,
+}
+
+/// Measurements of a `BodyUpdate`'s shape that the feature made anyway (naming a shape reads its
+/// topology, the body rules of section 3.5 read its volume), carried to the body's next state so
+/// that later features and hosts do not ask the kernel again. Each value must be exactly what
+/// `BodyState::topology` or `BodyState::volume` would compute for the shape; a value the feature
+/// did not measure is `None` and is computed when first needed.
+#[derive(Clone, Debug, Default)]
+pub struct Measurements {
+    /// Topology and fingerprints of every element of the shape (`topology_info`).
+    pub topology: Option<Arc<TopologyInfo>>,
+    /// Volume of the shape in cubic millimeters.
+    pub volume: Option<f64>,
 }
 
 /// What a feature did to a body (the architecture's "boolean op applied", extended).
@@ -133,23 +149,27 @@ pub fn apply_op(
         return Err(FeatureError::internal("apply_op needs at least one tool"));
     }
     let state = context.body(body)?;
-    let update = |shape: Shape, naming: Arc<NamingMap>, change: BodyChange| BodyUpdate {
-        body: body.clone(),
-        shape: Some(shape),
-        naming,
-        change,
-    };
-    let (change, boolean): (BodyChange, KernelBoolean) = match op {
+    let boolean: KernelBoolean = match op {
         BodyOp::New => {
             if !state.is_empty() {
                 return Err(FeatureError::BodyNotEmpty { body: body.clone() });
             }
-            let (shape, naming) = combine_tools(context, tools)?;
-            return Ok((update(shape, Arc::new(naming), BodyChange::New), Vec::new()));
+            let (shape, naming, topology) = combine_tools(context, tools)?;
+            let update = BodyUpdate {
+                body: body.clone(),
+                shape: Some(shape),
+                naming: Arc::new(naming),
+                change: BodyChange::New,
+                measured: Measurements {
+                    topology,
+                    volume: None,
+                },
+            };
+            return Ok((update, Vec::new()));
         }
-        BodyOp::Join => (BodyChange::Join, fuse),
-        BodyOp::Cut => (BodyChange::Cut, cut),
-        BodyOp::Intersect => (BodyChange::Intersect, common),
+        BodyOp::Join => fuse,
+        BodyOp::Cut => cut,
+        BodyOp::Intersect => common,
     };
     let Some(target) = state.shape() else {
         return Err(FeatureError::BodyEmpty {
@@ -162,6 +182,44 @@ pub fn apply_op(
     }
     let tool_shapes: Vec<Shape> = tools.iter().map(|tool| tool.shape.clone()).collect();
     let result = boolean(target, &tool_shapes)?;
+    apply_op_result(context, body, op, &tools, result)
+}
+
+/// Applies the body semantics of `op` (section 3.5) to `result`, the kernel `fuse`, `cut` or
+/// `common` of the body's shape with the shapes of `tools` in order, exactly as `apply_op` does
+/// after its kernel call. For a feature that reads the kernel result before deciding (hole reads
+/// from the cut's history which tools overlap the body). Op new, an empty body and a result whose
+/// history inputs are not the body and every tool return `Internal`.
+pub fn apply_op_result(
+    context: &BuildContext<'_>,
+    body: &Id,
+    op: BodyOp,
+    tools: &[Tool],
+    result: OpResult,
+) -> Result<(BodyUpdate, Vec<FeatureWarning>), FeatureError> {
+    let change = match op {
+        BodyOp::New => {
+            return Err(FeatureError::internal(
+                "apply_op_result applies join, cut or intersect, not op new",
+            ));
+        }
+        BodyOp::Join => BodyChange::Join,
+        BodyOp::Cut => BodyChange::Cut,
+        BodyOp::Intersect => BodyChange::Intersect,
+    };
+    let state = context.body(body)?;
+    let Some(target) = state.shape() else {
+        return Err(FeatureError::internal(
+            "apply_op_result needs a body that holds a solid",
+        ));
+    };
+    if result.history.inputs.len() != tools.len() + 1 {
+        return Err(FeatureError::internal(format!(
+            "the kernel result has {} history inputs, not the body and {} tools",
+            result.history.inputs.len(),
+            tools.len()
+        )));
+    }
     let before = state.volume()?;
     let after = result.shape.volume()?;
     let nothing_left =
@@ -173,26 +231,44 @@ pub fn apply_op(
         });
     }
     if (after - before).abs() <= VOLUME_TOLERANCE * before {
+        let update = BodyUpdate {
+            body: body.clone(),
+            shape: Some(target.clone()),
+            naming: Arc::clone(state.naming()),
+            change,
+            measured: state.measurements(),
+        };
         return Ok((
-            update(target.clone(), Arc::clone(state.naming()), change),
+            update,
             vec![FeatureWarning::NoEffect { body: body.clone() }],
         ));
     }
     let mut inputs: Vec<&NamingMap> = vec![state.naming()];
     inputs.extend(tools.iter().map(|tool| &tool.naming));
-    let naming = name_by_history(context.feature(), &result, &inputs)?;
-    Ok((update(result.shape, Arc::new(naming), change), Vec::new()))
+    let named = name_by_history(context.feature(), &result, &inputs)?;
+    let update = BodyUpdate {
+        body: body.clone(),
+        shape: Some(result.shape),
+        naming: Arc::new(named.naming),
+        change,
+        measured: Measurements {
+            topology: Some(named.topology),
+            volume: Some(after),
+        },
+    };
+    Ok((update, Vec::new()))
 }
 
-/// The shape and names of the tools fused into one: the only tool as it is, or several tools
-/// fused with one kernel call and named by the boolean rule.
+/// The shape and names of the tools fused into one: the only tool as it is (its topology unknown
+/// here), or several tools fused with one kernel call and named by the boolean rule, with the
+/// topology that naming read.
 fn combine_tools(
     context: &BuildContext<'_>,
     mut tools: Vec<Tool>,
-) -> Result<(Shape, NamingMap), FeatureError> {
+) -> Result<(Shape, NamingMap, Option<Arc<TopologyInfo>>), FeatureError> {
     if tools.len() == 1 {
         let tool = tools.remove(0);
-        return Ok((tool.shape, tool.naming));
+        return Ok((tool.shape, tool.naming, None));
     }
     if context.is_canceled() {
         return Err(FeatureError::Canceled);
@@ -200,8 +276,8 @@ fn combine_tools(
     let shapes: Vec<Shape> = tools.iter().map(|tool| tool.shape.clone()).collect();
     let result = fuse(&shapes[0], &shapes[1..])?;
     let inputs: Vec<&NamingMap> = tools.iter().map(|tool| &tool.naming).collect();
-    let naming = name_by_history(context.feature(), &result, &inputs)?;
-    Ok((result.shape, naming))
+    let named = name_by_history(context.feature(), &result, &inputs)?;
+    Ok((result.shape, named.naming, Some(named.topology)))
 }
 
 #[cfg(test)]
@@ -211,6 +287,7 @@ mod tests {
 
     use super::*;
     use crate::context::BodyState;
+    use crate::naming::topology_info;
     use crate::test_support::{Fixture, box_body, face_names, id, named_box, volume};
 
     /// Applies `op` with `tools` to `b-1` in a fixture holding `state` as `b-1`.
@@ -523,6 +600,105 @@ mod tests {
         let result = apply_op(&fixture.context(), &id("b-1"), BodyOp::Join, vec![tool]);
 
         assert_eq!(result.map(|_| ()), Err(FeatureError::Canceled));
+    }
+
+    #[test]
+    fn a_boolean_carries_the_volume_and_topology_of_its_result() {
+        let tool = named_box("f-box2", [5.0, 5.0, 5.0], 10.0);
+
+        let (update, _) = apply(
+            box_body("f-box1", [0.0, 0.0, 0.0], 10.0),
+            BodyOp::Cut,
+            vec![tool],
+        )
+        .expect("cut builds");
+
+        let result = shape(&update);
+        assert_eq!(update.measured.volume, Some(volume(result)));
+        assert_eq!(
+            update.measured.topology.as_deref(),
+            Some(&topology_info(result).expect("the kernel topology"))
+        );
+    }
+
+    #[test]
+    fn op_new_with_several_tools_carries_the_topology_of_their_fusion() {
+        let tools = vec![
+            named_box("f-a", [0.0, 0.0, 0.0], 10.0),
+            named_box("f-b", [20.0, 0.0, 0.0], 10.0),
+        ];
+
+        let (update, _) = apply(BodyState::empty(), BodyOp::New, tools).expect("op new builds");
+
+        assert_eq!(
+            update
+                .measured
+                .topology
+                .map(|topology| topology.faces.len()),
+            Some(12)
+        );
+        assert_eq!(update.measured.volume, None);
+    }
+
+    #[test]
+    fn an_update_without_effect_carries_what_the_body_measured() {
+        let body = box_body("f-box1", [0.0, 0.0, 0.0], 10.0);
+        body.elements().expect("element infos");
+        let tool = named_box("f-box2", [100.0, 0.0, 0.0], 2.0);
+
+        let (update, _) = apply(body.clone(), BodyOp::Cut, vec![tool]).expect("the cut builds");
+
+        let topology = update.measured.topology.expect("the body's topology");
+        assert!(Arc::ptr_eq(
+            &topology,
+            &body.topology().expect("the body's topology")
+        ));
+        assert_eq!(
+            update.measured.volume,
+            Some(body.volume().expect("the body's volume"))
+        );
+    }
+
+    #[test]
+    fn a_kernel_result_gets_the_body_rules_of_apply_op() {
+        let state = box_body("f-box1", [0.0, 0.0, 0.0], 10.0);
+        let fixture = Fixture::new("f-op1").with_body("b-1", state.clone());
+        let tools = vec![named_box("f-box2", [5.0, 5.0, 5.0], 10.0)];
+        let result = cut(
+            state.shape().expect("a solid"),
+            std::slice::from_ref(&tools[0].shape),
+        )
+        .expect("the kernel cuts");
+
+        let (update, warnings) =
+            apply_op_result(&fixture.context(), &id("b-1"), BodyOp::Cut, &tools, result)
+                .expect("the rules apply");
+        let (expected, _) = apply(state, BodyOp::Cut, tools).expect("cut builds");
+
+        assert_eq!(update.change, BodyChange::Cut);
+        assert!(warnings.is_empty());
+        assert_eq!(volume(shape(&update)), volume(shape(&expected)));
+        assert_eq!(face_names(&update.naming), face_names(&expected.naming));
+    }
+
+    #[test]
+    fn a_kernel_result_for_op_new_or_without_every_tool_is_internal() {
+        let state = box_body("f-box1", [0.0, 0.0, 0.0], 10.0);
+        let fixture = Fixture::new("f-op1").with_body("b-1", state.clone());
+        let tools = vec![
+            named_box("f-a", [5.0, 5.0, 5.0], 10.0),
+            named_box("f-b", [-5.0, -5.0, -5.0], 10.0),
+        ];
+        let target = state.shape().expect("a solid");
+        let with_one = || cut(target, std::slice::from_ref(&tools[0].shape)).expect("cuts");
+        let apply_result = |op, result| {
+            apply_op_result(&fixture.context(), &id("b-1"), op, &tools, result)
+                .map(|_| ())
+                .map_err(|error| error.code())
+        };
+
+        assert_eq!(apply_result(BodyOp::Cut, with_one()), Err("internal"));
+        assert_eq!(apply_result(BodyOp::New, with_one()), Err("internal"));
     }
 
     #[test]

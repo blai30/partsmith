@@ -59,6 +59,8 @@ export type MenuProps = {
   readonly onOpenChange: (open: boolean) => void
   /** A `data-testid` for the root menu element (ui.md 6.1 names `document-menu` and `context-menu`). */
   readonly testId?: string
+  /** Where focus goes when the menu closes by a choice or a key; the anchor when absent. */
+  readonly returnFocus?: RefObject<HTMLElement | null>
 }
 
 /**
@@ -67,18 +69,30 @@ export type MenuProps = {
  * Enter, Space or a click chooses; ArrowRight and ArrowLeft open and close submenus; Esc closes
  * the innermost menu, and closing the menu returns focus to its button.
  */
-export function Menu({ label, open, anchor, entries, onOpenChange, testId }: MenuProps) {
+export function Menu({
+  label,
+  open,
+  anchor,
+  entries,
+  onOpenChange,
+  testId,
+  returnFocus,
+}: MenuProps) {
   if (!open) {
     return null
   }
+  const focusBack = (): void => {
+    const target = returnFocus ?? anchor
+    target.current?.focus()
+  }
   const choose = (entry: ChoiceEntry): void => {
     // Focus returns first, so a dialog the choice opens can take it.
-    anchor.current?.focus()
+    focusBack()
     onOpenChange(false)
     entry.onSelect()
   }
   const closeAndFocusButton = (): void => {
-    anchor.current?.focus()
+    focusBack()
     onOpenChange(false)
   }
   const dismiss = (): void => {

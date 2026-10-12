@@ -18,14 +18,14 @@ import {
   type ChangeEvent,
   type KeyboardEvent,
 } from 'react'
-import { updateSettings } from '../app/actions/settings'
+import { recordPaletteRecent } from '../app/actions/settings'
 import { useApp, useAppState } from '../app/AppProvider'
 import type { App } from '../app/createApp'
-import { rankPaletteItems, type PaletteItem } from '../commands/fuzzy'
+import { rankPaletteItems, recentItems, type PaletteItem } from '../commands/fuzzy'
 import { FEATURE_ICONS } from '../commands/icons'
 import { paletteItems } from '../commands/palette'
 import { measureTiming, TIMING_NAMES } from '../performance/marks'
-import { PALETTE_RECENT_LIMIT } from '../settings/settings'
+import type { AppContext } from '../state/store'
 import { COLOR_CLASSES } from '../theme/roles'
 import { keepInViewVertically } from './scroll'
 
@@ -80,11 +80,46 @@ function rank(
   query: string,
   items: readonly PaletteItem[],
   recentIds: readonly string[],
+  context: AppContext,
 ): readonly PaletteItem[] {
   const start = performance.now()
-  const ranked = rankPaletteItems(query, items, recentIds)
+  const ranked = rankPaletteItems(query, items, recentIds, context)
   measureTiming(TIMING_NAMES.palette, start)
   return ranked
+}
+
+/** A run of options under one heading, with each option's index in the whole list. */
+type OptionGroup = {
+  readonly heading: string | null
+  readonly options: readonly { readonly item: PaletteItem; readonly index: number }[]
+}
+
+/**
+ * The headed groups of the list: with an empty query "Recent" for the recent items, then one per
+ * category in the ranked order (3.4); with a query, one group without a heading.
+ */
+function groupsOf(
+  ranked: readonly PaletteItem[],
+  query: string,
+  items: readonly PaletteItem[],
+  recentIds: readonly string[],
+): readonly OptionGroup[] {
+  const indexed = ranked.map((item, index) => ({ item, index }))
+  if (query.trim() !== '') {
+    return [{ heading: null, options: indexed }]
+  }
+  const recentCount = recentItems(items, recentIds).length
+  const groups: { heading: string | null; options: { item: PaletteItem; index: number }[] }[] = []
+  for (const option of indexed) {
+    const heading = option.index < recentCount ? 'Recent' : option.item.category
+    const last = groups.at(-1)
+    if (last !== undefined && last.heading === heading) {
+      last.options.push(option)
+    } else {
+      groups.push({ heading, options: [option] })
+    }
+  }
+  return groups
 }
 
 function wrap(index: number, count: number): number {
@@ -98,10 +133,19 @@ function OpenPalette() {
   const palette = useRef<HTMLDivElement>(null)
   const input = useRef<HTMLInputElement>(null)
   const list = useRef<HTMLUListElement>(null)
+  const descriptionId = useId()
   const recentIds = useAppState((state) => state.settings.paletteRecent)
+  const context = useAppState((state) => state.context)
   const [items, setItems] = useState<readonly PaletteItem[]>(() => paletteItems(app, []))
   const [query, setQuery] = useState('')
-  const ranked = useMemo(() => rank(query, items, recentIds), [query, items, recentIds])
+  const ranked = useMemo(
+    () => rank(query, items, recentIds, context),
+    [query, items, recentIds, context],
+  )
+  const groups = useMemo(
+    () => groupsOf(ranked, query, items, recentIds),
+    [ranked, query, items, recentIds],
+  )
   // The first option is active whenever the list changes (3.4).
   const [chosen, setChosen] = useState({ ranked, index: 0 })
   const active = chosen.ranked === ranked ? chosen.index : 0
@@ -178,13 +222,7 @@ function OpenPalette() {
       setFooter(item.disabledReason)
       return
     }
-    const recent = app.store.getState().settings.paletteRecent
-    updateSettings(app, {
-      paletteRecent: [item.id, ...recent.filter((id) => id !== item.id)].slice(
-        0,
-        PALETTE_RECENT_LIMIT,
-      ),
-    })
+    recordPaletteRecent(app, item.id)
     close()
     item.run()
   }
@@ -271,7 +309,7 @@ function OpenPalette() {
             aria-controls={listId}
             aria-autocomplete="list"
             aria-activedescendant={activeId}
-            placeholder="Search commands, bodies and parameters"
+            placeholder="Search commands, features, bodies, parameters and settings"
             autoComplete="off"
             spellCheck={false}
             value={query}
@@ -289,94 +327,131 @@ function OpenPalette() {
           aria-label="Results"
           className="relative max-h-96 overflow-y-auto p-1"
         >
-          {ranked.map((item, index) => {
-            const Icon = iconFor(app, item)
-            const checked = checkedOf(app, item)
-            const disabled = item.disabledReason !== null
-            const tag = KIND_TAGS[item.kind]
-            const detail = item.disabledReason ?? item.detail
-            return (
-              // Options take no focus or keys: the input keeps both and points at the active option.
-              // oxlint-disable-next-line jsx-a11y/click-events-have-key-events
+          {ranked.length === 0 && query.trim() !== '' ? (
+            // The one row of an empty result is not an option (3.4).
+            <li
+              role="presentation"
+              data-testid="palette-empty"
+              className={clsx('px-2 py-2 text-sm', COLOR_CLASSES.textMuted.foreground)}
+            >
+              {`Nothing matches ${query.trim()}.`}
+            </li>
+          ) : null}
+          {groups.map((group) =>
+            group.heading === null ? (
+              group.options.map(({ item, index }) => renderOption(item, index))
+            ) : (
               <li
-                key={item.id}
-                id={`${optionPrefix}-${String(index)}`}
+                key={`${group.heading} ${String(group.options[0]?.index ?? 0)}`}
+                // A listbox groups its options with the group role (3.4).
                 // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role, jsx-a11y/no-noninteractive-element-to-interactive-role
-                role="option"
-                data-testid="palette-option"
-                data-item-id={item.id}
-                data-kind={item.kind}
-                aria-selected={index === active}
-                aria-disabled={disabled ? true : undefined}
-                aria-checked={checked ?? undefined}
-                onPointerMove={() => {
-                  if (index !== active) {
-                    setActive(index)
-                  }
-                }}
-                onPointerDown={(event) => {
-                  // Keeps focus in the input.
-                  event.preventDefault()
-                }}
-                onClick={() => {
-                  runItem(item)
-                }}
-                className={clsx(
-                  'flex h-9 cursor-default items-center gap-3 rounded-sm px-2 text-sm',
-                  index === active && COLOR_CLASSES.hover.active,
-                  disabled && COLOR_CLASSES.textDisabled.foreground,
-                )}
+                role="group"
+                aria-label={group.heading}
               >
-                <span className="flex size-4 shrink-0 items-center justify-center">
-                  {Icon === null ? null : (
-                    <Icon aria-hidden="true" strokeWidth={1.75} className="size-4" />
-                  )}
-                </span>
-                <span className="min-w-0 truncate">{item.title}</span>
-                {detail === null ? null : (
-                  <span
-                    className={clsx(
-                      'min-w-0 shrink truncate text-xs',
-                      COLOR_CLASSES.textMuted.foreground,
-                    )}
-                  >
-                    {detail}
-                  </span>
-                )}
-                <span className="ml-auto flex shrink-0 items-center gap-3">
-                  {tag === null ? null : (
-                    <span className={clsx('text-xs', COLOR_CLASSES.textMuted.foreground)}>
-                      {tag}
-                    </span>
-                  )}
-                  {item.shortcut === null ? null : (
-                    <span
-                      data-testid="palette-shortcut"
-                      className={clsx('text-xs', COLOR_CLASSES.textMuted.foreground)}
-                    >
-                      {item.shortcut}
-                    </span>
-                  )}
-                  {checked === true ? (
-                    <Check aria-hidden="true" strokeWidth={1.75} className="size-4" />
-                  ) : null}
-                </span>
+                <div
+                  data-testid="palette-heading"
+                  aria-hidden="true"
+                  className={clsx('px-2 pt-2 pb-1 text-xs', COLOR_CLASSES.textMuted.foreground)}
+                >
+                  {group.heading}
+                </div>
+                <ul role="none">
+                  {group.options.map(({ item, index }) => renderOption(item, index))}
+                </ul>
               </li>
-            )
-          })}
+            ),
+          )}
         </ul>
-        <output
+        <div
+          data-testid="palette-footer"
           className={clsx(
-            'block shrink-0 border-t px-3 py-2 text-xs empty:hidden',
+            'flex min-h-8 shrink-0 flex-col justify-center border-t px-3 py-2 text-xs',
             COLOR_CLASSES.border.border,
             COLOR_CLASSES.textMuted.foreground,
           )}
         >
-          {footer}
-        </output>
+          <p
+            id={descriptionId}
+            hidden={footer !== '' || (activeItem?.description ?? null) === null}
+          >
+            {activeItem?.description ?? ''}
+          </p>
+          <output className="block empty:hidden">{footer}</output>
+        </div>
       </div>
     </div>
   )
+
+  function renderOption(item: PaletteItem, index: number) {
+    const Icon = iconFor(app, item)
+    const checked = checkedOf(app, item)
+    const disabled = item.disabledReason !== null
+    const tag = KIND_TAGS[item.kind]
+    const detail = item.disabledReason ?? item.detail
+    const described = index === active && item.description !== null
+    return (
+      // Options take no focus or keys: the input keeps both and points at the active option.
+      // oxlint-disable-next-line jsx-a11y/click-events-have-key-events
+      <li
+        key={item.id}
+        id={`${optionPrefix}-${String(index)}`}
+        // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role, jsx-a11y/no-noninteractive-element-to-interactive-role
+        role="option"
+        data-testid="palette-option"
+        data-item-id={item.id}
+        data-kind={item.kind}
+        aria-selected={index === active}
+        aria-disabled={disabled ? true : undefined}
+        aria-checked={checked ?? undefined}
+        aria-describedby={described ? descriptionId : undefined}
+        onPointerMove={() => {
+          if (index !== active) {
+            setActive(index)
+          }
+        }}
+        onPointerDown={(event) => {
+          // Keeps focus in the input.
+          event.preventDefault()
+        }}
+        onClick={() => {
+          runItem(item)
+        }}
+        className={clsx(
+          'flex h-9 cursor-default items-center gap-3 rounded-sm px-2 text-sm',
+          index === active && COLOR_CLASSES.hover.active,
+          disabled && COLOR_CLASSES.textDisabled.foreground,
+        )}
+      >
+        <span className="flex size-4 shrink-0 items-center justify-center">
+          {Icon === null ? null : <Icon aria-hidden="true" strokeWidth={1.75} className="size-4" />}
+        </span>
+        <span className="min-w-0 truncate">{item.title}</span>
+        {detail === null ? null : (
+          <span
+            className={clsx('min-w-0 shrink truncate text-xs', COLOR_CLASSES.textMuted.foreground)}
+          >
+            {detail}
+          </span>
+        )}
+        <span className="ml-auto flex shrink-0 items-center gap-3">
+          {tag === null ? null : (
+            <span className={clsx('text-xs', COLOR_CLASSES.textMuted.foreground)}>{tag}</span>
+          )}
+          {item.shortcut === null ? null : (
+            <span
+              data-testid="palette-shortcut"
+              className={clsx('text-xs', COLOR_CLASSES.textMuted.foreground)}
+            >
+              {item.shortcut}
+            </span>
+          )}
+          {checked === true ? (
+            <Check aria-hidden="true" strokeWidth={1.75} className="size-4" />
+          ) : null}
+        </span>
+      </li>
+    )
+  }
 }
 
 /** The palette while `panels.paletteOpen` is set; nothing otherwise. */

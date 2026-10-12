@@ -71,12 +71,12 @@ export function runCommand(app: App, id: string, source: 'toolbar' | 'menu'): vo
   })
 }
 
-/** The menu item that runs a command: its icon, title (or the given label) and shortcut. */
+/** The menu item that runs a command: its icon, title as shown now (or the given label) and shortcut. */
 export function commandMenuItem(app: App, view: CommandView, label?: string): MenuEntry {
   const { definition } = view
   return {
     kind: 'item',
-    label: label ?? definition.title,
+    label: label ?? definition.label?.(app) ?? definition.title,
     ...(definition.icon === null ? {} : { icon: definition.icon }),
     ...(view.shortcut === null ? {} : { shortcut: view.shortcut }),
     disabled: view.availability.state === 'disabled',

@@ -788,15 +788,29 @@ EdgeNormalsData shape_edge_normals(const Shape &shape, std::uint32_t edge_index)
   if (edge.Orientation() == TopAbs_REVERSED) {
     tangent.Reverse();
   }
-  EdgeNormalsData data{to_vec3(point.XYZ()), to_vec3(tangent.XYZ()), {}};
+  EdgeNormalsData data{to_vec3(point.XYZ()), to_vec3(tangent.XYZ()), {}, ContinuityType::Absent};
   // Faces in index order give the ascending order of the topology's face lists.
+  std::vector<int> faces;
   for (int face_index = 1; face_index <= shape.faces().Extent(); ++face_index) {
     const TopoDS_Face &face = TopoDS::Face(shape.faces()(face_index));
     if (bounds_face(face, edge)) {
       const gp_Dir normal = normal_at_edge(face, edge, middle, point, edge_index, face_index);
       data.faces.push_back(
           FaceNormalData{static_cast<std::uint32_t>(face_index), to_vec3(normal.XYZ())});
+      faces.push_back(face_index);
     }
+  }
+  // The continuity recorded across the edge (kernel spec section 3.6, item 5): between its two
+  // faces, or for a seam between its face and itself. OCCT reports C0 when none is recorded.
+  const auto face_at = [&shape](int index) { return TopoDS::Face(shape.faces()(index)); };
+  std::optional<GeomAbs_Shape> continuity;
+  if (faces.size() == 2) {
+    continuity = BRep_Tool::Continuity(edge, face_at(faces[0]), face_at(faces[1]));
+  } else if (faces.size() == 1 && BRep_Tool::IsClosed(edge, face_at(faces[0]))) {
+    continuity = BRep_Tool::Continuity(edge, face_at(faces[0]), face_at(faces[0]));
+  }
+  if (continuity) {
+    data.continuity = *continuity == GeomAbs_C0 ? ContinuityType::C0 : ContinuityType::G1OrBetter;
   }
   return data;
 }

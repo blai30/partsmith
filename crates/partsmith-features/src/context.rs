@@ -16,7 +16,9 @@ use partsmith_sketch::{Geometry, MatchMethod, OriginPlane, Placement, RegionMatc
 use crate::deps::ExprUse;
 use crate::error::{Bound, FallbackReason, FeatureError, FeatureWarning, FieldRef, Noun};
 use crate::naming::{naming, sub_shape_kind, topology_info};
-use crate::output::{DatumResult, FeatureOutput, OutputData, SketchResult};
+use crate::output::{
+    BodyUpdate, DatumResult, FeatureOutput, Measurements, OutputData, SketchResult,
+};
 use crate::params::{AxisRef, PlaneRef, ProfileRef, point, vector};
 
 /// Largest distance from a whole number that a count may have (section 3.4).
@@ -516,31 +518,40 @@ struct BodyContent {
     shape: Option<Shape>,
     /// Names of the shape's elements.
     naming: Arc<NamingMap>,
+    /// Topology and fingerprints, carried from the update or computed on first use.
+    topology: OnceLock<Result<Arc<TopologyInfo>, FeatureError>>,
     /// Element infos, computed on first use.
     elements: OnceLock<Result<Arc<[ElementInfo]>, FeatureError>>,
-    /// Volume, computed on first use.
+    /// Volume, carried from the update or computed on first use.
     volume: OnceLock<Result<f64, FeatureError>>,
 }
 
 impl BodyState {
     /// A body with no solid.
     pub fn empty() -> Self {
-        let naming = NamingMap::build(
-            Vec::new(),
-            &TopologyInfo {
-                faces: Vec::new(),
-                edges: Vec::new(),
-                vertices: Vec::new(),
-            },
-            &[],
-        )
-        .expect("a shape without elements always has a naming map");
-        BodyState::with(None, Arc::new(naming))
+        let naming = NamingMap::build(Vec::new(), &empty_topology(), &[])
+            .expect("a shape without elements always has a naming map");
+        BodyState::with(None, Arc::new(naming), Measurements::default())
     }
 
     /// A body holding `shape` named by `naming`.
     pub fn new(shape: Shape, naming: Arc<NamingMap>) -> Self {
-        BodyState::with(Some(shape), naming)
+        BodyState::with(Some(shape), naming, Measurements::default())
+    }
+
+    /// The state a body update gives the body: empty without a shape, else the update's shape and
+    /// naming map, with the update's measurements as the values `topology` and `volume` would
+    /// compute (features.md section 2.7). Recompute makes every body state after a feature this
+    /// way.
+    pub fn from_update(update: &BodyUpdate) -> Self {
+        match &update.shape {
+            None => BodyState::empty(),
+            Some(shape) => BodyState::with(
+                Some(shape.clone()),
+                Arc::clone(&update.naming),
+                update.measured.clone(),
+            ),
+        }
     }
 
     /// The shape, or None when the body is empty.
@@ -558,21 +569,31 @@ impl BodyState {
         self.content.shape.is_none()
     }
 
-    /// Element infos (names, kinds, fingerprints, adjacency) of the shape, computed once on first use and shared by clones.
+    /// Topology and fingerprints of every face, edge and vertex of the shape (`topology_info`,
+    /// empty for an empty body), computed once on first use and shared by clones.
+    pub fn topology(&self) -> Result<Arc<TopologyInfo>, FeatureError> {
+        self.content
+            .topology
+            .get_or_init(|| match &self.content.shape {
+                None => Ok(Arc::new(empty_topology())),
+                Some(shape) => topology_info(shape).map(Arc::new),
+            })
+            .clone()
+    }
+
+    /// Element infos (names, kinds, fingerprints, adjacency) of the shape, computed from
+    /// `topology` once on first use and shared by clones.
     pub fn elements(&self) -> Result<Arc<[ElementInfo]>, FeatureError> {
         self.content
             .elements
-            .get_or_init(|| match &self.content.shape {
-                None => Ok(Arc::from([])),
-                Some(shape) => {
-                    let topology = topology_info(shape)?;
-                    let infos = self
-                        .content
-                        .naming
-                        .element_infos(&topology)
-                        .map_err(naming)?;
-                    Ok(Arc::from(infos))
-                }
+            .get_or_init(|| {
+                let topology = self.topology()?;
+                let infos = self
+                    .content
+                    .naming
+                    .element_infos(&topology)
+                    .map_err(naming)?;
+                Ok(Arc::from(infos))
             })
             .clone()
     }
@@ -589,16 +610,50 @@ impl BodyState {
             .clone()
     }
 
-    /// A state with this shape and naming map.
-    fn with(shape: Option<Shape>, naming: Arc<NamingMap>) -> Self {
+    /// The topology and volume measured so far, for an update that keeps this state: what has not
+    /// been computed yet, or failed, is `None`.
+    pub fn measurements(&self) -> Measurements {
+        Measurements {
+            topology: self
+                .content
+                .topology
+                .get()
+                .and_then(|topology| topology.as_ref().ok())
+                .cloned(),
+            volume: self
+                .content
+                .volume
+                .get()
+                .and_then(|volume| volume.as_ref().ok())
+                .copied(),
+        }
+    }
+
+    /// A state with this shape and naming map, holding the measured values.
+    fn with(shape: Option<Shape>, naming: Arc<NamingMap>, measured: Measurements) -> Self {
         BodyState {
             content: Arc::new(BodyContent {
                 shape,
                 naming,
+                topology: known(measured.topology.map(Ok)),
                 elements: OnceLock::new(),
-                volume: OnceLock::new(),
+                volume: known(measured.volume.map(Ok)),
             }),
         }
+    }
+}
+
+/// A cell holding `value` when it is known, else an empty one.
+fn known<T>(value: Option<T>) -> OnceLock<T> {
+    value.map_or_else(OnceLock::new, OnceLock::from)
+}
+
+/// The topology of a shape without elements.
+fn empty_topology() -> TopologyInfo {
+    TopologyInfo {
+        faces: Vec::new(),
+        edges: Vec::new(),
+        vertices: Vec::new(),
     }
 }
 
@@ -1850,6 +1905,102 @@ mod tests {
 
         assert!((volume - 1000.0).abs() < 1e-9, "{volume}");
         assert_eq!(clone.volume().expect("the clone has a volume"), volume);
+    }
+
+    #[test]
+    fn the_topology_of_a_state_is_the_kernel_topology_and_shared_by_its_clones() {
+        let state = box_body("f-box1", [0.0, 0.0, 0.0], 10.0);
+        let clone = state.clone();
+
+        let topology = state.topology().expect("the box has a topology");
+
+        assert_eq!(topology.faces.len(), 6);
+        let shape = state.shape().expect("a solid");
+        assert_eq!(
+            *topology,
+            topology_info(shape).expect("the kernel topology")
+        );
+        assert!(Arc::ptr_eq(
+            &topology,
+            &clone.topology().expect("the clone has a topology")
+        ));
+    }
+
+    #[test]
+    fn a_state_measures_nothing_until_asked() {
+        let state = box_body("f-box1", [0.0, 0.0, 0.0], 10.0);
+
+        let before = state.measurements();
+        state.volume().expect("a volume");
+        state.elements().expect("element infos");
+        let after = state.measurements();
+
+        assert!(before.topology.is_none() && before.volume.is_none());
+        assert!(after.topology.is_some());
+        assert_eq!(after.volume, Some(state.volume().expect("a volume")));
+    }
+
+    #[test]
+    fn a_state_from_an_update_keeps_its_measurements() {
+        let state = box_body("f-box1", [0.0, 0.0, 0.0], 10.0);
+        let topology = Arc::new(empty_topology());
+        let update = BodyUpdate {
+            body: id("b-1"),
+            shape: state.shape().cloned(),
+            naming: Arc::clone(state.naming()),
+            change: crate::output::BodyChange::Modify,
+            // Values a real feature would never carry, so the test sees they are not measured.
+            measured: Measurements {
+                topology: Some(Arc::clone(&topology)),
+                volume: Some(123.0),
+            },
+        };
+
+        let next = BodyState::from_update(&update);
+
+        assert_eq!(next.volume().expect("the carried volume"), 123.0);
+        assert!(Arc::ptr_eq(
+            &next.topology().expect("the carried topology"),
+            &topology
+        ));
+        assert!(Arc::ptr_eq(next.naming(), state.naming()));
+    }
+
+    #[test]
+    fn a_state_from_an_update_without_measurements_measures_the_shape() {
+        let state = box_body("f-box1", [0.0, 0.0, 0.0], 10.0);
+        let update = BodyUpdate {
+            body: id("b-1"),
+            shape: state.shape().cloned(),
+            naming: Arc::clone(state.naming()),
+            change: crate::output::BodyChange::Modify,
+            measured: Measurements::default(),
+        };
+
+        let next = BodyState::from_update(&update);
+
+        assert!((next.volume().expect("a volume") - 1000.0).abs() < 1e-9);
+        assert_eq!(next.topology().expect("a topology").faces.len(), 6);
+    }
+
+    #[test]
+    fn a_state_from_an_update_without_a_shape_is_empty() {
+        let update = BodyUpdate {
+            body: id("b-1"),
+            shape: None,
+            naming: Arc::clone(BodyState::empty().naming()),
+            change: crate::output::BodyChange::Clear,
+            measured: Measurements {
+                topology: None,
+                volume: Some(5.0),
+            },
+        };
+
+        let next = BodyState::from_update(&update);
+
+        assert!(next.is_empty());
+        assert_eq!(next.volume().expect("no volume"), 0.0);
+        assert!(next.topology().expect("no elements").faces.is_empty());
     }
 
     #[test]

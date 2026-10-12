@@ -155,3 +155,46 @@ describe('SegmentedControl keys and states', () => {
     expect(onChange).not.toHaveBeenCalled()
   })
 })
+
+describe('SegmentedControl option tooltips', () => {
+  it('describes the radio of an option with a tooltip and leaves the others alone', () => {
+    render(
+      <SegmentedControl
+        label="Context"
+        options={[
+          { value: 'model', label: 'Model' },
+          { value: 'sketch', label: 'Sketch', tooltip: 'Edit Sketch 1' },
+          { value: 'print', label: 'Print', tooltip: null },
+        ]}
+        value="model"
+        onChange={() => undefined}
+      />,
+    )
+    expect(screen.getByRole('radio', { name: 'Sketch' })).toHaveAccessibleDescription(
+      'Edit Sketch 1',
+    )
+    expect(screen.getByRole('radio', { name: 'Model' })).not.toHaveAccessibleDescription()
+    expect(screen.getByRole('radio', { name: 'Print' })).not.toHaveAccessibleDescription()
+  })
+
+  it('moves focus over options with and without tooltips', async () => {
+    render(
+      <SegmentedControl
+        label="Context"
+        options={[
+          { value: 'model', label: 'Model' },
+          { value: 'sketch', label: 'Sketch', tooltip: 'New sketch' },
+          { value: 'print', label: 'Print' },
+        ]}
+        value="model"
+        onChange={() => undefined}
+      />,
+    )
+    const user = userEvent.setup()
+    screen.getByRole('radio', { name: 'Model' }).focus()
+    await user.keyboard('{ArrowRight}')
+    expect(screen.getByRole('radio', { name: 'Sketch' })).toHaveFocus()
+    await user.keyboard('{ArrowRight}')
+    expect(screen.getByRole('radio', { name: 'Print' })).toHaveFocus()
+  })
+})

@@ -10,6 +10,7 @@ import { IconButton } from '../components/IconButton'
 import { SegmentedControl, type SegmentedOption } from '../components/SegmentedControl'
 import { Tooltip } from '../components/Tooltip'
 import { ExportPopover } from '../export/ExportPopover'
+import { selectSketchRadioTooltip } from '../state/selectors'
 import type { AppContext, AppState } from '../state/store'
 import { COLOR_CLASSES } from '../theme/roles'
 import { toggledTheme } from '../theme/theme'
@@ -22,12 +23,6 @@ import { runCommand, useCommandViews } from './use-commands'
 
 // The top bar (ui.md 3.2): browser toggle, document name and save state, context switcher,
 // context toolbar, palette button, Export button and theme toggle.
-
-const CONTEXTS: readonly SegmentedOption<AppContext>[] = [
-  { value: 'model', label: 'Model' },
-  { value: 'sketch', label: 'Sketch' },
-  { value: 'print', label: 'Print' },
-]
 
 function report(action: string): (error: unknown) => void {
   return (error) => {
@@ -98,10 +93,17 @@ function DocumentTitle() {
 function ContextSwitcher() {
   const app = useApp()
   const context = useAppState((state) => state.context)
+  // The Sketch radio edits the selected sketch or starts a new one, and says which (3.3).
+  const sketchTooltip = useAppState(selectSketchRadioTooltip)
+  const options: readonly SegmentedOption<AppContext>[] = [
+    { value: 'model', label: 'Model' },
+    { value: 'sketch', label: 'Sketch', tooltip: sketchTooltip },
+    { value: 'print', label: 'Print' },
+  ]
   return (
     <SegmentedControl
       label="Context"
-      options={CONTEXTS}
+      options={options}
       value={context}
       onChange={(next) => {
         setContext(app, next).catch(report('Switching the context'))

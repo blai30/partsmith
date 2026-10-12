@@ -1,5 +1,6 @@
 import { fireEvent, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { setHoveredField } from '../app/actions/command'
 import { undo } from '../app/actions/document'
 import { enterSketch } from '../app/actions/sketch'
 import type { App } from '../app/createApp'
@@ -27,8 +28,15 @@ import {
   stubMatchMedia,
   type FrameQueue,
 } from '../layout/test-app.testing'
+import { onUiRequest } from '../layout/requests'
+import { MESSAGES } from '../messages'
 import { DEFAULT_SETTINGS } from '../settings/settings'
-import type { ActiveCommand, AppState, DocumentState } from '../state/store'
+import {
+  INITIAL_STATE,
+  type ActiveCommand,
+  type AppState,
+  type DocumentState,
+} from '../state/store'
 import { createFakeBackend, type FakeBackend } from '../test/fakes/backend'
 import type { FakeCoreApi } from '../test/fakes/core-api'
 import {
@@ -49,6 +57,7 @@ import {
   type Camera,
 } from './camera'
 import { createViewportController, type ViewportController } from './controller'
+import { drawnGridSpacing } from './grid'
 import { createScene, type Scene } from './scene'
 
 const WIDTH = 800
@@ -210,6 +219,10 @@ const FILLET_COMMAND: ActiveCommand = {
   fieldErrors: {},
   applied: false,
   newBody: null,
+  helper: null,
+  changedPaths: [],
+  history: [],
+  future: [],
   preview: 'none',
 }
 
@@ -270,6 +283,26 @@ describe('rendering on demand (3.12)', () => {
     fixture.frames.flush()
     const frame = fixture.backend.lastFrame()
     expect(frame?.theme.backgroundTop).not.toEqual(fixture.backend.frames[0]?.theme.backgroundTop)
+  })
+})
+
+describe('the grid spacing (3.12, 3.21)', () => {
+  it('mirrors the drawn grid’s minor spacing in the store, larger after zooming out', () => {
+    const fixture = setUp()
+    const camera = fixture.controller.getCamera()
+    const state = fixture.app.store.getState()
+    expect(state.view.gridSpacing).toBe(drawnGridSpacing(state, camera, HEIGHT))
+    const before = state.view.gridSpacing ?? 0
+    fixture.controller.setCamera({ ...camera, distance: camera.distance * 20 })
+    fixture.frames.flush()
+    expect(fixture.app.store.getState().view.gridSpacing).toBeGreaterThan(before)
+  })
+
+  it('mirrors null when no grid is drawn, as in Print', () => {
+    const fixture = setUp()
+    fixture.app.store.setState({ context: 'print' })
+    fixture.frames.flush()
+    expect(fixture.app.store.getState().view.gridSpacing).toBeNull()
   })
 })
 
@@ -917,5 +950,363 @@ describe('selection after rebuilds (3.6)', () => {
       'element:b-cube:f-ext1/side-0',
     ])
     expect(indicesWith(fixture, rebuilt.positions, ELEMENT_STATE.selected)).toEqual([1])
+  })
+})
+
+/** An edge descriptor named `name`; its list position is its display id. */
+function edgeNamed(name: string): ElementDescriptor {
+  return { ...CUBE_TOP_FRONT_EDGE, name, reference: { q: name, fp: `fp-${name}` } }
+}
+
+/** Moves the pointer over face 0 of the cube. */
+function hoverFaceZero(fixture: Fixture): void {
+  pickElement(fixture, 'face', 0)
+  fireEvent.pointerMove(fixture.canvas, {
+    pointerId: 1,
+    pointerType: 'mouse',
+    buttons: 0,
+    clientX: 120,
+    clientY: 80,
+  })
+  fixture.frames.flush()
+}
+
+describe('faces hovered as their edges (3.7)', () => {
+  // Display edge ids 0 to 11; the top face's 4 edges are at positions 2, 5, 7 and 11.
+  const EDGES = Array.from({ length: 12 }, (_, index) => {
+    const top = [2, 5, 7, 11].indexOf(index)
+    return edgeNamed(top === -1 ? `edge-${String(index)}` : (CUBE_TOP_FACE.adjacent[top] ?? ''))
+  })
+
+  function setUpFillet(): Fixture {
+    return setUp({
+      state: { command: FILLET_COMMAND },
+      prepare: (core) => {
+        core.stub('listElements', (_handle, _body, kind) =>
+          Promise.resolve(kind === 'edge' ? EDGES : CUBE_FACES),
+        )
+      },
+    })
+  }
+
+  it('lights up the edges around a hovered face instead of the face in a Fillet', async () => {
+    const fixture = setUpFillet()
+    hoverFaceZero(fixture)
+    await settle()
+    fixture.frames.flush()
+    expect(indicesWith(fixture, CUBE_MESH.edgePositions, ELEMENT_STATE.hover)).toEqual([
+      2, 5, 7, 11,
+    ])
+    expect(indicesWith(fixture, CUBE_MESH.positions, ELEMENT_STATE.hover)).toEqual([])
+  })
+
+  it('lists the faces and edges of a body once per mesh', async () => {
+    const fixture = setUpFillet()
+    hoverFaceZero(fixture)
+    await settle()
+    hoverFaceZero(fixture)
+    await settle()
+    expect(fixture.core.callsTo('listElements').map((call) => call[2])).toEqual(['face', 'edge'])
+  })
+
+  it('hovers the face itself when the active field takes faces', async () => {
+    const fixture = setUp({
+      state: {
+        command: {
+          ...FILLET_COMMAND,
+          featureType: 'shell',
+          params: { thickness: '2 mm' },
+          activeField: 'remove_faces',
+        },
+      },
+    })
+    hoverFaceZero(fixture)
+    await settle()
+    fixture.frames.flush()
+    expect(indicesWith(fixture, CUBE_MESH.positions, ELEMENT_STATE.hover)).toEqual([0])
+    expect(fixture.core.callsTo('listElements')).toEqual([])
+  })
+})
+
+describe('a hovered selection field box (3.7)', () => {
+  it("draws the field's edges hovered while the pointer is over its box", async () => {
+    const fixture = setUp({
+      state: {
+        command: {
+          ...FILLET_COMMAND,
+          params: { radius: '2 mm', body: 'b-cube', edges: [CUBE_TOP_FRONT_EDGE.reference] },
+        },
+      },
+      prepare: (core) => {
+        core.stub('resolveReferences', (_documentHandle, references: readonly ElementRef[]) =>
+          Promise.resolve(
+            references.map(
+              (): Resolution => ({
+                status: 'resolved',
+                matches: [{ body: 'b-cube', mesh_id: 1, kind: 'edge', index: 4 }],
+              }),
+            ),
+          ),
+        )
+      },
+    })
+    await settle()
+    fixture.frames.flush()
+    expect(indicesWith(fixture, CUBE_MESH.edgePositions, ELEMENT_STATE.selected)).toEqual([4])
+    expect(indicesWith(fixture, CUBE_MESH.edgePositions, ELEMENT_STATE.hover)).toEqual([])
+    setHoveredField(fixture.app, 'edges')
+    fixture.frames.flush()
+    expect(indicesWith(fixture, CUBE_MESH.edgePositions, ELEMENT_STATE.hover)).toEqual([4])
+    setHoveredField(fixture.app, null)
+    fixture.frames.flush()
+    expect(indicesWith(fixture, CUBE_MESH.edgePositions, ELEMENT_STATE.hover)).toEqual([])
+  })
+
+  it("draws the field's body hovered for a body field", async () => {
+    const fixture = setUp({
+      state: {
+        command: {
+          ...FILLET_COMMAND,
+          featureType: 'shell',
+          params: { thickness: '2 mm', body: 'b-cube' },
+          activeField: null,
+          hoveredField: 'body',
+        },
+      },
+    })
+    await settle()
+    fixture.frames.flush()
+    expect(indicesWith(fixture, CUBE_MESH.positions, ELEMENT_STATE.hover).length).toBeGreaterThan(0)
+  })
+})
+
+describe('clicks into a command (3.7)', () => {
+  it('a face clicked for its edges fills Edges and resolves them through the core', async () => {
+    const edges = [0, 1, 2, 3].map((index) => edgeNamed(CUBE_TOP_FACE.adjacent[index] ?? ''))
+    const fixture = setUp({
+      state: { command: FILLET_COMMAND },
+      prepare: (core) => {
+        core.stub('pickReference', () => Promise.resolve(CUBE_TOP_FACE))
+        core.stub('listElements', () => Promise.resolve(edges))
+      },
+    })
+    pickElement(fixture, 'face', 0)
+    click(fixture.canvas, 200, 150)
+    await settle()
+    fixture.frames.flush()
+    expect(fixture.app.store.getState().command?.params['edges']).toEqual(
+      edges.map((edge) => edge.reference),
+    )
+    // The four edges are not taken for the clicked face: the core resolves them.
+    const [, references] = fixture.core.callsTo('resolveReferences').at(-1) ?? []
+    expect(references).toHaveLength(4)
+  })
+
+  it('places a hole center where the click ray meets a flat face', async () => {
+    const fixture = setUp({
+      state: {
+        command: {
+          ...FILLET_COMMAND,
+          featureType: 'hole',
+          title: 'Hole',
+          params: { diameter: '3.2 mm', extent: { kind: 'through_all' } },
+          activeField: 'points',
+        },
+      },
+      prepare: (core) => {
+        core.stub('pickReference', () => Promise.resolve(CUBE_TOP_FACE))
+      },
+    })
+    pickElement(fixture, 'face', 0)
+    click(fixture.canvas, 400, 300)
+    await settle()
+    const helper = fixture.app.store.getState().command?.helper
+    const [entity] = helper?.params.entities ?? []
+    expect(entity?.type).toBe('point')
+    expect(helper?.params.plane).toMatchObject({ kind: 'face', body: 'b-cube' })
+  })
+})
+
+describe('clicks while a plane is picked for a new sketch (3.16.1)', () => {
+  const PLANE_PICKING: Partial<AppState> = {
+    context: 'sketch',
+    sketch: {
+      sketchId: null,
+      tool: null,
+      construction: false,
+      showConstraints: true,
+      selection: [],
+      dragging: false,
+      cameraBefore: null,
+    },
+  }
+
+  it('starts the sketch on a flat face', async () => {
+    const fixture = setUp({
+      state: PLANE_PICKING,
+      prepare: (core) => {
+        core.stub('pickReference', () => Promise.resolve(CUBE_TOP_FACE))
+      },
+    })
+    pickElement(fixture, 'face', 0)
+    click(fixture.canvas, 400, 300)
+    await settle()
+    const [call] = fixture.core.callsTo('applyEdits')
+    expect(call?.[1]).toBe('New sketch')
+    expect(call?.[2]).toMatchObject([
+      { type: 'add_feature', feature: { type: 'sketch', plane: { kind: 'face', body: 'b-cube' } } },
+    ])
+  })
+
+  it('refuses a face that is not flat with pick_plane in the sketch hint, not a notification', async () => {
+    const fixture = setUp({
+      state: PLANE_PICKING,
+      prepare: (core) => {
+        core.stub('pickReference', () => Promise.resolve({ ...CUBE_TOP_FACE, surface: 'cylinder' }))
+      },
+    })
+    pickElement(fixture, 'face', 0)
+    click(fixture.canvas, 400, 300)
+    await settle()
+    const state = fixture.app.store.getState()
+    expect(state.pickHint).toEqual({ message: MESSAGES.pick_plane(), field: null })
+    expect(state.notifications).toEqual([])
+    expect(fixture.core.callsTo('applyEdits')).toEqual([])
+  })
+})
+
+function layOnFaceState(): Partial<AppState> {
+  return {
+    context: 'print',
+    print: { ...INITIAL_STATE.print, pickingFace: true },
+  }
+}
+
+describe('clicks while Lay on face picks a face (3.17)', () => {
+  it('lays a clicked flat face on the bed instead of selecting it', async () => {
+    const fixture = setUp({
+      state: layOnFaceState(),
+      prepare: (core) => {
+        core.stub('pickReference', () => Promise.resolve(CUBE_TOP_FACE))
+      },
+    })
+    pickElement(fixture, 'face', 0)
+    click(fixture.canvas, 400, 300)
+    await settle()
+    const state = fixture.app.store.getState()
+    expect(state.print).toMatchObject({
+      pickingFace: false,
+      orientation: { kind: 'face_down', body: 'b-cube', face: CUBE_TOP_FACE.reference },
+    })
+    expect(state.selection).toEqual([])
+  })
+
+  it('refuses a face that is not flat with pick_flat_face and keeps picking', async () => {
+    const fixture = setUp({
+      state: layOnFaceState(),
+      prepare: (core) => {
+        core.stub('pickReference', () => Promise.resolve({ ...CUBE_TOP_FACE, surface: 'cylinder' }))
+      },
+    })
+    pickElement(fixture, 'face', 0)
+    click(fixture.canvas, 400, 300)
+    await settle()
+    const state = fixture.app.store.getState()
+    expect(state.pickHint).toEqual({ message: MESSAGES.pick_flat_face(), field: null })
+    expect(state.print).toMatchObject({ pickingFace: true, orientation: null })
+  })
+
+  it('accepts faces only: an edge under the pointer is not picked', async () => {
+    const fixture = setUp({ state: layOnFaceState() })
+    pickElement(fixture, 'edge', 0)
+    click(fixture.canvas, 400, 300)
+    await settle()
+    expect(fixture.core.callsTo('pickReference')).toEqual([])
+    expect(fixture.app.store.getState().print.pickingFace).toBe(true)
+  })
+})
+
+/** A right press and release at one point. */
+function rightClick(canvas: HTMLCanvasElement, x: number, y: number): void {
+  const init = { pointerId: 1, pointerType: 'mouse', button: 2, clientX: x, clientY: y }
+  fireEvent.pointerDown(canvas, { ...init, buttons: 2 })
+  fireEvent.contextMenu(canvas, init)
+  fireEvent.pointerUp(canvas, { ...init, buttons: 0 })
+}
+
+function menuRequests(app: App): { readonly x: number; readonly y: number }[] {
+  const requests: { x: number; y: number }[] = []
+  cleanups.push(
+    onUiRequest(app, (request) => {
+      if (request.kind === 'viewport_menu') {
+        requests.push({ x: request.x, y: request.y })
+        return true
+      }
+      return false
+    }),
+  )
+  return requests
+}
+
+describe('right clicks and the context menu (3.13)', () => {
+  it('selects an unselected face under the pointer, as a click would, then opens the menu there', async () => {
+    const fixture = setUp({
+      state: { selection: [bodyItem('b-cube', 'Cube')] },
+      prepare: (core) => {
+        core.stub('pickReference', () => Promise.resolve(CUBE_TOP_FACE))
+      },
+    })
+    const requests = menuRequests(fixture.app)
+    pickElement(fixture, 'face', 0)
+    rightClick(fixture.canvas, 200, 150)
+    await settle()
+    expect(fixture.app.store.getState().selection.map((item) => item.key)).toEqual([
+      'element:b-cube:f-ext1/end-cap',
+    ])
+    expect(requests).toEqual([{ x: 200, y: 150 }])
+  })
+
+  it('keeps a selection that already holds the item under the pointer', async () => {
+    const fixture = setUp({
+      prepare: (core) => {
+        core.stub('pickReference', () => Promise.resolve(CUBE_TOP_FACE))
+      },
+    })
+    pickElement(fixture, 'face', 0)
+    click(fixture.canvas, 200, 150)
+    await settle()
+    const top = fixture.app.store.getState().selection
+    const front = elementItem(CUBE_FRONT_FACE)
+    fixture.app.store.setState({ selection: [...top, front] })
+    await settle()
+    const requests = menuRequests(fixture.app)
+    rightClick(fixture.canvas, 200, 150)
+    await settle()
+    expect(fixture.app.store.getState().selection.map((item) => item.key)).toEqual([
+      'element:b-cube:f-ext1/end-cap',
+      front.key,
+    ])
+    expect(requests).toHaveLength(1)
+  })
+
+  it('opens the menu without picking during a feature command', async () => {
+    const fixture = setUp({ state: { command: FILLET_COMMAND } })
+    const requests = menuRequests(fixture.app)
+    pickElement(fixture, 'edge', 0)
+    rightClick(fixture.canvas, 200, 150)
+    await settle()
+    expect(fixture.core.callsTo('pickReference')).toEqual([])
+    expect(requests).toEqual([{ x: 200, y: 150 }])
+  })
+
+  it('opens no menu after a right drag, which orbits', async () => {
+    const fixture = setUp()
+    const requests = menuRequests(fixture.app)
+    const press = { pointerId: 1, pointerType: 'mouse', button: 2, clientX: 400, clientY: 300 }
+    fireEvent.pointerDown(fixture.canvas, { ...press, buttons: 2 })
+    fireEvent.pointerMove(fixture.canvas, { ...press, buttons: 2, clientX: 460 })
+    fireEvent.pointerUp(fixture.canvas, { ...press, buttons: 0, clientX: 460 })
+    await settle()
+    expect(requests).toEqual([])
   })
 })

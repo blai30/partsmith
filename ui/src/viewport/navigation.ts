@@ -17,7 +17,10 @@ const PAN_WITHOUT_MIDDLE: NavigationRow = {
 }
 const ZOOM: NavigationRow = { action: 'Zoom', gesture: 'Wheel at the cursor' }
 const PINCH: NavigationRow = { action: 'Zoom with a trackpad pinch', gesture: 'At the cursor' }
-const VIEW_CUBE: NavigationRow = { action: 'Orbit with the view cube', gesture: 'Left drag on the cube' }
+const VIEW_CUBE: NavigationRow = {
+  action: 'Orbit with the view cube',
+  gesture: 'Left drag on the cube',
+}
 const BOX_SELECTION: NavigationRow = {
   action: 'Box selection',
   gesture: 'Left drag on empty space, sketch mode only',

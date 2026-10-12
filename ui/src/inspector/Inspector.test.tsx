@@ -6,6 +6,7 @@ import { installPopoverPolyfill } from '../components/popover-polyfill.testing'
 import type { Diagnostic, FeatureStatus } from '../generated/protocol'
 import {
   bodyItem,
+  CYLINDRICAL_FACE,
   cubeDocumentState,
   documentState,
   elementItem,
@@ -35,6 +36,7 @@ import {
   featuresOf,
   RECT_REGION,
   RECT_SKETCH_SOLUTION,
+  TWO_BODIES_DOCUMENT,
 } from '../test/fakes/documents'
 import { settle } from '../test/fakes/settle'
 import { COLOR_CLASSES, FONT_CLASSES } from '../theme/roles'
@@ -65,6 +67,10 @@ const EDIT_FILLET: ActiveCommand = {
   fieldErrors: {},
   applied: true,
   newBody: null,
+  helper: null,
+  changedPaths: [],
+  history: [],
+  future: [],
   preview: 'shown',
 }
 
@@ -78,6 +84,10 @@ const NEW_EXTRUDE: ActiveCommand = {
   fieldErrors: {},
   applied: false,
   newBody: null,
+  helper: null,
+  changedPaths: [],
+  history: [],
+  future: [],
   preview: 'none',
 }
 
@@ -182,7 +192,7 @@ describe('the command inspector (3.7)', () => {
     await waitFor(() => {
       expect(within(field('radius')).getByTestId('expression-result')).toHaveTextContent('= 2 mm')
     })
-    expect(within(field('radius')).getByRole('textbox', { name: 'Radius' })).toHaveClass(
+    expect(within(field('radius')).getByRole('combobox', { name: 'Radius' })).toHaveClass(
       ...FONT_CLASSES.values.split(' '),
     )
   })
@@ -217,13 +227,15 @@ describe('the command inspector (3.7)', () => {
     const profile = within(field('profile')).getByTestId('selection-field')
     const shown = within(field('profile')).getByText(hint)
     expect(hasRoleClasses(shown, COLOR_CLASSES.textMuted.foreground)).toBe(true)
-    expect(profile).toHaveAccessibleDescription(hint)
+    // The field's help (2.12) describes the box too, after the hint.
+    const help = 'The closed sketch shapes to extrude. Click inside a shape to add it.'
+    expect(profile).toHaveAccessibleDescription(`${hint} ${help}`)
     expect(within(field('profile')).getByTestId('field-error')).toHaveTextContent('')
     act(() => {
       vi.advanceTimersByTime(3_000)
     })
     expect(within(field('profile')).queryByText(hint)).toBeNull()
-    expect(profile).not.toHaveAttribute('aria-describedby')
+    expect(profile).toHaveAccessibleDescription(help)
   })
 
   it('shows the sketch hint about a refused plane under no field', () => {
@@ -234,9 +246,31 @@ describe('the command inspector (3.7)', () => {
     expect(within(inspector()).queryByText(MESSAGES.pick_plane())).toBeNull()
   })
 
+  it('hovering a selection box marks its field hovered, so the viewport highlights its items (3.7)', async () => {
+    const { app, user } = renderInspector(filletDocument(), { command: EDIT_FILLET })
+    const edges = within(field('edges')).getByTestId('selection-field')
+    await user.hover(edges)
+    expect(app.store.getState().command?.hoveredField).toBe('edges')
+    await user.unhover(edges)
+    expect(app.store.getState().command?.hoveredField).toBeNull()
+  })
+
   it('disables OK while incomplete, with the fill_fields reason', () => {
     renderInspector(rectSketchDocumentState(), { command: NEW_EXTRUDE })
-    expect(within(inspector()).getByTestId('inspector-ok')).toHaveAttribute('aria-disabled', 'true')
+    const ok = within(inspector()).getByTestId('inspector-ok')
+    expect(ok).toHaveAttribute('aria-disabled', 'true')
+    expect(ok).toHaveAccessibleDescription(MESSAGES.fill_fields())
+  })
+
+  it('names the keys of Cancel and of a complete OK in their tooltips: Esc and Enter (3.7)', () => {
+    renderInspector(filletDocument(), { command: EDIT_FILLET })
+    // The header's close button is named Cancel too; the footer's comes last.
+    const cancel = within(inspector()).getAllByRole('button', { name: 'Cancel' }).at(-1)
+    expect(cancel).toHaveAccessibleDescription(expect.stringContaining('Esc'))
+    const ok = within(inspector()).getByTestId('inspector-ok')
+    expect(ok).not.toHaveAttribute('aria-disabled')
+    expect(ok).toHaveAccessibleDescription(expect.stringContaining('OK'))
+    expect(ok).toHaveAccessibleDescription(expect.stringContaining('Enter'))
   })
 
   it('shows a choice of up to 4 options as a segmented radio group', async () => {
@@ -253,7 +287,7 @@ describe('the command inspector (3.7)', () => {
 
   it('writes a typed expression into the command params', async () => {
     const { app, user } = renderInspector(filletDocument(), { command: EDIT_FILLET })
-    const radius = within(field('radius')).getByRole('textbox', { name: 'Radius' })
+    const radius = within(field('radius')).getByRole('combobox', { name: 'Radius' })
     await user.clear(radius)
     await user.type(radius, '3 mm')
     await waitFor(() => {
@@ -284,7 +318,7 @@ describe('the command inspector (3.7)', () => {
 
   it('confirms with Enter in an expression field when complete', async () => {
     const { core, user } = renderInspector(filletDocument(), { command: EDIT_FILLET })
-    const radius = within(field('radius')).getByRole('textbox', { name: 'Radius' })
+    const radius = within(field('radius')).getByRole('combobox', { name: 'Radius' })
     await waitFor(() => {
       expect(within(field('radius')).getByTestId('expression-result')).toHaveTextContent('= 2 mm')
     })
@@ -303,6 +337,59 @@ describe('the command inspector (3.7)', () => {
     await user.click(within(field('body')).getByRole('button', { name: /Choose/ }))
     await user.click(screen.getByRole('menuitem', { name: /Cube/ }))
     expect(app.store.getState().command?.params.body).toBe('b-cube')
+  })
+})
+
+describe('help on hover (2.10, 3.7)', () => {
+  const OPERATION_HELP =
+    'New body makes a separate part. Join adds to the body, Cut removes from it, and Intersect keeps only the overlap.'
+
+  it('marks a label with help with cursor-help and describes its control with the help', () => {
+    renderInspector(rectSketchDocumentState(), { command: NEW_EXTRUDE })
+    const operation = field('op')
+    expect(within(operation).getByText('Operation')).toHaveClass('cursor-help')
+    expect(within(operation).getByRole('radiogroup')).toHaveAccessibleDescription(OPERATION_HELP)
+    expect(within(field('profile')).getByTestId('selection-field')).toHaveAccessibleDescription(
+      'The closed sketch shapes to extrude. Click inside a shape to add it.',
+    )
+  })
+
+  it('shows the help in a tooltip when the pointer rests on the label', async () => {
+    const { user } = renderInspector(rectSketchDocumentState(), { command: NEW_EXTRUDE })
+    await user.hover(within(field('op')).getByText('Operation'))
+    await waitFor(() => {
+      expect(screen.getByRole('tooltip')).toHaveTextContent('Intersect keeps only the overlap')
+    })
+  })
+
+  it('gives a field without help no tooltip and no cue', () => {
+    renderInspector(rectSketchDocumentState(), { command: NEW_EXTRUDE })
+    const distance = field('extent.expr')
+    expect(within(distance).getByText('Distance')).not.toHaveClass('cursor-help')
+    expect(within(distance).getByRole('combobox')).not.toHaveAccessibleDescription(/Extrude/)
+  })
+
+  it('describes expression fields with their help', () => {
+    renderInspector(filletDocument(), {
+      command: {
+        ...EDIT_FILLET,
+        featureType: 'shell',
+        featureId: 'f-sh1',
+        title: 'Shell 1',
+        params: { body: 'b-cube', remove_faces: [], thickness: '2 mm' },
+      },
+    })
+    expect(within(field('thickness')).getByRole('combobox')).toHaveAccessibleDescription(
+      /a multiple of the nozzle width prints best/,
+    )
+  })
+
+  it('gives the inspector title the command description as its tooltip', () => {
+    renderInspector(rectSketchDocumentState(), { command: NEW_EXTRUDE })
+    const title = within(inspector()).getByRole('heading', { name: 'Extrude' })
+    expect(title).toHaveAccessibleDescription(
+      'Pulls a closed sketch shape straight out into a solid, or cuts it into one.',
+    )
   })
 })
 
@@ -590,6 +677,118 @@ describe('the selection inspector (3.8)', () => {
       },
     )
     expect(within(inspector()).getByRole('switch', { name: 'Construction' })).not.toBeChecked()
+  })
+
+  it('E-88 suggests Move body (with M), Mirror and Split body for one body, run with it preselected', async () => {
+    const { app, user } = renderInspector(cubeDocumentState(), {
+      selection: [bodyItem('b-cube', 'Cube')],
+    })
+    const panel = inspector()
+    const move = within(panel).getByRole('button', { name: 'Move body' })
+    expect(move).toHaveTextContent('M')
+    expect(move).toHaveAttribute('aria-keyshortcuts', 'M')
+    expect(within(move).getByText('M')).toHaveAttribute('aria-hidden', 'true')
+    expect(within(panel).getByRole('button', { name: 'Mirror' })).toBeInTheDocument()
+    expect(within(panel).getByRole('button', { name: 'Split body' })).toBeInTheDocument()
+    await user.click(move)
+    await waitFor(() => {
+      expect(app.store.getState().command?.featureType).toBe('move_body')
+    })
+    expect(app.store.getState().command?.params['body']).toBe('b-cube')
+  })
+
+  it('E-92 measures the volume of one body with no tool', async () => {
+    const test = createModelApp({
+      state: readyState(cubeDocumentState(), { selection: [bodyItem('b-cube', 'Cube')] }),
+    })
+    test.core.stub('measure', () => Promise.resolve({ volume: 8000 }))
+    renderWithApp(test.app)
+    const row = await waitFor(() => {
+      const found = within(inspector())
+        .getAllByTestId('measure-row')
+        .find((candidate) => candidate.getAttribute('data-measure') === 'volume')
+      expect(found).toHaveTextContent('8000 mm³')
+      return found
+    })
+    expect(row).toHaveTextContent('Volume')
+  })
+
+  it('E-89 names the feature that made a face, edits it, and selects its body', async () => {
+    const { app, core, user } = renderInspector(cubeDocumentState(), {
+      selection: [elementItem(CUBE_FRONT_FACE)],
+    })
+    const panel = inspector()
+    expect(panel).toHaveTextContent('Made by Extrude 1')
+    await user.click(within(panel).getByRole('button', { name: 'Select Cube' }))
+    expect(app.store.getState().selection.map((item) => item.key)).toEqual(['body:b-cube'])
+    cleanup()
+    const again = renderInspector(cubeDocumentState(), {
+      selection: [elementItem(CUBE_FRONT_FACE)],
+    })
+    await again.user.click(within(inspector()).getByRole('button', { name: 'Edit Extrude 1' }))
+    await waitFor(() => {
+      expect(again.core.callsTo('beginTransaction')).toEqual([[1, 'Edit Extrude 1']])
+    })
+    expect(core.callsTo('beginTransaction')).toEqual([])
+  })
+
+  it('lights up the timeline item of the feature while the "Made by" row is hovered', async () => {
+    const { app, user } = renderInspector(cubeDocumentState(), {
+      selection: [elementItem(CUBE_TOP_FRONT_EDGE)],
+    })
+    const row = within(inspector()).getByTestId('made-by')
+    await user.hover(row)
+    expect(app.store.getState().hover).toEqual({ key: 'feature:f-ext1', kind: 'feature' })
+    const item = screen
+      .getAllByTestId('timeline-item')
+      .find((candidate) => candidate.getAttribute('data-feature-id') === 'f-ext1')
+    expect(item?.querySelector('button')).toHaveClass(...COLOR_CLASSES.hover.active.split(' '))
+    await user.unhover(row)
+    expect(app.store.getState().hover).toBeNull()
+  })
+
+  it('E-90 shows two bodies as "2 bodies" with Boolean', () => {
+    const twoBodies = documentState(TWO_BODIES_DOCUMENT, {
+      meshes: { 'b-cube': meshSummary(1, CUBE_BOUNDS), 'b-peg': meshSummary(2, CUBE_BOUNDS) },
+    })
+    renderInspector(twoBodies, {
+      selection: [bodyItem('b-cube', 'Cube'), bodyItem('b-peg', 'Peg')],
+    })
+    const panel = inspector()
+    expect(within(panel).getByTestId('selection-title')).toHaveTextContent('2 bodies')
+    expect(within(panel).getByRole('button', { name: 'Boolean' })).toBeInTheDocument()
+  })
+
+  it('shows a body and a plane as "2 items" with Mirror and Split body', () => {
+    renderInspector(cubeDocumentState(), {
+      selection: [bodyItem('b-cube', 'Cube'), originItem('XZ')],
+    })
+    const panel = inspector()
+    expect(within(panel).getByTestId('selection-title')).toHaveTextContent('2 items')
+    expect(within(panel).getByRole('button', { name: 'Mirror' })).toBeInTheDocument()
+    expect(within(panel).getByRole('button', { name: 'Split body' })).toBeInTheDocument()
+  })
+
+  it('shows sketch points in Model context as "1 point" with Hole', () => {
+    renderInspector(cubeDocumentState(), { selection: [sketchPointItem('f-sk1', 'e-1.start')] })
+    const panel = inspector()
+    expect(within(panel).getByTestId('selection-title')).toHaveTextContent('1 point')
+    expect(within(panel).getByRole('button', { name: 'Hole' })).toBeInTheDocument()
+  })
+
+  it('shows an origin axis by name with no suggestions', () => {
+    renderInspector(cubeDocumentState(), { selection: [originItem('X')] })
+    const panel = inspector()
+    expect(within(panel).getByTestId('selection-title')).toHaveTextContent('X axis')
+    expect(within(panel).queryAllByRole('button', { name: /^(Sketch|Hole|Mirror)/ })).toEqual([])
+  })
+
+  it('shows the diameter of a cylindrical face', () => {
+    renderInspector(cubeDocumentState(), { selection: [elementItem(CYLINDRICAL_FACE, 'Peg')] })
+    const row = within(inspector()).getByTestId('measure-row')
+    expect(row).toHaveAttribute('data-measure', 'diameter')
+    expect(row).toHaveTextContent('Diameter')
+    expect(row).toHaveTextContent('8 mm')
   })
 
   it('places itself at a runtime position only', () => {

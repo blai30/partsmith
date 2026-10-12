@@ -1,4 +1,5 @@
-import type { CommandCategory } from './registry'
+import type { AppContext } from '../state/store'
+import type { CommandCategory, Keyword } from './registry'
 
 /** Previous text characters that make the next character a word start. */
 const WORD_SEPARATORS: ReadonlySet<string> = new Set([' ', '-', '_', '/', '.', ':', '('])
@@ -16,8 +17,8 @@ const NO_SCORE = Number.NEGATIVE_INFINITY
 const MAXIMUM_RESULTS = 50
 const MAXIMUM_RECENT_FIRST = 5
 
-/** Category order of commands with an empty query (ui.md 2.10). */
-const CATEGORY_ORDER: readonly CommandCategory[] = [
+/** Every category, in the order of `CommandCategory`. */
+const CATEGORIES: readonly CommandCategory[] = [
   'File',
   'Edit',
   'View',
@@ -31,13 +32,38 @@ const CATEGORY_ORDER: readonly CommandCategory[] = [
   'Settings',
 ]
 
-/** Order of the items without a category, after every command category. */
-const UNCATEGORIZED_ORDER: readonly PaletteItem['kind'][] = [
-  'feature',
-  'body',
-  'parameter',
-  'recent',
-]
+/** The order of the categories the context works with first, with an empty query (ui.md 2.10). */
+const CONTEXT_ORDER: Readonly<Record<AppContext, readonly CommandCategory[]>> = {
+  model: ['Create', 'Modify', 'Pattern', 'Construct', 'Edit', 'View', 'File', 'Print', 'Settings'],
+  sketch: [
+    'Sketch',
+    'Constrain',
+    'Edit',
+    'View',
+    'Create',
+    'Modify',
+    'Pattern',
+    'Construct',
+    'File',
+    'Print',
+    'Settings',
+  ],
+  print: ['Print', 'View', 'Edit', 'File', 'Create', 'Modify', 'Pattern', 'Construct', 'Settings'],
+}
+
+/** Categories that rank 3 higher in a context, so its own tools come first (2.10). */
+const CONTEXT_BONUS_CATEGORIES: Readonly<Record<AppContext, ReadonlySet<CommandCategory>>> = {
+  model: new Set(),
+  sketch: new Set(['Sketch', 'Constrain']),
+  print: new Set(['Print']),
+}
+const CONTEXT_BONUS = 3
+
+/** The categories in a context's order: the ones it names, then the rest in `CommandCategory` order. */
+export function categoryOrder(context: AppContext): readonly CommandCategory[] {
+  const named = CONTEXT_ORDER[context]
+  return [...named, ...CATEGORIES.filter((category) => !named.includes(category))]
+}
 
 function lowercase(text: string): string {
   return text.toLocaleLowerCase('en')
@@ -136,8 +162,10 @@ export function fuzzyScore(query: string, text: string): number | null {
 type PaletteItemFields = {
   readonly id: string
   readonly title: string
-  readonly keywords: readonly string[]
+  readonly keywords: readonly Keyword[]
   readonly detail: string | null
+  /** The command's description (shown in the palette footer, 3.4), or null. */
+  readonly description: string | null
   readonly shortcut: string | null
   readonly disabledReason: string | null
   readonly run: () => void
@@ -153,27 +181,46 @@ export type PaletteItem = PaletteItemFields &
     | { readonly kind: 'feature' | 'body' | 'parameter' | 'recent'; readonly category: null }
   )
 
-/** Sort group of an item with an empty query: command categories, then the uncategorized kinds. */
-function groupOf(item: PaletteItem): number {
-  return item.category === null
-    ? CATEGORY_ORDER.length + UNCATEGORIZED_ORDER.indexOf(item.kind)
-    : CATEGORY_ORDER.indexOf(item.category)
-}
-
 function byTitle(first: PaletteItem, second: PaletteItem): number {
   return first.title.localeCompare(second.title, 'en')
 }
 
-/** An item's score: the best of its title and its keywords, keywords counting 2 less. */
-function itemScore(query: string, item: PaletteItem, rows: ScoreRows): number | null {
-  let best = scoreNormalized(query, item.title, rows)
+/** An item's score, and the tagged keyword it came from, if any. */
+type ItemScore = { readonly score: number; readonly tagged: Exclude<Keyword, string> | null }
+
+/**
+ * An item's score: the best of its title and its keywords, keywords counting 2 less, plus 3 for
+ * the context's own categories (2.10).
+ */
+function itemScore(
+  query: string,
+  item: PaletteItem,
+  rows: ScoreRows,
+  context: AppContext,
+): ItemScore | null {
+  let best: ItemScore | null = null
+  const title = scoreNormalized(query, item.title, rows)
+  if (title !== null) {
+    best = { score: title, tagged: null }
+  }
   for (const keyword of item.keywords) {
-    const score = scoreNormalized(query, keyword, rows)
-    if (score !== null && (best === null || score - KEYWORD_PENALTY > best)) {
-      best = score - KEYWORD_PENALTY
+    const word = typeof keyword === 'string' ? keyword : keyword.word
+    const score = scoreNormalized(query, word, rows)
+    if (score !== null && (best === null || score - KEYWORD_PENALTY > best.score)) {
+      best = {
+        score: score - KEYWORD_PENALTY,
+        tagged: typeof keyword === 'string' ? null : keyword,
+      }
     }
   }
-  return best
+  if (best === null) {
+    return null
+  }
+  const bonus =
+    item.category !== null && CONTEXT_BONUS_CATEGORIES[context].has(item.category)
+      ? CONTEXT_BONUS
+      : 0
+  return { score: best.score + bonus, tagged: best.tagged }
 }
 
 /** The length of the longest title or keyword. */
@@ -182,13 +229,14 @@ function longestText(items: readonly PaletteItem[]): number {
   for (const item of items) {
     longest = Math.max(longest, item.title.length)
     for (const keyword of item.keywords) {
-      longest = Math.max(longest, keyword.length)
+      longest = Math.max(longest, (typeof keyword === 'string' ? keyword : keyword.word).length)
     }
   }
   return longest
 }
 
-function rankEmpty(
+/** The items of `recentIds` in that order, at most 5: the "Recent" group of an empty query. */
+export function recentItems(
   items: readonly PaletteItem[],
   recentIds: readonly string[],
 ): readonly PaletteItem[] {
@@ -200,22 +248,39 @@ function rankEmpty(
       recent.push(item)
     }
   }
-  const shown = new Set(recent)
-  const rest = items
-    .filter((item) => !shown.has(item))
-    .toSorted((first, second) => groupOf(first) - groupOf(second) || byTitle(first, second))
-  return [...recent, ...rest].slice(0, MAXIMUM_RESULTS)
+  return recent
 }
 
-/** Palette items matching a query, best first (ui.md 2.10); at most 50. */
+/**
+ * With an empty query: up to 5 recent items, then every command and setting grouped by category
+ * in the context's order and by title within a category, so every command can be browsed.
+ */
+function rankEmpty(
+  items: readonly PaletteItem[],
+  recentIds: readonly string[],
+  context: AppContext,
+): readonly PaletteItem[] {
+  const recent = recentItems(items, recentIds)
+  const shown = new Set(recent)
+  const order = categoryOrder(context)
+  const groupOf = (item: PaletteItem): number =>
+    item.category === null ? order.length : order.indexOf(item.category)
+  const rest = items
+    .filter((item) => !shown.has(item) && (item.kind === 'command' || item.kind === 'setting'))
+    .toSorted((first, second) => groupOf(first) - groupOf(second) || byTitle(first, second))
+  return [...recent, ...rest]
+}
+
+/** Palette items matching a query, best first (ui.md 2.10); at most 50 for a non-empty query. */
 export function rankPaletteItems(
   query: string,
   items: readonly PaletteItem[],
   recentIds: readonly string[],
+  context: AppContext,
 ): readonly PaletteItem[] {
   const normalized = normalizedQuery(query)
   if (normalized === '') {
-    return rankEmpty(items, recentIds)
+    return rankEmpty(items, recentIds, context)
   }
   const recency = new Map<string, number>()
   for (const [position, id] of recentIds.entries()) {
@@ -228,11 +293,20 @@ export function rankPaletteItems(
   const scored: { readonly item: PaletteItem; readonly rank: number; readonly recent: number }[] =
     []
   for (const item of items) {
-    const score = itemScore(normalized, item, rows)
-    if (score !== null) {
+    const found = itemScore(normalized, item, rows, context)
+    if (found !== null) {
+      // Another app's name that matched names the mapping, unless a reason takes the place (2.10).
+      const shownItem =
+        found.tagged !== null && item.disabledReason === null
+          ? { ...item, detail: `${found.tagged.app}: ${found.tagged.word}` }
+          : item
       // Scores are whole numbers less hundredths, so hundredths compare exactly.
-      const rank = Math.round(score * 100)
-      scored.push({ item, rank, recent: recency.get(item.id) ?? Number.POSITIVE_INFINITY })
+      const rank = Math.round(found.score * 100)
+      scored.push({
+        item: shownItem,
+        rank,
+        recent: recency.get(item.id) ?? Number.POSITIVE_INFINITY,
+      })
     }
   }
   return scored

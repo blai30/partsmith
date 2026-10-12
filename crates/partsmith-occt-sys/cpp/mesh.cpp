@@ -258,6 +258,10 @@ MeshData shape_tessellate(const Shape &shape, double chord_deviation, double ang
   parameters.Angle = angle;
   parameters.Relative = Standard_False;
   parameters.InParallel = Standard_False;
+  // Delabella triangulates each face's nodes at once, where OCCT's default inserts them one by
+  // one, which took seconds on large spheres and on planar faces with many holes (kernel spec
+  // section 3.7, item 2). Naming the algorithm also keeps OCCT from choosing it
+  // from the CSF_MeshAlgo environment variable.
   parameters.MeshAlgo = IMeshTools_MeshAlgoType_Delabella;
   BRepMesh_IncrementalMesh mesher(copy.get(), parameters);
   return MeshBuilder(copy).build();

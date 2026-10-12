@@ -111,7 +111,7 @@ pub struct VertexTopology {
 }
 
 /// An edge at the middle of its parameter range, with the outward normal there of each face
-/// containing it (kernel spec section 3.6, item 5).
+/// containing it and the continuity recorded between them (kernel spec section 3.6, item 5).
 #[derive(Debug, Clone, PartialEq)]
 pub struct EdgeNormals {
     /// The point of the edge's curve at the middle of its parameter range.
@@ -121,6 +121,21 @@ pub struct EdgeNormals {
     /// One entry per face containing the edge, ascending by face index (the order of
     /// `EdgeTopology::faces`).
     pub faces: Vec<FaceNormal>,
+    /// The continuity recorded between the edge's two faces, or for a seam between its face
+    /// and itself; `None` for an edge with one face that is not a seam, no face, or more than
+    /// two faces.
+    pub continuity: Option<Continuity>,
+}
+
+/// The continuity the shape records between the two faces that meet at an edge
+/// (`BRep_Tool::Continuity`), as the operation that built the edge set it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Continuity {
+    /// Only the positions agree (`GeomAbs_C0`), so the faces may meet at an angle; also the
+    /// value when nothing is recorded.
+    C0,
+    /// The tangent planes agree (`GeomAbs_G1`) or better (`C1`, `G2`, `C2`, `C3`, `CN`).
+    G1OrBetter,
 }
 
 /// One face containing an edge, with its outward unit normal at the edge's middle.
@@ -182,8 +197,22 @@ impl ElementGeometry {
 }
 
 impl EdgeNormals {
-    pub(crate) fn from_ffi(data: sys::EdgeNormalsData) -> EdgeNormals {
-        EdgeNormals {
+    pub(crate) fn from_ffi(data: sys::EdgeNormalsData) -> Result<EdgeNormals, KernelError> {
+        let continuity = match data.continuity {
+            sys::ContinuityType::C0 => Some(Continuity::C0),
+            sys::ContinuityType::G1OrBetter => Some(Continuity::G1OrBetter),
+            sys::ContinuityType::Absent => None,
+            _ => {
+                return Err(KernelError::internal(
+                    Operation::Query,
+                    format!(
+                        "the shim returned the unknown continuity {}",
+                        data.continuity.repr
+                    ),
+                ));
+            }
+        };
+        Ok(EdgeNormals {
             point: Point::from_ffi(data.point),
             tangent: Vector::from_ffi(data.tangent),
             faces: data
@@ -194,7 +223,8 @@ impl EdgeNormals {
                     normal: Vector::from_ffi(face.normal),
                 })
                 .collect(),
-        }
+            continuity,
+        })
     }
 }
 
@@ -339,9 +369,10 @@ mod tests {
                     normal: vector(0.0, 0.0, 1.0),
                 },
             ],
+            continuity: sys::ContinuityType::C0,
         };
 
-        let normals = EdgeNormals::from_ffi(data);
+        let normals = EdgeNormals::from_ffi(data).expect("well formed");
 
         assert_eq!(normals.point, Point::new(5.0, 0.0, 30.0));
         assert_eq!(normals.tangent, Vector::new(1.0, 0.0, 0.0));
@@ -371,9 +402,53 @@ mod tests {
             point: origin,
             tangent: origin,
             faces: Vec::new(),
+            continuity: sys::ContinuityType::Absent,
         };
 
-        assert!(EdgeNormals::from_ffi(data).faces.is_empty());
+        let normals = EdgeNormals::from_ffi(data).expect("well formed");
+
+        assert!(normals.faces.is_empty());
+        assert_eq!(normals.continuity, None);
+    }
+
+    /// Edge normals with no faces and the given continuity from the shim.
+    fn normals_with_continuity(continuity: sys::ContinuityType) -> sys::EdgeNormalsData {
+        let origin = sys::Vec3 {
+            x: 0.0,
+            y: 0.0,
+            z: 0.0,
+        };
+        sys::EdgeNormalsData {
+            point: origin,
+            tangent: origin,
+            faces: Vec::new(),
+            continuity,
+        }
+    }
+
+    #[test]
+    fn recorded_continuities_convert_to_their_variants() {
+        for (shim, expected) in [
+            (sys::ContinuityType::C0, Some(Continuity::C0)),
+            (
+                sys::ContinuityType::G1OrBetter,
+                Some(Continuity::G1OrBetter),
+            ),
+            (sys::ContinuityType::Absent, None),
+        ] {
+            let normals =
+                EdgeNormals::from_ffi(normals_with_continuity(shim)).expect("a known value");
+
+            assert_eq!(normals.continuity, expected);
+        }
+    }
+
+    #[test]
+    fn unknown_continuity_from_the_shim_is_internal() {
+        let error = EdgeNormals::from_ffi(normals_with_continuity(sys::ContinuityType { repr: 7 }))
+            .expect_err("7 is no continuity");
+
+        assert_eq!(error.kind, crate::KernelErrorKind::Internal);
     }
 
     #[test]

@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { cancelCommand, confirmCommand } from '../app/actions/command'
+import { cancelLayOnFace } from '../app/actions/print'
 import { clearSelection } from '../app/actions/selection'
 import { showPickHint } from '../app/actions/notifications'
 import { finishSketch, setSketchTool } from '../app/actions/sketch'
@@ -13,7 +14,8 @@ import { isNarrowWindow } from './use-overlay-dismiss'
 
 /**
  * One step of the Esc ladder after the open layers, which close themselves (3.5): exit the sketch
- * tool, cancel the command, cancel a new sketch's plane pick, then clear the selection. Esc never
+ * tool, cancel the command, cancel a new sketch's plane pick or the face pick of Lay on face, then
+ * clear the selection. Esc never
  * leaves sketch mode once a sketch is being edited; with nothing left to do there, the sketch hint
  * shows `sketch_leave` for 3 s. Returns whether a step applied.
  */
@@ -43,6 +45,10 @@ export function escapeStep(app: App): boolean {
     cancelCommand(app).catch((error: unknown) => {
       console.error('Canceling the command failed.', error)
     })
+    return true
+  }
+  if (state.print.pickingFace) {
+    cancelLayOnFace(app)
     return true
   }
   if (state.selection.length > 0) {
@@ -143,10 +149,28 @@ function handlesOwnEnter(element: Element): boolean {
 }
 
 /**
- * The last step of the Enter ladder (3.5): with focus in the inspector (not on a button) or on the
- * viewport, Enter confirms the active feature command when it is complete. Inline editors and the
- * line tool take Enter first and prevent its default; an inspector expression field confirms
- * through `confirmIfComplete` itself, after its text is evaluated.
+ * The Enter ladder's step 4 (3.5): on the focused viewport in Model or Print with no feature
+ * command and a non-empty selection, Enter runs Repeat, which starts the last feature command with
+ * the selection preselected (or says there is nothing to repeat yet). Returns whether it applied.
+ */
+export function repeatOnSelection(app: App): boolean {
+  const state = app.store.getState()
+  if (state.command !== null || state.context === 'sketch' || state.selection.length === 0) {
+    return false
+  }
+  app.commands.run(app, 'edit.repeat', 'shortcut').catch((error: unknown) => {
+    console.error('Repeating the command failed.', error)
+  })
+  return true
+}
+
+/**
+ * Steps 3 and 4 of the Enter ladder (3.5): with focus in the inspector (not on a button) or on the
+ * viewport, Enter confirms the active feature command when it is complete; on the viewport with no
+ * command it repeats the last one on the selection. Inline editors and the line tool take Enter
+ * first and prevent its default; an inspector expression field confirms through
+ * `confirmIfComplete` itself, after its text is evaluated. A held key's repeated presses do nothing,
+ * so holding Enter never chains commands.
  */
 export function useEnterLadder(app: App): void {
   useEffect(() => {
@@ -169,7 +193,16 @@ export function useEnterLadder(app: App): void {
       const onViewport =
         target.getAttribute('role') === 'application' &&
         target.closest('[data-testid="viewport"]') !== null
+      if ((inInspector || onViewport) && event.repeat && app.store.getState().command !== null) {
+        // A held key confirms the command once.
+        event.preventDefault()
+        return
+      }
       if ((inInspector || onViewport) && confirmIfComplete(app)) {
+        event.preventDefault()
+        return
+      }
+      if (onViewport && !event.repeat && repeatOnSelection(app)) {
         event.preventDefault()
       }
     }

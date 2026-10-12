@@ -298,6 +298,7 @@ export function createFakeCore(methods: Partial<CoreApi>): CoreApi {
     evaluate: unexpected('evaluate'),
     listElements: unexpected('listElements'),
     pickReference: unexpected('pickReference'),
+    measure: unexpected('measure'),
     resolveReferences: unexpected('resolveReferences'),
     analyzePrint: unexpected('analyzePrint'),
     exportBodies: unexpected('exportBodies'),

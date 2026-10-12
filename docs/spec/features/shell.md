@@ -87,7 +87,7 @@ None beyond serde (an empty `remove_faces` is valid).
 ### 3.3 Build
 
 1. The body must hold a solid, else `BodyEmpty { use_new: false }`.
-2. t = `thickness`; t > 0 else `OutOfRange` (`GreaterThan(0)`).
+2. t = `thickness`; t > 0 else `OutOfRange` (`GreaterThan(0)`), by the positive length rule of features.md section 3.4: a thickness below `LINEAR_TOLERANCE` (1e-6 mm) is out of range like 0, before any kernel work.
 3. If `remove_faces` is not empty, resolve it with `ctx.resolve_all("remove_faces", body, ..., Face)`; nothing resolved gives `ReferencesNotFound` (a shell meant to be open never silently becomes a closed hollow).
 4. Shell each solid of the body with kernel `shell(solid, faces of that solid to remove, t)`: every kept face is offset inward by t, removed faces leave openings with rims, and an empty removal list makes a closed hollow. The solids' results are combined into one shape (they are disjoint).
 5. On kernel failure (except `InvalidInput`), run the "too large" search (features.md section 4.3) and fail with `ShellTooThick { thickness: t, max, cause }`.
@@ -108,7 +108,7 @@ Outer faces keep their names; removed faces disappear.
 | Condition | Variant | Example message |
 | --- | --- | --- |
 | Body empty | `BodyEmpty` | `Body 'Body 1' is empty at this point, so this feature has nothing to work on. Pick a body that has a solid.` |
-| Thickness ≤ 0 | `OutOfRange` | `Thickness must be greater than 0 mm, but it is 0 mm. Use a value greater than 0 mm.` |
+| Thickness below 1e-6 mm (0 and negative included) | `OutOfRange` | `Thickness must be greater than 0 mm, but it is 0 mm. Use a value greater than 0 mm.` |
 | Expression or dimension error | `Expression` | `Thickness: Expected a length, but this expression gives an angle.` |
 | No face to remove resolves | `ReferencesNotFound` | `The face selected for Faces to remove can no longer be found. Re-pick it in the repair panel.` |
 | Too thick or kernel failure | `ShellTooThick` | `Shell thickness 30 mm is too thick for body 'Body 1'. The thickest wall that works is about 24 mm. Try 24 mm or less.` |
@@ -141,6 +141,7 @@ Bodies `[b-1]`.
 10. **Two solids.** `{"id": "f-box1", "type": "box", "body": "b-1", "size": ["20", "20", "20"], "op": "new"}`, `{"id": "f-box2", "type": "box", "body": "b-1", "size": ["20", "20", "20"], "position": ["50", "0", "0"], "op": "join"}`, `SHELL("2", [{"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,20|a=400"}, {"q": "f-box2/top", "fp": "plane|n=0,0,1|c=50,0,20|a=400"}])`. Expected: volume 2 × (8000 - 16 × 16 × 18) = 6784, 22 faces, 2 solids.
 11. **Empty body.** `SHELL("2", [])` alone. Expected: error `body_empty`.
 12. **Performance.** Test 1 builds in under 50 ms (desktop, release).
+13. **Thickness below the tolerance.** `BOX805030`, `SHELL("0.0000001", [F-TOP])`. Expected: error `out_of_range`, field `thickness`, rendered `Thickness must be greater than 0 mm, but it is 0 mm. Use a value greater than 0 mm.`; b-1 unchanged.
 
 ## Open issues
 

@@ -2471,7 +2471,6 @@ dependencies = [
  "clap",
  "partsmith-engine",
  "partsmith-model",
- "partsmith-print",
  "partsmith-protocol",
  "pretty_assertions",
  "serde",

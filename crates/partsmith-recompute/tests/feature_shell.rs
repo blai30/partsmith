@@ -333,3 +333,16 @@ fn t012_performance() {
         "shelling the open-top box took {open_top:?}, the budget is 50 ms"
     );
 }
+
+#[test]
+fn t013_thickness_below_the_tolerance() {
+    let run = Run::new(open_top_document("0.0000001"));
+
+    let error = run.assert_error("f-sh1", "out_of_range");
+    assert_error_field(error, "thickness");
+    assert_eq!(
+        run.messages("f-sh1"),
+        ["Thickness must be greater than 0 mm, but it is 0 mm. Use a value greater than 0 mm."]
+    );
+    assert_unchanged(&run, "f-sh1", "b-1");
+}

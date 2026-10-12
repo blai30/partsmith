@@ -1,6 +1,8 @@
 //! Naming kernel shapes: topology and fingerprints for `partsmith_naming`, and the history rules
 //! shared by features (features.md section 3.9, naming.md sections 3.3, 3.6 and 3.7).
 
+use std::sync::Arc;
+
 use partsmith_model::Id;
 use partsmith_naming::{
     Aliases, EdgeInfo, ElementKind, ElementName, FaceInfo, FaceSource, Fingerprint, GeometryKind,
@@ -67,15 +69,30 @@ pub fn topology_info(shape: &Shape) -> Result<TopologyInfo, FeatureError> {
     })
 }
 
+/// A naming map with the topology and fingerprints it was built from, which a feature passes on
+/// in `Measurements::topology` so the body's next state does not read them from the kernel again
+/// (features.md section 2.7).
+#[derive(Clone, Debug)]
+pub struct Named {
+    /// Names of every face, edge and vertex of the shape.
+    pub naming: NamingMap,
+    /// Topology and fingerprints of the shape (`topology_info`).
+    pub topology: Arc<TopologyInfo>,
+}
+
 /// Names every element of `shape` from one source per face, in face index order (naming.md
 /// section 3.3). `inherited_aliases` are the aliases of every input naming map.
 pub fn name_shape(
     shape: &Shape,
     faces: Vec<FaceSource>,
     inherited_aliases: &[&Aliases],
-) -> Result<NamingMap, FeatureError> {
+) -> Result<Named, FeatureError> {
     let topology = topology_info(shape)?;
-    NamingMap::build(faces, &topology, inherited_aliases).map_err(naming)
+    let naming = NamingMap::build(faces, &topology, inherited_aliases).map_err(naming)?;
+    Ok(Named {
+        naming,
+        topology: Arc::new(topology),
+    })
 }
 
 /// For each face of `result.shape`, in index order, the names of the input faces whose `modified`
@@ -125,7 +142,7 @@ pub fn name_by_history(
     feature: &Id,
     result: &OpResult,
     inputs: &[&NamingMap],
-) -> Result<NamingMap, FeatureError> {
+) -> Result<Named, FeatureError> {
     let fallback = ElementName::generated(feature, roles::FACE, None).map_err(naming)?;
     let faces = modified_sources(result, inputs)?
         .into_iter()
@@ -148,12 +165,6 @@ pub(crate) fn sub_shape_kind(kind: ElementKind) -> SubShapeKind {
         ElementKind::Edge => SubShapeKind::Edge,
         ElementKind::Vertex => SubShapeKind::Vertex,
     }
-}
-
-/// A kernel failure as a feature error, for `map_err` in built-in files that predate
-/// `From<KernelError> for FeatureError`; new code uses `?` or `FeatureError::from`.
-pub(crate) fn kernel(error: partsmith_occt_sys::KernelError) -> FeatureError {
-    FeatureError::from(error)
 }
 
 /// A naming failure, which valid kernel output cannot cause, as an internal error.
@@ -283,7 +294,8 @@ mod tests {
         let result = fuse(&first.shape, std::slice::from_ref(&second.shape)).expect("fuses");
 
         let naming = name_by_history(&id("f-c"), &result, &[&first.naming, &second.naming])
-            .expect("the result is named");
+            .expect("the result is named")
+            .naming;
 
         let names = face_names(&naming);
         assert_eq!(names.len(), 12);
@@ -298,7 +310,8 @@ mod tests {
         let result = fuse(&first.shape, std::slice::from_ref(&second.shape)).expect("fuses");
 
         let naming = name_by_history(&id("f-c"), &result, &[&first.naming, &second.naming])
-            .expect("the result is named");
+            .expect("the result is named")
+            .naming;
 
         let top = ElementName::parse("f-a/top").expect("valid name");
         let merged = ElementName::parse("f-b/top").expect("valid name");

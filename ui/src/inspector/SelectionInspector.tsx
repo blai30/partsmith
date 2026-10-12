@@ -1,22 +1,35 @@
 import { clsx } from 'clsx/lite'
 import { Shapes, Trash2, type LucideIcon } from 'lucide-react'
-import { useId, useState, type ReactNode } from 'react'
+import { useEffect, useId, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { setBodyMaterial, setBodyVisible } from '../app/actions/bodies'
 import { editFeature } from '../app/actions/command'
-import { commitSketchChange, deleteSketchItems, sketchParamsOf } from '../app/actions/sketch'
+import { select, setHover } from '../app/actions/selection'
+import {
+  addSketchDimension,
+  changeSketchDimension,
+  commitSketchChange,
+  createSketchIds,
+  deleteSketchItems,
+  sketchParamsOf,
+} from '../app/actions/sketch'
 import { setSuppressed } from '../app/actions/timeline'
 import { useApp, useAppState } from '../app/AppProvider'
-import type { App } from '../app/createApp'
 import { BodyColorButton } from '../browser/BodyColor'
 import { FEATURE_ICONS, CONSTRAINT_ICONS } from '../commands/icons'
-import { formatShortcut } from '../commands/shortcuts'
+import { ariaKeyShortcut, formatShortcut } from '../commands/shortcuts'
 import { Button } from '../components/Button'
 import { Switch } from '../components/Switch'
 import { Tooltip } from '../components/Tooltip'
 import { featureLabel } from '../core/labels'
 import { ExpressionInput } from '../expression/ExpressionInput'
 import { formatPoint, formatQuantity, formatSize } from '../expression/format'
-import type { CurveKind, SketchConstraint, SurfaceKind, Units } from '../generated/protocol'
+import type {
+  CurveKind,
+  SketchConstraint,
+  SketchSolution,
+  SurfaceKind,
+  Units,
+} from '../generated/protocol'
 import { MESSAGES } from '../messages'
 import {
   applicableConstraints,
@@ -29,6 +42,9 @@ import { selectEditLabel } from '../state/selectors'
 import type { AppState, DocumentState, SelectionItem } from '../state/store'
 import { COLOR_CLASSES, FONT_CLASSES } from '../theme/roles'
 import { formatArea } from './area'
+import { entitySize, entitySizeDimension, type EntitySize } from './entity-size'
+import { measuredBody, measureSelection, selectionMeasurements, volumeMeter } from './measurements'
+import { suggestedCommands } from './suggestions'
 import { UseSuggestion } from './UseSuggestion'
 
 // The selection inspector (ui.md 3.8): what the selection is, its measures, and the commands that
@@ -76,6 +92,12 @@ function itemsCount(count: number): string {
   return `${String(count)} ${count === 1 ? 'item' : 'items'}`
 }
 
+function report(action: string): (error: unknown) => void {
+  return (error) => {
+    console.error(`${action} failed.`, error)
+  }
+}
+
 function Title({ children }: { readonly children: ReactNode }) {
   return (
     <h2 data-testid="selection-title" className="text-base font-semibold tabular-nums">
@@ -101,35 +123,47 @@ function Value({ testId, children }: { readonly testId?: string; readonly childr
   )
 }
 
+/** A shortcut shown on a suggestion button: seen, but given to assistive technology through `aria-keyshortcuts`. */
+function ShortcutHint({ text }: { readonly text: string }) {
+  return (
+    <span aria-hidden="true" className={clsx('text-xs', COLOR_CLASSES.textMuted.foreground)}>
+      {text}
+    </span>
+  )
+}
+
 /** A command the selection suggests, run with the selection preselected (3.8). */
 function SuggestedCommand({ id }: { readonly id: string }) {
   const app = useApp()
   const definition = app.commands.get(id)
-  if (definition === undefined) {
+  // A suggestion whose command is not available now is left out (2.10, 3.8).
+  const available = useAppState(() => definition?.availability(app).state === 'enabled')
+  if (definition === undefined || !available) {
     return null
   }
   const Icon: LucideIcon = definition.icon ?? Shapes
   const [shortcut] = definition.shortcuts
   return (
     <Button
+      aria-keyshortcuts={
+        shortcut === undefined ? undefined : ariaKeyShortcut(shortcut, app.platform)
+      }
       onClick={() => {
-        app.commands.run(app, id, 'inspector').catch((error: unknown) => {
-          console.error(`The command ${id} failed.`, error)
-        })
+        app.commands.run(app, id, 'inspector').catch(report(`The command ${id}`))
       }}
     >
       <Icon aria-hidden="true" strokeWidth={1.75} className="size-4" />
       {definition.title}
       {shortcut === undefined ? null : (
-        <span className={clsx('text-xs', COLOR_CLASSES.textMuted.foreground)}>
-          {formatShortcut(shortcut, app.platform)}
-        </span>
+        <ShortcutHint text={formatShortcut(shortcut, app.platform)} />
       )}
     </Button>
   )
 }
 
-function Suggestions({ ids }: { readonly ids: readonly string[] }) {
+/** The suggested commands of 3.8 for the selection, in order. */
+function Suggestions({ items }: { readonly items: readonly SelectionItem[] }) {
+  const ids = suggestedCommands(useApp().store.getState(), items)
   if (ids.length === 0) {
     return null
   }
@@ -142,12 +176,45 @@ function Suggestions({ ids }: { readonly ids: readonly string[] }) {
   )
 }
 
+/**
+ * The measure rows of the selection (3.8, `measure-row`): selecting measures, with no tool. A
+ * body's volume comes from the core once per model mesh; its row is empty until then.
+ */
+function MeasureRows({ items }: { readonly items: readonly SelectionItem[] }) {
+  const app = useApp()
+  const meter = volumeMeter(app)
+  const meshId = useAppState((state) => measuredBody(state, items)?.meshId ?? null)
+  // Re-renders when the measured volume arrives.
+  useSyncExternalStore(meter.subscribe, () => (meshId === null ? null : meter.volume(meshId)))
+  useEffect(() => {
+    if (meshId !== null) {
+      measureSelection(app, items).catch(report('Measuring the selection'))
+    }
+  }, [app, items, meshId])
+  const rows = selectionMeasurements(app, items)
+  return rows.map((row) => (
+    <div
+      key={row.measure}
+      data-testid="measure-row"
+      data-measure={row.measure}
+      className="flex min-h-8 items-center justify-between gap-3 text-sm"
+    >
+      <span className={COLOR_CLASSES.textMuted.foreground}>{row.label}</span>
+      <span className={clsx('min-w-0 text-right tabular-nums select-text', FONT_CLASSES.values)}>
+        {row.value}
+      </span>
+    </div>
+  ))
+}
+
 function BodySection({
   document,
   bodyId,
+  items,
 }: {
   readonly document: DocumentState
   readonly bodyId: string
+  readonly items: readonly SelectionItem[]
 }) {
   const app = useApp()
   const materialId = useId()
@@ -183,6 +250,7 @@ function BodySection({
             <Value testId="body-center">{center}</Value>
           </Row>
         )}
+        <MeasureRows items={items} />
         <Row label="Color">
           <BodyColorButton body={body} size="field" />
         </Row>
@@ -201,9 +269,7 @@ function BodySection({
             onKeyDown={(event) => {
               if (event.key === 'Enter') {
                 event.preventDefault()
-                setBodyMaterial(app, body.id, material).catch((error: unknown) => {
-                  console.error('Changing the material failed.', error)
-                })
+                setBodyMaterial(app, body.id, material).catch(report('Changing the material'))
               }
             }}
             className={clsx(
@@ -226,12 +292,11 @@ function BodySection({
           label="Visible"
           checked={body.visible !== false}
           onChange={(visible) => {
-            setBodyVisible(app, body.id, visible).catch((error: unknown) => {
-              console.error('Changing the visibility failed.', error)
-            })
+            setBodyVisible(app, body.id, visible).catch(report('Changing the visibility'))
           }}
         />
       </div>
+      <Suggestions items={items} />
     </>
   )
 }
@@ -240,12 +305,12 @@ function FeatureSection({
   state,
   document,
   featureId,
-  suggestions,
+  items,
 }: {
   readonly state: AppState
   readonly document: DocumentState
   readonly featureId: string
-  readonly suggestions: readonly string[]
+  readonly items: readonly SelectionItem[]
 }) {
   const app = useApp()
   const record = document.recipe.features?.find((feature) => feature.id === featureId)
@@ -261,11 +326,6 @@ function FeatureSection({
   )
   const suppressed = record.suppressed === true
   const importFeature = record.type === 'import'
-  const edit = () => {
-    editFeature(app, featureId).catch((error: unknown) => {
-      console.error('Editing the feature failed.', error)
-    })
-  }
   return (
     <>
       <Title>{label}</Title>
@@ -293,7 +353,7 @@ function FeatureSection({
               >
                 {message.message}
               </span>
-              <UseSuggestion record={record} label={label} message={message} />
+              <UseSuggestion record={record} message={message} />
             </li>
           ))}
         </ul>
@@ -304,30 +364,117 @@ function FeatureSection({
             <Button aria-disabled="true">Edit</Button>
           </Tooltip>
         ) : (
-          <Button onClick={edit}>{selectEditLabel(state, featureId)}</Button>
+          <Button
+            onClick={() => {
+              editFeature(app, featureId).catch(report('Editing the feature'))
+            }}
+          >
+            {selectEditLabel(state, featureId)}
+          </Button>
         )}
         <Button
           onClick={() => {
-            setSuppressed(app, [featureId], !suppressed).catch((error: unknown) => {
-              console.error('Suppressing the feature failed.', error)
-            })
+            setSuppressed(app, [featureId], !suppressed).catch(report('Suppressing the feature'))
           }}
         >
           {suppressed ? 'Unsuppress' : 'Suppress'}
         </Button>
       </div>
-      <Suggestions ids={suggestions} />
+      <Suggestions items={items} />
     </>
   )
 }
 
+/** The selection item of a body, as its browser row selects it (3.6 keys). */
+function bodySelectionItem(id: string, name: string): SelectionItem {
+  return {
+    key: `body:${id}`,
+    kind: 'body',
+    label: name,
+    body: id,
+    feature: null,
+    element: null,
+    sketchItem: null,
+    origin: null,
+  }
+}
+
+/**
+ * "Made by {label}" for one face, edge or vertex (3.8): "Edit {label}" opens the feature that made
+ * it, and hovering the row lights up that feature's timeline item.
+ */
+function MadeBy({
+  state,
+  featureId,
+  face,
+}: {
+  readonly state: AppState
+  readonly featureId: string
+  readonly face: boolean
+}) {
+  const app = useApp()
+  const key = `feature:${featureId}`
+  // The row's hover ends with the row, so no timeline item stays lit after the selection changes.
+  useEffect(
+    () => () => {
+      if (app.store.getState().hover?.key === key) {
+        setHover(app, null)
+      }
+    },
+    [app, key],
+  )
+  const document = state.document
+  if (document === null) {
+    return null
+  }
+  const label = featureLabel(document.recipe, featureId, state.catalog)
+  const button = (
+    <Button
+      onClick={() => {
+        setHover(app, null)
+        editFeature(app, featureId).catch(report('Editing the feature'))
+      }}
+    >
+      Edit {label}
+    </Button>
+  )
+  return (
+    // Hovering is a pointer convenience; the button carries the action for every input.
+    // oxlint-disable-next-line jsx-a11y/no-static-element-interactions
+    <div
+      data-testid="made-by"
+      onMouseEnter={() => {
+        setHover(app, { key, kind: 'feature' })
+      }}
+      onMouseLeave={() => {
+        if (app.store.getState().hover?.key === key) {
+          setHover(app, null)
+        }
+      }}
+      className="flex min-h-8 flex-wrap items-center justify-between gap-2 text-sm"
+    >
+      <span>Made by {label}</span>
+      {face ? (
+        <Tooltip label={`Edit ${label}`} description="Or double-click the face.">
+          {button}
+        </Tooltip>
+      ) : (
+        button
+      )}
+    </div>
+  )
+}
+
 function ElementsSection({
+  state,
   document,
   items,
 }: {
+  readonly state: AppState
   readonly document: DocumentState
   readonly items: readonly SelectionItem[]
 }) {
+  const app = useApp()
   const units = document.recipe.units
   const kinds = new Set(items.map((item) => item.kind))
   const [first] = items
@@ -335,36 +482,48 @@ function ElementsSection({
   const kind = first?.kind
   const single = kinds.size === 1 && (kind === 'face' || kind === 'edge' || kind === 'vertex')
   const title = single ? counted(items.length, ELEMENT_NOUNS[kind]) : itemsCount(items.length)
-  const bodies = [
-    ...new Set(
-      items.flatMap((item) => {
-        const body = document.recipe.bodies?.find((candidate) => candidate.id === item.body)
-        return body === undefined ? [] : [body.name]
-      }),
-    ),
-  ]
-  const allEdges = items.every((item) => item.kind === 'edge')
-  const allFaces = items.every((item) => item.kind === 'face')
-  const flatFace = items.length === 1 && allFaces && element?.surface === 'plane'
-  const suggestions = allEdges
-    ? ['feature.fillet', 'feature.chamfer']
-    : flatFace
-      ? ['feature.sketch', 'feature.hole', 'feature.shell']
-      : allFaces
-        ? ['feature.shell']
-        : []
+  const bodies = [...new Set(items.flatMap((item) => (item.body === null ? [] : [item.body])))]
+    .map((id) => document.recipe.bodies?.find((candidate) => candidate.id === id))
+    .filter((body) => body !== undefined)
+  const madeBy =
+    items.length === 1 &&
+    first?.feature !== null &&
+    first?.feature !== undefined &&
+    document.recipe.features?.some((feature) => feature.id === first.feature) === true
+      ? first.feature
+      : null
   return (
     <>
       <Title>{title}</Title>
       <div className="flex flex-col">
         {bodies.length === 0 ? null : (
-          <Row label={bodies.length === 1 ? 'Body' : 'Bodies'}>{bodies.join(', ')}</Row>
+          <div className="flex min-h-8 flex-wrap items-center justify-between gap-2 text-sm">
+            <span className={COLOR_CLASSES.textMuted.foreground}>
+              {bodies.length === 1 ? 'Body' : 'Bodies'}
+            </span>
+            <span className="flex flex-wrap justify-end gap-2">
+              {bodies.map((body) => (
+                <Button
+                  key={body.id}
+                  onClick={() => {
+                    select(app, [bodySelectionItem(body.id, body.name)], 'replace')
+                  }}
+                >
+                  Select {body.name}
+                </Button>
+              ))}
+            </span>
+          </div>
+        )}
+        {madeBy === null ? null : (
+          <MadeBy state={state} featureId={madeBy} face={kind === 'face'} />
         )}
         {items.length === 1 && element !== null ? (
           <ElementMeasures element={element} kind={kind} units={units} />
         ) : null}
+        <MeasureRows items={items} />
       </div>
-      <Suggestions ids={suggestions} />
+      <Suggestions items={items} />
     </>
   )
 }
@@ -409,43 +568,162 @@ function ElementMeasures({
   )
 }
 
-function DimensionValue({
+/**
+ * The selection inspector's fields of one dimension (3.8): its value, committed on Enter, and the
+ * Reference switch, both as "Change dimension". A driving value is probed first (3.16.7): when the
+ * sketch cannot take it, the text stays and the field shows `dimension_unsolvable`.
+ */
+function DimensionFields({
   constraint,
-  onCommit,
 }: {
   readonly constraint: Extract<SketchConstraint, { expr: string }>
-  readonly onCommit: (expression: string) => void
 }) {
+  const app = useApp()
   const [text, setText] = useState(constraint.expr)
+  const [error, setError] = useState<string | null>(null)
+  const change = (changed: SketchConstraint): void => {
+    changeSketchDimension(app, changed)
+      .then((result) => {
+        setError(result.outcome === 'committed' ? null : MESSAGES.dimension_unsolvable())
+      })
+      .catch(report('Changing the dimension'))
+  }
   return (
-    <ExpressionInput
-      id={`dimension-${constraint.id}`}
-      label="Dimension value"
-      value={text}
-      unit={constraint.type === 'angle' ? 'angle' : 'length'}
-      onChange={(next) => {
-        setText(next)
-      }}
-      onCommit={(next) => {
-        onCommit(next)
-      }}
-      onCancel={() => {
-        setText(constraint.expr)
-      }}
-    />
+    <>
+      <ExpressionInput
+        id={`dimension-${constraint.id}`}
+        label="Dimension value"
+        value={text}
+        offerParameter
+        unit={constraint.type === 'angle' ? 'angle' : 'length'}
+        error={error}
+        onChange={(next) => {
+          setText(next)
+        }}
+        onCommit={(next) => {
+          change({ ...constraint, expr: next })
+        }}
+        onCancel={() => {
+          setText(constraint.expr)
+          setError(null)
+        }}
+      />
+      <Switch
+        label="Reference"
+        checked={constraint.driving === false}
+        onChange={(reference) => {
+          change(withDriving(constraint, !reference))
+        }}
+      />
+    </>
   )
 }
 
-function replaceConstraint(app: App, label: string, constraint: SketchConstraint): void {
-  commitSketchChange(app, label, { replaceConstraint: constraint, requested: [], inferred: [] })
-    .then((result) => {
-      if (result.outcome === 'failed') {
-        console.info('The sketch change was refused.', result.message)
-      }
+/** A dimension with its driving flag; sketch.md omits `driving` when true. */
+function withDriving(
+  constraint: Extract<SketchConstraint, { expr: string }>,
+  driving: boolean,
+): SketchConstraint {
+  if (driving) {
+    const { driving: _driving, ...rest } = constraint
+    return rest
+  }
+  return { ...constraint, driving: false }
+}
+
+/** Why the size field did not commit: a new dimension would over-constrain, or the sketch has no solution. */
+type SizeProblem =
+  | { readonly kind: 'over_constrained' }
+  | { readonly kind: 'message'; readonly message: string }
+
+/**
+ * The size field of one line, circle or arc (3.8, `entity-size`): the driving dimension's
+ * expression or the solved size. Enter with a changed valid text replaces that dimension ("Change
+ * dimension") or adds a driving one ("Dimension"), which then shows on the canvas.
+ */
+function SizeField({
+  item,
+  size,
+  solution,
+}: {
+  readonly item: SelectionItem
+  readonly size: EntitySize
+  readonly solution: SketchSolution
+}) {
+  const app = useApp()
+  const [text, setText] = useState(size.text)
+  const [problem, setProblem] = useState<SizeProblem | null>(null)
+  const commit = (expression: string, reference: boolean): void => {
+    const dimension = entitySizeDimension(size, item, expression, solution, createSketchIds(app), {
+      reference,
     })
-    .catch((error: unknown) => {
-      console.error('Changing the dimension failed.', error)
-    })
+    const committed =
+      size.dimension === null
+        ? addSketchDimension(app, dimension)
+        : changeSketchDimension(app, dimension)
+    committed
+      .then((result) => {
+        if (result.outcome === 'committed') {
+          setProblem(null)
+        } else if (result.outcome === 'over_constrained' && size.dimension === null) {
+          setProblem({ kind: 'over_constrained' })
+        } else {
+          setProblem({
+            kind: 'message',
+            message: result.outcome === 'failed' ? result.message : MESSAGES.dimension_unsolvable(),
+          })
+        }
+      })
+      .catch(report('Changing the size'))
+  }
+  return (
+    <div className="flex flex-col gap-2">
+      <ExpressionInput
+        id={`entity-size-${size.entity}`}
+        testId="entity-size"
+        label={size.label}
+        value={text}
+        unit="length"
+        offerParameter
+        error={problem?.kind === 'message' ? problem.message : null}
+        onChange={(next) => {
+          setText(next)
+        }}
+        onCommit={(next, state) => {
+          if (state.state === 'valid' && next.trim() !== size.text) {
+            commit(next, false)
+          }
+        }}
+        onCancel={() => {
+          setText(size.text)
+          setProblem(null)
+        }}
+      />
+      {problem?.kind === 'over_constrained' ? (
+        <div role="alert" className="flex flex-col gap-2 text-sm">
+          <p>{MESSAGES.dimension_over_constrained()}</p>
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="primary"
+              onClick={() => {
+                commit(text, true)
+              }}
+            >
+              Add reference
+            </Button>
+            <Button
+              onClick={() => {
+                setText(size.text)
+                setProblem(null)
+              }}
+            >
+              Cancel
+            </Button>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  )
 }
 
 function SketchSection({
@@ -470,9 +748,7 @@ function SketchSection({
   const remove = (
     <Button
       onClick={() => {
-        deleteSketchItems(app, items).catch((error: unknown) => {
-          console.error('Deleting the sketch items failed.', error)
-        })
+        deleteSketchItems(app, items).catch(report('Deleting the sketch items'))
       }}
     >
       <Trash2 aria-hidden="true" strokeWidth={1.75} className="size-4" />
@@ -497,20 +773,7 @@ function SketchSection({
         </Title>
         {dimension ? (
           <>
-            <DimensionValue
-              key={constraint.expr}
-              constraint={constraint}
-              onCommit={(expression) => {
-                replaceConstraint(app, 'Change dimension', { ...constraint, expr: expression })
-              }}
-            />
-            <Switch
-              label="Reference"
-              checked={constraint.driving === false}
-              onChange={(reference) => {
-                replaceConstraint(app, 'Change dimension', { ...constraint, driving: !reference })
-              }}
-            />
+            <DimensionFields key={constraint.expr} constraint={constraint} />
           </>
         ) : null}
         {remove}
@@ -547,9 +810,21 @@ function SketchSection({
     )
   const constraints: readonly ConstraintType[] =
     solution === null ? [] : applicableConstraints(items, solution)
+  const size =
+    solution === null || params === null
+      ? null
+      : entitySize(items, params, solution, document.recipe.units)
   return (
     <>
       <Title>{title}</Title>
+      {size === null || solution === null || only === undefined ? null : (
+        <SizeField
+          key={`${size.entity} ${size.text}`}
+          item={only}
+          size={size}
+          solution={solution}
+        />
+      )}
       {constraints.length === 0 ? null : (
         <div className="flex flex-wrap gap-2">
           {constraints.map((type) => {
@@ -559,18 +834,17 @@ function SketchSection({
             return (
               <Button
                 key={type}
+                aria-keyshortcuts={
+                  shortcut === undefined ? undefined : ariaKeyShortcut(shortcut, app.platform)
+                }
                 onClick={() => {
-                  app.commands.run(app, id, 'inspector').catch((error: unknown) => {
-                    console.error(`The command ${id} failed.`, error)
-                  })
+                  app.commands.run(app, id, 'inspector').catch(report(`The command ${id}`))
                 }}
               >
                 <Glyph aria-hidden="true" strokeWidth={1.75} className="size-4" />
                 {CONSTRAINT_TITLES[type]}
                 {shortcut === undefined ? null : (
-                  <span className={clsx('text-xs', COLOR_CLASSES.textMuted.foreground)}>
-                    {formatShortcut(shortcut, app.platform)}
-                  </span>
+                  <ShortcutHint text={formatShortcut(shortcut, app.platform)} />
                 )}
               </Button>
             )
@@ -586,14 +860,19 @@ function SketchSection({
               toggleConstruction: entities,
               requested: [],
               inferred: [],
-            }).catch((error: unknown) => {
-              console.error('Changing construction failed.', error)
-            })
+            }).catch(report('Changing construction'))
           }}
         />
       )}
       <div className="flex">{remove}</div>
     </>
+  )
+}
+
+/** Whether every item is a face, an edge or a vertex. */
+function allElements(items: readonly SelectionItem[]): boolean {
+  return items.every(
+    (item) => item.kind === 'face' || item.kind === 'edge' || item.kind === 'vertex',
   )
 }
 
@@ -614,23 +893,22 @@ export function SelectionInspector({ items }: { readonly items: readonly Selecti
   const [only] = items
   if (items.length === 1 && only !== undefined) {
     if (only.kind === 'body' && only.body !== null) {
-      return <BodySection key={only.body} document={document} bodyId={only.body} />
+      return <BodySection key={only.body} document={document} bodyId={only.body} items={items} />
     }
     if ((only.kind === 'feature' || only.kind === 'datum_plane') && only.feature !== null) {
       return (
-        <FeatureSection
-          state={state}
-          document={document}
-          featureId={only.feature}
-          suggestions={only.kind === 'datum_plane' ? ['feature.sketch'] : []}
-        />
+        <FeatureSection state={state} document={document} featureId={only.feature} items={items} />
       )
     }
-    if (only.kind === 'origin_plane') {
+    if (
+      only.kind === 'origin_plane' ||
+      only.kind === 'origin_axis' ||
+      only.kind === 'origin_point'
+    ) {
       return (
         <>
           <Title>{only.label}</Title>
-          <Suggestions ids={['feature.sketch']} />
+          <Suggestions items={items} />
         </>
       )
     }
@@ -653,18 +931,20 @@ export function SelectionInspector({ items }: { readonly items: readonly Selecti
       )
     }
   }
-  if (
-    items.every((item) => item.kind === 'face' || item.kind === 'edge' || item.kind === 'vertex')
-  ) {
-    return <ElementsSection document={document} items={items} />
+  if (allElements(items)) {
+    return <ElementsSection state={state} document={document} items={items} />
   }
-  if (items.every((item) => item.kind === 'sketch_region')) {
-    return (
-      <>
-        <Title>{counted(items.length, ['region', 'regions'])}</Title>
-        <Suggestions ids={['feature.extrude', 'feature.revolve']} />
-      </>
-    )
-  }
-  return <Title>{itemsCount(items.length)}</Title>
+  const title = items.every((item) => item.kind === 'sketch_region')
+    ? counted(items.length, ['region', 'regions'])
+    : items.every((item) => item.kind === 'sketch_point')
+      ? counted(items.length, ['point', 'points'])
+      : items.every((item) => item.kind === 'body')
+        ? counted(items.length, ['body', 'bodies'])
+        : itemsCount(items.length)
+  return (
+    <>
+      <Title>{title}</Title>
+      <Suggestions items={items} />
+    </>
+  )
 }

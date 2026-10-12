@@ -8,7 +8,7 @@ use partsmith_mesh::Point2;
 use crate::body::Body;
 use crate::disjoint_sets::DisjointSets;
 use crate::format::format_length;
-use crate::geometry::{convex_hull, minimum_width};
+use crate::geometry::{convex_hull, minimum_width, minimum_width_bound};
 use crate::report::{CheckKind, CheckResult, Finding, FindingCode, Severity};
 use crate::thresholds::CheckThresholds;
 
@@ -139,6 +139,10 @@ fn small_loops(body: &Body, layer_height: f64, thresholds: &CheckThresholds) -> 
                 } else {
                     (LoopKind::Hole, thresholds.min_hole)
                 };
+                // Most loops are far wider than the limit; the bound shows that without a hull.
+                if minimum_width_bound(&slice_loop.points) >= limit + WIDTH_TOLERANCE {
+                    continue;
+                }
                 let hull = convex_hull(&slice_loop.points);
                 let width = minimum_width(&hull);
                 if width >= limit - WIDTH_TOLERANCE {

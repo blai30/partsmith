@@ -10,8 +10,10 @@ import { Button } from '../components/Button'
 import { ExpressionInput } from '../expression/ExpressionInput'
 import { formatNumber } from '../expression/format'
 import { MESSAGES } from '../messages'
+import { requestUi } from '../layout/requests'
 import { markTiming, TIMING_NAMES } from '../performance/marks'
 import { focusedFindingPoint } from '../print/health'
+import { selectRepairMarkers } from '../state/selectors'
 import type { AppState, SectionState, ViewState } from '../state/store'
 import { COLOR_CLASSES } from '../theme/roles'
 import { createWebGl2Backend } from './backend'
@@ -31,6 +33,7 @@ import { defaultSectionOffset, type SectionPlane } from './section'
 import { ViewCube } from './ViewCube'
 import { viewCubeRotorMatrix } from './view-cube'
 import { ViewportControls, type SelectionFilterKind } from './ViewportControls'
+import { ViewportMenu } from './ViewportMenu'
 
 // The 3D view (ui.md 3.2, 3.12 to 3.15): the canvas and its controller, the overlay layer, the
 // view cube and viewport controls, and the core's loading and fatal states. React renders the
@@ -61,7 +64,9 @@ function setView(app: App, change: Partial<ViewState>): void {
 /** The drawn grid's minor spacing in the document unit, or empty when no grid is drawn (3.12). */
 function gridSpacingText(state: AppState): string {
   const spacing = state.view.gridSpacing
-  return spacing === null ? '' : formatNumber(spacing, 'length', state.document?.recipe.units ?? 'mm')
+  return spacing === null
+    ? ''
+    : formatNumber(spacing, 'length', state.document?.recipe.units ?? 'mm')
 }
 
 const AXIS_LABELS = ['X', 'Y', 'Z'] as const
@@ -257,6 +262,20 @@ function SectionOffset({ scene }: { readonly scene: Scene }) {
 /** The finding marker's radius in CSS pixels: a ring 16 pixels across (3.17). */
 const FINDING_MARKER_RADIUS = 8
 
+/** Moves each repair marker over its point, or hides it behind the eye or off the canvas (3.7). */
+function placeRepairMarkers(overlay: HTMLElement | null, frame: RenderedFrame): void {
+  for (const marker of overlay?.querySelectorAll<SVGCircleElement>(
+    '[data-testid="repair-marker"]',
+  ) ?? []) {
+    const point: Vector3 = [
+      Number(marker.dataset['x']),
+      Number(marker.dataset['y']),
+      Number(marker.dataset['z']),
+    ]
+    placeFindingMarker(marker, point, frame)
+  }
+}
+
 /** Apps whose first usable frame has been marked as `ps:usable`. */
 const usableMarked = new WeakSet<App>()
 
@@ -288,6 +307,7 @@ function placeFindingMarker(
 export function Viewport({ children }: ViewportProps) {
   const app = useApp()
   const canvas = useRef<HTMLCanvasElement>(null)
+  const surface = useRef<HTMLDivElement>(null)
   const overlay = useRef<HTMLDivElement>(null)
   const rotor = useRef<HTMLDivElement>(null)
   const controller = useRef<ViewportController | null>(null)
@@ -305,6 +325,7 @@ export function Viewport({ children }: ViewportProps) {
   const selectionCount = useAppState((state) => state.selection.length)
   const gridSpacing = useAppState(gridSpacingText)
   const findingPoint = useAppState(focusedFindingPoint)
+  const repairMarkers = useAppState(selectRepairMarkers)
   // The controller draws a frame when the print state changes, which places the marker (3.17).
   const findingMarker = useRef<SVGCircleElement>(null)
   const platform = app.platform
@@ -340,6 +361,7 @@ export function Viewport({ children }: ViewportProps) {
       }
       const state = app.store.getState()
       placeFindingMarker(findingMarker.current, focusedFindingPoint(state), frame)
+      placeRepairMarkers(overlayElement, frame)
       // The first frame with the startup document makes the app usable (3.1).
       if (!usableMarked.has(app) && state.core.status === 'ready' && state.document !== null) {
         usableMarked.add(app)
@@ -362,6 +384,13 @@ export function Viewport({ children }: ViewportProps) {
     }
   }, [app])
 
+  // New repair markers are placed by the next frame.
+  useEffect(() => {
+    if (repairMarkers.length > 0) {
+      app.viewport()?.requestRender()
+    }
+  }, [app, repairMarkers])
+
   // A section turned on without an offset starts at the visible center (3.15).
   useEffect(() => {
     if (scene !== null && section !== null && section.offset === '') {
@@ -370,9 +399,26 @@ export function Viewport({ children }: ViewportProps) {
     }
   }, [app, scene, section])
 
+  /** Opens the context menu from the keyboard: at the center of the selection on screen, or of the view (3.13). */
+  function openMenuFromKeyboard(element: HTMLElement): void {
+    const state = app.store.getState()
+    const items = state.context === 'sketch' ? (state.sketch?.selection ?? []) : state.selection
+    const rectangle = items.length === 0 ? null : (app.viewport()?.screenRectangle(items) ?? null)
+    requestUi(app, {
+      kind: 'viewport_menu',
+      x: rectangle === null ? element.clientWidth / 2 : rectangle.x + rectangle.width / 2,
+      y: rectangle === null ? element.clientHeight / 2 : rectangle.y + rectangle.height / 2,
+    })
+  }
+
   function onKeyDown(event: KeyboardEvent<HTMLDivElement>): void {
     // Enter confirms a command through the app's Enter ladder (3.5); here are the camera keys.
     if (event.target !== event.currentTarget || event.defaultPrevented) {
+      return
+    }
+    if ((event.key === 'F10' && event.shiftKey) || event.key === 'ContextMenu') {
+      event.preventDefault()
+      openMenuFromKeyboard(event.currentTarget)
       return
     }
     const step = keyNavigation(event.key, {
@@ -409,6 +455,7 @@ export function Viewport({ children }: ViewportProps) {
       {/* The spec makes the view one focusable application that takes the camera keys (3.13). */}
       {/* oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */}
       <div
+        ref={surface}
         role="application"
         aria-roledescription="3D view"
         aria-label="3D view"
@@ -433,6 +480,21 @@ export function Viewport({ children }: ViewportProps) {
               className={clsx('fill-none stroke-2', COLOR_CLASSES.errorMark.stroke)}
             />
           )}
+          {repairMarkers.map((marker) => (
+            <circle
+              key={marker.at.join(',')}
+              data-testid="repair-marker"
+              data-x={marker.at[0]}
+              data-y={marker.at[1]}
+              data-z={marker.at[2]}
+              r={FINDING_MARKER_RADIUS}
+              display="none"
+              strokeDasharray="4 3"
+              className={clsx('fill-none stroke-2', COLOR_CLASSES.errorMark.stroke)}
+            >
+              <title>{`Where the missing ${marker.noun} was`}</title>
+            </circle>
+          ))}
         </svg>
         {scene === null ? null : <AxisLabels scene={scene} />}
         {scene === null ? null : <PlaneLabels scene={scene} />}
@@ -484,6 +546,7 @@ export function Viewport({ children }: ViewportProps) {
         }}
         sectionOffsetField={scene === null ? null : <SectionOffset scene={scene} />}
       />
+      <ViewportMenu surface={surface} />
       <CoreStatus restoring={restoring} />
       {children}
     </main>

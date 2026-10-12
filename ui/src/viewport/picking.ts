@@ -44,6 +44,13 @@ export type PickResult =
       readonly world: Vector3 | null
     }
   | { readonly kind: 'item'; readonly item: SelectionItem; readonly world: Vector3 | null }
+/** The camera ray through the pointer at a click, in model millimeters, and the world size of one CSS pixel at the picked point multiplied by the UI scale. */
+export type PointerRay = {
+  readonly origin: Vector3
+  readonly direction: Vector3
+  readonly millimetersPerPixel: number
+}
+
 export type PickCandidate = {
   readonly key: string
   readonly kind: SelectionItemKind

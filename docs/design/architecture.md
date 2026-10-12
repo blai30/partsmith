@@ -22,7 +22,7 @@ partsmith-protocol  -> model, mesh, sketch, naming, print
                                          commands, events, binary framing, JSON Schema
 partsmith-engine    -> everything above  Session: documents, commands, undo, recompute,
                                          tessellation, export, analysis, Python codegen
-partsmith-cli       -> engine, model, protocol, print
+partsmith-cli       -> engine, model, protocol
                                          `partsmith` binary: validate, fmt, rebuild, export
 partsmith-wasm      -> engine, model, protocol
                                          Emscripten entry point for the web worker
@@ -34,7 +34,7 @@ ui/                 TypeScript           React app; depends only on generated pr
 
 Rules:
 
-- Hosts (`partsmith-cli`, `partsmith-wasm`, `partsmith-py`, the desktop host) depend on the engine for all behavior, and on the data crates whose types and constants pass through them (`model` for ids and versions, `protocol` for frames, `print` for printing reports in the CLI). They contain no modeling logic.
+- Hosts (`partsmith-cli`, `partsmith-wasm`, `partsmith-py`, the desktop host) depend on the engine for all behavior, and on the data crates whose types and constants pass through them (`model` for ids and versions, `protocol` for frames and reports). They contain no modeling logic.
 - `partsmith-occt-sys` is the only crate that contains C++. It is also the only crate with `unsafe`, with one exception: `partsmith-wasm` may use `unsafe` on its three C ABI exports and nowhere else (ADR 0010). Every other crate has `#![forbid(unsafe_code)]` through the workspace lint table.
 - No C++ type, exception or raw pointer crosses out of `partsmith-occt-sys`. Its public API is safe Rust.
 - No global mutable state anywhere in the core. Every API takes a document or session handle. The `Session` that `partsmith-wasm` keeps in a `thread_local!` is host state, not core state (ADR 0010). The STEP mutex and one-time OCCT initialization inside `partsmith-occt-sys` guard OCCT's own process-wide state, not Partsmith state (kernel.md).
@@ -163,7 +163,7 @@ pub trait Feature: Send + Sync + 'static {
 `validate` and `python` are provided methods (ADR 0011). `FeatureManifest` is pure data defined in `partsmith-model`, so the protocol carries it typed.
 
 - `build` is a pure function of its params and the read-only context: expression evaluation, upstream body states, sketch and datum results, and reference resolution.
-- `FeatureOutput` is one of: body updates (each a body id, its new `Shape` and `NamingMap`, and the change applied: `new`, `join`, `cut`, `intersect`, `modify` for in-place changes, or `clear` for an emptied body), a sketch result, a datum result, or nothing. Warnings travel with the output.
+- `FeatureOutput` is one of: body updates (each a body id, its new `Shape` and `NamingMap`, the change applied: `new`, `join`, `cut`, `intersect`, `modify` for in-place changes, or `clear` for an emptied body, and the topology and volume the feature already measured on the shape, ADR 0018), a sketch result, a datum result, or nothing. Warnings travel with the output.
 - Bodies are declared in `Document::bodies`. A solid feature names its target `body` and `op`: `new`, `join`, `cut` or `intersect`. `new` requires the body to be empty at that point in the timeline.
 - `Registry` maps type names to type-erased features. It validates and canonicalizes params, composes the params JSON Schema, extracts dependencies, builds, and generates each feature's dedicated Python call through the feature's hook, or the generic `feature(...)` call. Built-in features register through the same public API a plugin will use.
 

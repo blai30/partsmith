@@ -5,6 +5,7 @@ import { currentDocument, type FakeApp, startWithDocument } from '../../test/fak
 import {
   CUBE_DOCUMENT,
   CUBE_FEATURES_DOCUMENT,
+  CUBE_REGION,
   CUBE_FRONT_FACE,
   CUBE_SKETCH_SOLUTION,
   CUBE_TOP_FACE,
@@ -12,6 +13,7 @@ import {
 import { elementItem, originItem } from '../../test/fakes/selection'
 import { editsOf } from '../../test/fakes/protocol'
 import { settle } from '../../test/fakes/settle'
+import { startFeatureCommand } from './command'
 import { select } from './selection'
 import { createSketchOn, enterSketch, finishSketch, setSketchTool, startNewSketch } from './sketch'
 
@@ -52,6 +54,25 @@ describe('createSketchOn (3.16.1)', () => {
     const state = fake.app.store.getState()
     expect(state.context).toBe('sketch')
     expect(state.sketch?.sketchId).toBe(edit?.feature.id)
+  })
+
+  it('a double-click on a plane adds one sketch', async () => {
+    const fake = await cube()
+    await Promise.all([
+      createSketchOn(fake.app, originItem('XY')),
+      createSketchOn(fake.app, originItem('XY')),
+    ])
+    await settle()
+    expect(fake.transport.commandsOfType('apply_edits')).toHaveLength(1)
+    expect(fake.app.store.getState().sketch?.sketchId).toBe(newSketchEdit(fake).edit?.feature.id)
+  })
+
+  it('a double-click on Sketch with a plane selected adds one sketch', async () => {
+    const fake = await cube()
+    select(fake.app, [originItem('XY')], 'replace')
+    await Promise.all([startNewSketch(fake.app), startNewSketch(fake.app)])
+    await settle()
+    expect(fake.transport.commandsOfType('apply_edits')).toHaveLength(1)
   })
 
   it('a flat face gives a face plane with its body, reference and placement as the fallback', async () => {
@@ -140,6 +161,29 @@ describe('enterSketch, setSketchTool and finishSketch (3.16)', () => {
       dragging: false,
     })
     expect(currentDocument(fake.app).sketches['f-sk1']?.solution).toEqual(CUBE_SKETCH_SOLUTION)
+  })
+
+  it('entering clears the app selection, so a command run from the sketch takes what it made (3.3, 3.16.1)', async () => {
+    const fake = await cube()
+    select(fake.app, [originItem('XY')], 'replace')
+    await enterSketch(fake.app, 'f-sk1')
+    await settle()
+    expect(fake.app.store.getState().selection).toEqual([])
+    await startFeatureCommand(fake.app, 'extrude')
+    await settle()
+    expect(fake.app.store.getState().command?.params['profile']).toEqual({
+      sketch: 'f-sk1',
+      regions: [CUBE_REGION.reference],
+    })
+  })
+
+  it('a sketch started on the selected plane starts with an empty app selection', async () => {
+    const fake = await cube()
+    select(fake.app, [originItem('XY')], 'replace')
+    await startNewSketch(fake.app)
+    await settle()
+    expect(fake.app.store.getState().sketch?.sketchId).not.toBeNull()
+    expect(fake.app.store.getState().selection).toEqual([])
   })
 
   it('setSketchTool sets and clears the active tool', async () => {

@@ -1,5 +1,14 @@
-import type { Body, FieldHint, FieldUnit, SelectionKind } from '../generated/protocol'
+import type {
+  Body,
+  Document,
+  FeatureStatus,
+  FieldHint,
+  FieldUnit,
+  SelectionKind,
+} from '../generated/protocol'
 import type { CatalogFeature } from '../state/store'
+import { fieldHelp } from './help'
+import { startValue } from './start-values'
 
 // The schema-driven inspector model (ui.md 2.12): manifest field hints mapped onto the params JSON
 // Schema (draft 2020-12 as schemars 1 emits it) to controls, defaults and param updates.
@@ -20,6 +29,7 @@ export type FieldControl =
       readonly presentation: 'segmented' | 'select'
     }
   | { readonly type: 'switch' }
+  | { readonly type: 'toggle' }
   | { readonly type: 'text' }
   | { readonly type: 'number'; readonly integer: boolean }
   | { readonly type: 'unsupported' }
@@ -33,16 +43,21 @@ export type InspectorField = {
   readonly control: FieldControl
   readonly value: unknown
   readonly error: string | null
+  /** For an inline toggle, the path of the field whose row it sits on; otherwise null. */
+  readonly attachedTo: string | null
 }
 
 export type InspectorModel = {
   readonly essential: readonly InspectorField[]
   readonly more: readonly InspectorField[]
   /**
-   * True when a field in `more` has an error, or a required field in `more` is empty and not
-   * waiting for a pick; it forces the More section open (2.12).
+   * True when a field in `more` has an error (including a mapped status message, 3.7), or a
+   * required field in `more` is empty and not waiting for a pick; it forces the More section open
+   * (2.12).
    */
   readonly forceMore: boolean
+  /** Labels of shown More fields whose value differs from its starting value, in display order; `body`, `sketch` and `target` fields never count. */
+  readonly changedMore: readonly string[]
   /** True when every required field has a value and no field has an error. */
   readonly complete: boolean
 }
@@ -51,6 +66,10 @@ export type DefaultsContext = {
   readonly bodies: readonly Body[]
   readonly bodiesWithGeometry: readonly string[]
   readonly lastTargetBody: string | null
+  /** The recipe, for the reuse rule; null skips it. */
+  readonly document: Document | null
+  /** Feature statuses by id, so the reuse rule skips records in error. */
+  readonly featureStatus: Readonly<Record<string, FeatureStatus>>
 }
 
 /** Choices shown as a segmented control; more become a select. */
@@ -200,17 +219,6 @@ type Located = {
   readonly required: boolean
   /** The leaf is the `kind` tag of a tagged union. */
   readonly tag: boolean
-  readonly description: string | null
-}
-
-function descriptionOf(...schemas: readonly JsonSchema[]): string | null {
-  for (const schema of schemas) {
-    const description = schema['description']
-    if (typeof description === 'string') {
-      return description
-    }
-  }
-  return null
 }
 
 /** Follows a path through the schema; null when the current value's branch does not declare it. */
@@ -259,7 +267,6 @@ function locate(
     schema: leaf.schema,
     required: required && !leaf.optional,
     tag,
-    description: descriptionOf(raw, resolved(raw, root), leaf.written, leaf.schema),
   }
 }
 
@@ -362,9 +369,32 @@ function parentPath(path: string): string {
   return dot === -1 ? '' : path.slice(0, dot)
 }
 
+/**
+ * How a feature creates a body through its `target` field (2.12): `op` when its op options include
+ * `new` (Mirror, Linear pattern, Circular pattern: the target is shown only while op is new), and
+ * `always` when it has no op and an optional target (Split body: it starts set to a new body).
+ * Null for every other feature, whose `body` field receives the body op `new` creates.
+ */
+export function bodyCreatingTarget(feature: CatalogFeature): 'op' | 'always' | null {
+  const hints = feature.manifest.fields
+  const target = hints.find((hint) => hint.path === 'target')
+  if (target?.selection !== 'body') {
+    return null
+  }
+  const op = hints.find((hint) => hint.path === 'op')
+  if (op === undefined) {
+    return requiredOf(rootSchemaOf(feature)).includes('target') ? null : 'always'
+  }
+  return op.options?.some((option) => option.value === 'new') === true ? 'op' : null
+}
+
 /** A body field the command fills itself: an empty body beside op `new` gets a new body (3.7). */
-function filledByCommand(field: InspectorField, params: Params): boolean {
-  if (field.control.type !== 'selection' || field.control.accepts !== 'body') {
+function filledByCommand(field: InspectorField, params: Params, feature: CatalogFeature): boolean {
+  if (
+    field.control.type !== 'selection' ||
+    field.control.accepts !== 'body' ||
+    bodyCreatingTarget(feature) !== null
+  ) {
     return false
   }
   const parent = parentPath(field.path)
@@ -399,54 +429,169 @@ function waitsForPick(
 }
 
 /** A required field without a value that nothing else fills. */
-function missing(field: InspectorField, params: Params): boolean {
-  return field.required && !hasValue(field.control, field.value) && !filledByCommand(field, params)
+function missing(field: InspectorField, params: Params, feature: CatalogFeature): boolean {
+  return (
+    field.required &&
+    !hasValue(field.control, field.value) &&
+    !filledByCommand(field, params, feature)
+  )
 }
 
 function rootSchemaOf(feature: CatalogFeature): JsonSchema {
   return feature.paramsSchema
 }
 
+/** Extent variants in which the feature ignores Reverse (features/extrude.md open issue 1). */
+const REVERSE_IGNORED: ReadonlySet<string> = new Set(['symmetric', 'full'])
+
+/** Whether the feature's params have a top-level boolean `reverse` and a top-level tagged union `extent` (2.12). */
+function hasInlineReverse(feature: CatalogFeature): boolean {
+  const root = rootSchemaOf(feature)
+  const properties = propertiesOf(root)
+  const reverse = schemaOrNull(properties['reverse'])
+  const extent = schemaOrNull(properties['extent'])
+  return (
+    reverse !== null &&
+    extent !== null &&
+    typesOf(unwrapped(reverse, root).schema).includes('boolean') &&
+    variantsOf(unwrapped(extent, root).schema, root) !== null
+  )
+}
+
+/**
+ * Places the inline Reverse toggle right after the field it attaches to (the first shown expression
+ * field under `extent.`, else `extent.kind`), or leaves it out while the extent ignores it (2.12).
+ */
+function withInlineReverse(
+  essential: readonly InspectorField[],
+  more: readonly InspectorField[],
+  params: Params,
+): { readonly essential: InspectorField[]; readonly more: InspectorField[] } {
+  const reverse = [...essential, ...more].find((field) => field.path === 'reverse')
+  const others = {
+    essential: essential.filter((field) => field.path !== 'reverse'),
+    more: more.filter((field) => field.path !== 'reverse'),
+  }
+  const kind = getParam(params, 'extent.kind')
+  if (reverse === undefined || (typeof kind === 'string' && REVERSE_IGNORED.has(kind))) {
+    return others
+  }
+  const anchor =
+    others.essential.find(
+      (field) => field.control.type === 'expression' && field.path.startsWith('extent.'),
+    ) ?? others.essential.find((field) => field.path === 'extent.kind')
+  if (anchor === undefined) {
+    return { essential: [...essential], more: [...more] }
+  }
+  const toggle: InspectorField = {
+    ...reverse,
+    essential: true,
+    control: { type: 'toggle' },
+    attachedTo: anchor.path,
+  }
+  const index = others.essential.indexOf(anchor)
+  return {
+    essential: [
+      ...others.essential.slice(0, index + 1),
+      toggle,
+      ...others.essential.slice(index + 1),
+    ],
+    more: others.more,
+  }
+}
+
+/** Selection fields that rules fill, which never count as changed: body, sketch and target fields. */
+function filledByRules(field: InspectorField): boolean {
+  return (
+    field.control.type === 'selection' &&
+    (field.control.accepts === 'body' || field.control.accepts === 'sketch')
+  )
+}
+
+/** The start params with every tagged union switched to the variant the params use, as setParam starts it. */
+function alignedStart(feature: CatalogFeature, start: Params, params: Params): Params {
+  let aligned: Params = start
+  for (const hint of feature.manifest.fields) {
+    const segments = parsePath(hint.path)
+    const located = segments === null ? null : locate(rootSchemaOf(feature), params, segments)
+    const value = getParam(params, hint.path)
+    if (
+      located?.tag === true &&
+      typeof value === 'string' &&
+      getParam(aligned, hint.path) !== value
+    ) {
+      aligned = setParam(feature, aligned, hint.path, value)
+    }
+  }
+  return aligned
+}
+
 export function buildInspectorModel(input: {
   readonly feature: CatalogFeature
   readonly params: Params
+  /** Field errors by path, including the status messages mapped to fields (3.7). */
   readonly errors: Readonly<Record<string, string>>
+  /** The starting values the params are compared with for `changedMore`: `defaultParams` without the reuse step; without it, nothing counts as changed. */
+  readonly startParams?: Params
 }): InspectorModel {
-  const root = rootSchemaOf(input.feature)
-  const essential: InspectorField[] = []
-  const more: InspectorField[] = []
-  for (const hint of input.feature.manifest.fields) {
+  const { feature, params } = input
+  const root = rootSchemaOf(feature)
+  const targetRule = bodyCreatingTarget(feature)
+  const essentialFields: InspectorField[] = []
+  const moreFields: InspectorField[] = []
+  for (const hint of feature.manifest.fields) {
     const segments = parsePath(hint.path)
-    const located = segments === null ? null : locate(root, input.params, segments)
+    const located = segments === null ? null : locate(root, params, segments)
     if (located === null) {
+      continue
+    }
+    // A body-creating target of a feature with op is shown only while op is new (2.12).
+    if (targetRule === 'op' && hint.path === 'target' && params['op'] !== 'new') {
       continue
     }
     const field: InspectorField = {
       path: hint.path,
       label: hint.label,
-      help: located.description,
+      // Help in the interface's words; schema descriptions are never shown (2.12).
+      help: fieldHelp(feature.type, hint.path),
       essential: hint.essential ?? false,
       required: located.required,
       control: controlFor(hint, located, root),
-      value: getParam(input.params, hint.path),
+      value: getParam(params, hint.path),
       error: input.errors[hint.path] ?? null,
+      attachedTo: null,
     }
     if (field.essential) {
-      essential.push(field)
+      essentialFields.push(field)
     } else {
-      more.push(field)
+      moreFields.push(field)
     }
   }
+  const { essential, more } = hasInlineReverse(feature)
+    ? withInlineReverse(essentialFields, moreFields, params)
+    : { essential: essentialFields, more: moreFields }
   const fields = [...essential, ...more]
+  const start =
+    input.startParams === undefined ? null : alignedStart(feature, input.startParams, params)
   return {
     essential,
     more,
     forceMore: more.some(
       (field) =>
         field.error !== null ||
-        (missing(field, input.params) && !waitsForPick(field, fields, input.params)),
+        (missing(field, params, feature) && !waitsForPick(field, fields, params)),
     ),
-    complete: fields.every((field) => field.error === null && !missing(field, input.params)),
+    changedMore:
+      start === null
+        ? []
+        : more
+            .filter(
+              (field) =>
+                !filledByRules(field) &&
+                JSON.stringify(field.value) !== JSON.stringify(getParam(start, field.path)),
+            )
+            .map((field) => field.label),
+    complete: fields.every((field) => field.error === null && !missing(field, params, feature)),
   }
 }
 
@@ -454,20 +599,40 @@ function hintFor(feature: CatalogFeature, path: string): FieldHint | undefined {
   return feature.manifest.fields.find((hint) => hint.path === path)
 }
 
-/** The starting value of one property, or undefined to leave it out. */
+/**
+ * The starting value of one property, or undefined to leave it out (2.12): an expression's start
+ * value, the variant a union's start value names, the schema default, then the unit's default.
+ * `scope` holds the params known so far, for start values that follow another field.
+ */
 function defaultValue(
   feature: CatalogFeature,
   schema: JsonSchema,
   path: string,
   required: boolean,
+  scope: Params,
 ): unknown {
   const root = rootSchemaOf(feature)
   const direct = resolved(schema, root)
+  const leaf = unwrapped(schema, root)
+  const hint = hintFor(feature, path)
+  const unit = hint?.unit ?? null
+  const expression = unit !== null && isExpression(leaf.written, root)
+  if (expression) {
+    const start = startValue(feature.type, path, scope)
+    if (start !== undefined) {
+      return start
+    }
+  }
+  const variants = variantsOf(leaf.schema, root)
+  const startKind = variants === null ? undefined : startValue(feature.type, `${path}.kind`, scope)
+  const named = variants?.find((variant) => tagOf(variant, root) === startKind)
+  if (named !== undefined) {
+    return variantDefaults(feature, named, path, scope)
+  }
   const declared = schema['default'] ?? direct['default']
   if (declared !== undefined) {
     return structuredClone(declared)
   }
-  const leaf = unwrapped(schema, root)
   if (!required || leaf.optional) {
     return undefined
   }
@@ -475,18 +640,16 @@ function defaultValue(
   if (leaf.schema['const'] !== undefined) {
     return leaf.schema['const']
   }
-  const hint = hintFor(feature, path)
   if (hint?.selection !== undefined && hint.selection !== null) {
     // Selection fields start empty.
     return undefined
   }
-  if (hint?.unit !== undefined && hint.unit !== null && isExpression(leaf.written, root)) {
-    return EXPRESSION_DEFAULTS[hint.unit]
+  if (expression && unit !== null) {
+    return EXPRESSION_DEFAULTS[unit]
   }
-  const variants = variantsOf(leaf.schema, root)
   if (variants !== null) {
     const [first] = variants
-    return first === undefined ? undefined : variantDefaults(feature, first, path)
+    return first === undefined ? undefined : variantDefaults(feature, first, path, scope)
   }
   const options = hint?.options ?? []
   if (options.length > 0) {
@@ -496,12 +659,12 @@ function defaultValue(
   const length = leaf.schema['maxItems']
   if (items !== null && typeof length === 'number' && length === leaf.schema['minItems']) {
     const values = Array.from({ length }, (_unused, index) =>
-      defaultValue(feature, items, `${path}[${String(index)}]`, true),
+      defaultValue(feature, items, `${path}[${String(index)}]`, true, scope),
     )
     return values.every((item) => item !== undefined) ? values : undefined
   }
   if (typesOf(leaf.schema).includes('object')) {
-    return objectDefaults(feature, leaf.schema, path)
+    return objectDefaults(feature, leaf.schema, path, scope)
   }
   return undefined
 }
@@ -511,6 +674,7 @@ function objectDefaults(
   feature: CatalogFeature,
   schema: JsonSchema,
   prefix: string,
+  scope: Params,
 ): Record<string, unknown> {
   const result: Record<string, unknown> = {}
   const required = requiredOf(schema)
@@ -524,6 +688,8 @@ function objectDefaults(
       propertySchema,
       prefix === '' ? name : `${prefix}.${name}`,
       required.includes(name),
+      // At the top level, the properties started so far are the params later ones follow.
+      prefix === '' ? result : scope,
     )
     if (value !== undefined) {
       result[name] = value
@@ -537,22 +703,97 @@ function variantDefaults(
   feature: CatalogFeature,
   variant: JsonSchema,
   path: string,
+  scope: Params,
 ): Record<string, unknown> {
-  const { kind, ...properties } = objectDefaults(feature, variant, path)
+  const { kind, ...properties } = objectDefaults(feature, variant, path, scope)
   return { kind, ...properties }
+}
+
+/** Whether every tagged union above the path selects the same variant in both values. */
+function sameVariants(first: Params, second: Params, path: string): boolean {
+  const segments = path.split('.')
+  for (let i = 1; i < segments.length; i++) {
+    const tag = `${segments.slice(0, i).join('.')}.kind`
+    const kind = getParam(second, tag)
+    if (typeof kind === 'string' && getParam(first, tag) !== kind) {
+      return false
+    }
+  }
+  return true
+}
+
+/**
+ * The reuse rule (2.12): each expression field takes the text at the same path of the latest
+ * record of the same type that has a value there, is not in error, and uses the same variant.
+ */
+function reusedParams(
+  feature: CatalogFeature,
+  params: Record<string, unknown>,
+  context: DefaultsContext,
+): Record<string, unknown> {
+  const records = (context.document?.features ?? [])
+    .filter(
+      (record) =>
+        record.type === feature.type && context.featureStatus[record.id]?.status !== 'error',
+    )
+    .toReversed()
+  const root = rootSchemaOf(feature)
+  let reused = params
+  for (const hint of feature.manifest.fields) {
+    const segments = parsePath(hint.path)
+    const located = segments === null ? null : locate(root, reused, segments)
+    if (
+      segments === null ||
+      located === null ||
+      hint.unit === undefined ||
+      hint.unit === null ||
+      !isExpression(located.written, root)
+    ) {
+      continue
+    }
+    const source = records.find((record) => {
+      const text = getParam(record, hint.path)
+      return (
+        typeof text === 'string' && text.trim() !== '' && sameVariants(record, reused, hint.path)
+      )
+    })
+    const text = source === undefined ? undefined : getParam(source, hint.path)
+    if (typeof text === 'string') {
+      reused = writtenParams(reused, segments, text)
+    }
+  }
+  return reused
+}
+
+/** Whether a field's parent object has a face or edge field, whose first pick fills its body (2.12). */
+function besideElementField(feature: CatalogFeature, path: string): boolean {
+  const parent = parentPath(path)
+  return feature.manifest.fields.some(
+    (hint) =>
+      (hint.selection === 'face' || hint.selection === 'edge') && parentPath(hint.path) === parent,
+  )
 }
 
 export function defaultParams(
   feature: CatalogFeature,
   context: DefaultsContext,
 ): Record<string, unknown> {
-  const params = objectDefaults(feature, rootSchemaOf(feature), '')
+  const params = reusedParams(
+    feature,
+    objectDefaults(feature, rootSchemaOf(feature), '', {}),
+    context,
+  )
   const op = hintFor(feature, 'op')
   if (op?.options?.some((option) => option.value === 'new') === true) {
     params['op'] = context.bodiesWithGeometry.length === 0 ? 'new' : 'join'
   }
   const body = hintFor(feature, 'body')
-  if (body?.selection === 'body' && params['op'] !== 'new' && context.lastTargetBody !== null) {
+  if (
+    body?.selection === 'body' &&
+    params['op'] !== 'new' &&
+    context.lastTargetBody !== null &&
+    !besideElementField(feature, 'body')
+  ) {
     params['body'] = context.lastTargetBody
   }
   return params
@@ -620,7 +861,7 @@ export function setParam(
       const previous = getParam(params, unionPathText)
       const kept = isRecord(previous) ? previous : {}
       const declared = propertiesOf(variant)
-      const next: Record<string, unknown> = variantDefaults(feature, variant, unionPathText)
+      const next: Record<string, unknown> = variantDefaults(feature, variant, unionPathText, params)
       for (const [name, property] of Object.entries(kept)) {
         if (name !== 'kind' && name in declared && property !== undefined) {
           next[name] = property

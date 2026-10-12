@@ -4,7 +4,7 @@ use std::io;
 
 use partsmith_engine::Session;
 
-use super::{load_failure, usage_error};
+use super::usage_error;
 use crate::arguments::FmtArguments;
 use crate::error::CliError;
 use crate::files::{Input, write_atomically};
@@ -66,10 +66,9 @@ pub fn run(
 /// Computes the canonical text of one input and writes it where it belongs.
 fn format_input(session: &mut Session, input: &Input, check: bool) -> Result<Outcome, CliError> {
     let text = input.read()?;
-    let canonical = match session.format(&text) {
-        Ok(canonical) => canonical,
-        Err(error) => return Err(load_failure(session, input.name(), &text, &error)),
-    };
+    let canonical = session
+        .format(&text)
+        .map_err(|error| CliError::load(input.name(), &error))?;
     let changed = canonical != text;
     Ok(match (input, check, changed) {
         (_, true, true) => Outcome::NotCanonical,

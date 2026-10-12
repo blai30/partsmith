@@ -1,5 +1,6 @@
 import { capturePick } from '../app/actions/command'
 import { select } from '../app/actions/selection'
+import { createSketchOn } from '../app/actions/sketch'
 import type { App } from '../app/createApp'
 import type { SelectionKind } from '../generated/protocol'
 import { buildInspectorModel } from '../inspector/model'
@@ -7,7 +8,8 @@ import { acceptsTarget } from '../inspector/selection-values'
 import type { AppState, SelectionItem } from '../state/store'
 
 // Clicks on timeline items and browser rows (ui.md 3.9, 3.10): while a feature command's active
-// selection field accepts the item, the click fills that field; otherwise it selects the item.
+// selection field accepts the item, the click fills that field; while a plane is picked for a new
+// sketch, an origin plane or datum row starts the sketch on it (3.16.1); otherwise it selects.
 
 /** What the active command's active selection field accepts, or null without one. */
 export function activeFieldAccepts(state: AppState): SelectionKind | null {
@@ -23,9 +25,24 @@ export function activeFieldAccepts(state: AppState): SelectionKind | null {
   return field?.control.type === 'selection' ? field.control.accepts : null
 }
 
-/** Captures the item into the active field when it fits, else selects it (toggling with Shift or Mod). */
+/** Whether a plane is being picked for a new sketch (3.16.1). */
+function pickingPlane(state: AppState): boolean {
+  return state.context === 'sketch' && state.sketch !== null && state.sketch.sketchId === null
+}
+
+/**
+ * Captures the item into the active field when it fits, starts a new sketch on a plane row while
+ * a plane is picked, else selects the item (toggling with Shift or Mod).
+ */
 export function pickRow(app: App, item: SelectionItem, toggle: boolean): void {
-  const accepts = activeFieldAccepts(app.store.getState())
+  const state = app.store.getState()
+  if (pickingPlane(state) && (item.kind === 'origin_plane' || item.kind === 'datum_plane')) {
+    createSketchOn(app, item).catch((error: unknown) => {
+      console.error('Creating the sketch failed.', error)
+    })
+    return
+  }
+  const accepts = activeFieldAccepts(state)
   if (accepts !== null && acceptsTarget(accepts, item)) {
     capturePick(app, item).catch((error: unknown) => {
       console.error('Capturing the pick failed.', error)

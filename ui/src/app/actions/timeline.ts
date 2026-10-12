@@ -1,10 +1,17 @@
 import { featureLabel } from '../../core/labels'
 import { createLatestOnly } from '../../core/queue'
-import type { Edit, FeatureRecord } from '../../generated/protocol'
+import type { Diagnostic, Edit, FeatureRecord } from '../../generated/protocol'
+import { suggestedRecord } from '../../inspector/status'
 import { MESSAGES } from '../../messages'
 import type { App } from '../createApp'
 import { coreUndo } from './document'
-import { commitEdits, documentOf, showCoreError } from './edits'
+import {
+  commitBuiltEdits,
+  commitEdits,
+  documentOf,
+  refusedDuringCommand,
+  showCoreError,
+} from './edits'
 import { notify } from './notifications'
 
 // Timeline edits (ui.md 3.9): rollback marker, reorder, suppress, delete and rename.
@@ -41,6 +48,9 @@ function rollbackEdit(records: readonly FeatureRecord[], position: number): Edit
 
 /** Moves the rollback marker to position 0 to N, labeled "Roll back". */
 export async function setRollback(app: App, position: number): Promise<void> {
+  if (refusedDuringCommand(app)) {
+    return
+  }
   await commitEdits(app, 'Roll back', [rollbackEdit(recordsOf(app), position)])
 }
 
@@ -61,7 +71,7 @@ export type RollbackDrag = {
  */
 export function startRollbackDrag(app: App, start: number): RollbackDrag | null {
   const document = documentOf(app)
-  if (document === null) {
+  if (document === null || refusedDuringCommand(app)) {
     return null
   }
   const { documentHandle } = document
@@ -137,7 +147,7 @@ export function startRollbackDrag(app: App, start: number): RollbackDrag | null 
 /** Moves a feature to a timeline index, labeled "Reorder"; its own index changes nothing. */
 export async function moveFeature(app: App, featureId: string, toIndex: number): Promise<void> {
   const index = recordsOf(app).findIndex((record) => record.id === featureId)
-  if (index === -1 || index === toIndex) {
+  if (index === -1 || index === toIndex || refusedDuringCommand(app)) {
     return
   }
   await commitEdits(app, 'Reorder', [{ type: 'move_feature', id: featureId, index: toIndex }])
@@ -150,23 +160,30 @@ export async function setSuppressed(
   suppressed: boolean,
 ): Promise<void> {
   const chosen = new Set(featureIds)
-  const records = recordsOf(app).filter((record) => chosen.has(record.id))
-  const [first] = records
-  if (first === undefined) {
+  if (!recordsOf(app).some((record) => chosen.has(record.id)) || refusedDuringCommand(app)) {
     return
   }
   const verb = suppressed ? 'Suppress' : 'Unsuppress'
-  const subject =
-    records.length === 1 ? labelOf(app, first.id) : `${String(records.length)} features`
-  await commitEdits(
-    app,
-    `${verb} ${subject}`,
-    records.map((record) => ({
-      type: 'update_feature',
-      // Suppressed is omitted when false (model.md).
-      feature: withProperty(record, 'suppressed', suppressed ? true : undefined),
-    })),
-  )
+  await commitBuiltEdits(app, (document) => {
+    // The records as they are then, so a rename queued before this keeps its name.
+    const records = (document.recipe.features ?? []).filter((record) => chosen.has(record.id))
+    const [first] = records
+    if (first === undefined) {
+      return null
+    }
+    const subject =
+      records.length === 1
+        ? featureLabel(document.recipe, first.id, app.store.getState().catalog)
+        : `${String(records.length)} features`
+    return {
+      label: `${verb} ${subject}`,
+      edits: records.map((record) => ({
+        type: 'update_feature',
+        // Suppressed is omitted when false (model.md).
+        feature: withProperty(record, 'suppressed', suppressed ? true : undefined),
+      })),
+    }
+  })
 }
 
 /**
@@ -182,7 +199,7 @@ export async function deleteFeatures(app: App, featureIds: readonly string[]): P
   const records = document.recipe.features ?? []
   const deleted = records.filter((record) => doomed.has(record.id))
   const [first] = deleted
-  if (first === undefined) {
+  if (first === undefined || refusedDuringCommand(app)) {
     return
   }
   const edits: Edit[] = []
@@ -219,15 +236,51 @@ export async function deleteFeatures(app: App, featureIds: readonly string[]): P
 
 /** Renames a feature, labeled "Rename"; an empty name brings back the default label. */
 export async function renameFeature(app: App, featureId: string, name: string): Promise<void> {
-  const record = recordsOf(app).find((candidate) => candidate.id === featureId)
-  if (record === undefined) {
+  if (
+    !recordsOf(app).some((candidate) => candidate.id === featureId) ||
+    refusedDuringCommand(app)
+  ) {
     return
   }
   const trimmed = name.trim()
-  await commitEdits(app, 'Rename', [
-    {
-      type: 'update_feature',
-      feature: withProperty(record, 'name', trimmed === '' ? undefined : trimmed),
-    },
-  ])
+  await commitBuiltEdits(app, (document) => {
+    // Only the name changes on the record as it is then, so a change queued before this stays.
+    const record = document.recipe.features?.find((candidate) => candidate.id === featureId)
+    return record === undefined
+      ? null
+      : {
+          label: 'Rename',
+          edits: [
+            {
+              type: 'update_feature',
+              feature: withProperty(record, 'name', trimmed === '' ? undefined : trimmed),
+            },
+          ],
+        }
+  })
+}
+
+/**
+ * "Use {suggestion}" for a feature message at rest (4.2): one `update_feature` with the value at the
+ * message's field replaced, labeled "Change {label}". Refused during a feature command (3.7), and
+ * built from the record as it is when the edit is sent.
+ */
+export async function applySuggestion(
+  app: App,
+  featureId: string,
+  message: Diagnostic,
+): Promise<boolean> {
+  if (refusedDuringCommand(app)) {
+    return false
+  }
+  return commitBuiltEdits(app, (document) => {
+    const record = document.recipe.features?.find((candidate) => candidate.id === featureId)
+    const updated = record === undefined ? null : suggestedRecord(record, message)
+    return updated === null
+      ? null
+      : {
+          label: `Change ${featureLabel(document.recipe, featureId, app.store.getState().catalog)}`,
+          edits: [{ type: 'update_feature', feature: updated }],
+        }
+  })
 }

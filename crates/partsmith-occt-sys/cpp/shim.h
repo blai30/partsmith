@@ -74,6 +74,7 @@ struct MeshData;
 struct StepBodyData;
 struct StepImportData;
 enum class ElementKind : std::uint8_t;
+enum class ContinuityType : std::uint8_t;
 enum class ShapeType : std::uint8_t;
 
 // An immutable B-rep shape with its solid, face, edge and vertex index maps, built once.

@@ -1,4 +1,4 @@
-import { cleanup, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { installPopoverPolyfill } from '../components/popover-polyfill.testing'
@@ -6,7 +6,8 @@ import type { Document } from '../generated/protocol'
 import { documentState, readyState } from '../layout/fixtures.testing'
 import { createModelApp, renderWithApp, stubMatchMedia } from '../layout/test-app.testing'
 import { MESSAGES } from '../messages'
-import { INITIAL_STATE, type DocumentState } from '../state/store'
+import { requestUi } from '../layout/requests'
+import { INITIAL_STATE, type AppState, type DocumentState } from '../state/store'
 import { coreErrorFor } from '../test/fakes/core-api'
 import { PARAMETRIC_DOCUMENT } from '../test/fakes/documents'
 import { settle } from '../test/fakes/settle'
@@ -68,11 +69,27 @@ describe('the Parameters panel (3.11)', () => {
     ).toEqual(['p-size'])
   })
 
+  it('with no parameters, explains them above "Add parameter" in the muted text role', () => {
+    const { panel } = renderPanel(parametric({}, { ...PARAMETRIC_DOCUMENT, parameters: [] }))
+    const empty = within(panel).getByTestId('parameters-empty')
+    expect(empty).toHaveTextContent(
+      "Parameters are named values, such as wall = 2 mm. Type a parameter's name in any size or angle field to use it.",
+    )
+    expect(empty).toHaveClass(...COLOR_CLASSES.textMuted.foreground.split(' '))
+    const add = within(panel).getByRole('button', { name: 'Add parameter' })
+    expect(empty.compareDocumentPosition(add) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('with parameters, shows no explanation', () => {
+    const { panel } = renderPanel()
+    expect(within(panel).queryByTestId('parameters-empty')).toBeNull()
+  })
+
   it('has name, expression and comment fields and a delete button named after the parameter', () => {
     renderPanel()
     const row = sizeRow()
     expect(within(row).getByRole('textbox', { name: 'Name of size' })).toHaveValue('size')
-    expect(within(row).getByRole('textbox', { name: 'Expression of size' })).toHaveValue('20 mm')
+    expect(within(row).getByRole('combobox', { name: 'Expression of size' })).toHaveValue('20 mm')
     expect(within(row).getByRole('textbox', { name: 'Comment of size' })).toHaveValue('')
     expect(within(row).getByRole('button', { name: 'Delete size' })).toBeInTheDocument()
   })
@@ -180,7 +197,7 @@ describe('the Parameters panel (3.11)', () => {
 
   it('commits a changed valid expression with "Change {name}"', async () => {
     const { core, user } = renderPanel()
-    const expression = within(sizeRow()).getByRole('textbox', { name: 'Expression of size' })
+    const expression = within(sizeRow()).getByRole('combobox', { name: 'Expression of size' })
     await user.clear(expression)
     await user.type(expression, '25 mm')
     await waitFor(() => {
@@ -199,7 +216,7 @@ describe('the Parameters panel (3.11)', () => {
 
   it('reverts the expression with Esc', async () => {
     const { core, user } = renderPanel()
-    const expression = within(sizeRow()).getByRole('textbox', { name: 'Expression of size' })
+    const expression = within(sizeRow()).getByRole('combobox', { name: 'Expression of size' })
     await user.clear(expression)
     await user.type(expression, '25 mm{Escape}')
     await settle()
@@ -294,5 +311,98 @@ describe('the Parameters panel (3.11)', () => {
     const { app, user, panel } = renderPanel()
     await user.click(within(panel).getByRole('button', { name: /^Close/ }))
     expect(app.store.getState().panels.side).toBeNull()
+  })
+})
+
+describe('the Parameters panel during a command and from a field (3.7)', () => {
+  const EXTRUDE: NonNullable<AppState['command']> = {
+    featureType: 'extrude',
+    featureId: 'f-ext9',
+    editing: false,
+    title: 'Extrude',
+    params: { extent: { kind: 'distance', expr: 'wall' }, op: 'new' },
+    activeField: null,
+    fieldErrors: {},
+    applied: false,
+    newBody: null,
+    helper: null,
+    changedPaths: [],
+    history: [],
+    future: [],
+    preview: 'none',
+  }
+
+  it('says under its title that changes are part of the open command', () => {
+    const test = createModelApp({
+      state: readyState(parametric(), {
+        command: EXTRUDE,
+        panels: { ...INITIAL_STATE.panels, side: 'parameters' },
+      }),
+    })
+    renderWithApp(test.app)
+    expect(screen.getByTestId('parameters-transaction')).toHaveTextContent(
+      'Changes are part of Extrude until you press OK.',
+    )
+    expect(screen.getByTestId('parameters-transaction')).toHaveClass(
+      ...COLOR_CLASSES.textMuted.foreground.split(' '),
+    )
+  })
+
+  it('shows no transaction line without a command', () => {
+    renderPanel()
+    expect(screen.queryByTestId('parameters-transaction')).toBeNull()
+  })
+
+  it('opens a draft named after a field’s request, adds it on Enter and gives focus back', async () => {
+    const { app, core, user } = renderPanel()
+    const field = document.createElement('input')
+    field.id = 'asking-field'
+    document.body.append(field)
+    act(() => {
+      requestUi(app, {
+        kind: 'parameter_draft',
+        name: 'wall',
+        expression: '2 mm',
+        returnFocus: 'asking-field',
+      })
+    })
+    const draft = screen.getByTestId('parameter-draft')
+    expect(within(draft).getByRole('textbox', { name: 'Name of the new parameter' })).toHaveValue(
+      'wall',
+    )
+    const expression = within(draft).getByRole('combobox', {
+      name: 'Expression of the new parameter',
+    })
+    expect(expression).toHaveValue('2 mm')
+    expect(expression).toHaveFocus()
+    await waitFor(() => {
+      expect(within(draft).getByTestId('expression-result')).toHaveTextContent('= 2 mm')
+    })
+    await user.keyboard('{Enter}')
+    await waitFor(() => {
+      expect(screen.queryByTestId('parameter-draft')).toBeNull()
+    })
+    expect(core.callsTo('applyEdits')[0]?.[1]).toBe('Add parameter wall')
+    expect(field).toHaveFocus()
+    field.remove()
+  })
+
+  it('discards the draft with Esc and gives focus back', async () => {
+    const { app, user } = renderPanel()
+    const field = document.createElement('input')
+    field.id = 'asking-field'
+    document.body.append(field)
+    act(() => {
+      requestUi(app, {
+        kind: 'parameter_draft',
+        name: 'wall',
+        expression: '',
+        returnFocus: 'asking-field',
+      })
+    })
+    await user.keyboard('{Escape}')
+    expect(screen.queryByTestId('parameter-draft')).toBeNull()
+    expect(field).toHaveFocus()
+    field.remove()
   })
 })

@@ -38,21 +38,21 @@ const ROWS: readonly Row[] = [
     badge: badgeState({ state: 'none' }),
     icon: 'lucide-circle-dashed',
     text: 'Check print',
-    name: 'Print check: not checked',
+    name: 'Print check: Check print',
   },
   {
     title: 'running',
     badge: badgeState({ state: 'running' }),
     icon: 'lucide-loader-circle',
     text: 'Checking',
-    name: 'Print check: checking',
+    name: 'Print check: Checking',
   },
   {
     title: 'ok',
     badge: badgeState({ state: 'ok' }),
     icon: 'lucide-circle-check',
     text: 'Ready to print',
-    name: 'Print check: no issues',
+    name: 'Print check: Ready to print',
   },
   {
     title: 'one warning',
@@ -87,19 +87,23 @@ const ROWS: readonly Row[] = [
     badge: badgeState({ state: 'error', errors: 1, warnings: 0 }),
     icon: 'lucide-circle-x',
     text: '1 error',
-    name: 'Print check: 1 error, 0 warnings',
+    name: 'Print check: 1 error',
   },
 ]
 
 describe('HealthBadge', () => {
-  it.each(ROWS)('U-81 shows $title with its icon, text and accessible name', (row) => {
-    const { badge } = renderBadge(row.badge)
-    expect(badge).toBe(screen.getByRole('button', { name: row.name }))
-    expect(badge).toHaveAttribute('data-state', row.badge.state)
-    expect(badge).toHaveAttribute('data-stale', 'false')
-    expect(badge).toHaveTextContent(row.text)
-    expect(badge.querySelector('svg')).toHaveClass(row.icon)
-  })
+  it.each(ROWS)(
+    'U-81 shows $title with its icon, text and an accessible name that starts with that text',
+    (row) => {
+      const { badge } = renderBadge(row.badge)
+      expect(badge).toBe(screen.getByRole('button', { name: row.name }))
+      expect(badge).toHaveAttribute('data-state', row.badge.state)
+      expect(badge).toHaveAttribute('data-stale', 'false')
+      expect(badge).toHaveTextContent(row.text)
+      expect(row.name.startsWith(`Print check: ${row.text}`)).toBe(true)
+      expect(badge.querySelector('svg')).toHaveClass(row.icon)
+    },
+  )
 
   it('spins the running icon unless the user prefers reduced motion', () => {
     const { badge } = renderBadge(badgeState({ state: 'running' }))
@@ -150,7 +154,7 @@ describe('HealthBadge', () => {
 describe('HealthBadge while checking', () => {
   it('is not out of date while the analysis of the current revision runs', () => {
     const { badge } = renderBadge(badgeState({ state: 'running', warnings: 2, stale: true }))
-    expect(badge).toBe(screen.getByRole('button', { name: 'Print check: checking' }))
+    expect(badge).toBe(screen.getByRole('button', { name: 'Print check: Checking' }))
     expect(badge).toHaveTextContent(/^Checking$/)
     expect(badge).not.toHaveClass('opacity-50')
     // The attribute agrees with what is drawn.

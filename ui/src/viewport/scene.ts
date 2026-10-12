@@ -17,7 +17,8 @@ import { resolvedTheme } from '../layout/color-scheme'
 import { bedOutline } from '../print/bed'
 import { overhangAnalysis, overhangFields } from '../print/overhang'
 import { tessellateArc, type Vector2 } from '../sketch/geometry'
-import type { AppState, SelectionItem, SketchItemReference } from '../state/store'
+import { selectOriginVisible } from '../state/selectors'
+import type { AppState, HelperSketch, SelectionItem, SketchItemReference } from '../state/store'
 import {
   contrastRatio,
   linearFromHex,
@@ -59,6 +60,18 @@ import { sectionClip } from './section'
 // The scene (ui.md 2.11, 3.12): every drawable's CPU-side data, so a lost WebGL context can be
 // restored; pick id ranges and their targets; and the render frame for a camera and the store.
 
+/**
+ * The edges around a hovered face, by display id, while a multiple edge field takes the face as
+ * its edges (3.7): they are drawn hovered and the face is not.
+ */
+export type HoverEdges = {
+  /** The hover key of the face (`mesh:{meshId}:face:{index}`). */
+  readonly faceKey: string
+  readonly body: string
+  readonly meshId: number
+  readonly edges: readonly number[]
+}
+
 /** Display ids of model elements to draw selected, by body, for the mesh they index. */
 export type ElementHighlights = Readonly<
   Record<
@@ -92,6 +105,10 @@ export type Scene = {
   restore(): void
   /** Model elements drawn selected besides selected bodies: resolved selection references and feature highlighting. */
   setElementHighlights(highlights: ElementHighlights): void
+  /** Edges drawn hovered in place of a hovered face that stands for its edges (3.7), or null. */
+  setHoverEdges(hover: HoverEdges | null): void
+  /** Model elements drawn hovered for the selection field whose box the pointer is over (3.7). */
+  setFieldHover(highlights: ElementHighlights): void
   /** The evaluated section offset (mm) of an offset expression the store holds as text. */
   setSectionOffset(expression: string, millimeters: number): void
 }
@@ -203,7 +220,12 @@ type Point3 = readonly [number, number, number]
 
 /** Line segments, two points each, as unpicked line geometry with one element. */
 function linesOf(positions: Float32Array): Geometry {
-  return { kind: 'lines', positions, elementIds: new Uint32Array(positions.length / 6), elementCount: 1 }
+  return {
+    kind: 'lines',
+    positions,
+    elementIds: new Uint32Array(positions.length / 6),
+    elementCount: 1,
+  }
 }
 
 function bodyMeshKey(documentHandle: DocHandle, body: string): string {
@@ -427,7 +449,7 @@ function sessionVisible(state: AppState, key: string, recipe: Document | null): 
     return stored
   }
   if (key.startsWith('origin:')) {
-    return false
+    return selectOriginVisible(state, key)
   }
   const id = key.slice('feature:'.length)
   const features = recipe?.features ?? []
@@ -455,15 +477,41 @@ function activeFieldKind(state: AppState): SelectionKind | null {
   return hint?.selection ?? null
 }
 
+/**
+ * Whether the active field also takes faces: a point field places holes on a flat face, and a
+ * multiple edge field takes a face as all of its edges (3.7).
+ */
+function activeFieldTakesFaces(state: AppState): boolean {
+  const command = state.command
+  const kind = activeFieldKind(state)
+  if (command === null || (kind !== 'sketch_point' && kind !== 'edge')) {
+    return false
+  }
+  if (kind === 'sketch_point') {
+    return true
+  }
+  const field = commandSelectionFields(state).find(
+    (candidate) => candidate.path === command.activeField,
+  )
+  return field?.multiple === true
+}
+
 function pickingFor(state: AppState): Picking {
   if (state.command !== null) {
     const field = activeFieldKind(state)
-    const kinds = field === null ? new Set<SelectionItemKind>() : FIELD_ACCEPTS[field]
+    const kinds = new Set<SelectionItemKind>(field === null ? [] : FIELD_ACCEPTS[field])
+    if (activeFieldTakesFaces(state)) {
+      kinds.add('face')
+    }
     return { accepts: (kind) => kinds.has(kind), facesPickBodies: false }
   }
   if (state.context === 'sketch' && state.sketch !== null) {
     const kinds = state.sketch.sketchId === null ? PLANE_PICKING : ACTIVE_SKETCH_KINDS
     return { accepts: (kind) => kinds.has(kind), facesPickBodies: false }
+  }
+  // Lay on face takes faces only; whether one is flat is known once it is picked (3.6, 3.17).
+  if (state.context === 'print' && state.print.pickingFace) {
+    return { accepts: (kind) => kind === 'face', facesPickBodies: false }
   }
   const filter = state.view.filter
   const facesPickBodies = filter.body && !filter.face
@@ -488,7 +536,9 @@ function pickingFor(state: AppState): Picking {
 
 /** A selection field of the active command with its value and the object that holds it. */
 export type CommandSelectionField = {
+  readonly path: string
   readonly accepts: SelectionKind
+  readonly multiple: boolean
   readonly value: unknown
   /** The params object that holds the field, whose `body` or `sketch` qualifies its value. */
   readonly siblings: Readonly<Record<string, unknown>>
@@ -515,7 +565,9 @@ export function commandSelectionFields(state: AppState): readonly CommandSelecti
       lastDot === -1 ? command.params : getParam(command.params, field.path.slice(0, lastDot))
     return [
       {
+        path: field.path,
         accepts: field.control.accepts,
+        multiple: field.control.multiple,
         value: field.value,
         siblings: isRecord(parent) ? parent : {},
       },
@@ -536,8 +588,30 @@ function shownSelection(state: AppState): readonly SelectionItem[] {
   return state.selection
 }
 
+/**
+ * The keys drawn hovered: the pointer's hover target, and the items of the selection field whose
+ * box the pointer is over (3.7).
+ */
+export function hoveredKeys(state: AppState): ReadonlySet<string> {
+  const keys = new Set<string>()
+  if (state.hover !== null) {
+    keys.add(state.hover.key)
+  }
+  const path = state.command?.hoveredField ?? null
+  const field =
+    path === null
+      ? undefined
+      : commandSelectionFields(state).find((candidate) => candidate.path === path)
+  if (field !== undefined) {
+    for (const item of itemsFromValue(field.accepts, field.value, state, field.siblings)) {
+      keys.add(item.key)
+    }
+  }
+  return keys
+}
+
 type Highlight = {
-  readonly hover: string | null
+  readonly hover: ReadonlySet<string>
   readonly selected: ReadonlySet<string>
 }
 
@@ -549,7 +623,7 @@ function statesFor(
   const states = new Uint8Array(count)
   for (let i = 0; i < count; i++) {
     const key = keyOf(i)
-    if (key === highlight.hover) {
+    if (highlight.hover.has(key)) {
       states[i] = (states[i] ?? 0) | ELEMENT_STATE.hover
     }
     if (highlight.selected.has(key)) {
@@ -811,6 +885,8 @@ export function createScene(backend: RenderBackend): Scene {
   const previews = new Map<string, MeshEntry>()
   let overhang: Readonly<Record<string, Float32Array>> = {}
   let highlights: ElementHighlights = {}
+  let fieldHover: ElementHighlights = {}
+  let hoverEdges: HoverEdges | null = null
   const sectionOffsets = new Map<string, number>()
   let ranges: readonly PickRange[] = []
   let lastState: AppState | null = null
@@ -966,6 +1042,7 @@ export function createScene(backend: RenderBackend): Scene {
     const scale = state.settings.uiScale
     const picking = pickingFor(state)
     const hoverKey = state.hover?.key ?? null
+    const hoverKeys = hoveredKeys(state)
     const selection = shownSelection(state)
     const selectedKeys = new Set(selection.map((item) => item.key))
     const pending: PendingDraw[] = []
@@ -1000,6 +1077,7 @@ export function createScene(backend: RenderBackend): Scene {
             scale,
             picking,
             hoverKey,
+            hoverKeys,
             selectedBody: selectedBodies.has(body.id),
             field: fields[body.id] ?? null,
           }),
@@ -1060,7 +1138,7 @@ export function createScene(backend: RenderBackend): Scene {
           ? featureLabel(document.recipe, plane.item.feature ?? '', state.catalog)
           : plane.item.label
       const item = { ...plane.item, label }
-      const highlight = { hover: hoverKey, selected: selectedKeys }
+      const highlight = { hover: hoverKeys, selected: selectedKeys }
       const states = statesFor(1, () => plane.key, highlight)
       pending.push({
         call: {
@@ -1090,7 +1168,7 @@ export function createScene(backend: RenderBackend): Scene {
         states,
       })
     }
-    pending.push(...originDraws(state, theme, scale, planes, picking, hoverKey, selectedKeys))
+    pending.push(...originDraws(state, theme, scale, planes, picking, hoverKeys, selectedKeys))
 
     // Sketches (3.12 pass 7, 3.16.2).
     for (const sketch of visibleSketches(state)) {
@@ -1105,10 +1183,19 @@ export function createScene(backend: RenderBackend): Scene {
           camera,
           size,
           picking,
-          hoverKey,
+          hoverKeys,
           selectedKeys,
         }),
       )
+    }
+
+    // The hole centers a command placed on a face, drawn from the command before any preview (3.7).
+    const helper = state.command?.helper ?? null
+    const helperPoints = helperDraw(helper, theme, scale, picking, hoverKeys, selectedKeys)
+    if (helperPoints === null) {
+      remove('helper:points')
+    } else {
+      pending.push(helperPoints)
     }
 
     // Print bed (3.12 pass 8).
@@ -1259,6 +1346,8 @@ export function createScene(backend: RenderBackend): Scene {
     readonly scale: number
     readonly picking: Picking
     readonly hoverKey: string | null
+    /** Every key drawn hovered (`hoveredKeys`). */
+    readonly hoverKeys: ReadonlySet<string>
     readonly selectedBody: boolean
     readonly field: Float32Array | null
   }
@@ -1347,7 +1436,7 @@ export function createScene(backend: RenderBackend): Scene {
     model: MeshEntry,
     style: BodyStyle,
   ): PendingDraw[] {
-    const { body, scale, picking, hoverKey } = input
+    const { body, scale, picking, hoverKey, hoverKeys } = input
     const { base, shaded, lines, previewing } = style
     const locked = state.view.locked.includes(body.id)
     const mesh = model.data
@@ -1358,15 +1447,46 @@ export function createScene(backend: RenderBackend): Scene {
         ? new Set(highlighted[element])
         : new Set()
     const bodyKey = `body:${body.id}`
-    const bodyHovered = hoverKey === bodyKey
+    const bodyHovered = hoverKeys.has(bodyKey)
+    const fieldHovered = fieldHover[body.id]
+    const fieldIndices = (element: 'face' | 'edge' | 'vertex'): ReadonlySet<number> =>
+      fieldHovered !== undefined && fieldHovered.meshId === model.meshId
+        ? new Set(fieldHovered[element])
+        : new Set()
     const meshKey = (element: string, index: number): string =>
       `mesh:${String(model.meshId)}:${element}:${String(index)}`
+    // A hovered face that stands for its edges lights them up instead of itself (3.7).
+    const redirect =
+      hoverEdges !== null &&
+      hoverEdges.body === body.id &&
+      hoverEdges.meshId === model.meshId &&
+      hoverEdges.faceKey === hoverKey
+        ? new Set(hoverEdges.edges)
+        : null
+    const hoveredByField = {
+      face: fieldIndices('face'),
+      edge: fieldIndices('edge'),
+      vertex: fieldIndices('vertex'),
+    }
+    function hovered(element: 'face' | 'edge' | 'vertex', index: number): boolean {
+      if (redirect !== null && element === 'face') {
+        return false
+      }
+      if (redirect !== null && element === 'edge') {
+        return redirect.has(index)
+      }
+      return (
+        hoverKey === meshKey(element, index) ||
+        hoveredByField[element].has(index) ||
+        (element === 'face' && bodyHovered)
+      )
+    }
     function elementStates(element: 'face' | 'edge' | 'vertex', count: number): Uint8Array {
       const selected = indices(element)
       const states = new Uint8Array(count)
       for (let i = 0; i < count; i++) {
         let value = 0
-        if (hoverKey === meshKey(element, i) || (element === 'face' && bodyHovered)) {
+        if (hovered(element, i)) {
           value |= ELEMENT_STATE.hover
         }
         if (selected.has(i) || (element === 'face' && input.selectedBody)) {
@@ -1438,7 +1558,7 @@ export function createScene(backend: RenderBackend): Scene {
     scale: number,
     planes: { side: number; center: Vector3 },
     picking: Picking,
-    hoverKey: string | null,
+    hoverKeys: ReadonlySet<string>,
     selectedKeys: ReadonlySet<string>,
   ): PendingDraw[] {
     const sketchMode = state.context === 'sketch' && state.sketch?.sketchId !== null
@@ -1452,7 +1572,7 @@ export function createScene(backend: RenderBackend): Scene {
       (axis) => axisFieldActive || sessionVisible(state, `origin:${axis.name}`, null),
     )
     const color = colorOf(theme, 'sketchReference')
-    const highlight = { hover: hoverKey, selected: selectedKeys }
+    const highlight = { hover: hoverKeys, selected: selectedKeys }
     const draws: PendingDraw[] = []
     if (axes.length === 0) {
       remove('origin:axes')
@@ -1515,7 +1635,7 @@ export function createScene(backend: RenderBackend): Scene {
     readonly camera: Camera
     readonly size: { readonly width: number; readonly height: number }
     readonly picking: Picking
-    readonly hoverKey: string | null
+    readonly hoverKeys: ReadonlySet<string>
     readonly selectedKeys: ReadonlySet<string>
   }
 
@@ -1524,12 +1644,12 @@ export function createScene(backend: RenderBackend): Scene {
     sketch: { readonly id: string; readonly solution: SketchSolution; readonly active: boolean },
     input: SketchInput,
   ): PendingDraw[] {
-    const { theme, scale, picking, hoverKey, selectedKeys } = input
+    const { theme, scale, picking, hoverKeys, selectedKeys } = input
     const { solution } = sketch
     const tolerance = sketchTolerance(input.camera, input.size.height)
     const prefix = `sketch:${sketch.id}`
     const reference = colorOf(theme, 'sketchReference')
-    const highlight = { hover: hoverKey, selected: selectedKeys }
+    const highlight = { hover: hoverKeys, selected: selectedKeys }
     // In sketch mode only the active sketch is pickable; elsewhere visible sketches are (3.6).
     const sketchMode = state.context === 'sketch'
     const pickableSketch = sketch.active || !sketchMode
@@ -1769,6 +1889,56 @@ export function createScene(backend: RenderBackend): Scene {
     return draws
   }
 
+  /** The point entities of a command's helper sketch as pickable sketch points, or null without any. */
+  function helperDraw(
+    helper: HelperSketch | null,
+    theme: ThemeName,
+    scale: number,
+    picking: Picking,
+    hoverKeys: ReadonlySet<string>,
+    selectedKeys: ReadonlySet<string>,
+  ): PendingDraw | null {
+    const plane = helper?.params.plane
+    const entities = (helper?.params.entities ?? []).flatMap((entity) =>
+      entity.type === 'point' ? [entity] : [],
+    )
+    if (helper === null || plane?.kind !== 'face' || entities.length === 0) {
+      return null
+    }
+    const placement = plane.fallback
+    const yAxis = yAxisOf(placement)
+    const id = 'helper:points'
+    uploadGenerated(id, JSON.stringify([placement, entities]), () => ({
+      kind: 'points',
+      positions: new Float32Array(
+        entities.flatMap((entity) => [...onPlane(placement, yAxis, entity.position)]),
+      ),
+      elementIds: new Uint32Array(entities.map((_, index) => index)),
+      elementCount: entities.length,
+    }))
+    const items = entities.map((entity) => pointItem(helper.id, entity.id))
+    return {
+      call: {
+        ...overlayCall(
+          colorOf(theme, 'sketchUnder'),
+          'overlay',
+          1,
+          SKETCH_POINT_ENTITY_SIZE * scale,
+          false,
+          true,
+        ),
+        id,
+        pickSize: SKETCH_POINT_PICK_SIZE * scale,
+      },
+      elementCount: entities.length,
+      target: picking.accepts('sketch_point') ? itemTarget(items, 'point') : null,
+      states: statesFor(entities.length, (index) => items[index]?.key ?? '', {
+        hover: hoverKeys,
+        selected: selectedKeys,
+      }),
+    }
+  }
+
   /** World points that stand for a selection item, for its screen rectangle. */
   function itemPoints(item: SelectionItem): Point3[] {
     const state = lastState
@@ -1876,6 +2046,14 @@ export function createScene(backend: RenderBackend): Scene {
 
     setElementHighlights(next) {
       highlights = next
+    },
+
+    setHoverEdges(next) {
+      hoverEdges = next
+    },
+
+    setFieldHover(next) {
+      fieldHover = next
     },
 
     setSectionOffset(expression, millimeters) {

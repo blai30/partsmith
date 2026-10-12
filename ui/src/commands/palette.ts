@@ -40,6 +40,17 @@ function listed(app: App, state: AppState, definition: CommandDefinition): boole
   )
 }
 
+/** The detail of a command: its own, or, for a feature command in Sketch, what running it does first (2.10). */
+function commandDetail(app: App, state: AppState, definition: CommandDefinition): string | null {
+  const own = definition.detail?.(app) ?? null
+  if (own === null && state.context === 'sketch' && definition.id.startsWith('feature.')) {
+    return FINISHES_THE_SKETCH
+  }
+  return own
+}
+
+const FINISHES_THE_SKETCH = 'Finishes the sketch'
+
 function commandItem(app: App, state: AppState, definition: CommandDefinition): PaletteItem {
   const availability = definition.availability(app)
   // A shortcut that does something else in this context is not shown (3.5).
@@ -48,9 +59,10 @@ function commandItem(app: App, state: AppState, definition: CommandDefinition): 
     id: definition.id,
     kind: definition.category === 'Settings' ? 'setting' : 'command',
     category: definition.category,
-    title: definition.title,
+    title: definition.label?.(app) ?? definition.title,
     keywords: definition.keywords,
-    detail: definition.detail?.(app) ?? null,
+    detail: commandDetail(app, state, definition),
+    description: definition.description ?? null,
     shortcut: shortcut === undefined ? null : formatShortcut(shortcut, app.platform),
     disabledReason: availability.state === 'disabled' ? availability.reason : null,
     run: () => {
@@ -76,6 +88,7 @@ function documentItem(
     title,
     keywords: [],
     detail,
+    description: null,
     shortcut: null,
     disabledReason: null,
     run,
@@ -135,6 +148,7 @@ export function paletteItems(app: App, recent: readonly RecentFile[]): PaletteIt
     title: `Open recent: ${entry.name}`,
     keywords: [],
     detail: null,
+    description: null,
     shortcut: null,
     disabledReason: state.core.status === 'ready' ? null : MESSAGES.core_not_running(),
     run: () => {

@@ -5,7 +5,6 @@ import {
   CUBE_FEATURES_DOCUMENT,
   CUBE_REGION,
   CUBE_SKETCH_SOLUTION,
-  CUBE_TOP_FACE,
   CUBE_TOP_FRONT_EDGE,
   featuresOf,
   RECT_SKETCH_DOCUMENT,
@@ -17,7 +16,7 @@ import { createFakeCoreApi } from '../../test/fakes/core-api'
 import { stateWithDocument } from '../../test/fakes/state'
 import { createAppStore, type ActiveCommand } from '../../state/store'
 import { editsOf } from '../../test/fakes/protocol'
-import { elementItem, regionItem } from '../../test/fakes/selection'
+import { elementItem, originItem, regionItem } from '../../test/fakes/selection'
 import { settle } from '../../test/fakes/settle'
 import { MESSAGES } from '../../messages'
 import {
@@ -88,6 +87,18 @@ describe('field status', () => {
     expect(fake.app.store.getState().command?.preview).toBe('shown')
   })
 
+  it('a preview that lands after its field became invalid stays hidden', async () => {
+    const fake = await cubeExtrude()
+    fake.transport.pause()
+    setCommandField(fake.app, 'extent.expr', '30 mm')
+    expect(fake.app.store.getState().command?.preview).toBe('pending')
+    setFieldStatus(fake.app, 'extent.expr', { error: 'Distance needs a value.', pending: false })
+    expect(fake.app.store.getState().command?.preview).toBe('none')
+    fake.transport.resume()
+    await settle()
+    expect(fake.app.store.getState().command?.preview).toBe('none')
+  })
+
   it('an invalid field is shown and keeps OK from committing', async () => {
     const fake = await cubeExtrude()
     setFieldStatus(fake.app, 'extent.expr', { error: 'Distance needs a value.', pending: false })
@@ -136,7 +147,7 @@ describe('capturePick', () => {
   it('refuses an item the active field does not take, with the hint under the field for 3 s', async () => {
     const fake = await filletOnCube()
     vi.useFakeTimers()
-    await capturePick(fake.app, elementItem(CUBE_TOP_FACE, 'Cube'))
+    await capturePick(fake.app, originItem('XY'))
     expect(fake.app.store.getState().pickHint).toEqual({
       message: MESSAGES.pick_kind('edges'),
       field: 'edges',
@@ -157,9 +168,11 @@ describe('capturePick', () => {
       name: 'edge(f-cyl1/top|f-cyl1/side)',
       reference: { q: 'edge(f-cyl1/top|f-cyl1/side)', fp: 'circle|r=4' },
     }
+    // The first edge fills Body (2.12); an edge of another body is then refused.
+    await capturePick(fake.app, elementItem(CUBE_TOP_FRONT_EDGE, 'Cube'))
     await capturePick(fake.app, elementItem(pegEdge, 'Peg'))
     expect(fake.app.store.getState().pickHint).toEqual({
-      message: MESSAGES.pick_same_body('edge', 'Cube'),
+      message: MESSAGES.pick_same_body('edges', 'Cube'),
       field: 'edges',
     })
   })
@@ -167,9 +180,9 @@ describe('capturePick', () => {
   it('a newer refusal replaces the hint and gets its own 3 s', async () => {
     const fake = await filletOnCube()
     vi.useFakeTimers()
-    await capturePick(fake.app, elementItem(CUBE_TOP_FACE, 'Cube'))
+    await capturePick(fake.app, originItem('XY'))
     vi.advanceTimersByTime(2_000)
-    await capturePick(fake.app, elementItem(CUBE_TOP_FACE, 'Cube'))
+    await capturePick(fake.app, originItem('XY'))
     vi.advanceTimersByTime(1_000)
     expect(fake.app.store.getState().pickHint?.field).toBe('edges')
     vi.advanceTimersByTime(2_000)
@@ -178,7 +191,7 @@ describe('capturePick', () => {
 
   it('canceling the command removes its hint', async () => {
     const fake = await filletOnCube()
-    await capturePick(fake.app, elementItem(CUBE_TOP_FACE, 'Cube'))
+    await capturePick(fake.app, originItem('XY'))
     await cancelCommand(fake.app)
     expect(fake.app.store.getState().pickHint).toBeNull()
   })
@@ -227,6 +240,10 @@ describe('a command the store holds without a session', () => {
       fieldErrors: {},
       applied: true,
       newBody: null,
+      helper: null,
+      changedPaths: [],
+      history: [],
+      future: [],
       preview: 'shown',
     }
     const app = createTestApp({

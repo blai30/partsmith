@@ -4,7 +4,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
-use partsmith_features::Registry;
+use partsmith_features::{FieldRef, Registry};
 use partsmith_mesh::TessellationTolerance;
 use partsmith_model::{
     Document, Edit, Expr, FORMAT_VERSION, IdGenerator, LoadError, Quantity, Scope, Units,
@@ -303,6 +303,13 @@ impl Session {
         ))
     }
 
+    /// The id of the document's resolved printer profile (section 3.7): the installed profile its
+    /// `printer` names, else the default FDM profile. No side effects.
+    pub fn printer_profile(&self, doc: DocHandle) -> Result<String, EngineError> {
+        let profile = &self.open(doc)?.computed.profile.profile;
+        Ok(profile.id.as_str().to_owned())
+    }
+
     /// An open document (`unknown_document` otherwise).
     pub(crate) fn open(&self, doc: DocHandle) -> Result<&OpenDocument, EngineError> {
         self.documents
@@ -358,7 +365,8 @@ pub(crate) fn evaluate_in<T>(
 }
 
 /// The engine error of a model load error: `unsupported_format_version` for a newer format,
-/// `parse_error` (with the line and column of JSON problems) for everything else.
+/// `parse_error` for everything else, with the line and column of JSON problems and the JSON
+/// Pointer of the field a structure problem names (section 4).
 pub(crate) fn load_error(error: LoadError) -> EngineError {
     let detail = error.to_string();
     let position = |line: usize, column: usize| {
@@ -378,10 +386,21 @@ pub(crate) fn load_error(error: LoadError) -> EngineError {
         }
         _ => (None, None),
     };
+    let path = match error {
+        LoadError::Invalid { path, .. } if !path.is_empty() => Some(
+            FieldRef {
+                path,
+                label: String::new(),
+            }
+            .pointer(),
+        ),
+        _ => None,
+    };
     EngineError::Parse {
         detail,
         line,
         column,
+        path,
     }
 }
 
@@ -534,6 +553,33 @@ mod tests {
         };
         assert_eq!((*line, *column), (Some(1), Some(23)));
         assert!(error.to_string().contains("line 1"));
+    }
+
+    #[test]
+    fn structure_problems_are_parse_errors_with_a_pointer() {
+        let error = load_error(LoadError::Invalid {
+            path: "bodies[0].id".to_string(),
+            message: "\"b 1\" is not a valid id".to_string(),
+        });
+
+        let EngineError::Parse {
+            line, column, path, ..
+        } = &error
+        else {
+            panic!("a parse error, got {error:?}");
+        };
+        assert_eq!((*line, *column), (None, None));
+        assert_eq!(path.as_deref(), Some("/bodies/0/id"));
+    }
+
+    #[test]
+    fn problems_of_the_whole_document_have_no_pointer() {
+        let error = load_error(LoadError::Invalid {
+            path: String::new(),
+            message: "missing field `units`".to_string(),
+        });
+
+        assert!(matches!(error, EngineError::Parse { path: None, .. }));
     }
 
     #[test]

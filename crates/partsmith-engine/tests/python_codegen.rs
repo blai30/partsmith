@@ -382,3 +382,39 @@ fn python_api_t016_export_python_is_deterministic() {
 
     assert_eq!(first, second);
 }
+
+#[test]
+fn python_api_t085_reserved_sketch_references_keep_the_sketch_block() {
+    let sketch = json!({
+        "id": "f-sk1",
+        "type": "sketch",
+        "plane": {"kind": "origin", "plane": "XY"},
+        "entities": [
+            {"id": "e-l1", "type": "line", "start": [1, 1], "end": [9, 3]},
+            {"id": "e-p1", "type": "point", "position": [2, 7]}
+        ],
+        "constraints": [
+            {"id": "c-1", "type": "coincident", "points": ["e-l1.start", "origin"]},
+            {"id": "c-2", "type": "angle", "lines": ["x_axis", "e-l1"], "expr": "30 deg"},
+            {"id": "c-3", "type": "distance", "line": "e-l1", "expr": "10"},
+            {"id": "c-4", "type": "point_on_object", "point": "e-p1", "curve": "y_axis"}
+        ]
+    });
+    let text = document_text("mm", json!([]), json!([]), json!([sketch]));
+
+    let script = script_of(&text);
+
+    let ending = r#"with Sketch(Plane.XY, id="f-sk1"):
+    line_1 = Line((1, 1), (9, 3), id="e-l1")
+    point_1 = Point(2, 7, id="e-p1")
+    Coincident(line_1.start, Sketch.ORIGIN, id="c-1")
+    Angle(Sketch.X_AXIS, line_1, 30*deg, id="c-2")
+    Distance(line_1, 10, id="c-3")
+    PointOn(point_1, Sketch.Y_AXIS, id="c-4")
+"#;
+    assert!(
+        script.ends_with(ending),
+        "the script ends with:\n{ending}\ngot:\n{script}"
+    );
+    assert!(!script.contains("feature(\"sketch\""), "{script}");
+}

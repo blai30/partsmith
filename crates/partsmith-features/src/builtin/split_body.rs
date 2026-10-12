@@ -17,7 +17,7 @@ use crate::context::BuildContext;
 use crate::deps::Dependencies;
 use crate::error::{FeatureError, FieldRef};
 use crate::feature::Feature;
-use crate::output::{BodyChange, BodyUpdate, FeatureOutput, VOLUME_TOLERANCE};
+use crate::output::{BodyChange, BodyUpdate, FeatureOutput, Measurements, VOLUME_TOLERANCE};
 use crate::params::{PlacementExt, PlaneRef};
 use crate::python::{PythonCall, PythonNames, PythonValue};
 use crate::{modified_sources, name_shape};
@@ -216,7 +216,7 @@ fn name_pieces(
             })
         })
         .collect();
-    name_shape(&pieces.result.shape, faces, &[input.aliases()])
+    Ok(name_shape(&pieces.result.shape, faces, &[input.aliases()])?.naming)
 }
 
 /// The update giving `body` these solids of the split `result`: one solid as it is, several as
@@ -254,6 +254,7 @@ fn part_update(
         shape: Some(shape),
         naming: Arc::new(naming),
         change,
+        measured: Measurements::default(),
     })
 }
 

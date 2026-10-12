@@ -5,6 +5,7 @@ Project-wide style guides that every change follows, in addition to the code sty
 - [TypeScript](typescript.md)
 - [Tailwind CSS](tailwind-css.md)
 - [Frontend design](frontend-design.md)
+- [Errors and messages](errors.md)
 
 ## Partsmith design direction
 

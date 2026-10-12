@@ -1,7 +1,9 @@
 import { featureLabel } from '../core/labels'
 import type { Diagnostic } from '../generated/protocol'
-import { repairField } from '../inspector/status'
+import { fieldForPointer, repairField } from '../inspector/status'
+import { MESSAGES } from '../messages'
 import { isCheckHidden } from '../print/checks'
+import { sameOrientation } from '../print/orientation'
 import type { AppState } from './store'
 
 // Derived views of the state (ui.md 2.8). Selectors that build new values remember their last
@@ -59,6 +61,81 @@ export const selectActiveFeatureIds: (state: AppState) => readonly string[] = me
   },
 )
 
+/**
+ * Whether the empty-document first step shows (3.2): a ready core, a document without features,
+ * no feature command, no sketch session and no Lay on face pick, whose print hint takes the same
+ * slot. It follows the document, never a first-run flag.
+ */
+export function selectEmptyState(state: AppState): boolean {
+  return (
+    state.core.status === 'ready' &&
+    state.document !== null &&
+    (state.document.recipe.features ?? []).length === 0 &&
+    state.command === null &&
+    state.sketch === null &&
+    !state.print.pickingFace
+  )
+}
+
+/** The origin axes and point, shown while the document has no features (3.10). */
+const ORIGIN_ANCHORS: ReadonlySet<string> = new Set([
+  'origin:X',
+  'origin:Y',
+  'origin:Z',
+  'origin:O',
+])
+
+/**
+ * Whether an origin item (`origin:{name}`) is shown this session (3.10): an entry written by its
+ * eye button or V always wins; otherwise the axes and the origin point are shown while the
+ * document has no features, and the planes are hidden.
+ */
+export function selectOriginVisible(state: AppState, key: string): boolean {
+  const stored = state.view.sessionVisible[key]
+  if (stored !== undefined) {
+    return stored
+  }
+  return ORIGIN_ANCHORS.has(key) && (state.document?.recipe.features ?? []).length === 0
+}
+
+/** Selection kinds that belong to one sketch, which the Sketch radio edits (3.3). */
+const SKETCH_ITEM_KINDS: ReadonlySet<string> = new Set([
+  'sketch_curve',
+  'sketch_point',
+  'sketch_region',
+])
+
+/**
+ * The sketch the Sketch radio and `context.sketch` edit (3.3): the one selected sketch feature, or
+ * the sketch whose curves, points and regions make up the whole selection; null otherwise, when
+ * they start a new sketch.
+ */
+export function selectSketchToEdit(state: AppState): string | null {
+  const { selection } = state
+  const [first] = selection
+  if (first === undefined) {
+    return null
+  }
+  const sketchId = first.feature
+  const sketchOnly =
+    (selection.length === 1 && first.kind === 'feature') ||
+    selection.every((item) => SKETCH_ITEM_KINDS.has(item.kind) && item.feature === sketchId)
+  const record = state.document?.recipe.features?.find((feature) => feature.id === sketchId)
+  return sketchOnly && record?.type === 'sketch' ? record.id : null
+}
+
+/**
+ * The tooltip of the Sketch radio (3.3): "Edit {label}" for the sketch it edits, else "New sketch";
+ * null in sketch mode, where choosing it changes nothing.
+ */
+export function selectSketchRadioTooltip(state: AppState): string | null {
+  if (state.context === 'sketch') {
+    return null
+  }
+  const sketchId = selectSketchToEdit(state)
+  return sketchId === null ? 'New sketch' : `Edit ${selectFeatureLabel(state, sketchId)}`
+}
+
 /** The sketch status shown in the sketch header and the status bar (3.16.8). */
 export type SketchDof = {
   readonly state: 'picking' | 'empty' | 'conflict' | 'failed' | 'full' | 'under'
@@ -113,7 +190,7 @@ export type HealthBadge = {
   readonly errors: number
   /** Warnings of shown checks, omitted findings included. */
   readonly warnings: number
-  /** Whether the report describes an older revision than the document's. */
+  /** Whether the report describes an older revision than the document's, or another print orientation. */
   readonly stale: boolean
 }
 
@@ -125,8 +202,18 @@ export const selectHealthBadge: (state: AppState) => HealthBadge = memoized(
       state.print.running,
       state.document?.revision ?? null,
       state.settings.hiddenChecks,
+      state.print.reportOrientation,
+      state.print.orientation,
     ] as const,
-  (report, reportRevision, running, revision, hiddenChecks): HealthBadge => {
+  (
+    report,
+    reportRevision,
+    running,
+    revision,
+    hiddenChecks,
+    reportOrientation,
+    orientation,
+  ): HealthBadge => {
     let errors = 0
     let warnings = 0
     for (const body of report?.bodies ?? []) {
@@ -149,7 +236,9 @@ export const selectHealthBadge: (state: AppState) => HealthBadge = memoized(
         }
       }
     }
-    const stale = report !== null && reportRevision !== revision
+    const stale =
+      report !== null &&
+      (reportRevision !== revision || !sameOrientation(reportOrientation, orientation))
     if (running) {
       return { state: 'running', errors, warnings, stale }
     }
@@ -209,5 +298,46 @@ export const selectProblems: (state: AppState) => readonly Problem[] = memoized(
       diagnostic,
     }))
     return [...features, ...documentProblems]
+  },
+)
+
+/**
+ * Why document edits other than the active command's are disabled: `finish_command_first` while a
+ * feature command is open (3.7), else null.
+ */
+export function selectCommandBlock(state: AppState): string | null {
+  return state.command === null ? null : MESSAGES.finish_command_first(state.command.title)
+}
+
+/** Where a lost element was, for the dashed ring the edited feature shows there (3.7, 4.2). */
+export type RepairMarker = {
+  readonly at: readonly [number, number, number]
+  /** What was lost, from the selection kind of the field the repair maps to. */
+  readonly noun: 'face' | 'edge'
+}
+
+/** The repair markers of the feature being edited: one per repair with a centroid, until the command ends. */
+export const selectRepairMarkers: (state: AppState) => readonly RepairMarker[] = memoized(
+  (state: AppState) =>
+    [
+      state.command?.editing === true ? state.command.featureId : null,
+      state.command === null ? undefined : state.catalog?.byType[state.command.featureType],
+      state.document?.featureStatus,
+    ] as const,
+  (featureId, feature, statuses) => {
+    if (featureId === null || feature === undefined) {
+      return []
+    }
+    const fields = feature.manifest.fields.filter((hint) => (hint.selection ?? null) !== null)
+    const paths = fields.map((hint) => hint.path)
+    return (statuses?.[featureId]?.repairs ?? []).flatMap((repair): RepairMarker[] => {
+      const centroid = repair.kind === 'element' ? (repair.centroid ?? null) : null
+      if (centroid === null) {
+        return []
+      }
+      const path = fieldForPointer(paths, repair.path)
+      const kind = fields.find((hint) => hint.path === path)?.selection
+      return [{ at: centroid, noun: kind === 'edge' || kind === 'axis' ? 'edge' : 'face' }]
+    })
   },
 )

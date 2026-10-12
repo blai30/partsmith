@@ -480,22 +480,15 @@ fn feature_path(position: usize, field: Option<&FieldRef>) -> String {
     )
 }
 
-/// The diagnostic of a document that does not load (step 1).
+/// The diagnostic of a document that does not load (step 1): the load error's code, message and
+/// position.
 fn load_diagnostic(error: LoadError) -> ValidationDiagnostic {
-    let path = match &error {
-        LoadError::Invalid { path, .. } if !path.is_empty() => Some(
-            FieldRef {
-                path: path.clone(),
-                label: String::new(),
-            }
-            .pointer(),
-        ),
-        _ => None,
-    };
     let engine_error = load_error(error);
-    let (line, column) = match &engine_error {
-        EngineError::Parse { line, column, .. } => (*line, *column),
-        _ => (None, None),
+    let (line, column, path) = match &engine_error {
+        EngineError::Parse {
+            line, column, path, ..
+        } => (*line, *column, path.clone()),
+        _ => (None, None, None),
     };
     ValidationDiagnostic {
         severity: Severity::Error,

@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 
 use partsmith_features::{
     AssetLink, BodyChange, BodyState, BodyUpdate, BuildContext, DatumResult, Dependencies, ExprUse,
-    Feature, FeatureError, FeatureOutput, FeatureWarning, Link, OutputData, Registry,
+    Feature, FeatureError, FeatureOutput, FeatureWarning, Link, Measurements, OutputData, Registry,
 };
 use partsmith_model::{
     Category, Expr, FeatureManifest, FieldHint, FieldUnit, Id, OptionHint, SelectionKind,
@@ -293,6 +293,7 @@ impl Feature for TestStray {
             shape: None,
             naming: empty_naming(),
             change: BodyChange::Clear,
+            measured: Measurements::default(),
         }])))
     }
 }
@@ -449,6 +450,7 @@ impl Feature for TestBlock {
             shape: Some(cube.shape),
             naming: cube_naming(),
             change,
+            measured: Measurements::default(),
         }])))
     }
 }
@@ -578,6 +580,7 @@ impl Feature for TestNode {
                 shape: state.shape().cloned(),
                 naming: state.naming().clone(),
                 change: BodyChange::Modify,
+                measured: state.measurements(),
             });
         }
         Ok(output(OutputData::Bodies(updates)))
@@ -655,6 +658,7 @@ impl Feature for TestTwice {
             shape: None,
             naming: empty_naming(),
             change: BodyChange::Clear,
+            measured: Measurements::default(),
         };
         Ok(output(OutputData::Bodies(vec![update.clone(), update])))
     }

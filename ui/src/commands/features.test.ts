@@ -1,18 +1,35 @@
 import { ArrowUpFromLine, Layers2, PencilRuler, Shapes } from 'lucide-react'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import type { CatalogEntry } from '../generated/protocol'
+import { cleanup, screen, within } from '@testing-library/react'
+import { editFeature } from '../app/actions/command'
+import { installPopoverPolyfill } from '../components/popover-polyfill.testing'
 import {
   CATALOG_TYPES,
+  CUBE_BOUNDS,
   cubeDocumentState,
+  documentState,
+  meshSummary,
+  PEG_BOUNDS,
   readyState,
   rectSketchDocumentState,
 } from '../layout/fixtures.testing'
-import { createModelApp } from '../layout/test-app.testing'
+import { createModelApp, renderWithApp, stubMatchMedia } from '../layout/test-app.testing'
+import { MESSAGES } from '../messages'
+import type { DocumentState } from '../state/store'
 import { catalogOf, TEST_CATALOG, TEST_CATALOG_ENTRIES } from '../test/fakes/catalog'
-import { RECT_REGION } from '../test/fakes/documents'
+import {
+  CUBE_FEATURES_DOCUMENT,
+  emptyDocument,
+  RECT_REGION,
+  TWO_BODIES_DOCUMENT,
+  withFeatureChanges,
+} from '../test/fakes/documents'
 import { settle } from '../test/fakes/settle'
-import { FEATURE_KEYWORDS, featureCommands } from './features'
-import type { CommandDefinition } from './registry'
+import { FEATURE_DESCRIPTIONS } from './descriptions'
+import { featureCommands } from './features'
+import { COMMAND_KEYWORDS } from './keywords'
+import type { CommandDefinition, Keyword } from './registry'
 
 function commandsById(): ReadonlyMap<string, CommandDefinition> {
   return new Map(featureCommands(TEST_CATALOG).map((command) => [command.id, command]))
@@ -26,27 +43,62 @@ function commandFor(type: string): CommandDefinition {
   return command
 }
 
-// ui.md 2.10, FEATURE_KEYWORDS.
-const KEYWORDS: readonly (readonly [string, readonly string[]])[] = [
-  ['extrude', ['pad', 'pocket', 'extrusion']],
-  ['revolve', ['revolution', 'groove', 'lathe']],
-  ['hole', ['drill', 'counterbore', 'countersink']],
-  ['fillet', ['round', 'radius']],
+const fusion = (word: string): Keyword => ({ word, app: 'Fusion' })
+const freecad = (word: string): Keyword => ({ word, app: 'FreeCAD' })
+
+// ui.md 2.10, the feature rows of COMMAND_KEYWORDS.
+const KEYWORDS: readonly (readonly [string, readonly Keyword[]])[] = [
+  ['sketch', ['drawing', 'profile', 'new sketch', fusion('Create Sketch'), 'sketcher']],
+  [
+    'extrude',
+    [freecad('Pad'), freecad('Pocket'), fusion('Press Pull'), 'extrusion', 'pull', 'push'],
+  ],
+  ['revolve', [freecad('Revolution'), freecad('Groove'), 'lathe', 'spin']],
+  ['hole', ['drill', 'counterbore', 'countersink', 'screw hole']],
+  ['fillet', ['round', 'radius', 'rounded edge']],
   ['chamfer', ['bevel']],
-  ['shell', ['hollow', 'thickness']],
-  ['boolean', ['combine', 'union', 'subtract', 'intersect', 'join', 'cut']],
-  ['mirror', ['mirrored', 'symmetry']],
-  ['linear_pattern', ['array', 'rectangular pattern']],
-  ['circular_pattern', ['polar pattern', 'array']],
-  ['datum_plane', ['construction plane', 'offset plane', 'work plane']],
-  ['move_body', ['placement', 'translate', 'rotate']],
+  ['shell', ['hollow', freecad('Thickness')]],
+  [
+    'boolean',
+    [fusion('Combine'), 'union', 'subtract', 'intersect', 'join', 'cut', 'merge', 'group'],
+  ],
+  ['mirror', [freecad('Mirrored'), 'symmetry']],
+  ['linear_pattern', [fusion('Rectangular Pattern'), freecad('LinearPattern'), 'array']],
+  ['circular_pattern', [freecad('PolarPattern'), 'polar pattern', 'array']],
+  ['datum_plane', [fusion('Offset Plane'), 'construction plane', 'work plane']],
+  ['move_body', [fusion('Move/Copy'), freecad('Placement'), 'translate', 'rotate', 'transform']],
   ['split_body', ['slice', 'cut body']],
-  ['box', ['cube', 'block']],
-  ['cylinder', ['rod', 'pin']],
-  ['sphere', ['ball']],
-  ['cone', ['taper']],
-  ['torus', ['ring', 'donut']],
-  ['sketch', ['drawing', 'profile']],
+  ['box', [freecad('Additive Box'), 'cube', 'block', 'primitive', 'shape']],
+  ['cylinder', [freecad('Additive Cylinder'), 'rod', 'pin', 'primitive', 'shape']],
+  ['sphere', [freecad('Additive Sphere'), 'ball', 'primitive', 'shape']],
+  ['cone', [freecad('Additive Cone'), 'taper', 'primitive', 'shape']],
+  ['torus', [freecad('Additive Torus'), 'ring', 'donut', 'primitive', 'shape']],
+]
+
+// ui.md 2.10, FEATURE_DESCRIPTIONS.
+const DESCRIPTIONS: readonly (readonly [string, string])[] = [
+  [
+    'sketch',
+    'Draws a 2D shape on a plane or a flat face, to extrude, revolve or place holes from.',
+  ],
+  ['extrude', 'Pulls a closed sketch shape straight out into a solid, or cuts it into one.'],
+  ['revolve', 'Spins a closed sketch shape around an axis into a round solid, or cuts with it.'],
+  ['hole', 'Drills round holes where you click on a flat face or at sketch points.'],
+  ['box', 'Adds a box of the given length, width and height.'],
+  ['cylinder', 'Adds a cylinder of the given radius and height.'],
+  ['sphere', 'Adds a ball of the given radius.'],
+  ['cone', 'Adds a cone, or a tapered cylinder, from two radii and a height.'],
+  ['torus', 'Adds a ring from the radius of its center line and the radius of its tube.'],
+  ['fillet', 'Rounds the selected edges.'],
+  ['chamfer', 'Bevels the selected edges with a flat cut.'],
+  ['shell', 'Hollows out a body, leaving walls of the given thickness and the picked faces open.'],
+  ['boolean', 'Joins, cuts or intersects one body with other bodies.'],
+  ['move_body', 'Moves and rotates a whole body.'],
+  ['split_body', 'Cuts a body in two along a plane, for example to fit a large part on the bed.'],
+  ['mirror', 'Mirrors a body across a plane, joined to it or as a new body.'],
+  ['linear_pattern', 'Repeats a body in a row, or in a grid with a second direction.'],
+  ['circular_pattern', 'Repeats a body around an axis.'],
+  ['datum_plane', 'Adds a plane offset from another plane, to sketch on or mirror across.'],
 ]
 
 describe('featureCommands', () => {
@@ -68,8 +120,12 @@ describe('featureCommands', () => {
     expect(commandFor('extrude').shortcuts).toEqual(['E'])
   })
 
-  it('U-29 gives extrude keywords that include pad', () => {
-    expect(commandFor('extrude').keywords).toContain('pad')
+  it('U-29 gives extrude keywords that include Pad, tagged FreeCAD', () => {
+    expect(commandFor('extrude').keywords).toContainEqual({ word: 'Pad', app: 'FreeCAD' })
+  })
+
+  it('U-29 gives extrude the description of FEATURE_DESCRIPTIONS', () => {
+    expect(commandFor('extrude').description).toBe(FEATURE_DESCRIPTIONS['feature.extrude'])
   })
 
   it('U-29 falls back to the Shapes icon for an unknown icon name', () => {
@@ -138,7 +194,22 @@ describe('featureCommands', () => {
 
   it.each(KEYWORDS)('gives %s the keywords of 2.10', (type, keywords) => {
     expect(commandFor(type).keywords).toEqual(keywords)
-    expect(FEATURE_KEYWORDS[type]).toEqual(keywords)
+    expect(COMMAND_KEYWORDS[`feature.${type}`]).toEqual(keywords)
+  })
+
+  it.each(DESCRIPTIONS)('gives %s the description of 2.10', (type, description) => {
+    expect(commandFor(type).description).toBe(description)
+  })
+
+  it('gives a type without a table entry no keywords and no description', () => {
+    const unknown: CatalogEntry = {
+      type: 'gear',
+      manifest: { label: 'Gear', category: 'create', icon: 'gear', version: 1, fields: [] },
+      params_schema: { type: 'object', properties: {} },
+    }
+    const [command] = featureCommands(catalogOf([unknown]))
+    expect(command?.keywords).toEqual([])
+    expect(command?.description).toBeUndefined()
   })
 })
 
@@ -195,5 +266,118 @@ describe('running feature commands', () => {
       sketch: 'f-sk1',
       regions: [RECT_REGION.reference],
     })
+  })
+})
+
+/** The availability of the command of a feature type in a document. */
+function availabilityIn(document: DocumentState, type: string) {
+  const { app } = createModelApp({ state: readyState(document) })
+  return app.commands.get(`feature.${type}`)?.availability(app)
+}
+
+describe('availability reasons (2.10, U-98)', () => {
+  afterEach(() => {
+    cleanup()
+  })
+
+  const NEW_DOCUMENT = documentState(emptyDocument())
+
+  it('U-98 disables extrude and fillet in a new document with what is missing', () => {
+    expect(availabilityIn(NEW_DOCUMENT, 'extrude')).toEqual({
+      state: 'disabled',
+      reason: 'Draw a closed shape in a sketch first.',
+      code: 'needs_sketch_region',
+    })
+    expect(availabilityIn(NEW_DOCUMENT, 'fillet')).toEqual({
+      state: 'disabled',
+      reason: 'Make a solid first, for example with Extrude or Box.',
+      code: 'needs_solid',
+    })
+    expect(availabilityIn(NEW_DOCUMENT, 'box')).toEqual({ state: 'enabled' })
+    expect(availabilityIn(NEW_DOCUMENT, 'sketch')).toEqual({ state: 'enabled' })
+  })
+
+  it('U-98 running a disabled feature command explains it with the message id as its code (2.8, 3.22)', async () => {
+    const { app } = createModelApp({ state: readyState(NEW_DOCUMENT) })
+    await app.commands.run(app, 'feature.fillet', 'shortcut')
+    expect(app.store.getState().notifications).toMatchObject([
+      { severity: 'info', message: MESSAGES.needs_solid(), code: 'needs_solid' },
+    ])
+  })
+
+  it('U-98 renders the Pattern group aria-disabled with its first command’s reason', () => {
+    installPopoverPolyfill()
+    stubMatchMedia()
+    const { app } = createModelApp({ state: readyState(NEW_DOCUMENT) })
+    renderWithApp(app)
+    const toolbar = screen.getByRole('toolbar', { name: 'Model tools' })
+    const pattern = within(toolbar).getByRole('button', { name: 'Pattern' })
+    expect(pattern).toHaveAttribute('aria-disabled', 'true')
+    expect(pattern).toHaveAccessibleDescription(expect.stringContaining(MESSAGES.needs_solid()))
+  })
+
+  it('U-98 enables extrude and revolve for a sketch with a region, and keeps fillet disabled', () => {
+    const sketch = rectSketchDocumentState()
+    expect(availabilityIn(sketch, 'extrude')).toEqual({ state: 'enabled' })
+    expect(availabilityIn(sketch, 'revolve')).toEqual({ state: 'enabled' })
+    expect(availabilityIn(sketch, 'fillet')).toEqual({
+      state: 'disabled',
+      reason: MESSAGES.needs_solid(),
+      code: 'needs_solid',
+    })
+  })
+
+  it('U-98 enables fillet on the cube and asks Boolean for a second body', () => {
+    expect(availabilityIn(cubeDocumentState(), 'fillet')).toEqual({ state: 'enabled' })
+    expect(availabilityIn(cubeDocumentState(), 'boolean')).toEqual({
+      state: 'disabled',
+      reason:
+        'Boolean needs two bodies with geometry. Make a second body first, for example with Box.',
+      code: 'needs_two_bodies',
+    })
+    const twoBodies = documentState(TWO_BODIES_DOCUMENT, {
+      meshes: { 'b-cube': meshSummary(1, CUBE_BOUNDS), 'b-peg': meshSummary(2, PEG_BOUNDS) },
+    })
+    expect(availabilityIn(twoBodies, 'boolean')).toEqual({ state: 'enabled' })
+  })
+
+  it('U-98 disables a new fillet without geometry, while editing one still starts', async () => {
+    const suppressed = documentState(
+      withFeatureChanges(CUBE_FEATURES_DOCUMENT, 'f-ext1', { suppressed: true }),
+    )
+    expect(availabilityIn(suppressed, 'fillet')).toEqual({
+      state: 'disabled',
+      reason: MESSAGES.needs_solid(),
+      code: 'needs_solid',
+    })
+    const { app, core } = createModelApp({ state: readyState(suppressed) })
+    await editFeature(app, 'f-fil1')
+    expect(core.callsTo('beginTransaction')).toEqual([[1, 'Edit Fillet 1']])
+  })
+
+  it('counts the sketch being edited, and leaves out suppressed and rolled-back sketches', () => {
+    const suppressedSketch = rectSketchDocumentState({
+      recipe: withFeatureChanges(rectSketchDocumentState().recipe, 'f-sk1', { suppressed: true }),
+    })
+    expect(availabilityIn(suppressedSketch, 'extrude')?.state).toBe('disabled')
+    const { app } = createModelApp({
+      state: readyState(suppressedSketch, {
+        context: 'sketch',
+        sketch: {
+          sketchId: 'f-sk1',
+          tool: null,
+          construction: false,
+          showConstraints: true,
+          selection: [],
+          dragging: false,
+          cameraBefore: null,
+        },
+      }),
+    })
+    expect(app.commands.get('feature.extrude')?.availability(app)).toEqual({ state: 'enabled' })
+    const rolledBack = rectSketchDocumentState({
+      recipe: { ...rectSketchDocumentState().recipe, rollback: 'f-sk1' },
+    })
+    expect(availabilityIn(rolledBack, 'extrude')?.state).toBe('disabled')
   })
 })

@@ -1,11 +1,13 @@
-import { cleanup, render, screen } from '@testing-library/react'
+import { act, cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AppProvider } from '../app/AppProvider'
+import { installPopoverPolyfill } from '../components/popover-polyfill.testing'
 import type { ProfileFinding, SketchEntity, SketchSolution } from '../generated/protocol'
 import type { AppState, SketchSession } from '../state/store'
 import {
   SKETCH_ID,
+  circleEntity,
   createFakeCore,
   createSketchTestApp,
   documentState,
@@ -17,6 +19,7 @@ import {
   solvedSketch,
 } from './fixtures.testing'
 import { SketchHeader } from './SketchHeader'
+import { settleCommits, sketchHarness } from './view.testing'
 
 const LINE = lineEntity('e-1', [0, 0], [10, 0])
 
@@ -325,5 +328,91 @@ describe('sketch problems (3.16.8)', () => {
     expect(problems).toHaveTextContent(
       'Blue geometry can still move or change size. Add dimensions (D) or constraints where the size matters; you can extrude at any time.',
     )
+  })
+})
+
+describe('sketch problems actions (3.16.8)', () => {
+  let uninstallPopovers: () => void
+  beforeEach(() => {
+    uninstallPopovers = installPopoverPolyfill()
+  })
+  afterEach(() => {
+    cleanup()
+    uninstallPopovers()
+  })
+
+  const HORIZONTAL = { id: 'c-1', type: 'horizontal', line: 'e-1' } as const
+  const VERTICAL = { id: 'c-2', type: 'vertical', line: 'e-1' } as const
+
+  it('lists conflicting and extra constraints, and Delete removes one in a commit labeled "Delete"', async () => {
+    const harness = sketchHarness({
+      entities: [LINE],
+      constraints: [HORIZONTAL, VERTICAL],
+      solution: solutionFor([LINE], { conflicting: ['c-2'], redundant: ['c-1'] }),
+    })
+    render(
+      <AppProvider app={harness.app}>
+        <SketchHeader />
+      </AppProvider>,
+    )
+    await userEvent.click(screen.getByTestId('sketch-header'))
+    const problems = screen.getByTestId('sketch-problems')
+    const constraints = within(problems).getByRole('region', { name: 'Constraints' })
+    expect(constraints).toHaveTextContent('HorizontalExtra')
+    expect(constraints).toHaveTextContent('VerticalConflicting')
+    await userEvent.click(within(constraints).getByRole('button', { name: 'Delete Vertical' }))
+    await act(settleCommits)
+    expect(harness.applied.map((entry) => entry.label)).toEqual(['Delete'])
+    const [edit] = harness.applied[0]?.edits ?? []
+    const stored = edit?.type === 'update_feature' ? edit.feature['constraints'] : undefined
+    expect(stored).toEqual([HORIZONTAL])
+  })
+
+  it('names each outline problem with a "Show" button that frames it', async () => {
+    const harness = sketchHarness({
+      entities: [LINE],
+      solution: solutionFor([LINE], {
+        profile_findings: [{ type: 'open_endpoint', entity: 'e-1', point: [10, 0] }],
+      }),
+    })
+    render(
+      <AppProvider app={harness.app}>
+        <SketchHeader />
+      </AppProvider>,
+    )
+    await userEvent.click(screen.getByTestId('sketch-header'))
+    const outline = within(screen.getByTestId('sketch-problems')).getByRole('region', {
+      name: 'Outline',
+    })
+    await userEvent.click(within(outline).getByRole('button', { name: /^Show: / }))
+    expect(harness.app.viewport()?.zoomToBounds).toHaveBeenCalledTimes(1)
+  })
+
+  it('"Select them" puts the free geometry in the sketch selection', async () => {
+    const circle = circleEntity('e-2', [30, 0], 5)
+    const harness = sketchHarness({
+      entities: [LINE, circle],
+      solution: solutionFor([LINE, circle], {
+        dof: 7,
+        entities: [
+          solvedEntity(LINE, 'under_constrained'),
+          solvedEntity(circle, 'under_constrained'),
+        ],
+      }),
+    })
+    render(
+      <AppProvider app={harness.app}>
+        <SketchHeader />
+      </AppProvider>,
+    )
+    await userEvent.click(screen.getByTestId('sketch-header'))
+    expect(screen.getByTestId('sketch-problems')).toHaveTextContent(
+      'Free geometry: 1 line, 1 circle',
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Select them' }))
+    expect(harness.app.store.getState().sketch?.selection.map((item) => item.kind)).toEqual([
+      'sketch_curve',
+      'sketch_curve',
+    ])
   })
 })

@@ -25,7 +25,8 @@ pub enum EngineError {
         /// The handle.
         doc: DocHandle,
     },
-    /// The text is not a valid document.
+    /// The text is not a valid document. The position fields are those `validate` reports for the
+    /// same text.
     #[error("The file is not a valid Partsmith document: {detail}")]
     Parse {
         /// The model's message.
@@ -34,6 +35,8 @@ pub enum EngineError {
         line: Option<u32>,
         /// 1-based column of a JSON problem.
         column: Option<u32>,
+        /// JSON Pointer of the field a structure problem names, for example `/bodies/0/id`.
+        path: Option<String>,
     },
     /// The text needs a newer format version than this engine reads.
     #[error(

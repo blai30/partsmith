@@ -1,15 +1,22 @@
 import { clsx } from 'clsx/lite'
-import { useId, useState, type RefObject } from 'react'
+import { ArrowDownToLine } from 'lucide-react'
+import { useId, useState, type ReactNode, type RefObject } from 'react'
 import { exportModel, type ExportRequest } from '../app/actions/export'
+import { openPrintHealth, setPrintOrientation } from '../app/actions/print'
 import { useApp, useAppState } from '../app/AppProvider'
 import { Button } from '../components/Button'
 import { Popover } from '../components/Popover'
 import { SegmentedControl, type SegmentedOption } from '../components/SegmentedControl'
+import { HealthBadgeIcon } from '../print/HealthBadge'
+import { selectOrientationBody } from '../print/orientation'
+import { SeverityIcon } from '../print/SeverityIcon'
+import { selectHealthBadge } from '../state/selectors'
 import type { AppState } from '../state/store'
 import { COLOR_CLASSES } from '../theme/roles'
+import { exportFailedText, exportStatus, type ExportStatusLine } from './status'
 
-// The export popover (ui.md 3.18): a format, which bodies, and "Export". It is open only while
-// shown, so a closed popover leaves nothing in the page.
+// The export popover (ui.md 3.18): a format, which bodies, what the export is about to write, and
+// "Export". It is open only while shown, so a closed popover leaves nothing in the page.
 
 const FORMATS: readonly SegmentedOption<ExportRequest['format']>[] = [
   { value: '3mf', label: '3MF' },
@@ -25,6 +32,105 @@ const SCOPES: readonly { readonly value: ExportRequest['scope']; readonly label:
 
 function selectHasSelectedBody(state: AppState): boolean {
   return state.selection.some((item) => item.kind === 'body')
+}
+
+/** One status line (`export-status`): an icon, the text and the action that line offers. */
+function StatusLine({
+  icon,
+  text,
+  children,
+}: {
+  readonly icon: ReactNode
+  readonly text: string
+  readonly children?: ReactNode
+}) {
+  return (
+    <div data-testid="export-status" className="flex items-center gap-2 text-xs">
+      {icon}
+      <span className="min-w-0 flex-1">{text}</span>
+      {children}
+    </div>
+  )
+}
+
+/** The status lines of 3.18 for the chosen format, with their actions. */
+function StatusLines({
+  format,
+  onClose,
+}: {
+  readonly format: ExportRequest['format']
+  readonly onClose: () => void
+}) {
+  const app = useApp()
+  // The lines derive from these; each is a stable value, so the popover re-renders only for them.
+  useAppState(exportFailedText)
+  useAppState(selectHealthBadge)
+  useAppState(selectOrientationBody)
+  const lines = exportStatus(app.store.getState(), format)
+  if (lines.length === 0) {
+    return null
+  }
+  const lineFor = (line: ExportStatusLine): ReactNode => {
+    switch (line.kind) {
+      case 'failed':
+        return (
+          <StatusLine key={line.kind} icon={<SeverityIcon severity="warning" />} text={line.text}>
+            <Button
+              onClick={() => {
+                onClose()
+                app.store.setState((state) => ({ panels: { ...state.panels, side: 'problems' } }))
+              }}
+            >
+              Show problems
+            </Button>
+          </StatusLine>
+        )
+      case 'print_check':
+        return (
+          <StatusLine
+            key={line.kind}
+            icon={<HealthBadgeIcon state={line.badge.state} />}
+            text={line.text}
+          >
+            {line.checkOffered ? (
+              <Button
+                onClick={() => {
+                  onClose()
+                  openPrintHealth(app).catch((error: unknown) => {
+                    console.error('The print check failed.', error)
+                  })
+                }}
+              >
+                Check print
+              </Button>
+            ) : null}
+          </StatusLine>
+        )
+      case 'orientation':
+        return (
+          <StatusLine
+            key={line.kind}
+            icon={
+              <ArrowDownToLine
+                aria-hidden="true"
+                strokeWidth={1.75}
+                className={clsx('size-4 shrink-0', COLOR_CLASSES.textMuted.foreground)}
+              />
+            }
+            text={line.text}
+          >
+            <Button
+              onClick={() => {
+                setPrintOrientation(app, null)
+              }}
+            >
+              Print as modeled
+            </Button>
+          </StatusLine>
+        )
+    }
+  }
+  return <div className="flex flex-col gap-2">{lines.map(lineFor)}</div>
 }
 
 export type ExportPopoverProps = {
@@ -103,6 +209,7 @@ export function ExportPopover({ anchor, onClose }: ExportPopoverProps) {
             })}
           </div>
         </div>
+        <StatusLines format={format} onClose={onClose} />
         <div className="flex justify-end">
           <Button
             variant="primary"

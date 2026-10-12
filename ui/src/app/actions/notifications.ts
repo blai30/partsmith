@@ -88,7 +88,11 @@ export type NotifyOptions = {
   readonly persistent?: boolean
 }
 
-/** Shows a notification and returns its id; a message already shown restarts that one instead. */
+/**
+ * Shows a notification and returns its id. A message already shown is not shown twice: that one
+ * takes the new actions, code and named features (they belong to the latest occurrence, such as the
+ * command a Restore reopens) and restarts its timer (3.22).
+ */
 export function notify(
   app: App,
   notification: Omit<Notification, 'id' | 'createdAt'>,
@@ -96,14 +100,23 @@ export function notify(
 ): string {
   const { store } = app
   const persistent = options.persistent ?? false
+  const timers = timersOf(store)
   const shown = store
     .getState()
     .notifications.find((candidate) => candidate.message === notification.message)
   if (shown !== undefined) {
-    startCountdown(store, shown)
+    const latest: Notification = { ...notification, id: shown.id, createdAt: shown.createdAt }
+    if (persistent) {
+      timers.persistent.add(shown.id)
+    }
+    store.setState((state) => ({
+      notifications: state.notifications.map((candidate) =>
+        candidate.id === shown.id ? latest : candidate,
+      ),
+    }))
+    startCountdown(store, latest)
     return shown.id
   }
-  const timers = timersOf(store)
   const added: Notification = {
     ...notification,
     id: `notification-${String(timers.nextNumber)}`,

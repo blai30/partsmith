@@ -37,6 +37,11 @@ export const MESSAGES = {
     `Partsmith kept unsaved changes to ${name} from ${time}.`,
   nothing_to_export: () => 'There is no visible body with geometry to export.',
   exported: (file: string) => `Exported ${file}.`,
+  /** `failed` is the text of `export_failed_feature` or `export_failed_features`. */
+  exported_with_failures: (file: string, failed: string) => `Exported ${file}. ${failed}`,
+  export_failed_feature: (label: string) => `${label} failed, so it is not in the export.`,
+  export_failed_features: (count: number) =>
+    `${String(count)} features failed, so they are not in the export.`,
   deleted: (label: string) => `Deleted ${label}.`,
   feature_failed: (label: string, message: string) => `${label} failed. ${message}`,
   features_failed: (count: number) => `${String(count)} features failed after this change.`,
@@ -62,8 +67,13 @@ export const MESSAGES = {
   pick_plane: () => 'Pick a flat face, a datum plane or an origin plane.',
   pick_axis: () => 'Pick a straight edge, a sketch line, a round face or an origin axis.',
   pick_kind: (pluralNoun: string) => `Pick ${pluralNoun}.`,
-  pick_same_body: (kind: string, body: string) =>
-    `Pick ${kind}s of '${body}', or clear Body first.`,
+  pick_points: () => 'Click a flat face or pick sketch points.',
+  /** `pluralNoun` is the field's kind in the plural, such as "edges". */
+  pick_same_body: (pluralNoun: string, body: string) =>
+    `All ${pluralNoun} must be on '${body}'. Remove them to pick ${pluralNoun} of another body.`,
+  pick_flat_face: () => 'Pick a flat face.',
+  hole_one_face: () =>
+    'One Hole puts its holes on one face. Press Enter to finish this one, then start another.',
   parameter_name: () => 'Names start with a letter or _ and use only letters, digits and _.',
   field_required: (label: string) => `${label} needs a value.`,
   field_not_number: (label: string) => `${label} must be a number.`,
@@ -71,9 +81,15 @@ export const MESSAGES = {
   nothing_to_undo: () => 'Nothing to undo.',
   nothing_to_redo: () => 'Nothing to redo.',
   finish_command_first: (title: string) => `Finish or cancel ${title} first.`,
+  needs_sketch_region: () => 'Draw a closed shape in a sketch first.',
+  needs_solid: () => 'Make a solid first, for example with Extrude or Box.',
+  needs_two_bodies: () =>
+    'Boolean needs two bodies with geometry. Make a second body first, for example with Box.',
+  nothing_to_repeat: () => 'No command to repeat yet.',
   import_not_editable: () => 'Imported geometry has no settings to edit.',
   fill_fields: () => 'Fill in the highlighted fields first.',
   core_not_running: () => 'The geometry core is not running.',
+  command_canceled: (title: string) => `${title} was canceled.`,
   plane_pick_hint: () => 'Top plane (XY) is the print bed.',
   sketch_step_start: (platform: Platform) =>
     `Choose Line (${formatShortcut('L', platform)}), Rectangle (${formatShortcut('R', platform)}) or Circle (${formatShortcut('C', platform)}) to start drawing.`,
@@ -99,6 +115,8 @@ export const MESSAGES = {
     `Hold ${platform.operatingSystem === 'mac' ? '⌘' : 'Ctrl'} to place freely.`,
   sketch_leave: (platform: Platform) =>
     `To leave the sketch, click Finish sketch or press ${formatShortcut('Mod+Enter', platform)}.`,
+  print_pick_face: () => 'Pick the face that should touch the bed.',
+  orientation_set: (body: string) => `Printing with the picked face of ${body} on the bed.`,
   region_crashed: () => 'This part of the window hit a problem. Reload to restore it.',
 } as const
 

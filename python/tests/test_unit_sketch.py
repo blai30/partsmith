@@ -345,3 +345,52 @@ def test_a_sketch_that_is_not_added_has_no_solution():
 
     with pytest.raises(PartsmithError, match="has no solution"):
         _ = sketch.dof
+
+
+def test_reserved_references_are_stored_by_name():
+    def build():
+        a = Line((0, 0), (10, 0), id="e-a")
+        c = Circle(2, center=(5, 5), id="e-c")
+        Coincident(a.start, Sketch.ORIGIN, id="c-1")
+        PointOn(c.center, Sketch.X_AXIS, id="c-2")
+        Parallel(a, Sketch.X_AXIS, id="c-3")
+        Angle(Sketch.Y_AXIS, a, 90, id="c-4")
+        Symmetric(a.start, a.end, Sketch.Y_AXIS, id="c-5")
+        Distance(c.center, Sketch.Y_AXIS, 5, id="c-6")
+        Tangent(Sketch.X_AXIS, c, id="c-7")
+        Horizontal(a.end, Sketch.ORIGIN, id="c-8")
+        Fix(Sketch.ORIGIN, id="c-9")
+
+    constraints = sketch_record(build, suppressed=True)["constraints"]
+
+    assert constraints == [
+        {"id": "c-1", "type": "coincident", "points": ["e-a.start", "origin"]},
+        {"id": "c-2", "type": "point_on_object", "point": "e-c.center", "curve": "x_axis"},
+        {"id": "c-3", "type": "parallel", "lines": ["e-a", "x_axis"]},
+        {"id": "c-4", "type": "angle", "lines": ["y_axis", "e-a"], "expr": "90"},
+        {"id": "c-5", "type": "symmetric", "points": ["e-a.start", "e-a.end"], "line": "y_axis"},
+        {"id": "c-6", "type": "distance", "point": "e-c.center", "line": "y_axis", "expr": "5"},
+        {"id": "c-7", "type": "tangent", "curves": ["x_axis", "e-c"]},
+        {"id": "c-8", "type": "horizontal", "points": ["e-a.end", "origin"]},
+        {"id": "c-9", "type": "fix", "target": "origin"},
+    ]
+
+
+def test_reserved_references_are_not_circles_or_points():
+    Document()
+    with (
+        pytest.raises(TypeError, match=r"^Concentric\(\) takes Circle or Arc entities, not SketchAxis\.$"),
+        Sketch(Plane.XY),
+    ):
+        Concentric(Sketch.X_AXIS, Circle(1))
+    with pytest.raises(TypeError, match=r"Coincident\(\) takes points"), Sketch(Plane.XY):
+        Coincident(Sketch.X_AXIS, Point(0, 0))
+    with (
+        pytest.raises(TypeError, match=r"^Parallel\(\) takes Line entities, not SketchOrigin\.$"),
+        Sketch(Plane.XY),
+    ):
+        Parallel(Sketch.ORIGIN, Line((0, 0), (1, 0)))
+
+
+def test_reserved_references_keep_their_stored_names():
+    assert (Sketch.ORIGIN.id, Sketch.X_AXIS.id, Sketch.Y_AXIS.id) == ("origin", "x_axis", "y_axis")

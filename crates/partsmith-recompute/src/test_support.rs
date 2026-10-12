@@ -237,6 +237,7 @@ impl Feature for TestWriter {
             shape: state.shape().cloned(),
             naming: state.naming().clone(),
             change: BodyChange::Modify,
+            measured: state.measurements(),
         }])))
     }
 }

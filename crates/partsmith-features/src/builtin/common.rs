@@ -212,13 +212,15 @@ pub(crate) fn solid_body<'a>(
     }
 }
 
-/// An update that keeps a body's state exactly: the same shape and naming map.
+/// An update that keeps a body's state exactly: the same shape and naming map, with what has been
+/// measured on it.
 pub(crate) fn unchanged(body: &Id, state: &BodyState, change: BodyChange) -> BodyUpdate {
     BodyUpdate {
         body: body.clone(),
         shape: state.shape().cloned(),
         naming: state.naming().clone(),
         change,
+        measured: state.measurements(),
     }
 }
 
@@ -296,7 +298,7 @@ pub(crate) fn primitive_tool(feature: &Id, primitive: Primitive) -> Result<Tool,
             face_name(feature, role, None).map(FaceSource::New)
         })
         .collect::<Result<Vec<_>, FeatureError>>()?;
-    let naming = name_shape(&primitive.shape, faces, &[])?;
+    let naming = name_shape(&primitive.shape, faces, &[])?.naming;
     Ok(Tool {
         shape: primitive.shape,
         naming,
@@ -333,7 +335,7 @@ pub(crate) fn sweep_tool(
             Ok(FaceSource::New(name))
         })
         .collect::<Result<Vec<_>, FeatureError>>()?;
-    let naming = name_shape(&sweep.shape, faces, &[])?;
+    let naming = name_shape(&sweep.shape, faces, &[])?.naming;
     Ok(Tool {
         shape: sweep.shape,
         naming,

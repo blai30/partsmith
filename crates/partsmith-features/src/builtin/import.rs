@@ -121,7 +121,7 @@ fn imported_tool(context: &BuildContext<'_>, mut solids: Vec<Shape>) -> Result<T
     };
     let name = face_name(context.feature(), roles::FACE, None)?;
     let faces = vec![FaceSource::New(name); shape.count(SubShapeKind::Face) as usize];
-    let naming = name_shape(&shape, faces, &[])?;
+    let naming = name_shape(&shape, faces, &[])?.naming;
     Ok(Tool { shape, naming })
 }
 

@@ -98,6 +98,7 @@ export function createFakeCoreApi(stubs: Partial<CoreApi> = {}): FakeCoreApi {
     },
     resolveReferences: async (_documentHandle, references) =>
       references.map(resolvedWithoutMatches),
+    measure: async () => ({}),
     analyzePrint: async () => null,
     exportBodies: async () => ({ files: [], warnings: [] }),
   }
@@ -208,6 +209,10 @@ export function createFakeCoreApi(stubs: Partial<CoreApi> = {}): FakeCoreApi {
     resolveReferences: (...args: Parameters<CoreApi['resolveReferences']>) => {
       record('resolveReferences', args)
       return implementation.resolveReferences(...args)
+    },
+    measure: (...args: Parameters<CoreApi['measure']>) => {
+      record('measure', args)
+      return implementation.measure(...args)
     },
     analyzePrint: (...args: Parameters<CoreApi['analyzePrint']>) => {
       record('analyzePrint', args)

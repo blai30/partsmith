@@ -5,6 +5,7 @@ import { installPopoverPolyfill } from '../components/popover-polyfill.testing'
 import type { Document } from '../generated/protocol'
 import { cubeDocumentState, documentState, readyState } from '../layout/fixtures.testing'
 import { requestUi } from '../layout/requests'
+import { MESSAGES } from '../messages'
 import { createModelApp, renderWithApp, stubMatchMedia } from '../layout/test-app.testing'
 import {
   INITIAL_STATE,
@@ -14,6 +15,7 @@ import {
 } from '../state/store'
 import {
   CUBE_DOCUMENT,
+  emptyDocument,
   featuresOf,
   PARAMETRIC_DOCUMENT,
   parametersOf,
@@ -74,16 +76,26 @@ const DATUM_COMMAND: ActiveCommand = {
   fieldErrors: {},
   applied: false,
   newBody: null,
+  helper: null,
+  changedPaths: [],
+  history: [],
+  future: [],
   preview: 'none',
 }
 
 describe('the browser tree (3.10)', () => {
-  it('is a tree named "Browser" with the groups Origin, Bodies, Sketches, Construction and Parameters', () => {
+  it('is a tree named "Browser" with the groups Origin, Bodies, Sketches, Datum planes and Parameters', () => {
     const { browser } = renderBrowser(documentState(PARAMETRIC_DOCUMENT))
     const tree = within(browser).getByRole('tree', { name: 'Browser' })
-    for (const name of ['Origin', 'Bodies', 'Sketches', 'Construction', 'Parameters']) {
+    for (const name of ['Origin', 'Bodies', 'Sketches', 'Datum planes', 'Parameters']) {
       expect(within(tree).getByText(name)).toBeInTheDocument()
     }
+  })
+
+  it('keeps "Construction" for sketch construction geometry: no group is named so', () => {
+    const { browser } = renderBrowser(documentState(DATUM_DOCUMENT))
+    expect(within(browser).queryByText('Construction')).toBeNull()
+    expect(within(row('datum', 'f-dp1')).getByText('Datum plane 1')).toBeInTheDocument()
   })
 
   it('starts with Origin collapsed and the other groups expanded', () => {
@@ -110,6 +122,31 @@ describe('the browser tree (3.10)', () => {
       expect(row('origin_axis', id)).toHaveTextContent(`${id} axis`)
     }
     expect(row('origin_point', 'O')).toHaveTextContent('Origin')
+  })
+
+  it('shows the origin axes and point in a document without features, so Hide X axis is offered (3.10)', async () => {
+    const { user, browser } = renderBrowser(documentState(emptyDocument()))
+    await user.click(within(browser).getByText('Origin'))
+    expect(
+      within(row('origin_axis', 'X')).getByRole('button', { name: 'Hide X axis' }),
+    ).toBeInTheDocument()
+    expect(
+      within(row('origin_point', 'O')).getByRole('button', { name: 'Hide Origin' }),
+    ).toBeInTheDocument()
+    expect(
+      within(row('origin_plane', 'XY')).getByRole('button', { name: 'Show Top plane (XY)' }),
+    ).toBeInTheDocument()
+  })
+
+  it('hides the origin axes once the document has a feature, unless their eye showed them (3.10)', async () => {
+    const { user, browser, app } = renderBrowser()
+    await user.click(within(browser).getByText('Origin'))
+    const eye = within(row('origin_axis', 'X')).getByRole('button', { name: 'Show X axis' })
+    await user.click(eye)
+    expect(app.store.getState().view.sessionVisible['origin:X']).toBe(true)
+    expect(
+      within(row('origin_axis', 'X')).getByRole('button', { name: 'Hide X axis' }),
+    ).toBeInTheDocument()
   })
 
   it('lists datum planes under Construction and parameters as "{name} = {expr}"', () => {
@@ -313,13 +350,13 @@ function group(browser: HTMLElement, title: string): HTMLElement {
 }
 
 describe('renaming from F2 (3.10)', () => {
-  it('expands a collapsed Construction group to rename a datum plane', async () => {
+  it('expands a collapsed Datum planes group to rename a datum plane', async () => {
     const { app, user, browser } = renderBrowser(documentState(DATUM_DOCUMENT))
-    await user.click(group(browser, 'Construction'))
+    await user.click(group(browser, 'Datum planes'))
     act(() => {
       requestUi(app, { kind: 'rename', key: 'feature:f-dp1', where: 'browser' })
     })
-    expect(group(browser, 'Construction')).toHaveAttribute('aria-expanded', 'true')
+    expect(group(browser, 'Datum planes')).toHaveAttribute('aria-expanded', 'true')
     expect(within(row('datum', 'f-dp1')).getByRole('textbox')).toHaveValue('Datum plane 1')
   })
 
@@ -437,5 +474,37 @@ describe('keyboard (3.10)', () => {
       (button) => button.closest('[data-testid="browser-row"]') !== null && button.tabIndex !== -1,
     )
     expect(tabbable).toEqual([])
+  })
+})
+
+describe('body edits during a feature command (3.7)', () => {
+  it('disables the eye and the color swatch with finish_command_first, and a click explains it', async () => {
+    const { app, core, user } = renderBrowser(cubeDocumentState(), { command: DATUM_COMMAND })
+    const eye = within(row('body', 'b-cube')).getByRole('button', {
+      name: 'Hide Cube',
+      hidden: true,
+    })
+    const color = within(row('body', 'b-cube')).getByRole('button', {
+      name: 'Color of Cube',
+      hidden: true,
+    })
+    const reason = MESSAGES.finish_command_first('Datum plane')
+    expect(eye).toHaveAttribute('aria-disabled', 'true')
+    expect(eye).toHaveAccessibleDescription(reason)
+    expect(color).toHaveAttribute('aria-disabled', 'true')
+    await user.click(eye)
+    await settle()
+    expect(core.callsTo('applyEdits')).toEqual([])
+    expect(app.store.getState().notifications.map((notification) => notification.message)).toEqual([
+      reason,
+    ])
+  })
+
+  it('keeps session view state available: the lock still works', async () => {
+    const { app, user } = renderBrowser(cubeDocumentState(), { command: DATUM_COMMAND })
+    await user.click(
+      within(row('body', 'b-cube')).getByRole('button', { name: 'Lock Cube', hidden: true }),
+    )
+    expect(app.store.getState().view.locked).toEqual(['b-cube'])
   })
 })

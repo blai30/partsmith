@@ -61,6 +61,7 @@ export function DimensionEditor({ controller, editor }: DimensionEditorProps) {
         id={inputId}
         label="Dimension value"
         hideLabel
+        completion={false}
         unit={editor.unit}
         value={editor.text}
         selectOnFocus

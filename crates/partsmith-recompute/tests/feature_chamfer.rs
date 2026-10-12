@@ -372,3 +372,41 @@ fn t012_edge_order_does_not_matter() {
         "both orders name the same faces"
     );
 }
+
+#[test]
+fn t013_chamfer_beside_a_fillet_on_a_pipe_tee() {
+    let run = Run::example("chamfer/pipe-tee.ptsm");
+
+    run.assert_ok("f-cyl1");
+    run.assert_ok("f-cyl2");
+    run.assert_ok("f-fil1");
+    run.assert_warnings("f-cha1", &["ignored", "no_effect"]);
+    let warning = &run.feature("f-cha1").warnings[0];
+    let FeatureWarning::Ignored { reason, .. } = warning else {
+        panic!("expected an Ignored warning, got {warning:?}");
+    };
+    assert!(
+        matches!(reason, IgnoredReason::SmoothEdge),
+        "the edge is skipped as smooth, got {reason:?}"
+    );
+    assert_unchanged(&run, "f-cha1", "b-1");
+}
+
+#[test]
+fn t014_distance_below_the_tolerance() {
+    let distance = r#"{"kind": "two_distances", "expr": "1", "second_expr": "0.0000001"}"#;
+    let run = Run::records(
+        &["b-1"],
+        &[CUBE20, &chamfer_record(&[FRONT_TOP_EDGE], distance)],
+    );
+
+    let error = run.assert_error("f-cha1", "out_of_range");
+    assert_error_field(error, "distance.second_expr");
+    assert_eq!(
+        run.messages("f-cha1"),
+        [
+            "Second distance must be greater than 0 mm, but it is 0 mm. Use a value greater than 0 mm."
+        ]
+    );
+    assert_unchanged(&run, "f-cha1", "b-1");
+}

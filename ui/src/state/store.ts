@@ -9,12 +9,14 @@ import type {
   ElementDescriptor,
   FeatureManifest,
   FeatureStatus,
+  Orientation,
   ParameterValue,
   Placement,
   PointRef,
   PrinterProfile,
   PrintReport,
   RegionInfo,
+  SketchParams,
 } from '../generated/protocol'
 import type { JsonSchema } from '../inspector/model'
 import { loadSettings, type Settings } from '../settings/settings'
@@ -44,8 +46,10 @@ export type AppState = {
   readonly notifications: readonly Notification[]
   /** The latest message for the polite live region, such as "Undid Rename" (3.20), or null. */
   readonly announcement: Announcement | null
-  /** The hint about a refused pick, shown for 3 s (3.7, 3.16.1), or null. */
+  /** The hint about a refused pick, shown for 3 s (3.7, 3.16.1, 3.17), or null. */
   readonly pickHint: PickHint | null
+  /** The feature type of the last feature command started in this session, which Repeat starts again (3.5); null before any. */
+  readonly lastFeatureType: string | null
 }
 
 export type CoreState = {
@@ -152,12 +156,42 @@ export type ActiveCommand = {
   readonly params: Readonly<Record<string, unknown>>
   /** Path of the selection field that receives picks, or null. */
   readonly activeField: string | null
+  /** Path of the selection field whose box the pointer is over, whose items the viewport highlights (3.7); absent or null for none. */
+  readonly hoveredField?: string | null
   readonly fieldErrors: Readonly<Record<string, string>>
   /** Whether the feature record has been applied inside the transaction yet. */
   readonly applied: boolean
-  /** Body this command creates for op new, if any. */
-  readonly newBody: { readonly id: string; readonly name: string } | null
+  /** Body this command creates (for op new, or for a body-creating target, 2.12) and the field it fills, if any. */
+  readonly newBody: {
+    readonly id: string
+    readonly name: string
+    readonly path: 'body' | 'target'
+  } | null
+  /** The helper sketch of "Placing holes on a face" (3.7), or null. */
+  readonly helper: HelperSketch | null
+  /** Paths the user changed in this command, least recent first, each listed once at its latest change (3.7: the value field, the cut direction). */
+  readonly changedPaths: readonly string[]
+  /** The state before each user change in this command, newest last (3.7, command history). */
+  readonly history: readonly CommandStep[]
+  /** Changes undone with Mod+Z, for Mod+Shift+Z, newest last. */
+  readonly future: readonly CommandStep[]
   readonly preview: 'none' | 'pending' | 'shown' | 'failed'
+}
+
+/** A sketch record the command writes for holes placed on a face (3.7): one point entity per hole center, no constraints. */
+export type HelperSketch = {
+  readonly id: string
+  readonly params: SketchParams
+  /** Whether the record has been added inside the transaction. */
+  readonly applied: boolean
+}
+
+/** The command state before one user change, with the label of the field the change touched. */
+export type CommandStep = {
+  readonly params: Readonly<Record<string, unknown>>
+  readonly helper: HelperSketch | null
+  readonly activeField: string | null
+  readonly field: string
 }
 
 export type SketchSession = {
@@ -177,9 +211,15 @@ export type PrintState = {
   readonly report: PrintReport | null
   /** Revision the report describes; the badge is stale when it differs from the document revision. */
   readonly reportRevision: number | null
+  /** Orientation the report was computed with (null as modeled); the badge is also stale when it differs from `orientation`. */
+  readonly reportOrientation: Orientation | null
   readonly running: boolean
   readonly overhangMap: boolean
   readonly focusedFinding: FindingKey | null
+  /** Session print orientation set by Lay on face (3.17); null prints as modeled. */
+  readonly orientation: Orientation | null
+  /** True while Lay on face waits for a face. */
+  readonly pickingFace: boolean
 }
 
 /** A finding of the print report: the `BodyPrint.body` id, the check, and the finding's index in that check's `findings`. */
@@ -276,9 +316,12 @@ export const INITIAL_STATE: AppState = {
   print: {
     report: null,
     reportRevision: null,
+    reportOrientation: null,
     running: false,
     overhangMap: true,
     focusedFinding: null,
+    orientation: null,
+    pickingFace: false,
   },
   view: {
     projection: 'perspective',
@@ -301,6 +344,7 @@ export const INITIAL_STATE: AppState = {
   notifications: [],
   announcement: null,
   pickHint: null,
+  lastFeatureType: null,
 }
 
 export function createAppStore(overrides: Partial<AppState> = {}): AppStore {

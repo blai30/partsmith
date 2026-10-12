@@ -1,12 +1,15 @@
 import { clsx } from 'clsx/lite'
 import type { LucideIcon } from 'lucide-react'
-import { useId, useRef, type KeyboardEvent } from 'react'
+import { useId, useRef, type KeyboardEvent, type Ref } from 'react'
 import { COLOR_CLASSES } from '../theme/roles'
+import { Tooltip } from './Tooltip'
 
 export type SegmentedOption<Value extends string> = {
   readonly value: Value
   readonly label: string
   readonly icon?: LucideIcon
+  /** A tooltip naming what choosing the option does; null hides it for now (Tooltip). */
+  readonly tooltip?: string | null
 }
 
 export type SegmentedControlProps<Value extends string> = {
@@ -17,6 +20,8 @@ export type SegmentedControlProps<Value extends string> = {
   readonly onChange: (value: Value) => void
   readonly disabled?: boolean
   readonly className?: string
+  /** Ids of elements that describe the group, such as a field's help. */
+  readonly describedBy?: string | undefined
 }
 
 /** The option index an arrow, Home or End key moves focus to, or null for other keys. */
@@ -49,6 +54,7 @@ export function SegmentedControl<Value extends string>({
   onChange,
   disabled = false,
   className,
+  describedBy,
 }: SegmentedControlProps<Value>) {
   const name = useId()
   const radios = useRef<(HTMLInputElement | null)[]>([])
@@ -67,6 +73,7 @@ export function SegmentedControl<Value extends string>({
     <div
       role="radiogroup"
       aria-label={label}
+      aria-describedby={describedBy}
       className={clsx(
         'inline-flex h-8 shrink-0 items-stretch gap-0.5 rounded-sm border p-0.5',
         COLOR_CLASSES.field.background,
@@ -75,50 +82,93 @@ export function SegmentedControl<Value extends string>({
       )}
     >
       {options.map((option, index) => {
-        const checked = option.value === value
-        const Icon = option.icon
-        return (
-          <label
+        const segment = (
+          <Segment
             key={option.value}
-            className={clsx(
-              'relative flex items-center gap-2 rounded-xs px-3 text-sm whitespace-nowrap transition-colors duration-150 motion-reduce:transition-none',
-              disabled && COLOR_CLASSES.textDisabled.foreground,
-              !disabled && checked && COLOR_CLASSES.selection.background,
-              !disabled && checked && COLOR_CLASSES.text.foreground,
-              !disabled && checked && 'font-semibold',
-              !disabled && !checked && COLOR_CLASSES.textMuted.foreground,
-              !disabled && !checked && COLOR_CLASSES.hover.background,
-            )}
-          >
-            {/* The transparent radio covers its segment, so the focus ring outlines the segment. */}
-            <input
-              ref={(radio) => {
-                radios.current[index] = radio
-              }}
-              type="radio"
-              name={name}
-              value={option.value}
-              checked={checked}
-              disabled={disabled}
-              onChange={() => {
-                onChange(option.value)
-              }}
-              onKeyDown={(event) => {
-                onKeyDown(event, index)
-              }}
-              className={clsx(
-                'absolute inset-0 m-0 size-full appearance-none rounded-xs',
-                COLOR_CLASSES.focusRing.outline,
-                disabled && 'cursor-not-allowed',
-              )}
-            />
-            {Icon === undefined ? null : (
-              <Icon aria-hidden="true" strokeWidth={1.75} className="size-4 shrink-0" />
-            )}
-            {option.label}
-          </label>
+            option={option}
+            name={name}
+            checked={option.value === value}
+            disabled={disabled}
+            radioRef={(radio) => {
+              radios.current[index] = radio
+            }}
+            onChange={() => {
+              onChange(option.value)
+            }}
+            onKeyDown={(event) => {
+              onKeyDown(event, index)
+            }}
+          />
+        )
+        return option.tooltip === undefined ? (
+          segment
+        ) : (
+          <Tooltip key={option.value} label={option.tooltip}>
+            {segment}
+          </Tooltip>
         )
       })}
     </div>
+  )
+}
+
+type SegmentProps<Value extends string> = {
+  readonly option: SegmentedOption<Value>
+  readonly name: string
+  readonly checked: boolean
+  readonly disabled: boolean
+  readonly radioRef: Ref<HTMLInputElement>
+  readonly onChange: () => void
+  readonly onKeyDown: (event: KeyboardEvent<HTMLInputElement>) => void
+  /** From a Tooltip around the segment, for the radio. */
+  readonly 'aria-describedby'?: string | undefined
+}
+
+/** One option: a transparent native radio over its label. */
+function Segment<Value extends string>({
+  option,
+  name,
+  checked,
+  disabled,
+  radioRef,
+  onChange,
+  onKeyDown,
+  'aria-describedby': describedBy,
+}: SegmentProps<Value>) {
+  const Icon = option.icon
+  return (
+    <label
+      className={clsx(
+        'relative flex items-center gap-2 rounded-xs px-3 text-sm whitespace-nowrap transition-colors duration-150 motion-reduce:transition-none',
+        disabled && COLOR_CLASSES.textDisabled.foreground,
+        !disabled && checked && COLOR_CLASSES.selection.background,
+        !disabled && checked && COLOR_CLASSES.text.foreground,
+        !disabled && checked && 'font-semibold',
+        !disabled && !checked && COLOR_CLASSES.textMuted.foreground,
+        !disabled && !checked && COLOR_CLASSES.hover.background,
+      )}
+    >
+      {/* The transparent radio covers its segment, so the focus ring outlines the segment. */}
+      <input
+        ref={radioRef}
+        type="radio"
+        name={name}
+        value={option.value}
+        checked={checked}
+        disabled={disabled}
+        aria-describedby={describedBy}
+        onChange={onChange}
+        onKeyDown={onKeyDown}
+        className={clsx(
+          'absolute inset-0 m-0 size-full appearance-none rounded-xs',
+          COLOR_CLASSES.focusRing.outline,
+          disabled && 'cursor-not-allowed',
+        )}
+      />
+      {Icon === undefined ? null : (
+        <Icon aria-hidden="true" strokeWidth={1.75} className="size-4 shrink-0" />
+      )}
+      {option.label}
+    </label>
   )
 }

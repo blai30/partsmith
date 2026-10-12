@@ -413,3 +413,47 @@ fn t015_performance() {
         "the failing fillet with its search took {too_large:?}, the budget is 1.2 s"
     );
 }
+
+#[test]
+fn t016_fillet_beside_a_fillet_on_a_pipe_tee() {
+    let run = Run::example("fillet/pipe-tee.ptsm");
+
+    run.assert_ok("f-cyl1");
+    run.assert_ok("f-cyl2");
+    run.assert_ok("f-fil1");
+    let tee = output_body(&run, "f-cyl2", "b-1");
+    let tee_shape = tee.shape().expect("the tee is a solid");
+    assert_volume(tee_shape, 20599.513715);
+    assert_face_count(tee_shape, 5);
+    let joint = output_body(&run, "f-fil1", "b-1");
+    let joint_shape = joint.shape().expect("the filleted tee is a solid");
+    assert_volume(joint_shape, 20616.732472);
+    assert_face_count(joint_shape, 6);
+    face(&joint, "f-fil1/fillet/edge(f-cyl1/side|f-cyl2/side)");
+    run.assert_warnings("f-fil2", &["ignored", "no_effect"]);
+    let warning = &run.feature("f-fil2").warnings[0];
+    let FeatureWarning::Ignored { reason, .. } = warning else {
+        panic!("expected an Ignored warning, got {warning:?}");
+    };
+    assert!(
+        matches!(reason, IgnoredReason::SmoothEdge),
+        "the edge is skipped as smooth, got {reason:?}"
+    );
+    assert_unchanged(&run, "f-fil2", "b-1");
+}
+
+#[test]
+fn t017_radius_below_the_tolerance() {
+    let run = Run::records(
+        &["b-1"],
+        &[CUBE20, &fillet_record(&[FRONT_TOP_EDGE], "0.0000001")],
+    );
+
+    let error = run.assert_error("f-fil1", "out_of_range");
+    assert_error_field(error, "radius");
+    assert_eq!(
+        run.messages("f-fil1"),
+        ["Radius must be greater than 0 mm, but it is 0 mm. Use a value greater than 0 mm."]
+    );
+    assert_unchanged(&run, "f-fil1", "b-1");
+}

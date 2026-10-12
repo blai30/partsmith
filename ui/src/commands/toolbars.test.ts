@@ -36,7 +36,7 @@ describe('TOOLBARS (3.3)', () => {
       {
         kind: 'group',
         id: expect.any(String),
-        title: 'Primitive',
+        title: 'Shapes',
         icon: Cuboid,
         commands: [
           'feature.box',
@@ -85,12 +85,13 @@ describe('TOOLBARS (3.3)', () => {
     ])
   })
 
-  it('lists the Print tools in order, with Export 3MF and the Export group after a separator', () => {
+  it('lists the Print tools in order, Lay on face last before Export 3MF and the Export group after a separator', () => {
     expect(TOOLBARS.print).toEqual([
       command('print.printer'),
       command('print.overhangs'),
       command('print.checks'),
       command('view.health'),
+      command('print.lay_on_face'),
       { kind: 'separator' },
       command('print.export_3mf'),
       {

@@ -1,5 +1,5 @@
 import type { Finding, Location, PrintReport, Severity } from '../generated/protocol'
-import { memoized } from '../state/selectors'
+import { memoized, type HealthBadge } from '../state/selectors'
 import type { AppState, FindingKey } from '../state/store'
 import type { Vector3 } from '../viewport/math'
 import { isCheckHidden, PRINT_CHECKS } from './checks'
@@ -110,4 +110,44 @@ export function missingReport(state: AppState): MissingReport | null {
     return null
   }
   return state.print.running ? 'checking' : 'unchecked'
+}
+
+function counted(count: number, noun: string): string {
+  return `${String(count)} ${noun}${count === 1 ? '' : 's'}`
+}
+
+/**
+ * The badge's visible text before the out-of-date suffix (3.17): "Check print", "Checking", "Ready
+ * to print", "1 warning" or "{n} warnings", "1 error" or "{n} errors".
+ */
+export function healthBadgeText(badge: HealthBadge): string {
+  switch (badge.state) {
+    case 'none':
+      return 'Check print'
+    case 'running':
+      return 'Checking'
+    case 'ok':
+      return 'Ready to print'
+    case 'warning':
+      return counted(badge.warnings, 'warning')
+    case 'error':
+      return counted(badge.errors, 'error')
+  }
+}
+
+/** Whether the badge is shown out of date: a stale report while no analysis runs (3.17). */
+export function healthBadgeOutdated(badge: HealthBadge): boolean {
+  return badge.stale && badge.state !== 'running'
+}
+
+/**
+ * The badge's accessible name, which starts with "Print check: " and its visible text (3.17,
+ * WCAG 2.5.3): errors add ", {w} warning(s)" when there are warnings too, and an out-of-date badge
+ * ends with ", out of date".
+ */
+export function healthBadgeName(badge: HealthBadge): string {
+  const warnings =
+    badge.state === 'error' && badge.warnings > 0 ? `, ${counted(badge.warnings, 'warning')}` : ''
+  const outdated = healthBadgeOutdated(badge) ? ', out of date' : ''
+  return `Print check: ${healthBadgeText(badge)}${warnings}${outdated}`
 }

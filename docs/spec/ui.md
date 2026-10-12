@@ -30,6 +30,7 @@ The UI is the single front end for web and desktop. It renders the model, edits 
 ### 1.2 Later (not in M1)
 
 - Onboarding tutorial and looping tool-tip animations. The "Coming from Fusion / FreeCAD" mapping is part of M1 as the palette's tagged keywords (2.10), not as a separate panel.
+- A curated sample part opened from the empty-state chip (3.2).
 - Right-click radial marking menu in the viewport (M1 has a plain context menu with the same items, 3.13).
 - 3Dconnexion SpaceMouse.
 - Code panel (CodeMirror 6), script features, Python export UI and the Customizer panel.
@@ -37,17 +38,20 @@ The UI is the single front end for web and desktop. It renders the model, edits 
 - On-canvas handles for feature values (technical design 13, principle 1): an arrow for Extrude distance, Hole depth, Datum plane offset, Shell thickness and Fillet and Chamfer size, an arc for Revolve angle and a triad for Move body, each with a value chip that is the field's `ExpressionInput`. Dragging writes plain numbers in `stepExpression` steps (Shift coarse, Alt fine) through the preview `LatestOnly`, dragging an extrude arrow through zero toggles Reverse, and a field holding an expression that is not a plain number shows a dimmed handle that does not drag. Needs a handle anchor (point and direction per field path) from the core with the preview.
 - WebGPU render backend.
 - Multi-document tabs.
+- Dependency marks on timeline items and reorder drops that refuse to break a dependency (they need `uses` in `FeatureStatus` from the core).
 - Navigation presets SolidWorks, Blender and Onshape; trackpad gestures beyond pinch zoom and the secondary-button drag of 3.13 (two-finger scroll to pan or orbit); touch-optimized layout.
 - FreeCAD shortcut preset, user shortcut rebinding and user-pinned toolbar tools.
 - Remaining sketch tools (3-point and rounded rectangle, 2-point, 3-point and tangent circle, center and tangent arc, tangent-arc toggle in the line tool, conics, splines, polygon, slots, text, image, DXF and SVG import), modify tools (trim, extend, split, sketch fillet and chamfer, offset, mirror, patterns, move and copy) and reference geometry (project, intersect, carbon copy).
 - Remaining constraints (smooth, block, arc length, angle to an axis as its own type, Snell's law, B-spline constraints).
 - Dragging sketch curves (translating a line, resizing a circle); M1 drags points only.
+- Face edges of the model as sketch snap and dimension targets (sketch.md and engine changes).
 - Window and crossing box selection in the Model context (M1 has it in sketch mode only).
 - Keyboard picking of faces, edges and vertices.
 - Features outside the slice (sweep, loft, helix, rib, emboss, thread, draft, scale, direct edits, derive, surfaces, mesh bodies, configurations), components, joints and assemblies.
 - Measure tool, distances and angles between two selected items (the core's two-target `measure`, protocol.md 1.2), and mass properties beyond volume.
 - Import UI (STEP, meshes, `.scad`, `.FCStd`, DXF, SVG) and `.ptsz` bundles.
-- Print-aware feature presets, orientation tools beyond Lay on face (auto-orient, saving the orientation in the document), custom printer profiles, slicer handoff and watch mode, resin tools, heat maps for checks other than overhangs, multi-plate arrangement.
+- Print-aware feature presets, orientation tools beyond Lay on face (auto-orient, saving the orientation in the document), custom printer profiles (`put_printer_profile`, with a decision on documents that name a profile another machine lacks), slicer handoff and watch mode, resin tools, heat maps for checks other than overhangs, multi-plate arrangement.
+- Export options: one file per body and a mesh tolerance (M1 exports one file with the profile's tolerance, 3.18).
 - Display quality setting (`set_tessellation`).
 - Cloud sharing, AI assist and plugin panel slots.
 
@@ -103,7 +107,7 @@ ui/
       selectors.ts
     commands/
       registry.ts            CommandRegistry, createCommandRegistry
-      shortcuts.ts           parseShortcut, chordToString, formatShortcut, chordFromEvent
+      shortcuts.ts           parseShortcut, chordToString, formatShortcut, chordFromEvent, ariaKeyShortcut
       dispatcher.ts          installShortcutDispatcher
       fuzzy.ts               fuzzyScore, rankPaletteItems
       palette.ts             paletteItems
@@ -111,21 +115,23 @@ ui/
       features.ts            commands generated from the feature catalog, FEATURE_REQUIREMENTS
       keywords.ts            COMMAND_KEYWORDS
       descriptions.ts        FEATURE_DESCRIPTIONS
-      component-keys.ts      COMPONENT_KEYS (the component-key table of 3.5 as data)
+      component-keys.ts      COMPONENT_KEYS, TYPING_KEYS, TYPING_NOTE (the keys of 3.5 as data), withPlatformKeys
       toolbars.ts            TOOLBARS
       icons.ts               FEATURE_ICONS, constraint glyph icons
     inspector/
       model.ts               buildInspectorModel, defaultParams, setParam, getParam
       start-values.ts        START_VALUES
-      help.ts                FIELD_HELP
+      help.ts                FIELD_HELP, fieldHelp
       suggestions.ts         suggestedCommands
-      measurements.ts        selectionMeasurements
+      measurements.ts        selectionMeasurements, measureSelection, volumeMeter, formatVolume
+      entity-size.ts         entitySize, entitySizeDimension (the size field, 3.8)
       selection-values.ts    selectionValue, acceptsTarget, itemsFromValue
       placement.ts           placeInspector
       Inspector.tsx, fields/*.tsx
     expression/
       evaluate.ts            convertForField
       format.ts              formatNumber, formatQuantity, formatSize, formatPoint
+      completion.ts          completionNames, completionAt, insertCompletion, missingParameterName (2.13)
       step.ts                stepExpression, isPlainNumber
       span.ts                utf16Range
       ExpressionInput.tsx, useExpression.ts
@@ -133,7 +139,7 @@ ui/
       math.ts                Vector3, Matrix4, Quaternion helpers
       camera.ts              Camera and camera functions
       navigation.ts          NAVIGATION_PRESETS, gestureFor, navigationLegend
-      grid.ts                gridSpacing
+      grid.ts                gridSpacing, gridPlacement, drawnGridSpacing, the grid's lines
       menu.ts                viewportMenuItems
       backend.ts             RenderBackend and its types
       webgl2/                createWebGl2Backend and shaders
@@ -156,8 +162,10 @@ ui/
     timeline/ Timeline.tsx
     browser/ Browser.tsx
     parameters/ ParametersPanel.tsx
-    print/ PrinterMenu.tsx, ChecksPopover.tsx, HealthList.tsx, OverhangLegend.tsx,
-           printer.ts (printerDetail, printerButtonText)
+    print/ PrinterMenu.tsx, ChecksPopover.tsx, HealthList.tsx, HealthBadge.tsx, OverhangLegend.tsx,
+           PrintHint.tsx, printer.ts (printerDetail, printerButtonText),
+           health.ts (healthRows, healthBadgeText, healthBadgeName), orientation.ts (sameOrientation,
+           selectOrientationBody)
     export/ ExportPopover.tsx, status.ts (exportStatus)
     problems/ ProblemsPanel.tsx
     keys/ KeysPanel.tsx
@@ -171,7 +179,8 @@ ui/
                              font and UI scale classes (2.16)
       theme.ts               resolveTheme, applyTheme, applyUiScale, toggledTheme
     layout/ TopBar.tsx, StatusBar.tsx, SidePanel.tsx, Notifications.tsx, DocumentMenu.tsx
-    components/              Button, IconButton, Menu, Popover, Tooltip, Switch, SegmentedControl, TextField
+    components/              Button, IconButton, Menu, Popover, Tooltip, Switch, SegmentedControl, TextField,
+                             HelpLabel (a label with hover help, 3.7), described-by.ts
     performance/marks.ts     TIMING_NAMES, markTiming, measureTiming
     messages.ts              UI-owned message catalog (section 4.3)
     test/ setup.ts, fakes/   FakeTransport, FakeCoreApi, FakeBackend, catalog and documents fixtures
@@ -462,8 +471,10 @@ export type AppState = {
   readonly notifications: readonly Notification[]
   /** The latest message of the polite live region, such as "Undid Rename" (3.20), or null. */
   readonly announcement: Announcement | null
-  /** The hint about a refused pick, shown for 3 s (3.7, 3.16.1), or null. */
+  /** The hint about a refused pick, shown for 3 s (3.7, 3.16.1, 3.17), or null. */
   readonly pickHint: PickHint | null
+  /** The feature type of the last feature command started in this session, which Repeat starts again (3.5); null before any. */
+  readonly lastFeatureType: string | null
 }
 
 export type CoreState = {
@@ -622,6 +633,8 @@ export type ViewState = {
   readonly locked: readonly string[]
   /** Session-only: whether the ground and sketch grid is drawn (3.12). */
   readonly grid: boolean
+  /** Minor spacing in mm of the grid drawn now, mirrored by the viewport controller when it changes; null when no grid is drawn (3.12, 3.21). */
+  readonly gridSpacing: number | null
 }
 export type SectionState = { readonly plane: 'XY' | 'XZ' | 'YZ'; readonly offset: string; readonly flipped: boolean }
 
@@ -648,7 +661,7 @@ export type Notification = {
 /** A live region message; `id` changes with every announcement, so a repeated text is read again. */
 export type Announcement = { readonly id: number; readonly message: string }
 
-/** A hint about a pick the target refused: under the active command's selection field at `field`, or in the sketch hint while picking a plane (3.16.1) when `field` is null. */
+/** A hint about a pick the target refused: under the active command's selection field at `field`, or, when `field` is null, in the sketch hint while picking a plane (3.16.1) or in the print hint during Lay on face (3.17). */
 export type PickHint = { readonly message: string; readonly field: string | null }
 
 export type AppStore = StoreApi<AppState>
@@ -656,11 +669,11 @@ export const INITIAL_STATE: AppState
 export function createAppStore(overrides?: Partial<AppState>): AppStore
 ```
 
-`INITIAL_STATE`: core loading; no catalog, printers or document; context `model`; empty selection; no hover, command or sketch; print report null, overhang map on, orientation null, not picking a face; view perspective, named `iso`, no section, filter `{ body: false, face: true, edge: true, vertex: true }`, grid on; browser open (closed when `window.innerWidth < 1024` at startup), timeline expanded, palette closed, no side panel; settings from `loadSettings()` (2.15); no notifications, announcement or pick hint.
+`INITIAL_STATE`: core loading; no catalog, printers or document; context `model`; empty selection; no hover, command or sketch; print report null, overhang map on, orientation null, not picking a face; view perspective, named `iso`, no section, filter `{ body: false, face: true, edge: true, vertex: true }`, grid on, grid spacing null; browser open (closed when `window.innerWidth < 1024` at startup), timeline expanded, palette closed, no side panel; settings from `loadSettings()` (2.15); no notifications, announcement or pick hint; no feature command to repeat.
 
-`announcement` is set by undo and redo (3.20) and read by the polite live region. `pickHint` is set by `capturePick` and `createSketchOn` for a refused pick and cleared after 3 s, by a newer hint, or when its command ends.
+`announcement` is set by undo and redo (3.20) and read by the polite live region. `pickHint` is set by `capturePick`, `createSketchOn` and `layOnFace` for a refused pick and cleared after 3 s, by a newer hint, or when its command ends. `lastFeatureType` is set by `startFeatureCommand` for every type but `sketch` (which starts plane picking), from any source.
 
-`src/state/selectors.ts` exports at least `selectFeatureLabel(state, id)`, `selectActiveFeatureIds(state)`, `selectSketchDof(state)`, `selectHealthBadge(state)`, `selectProblems(state)`, `selectEmptyState(state)` (3.2) and `selectOriginVisible(state, key)` (3.10); components read state only through selectors or `useAppState(selector)` so each panel re-renders only for the slice it shows.
+`src/state/selectors.ts` exports at least `selectFeatureLabel(state, id)`, `selectActiveFeatureIds(state)`, `selectSketchDof(state)`, `selectHealthBadge(state)`, `selectProblems(state)`, `selectEmptyState(state)` (3.2), `selectOriginVisible(state, key)` (3.10), and `selectSketchToEdit(state)` and `selectSketchRadioTooltip(state)` (3.3); components read state only through selectors or `useAppState(selector)` so each panel re-renders only for the slice it shows.
 
 ### 2.9 App and actions
 
@@ -729,7 +742,8 @@ export function pickAt(app: App, sample: PickResult, modifiers: { toggle: boolea
 // command.ts
 export function startFeatureCommand(app: App, featureType: string): Promise<void>
 export function editFeature(app: App, featureId: string): Promise<void>
-export function setCommandField(app: App, path: string, value: unknown): void
+/** `typing` marks a text edit of an expression field: only the first since the field gained focus is a history step (3.7). */
+export function setCommandField(app: App, path: string, value: unknown, options?: { typing?: boolean }): void
 export function setActiveField(app: App, path: string | null): void
 /** `pointer` is where the click's ray went; a flat face picked for a `sketch_point` field needs it (3.7). */
 export function capturePick(app: App, item: SelectionItem, pointer?: PointerRay): Promise<void>
@@ -780,7 +794,11 @@ export function runPrintAnalysis(app: App): Promise<void>
 export function focusFinding(app: App, finding: FindingKey): void
 /** Starts the Lay on face pick (3.17). */
 export function startLayOnFace(app: App): void
-/** Sets the session print orientation; null prints as modeled. */
+/** Ends the Lay on face pick without a face (Esc ladder step 5). */
+export function cancelLayOnFace(app: App): void
+/** The face clicked during Lay on face: a flat face of a visible part body sets `face_down` and ends the pick; another face shows `pick_flat_face`. Returns whether it was taken. */
+export function layOnFace(app: App, item: SelectionItem): boolean
+/** Sets the session print orientation and ends the face pick; null prints as modeled. */
 export function setPrintOrientation(app: App, orientation: Orientation | null): void
 
 // export.ts
@@ -790,6 +808,8 @@ export function exportModel(app: App, request: ExportRequest): Promise<void>
 export function notify(app: App, notification: Omit<Notification, 'id' | 'createdAt'>): string
 export function dismiss(app: App, id: string): void
 ```
+
+`command.ts` also exports the helpers the inspector, the typing keys and the Parameters panel use: `setFieldStatus` (an expression field's error and pending state), `noteFieldFocused` (an expression field gained focus, so its next text edit is a new history step), `chooseNewBody` (the Choose menu's "New body"), `reverseAndUse` (the fix "Reverse and use {text}" as one history step), `cancelCommandImplicitly` (the implicit cancel with `command_canceled` and Restore), `applyEditsInCommand` and `runInCommand` (edits that join the open transaction with the preview `pending` meanwhile), `commandValueField` (the value field of typing values) and `commandStartParams` (the start params `changedMore` compares with). `startFeatureCommand` and `editFeature` take an internal third argument that Restore uses to reopen a saved command.
 
 `ExportRequest` is `{ format: '3mf' | 'stl' | 'obj' | 'step'; scope: 'visible' | 'selected' }`. `RollbackDrag` is `{ move(position: number): void; drop(): Promise<void>; cancel(): Promise<void> }`, the live marker drag of 3.9 from gap `start`. `SketchChange`, `SketchCommitResult`, `PickResult` and `PointerRay` are defined in 2.14 and 2.11. Every action that changes the document goes through `app.mutations`.
 
@@ -814,6 +834,8 @@ export type CommandDefinition = {
   /** Unique id, for example 'file.save' or 'feature.extrude'. */
   readonly id: string
   readonly title: string
+  /** The title as shown now when it names the state, such as "Repeat Fillet" (3.5); the palette and menus show it. Absent means `title`. */
+  label?(app: App): string
   readonly category: CommandCategory
   /** lucide-react icon component, or null. */
   readonly icon: LucideIcon | null
@@ -866,6 +888,8 @@ export function parseShortcut(shortcut: string): Chord
 export function chordToString(chord: Chord): string
 export function formatShortcut(shortcut: string, platform: Platform): string
 export function chordFromEvent(event: KeyboardEvent, platform: Platform): Chord | null
+/** A shortcut as `aria-keyshortcuts` writes it: Control, Alt, Shift and Meta (`Mod` is Meta on macOS, Control elsewhere), then the key, joined by "+". */
+export function ariaKeyShortcut(shortcut: string, platform: Platform): string
 ```
 
 Shortcut grammar: `shortcut = (modifier "+")* key`, modifiers in the order `Mod`, `Ctrl`, `Alt`, `Shift`, each at most once. `Mod` is Cmd (`metaKey`) on macOS and Ctrl elsewhere; `Ctrl` is the Control key on every platform and is not used together with `Mod`. `key` is an uppercase letter `A` to `Z`, a digit, `F1` to `F12`, or one of `Enter`, `Escape`, `Delete`, `Backspace`, `Tab`, `Space`, `ArrowUp`, `ArrowDown`, `ArrowLeft`, `ArrowRight`, `Home`, `End`, `=`, `-`. `parseShortcut` throws `Error('Invalid shortcut "<shortcut>".')` for anything else, including an empty key, a repeated modifier or a wrong modifier order.
@@ -1234,6 +1258,10 @@ export type Scene = {
   screenRectangle(items: readonly SelectionItem[], camera: Camera, size: { width: number; height: number }): Rectangle | null
   frame(state: AppState, camera: Camera, size: { width: number; height: number; pixelRatio: number }): RenderFrame
   restore(): void
+  /** Model elements drawn selected besides selected bodies: resolved references and feature highlighting (3.6). */
+  setElementHighlights(highlights: ElementHighlights): void
+  /** Edges drawn hovered in place of a hovered face that stands for its edges (3.7 faces for edges), or null. */
+  setHoverEdges(hover: { faceKey: string; body: string; meshId: number; edges: readonly number[] } | null): void
 }
 export function createScene(backend: RenderBackend): Scene
 ```
@@ -1287,6 +1315,10 @@ export function navigationLegend(preset: NavigationPreset): string
 ```ts
 /** Minor grid spacing in millimeters for the scale at the camera target (3.12). */
 export function gridSpacing(millimetersPerPixel: number, units: Units): number
+/** The plane the grid lies on: XY in Model context and while a plane is picked, the sketch plane while a sketch is edited; null in Print and while the grid is off. */
+export function gridPlacement(state: AppState): Placement | null
+/** The minor spacing of the grid drawn for the state and camera (`gridSpacing` at the camera target), or null when none is drawn. */
+export function drawnGridSpacing(state: AppState, camera: Camera, viewportHeightPixels: number): number | null
 ```
 
 `gridSpacing` returns the smallest of 1, 10, 100 and 1000 mm (in inch documents 2.54, 25.4, 254 and 2540 mm, that is 0.1, 1, 10 and 100 in) whose lines are at least 8 CSS pixels (times the UI scale) apart, that is `spacing / millimetersPerPixel >= 8`, where `millimetersPerPixel` is the world size of one CSS pixel at the camera target multiplied by the UI scale; the largest step when none is. Centimeter and meter documents use the millimeter steps.
@@ -1300,6 +1332,8 @@ export type ViewportMenuItem =
 /** The items of the viewport context menu for the current state (3.13), disabled commands left out. */
 export function viewportMenuItems(app: App): readonly ViewportMenuItem[]
 ```
+
+`command` is the registry command an item runs (`edit.edit_feature` for "Edit {label}", which opens the named feature), or `command.confirm` and `command.cancel` for the OK and Cancel of an active feature command, whose shortcuts are `formatShortcut('Enter')` and `formatShortcut('Escape')`. `src/viewport/ViewportMenu.tsx` renders the items as a `Menu` (`data-testid="viewport-menu"`) anchored to a point-sized element at the request position (`positionElement`, 3.12) and gives focus back to the 3D view when it closes. It opens on the `UiRequest` `{kind: 'viewport_menu', x, y}` (CSS pixels from the viewport's top-left corner), which the controller sends after a right click and the viewport after Shift+F10 or the ContextMenu key; a request whose items are all left out opens nothing.
 
 ### 2.12 Inspector generation
 
@@ -1349,8 +1383,8 @@ export function buildInspectorModel(input: {
   readonly params: Readonly<Record<string, unknown>>
   /** Field errors by path, including the status messages mapped to fields (3.7). */
   readonly errors: Readonly<Record<string, string>>
-  /** The starting values the params are compared with for `changedMore`: `defaultParams` without the reuse step. */
-  readonly startParams: Readonly<Record<string, unknown>>
+  /** The starting values the params are compared with for `changedMore`: `defaultParams` without the reuse step. Without it nothing counts as changed (callers that only need the fields omit it). Tagged unions of the start params are switched to the variants the params use, by `setParam`'s rules, before comparing. */
+  readonly startParams?: Readonly<Record<string, unknown>>
 }): InspectorModel
 export function defaultParams(feature: CatalogFeature, context: DefaultsContext): Record<string, unknown>
 export function setParam(feature: CatalogFeature, params: Readonly<Record<string, unknown>>, path: string, value: unknown): Record<string, unknown>
@@ -1542,6 +1576,8 @@ export type ExpressionState =
 
 export type ExpressionInputProps = {
   readonly id: string
+  /** A `data-testid` for the input itself, such as `entity-size` (3.8). */
+  readonly testId?: string
   readonly label: string
   readonly value: string
   /** A field unit, or 'any' for parameter expressions (every dimension accepted). */
@@ -1549,9 +1585,24 @@ export type ExpressionInputProps = {
   readonly optional?: boolean
   readonly autoFocus?: boolean
   readonly selectOnFocus?: boolean
+  /** Keeps the label for assistive technology only. */
+  readonly hideLabel?: boolean
+  /** A message about the value from elsewhere (a feature status), shown while the text itself is not invalid. */
+  readonly error?: string | null
+  /** The field's hover help (3.7), or null. */
+  readonly help?: string | null
+  /** Offers "Add parameter {name}" (3.7); the command and selection inspectors set it. */
+  readonly offerParameter?: boolean
+  /** Name completion (below), default true; the sketch dimension editor passes false and stays a plain text input. */
+  readonly completion?: boolean
+  /** Controls at the end of the input's row, such as the inline Reverse toggle (3.7). */
+  readonly trailing?: React.ReactNode
+  /** Called with the text on every edit, and again when the state of the text changes; a text set from outside (an undo, a fix) is reported when it renders. */
   readonly onChange: (value: string, state: ExpressionState) => void
   readonly onCommit?: (value: string, state: ExpressionState) => void
   readonly onCancel?: () => void
+  readonly onFocus?: () => void
+  readonly onBlur?: (value: string, state: ExpressionState) => void
 }
 export function ExpressionInput(props: ExpressionInputProps): React.JSX.Element
 export function useExpression(text: string, unit: FieldUnit | 'any', label: string): ExpressionState
@@ -2151,7 +2202,7 @@ Floating elements (all `surfaceRaised` with a `border` hairline, `rounded-md` an
 
 Top-center slot: a column at the viewport's top (`absolute top-4 inset-x-32 flex flex-col items-center gap-2 pointer-events-none`; the `inset-x-32` margin keeps it clear of the `size-24` view cube at any UI scale) holding one of: the empty-state chip (below); the sketch header (3.16.8) with the sketch hint (3.16.3) under it; or the print hint (3.17). Interactive children are `pointer-events-auto`, so the slot never blocks picking.
 
-Empty state: while `selectEmptyState(state)` holds (a ready core, a document without features, no feature command, no sketch session), the slot shows a chip (`data-testid="empty-state"`, `role="group"`, `aria-label="First step"`, `surfaceRaised` with a `border` hairline, `rounded-sm`, `p-3`, `max-w-140`):
+Empty state: while `selectEmptyState(state)` holds (a ready core, a document without features, no feature command, no sketch session and no Lay on face pick, whose print hint takes the slot), the slot shows a chip (`data-testid="empty-state"`, `role="group"`, `aria-label="First step"`, `surfaceRaised` with a `border` hairline, `rounded-sm`, `p-3`, `max-w-140`):
 
 - Line 1 (`text-sm`): "Start with a sketch on a plane, or add a box." followed by the buttons "Sketch" (runs `feature.sketch`) and "Box" (runs `feature.box`; left out when the catalog has no `box`).
 - Line 2 (`text-xs`, `textMuted`): `navigationLegend(settings.navigation)` (2.11), a space, and "Search every command: {formatShortcut('Mod+K')}."
@@ -2174,7 +2225,7 @@ Context rules:
 
 - The app starts in Model. `data-context` on the `app` root mirrors the context.
 - Model to Print, or Print to Model: an active feature command is canceled first (`cancel_transaction`). The selection is kept.
-- Choosing the Sketch radio (or `context.sketch`) outside sketch mode runs `enterSketch` when the app selection is exactly one sketch feature, or items of one sketch (curves, points, regions), and `startNewSketch` (3.16.1) otherwise; its tooltip reads "Edit {label}" or "New sketch". The toolbar's Sketch (`feature.sketch`) always starts a new sketch. In sketch mode, choosing Model or Print finishes the sketch (3.16.11) and then switches.
+- Choosing the Sketch radio (or `context.sketch`) outside sketch mode runs `enterSketch` when the app selection is exactly one sketch feature, or items of one sketch (curves, points, regions) (`selectSketchToEdit`), and `startNewSketch` (3.16.1) otherwise; its tooltip reads "Edit {label}" or "New sketch" (`selectSketchRadioTooltip`, also `context.sketch`'s palette detail). In sketch mode, where choosing it changes nothing, it has no tooltip; the radio keeps its focus either way. The toolbar's Sketch (`feature.sketch`) always starts a new sketch. In sketch mode, choosing Model or Print finishes the sketch (3.16.11) and then switches.
 - A feature command run from Sketch finishes the sketch, switches to Model and starts the command. When the app selection is empty, the finished sketch preselects: for a `sketch_region` field, its region when it has exactly one; for a `sketch_point` field, its non-construction point entities, or, when it has none, the centers (`{entity}.center`) of its non-construction circles and arcs. Run from Print, it switches to Model first.
 - Print commands are listed and active in Print only. Sketch tools are listed and active in Sketch only, and only while a sketch is being edited (not during plane picking).
 
@@ -2259,28 +2310,28 @@ Commands without a default shortcut (ids and titles; all listed in the palette i
 | `settings.navigation.fusion`, `settings.navigation.freecad` | Navigation: Fusion, Navigation: FreeCAD | all |
 | `settings.scale.100`, `.125`, `.150`, `.200`, `.300` | UI scale: 100%, 125%, 150%, 200%, 300% | all |
 
-`edit.repeat` runs `startFeatureCommand` for the type of the last feature command run in this session from any source, with the current selection preselected; before any it is disabled with `nothing_to_repeat`. It is reached from the viewport context menu (3.13) and with Enter on the focused viewport (Enter ladder, below).
+`edit.repeat` runs `startFeatureCommand` for the type of the last feature command run in this session from any source (`lastFeatureType`, 2.8; a new sketch is not repeated, since it starts plane picking), with the current selection preselected, through the registry, so that command's availability applies and its run is recorded as a recent palette item; before any it is disabled with `nothing_to_repeat`. Its `label` (2.10) gives the palette and menus "Repeat {title}". It is reached from the viewport context menu (3.13) and with Enter on the focused viewport (Enter ladder, below).
 
 `FEATURE_SHORTCUTS` holds the four feature entries above with their shortcut contexts; other commands have no shortcut. Letters follow Fusion where Fusion has a default (E, H, F, M, L, R, C, D, X, S); `Mod+N` is desktop only because browsers reserve Ctrl+N. Unit test U-22 asserts `conflicts()` is empty for the built-in registry with the test catalog on every platform. Letters stay shortcuts: typed entry on the viewport routes only characters that start a number (3.7, 3.16.4), so S, V and the feature letters keep working during commands and while a shape is rubber-banding; once a value input has focus, every key types into it.
 
-Keys handled by components, not the registry:
+Keys handled by components, not the registry. The Key, Where and Effect cells are written for users, because the keyboard and mouse panel shows them as they are (`COMPONENT_KEYS`, below); `Mod` is Cmd on macOS and Ctrl elsewhere, and the panel shows the platform's key. The last column names the rule each row follows:
 
-| Key | Where | Effect |
-| --- | --- | --- |
-| Esc | anywhere | The Esc ladder below |
-| Enter | inspector fields, inline editors, line tool, focused viewport | The Enter ladder below |
-| Arrow keys | focused viewport | Orbit 15 degrees per press (Left and Right about world Z, Up and Down about the camera right axis) |
-| Shift+arrow keys | focused viewport | Pan by 10 percent of the viewport height |
-| `=` or `+`, `-` | focused viewport | Zoom in or out by 1.25 at the viewport center; `-` types into a value instead while a feature command is active (3.7) or a shape is rubber-banding (3.16.4) |
-| Digit, `.`, `-`, `(` | focused viewport or selection field box during a feature command | Focus the command's value field and type the character (3.7) |
-| Tab | focused viewport during a feature command | Focus the command's value field with its text selected (3.7) |
-| Digit, `.`, `-`, `(` | sketch mode while a shape is rubber-banding | Focus the first draw input and type the character (3.16.4) |
-| Arrow keys, Home, End | toolbars, timeline, tree, menus, segmented controls | Move focus (roving tab index) |
-| Shift+F10, ContextMenu | timeline item, browser row, focused viewport | Open the context menu (the viewport's: 3.13) |
-| Space | timeline item, browser row | Select (with Mod: toggle) |
-| Tab | sketch draw inputs | Cycle between the inputs |
-| Hold Ctrl (Windows, Linux) or Cmd (macOS) | sketch drawing | Suppress inference (3.16.5) |
-| Shift or Mod with click | viewport, timeline, browser | Toggle the item in the selection |
+| Key | Where | Effect | Rule |
+| --- | --- | --- | --- |
+| Esc | Anywhere | Step back one level: close a menu or list, cancel a drawing, leave the tool, cancel the command, then clear the selection | Esc ladder below |
+| Enter | Fields, inline editors, the line tool, the view | Commit the field or editor, end a line, confirm a complete command, or repeat the last command on the selection | Enter ladder below |
+| Arrow keys | The view | Orbit 15 degrees per press: Left and Right about the vertical axis, Up and Down about the view's horizontal axis | Left and Right about world Z, Up and Down about the camera right axis (3.13) |
+| Shift+arrow keys | The view | Pan by a tenth of the view's height | 10 percent of the viewport height |
+| = or +, - | The view | Zoom in or out at the center; during a command or while drawing a shape, - starts a negative value instead | By 1.25 at the viewport center; 3.7, 3.16.4 |
+| Digit, ., -, ( | The view or a selection field during a command | Type into the command's value field | 3.7 |
+| Tab | The view during a command | Select the command's value to type over it | 3.7 |
+| Digit, ., -, ( | A sketch while drawing a shape | Type into the shape's first size input | 3.16.4 |
+| Arrow keys, Home, End | Toolbars, timeline, browser, menus, segmented controls | Move focus | Roving tab index (3.24) |
+| Shift+F10, ContextMenu | Timeline item, browser row, the view | Open the context menu | 3.9, 3.10, 3.13 |
+| Space | Timeline item, browser row | Select; with Mod, add or remove | 3.9, 3.10 |
+| Tab | Sketch size inputs | Move to the next input | 3.16.4 |
+| Hold Mod | A sketch while drawing | Place freely, without snapping or automatic constraints | Suppresses inference (3.16.5) |
+| Shift or Mod with click | The view, timeline, browser | Add to or remove from the selection | 3.6 |
 
 Esc ladder: each press does the first step that applies: (1) close the innermost open menu, popover, palette, name completion list, inline rename or inline editor; (2) in sketch mode, cancel the in-progress drawing, drag or box selection (the tool stays active); (3) exit the active sketch tool or constraint pick mode; (4) cancel the active feature command; (5) cancel the plane pick of a new sketch (back to Model) or the face pick of Lay on face (3.17); (6) clear the selection. Esc never leaves sketch mode once a sketch is being edited; when an Esc press in sketch mode finds no step to do, the sketch hint shows `sketch_leave` for 3 s, so the way out is named.
 
@@ -2289,8 +2340,8 @@ Enter ladder: (1) in an open name completion list with an option chosen by the a
 Keyboard and mouse reference: `app.keys` (F1; the browser's own F1 is prevented) opens the side panel `keys` (`data-testid="keys-panel"`, title "Keyboard and mouse", close button), rendered from data, never hand-written prose, so it cannot drift from the behavior:
 
 - "Mouse": the `rows` of the current preset from `NAVIGATION_PRESETS` (2.11) as label and gesture rows, under a segmented control "Fusion | FreeCAD" that runs the navigation setting commands.
-- "Keys in the view and panels": `COMPONENT_KEYS` (`src/commands/component-keys.ts`), the component-key table above as data (key, where, effect), which the components read too.
-- "Typing values": from the same data, the expression input keys of 2.13 (ArrowUp and ArrowDown step a plain number, Shift ten times as far, Alt a tenth; Tab completes a parameter name), the draw input keys of 3.16.4 and the typed-value keys of 3.7, with one line saying that any size or angle field takes a number, a value with a unit such as `1 in`, or a formula with parameter names.
+- "Keys in the view and panels": `COMPONENT_KEYS` (`src/commands/component-keys.ts`), the Key, Where and Effect columns of the component-key table above as data (`key`, `place`, `effect`), with `Mod` shown as the platform's key (`Ctrl`, or `⌘` on macOS, as `formatShortcut` writes it).
+- "Typing values": `TYPING_KEYS` from the same module, the expression input keys of 2.13 (ArrowUp and ArrowDown step a plain number, Shift ten times as far, Alt a tenth; Tab completes a parameter name), the draw input keys of 3.16.4 and the typed-value keys of 3.7, followed by `TYPING_NOTE`: "Any size or angle field takes a number, a value with a unit such as 1 in, or a formula with parameter names."
 - A last line: "Every command and its shortcut: Search ({formatShortcut('Mod+K')})."
 
 Nothing appears until the user asks for it; the palette lists every registry command and shortcut, and this panel covers what the palette cannot: keys components handle themselves and the mouse.
@@ -2365,12 +2416,12 @@ Other edits during a command: while a feature command's transaction is open,
 
 - Parameter changes from the Parameters panel (add, expression, comment, delete) are sent through `applyEdits` with no label, so they join the transaction (a rename already does, protocol.md command 31), and the preview follows at once: while such an edit is in flight `data-preview` is `pending`, and it returns to `shown` (or `failed`) when the edit's events arrive. OK records them with the feature as one undo entry and Cancel reverts them. They are not command history entries: `Mod+Z` with an empty history cancels the command and reverts them with it, and Restore (below) does not bring them back. The Parameters panel shows under its title, in `textMuted`: "Changes are part of {title} until you press OK." (`data-testid="parameters-transaction"`).
 - Session view state stays available: sketch, datum and origin eyes, body locks, the section view, the camera, the selection filter, the grid and every panel.
-- Every other document edit is disabled with `finish_command_first`: Save and Save as, body visibility, color, material, rename and delete, timeline rename, suppress, unsuppress, delete, reorder and the rollback marker, units and printer. Their controls are `aria-disabled` with the reason as tooltip; the timeline drag and the marker do not start.
+- Every other document edit is disabled with `finish_command_first`: Save and Save as, body visibility, color, material, rename and delete, timeline rename, suppress, unsuppress, delete, reorder and the rollback marker, units and printer. Their controls are `aria-disabled` with the reason as tooltip; the timeline drag and the marker do not start. The actions themselves refuse these edits during a command and show the reason as an info notification, as a disabled command does when clicked (2.10), so no path sends a labeled edit into the open transaction.
 - New, Open and Open recent cancel the command first.
 
 Command history: each change the user makes in a command (a pick added or removed, a field cleared, a choice, switch or toggle changed, the first text change of an expression field after it gains focus, a "Use" or fix action, a "New body" choice) pushes a `CommandStep` (the params, helper sketch and active field before it, with the changed field's label) onto `history` and clears `future`; its path joins `changedPaths`. Preselection and starting values are not changes, and the rules a change triggers (the sibling body of 2.12, the cut direction above) belong to that change. With focus outside a text field, `Mod+Z` pops `history`, restores that state (including the helper sketch of placing holes on a face) and previews again; `Mod+Shift+Z` pops `future` likewise. With an empty `history`, `Mod+Z` cancels the command and calls no core `undo`. In a text field, `Mod+Z` stays the field's own text undo (2.10 dispatch rule 2). So a reflex `Mod+Z` after a wrong pick undoes that pick, not every pick.
 
-Implicit cancel: when a command whose `history` is not empty ends without OK or Cancel because the user did something else (another feature command starts, another feature is edited, a sketch is entered, or the context changes), it is canceled as before and the info notification `command_canceled` offers "Restore". Restore cancels whatever command is then active, explicitly (that cancel raises no notification of its own), and reopens this one (`startFeatureCommand` without preselection, or `editFeature` of the same feature) with the saved params, helper sketch and active field. New, Open, Open recent, the recovery Open and a core restart cancel without this notification, because Restore would reopen the command against another document. A command whose `history` is empty ends silently, as before. Committing instead of canceling is deliberately not done: a newcomer who clicked Extrude and then Revolve would get a feature they did not want and a hidden sketch.
+Implicit cancel: when a command whose `history` is not empty ends without OK or Cancel because the user did something else (another feature command starts, another feature is edited, a sketch is entered, or the context changes), it is canceled as before and the info notification `command_canceled` offers "Restore". Restore cancels whatever command is then active, explicitly (that cancel raises no notification of its own), and reopens this one (`startFeatureCommand` without preselection, or `editFeature` of the same feature) with the saved params, helper sketch and active field. A body the saved command had created is made again: a body-creating `target` gets a fresh new body, and a `body` filled by op `new` is emptied so the first application creates one; the reopened command starts with an empty history. New, Open, Open recent, the recovery Open and a core restart cancel without this notification, because Restore would reopen the command against another document. A command whose `history` is empty ends silently, as before. Committing instead of canceling is deliberately not done: a newcomer who clicked Extrude and then Revolve would get a feature they did not want and a hidden sketch.
 
 Inspector panel (`role="dialog"`, `aria-modal="false"`, `aria-labelledby` its title, `data-testid="inspector"`, `data-mode="command"`, `data-preview` mirroring `ActiveCommand.preview`: `none` before anything is applied or while the params are incomplete, `pending` while a preview request is in flight, `shown` when the preview layer for the latest params is drawn, `failed` when the focused feature's status is `error`), `w-80`, at most the viewport height minus 2rem (`max-h-[calc(100%-2rem)]`, the inspector's one arbitrary value: its height depends on the viewport, and it is absolutely positioned at a runtime translate), `overflow-y-auto`, a `surfaceRaised` panel with a `border` hairline, `rounded-md` and `shadow-lg`:
 
@@ -2391,17 +2442,17 @@ Field controls:
 
 Selection capture (`capturePick(item, pointer)`): when the active field accepts the item (`acceptsTarget`; geometry checks such as a flat face use the item's `ElementDescriptor`), the item is toggled in the field: added (replacing the single value when not `multiple`) or removed when already present. A refused item shows a hint under the field (`pick_plane` for `plane`, `pick_axis` for `axis`, `pick_points` for `sketch_point`, `pick_kind` otherwise; 4.3) for 3 s. When a non-multiple field receives its item, or a `multiple` field receives its first item, the active field advances to the next required empty selection field, if any. Clicking a field's box makes it the active field again. Focusing an expression field does not change the active field, which keeps its `accent` border, so clicks on the model still go to it while the user types. The sibling `body` rule of 2.12 applies.
 
-Faces for edges: while the active field accepts `edge` and is `multiple` (Fillet, Chamfer), faces are accepted too: clicking a face adds every edge named in its `ElementDescriptor.adjacent` that the field does not hold, in `adjacent` order, or removes them all when it holds every one. Their references come from the `listElements(documentHandle, body, 'edge')` descriptors with those names, cached per body and model-layer mesh id as in 3.6, so the UI still never builds a reference. Hovering a face in this state highlights its edges instead of the face. The sibling body rule (2.12) applies.
+Faces for edges: while the active field accepts `edge` and is `multiple` (Fillet, Chamfer), faces are accepted too: clicking a face adds every edge named in its `ElementDescriptor.adjacent` that the field does not hold, in `adjacent` order, or removes them all when it holds every one. Their references come from the `listElements(documentHandle, body, 'edge')` descriptors with those names, cached per body and model-layer mesh id as in 3.6, so the UI still never builds a reference. Hovering a face in this state highlights its edges instead of the face: the viewport controller lists the body's faces and edges once per model-layer mesh (display ids are list positions, protocol.md 3.4) and hands the edge display ids to the scene (`Scene.setHoverEdges`). The sibling body rule (2.12) applies.
 
 Placing holes on a face: while the active field accepts `sketch_point`, a click on a flat face (`surface` `plane`) of a visible, unlocked body places a hole center, so Hole works from a face as well as from sketch points, with a real sketch behind it:
 
 - The center is where the click's `PointerRay` meets the face's plane (`ElementDescriptor.placement`), in that placement's sketch coordinates (sketch.md); when the face's `centroid` is within 8 times `millimetersPerPixel` of that point, the center is the centroid.
 - The first such click gives the command a helper sketch (`ActiveCommand.helper`): a `sketch` record with a new `f-` id, `plane` `{"kind": "face", "body": <the face's body>, "face": <its Reference>, "fallback": <its placement>}` exactly as `createSketchOn` builds it (3.16.1), one point entity `{"id": <new e- id>, "type": "point", "position": [x, y]}` and no constraints. Points becomes that entity's `PointRef`, the sibling `sketch` field the helper's id and the `body` field the face's body; points of another sketch that Points held are replaced (the 2.12 rule for points of another sketch).
-- Further clicks on the same face add a point entity to the helper and its `PointRef` to Points. The helper's points are drawn from the command state like sketch points as soon as they exist, before any preview, and are pickable, so clicking one removes it (`capturePick`'s toggle). A click on another face is refused with `hole_one_face`.
+- Further clicks on the same face add a point entity to the helper and its `PointRef` to Points. The helper's points are drawn from the command state like sketch points as soon as they exist, before any preview, and are pickable, so clicking one removes it (`capturePick`'s toggle) along with its point entity; when Points holds none of the helper's points anymore, the helper is dropped and a Sketch field naming it is cleared. A click on another face is refused with `hole_one_face`, and a face that is not flat with `pick_points`. Without a `PointerRay` (a pick that did not come from the viewport) the center is the centroid. Centers are kept to 6 decimals of a millimeter.
 - Every preview application carries the helper: the first one sends `add_feature` of the helper at the index the marker rule gives the hole, followed by the hole's `add_feature` right after it (when editing, the helper goes at the hole's index, before it); later ones send `update_feature` of the helper. When Points no longer holds a point of the helper, the next application removes it (`remove_feature`) and `helper` becomes null.
 - Confirming commits the helper and the hole in the one transaction (one undo entry, the command's label); Cancel discards both. The committed helper is hidden like any sketch the committed params reference (Confirming, above); opening it later (double-click its browser row) lets the user dimension the centers exactly.
 
-Typing values: the command's value field is the expression field the user changed last in this command (the last expression path in `changedPaths`), else the first essential expression field. While a feature command is active and focus is on the viewport or on a selection field box, a digit, `.`, `-` or `(` pressed without Mod, Ctrl or Alt focuses the value field, replaces its text with that character and leaves the caret after it; Tab on the focused viewport focuses the value field with its text selected. The Enter ladder (3.5) then confirms, so pick, type `2`, Enter makes a 2 mm fillet. Letters keep their shortcuts.
+Typing values: the command's value field is the expression field the user changed last in this command (the last expression path in `changedPaths`), else the first essential expression field. While a feature command is active and focus is on the viewport or on a selection field box, a digit, `.`, `-` or `(` pressed without Mod, Ctrl or Alt focuses the value field, replaces its text with that character and leaves the caret after it; Tab on the focused viewport focuses the value field with its text selected. The Enter ladder (3.5) then confirms, so pick, type `2`, Enter makes a 2 mm fillet. Letters keep their shortcuts. The typed character is one history step of the value field (Command history, below). `layout/use-typed-values.ts` takes these keys in the capture phase on `window`, before the viewport's own keys, so during a command `-` starts a negative value instead of zooming out (3.13).
 
 Placement: when the inspector opens, it is placed with `placeInspector` where `anchor` is the screen rectangle of the preselected items (or null) and `bounds` the viewport rectangle; it then stays put while open. Dragging the header moves it within the viewport, and the dragged position (`panels.inspectorPosition`) is used for every inspector until reload. The position is applied with `positionElement` (3.12), never through a `style` prop.
 
@@ -2424,9 +2475,35 @@ With no feature command active and a non-empty app selection (Model and Print co
 | Sketch entities and points | "1 line", "2 lines", "1 circle", "1 arc", "1 point", "{n} items" | Constraint suggestions (`applicableConstraints`, each a button with glyph, title and shortcut), Construction (switch, for entities), Delete. For one line, circle or arc, a size field (below) |
 | One sketch constraint | Constraint title ("Horizontal", "Distance") | For dimensions: an expression field with the stored expression (Enter commits "Change dimension") and a Reference switch; Delete |
 
-Suggested commands (`suggestedCommands` in `src/inspector/suggestions.ts`, the rows above) are buttons with the command's icon, title and formatted shortcut (the shortcut `aria-hidden` and given through `aria-keyshortcuts`, as for the constraint suggestions). They run the command with the selection preselected (3.7 step 4). A suggestion whose command is disabled (2.10) is left out. So commands that are in the palette only (Datum plane, Move body, Split body) are offered where they apply, with no toolbar growth.
+Suggested commands (`suggestedCommands` in `src/inspector/suggestions.ts`, the rows above) are buttons with the command's icon, title and formatted shortcut (the shortcut `aria-hidden` and given through `aria-keyshortcuts` with `ariaKeyShortcut`, 2.10, as for the constraint suggestions). They run the command with the selection preselected (3.7 step 4). A suggestion whose command is disabled (2.10) is left out. So commands that are in the palette only (Datum plane, Move body, Split body) are offered where they apply, with no toolbar growth. A timeline item of a datum plane counts as a datum plane.
 
-Size field: for one line, circle or arc in the sketch selection, a field (`data-testid="entity-size"`, `ExpressionInput` with unit length) labeled "Length", "Diameter" or "Radius". Its text is the expression of the driving dimension already on the entity (a `distance` on the line or on its two end points; a `diameter` or `radius` on the circle or arc) when there is one, else `formatNumber` of the solved size. Enter with a changed valid text commits through `commitSketchChange`: with a driving dimension, its replacement labeled "Change dimension"; otherwise a new driving dimension (`dimensionFor`: `distance` for a line, `diameter` for a circle, `radius` for an arc) at `defaultLabelPosition`, labeled "Dimension", which then shows on the canvas. When the new dimension would over-constrain the sketch, the field shows `dimension_over_constrained` with "Add reference" and "Cancel" (3.16.7). So a shape's size can be typed after selecting it, with expressions and parameters as everywhere else.
+```ts
+/** The `feature.<type>` commands the rows above suggest for the selection, in order; a type the catalog lacks is left out. None in Sketch context. */
+export function suggestedCommands(state: AppState, items: readonly SelectionItem[]): readonly string[]
+```
+
+The "Made by {label}" row (`data-testid="made-by"`) sets the app hover to `{key: 'feature:{id}', kind: 'feature'}` while the pointer is over it, which the timeline item of that feature shows with the `hover` role's `active` background; the "Select {name}" buttons show that text.
+
+Size field: for one line, circle or arc in the sketch selection, a field (`data-testid="entity-size"`, `ExpressionInput` with unit length) labeled "Length", "Diameter" or "Radius". Its text is the expression of the driving dimension already on the entity (a `distance` on the line or on its two end points; a `diameter` or `radius` on the circle or arc) when there is one, else `formatNumber` of the solved size. Enter with a changed valid text commits through `commitSketchChange`: with a driving dimension, its replacement labeled "Change dimension"; otherwise a new driving dimension (`dimensionFor`: `distance` for a line, `diameter` for a circle, `radius` for an arc) at `defaultLabelPosition`, labeled "Dimension", which then shows on the canvas. When the new dimension would over-constrain the sketch, the field shows `dimension_over_constrained` with "Add reference" (adds it with `driving: false`) and "Cancel" (restores the text) (3.16.7); a replaced dimension the sketch cannot take shows `dimension_unsolvable`, and a refused change its message, as the field's error. Enter with the text unchanged commits nothing. So a shape's size can be typed after selecting it, with expressions and parameters as everywhere else.
+
+```ts
+// src/inspector/entity-size.ts
+export type EntitySize = {
+  readonly entity: string
+  readonly label: 'Length' | 'Diameter' | 'Radius'
+  readonly type: 'distance' | 'diameter' | 'radius'
+  /** The driving dimension's expression, else `formatNumber` of the solved size. */
+  readonly text: string
+  /** The driving dimension already on the entity, which a change replaces; null without one. */
+  readonly dimension: SketchConstraint | null
+  /** A point of the entity, which orders a new dimension's operands. */
+  readonly at: Vector2
+}
+/** The size field of the sketch selection: one line, circle or arc; null otherwise. A stored radius on a circle keeps the field a Radius. */
+export function entitySize(items: readonly SelectionItem[], params: SketchParams, solution: SketchSolution, units: Units): EntitySize | null
+/** The dimension a typed size becomes: the driving dimension with the new expression, or a new one (`dimensionFor`), only measuring with `reference`. */
+export function entitySizeDimension(size: EntitySize, item: SelectionItem, expression: string, solution: SketchSolution, ids: IdSource, options?: { reference?: boolean }): SketchConstraint
+```
 
 Measurements: selecting something measures it, with no tool and no mode. Rows (`selectionMeasurements` in `src/inspector/measurements.ts`; `data-testid="measure-row"`, `data-measure`) show a label and a value in `FONT_CLASSES.values` (selectable text, `formatQuantity`):
 
@@ -2435,6 +2512,19 @@ Measurements: selecting something measures it, with no tool and no mode. Rows (`
 | One circular edge or cylindrical face | Diameter (`diameter`): 2 × the descriptor's `radius` |
 | One spherical face | Diameter (`diameter`): 2 × the descriptor's `radius` |
 | One body with geometry (Size is not "Empty") | Volume (`volume`): `measure` with `{kind: 'body', body}` through a `LatestOnly` keyed by the body's model-layer mesh id; the volume divided by the cube of millimeters per document unit, rounded as a length (2.13), followed by `{unit}³`; empty while pending |
+
+A body's rows follow its Center; an element's follow its surface or curve rows. Each model-layer mesh is measured once per app; a failed `measure` leaves the value empty.
+
+```ts
+// src/inspector/measurements.ts
+export type MeasureRow = { readonly measure: 'diameter' | 'volume'; readonly label: string; readonly value: string }
+/** The rows of the table above; a volume not measured yet has an empty value. Reads the state and the app's volume meter only. */
+export function selectionMeasurements(app: App, items: readonly SelectionItem[]): readonly MeasureRow[]
+/** Asks the core for what the rows still need (the volume of one body's mesh); resolves when it answered. */
+export function measureSelection(app: App, items: readonly SelectionItem[]): Promise<void>
+/** A volume in mm³ in the document unit cubed: "8000 mm³", "0.4882 in³". */
+export function formatVolume(volume: number, units: Units): string
+```
 
 Distances and angles between two selected items need the core's two-target `measure`, which is later (1.2).
 
@@ -2527,7 +2617,7 @@ Passes, in order:
 7. Overlay (no depth test): sketch curves, points and region fills (3.16.2); in Model context visible sketches draw in `sketchReference` at 1.25 CSS pixels with no region fill, except hovered or selected regions (`highlight` at 20 or 35 percent) and, while the active selection field accepts `sketch_region`, every region of every visible sketch in `sketchRegion` at 12 percent (20 percent when hovered), so the shapes that can be clicked show. The helper sketch points of a Hole command (3.7) draw here too.
 8. Print bed outline (depth-tested, 3.17).
 
-- Grid: in Model context, lines on the XY plane (z = 0); in sketch mode, lines on the sketch plane through the placement origin along the placement axes instead; none in Print, which draws the bed outline, and none while the grid is turned off (the palette toggle "Show grid", `ViewState.grid`). The minor spacing is `gridSpacing` (2.11) at the camera target; every tenth line is major. The grid covers a square of side `max(200 mm, 2 × the diagonal of the visible bounds)` centered on the origin (or the placement origin), rounded out to whole major cells. Lines are 1 CSS pixel wide (times the UI scale) in `grid`, minor at 35 percent and major at 70 percent opacity, depth-tested so bodies hide them; they are not drawn into the ID pass and are never snap targets. The viewport mirrors the minor spacing in the document unit (`formatNumber`) in `data-grid-spacing`, empty when no grid is drawn, and the status bar shows it (3.21), so the grid gives scale and not only orientation.
+- Grid: in Model context, lines on the XY plane (z = 0); in sketch mode, lines on the sketch plane through the placement origin along the placement axes instead (on the XY plane while a plane is picked for a new sketch, which has no plane yet); none in Print, which draws the bed outline, and none while the grid is turned off (the palette toggle "Show grid", `ViewState.grid`). The minor spacing is `gridSpacing` (2.11) at the camera target; every tenth line is major. The grid covers a square of side `max(200 mm, 2 × the diagonal of the visible bounds)` centered on the origin (or the placement origin), rounded out to whole major cells. Lines are 1 CSS pixel wide (times the UI scale) in `grid`, minor at 35 percent and major at 70 percent opacity, depth-tested so bodies hide them; they are not drawn into the ID pass and are never snap targets. The controller mirrors the drawn grid's minor spacing in `view.gridSpacing` whenever it changes (2.8); the viewport shows it in the document unit (`formatNumber`) in `data-grid-spacing`, empty when no grid is drawn, and the status bar shows it (3.21), so the grid gives scale and not only orientation.
 
 - Datum and origin planes are drawn as squares of side `max(50 mm, 1.2 × the diagonal of the visible bounds)` centered at the projection of the visible bounds center onto the plane. Every drawn origin plane (all three while a plane is picked or a plane field is active, otherwise those shown this session) carries its plane label of 3.16.1 at its corner. Origin axes are drawn as dashed lines of the same length through the origin in `sketchReference`, with DOM labels "X", "Y", "Z" (`textMuted`) at their positive ends.
 - The overlay layer (`absolute inset-0 overflow-hidden pointer-events-none` over the canvas; interactive children `pointer-events-auto`) holds an SVG (`absolute inset-0 size-full`) for the box selection rectangle, profile issue rings, finding markers and repair markers, and HTML elements for sketch dimension labels, constraint glyphs, draw inputs, the dimension editor, inference glyphs, axis labels and plane labels. Their positions follow the runtime positions rule below and update in the same animation frame as the canvas.
@@ -2572,7 +2662,8 @@ export function orientElement(element: HTMLElement, matrix: Float32Array): void
 - Viewport context menu (`data-testid="viewport-menu"`, `role="menu"`), at the pointer; a pick target under the pointer that is not selected first becomes the selection (as a click would). Shift+F10 or the ContextMenu key on the focused viewport opens it at the center of the selection's screen rectangle, or the viewport center. Items come from `viewportMenuItems(app)` (2.11), each with its formatted shortcut, leaving out disabled ones, so the menu and the radial marking menu of 1.2 can share them:
   - A feature command active: "OK" (when complete) and "Cancel".
   - Sketch mode: the applicable constraints of the sketch selection (3.8), "Construction" and "Delete" when something is selected, a separator, "Finish sketch".
-  - Otherwise: "Repeat {title}" (`edit.repeat`, when there is a command to repeat), the selection's suggested commands (3.8), "Edit {label}" (one face, edge or vertex: its `element.feature`; one feature: that feature), "Hide" (`view.visibility`, when the selection holds bodies, sketches, datum planes or origin items, which have visibility), "Look at" (when enabled), a separator, "Fit to view".
+  - Otherwise: "Repeat {title}" (`edit.repeat`, when there is a command to repeat), the selection's suggested commands (3.8), "Edit {label}" (one face, edge or vertex: its `element.feature`; one feature: that feature; never an `import`), "Hide" (`view.visibility`, when the selection holds bodies, sketches, datum planes or origin items, which have visibility; "Show" when all of them are hidden), "Look at" (when enabled), a separator, "Fit to view".
+  - A right click selects nothing during a feature command, a Lay on face pick, plane picking or an active sketch tool; the menu still opens.
 - During a gesture hover picking pauses; the ID pass is re-rendered on the next pick after the camera has been still for 100 ms.
 - The viewport is focusable (`tabindex="0"`, `role="application"`, `aria-roledescription="3D view"`) and takes the keys of 3.5.
 - The navigation preset is a setting (`settings.navigation`), mirrored on the viewport as `data-nav-preset` (`fusion` or `freecad`). The right-drag gestures work in both presets, so no one has to pick a preset to orbit; the preset only decides the middle-button gestures.
@@ -2599,7 +2690,7 @@ export function orientElement(element: HTMLElement, matrix: Float32Array): void
 
 #### 3.16.1 Entering
 
-- `startNewSketch`: when the selection is exactly one plane-like item (origin plane, datum plane, or a face whose `surface` is `plane`), `createSketchOn(item)`. Otherwise the app enters plane picking: context Sketch with `sketchId` null; the sketch header reading "Pick a plane or a flat face to draw on" followed by the buttons "Top", "Front" and "Right" (accessible names "Sketch on Top plane (XY)", "Sketch on Front plane (XZ)", "Sketch on Right plane (YZ)"), which run `createSketchOn` for that origin plane, so the first plane is one click or one Tab away; origin planes shown, each with a label at the corner of its square in the plane's positive first and second axis directions (`data-testid="plane-label"`, `pointer-events-none`, `text-xs` on a `surfaceRaised` chip, positioned per 3.12): "Top (XY)", "Front (XZ)", "Right (YZ)"; the sketch hint (3.16.3) reading `plane_pick_hint` ("Top plane (XY) is the print bed."); and only origin planes, datum planes and faces accepted. A face that is not flat shows the hint `pick_plane`. Clicking a browser origin plane or datum row works too. Esc returns to Model.
+- `startNewSketch`: when the selection is exactly one plane-like item (origin plane, datum plane, or a face whose `surface` is `plane`), `createSketchOn(item)`. Otherwise the app enters plane picking: context Sketch with `sketchId` null; the sketch header reading "Pick a plane or a flat face to draw on" followed by the buttons "Top", "Front" and "Right" (accessible names "Sketch on Top plane (XY)", "Sketch on Front plane (XZ)", "Sketch on Right plane (YZ)"), which run `createSketchOn` for that origin plane, so the first plane is one click or one Tab away; origin planes shown, each with a label at the corner of its square in the plane's positive first and second axis directions (`data-testid="plane-label"`, `pointer-events-none`, `text-xs` on a `surfaceRaised` chip, positioned per 3.12): "Top (XY)", "Front (XZ)", "Right (YZ)"; the sketch hint (3.16.3) reading `plane_pick_hint` ("Top plane (XY) is the print bed."); and only origin planes, datum planes and faces accepted. A face that is not flat shows the hint `pick_plane`. Clicking a browser origin plane or datum row works too (other rows select as usual). Esc returns to Model.
 - `createSketchOn(item)`: commits one `apply_edits` labeled "New sketch" with `add_feature` of a `sketch` record whose `plane` is sketch.md's `SketchPlane` for the item: `{"kind": "origin", "plane": "XY"}`, `{"kind": "datum", "feature": id}` or, for a face, `{"kind": "face", "body": id, "face": <Reference>, "fallback": <Placement>}` with the fallback from the face's `ElementDescriptor.placement`; empty entities and constraints; inserted by the marker rule of 3.7. Then `enterSketch(new id)`.
 - `enterSketch(id)`: cancels an active command, sets context Sketch, shows the sketch for the session, gets its solution (`sketch_solved` events or `solveSketch(documentHandle, id)`), and moves the camera: `lookAlong` the placement normal with the placement y-axis up, then, when the sketch has entities, frames their bounds in the sketch plane (`fitBounds`, margin 0.1); an empty sketch keeps the visible height and targets the placement origin. The projection is kept. The camera before entering is pushed as a sketch view entry (3.20) and kept as `cameraBefore` (3.16.11); entering another sketch while one is edited keeps the session's `cameraBefore`, which still looks at the model. Downstream features stay visible and recompute after each sketch edit.
 
@@ -2727,14 +2818,14 @@ Commands `sketch.constrain_<type>` in this order: Coincident, Point on object, H
 ### 3.17 Print context
 
 - Printer: the toolbar menu button "Printer: {profile name}", or "Printer: {default name} (default)" when the document has no printer, the default being the profile `generic-fdm` from `listPrinterProfiles`, which the engine then uses (print.md), so the user sees which printer the checks used before trusting "Ready to print". It opens `data-testid="printer-menu"` (`role="menu"`): radio items for every profile, each with a `textMuted` detail of its key numbers (`printerDetail` in `src/print/printer.ts`; FDM: "{width} × {depth} × {height} mm bed · {nozzle} mm nozzle", or "⌀{diameter} × {height} mm bed · {nozzle} mm nozzle" for a round bed; resin: "{width} × {depth} × {height} mm"), under the headings "FDM" and "Resin" by technology, then "Default ({default name})", which clears the printer. Choosing one commits `set_printer` (label "Change printer"). The status bar printer button opens the same menu. `printerButtonText` gives the button's text.
-- Overhang map: a toggle (`aria-pressed`, default on, session state) that alone shows or hides the overhang color map and its legend.
+- Overhang map: a toggle (`print.overhangs`, title "Overhang map", `aria-pressed`, default on, session state) that alone shows or hides the overhang color map and its legend; switching the Overhangs check off in Checks hides its findings only.
 - Checks: a popover (`data-testid="checks-popover"`) with one switch per check in this order and wording: Overhangs (`overhangs`), Bed fit (`bed_fit`), First layer contact (`first_layer_contact`), Thin walls (`thin_walls`), Small features (`small_features`), Islands (`islands`), Trapped volumes (`trapped_volumes`), Mesh validity (`mesh_validity`, always on and disabled, help "Always checked before export"). The core runs every check (protocol.md `analyze_print`); a switched-off check only hides its findings from the badge counts and the list. The choice persists in `settings.hiddenChecks`.
 - Print check: the toolbar button "Print check" (with the shown finding count) opens the side panel `health`, titled "Print check". The verb "Check print" names the action of running the checks everywhere (the `none` badge, `print.check_now`, the export popover); the noun "Print check" names the panel and the badge.
-- Lay on face: a toolbar button "Lay on face" (`arrow-down-to-line` icon, `print.lay_on_face`, `aria-pressed` while an orientation is set; tooltip "Lay on face: pick the face that should rest on the bed. Click again to print as modeled."). With no orientation set it starts a face pick (`startLayOnFace`, `print.pickingFace` true): the print hint (`data-testid="print-hint"`, `role="status"`, a chip like the sketch hint in the top-center slot of 3.2) reads `print_pick_face`, only flat faces of visible part bodies are accepted (another face shows `pick_flat_face` in the hint for 3 s), and Esc cancels (Esc ladder step 5). The picked face sets `print.orientation` to `{kind: 'face_down', body, face: <its Reference>}`. With an orientation set, the button resets it to as modeled. A `CoreError` with code `invalid_orientation` or `reference_unresolved` resets it and shows the core message as a warning notification. Rows of the `overhangs`, `first_layer_contact` and `islands` checks have a button "Lay on a face" at the row's end that starts the pick; in these rows the finding text is the button that focuses the finding, so buttons never nest. The orientation is session state like body locks (open issue 3): it never changes the design, and while it is set the print check panel header and the export popover say so (`orientation_set`, 4.3, with "Print as modeled").
+- Lay on face: a toolbar button "Lay on face" (`arrow-down-to-line` icon, `print.lay_on_face`, `aria-pressed` while an orientation is set; its description, on the tooltip's second line (3.24): "Pick the face that should rest on the bed. Click again to print as modeled."; a click while the pick waits ends the pick). With no orientation set it starts a face pick (`startLayOnFace`, `print.pickingFace` true): the print hint (`data-testid="print-hint"`, `role="status"`, a chip like the sketch hint in the top-center slot of 3.2, `src/print/PrintHint.tsx`) reads `print_pick_face`, only faces are picked and only flat faces of visible part bodies are accepted (`layOnFace`; another face shows `pick_flat_face` in the hint for 3 s as a `pickHint` with no field, and the pick goes on), clicks select nothing, and Esc cancels (Esc ladder step 5). Leaving Print or starting a feature command ends the pick. The picked face sets `print.orientation` to `{kind: 'face_down', body, face: <its Reference>}`. With an orientation set, the button resets it to as modeled. A `CoreError` with code `invalid_orientation` or `reference_unresolved` resets it and shows the core message as a warning notification. Rows of the `overhangs`, `first_layer_contact` and `islands` checks have a button "Lay on a face" at the row's end that starts the pick (switching to Print first when the panel shows in Model); in these rows the finding text is the button that focuses the finding (`health-item`), so buttons never nest. The orientation is session state like body locks (open issue 3): it never changes the design, and while it is set the print check panel header and the export popover say so (`orientation_set`, 4.3, with "Print as modeled").
 
 Analysis runs:
 
-- In Print context, 300 ms after the document revision or `print.orientation` last changed with no transaction open, and on entering Print when the report is stale: `analyzePrint(documentHandle, { orientation: print.orientation ?? { kind: 'as_modeled' } })` through a `LatestOnly` (a `null` superseded result is ignored); `reportOrientation` records the orientation sent. `print.running` is true meanwhile.
+- In Print context, 300 ms after the document revision or `print.orientation` last changed with no transaction open, and on entering Print when the report is stale: `analyzePrint(documentHandle, { orientation: print.orientation ?? { kind: 'as_modeled' } })` through a `LatestOnly` (a `null` superseded result is ignored); when the answer is not `null`, `reportOrientation` records the orientation sent (null as modeled). An analysis of the same revision and orientation already in flight or waiting is not sent again. `print.running` is true meanwhile.
 - Outside Print, analysis never runs on its own. The badge shows the last report as stale; clicking the badge runs the analysis and opens the print check panel.
 
 Health badge (`data-testid="health-badge"`, a button in the status bar, `data-state`, accessible name as listed):
@@ -2769,7 +2860,19 @@ Bed outline: in Print context, after a report, the bed outline of the report's p
 - While a feature command is active, the export commands are disabled with `finish_command_first` (export uses the model state, which ignores the focus).
 - The top-bar Export button, `Mod+Shift+E` and the Document menu open the export popover (`data-testid="export-popover"`): Format (radio group 3MF, STL, OBJ, STEP; default 3MF), Bodies (radio group "All visible bodies", "Selected bodies"; the second is disabled unless bodies are selected), and an "Export" button.
 - The Print toolbar's "Export 3MF" exports 3MF of all visible bodies directly; its Export group exports STL, OBJ or STEP of all visible bodies directly.
-- The export popover shows, above its Export button, up to three status lines (`data-testid="export-status"`, `text-xs`; `exportStatus` in `src/export/status.ts`), so what is about to be printed is clear while export stays one click with no confirmation: (1) when an active feature has status `error`, `export_failed_feature` (one feature) or `export_failed_features` (several) with the `warningMark` hazard icon and a button "Show problems" (opens the Problems panel); (2) for 3MF and STL only, "Print check: {state}" with the health badge's icon and text (3.17; "Not checked" for `none`, " (out of date)" appended when stale) and, when the badge is `none` or stale, a button "Check print" that runs the analysis and opens the print check panel; (3) for 3MF and STL while `print.orientation` is set, `orientation_set` with its "Print as modeled" button.
+- The export popover shows, above its Export button, up to three status lines (`data-testid="export-status"`, `text-xs`; `exportStatus` in `src/export/status.ts`), so what is about to be printed is clear while export stays one click with no confirmation: (1) when an active feature has status `error`, `export_failed_feature` (one feature) or `export_failed_features` (several) with the `warningMark` hazard icon and a button "Show problems" (opens the Problems panel and closes the popover); (2) for 3MF and STL only, "Print check: {state}" with the health badge's icon and text (3.17; "Not checked" for `none`, " (out of date)" appended when stale) and, when the badge is `none` or stale, a button "Check print" that runs the analysis and opens the print check panel (`openPrintHealth`) and closes the popover; (3) for 3MF and STL while `print.orientation` is set, `orientation_set` with its "Print as modeled" button (the `arrow-down-to-line` icon in `textMuted`; the popover stays open).
+
+```ts
+// src/export/status.ts
+export type ExportStatusLine =
+  | { readonly kind: 'failed'; readonly text: string }
+  | { readonly kind: 'print_check'; readonly text: string; readonly badge: HealthBadge; readonly checkOffered: boolean }
+  | { readonly kind: 'orientation'; readonly text: string }
+/** The status lines of the export popover for a format, in display order (the three above). */
+export function exportStatus(state: AppState, format: ExportRequest['format']): readonly ExportStatusLine[]
+/** `export_failed_feature` or `export_failed_features` for the active features in error, or null; `exportModel` uses it for `exported_with_failures`. */
+export function exportFailedText(state: AppState): string | null
+```
 - `exportModel(request)`: the bodies are the visible bodies with model-layer geometry (for STL, OBJ and STEP only part bodies, since modifiers are not solid geometry; engine.md 3.13), or the selected bodies. With none, the error notification "There is no visible body with geometry to export." appears and the core is not called. Otherwise `exportBodies(documentHandle, format, bodies, orientation)` with `{"kind": "3mf"}`, `{"kind": "stl", "binary": true, "per_body": false}`, `{"kind": "obj"}` or `{"kind": "step"}`; 3MF and STL pass `print.orientation` when one is set, OBJ and STEP stay as modeled.
 - The single returned file is saved with `files.chooseSaveTarget('{document name}.{3mf|stl|obj|step}', kind)` and `files.write`. A canceled picker does nothing. Success shows the success notification "Exported {file name}.", or, when an active feature has status `error`, the warning notification `exported_with_failures` with "Show problems" instead (this covers the Print toolbar's direct exports, which have no popover). Each warning diagnostic shows a warning notification with its message. A `CoreError` shows its message as an error notification.
 
@@ -3015,7 +3118,7 @@ Tests use these stable selectors only (plus accessible roles and names given in 
 | `inspector-field`, `inspector-more`, `inspector-ok`, `inspector-error` | Inspector parts | field: `data-path` |
 | `selection-field` | Selection field box | `data-active`, `data-count` |
 | `expression-result`, `field-error`, `expression-suggestions` | Expression field parts | |
-| `selection-title`, `body-size`, `body-center`, `entity-size`, `measure-row` | Selection inspector parts | measure row: `data-measure` |
+| `selection-title`, `body-size`, `body-center`, `entity-size`, `measure-row`, `made-by` | Selection inspector parts | measure row: `data-measure` |
 | `timeline`, `timeline-item`, `timeline-marker`, `timeline-problems`, `context-menu`, `timeline-empty` | Timeline | item: `data-feature-id`, `data-status`, `data-suppressed`, `data-rolled-back` |
 | `side-panel`, `parameters-panel`, `parameter-row`, `parameter-value`, `parameters-empty`, `parameters-transaction`, `problems-panel`, `health-list`, `health-item`, `keys-panel` | Side panels | row: `data-id`; health item: `data-check`, `data-severity` |
 | `sketch-header`, `sketch-problems`, `sketch-hint` | Sketch chrome | header: `data-state`, `data-dof`, `data-outline` |

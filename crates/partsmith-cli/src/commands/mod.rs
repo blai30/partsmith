@@ -9,15 +9,14 @@ mod validate;
 use std::io;
 use std::path::Path;
 
-use partsmith_engine::{EngineError, Session, ValidateOptions, ValidationDiagnostic};
+use partsmith_engine::{EngineError, Session};
 use partsmith_model::Edit;
-use partsmith_print::DEFAULT_PROFILE_ID;
 use partsmith_protocol::DocHandle;
 
 use crate::arguments::Command;
 use crate::error::{CliError, UsageError};
 use crate::files;
-use crate::output::{Output, wire_name};
+use crate::output::Output;
 use crate::status::Status;
 
 /// Runs one command. Problems with files and documents are reported on `output` and give the
@@ -43,8 +42,8 @@ fn usage_error(output: &mut Output<'_>, error: UsageError) -> Status {
 struct OpenedDocument {
     /// The session handle.
     doc: DocHandle,
-    /// The id of the printer profile in effect: `--printer`, else the document's printer when it
-    /// is installed, else the default profile.
+    /// The id of the printer profile in effect, which the engine resolves: `--printer`, else the
+    /// document's printer when it is installed, else the default profile.
     printer: String,
 }
 
@@ -58,68 +57,32 @@ fn open(
 ) -> Result<OpenedDocument, CliError> {
     let text = files::read_text(path)?;
     let assets = files::read_assets(path)?;
-    let doc = match session.open_document(&text, assets) {
-        Ok(opened) => opened.doc,
-        Err(error) => {
-            return Err(load_failure(
-                session,
-                path.display().to_string(),
-                &text,
-                &error,
-            ));
+    let doc = session
+        .open_document(&text, assets)
+        .map_err(|error| CliError::load(path.display().to_string(), &error))?
+        .doc;
+    if let Some(id) = printer {
+        let installed = session
+            .printer_profiles()
+            .iter()
+            .any(|profile| profile.id.as_str() == id);
+        if !installed {
+            return Err(EngineError::UnknownPrinterProfile { id: id.to_owned() }.into());
         }
-    };
-    let installed: Vec<String> = session
-        .printer_profiles()
-        .into_iter()
-        .map(|profile| profile.id.as_str().to_owned())
-        .collect();
-    let is_installed = |id: &str| installed.iter().any(|installed| installed == id);
-    if let Some(id) = printer
-        && !is_installed(id)
-    {
-        return Err(EngineError::UnknownPrinterProfile { id: id.to_owned() }.into());
+        if session.document(doc)?.printer.as_deref() != Some(id) {
+            let edit = Edit::SetPrinter {
+                printer: Some(id.to_owned()),
+            };
+            session.apply_edits(doc, Some("Set printer"), vec![edit])?;
+        }
     }
-    let document_printer = session.document(doc)?.printer.clone();
-    if let Some(id) = printer
-        && document_printer.as_deref() != Some(id)
-    {
-        let edit = Edit::SetPrinter {
-            printer: Some(id.to_owned()),
-        };
-        session.apply_edits(doc, Some("Set printer"), vec![edit])?;
-    }
-    let printer = printer
-        .map(str::to_owned)
-        .or(document_printer.filter(|id| is_installed(id)))
-        .unwrap_or_else(|| DEFAULT_PROFILE_ID.to_owned());
+    let printer = session.printer_profile(doc)?;
     Ok(OpenedDocument { doc, printer })
-}
-
-/// The error of a document at `path` that the engine refused to open or format. A text the file
-/// format rejects gets the load diagnostic `validate` reports for it (engine.md section 3.19, step
-/// 1), which also carries the JSON Pointer of a structure problem, so every command reports a
-/// document that does not load alike. Other refusals, such as an asset that does not match its
-/// hash, carry the engine's message.
-fn load_failure(session: &mut Session, path: String, text: &str, error: &EngineError) -> CliError {
-    let rejected_text = matches!(
-        error,
-        EngineError::Parse { .. } | EngineError::UnsupportedFormatVersion { .. }
-    );
-    if rejected_text {
-        let report = session.validate(text, &[], ValidateOptions::default());
-        if let Ok([diagnostic]) = <[ValidationDiagnostic; 1]>::try_from(report.diagnostics)
-            && diagnostic.code == wire_name(&error.code())
-        {
-            return CliError::Load { path, diagnostic };
-        }
-    }
-    CliError::load(path, error)
 }
 
 #[cfg(test)]
 mod tests {
-    use partsmith_engine::SessionOptions;
+    use partsmith_engine::{SessionOptions, ValidateOptions};
 
     use super::*;
 
@@ -140,11 +103,10 @@ mod tests {
     }
 
     #[test]
-    fn load_failures_carry_the_pointer_validate_reports() {
-        let mut session = session();
-        let error = rejection(&session, BAD_ID);
+    fn load_errors_carry_the_pointer_the_engine_reports() {
+        let error = rejection(&session(), BAD_ID);
 
-        let failure = load_failure(&mut session, "badid.ptsm".to_owned(), BAD_ID, &error);
+        let failure = CliError::load("badid.ptsm".to_owned(), &error);
 
         assert_eq!(failure.status(), Status::Problems);
         assert_eq!(failure.code(), "parse_error");
@@ -159,25 +121,36 @@ mod tests {
     }
 
     #[test]
-    fn load_failures_keep_the_line_and_column_of_syntax_errors() {
+    fn load_errors_equal_the_diagnostic_validate_reports() {
         let mut session = session();
-        let text = "{\"format\": \"partsmith\",";
-        let error = rejection(&session, text);
+        for text in [BAD_ID, "{\"format\": \"partsmith\","] {
+            let error = rejection(&session, text);
+            let report = session.validate(text, &[], ValidateOptions::default());
 
-        let failure = load_failure(&mut session, "bad.ptsm".to_owned(), text, &error);
+            let failure = CliError::load("model.ptsm".to_owned(), &error);
+
+            assert_eq!(report.diagnostics, [failure.diagnostic()]);
+        }
+    }
+
+    #[test]
+    fn load_errors_keep_the_line_and_column_of_syntax_errors() {
+        let error = rejection(&session(), "{\"format\": \"partsmith\",");
+
+        let failure = CliError::load("bad.ptsm".to_owned(), &error);
 
         assert_eq!(failure.diagnostic().line, Some(1));
         assert!(failure.diagnostic().column.is_some());
+        assert_eq!(failure.diagnostic().path, None);
     }
 
     #[test]
     fn other_refusals_carry_the_engine_message() {
-        let mut session = session();
         let error = EngineError::AssetMismatch {
             name: "a.step".to_owned(),
         };
 
-        let failure = load_failure(&mut session, "model.ptsm".to_owned(), "{}", &error);
+        let failure = CliError::load("model.ptsm".to_owned(), &error);
 
         assert_eq!(
             failure.report_line(),

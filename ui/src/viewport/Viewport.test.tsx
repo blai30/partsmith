@@ -1,6 +1,7 @@
 import { act, cleanup, fireEvent, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { cancelCommand, editFeature } from '../app/actions/command'
 import type { App } from '../app/createApp'
 import { installPopoverPolyfill } from '../components/popover-polyfill.testing'
 import { bodyItem, cubeDocumentState, readyState } from '../layout/fixtures.testing'
@@ -12,11 +13,13 @@ import {
   stubMatchMedia,
   type FrameQueue,
 } from '../layout/test-app.testing'
+import { requestUi } from '../layout/requests'
 import { MESSAGES } from '../messages'
 import { DEFAULT_SETTINGS } from '../settings/settings'
 import { INITIAL_STATE, type AppState } from '../state/store'
 import type { FakeBackend } from '../test/fakes/backend'
 import { settle } from '../test/fakes/settle'
+import { CUBE_FEATURES_DOCUMENT } from '../test/fakes/documents'
 import { checkResult, finding, printReport } from '../test/fakes/state'
 import { COLOR_CLASSES } from '../theme/roles'
 import { DEFAULT_CAMERA, forward, visibleHeightAtTarget, type Camera } from './camera'
@@ -166,6 +169,30 @@ describe('the viewport region', () => {
     expect(viewport).toHaveAttribute('data-hover-kind', 'face')
     expect(viewport).toHaveAttribute('data-hover-key', 'mesh:1:face:3')
     expect(viewport).toHaveAttribute('data-selection-count', '2')
+  })
+})
+
+describe('the grid spacing (3.12)', () => {
+  it('mirrors the minor grid spacing in the document unit, larger after zooming out', () => {
+    const { app, viewport } = setUp()
+    const before = Number(viewport.getAttribute('data-grid-spacing'))
+    expect(before).toBeGreaterThan(0)
+    act(() => {
+      const handle = handleOf(app)
+      const camera = handle.getCamera()
+      handle.setCamera({ ...camera, distance: camera.distance * 20 })
+    })
+    flush()
+    expect(Number(viewport.getAttribute('data-grid-spacing'))).toBeGreaterThan(before)
+  })
+
+  it('is empty in Print, where no grid is drawn', () => {
+    const { app, viewport } = setUp()
+    act(() => {
+      app.store.setState({ context: 'print' })
+    })
+    flush()
+    expect(viewport).toHaveAttribute('data-grid-spacing', '')
   })
 })
 
@@ -428,5 +455,85 @@ describe('overlays', () => {
   it('renders with the settings’ UI scale', () => {
     setUp({ settings: { ...DEFAULT_SETTINGS, theme: 'light', uiScale: 1.5 } })
     expect(created.backends[0]?.lastFrame()?.uiScale).toBe(1.5)
+  })
+})
+
+describe('repair markers (3.7, U-110)', () => {
+  it('U-110 editing a feature with a lost edge rings where it was, until the command ends', async () => {
+    const document = cubeDocumentState({
+      recipe: CUBE_FEATURES_DOCUMENT,
+      featureStatus: {
+        'f-fil1': {
+          id: 'f-fil1',
+          status: 'error',
+          messages: [],
+          repairs: [
+            {
+              kind: 'element',
+              path: '/edges/0',
+              body: 'b-cube',
+              reference: { q: 'edge(top,front)', fp: 'fp-edge' },
+              resolution: 'missing',
+              centroid: [0, 0, 20],
+            },
+          ],
+        },
+      },
+    })
+    const { app } = createModelApp({ state: readyState(document) })
+    renderWithApp(app, <Viewport />)
+    flush()
+    expect(screen.queryByTestId('repair-marker')).toBeNull()
+    await act(async () => {
+      await editFeature(app, 'f-fil1')
+    })
+    flush()
+    const [marker, ...others] = screen.getAllByTestId('repair-marker')
+    expect(others).toEqual([])
+    expect(marker?.tagName.toLowerCase()).toBe('circle')
+    expect(marker).toHaveAttribute('r', '8')
+    expect(marker).toHaveAttribute('stroke-dasharray', '4 3')
+    expect(marker).toHaveClass(...COLOR_CLASSES.errorMark.stroke.split(' '))
+    expect(marker?.querySelector('title')).toHaveTextContent('Where the missing edge was')
+    expect(marker).not.toHaveAttribute('display')
+    await act(async () => {
+      await cancelCommand(app)
+    })
+    expect(screen.queryByTestId('repair-marker')).toBeNull()
+  })
+})
+
+describe('the viewport context menu (3.13)', () => {
+  it('opens at the request with the items for the selection, and a choice runs and returns focus', async () => {
+    const { app, surface } = setUp({ selection: [bodyItem('b-cube', 'Cube')] })
+    act(() => {
+      requestUi(app, { kind: 'viewport_menu', x: 120, y: 80 })
+    })
+    const menu = screen.getByTestId('viewport-menu')
+    expect(menu).toHaveRole('menu')
+    const names = within(menu)
+      .getAllByRole('menuitem')
+      .map((item) => item.textContent)
+    expect(names).toEqual(
+      expect.arrayContaining([expect.stringContaining('Hide'), expect.stringContaining('Mirror')]),
+    )
+    surface.focus()
+    await userEvent.click(within(menu).getByRole('menuitem', { name: /^Hide/ }))
+    await settle()
+    expect(screen.queryByTestId('viewport-menu')).toBeNull()
+    expect(document.activeElement).toBe(surface)
+  })
+
+  it('opens with Shift+F10 and with the ContextMenu key on the focused viewport', () => {
+    const { surface } = setUp()
+    surface.focus()
+    fireEvent.keyDown(surface, { key: 'F10', shiftKey: true })
+    expect(screen.getByTestId('viewport-menu')).toBeInTheDocument()
+    fireEvent.keyDown(screen.getByTestId('viewport-menu'), { key: 'Escape' })
+    expect(screen.queryByTestId('viewport-menu')).toBeNull()
+    fireEvent.keyDown(surface, { key: 'ContextMenu' })
+    expect(
+      within(screen.getByTestId('viewport-menu')).getByRole('menuitem', { name: /^Fit to view/ }),
+    ).toBeInTheDocument()
   })
 })

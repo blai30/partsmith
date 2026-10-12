@@ -18,7 +18,13 @@ import { createModelApp, renderWithApp, stubMatchMedia } from '../layout/test-ap
 import { MESSAGES } from '../messages'
 import type { ActiveCommand, AppState, DocumentState } from '../state/store'
 import { coreErrorFor } from '../test/fakes/core-api'
-import { CUBE_DOCUMENT, CUBE_EXTRUDE, CUBE_SKETCH, featuresOf } from '../test/fakes/documents'
+import {
+  CUBE_DOCUMENT,
+  CUBE_EXTRUDE,
+  CUBE_SKETCH,
+  emptyDocument,
+  featuresOf,
+} from '../test/fakes/documents'
 import { settle } from '../test/fakes/settle'
 import { COLOR_CLASSES } from '../theme/roles'
 
@@ -101,10 +107,29 @@ const EDITING_EXTRUDE: ActiveCommand = {
   fieldErrors: {},
   applied: true,
   newBody: null,
+  helper: null,
+  changedPaths: [],
+  history: [],
+  future: [],
   preview: 'none',
 }
 
 describe('timeline items (3.9)', () => {
+  it('says what the timeline is for while the document has no features', () => {
+    renderTimeline(documentState(emptyDocument()))
+    expect(screen.getByTestId('timeline-empty')).toHaveTextContent(
+      /^Each step you add appears here\. Double-click a step to change it later\.$/,
+    )
+    expect(screen.getByTestId('timeline-empty')).toHaveClass(
+      ...COLOR_CLASSES.textMuted.foreground.split(' '),
+    )
+  })
+
+  it('shows no empty text once there is a feature', () => {
+    renderTimeline()
+    expect(screen.queryByTestId('timeline-empty')).toBeNull()
+  })
+
   it('lists the features in timeline order, named by their labels, with their status', () => {
     renderTimeline()
     const items = screen.getAllByTestId('timeline-item')
@@ -658,5 +683,51 @@ describe('keyboard (3.9)', () => {
     await waitFor(() => {
       expect(core.callsTo('beginTransaction')).toEqual([[1, 'Edit Extrude 1']])
     })
+  })
+
+  it('a held Enter edits the feature once: repeated presses do nothing', async () => {
+    const { core } = renderTimeline()
+    const item = itemButton('Extrude 1')
+    item.focus()
+    fireEvent.keyDown(item, { key: 'Enter' })
+    fireEvent.keyDown(item, { key: 'Enter', repeat: true })
+    fireEvent.keyDown(item, { key: 'Enter', repeat: true })
+    await waitFor(() => {
+      expect(core.callsTo('beginTransaction')).toEqual([[1, 'Edit Extrude 1']])
+    })
+  })
+
+  it('a selected item says so to assistive technology with aria-pressed', async () => {
+    const { user } = renderTimeline()
+    expect(itemButton('Extrude 1')).toHaveAttribute('aria-pressed', 'false')
+    await user.click(itemButton('Extrude 1'))
+    expect(itemButton('Extrude 1')).toHaveAttribute('aria-pressed', 'true')
+  })
+})
+
+describe('during a feature command (3.7)', () => {
+  it('disables the context menu edits other than Edit', async () => {
+    const { user } = renderTimeline(cubeDocumentState(), { command: EDITING_EXTRUDE })
+    await user.pointer({ keys: '[MouseRight]', target: itemButton('Sketch 1') })
+    const menu = screen.getByTestId('context-menu')
+    const disabled = within(menu)
+      .getAllByRole('menuitem')
+      .filter((entry) => entry.getAttribute('aria-disabled') === 'true')
+      .map((entry) => entry.textContent?.trim())
+    expect(disabled).toEqual(['Rename', 'Suppress', 'Roll back to here', 'Delete'])
+  })
+
+  it('does not start a marker drag, and the marker keys say why they do nothing', async () => {
+    const { app, core } = renderTimeline(cubeDocumentState(), { command: EDITING_EXTRUDE })
+    const marker = screen.getByTestId('timeline-marker')
+    fireEvent.pointerDown(marker, { pointerId: 1, button: 0, clientX: 100 })
+    fireEvent.pointerMove(marker, { pointerId: 1, clientX: 20 })
+    fireEvent.keyDown(marker, { key: 'Home' })
+    await settle()
+    expect(core.callsTo('beginTransaction')).toEqual([])
+    expect(core.callsTo('applyEdits')).toEqual([])
+    expect(app.store.getState().notifications.map((notification) => notification.message)).toEqual([
+      MESSAGES.finish_command_first('Extrude 1'),
+    ])
   })
 })

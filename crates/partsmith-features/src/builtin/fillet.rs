@@ -68,7 +68,7 @@ impl Feature for Fillet {
     ) -> Result<FeatureOutput, FeatureError> {
         let (state, shape) = solid_body(context, &params.body)?;
         let radius = positive_length(context, "radius", &params.radius)?;
-        let selection = select_edges(context, &params.body, shape, &params.edges)?;
+        let selection = select_edges(context, &params.body, &params.edges)?;
         if selection.edges.is_empty() {
             return Ok(no_effect(&params.body, state, selection.warnings));
         }
@@ -93,11 +93,11 @@ impl Feature for Fillet {
                 cause,
             },
         )?;
-        let naming = name_blend(context.feature(), roles::FILLET, state.naming(), &result)?;
+        let named = name_blend(context.feature(), roles::FILLET, state.naming(), &result)?;
         Ok(modified(
             &params.body,
             result.shape,
-            naming,
+            named,
             selection.warnings,
         ))
     }

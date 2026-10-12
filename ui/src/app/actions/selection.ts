@@ -1,7 +1,7 @@
 import { CoreError } from '../../core/client'
 import type { ElementDescriptor } from '../../generated/protocol'
 import type { HoverTarget, SelectionItem } from '../../state/store'
-import type { PickResult } from '../../viewport/picking'
+import type { PickResult, PointerRay } from '../../viewport/picking'
 import type { App } from '../createApp'
 import { capturePick } from './command'
 import { showCoreError } from './edits'
@@ -84,18 +84,22 @@ async function itemFor(app: App, sample: PickResult): Promise<SelectionItem | nu
   }
 }
 
-/** A click on a pick target: selects it (toggles with a modifier), or feeds an active feature command. */
+/**
+ * A click on a pick target: selects it (toggles with a modifier), or feeds an active feature
+ * command. `pointer` is the click's ray, which a face picked for a hole center needs (3.7).
+ */
 export async function pickAt(
   app: App,
   sample: PickResult,
   modifiers: { readonly toggle: boolean },
+  pointer?: PointerRay,
 ): Promise<void> {
   const item = await itemFor(app, sample)
   if (item === null) {
     return
   }
   if (app.store.getState().command !== null) {
-    await capturePick(app, item)
+    await capturePick(app, item, pointer)
     return
   }
   select(app, [item], modifiers.toggle ? 'toggle' : 'replace')

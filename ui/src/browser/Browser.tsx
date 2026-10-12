@@ -25,11 +25,13 @@ import {
 } from 'react'
 import { renameBody, setBodyVisible, setLocked, setSessionVisible } from '../app/actions/bodies'
 import { editFeature } from '../app/actions/command'
+import { notify } from '../app/actions/notifications'
 import { enterSketch } from '../app/actions/sketch'
 import { renameFeature } from '../app/actions/timeline'
 import { useApp, useAppState } from '../app/AppProvider'
 import type { App } from '../app/createApp'
 import { FEATURE_ICONS } from '../commands/icons'
+import { Tooltip } from '../components/Tooltip'
 import { featureLabel } from '../core/labels'
 import { formatEvaluated } from '../expression/evaluate'
 import { isPlainNumber } from '../expression/step'
@@ -40,6 +42,7 @@ import { BROWSER_PANEL_ID } from '../layout/panel-ids'
 import { requestUi, useUiRequest } from '../layout/requests'
 import { originItem } from '../inspector/selection-values'
 import { useOverlayDismiss } from '../layout/use-overlay-dismiss'
+import { selectCommandBlock } from '../state/selectors'
 import type { AppState, OriginName, SelectionItem, SelectionItemKind } from '../state/store'
 import { COLOR_CLASSES, FONT_CLASSES } from '../theme/roles'
 import { isSessionVisible } from '../viewport/scene'
@@ -49,7 +52,7 @@ import { BodyColorButton } from './BodyColor'
 // Its treeitems form one flat list with levels, so each row is one focusable line; row buttons stay
 // out of the tab order, and their actions are also reachable by keyboard elsewhere (3.10).
 
-type GroupId = 'origin' | 'bodies' | 'sketches' | 'construction' | 'parameters'
+type GroupId = 'origin' | 'bodies' | 'sketches' | 'datums' | 'parameters'
 
 type RowKind =
   | 'origin_plane'
@@ -76,7 +79,7 @@ function renameGroup(
     case 'sketch':
       return 'sketches'
     case 'datum_plane':
-      return 'construction'
+      return 'datums'
     default:
       return null
   }
@@ -86,7 +89,7 @@ const DEFAULT_EXPANDED: Readonly<Record<GroupId, boolean>> = {
   origin: false,
   bodies: true,
   sketches: true,
-  construction: true,
+  datums: true,
   parameters: true,
 }
 
@@ -143,30 +146,48 @@ type RowButtonProps = {
   readonly label: string
   readonly icon: LucideIcon
   readonly pressed?: boolean
+  /** Why the button cannot act now, shown as its tooltip; a click shows it as a notification. */
+  readonly disabledReason?: string | null
   readonly onClick: () => void
 }
 
 /** A small icon button inside a row, outside the tab order (3.10). */
-function RowButton({ label, icon: Icon, pressed, onClick }: RowButtonProps) {
-  return (
+function RowButton({ label, icon: Icon, pressed, disabledReason = null, onClick }: RowButtonProps) {
+  const app = useApp()
+  const button = (
     <button
       type="button"
       tabIndex={-1}
       aria-label={label}
       aria-pressed={pressed}
-      onClick={own(onClick)}
+      aria-disabled={disabledReason === null ? undefined : true}
+      onClick={own(() => {
+        if (disabledReason !== null) {
+          notify(app, {
+            severity: 'info',
+            message: disabledReason,
+            actions: [],
+            code: 'finish_command_first',
+          })
+          return
+        }
+        onClick()
+      })}
       onDoubleClick={(event) => {
         event.stopPropagation()
       }}
       className={clsx(
         'inline-flex size-6 shrink-0 items-center justify-center rounded-sm transition-colors duration-150 motion-reduce:transition-none',
-        COLOR_CLASSES.textMuted.foreground,
-        COLOR_CLASSES.hover.background,
+        disabledReason === null
+          ? COLOR_CLASSES.textMuted.foreground
+          : COLOR_CLASSES.textDisabled.foreground,
+        disabledReason === null ? COLOR_CLASSES.hover.background : 'cursor-not-allowed',
       )}
     >
       <Icon aria-hidden="true" strokeWidth={1.75} className="size-4" />
     </button>
   )
+  return disabledReason === null ? button : <Tooltip label={disabledReason}>{button}</Tooltip>
 }
 
 type RowProps = {
@@ -391,6 +412,8 @@ function BodyRow({
   const app = useApp()
   const empty = useAppState((state) => state.document?.meshes[body.id] === undefined)
   const locked = useAppState((state) => state.view.locked.includes(body.id))
+  // Visibility is a document edit, which waits for an open command (3.7).
+  const blocked = useAppState(selectCommandBlock)
   const visible = body.visible !== false
   const key = `body:${body.id}`
   return (
@@ -419,6 +442,7 @@ function BodyRow({
           <RowButton
             label={`${visible ? 'Hide' : 'Show'} ${body.name}`}
             icon={visible ? Eye : EyeOff}
+            disabledReason={blocked}
             onClick={() => {
               setBodyVisible(app, body.id, !visible).catch(report('Changing the visibility'))
             }}
@@ -728,12 +752,12 @@ export function Browser() {
             ))
           : null}
         <GroupHeader
-          id="construction"
-          title="Construction"
-          expanded={expanded.construction}
+          id="datums"
+          title="Datum planes"
+          expanded={expanded.datums}
           onToggle={toggle}
         />
-        {expanded.construction
+        {expanded.datums
           ? datums.map((record) => (
               <FeatureRow
                 key={record.id}

@@ -7,10 +7,6 @@
 #include <vector>
 
 #include <BRepAdaptor_Surface.hxx>
-#include <BRep_CurveOn2Surfaces.hxx>
-#include <BRep_CurveRepresentation.hxx>
-#include <BRep_ListOfCurveRepresentation.hxx>
-#include <BRep_TEdge.hxx>
 #include <BRepCheck_Analyzer.hxx>
 #include <BRepFilletAPI_MakeChamfer.hxx>
 #include <BRepFilletAPI_MakeFillet.hxx>
@@ -22,6 +18,10 @@
 #include <BRepOffset_MakeOffset.hxx>
 #include <BRepTools.hxx>
 #include <BRep_Builder.hxx>
+#include <BRep_CurveOn2Surfaces.hxx>
+#include <BRep_CurveRepresentation.hxx>
+#include <BRep_ListOfCurveRepresentation.hxx>
+#include <BRep_TEdge.hxx>
 #include <BRep_Tool.hxx>
 #include <GProp_GProps.hxx>
 #include <GeomAPI_ProjectPointOnSurf.hxx>
@@ -282,9 +282,9 @@ TopoDS_Shape ordered_by_input(const Shape &copy, const TopoDS_Shape &result,
   return compound;
 }
 
-// Stores the two surfaces of every edge's continuity record (kernel spec section 3.11) in the
-// order of the first faces of `shape` that use them. OCCT's offset records the continuity of
-// two faces in the order it finds them in an address-keyed map, which changed the BRep bytes
+// Stores the two surfaces of every edge's continuity record (kernel spec section 3.4.8, item 5)
+// in the order of the first faces of `shape` that use them. OCCT's offset records the continuity
+// of two faces in the order it finds them in an address-keyed map, which changed the BRep bytes
 // from run to run; the record means the same in either order. Only for shapes the operation
 // built itself: it writes to the edges.
 void order_continuity_records(const TopoDS_Shape &shape) {
@@ -303,6 +303,9 @@ void order_continuity_records(const TopoDS_Shape &shape) {
   TopExp::MapShapes(shape, TopAbs_EDGE, edges);
   for (int index = 1; index <= edges.Extent(); ++index) {
     const Handle(BRep_TEdge) edge = Handle(BRep_TEdge)::DownCast(edges(index).TShape());
+    if (edge.IsNull()) {
+      continue;
+    }
     for (BRep_ListIteratorOfListOfCurveRepresentation representation(edge->ChangeCurves());
          representation.More(); representation.Next()) {
       const Handle(BRep_CurveRepresentation) &record = representation.Value();

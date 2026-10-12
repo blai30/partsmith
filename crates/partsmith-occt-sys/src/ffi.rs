@@ -140,11 +140,22 @@ pub(crate) mod bridge {
         normal: Vec3,
     }
 
-    /// The point and unit tangent at the middle of an edge, and the normals of its faces there.
+    /// The continuity recorded across an edge, in `Continuity` order, or `Absent` when the edge
+    /// is neither between two faces nor a seam.
+    #[derive(Debug, Clone, Copy)]
+    enum ContinuityType {
+        C0,
+        G1OrBetter,
+        Absent,
+    }
+
+    /// The point and unit tangent at the middle of an edge, the normals of its faces there and
+    /// the continuity recorded between them.
     struct EdgeNormalsData {
         point: Vec3,
         tangent: Vec3,
         faces: Vec<FaceNormalData>,
+        continuity: ContinuityType,
     }
 
     /// An axis-aligned box.

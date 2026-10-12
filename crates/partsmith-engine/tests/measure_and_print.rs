@@ -1,4 +1,4 @@
-//! Acceptance tests 68 and 71 to 84 of `docs/spec/engine.md` section 6: measure, evaluate, printer profiles and print analysis.
+//! Acceptance tests 68, 71 to 84 and 113 of `docs/spec/engine.md` section 6: measure, evaluate, printer profiles and print analysis.
 //!
 //! The spec numbers its tests 68, 71, 72, ...; there are no tests 69 and 70.
 
@@ -7,9 +7,9 @@ mod common;
 use std::f64::consts::PI;
 
 use common::{
-    BUFFER_TOLERANCE, GEOMETRY_TOLERANCE, Sent, assert_near, assert_point3, assert_relative,
-    element_named, elements, headless_session, measure_body, number, open, open_doc, point3, send,
-    session,
+    BUFFER_TOLERANCE, GEOMETRY_TOLERANCE, Sent, apply, assert_near, assert_point3, assert_relative,
+    element_named, elements, headless_session, measure_body, number, open, open_doc, point3,
+    revision, send, session,
 };
 use partsmith_engine::Session;
 use partsmith_model::Dimension;
@@ -442,4 +442,45 @@ fn t084_headless_reports_carry_no_display_fields() {
     assert_eq!(body["body"], "b-1");
     assert!(body.get("mesh_id").is_none(), "no mesh id: {body}");
     assert!(body.get("overhang").is_none(), "no overhang map: {body}");
+}
+
+#[test]
+fn t113_the_resolved_printer_profile_is_reported_without_side_effects() {
+    let mut session = headless_session();
+    let doc = open_doc(&mut session, "box.ptsm");
+    let handle = partsmith_protocol::DocHandle(u32::try_from(doc).expect("handles fit in u32"));
+    let set_printer = |session: &mut Session, printer: &str| {
+        apply(
+            session,
+            doc,
+            Some("Printer"),
+            json!([{"type": "set_printer", "printer": printer}]),
+        )
+        .ok();
+    };
+    let resolved = |session: &Session| {
+        session
+            .printer_profile(handle)
+            .expect("the document is open")
+    };
+
+    let unset = resolved(&session);
+    set_printer(&mut session, "generic-resin");
+    let resin = resolved(&session);
+    set_printer(&mut session, "nope");
+    let unknown = resolved(&session);
+    let before = revision(&mut session, doc);
+    let input: ProfileInput =
+        serde_json::from_value(json!({"id": "nope", "name": "Nope", "technology": "fdm"}))
+            .expect("the profile input is valid");
+    session
+        .put_printer_profile(input)
+        .expect("a new session profile is accepted");
+    let installed = resolved(&session);
+
+    assert_eq!(unset, "generic-fdm");
+    assert_eq!(resin, "generic-resin");
+    assert_eq!(unknown, "generic-fdm");
+    assert_eq!(installed, "nope");
+    assert_eq!(revision(&mut session, doc), before);
 }

@@ -250,7 +250,11 @@ fn element_infos_of_a_200_face_body_within_10_milliseconds() {
     let plate = plate_with_holes();
     let face = ElementName::parse("f-plate1/face").expect("a valid name");
     let faces = vec![FaceSource::New(face); 200];
-    let naming = std::sync::Arc::new(name_shape(&plate, faces, &[]).expect("the plate is named"));
+    let naming = std::sync::Arc::new(
+        name_shape(&plate, faces, &[])
+            .expect("the plate is named")
+            .naming,
+    );
 
     let duration = median(11, || {
         // A new state each time: the element infos are computed once per state.

@@ -2,6 +2,7 @@ import { clsx } from 'clsx/lite'
 import { CircleCheck, CircleDashed, LoaderCircle } from 'lucide-react'
 import type { HealthBadge as HealthBadgeState } from '../state/selectors'
 import { COLOR_CLASSES } from '../theme/roles'
+import { healthBadgeName, healthBadgeOutdated, healthBadgeText } from './health'
 import { SeverityIcon } from './SeverityIcon'
 
 export type HealthBadgeProps = {
@@ -11,31 +12,8 @@ export type HealthBadgeProps = {
   readonly onClick: () => void
 }
 
-function plural(count: number, noun: string): string {
-  return `${String(count)} ${noun}${count === 1 ? '' : 's'}`
-}
-
-/** The visible text and the accessible name of a badge state, before the stale suffixes (ui.md 3.17). */
-function wording(badge: HealthBadgeState): { readonly text: string; readonly name: string } {
-  switch (badge.state) {
-    case 'none':
-      return { text: 'Check print', name: 'not checked' }
-    case 'running':
-      return { text: 'Checking', name: 'checking' }
-    case 'ok':
-      return { text: 'Ready to print', name: 'no issues' }
-    case 'warning': {
-      const warnings = plural(badge.warnings, 'warning')
-      return { text: warnings, name: warnings }
-    }
-    case 'error': {
-      const errors = plural(badge.errors, 'error')
-      return { text: errors, name: `${errors}, ${plural(badge.warnings, 'warning')}` }
-    }
-  }
-}
-
-function BadgeIcon({ state }: { readonly state: HealthBadgeState['state'] }) {
+/** The icon of a badge state (3.17), also shown by the export popover's print check line (3.18). */
+export function HealthBadgeIcon({ state }: { readonly state: HealthBadgeState['state'] }) {
   switch (state) {
     case 'none':
       return (
@@ -76,17 +54,17 @@ function BadgeIcon({ state }: { readonly state: HealthBadgeState['state'] }) {
  * marked out of date.
  */
 export function HealthBadge({ badge, onClick }: HealthBadgeProps) {
-  const { text, name } = wording(badge)
+  const text = healthBadgeText(badge)
   // A running analysis checks the current revision, so the badge is not out of date while it
   // runs: not drawn, named or marked so.
-  const outdated = badge.stale && badge.state !== 'running'
+  const outdated = healthBadgeOutdated(badge)
   return (
     <button
       type="button"
       data-testid="health-badge"
       data-state={badge.state}
       data-stale={outdated ? 'true' : 'false'}
-      aria-label={`Print check: ${name}${outdated ? ', out of date' : ''}`}
+      aria-label={healthBadgeName(badge)}
       onClick={onClick}
       className={clsx(
         'inline-flex h-6 shrink-0 items-center gap-1.5 rounded-sm px-2 text-xs whitespace-nowrap tabular-nums transition-colors duration-150 motion-reduce:transition-none',
@@ -99,7 +77,7 @@ export function HealthBadge({ badge, onClick }: HealthBadgeProps) {
         outdated && 'opacity-50',
       )}
     >
-      <BadgeIcon state={badge.state} />
+      <HealthBadgeIcon state={badge.state} />
       {outdated ? `${text} (out of date)` : text}
     </button>
   )

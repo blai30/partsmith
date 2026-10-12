@@ -16,8 +16,20 @@ export type UiRequest =
   | { readonly kind: 'rename'; readonly key: string; readonly where: 'timeline' | 'browser' }
   /** Focus a parameter's expression in the Parameters panel (3.4). */
   | { readonly kind: 'parameter'; readonly id: string }
+  /**
+   * Open a draft row in the Parameters panel named `name` with `expression`, and give focus back to
+   * the element `returnFocus` names when it is added or discarded (3.7 "Add parameter {name}").
+   */
+  | {
+      readonly kind: 'parameter_draft'
+      readonly name: string
+      readonly expression: string
+      readonly returnFocus: string
+    }
   /** Scroll a feature's timeline item into view (3.4). */
   | { readonly kind: 'reveal'; readonly feature: string }
+  /** Open the viewport context menu at (x, y) CSS pixels from the viewport's top-left corner (3.13). */
+  | { readonly kind: 'viewport_menu'; readonly x: number; readonly y: number }
 
 export type UiRequestKind = UiRequest['kind']
 

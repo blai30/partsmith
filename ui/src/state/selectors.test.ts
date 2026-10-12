@@ -1,16 +1,109 @@
 import { describe, expect, it } from 'vitest'
 import type { Diagnostic, FeatureStatus } from '../generated/protocol'
 import { DEFAULT_SETTINGS } from '../settings/settings'
-import { CUBE_DOCUMENT, CUBE_FEATURES_DOCUMENT, withFeatureChanges } from '../test/fakes/documents'
+import {
+  CUBE_DOCUMENT,
+  CUBE_FEATURES_DOCUMENT,
+  emptyDocument,
+  withFeatureChanges,
+} from '../test/fakes/documents'
 import { checkResult, finding, printReport, stateWithDocument } from '../test/fakes/state'
 import {
   selectActiveFeatureIds,
   selectEditLabel,
+  selectEmptyState,
   selectFeatureLabel,
   selectHealthBadge,
+  selectOriginVisible,
   selectProblems,
 } from './selectors'
-import type { AppState, DocumentState, PrintState } from './store'
+import type { ActiveCommand, AppState, DocumentState, PrintState, SketchSession } from './store'
+
+describe('selectEmptyState (3.2)', () => {
+  const COMMAND: ActiveCommand = {
+    featureType: 'box',
+    featureId: 'f-box1',
+    editing: false,
+    title: 'Box',
+    params: {},
+    activeField: null,
+    fieldErrors: {},
+    applied: false,
+    newBody: null,
+    helper: null,
+    changedPaths: [],
+    history: [],
+    future: [],
+    preview: 'none',
+  }
+  const PICKING_PLANE: SketchSession = {
+    sketchId: null,
+    tool: null,
+    construction: false,
+    showConstraints: true,
+    selection: [],
+    dragging: false,
+    cameraBefore: null,
+  }
+
+  it('U-95 is true for a ready core with a recipe without features, no command and no sketch session', () => {
+    expect(selectEmptyState(stateWithDocument(emptyDocument()))).toBe(true)
+  })
+
+  it('U-95 is false with one feature', () => {
+    const recipe = { ...emptyDocument(), features: CUBE_DOCUMENT.features?.slice(0, 1) ?? [] }
+    expect(selectEmptyState(stateWithDocument(recipe))).toBe(false)
+  })
+
+  it('U-95 is false with an active command', () => {
+    expect(selectEmptyState(stateWithDocument(emptyDocument(), { command: COMMAND }))).toBe(false)
+  })
+
+  it('U-95 is false during plane picking', () => {
+    const state = stateWithDocument(emptyDocument(), { context: 'sketch', sketch: PICKING_PLANE })
+    expect(selectEmptyState(state)).toBe(false)
+  })
+
+  it('U-95 is false while the core is loading', () => {
+    const state = stateWithDocument(emptyDocument(), {
+      core: { status: 'loading', engineVersion: null, fatal: null, pendingMutations: 0 },
+    })
+    expect(selectEmptyState(state)).toBe(false)
+  })
+
+  it('is false without a document', () => {
+    expect(selectEmptyState({ ...stateWithDocument(emptyDocument()), document: null })).toBe(false)
+  })
+})
+
+function withVisible(state: AppState, sessionVisible: Record<string, boolean>): AppState {
+  return { ...state, view: { ...state.view, sessionVisible } }
+}
+
+describe('selectOriginVisible (3.10)', () => {
+  it('U-96 with no features shows the axes and the origin point, not the planes', () => {
+    const state = stateWithDocument(emptyDocument())
+    expect(selectOriginVisible(state, 'origin:X')).toBe(true)
+    expect(selectOriginVisible(state, 'origin:Y')).toBe(true)
+    expect(selectOriginVisible(state, 'origin:Z')).toBe(true)
+    expect(selectOriginVisible(state, 'origin:O')).toBe(true)
+    expect(selectOriginVisible(state, 'origin:XY')).toBe(false)
+  })
+
+  it('U-96 with one feature hides origin:X', () => {
+    expect(selectOriginVisible(stateWithDocument(CUBE_DOCUMENT), 'origin:X')).toBe(false)
+  })
+
+  it('U-96 an entry {origin:X: true} shows it with features', () => {
+    const state = withVisible(stateWithDocument(CUBE_DOCUMENT), { 'origin:X': true })
+    expect(selectOriginVisible(state, 'origin:X')).toBe(true)
+  })
+
+  it('U-96 an entry {origin:Z: false} hides it with none', () => {
+    const state = withVisible(stateWithDocument(emptyDocument()), { 'origin:Z': false })
+    expect(selectOriginVisible(state, 'origin:Z')).toBe(false)
+  })
+})
 
 describe('selectFeatureLabel', () => {
   it('labels features with the catalog (features.md 3.12)', () => {

@@ -1,9 +1,9 @@
-//! Acceptance tests 97, 103, 104 and 110 of `docs/spec/engine.md` section 6: the feature catalog, validation and formatting.
+//! Acceptance tests 97, 103, 104, 110 and 114 of `docs/spec/engine.md` section 6: the feature catalog, validation, formatting and load errors.
 
 mod common;
 
 use common::{code_text, fixture, reindent, replace_once, send, session};
-use partsmith_engine::{ValidateOptions, ValidationReport};
+use partsmith_engine::{EngineError, ValidateOptions, ValidationReport};
 use partsmith_print::Severity;
 use pretty_assertions::assert_eq;
 use serde_json::json;
@@ -179,4 +179,53 @@ fn t110_format_returns_canonical_text_and_keeps_unknown_features() {
     assert_eq!(kept, Ok(unknown));
     let error = broken.expect_err("invalid JSON does not format");
     assert_eq!(code_text(error.code()), "parse_error");
+}
+
+/// The line, column and JSON Pointer of a parse error.
+fn parse_position(error: &EngineError) -> (Option<u32>, Option<u32>, Option<String>) {
+    match error {
+        EngineError::Parse {
+            line, column, path, ..
+        } => (*line, *column, path.clone()),
+        other => panic!("a parse error, got {other:?}"),
+    }
+}
+
+#[test]
+fn t114_load_errors_carry_the_position_validate_reports() {
+    let mut session = session();
+    let bad_id = replace_once(&fixture("box.ptsm"), r#""id": "b-1""#, r#""id": "b 1""#);
+    let truncated = r#"{"format": "partsmith","#;
+
+    for text in [bad_id.as_str(), truncated] {
+        let opened = session
+            .open_document(text, Vec::new())
+            .expect_err("the text does not load");
+        let formatted = session.format(text).expect_err("the text does not format");
+        let report = session.validate(text, &[], load_checks());
+
+        assert_eq!(formatted, opened);
+        let [diagnostic] = report.diagnostics.as_slice() else {
+            panic!("one load diagnostic: {:?}", describe(&report));
+        };
+        assert_eq!(diagnostic.code, "parse_error");
+        assert_eq!(
+            parse_position(&opened),
+            (diagnostic.line, diagnostic.column, diagnostic.path.clone())
+        );
+    }
+    let bad_id_error = session
+        .open_document(&bad_id, Vec::new())
+        .expect_err("the id has a space");
+    let truncated_error = session
+        .open_document(truncated, Vec::new())
+        .expect_err("the text ends early");
+    assert_eq!(
+        parse_position(&bad_id_error),
+        (None, None, Some("/bodies/0/id".to_owned()))
+    );
+    let (line, column, path) = parse_position(&truncated_error);
+    assert_eq!(line, Some(1));
+    assert!(column.is_some());
+    assert_eq!(path, None);
 }

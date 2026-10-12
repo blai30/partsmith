@@ -34,11 +34,11 @@ import type { Vector2 } from '../../sketch/geometry'
 import type { IdSource } from '../../sketch/recipes'
 import type { SketchChange, SketchCommitResult, SketchToolId } from '../../sketch/session'
 import { constraintTool } from '../../sketch/tools'
-import type { AppStore, SelectionItem, SketchSession } from '../../state/store'
+import type { AppStore, DocumentState, SelectionItem, SketchSession } from '../../state/store'
 import { cameraAfterSketch, type Camera, type Vector3 } from '../../viewport/camera'
 import { addScaled, cross } from '../../viewport/math'
 import type { App } from '../createApp'
-import { cancelCommand } from './command'
+import { cancelCommandImplicitly } from './command'
 import { coreRedo, coreUndo } from './document'
 import { commitEdits, documentOf, reportNewFailures, showCoreError } from './edits'
 import { dismiss, notify, showPickHint } from './notifications'
@@ -93,10 +93,14 @@ export function recordSketchView(app: App, before: Camera): void {
   history.redo.length = 0
 }
 
-/** Records a committed sketch edit, which Mod+Z in sketch mode undoes in the core. */
-export function recordSketchEdit(app: App): void {
+/**
+ * Records a committed sketch edit, which Mod+Z in sketch mode undoes in the core. With `sketchId`,
+ * only while that sketch is the one being edited.
+ */
+export function recordSketchEdit(app: App, sketchId: string | null = null): void {
   const history = sessionRecords.get(app.store)
-  if (history === undefined || editedSketch(app) === null) {
+  const edited = editedSketch(app)
+  if (history === undefined || edited === null || (sketchId !== null && sketchId !== edited)) {
     return
   }
   history.undo.push({ kind: 'document' })
@@ -173,7 +177,7 @@ export function sketchPlaneOf(item: SelectionItem): SketchPlane | null {
 /** Sketch mode for a new sketch: on the one selected plane, else plane picking (3.16.1). */
 export async function startNewSketch(app: App): Promise<void> {
   if (app.store.getState().command !== null) {
-    await cancelCommand(app)
+    await cancelCommandImplicitly(app)
   }
   if (editedSketch(app) !== null) {
     await finishSketch(app)
@@ -188,11 +192,17 @@ export async function startNewSketch(app: App): Promise<void> {
   app.store.setState({ context: 'sketch', sketch: sketchSession(null, null) })
 }
 
-/** Adds an empty sketch on a plane-like item in one edit labeled "New sketch", then edits it. */
+/** Stores whose new sketch is being added, so a second plane pick or click in the meantime adds nothing. */
+const creatingSketch = new WeakSet<AppStore>()
+
+/**
+ * Adds an empty sketch on a plane-like item in one edit labeled "New sketch", then edits it. A
+ * double-click on a plane, or on Sketch with a plane selected, adds one sketch.
+ */
 export async function createSketchOn(app: App, plane: SelectionItem): Promise<void> {
   const document = documentOf(app)
   const sketchPlane = sketchPlaneOf(plane)
-  if (document === null) {
+  if (document === null || creatingSketch.has(app.store)) {
     return
   }
   if (sketchPlane === null) {
@@ -200,6 +210,19 @@ export async function createSketchOn(app: App, plane: SelectionItem): Promise<vo
     showPickHint(app, MESSAGES.pick_plane(), null)
     return
   }
+  creatingSketch.add(app.store)
+  try {
+    await addSketchOn(app, document, sketchPlane)
+  } finally {
+    creatingSketch.delete(app.store)
+  }
+}
+
+async function addSketchOn(
+  app: App,
+  document: DocumentState,
+  sketchPlane: SketchPlane,
+): Promise<void> {
   const features = document.recipe.features ?? []
   const taken = usedIds(document.recipe)
   const sketchId = generateId('f', (id) => taken.has(id))
@@ -279,10 +302,23 @@ function lookAtSketch(app: App, solution: SketchSolution): void {
   viewport.zoomToBounds({ min, max }, 0.1)
 }
 
+/**
+ * Resolves once every change queued so far, such as a sketch commit still on its way, has landed;
+ * null when nothing is queued, so an idle queue adds no wait.
+ */
+function queuedChangesLanded(app: App): Promise<void> | null {
+  return app.mutations.pending > 0 ? app.mutations.run(() => Promise.resolve()) : null
+}
+
 /** Edits a sketch: Sketch context, the sketch shown, and the camera on its plane (3.16.1). */
 export async function enterSketch(app: App, sketchId: string): Promise<void> {
   if (app.store.getState().command !== null) {
-    await cancelCommand(app)
+    await cancelCommandImplicitly(app)
+  }
+  const landing = editedSketch(app) === null ? null : queuedChangesLanded(app)
+  if (landing !== null) {
+    // Moving on to another sketch: the commits of this one land first.
+    await landing
   }
   const before = app.viewport()?.getCamera() ?? null
   // A session that moves on to another sketch keeps its starting statuses until it finishes, and
@@ -294,6 +330,9 @@ export async function enterSketch(app: App, sketchId: string): Promise<void> {
   app.store.setState((state) => ({
     context: 'sketch',
     sketch: sketchSession(sketchId, cameraBefore),
+    // The plane or face the sketch started from has done its job; a feature command run from the
+    // sketch then preselects what the sketch made (3.3).
+    selection: [],
     view: {
       ...state.view,
       sessionVisible: { ...state.view.sessionVisible, [`feature:${sketchId}`]: true },
@@ -415,6 +454,12 @@ function leaveSketchPlane(app: App, cameraBefore: Camera | null, normal: Vector3
  * problems is named in a warning that leads back to the sketch.
  */
 export async function finishSketch(app: App, options: FinishSketchOptions = {}): Promise<void> {
+  const landing = queuedChangesLanded(app)
+  if (landing !== null) {
+    // Commits still on their way land in the sketch first, so what finishing selects and reports
+    // comes from the sketch as the user drew it.
+    await landing
+  }
   const state = app.store.getState()
   const sketchId = state.sketch?.sketchId ?? null
   const cameraBefore = state.sketch?.cameraBefore ?? null
@@ -690,16 +735,19 @@ export function commitSketchChange(
   label: string,
   change: SketchChange,
 ): Promise<SketchCommitResult> {
-  return app.mutations.run(() => commitNow(app, label, change))
+  // The change belongs to the sketch edited when the user made it, even when the session has
+  // finished or moved to another sketch by the time its turn in the queue comes.
+  const sketchId = app.store.getState().sketch?.sketchId ?? null
+  return app.mutations.run(() => commitNow(app, sketchId, label, change))
 }
 
 async function commitNow(
   app: App,
+  sketchId: string | null,
   label: string,
   change: SketchChange,
 ): Promise<SketchCommitResult> {
   const document = documentOf(app)
-  const sketchId = app.store.getState().sketch?.sketchId ?? null
   const record = sketchId === null ? null : sketchRecord(app, sketchId)
   const params = record === null ? null : sketchParamsOf(record)
   if (document === null || sketchId === null || record === null || params === null) {
@@ -811,7 +859,7 @@ async function applyCandidate(
     return failure(error)
   }
   // No failure notification here: features this edit made fail are reported on finishing (U-110).
-  recordSketchEdit(app)
+  recordSketchEdit(app, record.id)
   return { outcome: 'committed', revision }
 }
 
@@ -1099,7 +1147,7 @@ export function startSketchDrag(app: App, sketchId: string, point: string): Sket
         await app.core.endSketchDrag(documentHandle, sketchId, commit)
       })
       if (commit) {
-        recordSketchEdit(app)
+        recordSketchEdit(app, sketchId)
       }
     } catch (error) {
       if (!(error instanceof CoreError && error.code === 'no_drag')) {

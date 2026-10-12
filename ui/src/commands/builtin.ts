@@ -1,5 +1,6 @@
 import {
   ArrowDown,
+  ArrowDownToLine,
   ArrowLeft,
   ArrowRight,
   ArrowUp,
@@ -15,6 +16,7 @@ import {
   FileOutput,
   FolderOpen,
   Funnel,
+  Grid2x2,
   House,
   Lock,
   LockOpen,
@@ -27,6 +29,7 @@ import {
   Pencil,
   Printer,
   Redo2,
+  Repeat,
   Ruler,
   RulerDimensionLine,
   Save,
@@ -48,6 +51,7 @@ import {
   CircleX,
   ZoomIn,
   HeartPulse,
+  Keyboard,
   ListChecks,
   Layers,
   Type,
@@ -68,7 +72,13 @@ import {
 import { commitEdits } from '../app/actions/edits'
 import { exportModel, type ExportRequest } from '../app/actions/export'
 import { deleteParameter } from '../app/actions/parameters'
-import { openPrintHealth, runPrintAnalysis } from '../app/actions/print'
+import {
+  cancelLayOnFace,
+  openPrintHealth,
+  runPrintAnalysis,
+  setPrintOrientation,
+  startLayOnFace,
+} from '../app/actions/print'
 import { clearSelection } from '../app/actions/selection'
 import { updateSettings } from '../app/actions/settings'
 import {
@@ -85,19 +95,27 @@ import { requestUi } from '../layout/requests'
 import { MESSAGES } from '../messages'
 import type { Settings } from '../settings/settings'
 import type { SketchToolId } from '../sketch/session'
+import { selectSketchRadioTooltip } from '../state/selectors'
 import type { AppContext, AppState, OriginName, SelectionItem, ViewState } from '../state/store'
 import { toggledTheme } from '../theme/theme'
 import type { StandardView, Vector3 } from '../viewport/camera'
 import { cross } from '../viewport/math'
 import { isSessionVisible } from '../viewport/scene'
 import { CONSTRAINT_ICONS } from './icons'
-import type { Availability, CommandCategory, CommandDefinition } from './registry'
+import { keywordsFor } from './keywords'
+import {
+  disabledWith,
+  type Availability,
+  type CommandCategory,
+  type CommandDefinition,
+} from './registry'
 
 // The built-in UI commands of ui.md 3.5: everything the registry offers besides the feature
 // commands of the catalog (features.ts).
 
 const ALL: readonly AppContext[] = ['model', 'sketch', 'print']
 const MODEL_PRINT: readonly AppContext[] = ['model', 'print']
+const MODEL_SKETCH: readonly AppContext[] = ['model', 'sketch']
 const SKETCH: readonly AppContext[] = ['sketch']
 const PRINT: readonly AppContext[] = ['print']
 
@@ -107,9 +125,11 @@ const HIDDEN: Availability = { state: 'hidden' }
 type CommandInput = {
   readonly id: string
   readonly title: string
+  readonly label?: (app: App) => string
   readonly category: CommandCategory
   readonly icon?: LucideIcon | null
-  readonly keywords?: readonly string[]
+  /** What the command does (2.10); required for sketch tools, Finish sketch and constraints. */
+  readonly description?: string
   readonly shortcuts?: readonly string[]
   readonly contexts: readonly AppContext[]
   readonly availability?: (app: App) => Availability
@@ -118,14 +138,14 @@ type CommandInput = {
   readonly run: CommandDefinition['run']
 }
 
-/** A command with the defaults: no icon, keywords or shortcuts, always enabled. */
+/** A command with the defaults: no icon or shortcuts, always enabled; keywords from COMMAND_KEYWORDS. */
 function command(input: CommandInput): CommandDefinition {
   const definition: CommandDefinition = {
     id: input.id,
     title: input.title,
     category: input.category,
     icon: input.icon ?? null,
-    keywords: input.keywords ?? [],
+    keywords: keywordsFor(input.id),
     shortcuts: input.shortcuts ?? [],
     contexts: input.contexts,
     availability: input.availability ?? (() => ENABLED),
@@ -133,6 +153,8 @@ function command(input: CommandInput): CommandDefinition {
   }
   return {
     ...definition,
+    ...(input.label === undefined ? {} : { label: input.label }),
+    ...(input.description === undefined ? {} : { description: input.description }),
     ...(input.checked === undefined ? {} : { checked: input.checked }),
     ...(input.detail === undefined ? {} : { detail: input.detail }),
   }
@@ -149,21 +171,21 @@ function needsDocument(app: App): Availability {
   const state = stateOf(app)
   return state.core.status === 'ready' && state.document !== null
     ? ENABLED
-    : { state: 'disabled', reason: MESSAGES.core_not_running() }
+    : disabledWith('core_not_running', MESSAGES.core_not_running())
 }
 
 /** Enabled while the core runs (4.4). */
 function needsCore(app: App): Availability {
   return stateOf(app).core.status === 'ready'
     ? ENABLED
-    : { state: 'disabled', reason: MESSAGES.core_not_running() }
+    : disabledWith('core_not_running', MESSAGES.core_not_running())
 }
 
 /** needsDocument, and disabled while a feature command is active (export uses the model state, 3.18). */
 function needsDocumentOutsideCommand(app: App): Availability {
   const active = stateOf(app).command
   if (active !== null) {
-    return { state: 'disabled', reason: MESSAGES.finish_command_first(active.title) }
+    return disabledWith('finish_command_first', MESSAGES.finish_command_first(active.title))
   }
   return needsDocument(app)
 }
@@ -212,11 +234,12 @@ function undoAvailability(app: App): Availability {
   if (core.state !== 'enabled') {
     return core
   }
-  // Mod+Z cancels an active command (3.20); in sketch mode it also steps back through views.
+  // Mod+Z steps back through an active command, then cancels it (3.7, 3.20); in sketch mode it
+  // also steps back through views.
   if (state.command !== null || editingSketch(state) || state.document?.undoLabel !== null) {
     return ENABLED
   }
-  return { state: 'disabled', reason: MESSAGES.nothing_to_undo() }
+  return disabledWith('nothing_to_undo', MESSAGES.nothing_to_undo())
 }
 
 function redoAvailability(app: App): Availability {
@@ -225,13 +248,16 @@ function redoAvailability(app: App): Availability {
   if (core.state !== 'enabled') {
     return core
   }
+  // In a command, redo steps forward through its history (3.7, 3.20).
   if (state.command !== null) {
-    return { state: 'disabled', reason: MESSAGES.finish_command_first(state.command.title) }
+    return state.command.future.length > 0
+      ? ENABLED
+      : disabledWith('finish_command_first', MESSAGES.finish_command_first(state.command.title))
   }
   if (editingSketch(state) || state.document?.redoLabel !== null) {
     return ENABLED
   }
-  return { state: 'disabled', reason: MESSAGES.nothing_to_redo() }
+  return disabledWith('nothing_to_redo', MESSAGES.nothing_to_redo())
 }
 
 function deleteAvailability(app: App): Availability {
@@ -305,7 +331,7 @@ function editFeatureAvailability(app: App): Availability {
     return HIDDEN
   }
   if (featureRecord(state, only)?.type === 'import') {
-    return { state: 'disabled', reason: MESSAGES.import_not_editable() }
+    return disabledWith('import_not_editable', MESSAGES.import_not_editable())
   }
   return needsDocument(app)
 }
@@ -328,6 +354,19 @@ function suppressSelection(suppressed: boolean): (app: App) => Promise<void> {
     )
     await setSuppressed(app, ids, suppressed)
   }
+}
+
+/** The feature command Repeat starts again: the last one started in this session (3.5). */
+function repeatedCommand(app: App): CommandDefinition | undefined {
+  const type = stateOf(app).lastFeatureType
+  return type === null ? undefined : app.commands.get(`feature.${type}`)
+}
+
+function repeatAvailability(app: App): Availability {
+  const repeated = repeatedCommand(app)
+  return repeated === undefined
+    ? disabledWith('nothing_to_repeat', MESSAGES.nothing_to_repeat())
+    : repeated.availability(app)
 }
 
 // View commands.
@@ -445,19 +484,58 @@ const DRAWING_TOOLS: readonly {
   readonly title: string
   readonly icon: LucideIcon
   readonly shortcuts: readonly string[]
+  readonly description: string
 }[] = [
-  { tool: 'line', title: 'Line', icon: Slash, shortcuts: ['L'] },
+  {
+    tool: 'line',
+    title: 'Line',
+    icon: Slash,
+    shortcuts: ['L'],
+    description: 'Draws connected straight lines. Enter or a double-click ends the line.',
+  },
   {
     tool: 'rectangle_2point',
     title: '2-point rectangle',
     icon: RectangleHorizontal,
     shortcuts: ['R'],
+    description: 'Draws a rectangle from two opposite corners.',
   },
-  { tool: 'rectangle_center', title: 'Center rectangle', icon: SquareDashed, shortcuts: [] },
-  { tool: 'circle', title: 'Circle', icon: Circle, shortcuts: ['C'] },
-  { tool: 'arc_3point', title: 'Arc', icon: Spline, shortcuts: [] },
-  { tool: 'point', title: 'Point', icon: Dot, shortcuts: [] },
-  { tool: 'dimension', title: 'Dimension', icon: RulerDimensionLine, shortcuts: ['D'] },
+  {
+    tool: 'rectangle_center',
+    title: 'Center rectangle',
+    icon: SquareDashed,
+    shortcuts: [],
+    description: 'Draws a rectangle from its center and a corner.',
+  },
+  {
+    tool: 'circle',
+    title: 'Circle',
+    icon: Circle,
+    shortcuts: ['C'],
+    description: 'Draws a circle from its center and a point on it.',
+  },
+  {
+    tool: 'arc_3point',
+    title: 'Arc',
+    icon: Spline,
+    shortcuts: [],
+    description: 'Draws an arc through its start, its end and a point on it.',
+  },
+  {
+    tool: 'point',
+    title: 'Point',
+    icon: Dot,
+    shortcuts: [],
+    description: 'Places a point, for example to mark a hole center.',
+  },
+  {
+    tool: 'dimension',
+    title: 'Dimension',
+    icon: RulerDimensionLine,
+    shortcuts: ['D'],
+    description:
+      'Sets an exact length, distance, diameter, radius or angle. Type a value or a parameter name.',
+  },
 ]
 
 const DRAWING_TOOL_IDS: ReadonlySet<SketchToolId | null> = new Set(
@@ -469,20 +547,86 @@ const CONSTRAINT_TOOLS: readonly {
   readonly type: keyof typeof CONSTRAINT_ICONS
   readonly title: string
   readonly shortcuts: readonly string[]
+  readonly description: string
 }[] = [
-  { type: 'coincident', title: 'Coincident', shortcuts: ['I'] },
-  { type: 'point_on_object', title: 'Point on object', shortcuts: [] },
-  { type: 'horizontal', title: 'Horizontal', shortcuts: ['H'] },
-  { type: 'vertical', title: 'Vertical', shortcuts: ['V'] },
-  { type: 'parallel', title: 'Parallel', shortcuts: [] },
-  { type: 'perpendicular', title: 'Perpendicular', shortcuts: [] },
-  { type: 'tangent', title: 'Tangent', shortcuts: [] },
-  { type: 'collinear', title: 'Collinear', shortcuts: [] },
-  { type: 'concentric', title: 'Concentric', shortcuts: [] },
-  { type: 'equal', title: 'Equal', shortcuts: [] },
-  { type: 'symmetric', title: 'Symmetric', shortcuts: [] },
-  { type: 'midpoint', title: 'Midpoint', shortcuts: [] },
-  { type: 'fix', title: 'Fix', shortcuts: [] },
+  {
+    type: 'coincident',
+    title: 'Coincident',
+    shortcuts: ['I'],
+    description: 'Makes two points meet, or puts a point on a curve.',
+  },
+  {
+    type: 'point_on_object',
+    title: 'Point on object',
+    shortcuts: [],
+    description: 'Keeps a point on a line, circle or arc.',
+  },
+  {
+    type: 'horizontal',
+    title: 'Horizontal',
+    shortcuts: ['H'],
+    description: 'Makes a line horizontal, or lines up two points horizontally.',
+  },
+  {
+    type: 'vertical',
+    title: 'Vertical',
+    shortcuts: ['V'],
+    description: 'Makes a line vertical, or lines up two points vertically.',
+  },
+  {
+    type: 'parallel',
+    title: 'Parallel',
+    shortcuts: [],
+    description: 'Makes two lines parallel.',
+  },
+  {
+    type: 'perpendicular',
+    title: 'Perpendicular',
+    shortcuts: [],
+    description: 'Makes two lines meet at a right angle.',
+  },
+  {
+    type: 'tangent',
+    title: 'Tangent',
+    shortcuts: [],
+    description: 'Makes a line and a curve, or two curves, touch smoothly.',
+  },
+  {
+    type: 'collinear',
+    title: 'Collinear',
+    shortcuts: [],
+    description: 'Puts two lines on the same straight line.',
+  },
+  {
+    type: 'concentric',
+    title: 'Concentric',
+    shortcuts: [],
+    description: 'Gives two circles or arcs the same center.',
+  },
+  {
+    type: 'equal',
+    title: 'Equal',
+    shortcuts: [],
+    description: 'Makes two lines the same length, or two circles or arcs the same size.',
+  },
+  {
+    type: 'symmetric',
+    title: 'Symmetric',
+    shortcuts: [],
+    description: 'Places two points symmetrically about a line.',
+  },
+  {
+    type: 'midpoint',
+    title: 'Midpoint',
+    shortcuts: [],
+    description: 'Puts a point at the middle of a line.',
+  },
+  {
+    type: 'fix',
+    title: 'Fix',
+    shortcuts: [],
+    description: 'Locks points or curves where they are.',
+  },
 ]
 
 const ENTITY_NOUNS = { point: 'Point', line: 'Line', circle: 'Circle', arc: 'Arc' } as const
@@ -597,7 +741,6 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
       title: 'Command palette',
       category: 'View',
       icon: Search,
-      keywords: ['search', 'commands'],
       shortcuts: ['Mod+K', 'S'],
       contexts: ALL,
       run: (app) => {
@@ -607,13 +750,25 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
       },
     }),
 
+    command({
+      id: 'app.keys',
+      title: 'Keyboard and mouse',
+      category: 'View',
+      icon: Keyboard,
+      shortcuts: ['F1'],
+      contexts: ALL,
+      checked: (app) => stateOf(app).panels.side === 'keys',
+      run: (app) => {
+        setSide(app, 'keys')
+      },
+    }),
+
     // File.
     command({
       id: 'file.new',
       title: 'New',
       category: 'File',
       icon: FilePlus,
-      keywords: ['new document'],
       // Browsers reserve Ctrl+N (3.5).
       shortcuts: platform.host === 'desktop' ? ['Mod+N'] : [],
       contexts: ALL,
@@ -625,7 +780,6 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
       title: 'Open',
       category: 'File',
       icon: FolderOpen,
-      keywords: ['load', 'file'],
       shortcuts: ['Mod+O'],
       contexts: ALL,
       availability: needsCore,
@@ -638,7 +792,7 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
       icon: Save,
       shortcuts: ['Mod+S'],
       contexts: ALL,
-      availability: needsDocument,
+      availability: needsDocumentOutsideCommand,
       run: (app) => save(app),
     }),
     command({
@@ -648,7 +802,7 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
       icon: SaveAll,
       shortcuts: ['Mod+Shift+S'],
       contexts: ALL,
-      availability: needsDocument,
+      availability: needsDocumentOutsideCommand,
       run: (app) => saveAs(app),
     }),
     command({
@@ -656,7 +810,6 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
       title: 'Export',
       category: 'File',
       icon: Download,
-      keywords: ['3mf', 'stl', 'obj', 'step', 'download'],
       shortcuts: ['Mod+Shift+E'],
       contexts: ALL,
       availability: needsDocumentOutsideCommand,
@@ -675,6 +828,11 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
       contexts: ALL,
       availability: undoAvailability,
       detail: (app) => {
+        const active = stateOf(app).command
+        if (active !== null) {
+          const step = active.history.at(-1)
+          return step === undefined ? `Cancel ${active.title}` : `Undo change to ${step.field}`
+        }
         const label = stateOf(app).document?.undoLabel ?? null
         return label === null ? null : `Undo ${label}`
       },
@@ -689,6 +847,11 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
       contexts: ALL,
       availability: redoAvailability,
       detail: (app) => {
+        const active = stateOf(app).command
+        if (active !== null) {
+          const step = active.future.at(-1)
+          return step === undefined ? null : `Redo change to ${step.field}`
+        }
         const label = stateOf(app).document?.redoLabel ?? null
         return label === null ? null : `Redo ${label}`
       },
@@ -699,7 +862,6 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
       title: 'Delete',
       category: 'Edit',
       icon: Trash2,
-      keywords: ['remove'],
       shortcuts: ['Delete', 'Backspace'],
       contexts: ALL,
       availability: deleteAvailability,
@@ -748,7 +910,6 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
       title: 'Suppress',
       category: 'Edit',
       icon: CircleX,
-      keywords: ['disable'],
       contexts: MODEL_PRINT,
       availability: suppressAvailability(true),
       run: suppressSelection(true),
@@ -758,17 +919,34 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
       title: 'Unsuppress',
       category: 'Edit',
       icon: CircleCheck,
-      keywords: ['enable'],
       contexts: MODEL_PRINT,
       availability: suppressAvailability(false),
       run: suppressSelection(false),
+    }),
+    command({
+      id: 'edit.repeat',
+      title: 'Repeat',
+      label: (app) => {
+        const repeated = repeatedCommand(app)
+        return repeated === undefined ? 'Repeat' : `Repeat ${repeated.title}`
+      },
+      category: 'Edit',
+      icon: Repeat,
+      contexts: MODEL_PRINT,
+      availability: repeatAvailability,
+      // The feature command starts with the current selection preselected (3.7 step 4).
+      run: async (app, source) => {
+        const repeated = repeatedCommand(app)
+        if (repeated !== undefined) {
+          await app.commands.run(app, repeated.id, source)
+        }
+      },
     }),
     command({
       id: 'edit.clear_selection',
       title: 'Clear selection',
       category: 'Edit',
       icon: MousePointer2,
-      keywords: ['deselect'],
       contexts: ALL,
       run: (app) => {
         clearSelection(app)
@@ -786,6 +964,10 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
         contexts: ALL,
         availability: needsDocument,
         checked: (app) => stateOf(app).context === context,
+        // The Sketch radio names what it does: "Edit {label}" or "New sketch" (3.3).
+        ...(context === 'sketch'
+          ? { detail: (app: App) => selectSketchRadioTooltip(stateOf(app)) }
+          : {}),
         run: (app) => setContext(app, context),
       }),
     ),
@@ -796,7 +978,6 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
       title: 'Toggle browser',
       category: 'View',
       icon: PanelLeft,
-      keywords: ['tree', 'panel'],
       shortcuts: ['Mod+B'],
       contexts: ALL,
       checked: (app) => stateOf(app).panels.browserOpen,
@@ -811,7 +992,6 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
       title: 'Toggle timeline',
       category: 'View',
       icon: PanelBottom,
-      keywords: ['history'],
       contexts: ALL,
       checked: (app) => !stateOf(app).panels.timelineCollapsed,
       run: (app) => {
@@ -825,7 +1005,6 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
       title: 'Parameters',
       category: 'View',
       icon: SlidersHorizontal,
-      keywords: ['variables', 'expressions'],
       contexts: ALL,
       run: (app) => {
         setSide(app, 'parameters')
@@ -836,7 +1015,6 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
       title: 'Problems',
       category: 'View',
       icon: TriangleAlert,
-      keywords: ['errors', 'warnings'],
       contexts: ALL,
       run: (app) => {
         setSide(app, 'problems')
@@ -847,7 +1025,6 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
       title: 'Print check',
       category: 'View',
       icon: HeartPulse,
-      keywords: ['findings', 'checks'],
       contexts: ALL,
       // As the badge does (3.17): the panel opens, and a missing or stale report is checked again.
       run: (app) => openPrintHealth(app),
@@ -857,7 +1034,6 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
       title: 'Fit to view',
       category: 'View',
       icon: Maximize,
-      keywords: ['zoom', 'frame'],
       shortcuts: ['F6', 'Shift+F'],
       contexts: ALL,
       run: (app) => {
@@ -869,7 +1045,6 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
       title: 'Home view',
       category: 'View',
       icon: House,
-      keywords: ['iso', 'isometric', 'reset'],
       shortcuts: ['Shift+H'],
       contexts: ALL,
       run: (app) => {
@@ -883,12 +1058,11 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
       title: 'Look at',
       category: 'View',
       icon: ScanEye,
-      keywords: ['normal to', 'face'],
       shortcuts: ['Shift+L'],
       contexts: ALL,
       availability: (app) =>
         lookTarget(stateOf(app)) === null
-          ? { state: 'disabled', reason: MESSAGES.look_at_disabled() }
+          ? disabledWith('look_at_disabled', MESSAGES.look_at_disabled())
           : ENABLED,
       run: (app) => {
         const look = lookTarget(stateOf(app))
@@ -902,7 +1076,6 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
       title: 'Orthographic',
       category: 'View',
       icon: Cuboid,
-      keywords: ['perspective', 'projection', 'parallel'],
       shortcuts: ['Shift+P'],
       contexts: ALL,
       checked: (app) => stateOf(app).view.projection === 'orthographic',
@@ -915,7 +1088,6 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
       title: 'Section view',
       category: 'View',
       icon: ScanLine,
-      keywords: ['cut', 'clip', 'cross section'],
       shortcuts: ['Shift+X'],
       contexts: ALL,
       checked: (app) => stateOf(app).view.section !== null,
@@ -927,11 +1099,22 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
       },
     }),
     command({
+      id: 'view.grid',
+      title: 'Show grid',
+      category: 'View',
+      icon: Grid2x2,
+      contexts: MODEL_SKETCH,
+      checked: (app) => stateOf(app).view.grid,
+      // Session state, like the other view toggles (3.12).
+      run: (app) => {
+        viewChange(app, { grid: !stateOf(app).view.grid })
+      },
+    }),
+    command({
       id: 'view.visibility',
       title: 'Show or hide selection',
       category: 'View',
       icon: Eye,
-      keywords: ['hide', 'show', 'visibility'],
       shortcuts: ['V'],
       contexts: MODEL_PRINT,
       availability: (app) =>
@@ -944,7 +1127,6 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
         title: entry.title,
         category: 'View',
         icon: entry.icon,
-        keywords: ['view', 'camera'],
         contexts: ALL,
         checked: (app) => stateOf(app).view.named === entry.view,
         run: (app) => {
@@ -958,7 +1140,6 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
         title: entry.title,
         category: 'View',
         icon: Funnel,
-        keywords: ['selection filter', 'pick'],
         contexts: MODEL_PRINT,
         checked: (app) => stateOf(app).view.filter[entry.kind],
         run: (app) => {
@@ -972,7 +1153,6 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
       title: 'Lock selection',
       category: 'View',
       icon: Lock,
-      keywords: ['freeze', 'not pickable'],
       contexts: MODEL_PRINT,
       availability: (app) => {
         const state = stateOf(app)
@@ -1012,6 +1192,7 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
         title: entry.title,
         category: 'Sketch',
         icon: entry.icon,
+        description: entry.description,
         shortcuts: entry.shortcuts,
         contexts: SKETCH,
         availability: whileEditingSketch,
@@ -1026,7 +1207,8 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
       title: 'Construction',
       category: 'Sketch',
       icon: SquareDashed,
-      keywords: ['reference geometry', 'helper'],
+      description:
+        'Turns lines and curves into construction geometry, which guides the shape but is not part of it.',
       shortcuts: ['X'],
       contexts: SKETCH,
       availability: whileEditingSketch,
@@ -1039,7 +1221,7 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
         title: entry.title,
         category: 'Constrain',
         icon: CONSTRAINT_ICONS[entry.type],
-        keywords: ['constraint'],
+        description: entry.description,
         shortcuts: entry.shortcuts,
         contexts: SKETCH,
         availability: whileEditingSketch,
@@ -1067,7 +1249,6 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
       title: 'Show constraints',
       category: 'Sketch',
       icon: Layers,
-      keywords: ['glyphs'],
       contexts: SKETCH,
       availability: whileEditingSketch,
       checked: (app) => stateOf(app).sketch?.showConstraints === true,
@@ -1080,7 +1261,7 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
       title: 'Finish sketch',
       category: 'Sketch',
       icon: CircleCheck,
-      keywords: ['done', 'exit sketch'],
+      description: 'Leaves the sketch and returns to the 3D model.',
       shortcuts: ['Mod+Enter'],
       contexts: SKETCH,
       availability: whileEditingSketch,
@@ -1094,7 +1275,6 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
       title: 'Choose printer',
       category: 'Print',
       icon: Printer,
-      keywords: ['profile', 'machine'],
       contexts: PRINT,
       // Changing the printer is an edit, which waits for the active command (3.7).
       availability: needsDocumentOutsideCommand,
@@ -1104,10 +1284,9 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
     }),
     command({
       id: 'print.overhangs',
-      title: 'Overhangs',
+      title: 'Overhang map',
       category: 'Print',
       icon: Ruler,
-      keywords: ['overhang map', 'supports'],
       contexts: PRINT,
       checked: (app) => stateOf(app).print.overhangMap,
       run: (app) => {
@@ -1127,11 +1306,32 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
       },
     }),
     command({
+      id: 'print.lay_on_face',
+      title: 'Lay on face',
+      category: 'Print',
+      icon: ArrowDownToLine,
+      description: 'Pick the face that should rest on the bed. Click again to print as modeled.',
+      contexts: PRINT,
+      availability: needsDocument,
+      checked: (app) => stateOf(app).print.orientation !== null,
+      // A toggle (3.17): with an orientation set it prints as modeled again; a second click
+      // while picking ends the pick.
+      run: (app) => {
+        const print = stateOf(app).print
+        if (print.orientation !== null) {
+          setPrintOrientation(app, null)
+        } else if (print.pickingFace) {
+          cancelLayOnFace(app)
+        } else {
+          startLayOnFace(app)
+        }
+      },
+    }),
+    command({
       id: 'print.check_now',
       title: 'Check print',
       category: 'Print',
       icon: Wrench,
-      keywords: ['analyze', 'health'],
       contexts: ALL,
       availability: needsDocument,
       run: (app) => runPrintAnalysis(app),
@@ -1142,7 +1342,6 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
         title: entry.title,
         category: 'Print',
         icon: FileOutput,
-        keywords: ['export', 'download'],
         contexts: ALL,
         availability: needsDocumentOutsideCommand,
         run: (app) => exportModel(app, { format: entry.format, scope: 'visible' }),
@@ -1156,7 +1355,6 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
         title: `Units: ${unit}`,
         category: 'Edit',
         icon: Type,
-        keywords: ['units', 'millimeters', 'inches'],
         contexts: ALL,
         availability: needsDocumentOutsideCommand,
         checked: (app) => stateOf(app).document?.recipe.units === unit,
@@ -1171,7 +1369,6 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
         title: entry.title,
         category: 'Settings',
         icon: entry.icon,
-        keywords: ['appearance', 'color scheme'],
         contexts: ALL,
         checked: (app) => stateOf(app).settings.theme === entry.theme,
         run: (app) => {
@@ -1184,7 +1381,6 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
       title: 'Toggle dark theme',
       category: 'Settings',
       icon: Moon,
-      keywords: ['appearance', 'dark mode', 'light mode'],
       contexts: ALL,
       checked: (app) => resolvedTheme(stateOf(app).settings) === 'dark',
       run: (app) => {
@@ -1197,7 +1393,6 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
         title: entry.title,
         category: 'Settings',
         icon: MousePointer2,
-        keywords: ['mouse', 'orbit', 'pan'],
         contexts: ALL,
         checked: (app) => stateOf(app).settings.navigation === entry.navigation,
         run: (app) => {
@@ -1211,7 +1406,6 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
         title: `UI scale: ${String(Math.round(scale * 100))}%`,
         category: 'Settings',
         icon: ZoomIn,
-        keywords: ['zoom', 'size', 'text size'],
         contexts: ALL,
         checked: (app) => stateOf(app).settings.uiScale === scale,
         run: (app) => {

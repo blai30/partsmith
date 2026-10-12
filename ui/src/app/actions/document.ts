@@ -13,8 +13,15 @@ import { nowOf, startTransport } from '../connection'
 import { loadCoreData } from '../core-data'
 import type { App } from '../createApp'
 import { measureToNextFrame } from '../timing'
-import { cancelCommand } from './command'
-import { commitEdits, documentOf, isUnsaved, mutate, showCoreError } from './edits'
+import { cancelCommand, redoCommandChange, undoCommandChange } from './command'
+import {
+  commitEdits,
+  documentOf,
+  isUnsaved,
+  mutate,
+  refusedDuringCommand,
+  showCoreError,
+} from './edits'
 import { announce, notify } from './notifications'
 import { leaveSketchHistory, redoInSketch, undoInSketch } from './sketch'
 
@@ -49,7 +56,16 @@ function startDocumentSession(app: App): void {
       hover: null,
       command: null,
       sketch: null,
-      print: { ...state.print, report: null, reportRevision: null, focusedFinding: null },
+      // The print orientation is session state of the document it was picked in (3.17).
+      print: {
+        ...state.print,
+        report: null,
+        reportRevision: null,
+        reportOrientation: null,
+        focusedFinding: null,
+        orientation: null,
+        pickingFace: false,
+      },
       view: {
         ...state.view,
         sessionVisible: initialSessionVisibility(recipe ?? null),
@@ -57,6 +73,16 @@ function startDocumentSession(app: App): void {
       },
     }
   })
+}
+
+/**
+ * Cancels an open feature command before its document is replaced (3.7): its preview is not part of
+ * the document the stash keeps. Explicit, so no Restore is offered for another document.
+ */
+async function cancelCommandOfReplaced(app: App): Promise<void> {
+  if (app.store.getState().command !== null) {
+    await cancelCommand(app)
+  }
 }
 
 function recoveryEntryFor(app: App, document: DocumentState): RecoveryEntry {
@@ -145,6 +171,7 @@ async function replaceDocument(app: App, source: DocumentSource): Promise<boolea
     showCoreError(app, error)
     return false
   }
+  await cancelCommandOfReplaced(app)
   const offerReopen = await closeReplaced(app, documentOf(app), false)
   adoptDocument(app.store, opened.documentHandle, {
     name: source.name,
@@ -240,6 +267,7 @@ export async function startCore(app: App): Promise<void> {
 /** File > New (3.19). */
 export async function newDocument(app: App): Promise<void> {
   try {
+    await cancelCommandOfReplaced(app)
     const offerReopen = await closeReplaced(app, documentOf(app), true)
     await openUntitled(app)
     startDocumentSession(app)
@@ -411,10 +439,10 @@ async function writeDocument(app: App, target: SaveTarget): Promise<boolean> {
   return true
 }
 
-/** Save (Mod+S): to the document's file, or Save as without one. */
+/** Save (Mod+S): to the document's file, or Save as without one; refused during a feature command (3.7). */
 export async function save(app: App): Promise<void> {
   const document = documentOf(app)
-  if (document === null) {
+  if (document === null || refusedDuringCommand(app)) {
     return
   }
   const file = document.file
@@ -427,11 +455,11 @@ export async function save(app: App): Promise<void> {
 
 /**
  * Save as (Mod+Shift+S): asks where first; a canceled picker changes nothing, and a picker that
- * fails shows the Save messages with "Save as" (3.19).
+ * fails shows the Save messages with "Save as" (3.19). Refused during a feature command (3.7).
  */
 export async function saveAs(app: App): Promise<void> {
   const document = documentOf(app)
-  if (document === null) {
+  if (document === null || refusedDuringCommand(app)) {
     return
   }
   const fileName = `${document.name}.ptsm`
@@ -491,11 +519,14 @@ export function applyEdits(app: App, label: string, edits: readonly Edit[]): Pro
   return commitEdits(app, label, edits)
 }
 
-/** Undo (Mod+Z, 3.20): cancels an active feature command instead; in sketch mode views undo first. */
+/**
+ * Undo (Mod+Z, 3.20): in a feature command it undoes the command's last change, or cancels the
+ * command when there is none; in sketch mode views undo first.
+ */
 export async function undo(app: App): Promise<void> {
   const state = app.store.getState()
   if (state.command !== null) {
-    await cancelCommand(app)
+    await undoCommandChange(app)
     return
   }
   if (await undoInSketch(app)) {
@@ -504,9 +535,10 @@ export async function undo(app: App): Promise<void> {
   await coreUndo(app)
 }
 
-/** Redo (Mod+Shift+Z, 3.20); does nothing while a feature command is active. */
+/** Redo (Mod+Shift+Z, 3.20); in a feature command it redoes the command's last undone change. */
 export async function redo(app: App): Promise<void> {
   if (app.store.getState().command !== null) {
+    await redoCommandChange(app)
     return
   }
   if (await redoInSketch(app)) {
@@ -553,8 +585,11 @@ export async function coreRedo(app: App): Promise<void> {
   }
 }
 
-/** Changes the document units and explains what that means for typed numbers (3.21). */
+/** Changes the document units and explains what that means for typed numbers (3.21); refused during a feature command (3.7). */
 export async function setUnits(app: App, units: Units): Promise<void> {
+  if (refusedDuringCommand(app)) {
+    return
+  }
   if (await commitEdits(app, `Change units to ${units}`, [{ type: 'set_units', units }])) {
     notify(app, {
       severity: 'info',

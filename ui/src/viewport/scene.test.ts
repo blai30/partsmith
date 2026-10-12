@@ -19,13 +19,22 @@ import {
   type AppState,
   type DocumentState,
   type SelectionItem,
+  type SketchSession,
 } from '../state/store'
 import { createFakeBackend, type FakeBackend } from '../test/fakes/backend'
 import { CUBE_DOCUMENT, RECT_SKETCH_SOLUTION, TWO_BODIES_DOCUMENT } from '../test/fakes/documents'
 import { acceptsTarget } from '../inspector/selection-values'
 import { linearFromHex, VIEWPORT_COLORS, viewportTheme } from '../theme/roles'
 import type { DrawCall, Geometry, RenderFrame } from './backend'
-import { DEFAULT_CAMERA, eye, standardViewRotation, viewMatrix, type Camera } from './camera'
+import {
+  DEFAULT_CAMERA,
+  eye,
+  standardViewRotation,
+  viewMatrix,
+  type Camera,
+  type Vector3,
+} from './camera'
+import { dot, subtract } from './math'
 import { createScene, type Scene } from './scene'
 
 const SIZE = { width: 800, height: 600, pixelRatio: 1 }
@@ -111,6 +120,10 @@ const FILLET_EDGES_COMMAND: ActiveCommand = {
   fieldErrors: {},
   applied: false,
   newBody: null,
+  helper: null,
+  changedPaths: [],
+  history: [],
+  future: [],
   preview: 'none',
 }
 
@@ -281,9 +294,23 @@ describe('pickable kinds (3.6 and the ID pass contract of DrawCall.pickBase)', (
 
   it('makes only what the active selection field accepts pickable during a feature command', () => {
     const fixture = cubeScene()
+    const shellFaces: ActiveCommand = {
+      ...FILLET_EDGES_COMMAND,
+      featureType: 'shell',
+      params: { thickness: '2 mm' },
+      activeField: 'remove_faces',
+    }
+    const frame = render(fixture, cubeState({ command: shellFaces }))
+    expect(faces(fixture, frame).pickBase).not.toBeNull()
+    expect(edges(fixture, frame).pickBase).toBeNull()
+    expect(vertices(fixture, frame).pickBase).toBeNull()
+  })
+
+  it('makes faces pickable for a multiple edge field, which takes a face as its edges (3.7)', () => {
+    const fixture = cubeScene()
     const frame = render(fixture, cubeState({ command: FILLET_EDGES_COMMAND }))
     expect(edges(fixture, frame).pickBase).not.toBeNull()
-    expect(faces(fixture, frame).pickBase).toBeNull()
+    expect(faces(fixture, frame).pickBase).not.toBeNull()
     expect(vertices(fixture, frame).pickBase).toBeNull()
   })
 
@@ -337,7 +364,7 @@ describe('pickable kinds (3.6 and the ID pass contract of DrawCall.pickBase)', (
       params: {},
       activeField: null,
       applied: true,
-      newBody: { id: 'b-new', name: 'Body 1' },
+      newBody: { id: 'b-new', name: 'Body 1', path: 'body' },
       preview: 'shown',
     }
     const frame = render(fixture, stateOf(document, { command }))
@@ -691,5 +718,93 @@ describe('sketch point entities', () => {
     })
     expect(item?.sketchItem).toEqual({ kind: 'point', sketch: 'f-sk1', point: 'e-p1' })
     expect(item !== null && acceptsTarget('sketch_point', item)).toBe(true)
+  })
+})
+
+function gridDraws(frame: RenderFrame): readonly DrawCall[] {
+  return frame.draws.filter((draw) => draw.id.startsWith('grid:'))
+}
+
+describe('the grid (3.12)', () => {
+  const EDITING: SketchSession = {
+    sketchId: 'f-sk1',
+    tool: null,
+    construction: false,
+    showConstraints: true,
+    selection: [],
+    dragging: false,
+    cameraBefore: null,
+  }
+
+  it('draws minor lines at 35 and major lines at 70 percent, 1 pixel wide, depth-tested and never picked', () => {
+    const fixture = cubeScene()
+    const frame = render(fixture, cubeState())
+    const draws = gridDraws(frame)
+    expect(draws.map((draw) => [draw.id, draw.opacity])).toEqual([
+      ['grid:minor', 0.35],
+      ['grid:major', 0.7],
+    ])
+    for (const draw of draws) {
+      expect(draw.layer).toBe('translucent')
+      expect(draw.color).toEqual(linearFromHex(VIEWPORT_COLORS.light.grid))
+      expect(draw.size).toBe(1)
+      expect(draw.depthTest).toBe(true)
+      expect(draw.pickBase).toBeNull()
+      expect(fixture.backend.geometries.get(draw.id)?.kind).toBe('lines')
+    }
+  })
+
+  it('draws lines 1 pixel wide times the UI scale', () => {
+    const fixture = cubeScene()
+    const frame = render(
+      fixture,
+      cubeState({ settings: { ...DEFAULT_SETTINGS, theme: 'light', uiScale: 2 } }),
+    )
+    expect(gridDraws(frame).map((draw) => draw.size)).toEqual([2, 2])
+  })
+
+  it('lies on the XY plane in Model context', () => {
+    const fixture = cubeScene()
+    render(fixture, cubeState())
+    const positions = fixture.backend.geometries.get('grid:major')?.positions ?? new Float32Array()
+    expect(positions.length).toBeGreaterThan(0)
+    for (let i = 2; i < positions.length; i += 3) {
+      expect(positions[i]).toBe(0)
+    }
+  })
+
+  it('lies on the sketch plane while a sketch is edited', () => {
+    const fixture = cubeScene()
+    const state = cubeState({ context: 'sketch', sketch: EDITING })
+    const placement = state.document?.sketches['f-sk1']?.solution.placement
+    render(fixture, state)
+    const positions = fixture.backend.geometries.get('grid:major')?.positions ?? new Float32Array()
+    expect(positions.length).toBeGreaterThan(0)
+    for (let i = 0; i + 2 < positions.length; i += 3) {
+      const point: Vector3 = [positions[i] ?? 0, positions[i + 1] ?? 0, positions[i + 2] ?? 0]
+      const along = dot(
+        subtract(point, placement?.origin ?? [0, 0, 0]),
+        placement?.normal ?? [0, 0, 1],
+      )
+      expect(Math.abs(along)).toBeLessThan(1e-3)
+    }
+  })
+
+  it('draws no grid in Print, which draws the bed, or while it is turned off', () => {
+    const fixture = cubeScene()
+    expect(gridDraws(render(fixture, cubeState({ context: 'print' })))).toEqual([])
+    expect(fixture.backend.geometries.has('grid:minor')).toBe(false)
+    const off = cubeState()
+    expect(gridDraws(render(fixture, { ...off, view: { ...off.view, grid: false } }))).toEqual([])
+  })
+
+  it('uploads its lines again only when the spacing changes', () => {
+    const fixture = cubeScene()
+    render(fixture, cubeState())
+    const first = fixture.backend.geometries.get('grid:minor')
+    render(fixture, cubeState())
+    expect(fixture.backend.geometries.get('grid:minor')).toBe(first)
+    render(fixture, cubeState(), { ...DEFAULT_CAMERA, distance: DEFAULT_CAMERA.distance * 20 })
+    expect(fixture.backend.geometries.get('grid:minor')).not.toBe(first)
   })
 })

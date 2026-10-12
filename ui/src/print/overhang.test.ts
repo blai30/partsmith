@@ -99,7 +99,7 @@ describe('overhangLimit', () => {
 })
 
 describe('overhangMapShown', () => {
-  it('is true in Print context with Overhangs on and the overhangs check shown', () => {
+  it('is true in Print context with the Overhang map toggle on', () => {
     expect(overhangMapShown(mapState())).toBe(true)
   })
 
@@ -107,15 +107,12 @@ describe('overhangMapShown', () => {
     expect(overhangMapShown(mapState({ context }))).toBe(false)
   })
 
-  it('is false while the Overhangs toggle is off', () => {
+  it('is false while the Overhang map toggle is off', () => {
     expect(overhangMapShown(mapState({ overhangMap: false }))).toBe(false)
   })
 
-  it('is false while the overhangs check is hidden', () => {
-    expect(overhangMapShown(mapState({ hiddenChecks: ['overhangs'] }))).toBe(false)
-  })
-
-  it('ignores other hidden checks', () => {
+  it('stays on while the overhangs check is hidden: the toggle alone shows or hides the map (3.17)', () => {
+    expect(overhangMapShown(mapState({ hiddenChecks: ['overhangs'] }))).toBe(true)
     expect(overhangMapShown(mapState({ hiddenChecks: ['islands', 'thin_walls'] }))).toBe(true)
   })
 })
@@ -138,7 +135,6 @@ describe('overhangFields', () => {
   it('is empty while the map is not shown', () => {
     expect(overhangFields(mapState({ context: 'model' }), OVERHANG)).toEqual({})
     expect(overhangFields(mapState({ overhangMap: false }), OVERHANG)).toEqual({})
-    expect(overhangFields(mapState({ hiddenChecks: ['overhangs'] }), OVERHANG)).toEqual({})
   })
 })
 
@@ -168,7 +164,7 @@ describe('overhangAnalysis', () => {
 
   it('is null while the map is not shown', () => {
     expect(overhangAnalysis(mapState({ context: 'model' }), 'light')).toBeNull()
-    expect(overhangAnalysis(mapState({ hiddenChecks: ['overhangs'] }), 'dark')).toBeNull()
+    expect(overhangAnalysis(mapState({ overhangMap: false }), 'dark')).toBeNull()
   })
 })
 
@@ -180,7 +176,6 @@ describe('overhangLegendLimit', () => {
   it('is null while the map is not shown', () => {
     expect(overhangLegendLimit(mapState({ context: 'model' }))).toBeNull()
     expect(overhangLegendLimit(mapState({ overhangMap: false }))).toBeNull()
-    expect(overhangLegendLimit(mapState({ hiddenChecks: ['overhangs'] }))).toBeNull()
   })
 
   it('is null without a report', () => {

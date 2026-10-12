@@ -1,6 +1,8 @@
 import { clsx } from 'clsx/lite'
 import { useId } from 'react'
 import { COLOR_CLASSES } from '../theme/roles'
+import { describedBy } from './described-by'
+import { HelpLabel } from './HelpLabel'
 
 export type SwitchProps = {
   readonly label: string
@@ -9,6 +11,8 @@ export type SwitchProps = {
   readonly onChange: (checked: boolean) => void
   /** Help text under the label, exposed as the switch's accessible description. */
   readonly description?: string
+  /** Hover help on the label (3.7), also the switch's accessible description; null for none. */
+  readonly help?: string | null
   readonly disabled?: boolean
   readonly className?: string
 }
@@ -19,32 +23,40 @@ export function Switch({
   checked,
   onChange,
   description,
+  help = null,
   disabled = false,
   className,
 }: SwitchProps) {
   const id = useId()
   const labelId = `${id}-label`
   const descriptionId = `${id}-description`
+  const helpId = `${id}-help`
   return (
     <div className={clsx('flex flex-col gap-1', className)}>
       <div className="flex min-h-8 items-center justify-between gap-3">
-        <label
-          id={labelId}
-          htmlFor={id}
-          className={clsx(
-            'text-sm',
-            disabled ? COLOR_CLASSES.textDisabled.foreground : COLOR_CLASSES.text.foreground,
-          )}
-        >
-          {label}
-        </label>
+        <HelpLabel help={help} helpId={helpId}>
+          <label
+            id={labelId}
+            htmlFor={id}
+            className={clsx(
+              'text-sm',
+              disabled ? COLOR_CLASSES.textDisabled.foreground : COLOR_CLASSES.text.foreground,
+              help !== null && 'cursor-help',
+            )}
+          >
+            {label}
+          </label>
+        </HelpLabel>
         <button
           id={id}
           type="button"
           role="switch"
           aria-checked={checked}
           aria-labelledby={labelId}
-          aria-describedby={description === undefined ? undefined : descriptionId}
+          aria-describedby={describedBy(
+            description === undefined ? null : descriptionId,
+            help === null ? null : helpId,
+          )}
           disabled={disabled}
           onClick={() => {
             onChange(!checked)

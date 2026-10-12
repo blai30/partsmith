@@ -403,6 +403,29 @@ fn main() -> ExitCode {
             })
         },
     );
+    let engine_tolerance = |chord_deviation: f64| TessellationTolerance {
+        chord_deviation,
+        // The engine's 5 degrees (engine.md section 3.7).
+        angular_deviation: 5.0_f64.to_radians(),
+    };
+    measure(
+        "tessellate, sphere of radius 250 at 0.0125 mm and 5 degrees",
+        milliseconds(1500),
+        &|| {
+            let sphere = make_sphere(&Plane::XY, 250.0)
+                .expect("the sphere builds")
+                .shape;
+            median_time(|| sphere.tessellate(&engine_tolerance(0.0125)))
+        },
+    );
+    measure(
+        "tessellate, PLATE at 0.05 mm and 5 degrees",
+        milliseconds(1500),
+        &|| {
+            let plate = plate();
+            median_time(|| plate.tessellate(&engine_tolerance(0.05)))
+        },
+    );
     measure(
         "shell, L with its step face removed",
         milliseconds(40),

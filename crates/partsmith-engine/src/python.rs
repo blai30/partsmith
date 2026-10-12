@@ -7,8 +7,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use partsmith_features::{BodyOp, PythonCall, PythonNames, PythonValue, Registry};
 use partsmith_model::{BodyRole, Document, FeatureRecord, Id, Units};
 use partsmith_sketch::{
-    Alignment, ConstraintKind, DistanceTarget, Geometry, PointRef, PointRole, RegionRef,
-    SketchConstraint, SketchEntity, SketchParams, SketchPlane,
+    Alignment, ConstraintKind, DistanceTarget, Geometry, ORIGIN, PointRef, PointRole, RegionRef,
+    SketchConstraint, SketchEntity, SketchParams, SketchPlane, X_AXIS, Y_AXIS,
 };
 use serde_json::Value;
 
@@ -463,9 +463,11 @@ fn plan(registry: &Registry, names: &Names<'_>, position: usize) -> Plan {
         }
         for constraint in &params.constraints {
             for entity in constraint_entities(constraint) {
-                requests
-                    .entities
-                    .insert((record.id.clone(), entity.clone()));
+                if reserved_name(entity).is_none() {
+                    requests
+                        .entities
+                        .insert((record.id.clone(), entity.clone()));
+                }
             }
         }
         return Plan::Sketch(Box::new(params));
@@ -476,7 +478,7 @@ fn plan(registry: &Registry, names: &Names<'_>, position: usize) -> Plan {
 
 /// The params of a sketch that can be written as a block: valid params, a plane with a variable
 /// (an earlier datum, or a face of a document body), and constraints that refer only to the
-/// sketch's own entities.
+/// sketch's own entities and the reserved references (rule 9).
 fn block_params(
     registry: &Registry,
     names: &Names<'_>,
@@ -493,9 +495,20 @@ fn block_params(
     let own_entities = params.constraints.iter().all(|constraint| {
         constraint_entities(constraint)
             .iter()
-            .all(|entity| params.entity(entity).is_some())
+            .all(|entity| params.entity(entity).is_some() || reserved_name(entity).is_some())
     });
     (plane_ok && own_entities).then_some(params)
+}
+
+/// The Python name of a reserved sketch reference (sketch.md section 3.16, rule 9), `None` for an
+/// entity id.
+fn reserved_name(entity: &Id) -> Option<&'static str> {
+    match entity.as_str() {
+        ORIGIN => Some("Sketch.ORIGIN"),
+        X_AXIS => Some("Sketch.X_AXIS"),
+        Y_AXIS => Some("Sketch.Y_AXIS"),
+        _ => None,
+    }
 }
 
 /// Every entity id a constraint names, reserved names included, in field order.
@@ -865,9 +878,16 @@ fn constraint_call(
     entity: &dyn Fn(&Id) -> Option<String>,
     names: &Names<'_>,
 ) -> PythonCall {
-    let variable = |id: &Id| PythonValue::Name(entity(id).unwrap_or_default());
+    // A reserved reference is written by its name; an entity by its variable.
+    let name = |id: &Id| {
+        reserved_name(id)
+            .map(str::to_owned)
+            .or_else(|| entity(id))
+            .unwrap_or_default()
+    };
+    let variable = |id: &Id| PythonValue::Name(name(id));
     let point = |point: &PointRef| {
-        let base = entity(&point.entity).unwrap_or_default();
+        let base = name(&point.entity);
         PythonValue::Name(match point.role {
             PointRole::Point => base,
             PointRole::Start => format!("{base}.start"),
@@ -1124,5 +1144,15 @@ mod tests {
 
         assert!(targets(&record, &Id::new("b-2").expect("a valid id")));
         assert!(!targets(&record, &Id::new("b-1").expect("a valid id")));
+    }
+
+    #[test]
+    fn reserved_references_are_written_by_their_python_names() {
+        let id = |text: &str| Id::new(text).expect("a valid id");
+
+        assert_eq!(reserved_name(&id("origin")), Some("Sketch.ORIGIN"));
+        assert_eq!(reserved_name(&id("x_axis")), Some("Sketch.X_AXIS"));
+        assert_eq!(reserved_name(&id("y_axis")), Some("Sketch.Y_AXIS"));
+        assert_eq!(reserved_name(&id("e-1")), None);
     }
 }

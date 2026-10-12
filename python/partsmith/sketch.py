@@ -125,8 +125,48 @@ class Region:
         return f"Region({self.key!r}, {self.fp!r})"
 
 
+class SketchOrigin:
+    """The sketch origin (0, 0), the reserved point reference `origin` (sketch.md section 3.16).
+
+    Use it as `Sketch.ORIGIN` wherever a constraint takes a point. It is a constant of every
+    sketch, not an entity.
+    """
+
+    __slots__ = ()
+
+    id: ClassVar[str] = "origin"
+    """The stored reference."""
+
+    def __repr__(self) -> str:
+        return "Sketch.ORIGIN"
+
+
+class SketchAxis:
+    """A sketch axis, the reserved line reference `x_axis` or `y_axis` (sketch.md section 3.16).
+
+    Use them as `Sketch.X_AXIS` and `Sketch.Y_AXIS` wherever a constraint takes a line. They follow
+    the sketch plane, unlike the model axes `Axis.X` and `Axis.Y`.
+    """
+
+    __slots__ = ("_name", "id")
+
+    def __init__(self, id: str, name: str) -> None:
+        self.id = id
+        self._name = name
+
+    def __repr__(self) -> str:
+        return f"Sketch.{self._name}"
+
+
 class Sketch:
     """A sketch feature; entities and constraints created inside the with block belong to it."""
+
+    ORIGIN: ClassVar[SketchOrigin] = SketchOrigin()
+    """The sketch origin, a point; stored as `origin`."""
+    X_AXIS: ClassVar[SketchAxis] = SketchAxis("x_axis", "X_AXIS")
+    """The sketch x axis (along +u), a line; stored as `x_axis`."""
+    Y_AXIS: ClassVar[SketchAxis] = SketchAxis("y_axis", "Y_AXIS")
+    """The sketch y axis (along +v), a line; stored as `y_axis`."""
 
     def __init__(
         self,
@@ -336,6 +376,13 @@ class Arc(_Entity):
             Radius(self, radius)
 
 
+_LINES = (Line, SketchAxis)
+"""What a constraint accepts where it takes a line: a line entity or a sketch axis."""
+
+_CURVES = (Line, SketchAxis, Circle, Arc)
+"""What a constraint accepts where it takes a curve: an entity or a sketch axis."""
+
+
 class Rectangle:
     """Four lines counterclockwise from the bottom-left corner, closed by coincidences, kept
     horizontal and vertical, with the width and height as dimensions."""
@@ -451,35 +498,35 @@ class Parallel(_Pair):
     """Two lines are parallel."""
 
     __slots__ = ()
-    _TYPE, _FIELD, _ACCEPTS = "parallel", "lines", (Line,)
+    _TYPE, _FIELD, _ACCEPTS = "parallel", "lines", _LINES
 
 
 class Perpendicular(_Pair):
     """Two lines are perpendicular."""
 
     __slots__ = ()
-    _TYPE, _FIELD, _ACCEPTS = "perpendicular", "lines", (Line,)
+    _TYPE, _FIELD, _ACCEPTS = "perpendicular", "lines", _LINES
 
 
 class Collinear(_Pair):
     """Two lines lie on one infinite line."""
 
     __slots__ = ()
-    _TYPE, _FIELD, _ACCEPTS = "collinear", "lines", (Line,)
+    _TYPE, _FIELD, _ACCEPTS = "collinear", "lines", _LINES
 
 
 class Tangent(_Pair):
     """A line and a circle or arc, or two circles or arcs, touch tangentially."""
 
     __slots__ = ()
-    _TYPE, _FIELD, _ACCEPTS = "tangent", "curves", (Line, Circle, Arc)
+    _TYPE, _FIELD, _ACCEPTS = "tangent", "curves", _CURVES
 
 
 class Equal(_Pair):
     """Two lines have equal length, or two circles or arcs have equal radius."""
 
     __slots__ = ()
-    _TYPE, _FIELD, _ACCEPTS = "equal", "curves", (Line, Circle, Arc)
+    _TYPE, _FIELD, _ACCEPTS = "equal", "curves", _CURVES
 
 
 class Concentric(_Pair):
@@ -499,7 +546,7 @@ class Midpoint(_Constraint):
         record = {
             "type": "midpoint",
             "point": _address("Midpoint", point),
-            "line": _entity_id("Midpoint", line, (Line,)),
+            "line": _entity_id("Midpoint", line, _LINES),
         }
         self._register(sketch, id, record)
 
@@ -514,7 +561,7 @@ class PointOn(_Constraint):
         record = {
             "type": "point_on_object",
             "point": _address("PointOn", point),
-            "curve": _entity_id("PointOn", curve, (Line, Circle, Arc)),
+            "curve": _entity_id("PointOn", curve, _CURVES),
         }
         self._register(sketch, id, record)
 
@@ -529,7 +576,7 @@ class Symmetric(_Constraint):
         record = {
             "type": "symmetric",
             "points": [_address("Symmetric", a), _address("Symmetric", b)],
-            "line": _entity_id("Symmetric", about, (Line,)),
+            "line": _entity_id("Symmetric", about, _LINES),
         }
         self._register(sketch, id, record)
 
@@ -541,7 +588,7 @@ class Fix(_Constraint):
 
     def __init__(self, target: object, *, id: str | None = None) -> None:
         sketch = _sketch_of("Fix")
-        address = target.id if isinstance(target, (Line, Circle, Arc)) else _address("Fix", target)
+        address = target.id if isinstance(target, _CURVES) else _address("Fix", target)
         self._register(sketch, id, {"type": "fix", "target": address})
 
 
@@ -570,9 +617,9 @@ class Distance(_Dimension):
     ) -> None:
         sketch = _sketch_of("Distance")
         if value is None:
-            record = {"type": "distance", "line": _entity_id("Distance", a, (Line,))}
+            record = {"type": "distance", "line": _entity_id("Distance", a, _LINES)}
             value = b
-        elif isinstance(b, Line):
+        elif isinstance(b, _LINES):
             record = {"type": "distance", "point": _address("Distance", a), "line": b.id}
         else:
             record = {"type": "distance", "points": [_address("Distance", a), _address("Distance", b)]}
@@ -591,7 +638,7 @@ class _AxisDistance(_Dimension):
         name = type(self).__name__
         sketch = _sketch_of(name)
         if value is None:
-            record = {"type": self._TYPE, "line": _entity_id(name, a, (Line,))}
+            record = {"type": self._TYPE, "line": _entity_id(name, a, _LINES)}
             value = b
         else:
             record = {"type": self._TYPE, "points": [_address(name, a), _address(name, b)]}
@@ -646,7 +693,7 @@ class Angle(_Dimension):
 
     def __init__(self, a: object, b: object, value: object, *, driving: bool = True, id: str | None = None) -> None:
         sketch = _sketch_of("Angle")
-        record = {"type": "angle", "lines": [_entity_id("Angle", a, (Line,)), _entity_id("Angle", b, (Line,))]}
+        record = {"type": "angle", "lines": [_entity_id("Angle", a, _LINES), _entity_id("Angle", b, _LINES)]}
         self._register_dimension(sketch, id, record, value, driving)
 
 
@@ -679,18 +726,19 @@ def _is_parametric(value: object) -> bool:
 
 
 def _address(name: str, point: object) -> str:
-    """The stored address of a point: `<entity>.<role>`, or a point entity's id."""
+    """The stored address of a point: `<entity>.<role>`, a point entity's id, or `origin`."""
     if isinstance(point, PointRef):
         return f"{point.entity.id}.{point.role}"
-    if isinstance(point, Point):
+    if isinstance(point, (Point, SketchOrigin)):
         return point.id
     raise TypeError(f"{name}() takes points (such as line.start or a Point), not {type(point).__name__}.")
 
 
 def _entity_id(name: str, entity: object, accepts: tuple[type, ...]) -> str:
-    """The id of an entity of one of the accepted kinds."""
+    """The id of an entity of one of the accepted kinds, or the name of a sketch axis where a line
+    is accepted."""
     if not isinstance(entity, accepts):
-        kinds = " or ".join(kind.__name__ for kind in accepts)
+        kinds = " or ".join(kind.__name__ for kind in accepts if issubclass(kind, _Entity))
         raise TypeError(f"{name}() takes {kinds} entities, not {type(entity).__name__}.")
     return entity.id
 
@@ -698,5 +746,5 @@ def _entity_id(name: str, entity: object, accepts: tuple[type, ...]) -> str:
 def _line_or_points(name: str, a: object, b: object | None) -> dict:
     """`{"line": id}` for one line, `{"points": [a, b]}` for two points."""
     if b is None:
-        return {"line": _entity_id(name, a, (Line,))}
+        return {"line": _entity_id(name, a, _LINES)}
     return {"points": [_address(name, a), _address(name, b)]}

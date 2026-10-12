@@ -124,9 +124,12 @@ export function printState(overrides: Partial<PrintState> = {}): PrintState {
   return {
     report: null,
     reportRevision: null,
+    reportOrientation: null,
     running: false,
     overhangMap: true,
     focusedFinding: null,
+    orientation: null,
+    pickingFace: false,
     ...overrides,
   }
 }

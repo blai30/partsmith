@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import type { ActiveCommand } from '../state/store'
+import type { ActiveCommand, SketchSession } from '../state/store'
 import { MAC_WEB } from '../test/fakes/app'
 import { settle } from '../test/fakes/settle'
-import { bodyItem, cubeDocumentState, originItem, readyState } from './fixtures.testing'
+import { bodyItem, cubeDocumentState, datumItem, originItem, readyState } from './fixtures.testing'
 import { activeFieldAccepts, pickRow, togglesSelection } from './pick-row'
 import { createModelApp } from './test-app.testing'
 
@@ -16,6 +16,10 @@ const DATUM_COMMAND: ActiveCommand = {
   fieldErrors: {},
   applied: false,
   newBody: null,
+  helper: null,
+  changedPaths: [],
+  history: [],
+  future: [],
   preview: 'none',
 }
 
@@ -65,6 +69,66 @@ describe('pickRow', () => {
     pickRow(app, bodyItem('b-cube', 'Cube'), false)
     expect(app.store.getState().command?.params.base).toBeUndefined()
     expect(app.store.getState().selection.map((item) => item.key)).toEqual(['body:b-cube'])
+  })
+})
+
+/** Sketch mode while a plane is picked for a new sketch (3.16.1). */
+const PLANE_PICKING: SketchSession = {
+  sketchId: null,
+  tool: null,
+  construction: false,
+  showConstraints: true,
+  selection: [],
+  dragging: false,
+  cameraBefore: null,
+}
+
+/** The plane of the sketch the one `applyEdits` call added. */
+function addedSketchPlane(calls: readonly (readonly unknown[])[]): unknown {
+  expect(calls).toHaveLength(1)
+  const [, label, edits] = calls[0] ?? []
+  expect(label).toBe('New sketch')
+  const [edit] = edits as readonly { readonly type: string; readonly feature: { plane: unknown } }[]
+  expect(edit?.type).toBe('add_feature')
+  return edit?.feature.plane
+}
+
+describe('pickRow while a plane is picked (3.16.1)', () => {
+  it('starts the new sketch on a clicked origin plane row', async () => {
+    const { app, core } = createModelApp({
+      state: readyState(cubeDocumentState(), { context: 'sketch', sketch: PLANE_PICKING }),
+    })
+    pickRow(app, originItem('XZ'), false)
+    await settle()
+    expect(addedSketchPlane(core.callsTo('applyEdits'))).toEqual({ kind: 'origin', plane: 'XZ' })
+    expect(app.store.getState().selection).toEqual([])
+  })
+
+  it('starts the new sketch on a clicked datum row', async () => {
+    const { app, core } = createModelApp({
+      state: readyState(cubeDocumentState(), { context: 'sketch', sketch: PLANE_PICKING }),
+    })
+    pickRow(app, datumItem('f-dp1', 'Datum plane 1'), false)
+    await settle()
+    expect(addedSketchPlane(core.callsTo('applyEdits'))).toEqual({
+      kind: 'datum',
+      feature: 'f-dp1',
+    })
+  })
+
+  it('selects any other row, and plane rows once a sketch is being edited', async () => {
+    const { app, core } = createModelApp({
+      state: readyState(cubeDocumentState(), { context: 'sketch', sketch: PLANE_PICKING }),
+    })
+    pickRow(app, bodyItem('b-cube', 'Cube'), false)
+    app.store.setState({ sketch: { ...PLANE_PICKING, sketchId: 'f-sk1' } })
+    pickRow(app, originItem('XY'), true)
+    await settle()
+    expect(core.callsTo('applyEdits')).toEqual([])
+    expect(app.store.getState().selection.map((item) => item.key)).toEqual([
+      'body:b-cube',
+      'origin:XY',
+    ])
   })
 })
 

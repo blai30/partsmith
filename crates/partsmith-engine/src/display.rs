@@ -8,10 +8,8 @@ use partsmith_features::BodyState;
 use partsmith_mesh::{
     BoundingBox, EdgePolyline, Mesh, RenderBuffers, TessellationTolerance, VertexMarker,
 };
-use partsmith_naming::{ElementKind, ElementName};
-use partsmith_occt_sys::{
-    EdgeTopology, FaceTopology, KernelError, Shape, SubShapeKind, Topology, VertexTopology,
-};
+use partsmith_naming::{EdgeInfo, ElementKind, ElementName, FaceInfo, TopologyInfo, VertexInfo};
+use partsmith_occt_sys::{KernelError, Shape, SubShapeKind};
 use partsmith_protocol::ElementDescriptor;
 
 use crate::error::EngineError;
@@ -33,7 +31,9 @@ pub(crate) struct TableEntry {
 
 /// The displayed elements of one body state (section 3.8): faces, edges without seams, and the
 /// vertices of those edges, each sorted by name, repeated names by kernel index. An element's
-/// display id is its position.
+/// display id is its position. The table shares the body state's topology, which the feature that
+/// built the state usually carried (features.md section 2.7), so building a table queries no
+/// kernel topology.
 #[derive(Debug)]
 pub(crate) struct ElementTable {
     /// Displayed faces.
@@ -48,8 +48,9 @@ pub(crate) struct ElementTable {
     edge_ids: Vec<Option<u32>>,
     /// Display id of each vertex by kernel index minus one.
     vertex_ids: Vec<Option<u32>>,
-    /// The kernel topology of the shape, which descriptors read for their adjacent elements.
-    topology: Topology,
+    /// The topology and fingerprints of the shape, shared with its body state; descriptors read
+    /// their adjacent elements and references from it.
+    topology: Arc<TopologyInfo>,
     /// Descriptors in table order, computed on first use.
     descriptors: OnceLock<Result<Arc<[ElementDescriptor]>, EngineError>>,
 }
@@ -57,10 +58,12 @@ pub(crate) struct ElementTable {
 impl ElementTable {
     /// The table of a body state with a shape.
     pub(crate) fn build(state: &BodyState) -> Result<ElementTable, EngineError> {
-        let shape = state
-            .shape()
-            .ok_or_else(|| EngineError::internal("an element table needs a shape"))?;
-        let topology = shape.topology().map_err(kernel_failure)?;
+        if state.is_empty() {
+            return Err(EngineError::internal("an element table needs a shape"));
+        }
+        let topology = state
+            .topology()
+            .map_err(|error| EngineError::internal(error.to_string()))?;
         let naming = state.naming();
         let consistent = [
             (ElementKind::Face, topology.faces.len()),
@@ -117,8 +120,8 @@ impl ElementTable {
         })
     }
 
-    /// The kernel topology of the shape the table was built from.
-    pub(crate) fn topology(&self) -> &Topology {
+    /// The topology and fingerprints of the shape the table was built from.
+    pub(crate) fn topology(&self) -> &TopologyInfo {
         &self.topology
     }
 
@@ -177,7 +180,7 @@ impl ElementTable {
         let indices: usize = topology
             .faces
             .iter()
-            .map(|face| face.edges.len() + face.vertices.len())
+            .map(|face| face.edges.len())
             .chain(
                 topology
                     .edges
@@ -191,18 +194,19 @@ impl ElementTable {
                     .map(|vertex| vertex.edges.len() + vertex.faces.len()),
             )
             .sum();
-        let elements = topology.faces.len() * size_of::<FaceTopology>()
-            + topology.edges.len() * size_of::<EdgeTopology>()
-            + topology.vertices.len() * size_of::<VertexTopology>();
+        let elements = topology.faces.len() * size_of::<FaceInfo>()
+            + topology.edges.len() * size_of::<EdgeInfo>()
+            + topology.vertices.len() * size_of::<VertexInfo>();
         names + ids * size_of::<Option<u32>>() + indices * size_of::<u32>() + elements
     }
 }
 
-/// True when edge `index` is a seam (it bounds the same face on both sides).
-fn is_seam(topology: &Topology, index: u32) -> bool {
+/// True when edge `index` is a seam: an edge with one distinct adjacent face, which it bounds on
+/// both sides (section 3.8).
+fn is_seam(topology: &TopologyInfo, index: u32) -> bool {
     slot(index)
         .and_then(|position| topology.edges.get(position))
-        .is_none_or(|edge| edge.seam)
+        .is_none_or(|edge| edge.faces.len() == 1)
 }
 
 /// The position of a 1-based kernel index in a per-element list.
@@ -532,11 +536,11 @@ mod tests {
             vertices: Vec::new(),
             edge_ids: Vec::new(),
             vertex_ids: Vec::new(),
-            topology: Topology {
+            topology: Arc::new(TopologyInfo {
                 faces: Vec::new(),
                 edges: Vec::new(),
                 vertices: Vec::new(),
-            },
+            }),
             descriptors: OnceLock::new(),
         }
     }
@@ -758,6 +762,46 @@ mod tests {
             (6, 12, 8)
         );
         assert!(topology.faces.iter().all(|face| face.edges.len() == 4));
+    }
+
+    #[test]
+    fn element_tables_share_the_topology_of_their_body_state() {
+        let (mut session, doc) =
+            session_without_budget(false, include_str!("../tests/fixtures/box.ptsm"));
+        let view = crate::inspect::body_with_geometry(
+            &session.documents[&doc],
+            &Id::new("b-1").expect("a valid id"),
+        )
+        .expect("the box has geometry");
+
+        let table = session.table_of(&view).expect("the box has a table");
+
+        let topology = view.state.topology().expect("the box has a topology");
+        assert!(std::ptr::eq(table.topology(), Arc::as_ptr(&topology)));
+    }
+
+    /// An edge with `faces`, as the naming topology lists it.
+    fn edge_with_faces(faces: Vec<u32>) -> EdgeInfo {
+        EdgeInfo {
+            faces,
+            vertices: vec![1, 2],
+            degenerate: false,
+            fingerprint: partsmith_naming::Fingerprint::parse("line|n=1,0,0|c=0,0,0|l=1")
+                .expect("a valid fingerprint"),
+        }
+    }
+
+    #[test]
+    fn seams_are_edges_with_one_distinct_face() {
+        let topology = TopologyInfo {
+            faces: Vec::new(),
+            edges: vec![edge_with_faces(vec![1]), edge_with_faces(vec![1, 2])],
+            vertices: Vec::new(),
+        };
+
+        assert!(is_seam(&topology, 1));
+        assert!(!is_seam(&topology, 2));
+        assert!(is_seam(&topology, 3), "an unknown edge is never shown");
     }
 
     #[test]

@@ -2,7 +2,6 @@ import type { PrinterProfile, PrintReport } from '../generated/protocol'
 import type { AppState } from '../state/store'
 import { encodedFromHex, VIEWPORT_COLORS, type ThemeName } from '../theme/roles'
 import type { RenderFrame } from '../viewport/backend'
-import { isCheckHidden } from './checks'
 
 // The overhang color map (ui.md 3.12 pass 3, 3.17): which bodies show it, its ramp and its legend.
 
@@ -32,13 +31,12 @@ export function overhangLimit(
   return printers.find((printer) => printer.id === report.profile)?.max_overhang_angle ?? null
 }
 
-/** Whether the map is on: Print context, the Overhangs toggle on and the overhangs check not hidden. */
+/**
+ * Whether the map is on: Print context and the Overhang map toggle on. The toggle alone shows or
+ * hides the map and its legend (3.17); the Overhangs check switch only hides findings.
+ */
 export function overhangMapShown(state: AppState): boolean {
-  return (
-    state.context === 'print' &&
-    state.print.overhangMap &&
-    !isCheckHidden(state.settings.hiddenChecks, 'overhangs')
-  )
+  return state.context === 'print' && state.print.overhangMap
 }
 
 /**

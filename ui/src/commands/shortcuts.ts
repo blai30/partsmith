@@ -160,6 +160,24 @@ export function formatShortcut(shortcut: string, platform: Platform): string {
   return parts.join('+')
 }
 
+/**
+ * A shortcut as `aria-keyshortcuts` writes it on the platform (WAI-ARIA): the modifiers Control,
+ * Alt, Shift and Meta (`Mod` is Meta on macOS and Control elsewhere), then the key, joined by "+".
+ */
+export function ariaKeyShortcut(shortcut: string, platform: Platform): string {
+  const chord = parseShortcut(shortcut)
+  const mac = platform.operatingSystem === 'mac'
+  return [
+    chord.control || (chord.primaryModifier && !mac) ? 'Control' : null,
+    chord.alt ? 'Alt' : null,
+    chord.shift ? 'Shift' : null,
+    chord.primaryModifier && mac ? 'Meta' : null,
+    chord.key,
+  ]
+    .filter((part) => part !== null)
+    .join('+')
+}
+
 const ASCII_LETTER = /^[a-z]$/i
 const LETTER_CODE = /^Key([A-Z])$/
 const SINGLE_LETTER = /^\p{L}$/u

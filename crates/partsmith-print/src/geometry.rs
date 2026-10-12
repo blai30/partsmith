@@ -1,6 +1,8 @@
 //! Small vector helpers and the planar geometry the checks need: convex hulls, hull area, hull
 //! width and the smallest enclosing circle.
 
+use std::f64::consts::{FRAC_1_SQRT_2, FRAC_PI_4};
+
 use partsmith_mesh::{Point2, Vector3};
 
 /// The dot product.
@@ -137,6 +139,60 @@ pub(crate) fn minimum_width(hull: &[Point2]) -> f64 {
     width
 }
 
+/// Unit directions at 0, 45, 90 and 135 degrees, whose widths `minimum_width_bound` samples.
+const SAMPLED_DIRECTIONS: [Point2; 4] = [
+    [1.0, 0.0],
+    [FRAC_1_SQRT_2, FRAC_1_SQRT_2],
+    [0.0, 1.0],
+    [-FRAC_1_SQRT_2, FRAC_1_SQRT_2],
+];
+
+/// Relative rounding allowance of `minimum_width_bound`, far above the few ulps its sums lose.
+const BOUND_ROUNDING: f64 = 1e-12;
+
+/// A lower bound on the minimum width of the convex hull of `points`, found without building
+/// the hull, so a caller can skip the hull of a shape that is clearly wide enough.
+///
+/// The width of a point set in a direction changes by at most `2 · r · Δθ` when the direction
+/// turns by `Δθ`, where `r` is the largest distance of a point from any fixed center, and every
+/// direction is within π/8 of one of the four sampled ones (a width repeats after a half turn).
+/// So the minimum width is at least the smallest sampled width less `r · π/4`. Points are taken
+/// relative to the center of their bounding box, and the result is lowered by a margin that
+/// covers rounding. Fewer than 3 points give 0, like `minimum_width`.
+pub(crate) fn minimum_width_bound(points: &[Point2]) -> f64 {
+    if points.len() < 3 {
+        return 0.0;
+    }
+    let mut low = [f64::INFINITY; 2];
+    let mut high = [f64::NEG_INFINITY; 2];
+    for point in points {
+        for axis in 0..2 {
+            low[axis] = low[axis].min(point[axis]);
+            high[axis] = high[axis].max(point[axis]);
+        }
+    }
+    let center = [0, 1].map(|axis| (low[axis] + high[axis]) / 2.0);
+    // Coordinates are at most 1e100 mm (section 3.7), so the squares stay finite.
+    let mut radius_squared = 0.0_f64;
+    let mut lowest = [f64::INFINITY; 4];
+    let mut highest = [f64::NEG_INFINITY; 4];
+    for point in points {
+        let offset = [point[0] - center[0], point[1] - center[1]];
+        radius_squared = radius_squared.max(offset[0] * offset[0] + offset[1] * offset[1]);
+        for (sample, direction) in SAMPLED_DIRECTIONS.iter().enumerate() {
+            let along = offset[0] * direction[0] + offset[1] * direction[1];
+            lowest[sample] = lowest[sample].min(along);
+            highest[sample] = highest[sample].max(along);
+        }
+    }
+    let radius = radius_squared.sqrt();
+    let sampled = (0..SAMPLED_DIRECTIONS.len())
+        .map(|sample| highest[sample] - lowest[sample])
+        .fold(f64::INFINITY, f64::min);
+    let magnitude = radius + center[0].abs().max(center[1].abs());
+    sampled - radius * FRAC_PI_4 - BOUND_ROUNDING * (1.0 + magnitude)
+}
+
 /// The diameter of the smallest circle enclosing the points; 0 for fewer than 2 distinct
 /// points.
 ///
@@ -256,6 +312,8 @@ impl Circle {
 #[cfg(test)]
 mod tests {
     use std::f64::consts::{PI, TAU};
+
+    use proptest::prelude::Strategy;
 
     use super::*;
 
@@ -464,5 +522,71 @@ mod tests {
         let mut sorted = first.clone();
         sorted.sort_by(|one, other| one[0].total_cmp(&other[0]));
         assert_eq!(sorted, original);
+    }
+
+    /// The corners of a `length` by `width` rectangle turned by `angle` about the point `at`.
+    fn turned_rectangle(at: Point2, length: f64, width: f64, angle: f64) -> Vec<Point2> {
+        let (sine, cosine) = angle.sin_cos();
+        [[0.0, 0.0], [length, 0.0], [length, width], [0.0, width]]
+            .into_iter()
+            .map(|[x, y]| [at[0] + x * cosine - y * sine, at[1] + x * sine + y * cosine])
+            .collect()
+    }
+
+    #[test]
+    fn width_bounds_of_round_shapes_are_close_to_their_width() {
+        let polygon = regular_polygon(10.0, 64);
+        let width = minimum_width(&convex_hull(&polygon));
+
+        let bound = minimum_width_bound(&polygon);
+
+        assert!(bound <= width, "{bound} > {width}");
+        assert!(bound > 0.5 * width, "{bound} is too loose for {width}");
+    }
+
+    #[test]
+    fn width_bounds_of_needles_never_pass_their_width() {
+        for step in 0..180 {
+            let angle = f64::from(step) * PI / 180.0;
+            let needle = turned_rectangle([500.0, -300.0], 80.0, 0.3, angle);
+            let width = minimum_width(&convex_hull(&needle));
+
+            let bound = minimum_width_bound(&needle);
+
+            assert!(bound <= width, "angle {angle}: {bound} > {width}");
+        }
+    }
+
+    #[test]
+    fn width_bounds_of_too_few_points_are_zero() {
+        assert_eq!(minimum_width_bound(&[]), 0.0);
+        assert_eq!(minimum_width_bound(&[[0.0, 0.0], [5.0, 5.0]]), 0.0);
+    }
+
+    proptest::proptest! {
+        #[test]
+        fn width_bounds_never_pass_the_minimum_width(
+            points in proptest::collection::vec(
+                (-1e3_f64..1e3, -1e3_f64..1e3).prop_map(|(x, y)| [x, y]),
+                3..40,
+            ),
+            stretch in 1e-4_f64..1.0,
+            angle in 0.0_f64..PI,
+        ) {
+            // Squash the points along a turned axis, so thin shapes in every direction occur.
+            let (sine, cosine) = angle.sin_cos();
+            let squashed: Vec<Point2> = points
+                .iter()
+                .map(|&[x, y]| {
+                    let (along, across) = (x * cosine + y * sine, (y * cosine - x * sine) * stretch);
+                    [along * cosine - across * sine, along * sine + across * cosine]
+                })
+                .collect();
+            let width = minimum_width(&convex_hull(&squashed));
+
+            let bound = minimum_width_bound(&squashed);
+
+            proptest::prop_assert!(bound <= width, "{} > {}", bound, width);
+        }
     }
 }

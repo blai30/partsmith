@@ -6,12 +6,13 @@ import { MESSAGES } from '../messages'
 import { DEFAULT_SETTINGS, SETTINGS_KEY } from '../settings/settings'
 import { INITIAL_STATE, type AppState, type SketchSession } from '../state/store'
 import { catalogOf, TEST_CATALOG_ENTRIES } from '../test/fakes/catalog'
-import { RECT_REGION } from '../test/fakes/documents'
+import { CUBE_TOP_FACE, RECT_REGION } from '../test/fakes/documents'
 import { settle } from '../test/fakes/settle'
 import { checkResult, finding, printReport } from '../test/fakes/state'
 import {
   cubeDocumentState,
   documentState,
+  featureItem,
   readyState,
   rectSketchDocumentState,
   regionItem,
@@ -156,6 +157,33 @@ describe('the top bar (3.2)', () => {
     expect(app.store.getState().sketch?.sketchId).toBeNull()
   })
 
+  it('U-113 describes the Sketch radio as "Edit Sketch 1" with the sketch row selected, and choosing it edits that sketch (3.3)', async () => {
+    const { app, user, topBar } = renderApp({ selection: [featureItem('f-sk1', 'Sketch 1')] })
+    const radio = within(topBar).getByRole('radio', { name: 'Sketch' })
+    expect(radio).toHaveAccessibleDescription('Edit Sketch 1')
+    await user.hover(radio)
+    await waitFor(() => {
+      expect(screen.getByRole('tooltip')).toHaveTextContent('Edit Sketch 1')
+    })
+    await user.click(radio)
+    await settle()
+    expect(app.store.getState().context).toBe('sketch')
+    expect(app.store.getState().sketch?.sketchId).toBe('f-sk1')
+  })
+
+  it('describes the Sketch radio as "New sketch" outside sketch mode and not at all inside it, keeping its focus (3.3)', async () => {
+    const { app, user, topBar } = renderApp()
+    const radio = within(topBar).getByRole('radio', { name: 'Sketch' })
+    expect(radio).toHaveAccessibleDescription('New sketch')
+    expect(within(topBar).getByRole('radio', { name: 'Model' })).not.toHaveAccessibleDescription()
+    radio.focus()
+    await user.keyboard(' ')
+    await settle()
+    expect(app.store.getState().context).toBe('sketch')
+    expect(radio).toHaveFocus()
+    expect(radio).not.toHaveAccessibleDescription()
+  })
+
   it('cancels an active feature command when switching from Model to Print, keeping the selection', async () => {
     const { app, core, user, topBar } = renderApp({
       command: {
@@ -168,6 +196,10 @@ describe('the top bar (3.2)', () => {
         fieldErrors: {},
         applied: false,
         newBody: null,
+        helper: null,
+        changedPaths: [],
+        history: [],
+        future: [],
         preview: 'none',
       },
       selection: [regionItem('f-sk1', RECT_REGION)],
@@ -199,7 +231,7 @@ describe('the top bar (3.2)', () => {
     expect(screen.getByRole('toolbar', { name: 'Sketch tools' })).toBeInTheDocument()
   })
 
-  it('shows the Model tools in toolbar order, with Primitive and Pattern groups', () => {
+  it('shows the Model tools in toolbar order, with Shapes and Pattern groups', () => {
     renderApp()
     const toolbar = screen.getByRole('toolbar', { name: 'Model tools' })
     const names = [
@@ -210,7 +242,7 @@ describe('the top bar (3.2)', () => {
       'Fillet',
       'Chamfer',
       'Shell',
-      'Primitive',
+      'Shapes',
       'Pattern',
       'Mirror',
       'Boolean',
@@ -233,7 +265,7 @@ describe('the top bar (3.2)', () => {
 
   it('opens a group button’s menu with its commands', async () => {
     const { user } = renderApp()
-    await user.click(screen.getByRole('button', { name: 'Primitive' }))
+    await user.click(screen.getByRole('button', { name: 'Shapes' }))
     const menu = screen.getByRole('menu')
     expect(
       within(menu)
@@ -265,6 +297,18 @@ describe('the top bar (3.2)', () => {
       core: { status: 'failed', engineVersion: null, fatal: 'HTTP 404', pendingMutations: 0 },
     })
     expect(screen.getByRole('button', { name: 'Extrude' })).toHaveAttribute('aria-disabled', 'true')
+  })
+
+  it('describes a toolbar command on the second line of its tooltip (2.10, 3.24)', async () => {
+    const { topBar, user } = renderApp()
+    const shell = within(topBar).getByRole('button', { name: 'Shell' })
+    expect(shell).toHaveAccessibleDescription(/Hollows out a body/)
+    await user.hover(shell)
+    await waitFor(() => {
+      expect(screen.getByRole('tooltip')).toHaveTextContent(
+        'Hollows out a body, leaving walls of the given thickness and the picked faces open.',
+      )
+    })
   })
 
   it('presses the active sketch tool', () => {
@@ -338,7 +382,9 @@ describe('feature commands from the toolbar (3.7)', () => {
       { selection: [regionItem('f-sk1', RECT_REGION)] },
       rectSketchDocumentState(),
     )
-    await user.click(screen.getByRole('button', { name: 'Extrude' }))
+    // The selection inspector suggests Extrude too (3.8); this is the toolbar's.
+    const toolbar = screen.getByRole('toolbar', { name: 'Model tools' })
+    await user.click(within(toolbar).getByRole('button', { name: 'Extrude' }))
     await waitFor(() => {
       expect(core.callsTo('setFocus')).toHaveLength(1)
     })
@@ -377,7 +423,7 @@ describe('feature commands from the toolbar (3.7)', () => {
       {},
       documentState({ ...THREE_BOXES_DOCUMENT, rollback: 'f-box2' }),
     )
-    await user.click(screen.getByRole('button', { name: 'Primitive' }))
+    await user.click(screen.getByRole('button', { name: 'Shapes' }))
     await user.click(screen.getByRole('menuitem', { name: /Box/ }))
     await waitFor(() => {
       expect(core.callsTo('applyEdits')).toHaveLength(1)
@@ -406,6 +452,10 @@ describe('feature commands from the toolbar (3.7)', () => {
         fieldErrors: {},
         applied: false,
         newBody: null,
+        helper: null,
+        changedPaths: [],
+        history: [],
+        future: [],
         preview: 'none',
       },
     })
@@ -417,6 +467,61 @@ describe('feature commands from the toolbar (3.7)', () => {
 })
 
 describe('the Print toolbar (3.3, 3.17)', () => {
+  it('E-47 lists Printer, Overhang map, Checks, Print check, Lay on face, Export 3MF and Export', () => {
+    renderApp({ context: 'print' })
+    const toolbar = screen.getByRole('toolbar', { name: 'Print tools' })
+    const names = within(toolbar)
+      .getAllByRole('button')
+      .map((button) => button.getAttribute('aria-label') ?? button.textContent)
+    expect(names).toEqual([
+      'Printer: Generic FDM 0.4 mm (default)',
+      'Overhang map',
+      'Checks',
+      'Print check',
+      'Lay on face',
+      'Export 3MF',
+      'Export',
+    ])
+    expect(within(toolbar).getByRole('button', { name: 'Overhang map' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+  })
+
+  it('Lay on face starts the face pick with the print hint, and Esc ends it (3.17)', async () => {
+    const { app, user } = renderApp({ context: 'print' })
+    const toolbar = screen.getByRole('toolbar', { name: 'Print tools' })
+    const layOnFace = within(toolbar).getByRole('button', { name: 'Lay on face' })
+    expect(layOnFace).toHaveAttribute('aria-pressed', 'false')
+    await user.click(layOnFace)
+    expect(app.store.getState().print.pickingFace).toBe(true)
+    expect(screen.getByTestId('print-hint')).toHaveTextContent(
+      'Pick the face that should touch the bed.',
+    )
+    expect(screen.getByTestId('print-hint')).toHaveRole('status')
+    await user.keyboard('{Escape}')
+    expect(app.store.getState().print.pickingFace).toBe(false)
+    expect(screen.queryByTestId('print-hint')).toBeNull()
+  })
+
+  it('Lay on face is pressed while an orientation is set, and a click prints as modeled again', async () => {
+    const orientation = {
+      kind: 'face_down',
+      body: 'b-cube',
+      face: CUBE_TOP_FACE.reference,
+    } as const
+    const { app, user } = renderApp({
+      context: 'print',
+      print: { ...INITIAL_STATE.print, orientation },
+    })
+    const toolbar = screen.getByRole('toolbar', { name: 'Print tools' })
+    const layOnFace = within(toolbar).getByRole('button', { name: 'Lay on face' })
+    expect(layOnFace).toHaveAttribute('aria-pressed', 'true')
+    await user.click(layOnFace)
+    expect(app.store.getState().print).toMatchObject({ orientation: null, pickingFace: false })
+    expect(layOnFace).toHaveAttribute('aria-pressed', 'false')
+  })
+
   it('names the printer in use, the default one when the document has none', () => {
     renderApp({ context: 'print' })
     const toolbar = screen.getByRole('toolbar', { name: 'Print tools' })
@@ -438,6 +543,10 @@ describe('the Print toolbar (3.3, 3.17)', () => {
         fieldErrors: {},
         applied: false,
         newBody: null,
+        helper: null,
+        changedPaths: [],
+        history: [],
+        future: [],
         preview: 'none',
       },
     })

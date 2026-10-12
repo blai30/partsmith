@@ -312,14 +312,15 @@ impl Shape {
         Topology::from_ffi(topology)
     }
 
-    /// The point and tangent at the middle of an edge, and the outward normal there of each
-    /// face containing it (kernel spec section 3.6, item 5).
+    /// The point and tangent at the middle of an edge, the outward normal there of each face
+    /// containing it, and the continuity recorded between them (kernel spec section 3.6, item
+    /// 5).
     pub fn edge_normals(&self, edge: u32) -> Result<EdgeNormals, KernelError> {
         self.check_index(Operation::Query, SubShapeKind::Edge, edge)?;
         let normals = call(Operation::Query, || {
             sys::shape_edge_normals(self.inner(), edge)
         })?;
-        Ok(EdgeNormals::from_ffi(normals))
+        EdgeNormals::from_ffi(normals)
     }
 }
 

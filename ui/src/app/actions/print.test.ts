@@ -80,6 +80,10 @@ const EXTRUDE: ActiveCommand = {
   fieldErrors: {},
   applied: true,
   newBody: null,
+  helper: null,
+  changedPaths: [],
+  history: [],
+  future: [],
   preview: 'shown',
 }
 
@@ -146,14 +150,20 @@ describe('setPrinter', () => {
     ])
   })
 
-  it('changes nothing while a feature command is active (finish_command_first)', async () => {
+  it('is refused while a feature command is active, with finish_command_first as an info notification (3.7)', async () => {
     const harness = createPrintApp({
       command: EXTRUDE,
       document: documentState({ transactionOpen: true }),
     })
     await setPrinter(harness.app, 'generic-resin')
     expect(harness.core.callsTo('applyEdits')).toEqual([])
-    expect(harness.app.store.getState().notifications).toEqual([])
+    expect(harness.app.store.getState().notifications).toMatchObject([
+      {
+        severity: 'info',
+        message: `Finish or cancel ${EXTRUDE.title} first.`,
+        code: 'finish_command_first',
+      },
+    ])
   })
 
   it('changes nothing while a transaction is open', async () => {

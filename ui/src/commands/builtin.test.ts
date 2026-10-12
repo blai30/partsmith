@@ -23,6 +23,7 @@ import { CUBE_TOP_FACE, RECT_REGION } from '../test/fakes/documents'
 import { settle } from '../test/fakes/settle'
 import { builtinCommands } from './builtin'
 import { featureCommands } from './features'
+import { paletteItems } from './palette'
 import { createCommandRegistry, type CommandDefinition } from './registry'
 
 afterEach(() => {
@@ -33,6 +34,7 @@ const WINDOWS_WEB: Platform = { operatingSystem: 'windows', host: 'web' }
 const ALL: readonly AppContext[] = ['model', 'sketch', 'print']
 const MODEL_PRINT: readonly AppContext[] = ['model', 'print']
 const SKETCH: readonly AppContext[] = ['sketch']
+const MODEL_SKETCH: readonly AppContext[] = ['model', 'sketch']
 const PRINT: readonly AppContext[] = ['print']
 
 function commandOf(id: string, platform: Platform = LINUX_WEB): CommandDefinition {
@@ -51,6 +53,7 @@ const SHORTCUT_TABLE: readonly (readonly [
   readonly AppContext[],
 ])[] = [
   ['app.palette', 'Command palette', ['Mod+K', 'S'], ALL],
+  ['app.keys', 'Keyboard and mouse', ['F1'], ALL],
   ['edit.undo', 'Undo', ['Mod+Z'], ALL],
   ['edit.redo', 'Redo', ['Mod+Shift+Z', 'Mod+Y'], ALL],
   ['file.open', 'Open', ['Mod+O'], ALL],
@@ -86,11 +89,13 @@ const UNBOUND_TABLE: readonly (readonly [string, string, readonly AppContext[]])
   ['edit.edit_feature', 'Edit feature', MODEL_PRINT],
   ['edit.suppress', 'Suppress', MODEL_PRINT],
   ['edit.unsuppress', 'Unsuppress', MODEL_PRINT],
+  ['edit.repeat', 'Repeat', MODEL_PRINT],
   ['edit.clear_selection', 'Clear selection', ALL],
   ['view.parameters', 'Parameters', ALL],
   ['view.problems', 'Problems', ALL],
   ['view.health', 'Print check', ALL],
   ['view.timeline', 'Toggle timeline', ALL],
+  ['view.grid', 'Show grid', MODEL_SKETCH],
   ['view.standard.top', 'View: Top', ALL],
   ['view.standard.bottom', 'View: Bottom', ALL],
   ['view.standard.front', 'View: Front', ALL],
@@ -119,8 +124,9 @@ const UNBOUND_TABLE: readonly (readonly [string, string, readonly AppContext[]])
   ['sketch.constrain_fix', 'Fix', SKETCH],
   ['sketch.show_constraints', 'Show constraints', SKETCH],
   ['print.printer', 'Choose printer', PRINT],
-  ['print.overhangs', 'Overhangs', PRINT],
+  ['print.overhangs', 'Overhang map', PRINT],
   ['print.checks', 'Checks', PRINT],
+  ['print.lay_on_face', 'Lay on face', PRINT],
   ['print.check_now', 'Check print', ALL],
   ['print.export_3mf', 'Export 3MF', ALL],
   ['print.export_stl', 'Export STL', ALL],
@@ -153,6 +159,10 @@ const EXTRUDE_COMMAND: ActiveCommand = {
   fieldErrors: {},
   applied: false,
   newBody: null,
+  helper: null,
+  changedPaths: [],
+  history: [],
+  future: [],
   preview: 'none',
 }
 
@@ -231,6 +241,7 @@ describe('availability', () => {
       expect(app.commands.get(id)?.availability(app)).toEqual({
         state: 'disabled',
         reason: MESSAGES.finish_command_first('Extrude'),
+        code: 'finish_command_first',
       })
     }
   })
@@ -240,6 +251,7 @@ describe('availability', () => {
     expect(app.commands.get('print.printer')?.availability(app)).toEqual({
       state: 'disabled',
       reason: MESSAGES.finish_command_first('Extrude'),
+      code: 'finish_command_first',
     })
     app.store.setState({ command: null })
     expect(app.commands.get('print.printer')?.availability(app)).toEqual({ state: 'enabled' })
@@ -254,6 +266,7 @@ describe('availability', () => {
     expect(app.commands.get('edit.edit_feature')?.availability(app)).toEqual({
       state: 'disabled',
       reason: MESSAGES.import_not_editable(),
+      code: 'import_not_editable',
     })
   })
 
@@ -268,6 +281,7 @@ describe('availability', () => {
     expect(undo?.availability(app)).toEqual({
       state: 'disabled',
       reason: MESSAGES.nothing_to_undo(),
+      code: 'nothing_to_undo',
     })
     const document = app.store.getState().document
     app.store.setState({ document: document && { ...document, undoLabel: 'Extrude' } })
@@ -281,6 +295,7 @@ describe('availability', () => {
     expect(redo?.availability(app)).toEqual({
       state: 'disabled',
       reason: MESSAGES.nothing_to_redo(),
+      code: 'nothing_to_redo',
     })
     const document = app.store.getState().document
     app.store.setState({ document: document && { ...document, redoLabel: 'Fillet' } })
@@ -295,6 +310,7 @@ describe('availability', () => {
     expect(app.commands.get('edit.redo')?.availability(app)).toEqual({
       state: 'disabled',
       reason: MESSAGES.finish_command_first('Extrude'),
+      code: 'finish_command_first',
     })
   })
 
@@ -303,6 +319,7 @@ describe('availability', () => {
     expect(app.commands.get('view.look_at')?.availability(app)).toEqual({
       state: 'disabled',
       reason: MESSAGES.look_at_disabled(),
+      code: 'look_at_disabled',
     })
     app.store.setState({ selection: [elementItem(CYLINDRICAL_FACE, 'Peg')] })
     expect(app.commands.get('view.look_at')?.availability(app).state).toBe('disabled')
@@ -323,6 +340,7 @@ describe('availability', () => {
       expect(app.commands.get(id)?.availability(app)).toEqual({
         state: 'disabled',
         reason: MESSAGES.core_not_running(),
+        code: 'core_not_running',
       })
     }
     expect(app.commands.get('app.palette')?.availability(app)).toEqual({ state: 'enabled' })
@@ -388,6 +406,23 @@ describe('running built-in commands', () => {
     expect(app.store.getState().panels.browserOpen).toBe(!browserOpen)
     await app.commands.run(app, 'view.timeline', 'palette')
     expect(app.store.getState().panels.timelineCollapsed).toBe(true)
+  })
+
+  it('turns the grid off and on with Show grid, checked while it is drawn (3.12)', async () => {
+    const { app } = cubeApp()
+    expect(commandOf('view.grid').checked?.(app)).toBe(true)
+    await app.commands.run(app, 'view.grid', 'palette')
+    expect(app.store.getState().view.grid).toBe(false)
+    expect(commandOf('view.grid').checked?.(app)).toBe(false)
+    await app.commands.run(app, 'view.grid', 'palette')
+    expect(app.store.getState().view.grid).toBe(true)
+  })
+
+  it('opens the keyboard and mouse panel with app.keys (3.5)', async () => {
+    const { app } = cubeApp()
+    await app.commands.run(app, 'app.keys', 'shortcut')
+    expect(app.store.getState().panels.side).toBe('keys')
+    expect(commandOf('app.keys').checked?.(app)).toBe(true)
   })
 
   it('opens the Parameters, Problems and Print check side panels', async () => {
@@ -592,5 +627,75 @@ describe('running built-in commands', () => {
     expect(app.store.getState().settings.theme).toBe('dark')
     await app.commands.run(app, 'settings.theme.toggle', 'palette')
     expect(app.store.getState().settings.theme).toBe('light')
+  })
+})
+
+describe('Repeat (3.5)', () => {
+  it('is disabled with nothing_to_repeat and titled "Repeat" before any feature command', () => {
+    const { app } = cubeApp()
+    const repeat = app.commands.get('edit.repeat')
+    expect(repeat?.availability(app)).toEqual({
+      state: 'disabled',
+      reason: MESSAGES.nothing_to_repeat(),
+      code: 'nothing_to_repeat',
+    })
+    expect(repeat?.label?.(app)).toBe('Repeat')
+  })
+
+  it('names the last feature command, "Repeat Fillet", and takes over its availability', () => {
+    const { app } = cubeApp({ lastFeatureType: 'fillet' })
+    const repeat = app.commands.get('edit.repeat')
+    expect(repeat?.label?.(app)).toBe('Repeat Fillet')
+    expect(repeat?.availability(app)).toEqual({ state: 'enabled' })
+    const empty = createModelApp({
+      state: readyState(documentState(IMPORT_DOCUMENT), { lastFeatureType: 'fillet' }),
+    })
+    expect(empty.app.commands.get('edit.repeat')?.availability(empty.app)).toEqual(
+      empty.app.commands.get('feature.fillet')?.availability(empty.app),
+    )
+  })
+
+  it('starts the last feature command with the selection preselected', async () => {
+    const { app } = cubeApp({
+      lastFeatureType: 'chamfer',
+      selection: [elementItem({ ...CUBE_TOP_FACE, kind: 'face' })],
+    })
+    await app.commands.run(app, 'edit.repeat', 'menu')
+    await settle()
+    expect(app.store.getState().command?.featureType).toBe('chamfer')
+  })
+
+  it('is listed in the palette as "Repeat {title}"', () => {
+    const { app } = cubeApp({ lastFeatureType: 'fillet' })
+    expect(paletteItems(app, []).find((item) => item.id === 'edit.repeat')?.title).toBe(
+      'Repeat Fillet',
+    )
+  })
+})
+
+describe('Lay on face (3.17)', () => {
+  it('starts the face pick, a second click ends it, and with an orientation set it prints as modeled', async () => {
+    const { app } = cubeApp({ context: 'print' })
+    const command = app.commands.get('print.lay_on_face')
+    expect(command?.checked?.(app)).toBe(false)
+    await app.commands.run(app, 'print.lay_on_face', 'toolbar')
+    expect(app.store.getState().print.pickingFace).toBe(true)
+    await app.commands.run(app, 'print.lay_on_face', 'toolbar')
+    expect(app.store.getState().print.pickingFace).toBe(false)
+    app.store.setState((state) => ({
+      print: {
+        ...state.print,
+        orientation: { kind: 'face_down', body: 'b-cube', face: CUBE_TOP_FACE.reference },
+      },
+    }))
+    expect(command?.checked?.(app)).toBe(true)
+    await app.commands.run(app, 'print.lay_on_face', 'toolbar')
+    expect(app.store.getState().print.orientation).toBeNull()
+  })
+
+  it('describes what it does on the tooltip line', () => {
+    expect(commandOf('print.lay_on_face').description).toBe(
+      'Pick the face that should rest on the bed. Click again to print as modeled.',
+    )
   })
 })

@@ -6,6 +6,7 @@ import { Inspector } from './inspector/Inspector'
 import { CommandPalette } from './layout/CommandPalette'
 import { DropOverlay } from './layout/DropOverlay'
 import { useEnterLadder, useEscapeLadder } from './layout/ladders'
+import { useTypedValues } from './layout/use-typed-values'
 import { LiveRegions } from './layout/LiveRegions'
 import { Notifications } from './layout/Notifications'
 import { RegionBoundary } from './layout/RegionBoundary'
@@ -16,11 +17,13 @@ import { useFileDrop } from './layout/use-file-drop'
 import { useResolvedTheme } from './layout/use-resolved-theme'
 import { OverhangLegend } from './print/OverhangLegend'
 import { overhangLegendLimit } from './print/overhang'
+import { PrintHint } from './print/PrintHint'
 import { SketchOverlay } from './sketch/SketchOverlay'
 import type { AppState } from './state/store'
 import { COLOR_CLASSES, FONT_CLASSES, ROOT_CLASSES } from './theme/roles'
 import { applyTheme, applyUiScale } from './theme/theme'
 import { Timeline } from './timeline/Timeline'
+import { EmptyState } from './viewport/EmptyState'
 import { Viewport } from './viewport/Viewport'
 
 // The layout shell (ui.md 3.2): top bar, browser, viewport, side panel, timeline and status bar,
@@ -62,6 +65,7 @@ export function App() {
   useRootClasses()
   useEscapeLadder(app)
   useEnterLadder(app)
+  useTypedValues(app)
   // One grid places every region by area, so the DOM, and with it the tab order, follows 3.24:
   // the timeline comes before the side panel, and the notification stack, drawn over the
   // viewport's bottom-right, comes last.
@@ -88,7 +92,9 @@ export function App() {
       ) : null}
       <RegionBoundary region="viewport" fallbackClassName="col-start-2 row-start-2">
         <Viewport>
+          <EmptyState />
           <SketchOverlay />
+          <PrintHint />
           <PrintLegend />
           <Inspector />
         </Viewport>

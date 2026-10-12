@@ -1,6 +1,8 @@
 import { clsx } from 'clsx/lite'
 import { useId, type ComponentProps } from 'react'
 import { COLOR_CLASSES } from '../theme/roles'
+import { describedBy } from './described-by'
+import { HelpLabel } from './HelpLabel'
 
 export type TextFieldProps = Omit<
   ComponentProps<'input'>,
@@ -16,6 +18,8 @@ export type TextFieldProps = Omit<
   readonly hideLabel?: boolean
   /** Layout classes for the field's wrapper, such as a width. */
   readonly className?: string
+  /** Hover help on the label (3.7), also the input's accessible description; null for none. */
+  readonly help?: string | null
 }
 
 /** A labeled single-line text input with an optional error under it. */
@@ -26,6 +30,7 @@ export function TextField({
   error = null,
   hideLabel = false,
   className,
+  help = null,
   id,
   disabled,
   ...rest
@@ -33,21 +38,27 @@ export function TextField({
   const generatedId = useId()
   const inputId = id ?? generatedId
   const errorId = `${inputId}-error`
+  const helpId = `${inputId}-help`
   const invalid = error !== null && error !== ''
-  const describedBy = [rest['aria-describedby'], invalid ? errorId : undefined]
-    .filter((part) => part !== undefined && part !== '')
-    .join(' ')
+  const described = describedBy(
+    rest['aria-describedby'],
+    invalid ? errorId : null,
+    help === null ? null : helpId,
+  )
   return (
     <div className={clsx('flex min-w-0 flex-col gap-1', className)}>
-      <label
-        htmlFor={inputId}
-        className={clsx(
-          hideLabel ? 'sr-only' : 'text-xs font-medium',
-          !hideLabel && COLOR_CLASSES.textMuted.foreground,
-        )}
-      >
-        {label}
-      </label>
+      <HelpLabel help={help} helpId={helpId}>
+        <label
+          htmlFor={inputId}
+          className={clsx(
+            hideLabel ? 'sr-only' : 'self-start text-xs font-medium',
+            !hideLabel && COLOR_CLASSES.textMuted.foreground,
+            help !== null && 'cursor-help',
+          )}
+        >
+          {label}
+        </label>
+      </HelpLabel>
       <input
         {...rest}
         id={inputId}
@@ -55,7 +66,7 @@ export function TextField({
         value={value}
         disabled={disabled}
         aria-invalid={invalid ? true : undefined}
-        aria-describedby={describedBy === '' ? undefined : describedBy}
+        aria-describedby={described}
         onChange={(event) => {
           onChange(event.currentTarget.value)
         }}

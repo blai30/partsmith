@@ -117,6 +117,51 @@ describe('notify', () => {
   })
 })
 
+describe('a repeated message (3.22)', () => {
+  it('takes the new actions, code and features, so its buttons act on the latest occurrence', () => {
+    const app = createTestApp()
+    const first = vi.fn<() => void>()
+    const second = vi.fn<() => void>()
+    const id = notify(app, {
+      severity: 'info',
+      message: 'Extrude was canceled.',
+      code: 'command_canceled',
+      actions: [{ label: 'Restore', run: first }],
+    })
+    const again = notify(app, {
+      severity: 'info',
+      message: 'Extrude was canceled.',
+      code: 'command_canceled',
+      actions: [{ label: 'Restore', run: second }],
+    })
+    expect(again).toBe(id)
+    const notifications = app.store.getState().notifications
+    expect(notifications).toHaveLength(1)
+    notifications[0]?.actions[0]?.run()
+    expect(second).toHaveBeenCalledOnce()
+    expect(first).not.toHaveBeenCalled()
+  })
+
+  it('names the features of the latest failure', () => {
+    const app = createTestApp()
+    notify(app, {
+      severity: 'error',
+      message: '2 features failed after this change.',
+      actions: [],
+      features: ['f-fil1', 'f-sh1'],
+    })
+    notify(app, {
+      severity: 'error',
+      message: '2 features failed after this change.',
+      actions: [],
+      features: ['f-ch1', 'f-hole1'],
+    })
+    expect(app.store.getState().notifications).toMatchObject([
+      { features: ['f-ch1', 'f-hole1'] },
+    ])
+  })
+})
+
 describe('dismiss', () => {
   it('removes only that notification', () => {
     const app = createTestApp()

@@ -31,7 +31,7 @@ import { pickRow, togglesSelection } from '../layout/pick-row'
 import { RenameField } from '../layout/RenameField'
 import { useUiRequest } from '../layout/requests'
 import { keepInViewHorizontally } from '../layout/scroll'
-import { selectProblems } from '../state/selectors'
+import { selectCommandBlock, selectProblems } from '../state/selectors'
 import type { SelectionItem } from '../state/store'
 import { COLOR_CLASSES } from '../theme/roles'
 import { positionElement } from '../viewport/overlay'
@@ -138,6 +138,8 @@ function TimelineItem({
 }: ItemProps) {
   const app = useApp()
   const descriptionId = useId()
+  // The selection inspector's "Made by" row hovers the feature it names (3.8).
+  const hovered = useAppState((state) => state.hover?.key === `feature:${record.id}`)
   const catalog = useAppState((state) => state.catalog)
   const suppressed = record.suppressed === true
   const description = statusText(status, suppressed)
@@ -150,7 +152,10 @@ function TimelineItem({
   function onKeyDown(event: KeyboardEvent<HTMLButtonElement>): void {
     if (event.key === 'Enter') {
       event.preventDefault()
-      onEdit(record.id)
+      // A held key edits once.
+      if (!event.repeat) {
+        onEdit(record.id)
+      }
     } else if (event.key === ' ') {
       event.preventDefault()
       onPick(record, label, togglesSelection(app, event))
@@ -180,6 +185,7 @@ function TimelineItem({
           type="button"
           data-strip-item=""
           aria-label={label}
+          aria-pressed={selected}
           aria-describedby={description === null ? undefined : descriptionId}
           onClick={(event) => {
             onPick(record, label, togglesSelection(app, event))
@@ -198,7 +204,11 @@ function TimelineItem({
             COLOR_CLASSES.accent.outline,
             COLOR_CLASSES.text.foreground,
             outlined && 'outline-2 -outline-offset-2',
-            selected ? COLOR_CLASSES.selection.background : COLOR_CLASSES.hover.background,
+            selected
+              ? COLOR_CLASSES.selection.background
+              : hovered
+                ? COLOR_CLASSES.hover.active
+                : COLOR_CLASSES.hover.background,
           )}
         >
           <Icon
@@ -331,6 +341,8 @@ function Strip() {
   const [menuFor, setMenuFor] = useState<string | null>(null)
   const [renaming, setRenaming] = useState<string | null>(null)
   const [dragging, setDragging] = useState<string | 'marker' | null>(null)
+  // Timeline edits wait for an open feature command (3.7); editing another feature ends it.
+  const blocked = useAppState(selectCommandBlock) !== null
   const records = recipe?.features ?? NO_FEATURES
   const rollback = recipe?.rollback ?? null
   const position = markerPosition(records, rollback)
@@ -434,7 +446,8 @@ function Strip() {
     featureId: string | null,
     index: number,
   ): void {
-    if (event.button !== 0 || renaming !== null) {
+    // The timeline drag and the marker do not start during a feature command (3.7).
+    if (event.button !== 0 || renaming !== null || app.store.getState().command !== null) {
       return
     }
     press.current = {
@@ -558,6 +571,7 @@ function Strip() {
             {
               kind: 'item',
               label: 'Rename',
+              disabled: blocked,
               onSelect: () => {
                 setRenaming(menuRecord.id)
               },
@@ -565,6 +579,7 @@ function Strip() {
             {
               kind: 'item',
               label: suppressed ? 'Unsuppress' : 'Suppress',
+              disabled: blocked,
               onSelect: () => {
                 setSuppressed(app, targets, !suppressed).catch(report('Suppressing'))
               },
@@ -572,6 +587,7 @@ function Strip() {
             {
               kind: 'item',
               label: 'Roll back to here',
+              disabled: blocked,
               onSelect: () => {
                 setRollback(app, index + 1).catch(report('Rolling back'))
               },
@@ -579,6 +595,7 @@ function Strip() {
             {
               kind: 'item',
               label: 'Delete',
+              disabled: blocked,
               onSelect: () => {
                 deleteFeatures(app, targets).catch(report('Deleting'))
               },
@@ -651,6 +668,14 @@ function Strip() {
       className="relative flex h-full min-w-0 flex-1 items-center gap-1 overflow-x-auto px-1"
     >
       {children}
+      {records.length === 0 ? (
+        <p
+          data-testid="timeline-empty"
+          className={clsx('px-2 text-xs', COLOR_CLASSES.textMuted.foreground)}
+        >
+          Each step you add appears here. Double-click a step to change it later.
+        </p>
+      ) : null}
       {dragging === null ? null : (
         <div
           ref={bar}

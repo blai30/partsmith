@@ -1,4 +1,5 @@
 import { editFeature } from '../app/actions/command'
+import { layOnFace } from '../app/actions/print'
 import { clearSelection, elementSelectionItem, pickAt } from '../app/actions/selection'
 import { createSketchOn, enterSketch, recordSketchView } from '../app/actions/sketch'
 import { onCoreEvent, type App } from '../app/createApp'
@@ -14,16 +15,17 @@ import type {
   Resolution,
 } from '../generated/protocol'
 import type { Rectangle } from '../inspector/placement'
-import { MESSAGES } from '../messages'
+import { requestUi } from '../layout/requests'
 import { measureTiming, TIMING_NAMES } from '../performance/marks'
-import { notify } from '../app/actions/notifications'
 import type { AppState, SelectionItem } from '../state/store'
 import type { RenderBackend, RenderFrame } from './backend'
 import {
   DEFAULT_CAMERA,
   classifyView,
   easeOutCubic,
+  eye,
   fitBounds,
+  forward,
   interpolateCameras,
   normalizedPosition,
   orbit,
@@ -39,7 +41,7 @@ import {
   type Vector3,
 } from './camera'
 import { drawnGridSpacing } from './grid'
-import { scale } from './math'
+import { dot, normalize, scale, subtract } from './math'
 import {
   gestureFor,
   GESTURE_THRESHOLD_PIXELS,
@@ -47,8 +49,8 @@ import {
   type KeyNavigation,
 } from './navigation'
 import { positionElement } from './overlay'
-import { choosePick, type PickCandidate, type PickResult } from './picking'
-import { commandSelectionFields, type Scene } from './scene'
+import { choosePick, type PickCandidate, type PickResult, type PointerRay } from './picking'
+import { commandSelectionFields, type CommandSelectionField, type Scene } from './scene'
 
 // The viewport controller (ui.md 2.11, 3.6, 3.12, 3.13): the camera, rendering on demand, mouse
 // and wheel navigation, hover and click picking, and the highlights that need the core. It
@@ -106,6 +108,8 @@ const CAMERA_STILL_MILLISECONDS = 100
 const PRIMARY_BUTTON = 1
 const MIDDLE_BUTTONS = 4
 const MIDDLE_BUTTON_INDEX = 1
+const SECONDARY_BUTTONS = 2
+const SECONDARY_BUTTON_INDEX = 2
 
 /** Pick errors that mean the geometry under the pointer is gone or not pickable. */
 const IGNORED_PICK_ERRORS: ReadonlySet<string> = new Set(['stale_pick', 'preview_not_pickable'])
@@ -155,6 +159,15 @@ function isReference(value: unknown): value is Reference {
   )
 }
 
+/** Whether the active selection field takes a face as its edges (Fillet, Chamfer; 3.7). */
+function facesStandForEdges(state: AppState): boolean {
+  const command = state.command
+  const field = commandSelectionFields(state).find(
+    (candidate) => candidate.path === command?.activeField,
+  )
+  return field?.accepts === 'edge' && field.multiple
+}
+
 /** The element references the viewport highlights: the app selection's elements, or the command's field values. */
 function highlightedReferences(state: AppState): {
   readonly references: readonly ElementRef[]
@@ -174,29 +187,46 @@ function highlightedReferences(state: AppState): {
     return { references, selectionKeys }
   }
   for (const field of commandSelectionFields(state)) {
-    const values = Array.isArray(field.value) ? field.value : [field.value]
-    const body = field.siblings['body']
-    for (const value of values) {
-      if ((field.accepts === 'face' || field.accepts === 'edge') && typeof body === 'string') {
-        if (isReference(value)) {
-          references.push({ body, reference: value })
-        }
-        continue
-      }
-      if (field.accepts !== 'plane' && field.accepts !== 'axis') {
-        continue
-      }
-      if (typeof value !== 'object' || value === null) {
-        continue
-      }
-      const valueBody: unknown = Reflect.get(value, 'body')
-      const element: unknown = Reflect.get(value, 'face') ?? Reflect.get(value, 'edge')
-      if (typeof valueBody === 'string' && isReference(element)) {
-        references.push({ body: valueBody, reference: element })
-      }
-    }
+    references.push(...fieldReferences(field))
   }
   return { references, selectionKeys }
+}
+
+/** The model elements a command selection field names: its faces or edges, or the face or edge of a plane or axis. */
+function fieldReferences(field: CommandSelectionField): ElementRef[] {
+  const references: ElementRef[] = []
+  const values = Array.isArray(field.value) ? field.value : [field.value]
+  const body = field.siblings['body']
+  for (const value of values) {
+    if ((field.accepts === 'face' || field.accepts === 'edge') && typeof body === 'string') {
+      if (isReference(value)) {
+        references.push({ body, reference: value })
+      }
+      continue
+    }
+    if (field.accepts !== 'plane' && field.accepts !== 'axis') {
+      continue
+    }
+    if (typeof value !== 'object' || value === null) {
+      continue
+    }
+    const valueBody: unknown = Reflect.get(value, 'body')
+    const element: unknown = Reflect.get(value, 'face') ?? Reflect.get(value, 'edge')
+    if (typeof valueBody === 'string' && isReference(element)) {
+      references.push({ body: valueBody, reference: element })
+    }
+  }
+  return references
+}
+
+/** The model elements of the selection field whose box the pointer is over (3.7), or none. */
+function hoveredFieldReferences(state: AppState): readonly ElementRef[] {
+  const path = state.command?.hoveredField ?? null
+  const field =
+    path === null
+      ? undefined
+      : commandSelectionFields(state).find((candidate) => candidate.path === path)
+  return field === undefined ? [] : fieldReferences(field)
 }
 
 function prefersReducedMotion(): boolean {
@@ -587,8 +617,77 @@ export function createViewportController(options: {
     return { ...found.result, world }
   }
 
+  /** Element lists of bodies, for faces hovered as their edges, per model mesh (3.7). */
+  const hoverLists = new Map<
+    string,
+    { readonly meshId: number; readonly list: Promise<readonly ElementDescriptor[]> }
+  >()
+
+  function listedElements(
+    body: string,
+    kind: 'face' | 'edge',
+    meshId: number,
+  ): Promise<readonly ElementDescriptor[]> | null {
+    const document = store.getState().document
+    if (document === null) {
+      return null
+    }
+    const key = `${body}:${kind}`
+    const cached = hoverLists.get(key)
+    if (cached?.meshId === meshId) {
+      return cached.list
+    }
+    const list = app.core.listElements(document.documentHandle, body, kind)
+    hoverLists.set(key, { meshId, list })
+    list.catch(() => {
+      // A failed list is asked again on the next hover.
+      if (hoverLists.get(key)?.list === list) {
+        hoverLists.delete(key)
+      }
+    })
+    return list
+  }
+
+  /** Lights up the edges around a hovered face, instead of the face, while it stands for them (3.7). */
+  function updateHoverEdges(result: PickResult | null): void {
+    if (
+      result === null ||
+      result.kind !== 'mesh' ||
+      result.element !== 'face' ||
+      !facesStandForEdges(store.getState())
+    ) {
+      scene.setHoverEdges(null)
+      return
+    }
+    const faces = listedElements(result.body, 'face', result.meshId)
+    const edges = listedElements(result.body, 'edge', result.meshId)
+    if (faces === null || edges === null) {
+      scene.setHoverEdges(null)
+      return
+    }
+    Promise.all([faces, edges]).then(
+      ([faceList, edgeList]) => {
+        if (disposed || store.getState().hover?.key !== result.key) {
+          return
+        }
+        const adjacent = new Set(faceList[result.index]?.adjacent ?? [])
+        scene.setHoverEdges({
+          faceKey: result.key,
+          body: result.body,
+          meshId: result.meshId,
+          edges: edgeList.flatMap((edge, index) => (adjacent.has(edge.name) ? [index] : [])),
+        })
+        requestRender()
+      },
+      (error: unknown) => {
+        console.warn('Partsmith could not list the edges around the face.', error)
+      },
+    )
+  }
+
   function hover(x: number, y: number): void {
     const result = pickAtPoint(x, y)
+    updateHoverEdges(result)
     const target =
       result === null
         ? null
@@ -603,6 +702,32 @@ export function createViewportController(options: {
       pointerClass = target !== null
       canvas.classList.toggle('cursor-pointer', pointerClass)
     }
+  }
+
+  /**
+   * The camera ray through the canvas point (x, y), and the world size of one CSS pixel times the
+   * UI scale at the picked point, or at the camera target without one (3.7 hole centers).
+   */
+  function pointerRay(x: number, y: number, picked: Vector3 | null): PointerRay {
+    const cursor: [number, number] = [
+      (x / Math.max(size.width, 1)) * 2 - 1,
+      1 - (y / Math.max(size.height, 1)) * 2,
+    ]
+    const near = pointAtDepth(camera, cursor, aspect(), 0)
+    const far = pointAtDepth(camera, cursor, aspect(), 1)
+    const direction =
+      camera.projection === 'perspective'
+        ? (normalize(subtract(far, eye(camera))) ?? forward(camera))
+        : forward(camera)
+    const origin = camera.projection === 'perspective' ? eye(camera) : near
+    const depth = picked === null ? null : dot(subtract(picked, eye(camera)), forward(camera))
+    const visibleHeight =
+      camera.projection === 'perspective'
+        ? 2 * (depth ?? camera.distance) * Math.tan(camera.verticalFieldOfView / 2)
+        : camera.orthographicHeight
+    const millimetersPerPixel =
+      (visibleHeight / Math.max(size.height, 1)) * store.getState().settings.uiScale
+    return { origin, direction, millimetersPerPixel }
   }
 
   /** The world point under the cursor from the ID pass depth, or the target (3.13 pivot). */
@@ -652,23 +777,23 @@ export function createViewportController(options: {
     result: Extract<PickResult, { kind: 'mesh' }>,
   ): void {
     const { references } = highlightedReferences(store.getState())
-    for (const reference of references) {
-      const key = referenceKey(reference.body, reference.reference)
-      if (!before.has(key) && reference.body === result.body) {
-        resolved.set(key, {
-          body: result.body,
-          meshId: result.meshId,
-          matches: [
-            {
-              body: result.body,
-              mesh_id: result.meshId,
-              kind: result.element,
-              index: result.index,
-            },
-          ],
-        })
-      }
+    const added = references.filter(
+      (reference) =>
+        !before.has(referenceKey(reference.body, reference.reference)) &&
+        reference.body === result.body,
+    )
+    // A click adds one element; anything else resolves through the core.
+    const [reference, ...others] = added
+    if (reference === undefined || others.length > 0) {
+      return
     }
+    resolved.set(referenceKey(reference.body, reference.reference), {
+      body: result.body,
+      meshId: result.meshId,
+      matches: [
+        { body: result.body, mesh_id: result.meshId, kind: result.element, index: result.index },
+      ],
+    })
   }
 
   async function click(x: number, y: number, toggle: boolean): Promise<void> {
@@ -681,6 +806,10 @@ export function createViewportController(options: {
     const result = pickAtPoint(x, y)
     if (sketch !== null && sketch.sketchId === null) {
       await pickSketchPlane(result)
+      return
+    }
+    if (state.context === 'print' && state.print.pickingFace && state.command === null) {
+      await pickFaceToLay(result)
       return
     }
     if (sketch !== null) {
@@ -698,9 +827,14 @@ export function createViewportController(options: {
         referenceKey(reference.body, reference.reference),
       ),
     )
-    await pickAt(app, result, { toggle })
+    // A face that stands for its edges adds edge references, which resolve through the core.
+    const standsForEdges =
+      result.kind === 'mesh' && result.element === 'face' && facesStandForEdges(state)
+    await pickAt(app, result, { toggle }, pointerRay(x, y, result.world))
     if (result.kind === 'mesh') {
-      rememberClick(before, result)
+      if (!standsForEdges) {
+        rememberClick(before, result)
+      }
       updateHighlights()
     }
   }
@@ -726,6 +860,17 @@ export function createViewportController(options: {
     })
   }
 
+  /** The face clicked during Lay on face: a flat face rests on the bed, another face is refused (3.17). */
+  async function pickFaceToLay(result: PickResult | null): Promise<void> {
+    if (result?.kind !== 'mesh' || result.element !== 'face') {
+      return
+    }
+    const item = await meshItem(result)
+    if (item !== null) {
+      layOnFace(app, item)
+    }
+  }
+
   async function pickSketchPlane(result: PickResult | null): Promise<void> {
     if (result === null) {
       return
@@ -734,15 +879,7 @@ export function createViewportController(options: {
     if (item === null) {
       return
     }
-    if (item.kind === 'face' && item.element?.surface !== 'plane') {
-      notify(app, {
-        severity: 'info',
-        message: MESSAGES.pick_plane(),
-        actions: [],
-        code: 'pick_plane',
-      })
-      return
-    }
+    // A face that is not flat is refused with `pick_plane` in the sketch hint (3.16.1).
     await createSketchOn(app, item)
   }
 
@@ -898,12 +1035,62 @@ export function createViewportController(options: {
     if (isClick && ended.startButtons === PRIMARY_BUTTON && event.button === 0) {
       click(point.x, point.y, event.shiftKey || event.ctrlKey || event.metaKey).catch(report)
     } else if (
+      released &&
+      ended.gesture === null &&
+      ended.startButtons === SECONDARY_BUTTONS &&
+      event.button === SECONDARY_BUTTON_INDEX
+    ) {
+      // A right press released before it became an orbit or pan opens the context menu (3.13).
+      contextClick(ended.startX, ended.startY).catch(report)
+    } else if (
       isClick &&
       ended.startButtons === MIDDLE_BUTTONS &&
       event.button === MIDDLE_BUTTON_INDEX
     ) {
       middleClick(point)
     }
+  }
+
+  /** Whether a pick is in the selection already, so a right click on it keeps the selection (3.13). */
+  function pickSelected(result: PickResult, state: AppState): boolean {
+    if (result.kind === 'item') {
+      const selection =
+        state.context === 'sketch' ? (state.sketch?.selection ?? []) : state.selection
+      return selection.some((item) => item.key === result.item.key)
+    }
+    if (state.view.filter.body && !state.view.filter.face && result.element === 'face') {
+      return state.selection.some((item) => item.kind === 'body' && item.body === result.body)
+    }
+    return highlightedReferences(state).references.some((reference) =>
+      (resolved.get(referenceKey(reference.body, reference.reference))?.matches ?? []).some(
+        (match) =>
+          match.body === result.body &&
+          match.mesh_id === result.meshId &&
+          match.kind === result.element &&
+          match.index === result.index,
+      ),
+    )
+  }
+
+  /**
+   * A right click (3.13): a pick target under the pointer that is not selected becomes the
+   * selection, as a click would, then the context menu opens there. During a command, a face pick
+   * or a sketch tool the click selects nothing.
+   */
+  async function contextClick(x: number, y: number): Promise<void> {
+    const state = store.getState()
+    const sketch = state.context === 'sketch' ? state.sketch : null
+    const picking =
+      state.command !== null ||
+      (state.context === 'print' && state.print.pickingFace) ||
+      (sketch !== null && (sketch.sketchId === null || sketch.tool !== null))
+    if (!picking) {
+      const result = pickAtPoint(x, y)
+      if (result !== null && !pickSelected(result, state)) {
+        await click(x, y, false)
+      }
+    }
+    requestUi(app, { kind: 'viewport_menu', x, y })
   }
 
   /** A second middle click close to the first fits the view in presets that ask for it (3.13). */
@@ -1130,14 +1317,42 @@ export function createViewportController(options: {
     }
   }
 
-  /** Hands the scene the display ids to draw selected and renders. */
-  function updateHighlights(): void {
-    const state = store.getState()
+  /** The display ids the resolved references stand for, per body, at the current meshes. */
+  function resolvedIndices(
+    state: AppState,
+    references: readonly ElementRef[],
+  ): Record<string, { meshId: number; face: number[]; edge: number[]; vertex: number[] }> {
     const document = state.document
     const highlights: Record<
       string,
       { meshId: number; face: number[]; edge: number[]; vertex: number[] }
     > = {}
+    if (document === null) {
+      return highlights
+    }
+    for (const reference of references) {
+      const known = resolved.get(referenceKey(reference.body, reference.reference))
+      for (const match of known?.matches ?? []) {
+        if (document.meshes[match.body]?.meshId !== match.mesh_id) {
+          continue
+        }
+        const existing = highlights[match.body]
+        const entry =
+          existing !== undefined && existing.meshId === match.mesh_id
+            ? existing
+            : { meshId: match.mesh_id, face: [], edge: [], vertex: [] }
+        highlights[match.body] = entry
+        entry[match.kind].push(match.index)
+      }
+    }
+    return highlights
+  }
+
+  /** Hands the scene the display ids to draw selected and hovered, and renders. */
+  function updateHighlights(): void {
+    const state = store.getState()
+    const document = state.document
+    const highlights = resolvedIndices(state, highlightedReferences(state).references)
     const entryOf = (body: string, meshId: number) => {
       const existing = highlights[body]
       if (existing !== undefined && existing.meshId === meshId) {
@@ -1148,14 +1363,6 @@ export function createViewportController(options: {
       return created
     }
     if (document !== null) {
-      for (const reference of highlightedReferences(state).references) {
-        const known = resolved.get(referenceKey(reference.body, reference.reference))
-        for (const match of known?.matches ?? []) {
-          if (document.meshes[match.body]?.meshId === match.mesh_id) {
-            entryOf(match.body, match.mesh_id)[match.kind].push(match.index)
-          }
-        }
-      }
       const features = selectedFeatures(state)
       if (features.size > 0) {
         for (const [body, list] of faceLists) {
@@ -1171,6 +1378,7 @@ export function createViewportController(options: {
       }
     }
     scene.setElementHighlights(highlights)
+    scene.setFieldHover(resolvedIndices(state, hoveredFieldReferences(state)))
     requestRender()
   }
 

@@ -845,6 +845,24 @@ export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
             results: (command.references ?? []).map(resolvedWithoutMatches),
           },
         }
+      case 'measure': {
+        const entry = entryFor(command.doc)
+        const [target] = command.targets ?? []
+        if (target === undefined || command.targets?.length !== 1) {
+          return reject('invalid_measure', 'Measure takes exactly one target.')
+        }
+        if (target.kind !== 'body') {
+          return reject('invalid_measure', 'The fake core measures bodies only.')
+        }
+        if (entry.meshIds[target.body] === undefined) {
+          return reject('body_empty', `${target.body} has no geometry to measure.`)
+        }
+        // The volume of the body's bounding box: every fake body is a box.
+        const box = options.bounds?.[target.body] ?? DEFAULT_BOUNDS
+        const volume =
+          (box.max[0] - box.min[0]) * (box.max[1] - box.min[1]) * (box.max[2] - box.min[2])
+        return { result: { type: 'measure', volume, bounding_box: box } }
+      }
       case 'analyze_print': {
         const entry = entryFor(command.doc)
         const profile = command.profile ?? entry.recipe.printer ?? 'generic-fdm'

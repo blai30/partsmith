@@ -18,7 +18,13 @@ type JsonObject = Readonly<Record<string, unknown>>
 const EXTRUDE = testFeature('extrude')
 const PROFILE = { sketch: 'f-sk1', regions: [CUBE_REGION.reference] }
 const DISTANCE_PARAMS = { extent: { kind: 'distance', expr: '30 mm' }, op: 'new' }
-const NO_BODIES = { bodies: [], bodiesWithGeometry: [], lastTargetBody: null }
+const NO_BODIES = {
+  bodies: [],
+  bodiesWithGeometry: [],
+  lastTargetBody: null,
+  document: null,
+  featureStatus: {},
+}
 
 function extrudeModel(
   params: Readonly<Record<string, unknown>>,
@@ -59,17 +65,18 @@ function customFeature(
 }
 
 describe('buildInspectorModel with the extrude entry', () => {
-  it('U-31 puts profile, extent.kind, extent.expr and op in essential, in manifest order', () => {
+  it('U-31 puts profile, extent.kind, extent.expr, the inline reverse and op in essential', () => {
     expect(paths(extrudeModel(DISTANCE_PARAMS).essential)).toEqual([
       'profile',
       'extent.kind',
       'extent.expr',
+      'reverse',
       'op',
     ])
   })
 
-  it('U-31 puts reverse and body in more', () => {
-    expect(paths(extrudeModel(DISTANCE_PARAMS).more)).toEqual(['reverse', 'body'])
+  it('U-31 puts body in more', () => {
+    expect(paths(extrudeModel(DISTANCE_PARAMS).more)).toEqual(['body'])
   })
 
   it('U-31 leaves out extent.opposite_expr for a distance extent', () => {
@@ -120,8 +127,10 @@ describe('buildInspectorModel with the extrude entry', () => {
     })
   })
 
-  it('U-31 makes reverse a switch', () => {
-    expect(field(extrudeModel(DISTANCE_PARAMS), 'reverse').control).toEqual({ type: 'switch' })
+  it('U-31 makes reverse a toggle attached to extent.expr', () => {
+    const reverse = field(extrudeModel(DISTANCE_PARAMS), 'reverse')
+    expect(reverse.control).toEqual({ type: 'toggle' })
+    expect(reverse.attachedTo).toBe('extent.expr')
   })
 
   it('U-31 makes body a single body selection', () => {
@@ -142,6 +151,7 @@ describe('buildInspectorModel with the extrude entry', () => {
       'profile',
       'extent.kind',
       'extent.expr',
+      'reverse',
       'extent.opposite_expr',
       'op',
     ])
@@ -149,11 +159,31 @@ describe('buildInspectorModel with the extrude entry', () => {
       type: 'expression',
       unit: 'length',
     })
+    expect(field(model, 'reverse').attachedTo).toBe('extent.expr')
   })
 
-  it('U-31 leaves out extent.expr for through all', () => {
+  it('U-31 leaves out extent.expr for through all and attaches reverse to extent.kind', () => {
     const model = extrudeModel({ extent: { kind: 'through_all' }, op: 'join' })
-    expect(paths(model.essential)).toEqual(['profile', 'extent.kind', 'op'])
+    expect(paths(model.essential)).toEqual(['profile', 'extent.kind', 'reverse', 'op'])
+    expect(field(model, 'reverse').attachedTo).toBe('extent.kind')
+  })
+
+  it('U-31 shows no reverse for a symmetric extent, and keeps its value', () => {
+    const model = extrudeModel({
+      extent: { kind: 'symmetric', expr: '20 mm' },
+      op: 'new',
+      reverse: true,
+    })
+    expect([...paths(model.essential), ...paths(model.more)]).not.toContain('reverse')
+  })
+
+  it('U-31 shows no reverse for a full revolve', () => {
+    const model = buildInspectorModel({
+      feature: testFeature('revolve'),
+      params: { extent: { kind: 'full' }, op: 'new' },
+      errors: {},
+    })
+    expect([...paths(model.essential), ...paths(model.more)]).not.toContain('reverse')
   })
 
   it('labels fields with the hint labels and gives each its current value', () => {
@@ -166,11 +196,18 @@ describe('buildInspectorModel with the extrude entry', () => {
     expect(field(model, 'profile').value).toBeUndefined()
   })
 
-  it('takes help from the schema description at the path, else null', () => {
-    // The op property is a bare $ref to BodyOp, whose definition has no description.
+  it('U-111 gives the extrude op the help of FIELD_HELP', () => {
     const model = extrudeModel(DISTANCE_PARAMS)
-    expect(field(model, 'reverse').help).toBe('Extrude against the sketch normal.')
-    expect(field(model, 'op').help).toBeNull()
+    expect(field(model, 'op').help).toBe(
+      'New body makes a separate part. Join adds to the body, Cut removes from it, and Intersect keeps only the overlap.',
+    )
+  })
+
+  it('U-111 gives a field without an entry help null even when its schema has a description', () => {
+    // Reverse has the schema description "Extrude against the sketch normal.", which is never shown.
+    const model = extrudeModel(DISTANCE_PARAMS)
+    expect(field(model, 'extent.expr').help).toBeNull()
+    expect(field(model, 'reverse').help).toBe('Extrudes to the other side of the sketch.')
   })
 
   it('marks fields required when every object on the path requires them', () => {
@@ -360,15 +397,17 @@ describe('defaultParams', () => {
       bodies: [{ id: 'b-cube', name: 'Cube' }],
       bodiesWithGeometry: ['b-cube'],
       lastTargetBody: 'b-cube',
+      document: null,
+      featureStatus: {},
     })
     expect(params.op).toBe('join')
     expect(params.body).toBe('b-cube')
   })
 
-  it('takes schema defaults, so a datum plane starts with offset "0"', () => {
-    const params = defaultParams(testFeature('datum_plane'), NO_BODIES)
-    expect(params.offset).toBe('0')
-    expect(params.base).toBeUndefined()
+  it('takes schema defaults without a start value, so a circular pattern spans 360 deg', () => {
+    const params = defaultParams(testFeature('circular_pattern'), NO_BODIES)
+    expect(params.angle).toBe('360 deg')
+    expect(params.axis).toBeUndefined()
   })
 
   it('gives each length of a box 10 mm and keeps the placement defaults', () => {

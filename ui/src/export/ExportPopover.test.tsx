@@ -13,8 +13,8 @@ import {
 } from '../layout/fixtures.testing'
 import { createModelApp, renderWithApp, stubMatchMedia } from '../layout/test-app.testing'
 import { MESSAGES } from '../messages'
-import type { AppState, DocumentState } from '../state/store'
-import { TWO_BODIES_DOCUMENT } from '../test/fakes/documents'
+import { INITIAL_STATE, type AppState, type DocumentState } from '../state/store'
+import { CUBE_FEATURES_DOCUMENT, CUBE_TOP_FACE, TWO_BODIES_DOCUMENT } from '../test/fakes/documents'
 import type { FakeFileService } from '../test/fakes/files'
 
 let uninstallPopovers: () => void
@@ -137,5 +137,85 @@ describe('the export popover (3.18)', () => {
       expect(test.core.callsTo('exportBodies')).toEqual([[1, { kind: '3mf' }, ['b-cube', 'b-peg']]])
     })
     expect(screen.queryByTestId('export-popover')).toBeNull()
+  })
+})
+
+/** cube-features.ptsm with Fillet 1 in error. */
+function failingFillet(): DocumentState {
+  const document = documentState(CUBE_FEATURES_DOCUMENT, {
+    name: 'cube',
+    meshes: { 'b-cube': meshSummary(1, CUBE_BOUNDS) },
+  })
+  return {
+    ...document,
+    featureStatus: {
+      ...document.featureStatus,
+      'f-fil1': {
+        id: 'f-fil1',
+        status: 'error',
+        messages: [{ severity: 'error', code: 'fillet_too_large', message: 'Too large.' }],
+        repairs: [],
+      },
+    },
+  }
+}
+
+function statusLines(popover: HTMLElement): readonly HTMLElement[] {
+  return within(popover).getAllByTestId('export-status')
+}
+
+describe('the export status lines (3.18)', () => {
+  it('names the failed feature and an unchecked print with "Show problems" and "Check print"', async () => {
+    const { popover } = await openExport(failingFillet())
+    const lines = statusLines(popover)
+    expect(lines.map((line) => line.textContent)).toEqual([
+      expect.stringContaining('Fillet 1 failed, so it is not in the export.'),
+      expect.stringContaining('Print check: Not checked'),
+    ])
+    expect(within(lines[0] ?? popover).getByRole('button', { name: 'Show problems' })).toBeVisible()
+    expect(within(lines[1] ?? popover).getByRole('button', { name: 'Check print' })).toBeVisible()
+    for (const line of lines) {
+      expect(line).toHaveClass('text-xs')
+    }
+  })
+
+  it('"Show problems" opens the Problems panel and closes the popover', async () => {
+    const { app, user, popover } = await openExport(failingFillet())
+    await user.click(within(popover).getByRole('button', { name: 'Show problems' }))
+    expect(app.store.getState().panels.side).toBe('problems')
+    expect(screen.queryByTestId('export-popover')).toBeNull()
+  })
+
+  it('"Check print" runs the analysis and opens the print check panel', async () => {
+    const { app, core, user, popover } = await openExport(failingFillet())
+    await user.click(within(popover).getByRole('button', { name: 'Check print' }))
+    await waitFor(() => {
+      expect(core.callsTo('analyzePrint')).toHaveLength(1)
+    })
+    expect(app.store.getState().panels.side).toBe('health')
+  })
+
+  it('shows no print check line for OBJ', async () => {
+    const { user, popover } = await openExport(failingFillet())
+    await user.click(within(popover).getByRole('radio', { name: 'OBJ' }))
+    expect(statusLines(popover).map((line) => line.textContent)).toEqual([
+      expect.stringContaining('Fillet 1 failed'),
+    ])
+  })
+
+  it('names the Lay on face orientation, and "Print as modeled" clears it', async () => {
+    const orientation = {
+      kind: 'face_down',
+      body: 'b-cube',
+      face: CUBE_TOP_FACE.reference,
+    } as const
+    const { app, user, popover } = await openExport(cubeDocumentState(), {
+      print: { ...INITIAL_STATE.print, orientation },
+    })
+    const line = statusLines(popover).at(-1) ?? popover
+    expect(line).toHaveTextContent('Printing with the picked face of Cube on the bed.')
+    await user.click(within(line).getByRole('button', { name: 'Print as modeled' }))
+    expect(app.store.getState().print.orientation).toBeNull()
+    expect(screen.getByTestId('export-popover')).toBeInTheDocument()
   })
 })

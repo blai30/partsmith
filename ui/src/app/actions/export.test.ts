@@ -18,6 +18,7 @@ import {
   type PrintApp,
 } from '../../print/fixtures.testing'
 import type { AppState, SelectionItem } from '../../state/store'
+import { TEST_CATALOG } from '../../test/fakes/catalog'
 import { coreErrorFor } from '../../test/fakes/core-api'
 import { createFakeFileHandle } from '../../test/fakes/files'
 import { exportModel, type ExportRequest } from './export'
@@ -200,10 +201,23 @@ describe('exportModel saving', () => {
     expect(notifications(harness).map((shown) => shown.message)).toEqual(['Exported bracket.3mf.'])
   })
 
-  it('does nothing more when the save picker is canceled', async () => {
+  it('asks where to save before exporting, so a slow export cannot cost the dialog its click (3.18)', async () => {
+    const harness = exportApp()
+    let asked = -1
+    harness.core.stub('exportBodies', () => {
+      asked = harness.files.saveRequests.length
+      return Promise.resolve({ files: [exportedFile('model.3mf', THREE_MF_BYTES)], warnings: [] })
+    })
+    await exportModel(harness.app, THREE_MF)
+    expect(asked).toBe(1)
+    expect(harness.files.writes).toHaveLength(1)
+  })
+
+  it('exports nothing when the save picker is canceled', async () => {
     const harness = exportApp()
     harness.files.nextSaveTarget = null
     await exportModel(harness.app, THREE_MF)
+    expect(harness.core.callsTo('exportBodies')).toEqual([])
     expect(harness.files.writes).toEqual([])
     expect(notifications(harness)).toEqual([])
   })
@@ -278,12 +292,13 @@ describe('exportModel body roles', () => {
 })
 
 describe('exportModel save failures', () => {
-  it('shows a failing save picker as an error and writes nothing', async () => {
+  it('shows a failing save picker as an error and exports and writes nothing', async () => {
     const harness = exportApp()
     vi.spyOn(harness.files, 'chooseSaveTarget').mockRejectedValue(
       new FileServiceError('io', 'The picker could not open.'),
     )
     await exportModel(harness.app, THREE_MF)
+    expect(harness.core.callsTo('exportBodies')).toEqual([])
     expect(harness.files.writes).toEqual([])
     expect(notifications(harness)).toEqual([
       { severity: 'error', message: MESSAGES.save_io('cube.3mf', 'The picker could not open.') },
@@ -366,5 +381,37 @@ describe('exportModel save failures', () => {
     )
     await exportModel(harness.app, THREE_MF)
     expect(notifications(harness)).toEqual([])
+  })
+
+  it('U-119 an export with f-fil1 in error shows the warning "Exported cube.3mf. Fillet 1 failed, so it is not in the export." with Show problems', async () => {
+    const base = documentState({ name: 'cube' })
+    const harness = createPrintApp({
+      catalog: TEST_CATALOG,
+      document: {
+        ...base,
+        recipe: {
+          ...base.recipe,
+          features: [{ id: 'f-fil1', type: 'fillet', body: CUBE.id, edges: [], radius: '15 mm' }],
+        },
+        featureStatus: {
+          'f-fil1': {
+            id: 'f-fil1',
+            status: 'error',
+            messages: [{ severity: 'error', code: 'fillet_too_large', message: 'Too large.' }],
+            repairs: [],
+          },
+        },
+      },
+    })
+    await exportModel(harness.app, THREE_MF)
+    const [shown] = harness.app.store.getState().notifications
+    expect(shown).toMatchObject({
+      severity: 'warning',
+      message: 'Exported cube.3mf. Fillet 1 failed, so it is not in the export.',
+      code: 'exported_with_failures',
+    })
+    expect(shown?.actions.map((action) => action.label)).toEqual(['Show problems'])
+    shown?.actions[0]?.run()
+    expect(harness.app.store.getState().panels.side).toBe('problems')
   })
 })

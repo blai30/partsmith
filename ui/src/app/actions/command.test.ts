@@ -171,6 +171,48 @@ describe('startFeatureCommand (3.7)', () => {
   })
 })
 
+describe('starting a command twice at once (a double-click, a held key)', () => {
+  it('two starts of Extrude open one command, with its preselection, and show no core error', async () => {
+    const fake = await rectSketchWithRegionSelected()
+    await Promise.all([
+      startFeatureCommand(fake.app, 'extrude'),
+      startFeatureCommand(fake.app, 'extrude'),
+    ])
+    await settle()
+    expect(fake.transport.commandsOfType('begin_transaction')).toHaveLength(1)
+    expect(fake.app.store.getState().notifications).toEqual([])
+    expect(fake.app.store.getState().command?.params['profile']).toEqual({
+      sketch: 'f-sk1',
+      regions: [RECT_REGION.reference],
+    })
+  })
+
+  it('a second command started while the first opens waits for it, then replaces it', async () => {
+    const fake = await startWithDocument('cube.ptsm', CUBE_DOCUMENT)
+    await Promise.all([
+      startFeatureCommand(fake.app, 'fillet'),
+      startFeatureCommand(fake.app, 'chamfer'),
+    ])
+    await settle()
+    expect(fake.app.store.getState().notifications).toEqual([])
+    expect(fake.app.store.getState().command?.featureType).toBe('chamfer')
+    expect(fake.transport.commandTypes().filter((type) => type.endsWith('_transaction'))).toEqual([
+      'begin_transaction',
+      'cancel_transaction',
+      'begin_transaction',
+    ])
+  })
+
+  it('editing the same feature twice at once opens it once', async () => {
+    const fake = await startWithDocument('cube.ptsm', CUBE_DOCUMENT)
+    await Promise.all([editFeature(fake.app, 'f-ext1'), editFeature(fake.app, 'f-ext1')])
+    await settle()
+    expect(fake.transport.commandsOfType('begin_transaction')).toHaveLength(1)
+    expect(fake.app.store.getState().notifications).toEqual([])
+    expect(fake.app.store.getState().command).toMatchObject({ featureId: 'f-ext1', editing: true })
+  })
+})
+
 describe('confirmCommand and cancelCommand (3.7)', () => {
   it('U-66 confirmCommand commits the transaction and clears the command', async () => {
     const fake = await rectSketchWithRegionSelected()
@@ -184,6 +226,17 @@ describe('confirmCommand and cancelCommand (3.7)', () => {
     expect(featuresOf(recipe).map((feature) => feature.type)).toEqual(['sketch', 'extrude'])
     expect(bodiesOf(recipe).map((body) => body.name)).toEqual(['Body 1'])
     expect(currentDocument(fake.app).undoLabel).toBe('Extrude')
+  })
+
+  it('confirming twice at once commits once and shows no core error', async () => {
+    const fake = await rectSketchWithRegionSelected()
+    await startFeatureCommand(fake.app, 'extrude')
+    await settle()
+    await Promise.all([confirmCommand(fake.app), confirmCommand(fake.app)])
+    await settle()
+    expect(fake.transport.commandsOfType('commit_transaction')).toHaveLength(1)
+    expect(fake.app.store.getState().notifications).toEqual([])
+    expect(fake.app.store.getState().command).toBeNull()
   })
 
   it('U-66 cancelCommand cancels the transaction, clears the command and records nothing', async () => {

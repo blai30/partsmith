@@ -1,0 +1,43 @@
+{
+  "format": "partsmith",
+  "format_version": 1,
+  "units": "mm",
+  "parameters": [],
+  "bodies": [
+    {"id": "b-1", "name": "Body 1"}
+  ],
+  "features": [
+    {
+      "id": "f-cyl1",
+      "type": "cylinder",
+      "body": "b-1",
+      "radius": "10",
+      "height": "60",
+      "plane": {"kind": "origin", "plane": "YZ"},
+      "position": ["0", "0", "-30"],
+      "op": "new"
+    },
+    {"id": "f-cyl2", "type": "cylinder", "body": "b-1", "radius": "6", "height": "25", "op": "join"},
+    {
+      "id": "f-fil1",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-cyl1/side|f-cyl2/side)", "fp": "bspline_curve|c=0,0,9.026701|l=38.725445"}
+      ],
+      "radius": "2"
+    },
+    {
+      "id": "f-fil2",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {
+          "q": "edge(f-cyl2/side|f-fil1/fillet/edge(f-cyl1/side|f-cyl2/side))",
+          "fp": "bspline_curve|c=0,0,10.524948|l=40.038448"
+        }
+      ],
+      "radius": "1"
+    }
+  ]
+}

@@ -76,6 +76,12 @@ TopoDS_Shape run_boolean(BOPAlgo_Operation operation, const TopoDS_Shape &target
 void merge_history(const Handle(BRepTools_History) &history,
                    const Handle(BRepTools_History) &next);
 
+// True when the result passes the checks of kernel spec section 3.5 relative to `inputs`, the
+// shapes the operation ran on: the checks of BRepCheck_Analyzer limited to the faces that are
+// not faces of an input, their wires, edges and vertices, and the shells and solids that are
+// not an input's; the whole result when none of its faces is an input's.
+bool changed_part_valid(const TopoDS_Shape &shape, const std::vector<TopoDS_Shape> &inputs);
+
 // Checks what the operation produced or changed in its result relative to `inputs`, the shapes
 // it ran on, with the checks of BRepCheck_Analyzer (the whole result when no face of an input
 // is in it). An invalid result is repaired with ShapeFix_Shape (on a copy, so shared inputs

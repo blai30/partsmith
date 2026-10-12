@@ -394,6 +394,42 @@ describe('SketchOverlay drawing (3.16.4, 3.16.5)', () => {
     expect(harness.app.store.getState().sketch?.tool).toBe('rectangle_2point')
   })
 
+  it('Tab on the view focuses the first draw input, and Esc in it gives focus back to the view (3.16.4)', async () => {
+    const harness = sketchHarness()
+    const canvas = renderOverlay(harness, 'line')
+    act(() => {
+      clickAt(canvas, [0, 0])
+      pointerAt(canvas, 'pointermove', [15, 0])
+    })
+    await nextFrame()
+    view?.focusTarget.focus()
+    act(() => {
+      pressKey('Tab', {}, view?.focusTarget ?? document.body)
+    })
+    const length = screen.getByRole('textbox', { name: 'Length' })
+    expect(length).toHaveFocus()
+    const user = userEvent.setup()
+    await user.keyboard('width / 2')
+    expect(length).toHaveValue('width / 2')
+    await user.keyboard('{Escape}')
+    expect(length).toHaveValue('')
+    expect(view?.focusTarget).toHaveFocus()
+  })
+
+  it('names the key that places freely outside the live announcement while an inference glyph shows (3.16.3)', async () => {
+    const harness = sketchHarness()
+    const canvas = renderOverlay(harness, 'line')
+    act(() => {
+      pointerAt(canvas, 'pointermove', [0.25, 0.25])
+    })
+    await nextFrame()
+    expect(screen.getByTestId('inference-glyph')).toBeInTheDocument()
+    const hint = screen.getByTestId('sketch-hint')
+    expect(hint).toHaveTextContent('Click to start a line. Hold Ctrl to place freely.')
+    const free = within(hint).getByText('Hold Ctrl to place freely.', { exact: false })
+    expect(free).toHaveAttribute('aria-live', 'off')
+  })
+
   it('shows why a typed value is not used on a visible chip under the inputs', async () => {
     const harness = sketchHarness()
     const canvas = renderOverlay(harness, 'line')

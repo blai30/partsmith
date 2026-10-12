@@ -7,22 +7,24 @@ use std::sync::Arc;
 
 use partsmith_model::Id;
 use partsmith_naming::{
-    ElementKind, ElementName, FaceSource, Generator, NamingMap, Reference, roles,
+    EdgeInfo, ElementKind, ElementName, FaceSource, Generator, NamingMap, Reference, TopologyInfo,
+    roles,
 };
 use partsmith_occt_sys::{
-    EdgeNormals, EdgeTopology, InputHistory, KernelError, KernelErrorKind, OpResult, Shape,
-    SubShapeKind, Topology, Vector,
+    Continuity, EdgeNormals, InputHistory, KernelError, KernelErrorKind, OpResult, Shape,
+    SubShapeKind, Vector,
 };
 
-use super::common::{bodies, face_name, unchanged};
+use super::common::{bodies, face_name, solid_body, unchanged};
 use crate::{
     BodyChange, BodyState, BodyUpdate, BuildContext, FeatureError, FeatureOutput, FeatureWarning,
-    IgnoredReason, name_shape, too_large_search,
+    IgnoredReason, Measurements, Named, name_shape, too_large_search,
 };
 
 /// Largest angle in radians between the outward normals of an edge's two faces at the edge's
-/// middle for which the faces meet without a corner (fillet.md section 3.3 step 4).
-const SMOOTH_ANGLE: f64 = 1e-6;
+/// middle for which the faces meet without a corner when the shape records no tangency between
+/// them (fillet.md section 3.3 step 4).
+const SMOOTH_ANGLE: f64 = 1e-3;
 
 /// The edges a fillet or chamfer works on.
 #[derive(Clone, Debug, PartialEq)]
@@ -42,16 +44,17 @@ pub(super) struct SelectedEdge {
     pub(super) faces: Vec<u32>,
 }
 
-/// Resolves the `edges` references in `body`, whose shape is `shape`, and skips the smooth edges
-/// with an `Ignored` warning each (fillet.md section 3.3 steps 3 and 4, chamfer.md step 3).
+/// Resolves the `edges` references in `body` and skips the smooth edges with an `Ignored` warning
+/// each (fillet.md section 3.3 steps 3 and 4, chamfer.md step 3). The faces of each edge come from
+/// the body state's topology, which resolving the references has already read.
 pub(super) fn select_edges(
     context: &BuildContext<'_>,
     body: &Id,
-    shape: &Shape,
     edges: &[Reference],
 ) -> Result<EdgeSelection, FeatureError> {
     let resolved = context.resolve_all("edges", body, edges, ElementKind::Edge)?;
-    let topology = shape.topology()?;
+    let (state, shape) = solid_body(context, body)?;
+    let topology = state.topology()?;
     let mut selection = EdgeSelection {
         edges: Vec::new(),
         warnings: resolved.warnings,
@@ -73,7 +76,7 @@ pub(super) fn select_edges(
 }
 
 /// The adjacency of `edge` (a 1-based kernel index) in `topology`.
-fn edge_topology(topology: &Topology, edge: u32) -> Result<&EdgeTopology, FeatureError> {
+fn edge_topology(topology: &TopologyInfo, edge: u32) -> Result<&EdgeInfo, FeatureError> {
     edge.checked_sub(1)
         .and_then(|position| topology.edges.get(position as usize))
         .ok_or_else(|| FeatureError::internal(format!("edge {edge} is not in the body's topology")))
@@ -81,8 +84,8 @@ fn edge_topology(topology: &Topology, edge: u32) -> Result<&EdgeTopology, Featur
 
 /// True when `edge` of `shape` is smooth (fillet.md section 3.3 step 4): `topology` lists fewer
 /// than two faces for it (a seam, or a degenerated edge such as a sphere pole), or its two faces
-/// meet without a corner at the edge's middle. An edge of three or more faces has a corner.
-fn is_smooth(shape: &Shape, topology: &Topology, edge: u32) -> Result<bool, FeatureError> {
+/// meet without a corner. An edge of three or more faces has a corner.
+fn is_smooth(shape: &Shape, topology: &TopologyInfo, edge: u32) -> Result<bool, FeatureError> {
     match edge_topology(topology, edge)?.faces.len() {
         0 | 1 => Ok(true),
         2 => meets_without_corner(edge, shape.edge_normals(edge)),
@@ -91,10 +94,10 @@ fn is_smooth(shape: &Shape, topology: &Topology, edge: u32) -> Result<bool, Feat
 }
 
 /// Whether the two faces of `edge` meet without a corner, from the kernel's description of the
-/// edge at its middle (`Shape::edge_normals`): their outward normals there make an angle of at
-/// most `SMOOTH_ANGLE`. Opposite normals (a knife edge) are a corner, and so is an edge the kernel
-/// rejects as invalid input, which happens where a face has no defined normal; any other kernel
-/// failure is reported.
+/// edge at its middle (`Shape::edge_normals`): the shape records them as tangent (`G1OrBetter`),
+/// or their outward normals there make an angle of at most `SMOOTH_ANGLE`. Opposite normals (a
+/// knife edge) are a corner, and so is an edge the kernel rejects as invalid input, which happens
+/// where a face has no defined normal; any other kernel failure is reported.
 fn meets_without_corner(
     edge: u32,
     normals: Result<EdgeNormals, KernelError>,
@@ -110,7 +113,8 @@ fn meets_without_corner(
             normals.faces.len()
         )));
     };
-    Ok(angle_between(first.normal, second.normal) <= SMOOTH_ANGLE)
+    Ok(normals.continuity == Some(Continuity::G1OrBetter)
+        || angle_between(first.normal, second.normal) <= SMOOTH_ANGLE)
 }
 
 /// The angle in radians between two vectors, in [0, pi].
@@ -273,7 +277,7 @@ pub(super) fn name_blend(
     role: &str,
     input: &NamingMap,
     result: &OpResult,
-) -> Result<NamingMap, FeatureError> {
+) -> Result<Named, FeatureError> {
     let faces = single_input_origins(result)?
         .iter()
         .map(|origin| {
@@ -292,18 +296,23 @@ pub(super) fn name_blend(
     name_shape(&result.shape, faces, &[input.aliases()])
 }
 
-/// The output of a dress-up feature that changed `body` into `shape` named by `naming`.
+/// The output of a dress-up feature that changed `body` into `shape` named by `named`, with the
+/// topology that naming read.
 pub(super) fn modified(
     body: &Id,
     shape: Shape,
-    naming: NamingMap,
+    named: Named,
     warnings: Vec<FeatureWarning>,
 ) -> FeatureOutput {
     let update = BodyUpdate {
         body: body.clone(),
         shape: Some(shape),
-        naming: Arc::new(naming),
+        naming: Arc::new(named.naming),
         change: BodyChange::Modify,
+        measured: Measurements {
+            topology: Some(named.topology),
+            volume: None,
+        },
     };
     bodies(vec![update], warnings)
 }
@@ -342,6 +351,7 @@ mod tests {
 
     use super::*;
     use crate::test_support::{Fixture, box_body, face_names as sorted_face_names, id, named_box};
+    use crate::topology_info;
 
     /// The edges of `shape` whose faces are exactly these two.
     fn edge_between(shape: &Shape, first: u32, second: u32) -> u32 {
@@ -494,6 +504,7 @@ mod tests {
                     normal: second,
                 },
             ],
+            continuity: Some(Continuity::C0),
         }
     }
 
@@ -522,8 +533,7 @@ mod tests {
             r#"{"q": "edge(f-box1/front|f-box1/top)", "fp": "line|n=1,0,0|c=5,0,10|l=10"}"#,
         )];
 
-        let selection =
-            select_edges(&fixture.context(), &id("b-1"), &shape, &edges).expect("resolved");
+        let selection = select_edges(&fixture.context(), &id("b-1"), &edges).expect("resolved");
 
         let mut faces = vec![front, top];
         faces.sort_unstable();
@@ -542,7 +552,7 @@ mod tests {
     #[test]
     fn every_edge_of_a_box_has_a_corner() {
         let cube = named_box("f-box1", [0.0, 0.0, 0.0], 10.0);
-        let topology = cube.shape.topology().expect("topology");
+        let topology = topology_info(&cube.shape).expect("topology");
 
         for edge in 1..=12 {
             assert!(
@@ -555,7 +565,7 @@ mod tests {
     #[test]
     fn edges_where_a_fillet_meets_its_faces_are_smooth() {
         let (shape, fillet_face) = filleted_cube();
-        let topology = shape.topology().expect("topology");
+        let topology = topology_info(&shape).expect("topology");
 
         let tangent: Vec<u32> = (1_u32..)
             .zip(&topology.edges)
@@ -582,7 +592,7 @@ mod tests {
     #[test]
     fn the_arc_ends_of_a_fillet_have_corners() {
         let (shape, fillet_face) = filleted_cube();
-        let topology = shape.topology().expect("topology");
+        let topology = topology_info(&shape).expect("topology");
 
         let arcs: Vec<u32> = (1_u32..)
             .zip(&topology.edges)
@@ -611,9 +621,15 @@ mod tests {
         let cylinder = make_cylinder(&Plane::XY, 5.0, 10.0)
             .expect("cylinder")
             .shape;
-        let topology = cylinder.topology().expect("topology");
+        let seams: Vec<bool> = cylinder
+            .topology()
+            .expect("kernel topology")
+            .edges
+            .iter()
+            .map(|edge| edge.seam)
+            .collect();
+        let topology = topology_info(&cylinder).expect("topology");
 
-        let seams: Vec<bool> = topology.edges.iter().map(|edge| edge.seam).collect();
         for (edge, seam) in (1_u32..).zip(seams) {
             assert_eq!(
                 is_smooth(&cylinder, &topology, edge).expect("checked"),
@@ -626,7 +642,8 @@ mod tests {
     #[test]
     fn edges_next_to_a_torus_are_smooth() {
         let (shape, faces_of) = filleted_rim();
-        let topology = shape.topology().expect("topology");
+        let kernel_topology = shape.topology().expect("kernel topology");
+        let topology = topology_info(&shape).expect("topology");
         let [side] = faces_of(GeometryKind::Cylinder)[..] else {
             panic!("one cylinder face");
         };
@@ -635,7 +652,7 @@ mod tests {
         };
 
         let tangent: Vec<u32> = (1_u32..)
-            .zip(&topology.edges)
+            .zip(&kernel_topology.edges)
             .filter(|(_, edge)| edge.faces.contains(&torus) && !edge.seam)
             .map(|(index, _)| index)
             .collect();
@@ -648,7 +665,7 @@ mod tests {
             );
         }
         let bottom_rim = (1_u32..)
-            .zip(&topology.edges)
+            .zip(&kernel_topology.edges)
             .find(|(_, edge)| {
                 edge.faces.contains(&side) && !edge.faces.contains(&torus) && !edge.seam
             })
@@ -660,7 +677,7 @@ mod tests {
     #[test]
     fn a_knife_edge_between_a_flat_face_and_a_cylinder_has_a_corner() {
         let (shape, knife) = knife_edge_prism();
-        let topology = shape.topology().expect("topology");
+        let topology = topology_info(&shape).expect("topology");
 
         let normals = shape.edge_normals(knife).expect("described");
 
@@ -679,8 +696,26 @@ mod tests {
         let up = Vector::new(0.0, 0.0, 1.0);
 
         assert!(meets_without_corner(1, Ok(two_faces(up, up))).expect("decided"));
-        assert!(meets_without_corner(1, Ok(two_faces(up, tilted(0.9e-6)))).expect("decided"));
-        assert!(!meets_without_corner(1, Ok(two_faces(up, tilted(1.1e-6)))).expect("decided"));
+        assert!(meets_without_corner(1, Ok(two_faces(up, tilted(0.9e-3)))).expect("decided"));
+        assert!(!meets_without_corner(1, Ok(two_faces(up, tilted(1.1e-3)))).expect("decided"));
+    }
+
+    #[test]
+    fn a_recorded_tangency_meets_without_a_corner_whatever_the_normals() {
+        let mut normals = two_faces(Vector::new(0.0, 0.0, 1.0), tilted(0.1));
+        normals.continuity = Some(Continuity::G1OrBetter);
+
+        assert!(meets_without_corner(1, Ok(normals)).expect("decided"));
+    }
+
+    #[test]
+    fn a_recorded_corner_or_no_record_leaves_the_decision_to_the_normals() {
+        let up = Vector::new(0.0, 0.0, 1.0);
+        let mut normals = two_faces(up, tilted(0.1));
+        normals.continuity = None;
+
+        assert!(!meets_without_corner(1, Ok(two_faces(up, tilted(0.1)))).expect("decided"));
+        assert!(!meets_without_corner(1, Ok(normals)).expect("decided"));
     }
 
     #[test]
@@ -878,7 +913,8 @@ mod tests {
         let result = fillet(&cube.shape, &[EdgeRadius { edge, radius: 2.0 }]).expect("fillets");
 
         let naming = name_blend(&id("f-fil1"), roles::FILLET, &cube.naming, &result)
-            .expect("the result is named");
+            .expect("the result is named")
+            .naming;
 
         assert_eq!(
             sorted_face_names(&naming),
@@ -903,7 +939,8 @@ mod tests {
         let result = fillet(&cube.shape, &edges).expect("fillets");
 
         let naming = name_blend(&id("f-fil1"), roles::FILLET, &cube.naming, &result)
-            .expect("the result is named");
+            .expect("the result is named")
+            .naming;
 
         let names = sorted_face_names(&naming);
         let corners = names

@@ -80,3 +80,13 @@ export function stepExpression(
   const value = unit === 'count' ? Math.max(0, stepped) : stepped
   return parsed.leading + numberText(value) + parsed.spacing + parsed.word + parsed.trailing
 }
+
+/** The plain number multiplied by `factor`, keeping its unit word and spacing as typed, or null when the text is not a plain number. */
+export function scalePlainNumber(text: string, factor: number): string | null {
+  const parsed = parsePlainNumber(text)
+  if (parsed === null) {
+    return null
+  }
+  const value = roundToDecimals(parsed.value * factor, RESULT_DECIMALS)
+  return parsed.leading + numberText(value) + parsed.spacing + parsed.word + parsed.trailing
+}
