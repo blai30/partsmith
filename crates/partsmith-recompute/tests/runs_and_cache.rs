@@ -12,8 +12,8 @@ use common::{
     bodies, body, body_record, builtin_registry, chain_json, datum_height, datum_origin, doc_a,
     doc_a_json, document, document_json, error_code, face_count, feature, final_state,
     first_message, key, keys, load, message_texts, messages, not_reused, owned, parameter_record,
-    parameter_value, record, record_position, records, reused, severity_name, status, statuses,
-    shape, test_block, test_datum, test_datum_on, test_probe, test_registry, volume,
+    parameter_value, record, record_position, records, reused, severity_name, shape, status,
+    statuses, test_block, test_datum, test_datum_on, test_probe, test_registry, volume,
     warning_codes, with_action,
 };
 use partsmith_features::Repair;
@@ -62,7 +62,10 @@ fn t006_first_run_of_doc_a() {
     for (feature, key) in keys(&report) {
         assert!(key.is_some(), "{feature} has no key");
     }
-    assert_volume(shape(final_state(&report, "b-1")), 40000.0 - (1.0 - PI / 4.0) * 80.0);
+    assert_volume(
+        shape(final_state(&report, "b-1")),
+        40000.0 - (1.0 - PI / 4.0) * 80.0,
+    );
     assert_eq!(face_count(final_state(&report, "b-1")), 7);
     assert_volume(shape(final_state(&report, "b-2")), 1000.0);
     assert_eq!(parameter_value(&report, "p-h"), &Ok(Quantity::length(10.0)));

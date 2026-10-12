@@ -10,8 +10,8 @@ use common::{
     Harness, all_features, assert_relative, assert_volume, bodies, bodies_before_ids, body,
     chain_json, datum_height, doc_a, doc_a_json, document, error_code, face_count, feature,
     final_state, first_message, key, keys, load, message_texts, not_reused, output_update, owned,
-    record, record_position, records, reused, severity_name, shape, state_before, status,
-    statuses, suppressed, test_block, test_datum, test_datum_on, test_node, test_on_body, test_probe,
+    record, record_position, records, reused, severity_name, shape, state_before, status, statuses,
+    suppressed, test_block, test_datum, test_datum_on, test_node, test_on_body, test_probe,
     upstream, with_action,
 };
 use partsmith_occt_sys::{Plane, StepBody, SubShapeKind, make_box, write_step};
@@ -459,7 +459,11 @@ fn a_stop_point_runs_up_to_and_including_the_stop_feature() {
     assert_volume(shape(state_before(&report, "f-b", "b-1")), 8.0);
     let update = output_update(&report, "f-b", "b-1");
     let updated = update.shape.as_ref().expect("f-b outputs a solid");
-    assert_relative("output volume", updated.volume().expect("the kernel measures"), 16.0);
+    assert_relative(
+        "output volume",
+        updated.volume().expect("the kernel measures"),
+        16.0,
+    );
     assert_volume(shape(final_state(&report, "b-1")), 16.0);
     assert!(final_state(&report, "b-2").is_empty());
     assert!(report.messages.is_empty());
@@ -873,7 +877,9 @@ fn two_updates_of_one_body_are_rejected_and_not_applied() {
     assert_eq!(error_code(&report, "f-t"), "undeclared_dependency");
     assert_eq!(
         message_texts(&report, "f-t"),
-        ["This feature read body 'b-1' again to update it a second time without declaring it. This is a bug in the feature; please report it."]
+        [
+            "This feature read body 'b-1' again to update it a second time without declaring it. This is a bug in the feature; please report it."
+        ]
     );
     assert_volume(shape(final_state(&report, "b-1")), 8.0);
 }

@@ -189,8 +189,8 @@ fn load_bench50() -> Option<Document> {
     }
     let text = std::fs::read_to_string(BENCH50)
         .unwrap_or_else(|error| panic!("cannot read {BENCH50}: {error}"));
-    let loaded =
-        partsmith_model::load(&text).unwrap_or_else(|error| panic!("bench50 does not load: {error}"));
+    let loaded = partsmith_model::load(&text)
+        .unwrap_or_else(|error| panic!("bench50 does not load: {error}"));
     Some(loaded.document)
 }
 
@@ -412,9 +412,11 @@ fn main() -> ExitCode {
                 measure(bench50_operations[1], Duration::from_secs(1), &mut || {
                     median_time(Harness::builtins, |fresh| fresh.run(&bench))
                 });
-                measure(bench50_operations[2], Duration::from_millis(60), &mut || {
-                    edit_run_time(&mut harness, &bench)
-                });
+                measure(
+                    bench50_operations[2],
+                    Duration::from_millis(60),
+                    &mut || edit_run_time(&mut harness, &bench),
+                );
             }
             None => {
                 println!("{BENCH50} does not exist yet (engine.md open issue 4).");

@@ -502,7 +502,9 @@ mod tests {
             .collect();
         assert_eq!(
             texts,
-            ["The preview or rollback point 'f-nope' is not in this document, so the whole timeline was rebuilt."]
+            [
+                "The preview or rollback point 'f-nope' is not in this document, so the whole timeline was rebuilt."
+            ]
         );
     }
 

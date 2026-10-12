@@ -434,9 +434,7 @@ mod tests {
     #[test]
     fn a_feature_change_is_queried_in_the_graph_where_the_feature_is_active() {
         let recompute = recompute();
-        let writer = |feature: &str, suppressed: bool| {
-            json!({"id": feature, "type": "test_writer", "suppressed": suppressed, "body": "b-1"})
-        };
+        let writer = |feature: &str, suppressed: bool| json!({"id": feature, "type": "test_writer", "suppressed": suppressed, "body": "b-1"});
         let reader = json!({"id": "f-3", "type": "test_reader", "body": "b-1"});
         let before = document(json!([writer("f-1", false), writer("f-2", true), reader]));
         let after = document(json!([writer("f-1", false), writer("f-2", false), reader]));

@@ -8,11 +8,11 @@
 //! (`tests/feature_support`), so every test measures the same way.
 
 // Each test binary uses only some of these helpers.
-#![allow(dead_code, unused_imports)]
+#![allow(dead_code)]
 
-pub mod features;
 #[path = "../feature_support/mod.rs"]
 pub mod feature_support;
+pub mod features;
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -29,6 +29,8 @@ use partsmith_recompute::{
 };
 use serde_json::{Value, json};
 
+// Each test binary uses only some of the shared helpers.
+#[allow(unused_imports)]
 pub use feature_support::{
     AXIS_TOLERANCE, LENGTH_TOLERANCE, MEASURE_TOLERANCE, assert_absolute, assert_bounding_box,
     assert_coordinates, assert_face_normal, assert_face_position, assert_relative,

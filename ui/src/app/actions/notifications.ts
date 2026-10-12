@@ -1,0 +1,140 @@
+import type { AppStore, Notification } from '../../state/store'
+import type { App } from '../createApp'
+
+// Notifications (ui.md 3.22): at most three shown, info and success dismissed after 5 s, warnings
+// after 8 s, errors kept until dismissed. Timers pause while the user points at or focuses one.
+
+/** Milliseconds a notification stays, or null to keep it until dismissed. */
+const LIFETIMES: Readonly<Record<Notification['severity'], number | null>> = {
+  info: 5_000,
+  success: 5_000,
+  warning: 8_000,
+  error: null,
+}
+
+/** The most notifications shown at once. */
+const MAXIMUM_SHOWN = 3
+
+type Countdown = {
+  /** Milliseconds left when the countdown is paused, else when it last started. */
+  remaining: number
+  startedAt: number
+  timer: ReturnType<typeof setTimeout> | null
+}
+
+type NotificationTimers = {
+  nextNumber: number
+  readonly countdowns: Map<string, Countdown>
+}
+
+const timersByStore = new WeakMap<AppStore, NotificationTimers>()
+
+function timersOf(store: AppStore): NotificationTimers {
+  let timers = timersByStore.get(store)
+  if (timers === undefined) {
+    timers = { nextNumber: 1, countdowns: new Map() }
+    timersByStore.set(store, timers)
+  }
+  return timers
+}
+
+function stopCountdown(store: AppStore, id: string): void {
+  const timers = timersOf(store)
+  const countdown = timers.countdowns.get(id)
+  if (countdown?.timer !== null && countdown?.timer !== undefined) {
+    clearTimeout(countdown.timer)
+  }
+  timers.countdowns.delete(id)
+}
+
+function runCountdown(store: AppStore, id: string, countdown: Countdown): void {
+  countdown.startedAt = Date.now()
+  countdown.timer = setTimeout(() => {
+    countdown.timer = null
+    removeNotification(store, id)
+  }, countdown.remaining)
+}
+
+function startCountdown(store: AppStore, notification: Notification): void {
+  stopCountdown(store, notification.id)
+  const lifetime = LIFETIMES[notification.severity]
+  if (lifetime === null) {
+    return
+  }
+  const countdown: Countdown = { remaining: lifetime, startedAt: 0, timer: null }
+  timersOf(store).countdowns.set(notification.id, countdown)
+  runCountdown(store, notification.id, countdown)
+}
+
+function removeNotification(store: AppStore, id: string): void {
+  stopCountdown(store, id)
+  store.setState((state) => {
+    const notifications = state.notifications.filter((notification) => notification.id !== id)
+    return notifications.length === state.notifications.length ? {} : { notifications }
+  })
+}
+
+/** The notification to drop to make room: the oldest that is not an error, else the oldest. */
+function oldestRemovable(notifications: readonly Notification[]): Notification | undefined {
+  return (
+    notifications.find((notification) => notification.severity !== 'error') ?? notifications[0]
+  )
+}
+
+/** Shows a notification and returns its id; a message already shown restarts that one instead. */
+export function notify(app: App, notification: Omit<Notification, 'id' | 'createdAt'>): string {
+  const { store } = app
+  const shown = store
+    .getState()
+    .notifications.find((candidate) => candidate.message === notification.message)
+  if (shown !== undefined) {
+    startCountdown(store, shown)
+    return shown.id
+  }
+  const timers = timersOf(store)
+  const added: Notification = {
+    ...notification,
+    id: `notification-${String(timers.nextNumber)}`,
+    createdAt: Date.now(),
+  }
+  timers.nextNumber += 1
+  let notifications = [...store.getState().notifications, added]
+  while (notifications.length > MAXIMUM_SHOWN) {
+    const dropped = oldestRemovable(notifications)
+    if (dropped === undefined) {
+      break
+    }
+    stopCountdown(store, dropped.id)
+    notifications = notifications.filter((candidate) => candidate.id !== dropped.id)
+  }
+  store.setState({ notifications })
+  if (notifications.includes(added)) {
+    startCountdown(store, added)
+  }
+  return added.id
+}
+
+/** Removes a notification; an id that is not shown is ignored. */
+export function dismiss(app: App, id: string): void {
+  removeNotification(app.store, id)
+}
+
+/** Holds a notification's countdown while the pointer is over it or focus is inside it. */
+export function pauseNotification(app: App, id: string): void {
+  const countdown = timersOf(app.store).countdowns.get(id)
+  if (countdown === undefined || countdown.timer === null) {
+    return
+  }
+  clearTimeout(countdown.timer)
+  countdown.timer = null
+  countdown.remaining = Math.max(0, countdown.remaining - (Date.now() - countdown.startedAt))
+}
+
+/** Continues a paused countdown with the time it had left. */
+export function resumeNotification(app: App, id: string): void {
+  const countdown = timersOf(app.store).countdowns.get(id)
+  if (countdown === undefined || countdown.timer !== null) {
+    return
+  }
+  runCountdown(app.store, id, countdown)
+}

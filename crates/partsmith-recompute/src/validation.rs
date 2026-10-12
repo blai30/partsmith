@@ -342,7 +342,8 @@ mod tests {
     #[test]
     fn content_hashes_follow_id_type_and_params_in_stored_order() {
         let hash = |value: serde_json::Value| content_hash(&record(value));
-        let original = hash(json!({"id": "f-1", "type": "test_datum", "offset": "1", "a": 1, "b": 2}));
+        let original =
+            hash(json!({"id": "f-1", "type": "test_datum", "offset": "1", "a": 1, "b": 2}));
 
         assert_eq!(
             original,
