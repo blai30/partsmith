@@ -200,4 +200,5 @@ fn t033_rotate_without_degrees_is_a_usage_error() {
     let run = workspace.run(&["rebuild", "--rotate", "x", BOX]);
 
     run.assert_code(2);
+    run.assert_stderr_line("error: --rotate takes <axis>:<degrees>, for example x:90.");
 }

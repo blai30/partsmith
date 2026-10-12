@@ -2,6 +2,8 @@ name: Release
 
 # A version tag builds the desktop bundles and drafts a GitHub Release that a human publishes.
 # A manual run is a dry run: it builds the bundles without a release.
+# Start a dry run from main before each tag: it proves the bundles, and it saves the Windows and macOS
+# caches on main, the only scope a tag run can restore them from (GitHub drops caches unused for 7 days).
 on:
   push:
     tags: ["v[0-9]+.[0-9]+.[0-9]+"]
@@ -26,6 +28,10 @@ jobs:
     permissions:
       contents: read
       actions: read
+    # pipefail, so a failing cargo metadata fails the step instead of reading as an empty version.
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v7.0.1
       - run: rustup show active-toolchain || rustup toolchain install
@@ -35,12 +41,16 @@ jobs:
           desktop_version="$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "partsmith-desktop") | .version')"
           ui_version="$(jq -r .version ui/package.json)"
           mismatch=false
-          for version in $(printf '%s\n' "$desktop_version" "$ui_version" | sort -u); do
-            if [ "$version" != "$tag_version" ]; then
-              echo "::error::Tag v$tag_version does not match the version $version of partsmith-desktop and ui/package.json."
-              mismatch=true
-            fi
-          done
+          # An empty version (no partsmith-desktop package) differs from the tag too.
+          if [ "$desktop_version" != "$tag_version" ]; then
+            echo "::error::Tag v$tag_version does not match the version $desktop_version of partsmith-desktop and ui/package.json."
+            mismatch=true
+          fi
+          # A version both files share is reported once.
+          if [ "$ui_version" != "$tag_version" ] && [ "$ui_version" != "$desktop_version" ]; then
+            echo "::error::Tag v$tag_version does not match the version $ui_version of partsmith-desktop and ui/package.json."
+            mismatch=true
+          fi
           if [ "$mismatch" = true ]; then
             exit 1
           fi
@@ -84,6 +94,14 @@ jobs:
       # MSVC, CMake and Ninja from Visual Studio on PATH.
       - if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@v1.13.0
+      # Git Bash puts GNU link (/usr/bin/link) ahead of MSVC's link.exe on PATH, and rustc takes the first one
+      # when VCINSTALLDIR is set, so Cargo gets the link.exe next to cl.exe, the one CMake uses for OCCT.
+      - if: runner.os == 'Windows'
+        name: Use the MSVC linker for Rust
+        run: |
+          linker="$(dirname "$(command -v cl)")/link.exe"
+          test -f "$linker"
+          echo "CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER=$(cygpath -w "$linker")" >> "$GITHUB_ENV"
       # The oldest macOS the app supports, for OCCT, Rust and the bundle (desktop.md 2.8).
       - if: runner.os == 'macOS'
         name: Install Ninja and set the deployment target
@@ -101,7 +119,11 @@ jobs:
           OCCT_JOBS: 4
         run: scripts/build-occt.sh native "$OCCT_ROOT"
       - run: rustup show active-toolchain || rustup toolchain install
+      # A tag run's caches are scoped to its tag and no later tag restores them, so only a dry run
+      # started from main saves the Rust cache, where every tag run can restore it.
       - uses: Swatinem/rust-cache@v2.9.2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - uses: pnpm/action-setup@v6.1.0
         with:
           package_json_file: ui/package.json

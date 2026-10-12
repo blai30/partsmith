@@ -16,7 +16,6 @@ use partsmith_sketch::{ProfileCurve, ProfileEdge, ProfileLoop, Region};
 
 use crate::context::ResolvedProfile;
 use crate::error::FeatureError;
-use crate::naming::kernel;
 use crate::params::PlacementExt;
 
 /// The union of a profile's resolved regions as kernel faces on the sketch plane (section 3.7).
@@ -54,7 +53,7 @@ impl ResolvedProfile<'_> {
                     .collect(),
             })
             .collect::<Vec<_>>();
-        let profile = make_profile(&self.sketch.placement.to_kernel(), &union).map_err(kernel)?;
+        let profile = make_profile(&self.sketch.placement.to_kernel(), &union)?;
         Ok(ProfileFaces { profile, entities })
     }
 }

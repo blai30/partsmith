@@ -576,6 +576,31 @@ function plainLength(text: string, units: Units): number | null {
   return Number(number) * MILLIMETERS[isUnit(word) ? word : units]
 }
 
+/** Side and center of drawn planes: max(50 mm, 1.2 × the visible diagonal) about the visible center (3.12). */
+export function planeExtent(bounds: BoundingBox | null): { side: number; center: Vector3 } {
+  if (bounds === null) {
+    return { side: MINIMUM_PLANE_SIDE, center: [0, 0, 0] }
+  }
+  const diagonal = Math.hypot(
+    bounds.max[0] - bounds.min[0],
+    bounds.max[1] - bounds.min[1],
+    bounds.max[2] - bounds.min[2],
+  )
+  return {
+    side: Math.max(MINIMUM_PLANE_SIDE, PLANE_SIDE_FACTOR * diagonal),
+    center: [
+      (bounds.min[0] + bounds.max[0]) / 2,
+      (bounds.min[1] + bounds.max[1]) / 2,
+      (bounds.min[2] + bounds.max[2]) / 2,
+    ],
+  }
+}
+
+/** Whether a sketch, datum plane or origin item is shown this session (3.10). */
+export function isSessionVisible(state: AppState, key: string): boolean {
+  return sessionVisible(state, key, state.document?.recipe ?? null)
+}
+
 export function createScene(backend: RenderBackend): Scene {
   /** CPU copies of everything uploaded, for restore(). */
   const uploaded = new Map<string, Geometry>()
@@ -788,26 +813,6 @@ export function createScene(backend: RenderBackend): Scene {
   function visibleBounds(state: AppState): BoundingBox | null {
     const bounds = modelBounds(state)
     return bounds === null ? null : normalizedBox(bounds)
-  }
-
-  /** Side and center of drawn planes: max(50 mm, 1.2 × the visible diagonal) about the visible center (3.12). */
-  function planeExtent(bounds: BoundingBox | null): { side: number; center: Vector3 } {
-    if (bounds === null) {
-      return { side: MINIMUM_PLANE_SIDE, center: [0, 0, 0] }
-    }
-    const diagonal = Math.hypot(
-      bounds.max[0] - bounds.min[0],
-      bounds.max[1] - bounds.min[1],
-      bounds.max[2] - bounds.min[2],
-    )
-    return {
-      side: Math.max(MINIMUM_PLANE_SIDE, PLANE_SIDE_FACTOR * diagonal),
-      center: [
-        (bounds.min[0] + bounds.max[0]) / 2,
-        (bounds.min[1] + bounds.max[1]) / 2,
-        (bounds.min[2] + bounds.max[2]) / 2,
-      ],
-    }
   }
 
   /** The 4 corners of a square plane of this side centered at the projection of `center` onto it. */

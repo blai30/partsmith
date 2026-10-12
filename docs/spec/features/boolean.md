@@ -101,7 +101,7 @@ feature(
 
 1. The target must hold a solid, else `BodyEmpty { use_new: false }`.
 2. Each tool, in order, must hold a solid, else `ToolEmpty { body }`.
-3. One kernel call with the target and the tool shapes: `fuse`, `cut` or `common` (kernel.md section 3.4.5). The result naming follows the boolean rule over the target map and every tool map. The shared semantics of features.md section 3.5 apply: `EmptyResult` when nothing is left, `NoEffect` when the volume does not change (the target keeps its previous shape and naming).
+3. `apply_op(ctx, target, op, tools)` (features.md section 2.7) with one `Tool` per tool body in `tools` order (its shape and naming map), which makes one kernel call with the target and the tool shapes: `fuse`, `cut` or `common` (kernel.md section 3.4.5). The result naming follows the boolean rule over the target map and every tool map. The shared semantics of features.md section 3.5 apply: `EmptyResult` when nothing is left, `NoEffect` when the volume does not change (the target keeps its previous shape and naming).
 4. When `keep_tools` is false, each tool gets a `BodyUpdate` with `shape: None`, an empty naming map and change `Clear`, even when the op had no effect.
 5. Updates are returned in `bodies_written` order.
 

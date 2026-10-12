@@ -8,7 +8,7 @@ Revolve sweeps closed regions of one sketch around an axis that lies in the sket
 
 ### In M1
 
-- Profile: one or more closed regions of one sketch, swept as their union.
+- Profile: one or more closed regions of one sketch, swept as their union (features.md section 3.7, the same union as extrude).
 - Axis: an origin axis, a sketch line (construction lines allowed), a straight edge, or the axis of a round face, lying in the sketch plane.
 - Extents: `angle` (0 < angle ≤ 360 deg) and `full`.
 - `reverse` to revolve in the negative sense.
@@ -127,7 +127,7 @@ feature(
 5. Sense: positive rotation about the axis direction by the right-hand rule; negative when `reverse` is true. A full revolve ignores `reverse`.
 6. Kernel `revolve(profile, axis, ±θ)` (2π for full), name (section 3.4), `apply_op(ctx, body, op, vec![tool])`.
 
-Boundary pieces that lie on the axis generate no face (the solid closes on the axis).
+Boundary pieces that lie on the axis generate no face (the solid closes on the axis). As for extrude, the union merges consecutive pieces of one entity that continue the same line or circle before `make_profile`, so a union of regions has the faces of the single region covering the same area.
 
 ### 3.4 Element names
 
@@ -195,6 +195,7 @@ Bodies `[b-1]` unless stated.
 22. **Axis entity is not a line.** `SK-RING` plus `{"id": "e-5", "type": "circle", "center": [50, 50], "radius": 1, "construction": true}`, `REV({"kind": "sketch_line", "sketch": "f-sk1", "line": "e-5"}, {"kind": "full"}, "new")`. Expected: error `not_a_line`, rendered `'e-5' in 'Sketch 1' is not a line with length. Pick a line for Axis.`
 23. **Axis face without an axis.** Bodies `[b-1, b-2]`; `{"id": "f-box1", "type": "box", "body": "b-2", "size": ["10", "10", "10"], "op": "new"}`, `SK-RING`, `REV({"kind": "face", "body": "b-2", "face": {"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,10|a=100"}}, {"kind": "full"}, "new")`. Expected: error `no_axis`, rendered `The face selected for Axis has no axis. Pick a cylindrical or conical face, a straight edge, a sketch line or an origin axis.`; b-2 unchanged.
 24. **Curved axis edge.** Bodies `[b-1, b-2]`; `{"id": "f-cyl1", "type": "cylinder", "body": "b-2", "radius": "5", "height": "10", "op": "new"}`, `SK-RING`, `REV({"kind": "edge", "body": "b-2", "edge": {"q": "edge(f-cyl1/side|f-cyl1/top)", "fp": "circle|n=0,0,1|c=0,0,10|l=31.415927|r=5"}}, {"kind": "full"}, "new")`. Expected: error `not_straight`, rendered `The edge selected for Axis is not straight. Pick a straight edge, a sketch line or an origin axis.`
+25. **Union of regions split by a line.** `SK-RING` plus `{"id": "e-5", "type": "line", "start": [15, 0], "end": [15, 30]}`; profile `{"sketch": "f-sk1", "regions": [{"key": "e-1,e-3,e-4,e-5", "fp": "c=12.5,15|a=150"}, {"key": "e-1,e-2,e-3,~e-5", "fp": "c=17.5,15|a=150"}]}`; `REV(AXIS-Z, {"kind": "full"}, "new")` with this profile in place of `P-RING`. Expected: identical to 1 (volume 28274.333882, 4 faces; `f-rev1/lateral/e-1` and `f-rev1/lateral/e-3` area 942.477796 each); no face named `f-rev1/lateral/e-5`.
 
 ## Open issues
 

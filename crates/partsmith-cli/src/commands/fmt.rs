@@ -4,7 +4,7 @@ use std::io;
 
 use partsmith_engine::Session;
 
-use super::usage_error;
+use super::{load_failure, usage_error};
 use crate::arguments::FmtArguments;
 use crate::error::CliError;
 use crate::files::{Input, write_atomically};
@@ -26,7 +26,7 @@ enum Outcome {
 
 /// Formats every input in argument order.
 pub fn run(
-    session: &Session,
+    session: &mut Session,
     arguments: &FmtArguments,
     output: &mut Output<'_>,
 ) -> io::Result<Status> {
@@ -64,12 +64,12 @@ pub fn run(
 }
 
 /// Computes the canonical text of one input and writes it where it belongs.
-fn format_input(session: &Session, input: &Input, check: bool) -> Result<Outcome, CliError> {
+fn format_input(session: &mut Session, input: &Input, check: bool) -> Result<Outcome, CliError> {
     let text = input.read()?;
-    let canonical = session.format(&text).map_err(|error| CliError::Load {
-        path: input.name(),
-        error,
-    })?;
+    let canonical = match session.format(&text) {
+        Ok(canonical) => canonical,
+        Err(error) => return Err(load_failure(session, input.name(), &text, &error)),
+    };
     let changed = canonical != text;
     Ok(match (input, check, changed) {
         (_, true, true) => Outcome::NotCanonical,
@@ -98,6 +98,10 @@ mod tests {
     const DOCUMENT: &str = r#"{"format": "partsmith", "format_version": 1, "units": "mm",
         "parameters": [], "bodies": [], "features": []}"#;
 
+    /// A document whose body id has a space, which the file format rejects at `/bodies/0/id`.
+    const BAD_ID: &str = r#"{"format": "partsmith", "format_version": 1, "units": "mm",
+        "parameters": [], "bodies": [{"id": "b 1", "name": "Block"}], "features": []}"#;
+
     fn session() -> Session {
         Session::new(SessionOptions::headless())
     }
@@ -114,23 +118,23 @@ mod tests {
 
     #[test]
     fn canonical_files_are_unchanged() {
-        let session = session();
+        let mut session = session();
         let directory = tempfile::tempdir().expect("a temporary directory");
         let input = file(directory.path(), &canonical(&session));
 
         assert_eq!(
-            format_input(&session, &input, false).ok(),
+            format_input(&mut session, &input, false).ok(),
             Some(Outcome::Unchanged)
         );
     }
 
     #[test]
     fn other_files_are_rewritten_in_canonical_form() {
-        let session = session();
+        let mut session = session();
         let directory = tempfile::tempdir().expect("a temporary directory");
         let input = file(directory.path(), DOCUMENT);
 
-        let outcome = format_input(&session, &input, false).ok();
+        let outcome = format_input(&mut session, &input, false).ok();
 
         assert_eq!(outcome, Some(Outcome::Rewritten));
         assert_eq!(
@@ -141,11 +145,11 @@ mod tests {
 
     #[test]
     fn check_reports_other_files_without_writing() {
-        let session = session();
+        let mut session = session();
         let directory = tempfile::tempdir().expect("a temporary directory");
         let input = file(directory.path(), DOCUMENT);
 
-        let outcome = format_input(&session, &input, true).ok();
+        let outcome = format_input(&mut session, &input, true).ok();
 
         assert_eq!(outcome, Some(Outcome::NotCanonical));
         assert_eq!(
@@ -156,22 +160,48 @@ mod tests {
 
     #[test]
     fn documents_that_do_not_load_are_load_errors() {
-        let session = session();
+        let mut session = session();
         let directory = tempfile::tempdir().expect("a temporary directory");
         let input = file(directory.path(), "{");
 
-        let error = format_input(&session, &input, false).expect_err("the text does not load");
+        let error = format_input(&mut session, &input, false).expect_err("the text does not load");
 
         assert!(matches!(error, CliError::Load { .. }), "{error:?}");
         assert_eq!(error.status(), Status::Problems);
     }
 
     #[test]
+    fn load_errors_name_the_pointer_of_a_structure_problem() {
+        let mut session = session();
+        let directory = tempfile::tempdir().expect("a temporary directory");
+        let input = file(directory.path(), BAD_ID);
+
+        let error = format_input(&mut session, &input, false).expect_err("the id is invalid");
+
+        assert_eq!(error.diagnostic().path.as_deref(), Some("/bodies/0/id"));
+    }
+
+    #[test]
+    fn files_that_are_not_utf8_are_load_errors_and_stay_untouched() {
+        let mut session = session();
+        let directory = tempfile::tempdir().expect("a temporary directory");
+        let path = directory.path().join("model.ptsm");
+        fs::write(&path, b"\xff\xfe{}").expect("written");
+
+        let error = format_input(&mut session, &Input::File(path.clone()), false)
+            .expect_err("the file is not UTF-8");
+
+        assert_eq!(error.status(), Status::Problems);
+        assert_eq!(error.code(), "parse_error");
+        assert_eq!(fs::read(&path).expect("readable"), b"\xff\xfe{}");
+    }
+
+    #[test]
     fn missing_files_are_read_errors() {
-        let session = session();
+        let mut session = session();
         let input = Input::File("no/such/model.ptsm".into());
 
-        let error = format_input(&session, &input, true).expect_err("the file is missing");
+        let error = format_input(&mut session, &input, true).expect_err("the file is missing");
 
         assert_eq!(error.status(), Status::Io);
     }

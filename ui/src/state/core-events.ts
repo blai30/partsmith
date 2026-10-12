@@ -221,6 +221,27 @@ export function adoptDocument(
   store.setState({ document: { ...pending, ...details } })
 }
 
+/**
+ * Records how long the core took to rebuild a document (3.21), on the shown document or on one the
+ * core reported that an action has not adopted yet (an opened file's first rebuild).
+ */
+export function recordRebuildTime(
+  store: AppStore,
+  documentHandle: DocHandle,
+  milliseconds: number,
+): void {
+  const current = store.getState().document
+  if (current !== null && current.documentHandle === documentHandle) {
+    store.setState({ document: { ...current, lastRebuildMilliseconds: milliseconds } })
+    return
+  }
+  const registry = registryOf(store)
+  const pending = registry.pending.get(documentHandle)
+  if (pending !== undefined) {
+    registry.pending.set(documentHandle, { ...pending, lastRebuildMilliseconds: milliseconds })
+  }
+}
+
 /** Forgets the shown document and every document the core reported, as after a core restart. */
 export function releaseDocuments(store: AppStore): void {
   const registry = registryOf(store)

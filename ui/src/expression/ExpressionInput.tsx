@@ -33,6 +33,8 @@ export type ExpressionInputProps = {
   readonly selectOnFocus?: boolean
   /** Keeps the label for assistive technology only, for rows that already say what the field is. */
   readonly hideLabel?: boolean
+  /** A message about the value from elsewhere (a feature status), shown while the text itself is not invalid. */
+  readonly error?: string | null
   /** Called with the text on every edit, and again when the state of the text changes. */
   readonly onChange: (value: string, state: ExpressionState) => void
   readonly onCommit?: (value: string, state: ExpressionState) => void
@@ -97,6 +99,7 @@ export function ExpressionInput({
   autoFocus = false,
   selectOnFocus = false,
   hideLabel = false,
+  error = null,
   onChange,
   onCommit,
   onCancel,
@@ -108,6 +111,7 @@ export function ExpressionInput({
   const state = optional && value.trim() === '' ? EMPTY : evaluated
   const errorId = `${id}-error`
   const invalid = state.state === 'invalid'
+  const message = invalid ? state.message : (error ?? '')
 
   // The owner hears about a new state of the same text too (a result arriving, a revision change).
   const reported = useRef<{ readonly value: string; readonly state: ExpressionState } | null>(null)
@@ -198,7 +202,7 @@ export function ExpressionInput({
           value={value}
           spellCheck={false}
           autoComplete="off"
-          aria-invalid={invalid ? true : undefined}
+          aria-invalid={message !== '' ? true : undefined}
           aria-describedby={errorId}
           onChange={(event) => {
             change(event.currentTarget.value)
@@ -218,7 +222,7 @@ export function ExpressionInput({
             COLOR_CLASSES.field.background,
             COLOR_CLASSES.text.foreground,
             COLOR_CLASSES.focusRing.outline,
-            invalid ? COLOR_CLASSES.errorMark.border : COLOR_CLASSES.borderControl.border,
+            message !== '' ? COLOR_CLASSES.errorMark.border : COLOR_CLASSES.borderControl.border,
           )}
         />
         <span
@@ -238,7 +242,7 @@ export function ExpressionInput({
         aria-live="polite"
         className={clsx('text-xs', COLOR_CLASSES.errorText.foreground)}
       >
-        {invalid ? state.message : ''}
+        {message}
       </p>
     </div>
   )

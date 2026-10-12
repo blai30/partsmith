@@ -32,5 +32,9 @@ zip.workspace = true
 name = "budgets"
 harness = false
 
+[[bench]]
+name = "scratch_profile"
+harness = false
+
 [lints]
 workspace = true

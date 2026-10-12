@@ -1,5 +1,6 @@
 import { CoreError } from '../../core/client'
 import { generateId, usedIds } from '../../core/ids'
+import { createLatestOnly } from '../../core/queue'
 import { featureLabel } from '../../core/labels'
 import { CoreFatalError } from '../../core/transport'
 import type {
@@ -14,6 +15,7 @@ import type {
   SketchSolution,
 } from '../../generated/protocol'
 import { MESSAGES } from '../../messages'
+import { measureTiming, TIMING_NAMES } from '../../performance/marks'
 import type { SolvedSketch } from '../../core/api'
 import {
   CONSTRAINT_TITLES,
@@ -25,6 +27,7 @@ import {
 } from '../../sketch/constraints'
 import { failedSolveMessage, findingPoints } from '../../sketch/issues'
 import { worldBounds } from '../../sketch/placement'
+import type { Vector2 } from '../../sketch/geometry'
 import type { IdSource } from '../../sketch/recipes'
 import type { SketchChange, SketchCommitResult, SketchToolId } from '../../sketch/session'
 import { constraintTool } from '../../sketch/tools'
@@ -34,7 +37,7 @@ import { addScaled, cross } from '../../viewport/math'
 import type { App } from '../createApp'
 import { cancelCommand } from './command'
 import { coreRedo, coreUndo } from './document'
-import { commitEdits, documentOf, reportNewFailures } from './edits'
+import { commitEdits, documentOf, reportNewFailures, showCoreError } from './edits'
 import { dismiss, notify } from './notifications'
 
 // Sketch mode (ui.md 3.16): entering, leaving and navigating it (3.16.1, 3.16.11, 3.20), and the
@@ -259,8 +262,8 @@ function lookAtSketch(app: App, solution: SketchSolution): void {
   ].map(([x, y]) => addScaled(addScaled(origin, xAxis, x ?? 0), yAxis, y ?? 0))
   const along = (axis: 0 | 1 | 2, pick: (...values: number[]) => number): number =>
     pick(...corners.map((corner) => corner[axis]))
-  const min: Vector3 = [along(0, Math.min), along(1, Math.min), along(2, Math.min)]
-  const max: Vector3 = [along(0, Math.max), along(1, Math.max), along(2, Math.max)]
+  const min: [number, number, number] = [along(0, Math.min), along(1, Math.min), along(2, Math.min)]
+  const max: [number, number, number] = [along(0, Math.max), along(1, Math.max), along(2, Math.max)]
   viewport.zoomToBounds({ min, max }, 0.1)
 }
 
@@ -719,7 +722,11 @@ function selectedEntities(items: readonly SelectionItem[]): string[] {
       return [reference.entity]
     }
     // A point entity is selected by its point reference, which is its bare id.
-    if (reference?.kind === 'point' && !reference.point.includes('.') && reference.point !== 'origin') {
+    if (
+      reference?.kind === 'point' &&
+      !reference.point.includes('.') &&
+      reference.point !== 'origin'
+    ) {
       return [reference.point]
     }
     return []
@@ -730,10 +737,7 @@ function selectedEntities(items: readonly SelectionItem[]): string[] {
  * Deletes the selected entities and constraints, plus every constraint that references a deleted
  * entity or one of its points, in one commit labeled "Delete" (3.16.10).
  */
-export async function deleteSketchItems(
-  app: App,
-  items: readonly SelectionItem[],
-): Promise<void> {
+export async function deleteSketchItems(app: App, items: readonly SelectionItem[]): Promise<void> {
   const entities = selectedEntities(items)
   const constraints = items.flatMap((item) =>
     item.sketchItem?.kind === 'constraint' ? [item.sketchItem.constraint] : [],
@@ -915,3 +919,170 @@ export function showSketchFinding(app: App, finding: ProfileFinding): void {
 
 /** Margin of a framed profile issue, as for a framed sketch. */
 const FINDING_MARGIN = 0.1
+
+// Dragging points (3.16.9).
+
+/** A point drag: moves solved through the core one at a time, then one commit or a cancel. */
+export type SketchDrag = {
+  /** Asks the core to solve with the point pinned at `to`; `startedAt` is the pointer move's time. */
+  move(to: Vector2, startedAt: number): void
+  /** Ends the drag, committing the last solved frame as one undo entry when a move was sent. */
+  finish(): Promise<void>
+  /** Ends the drag without committing and shows the stored geometry again. */
+  cancel(): Promise<void>
+}
+
+type DragRequest = { readonly to: Vector2; readonly startedAt: number }
+
+/**
+ * Starts dragging a point of the edited sketch. Each move goes through a LatestOnly outside the
+ * mutation queue, since drag frames change nothing in the document; each solution is shown at
+ * once. The end goes through the mutation queue.
+ */
+export function startSketchDrag(app: App, sketchId: string, point: string): SketchDrag | null {
+  const document = documentOf(app)
+  if (document === null) {
+    return null
+  }
+  const { documentHandle } = document
+  const before = document.sketches[sketchId] ?? null
+  let sent = false
+  let ended = false
+  const frames = createLatestOnly<DragRequest, SolvedSketch | null>(
+    (request) =>
+      app.core.dragSketch(documentHandle, sketchId, point, [request.to[0], request.to[1]]),
+    (solved, request) => {
+      if (solved === null || ended) {
+        return
+      }
+      showSketchSolution(app, sketchId, solved)
+      // The viewport draws in the next animation frame, which runs before this one.
+      requestAnimationFrame(() => {
+        measureTiming(TIMING_NAMES.sketchDrag, request.startedAt)
+      })
+    },
+    (error) => {
+      showCoreError(app, error)
+    },
+  )
+  setSketchDragging(app, true)
+
+  async function end(commit: boolean): Promise<void> {
+    try {
+      await app.mutations.run(() => app.core.endSketchDrag(documentHandle, sketchId, commit))
+      if (commit) {
+        recordSketchEdit(app)
+      }
+    } catch (error) {
+      if (!(error instanceof CoreError && error.code === 'no_drag')) {
+        showCoreError(app, error)
+      }
+      if (before !== null) {
+        showSketchSolution(app, sketchId, before)
+      }
+    }
+  }
+
+  return {
+    move(to, startedAt) {
+      if (ended) {
+        return
+      }
+      sent = true
+      frames.submit({ to, startedAt })
+    },
+    async finish() {
+      if (ended) {
+        return
+      }
+      if (sent) {
+        await frames.flush()
+        ended = true
+        await end(true)
+      }
+      ended = true
+      setSketchDragging(app, false)
+    },
+    async cancel() {
+      if (ended) {
+        return
+      }
+      ended = true
+      frames.cancel()
+      if (before !== null) {
+        showSketchSolution(app, sketchId, before)
+      }
+      if (sent) {
+        await end(false)
+      }
+      setSketchDragging(app, false)
+    },
+  }
+}
+
+// Dimensions (3.16.7).
+
+/** Adds a dimension the dimension tool made, labeled "Dimension"; a driving one is probed first. */
+export function addSketchDimension(
+  app: App,
+  dimension: SketchConstraint,
+): Promise<SketchCommitResult> {
+  const driving = !('driving' in dimension) || dimension.driving !== false
+  return commitSketchChange(app, 'Dimension', {
+    add: { entities: [], constraints: [dimension] },
+    requested: driving ? [dimension.id] : [],
+    inferred: [],
+  })
+}
+
+/** Replaces a stored dimension with a new expression or driving flag, labeled "Change dimension". */
+export function changeSketchDimension(
+  app: App,
+  dimension: SketchConstraint,
+): Promise<SketchCommitResult> {
+  const driving = !('driving' in dimension) || dimension.driving !== false
+  return commitSketchChange(app, 'Change dimension', {
+    replaceConstraint: dimension,
+    requested: driving ? [dimension.id] : [],
+    inferred: [],
+  })
+}
+
+/** Commits a drawing tool's shape; a refusal is shown, and resolves whether it was added. */
+export async function addSketchShape(
+  app: App,
+  label: string,
+  change: SketchChange,
+): Promise<boolean> {
+  const result = await commitSketchChange(app, label, change)
+  switch (result.outcome) {
+    case 'committed':
+      return true
+    case 'failed':
+      showSketchRefusal(app, result)
+      return false
+    case 'over_constrained': {
+      const sketchId = editingSession(app)?.sketchId ?? null
+      const added = change.add?.constraints.find(
+        (constraint) => constraint.id === result.constraint,
+      )
+      const units = documentOf(app)?.recipe.units ?? 'mm'
+      const solution = sketchId === null ? null : solutionOf(app, sketchId)
+      const title = added === undefined ? label : constraintTitle(added, solution, units)
+      const stored =
+        sketchId === null ? new Map<string, SketchConstraint>() : storedConstraints(app, sketchId)
+      const titles = result.conflicting.map((id) => {
+        const constraint = stored.get(id)
+        return constraint === undefined ? id : constraintTitle(constraint, solution, units)
+      })
+      notify(app, {
+        severity: result.redundant ? 'info' : 'warning',
+        message: result.redundant
+          ? MESSAGES.redundant_constraint(title)
+          : MESSAGES.over_constrained(title, joinTitles(titles)),
+        actions: [],
+      })
+      return false
+    }
+  }
+}

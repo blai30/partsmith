@@ -241,10 +241,11 @@ pub enum FeatureError {
     },
     /// The sketch solver did not converge.
     SketchNotSolved,
-    /// A kernel operation failed.
+    /// A kernel operation failed. `From<KernelError>` gives this variant, so `?` works on kernel
+    /// calls.
     Kernel {
         /// The kernel's error.
-        #[source]
+        #[from]
         error: KernelError,
     },
     /// A fillet radius is too large.
@@ -741,8 +742,8 @@ impl FeatureError {
         }
     }
 
-    /// An internal error describing a failure that valid input cannot cause.
-    pub(crate) fn internal(message: impl Into<String>) -> FeatureError {
+    /// An `Internal` error for a failure that valid input cannot cause.
+    pub fn internal(message: impl Into<String>) -> FeatureError {
         FeatureError::Internal {
             message: message.into(),
         }
@@ -1013,5 +1014,55 @@ mod tests {
             render(&FeatureError::internal("no tool")),
             "Partsmith hit an internal error in this feature (no tool). Please report it; the rest of the model was still rebuilt."
         );
+    }
+
+    #[test]
+    fn internal_errors_keep_the_message_as_given() {
+        let error = FeatureError::internal(String::from("no tool"));
+
+        assert_eq!(
+            error,
+            FeatureError::Internal {
+                message: "no tool".to_string()
+            }
+        );
+        assert_eq!(error.code(), "internal");
+    }
+
+    #[test]
+    fn kernel_errors_convert_to_the_kernel_variant() {
+        let error = FeatureError::from(kernel_error());
+
+        assert_eq!(
+            error,
+            FeatureError::Kernel {
+                error: kernel_error()
+            }
+        );
+        assert_eq!(error.code(), "kernel");
+    }
+
+    #[test]
+    fn question_mark_converts_kernel_errors() {
+        fn failing() -> Result<(), FeatureError> {
+            Err(kernel_error())?;
+            Ok(())
+        }
+
+        assert_eq!(
+            failing(),
+            Err(FeatureError::Kernel {
+                error: kernel_error()
+            })
+        );
+    }
+
+    #[test]
+    fn converted_kernel_errors_return_their_cause_as_source() {
+        let error = FeatureError::from(kernel_error());
+
+        let source = std::error::Error::source(&error).expect("a kernel error has a source");
+
+        assert_eq!(source.to_string(), kernel_error().to_string());
     }
 }

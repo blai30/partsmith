@@ -101,3 +101,14 @@ export const hasPrintableBody: (state: AppState) => boolean = memoized(
         body.visible !== false && (body.role ?? 'part') === 'part' && meshes[body.id] !== undefined,
     ),
 )
+
+/** Why the health panel has no report to list: the first analysis is running, or none has run. */
+export type MissingReport = 'checking' | 'unchecked'
+
+/** Why there is no report to list, or null when there is one (a stale report is still listed). */
+export function missingReport(state: AppState): MissingReport | null {
+  if (state.print.report !== null) {
+    return null
+  }
+  return state.print.running ? 'checking' : 'unchecked'
+}

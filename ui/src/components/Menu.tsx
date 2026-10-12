@@ -57,6 +57,8 @@ export type MenuProps = {
   readonly entries: readonly MenuEntry[]
   /** Called with false whenever the menu closes: a choice, Esc, Tab or a press outside. */
   readonly onOpenChange: (open: boolean) => void
+  /** A `data-testid` for the root menu element (ui.md 6.1 names `document-menu` and `context-menu`). */
+  readonly testId?: string
 }
 
 /**
@@ -65,7 +67,7 @@ export type MenuProps = {
  * Enter, Space or a click chooses; ArrowRight and ArrowLeft open and close submenus; Esc closes
  * the innermost menu, and closing the menu returns focus to its button.
  */
-export function Menu({ label, open, anchor, entries, onOpenChange }: MenuProps) {
+export function Menu({ label, open, anchor, entries, onOpenChange, testId }: MenuProps) {
   if (!open) {
     return null
   }
@@ -85,6 +87,7 @@ export function Menu({ label, open, anchor, entries, onOpenChange }: MenuProps) 
   return (
     <MenuList
       name={{ label }}
+      testId={testId}
       entries={entries}
       anchor={anchor}
       placement="below"
@@ -113,6 +116,7 @@ type MenuListProps = {
   readonly dismissAll: () => void
   /** Each increase focuses the first item; 0 leaves focus where it is (a submenu opened by hovering). */
   readonly focusRequest: number
+  readonly testId?: string | undefined
 }
 
 function roleOf(entry: FocusableEntry): 'menuitem' | 'menuitemcheckbox' | 'menuitemradio' {
@@ -153,6 +157,7 @@ function MenuList({
   dismiss,
   dismissAll,
   focusRequest,
+  testId,
 }: MenuListProps) {
   const element = useRef<HTMLDivElement>(null)
   const items = useRef<(HTMLButtonElement | null)[]>([])
@@ -314,6 +319,7 @@ function MenuList({
     <div
       ref={element}
       role="menu"
+      data-testid={testId}
       tabIndex={-1}
       popover="auto"
       aria-label={'label' in name ? name.label : undefined}

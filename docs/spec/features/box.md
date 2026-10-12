@@ -82,7 +82,7 @@ Dedicated form: `box(length, width, height, plane=..., position=..., op=...)` (p
 
 ### 3.2 Build
 
-1. Each size must be greater than 0, else `OutOfRange` (`GreaterThan(0)`) on `size[i]`.
+1. Each size must be at least `LINEAR_TOLERANCE` (1e-6 mm), else `OutOfRange` (`GreaterThan(0)`) on `size[i]` (features.md section 3.14), in field order.
 2. In the local frame the box spans x in [-sx/2, sx/2], y in [-sy/2, sy/2], z in [0, sz]: kernel `make_box` (corner-anchored) with the local frame moved by (-sx/2, -sy/2, 0).
 3. Name the faces from the kernel's `PrimitiveFace` roles, then `apply_op(ctx, body, op, vec![tool])`.
 
@@ -103,7 +103,7 @@ The faces take the kernel's `PrimitiveFace` roles of `make_box`, whose frame the
 
 | Condition | Variant | Example message |
 | --- | --- | --- |
-| A size ≤ 0 | `OutOfRange` | `Length must be greater than 0 mm, but it is 0 mm. Use a value greater than 0 mm.` |
+| A size below 1e-6 mm (0 and negative included) | `OutOfRange` | `Length must be greater than 0 mm, but it is 0 mm. Use a value greater than 0 mm.` |
 | Expression or dimension error | `Expression` | `Height: Expected a length, but this expression gives an angle.` |
 | Placement face not flat | `NotPlanar` | `The face selected for Plane is not flat. Pick a flat face, a datum plane or an origin plane.` |
 | Placement face lost | `ReferenceNotFound` | `The face selected for Plane can no longer be found. Re-pick it in the repair panel.` |
@@ -129,6 +129,7 @@ Conventions from features.md section 6.1. Bodies `[b-1]` unless stated.
 8. **Cut a square hole.** `{"id": "f-box1", "type": "box", "body": "b-1", "size": ["40", "40", "10"], "op": "new"}`, `{"id": "f-box2", "type": "box", "body": "b-1", "size": ["10", "10", "20"], "position": ["0", "0", "-5"], "op": "cut"}`. Expected: volume 15000, 10 faces, bbox [-20,-20,0]-[20,20,10].
 9. **Expressions.** Parameters `[{"id": "p-w", "name": "w", "expr": "8 mm"}]`; `"size": ["w", "2 * w", "w / 2"]`. Expected: volume 512, bbox [-4,-8,0]-[4,8,4].
 10. **Performance.** Test 1 builds in under 2 ms (desktop, release).
+11. **Size below the tolerance.** `"size": ["10", "0.0000001", "30"]`. Expected: error `out_of_range`, field `size[1]`, rendered `Width must be greater than 0 mm, but it is 0 mm. Use a value greater than 0 mm.`; b-1 empty.
 
 ## Open issues
 

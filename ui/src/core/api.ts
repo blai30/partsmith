@@ -104,6 +104,42 @@ export type CoreApi = {
   ): Promise<{ files: readonly ExportedFile[]; warnings: readonly Diagnostic[] }>
 }
 
+/**
+ * Commands after which the core rebuilds a document: they change its recipe, focus or what it
+ * shows, so it recomputes features and remeshes bodies (engine.md 3.3). Saving, closing, starting a
+ * transaction, new_document (nothing to build) and queries rebuild nothing.
+ */
+const REBUILDING_COMMANDS: ReadonlySet<Command['type']> = new Set([
+  'open_document',
+  'apply_edits',
+  'rename_parameter',
+  'set_focus',
+  'commit_transaction',
+  'cancel_transaction',
+  'undo',
+  'redo',
+  'end_sketch_drag',
+])
+
+/** Whether the core rebuilds a document for this command (ui.md 2.8 `pendingMutations`, 3.21). */
+export function rebuildsDocument(command: Command): boolean {
+  return REBUILDING_COMMANDS.has(command.type)
+}
+
+/**
+ * The document a rebuilding command rebuilt, named by the command, or by the result of
+ * open_document, which creates it; null for a command that rebuilds nothing.
+ */
+export function rebuiltDocument(command: Command, result: CommandResult): DocHandle | null {
+  if (!rebuildsDocument(command)) {
+    return null
+  }
+  if ('doc' in command) {
+    return command.doc
+  }
+  return result.type === 'open_document' ? result.doc : null
+}
+
 type CommandOfType<Type extends Command['type']> = Extract<Command, { type: Type }>
 type ResultOf<Type extends Command['type']> = Extract<CommandResult, { type: Type }>
 type TypedReply<Type extends Command['type']> = {

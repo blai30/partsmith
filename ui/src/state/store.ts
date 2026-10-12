@@ -42,6 +42,10 @@ export type AppState = {
   readonly panels: PanelsState
   readonly settings: Settings
   readonly notifications: readonly Notification[]
+  /** The latest message for the polite live region, such as "Undid Rename" (3.20), or null. */
+  readonly announcement: Announcement | null
+  /** The hint about a refused pick, shown for 3 s (3.7, 3.16.1), or null. */
+  readonly pickHint: PickHint | null
 }
 
 export type CoreState = {
@@ -221,6 +225,15 @@ export type Notification = {
   readonly createdAt: number
 }
 
+/** A live region message; `id` changes with every announcement, so a repeated text is read again. */
+export type Announcement = { readonly id: number; readonly message: string }
+
+/**
+ * A hint about a pick the target refused: under the active command's selection field at `field`,
+ * or in the sketch header while picking a plane when `field` is null.
+ */
+export type PickHint = { readonly message: string; readonly field: string | null }
+
 export type AppStore = StoreApi<AppState>
 
 /** Below this window width (CSS pixels) at startup the browser starts closed (3.2). */
@@ -274,6 +287,8 @@ export const INITIAL_STATE: AppState = {
   },
   settings: loadSettings(browserStorage()),
   notifications: [],
+  announcement: null,
+  pickHint: null,
 }
 
 export function createAppStore(overrides: Partial<AppState> = {}): AppStore {

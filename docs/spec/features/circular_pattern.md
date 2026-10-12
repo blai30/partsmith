@@ -99,7 +99,7 @@ As [mirror.md](mirror.md) section 3.1 for `op` and `target`.
 ### 3.3 Build
 
 1. The source body must hold a solid, else `BodyEmpty { use_new: false }`.
-2. n = count ≥ 1 (`AtLeast(1)`); n > 10000 gives `TooManyInstances`. θ = angle in (0, 2π] (`GreaterThan(0)`; above 2π + 1e-9 `AtMost(2π)`, rendered `360 deg`).
+2. n = `ctx.eval_count("count", count, 1)`, so a count below 1, fractional or not, is `OutOfRange` (`AtLeast(1)`) (features.md section 3.4); n > 10000 gives `TooManyInstances`. θ = angle in (0, 2π] (`GreaterThan(0)`; above 2π + 1e-9 `AtMost(2π)`, rendered `360 deg`).
 3. Instance k (0 ≤ k < n; 0 is the original) is the source rotated about the axis by φ_k (kernel `transform`, index-preserving), positive by the right-hand rule about the axis direction (negative when `reverse`), named with `source_map.with_instance(<id>, Instance { first: k, second: 0 })`:
    - Full turn (abs(θ - 2π) ≤ 1e-9): φ_k = k·2π/n.
    - Partial: φ_k = k·θ/(n - 1) for n ≥ 2, so the first and last instances sit at the ends of the angle.
@@ -116,7 +116,7 @@ As [mirror.md](mirror.md) section 3.1 for `op` and `target`.
 
 | Condition | Variant | Example message |
 | --- | --- | --- |
-| Count < 1 | `OutOfRange` | `Count must be at least 1, but it is 0. Use 1 or more.` |
+| Count < 1 (fractional included) | `OutOfRange` | `Count must be at least 1, but it is 0. Use 1 or more.` |
 | Count not whole | `NotWholeNumber` | `Count must be a whole number, but it is 2.5. Use 2 or 3.` |
 | Angle ≤ 0 | `OutOfRange` | `Total angle must be greater than 0 deg, but it is 0 deg. Use a value greater than 0 deg.` |
 | Angle > 360 deg | `OutOfRange` | `Total angle must be at most 360 deg, but it is 400 deg. Use 360 deg or less.` |
@@ -145,6 +145,7 @@ Conventions from features.md section 6.1. Bodies `[b-1, b-2]`. Fixtures:
 8. **Axis from a hub face.** `PEG`; `{"id": "f-cyl2", "type": "cylinder", "body": "b-2", "radius": "5", "height": "5", "op": "new"}`; `{"id": "f-cp1", "type": "circular_pattern", "body": "b-1", "axis": {"kind": "face", "body": "b-2", "face": {"q": "f-cyl2/side", "fp": "cylinder|n=0,0,1|c=0,0,2.5|a=157.079633|r=5"}}, "count": "6"}`. Expected: b-1 identical to test 1; dependencies `bodies_read == ["b-2"]`; b-2 unchanged.
 9. **New body.** `PEG`, `CP("count": "6", "op": "new", "target": "b-2")`. Expected: b-1 unchanged (volume 62.831853); b-2 volume 314.159265, 15 faces.
 10. **Performance.** Test 1 builds in under 40 ms (desktop, release).
+11. **Fractional count below 1.** `PEG`, `CP("count": "0.5")`. Expected: error `out_of_range`, field `count`, rendered `Count must be at least 1, but it is 0.5. Use 1 or more.`, suggestion `1`; b-1 unchanged.
 
 ## Open issues
 

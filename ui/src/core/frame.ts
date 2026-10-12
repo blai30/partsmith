@@ -22,7 +22,21 @@ export type DecodedFrame = { readonly header: FrameHeader; readonly buffers: Buf
 
 /** Why a frame could not be decoded (protocol.md `FrameError`). */
 export class FrameDecodeError extends Error {
-  override readonly name = 'FrameDecodeError'
+  override readonly name: string = 'FrameDecodeError'
+}
+
+/** A frame whose header speaks another protocol version (protocol.md `VersionMismatch`). */
+export class ProtocolVersionError extends FrameDecodeError {
+  override readonly name = 'ProtocolVersionError'
+  /** The `protocol_version` the frame carries. */
+  readonly found: number
+
+  constructor(found: number) {
+    super(
+      `The frame uses protocol version ${String(found)}, but this app speaks version ${String(PROTOCOL_VERSION)}. Reload the app.`,
+    )
+    this.found = found
+  }
 }
 
 const MAGIC = [0x50, 0x53, 0x4d, 0x31] as const
@@ -52,7 +66,11 @@ function bytesOf(view: BufferView): Uint8Array {
   return new Uint8Array(view.buffer, view.byteOffset, view.byteLength)
 }
 
-/** Encodes a header (without its buffers table) and buffers into a frame, byte-identical to the Rust encoder. */
+/**
+ * Encodes a header (without its buffers table) and buffers into a frame that the Rust decoder reads
+ * as the same frame. The bytes can differ from the Rust encoder's: JSON.stringify writes keys in
+ * insertion order and integral floats without a fraction (`20`, where serde_json writes `20.0`).
+ */
 export function encodeFrame(
   header: Omit<FrameHeader, 'buffers'>,
   buffers: readonly BufferView[],
@@ -237,9 +255,7 @@ export function decodeFrame(frame: ArrayBuffer): DecodedFrame {
     )
   }
   if (version !== PROTOCOL_VERSION) {
-    throw new FrameDecodeError(
-      `The frame uses protocol version ${String(version)}, but this app speaks version ${String(PROTOCOL_VERSION)}. Reload the app.`,
-    )
+    throw new ProtocolVersionError(version)
   }
   const infos = readBufferInfos(header['buffers'])
   checkZero(bytes, headerEnd, bufferStart)

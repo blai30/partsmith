@@ -13,6 +13,8 @@ use std::process::{Command, Stdio};
 use std::thread;
 use std::time::{Duration, SystemTime};
 
+use partsmith_engine::{Asset, Session, SessionOptions};
+use partsmith_model::Units;
 use serde_json::{Map, Value, json};
 use tempfile::TempDir;
 
@@ -238,15 +240,26 @@ impl Workspace {
             .expect("the file system records modification times")
     }
 
-    /// Exports `box.ptsm` to STEP with the binary and stores the bytes as a content-hashed asset
-    /// in `assets/` (engine spec section 3.14). Returns the asset name.
+    /// Exports `box.ptsm` to STEP with the binary and stores the bytes in `assets/` under the
+    /// content-hash name the engine's `import_step` gives them (engine spec section 3.14).
+    /// Returns the asset name.
     pub fn store_box_step_asset(&self) -> String {
         self.copy_fixture(BOX);
         self.run(&["export", BOX, "-o", "box.step"]).assert_code(0);
-        let bytes = self.read("box.step");
-        let name = format!("{}.step", blake3::hash(&bytes).to_hex());
-        self.write(&format!("assets/{name}"), bytes);
-        name
+        let mut session = Session::new(SessionOptions::headless());
+        let doc = session
+            .new_document(Units::Mm, None)
+            .expect("a new document is created");
+        session
+            .import_step(doc, self.read("box.step"), None)
+            .expect("the exported STEP file imports");
+        let saved = session
+            .save_document(doc)
+            .expect("the document with the import saves");
+        let [asset] = <[Asset; 1]>::try_from(saved.assets)
+            .unwrap_or_else(|assets| panic!("one imported asset, got {}", assets.len()));
+        self.write(&format!("assets/{}", asset.name), asset.bytes);
+        asset.name
     }
 }
 

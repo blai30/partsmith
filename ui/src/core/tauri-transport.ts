@@ -1,5 +1,5 @@
 import { PROTOCOL_VERSION, type Request } from '../generated/protocol'
-import { decodeFrame, encodeFrame, errorResponseFrame } from './frame'
+import { decodeFrame, encodeFrame, errorResponseFrame, ProtocolVersionError } from './frame'
 import { isSuperseded, supersededFrame } from './superseding'
 import { CoreFatalError, type Transport } from './transport'
 
@@ -125,7 +125,13 @@ export function createTauriTransport(tauri: TauriGlobal): Transport {
         const response = decodeFrame(await invoke(request)).header.messages.at(-1)
         result = response?.kind === 'response' ? response.result : null
       } catch (error) {
-        throw new CoreFatalError(reasonOf(error))
+        // A core of another version may answer in its own version's frame.
+        throw new CoreFatalError(
+          error instanceof ProtocolVersionError ? VERSION_MISMATCH : reasonOf(error),
+        )
+      }
+      if (result?.kind === 'error' && result.code === 'protocol_version_mismatch') {
+        throw new CoreFatalError(VERSION_MISMATCH)
       }
       if (result === null || result.kind !== 'ok' || result.type !== 'engine_info') {
         throw new CoreFatalError('The desktop core did not report its version.')

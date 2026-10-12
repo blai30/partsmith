@@ -74,9 +74,43 @@ function commandOf(app: App): ActiveCommand | null {
 }
 
 function sessionOf(app: App): CommandSession | null {
-  const session = sessions.get(app.store) ?? null
   const command = commandOf(app)
-  return session !== null && command?.featureId === session.featureId ? session : null
+  if (command === null) {
+    return null
+  }
+  const session = sessions.get(app.store) ?? null
+  return session !== null && command.featureId === session.featureId
+    ? session
+    : adoptSession(app, command)
+}
+
+/**
+ * A session for a command the store holds without one, such as a store assembled directly: the
+ * store's ActiveCommand is the command (2.8), so the session is rebuilt from it and the document.
+ */
+function adoptSession(app: App, command: ActiveCommand): CommandSession | null {
+  const state = app.store.getState()
+  const feature = state.catalog?.byType[command.featureType]
+  const document = state.document
+  if (feature === undefined || document === null) {
+    return null
+  }
+  const record = document.recipe.features?.find((candidate) => candidate.id === command.featureId)
+  const recordExtras = Object.fromEntries(
+    Object.entries(record ?? {}).filter(([key]) => RECORD_EXTRAS.has(key)),
+  )
+  const session = createSession(app, {
+    featureId: command.featureId,
+    feature,
+    recordExtras,
+    statusesBefore: document.featureStatus,
+    lastTargetBody: lastTargetBodyOf(document),
+  })
+  if (command.applied) {
+    // The applied record is the focused feature, so these params need no preview.
+    session.submitted = command.params
+  }
+  return session
 }
 
 function updateCommand(app: App, change: (command: ActiveCommand) => Partial<ActiveCommand>): void {

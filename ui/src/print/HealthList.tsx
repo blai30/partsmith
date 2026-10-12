@@ -1,11 +1,12 @@
 import { clsx } from 'clsx/lite'
-import { CircleCheck, Printer, RefreshCw, X } from 'lucide-react'
+import { CircleCheck, LoaderCircle, Printer, RefreshCw, X } from 'lucide-react'
 import { Button } from '../components/Button'
 import { IconButton } from '../components/IconButton'
 import type { Severity } from '../generated/protocol'
+import type { ReactNode } from 'react'
 import type { FindingKey } from '../state/store'
 import { COLOR_CLASSES } from '../theme/roles'
-import type { HealthRow } from './health'
+import type { HealthRow, MissingReport } from './health'
 import { SeverityIcon } from './SeverityIcon'
 
 export type HealthListProps = {
@@ -15,6 +16,8 @@ export type HealthListProps = {
   readonly rows: readonly HealthRow[]
   /** Whether the document has a body the analysis checks; without one the panel asks for a body. */
   readonly hasGeometry: boolean
+  /** Why there is no report to list yet (`missingReport`); absent or null when there is one. */
+  readonly missingReport?: MissingReport | null
   readonly onCheckAgain: () => void
   /** Frames a finding in the viewport and marks it (`focusFinding`). */
   readonly onFocusFinding: (finding: FindingKey) => void
@@ -41,6 +44,52 @@ function sameFinding(first: FindingKey, second: FindingKey | null | undefined): 
   )
 }
 
+/** What the panel says instead of listing findings, or null when it lists them. */
+function noticeFor(
+  hasGeometry: boolean,
+  missingReport: MissingReport | null,
+  rowCount: number,
+  profileName: string,
+): ReactNode {
+  if (!hasGeometry) {
+    return (
+      <p className={clsx('p-4 text-sm', COLOR_CLASSES.textMuted.foreground)}>
+        Add a body to check it for printing.
+      </p>
+    )
+  }
+  if (missingReport === 'checking') {
+    return (
+      <p className={clsx('flex items-start gap-2 p-4 text-sm', COLOR_CLASSES.textMuted.foreground)}>
+        <LoaderCircle
+          aria-hidden="true"
+          strokeWidth={1.75}
+          className="mt-0.5 size-4 shrink-0 animate-spin motion-reduce:animate-none"
+        />
+        <span>Checking the model for {profileName}.</span>
+      </p>
+    )
+  }
+  if (missingReport === 'unchecked') {
+    return (
+      <p className={clsx('p-4 text-sm', COLOR_CLASSES.textMuted.foreground)}>Not checked yet.</p>
+    )
+  }
+  if (rowCount === 0) {
+    return (
+      <p className="flex items-start gap-2 p-4 text-sm">
+        <CircleCheck
+          aria-hidden="true"
+          strokeWidth={1.75}
+          className={clsx('mt-0.5 size-4 shrink-0', COLOR_CLASSES.successMark.foreground)}
+        />
+        <span>No problems found with {profileName}.</span>
+      </p>
+    )
+  }
+  return null
+}
+
 /**
  * The print health panel (`health-list`, ui.md 3.17): the profile, "Check again", and one row per
  * finding. Clicking a row, or Enter on it, frames the finding in the viewport.
@@ -49,11 +98,13 @@ export function HealthList({
   profileName,
   rows,
   hasGeometry,
+  missingReport = null,
   onCheckAgain,
   onFocusFinding,
   focusedFinding = null,
   onClose,
 }: HealthListProps) {
+  const notice = noticeFor(hasGeometry, missingReport, rows.length, profileName)
   return (
     <div data-testid="health-list" className="flex h-full min-h-0 flex-col">
       <div className={clsx('flex flex-col gap-3 border-b p-4', COLOR_CLASSES.border.border)}>
@@ -76,20 +127,7 @@ export function HealthList({
           </Button>
         </div>
       </div>
-      {!hasGeometry ? (
-        <p className={clsx('p-4 text-sm', COLOR_CLASSES.textMuted.foreground)}>
-          Add a body to check it for printing.
-        </p>
-      ) : rows.length === 0 ? (
-        <p className="flex items-start gap-2 p-4 text-sm">
-          <CircleCheck
-            aria-hidden="true"
-            strokeWidth={1.75}
-            className={clsx('mt-0.5 size-4 shrink-0', COLOR_CLASSES.successMark.foreground)}
-          />
-          <span>No problems found with {profileName}.</span>
-        </p>
-      ) : (
+      {notice ?? (
         <ul
           aria-label="Findings"
           className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto p-2"

@@ -6,20 +6,21 @@ This spec is the definition of done for the UI in M1. Test authors write the tes
 
 ## 1. Purpose and scope
 
-The UI is the single front end for web and desktop. It renders the model, edits it with the mouse and keyboard, and talks to the core only through protocol frames (architecture.md: "The UI depends only on the protocol"). It never evaluates geometry, never parses `.ptsm` text and never constructs a face, edge or vertex reference itself: references are copied from protocol data (`pick_reference` results, sketch solutions), and the typed wrappers around them (`PlaneRef`, `AxisRef`, `ProfileRef`) are assembled exactly as features.md section 2.5 defines.
+The UI is the single front end for web and desktop. It renders the model, edits it with the mouse and keyboard, and talks to the core only through protocol frames (architecture.md: "The UI depends only on the protocol"). It never evaluates geometry, never parses `.ptsm` text and never constructs a face, edge or vertex reference itself: references are copied from protocol data (`pick_reference` results, sketch solutions), and the typed wrappers around them (`PlaneRef`, `AxisRef`, `ProfileRef`) are assembled exactly as features.md section 2.5 defines. Display arithmetic on values the core reports is not geometry evaluation: a diameter from a descriptor's radius (3.8) or the point where the pointer's ray meets a reported face plane (3.7, as sketch mode does for its plane, 3.16.3).
 
 ### 1.1 In M1 (the "M1 slice")
 
 - App shell: top bar, collapsible browser, viewport, timeline, floating inspector, right side panel, status bar, notifications, light and dark themes from one role-to-color mapping toggled with the `dark` class on the root element (2.16), UI scale 100 to 300 percent.
 - Three contexts (Model, Sketch, Print), each with one short toolbar, and one command registry shared by toolbars, the command palette and keyboard shortcuts.
-- Command palette (Ctrl/Cmd+K) with fuzzy search over commands, features, bodies, parameters, recent files and settings, showing each command's shortcut.
+- Command palette (Ctrl/Cmd+K) with fuzzy search over commands, features, bodies, parameters, recent files and settings, showing each command's shortcut and description, finding commands by their Fusion and FreeCAD names, and browsable by category with an empty query.
 - Timeline: rollback marker drag, drag to reorder, suppress, status icons, double-click to edit, rename, delete, basic Problems list.
-- Browser: origin, bodies, sketches, construction (datum planes) and parameters, with eye, lock and color controls.
-- Schema-driven inspector for every catalog feature: essential fields and a "More" toggle from manifest hints, expression inputs with live validation and unit display, selection fields that capture viewport and browser picks, live preview through protocol transactions, Enter confirms, Esc cancels.
+- Browser: origin, bodies, sketches, datum planes and parameters, with eye, lock and color controls.
+- Schema-driven inspector for every catalog feature: essential fields and a "More" toggle from manifest hints (plus the inline Reverse of 2.12), starting values that work on printed parts, expression inputs with live validation, unit display and parameter name completion, selection fields that capture viewport and browser picks, live preview through protocol transactions, undo inside a command, Enter confirms, Esc cancels.
 - Parameters panel.
-- WebGL2 viewport: matcap-style shaded faces, screen-space anti-aliased edges, ID-buffer picking of faces, edges and vertices with hover highlight, selection filter, section plane, analysis color overlay, view cube, orbit, pan and zoom with Fusion and FreeCAD navigation presets, fit to view, perspective and orthographic projection.
-- Sketch mode for points, lines, circles and arcs: tools line/polyline, rectangle (2-point and center), circle (center, radius), arc (3-point), point, construction toggle; constraint tools coincident, point on object, horizontal, vertical, parallel, perpendicular, tangent, collinear, concentric, equal, symmetric, midpoint, fix; dimension tool for distance, horizontal and vertical distance, radius, diameter and angle with expression entry; auto-constraint inference while drawing (coincident, horizontal, vertical, tangent, midpoint) with a hold key to suppress it; dimension as you draw; DOF colors and DOF count; constraint glyphs; point drag solved by the core at up to 60 fps; profile check display.
-- Print context: printer profile picker, check toggles, overhang color map with legend, print health badge and list with zoom to problem, bed outline.
+- WebGL2 viewport: matcap-style shaded faces, screen-space anti-aliased edges, ID-buffer picking of faces, edges and vertices with hover highlight, selection filter, section plane, analysis color overlay, ground grid, view cube, orbit, pan and zoom with Fusion and FreeCAD navigation presets (both also orbit with a right drag), a right-click context menu, fit to view, perspective and orthographic projection.
+- Sketch mode for points, lines, circles and arcs: tools line/polyline, rectangle (2-point and center), circle (center, radius), arc (3-point), point, construction toggle; constraint tools coincident, point on object, horizontal, vertical, parallel, perpendicular, tangent, collinear, concentric, equal, symmetric, midpoint, fix; dimension tool for distance, horizontal and vertical distance, radius, diameter and angle with expression entry; auto-constraint inference while drawing (coincident, horizontal, vertical, tangent, midpoint) with a hold key to suppress it; dimension as you draw; step prompts; DOF colors and DOF count; constraint glyphs; point drag solved by the core at up to 60 fps; profile check display.
+- Print context: printer profile picker, check toggles, overhang color map with legend, print check badge and list with zoom to problem, bed outline, and Lay on face for print checks and 3MF and STL export.
+- Guidance inside the one interface (open issue 15): the empty-document first step, descriptions and field help on hover, availability reasons before a click, next steps and measurements in the selection inspector, and the keyboard and mouse reference (F1).
 - Export to 3MF, STL (binary), OBJ and STEP.
 - Files: new, open, save, save as with the File System Access API and a download fallback, drag-and-drop open, recent files and a recovery copy in IndexedDB.
 - Feature types covered through the generic inspector: `sketch`, `extrude`, `revolve`, `hole`, `box`, `cylinder`, `sphere`, `cone`, `torus`, `fillet`, `chamfer`, `shell`, `boolean`, `move_body`, `split_body`, `mirror`, `linear_pattern`, `circular_pattern`, `datum_plane` (features.md section 3.13). The `import` type has no command in M1 (2.10); its timeline items are shown and managed like any other feature.
@@ -28,14 +29,15 @@ The UI is the single front end for web and desktop. It renders the model, edits 
 
 ### 1.2 Later (not in M1)
 
-- Onboarding tutorial, looping tool-tip animations and the "Coming from Fusion / FreeCAD" panel.
-- Right-click radial marking menu in the viewport.
+- Onboarding tutorial and looping tool-tip animations. The "Coming from Fusion / FreeCAD" mapping is part of M1 as the palette's tagged keywords (2.10), not as a separate panel.
+- Right-click radial marking menu in the viewport (M1 has a plain context menu with the same items, 3.13).
 - 3Dconnexion SpaceMouse.
 - Code panel (CodeMirror 6), script features, Python export UI and the Customizer panel.
-- Repair panel beyond the basic Problems list (ghosted lost element, one-click re-pick on the canvas).
+- Repair tools beyond the Problems list, the Re-pick action and the repair marker of 3.7 and 4.2 (ghosted shape of the lost element, candidate lists, one-click re-pick on the canvas).
+- On-canvas handles for feature values (technical design 13, principle 1): an arrow for Extrude distance, Hole depth, Datum plane offset, Shell thickness and Fillet and Chamfer size, an arc for Revolve angle and a triad for Move body, each with a value chip that is the field's `ExpressionInput`. Dragging writes plain numbers in `stepExpression` steps (Shift coarse, Alt fine) through the preview `LatestOnly`, dragging an extrude arrow through zero toggles Reverse, and a field holding an expression that is not a plain number shows a dimmed handle that does not drag. Needs a handle anchor (point and direction per field path) from the core with the preview.
 - WebGPU render backend.
 - Multi-document tabs.
-- Navigation presets SolidWorks, Blender and Onshape; trackpad gestures beyond pinch zoom; touch-optimized layout.
+- Navigation presets SolidWorks, Blender and Onshape; trackpad gestures beyond pinch zoom and the secondary-button drag of 3.13 (two-finger scroll to pan or orbit); touch-optimized layout.
 - FreeCAD shortcut preset, user shortcut rebinding and user-pinned toolbar tools.
 - Remaining sketch tools (3-point and rounded rectangle, 2-point, 3-point and tangent circle, center and tangent arc, tangent-arc toggle in the line tool, conics, splines, polygon, slots, text, image, DXF and SVG import), modify tools (trim, extend, split, sketch fillet and chamfer, offset, mirror, patterns, move and copy) and reference geometry (project, intersect, carbon copy).
 - Remaining constraints (smooth, block, arc length, angle to an axis as its own type, Snell's law, B-spline constraints).
@@ -43,9 +45,9 @@ The UI is the single front end for web and desktop. It renders the model, edits 
 - Window and crossing box selection in the Model context (M1 has it in sketch mode only).
 - Keyboard picking of faces, edges and vertices.
 - Features outside the slice (sweep, loft, helix, rib, emboss, thread, draft, scale, direct edits, derive, surfaces, mesh bodies, configurations), components, joints and assemblies.
-- Measure tool and mass properties.
+- Measure tool, distances and angles between two selected items (the core's two-target `measure`, protocol.md 1.2), and mass properties beyond volume.
 - Import UI (STEP, meshes, `.scad`, `.FCStd`, DXF, SVG) and `.ptsz` bundles.
-- Print-aware feature presets, orientation tools (auto-orient, lay face on bed), slicer handoff and watch mode, resin tools, heat maps for checks other than overhangs, multi-plate arrangement.
+- Print-aware feature presets, orientation tools beyond Lay on face (auto-orient, saving the orientation in the document), custom printer profiles, slicer handoff and watch mode, resin tools, heat maps for checks other than overhangs, multi-plate arrangement.
 - Display quality setting (`set_tessellation`).
 - Cloud sharing, AI assist and plugin panel slots.
 
@@ -106,11 +108,18 @@ ui/
       fuzzy.ts               fuzzyScore, rankPaletteItems
       palette.ts             paletteItems
       builtin.ts             built-in UI commands
-      features.ts            commands generated from the feature catalog
+      features.ts            commands generated from the feature catalog, FEATURE_REQUIREMENTS
+      keywords.ts            COMMAND_KEYWORDS
+      descriptions.ts        FEATURE_DESCRIPTIONS
+      component-keys.ts      COMPONENT_KEYS (the component-key table of 3.5 as data)
       toolbars.ts            TOOLBARS
       icons.ts               FEATURE_ICONS, constraint glyph icons
     inspector/
       model.ts               buildInspectorModel, defaultParams, setParam, getParam
+      start-values.ts        START_VALUES
+      help.ts                FIELD_HELP
+      suggestions.ts         suggestedCommands
+      measurements.ts        selectionMeasurements
       selection-values.ts    selectionValue, acceptsTarget, itemsFromValue
       placement.ts           placeInspector
       Inspector.tsx, fields/*.tsx

@@ -14,11 +14,8 @@ use partsmith_occt_sys::{Axis, ElementGeometry, GeometryKind, Point, Shape, SubS
 use partsmith_sketch::{Geometry, MatchMethod, OriginPlane, Placement, RegionMatch, match_region};
 
 use crate::deps::ExprUse;
-use crate::error::FeatureError;
-use crate::error::FeatureWarning;
-use crate::error::FieldRef;
-use crate::error::{Bound, Noun};
-use crate::naming::{kernel, naming, sub_shape_kind, topology_info};
+use crate::error::{Bound, FallbackReason, FeatureError, FeatureWarning, FieldRef, Noun};
+use crate::naming::{naming, sub_shape_kind, topology_info};
 use crate::output::{DatumResult, FeatureOutput, OutputData, SketchResult};
 use crate::params::{AxisRef, PlaneRef, ProfileRef, point, vector};
 
@@ -95,11 +92,11 @@ impl<'a> BuildContext<'a> {
         self.evaluated(field, expr, FieldUnit::Scalar)
     }
 
-    /// The declared whole number at `field`.
-    pub fn eval_count(&self, field: &str, expr: &Expr) -> Result<u32, FeatureError> {
-        let count = self.evaluated(field, expr, FieldUnit::Count)?;
-        // `Values::evaluate` checked that the count is a whole number in the u32 range.
-        Ok(count as u32)
+    /// The declared whole number at `field`, at least `minimum` (section 3.4). The range is
+    /// checked before the whole number, so every fix a message proposes is a count that works.
+    pub fn eval_count(&self, field: &str, expr: &Expr, minimum: u32) -> Result<u32, FeatureError> {
+        let value = self.evaluated(field, expr, FieldUnit::Count)?;
+        count(value, minimum).map_err(|problem| problem.error(self.field(field), value))
     }
 
     /// State of a declared body just before this feature.
@@ -282,22 +279,41 @@ impl<'a> BuildContext<'a> {
             PlaneRef::Face { body, face } => {
                 let face_field = format!("{field}.face");
                 let geometry = self.first_element(&face_field, body, face, ElementKind::Face)?;
-                if geometry.kind != GeometryKind::Plane {
-                    return Err(FeatureError::NotPlanar {
+                on_face(&geometry, &OriginPlane::Xy.placement())?.ok_or_else(|| {
+                    FeatureError::NotPlanar {
                         field: self.field(&face_field),
-                    });
-                }
-                let normal = geometry.direction.ok_or_else(|| {
-                    FeatureError::internal("the kernel gave a plane without a normal")
-                })?;
-                Placement::on_plane(
-                    coordinates(geometry.centroid),
-                    [normal.x, normal.y, normal.z],
-                    &OriginPlane::Xy.placement(),
-                )
-                .map_err(|error| FeatureError::internal(error.to_string()))
+                    }
+                })
             }
         }
+    }
+
+    /// Places a plane on a flat face of a declared body with `hint` as the reference placement
+    /// (section 3.6): the face placement rule with `hint` in place of the XY placement. The inner
+    /// `Err` is the reason the face cannot place it (empty body or missing reference, ambiguous
+    /// reference, face not flat), so the caller can fall back; the outer `Err` is for failures no
+    /// fallback fixes, such as an undeclared body or a kernel error while reading the face.
+    pub fn face_placement(
+        &self,
+        body: &Id,
+        face: &Reference,
+        hint: &Placement,
+    ) -> Result<Result<Placement, FallbackReason>, FeatureError> {
+        let state = self.body(body)?;
+        let Some(shape) = state.shape() else {
+            return Ok(Err(FallbackReason::Missing));
+        };
+        let elements = state.elements()?;
+        let found = match lookup(state, &elements, face, ElementKind::Face)? {
+            Lookup::Found(found) => found,
+            Lookup::Ambiguous(_) => return Ok(Err(FallbackReason::Ambiguous)),
+            Lookup::Missing => return Ok(Err(FallbackReason::Missing)),
+        };
+        let first = found
+            .first()
+            .ok_or_else(|| FeatureError::internal("a resolved reference has no element"))?;
+        let geometry = shape.element(first.kind, first.index)?;
+        Ok(on_face(&geometry, hint)?.ok_or(FallbackReason::NotPlanar))
     }
 
     /// Resolves an axis to a unit direction through a point (section 3.6). Edge and face axes are
@@ -407,7 +423,7 @@ impl<'a> BuildContext<'a> {
             .solid_body(body)?
             .shape()
             .ok_or_else(|| FeatureError::internal("a body with a solid has no shape"))?;
-        shape.element(first.kind, first.index).map_err(kernel)
+        Ok(shape.element(first.kind, first.index)?)
     }
 
     /// The axis of a sketch line: from its solved start to its end, in world space. An unknown
@@ -670,21 +686,15 @@ fn evaluate_use(
         FieldUnit::Angle => Dimension::ANGLE,
         FieldUnit::Scalar | FieldUnit::Count => Dimension::NONE,
     };
-    let field = || FieldRef::new(&declared.field, manifest);
-    let quantity = declared
+    declared
         .expr
         .evaluate(scope, Some(expected))
+        .map(|quantity| quantity.value)
         .map_err(|error| FeatureError::Expression {
-            field: field(),
+            field: FieldRef::new(&declared.field, manifest),
             expr: declared.expr.clone(),
             error,
-        })?;
-    match declared.kind {
-        FieldUnit::Count => {
-            whole_number(quantity.value).map_err(|problem| problem.error(field(), quantity.value))
-        }
-        FieldUnit::Length | FieldUnit::Angle | FieldUnit::Scalar => Ok(quantity.value),
-    }
+        })
 }
 
 /// Why a value is not a valid count.
@@ -711,14 +721,15 @@ impl CountProblem {
     }
 }
 
-/// The nearest whole number to `value` when it is within 1e-9 of it and in the u32 range. The
-/// range is checked first, so a negative or huge fraction reports the range it misses.
-fn whole_number(value: f64) -> Result<f64, CountProblem> {
+/// The count `value` stands for (section 3.4): the nearest whole number when `value` is within
+/// 1e-9 of it, checked in order against `minimum`, the u32 range and being whole. The range comes
+/// first, so a fraction below the minimum or above the range reports the limit it misses.
+fn count(value: f64, minimum: u32) -> Result<u32, CountProblem> {
     let nearest = value.round();
     let whole = (value - nearest).abs() <= WHOLE_NUMBER_TOLERANCE;
     let checked = if whole { nearest } else { value };
-    if checked < 0.0 {
-        return Err(CountProblem::OutOfRange(Bound::AtLeast(0.0)));
+    if checked < f64::from(minimum) {
+        return Err(CountProblem::OutOfRange(Bound::AtLeast(f64::from(minimum))));
     }
     if checked > f64::from(u32::MAX) {
         return Err(CountProblem::OutOfRange(Bound::AtMost(f64::from(u32::MAX))));
@@ -726,8 +737,8 @@ fn whole_number(value: f64) -> Result<f64, CountProblem> {
     if !whole {
         return Err(CountProblem::NotWhole);
     }
-    // `round` keeps the sign of -0.0; counts are written without it.
-    Ok(nearest.abs())
+    // `nearest` is a whole number in 0..=u32::MAX here, so the conversion is exact.
+    Ok(nearest as u32)
 }
 
 /// The noun of a value kind in an `UndeclaredDependency` description.
@@ -743,6 +754,25 @@ fn unit_noun(kind: FieldUnit) -> &'static str {
 /// The coordinates of a kernel point.
 fn coordinates(point: Point) -> [f64; 3] {
     [point.x, point.y, point.z]
+}
+
+/// The face placement rule (section 3.6) on a face with this geometry: its plane through the face
+/// centroid with the outward normal, origin and x-axis taken from `hint` as `Placement::on_plane`
+/// does. None when the face is not flat.
+fn on_face(geometry: &ElementGeometry, hint: &Placement) -> Result<Option<Placement>, FeatureError> {
+    if geometry.kind != GeometryKind::Plane {
+        return Ok(None);
+    }
+    let normal = geometry
+        .direction
+        .ok_or_else(|| FeatureError::internal("the kernel gave a plane without a normal"))?;
+    Placement::on_plane(
+        coordinates(geometry.centroid),
+        [normal.x, normal.y, normal.z],
+        hint,
+    )
+    .map(Some)
+    .map_err(|error| FeatureError::internal(format!("placing a plane on a face failed: {error}")))
 }
 
 /// The canonical axis through `through` along `direction` (section 3.6).
@@ -1234,6 +1264,93 @@ mod tests {
         assert!(matches!(error, FeatureError::NotPlanar { field } if field.path == "plane.face"));
     }
 
+    /// A placement that is not an origin plane, so the face placement rule visibly uses it.
+    fn tilted_hint() -> Placement {
+        Placement {
+            origin: [1.0, 2.0, 3.0],
+            x_axis: [0.6, 0.0, 0.8],
+            normal: [-0.8, 0.0, 0.6],
+        }
+    }
+
+    fn face_placement_of(
+        fixture: &Fixture,
+        query: &str,
+        fingerprint: &str,
+    ) -> Result<Result<Placement, FallbackReason>, FeatureError> {
+        fixture.context().face_placement(
+            &id("b-1"),
+            &reference(query, fingerprint),
+            &tilted_hint(),
+        )
+    }
+
+    #[test]
+    fn face_placement_projects_the_hint_onto_a_flat_face() {
+        let placement = face_placement_of(&box_fixture(), "f-box1/top", "plane|n=0,0,1")
+            .expect("nothing fails")
+            .expect("the top is flat");
+
+        assert_eq!(placement.origin, [1.0, 2.0, 10.0]);
+        assert_eq!(placement.x_axis, [1.0, 0.0, 0.0]);
+        assert_eq!(placement.normal, [0.0, 0.0, 1.0]);
+    }
+
+    #[test]
+    fn face_placement_of_a_lost_face_is_missing() {
+        let result = face_placement_of(&box_fixture(), "f-box9/top", LOST_FACE);
+
+        assert_eq!(result, Ok(Err(FallbackReason::Missing)));
+    }
+
+    #[test]
+    fn face_placement_of_an_edge_reference_is_missing() {
+        let result = face_placement_of(
+            &box_fixture(),
+            "edge(f-box1/front|f-box1/top)",
+            "line|n=1,0,0",
+        );
+
+        assert_eq!(result, Ok(Err(FallbackReason::Missing)));
+    }
+
+    #[test]
+    fn face_placement_in_an_empty_body_is_missing() {
+        let fixture = Fixture::new("f-sk1").with_body("b-1", BodyState::empty());
+
+        let result = face_placement_of(&fixture, "f-box1/top", "plane|n=0,0,1");
+
+        assert_eq!(result, Ok(Err(FallbackReason::Missing)));
+    }
+
+    #[test]
+    fn face_placement_of_an_ambiguous_face_is_ambiguous() {
+        let result = face_placement_of(&box_fixture(), "f-box1/nothing", ANY_BOX_FACE);
+
+        assert_eq!(result, Ok(Err(FallbackReason::Ambiguous)));
+    }
+
+    #[test]
+    fn face_placement_of_a_round_face_is_not_planar() {
+        let result = face_placement_of(&cylinder_fixture(), "f-cyl1/side", "cylinder|n=0,0,1");
+
+        assert_eq!(result, Ok(Err(FallbackReason::NotPlanar)));
+    }
+
+    #[test]
+    fn face_placement_in_an_undeclared_body_fails() {
+        let result = Fixture::new("f-sk1").context().face_placement(
+            &id("b-9"),
+            &reference("f-box1/top", "plane|n=0,0,1"),
+            &tilted_hint(),
+        );
+
+        assert_eq!(
+            result.map_err(|error| error.code()),
+            Err("undeclared_dependency")
+        );
+    }
+
     #[test]
     fn datum_planes_use_the_datum_placement() {
         let mut fixture = Fixture::new("f-test1");
@@ -1565,25 +1682,81 @@ mod tests {
     }
 
     #[test]
-    fn whole_numbers_within_tolerance() {
-        assert!(matches!(whole_number(2.9999999999), Ok(value) if value == 3.0));
-        assert!(
-            matches!(whole_number(-0.0000000001), Ok(value) if value == 0.0 && value.is_sign_positive())
-        );
-        assert!(whole_number(4294967295.0).is_ok());
+    fn counts_within_tolerance_of_a_whole_number_are_that_number() {
+        assert!(matches!(count(2.9999999999, 0), Ok(3)));
+        assert!(matches!(count(-0.0000000001, 0), Ok(0)));
+        assert!(matches!(count(0.9999999999, 1), Ok(1)));
+        assert!(matches!(count(4294967295.0, 0), Ok(u32::MAX)));
     }
 
     #[test]
-    fn negative_fractions_report_the_range() {
+    fn counts_below_the_minimum_report_the_minimum() {
         assert!(matches!(
-            whole_number(-2.5),
-            Err(CountProblem::OutOfRange(Bound::AtLeast(_)))
+            count(0.5, 1),
+            Err(CountProblem::OutOfRange(Bound::AtLeast(limit))) if limit == 1.0
+        ));
+        assert!(matches!(
+            count(0.0, 1),
+            Err(CountProblem::OutOfRange(Bound::AtLeast(limit))) if limit == 1.0
+        ));
+        assert!(matches!(
+            count(-2.5, 0),
+            Err(CountProblem::OutOfRange(Bound::AtLeast(limit))) if limit == 0.0
         ));
     }
 
     #[test]
-    fn fractions_are_not_whole() {
-        assert!(matches!(whole_number(2.5), Err(CountProblem::NotWhole)));
+    fn counts_above_the_u32_range_report_its_end() {
+        assert!(matches!(
+            count(4294967295.5, 0),
+            Err(CountProblem::OutOfRange(Bound::AtMost(limit))) if limit == 4294967295.0
+        ));
+    }
+
+    #[test]
+    fn fractions_in_range_are_not_whole() {
+        assert!(matches!(count(2.5, 0), Err(CountProblem::NotWhole)));
+        assert!(matches!(count(1.5, 1), Err(CountProblem::NotWhole)));
+    }
+
+    #[test]
+    fn eval_count_checks_the_minimum_the_feature_gives() {
+        let mut fixture = Fixture::new("f-lp1");
+        fixture.values = values(&[("count", "0.5", FieldUnit::Count)]);
+        let context = fixture.context();
+        let expr = Expr::new("0.5");
+
+        let error = context
+            .eval_count("count", &expr, 1)
+            .expect_err("0.5 is below 1");
+
+        assert_eq!(
+            error.to_string(),
+            "count must be at least 1, but it is 0.5. Use 1 or more."
+        );
+        assert_eq!(error.suggestion(Units::Mm).as_deref(), Some("1"));
+        assert_eq!(
+            context.eval_count("count", &expr, 0).map_err(|error| error.code()),
+            Err("not_whole_number")
+        );
+    }
+
+    #[test]
+    fn eval_count_of_a_whole_number_is_the_count() {
+        let mut fixture = Fixture::new("f-lp1");
+        fixture.values = values(&[("count", "3", FieldUnit::Count)]);
+
+        let count = fixture.context().eval_count("count", &Expr::new("3"), 1);
+
+        assert_eq!(count, Ok(3));
+    }
+
+    #[test]
+    fn counts_are_stored_as_evaluated() {
+        let values = values(&[("count", "2.5", FieldUnit::Count)]);
+
+        let (_, value) = values.iter().next().expect("one use");
+        assert_eq!(value, &Ok(2.5));
     }
 
     #[test]

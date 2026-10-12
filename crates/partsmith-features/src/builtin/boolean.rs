@@ -1,11 +1,8 @@
 //! The `boolean` feature: joins, cuts or intersects a target body with tool bodies, and empties
 //! the tools unless they are kept (docs/spec/features/boolean.md).
 
-use std::sync::Arc;
-
 use partsmith_model::{Category, FeatureManifest, Id, SelectionKind};
 use partsmith_naming::NamingMap;
-use partsmith_occt_sys::{KernelError, OpResult, Shape, SubShapeKind, common, cut, fuse};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -15,16 +12,11 @@ use super::common::{
 };
 use crate::context::{BodyState, BuildContext};
 use crate::deps::Dependencies;
-use crate::error::{FeatureError, FeatureWarning, FieldRef, Noun};
+use crate::error::{FeatureError, FieldRef, Noun};
 use crate::feature::Feature;
-use crate::naming::{kernel, name_by_history};
-use crate::output::{BodyChange, BodyUpdate, FeatureOutput};
+use crate::output::{BodyChange, FeatureOutput, Tool, apply_op};
 use crate::params::BodyOp;
 use crate::python::{PythonCall, PythonNames, PythonValue};
-
-/// Relative volume change at or below which the target counts as unchanged, and relative volume
-/// at or below which nothing of it is left (features.md section 3.5).
-const VOLUME_TOLERANCE: f64 = 1e-9;
 
 /// Joins, cuts or intersects a target body with tool bodies.
 #[derive(Clone, Copy, Debug, Default)]
@@ -56,9 +48,6 @@ pub enum BooleanOp {
     Intersect,
 }
 
-/// A kernel boolean of a target with every tool.
-type KernelBoolean = fn(&Shape, &[Shape]) -> Result<OpResult, KernelError>;
-
 impl BooleanOp {
     /// The stored name, which Python also writes.
     fn name(self) -> &'static str {
@@ -69,25 +58,7 @@ impl BooleanOp {
         }
     }
 
-    /// What the operation does to the target body.
-    fn change(self) -> BodyChange {
-        match self {
-            BooleanOp::Join => BodyChange::Join,
-            BooleanOp::Cut => BodyChange::Cut,
-            BooleanOp::Intersect => BodyChange::Intersect,
-        }
-    }
-
-    /// The kernel call of the operation: one call with the target and every tool.
-    fn kernel(self) -> KernelBoolean {
-        match self {
-            BooleanOp::Join => fuse,
-            BooleanOp::Cut => cut,
-            BooleanOp::Intersect => common,
-        }
-    }
-
-    /// The body op of the same name, which an empty result reports.
+    /// The body op of the same name, which `apply_op` applies to the target.
     fn body_op(self) -> BodyOp {
         match self {
             BooleanOp::Join => BodyOp::Join,
@@ -155,30 +126,26 @@ impl Feature for Boolean {
         dependencies
     }
 
-    /// One kernel boolean of the target with every tool (boolean.md section 3.3). The target's
-    /// update comes first, then a `Clear` update for each consumed tool, even when the operation
-    /// had no effect.
+    /// The target with every tool body as a tool through `apply_op`, which makes one kernel call
+    /// (boolean.md section 3.3). The target's update comes first, then a `Clear` update for each
+    /// consumed tool, even when the operation had no effect.
     fn build(
         params: &BooleanParams,
         context: &BuildContext<'_>,
     ) -> Result<FeatureOutput, FeatureError> {
-        let (target, target_shape) = solid_body(context, &params.target)?;
-        let mut tools: Vec<&BodyState> = Vec::with_capacity(params.tools.len());
-        let mut tool_shapes: Vec<Shape> = Vec::with_capacity(params.tools.len());
+        solid_body(context, &params.target)?;
+        let mut tools = Vec::with_capacity(params.tools.len());
         for tool in &params.tools {
             let state = context.body(tool)?;
             let shape = state
                 .shape()
                 .ok_or_else(|| FeatureError::ToolEmpty { body: tool.clone() })?;
-            tools.push(state);
-            tool_shapes.push(shape.clone());
+            tools.push(Tool {
+                shape: shape.clone(),
+                naming: NamingMap::clone(state.naming()),
+            });
         }
-        if context.is_canceled() {
-            return Err(FeatureError::Canceled);
-        }
-        let result = (params.op.kernel())(target_shape, &tool_shapes).map_err(kernel)?;
-        let (update, warnings) =
-            target_update(context, params, target, target_shape, &tools, result)?;
+        let (update, warnings) = apply_op(context, &params.target, params.op.body_op(), tools)?;
         let mut updates = vec![update];
         if !params.keep_tools {
             let empty = BodyState::empty();
@@ -216,49 +183,10 @@ impl Feature for Boolean {
     }
 }
 
-/// The target's update from the kernel result, with the shared body semantics (features.md
-/// section 3.5): nothing left of a cut or an intersection is `EmptyResult`; an unchanged volume
-/// keeps the target's shape and names exactly and warns `NoEffect`; otherwise the result is named
-/// by the boolean rule over the target and every tool (naming.md section 3.6.9).
-fn target_update(
-    context: &BuildContext<'_>,
-    params: &BooleanParams,
-    target: &BodyState,
-    target_shape: &Shape,
-    tools: &[&BodyState],
-    result: OpResult,
-) -> Result<(BodyUpdate, Vec<FeatureWarning>), FeatureError> {
-    let change = params.op.change();
-    let before = target_shape.volume().map_err(kernel)?;
-    let after = result.shape.volume().map_err(kernel)?;
-    let nothing_left =
-        result.shape.count(SubShapeKind::Solid) == 0 || after <= VOLUME_TOLERANCE * before;
-    if params.op != BooleanOp::Join && nothing_left {
-        return Err(FeatureError::EmptyResult {
-            body: params.target.clone(),
-            op: params.op.body_op(),
-        });
-    }
-    if (after - before).abs() <= VOLUME_TOLERANCE * before {
-        let warning = FeatureWarning::NoEffect {
-            body: params.target.clone(),
-        };
-        return Ok((unchanged(&params.target, target, change), vec![warning]));
-    }
-    let mut inputs: Vec<&NamingMap> = vec![target.naming()];
-    inputs.extend(tools.iter().map(|tool| tool.naming().as_ref()));
-    let naming = name_by_history(context.feature(), &result, &inputs)?;
-    let update = BodyUpdate {
-        body: params.target.clone(),
-        shape: Some(result.shape),
-        naming: Arc::new(naming),
-        change,
-    };
-    Ok((update, Vec::new()))
-}
-
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use partsmith_model::FeatureRecord;
     use partsmith_naming::ElementKind;
     use serde_json::{Value, json};
@@ -268,6 +196,7 @@ mod tests {
         assert_bounds, assert_volume, build, params, python, python_with, update, updated_shape,
         updates,
     };
+    use crate::error::FeatureWarning;
     use crate::registry::Registry;
     use crate::test_support::{ScriptNames, box_body, face_names, id};
 
@@ -445,6 +374,38 @@ mod tests {
         assert_volume(shape, 250.0);
         assert_bounds(shape, [10.0, 5.0, 15.0], [15.0, 15.0, 20.0]);
         assert_eq!(update(&output, "b-1").change, BodyChange::Intersect);
+    }
+
+    #[test]
+    fn intersect_with_a_tool_that_misses_is_an_empty_result() {
+        let mut bodies = three_boxes();
+        bodies[2] = ("b-3", box_body("f-box3", [100.0, 5.0, 15.0], 10.0));
+
+        let result = run(&boolean(json!(["b-2", "b-3"]), "intersect"), bodies);
+
+        assert_eq!(
+            result.map(|_| ()),
+            Err(FeatureError::EmptyResult {
+                body: id("b-1"),
+                op: BodyOp::Intersect
+            })
+        );
+    }
+
+    #[test]
+    fn a_canceled_run_does_not_combine() {
+        let params = boolean(json!(["b-2"]), "join");
+        let fixture = crate::builtin::copy::testing::fixture::<Boolean>(
+            "f-bool1",
+            &params,
+            three_boxes(),
+            Vec::new(),
+        );
+        fixture.cancel.cancel();
+
+        let result = Boolean::build(&params, &fixture.context());
+
+        assert_eq!(result.map(|_| ()), Err(FeatureError::Canceled));
     }
 
     #[test]

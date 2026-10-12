@@ -1,4 +1,5 @@
-import type { AppStore, Notification } from '../../state/store'
+import type { AppStore, Notification, PickHint } from '../../state/store'
+import { nowOf } from '../connection'
 import type { App } from '../createApp'
 
 // Notifications (ui.md 3.22): at most three shown, info and success dismissed after 5 s, warnings
@@ -106,7 +107,7 @@ export function notify(
   const added: Notification = {
     ...notification,
     id: `notification-${String(timers.nextNumber)}`,
-    createdAt: Date.now(),
+    createdAt: nowOf(app),
   }
   timers.nextNumber += 1
   if (persistent) {
@@ -152,4 +153,26 @@ export function resumeNotification(app: App, id: string): void {
     return
   }
   runCountdown(app.store, id, countdown)
+}
+
+/** How long the hint about a refused pick stays (3.7). */
+const PICK_HINT_MILLISECONDS = 3_000
+
+/**
+ * Shows the hint about a refused pick for 3 s: under the active command's selection field `field`,
+ * or in the sketch header for null (3.7, 3.16.1). A newer hint replaces it and gets its own 3 s.
+ */
+export function showPickHint(app: App, message: string, field: string | null): void {
+  const hint: PickHint = { message, field }
+  app.store.setState({ pickHint: hint })
+  setTimeout(() => {
+    app.store.setState((state) => (state.pickHint === hint ? { pickHint: null } : {}))
+  }, PICK_HINT_MILLISECONDS)
+}
+
+/** Says a message through the polite live region, such as "Undid Rename" (3.20, 3.24). */
+export function announce(app: App, message: string): void {
+  app.store.setState((state) => ({
+    announcement: { id: (state.announcement?.id ?? 0) + 1, message },
+  }))
 }

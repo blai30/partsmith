@@ -185,3 +185,23 @@ describe('HealthList details', () => {
     expect(within(list).queryByRole('button', { name: 'Close print health' })).toBeNull()
   })
 })
+
+describe('HealthList without a report', () => {
+  it('says the model is being checked while the first analysis runs', () => {
+    const { list } = renderList({ rows: [], missingReport: 'checking' })
+    expect(list).toHaveTextContent('Checking the model for Generic FDM 0.4 mm.')
+    expect(list).not.toHaveTextContent('No problems found')
+  })
+
+  it('says the model is not checked yet before any analysis', () => {
+    const { list } = renderList({ rows: [], missingReport: 'unchecked' })
+    expect(list).toHaveTextContent('Not checked yet.')
+    expect(list).not.toHaveTextContent('No problems found')
+  })
+
+  it('asks for a body before anything else', () => {
+    const { list } = renderList({ rows: [], hasGeometry: false, missingReport: 'checking' })
+    expect(list).toHaveTextContent('Add a body to check it for printing.')
+    expect(list).not.toHaveTextContent('Checking')
+  })
+})

@@ -179,8 +179,10 @@ jobs:
       - run: rustup show active-toolchain || rustup toolchain install
       - uses: Swatinem/rust-cache@v2.9.2
       - run: scripts/build-wasm.sh
-      # The Node round trip against the module just built.
+      # The Node round trip against the module just built. The variable turns a skip into a failure (test 7).
       - run: cargo test -p partsmith-wasm --test web_module
+        env:
+          PARTSMITH_REQUIRE_WEB_MODULE: "1"
       - uses: actions/upload-artifact@v7.0.2
         with:
           name: core-wasm
@@ -212,6 +214,11 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
       - run: pnpm check:dist
+      # check:dist does not look for the core, which acceptance test 8 requires.
+      - name: Check that the build contains the web core
+        run: |
+          test -f dist/core/partsmith_core.wasm
+          test -f dist/core/partsmith_core.mjs
       - uses: actions/upload-artifact@v7.0.2
         with:
           name: web-dist

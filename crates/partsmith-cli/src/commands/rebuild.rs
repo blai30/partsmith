@@ -161,8 +161,8 @@ fn rebuild(
     let opened = open(session, &arguments.file, arguments.printer.as_deref())?;
     let doc = opened.doc;
     let document = session.document(doc)?;
-    let features = feature_reports(document, session.feature_statuses(doc)?);
-    let parameters = parameter_reports(document, session.parameter_values(doc)?);
+    let features = feature_reports(document, session.feature_statuses(doc)?)?;
+    let parameters = parameter_reports(document, session.parameter_values(doc)?)?;
     let declared = document.bodies.clone();
     let bodies = declared
         .iter()
@@ -188,8 +188,13 @@ fn rebuild(
     })
 }
 
-/// Pairs each feature status with the feature's type.
-fn feature_reports(document: &Document, statuses: Vec<FeatureStatus>) -> Vec<FeatureReport> {
+/// Pairs each feature status with the feature's type. The engine reports the status of every
+/// feature of the document (engine.md section 2), so a status without a record is an internal
+/// error.
+fn feature_reports(
+    document: &Document,
+    statuses: Vec<FeatureStatus>,
+) -> Result<Vec<FeatureReport>, CliError> {
     let kinds: BTreeMap<&Id, &str> = document
         .features
         .iter()
@@ -197,21 +202,30 @@ fn feature_reports(document: &Document, statuses: Vec<FeatureStatus>) -> Vec<Fea
         .collect();
     statuses
         .into_iter()
-        .map(|status| FeatureReport {
-            kind: kinds
-                .get(&status.id)
-                .copied()
-                .unwrap_or_default()
-                .to_owned(),
-            id: status.id,
-            status: status.status,
-            messages: status.messages,
+        .map(|status| {
+            let kind = kinds.get(&status.id).ok_or_else(|| CliError::Internal {
+                detail: format!(
+                    "the engine reported the status of feature {}, which the document does not have",
+                    status.id
+                ),
+            })?;
+            Ok(FeatureReport {
+                kind: (*kind).to_owned(),
+                id: status.id,
+                status: status.status,
+                messages: status.messages,
+            })
         })
         .collect()
 }
 
-/// Pairs each parameter value with the parameter's name.
-fn parameter_reports(document: &Document, values: Vec<ParameterValue>) -> Vec<ParameterReport> {
+/// Pairs each parameter value with the parameter's name. The engine reports the value of every
+/// parameter of the document (engine.md section 2), so a value without a record is an internal
+/// error.
+fn parameter_reports(
+    document: &Document,
+    values: Vec<ParameterValue>,
+) -> Result<Vec<ParameterReport>, CliError> {
     let names: BTreeMap<&Id, &str> = document
         .parameters
         .iter()
@@ -219,12 +233,20 @@ fn parameter_reports(document: &Document, values: Vec<ParameterValue>) -> Vec<Pa
         .collect();
     values
         .into_iter()
-        .map(|value| ParameterReport {
-            name: names.get(&value.id).copied().unwrap_or_default().to_owned(),
-            id: value.id,
-            value: value.value,
-            dimension: value.dimension,
-            error: value.error,
+        .map(|value| {
+            let name = names.get(&value.id).ok_or_else(|| CliError::Internal {
+                detail: format!(
+                    "the engine reported the value of parameter {}, which the document does not have",
+                    value.id
+                ),
+            })?;
+            Ok(ParameterReport {
+                name: (*name).to_owned(),
+                id: value.id,
+                value: value.value,
+                dimension: value.dimension,
+                error: value.error,
+            })
         })
         .collect()
 }
@@ -576,7 +598,7 @@ mod tests {
             repairs: Vec::new(),
         };
 
-        let reports = feature_reports(&document(), vec![status]);
+        let reports = feature_reports(&document(), vec![status]).expect("the feature exists");
 
         assert_eq!(
             serde_json::to_string(&reports).expect("serializes"),
@@ -596,12 +618,45 @@ mod tests {
             error: None,
         };
 
-        let reports = parameter_reports(&document(), vec![value]);
+        let reports = parameter_reports(&document(), vec![value]).expect("the parameter exists");
 
         assert_eq!(
             serde_json::to_string(&reports).expect("serializes"),
             r#"[{"id":"p-h","name":"height","value":40.0,"dimension":{"length":1,"angle":0}}]"#
         );
+    }
+
+    #[test]
+    fn a_status_of_an_unknown_feature_is_an_internal_error() {
+        let status = FeatureStatus {
+            id: id("f-ghost"),
+            status: FeatureState::Ok,
+            messages: Vec::new(),
+            repairs: Vec::new(),
+        };
+
+        let error = feature_reports(&document(), vec![status]).expect_err("no such feature");
+
+        assert_eq!(error.status(), Status::Internal);
+        assert_eq!(
+            error.report_line(),
+            "internal error: the engine reported the status of feature f-ghost, which the document does not have"
+        );
+    }
+
+    #[test]
+    fn a_value_of_an_unknown_parameter_is_an_internal_error() {
+        let value = ParameterValue {
+            id: id("p-ghost"),
+            value: Some(1.0),
+            dimension: None,
+            error: None,
+        };
+
+        let error = parameter_reports(&document(), vec![value]).expect_err("no such parameter");
+
+        assert_eq!(error.status(), Status::Internal);
+        assert!(error.to_string().contains("p-ghost"), "{error}");
     }
 
     #[test]

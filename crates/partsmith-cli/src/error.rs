@@ -63,12 +63,12 @@ pub enum CliError {
         source: io::Error,
     },
     /// The document does not load; reported as a diagnostic of the file.
-    #[error("{error}")]
+    #[error("{}", diagnostic.message)]
     Load {
         /// The document path as given, or `<stdin>`.
         path: String,
-        /// The engine's load error.
-        error: EngineError,
+        /// The load diagnostic: an error with the position of the problem when known.
+        diagnostic: ValidationDiagnostic,
     },
     /// The engine refused a command.
     #[error(transparent)]
@@ -106,6 +106,24 @@ pub enum CliError {
 }
 
 impl CliError {
+    /// The load error of the document at `path` for an engine error, with the line and column of
+    /// a JSON syntax error.
+    pub fn load(path: String, error: &EngineError) -> CliError {
+        let (line, column) = match error {
+            EngineError::Parse { line, column, .. } => (*line, *column),
+            _ => (None, None),
+        };
+        let diagnostic = ValidationDiagnostic {
+            severity: Severity::Error,
+            code: wire_name(&error.code()),
+            message: error.to_string(),
+            line,
+            column,
+            path: None,
+        };
+        CliError::Load { path, diagnostic }
+    }
+
     /// The exit status this problem gives its file.
     pub fn status(&self) -> Status {
         match self {
@@ -125,7 +143,8 @@ impl CliError {
         match self {
             CliError::Usage(_) => "usage_error".to_owned(),
             CliError::Read { .. } | CliError::Write { .. } => "io_error".to_owned(),
-            CliError::Load { error, .. } | CliError::Engine(error) => wire_name(&error.code()),
+            CliError::Load { diagnostic, .. } => diagnostic.code.clone(),
+            CliError::Engine(error) => wire_name(&error.code()),
             CliError::UnknownBody { .. } => "unknown_body".to_owned(),
             CliError::AmbiguousBody { .. } => "ambiguous_body".to_owned(),
             CliError::FeaturesFailed { .. } => "features_failed".to_owned(),
@@ -133,22 +152,19 @@ impl CliError {
         }
     }
 
-    /// The problem as an error diagnostic, with the line and column of a JSON syntax error.
+    /// The problem as an error diagnostic: the load diagnostic of a document that does not load,
+    /// else the message and code without a position.
     pub fn diagnostic(&self) -> ValidationDiagnostic {
-        let (line, column) = match self {
-            CliError::Load {
-                error: EngineError::Parse { line, column, .. },
-                ..
-            } => (*line, *column),
-            _ => (None, None),
-        };
-        ValidationDiagnostic {
-            severity: Severity::Error,
-            code: self.code(),
-            message: self.to_string(),
-            line,
-            column,
-            path: None,
+        match self {
+            CliError::Load { diagnostic, .. } => diagnostic.clone(),
+            _ => ValidationDiagnostic {
+                severity: Severity::Error,
+                code: self.code(),
+                message: self.to_string(),
+                line: None,
+                column: None,
+                path: None,
+            },
         }
     }
 
@@ -168,14 +184,14 @@ mod tests {
     use super::*;
 
     fn parse_error() -> CliError {
-        CliError::Load {
-            path: "bad.ptsm".to_owned(),
-            error: EngineError::Parse {
+        CliError::load(
+            "bad.ptsm".to_owned(),
+            &EngineError::Parse {
                 detail: "EOF while parsing an object at line 1 column 23.".to_owned(),
                 line: Some(1),
                 column: Some(23),
             },
-        }
+        )
     }
 
     fn read_error() -> CliError {
@@ -223,15 +239,45 @@ mod tests {
 
     #[test]
     fn load_errors_without_a_line_have_no_position() {
-        let error = CliError::Load {
-            path: "new.ptsm".to_owned(),
-            error: EngineError::UnsupportedFormatVersion { found: 2 },
-        };
+        let error = CliError::load(
+            "new.ptsm".to_owned(),
+            &EngineError::UnsupportedFormatVersion { found: 2 },
+        );
 
         assert_eq!(
             error.report_line(),
             "new.ptsm: error[unsupported_format_version]: This file needs a newer Partsmith (format version 2; this version reads up to 1)."
         );
+    }
+
+    #[test]
+    fn load_errors_carry_the_engine_code() {
+        let error = parse_error();
+
+        assert_eq!(error.code(), "parse_error");
+        assert_eq!(error.diagnostic().line, Some(1));
+        assert_eq!(error.diagnostic().column, Some(23));
+    }
+
+    #[test]
+    fn load_diagnostics_with_a_pointer_name_it() {
+        let error = CliError::Load {
+            path: "badid.ptsm".to_owned(),
+            diagnostic: ValidationDiagnostic {
+                severity: Severity::Error,
+                code: "parse_error".to_owned(),
+                message: "Bad id.".to_owned(),
+                line: None,
+                column: None,
+                path: Some("/bodies/0/id".to_owned()),
+            },
+        };
+
+        assert_eq!(
+            error.report_line(),
+            "badid.ptsm: error[parse_error] at /bodies/0/id: Bad id."
+        );
+        assert_eq!(error.diagnostic().path.as_deref(), Some("/bodies/0/id"));
     }
 
     #[test]

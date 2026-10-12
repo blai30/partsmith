@@ -7,8 +7,10 @@ use std::fs;
 use common::{
     BOX, BOX_STL_BYTES, CIRCLE, FILLET, TWO_BODIES, Workspace, assert_point_near, assert_relative,
     binary_stl_bounds, binary_stl_triangles, body_mut, edited_fixture, fillet_with_large_radius,
-    import_document, number,
 };
+use partsmith_engine::{Session, SessionOptions};
+use partsmith_model::Units;
+use partsmith_protocol::MeasureTarget;
 use pretty_assertions::assert_eq;
 use serde_json::Value;
 
@@ -177,17 +179,28 @@ fn t040_export_writes_3mf() {
 #[test]
 fn t041_step_export_round_trips_volume() {
     let workspace = Workspace::new();
-    let asset = workspace.store_box_step_asset();
-    workspace.write("imported.ptsm", import_document(&asset));
+    workspace.copy_fixture(BOX);
 
-    let run = workspace.run(&["rebuild", "--json", "imported.ptsm"]);
+    let run = workspace.run(&["export", BOX, "-o", "out.step"]);
 
     run.assert_code(0);
-    let report = run.json();
-    let bodies = report["bodies"].as_array().expect("bodies is an array");
-    assert_eq!(bodies.len(), 1);
+    let mut session = Session::new(SessionOptions::headless());
+    let doc = session
+        .new_document(Units::Mm, None)
+        .expect("a new document is created");
+    let imported = session
+        .import_step(doc, workspace.read("out.step"), None)
+        .expect("the exported STEP file imports");
+    let measurement = session
+        .measure(
+            doc,
+            &[MeasureTarget::Body {
+                body: imported.body,
+            }],
+        )
+        .expect("the imported body is measured");
     assert_relative(
-        number(&bodies[0]["volume"], "volume"),
+        measurement.volume.expect("a body measurement has a volume"),
         24000.0,
         1e-6,
         "volume",
@@ -238,7 +251,9 @@ fn t044_export_rejects_options_that_do_not_apply_to_the_format() {
     ]);
 
     ascii_3mf.assert_code(2);
+    ascii_3mf.assert_stderr_line("error: --ascii does not apply to 3mf export.");
     per_body_obj.assert_code(2);
+    per_body_obj.assert_stderr_line("error: --per-body does not apply to obj export.");
 }
 
 #[test]

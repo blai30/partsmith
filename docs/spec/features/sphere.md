@@ -84,7 +84,7 @@ feature(
 
 ### 3.2 Build
 
-1. radius > 0, else `OutOfRange` (`GreaterThan(0)`).
+1. radius at least `LINEAR_TOLERANCE` (1e-6 mm), else `OutOfRange` (`GreaterThan(0)`) (features.md section 3.14).
 2. Kernel `make_sphere` centered on the local origin, poles on the local z-axis.
 3. Name the face, then `apply_op(ctx, body, op, vec![tool])`.
 
@@ -98,7 +98,7 @@ feature(
 
 | Condition | Variant | Example message |
 | --- | --- | --- |
-| Radius ≤ 0 | `OutOfRange` | `Radius must be greater than 0 mm, but it is 0 mm. Use a value greater than 0 mm.` |
+| Radius below 1e-6 mm (0 and negative included) | `OutOfRange` | `Radius must be greater than 0 mm, but it is 0 mm. Use a value greater than 0 mm.` |
 | Expression, placement, body and kernel errors | as in [box.md](box.md) section 4 | |
 
 ## 5. Performance
@@ -115,6 +115,7 @@ Conventions from features.md section 6.1. Bodies `[b-1]`. `CUBE20`: `{"id": "f-b
 4. **Dimple in a box.** As 3 with op cut. Expected: volume 7738.200612, 7 faces, bbox [-10,-10,0]-[10,10,20].
 5. **Zero radius.** As 1 with `"radius": "0"`. Expected: error `out_of_range`, field `radius`.
 6. **Performance.** Test 1 builds in under 2 ms (desktop, release).
+7. **Radius below the tolerance.** As 1 with `"radius": "0.0000001"`. Expected: error `out_of_range`, field `radius`, rendered `Radius must be greater than 0 mm, but it is 0 mm. Use a value greater than 0 mm.`; b-1 empty.
 
 ## Open issues
 

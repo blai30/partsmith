@@ -1,22 +1,35 @@
 import { createCommandRegistry, type CommandRegistry } from '../commands/registry'
-import { createCoreApi, type CoreApi } from '../core/api'
-import { createCoreClient, type CoreClient } from '../core/client'
+import { createCoreApi, rebuildsDocument, rebuiltDocument, type CoreApi } from '../core/api'
+import { createCoreClient, type CoreClient, type Reply } from '../core/client'
 import type { CoreEvent } from '../core/events'
 import { createMutationQueue, type MutationQueue } from '../core/queue'
-import { CoreFatalError, type CoreReady, type Transport } from '../core/transport'
+import { CoreFatalError, type Transport } from '../core/transport'
 import type { FileService } from '../files/file-service'
 import type { RecentFilesStore } from '../files/recent'
 import type { RecoveryStore } from '../files/recovery'
-import { adoptDocument, applyCoreEvent, releaseDocuments } from '../state/core-events'
-import { createAppStore, type AppStore } from '../state/store'
+import type { Command, DocHandle, Document } from '../generated/protocol'
+import { TIMING_NAMES } from '../performance/marks'
+import {
+  adoptDocument,
+  applyCoreEvent,
+  recordRebuildTime,
+  releaseDocuments,
+} from '../state/core-events'
+import { createAppStore, type AppStore, type FileReference } from '../state/store'
+import { initialSessionVisibility } from '../state/visibility'
 import type { ViewportHandle } from '../viewport/controller'
 import { installPrintAnalysis } from './actions/print'
+import { connectApp } from './connection'
 import { loadCoreData } from './core-data'
 import { installSelectionUpkeep } from './selection-upkeep'
+import { measureToNextFrame } from './timing'
 
 // The app object every action takes (ui.md 2.9): the store, the core API, the mutation queue, the
-// command registry and the host services. createApp wires core events into the store, keeps a
-// recovery copy of unsaved work, and restarts the core after a fatal error (4.4).
+// command registry and the host services. createApp wires core events into the store, counts and
+// times the requests that rebuild a document, keeps a recovery copy of unsaved work, and restarts
+// the core after a fatal error (4.4).
+
+export { onCoreEvent } from './connection'
 
 export type Platform = {
   readonly operatingSystem: 'mac' | 'windows' | 'linux' | 'other'
@@ -49,84 +62,18 @@ export type CreateAppOptions = {
   readonly now?: () => number
 }
 
-/** What createApp keeps about an app beyond the App type. */
-type AppConnection = {
-  readonly transport: Transport
-  readonly now: () => number
-  readonly eventListeners: Set<(event: CoreEvent) => void>
+/** What a core restart opens again: the document shown when the core stopped (4.4). */
+type Reopening = {
+  readonly recipe: Document
+  readonly name: string
+  readonly file: FileReference | null
 }
-
-const connections = new WeakMap<App, AppConnection>()
 
 /** Delay after the last document_changed before a dirty document's recovery copy is written (3.19). */
 const RECOVERY_DELAY_MILLISECONDS = 2_000
 
 function reasonOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
-}
-
-/**
- * Starts the app's transport (3.1 step 4). An app assembled without createApp has no transport of
- * its own: its core is taken to be running, and its versions come from engine_info.
- */
-export async function startTransport(app: App): Promise<CoreReady> {
-  const connection = connections.get(app)
-  if (connection === undefined) {
-    const info = await app.core.engineInfo()
-    return { protocolVersion: info.protocolVersion, engineVersion: info.engineVersion }
-  }
-  return connection.transport.start()
-}
-
-/** The app's clock, in milliseconds since the epoch. */
-export function nowOf(app: App): number {
-  return (connections.get(app)?.now ?? Date.now)()
-}
-
-/**
- * Hears every core event after it reached the store, for the parts of the UI that keep data
- * outside the store, such as the scene's mesh buffers. Returns the unsubscriber.
- */
-export function onCoreEvent(app: App, listener: (event: CoreEvent) => void): () => void {
-  const listeners = connections.get(app)?.eventListeners
-  if (listeners === undefined) {
-    return () => undefined
-  }
-  listeners.add(listener)
-  return () => {
-    listeners.delete(listener)
-  }
-}
-
-/** Counts mutations in the store and records how long the last one took. */
-function trackedQueue(store: AppStore, now: () => number): MutationQueue {
-  const queue = createMutationQueue()
-  function setPending(): void {
-    store.setState((state) => ({ core: { ...state.core, pendingMutations: queue.pending } }))
-  }
-  return {
-    run(task) {
-      const result = queue.run(async () => {
-        const started = now()
-        try {
-          return await task()
-        } finally {
-          const elapsed = now() - started
-          store.setState((state) =>
-            state.document === null
-              ? {}
-              : { document: { ...state.document, lastRebuildMilliseconds: elapsed } },
-          )
-        }
-      })
-      setPending()
-      result.then(setPending, setPending)
-      return result
-    },
-    get pending() {
-      return queue.pending
-    },
-  }
 }
 
 /** Writes a recovery copy of a dirty document 2 s after its last change (3.19). */
@@ -164,11 +111,33 @@ function scheduleRecovery(app: App, now: () => number): (event: CoreEvent) => vo
   }
 }
 
+/**
+ * Follows the recipe of the shown document as it was last without an open transaction, which is
+ * what the user has confirmed: a restart reopens it, so a previewed feature is never made
+ * permanent (protocol.md 2.7, 4.4). Returns the reader of that recipe for a document handle.
+ */
+function followSettledRecipe(store: AppStore): (documentHandle: DocHandle) => Document | null {
+  let settled: { readonly documentHandle: DocHandle; readonly recipe: Document } | null = null
+  function follow(): void {
+    const document = store.getState().document
+    if (document !== null && !document.transactionOpen && settled?.recipe !== document.recipe) {
+      settled = { documentHandle: document.documentHandle, recipe: document.recipe }
+    }
+  }
+  follow()
+  store.subscribe(follow)
+  return (documentHandle) => (settled?.documentHandle === documentHandle ? settled.recipe : null)
+}
+
 export function createApp(options: CreateAppOptions): App {
   const store = options.store ?? createAppStore()
   const now = options.now ?? Date.now
+  const mutations = createMutationQueue()
   const eventListeners = new Set<(event: CoreEvent) => void>()
+  const settledRecipe = followSettledRecipe(store)
   let viewport: ViewportHandle | null = null
+  /** Set by the first restart attempt and kept until a restart has opened it again. */
+  let reopening: Reopening | null = null
 
   function dispatch(event: CoreEvent): void {
     applyCoreEvent(store, event)
@@ -194,9 +163,39 @@ export function createApp(options: CreateAppOptions): App {
 
   let client = connect()
 
+  function changePending(change: number): void {
+    store.setState((state) => ({
+      core: { ...state.core, pendingMutations: state.core.pendingMutations + change },
+    }))
+  }
+
+  /**
+   * Sends a command to the running core. A command that rebuilds a document counts in
+   * `pendingMutations` until it is answered, and its time from sending to the applied response is
+   * the document's rebuild time (3.21) and `ps:rebuild` once the viewport drew it (2.18).
+   */
+  async function request(command: Command): Promise<Reply> {
+    if (!rebuildsDocument(command)) {
+      return client.request(command)
+    }
+    const started = performance.now()
+    changePending(1)
+    try {
+      const reply = await client.request(command)
+      const documentHandle = rebuiltDocument(command, reply.result)
+      if (documentHandle !== null) {
+        recordRebuildTime(store, documentHandle, performance.now() - started)
+      }
+      measureToNextFrame(TIMING_NAMES.rebuild, started)
+      return reply
+    } finally {
+      changePending(-1)
+    }
+  }
+
   // The API's client follows restarts: each request goes to the client of the running core.
   const core = createCoreApi({
-    request: (command) => client.request(command),
+    request,
     onEvent: (listener) => client.onEvent(listener),
     onFatal: (listener) => client.onFatal(listener),
     close: () => {
@@ -204,10 +203,48 @@ export function createApp(options: CreateAppOptions): App {
     },
   })
 
+  /** What a restart opens: kept from the first attempt, else the shown document's settled recipe. */
+  function reopeningOf(): Reopening | null {
+    const shown = store.getState().document
+    if (reopening !== null || shown === null) {
+      return reopening
+    }
+    return {
+      recipe: settledRecipe(shown.documentHandle) ?? shown.recipe,
+      name: shown.name,
+      file: shown.file,
+    }
+  }
+
+  /** Opens the document a restart keeps, or a new "Untitled" when there is none (4.4). */
+  async function reopen(): Promise<void> {
+    const kept = reopening
+    if (kept === null) {
+      const documentHandle = await mutations.run(() => core.newDocument('mm'))
+      adoptDocument(store, documentHandle, { name: 'Untitled', file: null, localUnsaved: false })
+      store.setState((state) => ({
+        view: {
+          ...state.view,
+          sessionVisible: initialSessionVisibility(state.document?.recipe ?? null),
+        },
+      }))
+      return
+    }
+    const opened = await mutations.run(() =>
+      core.openDocument(JSON.stringify(kept.recipe, null, 2)),
+    )
+    adoptDocument(store, opened.documentHandle, {
+      name: kept.name,
+      file: kept.file,
+      localUnsaved: true,
+    })
+    reopening = null
+  }
+
   const app: App = {
     store,
     core,
-    mutations: trackedQueue(store, now),
+    mutations,
     commands: createCommandRegistry(),
     files: options.files,
     recent: options.recent,
@@ -218,7 +255,8 @@ export function createApp(options: CreateAppOptions): App {
       viewport = handle
     },
     async restartCore() {
-      const previous = store.getState().document
+      // Taken before the store forgets the document, and kept if this attempt fails.
+      reopening = reopeningOf()
       store.setState((state) => ({
         core: { ...state.core, status: 'loading', fatal: null },
         context: state.context === 'sketch' ? 'model' : state.context,
@@ -233,14 +271,7 @@ export function createApp(options: CreateAppOptions): App {
       try {
         const ready = await options.transport.start()
         await loadCoreData(app)
-        if (previous !== null) {
-          const opened = await core.openDocument(JSON.stringify(previous.recipe, null, 2))
-          adoptDocument(store, opened.documentHandle, {
-            name: previous.name,
-            file: previous.file,
-            localUnsaved: true,
-          })
-        }
+        await reopen()
         store.setState((state) => ({
           core: { ...state.core, status: 'ready', engineVersion: ready.engineVersion, fatal: null },
         }))
@@ -249,7 +280,7 @@ export function createApp(options: CreateAppOptions): App {
       }
     },
   }
-  connections.set(app, { transport: options.transport, now, eventListeners })
+  connectApp(app, { transport: options.transport, now, eventListeners })
   eventListeners.add(scheduleRecovery(app, now))
   installPrintAnalysis(app)
   installSelectionUpkeep(app)

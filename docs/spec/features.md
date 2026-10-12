@@ -39,7 +39,7 @@ All types below live in `partsmith-features` unless a path says otherwise. Types
 - `partsmith_model`: `Id`, `Expr`, `Units`, `Quantity`, `Dimension`, `Scope`, `ExprError`, `Document`, `FeatureRecord`, `FeatureInspector`, `FeatureLinks`, `ExprLink`, `FeatureParamsSchema`, `canonical::format_number`, and the manifest types `FeatureManifest`, `Category`, `FieldHint`, `FieldUnit`, `SelectionKind`, `OptionHint` (`partsmith_model::manifest`, section 2.3).
 - `partsmith_naming`: `Reference`, `ElementName`, `ElementKind`, `ElementInfo`, `NamingMap`, `FaceSource`, `Resolution`.
 - `partsmith_sketch`: `SketchParams`, `SketchPlane`, `Placement`, `OriginPlane`, `PointRef`, `RegionRef`, `SolveResult`, `SolveIssue`, `Profile`, `SketchError`, `NativeSolver`, `match_region`, `build_profile`.
-- `partsmith_occt_sys`: `Shape`, `SubShape`, `SubShapeKind`, `Axis`, `Plane`, `KernelError`, `OCCT_VERSION`, `LINEAR_TOLERANCE`.
+- `partsmith_occt_sys`: `Shape`, `SubShape`, `SubShapeKind`, `Axis`, `Plane`, `Point`, `Vector`, `KernelError`, `OCCT_VERSION`, `LINEAR_TOLERANCE`.
 
 Every public type derives `Debug` and `Clone`. Types stored in documents or sent to hosts also derive `serde::Serialize`, `serde::Deserialize`, `schemars::JsonSchema` and `PartialEq`, with snake_case field names.
 
@@ -49,16 +49,16 @@ Every public type derives `Debug` and `Clone`. Types stored in documents or sent
 partsmith_features
   feature      Feature, FEATURE_API_VERSION
   deps         Dependencies, Link, AssetLink, ExprUse
-  params       BodyOp, CopyOp, ProfileRef, PlaneRef, AxisRef, OriginAxis, PlacementExt
+  params       BodyOp, CopyOp, ProfileRef, PlaneRef, AxisRef, OriginAxis, PlacementExt, point, vector
   context      BuildContext, BuildInputs, Values, BodyState, Resolved, ResolvedProfile, CancelToken
-  output       FeatureOutput, OutputData, BodyUpdate, BodyChange, SketchResult, DatumResult, Tool, apply_op
+  output       FeatureOutput, OutputData, BodyUpdate, BodyChange, SketchResult, DatumResult, Tool, apply_op, VOLUME_TOLERANCE
   error        FeatureError, FeatureWarning, FieldRef, Bound, Noun, IgnoredReason, FallbackReason, Repair, Names, DocumentNames, format_value
   registry     Registry, DynFeature, Canonical, Validated, RegistryError, register_builtins
   python       PythonCall, PythonValue, PythonNames
   builtin      one module per built-in feature type (sketch, extrude, ...)
 ```
 
-The crate root re-exports every type listed above, the manifest types of `partsmith_model::manifest` (section 2.3) and `partsmith_occt_sys::OCCT_VERSION`, and defines the crate version:
+The crate root re-exports every item listed above, the manifest types of `partsmith_model::manifest` (section 2.3) and `partsmith_occt_sys::OCCT_VERSION`, and defines the crate version:
 
 ```rust
 /// Version of this crate. Recompute puts it and `OCCT_VERSION` into every cache key (recompute.md section 3.4).
@@ -267,6 +267,11 @@ pub trait PlacementExt {
 }
 
 impl PlacementExt for Placement { /* ... */ }
+
+/// The kernel point at world coordinates `[x, y, z]`.
+pub fn point(coordinates: [f64; 3]) -> partsmith_occt_sys::Point;
+/// The kernel vector with world components `[x, y, z]`.
+pub fn vector(components: [f64; 3]) -> partsmith_occt_sys::Vector;
 ```
 
 JSON examples:
@@ -328,8 +333,8 @@ impl<'a> BuildContext<'a> {
     pub fn eval_angle(&self, field: &str, expr: &Expr) -> Result<f64, FeatureError>;
     /// The declared plain number at `field`.
     pub fn eval_scalar(&self, field: &str, expr: &Expr) -> Result<f64, FeatureError>;
-    /// The declared whole number at `field`.
-    pub fn eval_count(&self, field: &str, expr: &Expr) -> Result<u32, FeatureError>;
+    /// The declared whole number at `field`, at least `minimum` (section 3.4).
+    pub fn eval_count(&self, field: &str, expr: &Expr, minimum: u32) -> Result<u32, FeatureError>;
 
     /// State of a declared body just before this feature.
     pub fn body(&self, body: &Id) -> Result<&BodyState, FeatureError>;
@@ -348,6 +353,10 @@ impl<'a> BuildContext<'a> {
     pub fn resolve_all(&self, field: &str, body: &Id, references: &[Reference], kind: ElementKind) -> Result<Resolved, FeatureError>;
     /// Resolves a plane to a placement (section 3.6).
     pub fn plane(&self, field: &str, plane: &PlaneRef) -> Result<Placement, FeatureError>;
+    /// Places a plane on a flat face of a declared body with `hint` as the reference placement (section 3.6). The inner
+    /// `Err` is the reason the face cannot place it (empty body or missing reference, ambiguous reference, face not flat),
+    /// so the caller can fall back; the outer `Err` is for failures no fallback fixes.
+    pub fn face_placement(&self, body: &Id, face: &Reference, hint: &Placement) -> Result<Result<Placement, FallbackReason>, FeatureError>;
     /// Resolves an axis (section 3.6).
     pub fn axis(&self, field: &str, axis: &AxisRef) -> Result<Axis, FeatureError>;
 
@@ -499,10 +508,14 @@ pub struct Tool {
     pub naming: NamingMap,
 }
 
+/// Relative volume tolerance of the body rules (section 3.5): a volume change, or a remaining volume, of at most
+/// `VOLUME_TOLERANCE` times the body's volume counts as none.
+pub const VOLUME_TOLERANCE: f64 = 1e-9;
+
 /// Applies `op` with `tools` to `body` with the shared body semantics (section 3.5). At least one tool.
-/// New with several tools fuses them (kernel `fuse(tools[0], rest)`). Join and Cut pass every tool to one kernel
-/// `fuse` or `cut` call. Intersect takes exactly one tool. No tool, or several with Intersect, is a bug in the
-/// feature and returns `Internal`. Returns the update and any NoEffect warning.
+/// New with several tools fuses them (kernel `fuse(tools[0], rest)`). Join, Cut and Intersect pass every tool to one
+/// kernel `fuse`, `cut` or `common` call; Intersect keeps what lies inside the body and every tool. No tool is a bug
+/// in the feature and returns `Internal`. Returns the update and any NoEffect warning.
 pub fn apply_op(ctx: &BuildContext<'_>, body: &Id, op: BodyOp, tools: Vec<Tool>) -> Result<(BodyUpdate, Vec<FeatureWarning>), FeatureError>;
 ```
 
@@ -566,6 +579,8 @@ impl Names for DocumentNames<'_> { /* ... */ }
 pub fn format_value(kind: FieldUnit, value: f64, units: Units) -> String;
 
 impl FeatureError {
+    /// An `Internal` error for a failure that valid input cannot cause.
+    pub fn internal(message: impl Into<String>) -> FeatureError;
     /// The message with current names and units.
     pub fn render(&self, names: &dyn Names, units: Units) -> String;
     /// Stable snake_case code, for example "body_not_empty".
@@ -577,6 +592,9 @@ impl FeatureError {
     /// Repair data, if the error is about a lost reference or region.
     pub fn repair(&self) -> Option<Repair>;
 }
+
+/// A kernel failure becomes `Kernel { error }`, so `?` works on kernel calls.
+impl From<KernelError> for FeatureError { /* ... */ }
 
 impl FeatureWarning {
     /// The message with current names and units.
@@ -780,6 +798,15 @@ pub trait PythonNames {
 }
 ```
 
+### 2.11 The public API is the feature API
+
+Built-in features use only the public API, like a plugin would: they are registered through `register_builtins` with `Registry::register` (section 2.9) and build with the public items of this crate and of the crates listed at the top of section 2, never with crate-private helpers. What a built-in needs that a plugin would need too is public:
+
+- `From<KernelError> for FeatureError` and `FeatureError::internal` (section 2.8).
+- `point` and `vector` (section 2.5), the kernel `Point` and `Vector` of `[f64; 3]` coordinates.
+- `BuildContext::face_placement` (section 2.6), a plane on a face that reports why it cannot place one instead of failing.
+- `VOLUME_TOLERANCE` (section 2.7), for features that apply the volume rules of section 3.5 to results of their own (hole's overlap test, split_body's sides).
+
 ## 3. Behavior
 
 ### 3.1 Purity and determinism
@@ -829,9 +856,18 @@ Recompute evaluates every declared `ExprUse` once per run, before building, thro
 | `Length` | `LENGTH` | value in mm | none |
 | `Angle` | `ANGLE` | value in radians | none |
 | `Scalar` | `NONE` | value | none |
-| `Count` | `NONE` | nearest integer n when abs(value - n) ≤ 1e-9 | `NotWholeNumber` otherwise; `OutOfRange` (`AtLeast(0)`) when negative; `OutOfRange` (`AtMost(4294967295)`) when too large |
+| `Count` | `NONE` | value | in `eval_count`, below |
 
-An evaluator error becomes `Expression { field, expr, error }`. The converted value or the error is what the `eval_*` methods return; they also check that `field` was declared with that exact expression and unit, else `UndeclaredDependency`. Each feature then checks its own ranges (`OutOfRange`) in params order, before any kernel work.
+An evaluator error becomes `Expression { field, expr, error }`. The converted value or the error is what `eval_length`, `eval_angle` and `eval_scalar` return and what `eval_count` checks; they also check that `field` was declared with that exact expression and unit, else `UndeclaredDependency`. Each feature then checks its own ranges (`OutOfRange`) in params order, before any kernel work.
+
+`eval_count(field, expr, minimum)` takes the smallest count the feature accepts (0 when any count works; patterns pass 1). With v the value, n the nearest integer to v, and c = n when abs(v - n) ≤ 1e-9, else c = v, it checks in this order:
+
+1. c < minimum: `OutOfRange` (`AtLeast(minimum)`).
+2. c > 4294967295: `OutOfRange` (`AtMost(4294967295)`).
+3. c is not n (v is not within 1e-9 of a whole number): `NotWholeNumber`.
+4. Otherwise the count is n.
+
+The range comes first, so every fix a message proposes is a count that works: the `AtLeast` and `AtMost` suggestions are the limits themselves (section 4.4), and a `NotWholeNumber` floor and ceiling both lie in the range. With minimum 1, a count of 0.5 gives `Count must be at least 1, but it is 0.5. Use 1 or more.` rather than a whole-number message that proposes 0.
 
 ### 3.5 Body semantics
 
@@ -844,13 +880,13 @@ Solid features (extrude, revolve, primitives, import) name a target `body` and a
 | `new` | must be empty | the tool (several tools fused) | `BodyNotEmpty` if the body holds a solid |
 | `join` | must hold a solid | body ∪ tools (kernel `fuse`) | `BodyEmpty { use_new: true }` if empty; `NoEffect` warning if the volume does not change |
 | `cut` | must hold a solid | body − tools (kernel `cut`) | `BodyEmpty { use_new: true }`; `EmptyResult` if nothing is left; `NoEffect` warning if the volume does not change |
-| `intersect` | must hold a solid | body ∩ tool (kernel `common`) | `BodyEmpty { use_new: true }`; `EmptyResult` if nothing is left; `NoEffect` warning if the volume does not change |
+| `intersect` | must hold a solid | body ∩ every tool (kernel `common`) | `BodyEmpty { use_new: true }`; `EmptyResult` if nothing is left; `NoEffect` warning if the volume does not change |
 
-- "The volume does not change" means abs(V_after - V_before) ≤ 1e-9 × V_before. In that case the update keeps the body's previous shape and naming exactly (no imprinted edges), with change `Join`, `Cut` or `Intersect` as requested.
-- "Nothing is left" means the result has no solid, or its volume is at most 1e-9 × V_before.
+- "The volume does not change" means abs(V_after - V_before) ≤ `VOLUME_TOLERANCE` (1e-9) × V_before. In that case the update keeps the body's previous shape and naming exactly (no imprinted edges), with change `Join`, `Cut` or `Intersect` as requested.
+- "Nothing is left" means the result has no solid, or its volume is at most `VOLUME_TOLERANCE` × V_before.
 - `EmptyResult` and every other error leave all bodies unchanged (recompute applies nothing from a failed feature).
 - Modifying features (fillet, chamfer, shell, hole, move_body, split_body) require a body that holds a solid, else `BodyEmpty { use_new: false }`. Their change is `Modify` (hole reports `Cut`).
-- Body-to-body features: `boolean` requires target and tools to hold solids (`BodyEmpty`, `ToolEmpty`); consumed tools become empty with change `Clear`.
+- Body-to-body features: `boolean` requires target and tools to hold solids (`BodyEmpty`, `ToolEmpty`), then calls `apply_op` with every tool body as a tool, so join, cut and intersect with several tools follow the rows above; consumed tools become empty with change `Clear`.
 - Copy features (mirror, linear_pattern, circular_pattern) with `CopyOp::Join` fuse the copies into the source body (change `Join`); with `CopyOp::New` they put the copies into `target`, which must be empty (`BodyNotEmpty`), with change `New`, and leave the source unchanged.
 - Bodies keep their identity (id, name, color, material) whatever happens to their shape. A body emptied by a feature can be started again later with op `new`.
 - Emptiness is the body's state at this point of the run: a body whose earlier writers all failed, are suppressed or are rolled back is empty, so op `new` builds on it. This is why python-api.md can choose its default op statically (python-api.md section 3.3).
@@ -862,6 +898,8 @@ Solid features (extrude, revolve, primitives, import) name a target `body` and a
 - `Origin`: `OriginPlane::placement()` (sketch.md section 3.1): XY origin (0,0,0), x-axis +X, normal +Z; XZ x-axis +X, normal -Y (y-axis +Z); YZ x-axis +Y, normal +X (y-axis +Z).
 - `Datum`: the datum's placement (`ctx.datum(field, feature)`). The feature must be declared; its output must be `DatumResult::Plane`, else `WrongFeatureType`.
 - `Face`: resolve the reference in the body (section 3.8, `resolve`). The first resolved face in resolver order is used (all pieces of a split flat face lie in one plane). A face whose kernel geometry kind is not `Plane` gives `NotPlanar`. The placement is the **face placement rule**: `Placement::on_plane(face centroid, outward face normal, &OriginPlane::Xy.placement())`, which projects the world origin onto the face's plane and takes the x-axis from world +X projected onto it (world +Y when +X is perpendicular to the face). It reproduces the origin plane frames for faces parallel to them and does not depend on kernel parametrization.
+
+`ctx.face_placement(body, face, hint)` applies the face placement rule with `hint` in place of the XY placement, for a caller that keeps a placement of its own when the face cannot give one (the sketch feature's fallback, [features/sketch.md](features/sketch.md) section 3.3). It does not fail on the face: an empty body or a missing reference gives `Ok(Err(Missing))`, an ambiguous reference `Ok(Err(Ambiguous))`, and a first resolved face that is not flat `Ok(Err(NotPlanar))`. Its `Err` is for failures no fallback fixes, such as `UndeclaredDependency` for an undeclared body or a `Kernel` error while reading the face.
 
 `ctx.axis(field, axis)` returns a kernel `Axis` with a unit direction:
 
@@ -884,7 +922,7 @@ Solid features (extrude, revolve, primitives, import) name a target `body` and a
 
 Two refs resolving to the same region use it once. If no region resolves, `ProfileNotFound`. An empty `regions` list is rejected at validation (`EmptySelection`).
 
-The profile a feature sweeps is the **union of the resolved regions**: boundary pieces that two resolved regions share are dropped, and the remaining pieces are chained into the outer loops and holes of the union (so a rectangle-with-hole region plus the disc filling the hole is the whole rectangle). Each remaining piece keeps the sketch entity id it came from, which names the face it generates. The union is built in the sketch plane, then turned into kernel faces with `make_profile` (curves tagged by entity), so no lateral face is ever generated from a shared boundary (naming.md section 3.6.2).
+The profile a feature sweeps is the **union of the resolved regions**: boundary pieces that two resolved regions share are dropped, and the remaining pieces are chained into the outer loops and holes of the union (so a rectangle-with-hole region plus the disc filling the hole is the whole rectangle). Each remaining piece keeps the sketch entity id it came from, which names the face it generates. Consecutive pieces of a loop (the last and the first included) that come from the same entity and continue the same line or circle are then merged into one curve: the pieces of a line become one segment and the pieces of an arc or circle one arc, or the whole circle when they close it. Pieces of one entity with another piece between them stay separate. The union is built in the sketch plane, then turned into kernel faces with `make_profile` (curves tagged by entity), so no lateral face is ever generated from a shared boundary, and a union of regions split by a line gives one lateral face per entity, as the single region covering the same area does (naming.md section 3.6.2).
 
 ### 3.8 Sub-shape references
 
@@ -912,7 +950,7 @@ Element names never contain kernel indices.
 
 ### 3.10 Kernel results
 
-- Kernel booleans (`fuse`, `cut`, `common`) unify adjacent coplanar faces and collinear edges in the same call (kernel.md section 3.4.5). Features that combine several solids (pattern instances, holes, a joined mirror image) always do it with one multi-argument kernel boolean (`apply_op` with several tools), so their results are refined; several profile regions are merged in 2D before the sweep (section 3.7). Face counts in acceptance tests assume this.
+- Kernel booleans (`fuse`, `cut`, `common`) unify adjacent coplanar faces and collinear edges in the same call (kernel.md section 3.4.5). Features that combine several solids (pattern instances, holes, a joined mirror image, boolean tools) always do it with one multi-argument kernel boolean (`apply_op` with several tools), so their results are refined. Several profile regions are merged in 2D before the sweep, and the pieces of one entity on either side of a dropped boundary are merged into one curve (section 3.7), so a sweep of a union is refined too: it has the faces of the single region covering the same area. Face counts in acceptance tests assume this.
 - The kernel checks every solid result and heals it once; a result that stays invalid, or a solid operation that produces no solid, is a `KernelError` (kinds `InvalidResult` and `EmptyResult`). Features report kernel errors as `Kernel { error }`, except fillet, chamfer and shell, which run the "too large" search (section 4.3).
 - Every solid has positive volume (correct orientation), including mirrored copies.
 - Features check their own preconditions (ranges, axis in plane, profile side) before calling the kernel, so the kernel's `InvalidInput` errors are not the normal way users see these problems.
@@ -1007,6 +1045,7 @@ pub position: [Expr; 3],
 - Dependencies: a datum plane adds its feature to `features`; a face plane adds its body to `bodies_read` (or leaves it in `bodies_written` when it is the target body); `position[0]`, `position[1]`, `position[2]` are `Length` uses.
 - Manifest hints shared by all primitives (not essential): `plane` labeled Plane with selection `plane`; `position[0]`, `position[1]`, `position[2]` labeled Position X, Position Y, Position Z with unit length.
 - Each primitive builds its tool, names its faces from the kernel `PrimitiveFace` roles and calls `apply_op(ctx, body, op, vec![tool])`. All size fields are checked (in field order) before any kernel work.
+- A size that must be greater than 0 and is below `LINEAR_TOLERANCE` (1e-6 mm) gives `OutOfRange` (`GreaterThan(0)`) on its field, the same error as 0 or a negative value, so it never reaches the kernel, which rejects sizes below its modeling tolerance (kernel.md section 3.4.1). The sizes this applies to: box `size[0]`, `size[1]`, `size[2]`; cylinder `radius` and `height`; sphere `radius`; cone `height`; torus `major_radius` and `minor_radius`. Cone radii may be 0 and follow [features/cone.md](features/cone.md).
 - Python: each primitive's hook writes its size fields as positional expressions in field order, then `plane=` (`PythonValue::plane`) when the plane is not origin XY, `position=` (a tuple of the three expressions) when it is not the default, and `op` per section 3.11. For example `box(20, 30, 40, position=(5, 0, 0), id="f-box1")`.
 
 JSON: `"plane": {"kind": "origin", "plane": "XZ"}, "position": ["10", "0", "5 mm"]`.
@@ -1238,7 +1277,7 @@ These construct a `BuildContext` directly with `BuildInputs` and a test feature 
 
 1. Declared use `("distance", "2", Length)` in an `in` document evaluates to 50.8 with `eval_length("distance", "2")`. In an `mm` document it is 2.
 2. Declared use `("angle", "90", Angle)` evaluates to π/2 (abs 1e-12). `("angle", "90 deg", Angle)` also gives π/2.
-3. Declared use `("count", "3.0000000001", Count)` gives 3. `("count", "2.5", Count)` gives `NotWholeNumber` rendered `Count must be a whole number, but it is 2.5. Use 2 or 3.` `("count", "-1", Count)` gives `OutOfRange` with bound `AtLeast(0)`. `("count", "2 mm", Count)` gives `Expression` rendered `Count: Expected a plain number, but this expression gives a length.`
+3. With minimum 0 (`eval_count("count", expr, 0)`), declared use `("count", "3.0000000001", Count)` gives 3. `("count", "2.5", Count)` gives `NotWholeNumber` rendered `Count must be a whole number, but it is 2.5. Use 2 or 3.` `("count", "-1", Count)` gives `OutOfRange` with bound `AtLeast(0)`. `("count", "2 mm", Count)` gives `Expression` rendered `Count: Expected a plain number, but this expression gives a length.`
 4. Declared use `("distance", "30 deg", Length)` gives `Expression` rendered `Distance: Expected a length, but this expression gives an angle.`
 5. `eval_length("distance", "5 mm")` when the declared use at `distance` is `"30 mm"` returns `UndeclaredDependency`. `eval_length("other", "30 mm")` with no use at `other` returns `UndeclaredDependency`. `eval_angle` on a field declared as `Length` returns `UndeclaredDependency`.
 6. `ctx.body("b-9")` where `b-9` was not declared returns `UndeclaredDependency`. `ctx.sketch("profile.sketch", "f-sk9")` where `f-sk9` was not declared returns `UndeclaredDependency`.
@@ -1254,6 +1293,10 @@ These construct a `BuildContext` directly with `BuildInputs` and a test feature 
 16. Constants. `partsmith_occt_sys::LINEAR_TOLERANCE == partsmith_model::LINEAR_TOLERANCE`; `partsmith_features::OCCT_VERSION == partsmith_occt_sys::OCCT_VERSION`; `partsmith_features::VERSION` equals the crate's `CARGO_PKG_VERSION`.
 17. Assets. With `BuildInputs::assets` holding `{"a.step": b"abc"}`, `ctx.asset("asset", "a.step")` returns `b"abc"` and `ctx.asset("asset", "b.step")` returns `UndeclaredDependency`.
 18. Field labels (section 3.2). `FieldRef::new("points[0]", &hole_manifest).label` is `Points`; `FieldRef::new("profile.sketch", &extrude_manifest).label` is `Profile`; `FieldRef::new("constraints[2].expr", &sketch_manifest).label` is `Dimension`; `FieldRef::new("depth", &extrude_manifest).label` is `depth`. The manifests are those of [features/hole.md](features/hole.md), [features/extrude.md](features/extrude.md) and [features/sketch.md](features/sketch.md).
+19. Count minimum (section 3.4). With `eval_count("count", expr, 1)`: `"0.5"` gives `OutOfRange` with bound `AtLeast(1)`, rendered `Count must be at least 1, but it is 0.5. Use 1 or more.`, and `suggestion(Mm) == Some("1")`; `"0"` gives `OutOfRange` with bound `AtLeast(1)`; `"0.9999999999"` gives 1; `"1.5"` gives `NotWholeNumber` rendered `Count must be a whole number, but it is 1.5. Use 1 or 2.`; `"4294967295.5"` gives `OutOfRange` with bound `AtMost(4294967295)`. With minimum 0, `"-0.5"` gives `OutOfRange` with bound `AtLeast(0)` (the range is checked before the whole number).
+20. `apply_op` with several intersect tools. Body b-1 holds the box [-10,-10,0]-[10,10,20]; the tools are the boxes [0,-10,0]-[20,10,20] and [-5,-5,15]-[5,5,25] (the bodies of [features/boolean.md](features/boolean.md) test 6). `apply_op(ctx, "b-1", Intersect, tools)` returns an update with change `Intersect`, volume 250, 6 faces and bbox [0,-5,15]-[5,5,20], and no warning. With the second tool moved to [95,-5,15]-[105,5,25] (it misses the body) it returns `EmptyResult { op: Intersect }`. With no tools it returns `Internal` for every op.
+21. Public helpers (section 2.11). For a `KernelError` `error`, `FeatureError::from(error.clone()) == FeatureError::Kernel { error }`, and `?` on a kernel call converts the same way. `FeatureError::internal("x")` is `Internal { message: "x" }` with code `internal`. `point([1.0, 2.0, 3.0])` is the kernel `Point { x: 1.0, y: 2.0, z: 3.0 }`; `vector([0.0, 0.0, 1.0])` is `Vector { x: 0.0, y: 0.0, z: 1.0 }`. `VOLUME_TOLERANCE == 1e-9`.
+22. Face placement (section 3.6). Body b-1 holds the box of [features/box.md](features/box.md) test 1 and the hint is `{origin [1, 2, 3], x_axis [0.6, 0, 0.8], normal [-0.8, 0, 0.6]}`. `face_placement("b-1", {q: "f-box1/top", fp: "plane|n=0,0,1|c=0,0,30|a=200"}, &hint)` is `Ok(Ok({origin [1, 2, 30], x_axis [1, 0, 0], normal [0, 0, 1]}))`. The reference `{q: "f-box9/top", fp: "plane|n=0,0,1|c=500,500,500|a=1"}` gives `Ok(Err(Missing))`, and so does any reference when b-1 is empty. With b-1 holding the cylinder of [features/cylinder.md](features/cylinder.md) test 1, `{q: "f-cyl1/side", fp: "cylinder|n=0,0,1|c=0,0,5|a=314.159265|r=5"}` gives `Ok(Err(NotPlanar))`. An undeclared body `b-9` gives `Err(UndeclaredDependency)`.
 
 ### 6.4 Body semantics tests
 
@@ -1273,6 +1316,6 @@ Run as documents (section 6.1).
 ## Open issues
 
 1. **Contract additions (ADR 0011, needs human review).** The architecture's original trait has `TYPE`, `Params`, `manifest`, `dependencies` and `build`. This spec adds the provided methods `validate` (static rules beyond serde) and `python` (dedicated Python forms) with the seven `PythonNames` lookups (section 2.10; `regions` and `default_op` go beyond the five first proposed, because omitting `regions=` and `op` needs timeline knowledge only the script generator has), `Dependencies::declared_ids` (so the registry can implement model.md's `FeatureInspector`) and `assets` (for the `import` feature), and `BodyChange::Modify` (fillet, shell, move) and `Clear` (consumed boolean tools) besides new, join, cut and intersect. architecture.md lists them and ADR 0011 records them.
-2. **Expression conversion.** Count fields evaluate with expected dimension `NONE` and then require a whole number; this spec adds the 1e-9 integer tolerance and the `u32` range, which expressions.md does not define.
+2. **Expression conversion.** Count fields evaluate with expected dimension `NONE` and then require a whole number; this spec adds the 1e-9 integer tolerance, the `u32` range and the per-feature minimum (section 3.4), which expressions.md does not define.
 3. **Examples layout.** Resolved by [delivery.md](delivery.md) section 2.8: every `.ptsm` under `examples/` is an example, with `<stem>.expected.json` and `<stem>.py` next to it.
 4. **Region union.** The union of selected regions (section 3.7) is computed by `partsmith-features` from sketch.md's `ProfileLoop`s because sketch.md lists a region-union helper as later. Moving it into the sketch crate later would not change behavior.

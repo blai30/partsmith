@@ -112,7 +112,9 @@ export function SketchHeader() {
               className={clsx(
                 'flex items-center border-l pl-3',
                 COLOR_CLASSES.border.border,
-                status.error ? COLOR_CLASSES.errorText.foreground : COLOR_CLASSES.textMuted.foreground,
+                status.error
+                  ? COLOR_CLASSES.errorText.foreground
+                  : COLOR_CLASSES.textMuted.foreground,
               )}
             >
               <span>{status.text}</span>

@@ -77,13 +77,15 @@ function BadgeIcon({ state }: { readonly state: HealthBadgeState['state'] }) {
  */
 export function HealthBadge({ badge, onClick }: HealthBadgeProps) {
   const { text, name } = wording(badge)
+  // A running analysis replaces the state the old report gave, so it is not drawn as out of date.
+  const outdated = badge.stale && badge.state !== 'running'
   return (
     <button
       type="button"
       data-testid="health-badge"
       data-state={badge.state}
       data-stale={badge.stale ? 'true' : 'false'}
-      aria-label={`Print health: ${name}${badge.stale ? ', out of date' : ''}`}
+      aria-label={`Print health: ${name}${outdated ? ', out of date' : ''}`}
       onClick={onClick}
       className={clsx(
         'inline-flex h-6 shrink-0 items-center gap-1.5 rounded-sm px-2 text-xs whitespace-nowrap tabular-nums transition-colors duration-150 motion-reduce:transition-none',
@@ -93,11 +95,11 @@ export function HealthBadge({ badge, onClick }: HealthBadgeProps) {
         // A resting outline color equal to the ring's, so transition-colors does not fade the
         // ring in from the text color.
         COLOR_CLASSES.accent.outline,
-        badge.stale && 'opacity-50',
+        outdated && 'opacity-50',
       )}
     >
       <BadgeIcon state={badge.state} />
-      {badge.stale ? `${text} (out of date)` : text}
+      {outdated ? `${text} (out of date)` : text}
     </button>
   )
 }

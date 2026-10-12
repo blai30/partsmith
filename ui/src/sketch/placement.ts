@@ -103,7 +103,11 @@ export function sketchToPixel(
   if (!(size.width > 0) || !(size.height > 0)) {
     return null
   }
-  const position = normalizedPosition(camera, sketchToWorld(placement, point), size.width / size.height)
+  const position = normalizedPosition(
+    camera,
+    sketchToWorld(placement, point),
+    size.width / size.height,
+  )
   if (position === null) {
     return null
   }

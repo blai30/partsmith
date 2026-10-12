@@ -146,3 +146,13 @@ describe('HealthBadge', () => {
     expect(onClick).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('HealthBadge while checking', () => {
+  it('does not draw a running analysis as out of date, but keeps data-stale for the report', () => {
+    const { badge } = renderBadge(badgeState({ state: 'running', warnings: 2, stale: true }))
+    expect(badge).toBe(screen.getByRole('button', { name: 'Print health: checking' }))
+    expect(badge).toHaveTextContent(/^Checking$/)
+    expect(badge).not.toHaveClass('opacity-50')
+    expect(badge).toHaveAttribute('data-stale', 'true')
+  })
+})

@@ -1,0 +1,223 @@
+import type { PointRef, SketchSolution } from '../generated/protocol'
+import type { SelectionItem } from '../state/store'
+import { closestPointOnArc, closestPointOnSegment, distance, type Vector2 } from './geometry'
+import { curveCircle, ownerOf, solvedEntity, type SolvedEntity } from './operands'
+import { ORIGIN_POINT, X_AXIS, Y_AXIS } from './refs'
+
+// What the pointer is over in sketch mode (ui.md 3.6): the active sketch's points and curves and
+// the sketch's origin and axes, found from the solved geometry, and their selection items.
+
+/** Points are hit within half their 11-pixel pick square plus the 4-pixel pick radius. */
+export const POINT_HIT_PIXELS = 9.5
+/** Curves are hit within half their 7-pixel pick width plus the 4-pixel pick radius. */
+export const CURVE_HIT_PIXELS = 7.5
+
+export type OriginPart = 'point' | 'x_axis' | 'y_axis'
+
+export type SketchHit =
+  | { readonly kind: 'point'; readonly point: PointRef; readonly at: Vector2 }
+  | { readonly kind: 'curve'; readonly entity: SolvedEntity }
+  | { readonly kind: 'origin'; readonly part: OriginPart }
+
+type Candidate = { readonly hit: SketchHit; readonly pixels: number; readonly origin: boolean }
+
+/** The nearest candidate within reach; at equal distance sketch items win over origin items. */
+function nearest(candidates: readonly Candidate[], reach: number): SketchHit | null {
+  let best: Candidate | null = null
+  for (const candidate of candidates) {
+    if (candidate.pixels > reach) {
+      continue
+    }
+    if (
+      best === null ||
+      candidate.pixels < best.pixels ||
+      (candidate.pixels === best.pixels && best.origin && !candidate.origin)
+    ) {
+      best = candidate
+    }
+  }
+  return best?.hit ?? null
+}
+
+/** The closest point of an entity's curve to `cursor`, or null for point entities. */
+export function closestOnEntity(
+  solution: SketchSolution,
+  entity: SolvedEntity,
+  cursor: Vector2,
+): Vector2 | null {
+  switch (entity.type) {
+    case 'line':
+      return closestPointOnSegment(cursor, entity.start, entity.end)
+    case 'circle':
+    case 'arc': {
+      const circle = curveCircle(solution, entity.id)
+      return circle === null
+        ? null
+        : closestPointOnArc(cursor, circle.center, circle.radius, circle.start, circle.end)
+    }
+    case 'point':
+      return null
+  }
+}
+
+export type HitOptions = {
+  /** Sketch millimeters per CSS pixel at the cursor. */
+  readonly millimetersPerPixel: number
+  /** The UI scale, which scales every pick distance. */
+  readonly uiScale: number
+  /** Whether the origin and axes count; the drag and box selection only want sketch geometry. */
+  readonly includeOrigin: boolean
+}
+
+/** What is under the cursor: points first, then curves (ui.md 3.6). */
+export function hitTest(
+  solution: SketchSolution,
+  cursor: Vector2,
+  options: HitOptions,
+): SketchHit | null {
+  const toPixels = (millimeters: number): number => millimeters / options.millimetersPerPixel
+  const points: Candidate[] = solution.points.map((solved) => ({
+    hit: { kind: 'point', point: solved.point, at: solved.at },
+    pixels: toPixels(distance(cursor, solved.at)),
+    origin: false,
+  }))
+  const curves: Candidate[] = solution.entities.flatMap((entity) => {
+    const closest = closestOnEntity(solution, entity, cursor)
+    return closest === null
+      ? []
+      : [
+          {
+            hit: { kind: 'curve', entity },
+            pixels: toPixels(distance(cursor, closest)),
+            origin: false,
+          },
+        ]
+  })
+  if (options.includeOrigin) {
+    points.push({
+      hit: { kind: 'origin', part: 'point' },
+      pixels: toPixels(Math.hypot(cursor[0], cursor[1])),
+      origin: true,
+    })
+    curves.push(
+      {
+        hit: { kind: 'origin', part: 'x_axis' },
+        pixels: toPixels(Math.abs(cursor[1])),
+        origin: true,
+      },
+      {
+        hit: { kind: 'origin', part: 'y_axis' },
+        pixels: toPixels(Math.abs(cursor[0])),
+        origin: true,
+      },
+    )
+  }
+  return (
+    nearest(points, POINT_HIT_PIXELS * options.uiScale) ??
+    nearest(curves, CURVE_HIT_PIXELS * options.uiScale)
+  )
+}
+
+// Keys, kinds and labels match the items the scene gives the same targets (ui.md 3.6), so hover and
+// selection mean the same thing whichever picked them.
+
+const ENTITY_NOUNS = { line: 'Line', circle: 'Circle', arc: 'Arc' } as const
+
+function sketchItemBase(
+  sketchId: string,
+): Pick<SelectionItem, 'body' | 'feature' | 'element' | 'origin'> {
+  return { body: null, feature: sketchId, element: null, origin: null }
+}
+
+/** The selection item of a sketch point, keyed `point:{sketch}:{point ref}`. */
+export function pointSelectionItem(sketchId: string, point: PointRef): SelectionItem {
+  return {
+    ...sketchItemBase(sketchId),
+    key: `point:${sketchId}:${point}`,
+    kind: 'sketch_point',
+    label: `Point ${point}`,
+    sketchItem: { kind: 'point', sketch: sketchId, point },
+  }
+}
+
+/** The selection item of an entity: point entities as points, curves keyed `sketch:{sketch}:{entity}`. */
+export function entitySelectionItem(sketchId: string, entity: SolvedEntity): SelectionItem {
+  if (entity.type === 'point') {
+    return {
+      ...sketchItemBase(sketchId),
+      key: `point:${sketchId}:${entity.id}`,
+      kind: 'sketch_point',
+      label: `Point ${entity.id}`,
+      sketchItem: { kind: 'entity', sketch: sketchId, entity: entity.id, entityType: 'point' },
+    }
+  }
+  return {
+    ...sketchItemBase(sketchId),
+    key: `sketch:${sketchId}:${entity.id}`,
+    kind: 'sketch_curve',
+    label: `${ENTITY_NOUNS[entity.type]} ${entity.id}`,
+    sketchItem: { kind: 'entity', sketch: sketchId, entity: entity.id, entityType: entity.type },
+  }
+}
+
+/** The selection item of the sketch's own origin (a point) or one of its axes (curves). */
+export function originSelectionItem(sketchId: string, part: OriginPart): SelectionItem {
+  const sketchItem = { kind: 'origin', sketch: sketchId, which: part } as const
+  if (part === 'point') {
+    return {
+      ...sketchItemBase(sketchId),
+      key: `point:${sketchId}:origin`,
+      kind: 'sketch_point',
+      label: 'Origin',
+      sketchItem,
+    }
+  }
+  return {
+    ...sketchItemBase(sketchId),
+    key: `sketch:${sketchId}:${part}`,
+    kind: 'sketch_curve',
+    label: part === 'x_axis' ? 'X axis' : 'Y axis',
+    sketchItem,
+  }
+}
+
+/** The selection item of a constraint glyph or dimension label, keyed `constraint:{sketch}:{id}`. */
+export function constraintSelectionItem(
+  sketchId: string,
+  constraint: string,
+  label: string,
+): SelectionItem {
+  return {
+    ...sketchItemBase(sketchId),
+    key: `constraint:${sketchId}:${constraint}`,
+    kind: 'sketch_constraint',
+    label,
+    sketchItem: { kind: 'constraint', sketch: sketchId, constraint },
+  }
+}
+
+/** The selection item a hit stands for. */
+export function hitSelectionItem(
+  sketchId: string,
+  hit: SketchHit,
+  solution: SketchSolution,
+): SelectionItem {
+  switch (hit.kind) {
+    case 'point': {
+      // A point entity's only point is the entity itself.
+      const entity = solvedEntity(solution, ownerOf(hit.point))
+      return entity?.type === 'point'
+        ? entitySelectionItem(sketchId, entity)
+        : pointSelectionItem(sketchId, hit.point)
+    }
+    case 'curve':
+      return entitySelectionItem(sketchId, hit.entity)
+    case 'origin':
+      return originSelectionItem(sketchId, hit.part)
+  }
+}
+
+/** The reserved reference of an origin part. */
+export function originReference(part: OriginPart): string {
+  return part === 'point' ? ORIGIN_POINT : part === 'x_axis' ? X_AXIS : Y_AXIS
+}

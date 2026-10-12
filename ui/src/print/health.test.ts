@@ -8,6 +8,7 @@ import {
   hasPrintableBody,
   healthRows,
   locationCenter,
+  missingReport,
 } from './health'
 import {
   CUBE,
@@ -303,5 +304,19 @@ describe('hasPrintableBody', () => {
       expect(hasPrintableBody(stateWith({ document }))).toBe(false)
     }
     expect(hasPrintableBody(stateWith({ document: null }))).toBe(false)
+  })
+})
+
+describe('missingReport', () => {
+  it('is null with a report, also a stale one', () => {
+    const report = printReport([cube({})])
+    expect(
+      missingReport(stateWith({ print: printState({ report, reportRevision: 1 }) })),
+    ).toBeNull()
+  })
+
+  it('is checking while the first analysis runs, and unchecked before', () => {
+    expect(missingReport(stateWith({ print: printState({ running: true }) }))).toBe('checking')
+    expect(missingReport(stateWith({ print: printState() }))).toBe('unchecked')
   })
 })

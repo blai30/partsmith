@@ -114,7 +114,7 @@ As [mirror.md](mirror.md) section 3.1 for `op` and `target`.
 ### 3.3 Build
 
 1. The source body must hold a solid, else `BodyEmpty { use_new: false }`.
-2. For each direction, in order: n = count ≥ 1 (`OutOfRange`, `AtLeast(1)`); s = spacing > 0 (`OutOfRange`, `GreaterThan(0)`); d = the resolved axis direction, negated when `reverse`.
+2. For each direction, in order: n = `ctx.eval_count("direction.count", count, 1)` (`second_direction.count` for the second direction), so a count below 1, fractional or not, is `OutOfRange` (`AtLeast(1)`) (features.md section 3.4); s = spacing > 0 (`OutOfRange`, `GreaterThan(0)`); d = the resolved axis direction, negated when `reverse`.
 3. Total instances N = n1 × n2 (n2 = 1 without a second direction). N > 10000 gives `TooManyInstances { count: N, limit: 10000 }`.
 4. Instances are (i, j) for i in 0..n1 and j in 0..n2; (0, 0) is the original. Each other instance is the source translated by i·s1·d1 + j·s2·d2 (kernel `transform`, index-preserving), named with `source_map.with_instance(<id>, Instance { first: i, second: j })`. Instances are built in order of j, then i. The build checks `ctx.is_canceled()` before each instance and returns `Canceled` when set.
 5. If there are no copies (N = 1), the body (or target) is unchanged and a `NoEffect` warning is added.
@@ -133,7 +133,7 @@ Source faces keep their names. Instance numbers are pattern positions, not kerne
 
 | Condition | Variant | Example message |
 | --- | --- | --- |
-| Count < 1 | `OutOfRange` | `Count must be at least 1, but it is 0. Use 1 or more.` |
+| Count < 1 (fractional included) | `OutOfRange` | `Count must be at least 1, but it is 0. Use 1 or more.` |
 | Count not whole | `NotWholeNumber` | `Count must be a whole number, but it is 2.5. Use 2 or 3.` |
 | Spacing ≤ 0 | `OutOfRange` | `Spacing must be greater than 0 mm, but it is 0 mm. Use a value greater than 0 mm.` |
 | Too many instances | `TooManyInstances` | `This pattern would make 20000 instances; the limit is 10000. Use fewer instances.` |
@@ -168,6 +168,7 @@ Conventions from features.md section 6.1. Bodies `[b-1, b-2]`. Fixtures:
 12. **Too many instances.** `CUBE10`, `LP(DIR(X, "200", "20"), "second_direction": DIR(Y, "100", "20"))`. Expected: error `too_many_instances` rendered `This pattern would make 20000 instances; the limit is 10000. Use fewer instances.`; b-1 unchanged.
 13. **Cancellation.** Build test 3's pattern through `Registry::build` with a `BuildContext` whose `CancelToken` is already canceled. Expected: `Err(Canceled)`.
 14. **Performance.** `CUBE10` with `DIR(X, "100", "20")` builds in under 500 ms (desktop, release).
+15. **Fractional count below 1.** `CUBE10`, `LP(DIR(X, "0.5", "20"))`. Expected: error `out_of_range`, field `direction.count`, rendered `Count must be at least 1, but it is 0.5. Use 1 or more.`, suggestion `1`; b-1 unchanged.
 
 ## Open issues
 

@@ -5,7 +5,8 @@ use std::fs::{self, Permissions};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 
-use partsmith_engine::Asset;
+use partsmith_engine::{Asset, EngineError};
+use partsmith_model::LoadError;
 
 use crate::error::{CliError, UsageError};
 
@@ -48,19 +49,19 @@ impl Input {
         }
     }
 
-    /// The text of the input. Text that is not UTF-8 cannot be read.
+    /// The text of the input. Bytes that are not UTF-8 are a document that does not load.
     pub fn read(&self) -> Result<String, CliError> {
         match self {
             Input::File(path) => read_text(path),
             Input::StandardInput => {
-                let mut text = String::new();
+                let mut bytes = Vec::new();
                 io::stdin()
-                    .read_to_string(&mut text)
+                    .read_to_end(&mut bytes)
                     .map_err(|source| CliError::Read {
                         path: self.name(),
                         source,
                     })?;
-                Ok(text)
+                decode(self.name(), bytes)
             }
         }
     }
@@ -74,9 +75,27 @@ impl Input {
     }
 }
 
-/// The text of a file. Text that is not UTF-8 cannot be read.
+/// The text of a file. Bytes that are not UTF-8 are a document that does not load.
 pub fn read_text(path: &Path) -> Result<String, CliError> {
-    fs::read_to_string(path).map_err(read_error(path))
+    let bytes = fs::read(path).map_err(read_error(path))?;
+    decode(path.display().to_string(), bytes)
+}
+
+/// The bytes of the document named `name` as text. Bytes that are not UTF-8 give the load error
+/// the engine reports for every text the file format rejects (`parse_error`), with the file
+/// format's `NotUtf8` message (file-format.md section 4.1).
+fn decode(name: String, bytes: Vec<u8>) -> Result<String, CliError> {
+    String::from_utf8(bytes).map_err(|error| {
+        let not_utf8 = LoadError::NotUtf8 {
+            offset: error.utf8_error().valid_up_to(),
+        };
+        let error = EngineError::Parse {
+            detail: not_utf8.to_string(),
+            line: None,
+            column: None,
+        };
+        CliError::load(name, &error)
+    })
 }
 
 /// Every regular file in the `assets/` folder next to the document at `document`, whose name is
@@ -181,6 +200,7 @@ fn new_file_permissions() -> Option<Permissions> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::status::Status;
 
     const HASH: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
@@ -294,6 +314,37 @@ mod tests {
                 .starts_with("cannot read \"no/such/file.ptsm\": "),
             "{error}"
         );
+    }
+
+    #[test]
+    fn utf8_bytes_are_text() {
+        assert_eq!(
+            decode("a.ptsm".to_owned(), "{\"name\": \"\u{e9}\"}".into()).ok(),
+            Some("{\"name\": \"\u{e9}\"}".to_owned())
+        );
+    }
+
+    #[test]
+    fn bytes_that_are_not_utf8_are_a_load_error_naming_the_first_bad_byte() {
+        let error = decode("x.ptsm".to_owned(), b"{\xff\xfe}".to_vec()).expect_err("not UTF-8");
+
+        assert_eq!(error.status(), Status::Problems);
+        assert_eq!(
+            error.report_line(),
+            "x.ptsm: error[parse_error]: The file is not a valid Partsmith document: The file is not valid UTF-8 text (the first bad byte is at offset 1). Save it as UTF-8."
+        );
+    }
+
+    #[test]
+    fn reading_a_file_that_is_not_utf8_is_a_load_error() {
+        let directory = tempfile::tempdir().expect("a temporary directory");
+        let path = directory.path().join("x.ptsm");
+        fs::write(&path, b"\xff\xfe{}").expect("written");
+
+        let error = read_text(&path).expect_err("not UTF-8");
+
+        assert!(matches!(error, CliError::Load { .. }), "{error:?}");
+        assert_eq!(error.diagnostic().code, "parse_error");
     }
 
     #[test]

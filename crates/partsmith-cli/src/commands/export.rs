@@ -20,11 +20,8 @@ use crate::output::{JsonDiagnostic, Output};
 use crate::rotation;
 use crate::status::Status;
 
-/// The media type of a Python script.
+/// The media type reported for a Python script, the one Python's own `mimetypes` gives `.py`.
 const PYTHON_MEDIA_TYPE: &str = "text/x-python";
-
-/// The engine-style name of a Python export, like `model.stl` for one STL file.
-const PYTHON_FILE_NAME: &str = "model.py";
 
 /// The export options checked before any file is read.
 #[derive(Debug, Clone, PartialEq)]
@@ -157,30 +154,29 @@ fn export(
     if !arguments.allow_errors {
         refuse_failed_features(session, doc, path)?;
     }
-    let bodies = select_bodies(&session.document(doc)?.bodies, &arguments.body)?;
-    let files = match engine_format(plan.format, arguments) {
-        Some(format) => {
-            let request = ExportRequest {
-                format,
-                bodies,
-                tolerance: tolerance(session, doc, arguments.chord, arguments.angle)?,
-                orientation: plan.orientation.clone(),
-            };
-            let exported = session.export(doc, &request)?;
-            report.warnings = exported.warnings;
-            exported.files
-        }
-        None => vec![ExportedFile {
-            name: PYTHON_FILE_NAME.to_owned(),
-            media_type: PYTHON_MEDIA_TYPE.to_owned(),
-            bytes: session.export_python(doc)?.into_bytes(),
-        }],
+    let Some(format) = engine_format(plan.format, arguments) else {
+        // `--body`, `--per-body` and the mesh options do not apply to Python (checked in `Plan`).
+        let script = session.export_python(doc)?;
+        return write_file(
+            &arguments.output,
+            PYTHON_MEDIA_TYPE.to_owned(),
+            script.as_bytes(),
+            report,
+        );
     };
+    let request = ExportRequest {
+        format,
+        bodies: select_bodies(&session.document(doc)?.bodies, &arguments.body)?,
+        tolerance: tolerance(session, doc, arguments.chord, arguments.angle)?,
+        orientation: plan.orientation.clone(),
+    };
+    let exported = session.export(doc, &request)?;
+    report.warnings = exported.warnings;
     if arguments.per_body {
-        write_into(&arguments.output, files, report)
+        write_into(&arguments.output, exported.files, report)
     } else {
-        let file = single_file(files)?;
-        write_file(&arguments.output, file, report)
+        let file = single_file(exported.files)?;
+        write_file(&arguments.output, file.media_type, &file.bytes, report)
     }
 }
 
@@ -287,22 +283,27 @@ fn write_into(
     })?;
     for file in files {
         let path = directory.join(&file.name);
-        write_file(&path, file, report)?;
+        write_file(&path, file.media_type, &file.bytes, report)?;
     }
     Ok(())
 }
 
-/// Writes one file atomically and records it.
-fn write_file(path: &Path, file: ExportedFile, report: &mut Report) -> Result<(), CliError> {
+/// Writes one file atomically and records it with its media type.
+fn write_file(
+    path: &Path,
+    media_type: String,
+    bytes: &[u8],
+    report: &mut Report,
+) -> Result<(), CliError> {
     let shown = path.display().to_string();
-    write_atomically(path, &file.bytes).map_err(|source| CliError::Write {
+    write_atomically(path, bytes).map_err(|source| CliError::Write {
         path: shown.clone(),
         source,
     })?;
     report.files.push(WrittenFile {
         path: shown,
-        media_type: file.media_type,
-        bytes: file.bytes.len(),
+        media_type,
+        bytes: bytes.len(),
     });
     Ok(())
 }
@@ -623,6 +624,26 @@ mod tests {
         assert_eq!(report.files.len(), 1);
         assert_eq!(report.files[0].bytes, 5);
         assert_eq!(report.files[0].media_type, "model/stl");
+    }
+
+    #[test]
+    fn written_files_are_recorded_with_their_media_type() {
+        let directory = tempfile::tempdir().expect("a temporary directory");
+        let path = directory.path().join("out.py");
+        let mut report = Report::default();
+
+        write_file(
+            &path,
+            PYTHON_MEDIA_TYPE.to_owned(),
+            b"print()\n",
+            &mut report,
+        )
+        .expect("the file is written");
+
+        assert_eq!(fs::read(&path).expect("written"), b"print()\n");
+        assert_eq!(report.files.len(), 1);
+        assert_eq!(report.files[0].media_type, "text/x-python");
+        assert_eq!(report.files[0].bytes, 8);
     }
 
     #[test]

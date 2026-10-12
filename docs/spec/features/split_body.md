@@ -89,7 +89,7 @@ feature(
 
 1. The body must hold a solid, else `BodyEmpty { use_new: false }`.
 2. placement = `ctx.plane("plane", plane)`. The positive side is where (p - origin) · normal > 0. The body keeps the positive side, or the negative side when `flip` is true; the other side goes to `target`.
-3. Kernel `split(shape, plane)`. If either side has no solid with volume above 1e-9 × the body's volume (the plane misses the body or only touches it), fail with `PlaneMissesBody`.
+3. Kernel `split(shape, plane)`. If either side has no solid with volume above `VOLUME_TOLERANCE` (1e-9, features.md section 2.7) × the body's volume (the plane misses the body or only touches it), fail with `PlaneMissesBody`.
 4. If `target` is set it must be empty, else `BodyNotEmpty { body: target }`.
 5. Build one naming map over the whole split result (section 3.4), then give each body the projection of that map onto its solids (naming.md section 3.5.2). Output the body's update (change `Modify`) and, when `target` is set, the target's update (change `New`).
 

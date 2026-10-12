@@ -399,6 +399,20 @@ fn project(mut report: Value) -> Value {
     report
 }
 
+/// Why the JSON printed by `partsmith rebuild --checks --json` is not a rebuild report: the
+/// failure document `{"path", "error"}` of a file that could not be rebuilt (cli spec section 3.3),
+/// which also exits with 1, or a document without a `features` array. `None` for a report.
+fn rebuild_failure(report: &Value) -> Option<String> {
+    if let Some(error) = report.get("error") {
+        let text = |key: &str| error.get(key).and_then(Value::as_str).unwrap_or("?");
+        return Some(format!("error[{}]: {}", text("code"), text("message")));
+    }
+    if !report.get("features").is_some_and(Value::is_array) {
+        return Some("the report has no features array".to_owned());
+    }
+    None
+}
+
 /// Whether an example with this (projected) report qualifies for a Python twin: no `import`
 /// feature and no feature with status `error` (delivery spec section 2.8).
 fn qualifies_for_twin(report: &Value) -> bool {
@@ -567,7 +581,7 @@ fn check_example(
         return;
     }
     let report = match serde_json::from_slice::<Value>(&output.stdout) {
-        Ok(report) => project(report),
+        Ok(report) => report,
         Err(error) => {
             problems.add(
                 &model,
@@ -576,6 +590,15 @@ fn check_example(
             return;
         }
     };
+    // A file that could not be rebuilt is never compared with, or blessed as, expected results.
+    if let Some(failure) = rebuild_failure(&report) {
+        problems.add(
+            &model,
+            format!("{model}: partsmith rebuild failed: {failure}"),
+        );
+        return;
+    }
+    let report = project(report);
     check_twin(example, &report, bless, problems);
     check_expected(example, &report, bless, problems);
 }
@@ -714,6 +737,34 @@ fn examples_rebuild_as_expected() {
         check_example(example, rebuild, bless, &mut problems);
     }
     problems.assert_none();
+}
+
+#[test]
+fn failure_documents_are_rebuild_failures() {
+    let report = literal(
+        r#"{"path": "examples/box/default.ptsm", "error": {"severity": "error", "code": "body_empty", "message": "Body \"Block\" has no geometry."}}"#,
+    );
+
+    assert_eq!(
+        rebuild_failure(&report).as_deref(),
+        Some("error[body_empty]: Body \"Block\" has no geometry.")
+    );
+}
+
+#[test]
+fn documents_without_features_are_rebuild_failures() {
+    let report = literal(r#"{"path": "a.ptsm", "printer": "generic-fdm"}"#);
+
+    assert!(rebuild_failure(&report).is_some());
+}
+
+#[test]
+fn rebuild_reports_are_not_failures() {
+    let report = literal(
+        r#"{"path": "a.ptsm", "printer": "generic-fdm", "features": [], "parameters": [], "bodies": []}"#,
+    );
+
+    assert_eq!(rebuild_failure(&report), None);
 }
 
 #[test]

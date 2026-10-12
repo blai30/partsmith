@@ -10,11 +10,12 @@ use partsmith_sketch::{ORIGIN, Placement, PointRef, PointRole, Profile, SolveRes
 use crate::context::BuildContext;
 use crate::error::FeatureError;
 use crate::error::FeatureWarning;
-use crate::naming::{kernel, name_by_history};
+use crate::naming::name_by_history;
 use crate::params::BodyOp;
 
-/// Relative volume change at or below which a boolean leaves the body unchanged (section 3.5).
-const VOLUME_TOLERANCE: f64 = 1e-9;
+/// Relative volume tolerance of the body rules (section 3.5): a volume change, or a remaining
+/// volume, of at most `VOLUME_TOLERANCE` times the body's volume counts as none.
+pub const VOLUME_TOLERANCE: f64 = 1e-9;
 
 /// A kernel boolean of a target with every tool (`fuse`, `cut` or `common`).
 type KernelBoolean = fn(&Shape, &[Shape]) -> Result<OpResult, KernelError>;
@@ -119,9 +120,9 @@ pub struct Tool {
 }
 
 /// Applies `op` with `tools` to `body` with the shared body semantics (section 3.5). At least one tool.
-/// New with several tools fuses them (kernel `fuse(tools[0], rest)`). Join and Cut pass every tool to one kernel
-/// `fuse` or `cut` call. Intersect takes exactly one tool. No tool, or several with Intersect, is a bug in the
-/// feature and returns `Internal`. Returns the update and any NoEffect warning.
+/// New with several tools fuses them (kernel `fuse(tools[0], rest)`). Join, Cut and Intersect pass every tool to one
+/// kernel `fuse`, `cut` or `common` call; Intersect keeps what lies inside the body and every tool. No tool is a bug
+/// in the feature and returns `Internal`. Returns the update and any NoEffect warning.
 pub fn apply_op(
     context: &BuildContext<'_>,
     body: &Id,
@@ -130,11 +131,6 @@ pub fn apply_op(
 ) -> Result<(BodyUpdate, Vec<FeatureWarning>), FeatureError> {
     if tools.is_empty() {
         return Err(FeatureError::internal("apply_op needs at least one tool"));
-    }
-    if op == BodyOp::Intersect && tools.len() > 1 {
-        return Err(FeatureError::internal(
-            "apply_op intersects with exactly one tool",
-        ));
     }
     let state = context.body(body)?;
     let update = |shape: Shape, naming: Arc<NamingMap>, change: BodyChange| BodyUpdate {
@@ -165,9 +161,9 @@ pub fn apply_op(
         return Err(FeatureError::Canceled);
     }
     let tool_shapes: Vec<Shape> = tools.iter().map(|tool| tool.shape.clone()).collect();
-    let result = boolean(target, &tool_shapes).map_err(kernel)?;
-    let before = target.volume().map_err(kernel)?;
-    let after = result.shape.volume().map_err(kernel)?;
+    let result = boolean(target, &tool_shapes)?;
+    let before = target.volume()?;
+    let after = result.shape.volume()?;
     let nothing_left =
         result.shape.count(SubShapeKind::Solid) == 0 || after <= VOLUME_TOLERANCE * before;
     if op != BodyOp::Join && nothing_left {
@@ -202,7 +198,7 @@ fn combine_tools(
         return Err(FeatureError::Canceled);
     }
     let shapes: Vec<Shape> = tools.iter().map(|tool| tool.shape.clone()).collect();
-    let result = fuse(&shapes[0], &shapes[1..]).map_err(kernel)?;
+    let result = fuse(&shapes[0], &shapes[1..])?;
     let inputs: Vec<&NamingMap> = tools.iter().map(|tool| &tool.naming).collect();
     let naming = name_by_history(context.feature(), &result, &inputs)?;
     Ok((result.shape, naming))

@@ -188,13 +188,13 @@ impl PlacementExt for Placement {
     }
 }
 
-/// The kernel point of world coordinates.
-pub(crate) fn point([x, y, z]: [f64; 3]) -> Point {
+/// The kernel point at world coordinates `[x, y, z]`.
+pub fn point([x, y, z]: [f64; 3]) -> Point {
     Point::new(x, y, z)
 }
 
-/// The kernel vector of world components.
-pub(crate) fn vector([x, y, z]: [f64; 3]) -> Vector {
+/// The kernel vector with world components `[x, y, z]`.
+pub fn vector([x, y, z]: [f64; 3]) -> Vector {
     Vector::new(x, y, z)
 }
 
@@ -316,5 +316,15 @@ mod tests {
         assert_eq!(OriginPlane::Xy.placement().to_kernel(), Plane::XY);
         assert_eq!(OriginPlane::Xz.placement().to_kernel(), Plane::XZ);
         assert_eq!(OriginPlane::Yz.placement().to_kernel(), Plane::YZ);
+    }
+
+    #[test]
+    fn points_take_coordinates_in_x_y_z_order() {
+        assert_eq!(point([1.0, -2.0, 3.5]), Point::new(1.0, -2.0, 3.5));
+    }
+
+    #[test]
+    fn vectors_take_components_in_x_y_z_order() {
+        assert_eq!(vector([0.0, 0.5, -1.0]), Vector::new(0.0, 0.5, -1.0));
     }
 }

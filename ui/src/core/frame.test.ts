@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { decodeFrame, encodeFrame, FrameDecodeError } from './frame'
+import { decodeFrame, encodeFrame, FrameDecodeError, ProtocolVersionError } from './frame'
 
 // Example frames A and B of protocol.md 2.2, byte for byte as the spec's hex dumps list them.
 const EXAMPLE_A_HEX = `
@@ -244,5 +244,20 @@ describe('protocol test 56: decodeFrame throws FrameDecodeError for malformed fr
     const longerA = new Uint8Array(128)
     longerA.set(exampleA())
     expect(decodeError(longerA)).toBeInstanceOf(FrameDecodeError)
+  })
+})
+
+describe('a frame of another protocol version', () => {
+  it('throws ProtocolVersionError, a FrameDecodeError carrying the version found', () => {
+    // Example A re-encoded with protocol_version 2: the header stays 107 bytes long.
+    const header = new TextDecoder()
+      .decode(exampleA().slice(8, 8 + 107))
+      .replace('"protocol_version":1', '"protocol_version":2')
+    const bytes = exampleA()
+    bytes.set(new TextEncoder().encode(header), 8)
+    const error = decodeError(bytes)
+    expect(error).toBeInstanceOf(FrameDecodeError)
+    expect(error).toBeInstanceOf(ProtocolVersionError)
+    expect(error instanceof ProtocolVersionError ? error.found : null).toBe(2)
   })
 })

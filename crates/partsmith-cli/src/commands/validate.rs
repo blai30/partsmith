@@ -66,13 +66,22 @@ pub fn run(
     Ok(status)
 }
 
-/// Reads one input with its assets and validates it.
+/// Reads one input with its assets and validates it. Bytes that are not UTF-8 are a document that
+/// does not load, so their load diagnostic is the whole report, as for any other load error.
 fn check(
     session: &mut Session,
     input: &Input,
     options: ValidateOptions,
 ) -> Result<ValidationReport, CliError> {
-    let text = input.read()?;
+    let text = match input.read() {
+        Ok(text) => text,
+        Err(CliError::Load { diagnostic, .. }) => {
+            return Ok(ValidationReport {
+                diagnostics: vec![diagnostic],
+            });
+        }
+        Err(error) => return Err(error),
+    };
     let assets = input.assets()?;
     Ok(session.validate(&text, &assets, options))
 }
@@ -229,6 +238,28 @@ mod tests {
         assert!(!entry.ok);
         assert_eq!(entry.diagnostics.len(), 1);
         assert_eq!(entry.diagnostics[0].code, "io_error");
+    }
+
+    #[test]
+    fn files_that_are_not_utf8_report_a_parse_error() {
+        let mut session = Session::new(partsmith_engine::SessionOptions::headless());
+        let directory = tempfile::tempdir().expect("a temporary directory");
+        let path = directory.path().join("x.ptsm");
+        std::fs::write(&path, b"\xff\xfe{}").expect("written");
+
+        let report = check(&mut session, &Input::File(path), ValidateOptions::default())
+            .expect("the file is read");
+
+        assert_eq!(report.diagnostics.len(), 1);
+        assert_eq!(report.diagnostics[0].code, "parse_error");
+        assert!(
+            report.diagnostics[0]
+                .message
+                .contains("The file is not valid UTF-8 text (the first bad byte is at offset 0)."),
+            "{}",
+            report.diagnostics[0].message
+        );
+        assert_eq!(report_status(&report, false), Status::Problems);
     }
 
     #[test]

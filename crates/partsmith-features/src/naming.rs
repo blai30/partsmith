@@ -15,10 +15,10 @@ use crate::error::FeatureError;
 /// Topology and fingerprints of every face, edge and vertex of `shape`, in the form
 /// `NamingMap::build` and `NamingMap::element_infos` take (naming.md section 3.7).
 pub fn topology_info(shape: &Shape) -> Result<TopologyInfo, FeatureError> {
-    let topology = shape.topology().map_err(kernel)?;
-    let faces = shape.elements(SubShapeKind::Face).map_err(kernel)?;
-    let edges = shape.elements(SubShapeKind::Edge).map_err(kernel)?;
-    let vertices = shape.elements(SubShapeKind::Vertex).map_err(kernel)?;
+    let topology = shape.topology()?;
+    let faces = shape.elements(SubShapeKind::Face)?;
+    let edges = shape.elements(SubShapeKind::Edge)?;
+    let vertices = shape.elements(SubShapeKind::Vertex)?;
     if faces.len() != topology.faces.len()
         || edges.len() != topology.edges.len()
         || vertices.len() != topology.vertices.len()
@@ -150,9 +150,10 @@ pub(crate) fn sub_shape_kind(kind: ElementKind) -> SubShapeKind {
     }
 }
 
-/// A kernel failure as a feature error.
+/// A kernel failure as a feature error, for `map_err` in built-in files that predate
+/// `From<KernelError> for FeatureError`; new code uses `?` or `FeatureError::from`.
 pub(crate) fn kernel(error: partsmith_occt_sys::KernelError) -> FeatureError {
-    FeatureError::Kernel { error }
+    FeatureError::from(error)
 }
 
 /// A naming failure, which valid kernel output cannot cause, as an internal error.

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { PROTOCOL_VERSION, type Request } from '../generated/protocol'
 import { readRequest, readResponse, requestFrame, responseFrame } from '../test/fakes/protocol'
 import { settle } from '../test/fakes/settle'
+import { encodeFrame, errorResponseFrame } from './frame'
 import { createTauriTransport, type TauriGlobal } from './tauri-transport'
 import { CoreFatalError } from './transport'
 
@@ -105,6 +106,50 @@ describe('createTauriTransport', () => {
     expect(error).toBeInstanceOf(CoreFatalError)
     expect(error instanceof Error ? error.message : '').toBe(
       'This app and its core speak different protocol versions. Reinstall Partsmith.',
+    )
+  })
+
+  it('U-6 a core answering in a frame of another protocol version rejects start() with the reinstall message', async () => {
+    const newer = PROTOCOL_VERSION + 1
+    const frame = encodeFrame(
+      {
+        protocol_version: newer,
+        messages: [
+          {
+            kind: 'response',
+            id: 0,
+            result: {
+              kind: 'ok',
+              type: 'engine_info',
+              protocol_version: newer,
+              engine_version: '0.2.0',
+              format_version: 1,
+              kernel: 'OCCT 7.9.3',
+            },
+          },
+        ],
+      },
+      [],
+    )
+    const transport = createTauriTransport({ core: { invoke: () => Promise.resolve(frame) } })
+    await expect(transport.start()).rejects.toThrow(
+      new CoreFatalError(
+        'This app and its core speak different protocol versions. Reinstall Partsmith.',
+      ),
+    )
+  })
+
+  it('U-6 a core refusing the request with protocol_version_mismatch rejects start() with the reinstall message', async () => {
+    const frame = errorResponseFrame(
+      0,
+      'protocol_version_mismatch',
+      'The frame uses protocol version 1, but this engine speaks version 2. Reload the app.',
+    )
+    const transport = createTauriTransport({ core: { invoke: () => Promise.resolve(frame) } })
+    await expect(transport.start()).rejects.toThrow(
+      new CoreFatalError(
+        'This app and its core speak different protocol versions. Reinstall Partsmith.',
+      ),
     )
   })
 
