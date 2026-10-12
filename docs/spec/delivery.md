@@ -107,8 +107,8 @@ Triggers `push` to `main` and `pull_request`; `concurrency` `ci-${{ github.ref }
 | `deny` | | `cargo-deny` with `deny.toml` (unchanged action; the policy now covers the Tauri tree, 3.2). |
 | `ui` | | In `ui/`: `pnpm install --frozen-lockfile`, `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm test:scripts`. |
 | `schema` | `occt-native` | `cargo run -p partsmith-cli -- schema --write`, `pnpm -C ui install --frozen-lockfile`, `pnpm -C ui generate:protocol`, then the drift check of 3.4. |
-| `core-wasm` | `occt-native`, `occt-wasm` | Restores both OCCT caches, sets up Emscripten 4.0.15, runs `scripts/build-wasm.sh` with `OCCT_ROOT_WASM32_UNKNOWN_EMSCRIPTEN=$GITHUB_WORKSPACE/.occt/wasm`, then `cargo test -p partsmith-wasm --test web_module` (the Node round trip against the module just built), and uploads `ui/public/core/` as the artifact `core-wasm` (retention 7 days, `if-no-files-found: error`). |
-| `web` | `core-wasm` | Downloads `core-wasm` into `ui/public/core/`, then in `ui/`: `pnpm install --frozen-lockfile`, `pnpm build`, `pnpm check:dist`; uploads `ui/dist/` as the artifact `web-dist` (retention 7 days). |
+| `core-wasm` | `occt-native`, `occt-wasm` | Restores both OCCT caches, sets up Emscripten 4.0.15, runs `scripts/build-wasm.sh` with `OCCT_ROOT_WASM32_UNKNOWN_EMSCRIPTEN=$GITHUB_WORKSPACE/.occt/wasm`, then `cargo test -p partsmith-wasm --test web_module` (the Node round trip against the module just built) with `PARTSMITH_REQUIRE_WEB_MODULE=1`, so the test fails instead of skipping when Node or the module is missing, and uploads `ui/public/core/` as the artifact `core-wasm` (retention 7 days, `if-no-files-found: error`). |
+| `web` | `core-wasm` | Downloads `core-wasm` into `ui/public/core/`, then in `ui/`: `pnpm install --frozen-lockfile`, `pnpm build`, `pnpm check:dist`, then checks that `dist/core/partsmith_core.wasm` and `dist/core/partsmith_core.mjs` exist (`check:dist` does not look for the core); uploads `ui/dist/` as the artifact `web-dist` (retention 7 days, `if-no-files-found: error`). |
 | `e2e` | `core-wasm` | Downloads `core-wasm` into `ui/public/core/`, then in `ui/`: `pnpm install --frozen-lockfile`, `pnpm exec playwright install --with-deps chromium`, `pnpm e2e`. On failure uploads `ui/playwright-report/` and `ui/test-results/` as the artifact `playwright-report`. |
 | `python` | `occt-native` | Python 3.12, a virtual environment, `pip install maturin==1.15.0 pytest==9.1.1`, `maturin develop --release` in `python/`, `pytest python/tests`. |
 | `desktop` | `occt-native` | The Tauri Linux packages, `pnpm -C ui install --frozen-lockfile`, `pnpm -C ui build` (no WebAssembly core: the desktop app does not load it), `tauri-cli` from the cache or `cargo install`, `cargo tauri build --bundles deb` in `desktop/src-tauri`, then the package check of section 6, test 12. |
@@ -168,9 +168,9 @@ Triggers: `push` of tags matching `v[0-9]+.[0-9]+.[0-9]+`, and `workflow_dispatc
 
 | Job | Needs | Runs on | What it runs |
 | --- | --- | --- | --- |
-| `verify` | | `ubuntu-24.04` | For a tag only (`permissions: contents: read, actions: read`): the tag without `v` equals the version of `partsmith-desktop` (`cargo metadata --no-deps --format-version 1`) and `ui/package.json`; and `gh run list --workflow ci.yml --commit "$GITHUB_SHA" --status success --limit 1 --json databaseId --jq length` prints `1`. |
-| `bundle` | `verify` | matrix of 3.6 | OCCT native from its cache or built, the UI build, `tauri-cli`, `cargo tauri build --bundles <matrix bundles>`, and uploads the bundles as the artifact `bundle-<runner.os>`. `fail-fast: false`. |
-| `draft` | `bundle` | `ubuntu-24.04` | For a tag only (`permissions: contents: write`): downloads every `bundle-*` artifact into `release/`, writes `release/SHA256SUMS` (`sha256sum` of each file, sorted by name), and runs `gh release create "$GITHUB_REF_NAME" --draft --verify-tag --title "Partsmith $VERSION" --generate-notes release/*`. |
+| `verify` | | `ubuntu-24.04` | For a tag only (`permissions: contents: read, actions: read`), with `shell: bash`, whose `pipefail` makes a failing `cargo metadata` fail the step instead of reading as an empty version: the tag without `v` is compared separately with the version of `partsmith-desktop` (`cargo metadata --no-deps --format-version 1`) and with the version of `ui/package.json`, and each wrong version is reported once with the message of section 4 (a wrong version both files share gives one message); and `gh run list --workflow ci.yml --commit "$GITHUB_SHA" --status success --limit 1 --json databaseId --jq length` prints `1`. |
+| `bundle` | `verify` | matrix of 3.6 | OCCT native from its cache or built, the UI build, `tauri-cli`, `cargo tauri build --bundles <matrix bundles>`, copies the bundle files into one flat `bundles/` folder, and uploads it as the artifact `bundle-<runner.os>` (3.6, step 6). `fail-fast: false`. |
+| `draft` | `bundle` | `ubuntu-24.04` | For a tag only (`permissions: contents: write`): downloads every `bundle-*` artifact into `release/` (merged, so `release/` holds the flat bundle files), writes `release/SHA256SUMS` (`sha256sum` of each file, sorted by name), and runs `gh release create "$GITHUB_REF_NAME" --draft --verify-tag --title "Partsmith $VERSION" --generate-notes release/*`. |
 
 ### 2.6 Distribution check (`ui/scripts/check-dist.mjs`)
 
@@ -264,7 +264,7 @@ A twin may be the generated script or a hand-edited, more readable one, as long 
 | pnpm store | `actions/setup-node` `cache: pnpm` on `ui/pnpm-lock.yaml` | pnpm store |
 | `tauri-cli` | `tauri-cli-2.12.2-${{ runner.os }}-${{ runner.arch }}` | `~/.cargo/bin/cargo-tauri` (`cargo-tauri.exe` on Windows) |
 
-Tag-triggered release runs restore caches saved on `main`. The Tauri Linux packages, installed with `sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libxdo-dev libssl-dev librsvg2-dev` in `rust`, `desktop` and the Linux `bundle` job, are Tauri's documented prerequisites without the tray library (the app has no tray icon). The `rust` job needs them because `partsmith-desktop` is a workspace member.
+Tag-triggered release runs restore caches saved on `main`; a run's own caches are scoped to its ref, so no later tag restores what a tag run saves, and GitHub drops caches unused for 7 days. CI runs only on Linux, so it saves only the Linux caches on `main`. The Windows and macOS caches reach `main` through a release dry run (`workflow_dispatch`) started from `main` before each tag. The `bundle` job's `Swatinem/rust-cache` uses `save-if: ${{ github.ref == 'refs/heads/main' }}`, so only that dry run saves its Rust cache. The Tauri Linux packages, installed with `sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libxdo-dev libssl-dev librsvg2-dev` in `rust`, `desktop` and the Linux `bundle` job, are Tauri's documented prerequisites without the tray library (the app has no tray icon). The `rust` job needs them because `partsmith-desktop` is a workspace member.
 
 `deny.toml` keeps its license allow list: every license in the Tauri dependency tree is already allowed (ADR 0014). Two RustSec advisories apply to the Linux GTK3 stack Tauri uses, RUSTSEC-2024-0429 (`glib` 0.18, unsound `VariantStrIter`) and RUSTSEC-2024-0370 (`proc-macro-error`, unmaintained, a build-time dependency of the gtk-rs 0.18 macros); `deny.toml` lists both in `[advisories] ignore` with that reason and a note to remove them when Tauri moves past gtk-rs 0.18 (section 8).
 
@@ -287,7 +287,10 @@ Cloudflare Pages serves files of at most 25 MiB each (technical design section 4
 **Measured sizes (2026-10-12).**
 
 - `ui/dist` without the core (the latest local build): `assets/index-*.js.map` 1,045,216 bytes, `assets/index-*.js` 219,690 bytes, `assets/index-*.css` 4,356 bytes, `index.html` 467 bytes, `_headers` 90 bytes.
-- The WebAssembly core: `partsmith-wasm` does not link the engine yet, so the shipped module cannot be measured. As a lower bound, the kernel's own test binaries were linked for `wasm32-unknown-emscripten` with the `wasm-release` profile (`opt-level = "s"`, fat LTO). Before Binaryen's `wasm-opt`, the kernel unit-test module is 28,560,722 bytes (27.2 MiB; 7,130,367 bytes with `gzip -9`), and the `determinism_and_concurrency`, `exchange` and `blends` test modules are 28,070,427, 27,156,048 and 26,325,678 bytes. `wasm-opt` failed on these modules in this measurement because the local OCCT WebAssembly install predated the `OCC_CONVERT_SIGNALS` fix of ADR 0003 (the failing function was `ShapeUpgrade_ShapeDivide::Perform`); CI builds OCCT from the current script, so its sizes after `wasm-opt` are the first real numbers. The kernel alone is therefore already near the limit, and the full core adds the engine, features, solver, naming, print and I/O code.
+- The WebAssembly core: `ui/public/core/partsmith_core.wasm`, linked with the engine by `scripts/build-wasm.sh` (`wasm-release` profile: `opt-level = "s"`, fat LTO), is 18,050,908 bytes (17.2 MiB), about 7.8 MiB under the 25 MiB limit.
+- The kernel alone: the largest kernel test module (the `partsmith-occt-sys` unit tests, which reach the whole facade), built with the same profile, is 14.08 MiB, 13.5 MiB after `wasm-opt -Oz`, 4.9 MiB gzip and 3.6 MiB brotli (ADR 0017).
+
+At these sizes the core fits in one module: splitting it into lazily loaded modules is not needed now, and R2 is a fallback only (ADR 0017).
 
 **The plan when the gate fails**, in order; each step is a decision recorded in an ADR with human review, not something CI does on its own:
 
@@ -307,12 +310,12 @@ Matrix of the `bundle` job (desktop.md 3.8):
 
 Steps per runner, all with `shell: bash` (Git Bash on Windows):
 
-1. Checkout. Linux: the Tauri packages and `ninja-build`. Windows: `ilammy/msvc-dev-cmd@v1.13.0` (MSVC, CMake and Ninja from Visual Studio on `PATH`). macOS: `brew install ninja`.
+1. Checkout. Linux: the Tauri packages and `ninja-build`. Windows: `ilammy/msvc-dev-cmd@v1.13.0` (MSVC, CMake and Ninja from Visual Studio on `PATH`), then a step that writes `CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER` (the `link.exe` next to `cl.exe`, the one CMake uses for OCCT) to `$GITHUB_ENV`, because Git Bash puts GNU `link` first on `PATH` and rustc takes the first `link.exe` when `VCINSTALLDIR` is set. macOS: `brew install ninja`.
 2. OCCT native: `actions/cache@v6.1.0` with the key of 3.2; on a miss, `scripts/build-occt.sh native "$OCCT_ROOT"` with `OCCT_JOBS: 4` in the environment (so the script does not need `nproc`, which macOS lacks). On macOS the job sets `MACOSX_DEPLOYMENT_TARGET: "13.0"` for OCCT, Rust and the bundle (desktop.md 2.8).
-3. Rust toolchain and `Swatinem/rust-cache@v2.9.2`; pnpm and Node 22; `pnpm -C ui install --frozen-lockfile`; `pnpm -C ui build`.
+3. Rust toolchain and `Swatinem/rust-cache@v2.9.2` with `save-if: ${{ github.ref == 'refs/heads/main' }}`, so only a dry run from `main` saves the Rust cache, where every tag run can restore it (3.2); pnpm and Node 22; `pnpm -C ui install --frozen-lockfile`; `pnpm -C ui build`.
 4. `tauri-cli` from its cache, else `cargo install tauri-cli --version 2.12.2 --locked`.
 5. `cargo tauri build --bundles <bundles> --ci` in `desktop/src-tauri`.
-6. Upload the files of the table as `bundle-<runner.os>` (`if-no-files-found: error`).
+6. Copy the files of the table into one flat `bundles/` folder (each pattern expands unquoted, so a pattern that matches nothing fails the copy), and upload `bundles/` as `bundle-<runner.os>` (`if-no-files-found: error`). Flat assets let `draft` run `gh release create` on `release/*` and write `SHA256SUMS` over plain file names.
 
 `draft` then creates the draft release with every bundle and `SHA256SUMS`. A human downloads and tries the bundles, edits the notes, and publishes the release (technical design section 17: "a human approves each tagged version before it is published"). Nothing is signed: Windows SmartScreen warns and macOS needs the user's approval in System Settings, which the release notes state.
 
@@ -374,8 +377,8 @@ Each job's checks are its acceptance tests; they pass on every pull request and 
 4. `deny`: `cargo deny check` passes with `deny.toml`.
 5. `ui`: `pnpm lint`, `pnpm typecheck`, `pnpm test` and `pnpm test:scripts` pass.
 6. `schema`: after regeneration, `git status --porcelain -- docs/format ui/src/generated` prints nothing.
-7. `core-wasm`: `scripts/build-wasm.sh` exits 0 and writes `ui/public/core/partsmith_core.mjs` and `partsmith_core.wasm`; `cargo test -p partsmith-wasm --test web_module` passes without skipping.
-8. `web`: `pnpm build` and `pnpm check:dist` exit 0; `ui/dist/core/partsmith_core.wasm` and `ui/dist/_headers` exist.
+7. `core-wasm`: `scripts/build-wasm.sh` exits 0 and writes `ui/public/core/partsmith_core.mjs` and `partsmith_core.wasm`; `cargo test -p partsmith-wasm --test web_module` passes without skipping (`PARTSMITH_REQUIRE_WEB_MODULE=1` turns a skip into a failure).
+8. `web`: `pnpm build` and `pnpm check:dist` exit 0; `ui/dist/_headers` exists (checked by `check:dist`), and `ui/dist/core/partsmith_core.wasm` and `ui/dist/core/partsmith_core.mjs` exist (checked by the job after `check:dist`).
 9. `e2e`: `pnpm e2e` passes against the real core (ui.md 6.5).
 10. `python`: `maturin develop --release` succeeds and `pytest python/tests` passes, including `test_examples.py`.
 11. `deploy`: with secrets, the Wrangler step succeeds and the job summary contains a `pages.dev` URL; on a fork pull request, the job succeeds and its log contains the "Deploy skipped" notice.
@@ -383,6 +386,8 @@ Each job's checks are its acceptance tests; they pass on every pull request and 
 13. `release.yml` dry run (`workflow_dispatch`): the three `bundle` jobs upload `bundle-Linux` (a `.deb`, an `.rpm` and an `.AppImage`), `bundle-Windows` (one `-setup.exe`) and `bundle-macOS` (one `.dmg`); `verify` and `draft` are skipped. On a tag, `draft` creates a draft release holding those files and `SHA256SUMS`, whose lines verify with `sha256sum -c`.
 
 **Distribution check (`ui/scripts/check-dist.test.mjs`, `node:test`, temporary directories)**
+
+Run by `pnpm test:scripts` in `ui/`. `node --test` takes files or glob patterns, not a folder, so the script passes the quoted glob `"scripts/**/*.test.mjs"`.
 
 14. `PAGES_FILE_LIMIT` is 26214400 and `EXPECTED_HEADERS` equals the bytes of `ui/public/_headers`.
 15. `oversizedFiles` of a directory with a 10-byte file and a sparse file of exactly 26,214,400 bytes returns `[]`.
@@ -403,8 +408,8 @@ Each job's checks are its acceptance tests; they pass on every pull request and 
 ## 7. Open issues
 
 1. **OCCT on Windows and macOS.** `scripts/build-occt.sh` and `partsmith-occt-sys` have been built only on Linux and Emscripten. The release dry run is the first MSVC and Apple Clang build; it may need script changes beyond `INSTALL_DIR_LAYOUT` (3.6), which this spec lists but does not prove.
-2. **Core size.** The first real core measurement comes from the `core-wasm` job once `partsmith-wasm` links the engine. If it exceeds the limit, the `web` job fails and the plan of 3.5 starts with an ADR.
-3. **Local OCCT installs.** The measurement in 3.5 showed that a local OCCT WebAssembly install built before ADR 0003's flag fix makes optimized links fail in `wasm-opt`. CI's cache key includes the script hash, so CI rebuilds; developers must rebuild local installs after the script changes.
+2. **Core size.** The linked core is 17.2 MiB, about 7.8 MiB under the limit (3.5), so splitting it into lazily loaded modules is not needed now. If it grows past the limit, the `web` job fails, ADR 0017 is revisited, and the plan of 3.5 starts with an ADR; R2 (step 3) is a fallback only, for a file the first two steps cannot bring under the limit.
+3. **Local OCCT installs.** A local OCCT WebAssembly install built before the `OCC_CONVERT_SIGNALS` fix of ADR 0003 makes optimized links fail in `wasm-opt` (in `ShapeUpgrade_ShapeDivide::Perform`). CI's cache key includes the script hash, so CI rebuilds; developers must rebuild local installs after the script changes.
 4. **Examples and debug builds.** The runner uses the debug CLI binary inside `cargo test --workspace`. If the corpus grows past the 3-minute budget, it moves to its own job with `--release`.
 5. **Import examples.** The three `examples/import/` examples reference the placeholder asset name of features/import.md (64 zeros), which the feature tests supply at run time. Through the CLI they have no asset, so they rebuild with `asset_missing` errors (recorded in their expected results) and have no Python twin. An example that imports a real STEP file needs an `examples/import/assets/<hash>.step` and a new example name.
 6. **Source maps.** `vite.config.ts` emits source maps, which deploy with the app (about 1 MB today). That is fine for an open-source app and helps bug reports; dropping them from production is a one-line change if wanted.
@@ -415,7 +420,7 @@ Each job's checks are its acceptance tests; they pass on every pull request and 
 - **Cloudflare setup** (one time): create the Pages project with production branch `main`, create an API token with only "Account, Cloudflare Pages, Edit", add `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` as repository secrets, and optionally `CLOUDFLARE_PAGES_PROJECT`. Decide whether the account belongs to a person or a project organization (technical design section 19).
 - **Branch protection** on `main` requiring the CI jobs of 2.4.
 - **`deny.toml` advisory exceptions** RUSTSEC-2024-0429 and RUSTSEC-2024-0370 for Tauri's GTK3 stack (3.2), a change to the dependency policy.
-- **Release policy**: tags `vX.Y.Z` on commits with green CI, draft releases published by a human, unsigned bundles until signing is set up, macOS arm64 only.
+- **Release policy**: tags `vX.Y.Z` on commits with green CI, a dry run from `main` before each tag, draft releases published by a human, unsigned bundles until signing is set up, macOS arm64 only.
 - **Build tools pinned here** (`tauri-cli` 2.12.2, Wrangler 4.149.0, maturin 1.15.0, pytest 9.1.1) and the new actions (`upload-artifact`, `download-artifact`, `setup-python`, `wrangler-action`, `msvc-dev-cmd`).
 - **Examples rules**: the expected-results format and the 1e-6 tolerance, and the bless workflow.
 - **The 25 MiB plan** (3.5): each step's ADR when the gate first fails.
