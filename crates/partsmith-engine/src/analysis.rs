@@ -201,7 +201,7 @@ pub(crate) fn bed_transforms(
             })
         })
         .collect();
-    let union = bounds.iter().flatten().fold(None, |union, &(low, high)| {
+    let union = bounds.iter().flatten().fold(None::<Bounds>, |union, &(low, high)| {
         Some(match union {
             None => (low, high),
             Some((union_low, union_high)) => (
