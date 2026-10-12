@@ -8,11 +8,13 @@ import { Button } from '../components/Button'
 import { ExpressionInput } from '../expression/ExpressionInput'
 import { formatNumber } from '../expression/format'
 import { MESSAGES } from '../messages'
+import { markTiming, TIMING_NAMES } from '../performance/marks'
+import { focusedFindingPoint } from '../print/health'
 import type { AppState, SectionState, ViewState } from '../state/store'
 import { COLOR_CLASSES } from '../theme/roles'
 import { createWebGl2Backend } from './backend'
-import { orbit } from './camera'
-import { createViewportController, type ViewportController } from './controller'
+import { orbit, type Vector3 } from './camera'
+import { createViewportController, type RenderedFrame, type ViewportController } from './controller'
 import { keyNavigation } from './navigation'
 import { orientElement } from './overlay'
 import { isSessionVisible, planeExtent, createScene, type Scene } from './scene'
@@ -204,6 +206,37 @@ function SectionOffset({ scene }: { readonly scene: Scene }) {
   )
 }
 
+/** The finding marker's radius in CSS pixels: a ring 16 pixels across (3.17). */
+const FINDING_MARKER_RADIUS = 8
+
+/** Apps whose first usable frame has been marked as `ps:usable`. */
+const usableMarked = new WeakSet<App>()
+
+/** Moves the finding marker over its point, or hides it behind the eye or off the canvas (3.12). */
+function placeFindingMarker(
+  marker: SVGCircleElement | null,
+  point: Vector3 | null,
+  frame: RenderedFrame,
+): void {
+  if (marker === null) {
+    return
+  }
+  const position = point === null ? null : frame.project(point)
+  const inside =
+    position !== null &&
+    position.x >= 0 &&
+    position.y >= 0 &&
+    position.x <= frame.size.width &&
+    position.y <= frame.size.height
+  if (!inside) {
+    marker.setAttribute('display', 'none')
+    return
+  }
+  marker.setAttribute('cx', String(position.x))
+  marker.setAttribute('cy', String(position.y))
+  marker.removeAttribute('display')
+}
+
 export function Viewport({ children }: ViewportProps) {
   const app = useApp()
   const canvas = useRef<HTMLCanvasElement>(null)
@@ -222,6 +255,9 @@ export function Viewport({ children }: ViewportProps) {
   const hoverKind = useAppState((state) => state.hover?.kind ?? 'none')
   const hoverKey = useAppState((state) => state.hover?.key ?? null)
   const selectionCount = useAppState((state) => state.selection.length)
+  const findingPoint = useAppState(focusedFindingPoint)
+  // The controller draws a frame when the print state changes, which places the marker (3.17).
+  const findingMarker = useRef<SVGCircleElement>(null)
   const platform = app.platform
 
   useEffect(() => {
@@ -252,6 +288,13 @@ export function Viewport({ children }: ViewportProps) {
     const stopRender = viewport.onRender((frame) => {
       if (rotor.current !== null) {
         orientElement(rotor.current, viewCubeRotorMatrix(frame.camera.rotation))
+      }
+      const state = app.store.getState()
+      placeFindingMarker(findingMarker.current, focusedFindingPoint(state), frame)
+      // The first frame with the startup document makes the app usable (3.1).
+      if (!usableMarked.has(app) && state.core.status === 'ready' && state.document !== null) {
+        usableMarked.add(app)
+        markTiming(TIMING_NAMES.usable)
       }
     })
     app.attachViewport(viewport)
@@ -330,7 +373,17 @@ export function Viewport({ children }: ViewportProps) {
         <canvas ref={canvas} className="absolute inset-0 block size-full touch-none" />
       </div>
       <div ref={overlay} className="pointer-events-none absolute inset-0 overflow-hidden">
-        <svg aria-hidden="true" className="absolute inset-0 size-full" />
+        <svg aria-hidden="true" className="absolute inset-0 size-full">
+          {findingPoint === null ? null : (
+            <circle
+              ref={findingMarker}
+              data-testid="finding-marker"
+              r={FINDING_MARKER_RADIUS}
+              display="none"
+              className={clsx('fill-none stroke-2', COLOR_CLASSES.errorMark.stroke)}
+            />
+          )}
+        </svg>
         {scene === null ? null : <AxisLabels scene={scene} />}
       </div>
       <ViewCube

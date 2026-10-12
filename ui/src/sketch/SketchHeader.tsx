@@ -224,9 +224,8 @@ function SketchHint({ sketchId }: { readonly sketchId: string | null }) {
     (sketchId === null ? SKETCH_PROMPTS.plane_pick_hint() : (model.hint?.text ?? idleStep))
   const warning = pickHint !== null || model.hint?.warning === true
   return (
-    <p
+    <output
       data-testid="sketch-hint"
-      role="status"
       className={clsx(
         text === null
           ? 'sr-only'
@@ -241,7 +240,7 @@ function SketchHint({ sketchId }: { readonly sketchId: string | null }) {
       {text !== null && sketchId !== null && model.freePlacement ? (
         <span aria-live="off">{` ${SKETCH_PROMPTS.sketch_free_placement(app.platform)}`}</span>
       ) : null}
-    </p>
+    </output>
   )
 }
 

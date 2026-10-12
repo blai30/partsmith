@@ -1613,6 +1613,11 @@ export function createSketchController(options: SketchControllerOptions): Sketch
       event.preventDefault()
       return
     }
+    // Mod+Z cancels the operation in progress only (3.20); text fields keep their own undo.
+    if (isUndoChord(event) && !isEditable(event.target) && cancelOperation()) {
+      event.preventDefault()
+      return
+    }
     // Enter ends the line chain when no draw input has focus (3.5 Enter ladder).
     if (
       event.key === 'Enter' &&
@@ -1625,6 +1630,11 @@ export function createSketchController(options: SketchControllerOptions): Sketch
       clearTyped()
       refresh()
     }
+  }
+
+  function isUndoChord(event: KeyboardEvent): boolean {
+    const mod = app.platform.operatingSystem === 'mac' ? event.metaKey : event.ctrlKey
+    return mod && !event.shiftKey && !event.altKey && event.key.toLowerCase() === 'z'
   }
 
   function updateSuppressed(event: KeyboardEvent): void {

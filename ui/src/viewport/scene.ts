@@ -763,6 +763,15 @@ function visibleBounds(state: AppState): BoundingBox | null {
   return bounds === null ? null : normalizedBox(bounds)
 }
 
+/** The four sides of a square as line segments, two points each. */
+function squareOutline(corners: readonly Point3[]): number[] {
+  const segments: number[] = []
+  for (let i = 0; i < 4; i++) {
+    segments.push(...(corners[i] ?? [0, 0, 0]), ...(corners[(i + 1) % 4] ?? [0, 0, 0]))
+  }
+  return segments
+}
+
 export function createScene(backend: RenderBackend): Scene {
   /** CPU copies of everything uploaded, for restore(). */
   const uploaded = new Map<string, Geometry>()
@@ -890,12 +899,6 @@ export function createScene(backend: RenderBackend): Scene {
     return document === null ? undefined : previews.get(bodyMeshKey(document.documentHandle, body))
   }
 
-
-
-
-
-
-
   function frame(
     state: AppState,
     camera: Camera,
@@ -987,12 +990,7 @@ export function createScene(backend: RenderBackend): Scene {
       }))
       uploadGenerated(outlineId, signature, () => ({
         kind: 'lines',
-        positions: new Float32Array(
-          [0, 1, 2, 3].flatMap((index) => [
-            ...(corners[index] ?? [0, 0, 0]),
-            ...(corners[(index + 1) % 4] ?? [0, 0, 0]),
-          ]),
-        ),
+        positions: new Float32Array(squareOutline(corners)),
         elementIds: new Uint32Array(4),
         elementCount: 1,
       }))
@@ -1085,7 +1083,8 @@ export function createScene(backend: RenderBackend): Scene {
     // Pick ids: consecutive from 1, each draw's range as long as its element count.
     const nextRanges: PickRange[] = []
     let next = 1
-    const draws: DrawCall[] = pending.map((draw) => {
+    const draws: DrawCall[] = []
+    for (const draw of pending) {
       let pickBase: number | null = null
       const target = draw.target
       if (target !== null && draw.elementCount > 0) {
@@ -1103,8 +1102,8 @@ export function createScene(backend: RenderBackend): Scene {
         }
         sentScalars.set(draw.call.id, draw.scalars)
       }
-      return { ...draw.call, pickBase }
-    })
+      draws.push({ ...draw.call, pickBase })
+    }
     ranges = nextRanges
 
     const aspect = size.height > 0 && size.width > 0 ? size.width / size.height : 1
@@ -1147,8 +1146,6 @@ export function createScene(backend: RenderBackend): Scene {
       analysis: overhangAnalysis(state, theme),
     }
   }
-
-
 
   type BodyInput = {
     readonly body: Body
@@ -1399,7 +1396,6 @@ export function createScene(backend: RenderBackend): Scene {
     readonly hoverKey: string | null
     readonly selectedKeys: ReadonlySet<string>
   }
-
 
   function sketchDraws(
     state: AppState,
@@ -1704,7 +1700,6 @@ export function createScene(backend: RenderBackend): Scene {
     }
     return []
   }
-
 
   return {
     applyEvent(event) {

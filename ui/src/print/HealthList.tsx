@@ -120,12 +120,10 @@ export function HealthList({
             <IconButton size="compact" label="Close print check" icon={X} onClick={onClose} />
           )}
         </div>
-        <div className="flex">
-          <Button onClick={onCheckAgain}>
-            <RefreshCw aria-hidden="true" strokeWidth={1.75} className="size-4" />
-            Check again
-          </Button>
-        </div>
+        <Button className="self-start" onClick={onCheckAgain}>
+          <RefreshCw aria-hidden="true" strokeWidth={1.75} className="size-4" />
+          Check again
+        </Button>
       </div>
       {notice ?? (
         <ul

@@ -21,18 +21,22 @@ export type SketchHit =
 
 type Candidate = { readonly hit: SketchHit; readonly pixels: number; readonly origin: boolean }
 
+/** Distances closer than this many pixels are a tie, so rounding never decides between them. */
+const TIE_PIXELS = 1e-6
+
+/** Whether a candidate beats the best so far: nearer, or a sketch item tied with an origin item. */
+function beats(candidate: Candidate, best: Candidate): boolean {
+  if (Math.abs(candidate.pixels - best.pixels) <= TIE_PIXELS) {
+    return best.origin && !candidate.origin
+  }
+  return candidate.pixels < best.pixels
+}
+
 /** The nearest candidate within reach; at equal distance sketch items win over origin items. */
 function nearest(candidates: readonly Candidate[], reach: number): SketchHit | null {
   let best: Candidate | null = null
   for (const candidate of candidates) {
-    if (candidate.pixels > reach) {
-      continue
-    }
-    if (
-      best === null ||
-      candidate.pixels < best.pixels ||
-      (candidate.pixels === best.pixels && best.origin && !candidate.origin)
-    ) {
+    if (candidate.pixels <= reach && (best === null || beats(candidate, best))) {
       best = candidate
     }
   }

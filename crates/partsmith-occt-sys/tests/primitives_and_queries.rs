@@ -4,6 +4,7 @@
 mod common;
 
 use std::f64::consts::PI;
+use std::sync::OnceLock;
 
 use common::{
     BOUNDS_TOLERANCE, ORIGIN, POINT_TOLERANCE, UP, arc, assert_argument_error, assert_bounds,
@@ -482,20 +483,23 @@ fn t070_elements_match_element_by_index() {
 // Exact face measures (section 3.6, item 2, and the `PLATE` budget of section 5).
 
 /// `PLATE` of spec section 5: a 200 x 200 x 10 box with 194 through holes of radius 4, cut in
-/// one call.
-fn plate() -> Shape {
-    let block = make_box(&xy_plane_at(0.0, 0.0, -5.0), 200.0, 200.0, 10.0)
-        .expect("the plate builds")
-        .shape;
-    let holes: Vec<Shape> = hole_centers()
-        .into_iter()
-        .map(|(x, y)| {
-            make_cylinder(&xy_plane_at(x, y, -10.0), 4.0, 20.0)
-                .expect("the hole tool builds")
-                .shape
-        })
-        .collect();
-    cut(&block, &holes).expect("the holes cut").shape
+/// one call. Built once and shared, since the cut takes a while in debug builds.
+fn plate() -> &'static Shape {
+    static PLATE: OnceLock<Shape> = OnceLock::new();
+    PLATE.get_or_init(|| {
+        let block = make_box(&xy_plane_at(0.0, 0.0, -5.0), 200.0, 200.0, 10.0)
+            .expect("the plate builds")
+            .shape;
+        let holes: Vec<Shape> = hole_centers()
+            .into_iter()
+            .map(|(x, y)| {
+                make_cylinder(&xy_plane_at(x, y, -10.0), 4.0, 20.0)
+                    .expect("the hole tool builds")
+                    .shape
+            })
+            .collect();
+        cut(&block, &holes).expect("the holes cut").shape
+    })
 }
 
 /// The (x, y) centers of the holes of `PLATE`.
@@ -527,11 +531,11 @@ fn plate_face_areas_add_up_exactly() {
 fn plate_hole_walls_have_their_centroid_on_their_axis() {
     let shape = plate();
 
-    let walls = faces_of_kind(&shape, GeometryKind::Cylinder);
+    let walls = faces_of_kind(shape, GeometryKind::Cylinder);
 
     assert_eq!(walls.len(), 194);
     for wall in walls {
-        let element = geometry(&shape, SubShapeKind::Face, wall);
+        let element = geometry(shape, SubShapeKind::Face, wall);
         assert_relative(element.measure, 80.0 * PI, 1e-12, "wall area");
         assert_point_near(
             element.centroid,

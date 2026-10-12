@@ -14,6 +14,7 @@ import type {
 } from '../generated/protocol'
 import type { Rectangle } from '../inspector/placement'
 import { MESSAGES } from '../messages'
+import { measureTiming, TIMING_NAMES } from '../performance/marks'
 import { notify } from '../app/actions/notifications'
 import type { AppState, SelectionItem } from '../state/store'
 import type { RenderBackend, RenderFrame } from './backend'
@@ -335,9 +336,11 @@ export function createViewportController(options: {
   }
 
   function render(): void {
+    const started = performance.now()
     const state = store.getState()
     lastFrame = scene.frame(state, camera, size)
     backend.render(lastFrame)
+    measureTiming(TIMING_NAMES.frame, started)
     const rendered: RenderedFrame = { camera, size, project }
     for (const listener of Array.from(renderListeners)) {
       listener(rendered)
@@ -486,9 +489,10 @@ export function createViewportController(options: {
   function pickAtPoint(x: number, y: number): PickResult | null {
     const frame = currentFrame()
     const pickRadius = radius()
-    const samples = backend
-      .pick(frame, x, y, pickRadius)
-      .toSorted((first, second) => first.pickId - second.pickId)
+    const started = performance.now()
+    const picked = backend.pick(frame, x, y, pickRadius)
+    measureTiming(TIMING_NAMES.pick, started)
+    const samples = picked.toSorted((first, second) => first.pickId - second.pickId)
     const candidates: (PickCandidate & {
       readonly result: PickResult
       readonly depth: number | null
@@ -718,7 +722,6 @@ export function createViewportController(options: {
 
   // Pointer and wheel input (3.13).
 
-
   function onPointerDown(event: PointerEvent): void {
     if (event.button === MIDDLE_BUTTON_INDEX) {
       // No browser autoscroll.
@@ -750,7 +753,6 @@ export function createViewportController(options: {
       // A pointer that is gone cannot be captured; the press still works.
     }
   }
-
 
   function onPointerMove(event: PointerEvent): void {
     const point = canvasPoint(event)
@@ -897,7 +899,6 @@ export function createViewportController(options: {
     }
   }
 
-
   function onDoubleClick(event: MouseEvent): void {
     if (event.button !== 0) {
       return
@@ -1022,7 +1023,6 @@ export function createViewportController(options: {
     return request
   }
 
-
   /** Lists the faces of visible bodies while features are selected (3.6 feature highlighting). */
   function requestFaces(state: AppState): void {
     const document = state.document
@@ -1092,7 +1092,6 @@ export function createViewportController(options: {
   }
 
   // Store and core subscriptions.
-
 
   cleanups.push(
     store.subscribe((state, previous) => {

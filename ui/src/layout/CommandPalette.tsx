@@ -95,7 +95,7 @@ function OpenPalette() {
   const app = useApp()
   const listId = useId()
   const optionPrefix = useId()
-  const palette = useRef<HTMLDialogElement>(null)
+  const palette = useRef<HTMLDivElement>(null)
   const input = useRef<HTMLInputElement>(null)
   const list = useRef<HTMLUListElement>(null)
   const recentIds = useAppState((state) => state.settings.paletteRecent)
@@ -235,13 +235,16 @@ function OpenPalette() {
 
   return (
     <div className="pointer-events-none fixed inset-x-4 top-1/6 z-50 flex justify-center">
-      <dialog
+      <div
         ref={palette}
-        open
+        // The spec names the dialog role on this element (ui.md 3.4, 6.1); a native dialog element
+        // would bring browser placement styles to a panel the layer above positions.
+        // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+        role="dialog"
         aria-label="Command palette"
         data-testid="palette"
         className={clsx(
-          'pointer-events-auto relative m-0 flex w-140 max-w-full flex-col overflow-hidden rounded-md border p-0 shadow-lg transition-opacity duration-150 ease-out starting:opacity-0 motion-reduce:transition-none',
+          'pointer-events-auto flex w-140 max-w-full flex-col overflow-hidden rounded-md border shadow-lg transition-opacity duration-150 ease-out starting:opacity-0 motion-reduce:transition-none',
           COLOR_CLASSES.surfaceRaised.background,
           COLOR_CLASSES.border.border,
           COLOR_CLASSES.text.foreground,
@@ -371,7 +374,7 @@ function OpenPalette() {
         >
           {footer}
         </output>
-      </dialog>
+      </div>
     </div>
   )
 }
