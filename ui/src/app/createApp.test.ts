@@ -6,6 +6,7 @@ import {
   LINUX_WEB,
   startFakeApp,
   startWithDocument,
+  type FakeApp,
 } from '../test/fakes/app'
 import {
   CUBE_DOCUMENT,

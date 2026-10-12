@@ -379,7 +379,7 @@ Each job's checks are its acceptance tests; they pass on every pull request and 
 9. `e2e`: `pnpm e2e` passes against the real core (ui.md 6.5).
 10. `python`: `maturin develop --release` succeeds and `pytest python/tests` passes, including `test_examples.py`.
 11. `deploy`: with secrets, the Wrangler step succeeds and the job summary contains a `pages.dev` URL; on a fork pull request, the job succeeds and its log contains the "Deploy skipped" notice.
-12. `desktop`: `cargo tauri build --bundles deb` exits 0, exactly one `.deb` exists under `target/release/bundle/deb/`, and `dpkg-deb --contents` of it lists `./usr/bin/partsmith-desktop` (desktop.md test 47).
+12. `desktop`: `cargo tauri build --bundles deb` exits 0, exactly one `.deb` exists under `target/release/bundle/deb/`, and `dpkg-deb --contents` of it lists `./usr/bin/partsmith-desktop` (desktop.md test 49).
 13. `release.yml` dry run (`workflow_dispatch`): the three `bundle` jobs upload `bundle-Linux` (a `.deb`, an `.rpm` and an `.AppImage`), `bundle-Windows` (one `-setup.exe`) and `bundle-macOS` (one `.dmg`); `verify` and `draft` are skipped. On a tag, `draft` creates a draft release holding those files and `SHA256SUMS`, whose lines verify with `sha256sum -c`.
 
 **Distribution check (`ui/scripts/check-dist.test.mjs`, `node:test`, temporary directories)**

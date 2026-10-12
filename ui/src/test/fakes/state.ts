@@ -102,11 +102,7 @@ function bodyPrint(body: string, checks: readonly CheckResult[]): BodyPrint {
           [0, 0, 1],
         ],
       },
-      health: statuses.includes('error')
-        ? 'error'
-        : statuses.includes('warning')
-          ? 'warning'
-          : 'ok',
+      health: statuses.has('error') ? 'error' : statuses.has('warning') ? 'warning' : 'ok',
       checks: [...checks],
     },
   }

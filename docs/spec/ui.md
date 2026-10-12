@@ -488,7 +488,7 @@ export type DocumentState = {
   readonly lastRebuildMilliseconds: number | null
 }
 export type MeshSummary = { readonly meshId: number; readonly boundingBox: BoundingBox; readonly faceCount: number; readonly edgeCount: number; readonly vertexCount: number }
-export type FileReference = { readonly name: string; readonly handle: FileSystemFileHandle | null }
+export type FileReference = { readonly name: string; readonly handle: FileHandle | null }
 
 export type SelectionItemKind =
   | 'face' | 'edge' | 'vertex' | 'body' | 'feature' | 'parameter'
@@ -1362,16 +1362,19 @@ export type SketchCommitResult =
 
 ```ts
 export type FileKind = 'ptsm' | '3mf' | 'stl' | 'obj' | 'step'
-export type OpenedFile = { readonly name: string; readonly bytes: Uint8Array; readonly handle: FileSystemFileHandle | null }
+/** A chosen file: a File System Access handle on the web, a host grant on desktop (desktop.md 2.11). */
+export type DesktopFileHandle = { readonly kind: 'desktop'; readonly name: string; readonly grant: string }
+export type FileHandle = FileSystemFileHandle | DesktopFileHandle
+export type OpenedFile = { readonly name: string; readonly bytes: Uint8Array; readonly handle: FileHandle | null }
 export type SaveTarget =
-  | { readonly kind: 'handle'; readonly name: string; readonly handle: FileSystemFileHandle }
+  | { readonly kind: 'handle'; readonly name: string; readonly handle: FileHandle }
   | { readonly kind: 'download'; readonly name: string }
 export class FileServiceError extends Error { readonly reason: 'permission' | 'not_found' | 'io' }
 export type FileService = {
   readonly fileSystemAccess: boolean
   /** Null when the user cancels. */
   pickToOpen(): Promise<OpenedFile | null>
-  readHandle(handle: FileSystemFileHandle): Promise<OpenedFile>
+  readHandle(handle: FileHandle): Promise<OpenedFile>
   /** Asks where to save. Null when the user cancels. Without the File System Access API it returns a download target at once. */
   chooseSaveTarget(suggestedName: string, kind: FileKind): Promise<SaveTarget | null>
   /** Writes the bytes to the target (a download for download targets). */
@@ -1394,16 +1397,16 @@ The desktop file service (Tauri dialogs) implements the same `FileService` type 
 `src/files/recent.ts` and `src/files/recovery.ts`:
 
 ```ts
-export type RecentFile = { readonly id: string; readonly name: string; readonly openedAt: number; readonly handle: FileSystemFileHandle | null; readonly text: string | null }
+export type RecentFile = { readonly id: string; readonly name: string; readonly openedAt: number; readonly handle: FileHandle | null; readonly text: string | null }
 export type RecentFilesStore = {
   list(): Promise<readonly RecentFile[]>
-  remember(file: { readonly name: string; readonly handle: FileSystemFileHandle | null; readonly text: string }): Promise<void>
+  remember(file: { readonly name: string; readonly handle: FileHandle | null; readonly text: string }): Promise<void>
   forget(id: string): Promise<void>
 }
 export function createIndexedDbRecentFiles(factory: IDBFactory, now?: () => number): RecentFilesStore
 export function createMemoryRecentFiles(now?: () => number): RecentFilesStore
 
-export type RecoveryEntry = { readonly name: string; readonly text: string; readonly savedAt: number; readonly handle: FileSystemFileHandle | null; readonly reason: 'autosave' | 'replaced' }
+export type RecoveryEntry = { readonly name: string; readonly text: string; readonly savedAt: number; readonly handle: FileHandle | null; readonly reason: 'autosave' | 'replaced' }
 export type RecoveryStore = { read(): Promise<RecoveryEntry | null>; write(entry: RecoveryEntry): Promise<void>; clear(): Promise<void> }
 export function createIndexedDbRecovery(factory: IDBFactory): RecoveryStore
 export function createMemoryRecovery(): RecoveryStore
@@ -2856,7 +2859,7 @@ Tagged `@perf`, skipped unless `PARTSMITH_PERF=1`, run on the fixed hardware run
 ## 7. Open issues
 
 1. **Dimension label positions.** Nothing in the drafts stores a dimension's label position. The UI computes `defaultLabelPosition` and uses a stored position if sketch.md adds one; dragging labels is later.
-2. **Desktop host pieces.** Resolved by [desktop.md](desktop.md) and ADR 0014. The Tauri transport reads `window.__TAURI__` (requires `app.withGlobalTauri: true`, set in desktop.md 2.8), so `@tauri-apps/api` is not needed. The desktop `FileService` (`createDesktopFileService`, chosen by `chooseFileService`) calls host commands that show native dialogs through `tauri-plugin-dialog` from Rust and read or write only the files the user picked, so no fs plugin and no npm package are used (desktop.md 2.11 and 3.7). Because no desktop webview can produce a `FileSystemFileHandle`, desktop.md 2.11 widens the handle in this spec's file types (2.8 and 2.15) to `FileHandle`, and is authoritative for those types until they are updated here. The superseding logic both transports share is protocol.md's `isSuperseded` (2.11).
+2. **Desktop host pieces.** Resolved by [desktop.md](desktop.md) and ADR 0014. The Tauri transport reads `window.__TAURI__` (requires `app.withGlobalTauri: true`, set in desktop.md 2.8), so `@tauri-apps/api` is not needed. The desktop `FileService` (`createDesktopFileService`, chosen by `chooseFileService`) calls host commands that show native dialogs through `tauri-plugin-dialog` from Rust and read or write only the files the user picked, so no fs plugin and no npm package are used (desktop.md 2.11 and 3.7). Because no desktop webview can produce a `FileSystemFileHandle`, the file types of 2.8 and 2.15 name `FileHandle` (`FileSystemFileHandle | DesktopFileHandle`, desktop.md 2.11). The superseding logic both transports share is protocol.md's `isSuperseded` (2.11).
 3. **Session-only view state.** Sketch, datum and origin visibility and body locks are not saved, because the document has no fields for them. Persisting them is a format change (ADR and human review).
 4. **When print analysis runs.** The technical design runs checks after every recompute. With one web worker, `analyze_print` would delay edits, so this spec runs it automatically only in the Print context and shows a stale badge elsewhere. Revisit with desktop background analysis (protocol.md "later").
 5. **Check toggles.** `analyze_print` always runs every check, so the UI's switches only hide findings. An optional check list on the command would save work.

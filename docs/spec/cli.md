@@ -363,5 +363,5 @@ Tests live in `crates/partsmith-cli/tests/` and run the built binary (`env!("CAR
 
 1. **Command list.** The architecture names `validate | fmt | rebuild | export | schema`. Print checks are an option of `rebuild` (`--checks`) rather than a separate command, and STEP import is left to the UI and Python in M1.
 2. **Asset discovery.** The CLI passes every hash-named file in `assets/` and relies on the engine ignoring unreferenced ones (engine.md 3.14). A large shared asset folder is read fully; a lazy asset source can come later.
-3. **`rebuild --json` and `examples/*/expected.json`.** The rebuild report carries volume, area, bounding box, element counts and findings, which are what `expected.json` stores. The examples spec may adopt this report as its format; this spec does not require it.
+3. **`rebuild --json` and expected results.** Resolved by [delivery.md](delivery.md) section 2.8: an example's `<stem>.expected.json` is the `rebuild --checks --json` report without `path` and the findings' triangle lists.
 4. **Exit code for feature errors in `validate --rebuild` versus `rebuild`.** Both use exit 1; print findings never affect the exit code. A future `--deny-findings` can change that.

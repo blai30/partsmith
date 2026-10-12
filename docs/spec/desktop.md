@@ -324,11 +324,17 @@ pub use dialogs::TauriDialogs;
 pub use files::{Dialogs, FileError, FileKind, Files, Granted, MAX_GRANTS, grant_of};
 pub use host::Host;
 
+/// Adds the dialog plugin, `Arc<Host>` (`Host::default()`), `Unsaved` and the six commands to a builder.
+/// `run` and the command tests share it; the caller manages `Arc<Files>`.
+pub fn configure<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R>;
+
 /// Builds and runs the desktop app; returns when the app exits.
 pub fn run() -> Result<(), tauri::Error>;
 ```
 
-`run` builds `tauri::Builder::default()` with `.plugin(tauri_plugin_dialog::init())`, manages `Arc<Host>` (`Host::default()`) and `Unsaved::default()`, and in `setup` manages `Arc<Files>`: `Files::load(app.path().app_data_dir()?.join("file-grants.json"))`, or `Files::in_memory()` with a line on standard error when the data directory cannot be resolved. It registers the six commands with `tauri::generate_handler!`, installs the close guard on `WindowEvent::CloseRequested` (3.6), and runs with `tauri::generate_context!()`. `main` calls `run` and, on error, prints `partsmith-desktop: {error}` to standard error and exits with status 1.
+`configure` adds `.plugin(tauri_plugin_dialog::init())`, manages `Arc::new(Host::default())` and `Unsaved::default()`, and registers the six commands with `tauri::generate_handler!`. `run` calls `configure(tauri::Builder::default())`, manages `Arc<Files>` in `setup` (`Files::load(app.path().app_data_dir()?.join("file-grants.json"))`, or `Files::in_memory()` with a line on standard error when the data directory cannot be resolved), installs the close guard on `WindowEvent::CloseRequested` (3.6), and runs with `tauri::generate_context!()`. `main` calls `run` and, on error, prints `partsmith-desktop: {error}` to standard error and exits with status 1.
+
+Command tests build `configure(tauri::test::mock_builder()).manage(Arc::new(Files::in_memory()))` with `tauri::generate_context!(test = true)`, which compiles the real configuration and capability into Tauri's mock runtime, so the ACL is enforced as in the app. They open a webview window labeled `main` and send requests with `tauri::test::get_ipc_response`, using the URL `tauri://localhost` (the app's own origin in the mock runtime) and `tauri::test::INVOKE_KEY`.
 
 ### 2.8 `tauri.conf.json`
 
@@ -464,7 +470,7 @@ export type FileHandle = FileSystemFileHandle | DesktopFileHandle
 export function isFileHandle(value: unknown): value is FileHandle
 ```
 
-Every type that names `FileSystemFileHandle` for a chosen file names `FileHandle` instead: `OpenedFile.handle`, the `handle` target of `SaveTarget`, the parameter of `FileService.readHandle`, `RecentFile.handle` and the argument of `RecentFilesStore.remember` (`src/files/recent.ts`), `RecoveryEntry.handle` (`src/files/recovery.ts`) and `FileReference.handle` (`src/state/store.ts`, ui.md 2.8). ui.md 2.15 points here for these types (ui.md open issue 2).
+Every type that names `FileSystemFileHandle` for a chosen file names `FileHandle` instead: `OpenedFile.handle`, the `handle` target of `SaveTarget`, the parameter of `FileService.readHandle`, `RecentFile.handle` and the argument of `RecentFilesStore.remember` (`src/files/recent.ts`), `RecoveryEntry.handle` (`src/files/recovery.ts`) and `FileReference.handle` (`src/state/store.ts`, ui.md 2.8). ui.md 2.8 and 2.15 declare these types with `FileHandle`.
 
 `src/files/desktop-file-service.ts`:
 
@@ -561,7 +567,7 @@ A command that returns `Err(FileError)` rejects the JavaScript `invoke` with `{"
 
 ### 3.6 Close guard
 
-1. The UI calls `set_unsaved` whenever its unsaved state changes (3.7.6); the host stores it in `Unsaved`.
+1. The UI calls `set_unsaved` whenever its unsaved state changes (`installCloseGuard`, 3.7); the host stores it in `Unsaved`.
 2. On `WindowEvent::CloseRequested` for the main window: when `Unsaved::get()` is false, the window closes. When it is true, the host calls `prevent_close()` and shows a warning message dialog, parented to the window, titled `CLOSE_TITLE` with `CLOSE_MESSAGE` and the buttons `CLOSE_CONFIRM` and `CLOSE_CANCEL`, using the plugin's non-blocking `show` (the event handler runs on the main thread, where a blocking dialog would deadlock). Confirming calls `window.destroy()`, which closes without another `CloseRequested`; canceling leaves the window open.
 3. The UI's recovery copy (ui.md 3.19) still applies, so even a forced quit loses at most the last 2 s of edits.
 
@@ -582,7 +588,7 @@ A command that returns `Err(FileError)` rejects the JavaScript `invoke` with `{"
 
 ### 3.8 Bundles
 
-| OS (runner) | Architecture | `--bundles` | Artifacts |
+| OS (runner) | Architecture | `--bundles` | Artifacts (the Tauri bundler's names, for example) |
 | --- | --- | --- | --- |
 | Linux (`ubuntu-24.04`) | x86_64 | `deb,rpm,appimage` | `Partsmith_{version}_amd64.deb`, `Partsmith-{version}-1.x86_64.rpm`, `Partsmith_{version}_amd64.AppImage` |
 | Windows (`windows-2025`) | x86_64 | `nsis` | `Partsmith_{version}_x64-setup.exe` (per-user install; WebView2 bootstrapper downloaded when missing) |
@@ -633,7 +639,7 @@ Release builds on the reference machine (technical design section 14). The first
 
 ## 6. Acceptance tests
 
-Rust tests live in `desktop/src-tauri/tests/` and run with `cargo test -p partsmith-desktop` (which needs `OCCT_ROOT` and, on Linux, the WebKitGTK development packages; delivery.md 2.4). "Example A" is protocol.md 2.2's 120-byte `engine_info` request frame with request id 1. Frames are built and decoded with `partsmith_protocol` (`encode_request_frame`, `decode_response_frame`). File tests use `tempfile` directories and a `FakeDialogs` that returns preset answers and records its calls. UI tests are Vitest tests next to the modules, with a fake `invoke` that records `(command, payload, options)` and answers from a script.
+Rust tests live in `desktop/src-tauri/tests/` and run with `cargo test -p partsmith-desktop` (which needs `OCCT_ROOT` and, on Linux, the WebKitGTK development packages; delivery.md 3.2). "Example A" is protocol.md 2.2's 120-byte `engine_info` request frame with request id 1. Frames are built and decoded with `partsmith_protocol` (`encode_request_frame`, `decode_response_frame`). File tests use `tempfile` directories and a `FakeDialogs` that returns preset answers and records its calls. UI tests are Vitest tests next to the modules, with a fake `invoke` that records `(command, payload, options)` and answers from a script.
 
 **Host (`tests/host.rs`)**
 
@@ -645,67 +651,69 @@ Rust tests live in `desktop/src-tauri/tests/` and run with `cargo test -p partsm
 6. `Host` is `Send + Sync` (a compile-time assertion).
 7. `Host::default()` produces display meshes: opening `crates/partsmith-engine/tests/fixtures/box.ptsm` through `call` gives a response frame containing a `body_mesh` event; the same request through `Host::new(SessionOptions::headless())` gives none.
 
-**Command wiring (`tests/commands.rs`, `tauri::test` mock runtime, no window system)**
+**Command wiring and ACL (`tests/commands.rs`, `tauri::test` mock runtime as in 2.7, no window system)**
 
-8. A mock app built with `tauri::test::mock_builder()` and the crate's six commands answers a `call` invoke whose body is `InvokeBody::Raw(example A)` with raw bytes equal to `Host::default().call(example A)` on a fresh host.
+8. A `call` invoke from the `main` window whose body is `InvokeBody::Raw(example A)` answers `InvokeResponseBody::Raw` with bytes equal to `Host::default().call(example A)` on a fresh host.
 9. A `call` invoke with the JSON body `{}` answers with a raw error frame with id 0 and code `malformed_frame`.
 10. A `write_file` invoke with a JSON body rejects with `{"reason": "io", "message": "The file contents must be sent as bytes."}`; one with a raw body and no `Partsmith-Grant` header rejects with reason `permission`.
 11. `COMMAND_NAMES` equals the six names of 2.2 in that order.
+12. The same `call` invoke from a webview window labeled `other` is rejected by the ACL with a message containing `not allowed`, and nothing reaches the host.
+13. `plugin:dialog|open` and `plugin:dialog|save` invokes from the `main` window are rejected with a message containing `not allowed`; `plugin:fs|read_file` is rejected (the fs plugin is not registered).
 
 **Files (`tests/files.rs`)**
 
-12. `pick_open` with the fake answering `None` returns `Ok(None)` and creates no store file.
-13. `pick_open` answering `<dir>/part.ptsm` (an existing file with bytes `hello`) returns `Granted { name: "part.ptsm", grant: grant_of(path) }`, and `read(grant)` returns `hello`.
-14. `grant_of` returns 32 lowercase hexadecimal digits, the same value for the same path, and different values for `/a/part.ptsm` and `/b/part.ptsm`.
-15. `read` and `write` with a grant that was never picked (a valid-looking 32-digit value) fail with `UnknownGrant`, reason `permission`.
-16. `write(grant, b"new")` on a granted existing file replaces its contents with `new`; on Unix a file with mode `0o640` keeps that mode; no file ending in `.partsmith.tmp` remains in the folder.
-17. A granted file that was deleted: `read` fails with `NotFound { name: "part.ptsm" }`, message `part.ptsm was not found.`, reason `not_found`.
-18. A granted save path whose folder was deleted: `write` fails with `NotFound`.
-19. `pick_save` with kind `ptsm`: `<dir>/part` gives name `part.ptsm`; `<dir>/part.PTSM` stays `part.PTSM`; kind `step` with `<dir>/model.stp` stays `model.stp` and with `<dir>/model` gives `model.step`; kind `3mf` with `<dir>/plate.txt` gives `plate.txt.3mf`.
-20. `pick_save` answering `<dir>/part` while `<dir>/part.ptsm` exists fails with `Exists { name: "part.ptsm" }`, message `part.ptsm already exists. Choose it in the dialog to replace it.`, and grants nothing.
-21. (Unix) `pick_open` answering a path whose file name is the bytes `ff 2e 70 74 73 6d` fails with `NotUnicode`.
-22. After one pick of `/abs/part.ptsm` (a path in the temp folder), the store file is exactly the JSON of 3.2 with that one path; `Files::load` of the same store in a new `Files` reads the file through the same grant.
-23. 101 picks of distinct paths leave 100 paths in the store, newest first; the first path's grant fails with `UnknownGrant`.
-24. Picking a path that is already granted moves it to the front without a duplicate; a successful `read` and a successful `write` each move their path to the front.
-25. A store file containing `not json`, one with `"version": 2`, and one with a relative path each load as an empty list without panicking; the next pick writes a valid store.
-26. With a store path whose parent is a regular file (so saving fails), `pick_open` still returns the grant and `read` works in the same `Files`.
-27. `serde_json::to_value(FileError::NotFound { name: "a.ptsm".into() })` is `{"reason": "not_found", "message": "a.ptsm was not found."}`; `UnknownGrant` and `Denied` have reason `permission`; `Io`, `NotUnicode`, `Exists` and `NotBytes` have reason `io`.
-28. `FileKind` deserializes from `"ptsm"`, `"3mf"`, `"stl"`, `"obj"` and `"step"` and rejects `"STEP"`; `description` and `extensions` equal the table of 2.4.
-29. `Files::in_memory()` grants and reads without creating any file.
-30. `Unsaved::default().get()` is false; after `set(true)` it is true; after `set(false)` false.
+14. `pick_open` with the fake answering `None` returns `Ok(None)` and creates no store file.
+15. `pick_open` answering `<dir>/part.ptsm` (an existing file with bytes `hello`) returns `Granted { name: "part.ptsm", grant: grant_of(path) }`, and `read(grant)` returns `hello`.
+16. `grant_of` returns 32 lowercase hexadecimal digits, the same value for the same path, and different values for `/a/part.ptsm` and `/b/part.ptsm`.
+17. `read` and `write` with a grant that was never picked (a valid-looking 32-digit value) fail with `UnknownGrant`, reason `permission`.
+18. `write(grant, b"new")` on a granted existing file replaces its contents with `new`; on Unix a file with mode `0o640` keeps that mode; no file ending in `.partsmith.tmp` remains in the folder.
+19. A granted file that was deleted: `read` fails with `NotFound { name: "part.ptsm" }`, message `part.ptsm was not found.`, reason `not_found`.
+20. A granted save path whose folder was deleted: `write` fails with `NotFound`.
+21. `pick_save` with kind `ptsm`: `<dir>/part` gives name `part.ptsm`; `<dir>/part.PTSM` stays `part.PTSM`; kind `step` with `<dir>/model.stp` stays `model.stp` and with `<dir>/model` gives `model.step`; kind `3mf` with `<dir>/plate.txt` gives `plate.txt.3mf`.
+22. `pick_save` answering `<dir>/part` while `<dir>/part.ptsm` exists fails with `Exists { name: "part.ptsm" }`, message `part.ptsm already exists. Choose it in the dialog to replace it.`, and grants nothing.
+23. (Unix) `pick_open` answering a path whose file name is the bytes `ff 2e 70 74 73 6d` fails with `NotUnicode`.
+24. After one pick of `/abs/part.ptsm` (a path in the temp folder), the store file is exactly the JSON of 3.2 with that one path; `Files::load` of the same store in a new `Files` reads the file through the same grant.
+25. 101 picks of distinct paths leave 100 paths in the store, newest first; the first path's grant fails with `UnknownGrant`.
+26. Picking a path that is already granted moves it to the front without a duplicate; a successful `read` and a successful `write` each move their path to the front.
+27. A store file containing `not json`, one with `"version": 2`, and one with a relative path each load as an empty list without panicking; the next pick writes a valid store.
+28. With a store path whose parent is a regular file (so saving fails), `pick_open` still returns the grant and `read` works in the same `Files`.
+29. `serde_json::to_value(FileError::NotFound { name: "a.ptsm".into() })` is `{"reason": "not_found", "message": "a.ptsm was not found."}`; `UnknownGrant` and `Denied` have reason `permission`; `Io`, `NotUnicode`, `Exists` and `NotBytes` have reason `io`.
+30. `FileKind` deserializes from `"ptsm"`, `"3mf"`, `"stl"`, `"obj"` and `"step"` and rejects `"STEP"`; `description` and `extensions` equal the table of 2.4.
+31. `Files::in_memory()` grants and reads without creating any file.
+32. `Unsaved::default().get()` is false; after `set(true)` it is true; after `set(false)` false.
 
 **Configuration (`tests/config.rs`, parsing the checked-in files)**
 
-31. `tauri.conf.json` parses as JSON and equals the object of 2.8 exactly (key order ignored).
-32. `capabilities/main.json` equals the object of 2.9 exactly, its permissions are `allow-` plus each `COMMAND_NAMES` entry with underscores replaced by hyphens, in order, and `capabilities/` contains no other file.
-33. Each path in `bundle.icon` exists under `desktop/src-tauri/`, and `icons/` contains no other file.
+33. `tauri.conf.json` parses as JSON and equals the object of 2.8 exactly (key order ignored).
+34. `capabilities/main.json` equals the object of 2.9 exactly, its permissions are `allow-` plus each `COMMAND_NAMES` entry with underscores replaced by hyphens, in order, and `capabilities/` contains no other file.
+35. Each path in `bundle.icon` exists under `desktop/src-tauri/`, and `icons/` contains no other file.
 
 **UI (Vitest)**
 
-34. `createDesktopFileService(fake).pickToOpen()` with `pick_open_file` answering `{name: 'part.ptsm', grant: 'g1'}` and `read_file` answering the bytes of `hello` returns `{ name: 'part.ptsm', bytes: hello, handle: { kind: 'desktop', name: 'part.ptsm', grant: 'g1' } }`; the second invoke is `('read_file', { grant: 'g1' })`.
-35. `pickToOpen()` with `pick_open_file` answering `null` resolves `null` and makes no second invoke.
-36. `chooseSaveTarget('bracket.ptsm', 'ptsm')` invokes `('pick_save_file', { suggestedName: 'bracket.ptsm', kind: 'ptsm' })`; a reply `{name: 'bracket.ptsm', grant: 'g2'}` gives a handle target with that desktop handle; `null` gives `null`.
-37. `write` of a handle target with `bytes = new Uint8Array([1, 2, 3])` invokes `write_file` with an `ArrayBuffer` whose bytes are `01 02 03` and options `{ headers: { 'Partsmith-Grant': 'g2' } }`; for a view of bytes 2 to 4 of an 8-byte buffer, the payload is a 3-byte `ArrayBuffer` with those bytes.
-38. A `read_file` rejection `{reason: 'not_found', message: 'part.ptsm was not found.'}` throws `FileServiceError` with reason `not_found` and that message; `{reason: 'permission', message: 'x'}` gives `permission`; the string rejection `'Command read_file not allowed by ACL'` gives `io` with that message.
-39. `pick_open_file` answering `42` throws `FileServiceError('io', 'The desktop app sent an unexpected reply to pick_open_file.')`; `read_file` answering a string throws the same for `read_file`.
-40. `write` to `{ kind: 'download', name: 'x.stl' }` throws `io` with `The desktop app saves to files, not downloads.`; `readHandle` of a fake web handle named `a.ptsm` throws `permission` with `Partsmith has no access to a.ptsm.`; the web service's `readHandle` of a desktop handle throws the same.
-41. The desktop service's `fileSystemAccess` is `true`.
-42. `chooseFileService` of an environment with `__TAURI__.core.invoke` gives a service whose `pickToOpen` calls that `invoke`; without `__TAURI__` it gives the web service. `tauriGlobalOf({})` and `tauriGlobalOf({ __TAURI__: { core: {} } })` are `null`.
-43. `isFileHandle` accepts `{kind: 'desktop', name: 'a', grant: 'g'}` and a fake web handle, and rejects `{kind: 'desktop', name: 'a'}` and `{kind: 'desktop', grant: 'g'}`.
-44. The memory recent store: remembering desktop handles with grant `g1` twice keeps one entry; grants `g1` and `g2` with the same name keep two; desktop entries store `text: null`.
-45. The IndexedDB recent and recovery stores (with the fake IndexedDB) round-trip an entry with a desktop handle unchanged.
-46. `installCloseGuard` with a store whose document is clean invokes `('set_unsaved', { unsaved: false })` once at install; a `document_changed` making it dirty invokes `{ unsaved: true }`; a second dirty change invokes nothing; a successful save invokes `{ unsaved: false }`; a document with `localUnsaved` true and `dirty` false counts as unsaved. A rejecting invoke calls `console.warn` once and does not throw. The returned function stops further invokes.
+36. `createDesktopFileService(fake).pickToOpen()` with `pick_open_file` answering `{name: 'part.ptsm', grant: 'g1'}` and `read_file` answering the bytes of `hello` returns `{ name: 'part.ptsm', bytes: hello, handle: { kind: 'desktop', name: 'part.ptsm', grant: 'g1' } }`; the second invoke is `('read_file', { grant: 'g1' })`.
+37. `pickToOpen()` with `pick_open_file` answering `null` resolves `null` and makes no second invoke.
+38. `chooseSaveTarget('bracket.ptsm', 'ptsm')` invokes `('pick_save_file', { suggestedName: 'bracket.ptsm', kind: 'ptsm' })`; a reply `{name: 'bracket.ptsm', grant: 'g2'}` gives a handle target with that desktop handle; `null` gives `null`.
+39. `write` of a handle target with `bytes = new Uint8Array([1, 2, 3])` invokes `write_file` with an `ArrayBuffer` whose bytes are `01 02 03` and options `{ headers: { 'Partsmith-Grant': 'g2' } }`; for a view of bytes 2 to 4 of an 8-byte buffer, the payload is a 3-byte `ArrayBuffer` with those bytes.
+40. A `read_file` rejection `{reason: 'not_found', message: 'part.ptsm was not found.'}` throws `FileServiceError` with reason `not_found` and that message; `{reason: 'permission', message: 'x'}` gives `permission`; the string rejection `'Command read_file not allowed by ACL'` gives `io` with that message.
+41. `pick_open_file` answering `42` throws `FileServiceError('io', 'The desktop app sent an unexpected reply to pick_open_file.')`; `read_file` answering a string throws the same for `read_file`.
+42. `write` to `{ kind: 'download', name: 'x.stl' }` throws `io` with `The desktop app saves to files, not downloads.`; `readHandle` of a fake web handle named `a.ptsm` throws `permission` with `Partsmith has no access to a.ptsm.`; the web service's `readHandle` of a desktop handle throws the same.
+43. The desktop service's `fileSystemAccess` is `true`.
+44. `chooseFileService` of an environment with `__TAURI__.core.invoke` gives a service whose `pickToOpen` calls that `invoke`; without `__TAURI__` it gives the web service. `tauriGlobalOf({})` and `tauriGlobalOf({ __TAURI__: { core: {} } })` are `null`.
+45. `isFileHandle` accepts `{kind: 'desktop', name: 'a', grant: 'g'}` and a fake web handle, and rejects `{kind: 'desktop', name: 'a'}` and `{kind: 'desktop', grant: 'g'}`.
+46. The memory recent store: remembering desktop handles with grant `g1` twice keeps one entry; grants `g1` and `g2` with the same name keep two; desktop entries store `text: null`.
+47. The IndexedDB recent and recovery stores (with the fake IndexedDB) round-trip an entry with a desktop handle unchanged.
+48. `installCloseGuard` with a store whose document is clean invokes `('set_unsaved', { unsaved: false })` once at install; a `document_changed` making it dirty invokes `{ unsaved: true }`; a second dirty change invokes nothing; a successful save invokes `{ unsaved: false }`; a document with `localUnsaved` true and `dirty` false counts as unsaved. A rejecting invoke calls `console.warn` once and does not throw. The returned function stops further invokes.
 
 **Build check (CI, delivery.md 2.4 job `desktop`)**
 
-47. On `ubuntu-24.04`, after `pnpm -C ui build`, `cargo tauri build --bundles deb` in `desktop/src-tauri` exits 0 and produces exactly one `.deb` under `target/release/bundle/deb/`, whose `dpkg-deb --contents` lists `./usr/bin/partsmith-desktop` and `./usr/share/applications/Partsmith.desktop`.
-48. `cargo clippy -p partsmith-desktop --all-targets -- -D warnings` passes (part of the workspace clippy run).
+49. On `ubuntu-24.04`, after `pnpm -C ui build`, `cargo tauri build --bundles deb` in `desktop/src-tauri` exits 0 and produces exactly one `.deb` under `target/release/bundle/deb/`, whose `dpkg-deb --contents` lists `./usr/bin/partsmith-desktop` and exactly one `.desktop` file under `./usr/share/applications/`.
+50. `cargo clippy -p partsmith-desktop --all-targets -- -D warnings` passes (part of the workspace clippy run).
 
 **Manual checks at the gate** (no harness yet; the reviewer records the result per OS): the window opens at 1440 by 900 with the UI and fonts (online) or system fonts (offline); Open, Save, Save as and Export show native dialogs and write the chosen files; Open recent reopens a file after restarting the app; dropping a `.ptsm` opens it; closing with unsaved changes asks; `cargo tauri dev` loads the UI with hot reload.
 
 ## 7. Open issues
 
-1. **The `FileHandle` type change.** ui.md 2.15 typed every chosen file as `FileSystemFileHandle`, which no desktop webview can produce (WKWebView and WebKitGTK lack the File System Access API, and an object faking it would not survive IndexedDB). This spec widens the type to `FileHandle` (2.11) and keeps every `FileService` method and its web behavior. The ui.md type declarations in 2.8 and 2.15 should be updated to name `FileHandle` when ui.md is next edited; until then this section is authoritative for them.
+1. **The `FileHandle` type change.** Resolved: ui.md 2.8 and 2.15 name `FileHandle` (2.11), and every `FileService` method keeps its web behavior. WKWebView and WebKitGTK lack the File System Access API, so desktop handles are host grants.
 2. **Close guard on macOS quit.** `CloseRequested` covers the window's close button and Cmd+W. Quitting with Cmd+Q from Tauri's default macOS menu may exit without `CloseRequested`; the gate check must confirm, and if it does, `RunEvent::ExitRequested` gets the same guard.
 3. **Default macOS menu and shortcuts.** Tauri's default macOS menu has an Edit menu, which keeps copy and paste working in text fields. The gate check must confirm that Mod+Z, Mod+Shift+Z and Mod+S still reach the UI's shortcut dispatcher (ui.md 3.5); if the menu's Undo and Redo intercept them, the host replaces those items with ones that forward to the webview.
 4. **Linux GPU and WebGL2.** Some Linux setups (for example NVIDIA drivers under Wayland) show a blank WebKitGTK window unless `WEBKIT_DISABLE_DMABUF_RENDERER=1` is set. The gate check should record whether the reference Linux machine needs it; setting it from the host would be a workaround that needs a decision.
