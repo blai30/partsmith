@@ -1,4 +1,4 @@
-//! Implementation tests for the blocks `ps_call` returns and the pointers the exports accept (protocol.md section 2.10), beyond the acceptance tests in `exports.rs`.
+//! Implementation tests for the blocks the exports return and the pointers and lengths they accept (protocol.md section 2.10), beyond the acceptance tests in `exports.rs`.
 //!
 //! The tests go through `common::block::Block`, which holds the only `unsafe` code of the tests.
 
@@ -8,6 +8,13 @@ use common::block::Block;
 use common::{error_of, example_a, ok_result, request_frame, response_frame};
 use partsmith_protocol::ErrorCode;
 use partsmith_wasm::call;
+
+#[test]
+fn alloc_of_a_length_beyond_the_address_space_returns_null() {
+    let block = Block::allocate(usize::MAX);
+
+    assert!(block.is_null());
+}
 
 #[test]
 fn a_null_request_with_a_nonzero_length_reads_as_empty() {

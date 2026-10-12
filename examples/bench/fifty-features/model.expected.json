@@ -1,0 +1,1318 @@
+{
+  "printer": "generic-fdm",
+  "features": [
+    {
+      "id": "f-dp1",
+      "type": "datum_plane",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-dp2",
+      "type": "datum_plane",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-sk1",
+      "type": "sketch",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-ext1",
+      "type": "extrude",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-fil1",
+      "type": "fillet",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-hole1",
+      "type": "hole",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-cha1",
+      "type": "chamfer",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-sk2",
+      "type": "sketch",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-ext2",
+      "type": "extrude",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-fil2",
+      "type": "fillet",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-hole2",
+      "type": "hole",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-cha2",
+      "type": "chamfer",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-sk3",
+      "type": "sketch",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-ext3",
+      "type": "extrude",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-fil3",
+      "type": "fillet",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-lp1",
+      "type": "linear_pattern",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-lp2",
+      "type": "linear_pattern",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-mir1",
+      "type": "mirror",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-sk4",
+      "type": "sketch",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-ext4",
+      "type": "extrude",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-fil4",
+      "type": "fillet",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-sh1",
+      "type": "shell",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-lp3",
+      "type": "linear_pattern",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-mir2",
+      "type": "mirror",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-bool1",
+      "type": "boolean",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-bool2",
+      "type": "boolean",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-sk5",
+      "type": "sketch",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-ext5",
+      "type": "extrude",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-cha3",
+      "type": "chamfer",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-sk6",
+      "type": "sketch",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-ext6",
+      "type": "extrude",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-fil5",
+      "type": "fillet",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-cha4",
+      "type": "chamfer",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-hole3",
+      "type": "hole",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-sk7",
+      "type": "sketch",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-ext7",
+      "type": "extrude",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-fil6",
+      "type": "fillet",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-cha5",
+      "type": "chamfer",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-sk8",
+      "type": "sketch",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-ext8",
+      "type": "extrude",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-fil7",
+      "type": "fillet",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-sk9",
+      "type": "sketch",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-ext9",
+      "type": "extrude",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-hole4",
+      "type": "hole",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-cha6",
+      "type": "chamfer",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-sk10",
+      "type": "sketch",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-ext10",
+      "type": "extrude",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-fil8",
+      "type": "fillet",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-sh2",
+      "type": "shell",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-lp4",
+      "type": "linear_pattern",
+      "status": "ok",
+      "messages": []
+    }
+  ],
+  "parameters": [
+    {
+      "id": "p-base",
+      "name": "base",
+      "value": 240.0,
+      "dimension": {
+        "length": 1,
+        "angle": 0
+      }
+    },
+    {
+      "id": "p-lid",
+      "name": "lid_width",
+      "value": 24.0,
+      "dimension": {
+        "length": 1,
+        "angle": 0
+      }
+    }
+  ],
+  "bodies": [
+    {
+      "id": "b-1",
+      "name": "Base",
+      "volume": 378580.7514284172,
+      "area": 114525.9703006471,
+      "center_of_mass": [
+        1.0746931913874975,
+        2.8561846236825894,
+        6.585583410242153
+      ],
+      "bounding_box": {
+        "min": [
+          -120.0,
+          -80.0,
+          -2.0539125955565396e-15
+        ],
+        "max": [
+          120.0,
+          80.0,
+          28.0
+        ]
+      },
+      "faces": 426,
+      "edges": 952,
+      "vertices": 624
+    },
+    {
+      "id": "b-2",
+      "name": "Fins",
+      "empty": true
+    },
+    {
+      "id": "b-3",
+      "name": "Bins",
+      "empty": true
+    },
+    {
+      "id": "b-4",
+      "name": "Lids",
+      "volume": 3550.523863035662,
+      "area": 6244.5981730436415,
+      "center_of_mass": [
+        -1.8443368092634927e-14,
+        -110.0,
+        4.1285795118361905
+      ],
+      "bounding_box": {
+        "min": [
+          -40.0,
+          -122.0,
+          0.0
+        ],
+        "max": [
+          40.0,
+          -98.0,
+          6.0
+        ]
+      },
+      "faces": 57,
+      "edges": 144,
+      "vertices": 96
+    }
+  ],
+  "checks": {
+    "profile": "generic-fdm",
+    "orientation": {
+      "kind": "as_modeled"
+    },
+    "summary": {
+      "health": "warning",
+      "errors": 0,
+      "warnings": 29,
+      "infos": 1,
+      "label": "29 warnings"
+    },
+    "bodies": [
+      {
+        "body": "b-1",
+        "transform": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          128.0,
+          149.0,
+          2.0539125955565396e-15,
+          1.0
+        ],
+        "report": {
+          "profile": "generic-fdm",
+          "rotation": {
+            "rows": [
+              [
+                1.0,
+                0.0,
+                0.0
+              ],
+              [
+                0.0,
+                1.0,
+                0.0
+              ],
+              [
+                0.0,
+                0.0,
+                1.0
+              ]
+            ]
+          },
+          "health": "warning",
+          "checks": [
+            {
+              "check": "mesh_validity",
+              "status": "info",
+              "findings": [
+                {
+                  "check": "mesh_validity",
+                  "code": "degenerate_triangles",
+                  "severity": "info",
+                  "message": "4 triangles have no area. Slicers ignore them.",
+                  "location": {
+                    "kind": "bounds",
+                    "min": [
+                      77.82159390801746,
+                      -16.0,
+                      1.24892422621555
+                    ],
+                    "max": [
+                      94.0,
+                      16.007682541607952,
+                      1.356220765327614
+                    ]
+                  },
+                  "value": 4.0,
+                  "faces": [
+                    354,
+                    355,
+                    356,
+                    357
+                  ]
+                }
+              ],
+              "omitted": 0
+            },
+            {
+              "check": "bed_fit",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "first_layer_contact",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "islands",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "overhangs",
+              "status": "warning",
+              "findings": [
+                {
+                  "check": "overhangs",
+                  "code": "overhang",
+                  "severity": "warning",
+                  "message": "Overhang steeper than 45 degrees over 113.1 mm². Add supports, add a chamfer, or reorient the part.",
+                  "location": {
+                    "kind": "bounds",
+                    "min": [
+                      -102.0,
+                      -50.0,
+                      1.5
+                    ],
+                    "max": [
+                      -90.0,
+                      -38.0,
+                      1.5
+                    ]
+                  },
+                  "value": 1.5707963267948966,
+                  "limit": 0.7853981633974483,
+                  "faces": [
+                    187
+                  ]
+                },
+                {
+                  "check": "overhangs",
+                  "code": "overhang",
+                  "severity": "warning",
+                  "message": "Overhang steeper than 45 degrees over 113.1 mm². Add supports, add a chamfer, or reorient the part.",
+                  "location": {
+                    "kind": "bounds",
+                    "min": [
+                      90.0,
+                      -50.0,
+                      1.5
+                    ],
+                    "max": [
+                      102.0,
+                      -38.0,
+                      1.5
+                    ]
+                  },
+                  "value": 1.5707963267948966,
+                  "limit": 0.7853981633974483,
+                  "faces": [
+                    189
+                  ]
+                },
+                {
+                  "check": "overhangs",
+                  "code": "overhang",
+                  "severity": "warning",
+                  "message": "Overhang steeper than 45 degrees over 113.1 mm². Add supports, add a chamfer, or reorient the part.",
+                  "location": {
+                    "kind": "bounds",
+                    "min": [
+                      -102.0,
+                      38.0,
+                      1.5
+                    ],
+                    "max": [
+                      -90.0,
+                      50.0,
+                      1.5
+                    ]
+                  },
+                  "value": 1.5707963267948966,
+                  "limit": 0.7853981633974483,
+                  "faces": [
+                    188
+                  ]
+                },
+                {
+                  "check": "overhangs",
+                  "code": "overhang",
+                  "severity": "warning",
+                  "message": "Overhang steeper than 45 degrees over 113.1 mm². Add supports, add a chamfer, or reorient the part.",
+                  "location": {
+                    "kind": "bounds",
+                    "min": [
+                      90.0,
+                      38.0,
+                      1.5
+                    ],
+                    "max": [
+                      102.0,
+                      50.0,
+                      1.5
+                    ]
+                  },
+                  "value": 1.5707963267948966,
+                  "limit": 0.7853981633974483,
+                  "faces": [
+                    190
+                  ]
+                },
+                {
+                  "check": "overhangs",
+                  "code": "overhang",
+                  "severity": "warning",
+                  "message": "Overhang steeper than 45 degrees over 18.8 mm². Add supports, add a chamfer, or reorient the part.",
+                  "location": {
+                    "kind": "bounds",
+                    "min": [
+                      -58.0,
+                      -26.12132034355964,
+                      17.121320343559642
+                    ],
+                    "max": [
+                      -54.0,
+                      -21.878679656440358,
+                      18.0
+                    ]
+                  },
+                  "value": 1.5489797111449644,
+                  "limit": 0.7853981633974483,
+                  "faces": [
+                    139
+                  ]
+                },
+                {
+                  "check": "overhangs",
+                  "code": "overhang",
+                  "severity": "warning",
+                  "message": "Overhang steeper than 45 degrees over 18.8 mm². Add supports, add a chamfer, or reorient the part.",
+                  "location": {
+                    "kind": "bounds",
+                    "min": [
+                      -46.0,
+                      -26.12132034355964,
+                      17.121320343559642
+                    ],
+                    "max": [
+                      -42.0,
+                      -21.878679656440358,
+                      18.0
+                    ]
+                  },
+                  "value": 1.5489797111449644,
+                  "limit": 0.7853981633974483,
+                  "faces": [
+                    133
+                  ]
+                },
+                {
+                  "check": "overhangs",
+                  "code": "overhang",
+                  "severity": "warning",
+                  "message": "Overhang steeper than 45 degrees over 18.8 mm². Add supports, add a chamfer, or reorient the part.",
+                  "location": {
+                    "kind": "bounds",
+                    "min": [
+                      -34.0,
+                      -26.12132034355964,
+                      17.121320343559642
+                    ],
+                    "max": [
+                      -30.0,
+                      -21.878679656440358,
+                      18.0
+                    ]
+                  },
+                  "value": 1.5489797111449644,
+                  "limit": 0.7853981633974483,
+                  "faces": [
+                    144
+                  ]
+                },
+                {
+                  "check": "overhangs",
+                  "code": "overhang",
+                  "severity": "warning",
+                  "message": "Overhang steeper than 45 degrees over 18.8 mm². Add supports, add a chamfer, or reorient the part.",
+                  "location": {
+                    "kind": "bounds",
+                    "min": [
+                      30.0,
+                      -26.12132034355964,
+                      17.121320343559642
+                    ],
+                    "max": [
+                      34.0,
+                      -21.878679656440358,
+                      18.0
+                    ]
+                  },
+                  "value": 1.5489797111449644,
+                  "limit": 0.7853981633974483,
+                  "faces": [
+                    127
+                  ]
+                },
+                {
+                  "check": "overhangs",
+                  "code": "overhang",
+                  "severity": "warning",
+                  "message": "Overhang steeper than 45 degrees over 18.8 mm². Add supports, add a chamfer, or reorient the part.",
+                  "location": {
+                    "kind": "bounds",
+                    "min": [
+                      42.0,
+                      -26.12132034355964,
+                      17.121320343559642
+                    ],
+                    "max": [
+                      46.0,
+                      -21.878679656440358,
+                      18.0
+                    ]
+                  },
+                  "value": 1.5489797111449644,
+                  "limit": 0.7853981633974483,
+                  "faces": [
+                    128
+                  ]
+                },
+                {
+                  "check": "overhangs",
+                  "code": "overhang",
+                  "severity": "warning",
+                  "message": "Overhang steeper than 45 degrees over 18.8 mm². Add supports, add a chamfer, or reorient the part.",
+                  "location": {
+                    "kind": "bounds",
+                    "min": [
+                      54.0,
+                      -26.12132034355964,
+                      17.121320343559642
+                    ],
+                    "max": [
+                      58.0,
+                      -21.878679656440358,
+                      18.0
+                    ]
+                  },
+                  "value": 1.5489797111449644,
+                  "limit": 0.7853981633974483,
+                  "faces": [
+                    134
+                  ]
+                },
+                {
+                  "check": "overhangs",
+                  "code": "overhang",
+                  "severity": "warning",
+                  "message": "Overhang steeper than 45 degrees over 18.8 mm². Add supports, add a chamfer, or reorient the part.",
+                  "location": {
+                    "kind": "bounds",
+                    "min": [
+                      -58.0,
+                      -2.1213203435596384,
+                      17.121320343559642
+                    ],
+                    "max": [
+                      -54.0,
+                      2.121320343559642,
+                      18.0
+                    ]
+                  },
+                  "value": 1.5489797111449644,
+                  "limit": 0.7853981633974483,
+                  "faces": [
+                    136
+                  ]
+                },
+                {
+                  "check": "overhangs",
+                  "code": "overhang",
+                  "severity": "warning",
+                  "message": "Overhang steeper than 45 degrees over 18.8 mm². Add supports, add a chamfer, or reorient the part.",
+                  "location": {
+                    "kind": "bounds",
+                    "min": [
+                      -58.0,
+                      21.87867965644036,
+                      17.121320343559642
+                    ],
+                    "max": [
+                      -54.0,
+                      26.121320343559642,
+                      18.0
+                    ]
+                  },
+                  "value": 1.5489797111449644,
+                  "limit": 0.7853981633974483,
+                  "faces": [
+                    138
+                  ]
+                },
+                {
+                  "check": "overhangs",
+                  "code": "overhang",
+                  "severity": "warning",
+                  "message": "Overhang steeper than 45 degrees over 18.8 mm². Add supports, add a chamfer, or reorient the part.",
+                  "location": {
+                    "kind": "bounds",
+                    "min": [
+                      -46.0,
+                      -2.1213203435596384,
+                      17.121320343559642
+                    ],
+                    "max": [
+                      -42.0,
+                      2.121320343559642,
+                      18.0
+                    ]
+                  },
+                  "value": 1.5489797111449644,
+                  "limit": 0.7853981633974483,
+                  "faces": [
+                    130
+                  ]
+                },
+                {
+                  "check": "overhangs",
+                  "code": "overhang",
+                  "severity": "warning",
+                  "message": "Overhang steeper than 45 degrees over 18.8 mm². Add supports, add a chamfer, or reorient the part.",
+                  "location": {
+                    "kind": "bounds",
+                    "min": [
+                      -34.0,
+                      -2.1213203435596384,
+                      17.121320343559642
+                    ],
+                    "max": [
+                      -30.0,
+                      2.121320343559642,
+                      18.0
+                    ]
+                  },
+                  "value": 1.5489797111449644,
+                  "limit": 0.7853981633974483,
+                  "faces": [
+                    141
+                  ]
+                },
+                {
+                  "check": "overhangs",
+                  "code": "overhang",
+                  "severity": "warning",
+                  "message": "Overhang steeper than 45 degrees over 18.8 mm². Add supports, add a chamfer, or reorient the part.",
+                  "location": {
+                    "kind": "bounds",
+                    "min": [
+                      -46.0,
+                      21.87867965644036,
+                      17.121320343559642
+                    ],
+                    "max": [
+                      -42.0,
+                      26.121320343559642,
+                      18.0
+                    ]
+                  },
+                  "value": 1.5489797111449644,
+                  "limit": 0.7853981633974483,
+                  "faces": [
+                    132
+                  ]
+                },
+                {
+                  "check": "overhangs",
+                  "code": "overhang",
+                  "severity": "warning",
+                  "message": "Overhang steeper than 45 degrees over 18.8 mm². Add supports, add a chamfer, or reorient the part.",
+                  "location": {
+                    "kind": "bounds",
+                    "min": [
+                      -34.0,
+                      21.87867965644036,
+                      17.121320343559642
+                    ],
+                    "max": [
+                      -30.0,
+                      26.121320343559642,
+                      18.0
+                    ]
+                  },
+                  "value": 1.5489797111449644,
+                  "limit": 0.7853981633974483,
+                  "faces": [
+                    143
+                  ]
+                },
+                {
+                  "check": "overhangs",
+                  "code": "overhang",
+                  "severity": "warning",
+                  "message": "Overhang steeper than 45 degrees over 18.8 mm². Add supports, add a chamfer, or reorient the part.",
+                  "location": {
+                    "kind": "bounds",
+                    "min": [
+                      30.0,
+                      -2.1213203435596384,
+                      17.121320343559642
+                    ],
+                    "max": [
+                      34.0,
+                      2.121320343559642,
+                      18.0
+                    ]
+                  },
+                  "value": 1.5489797111449644,
+                  "limit": 0.7853981633974483,
+                  "faces": [
+                    140
+                  ]
+                },
+                {
+                  "check": "overhangs",
+                  "code": "overhang",
+                  "severity": "warning",
+                  "message": "Overhang steeper than 45 degrees over 18.8 mm². Add supports, add a chamfer, or reorient the part.",
+                  "location": {
+                    "kind": "bounds",
+                    "min": [
+                      42.0,
+                      -2.1213203435596384,
+                      17.121320343559642
+                    ],
+                    "max": [
+                      46.0,
+                      2.121320343559642,
+                      18.0
+                    ]
+                  },
+                  "value": 1.5489797111449644,
+                  "limit": 0.7853981633974483,
+                  "faces": [
+                    129
+                  ]
+                },
+                {
+                  "check": "overhangs",
+                  "code": "overhang",
+                  "severity": "warning",
+                  "message": "Overhang steeper than 45 degrees over 18.8 mm². Add supports, add a chamfer, or reorient the part.",
+                  "location": {
+                    "kind": "bounds",
+                    "min": [
+                      30.0,
+                      21.87867965644036,
+                      17.121320343559642
+                    ],
+                    "max": [
+                      34.0,
+                      26.121320343559642,
+                      18.0
+                    ]
+                  },
+                  "value": 1.5489797111449644,
+                  "limit": 0.7853981633974483,
+                  "faces": [
+                    142
+                  ]
+                },
+                {
+                  "check": "overhangs",
+                  "code": "overhang",
+                  "severity": "warning",
+                  "message": "Overhang steeper than 45 degrees over 18.8 mm². Add supports, add a chamfer, or reorient the part.",
+                  "location": {
+                    "kind": "bounds",
+                    "min": [
+                      42.0,
+                      21.87867965644036,
+                      17.121320343559642
+                    ],
+                    "max": [
+                      46.0,
+                      26.121320343559642,
+                      18.0
+                    ]
+                  },
+                  "value": 1.5489797111449644,
+                  "limit": 0.7853981633974483,
+                  "faces": [
+                    131
+                  ]
+                },
+                {
+                  "check": "overhangs",
+                  "code": "overhang",
+                  "severity": "warning",
+                  "message": "Overhang steeper than 45 degrees over 18.8 mm². Add supports, add a chamfer, or reorient the part.",
+                  "location": {
+                    "kind": "bounds",
+                    "min": [
+                      54.0,
+                      -2.1213203435596384,
+                      17.121320343559642
+                    ],
+                    "max": [
+                      58.0,
+                      2.121320343559642,
+                      18.0
+                    ]
+                  },
+                  "value": 1.5489797111449644,
+                  "limit": 0.7853981633974483,
+                  "faces": [
+                    135
+                  ]
+                },
+                {
+                  "check": "overhangs",
+                  "code": "overhang",
+                  "severity": "warning",
+                  "message": "Overhang steeper than 45 degrees over 18.8 mm². Add supports, add a chamfer, or reorient the part.",
+                  "location": {
+                    "kind": "bounds",
+                    "min": [
+                      54.0,
+                      21.87867965644036,
+                      17.121320343559642
+                    ],
+                    "max": [
+                      58.0,
+                      26.121320343559642,
+                      18.0
+                    ]
+                  },
+                  "value": 1.5489797111449644,
+                  "limit": 0.7853981633974483,
+                  "faces": [
+                    137
+                  ]
+                }
+              ],
+              "omitted": 0
+            },
+            {
+              "check": "thin_walls",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "small_features",
+              "status": "warning",
+              "findings": [
+                {
+                  "check": "small_features",
+                  "code": "small_hole",
+                  "severity": "warning",
+                  "message": "A hole 0.17 mm across is smaller than 2 mm and may close up. Make it at least 2 mm, or drill it out after printing.",
+                  "location": {
+                    "kind": "bounds",
+                    "min": [
+                      77.1079695400873,
+                      -16.89265044819633,
+                      1.24892422621555
+                    ],
+                    "max": [
+                      78.89285714285714,
+                      -15.107349551803669,
+                      1.7854069217758715
+                    ]
+                  },
+                  "value": 0.16993002045390887,
+                  "limit": 2.0,
+                  "faces": [
+                    354
+                  ]
+                },
+                {
+                  "check": "small_features",
+                  "code": "small_hole",
+                  "severity": "warning",
+                  "message": "A hole 0.17 mm across is smaller than 2 mm and may close up. Make it at least 2 mm, or drill it out after printing.",
+                  "location": {
+                    "kind": "bounds",
+                    "min": [
+                      93.1079695400873,
+                      -16.89265044819633,
+                      1.24892422621555
+                    ],
+                    "max": [
+                      94.89285714285714,
+                      -15.107349551803669,
+                      1.7854069217758715
+                    ]
+                  },
+                  "value": 0.16993002045390887,
+                  "limit": 2.0,
+                  "faces": [
+                    355
+                  ]
+                },
+                {
+                  "check": "small_features",
+                  "code": "small_hole",
+                  "severity": "warning",
+                  "message": "A hole 0.17 mm across is smaller than 2 mm and may close up. Make it at least 2 mm, or drill it out after printing.",
+                  "location": {
+                    "kind": "bounds",
+                    "min": [
+                      77.1079695400873,
+                      15.107349551803669,
+                      1.24892422621555
+                    ],
+                    "max": [
+                      78.89285714285714,
+                      16.89265044819633,
+                      1.7854069217758715
+                    ]
+                  },
+                  "value": 0.1699300204539089,
+                  "limit": 2.0,
+                  "faces": [
+                    357
+                  ]
+                },
+                {
+                  "check": "small_features",
+                  "code": "small_hole",
+                  "severity": "warning",
+                  "message": "A hole 0.17 mm across is smaller than 2 mm and may close up. Make it at least 2 mm, or drill it out after printing.",
+                  "location": {
+                    "kind": "bounds",
+                    "min": [
+                      93.1079695400873,
+                      15.107349551803669,
+                      1.24892422621555
+                    ],
+                    "max": [
+                      94.89285714285714,
+                      16.89265044819633,
+                      1.7854069217758715
+                    ]
+                  },
+                  "value": 0.1699300204539089,
+                  "limit": 2.0,
+                  "faces": [
+                    356
+                  ]
+                }
+              ],
+              "omitted": 0
+            },
+            {
+              "check": "trapped_volumes",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            }
+          ]
+        }
+      },
+      {
+        "body": "b-4",
+        "transform": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          128.0,
+          149.0,
+          -0.0,
+          1.0
+        ],
+        "report": {
+          "profile": "generic-fdm",
+          "rotation": {
+            "rows": [
+              [
+                1.0,
+                0.0,
+                0.0
+              ],
+              [
+                0.0,
+                1.0,
+                0.0
+              ],
+              [
+                0.0,
+                0.0,
+                1.0
+              ]
+            ]
+          },
+          "health": "warning",
+          "checks": [
+            {
+              "check": "mesh_validity",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "bed_fit",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "first_layer_contact",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "islands",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "overhangs",
+              "status": "warning",
+              "findings": [
+                {
+                  "check": "overhangs",
+                  "code": "overhang",
+                  "severity": "warning",
+                  "message": "Overhang steeper than 45 degrees over 463.8 mm². Add supports, add a chamfer, or reorient the part.",
+                  "location": {
+                    "kind": "bounds",
+                    "min": [
+                      -38.8,
+                      -120.8,
+                      4.8
+                    ],
+                    "max": [
+                      -17.2,
+                      -99.2,
+                      4.8
+                    ]
+                  },
+                  "value": 1.5707963267948966,
+                  "limit": 0.7853981633974483,
+                  "faces": [
+                    27
+                  ]
+                },
+                {
+                  "check": "overhangs",
+                  "code": "overhang",
+                  "severity": "warning",
+                  "message": "Overhang steeper than 45 degrees over 463.8 mm². Add supports, add a chamfer, or reorient the part.",
+                  "location": {
+                    "kind": "bounds",
+                    "min": [
+                      -10.799999999999997,
+                      -120.8,
+                      4.8
+                    ],
+                    "max": [
+                      10.8,
+                      -99.2,
+                      4.8
+                    ]
+                  },
+                  "value": 1.5707963267948966,
+                  "limit": 0.7853981633974483,
+                  "faces": [
+                    28
+                  ]
+                },
+                {
+                  "check": "overhangs",
+                  "code": "overhang",
+                  "severity": "warning",
+                  "message": "Overhang steeper than 45 degrees over 463.8 mm². Add supports, add a chamfer, or reorient the part.",
+                  "location": {
+                    "kind": "bounds",
+                    "min": [
+                      17.200000000000003,
+                      -120.8,
+                      4.8
+                    ],
+                    "max": [
+                      38.8,
+                      -99.2,
+                      4.8
+                    ]
+                  },
+                  "value": 1.5707963267948966,
+                  "limit": 0.7853981633974483,
+                  "faces": [
+                    29
+                  ]
+                }
+              ],
+              "omitted": 0
+            },
+            {
+              "check": "thin_walls",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "small_features",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "trapped_volumes",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

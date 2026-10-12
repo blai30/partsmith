@@ -11,7 +11,8 @@ Spec: `docs/spec/protocol.md` sections 2.10 and 2.11. Build with `scripts/build-
 - C ABI exports (`#[unsafe(no_mangle)]`, in `src/exports.rs`):
   - `ps_alloc(length) -> *mut u8`: 8-aligned block, null for 0 or when allocation fails. Safe to call.
   - `unsafe ps_free(pointer, length)`: frees a block from `ps_alloc` or `ps_call`; null does nothing.
-  - `unsafe ps_call(request, request_length, response_length) -> *mut u8`: answers every request (a null request reads as empty) with a response block allocated like `ps_alloc`, writes its length, never frees the request; null and 0 only when the response cannot be allocated.
+  - `unsafe ps_call(request, request_length, response_length) -> *mut u8`: answers every request (a null request reads as empty) with a response block allocated like `ps_alloc`, writes its length, never frees the request; null and 0 only when the response cannot be allocated. A null `response_length` handles nothing and returns null.
+  - On wasm32, pointers and lengths are unsigned 32-bit, but JavaScript reads the raw `_ps_alloc` and `_ps_call` results as signed numbers, so blocks above 2 GiB come back negative; JavaScript reads them with `>>> 0` (as `tests/node/engine_info_round_trip.mjs` does).
 - Binary `partsmith_core` (`src/main.rs`): the web core module, `ui/public/core/partsmith_core.mjs` (factory `createPartsmithCore`) and `partsmith_core.wasm`.
 
 ## Commands
@@ -22,6 +23,8 @@ cargo test -p partsmith-wasm
 cargo test -p partsmith-wasm --lib
 cargo clippy -p partsmith-wasm --all-targets -- -D warnings
 cargo fmt -p partsmith-wasm
+# The ps_call round trip budget of protocol.md section 5 (0.2 ms native, 1 ms with --target wasm32-unknown-emscripten)
+cargo bench -p partsmith-wasm --bench budgets
 
 # Web core module into ui/public/core/ (needs an activated Emscripten SDK and OCCT built for wasm);
 # prints the .wasm size, gzip and brotli sizes against the 25 MiB Cloudflare Pages per-file limit
@@ -33,11 +36,11 @@ cargo test -p partsmith-wasm --test web_module
 OCCT_ROOT_WASM32_UNKNOWN_EMSCRIPTEN=/opt/occt/7.9.3/wasm cargo test -p partsmith-wasm --target wasm32-unknown-emscripten
 ```
 
-`tests/web_module.rs` runs `tests/node/engine_info_round_trip.mjs` against the built module in `ui/public/core/`; it skips with a message when Node or the module is missing.
+`tests/web_module.rs` runs `tests/node/engine_info_round_trip.mjs` against the built module in `ui/public/core/`; it skips with a message when Node or the module is missing, and fails instead when `PARTSMITH_REQUIRE_WEB_MODULE=1` (for the CI job that builds the module).
 
 ## Rules
 
-- `unsafe` only on the three exports, each block with a `// SAFETY:` comment; the crate's own lint table denies it everywhere else (ADR 0010). Unit tests in `src/` stay safe; tests that need raw pointers live in `tests/`.
+- `unsafe` only on the three exports, each block with a `// SAFETY:` comment; the crate's own lint table denies it everywhere else (ADR 0010). Unit tests in `src/` stay safe and cover private items only. Tests and the benchmark reach the raw pointers through the `Block` helper in `tests/common/block.rs`, the only `unsafe` code outside `src/exports.rs`.
 - `ps_free` and `ps_call` are `unsafe extern "C" fn` because they trust pointers from the caller; their C signatures are those of protocol.md 2.10.
-- The binary is named `partsmith_core` because Emscripten embeds the `.wasm` file name in the `.js` loader. Its link arguments live in `build.rs`, for the Emscripten target only.
+- The binary is named `partsmith_core` because Emscripten embeds the `.wasm` file name in the `.js` loader. Its link arguments live in `build.rs`, for the Emscripten target only, and repeat every link argument `.cargo/config.toml` gives that target, so a `RUSTFLAGS` variable cannot change the module (`tests/build_script.rs` checks it).
 - `src/main.rs` must call into the library (it creates the session). Otherwise rustc leaves the library out of the link and emcc fails with `symbol exported via --export not found: ps_alloc`.

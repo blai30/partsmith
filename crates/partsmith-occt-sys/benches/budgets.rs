@@ -240,6 +240,44 @@ fn part() -> Shape {
     shell(&drilled, &[top], 2.0).expect("the part shells").shape
 }
 
+/// `PLATE` of spec section 5: a 200 x 200 x 10 box with 194 through holes of radius 4 cut in one
+/// call (200 faces, 594 edges, 396 vertices).
+fn plate() -> Shape {
+    let block = make_box(&placed(0.0, 0.0, -5.0), 200.0, 200.0, 10.0)
+        .expect("the plate builds")
+        .shape;
+    let holes: Vec<Shape> = (0..194)
+        .map(|position| {
+            let column = f64::from(position % 14);
+            let row = f64::from(position / 14);
+            make_cylinder(
+                &placed(10.0 + 13.5 * column, 10.0 + 13.5 * row, -10.0),
+                4.0,
+                20.0,
+            )
+            .expect("the hole tool builds")
+            .shape
+        })
+        .collect();
+    let plate = cut(&block, &holes).expect("the holes cut").shape;
+    assert_eq!(plate.count(SubShapeKind::Face), 200);
+    plate
+}
+
+/// `L` of spec test 102: a 40 x 20 x 10 box fused with a 20 x 20 x 10 box standing on its right
+/// half, with the index of the step face (the top of the low half, at z = 10).
+fn l_body() -> (Shape, u32) {
+    let low = make_box(&placed(-20.0, -10.0, 0.0), 40.0, 20.0, 10.0)
+        .expect("the low box builds")
+        .shape;
+    let high = make_box(&placed(0.0, -10.0, 10.0), 20.0, 20.0, 10.0)
+        .expect("the high box builds")
+        .shape;
+    let body = fuse(&low, &[high]).expect("the boxes fuse").shape;
+    let step = planar_face(&body, UP, 10.0);
+    (body, step)
+}
+
 fn main() -> ExitCode {
     let selection = Selection::from_arguments();
     let mut measurements: Vec<Measurement> = Vec::new();
@@ -350,6 +388,37 @@ fn main() -> ExitCode {
             median_time(|| (prism.elements(SubShapeKind::Face), prism.topology()))
         },
     );
+    let plate = plate();
+    measure(
+        "elements of every kind and topology(), PLATE",
+        milliseconds(8),
+        &|| {
+            median_time(|| {
+                (
+                    plate.elements(SubShapeKind::Face),
+                    plate.elements(SubShapeKind::Edge),
+                    plate.elements(SubShapeKind::Vertex),
+                    plate.topology(),
+                )
+            })
+        },
+    );
+    measure("TEMP elements(Face), PLATE", milliseconds(8), &|| {
+        median_time(|| plate.elements(SubShapeKind::Face))
+    });
+    measure("TEMP elements(Edge), PLATE", milliseconds(8), &|| {
+        median_time(|| plate.elements(SubShapeKind::Edge))
+    });
+    measure("TEMP elements(Vertex), PLATE", milliseconds(8), &|| {
+        median_time(|| plate.elements(SubShapeKind::Vertex))
+    });
+    measure("TEMP topology(), PLATE", milliseconds(8), &|| {
+        median_time(|| plate.topology())
+    });
+    measure("shell, L with its step face removed", milliseconds(40), &|| {
+        let (body, step) = l_body();
+        median_time(|| shell(&body, &[step], 2.0))
+    });
 
     let part = part();
     println!(

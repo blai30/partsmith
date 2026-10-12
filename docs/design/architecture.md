@@ -22,15 +22,19 @@ partsmith-protocol  -> model, mesh, sketch, naming, print
                                          commands, events, binary framing, JSON Schema
 partsmith-engine    -> everything above  Session: documents, commands, undo, recompute,
                                          tessellation, export, analysis, Python codegen
-partsmith-cli       -> engine            `partsmith` binary: validate, fmt, rebuild, export
-partsmith-wasm      -> engine, protocol  Emscripten entry point for the web worker
-partsmith-py        -> engine            PyO3 extension module behind the `partsmith` package
+partsmith-cli       -> engine, model, protocol, print
+                                         `partsmith` binary: validate, fmt, rebuild, export
+partsmith-wasm      -> engine, model, protocol
+                                         Emscripten entry point for the web worker
+partsmith-py        -> engine, model, protocol
+                                         PyO3 extension module behind the `partsmith` package
 desktop/src-tauri   -> engine, protocol  Tauri 2 host
 ui/                 TypeScript           React app; depends only on generated protocol types
 ```
 
 Rules:
 
+- Hosts (`partsmith-cli`, `partsmith-wasm`, `partsmith-py`, the desktop host) depend on the engine for all behavior, and on the data crates whose types and constants pass through them (`model` for ids and versions, `protocol` for frames, `print` for printing reports in the CLI). They contain no modeling logic.
 - `partsmith-occt-sys` is the only crate that contains C++. It is also the only crate with `unsafe`, with one exception: `partsmith-wasm` may use `unsafe` on its three C ABI exports and nowhere else (ADR 0010). Every other crate has `#![forbid(unsafe_code)]` through the workspace lint table.
 - No C++ type, exception or raw pointer crosses out of `partsmith-occt-sys`. Its public API is safe Rust.
 - No global mutable state anywhere in the core. Every API takes a document or session handle. The `Session` that `partsmith-wasm` keeps in a `thread_local!` is host state, not core state (ADR 0010). The STEP mutex and one-time OCCT initialization inside `partsmith-occt-sys` guard OCCT's own process-wide state, not Partsmith state (kernel.md).

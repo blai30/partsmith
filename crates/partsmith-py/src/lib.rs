@@ -8,7 +8,7 @@
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use partsmith_engine::{ENGINE_VERSION, SequentialIds, Session, SessionOptions};
-use partsmith_model::{FORMAT_VERSION, RandomIdGenerator};
+use partsmith_model::{FORMAT_VERSION, IdGenerator, RandomIdGenerator};
 use partsmith_protocol::PROTOCOL_VERSION;
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
@@ -56,14 +56,16 @@ impl PySession {
 /// The options of a Python session: `SessionOptions::headless()` with the display flag and the
 /// id generator chosen by the caller.
 fn session_options(display: bool, deterministic_ids: bool) -> SessionOptions {
-    let mut options = SessionOptions::headless();
-    options.display = display;
-    options.id_generator = if deterministic_ids {
+    let id_generator: Box<dyn IdGenerator + Send> = if deterministic_ids {
         Box::new(SequentialIds::new())
     } else {
         Box::new(RandomIdGenerator::new())
     };
-    options
+    SessionOptions {
+        display,
+        id_generator,
+        ..SessionOptions::headless()
+    }
 }
 
 /// The `.ptsm` JSON Schema text (engine `ptsm_schema`).
@@ -92,11 +94,19 @@ fn _core(module: &Bound<'_, PyModule>) -> PyResult<()> {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::mpsc;
+    use std::thread;
+    use std::time::Duration;
+
     use partsmith_model::{Id, IdKind};
-    use partsmith_protocol::decode_response_frame;
+    use partsmith_protocol::{Command, Request, decode_response_frame, encode_request_frame};
+    use pyo3::exceptions::PyTypeError;
     use pyo3::types::PyDict;
 
     use super::*;
+
+    /// How long a thread may wait for the GIL before the test counts it as held for good.
+    const GIL_WAIT_LIMIT: Duration = Duration::from_secs(10);
 
     /// The first body id the options' generator produces for an empty document.
     fn first_body_id(options: &mut SessionOptions) -> String {
@@ -107,17 +117,14 @@ mod tests {
             .to_string()
     }
 
-    /// A request frame holding one `engine_info` request with `id` and no buffers.
+    /// A request frame holding one `engine_info` request with `id` and no buffers, built with the
+    /// protocol encoder.
     fn engine_info_frame(id: u64) -> Vec<u8> {
-        let header = format!(
-            r#"{{"protocol_version":1,"messages":[{{"kind":"request","id":{id},"command":{{"type":"engine_info"}}}}],"buffers":[]}}"#
-        );
-        let header_length = u32::try_from(header.len()).expect("the header is short");
-        let mut frame = b"PSM1".to_vec();
-        frame.extend_from_slice(&header_length.to_le_bytes());
-        frame.extend_from_slice(header.as_bytes());
-        frame.resize(frame.len().next_multiple_of(8), 0);
-        frame
+        let request = Request {
+            id,
+            command: Command::EngineInfo,
+        };
+        encode_request_frame(&request, &[]).expect("a request without buffers always encodes")
     }
 
     /// The `partsmith._core` module built in an embedded interpreter.
@@ -174,22 +181,75 @@ mod tests {
     }
 
     #[test]
+    fn call_releases_the_gil_while_it_waits_for_the_session() {
+        Python::initialize();
+        let session = PySession::new(false, true);
+        let frame = engine_info_frame(9);
+        let (attached_sender, attached_receiver) = mpsc::channel();
+        let (probe_sender, probe_receiver) = mpsc::channel();
+
+        let guard = session.lock();
+        let (probe, caller_was_waiting, response) = thread::scope(|scope| {
+            let caller = scope.spawn(|| {
+                Python::attach(|py| {
+                    attached_sender
+                        .send(())
+                        .expect("the test thread keeps the receiver until the scope ends");
+                    session.call(py, &frame).as_bytes().to_vec()
+                })
+            });
+            attached_receiver
+                .recv()
+                .expect("the caller thread attaches to Python before it calls");
+            // The caller now holds the GIL until `call` releases it, so a second thread can
+            // attach only if `call` waits for the session lock with the GIL released.
+            let prober = scope.spawn(move || {
+                Python::attach(|_| {
+                    probe_sender
+                        .send(())
+                        .expect("the test thread keeps the receiver until the scope ends");
+                });
+            });
+            let probe = probe_receiver.recv_timeout(GIL_WAIT_LIMIT);
+            let caller_was_waiting = !caller.is_finished();
+            drop(guard);
+            prober.join().expect("the prober thread finished");
+            let response = caller.join().expect("the caller thread finished");
+            (probe, caller_was_waiting, response)
+        });
+
+        assert!(
+            probe.is_ok(),
+            "another thread could not attach to Python while a call waited for the session"
+        );
+        assert!(
+            caller_was_waiting,
+            "the call finished before the session was unlocked"
+        );
+        let decoded = decode_response_frame(&response).expect("the frame decodes");
+        assert_eq!(decoded.response.id, 9);
+    }
+
+    #[test]
     fn module_exports_the_version_constants() {
         Python::initialize();
         Python::attach(|py| {
             let module = core_module(py);
-            let constant = |name: &str| {
-                module
-                    .getattr(name)
-                    .expect("the constant exists")
-                    .str()
-                    .expect("the constant has a text form")
-                    .to_string()
-            };
+            let constant = |name: &str| module.getattr(name).expect("the constant exists");
 
-            assert_eq!(constant("PROTOCOL_VERSION"), "1");
-            assert_eq!(constant("ENGINE_VERSION"), "0.1.0");
-            assert_eq!(constant("FORMAT_VERSION"), "1");
+            let protocol_version: u32 = constant("PROTOCOL_VERSION")
+                .extract()
+                .expect("PROTOCOL_VERSION is an int");
+            let engine_version: String = constant("ENGINE_VERSION")
+                .extract()
+                .expect("ENGINE_VERSION is a str");
+            let format_version: u32 = constant("FORMAT_VERSION")
+                .extract()
+                .expect("FORMAT_VERSION is an int");
+
+            assert_eq!(protocol_version, PROTOCOL_VERSION);
+            assert_eq!(engine_version, ENGINE_VERSION);
+            assert_eq!(format_version, FORMAT_VERSION);
         });
     }
 
@@ -220,8 +280,18 @@ mod tests {
             keywords
                 .set_item("display", true)
                 .expect("a dict takes a str key");
+            keywords
+                .set_item("deterministic_ids", false)
+                .expect("a dict takes a str key");
 
-            assert!(session_type.call((true,), None).is_err());
+            let positional = session_type
+                .call1((true,))
+                .expect_err("a positional option is rejected");
+
+            assert!(
+                positional.is_instance_of::<PyTypeError>(py),
+                "expected TypeError, got {positional}"
+            );
             assert!(session_type.call((), Some(&keywords)).is_ok());
         });
     }

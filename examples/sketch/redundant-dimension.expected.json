@@ -1,0 +1,43 @@
+{
+  "printer": "generic-fdm",
+  "features": [
+    {
+      "id": "f-sk1",
+      "type": "sketch",
+      "status": "warning",
+      "messages": [
+        {
+          "severity": "warning",
+          "code": "redundant_constraints",
+          "message": "Dimension c-4 (distance) is redundant: the other constraints already determine what it sets. Delete it or make it a reference dimension."
+        }
+      ]
+    }
+  ],
+  "parameters": [
+    {
+      "id": "p-w",
+      "name": "width",
+      "value": 100.0,
+      "dimension": {
+        "length": 1,
+        "angle": 0
+      }
+    }
+  ],
+  "bodies": [],
+  "checks": {
+    "profile": "generic-fdm",
+    "orientation": {
+      "kind": "as_modeled"
+    },
+    "summary": {
+      "health": "ok",
+      "errors": 0,
+      "warnings": 0,
+      "infos": 0,
+      "label": "Ready to print"
+    },
+    "bodies": []
+  }
+}

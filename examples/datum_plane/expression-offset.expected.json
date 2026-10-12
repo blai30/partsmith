@@ -1,0 +1,37 @@
+{
+  "printer": "generic-fdm",
+  "features": [
+    {
+      "id": "f-dp1",
+      "type": "datum_plane",
+      "status": "ok",
+      "messages": []
+    }
+  ],
+  "parameters": [
+    {
+      "id": "p-wall",
+      "name": "wall",
+      "value": 2.0,
+      "dimension": {
+        "length": 1,
+        "angle": 0
+      }
+    }
+  ],
+  "bodies": [],
+  "checks": {
+    "profile": "generic-fdm",
+    "orientation": {
+      "kind": "as_modeled"
+    },
+    "summary": {
+      "health": "ok",
+      "errors": 0,
+      "warnings": 0,
+      "infos": 0,
+      "label": "Ready to print"
+    },
+    "bodies": []
+  }
+}

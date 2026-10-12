@@ -1,0 +1,223 @@
+{
+  "printer": "generic-fdm",
+  "features": [
+    {
+      "id": "f-tor1",
+      "type": "torus",
+      "status": "ok",
+      "messages": []
+    }
+  ],
+  "parameters": [],
+  "bodies": [
+    {
+      "id": "b-1",
+      "name": "Body 1",
+      "volume": 9869.604401089357,
+      "area": 3947.841760435744,
+      "center_of_mass": [
+        0.0,
+        1.1775926141982647e-15,
+        5.0
+      ],
+      "bounding_box": {
+        "min": [
+          -25.0000001,
+          -25.0000001,
+          -1e-7
+        ],
+        "max": [
+          25.0000001,
+          25.0000001,
+          10.0000001
+        ]
+      },
+      "faces": 1,
+      "edges": 0,
+      "vertices": 0
+    }
+  ],
+  "checks": {
+    "profile": "generic-fdm",
+    "orientation": {
+      "kind": "as_modeled"
+    },
+    "summary": {
+      "health": "warning",
+      "errors": 0,
+      "warnings": 3,
+      "infos": 0,
+      "label": "3 warnings"
+    },
+    "bodies": [
+      {
+        "body": "b-1",
+        "transform": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          128.0,
+          128.0,
+          -0.0,
+          1.0
+        ],
+        "report": {
+          "profile": "generic-fdm",
+          "rotation": {
+            "rows": [
+              [
+                1.0,
+                0.0,
+                0.0
+              ],
+              [
+                0.0,
+                1.0,
+                0.0
+              ],
+              [
+                0.0,
+                0.0,
+                1.0
+              ]
+            ]
+          },
+          "health": "warning",
+          "checks": [
+            {
+              "check": "mesh_validity",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "bed_fit",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "first_layer_contact",
+              "status": "warning",
+              "findings": [
+                {
+                  "check": "first_layer_contact",
+                  "code": "low_bed_contact",
+                  "severity": "warning",
+                  "message": "Only 2.8% of the part's footprint touches the bed (less than 5%). Lay a larger flat face on the bed or add a brim.",
+                  "location": {
+                    "kind": "bounds",
+                    "min": [
+                      -20.218096936826658,
+                      -20.218096936826658,
+                      0.0
+                    ],
+                    "max": [
+                      20.218096936826658,
+                      20.218096936826658,
+                      0.00475889209071223
+                    ]
+                  },
+                  "value": 0.027923056007618047,
+                  "limit": 0.05,
+                  "faces": [
+                    0
+                  ]
+                }
+              ],
+              "omitted": 0
+            },
+            {
+              "check": "islands",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "overhangs",
+              "status": "warning",
+              "findings": [
+                {
+                  "check": "overhangs",
+                  "code": "overhang",
+                  "severity": "warning",
+                  "message": "Overhang steeper than 45 degrees over 511.7 mm². Add supports, add a chamfer, or reorient the part.",
+                  "location": {
+                    "kind": "bounds",
+                    "min": [
+                      -23.535533905932716,
+                      -23.535533905932716,
+                      0.0047588920907095655
+                    ],
+                    "max": [
+                      23.535533905932716,
+                      23.535533905932716,
+                      1.4644660940672427
+                    ]
+                  },
+                  "value": 1.505330945314576,
+                  "limit": 0.7853981633974483,
+                  "faces": [
+                    0
+                  ]
+                },
+                {
+                  "check": "overhangs",
+                  "code": "overhang",
+                  "severity": "warning",
+                  "message": "Overhang steeper than 45 degrees over 420.1 mm². Add supports, add a chamfer, or reorient the part.",
+                  "location": {
+                    "kind": "bounds",
+                    "min": [
+                      -19.781903063173296,
+                      -19.781903063173296,
+                      0.00475889209071223
+                    ],
+                    "max": [
+                      19.781903063173296,
+                      19.781903063173296,
+                      1.4644660940672756
+                    ]
+                  },
+                  "value": 1.5053309453145658,
+                  "limit": 0.7853981633974483,
+                  "faces": [
+                    0
+                  ]
+                }
+              ],
+              "omitted": 0
+            },
+            {
+              "check": "thin_walls",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "small_features",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "trapped_volumes",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

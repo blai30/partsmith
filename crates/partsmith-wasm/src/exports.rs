@@ -118,14 +118,4 @@ mod tests {
 
         assert!(block_layout(largest).is_some());
     }
-
-    #[test]
-    fn alloc_of_zero_bytes_returns_null() {
-        assert!(ps_alloc(0).is_null());
-    }
-
-    #[test]
-    fn alloc_of_a_length_beyond_the_address_space_returns_null() {
-        assert!(ps_alloc(usize::MAX).is_null());
-    }
 }

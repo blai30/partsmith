@@ -1,0 +1,210 @@
+{
+  "printer": "generic-fdm",
+  "features": [
+    {
+      "id": "f-box1",
+      "type": "box",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-sk1",
+      "type": "sketch",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-hole1",
+      "type": "hole",
+      "status": "ok",
+      "messages": []
+    }
+  ],
+  "parameters": [],
+  "bodies": [
+    {
+      "id": "b-1",
+      "name": "Body 1",
+      "volume": 15841.639396829341,
+      "area": 4898.959227916503,
+      "center_of_mass": [
+        -3.9165652100119743e-16,
+        7.212287324156179e-17,
+        -5.021826856357854
+      ],
+      "bounding_box": {
+        "min": [
+          -20.0,
+          -20.0,
+          -10.0
+        ],
+        "max": [
+          20.0,
+          20.0,
+          0.0
+        ]
+      },
+      "faces": 8,
+      "edges": 14,
+      "vertices": 10
+    }
+  ],
+  "checks": {
+    "profile": "generic-fdm",
+    "orientation": {
+      "kind": "as_modeled"
+    },
+    "summary": {
+      "health": "warning",
+      "errors": 0,
+      "warnings": 1,
+      "infos": 1,
+      "label": "1 warning"
+    },
+    "bodies": [
+      {
+        "body": "b-1",
+        "transform": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          128.0,
+          128.0,
+          10.0,
+          1.0
+        ],
+        "report": {
+          "profile": "generic-fdm",
+          "rotation": {
+            "rows": [
+              [
+                1.0,
+                0.0,
+                0.0
+              ],
+              [
+                0.0,
+                1.0,
+                0.0
+              ],
+              [
+                0.0,
+                0.0,
+                1.0
+              ]
+            ]
+          },
+          "health": "warning",
+          "checks": [
+            {
+              "check": "mesh_validity",
+              "status": "info",
+              "findings": [
+                {
+                  "check": "mesh_validity",
+                  "code": "degenerate_triangles",
+                  "severity": "info",
+                  "message": "1 triangle has no area. Slicers ignore it.",
+                  "location": {
+                    "kind": "bounds",
+                    "min": [
+                      -0.42817462075809926,
+                      0.0,
+                      -6.80258185708268
+                    ],
+                    "max": [
+                      0.0,
+                      0.018438099859084463,
+                      -6.545070163213726
+                    ]
+                  },
+                  "value": 1.0,
+                  "faces": [
+                    7
+                  ]
+                }
+              ],
+              "omitted": 0
+            },
+            {
+              "check": "bed_fit",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "first_layer_contact",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "islands",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "overhangs",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "thin_walls",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "small_features",
+              "status": "warning",
+              "findings": [
+                {
+                  "check": "small_features",
+                  "code": "small_hole",
+                  "severity": "warning",
+                  "message": "A hole 0.341 mm across is smaller than 2 mm and may close up. Make it at least 2 mm, or drill it out after printing.",
+                  "location": {
+                    "kind": "bounds",
+                    "min": [
+                      -0.8563492415161976,
+                      -0.8569444302684784,
+                      -6.80258185708268
+                    ],
+                    "max": [
+                      0.8571428571428572,
+                      0.8569444302684784,
+                      -6.287558469344772
+                    ]
+                  },
+                  "value": 0.3412916884201682,
+                  "limit": 2.0,
+                  "faces": [
+                    7
+                  ]
+                }
+              ],
+              "omitted": 0
+            },
+            {
+              "check": "trapped_volumes",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

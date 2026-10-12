@@ -3,7 +3,7 @@
 //! The rest of section 6 exercises the pure-Python package and lives in `python/tests/` (pytest), as the spec places it.
 
 use _core::PySession;
-use partsmith_protocol::decode_response_frame;
+use partsmith_protocol::{Command, Request, decode_response_frame, encode_request_frame};
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
@@ -38,18 +38,13 @@ fn example_a() -> Vec<u8> {
     bytes
 }
 
-/// A request frame (protocol.md section 2.2) holding one `engine_info` request with `id` and no buffers.
+/// A request frame (protocol.md section 2.2) holding one `engine_info` request with `id` and no buffers, built with the protocol encoder.
 fn engine_info_frame(id: u64) -> Vec<u8> {
-    let header = format!(
-        r#"{{"protocol_version":1,"messages":[{{"kind":"request","id":{id},"command":{{"type":"engine_info"}}}}],"buffers":[]}}"#
-    );
-    let header_length = u32::try_from(header.len()).expect("the header is short");
-    let padding = (8 - header.len() % 8) % 8;
-    let mut frame = b"PSM1".to_vec();
-    frame.extend_from_slice(&header_length.to_le_bytes());
-    frame.extend_from_slice(header.as_bytes());
-    frame.extend(std::iter::repeat_n(0_u8, padding));
-    frame
+    let request = Request {
+        id,
+        command: Command::EngineInfo,
+    };
+    encode_request_frame(&request, &[]).expect("a request without buffers always encodes")
 }
 
 /// The response of a response frame as JSON (`{"id", "result"}`), after the protocol decoder accepted the frame.
@@ -144,7 +139,10 @@ fn t074_two_threads_share_one_session() {
 
     assert_eq!(responses.len(), 2);
     for thread_responses in &responses {
-        assert_eq!(thread_responses.len(), 50);
+        assert_eq!(
+            thread_responses.len(),
+            usize::try_from(CALLS_PER_THREAD).expect("the call count fits in usize")
+        );
         for (id, response) in thread_responses {
             assert_eq!(response["id"], json!(id));
             assert_eq!(response["result"]["kind"], json!("ok"));

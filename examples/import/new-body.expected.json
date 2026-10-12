@@ -1,0 +1,40 @@
+{
+  "printer": "generic-fdm",
+  "features": [
+    {
+      "id": "f-imp1",
+      "type": "import",
+      "status": "error",
+      "messages": [
+        {
+          "severity": "error",
+          "code": "asset_missing",
+          "message": "The imported file assets/0000000000000000000000000000000000000000000000000000000000000000.step is missing. Put it next to the document in the assets folder.",
+          "field": "/asset"
+        }
+      ]
+    }
+  ],
+  "parameters": [],
+  "bodies": [
+    {
+      "id": "b-1",
+      "name": "Body 1",
+      "empty": true
+    }
+  ],
+  "checks": {
+    "profile": "generic-fdm",
+    "orientation": {
+      "kind": "as_modeled"
+    },
+    "summary": {
+      "health": "ok",
+      "errors": 0,
+      "warnings": 0,
+      "infos": 0,
+      "label": "Ready to print"
+    },
+    "bodies": []
+  }
+}

@@ -3,8 +3,10 @@ import { generateId, usedIds } from '../../core/ids'
 import { featureLabel } from '../../core/labels'
 import { CoreFatalError } from '../../core/transport'
 import type {
+  DocHandle,
   Document,
   Edit,
+  ProfileFinding,
   SketchConstraint,
   SketchEntity,
   SketchParams,
@@ -21,7 +23,8 @@ import {
   referencedEntities,
   type ConstraintType,
 } from '../../sketch/constraints'
-import { failedSolveMessage } from '../../sketch/issues'
+import { failedSolveMessage, findingPoints } from '../../sketch/issues'
+import { worldBounds } from '../../sketch/placement'
 import type { IdSource } from '../../sketch/recipes'
 import type { SketchChange, SketchCommitResult, SketchToolId } from '../../sketch/session'
 import { constraintTool } from '../../sketch/tools'
@@ -400,13 +403,14 @@ export function selectInSketch(
     updateSession(app, { selection: [...items] })
     return
   }
-  let selection = [...session.selection]
+  // Keys keep insertion order, so toggled-on items follow the ones already selected.
+  const selection = new Map(session.selection.map((item) => [item.key, item]))
   for (const item of items) {
-    selection = selection.some((selected) => selected.key === item.key)
-      ? selection.filter((selected) => selected.key !== item.key)
-      : [...selection, item]
+    if (!selection.delete(item.key)) {
+      selection.set(item.key, item)
+    }
   }
-  updateSession(app, { selection })
+  updateSession(app, { selection: [...selection.values()] })
 }
 
 /** Marks whether a point drag is in progress, which the session shows as `dragging`. */
@@ -595,55 +599,78 @@ async function commitNow(
   if (document === null || sketchId === null || record === null || params === null) {
     return { outcome: 'failed', message: 'There is no sketch being edited.' }
   }
-  let candidate = applySketchChange(params, change)
-  let pendingInferred = new Set(change.inferred)
-  let retries = 0
-  for (;;) {
-    let solved: SolvedSketch | null
-    try {
-      solved = await app.core.solveSketch(document.documentHandle, sketchId, candidate)
-    } catch (error) {
-      return failure(error)
-    }
-    if (solved === null) {
-      retries += 1
-      if (retries > SUPERSEDED_RETRIES) {
-        return { outcome: 'failed', message: MESSAGES.core_not_running() }
-      }
-      continue
-    }
-    const solution = solved.solution
-    const troubled = (id: string): boolean =>
-      solution.conflicting.includes(id) || solution.redundant.includes(id)
-    const refused = change.requested.find((id) => solution.conflicting.includes(id)) ??
-      change.requested.find((id) => solution.redundant.includes(id))
-    if (refused !== undefined) {
-      const conflicting = solution.conflicting.includes(refused)
-      return {
-        outcome: 'over_constrained',
-        constraint: refused,
-        conflicting: conflicting ? solution.conflicting.filter((id) => id !== refused) : [],
-        redundant: !conflicting,
-      }
-    }
-    const dropped = [...pendingInferred].filter(troubled)
-    if (dropped.length > 0) {
-      // Inferred constraints that over-constrain the sketch are dropped and the rest solved again.
-      const droppedIds = new Set(dropped)
-      pendingInferred = new Set([...pendingInferred].filter((id) => !droppedIds.has(id)))
-      candidate = {
-        ...candidate,
-        constraints: (candidate.constraints ?? []).filter(
-          (constraint) => !droppedIds.has(constraint.id),
-        ),
-      }
-      continue
-    }
-    if (solution.failed) {
-      return { outcome: 'failed', message: failedSolveMessage(solution) }
-    }
-    return applyCandidate(app, label, record, candidate, solution)
+  return probe(app, label, {
+    documentHandle: document.documentHandle,
+    sketchId,
+    record,
+    candidate: applySketchChange(params, change),
+    requested: change.requested,
+    inferred: change.inferred,
+    retries: 0,
+  })
+}
+
+/** One solver probe of a commit and what it still has to check. */
+type Probe = {
+  readonly documentHandle: DocHandle
+  readonly sketchId: string
+  readonly record: FeatureRecord
+  readonly candidate: SketchParams
+  readonly requested: readonly string[]
+  /** Inferred constraints still in the candidate. */
+  readonly inferred: readonly string[]
+  /** Probes sent again after another solve of the sketch superseded them. */
+  readonly retries: number
+}
+
+/** Probes the candidate (3.16.3 step 2) and applies it, or says why not; each retry is one more probe. */
+async function probe(app: App, label: string, current: Probe): Promise<SketchCommitResult> {
+  let solved: SolvedSketch | null
+  try {
+    solved = await app.core.solveSketch(current.documentHandle, current.sketchId, current.candidate)
+  } catch (error) {
+    return failure(error)
   }
+  if (solved === null) {
+    return current.retries < SUPERSEDED_RETRIES
+      ? probe(app, label, { ...current, retries: current.retries + 1 })
+      : { outcome: 'failed', message: MESSAGES.core_not_running() }
+  }
+  const solution = solved.solution
+  const refused =
+    current.requested.find((id) => solution.conflicting.includes(id)) ??
+    current.requested.find((id) => solution.redundant.includes(id))
+  if (refused !== undefined) {
+    const conflicting = solution.conflicting.includes(refused)
+    return {
+      outcome: 'over_constrained',
+      constraint: refused,
+      conflicting: conflicting ? solution.conflicting.filter((id) => id !== refused) : [],
+      redundant: !conflicting,
+    }
+  }
+  const dropped = new Set(
+    current.inferred.filter(
+      (id) => solution.conflicting.includes(id) || solution.redundant.includes(id),
+    ),
+  )
+  if (dropped.size > 0) {
+    // Inferred constraints that over-constrain the sketch are dropped and the rest solved again.
+    return probe(app, label, {
+      ...current,
+      candidate: {
+        ...current.candidate,
+        constraints: (current.candidate.constraints ?? []).filter(
+          (constraint) => !dropped.has(constraint.id),
+        ),
+      },
+      inferred: current.inferred.filter((id) => !dropped.has(id)),
+    })
+  }
+  if (solution.failed) {
+    return { outcome: 'failed', message: failedSolveMessage(solution) }
+  }
+  return applyCandidate(app, label, current.record, current.candidate, solution)
 }
 
 async function applyCandidate(
@@ -863,3 +890,28 @@ async function replaceConstraints(
   }
   showSketchRefusal(app, result)
 }
+
+/** Share of the sketch's size that pads a framed profile issue, and the least padding in mm. */
+const FINDING_PADDING_SHARE = 0.15
+const MINIMUM_FINDING_PADDING = 2
+
+/** Frames a profile issue of the edited sketch in the view (3.16.8 "Show"). */
+export function showSketchFinding(app: App, finding: ProfileFinding): void {
+  const sketchId = editingSession(app)?.sketchId ?? null
+  const solution = sketchId === null ? null : solutionOf(app, sketchId)
+  const viewport = app.viewport()
+  if (solution === null || viewport === null) {
+    return
+  }
+  const extent = sketchExtent(solution)
+  const size =
+    extent === null ? 0 : Math.hypot(extent.max[0] - extent.min[0], extent.max[1] - extent.min[1])
+  const padding = Math.max(MINIMUM_FINDING_PADDING, FINDING_PADDING_SHARE * size)
+  const bounds = worldBounds(solution.placement, findingPoints(finding), padding)
+  if (bounds !== null) {
+    viewport.zoomToBounds(bounds, FINDING_MARGIN)
+  }
+}
+
+/** Margin of a framed profile issue, as for a framed sketch. */
+const FINDING_MARGIN = 0.1
