@@ -131,6 +131,45 @@ fn t007_zero_height_is_out_of_range() {
     assert_error_field(error, "height");
 }
 
+// Radii within the kernel's modeling tolerance (kernel.md section 3.4.1): radii closer than 1e-6
+// mm make a cylinder, and a radius below 1e-6 mm is an apex, so every pair of radii the checks
+// accept builds.
+
+#[test]
+fn nearly_equal_radii_make_a_cylinder() {
+    let run = Run::example("cone/nearly-equal-radii.ptsm");
+
+    run.assert_all_ok();
+    let shape = run.shape("b-1");
+    assert_volume(shape, 785.398163);
+    assert_face_count(shape, 3);
+    assert_bounding_box(shape, [-5.0, -5.0, 0.0], [5.0, 5.0, 10.0]);
+    assert_face_kind(&face(run.body("b-1"), "f-cone1/side"), GeometryKind::Cylinder);
+}
+
+#[test]
+fn a_radius_below_the_tolerance_is_an_apex() {
+    let run = Run::example("cone/apex-below-tolerance.ptsm");
+
+    run.assert_all_ok();
+    let shape = run.shape("b-1");
+    assert_volume(shape, 1047.197551);
+    assert_face_count(shape, 2);
+    assert_bounding_box(shape, [-10.0, -10.0, 0.0], [10.0, 10.0, 10.0]);
+    assert_face_names(run.body("b-1"), &["f-cone1/bottom", "f-cone1/side"]);
+}
+
+#[test]
+fn radii_below_the_tolerance_are_both_zero() {
+    let run = Run::records(&["b-1"], &[&cone("0.0000000001", "0", "10")]);
+
+    run.assert_error("f-cone1", "cone_radii_zero");
+    assert_eq!(
+        run.messages("f-cone1"),
+        ["Cone bottom and top radius cannot both be 0. Give one of them a size."],
+    );
+}
+
 #[test]
 #[cfg_attr(
     debug_assertions,
