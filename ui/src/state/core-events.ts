@@ -122,7 +122,7 @@ function applied(document: DocumentState, event: CoreEvent): DocumentState | nul
         // Preview meshes are the scene's; the store keeps the pickable model layer only.
         return { ...document, revision }
       }
-      const { [event.body]: _replaced, ...others } = document.meshes
+      const others = filtered(document.meshes, (body) => body !== event.body)
       const mesh = event.mesh
       return {
         ...document,
