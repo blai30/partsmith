@@ -2228,27 +2228,30 @@ Commands without a default shortcut (ids and titles; all listed in the palette i
 | `settings.navigation.fusion`, `settings.navigation.freecad` | Navigation: Fusion, Navigation: FreeCAD | all |
 | `settings.scale.100`, `.125`, `.150`, `.200`, `.300` | UI scale: 100%, 125%, 150%, 200%, 300% | all |
 
-`FEATURE_SHORTCUTS` holds the four feature entries above; other commands have no shortcut. Letters follow Fusion where Fusion has a default (E, H, F, M, L, R, C, D, X, S); `Mod+N` is desktop only because browsers reserve Ctrl+N. Unit test U-22 asserts `conflicts()` is empty for the built-in registry with the test catalog on every platform.
+`FEATURE_SHORTCUTS` holds the four feature entries above; other commands have no shortcut. Letters follow Fusion where Fusion has a default (E, H, F, M, L, R, C, D, X, S); `Mod+N` is desktop only because browsers reserve Ctrl+N. Unit test U-22 asserts `conflicts()` is empty for the built-in registry with the test catalog on every platform. Letters always stay shortcuts: typed entry routes only characters that start a number, so S, V and the feature letters keep working during commands and while drawing.
 
 Keys handled by components, not the registry:
 
 | Key | Where | Effect |
 | --- | --- | --- |
 | Esc | anywhere | The Esc ladder below |
-| Enter | inspector fields, inline editors, line tool | The Enter ladder below |
+| Enter | inspector fields, inline editors, line tool, focused viewport | The Enter ladder below |
 | Arrow keys | focused viewport | Orbit 15 degrees per press (Left and Right about world Z, Up and Down about the camera right axis) |
 | Shift+arrow keys | focused viewport | Pan by 10 percent of the viewport height |
-| `=` or `+`, `-` | focused viewport | Zoom in or out by 1.25 at the viewport center |
+| `=` or `+`, `-` | focused viewport | Zoom in or out by 1.25 at the viewport center; `-` types into a value instead while a feature command is active (3.7) or a shape is rubber-banding (3.16.4) |
+| Digit, `.`, `-`, `(` | focused viewport or selection field box during a feature command | Focus the command's value field and type the character (3.7) |
+| Tab | focused viewport during a feature command | Focus the command's value field with its text selected (3.7) |
+| Digit, `.`, `-`, `(` | sketch mode while a shape is rubber-banding | Focus the first draw input and type the character (3.16.4) |
 | Arrow keys, Home, End | toolbars, timeline, tree, menus, segmented controls | Move focus (roving tab index) |
-| Shift+F10, ContextMenu | timeline item, browser row | Open the context menu |
+| Shift+F10, ContextMenu | timeline item, browser row, focused viewport | Open the context menu (the viewport's: 3.13) |
 | Space | timeline item, browser row | Select (with Mod: toggle) |
 | Tab | sketch draw inputs | Cycle between the inputs |
 | Hold Ctrl (Windows, Linux) or Cmd (macOS) | sketch drawing | Suppress inference (3.16.5) |
 | Shift or Mod with click | viewport, timeline, browser | Toggle the item in the selection |
 
-Esc ladder: each press does the first step that applies: (1) close the innermost open menu, popover, palette, inline rename or inline editor; (2) in sketch mode, cancel the in-progress drawing, drag or box selection (the tool stays active); (3) exit the active sketch tool or constraint pick mode; (4) cancel the active feature command; (5) cancel the plane pick of a new sketch (back to Model); (6) clear the selection. Esc never leaves sketch mode once a sketch is being edited.
+Esc ladder: each press does the first step that applies: (1) close the innermost open menu, popover, palette, name completion list, inline rename or inline editor; (2) in sketch mode, cancel the in-progress drawing, drag or box selection (the tool stays active); (3) exit the active sketch tool or constraint pick mode; (4) cancel the active feature command; (5) cancel the plane pick of a new sketch (back to Model) or the face pick of Lay on face (3.17); (6) clear the selection. Esc never leaves sketch mode once a sketch is being edited; when an Esc press in sketch mode finds no step to do, the sketch hint shows `sketch_leave` for 3 s, so the way out is named.
 
-Enter ladder: (1) commit the focused inline editor (rename, dimension editor, draw inputs); (2) in the line tool with a chain in progress and no draw input focused, end the chain; (3) when focus is in the inspector (not on a button) or on the viewport and a feature command is active, confirm it if it is complete. Enter on a focused button activates that button only.
+Enter ladder: (1) in an open name completion list with an option chosen by the arrow keys, insert it (2.13); otherwise commit the focused inline editor (rename, dimension editor, draw inputs); (2) in the line tool with a chain in progress and no draw input focused, end the chain; (3) when focus is in the inspector (not on a button) or on the viewport and a feature command is active, confirm it if it is complete; (4) on the focused viewport in Model or Print with no feature command active and a non-empty app selection, run `edit.repeat` (a held key's repeated `keydown` events, `event.repeat`, are ignored, so holding Enter never chains commands). Enter on a focused button activates that button only.
 
 ### 3.6 Selection, hover and picking
 

@@ -17,8 +17,12 @@ import {
 import { createFakeFileHandle } from '../test/fakes/files'
 import { elementItem } from '../test/fakes/selection'
 import { settle } from '../test/fakes/settle'
+import { CoreFatalError } from '../core/transport'
 import { createAppStore } from '../state/store'
-import { applyEdits, save } from './actions/document'
+import { startFeatureCommand } from './actions/command'
+import { applyEdits, save, startCore } from './actions/document'
+import { exportModel } from './actions/export'
+import { notify } from './actions/notifications'
 import { select } from './actions/selection'
 import { detectPlatform } from './createApp'
 
@@ -209,6 +213,41 @@ describe('core events in the store', () => {
     expect(fake.app.store.getState().core.pendingMutations).toBe(0)
   })
 
+  it('counts and times only the requests that rebuild the document, not a save or an export', async () => {
+    const { fake } = await cubeWithHandle()
+    const before = currentDocument(fake.app).lastRebuildMilliseconds
+    fake.transport.pause()
+    const saving = save(fake.app)
+    const exporting = exportModel(fake.app, { format: 'step', scope: 'visible' })
+    await settle()
+    expect(fake.transport.commandTypes()).toEqual(
+      expect.arrayContaining(['save_document', 'export_bodies']),
+    )
+    expect(fake.app.store.getState().core.pendingMutations).toBe(0)
+    fake.transport.resume()
+    await Promise.all([saving, exporting])
+    await settle()
+    expect(fake.transport.commandTypes()).toContain('mark_saved')
+    expect(currentDocument(fake.app).lastRebuildMilliseconds).toBe(before)
+  })
+
+  it('records the rebuild time of an edit on the document', async () => {
+    const fake = await startWithDocument('cube.ptsm', CUBE_DOCUMENT)
+    fake.app.store.setState((state) => ({
+      document:
+        state.document === null ? null : { ...state.document, lastRebuildMilliseconds: null },
+    }))
+    await applyEdits(fake.app, 'Rename', RENAME_TO_BOX)
+    await settle()
+    expect(currentDocument(fake.app).lastRebuildMilliseconds).toEqual(expect.any(Number))
+  })
+
+  it('stamps notifications with the injected clock', () => {
+    const { app } = createFakeApp({ now: () => 1_234 })
+    notify(app, { severity: 'info', message: 'Hello.', actions: [] })
+    expect(app.store.getState().notifications[0]?.createdAt).toBe(1_234)
+  })
+
   it('a fatal transport error sets the core status to failed with the reason', async () => {
     const fake = await startFakeApp()
     fake.transport.die('The worker crashed.')
@@ -302,6 +341,88 @@ describe('restartCore (4.4)', () => {
     expect(document.localUnsaved).toBe(true)
     expect(document.recipe).toEqual(recipe)
     expect(fake.app.store.getState().core.status).toBe('ready')
+  })
+
+  it('keeps the document when a restart fails, and reopens it on the next attempt', async () => {
+    const handle = createFakeFileHandle('cube.ptsm')
+    const fake = await startWithDocument('cube.ptsm', CUBE_DOCUMENT, { handle })
+    await applyEdits(fake.app, 'Rename', RENAME_TO_BOX)
+    await settle()
+    const recipe = currentDocument(fake.app).recipe
+    fake.transport.die('The worker crashed.')
+    await settle()
+    fake.transport.failNextStart(new CoreFatalError('The geometry core did not start.'))
+    await fake.app.restartCore()
+    await settle()
+    expect(fake.app.store.getState().core).toMatchObject({
+      status: 'failed',
+      fatal: 'The geometry core did not start.',
+    })
+    fake.transport.clearRequests()
+    await fake.app.restartCore()
+    await settle()
+    expect(fake.transport.commandsOfType('open_document').map((command) => command.text)).toEqual([
+      JSON.stringify(recipe, null, 2),
+    ])
+    expect(fake.transport.commandTypes()).not.toContain('new_document')
+    const document = currentDocument(fake.app)
+    expect(document).toMatchObject({ name: 'cube', localUnsaved: true, recipe })
+    expect(document.file?.handle).toBe(handle)
+    expect(fake.app.store.getState().core.status).toBe('ready')
+  })
+
+  it('keeps the document when the new core refuses to open it, for the next attempt', async () => {
+    const fake = await startWithDocument('cube.ptsm', CUBE_DOCUMENT)
+    const recipe = currentDocument(fake.app).recipe
+    fake.transport.die('The worker crashed.')
+    await settle()
+    fake.transport.handle('open_document', () => ({
+      error: { code: 'internal_error', message: 'The core is not ready.' },
+    }))
+    await fake.app.restartCore()
+    await settle()
+    expect(fake.app.store.getState().core.status).toBe('failed')
+    fake.transport.handle('open_document', null)
+    fake.transport.clearRequests()
+    await fake.app.restartCore()
+    await settle()
+    expect(fake.transport.commandsOfType('open_document').map((command) => command.text)).toEqual([
+      JSON.stringify(recipe, null, 2),
+    ])
+    expect(currentDocument(fake.app).name).toBe('cube')
+  })
+
+  it('opens a new Untitled document when no document was open, with the origin hidden', async () => {
+    const fake = createFakeApp()
+    fake.transport.failNextStart(new CoreFatalError('HTTP 404'))
+    await startCore(fake.app)
+    await settle()
+    expect(fake.app.store.getState().document).toBeNull()
+    await fake.app.restartCore()
+    await settle()
+    expect(fake.transport.commandTypes()).toContain('new_document')
+    expect(currentDocument(fake.app)).toMatchObject({ name: 'Untitled', localUnsaved: false })
+    expect(fake.app.store.getState().view.sessionVisible['origin:XY']).toBe(false)
+    expect(fake.app.store.getState().core.status).toBe('ready')
+  })
+
+  it('reopens the recipe from before an open command, so its preview never becomes permanent', async () => {
+    const fake = await startWithDocument('cube.ptsm', CUBE_DOCUMENT)
+    const confirmed = currentDocument(fake.app).recipe
+    await startFeatureCommand(fake.app, 'box')
+    await settle()
+    const previewed = currentDocument(fake.app)
+    expect(previewed.transactionOpen).toBe(true)
+    expect(previewed.recipe.features?.map((feature) => feature.type)).toContain('box')
+    fake.transport.die('The core trapped.')
+    await settle()
+    fake.transport.clearRequests()
+    await fake.app.restartCore()
+    await settle()
+    expect(fake.transport.commandsOfType('open_document').map((command) => command.text)).toEqual([
+      JSON.stringify(confirmed, null, 2),
+    ])
+    expect(currentDocument(fake.app).recipe).toEqual(confirmed)
   })
 
   it('reloads the catalog and printers and clears selection, command and sketch session', async () => {
