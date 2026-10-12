@@ -152,7 +152,12 @@ mod tests {
 
         assert_eq!(
             actions(&plan),
-            [Action::Build, Action::Suppressed, Action::Fail, Action::Build]
+            [
+                Action::Build,
+                Action::Suppressed,
+                Action::Fail,
+                Action::Build
+            ]
         );
         let has_key: Vec<bool> = plan.steps.iter().map(|step| step.key.is_some()).collect();
         assert_eq!(has_key, [true, false, false, true]);
@@ -171,7 +176,11 @@ mod tests {
 
     #[test]
     fn a_cached_error_fails_the_records_that_read_its_output() {
-        let document = document(json!([datum("f-1", "1"), datum_on("f-2", "f-1"), datum_on("f-3", "f-2")]));
+        let document = document(json!([
+            datum("f-1", "1"),
+            datum_on("f-2", "f-1"),
+            datum_on("f-3", "f-2")
+        ]));
         let fresh = plan_of(&document, &Cache::new(10));
 
         let plan = plan_of(

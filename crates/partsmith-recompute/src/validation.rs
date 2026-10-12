@@ -96,7 +96,8 @@ impl Validations {
     /// When more than `limit` outcomes are kept, keeps only those of `document`'s records.
     pub(crate) fn prune(&mut self, limit: usize, document: &Document) {
         if self.entries.len() > limit {
-            let current: BTreeSet<&Id> = document.features.iter().map(|record| &record.id).collect();
+            let current: BTreeSet<&Id> =
+                document.features.iter().map(|record| &record.id).collect();
             self.entries.retain(|feature, _| current.contains(feature));
         }
     }
@@ -137,7 +138,10 @@ mod tests {
         let valid = check(&registry, &record).expect("the record is valid");
 
         assert_eq!(valid.unknown_keys, ["taper"]);
-        assert_eq!(valid.params_text, r#"{"offset":"h * printer.fit.slip + w"}"#);
+        assert_eq!(
+            valid.params_text,
+            r#"{"offset":"h * printer.fit.slip + w"}"#
+        );
         assert_eq!(valid.dependencies.expressions.len(), 1);
         assert_eq!(valid.parameter_names, ["h", "w"]);
         assert_eq!(valid.value_names, ["printer.fit.slip"]);
@@ -209,8 +213,10 @@ mod tests {
     fn reordered_unknown_keys_are_checked_again() {
         let registry = registry();
         let mut validations = Validations::default();
-        let first = record(json!({"id": "f-d1", "type": "test_datum", "offset": "1", "a": 1, "b": 2}));
-        let second = record(json!({"id": "f-d1", "type": "test_datum", "offset": "1", "b": 2, "a": 1}));
+        let first =
+            record(json!({"id": "f-d1", "type": "test_datum", "offset": "1", "a": 1, "b": 2}));
+        let second =
+            record(json!({"id": "f-d1", "type": "test_datum", "offset": "1", "b": 2, "a": 1}));
 
         validations.check(&registry, &first).expect("valid");
         let checked = validations.check(&registry, &second).expect("valid");

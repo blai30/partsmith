@@ -4,9 +4,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use partsmith_features::{
-    BodyState, FeatureError, FeatureOutput, FeatureWarning, Names, Repair,
-};
+use partsmith_features::{BodyState, FeatureError, FeatureOutput, FeatureWarning, Names, Repair};
 use partsmith_model::{ExprError, Id, Quantity, Units};
 
 use crate::key::CacheKey;

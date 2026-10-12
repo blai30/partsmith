@@ -1,14 +1,18 @@
 //! Strict frame decoding (protocol.md section 3.2). Checks run in the spec's order and the first failure is returned.
 
+use std::cell::Cell;
+use std::fmt;
 use std::ops::Range;
 
-use serde::Deserialize;
+use serde::de::{DeserializeSeed, Error as _, IgnoredAny, MapAccess, SeqAccess, Visitor};
+use serde::{Deserialize, Deserializer};
+use serde_json::map::Entry;
 use serde_json::{Map, Value};
 
 use super::{
     ALIGNMENT, Buffer, BufferInfo, Frame, FrameError, PREFIX_LENGTH, ResponseFrame, header_padding,
 };
-use crate::{MAGIC, MAX_HEADER_LENGTH, Message, PROTOCOL_VERSION, Request};
+use crate::{MAGIC, MAX_HEADER_LENGTH, MAX_SAFE_INTEGER, Message, PROTOCOL_VERSION, Request};
 
 /// Decodes and validates a frame (layout, version, message types).
 pub fn decode_frame(bytes: &[u8]) -> Result<Frame, FrameError> {
@@ -41,7 +45,10 @@ pub fn decode_frame(bytes: &[u8]) -> Result<Frame, FrameError> {
 
     // 5 to 7: the header is JSON with protocol version 1 and a buffer table.
     let header = parse_header(&bytes[PREFIX_LENGTH..header_end])?;
-    let request_id = header.pointer("/messages/0/id").and_then(Value::as_u64);
+    let request_id = header
+        .pointer("/messages/0/id")
+        .and_then(Value::as_u64)
+        .and_then(echoable);
     let invalid = |message: String| FrameError::InvalidMessage {
         message,
         request_id,
@@ -101,7 +108,7 @@ pub fn decode_frame(bytes: &[u8]) -> Result<Frame, FrameError> {
 /// Decodes a frame that must contain exactly one request message.
 pub fn decode_request_frame(bytes: &[u8]) -> Result<(Request, Vec<Buffer>), FrameError> {
     let frame = decode_frame(bytes)?;
-    let request_id = frame.messages.first().and_then(Message::id);
+    let request_id = frame.messages.first().and_then(Message::id).and_then(echoable);
     let message = match <[Message; 1]>::try_from(frame.messages) {
         Ok([Message::Request(request)]) => return Ok((request, frame.buffers)),
         Ok([other]) => format!(
@@ -122,7 +129,7 @@ pub fn decode_request_frame(bytes: &[u8]) -> Result<(Request, Vec<Buffer>), Fram
 /// Decodes a frame that must contain zero or more events followed by exactly one response.
 pub fn decode_response_frame(bytes: &[u8]) -> Result<ResponseFrame, FrameError> {
     let frame = decode_frame(bytes)?;
-    let request_id = frame.messages.first().and_then(Message::id);
+    let request_id = frame.messages.first().and_then(Message::id).and_then(echoable);
     let invalid = |message: String| FrameError::InvalidMessage {
         message,
         request_id,
@@ -162,13 +169,127 @@ pub fn decode_response_frame(bytes: &[u8]) -> Result<ResponseFrame, FrameError> 
 }
 
 /// Parses the header bytes as UTF-8 JSON (step 5).
+///
+/// The decoder is strict, so a header in which one object repeats a key is refused rather than
+/// read with the last value winning: the client meant one of the values, and the decoder cannot
+/// tell which. Such a header is `InvalidMessage` without a request id, so the host answers with
+/// id 0 (section 3.5). A syntax error anywhere in the text is still `InvalidHeader`.
 fn parse_header(header: &[u8]) -> Result<Value, FrameError> {
     let text = std::str::from_utf8(header).map_err(|error| FrameError::InvalidHeader {
         message: format!("it is not UTF-8 text ({error})."),
     })?;
-    serde_json::from_str(text).map_err(|error| FrameError::InvalidHeader {
+    let repeated_key = Cell::new(None);
+    let mut deserializer = serde_json::Deserializer::from_str(text);
+    let parsed = UniqueKeys {
+        repeated_key: &repeated_key,
+    }
+    .deserialize(&mut deserializer)
+    .and_then(|header| deserializer.end().map(|()| header));
+    match (parsed, repeated_key.take()) {
+        (Ok(header), _) => Ok(header),
+        (Err(error), Some(key)) => {
+            // The parse stopped at the repeated key, so the rest of the text has not been checked yet.
+            serde_json::from_str::<IgnoredAny>(text).map_err(invalid_header)?;
+            Err(FrameError::InvalidMessage {
+                message: format!(
+                    "the key {key:?} appears twice in one object (line {}, column {}).",
+                    error.line(),
+                    error.column()
+                ),
+                request_id: None,
+            })
+        }
+        (Err(error), None) => Err(invalid_header(error)),
+    }
+}
+
+/// `InvalidHeader` for a JSON syntax error.
+fn invalid_header(error: serde_json::Error) -> FrameError {
+    FrameError::InvalidHeader {
         message: format!("{error}."),
-    })
+    }
+}
+
+/// Reads any JSON value into the `Value` that `serde_json` would build, but stops at the first
+/// object that repeats a key and records that key in `repeated_key`.
+#[derive(Clone, Copy)]
+struct UniqueKeys<'a> {
+    /// The repeated key, once one is found.
+    repeated_key: &'a Cell<Option<String>>,
+}
+
+impl<'de> DeserializeSeed<'de> for UniqueKeys<'_> {
+    type Value = Value;
+
+    fn deserialize<D: Deserializer<'de>>(self, deserializer: D) -> Result<Value, D::Error> {
+        deserializer.deserialize_any(self)
+    }
+}
+
+impl<'de> Visitor<'de> for UniqueKeys<'_> {
+    type Value = Value;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("any JSON value")
+    }
+
+    fn visit_bool<E>(self, value: bool) -> Result<Value, E> {
+        Ok(Value::Bool(value))
+    }
+
+    fn visit_i64<E>(self, value: i64) -> Result<Value, E> {
+        Ok(Value::from(value))
+    }
+
+    fn visit_u64<E>(self, value: u64) -> Result<Value, E> {
+        Ok(Value::from(value))
+    }
+
+    fn visit_f64<E>(self, value: f64) -> Result<Value, E> {
+        Ok(Value::from(value))
+    }
+
+    fn visit_str<E>(self, value: &str) -> Result<Value, E> {
+        Ok(Value::from(value))
+    }
+
+    fn visit_string<E>(self, value: String) -> Result<Value, E> {
+        Ok(Value::String(value))
+    }
+
+    fn visit_unit<E>(self) -> Result<Value, E> {
+        Ok(Value::Null)
+    }
+
+    fn visit_seq<A: SeqAccess<'de>>(self, mut items: A) -> Result<Value, A::Error> {
+        let mut values = Vec::new();
+        while let Some(value) = items.next_element_seed(self)? {
+            values.push(value);
+        }
+        Ok(Value::Array(values))
+    }
+
+    fn visit_map<A: MapAccess<'de>>(self, mut entries: A) -> Result<Value, A::Error> {
+        let mut fields = Map::new();
+        while let Some(key) = entries.next_key::<String>()? {
+            match fields.entry(key) {
+                Entry::Vacant(field) => {
+                    field.insert(entries.next_value_seed(self)?);
+                }
+                Entry::Occupied(field) => {
+                    self.repeated_key.set(Some(field.key().clone()));
+                    return Err(A::Error::custom("a key appears twice in one object"));
+                }
+            }
+        }
+        Ok(Value::Object(fields))
+    }
+}
+
+/// `id` if a host can echo it. Ids above `MAX_SAFE_INTEGER` count as unreadable, so the host
+/// answers with id 0 (section 3.5) and never writes a `Response.id` JavaScript cannot hold.
+fn echoable(id: u64) -> Option<u64> {
+    (id <= MAX_SAFE_INTEGER).then_some(id)
 }
 
 /// The header field `name`, or the reason it is missing.
@@ -263,6 +384,26 @@ mod tests {
         format!(r#"{{"protocol_version":1,"messages":[],"buffers":{buffers}}}"#)
     }
 
+    /// A frame holding `message` (JSON text) as its only message, with no buffers.
+    fn frame_with_message(message: &str) -> Vec<u8> {
+        let header = format!(r#"{{"protocol_version":1,"messages":[{message}],"buffers":[]}}"#);
+        frame(&header, &[])
+    }
+
+    /// Asserts that `result` refuses a header in which `key` repeats, echoing no request id.
+    fn assert_repeated_key<T: fmt::Debug>(result: Result<T, FrameError>, key: &str) {
+        match result {
+            Err(FrameError::InvalidMessage {
+                message,
+                request_id: None,
+            }) => assert!(
+                message.contains(&format!("the key {key:?} appears twice")),
+                "{message}"
+            ),
+            other => panic!("expected a repeated {key:?} to be refused, got {other:?}"),
+        }
+    }
+
     fn info(offset: u64, length: u64, element_type: ElementType) -> BufferInfo {
         BufferInfo {
             offset,
@@ -317,6 +458,21 @@ mod tests {
     fn protocol_version_beyond_32_bits_is_an_invalid_message() {
         let result = decode_frame(&frame(
             r#"{"protocol_version":4294967297,"messages":[],"buffers":[]}"#,
+            &[],
+        ));
+
+        assert!(
+            matches!(result, Err(FrameError::InvalidMessage { .. })),
+            "got {result:?}"
+        );
+    }
+
+    #[test]
+    fn negative_protocol_version_is_an_invalid_message() {
+        // `FrameHeader.protocol_version` and `VersionMismatch.found` are `u32` (section 2.1), so
+        // a value outside that range does not match the header schema.
+        let result = decode_frame(&frame(
+            r#"{"protocol_version":-1,"messages":[],"buffers":[]}"#,
             &[],
         ));
 
@@ -468,6 +624,170 @@ mod tests {
             decode_request_frame(&frame(header, &[])).expect_err("a response is not a request");
 
         assert!(error.to_string().contains("a response"), "{error}");
+    }
+
+    #[test]
+    fn request_id_above_the_safe_maximum_is_not_echoed() {
+        let header = r#"{"protocol_version":2,"messages":[{"kind":"request","id":18446744073709551615}],"buffers":[]}"#;
+
+        let result = decode_frame(&frame(header, &[]));
+
+        assert_eq!(
+            result,
+            Err(FrameError::VersionMismatch {
+                found: 2,
+                request_id: None
+            })
+        );
+    }
+
+    #[test]
+    fn request_id_at_the_safe_maximum_is_echoed() {
+        let header = r#"{"protocol_version":2,"messages":[{"kind":"request","id":9007199254740991}],"buffers":[]}"#;
+
+        let result = decode_frame(&frame(header, &[]));
+
+        assert_eq!(
+            result,
+            Err(FrameError::VersionMismatch {
+                found: 2,
+                request_id: Some(MAX_SAFE_INTEGER)
+            })
+        );
+    }
+
+    #[test]
+    fn invalid_message_does_not_echo_an_id_above_the_safe_maximum() {
+        let message = r#"{"kind":"request","id":9007199254740992,"command":{"type":"undo"}}"#;
+
+        let error = decode_frame(&frame_with_message(message)).expect_err("undo needs a doc");
+
+        assert_eq!(error.request_id(), None);
+    }
+
+    #[test]
+    fn composition_error_does_not_echo_an_id_above_the_safe_maximum() {
+        let request = r#"{"kind":"request","id":9007199254740992,"command":{"type":"engine_info"}}"#;
+        let header = format!(
+            r#"{{"protocol_version":1,"messages":[{request},{request}],"buffers":[]}}"#
+        );
+
+        let error = decode_request_frame(&frame(&header, &[])).expect_err("two requests");
+
+        assert!(
+            matches!(error, FrameError::InvalidMessage { .. }),
+            "got {error:?}"
+        );
+        assert_eq!(error.request_id(), None);
+    }
+
+    #[test]
+    fn request_with_an_id_above_the_safe_maximum_still_decodes() {
+        // The engine answers it with malformed_request (engine.md 3.1); the frame itself is well formed.
+        let message = r#"{"kind":"request","id":9007199254740992,"command":{"type":"engine_info"}}"#;
+
+        let (request, _) =
+            decode_request_frame(&frame_with_message(message)).expect("the frame decodes");
+
+        assert_eq!(request.id, MAX_SAFE_INTEGER + 1);
+    }
+
+    #[test]
+    fn repeated_command_type_is_refused() {
+        let message =
+            r#"{"kind":"request","id":1,"command":{"type":"undo","type":"redo","doc":1}}"#;
+
+        assert_repeated_key(decode_frame(&frame_with_message(message)), "type");
+    }
+
+    #[test]
+    fn repeated_request_id_is_refused_without_echoing_either_id() {
+        let message = r#"{"kind":"request","id":1,"id":2,"command":{"type":"engine_info"}}"#;
+
+        assert_repeated_key(decode_frame(&frame_with_message(message)), "id");
+    }
+
+    #[test]
+    fn repeated_command_field_is_refused() {
+        let message = r#"{"kind":"request","id":1,"command":{"type":"undo","doc":1,"doc":2}}"#;
+
+        assert_repeated_key(decode_frame(&frame_with_message(message)), "doc");
+    }
+
+    #[test]
+    fn repeated_protocol_version_is_refused() {
+        let header = r#"{"protocol_version":2,"protocol_version":1,"messages":[],"buffers":[]}"#;
+
+        assert_repeated_key(decode_frame(&frame(header, &[])), "protocol_version");
+    }
+
+    #[test]
+    fn repeated_buffer_table_field_is_refused() {
+        let header = header_with_buffers(
+            r#"[{"offset":0,"offset":0,"length":1,"element_type":"u8"}]"#,
+        );
+
+        assert_repeated_key(decode_frame(&frame(&header, &[7])), "offset");
+    }
+
+    #[test]
+    fn repeated_feature_param_is_refused() {
+        // Feature params are an open map inside the record, so only the header parse can see the repeat.
+        let message = r#"{"kind":"request","id":1,"command":{"type":"apply_edits","doc":1,"label":"Add box","edits":[{"type":"add_feature","index":0,"feature":{"id":"f-box1","type":"box","body":"b-1","body":"b-2"}}]}}"#;
+
+        assert_repeated_key(decode_frame(&frame_with_message(message)), "body");
+    }
+
+    #[test]
+    fn key_repeated_through_an_escape_is_refused() {
+        let message = r#"{"kind":"request","id":1,"\u0069d":2,"command":{"type":"engine_info"}}"#;
+
+        assert_repeated_key(decode_frame(&frame_with_message(message)), "id");
+    }
+
+    #[test]
+    fn repeated_key_message_gives_its_position() {
+        let header = r#"{"protocol_version":1,"protocol_version":1,"messages":[],"buffers":[]}"#;
+
+        let error = decode_frame(&frame(header, &[])).expect_err("the version repeats");
+
+        assert!(error.to_string().contains("(line 1, column "), "{error}");
+    }
+
+    #[test]
+    fn syntax_error_after_a_repeated_key_is_an_invalid_header() {
+        let header = r#"{"protocol_version":1,"protocol_version":1,"messages":["#;
+
+        let result = decode_frame(&frame(header, &[]));
+
+        assert!(
+            matches!(result, Err(FrameError::InvalidHeader { .. })),
+            "got {result:?}"
+        );
+    }
+
+    #[test]
+    fn same_key_in_different_objects_is_accepted() {
+        let message = r#"{"kind":"request","id":1,"command":{"type":"analyze_print","doc":1,"orientation":{"kind":"as_modeled"}}}"#;
+
+        let result = decode_request_frame(&frame_with_message(message));
+
+        assert!(result.is_ok(), "got {result:?}");
+    }
+
+    #[test]
+    fn header_parses_to_the_value_serde_json_builds() {
+        let text = r#"{"a":[1,-2,18446744073709551615,0.5,-1e300,true,false,null],"b":{"c":"é\n","d":{}},"e":[],"f":""}"#;
+
+        let parsed = parse_header(text.as_bytes()).expect("the text is JSON without repeated keys");
+
+        let expected: Value = serde_json::from_str(text).expect("the text is JSON");
+        assert_eq!(parsed, expected);
+        assert_eq!(
+            parsed.to_string(),
+            expected.to_string(),
+            "keys keep their order"
+        );
     }
 
     #[test]

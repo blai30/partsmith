@@ -105,9 +105,7 @@ fn unit_name(kind: FieldUnit) -> &'static str {
 pub(crate) fn params_text(params: &Map<String, Value>, unknown_keys: &[String]) -> String {
     let mut text = String::new();
     text.push('{');
-    let known = params
-        .iter()
-        .filter(|(key, _)| !unknown_keys.contains(key));
+    let known = params.iter().filter(|(key, _)| !unknown_keys.contains(key));
     for (position, (key, value)) in known.enumerate() {
         if position > 0 {
             text.push(',');
@@ -227,7 +225,9 @@ mod tests {
 
     #[test]
     fn params_text_is_compact_with_canonical_numbers() {
-        let params = object(json!({"size": [80.0, 2.5, -0.0], "name": "a \"b\"", "flag": true, "none": null}));
+        let params = object(
+            json!({"size": [80.0, 2.5, -0.0], "name": "a \"b\"", "flag": true, "none": null}),
+        );
 
         assert_eq!(
             params_text(&params, &[]),
@@ -303,7 +303,10 @@ mod tests {
         let values = values(&[("offset", "5")]);
         let key = input(&feature, r#"{"offset":"5"}"#, &values);
 
-        assert_eq!(key.key().0, *blake3::hash(key.preimage().as_bytes()).as_bytes());
+        assert_eq!(
+            key.key().0,
+            *blake3::hash(key.preimage().as_bytes()).as_bytes()
+        );
     }
 
     #[test]

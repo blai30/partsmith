@@ -94,11 +94,12 @@ impl<'a> Timeline<'a> {
         let mut nodes = Vec::with_capacity(document.features.len());
         for (position, record) in document.features.iter().enumerate() {
             let validation = validations.check(registry, record).and_then(|valid| {
-                let feature = registry
-                    .get(&record.kind)
-                    .ok_or_else(|| FeatureError::UnknownType {
-                        type_name: record.kind.clone(),
-                    })?;
+                let feature =
+                    registry
+                        .get(&record.kind)
+                        .ok_or_else(|| FeatureError::UnknownType {
+                            type_name: record.kind.clone(),
+                        })?;
                 Ok((feature, valid))
             });
             let mut node = Node {
@@ -157,13 +158,13 @@ impl<'a> Timeline<'a> {
         let dependencies = &step.valid.dependencies;
         let field = |path: &str| FieldRef::new(path, step.feature.manifest());
         for link in &dependencies.features {
-            let upstream = self
-                .graph
-                .position(&link.id)
-                .ok_or_else(|| FeatureError::UnknownFeature {
-                    field: field(&link.field),
-                    feature: link.id.clone(),
-                })?;
+            let upstream =
+                self.graph
+                    .position(&link.id)
+                    .ok_or_else(|| FeatureError::UnknownFeature {
+                        field: field(&link.field),
+                        feature: link.id.clone(),
+                    })?;
             if upstream >= position {
                 return Err(FeatureError::ForwardReference {
                     field: field(&link.field),
@@ -205,7 +206,78 @@ impl<'a> Timeline<'a> {
 struct Linker<'a> {
     /// The document.
     document: &'a Document,
-    /// The number of active candidates (recompute.md section 3.1 step 3): the records up to and
+    /// Timeline position of the first record with each id.
+    positions: BTreeMap<&'a Id, usize>,
+    /// The document's parameters and what they name.
+    parameters: ParameterTable<'a>,
+    /// The last active writer of each body among the records walked so far.
+    writers: BTreeMap<Id, usize>,
+}
+
+impl<'a> Linker<'a> {
+    /// A linker at the start of `document`'s timeline.
+    fn new(document: &'a Document) -> Linker<'a> {
+        let mut positions = BTreeMap::new();
+        for (position, record) in document.features.iter().enumerate() {
+            positions.entry(&record.id).or_insert(position);
+        }
+        Linker {
+            document,
+            positions,
+            parameters: ParameterTable::new(&document.parameters),
+            writers: BTreeMap::new(),
+        }
+    }
+
+    /// Fills the edges, parameters, context names and expression flag of the node of the record
+    /// at `position`, and returns the provider of each of its body links (read, then written).
+    fn link(&self, node: &mut Node, valid: &Valid, position: usize) -> Vec<Option<usize>> {
+        let dependencies = &valid.dependencies;
+        for link in &dependencies.features {
+            if self
+                .positions
+                .get(&link.id)
+                .is_some_and(|&upstream| upstream < position)
+            {
+                node.upstream.push(Edge {
+                    feature: link.id.clone(),
+                    via: EdgeKind::Output,
+                });
+            }
+        }
+        let mut providers = Vec::new();
+        for link in dependencies
+            .bodies_read
+            .iter()
+            .chain(&dependencies.bodies_written)
+        {
+            let provider = self.writers.get(&link.id).copied();
+            if let Some(provider) = provider {
+                node.upstream.push(Edge {
+                    feature: self.document.features[provider].id.clone(),
+                    via: EdgeKind::Body(link.id.clone()),
+                });
+            }
+            providers.push(provider);
+        }
+        let (parameters, context_names) = self
+            .parameters
+            .closure(&valid.parameter_names, &valid.value_names);
+        node.parameters = parameters;
+        node.context_names = context_names;
+        node.uses_expressions = !dependencies.expressions.is_empty();
+        providers
+    }
+
+    /// Records the active record at `position` as the provider of the bodies it writes.
+    fn write(&mut self, valid: &Valid, position: usize) {
+        for link in &valid.dependencies.bodies_written {
+            self.writers.insert(link.id.clone(), position);
+        }
+    }
+}
+
+/// The number of active candidates (recompute.md section 3.1 step 3): the records up to and
 /// including the stop point when it names a record, else the records before the rollback marker
 /// when it names a record, else all records; with an `unknown_stop` message for each of the two
 /// that is set but names no record.
@@ -272,7 +344,11 @@ impl<'a> ParameterTable<'a> {
 
     /// The parameters that expressions naming `parameter_names` and `value_names` use, directly
     /// or through other parameters, in document order, and every dotted name they use, sorted.
-    fn closure(&self, parameter_names: &[String], value_names: &[String]) -> (Vec<Id>, Vec<String>) {
+    fn closure(
+        &self,
+        parameter_names: &[String],
+        value_names: &[String],
+    ) -> (Vec<Id>, Vec<String>) {
         let mut used = BTreeSet::new();
         let mut pending: Vec<usize> = parameter_names
             .iter()
@@ -357,7 +433,13 @@ mod tests {
 
         assert_eq!(
             kinds(&timeline),
-            ["active", "suppressed", "invalid", "rolled_back", "rolled_back"]
+            [
+                "active",
+                "suppressed",
+                "invalid",
+                "rolled_back",
+                "rolled_back"
+            ]
         );
         assert!(timeline.messages.is_empty());
     }
@@ -388,7 +470,11 @@ mod tests {
         let timeline = prepare(&registry, &document, Some(&stop));
 
         assert_eq!(kinds(&timeline), ["active", "rolled_back"]);
-        let codes: Vec<&str> = timeline.messages.iter().map(|message| message.code).collect();
+        let codes: Vec<&str> = timeline
+            .messages
+            .iter()
+            .map(|message| message.code)
+            .collect();
         assert_eq!(codes, ["unknown_stop"]);
     }
 
@@ -444,7 +530,14 @@ mod tests {
 
         let timeline = prepare(&registry, &document, None);
 
-        let edges = |feature: &str| timeline.graph.node(&id(feature)).expect("a node").upstream.len();
+        let edges = |feature: &str| {
+            timeline
+                .graph
+                .node(&id(feature))
+                .expect("a node")
+                .upstream
+                .len()
+        };
         assert_eq!(edges("f-2"), 1);
         assert_eq!(edges("f-3"), 0);
     }
@@ -465,7 +558,10 @@ mod tests {
 
         let node = timeline.graph.node(&id("f-1")).expect("a node");
         assert_eq!(node.parameters, [id("p-h"), id("p-w")]);
-        assert_eq!(node.context_names, ["printer.fit.slip", "printer.layer.height"]);
+        assert_eq!(
+            node.context_names,
+            ["printer.fit.slip", "printer.layer.height"]
+        );
         assert!(node.uses_expressions);
     }
 
@@ -550,6 +646,10 @@ mod tests {
         let timeline = prepare(&registry, &document, None);
         let assets = BTreeMap::from([("a.step".to_string(), Arc::from(&b"x"[..]))]);
 
-        assert!(timeline.check_links(0, active(&timeline, 0), &[false], &assets).is_ok());
+        assert!(
+            timeline
+                .check_links(0, active(&timeline, 0), &[false], &assets)
+                .is_ok()
+        );
     }
 }

@@ -159,6 +159,14 @@ mod tests {
         }
     }
 
+    /// The header length field of encoded frame `bytes`.
+    fn header_length_field(bytes: &[u8]) -> usize {
+        let field = bytes[MAGIC.len()..PREFIX_LENGTH]
+            .try_into()
+            .expect("the length field is four bytes");
+        u32::from_le_bytes(field) as usize
+    }
+
     fn event() -> Event {
         Event::BodyMesh {
             doc: DocHandle(1),
@@ -210,7 +218,7 @@ mod tests {
 
         let decoded = crate::decode_frame(&bytes).expect("an encoded frame decodes");
         assert_eq!(decoded.buffers, frame.buffers);
-        let header_length = usize::from(bytes[4]);
+        let header_length = header_length_field(&bytes);
         let header = std::str::from_utf8(&bytes[PREFIX_LENGTH..PREFIX_LENGTH + header_length])
             .expect("the header is UTF-8");
         assert!(
@@ -223,7 +231,7 @@ mod tests {
     fn frame_without_buffers_ends_at_the_buffer_section() {
         let bytes = encode_request_frame(&request(), &[]).expect("a small request encodes");
 
-        let header_length = usize::from(bytes[4]);
+        let header_length = header_length_field(&bytes);
         assert_eq!(
             bytes.len(),
             PREFIX_LENGTH + header_length + header_padding(header_length)
@@ -257,7 +265,8 @@ mod tests {
 
     #[test]
     fn error_response_frame_cuts_an_oversized_message_at_a_character_boundary() {
-        let message = "é".repeat(MAX_ERROR_MESSAGE_LENGTH);
+        // After the one-byte "a", every two-byte "é" ends at an odd offset, so the limit falls inside one.
+        let message = format!("a{}", "é".repeat(MAX_ERROR_MESSAGE_LENGTH));
 
         let bytes = error_response_frame(1, ErrorCode::InternalError, &message);
 
@@ -265,8 +274,21 @@ mod tests {
         let Outcome::Error(info) = frame.response.result else {
             panic!("an error response");
         };
-        assert_eq!(info.message.len(), MAX_ERROR_MESSAGE_LENGTH);
-        assert!(info.message.chars().all(|character| character == 'é'));
+        assert_eq!(info.message.len(), MAX_ERROR_MESSAGE_LENGTH - 1);
+        assert!(message.starts_with(&info.message));
+    }
+
+    #[test]
+    fn error_response_frame_keeps_a_message_at_the_limit_whole() {
+        let message = "a".repeat(MAX_ERROR_MESSAGE_LENGTH);
+
+        let bytes = error_response_frame(1, ErrorCode::InternalError, &message);
+
+        let frame = crate::decode_response_frame(&bytes).expect("the frame decodes");
+        let Outcome::Error(info) = frame.response.result else {
+            panic!("an error response");
+        };
+        assert_eq!(info.message, message);
     }
 
     #[test]

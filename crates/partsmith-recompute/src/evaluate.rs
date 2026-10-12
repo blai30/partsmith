@@ -47,3 +47,85 @@ pub(crate) fn evaluate(
     .key();
     (values, key)
 }
+
+#[cfg(test)]
+mod tests {
+    use partsmith_model::EmptyContext;
+    use serde_json::json;
+
+    use super::*;
+    use crate::test_support::{document, registry};
+    use crate::timeline::StepKind;
+    use crate::validation::Validations;
+
+    /// The keys of every active record of `features`, computed in timeline order.
+    fn keys(features: serde_json::Value) -> Vec<Option<CacheKey>> {
+        let registry = registry();
+        let document = document(features);
+        let timeline = Timeline::prepare(&registry, &mut Validations::default(), &document, None);
+        let parameters = document.evaluate_parameters(&EmptyContext);
+        let scope = Scope {
+            units: document.units,
+            parameters: &parameters,
+            context: &EmptyContext,
+        };
+        let mut keys = Vec::new();
+        for (position, step) in timeline.steps.iter().enumerate() {
+            let key = match &step.kind {
+                StepKind::Active(active) => {
+                    Some(evaluate(&timeline, position, active, &keys, &scope).1)
+                }
+                _ => None,
+            };
+            keys.push(key);
+        }
+        keys
+    }
+
+    #[test]
+    fn a_feature_link_to_a_later_record_counts_as_none() {
+        let forward = keys(json!([
+            {"id": "f-1", "type": "test_datum", "base": "f-2", "offset": "1"},
+            {"id": "f-2", "type": "test_datum", "offset": "1"}
+        ]));
+        let unknown = keys(json!([
+            {"id": "f-1", "type": "test_datum", "base": "f-2", "offset": "1"}
+        ]));
+
+        assert_eq!(forward[0], unknown[0]);
+    }
+
+    #[test]
+    fn upstream_keys_flow_into_downstream_keys() {
+        let first = keys(json!([
+            {"id": "f-1", "type": "test_datum", "offset": "1"},
+            {"id": "f-2", "type": "test_datum", "base": "f-1", "offset": "1"}
+        ]));
+        let edited = keys(json!([
+            {"id": "f-1", "type": "test_datum", "offset": "2"},
+            {"id": "f-2", "type": "test_datum", "base": "f-1", "offset": "1"}
+        ]));
+
+        assert_ne!(first[0], edited[0]);
+        assert_ne!(first[1], edited[1]);
+    }
+
+    #[test]
+    fn a_body_key_follows_its_provider() {
+        let written = keys(json!([
+            {"id": "f-1", "type": "test_writer", "body": "b-1"},
+            {"id": "f-2", "type": "test_reader", "body": "b-1"}
+        ]));
+        let suppressed = keys(json!([
+            {"id": "f-1", "type": "test_writer", "suppressed": true, "body": "b-1"},
+            {"id": "f-2", "type": "test_reader", "body": "b-1"}
+        ]));
+        let other_body = keys(json!([
+            {"id": "f-1", "type": "test_writer", "body": "b-2"},
+            {"id": "f-2", "type": "test_reader", "body": "b-1"}
+        ]));
+
+        assert_ne!(written[1], suppressed[1]);
+        assert_eq!(suppressed[1], other_body[1]);
+    }
+}

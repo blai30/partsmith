@@ -109,7 +109,12 @@ fn manifest(label: &str, fields: Vec<FieldHint>) -> FeatureManifest {
 }
 
 /// A hint for `path` labeled `label`.
-fn hint(path: &str, label: &str, unit: Option<FieldUnit>, selection: Option<SelectionKind>) -> FieldHint {
+fn hint(
+    path: &str,
+    label: &str,
+    unit: Option<FieldUnit>,
+    selection: Option<SelectionKind>,
+) -> FieldHint {
     FieldHint {
         path: path.to_string(),
         label: label.to_string(),

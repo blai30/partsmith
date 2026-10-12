@@ -147,7 +147,9 @@ impl Graph {
             }
         }
         let affected: Vec<usize> = (0..self.nodes.len())
-            .filter(|&position| reached[position] && self.nodes[position].state == NodeState::Active)
+            .filter(|&position| {
+                reached[position] && self.nodes[position].state == NodeState::Active
+            })
             .collect();
         self.ids(&affected)
     }
@@ -226,17 +228,19 @@ mod tests {
             state: NodeState::Active,
             upstream: upstream
                 .iter()
-                .map(|edge| match edge.split(' ').collect::<Vec<_>>().as_slice() {
-                    ["output", feature] => Edge {
-                        feature: id(feature),
-                        via: EdgeKind::Output,
+                .map(
+                    |edge| match edge.split(' ').collect::<Vec<_>>().as_slice() {
+                        ["output", feature] => Edge {
+                            feature: id(feature),
+                            via: EdgeKind::Output,
+                        },
+                        ["body", body, feature] => Edge {
+                            feature: id(feature),
+                            via: EdgeKind::Body(id(body)),
+                        },
+                        _ => panic!("bad edge {edge}"),
                     },
-                    ["body", body, feature] => Edge {
-                        feature: id(feature),
-                        via: EdgeKind::Body(id(body)),
-                    },
-                    _ => panic!("bad edge {edge}"),
-                })
+                )
                 .collect(),
             parameters: Vec::new(),
             context_names: Vec::new(),
@@ -364,7 +368,11 @@ mod tests {
 
     #[test]
     fn repeated_ids_resolve_to_the_first_record() {
-        let graph = Graph::new(vec![node("f-a", &[]), node("f-a", &[]), node("f-b", &["output f-a"])]);
+        let graph = Graph::new(vec![
+            node("f-a", &[]),
+            node("f-a", &[]),
+            node("f-b", &["output f-a"]),
+        ]);
 
         assert_eq!(graph.position(&id("f-a")), Some(0));
         assert_eq!(names(&graph.dependents(&id("f-a"))), ["f-b"]);
