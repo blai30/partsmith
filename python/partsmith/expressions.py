@@ -26,9 +26,6 @@ OPERATOR_PRECEDENCE = {"+": SUM, "-": SUM, "*": PRODUCT, "/": PRODUCT, "^": POWE
 MAX_EXACT_INTEGER = 2.0**53
 """Integral floats below this magnitude render without a fraction."""
 
-UNIT_SYMBOLS = {"mm": "mm", "cm": "cm", "meter": "m", "inch": "in", "deg": "deg", "rad": "rad"}
-"""The expression symbol of each Python unit object."""
-
 LENGTH_FACTORS = {"mm": 1.0, "cm": 10.0, "m": 1000.0, "in": 25.4}
 """Millimeters per length unit, also the factor of each document unit."""
 
@@ -46,6 +43,15 @@ ANGLE = (0, 1)
 
 PLAIN = (0, 0)
 """The (length, angle) exponents of a plain number."""
+
+DIMENSION_NAMES = {
+    PLAIN: "a plain number",
+    LENGTH: "a length",
+    ANGLE: "an angle",
+    (2, 0): "an area",
+    (3, 0): "a volume",
+}
+"""The names of common dimensions in error messages (expressions.md `Dimension::describe`)."""
 
 _TOKEN = re.compile(
     r"""\s*(?:
@@ -86,10 +92,8 @@ class Expr:
         self._precedence = source_precedence(source)
         self._quantity: tuple[int | float, str] | None = None
 
-    @classmethod
-    def _built(
-        cls, source: str, precedence: int, quantity: tuple[int | float, str] | None = None
-    ) -> Expr:
+    @staticmethod
+    def _built(source: str, precedence: int, quantity: tuple[int | float, str] | None = None) -> Expr:
         """An expression built by Python with a known precedence, and the number and unit symbol
         of a quantity literal (`number * unit`)."""
         built = Expr.__new__(Expr)
@@ -161,14 +165,6 @@ class _Unit(Expr):
         self._quantity = (1, symbol)
 
 
-mm = _Unit("mm")
-cm = _Unit("cm")
-meter = _Unit("m")
-inch = _Unit("in")
-deg = _Unit("deg")
-rad = _Unit("rad")
-
-
 class _PrinterName(Expr):
     """A dotted `printer.*` name; attribute access extends it."""
 
@@ -192,9 +188,6 @@ class PrinterNamespace:
 
     def __repr__(self) -> str:
         return "printer"
-
-
-printer = PrinterNamespace()
 
 
 def expr(source: str) -> Expr:
@@ -258,9 +251,8 @@ def is_quantity(value: object) -> bool:
 
 
 def describe_dimension(dimension: tuple[int, int]) -> str:
-    """The name of a dimension in an error message (expressions.md `Dimension::describe`)."""
-    names = {PLAIN: "a plain number", LENGTH: "a length", ANGLE: "an angle", (2, 0): "an area", (3, 0): "a volume"}
-    return names.get(dimension, "another kind of quantity")
+    """The name of a dimension in an error message."""
+    return DIMENSION_NAMES.get(dimension, "another kind of quantity")
 
 
 def source_precedence(source: str) -> int:
@@ -371,3 +363,19 @@ def _dimension_message(name: str, expected: tuple[int, int], source: str, actual
     """The message for a raw value of the wrong dimension."""
     return f"{name} must be {describe_dimension(expected)}, but {source!r} is {describe_dimension(actual)}."
 
+
+mm = _Unit("mm")
+"""One millimeter; `2 * mm` is the quantity `2 mm`."""
+cm = _Unit("cm")
+"""One centimeter."""
+meter = _Unit("m")
+"""One meter."""
+inch = _Unit("in")
+"""One inch."""
+deg = _Unit("deg")
+"""One degree."""
+rad = _Unit("rad")
+"""One radian."""
+
+printer = PrinterNamespace()
+"""The `printer.*` values of the document's printer profile, for example `printer.fit.slip`."""

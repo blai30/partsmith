@@ -2,26 +2,26 @@
 //! with a body (features/extrude.md).
 
 use partsmith_model::{Category, Expr, FeatureManifest, FieldUnit, Id, SelectionKind};
-use partsmith_occt_sys::extrude;
+use partsmith_occt_sys::{Point, Shape, Vector, extrude};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use super::common::{
     apply_tool, body_hint, body_op_hint, call, check_range, empty_selection, essential, flag, hint,
-    is_false, manifest, op_keyword, options_hint, profile_arguments, selection_hint, sweep_tool,
-    unit_hint,
+    is_false, manifest, op_keyword, options_hint, positive_length, profile_arguments,
+    selection_hint, sweep_tool, unit_hint,
 };
 use crate::context::BuildContext;
 use crate::deps::Dependencies;
 use crate::error::{Bound, FeatureError, Noun};
 use crate::feature::Feature;
-use crate::naming::kernel;
 use crate::output::FeatureOutput;
-use crate::params::{BodyOp, ProfileRef};
+use crate::params::{BodyOp, PlacementExt, ProfileRef};
 use crate::python::{PythonCall, PythonNames, PythonValue};
 
-/// How far past the body's bounding box a through-all extrusion goes, in millimeters (D21).
-const THROUGH_ALL_MARGIN: f64 = 1.0;
+/// How far past the farthest corner of the body's bounding box a through-all extrusion or hole
+/// goes, in millimeters (decision D21).
+pub(crate) const THROUGH_ALL_MARGIN: f64 = 1.0;
 
 /// Extrudes closed sketch regions along the sketch normal and combines the result with a body.
 #[derive(Clone, Copy, Debug)]
@@ -146,20 +146,20 @@ impl Feature for Extrude {
         context: &BuildContext<'_>,
     ) -> Result<FeatureOutput, FeatureError> {
         let profile = context.profile("profile", &params.profile)?;
-        let placement = profile.sketch.placement;
+        let plane = profile.sketch.placement.to_kernel();
         let symmetric = matches!(params.extent, ExtrudeExtent::Symmetric { .. });
         let direction = if params.reverse && !symmetric {
-            placement.normal.map(|component| -component)
+            plane.normal.scaled(-1.0)
         } else {
-            placement.normal
+            plane.normal
         };
-        let (start, end) = interval(params, context, placement.origin, direction)?;
+        let (start, end) = interval(params, context, plane.origin, direction)?;
         let faces = profile.faces()?;
         if context.is_canceled() {
             return Err(FeatureError::Canceled);
         }
-        let sweep = extrude(&faces.profile, crate::params::vector(direction), start, end)
-            .map_err(kernel)?;
+        let sweep = extrude(&faces.profile, direction, start, end)
+            .map_err(|error| FeatureError::Kernel { error })?;
         let tool = sweep_tool(context.feature(), sweep, &faces.entities)?;
         apply_tool(context, &params.body, params.op, tool, profile.warnings)
     }
@@ -195,20 +195,9 @@ impl Feature for Extrude {
 fn interval(
     params: &ExtrudeParams,
     context: &BuildContext<'_>,
-    origin: [f64; 3],
-    direction: [f64; 3],
+    origin: Point,
+    direction: Vector,
 ) -> Result<(f64, f64), FeatureError> {
-    let positive = |field: &str, expr: &Expr| -> Result<f64, FeatureError> {
-        let value = context.eval_length(field, expr)?;
-        check_range(
-            context,
-            field,
-            FieldUnit::Length,
-            value,
-            Bound::GreaterThan(0.0),
-            None,
-        )
-    };
     let not_negative = |field: &str, expr: &Expr| -> Result<f64, FeatureError> {
         let value = context.eval_length(field, expr)?;
         check_range(
@@ -221,9 +210,11 @@ fn interval(
         )
     };
     match &params.extent {
-        ExtrudeExtent::Distance { expr } => Ok((0.0, positive("extent.expr", expr)?)),
+        ExtrudeExtent::Distance { expr } => {
+            Ok((0.0, positive_length(context, "extent.expr", expr)?))
+        }
         ExtrudeExtent::Symmetric { expr } => {
-            let length = positive("extent.expr", expr)?;
+            let length = positive_length(context, "extent.expr", expr)?;
             Ok((-length / 2.0, length / 2.0))
         }
         ExtrudeExtent::TwoSides {
@@ -262,24 +253,24 @@ fn interval(
 /// The largest signed distance `(corner - origin) · direction` over the eight corners of the
 /// shape's tight bounding box.
 pub(crate) fn farthest_corner(
-    shape: &partsmith_occt_sys::Shape,
-    origin: [f64; 3],
-    direction: [f64; 3],
+    shape: &Shape,
+    origin: Point,
+    direction: Vector,
 ) -> Result<f64, FeatureError> {
-    let bounds = shape.bounding_box().map_err(kernel)?;
+    let bounds = shape
+        .bounding_box()
+        .map_err(|error| FeatureError::Kernel { error })?;
     let mut farthest = f64::NEG_INFINITY;
     for corner in 0..8 {
-        let point = [0, 1, 2].map(|axis| {
+        let [x, y, z] = [0, 1, 2].map(|axis| {
             if corner & (1 << axis) == 0 {
                 bounds.min[axis]
             } else {
                 bounds.max[axis]
             }
         });
-        let distance: f64 = (0..3)
-            .map(|axis| (point[axis] - origin[axis]) * direction[axis])
-            .sum();
-        farthest = farthest.max(distance);
+        let offset = Vector::new(x - origin.x, y - origin.y, z - origin.z);
+        farthest = farthest.max(offset.dot(direction));
     }
     Ok(farthest)
 }
@@ -288,11 +279,13 @@ pub(crate) fn farthest_corner(
 mod tests {
     use std::f64::consts::PI;
 
-    use partsmith_occt_sys::Vector;
+    use partsmith_model::FeatureRecord;
+    use partsmith_occt_sys::{Plane, make_box};
     use serde_json::json;
 
     use super::*;
     use crate::output::{BodyChange, OutputData};
+    use crate::registry::Registry;
     use crate::test_support::{DocumentRun, ScriptNames, assert_point, id, run, run_document};
 
     /// The rectangle (0, 0)-(80, 50) on XY.
@@ -350,6 +343,46 @@ mod tests {
 
     fn cap_z(run: &DocumentRun, cap: &str) -> f64 {
         run.face("b-1", &format!("f-ext1/{cap}")).centroid.z
+    }
+
+    /// Script names in which the rectangle's region is every region of `f-sk1`.
+    fn rectangle_names() -> ScriptNames {
+        let mut names = ScriptNames::default();
+        names.regions.insert(
+            id("f-sk1"),
+            vec![
+                serde_json::from_value(json!({"key": "e-1,e-2,e-3,e-4", "fp": "c=40,25|a=4000"}))
+                    .expect("region"),
+            ],
+        );
+        names
+    }
+
+    /// The farthest corner of the box x 0..10, y 0..20, z 0..30 from `origin` along `direction`.
+    fn farthest_box_corner(origin: [f64; 3], direction: [f64; 3]) -> f64 {
+        let shape = make_box(&Plane::XY, 10.0, 20.0, 30.0)
+            .expect("the box builds")
+            .shape;
+        let [x, y, z] = origin;
+        let [dx, dy, dz] = direction;
+        farthest_corner(&shape, Point::new(x, y, z), Vector::new(dx, dy, dz))
+            .expect("the box has bounds")
+    }
+
+    #[test]
+    fn the_farthest_corner_is_measured_along_the_direction() {
+        let up = farthest_box_corner([0.0, 0.0, 5.0], [0.0, 0.0, 1.0]);
+        let down = farthest_box_corner([0.0, 0.0, 5.0], [0.0, 0.0, -1.0]);
+
+        assert!((up - 25.0).abs() < 1e-9, "{up}");
+        assert!((down - 5.0).abs() < 1e-9, "{down}");
+    }
+
+    #[test]
+    fn a_body_behind_the_plane_has_no_positive_reach() {
+        let reach = farthest_box_corner([0.0, 0.0, 40.0], [0.0, 0.0, 1.0]);
+
+        assert!((reach + 10.0).abs() < 1e-9, "{reach}");
     }
 
     #[test]
@@ -678,15 +711,21 @@ mod tests {
     }
 
     #[test]
+    fn python_writes_the_spec_example() {
+        let record: FeatureRecord = serde_json::from_value(json!({
+            "id": "f-ext1", "type": "extrude", "body": "b-1", "profile": rectangle_profile(),
+            "extent": {"kind": "distance", "expr": "30 mm"}, "op": "new"
+        }))
+        .expect("a valid record");
+
+        let python = Registry::with_builtins().python(&record, &rectangle_names());
+
+        assert_eq!(python.render(0), r#"extrude(sketch_1, 30*mm, id="f-ext1")"#);
+    }
+
+    #[test]
     fn python_writes_the_sketch_and_distance() {
-        let mut names = ScriptNames::default();
-        names.regions.insert(
-            id("f-sk1"),
-            vec![
-                serde_json::from_value(json!({"key": "e-1,e-2,e-3,e-4", "fp": "c=40,25|a=4000"}))
-                    .expect("region"),
-            ],
-        );
+        let names = rectangle_names();
         let params = |extent: serde_json::Value, op: &str| -> ExtrudeParams {
             serde_json::from_value(json!({"body": "b-1", "profile": rectangle_profile(), "extent": extent, "reverse": true, "op": op})).expect("valid params")
         };

@@ -12,6 +12,7 @@ use feature_support::{
     assert_solid_count, assert_unchanged, assert_volume, body_changes, example_paths, face,
     link_ids, load_example, median_build_time,
 };
+use partsmith_model::Units;
 use partsmith_occt_sys::{ElementGeometry, GeometryKind};
 
 /// The bodies of every circular pattern test.
@@ -113,10 +114,43 @@ fn t004_four_around_a_full_turn() {
 
 #[test]
 fn t005_count_1_has_no_effect() {
-    let run = Run::records(&BODIES, &[PEG, &pattern(r#""count": "1""#)]);
+    let run = Run::example("circular_pattern/count-one.ptsm");
 
     run.assert_warnings("f-cp1", &["no_effect"]);
     assert_unchanged(&run, "f-cp1", "b-1");
+}
+
+// Regression: evaluation rejects a negative count against 0, which suggested "0" and then failed
+// again against the pattern's own minimum of 1.
+#[test]
+fn negative_count_suggests_a_count_that_works() {
+    let run = Run::records(&BODIES, &[PEG, &pattern(r#""count": "-1""#)]);
+
+    let error = run.assert_error("f-cp1", "out_of_range");
+    assert_error_field(error, "count");
+    assert_eq!(
+        run.messages("f-cp1"),
+        ["Count must be at least 1, but it is -1. Use 1 or more."]
+    );
+    assert_eq!(error.suggestion(Units::Mm).as_deref(), Some("1"));
+}
+
+// Regression: count 1 with op new skipped the empty-target check, so the error depended on the
+// count (features.md section 3.5).
+#[test]
+fn count_1_with_op_new_needs_an_empty_target() {
+    let run = Run::records(
+        &BODIES,
+        &[
+            PEG,
+            r#"{"id": "f-box2", "type": "box", "body": "b-2", "size": ["1", "1", "1"], "position": ["50", "0", "0"], "op": "new"}"#,
+            &pattern(r#""count": "1", "op": "new", "target": "b-2""#),
+        ],
+    );
+
+    run.assert_error("f-cp1", "body_not_empty");
+    assert_unchanged(&run, "f-cp1", "b-2");
+    assert_volume(run.shape("b-2"), 1.0);
 }
 
 #[test]

@@ -237,7 +237,10 @@ mod tests {
     #[test]
     fn a_diagnostic_with_a_pointer_names_it_after_the_code() {
         assert_eq!(
-            diagnostic_line("box.ptsm", &diagnostic(None, None, Some("/parameters/0/expr"))),
+            diagnostic_line(
+                "box.ptsm",
+                &diagnostic(None, None, Some("/parameters/0/expr"))
+            ),
             "box.ptsm: error[parse_error] at /parameters/0/expr: Broken."
         );
     }

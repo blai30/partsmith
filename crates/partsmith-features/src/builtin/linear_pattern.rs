@@ -12,7 +12,7 @@ use super::common::{
     COPY_OP_OPTIONS, check_range, essential, hint, into_keyword, is_false, manifest, options_hint,
     selection_hint, unit_hint,
 };
-use super::copy::{self, INSTANCE_LIMIT, Source};
+use super::copy::{self, Source};
 use crate::context::BuildContext;
 use crate::deps::Dependencies;
 use crate::error::{Bound, FeatureError};
@@ -80,16 +80,7 @@ impl Step {
         field: &str,
         direction: &LinearPatternDirection,
     ) -> Result<Step, FeatureError> {
-        let count_field = format!("{field}.count");
-        let count = context.eval_count(&count_field, &direction.count)?;
-        check_range(
-            context,
-            &count_field,
-            FieldUnit::Count,
-            f64::from(count),
-            Bound::AtLeast(1.0),
-            None,
-        )?;
+        let count = copy::instance_count(context, &format!("{field}.count"), &direction.count)?;
         let spacing_field = format!("{field}.spacing");
         let spacing = context.eval_length(&spacing_field, &direction.spacing)?;
         check_range(
@@ -201,30 +192,24 @@ impl Feature for LinearPattern {
             Some(direction) => Step::new(context, DIRECTION_FIELDS[1], direction)?,
             None => Step::NONE,
         };
-        let total = u64::from(first.count) * u64::from(second.count);
-        if total > INSTANCE_LIMIT {
-            return Err(FeatureError::TooManyInstances {
-                count: total,
-                limit: INSTANCE_LIMIT,
-            });
-        }
+        copy::check_instance_limit(u64::from(first.count) * u64::from(second.count))?;
         let mut copies = Vec::new();
-        for j in 0..second.count {
-            for i in 0..first.count {
-                if (i, j) == (0, 0) {
+        for second_step in 0..second.count {
+            for first_step in 0..first.count {
+                if (first_step, second_step) == (0, 0) {
                     continue;
                 }
                 copy::check_canceled(context)?;
-                let along_first = first.offset.scaled(f64::from(i));
-                let along_second = second.offset.scaled(f64::from(j));
+                let along_first = first.offset.scaled(f64::from(first_step));
+                let along_second = second.offset.scaled(f64::from(second_step));
                 let offset = Vector::new(
                     along_first.x + along_second.x,
                     along_first.y + along_second.y,
                     along_first.z + along_second.z,
                 );
                 let instance = Instance {
-                    first: i,
-                    second: j,
+                    first: first_step,
+                    second: second_step,
                 };
                 copies.push(source.copy(context, &Transform::translation(offset), instance)?);
             }
@@ -281,7 +266,7 @@ mod tests {
 
     use super::*;
     use crate::builtin::copy::testing::{
-        assert_bounds, assert_volume, build, fixture, params, python, python_with, update,
+        assert_bounds, assert_volume, build, fixture, params_with, python, python_with, update,
         updated_shape, updates,
     };
     use crate::context::BodyState;
@@ -301,15 +286,12 @@ mod tests {
     }
 
     fn pattern(direction: Value, extra: Value) -> LinearPatternParams {
-        let mut record = json!({
-            "id": "f-lp1", "type": "linear_pattern", "body": "b-1", "direction": direction
-        });
-        if let Value::Object(members) = extra {
-            for (key, value) in members {
-                record[key] = value;
-            }
-        }
-        params::<LinearPattern>(record)
+        params_with::<LinearPattern>(
+            json!({
+                "id": "f-lp1", "type": "linear_pattern", "body": "b-1", "direction": direction
+            }),
+            extra,
+        )
     }
 
     /// A 10 mm cube in `b-1` spanning [-5,-5,0]-[5,5,10].
@@ -478,6 +460,37 @@ mod tests {
         assert_eq!(
             error.to_string(),
             "Count must be at least 1, but it is 0. Use 1 or more."
+        );
+    }
+
+    #[test]
+    fn a_negative_count_suggests_a_count_that_works() {
+        let error = run(&pattern(direction(X, "-1", "20"), json!({}))).expect_err("count -1");
+
+        assert_eq!(
+            error.to_string(),
+            "Count must be at least 1, but it is -1. Use 1 or more."
+        );
+        assert_eq!(
+            error.suggestion(partsmith_model::Units::Mm).as_deref(),
+            Some("1")
+        );
+    }
+
+    #[test]
+    fn count_one_with_op_new_needs_an_empty_target() {
+        let params = pattern(
+            direction(X, "1", "20"),
+            json!({"op": "new", "target": "b-2"}),
+        );
+        let mut bodies = cube();
+        bodies.push(("b-2", box_body("f-box2", [50.0, 0.0, 0.0], 1.0)));
+
+        let result = build::<LinearPattern>("f-lp1", &params, bodies, Vec::new());
+
+        assert_eq!(
+            result.map(|_| ()),
+            Err(FeatureError::BodyNotEmpty { body: id("b-2") })
         );
     }
 

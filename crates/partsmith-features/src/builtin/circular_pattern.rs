@@ -14,7 +14,7 @@ use super::common::{
     COPY_OP_OPTIONS, check_range, essential, flag, hint, into_keyword, is_false, manifest,
     options_hint, selection_hint, unit_hint,
 };
-use super::copy::{self, INSTANCE_LIMIT, Source};
+use super::copy::{self, Source};
 use crate::context::BuildContext;
 use crate::deps::Dependencies;
 use crate::error::{Bound, FeatureError};
@@ -120,21 +120,8 @@ impl Feature for CircularPattern {
         context: &BuildContext<'_>,
     ) -> Result<FeatureOutput, FeatureError> {
         let source = Source::new(context, &params.body)?;
-        let count = context.eval_count("count", &params.count)?;
-        check_range(
-            context,
-            "count",
-            FieldUnit::Count,
-            f64::from(count),
-            Bound::AtLeast(1.0),
-            None,
-        )?;
-        if u64::from(count) > INSTANCE_LIMIT {
-            return Err(FeatureError::TooManyInstances {
-                count: u64::from(count),
-                limit: INSTANCE_LIMIT,
-            });
-        }
+        let count = copy::instance_count(context, "count", &params.count)?;
+        copy::check_instance_limit(u64::from(count))?;
         let angle = context.eval_angle("angle", &params.angle)?;
         check_range(
             context,
@@ -157,14 +144,14 @@ impl Feature for CircularPattern {
         let axis = context.axis("axis", &params.axis)?;
         let step = step_angle(angle, count) * if params.reverse { -1.0 } else { 1.0 };
         let mut copies = Vec::new();
-        for k in 1..count {
+        for instance in 1..count {
             copy::check_canceled(context)?;
-            let rotation = Transform::rotation(&axis, step * f64::from(k));
-            let instance = Instance {
-                first: k,
+            let rotation = Transform::rotation(&axis, step * f64::from(instance));
+            let suffix = Instance {
+                first: instance,
                 second: 0,
             };
-            copies.push(source.copy(context, &rotation, instance)?);
+            copies.push(source.copy(context, &rotation, suffix)?);
         }
         source.place(context, params.op, params.target.as_ref(), copies)
     }
@@ -213,24 +200,21 @@ mod tests {
 
     use super::*;
     use crate::builtin::copy::testing::{
-        assert_bounds, assert_volume, build, params, python, update, updated_shape,
+        assert_bounds, assert_volume, build, params_with, python, update, updated_shape,
     };
     use crate::context::BodyState;
     use crate::output::BodyChange;
     use crate::registry::Registry;
-    use crate::test_support::{face_names, id, named_primitive};
+    use crate::test_support::{box_body, face_names, id, named_primitive};
 
     fn pattern(extra: Value) -> CircularPatternParams {
-        let mut record = json!({
-            "id": "f-cp1", "type": "circular_pattern", "body": "b-1",
-            "axis": {"kind": "origin", "axis": "Z"}
-        });
-        if let Value::Object(members) = extra {
-            for (key, value) in members {
-                record[key] = value;
-            }
-        }
-        params::<CircularPattern>(record)
+        params_with::<CircularPattern>(
+            json!({
+                "id": "f-cp1", "type": "circular_pattern", "body": "b-1",
+                "axis": {"kind": "origin", "axis": "Z"}
+            }),
+            extra,
+        )
     }
 
     /// A cylinder of radius 2 and height 5 in `b-1` with its axis at x = 20, y = 0.
@@ -395,6 +379,35 @@ mod tests {
         assert_eq!(
             error.to_string(),
             "Count must be at least 1, but it is 0. Use 1 or more."
+        );
+    }
+
+    #[test]
+    fn a_negative_count_suggests_a_count_that_works() {
+        let error = run(&pattern(json!({"count": "-1"}))).expect_err("count -1");
+
+        assert_eq!(error.field().expect("names a field").path, "count");
+        assert_eq!(
+            error.to_string(),
+            "Count must be at least 1, but it is -1. Use 1 or more."
+        );
+        assert_eq!(
+            error.suggestion(partsmith_model::Units::Mm).as_deref(),
+            Some("1")
+        );
+    }
+
+    #[test]
+    fn count_one_with_op_new_needs_an_empty_target() {
+        let params = pattern(json!({"count": "1", "op": "new", "target": "b-2"}));
+        let mut bodies = peg();
+        bodies.push(("b-2", box_body("f-box2", [50.0, 0.0, 0.0], 1.0)));
+
+        let result = build::<CircularPattern>("f-cp1", &params, bodies, Vec::new());
+
+        assert_eq!(
+            result.map(|_| ()),
+            Err(FeatureError::BodyNotEmpty { body: id("b-2") })
         );
     }
 

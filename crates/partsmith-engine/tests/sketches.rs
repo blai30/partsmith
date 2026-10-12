@@ -321,12 +321,15 @@ fn t053_region_fill_buffers_cover_the_disc() {
     let area: f64 = indices
         .chunks(3)
         .map(|triangle| {
-            let [a, b, c] = [
+            let [first, second, third] = [
                 vertex(triangle[0]),
                 vertex(triangle[1]),
                 vertex(triangle[2]),
             ];
-            ((b[0] - a[0]) * (c[1] - a[1]) - (c[0] - a[0]) * (b[1] - a[1])).abs() / 2.0
+            ((second[0] - first[0]) * (third[1] - first[1])
+                - (third[0] - first[0]) * (second[1] - first[1]))
+                .abs()
+                / 2.0
         })
         .sum();
     let disc = 25.0 * std::f64::consts::PI;

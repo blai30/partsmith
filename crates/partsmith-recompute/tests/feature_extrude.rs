@@ -8,9 +8,10 @@ use std::time::Duration;
 
 use feature_support::{
     Run, assert_bounding_box, assert_canonical_example, assert_empty, assert_error_field,
-    assert_face_area, assert_face_count, assert_face_in_plane, assert_face_normal, assert_has_face,
-    assert_no_face, assert_unchanged, assert_volume, body_update, document_text, element_names,
-    example_paths, face, load_example, median_build_time, message, parse_document,
+    assert_face_area, assert_face_count, assert_face_in_plane, assert_face_names,
+    assert_face_normal, assert_has_face, assert_no_face, assert_unchanged, assert_volume,
+    body_update, document_text, element_names, example_paths, face, load_example,
+    median_build_time, message, parse_document,
 };
 use partsmith_features::BodyChange;
 use partsmith_naming::ElementKind;
@@ -383,6 +384,29 @@ fn t023_through_all_with_op_new() {
 }
 
 #[test]
+fn through_all_into_an_empty_body() {
+    // Section 3.3 step 3: through all needs the target's solid, so an empty body is an error for
+    // every op that can go through all.
+    for op in ["join", "cut", "intersect"] {
+        let run = Run::records(
+            &["b-1"],
+            &[
+                RECTANGLE_SKETCH,
+                &extrude(RECTANGLE_PROFILE, THROUGH_ALL, op),
+            ],
+        );
+
+        run.assert_error("f-ext1", "body_empty");
+        assert_eq!(
+            run.messages("f-ext1"),
+            ["Body 'Body 1' is empty at this point. Use op new to start it."],
+            "op {op}",
+        );
+        assert_empty(&run, "b-1");
+    }
+}
+
+#[test]
 fn t024_intersect() {
     let run = Run::example("extrude/intersect.ptsm");
 
@@ -618,6 +642,28 @@ fn t038_empty_profile() {
     assert_eq!(
         run.messages("f-ext1"),
         ["Select at least one region for Profile."]
+    );
+}
+
+#[test]
+#[ignore = "needs the profile union to rejoin the pieces of one entity (extrude.md open issue 2)"]
+fn union_of_regions_split_by_a_line() {
+    // Features.md sections 3.7 and 3.10: regions merged in 2D give the same solid as the one region
+    // they cover, with one lateral face per entity.
+    let run = Run::example("extrude/union-split-by-line.ptsm");
+
+    run.assert_all_ok();
+    assert_volume_and_bounds(&run, 40000.0, [0.0, 0.0, 0.0], [80.0, 50.0, 10.0]);
+    assert_face_names(
+        run.body("b-1"),
+        &[
+            "f-ext1/end-cap",
+            "f-ext1/lateral/e-1",
+            "f-ext1/lateral/e-2",
+            "f-ext1/lateral/e-3",
+            "f-ext1/lateral/e-4",
+            "f-ext1/start-cap",
+        ],
     );
 }
 

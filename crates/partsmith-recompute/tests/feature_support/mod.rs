@@ -417,7 +417,11 @@ pub fn assert_face_axis_direction(geometry: &ElementGeometry, expected: [f64; 3]
         .direction
         .unwrap_or_else(|| panic!("the face has no axis: {geometry:?}"));
     let actual = components(direction);
-    let dot: f64 = actual.iter().zip(expected).map(|(a, b)| a * b).sum();
+    let dot: f64 = actual
+        .iter()
+        .zip(expected)
+        .map(|(component, wanted)| component * wanted)
+        .sum();
     let sign = if dot < 0.0 { -1.0 } else { 1.0 };
     for (axis, (component, wanted)) in actual.into_iter().zip(expected).enumerate() {
         assert_absolute(
@@ -444,7 +448,11 @@ pub fn assert_face_axis_through(geometry: &ElementGeometry, point: [f64; 3]) {
         point[1] - location.y,
         point[2] - location.z,
     ];
-    let along: f64 = offset.iter().zip(direction).map(|(a, b)| a * b).sum();
+    let along: f64 = offset
+        .iter()
+        .zip(direction)
+        .map(|(component, axis)| component * axis)
+        .sum();
     let distance = offset
         .iter()
         .zip(direction)

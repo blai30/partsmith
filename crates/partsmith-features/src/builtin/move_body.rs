@@ -198,20 +198,17 @@ mod tests {
 
     use super::*;
     use crate::builtin::copy::testing::{
-        assert_bounds, assert_volume, build, params, python, update, updated_shape, updates,
+        assert_bounds, assert_volume, build, params_with, python, update, updated_shape, updates,
     };
     use crate::context::BodyState;
     use crate::registry::Registry;
     use crate::test_support::{box_body, id};
 
     fn move_body(extra: Value) -> MoveBodyParams {
-        let mut record = json!({"id": "f-mv1", "type": "move_body", "body": "b-1"});
-        if let Value::Object(members) = extra {
-            for (key, value) in members {
-                record[key] = value;
-            }
-        }
-        params::<MoveBody>(record)
+        params_with::<MoveBody>(
+            json!({"id": "f-mv1", "type": "move_body", "body": "b-1"}),
+            extra,
+        )
     }
 
     fn about_z(angle: &str) -> Value {

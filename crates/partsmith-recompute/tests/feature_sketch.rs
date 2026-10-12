@@ -11,7 +11,7 @@ use feature_support::{
     assert_placement, assert_relative, document_text, example_paths, expression_uses, link_ids,
     load_example, median_build_time, message, parse_document, sketch_result,
 };
-use partsmith_features::{FallbackReason, FeatureError, FeatureWarning, Registry};
+use partsmith_features::{FallbackReason, FeatureError, FeatureWarning, Registry, Repair};
 use partsmith_model::{FeatureInspector, FieldUnit};
 use partsmith_sketch::{Placement, PointRef, SketchError};
 
@@ -23,6 +23,9 @@ const WIDTH_PARAMETER: &str = r#"{"id": "p-w", "name": "width", "expr": "100 mm"
 
 /// The message of a `plane_fallback` warning with reason `missing` (spec section 3.5).
 const FACE_MISSING_TEXT: &str = "The face this sketch is on can no longer be found, so the sketch stays at its last position. Re-attach it in the repair panel.";
+
+/// The message of a `plane_fallback` warning with reason `ambiguous` (spec section 3.5).
+const FACE_AMBIGUOUS_TEXT: &str = "The face this sketch is on now matches several faces, so the sketch stays at its last position. Pick the face in the repair panel.";
 
 /// The message of a `plane_fallback` warning with reason `not_planar` (spec section 3.5).
 const FACE_NOT_FLAT_TEXT: &str = "The face this sketch is on is no longer flat, so the sketch stays at its last position. Attach it to a flat face.";
@@ -193,6 +196,36 @@ fn t005_face_lost() {
         Some("/plane/face"),
     );
     assert_eq!(run.messages("f-sk1"), [FACE_MISSING_TEXT]);
+    assert_eq!(
+        sketch_result(&run, "f-sk1").placement,
+        fallback([3.0, 4.0, 0.0])
+    );
+}
+
+#[test]
+fn face_ambiguous() {
+    // Section 3.3: a face reference that now matches several faces keeps the fallback placement.
+    // The query names no face and its partial fingerprint fits all six faces of the cube equally.
+    let run = Run::example("sketch/face-ambiguous.ptsm");
+
+    run.assert_ok("f-box1");
+    let reason = plane_fallback_reason(&run);
+    assert!(
+        matches!(reason, FallbackReason::Ambiguous),
+        "fallback reason {reason:?}"
+    );
+    assert_eq!(run.messages("f-sk1"), [FACE_AMBIGUOUS_TEXT]);
+    let repair = run.feature("f-sk1").warnings[0].repair();
+    assert!(
+        matches!(
+            repair,
+            Some(Repair::Element {
+                ambiguous: true,
+                ..
+            })
+        ),
+        "repair data {repair:?}",
+    );
     assert_eq!(
         sketch_result(&run, "f-sk1").placement,
         fallback([3.0, 4.0, 0.0])

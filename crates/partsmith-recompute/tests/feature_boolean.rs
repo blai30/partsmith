@@ -8,9 +8,9 @@ use std::time::Duration;
 
 use feature_support::{
     Run, assert_bounding_box, assert_canonical_example, assert_empty, assert_error_field,
-    assert_face_count, assert_face_kind, assert_face_position, assert_solid_count,
-    assert_unchanged, assert_volume, body_changes, example_paths, face, face_index, link_ids,
-    load_example, median_build_time,
+    assert_face_count, assert_face_kind, assert_face_position, assert_has_face, assert_solid_count,
+    assert_unchanged, assert_volume, body_changes, example_paths, face, link_ids, load_example,
+    median_build_time,
 };
 use partsmith_occt_sys::GeometryKind;
 
@@ -23,9 +23,6 @@ const BOX1: &str =
 
 /// The `BOX2` fixture: b-2 spanning [0,-10,0]-[20,10,20].
 const BOX2: &str = r#"{"id": "f-box2", "type": "box", "body": "b-2", "size": ["20", "20", "20"], "position": ["10", "0", "0"], "op": "new"}"#;
-
-/// The `BOX2` fixture moved to x = 50, so it does not touch `BOX1` (tests 11 and 12).
-const BOX2_APART: &str = r#"{"id": "f-box2", "type": "box", "body": "b-2", "size": ["20", "20", "20"], "position": ["50", "0", "0"], "op": "new"}"#;
 
 /// The `BOOL(tools, op)` fixture, with `tools` given as a JSON array.
 fn boolean(tools: &str, op: &str) -> String {
@@ -59,14 +56,8 @@ fn t001_join_keeps_target_and_tool_face_names() {
     let run = Run::example("boolean/join.ptsm");
 
     let target = run.body("b-1");
-    assert!(
-        face_index(target, "f-box1/left").is_some(),
-        "f-box1/left exists"
-    );
-    assert!(
-        face_index(target, "f-box2/right").is_some(),
-        "f-box2/right exists"
-    );
+    assert_has_face(target, "f-box1/left");
+    assert_has_face(target, "f-box2/right");
 }
 
 #[test]
@@ -212,7 +203,7 @@ fn t011_disjoint_join() {
 
 #[test]
 fn t012_cut_that_misses() {
-    let run = Run::records(&BODIES, &[BOX1, BOX2_APART, &boolean(r#"["b-2"]"#, "cut")]);
+    let run = Run::example("boolean/cut-misses.ptsm");
 
     run.assert_warnings("f-bool1", &["no_effect"]);
     assert_unchanged(&run, "f-bool1", "b-1");

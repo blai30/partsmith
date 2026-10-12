@@ -239,7 +239,7 @@ fn canonical_edit(
     registry: &Registry,
     document: &Document,
     edit: Edit,
-    index: u32,
+    edit_index: u32,
 ) -> Result<Edit, EngineError> {
     let feature = match &edit {
         Edit::AddFeature { feature, .. } | Edit::UpdateFeature { feature } => feature,
@@ -248,7 +248,7 @@ fn canonical_edit(
     let validated = registry
         .validate_and_canonicalize(feature)
         .map_err(|error| EngineError::InvalidParams {
-            index,
+            index: edit_index,
             feature: feature.id.clone(),
             feature_type: feature.kind.clone(),
             message: error.render(&DocumentNames { document, registry }, document.units),

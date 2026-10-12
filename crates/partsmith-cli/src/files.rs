@@ -208,7 +208,10 @@ mod tests {
 
     #[test]
     fn inputs_are_named_as_given() {
-        assert_eq!(Input::File(PathBuf::from("dir/a.ptsm")).name(), "dir/a.ptsm");
+        assert_eq!(
+            Input::File(PathBuf::from("dir/a.ptsm")).name(),
+            "dir/a.ptsm"
+        );
         assert_eq!(Input::StandardInput.name(), "<stdin>");
     }
 
@@ -302,9 +305,12 @@ mod tests {
         write_atomically(&path, b"second").expect("the file is replaced");
 
         assert_eq!(fs::read(&path).expect("readable"), b"second");
-        let names: Vec<_> = fs::read_dir(directory.path())
+        let names: Vec<String> = fs::read_dir(directory.path())
             .expect("readable")
-            .map(|entry| entry.expect("an entry").file_name())
+            .map(|entry| {
+                let name = entry.expect("an entry").file_name();
+                name.to_string_lossy().into_owned()
+            })
             .collect();
         assert_eq!(names, ["out.txt"], "no temporary file is left behind");
     }

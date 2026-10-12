@@ -77,8 +77,8 @@ fn radius(context: &BuildContext<'_>, field: &str, expr: &Expr) -> Result<f64, F
     .map(kernel_radius)
 }
 
-/// A radius of at least 0 as the kernel builds it: one below the kernel's modeling tolerance is a
-/// point (an apex), so it counts as 0, because the kernel builds no circle that small.
+/// A checked radius as the kernel builds it: one below the kernel's modeling tolerance is a point
+/// (an apex), so 0, since the kernel builds no circle that small.
 fn kernel_radius(radius: f64) -> f64 {
     if radius < LINEAR_TOLERANCE {
         0.0

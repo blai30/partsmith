@@ -8,9 +8,9 @@ use std::time::Duration;
 
 use feature_support::{
     Run, assert_bounding_box, assert_canonical_example, assert_empty, assert_error_field,
-    assert_face_count, assert_face_kind, assert_face_normal, assert_face_position,
+    assert_face_count, assert_face_kind, assert_face_normal, assert_face_position, assert_has_face,
     assert_solid_count, assert_unchanged, assert_volume, body_changes, example_paths, face,
-    face_index, load_example, median_build_time,
+    load_example, median_build_time,
 };
 use partsmith_occt_sys::GeometryKind;
 
@@ -41,14 +41,6 @@ fn assert_section_face(run: &Run, body: &str, name: &str, normal: [f64; 3]) {
     assert_face_kind(&section, GeometryKind::Plane);
     assert_face_position(&section, 2, 5.0);
     assert_face_normal(&section, normal);
-}
-
-/// Asserts that `body` has a face named `name`.
-fn assert_has_face(run: &Run, body: &str, name: &str) {
-    assert!(
-        face_index(run.body(body), name).is_some(),
-        "{body} has a face named {name}"
-    );
 }
 
 #[test]
@@ -99,8 +91,8 @@ fn t001_split_into_two_bodies_numbers_the_cut_front_face_across_both_parts() {
 fn t001_split_into_two_bodies_keeps_uncut_face_names() {
     let run = Run::example("split_body/into-two-bodies.ptsm");
 
-    assert_has_face(&run, "b-1", "f-box1/top");
-    assert_has_face(&run, "b-2", "f-box1/bottom");
+    assert_has_face(run.body("b-1"), "f-box1/top");
+    assert_has_face(run.body("b-2"), "f-box1/bottom");
 }
 
 #[test]
@@ -128,11 +120,11 @@ fn t003_flip_keeps_the_back_part() {
     let kept = run.shape("b-1");
     assert_volume(kept, 2000.0);
     assert_bounding_box(kept, [-10.0, -10.0, 0.0], [10.0, 10.0, 5.0]);
-    assert_has_face(&run, "b-1", "f-split1/split-negative");
+    assert_has_face(run.body("b-1"), "f-split1/split-negative");
     let other = run.shape("b-2");
     assert_volume(other, 6000.0);
     assert_bounding_box(other, [-10.0, -10.0, 5.0], [10.0, 10.0, 20.0]);
-    assert_has_face(&run, "b-2", "f-split1/split-positive");
+    assert_has_face(run.body("b-2"), "f-split1/split-positive");
 }
 
 #[test]
@@ -227,8 +219,8 @@ fn t009_parts_with_several_solids_lower_part() {
     assert_volume(base, 1200.0);
     assert_face_count(base, 10);
     assert_solid_count(base, 1);
-    assert_has_face(&run, "b-2", "f-split1/split-negative#1");
-    assert_has_face(&run, "b-2", "f-split1/split-negative#2");
+    assert_has_face(run.body("b-2"), "f-split1/split-negative#1");
+    assert_has_face(run.body("b-2"), "f-split1/split-negative#2");
 }
 
 #[test]

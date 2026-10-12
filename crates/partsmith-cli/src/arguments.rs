@@ -111,10 +111,11 @@ pub struct ExportArguments {
     #[arg(long)]
     pub ascii: bool,
     /// Chord deviation in mm (mesh formats only).
-    #[arg(long, value_name = "MM")]
+    // Negative values parse, so the range check names the rule instead of clap guessing a flag.
+    #[arg(long, value_name = "MM", allow_negative_numbers = true)]
     pub chord: Option<f64>,
     /// Angular deviation in degrees, at most 90 (mesh formats only).
-    #[arg(long, value_name = "DEGREES")]
+    #[arg(long, value_name = "DEGREES", allow_negative_numbers = true)]
     pub angle: Option<f64>,
     /// Use this printer profile instead of the document's (not saved).
     #[arg(long, value_name = "ID")]
@@ -268,7 +269,10 @@ mod tests {
     }
 
     fn parse(arguments: &[&str]) -> Result<Arguments, clap::Error> {
-        parse_from(std::iter::once("partsmith").chain(arguments.iter().copied()), &info())
+        parse_from(
+            std::iter::once("partsmith").chain(arguments.iter().copied()),
+            &info(),
+        )
     }
 
     fn schema(arguments: &[&str]) -> SchemaArguments {
@@ -368,6 +372,21 @@ mod tests {
     }
 
     #[test]
+    fn export_reads_negative_tolerances_for_the_range_check() {
+        let Command::Export(export) = parse(&[
+            "export", "a.ptsm", "-o", "x.stl", "--chord", "-1", "--angle", "-5",
+        ])
+        .expect("the arguments parse")
+        .command
+        else {
+            panic!("not an export command");
+        };
+
+        assert_eq!(export.chord, Some(-1.0));
+        assert_eq!(export.angle, Some(-5.0));
+    }
+
+    #[test]
     fn export_rejects_a_chord_that_is_not_a_number() {
         let error = parse(&["export", "a.ptsm", "-o", "x.stl", "--chord", "fine"])
             .expect_err("the chord is a number");
@@ -382,7 +401,10 @@ mod tests {
         assert_eq!(Format::from_path(Path::new("a.obj")), Some(Format::Obj));
         assert_eq!(Format::from_path(Path::new("a.step")), Some(Format::Step));
         assert_eq!(Format::from_path(Path::new("a.Stp")), Some(Format::Step));
-        assert_eq!(Format::from_path(Path::new("dir/a.py")), Some(Format::Python));
+        assert_eq!(
+            Format::from_path(Path::new("dir/a.py")),
+            Some(Format::Python)
+        );
     }
 
     #[test]
@@ -405,7 +427,9 @@ mod tests {
     #[test]
     fn format_names_match_their_values() {
         for format in Format::value_variants() {
-            let value = format.to_possible_value().expect("every format has a value");
+            let value = format
+                .to_possible_value()
+                .expect("every format has a value");
 
             assert_eq!(value.get_name(), format.name());
         }

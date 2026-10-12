@@ -8,9 +8,9 @@ use std::time::Duration;
 
 use feature_support::{
     Run, assert_bounding_box, assert_canonical_example, assert_error_field, assert_face_area,
-    assert_face_count, assert_face_kind, assert_face_normal, assert_face_position,
+    assert_face_count, assert_face_kind, assert_face_normal, assert_face_position, assert_has_face,
     assert_solid_count, assert_unchanged, assert_volume, body_changes, example_paths, face,
-    face_index, link_ids, load_example, median_build_time,
+    link_ids, load_example, median_build_time,
 };
 use partsmith_occt_sys::GeometryKind;
 
@@ -125,10 +125,7 @@ fn t003_new_body_holds_the_image() {
     assert_volume(image, 1000.0);
     assert_face_count(image, 6);
     assert_bounding_box(image, [-15.0, -5.0, 0.0], [-5.0, 5.0, 10.0]);
-    assert!(
-        face_index(run.body("b-2"), "f-box1/top@f-mir1:1").is_some(),
-        "f-box1/top@f-mir1:1 exists in b-2",
-    );
+    assert_has_face(run.body("b-2"), "f-box1/top@f-mir1:1");
     assert_eq!(body_changes(&run, "f-mir1"), ["b-2 New"]);
 }
 
@@ -216,7 +213,7 @@ fn t009_across_its_own_face() {
 
 #[test]
 fn t010_symmetric_body_has_no_effect() {
-    let run = Run::records(&BODIES, &[&box_r("0"), &mirror(YZ, "")]);
+    let run = Run::example("mirror/symmetric.ptsm");
 
     run.assert_warnings("f-mir1", &["no_effect"]);
     assert_unchanged(&run, "f-mir1", "b-1");

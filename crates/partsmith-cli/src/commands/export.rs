@@ -16,12 +16,15 @@ use super::{open, usage_error};
 use crate::arguments::{ExportArguments, Format};
 use crate::error::{CliError, UsageError};
 use crate::files::write_atomically;
-use crate::output::{JsonDiagnostic, Output, wire_name};
+use crate::output::{JsonDiagnostic, Output};
 use crate::rotation;
 use crate::status::Status;
 
 /// The media type of a Python script.
 const PYTHON_MEDIA_TYPE: &str = "text/x-python";
+
+/// The engine-style name of a Python export, like `model.stl` for one STL file.
+const PYTHON_FILE_NAME: &str = "model.py";
 
 /// The export options checked before any file is read.
 #[derive(Debug, Clone, PartialEq)]
@@ -155,15 +158,10 @@ fn export(
         refuse_failed_features(session, doc, path)?;
     }
     let bodies = select_bodies(&session.document(doc)?.bodies, &arguments.body)?;
-    let files = match plan.format {
-        Format::Python => vec![ExportedFile {
-            name: arguments.output.display().to_string(),
-            media_type: PYTHON_MEDIA_TYPE.to_owned(),
-            bytes: session.export_python(doc)?.into_bytes(),
-        }],
-        format => {
+    let files = match engine_format(plan.format, arguments) {
+        Some(format) => {
             let request = ExportRequest {
-                format: engine_format(format, arguments),
+                format,
                 bodies,
                 tolerance: tolerance(session, doc, arguments.chord, arguments.angle)?,
                 orientation: plan.orientation.clone(),
@@ -172,6 +170,11 @@ fn export(
             report.warnings = exported.warnings;
             exported.files
         }
+        None => vec![ExportedFile {
+            name: PYTHON_FILE_NAME.to_owned(),
+            media_type: PYTHON_MEDIA_TYPE.to_owned(),
+            bytes: session.export_python(doc)?.into_bytes(),
+        }],
     };
     if arguments.per_body {
         write_into(&arguments.output, files, report)
@@ -229,16 +232,18 @@ fn find_body(bodies: &[Body], value: &str) -> Result<Id, CliError> {
     }
 }
 
-/// The engine's export format for a mesh or STEP format.
-fn engine_format(format: Format, arguments: &ExportArguments) -> ExportFormat {
+/// The engine's export format, or `None` for Python, which the engine writes with
+/// `export_python`.
+fn engine_format(format: Format, arguments: &ExportArguments) -> Option<ExportFormat> {
     match format {
-        Format::Stl => ExportFormat::Stl {
+        Format::Stl => Some(ExportFormat::Stl {
             binary: !arguments.ascii,
             per_body: arguments.per_body,
-        },
-        Format::ThreeMf => ExportFormat::ThreeMf,
-        Format::Obj => ExportFormat::Obj,
-        Format::Step | Format::Python => ExportFormat::Step,
+        }),
+        Format::ThreeMf => Some(ExportFormat::ThreeMf),
+        Format::Obj => Some(ExportFormat::Obj),
+        Format::Step => Some(ExportFormat::Step),
+        Format::Python => None,
     }
 }
 
@@ -428,7 +433,10 @@ mod tests {
                 format: "py"
             })
         );
-        assert_eq!(inapplicable_option(&rotated, Format::Python), Some("rotate"));
+        assert_eq!(
+            inapplicable_option(&rotated, Format::Python),
+            Some("rotate")
+        );
         assert_eq!(inapplicable_option(&rotated, Format::Step), None);
     }
 
@@ -510,17 +518,26 @@ mod tests {
 
         assert_eq!(
             engine_format(Format::Stl, &given),
-            ExportFormat::Stl {
+            Some(ExportFormat::Stl {
                 binary: false,
                 per_body: true
-            }
+            })
         );
         assert_eq!(
             engine_format(Format::Stl, &arguments("out.stl")),
-            ExportFormat::Stl {
+            Some(ExportFormat::Stl {
                 binary: true,
                 per_body: false
-            }
+            })
+        );
+    }
+
+    #[test]
+    fn python_is_not_an_engine_export_format() {
+        assert_eq!(engine_format(Format::Python, &arguments("out.py")), None);
+        assert_eq!(
+            engine_format(Format::Step, &arguments("out.step")),
+            Some(ExportFormat::Step)
         );
     }
 
@@ -599,7 +616,10 @@ mod tests {
 
         write_into(&parts, files, &mut report).expect("the directory is created");
 
-        assert_eq!(fs::read(parts.join("Block.stl")).expect("written"), b"solid");
+        assert_eq!(
+            fs::read(parts.join("Block.stl")).expect("written"),
+            b"solid"
+        );
         assert_eq!(report.files.len(), 1);
         assert_eq!(report.files[0].bytes, 5);
         assert_eq!(report.files[0].media_type, "model/stl");
@@ -627,6 +647,5 @@ mod tests {
             serde_json::to_string(&report).expect("reports serialize"),
             r#"{"files":[{"path":"out.stl","media_type":"model/stl","bytes":684}],"warnings":[{"severity":"warning","code":"open_edges","message":"Not watertight."}]}"#
         );
-        assert_eq!(wire_name(&report.warnings[0].severity), "warning");
     }
 }

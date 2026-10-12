@@ -267,7 +267,7 @@ mod tests {
 
     use super::*;
     use crate::builtin::copy::testing::{
-        assert_bounds, assert_volume, build, params, python, update, updated_shape, updates,
+        assert_bounds, assert_volume, build, params_with, python, update, updated_shape, updates,
     };
     use crate::context::BodyState;
     use crate::output::{DatumResult, FeatureOutput, OutputData};
@@ -275,14 +275,10 @@ mod tests {
     use crate::test_support::{box_body, face_names, id};
 
     fn split_body(plane: Value, extra: Value) -> SplitBodyParams {
-        let mut record =
-            json!({"id": "f-split1", "type": "split_body", "body": "b-1", "plane": plane});
-        if let Value::Object(members) = extra {
-            for (key, value) in members {
-                record[key] = value;
-            }
-        }
-        params::<SplitBody>(record)
+        params_with::<SplitBody>(
+            json!({"id": "f-split1", "type": "split_body", "body": "b-1", "plane": plane}),
+            extra,
+        )
     }
 
     fn datum() -> Value {

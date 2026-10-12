@@ -4,9 +4,10 @@
 use std::f64::consts::{PI, TAU};
 
 use partsmith_model::{
-    Category, Expr, FeatureManifest, FieldUnit, Id, LINEAR_TOLERANCE, SelectionKind,
+    ANGULAR_TOLERANCE, Category, Expr, FeatureManifest, FieldUnit, Id, LINEAR_TOLERANCE,
+    SelectionKind,
 };
-use partsmith_occt_sys::{Axis, revolve};
+use partsmith_occt_sys::{Axis, Point, Vector, revolve};
 use partsmith_sketch::{Placement, ProfileCurve};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -20,14 +21,9 @@ use crate::context::{BuildContext, ResolvedProfile};
 use crate::deps::Dependencies;
 use crate::error::{Bound, FeatureError, Noun};
 use crate::feature::Feature;
-use crate::naming::kernel;
 use crate::output::FeatureOutput;
-use crate::params::{AxisRef, BodyOp, ProfileRef};
+use crate::params::{AxisRef, BodyOp, PlacementExt, ProfileRef};
 use crate::python::{PythonCall, PythonNames, PythonValue};
-
-/// Angular tolerance in radians (architecture conventions): the largest angle between the axis
-/// and the sketch plane, and the distance from a full turn that still counts as one.
-const ANGULAR_TOLERANCE: f64 = 1e-9;
 
 /// Revolves closed sketch regions around an axis and combines the result with a body.
 #[derive(Clone, Copy, Debug)]
@@ -131,16 +127,13 @@ impl Feature for Revolve {
         if crosses_axis(&profile, &axis) {
             return Err(FeatureError::ProfileCrossesAxis);
         }
-        let angle = match turn(params, context)? {
-            Turn::Full => TAU,
-            Turn::Partial(angle) if params.reverse => -angle,
-            Turn::Partial(angle) => angle,
-        };
+        let angle = turn(params, context)?.sweep_angle(params.reverse);
         let faces = profile.faces()?;
         if context.is_canceled() {
             return Err(FeatureError::Canceled);
         }
-        let sweep = revolve(&faces.profile, &axis, angle).map_err(kernel)?;
+        let sweep = revolve(&faces.profile, &axis, angle)
+            .map_err(|error| FeatureError::Kernel { error })?;
         let tool = sweep_tool(context.feature(), sweep, &faces.entities)?;
         apply_tool(context, &params.body, params.op, tool, profile.warnings)
     }
@@ -171,6 +164,18 @@ enum Turn {
     Partial(f64),
 }
 
+impl Turn {
+    /// The signed angle the kernel sweeps: a full turn is 2π whatever `reverse` says, a reversed
+    /// partial turn is negative (features/revolve.md section 3.3 step 5).
+    fn sweep_angle(self, reverse: bool) -> f64 {
+        match self {
+            Turn::Full => TAU,
+            Turn::Partial(angle) if reverse => -angle,
+            Turn::Partial(angle) => angle,
+        }
+    }
+}
+
 /// The turn of the extent with the range checks of features/revolve.md section 3.3 step 4: an
 /// angle within the angular tolerance of 360 deg is a full turn.
 fn turn(params: &RevolveParams, context: &BuildContext<'_>) -> Result<Turn, FeatureError> {
@@ -193,10 +198,9 @@ fn turn(params: &RevolveParams, context: &BuildContext<'_>) -> Result<Turn, Feat
 /// tolerance, with its origin within the modeling tolerance of the plane (features/revolve.md
 /// section 3.3 step 2).
 fn lies_in_plane(axis: &Axis, placement: &Placement) -> bool {
-    let direction = [axis.direction.x, axis.direction.y, axis.direction.z];
-    let origin = [axis.origin.x, axis.origin.y, axis.origin.z];
-    let height = dot(subtract(origin, placement.origin), placement.normal);
-    dot(direction, placement.normal).abs() <= ANGULAR_TOLERANCE && height.abs() <= LINEAR_TOLERANCE
+    let plane = placement.to_kernel();
+    let height = offset(axis.origin, plane.origin).dot(plane.normal);
+    axis.direction.dot(plane.normal).abs() <= ANGULAR_TOLERANCE && height.abs() <= LINEAR_TOLERANCE
 }
 
 /// True when the resolved regions have boundary points strictly on both sides of the axis line,
@@ -221,14 +225,11 @@ fn crosses_axis(profile: &ResolvedProfile<'_>, axis: &Axis) -> bool {
 /// The axis line in sketch coordinates: a point on it, and the unit in-plane direction
 /// `normal × direction` along which signed distances to it are measured.
 fn axis_line(axis: &Axis, placement: &Placement) -> ([f64; 2], [f64; 2]) {
-    let y_axis = placement.y_axis();
-    let offset = subtract(
-        [axis.origin.x, axis.origin.y, axis.origin.z],
-        placement.origin,
-    );
-    let origin = [dot(offset, placement.x_axis), dot(offset, y_axis)];
-    let direction = [axis.direction.x, axis.direction.y, axis.direction.z];
-    let along = [dot(direction, placement.x_axis), dot(direction, y_axis)];
+    let plane = placement.to_kernel();
+    let y_axis = plane.normal.cross(plane.x_axis);
+    let from_origin = offset(axis.origin, plane.origin);
+    let origin = [from_origin.dot(plane.x_axis), from_origin.dot(y_axis)];
+    let along = [axis.direction.dot(plane.x_axis), axis.direction.dot(y_axis)];
     // In sketch coordinates `normal × (u, v)` is `(-v, u)`.
     (origin, [-along[1], along[0]])
 }
@@ -283,19 +284,13 @@ fn distance_range(curve: &ProfileCurve, origin: [f64; 2], perpendicular: [f64; 2
     }
 }
 
-/// `first - second` of two space vectors.
-fn subtract(first: [f64; 3], second: [f64; 3]) -> [f64; 3] {
-    [0, 1, 2].map(|axis| first[axis] - second[axis])
-}
-
-/// The dot product of two space vectors.
-fn dot(first: [f64; 3], second: [f64; 3]) -> f64 {
-    (0..3).map(|axis| first[axis] * second[axis]).sum()
+/// The vector from `origin` to `point`.
+fn offset(point: Point, origin: Point) -> Vector {
+    Vector::new(point.x - origin.x, point.y - origin.y, point.z - origin.z)
 }
 
 #[cfg(test)]
 mod tests {
-    use partsmith_occt_sys::{Point, Vector};
     use partsmith_sketch::{OriginPlane, RegionRef};
     use serde_json::json;
 
@@ -518,6 +513,18 @@ mod tests {
             (low + 1.0).abs() < 1e-12 && high.abs() < 1e-12,
             "{low} {high}"
         );
+    }
+
+    #[test]
+    fn a_full_turn_ignores_reverse() {
+        assert_eq!(Turn::Full.sweep_angle(false), TAU);
+        assert_eq!(Turn::Full.sweep_angle(true), TAU);
+    }
+
+    #[test]
+    fn a_reversed_partial_turn_is_negative() {
+        assert_eq!(Turn::Partial(1.5).sweep_angle(false), 1.5);
+        assert_eq!(Turn::Partial(1.5).sweep_angle(true), -1.5);
     }
 
     #[test]

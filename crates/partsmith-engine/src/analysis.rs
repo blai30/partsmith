@@ -106,23 +106,24 @@ impl Session {
     }
 }
 
-/// The bodies to analyze (step 2): the named ones in document order of first mention, or every
-/// visible part body with geometry.
+/// The bodies to analyze (step 2), in document order: the named ones, checked in request order,
+/// or every visible part body with geometry.
 fn analyzed_bodies(
     open: &OpenDocument,
     bodies: Option<&[Id]>,
 ) -> Result<Vec<BodyView>, EngineError> {
+    let views = display_bodies(&open.document, &open.computed);
     match bodies {
         Some(bodies) => {
-            let mut views: Vec<BodyView> = Vec::with_capacity(bodies.len());
             for body in bodies {
-                if views.iter().all(|view| view.body != *body) {
-                    views.push(body_with_geometry(open, body)?);
-                }
+                body_with_geometry(open, body)?;
             }
-            Ok(views)
+            Ok(views
+                .into_iter()
+                .filter(|view| bodies.contains(&view.body))
+                .collect())
         }
-        None => Ok(display_bodies(&open.document, &open.computed)
+        None => Ok(views
             .into_iter()
             .filter(|view| {
                 view.has_geometry()

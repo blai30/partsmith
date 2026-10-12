@@ -271,9 +271,27 @@ fn t046_chord_option_changes_curved_faces_only() {
     workspace.copy_fixture(CIRCLE);
     workspace.copy_fixture(BOX);
 
-    let circle_coarse = workspace.run(&["export", CIRCLE, "-o", "coarse.stl", "--chord", "0.5", "--angle", "45"]);
+    let circle_coarse = workspace.run(&[
+        "export",
+        CIRCLE,
+        "-o",
+        "coarse.stl",
+        "--chord",
+        "0.5",
+        "--angle",
+        "45",
+    ]);
     let circle_default = workspace.run(&["export", CIRCLE, "-o", "default.stl"]);
-    let box_coarse = workspace.run(&["export", BOX, "-o", "box-coarse.stl", "--chord", "0.5", "--angle", "45"]);
+    let box_coarse = workspace.run(&[
+        "export",
+        BOX,
+        "-o",
+        "box-coarse.stl",
+        "--chord",
+        "0.5",
+        "--angle",
+        "45",
+    ]);
     let box_default = workspace.run(&["export", BOX, "-o", "box-default.stl"]);
 
     circle_coarse.assert_code(0);

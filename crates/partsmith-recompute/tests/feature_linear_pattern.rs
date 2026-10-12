@@ -10,14 +10,14 @@ use std::time::Duration;
 
 use feature_support::{
     Run, assert_bounding_box, assert_canonical_example, assert_error_field, assert_face_area,
-    assert_face_count, assert_face_kind, assert_face_position, assert_solid_count,
-    assert_unchanged, assert_volume, body_changes, document, example_paths, face, face_index,
-    link_ids, median_build_time,
+    assert_face_count, assert_face_kind, assert_face_position, assert_has_face, assert_solid_count,
+    assert_unchanged, assert_volume, body_changes, document, example_paths, face, link_ids,
+    median_build_time,
 };
 use partsmith_features::{
     BodyState, BuildContext, BuildInputs, CancelToken, FeatureError, FeatureOutput, Values,
 };
-use partsmith_model::{EmptyContext, Id, Scope};
+use partsmith_model::{EmptyContext, Id, Scope, Units};
 use partsmith_occt_sys::GeometryKind;
 
 /// The bodies of every linear pattern test.
@@ -134,7 +134,7 @@ fn t003_grid_instance_names() {
         "f-box1/top@f-lp1:0.1",
         "f-box1/top@f-lp1:2.1",
     ] {
-        assert!(face_index(body, name).is_some(), "{name} exists");
+        assert_has_face(body, name);
     }
 }
 
@@ -148,7 +148,7 @@ fn t004_reverse() {
 
 #[test]
 fn t005_count_1_has_no_effect() {
-    let run = Run::records(&BODIES, &[CUBE10, &pattern(&direction(X, "1", "20"), "")]);
+    let run = Run::example("linear_pattern/count-one.ptsm");
 
     run.assert_warnings("f-lp1", &["no_effect"]);
     assert_unchanged(&run, "f-lp1", "b-1");
@@ -176,6 +176,39 @@ fn t007_zero_count() {
         run.messages("f-lp1"),
         ["Count must be at least 1, but it is 0. Use 1 or more."]
     );
+}
+
+// Regression: evaluation rejects a negative count against 0, which suggested "0" and then failed
+// again against the pattern's own minimum of 1.
+#[test]
+fn negative_count_suggests_a_count_that_works() {
+    let run = Run::records(&BODIES, &[CUBE10, &pattern(&direction(X, "-1", "20"), "")]);
+
+    let error = run.assert_error("f-lp1", "out_of_range");
+    assert_error_field(error, "direction.count");
+    assert_eq!(
+        run.messages("f-lp1"),
+        ["Count must be at least 1, but it is -1. Use 1 or more."]
+    );
+    assert_eq!(error.suggestion(Units::Mm).as_deref(), Some("1"));
+}
+
+// Regression: count 1 with op new skipped the empty-target check, so the error depended on the
+// count (features.md section 3.5).
+#[test]
+fn count_1_with_op_new_needs_an_empty_target() {
+    let run = Run::records(
+        &BODIES,
+        &[
+            CUBE10,
+            r#"{"id": "f-box2", "type": "box", "body": "b-2", "size": ["1", "1", "1"], "position": ["50", "0", "0"], "op": "new"}"#,
+            &pattern(&direction(X, "1", "20"), r#""op": "new", "target": "b-2""#),
+        ],
+    );
+
+    run.assert_error("f-lp1", "body_not_empty");
+    assert_unchanged(&run, "f-lp1", "b-2");
+    assert_volume(run.shape("b-2"), 1.0);
 }
 
 #[test]

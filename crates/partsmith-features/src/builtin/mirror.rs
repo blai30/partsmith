@@ -118,7 +118,7 @@ mod tests {
 
     use super::*;
     use crate::builtin::copy::testing::{
-        assert_bounds, assert_volume, build, params, python, update, updated_shape, updates,
+        assert_bounds, assert_volume, build, params_with, python, update, updated_shape, updates,
     };
     use crate::context::BodyState;
     use crate::output::{BodyChange, DatumResult, OutputData};
@@ -128,14 +128,11 @@ mod tests {
     const YZ: &str = r#"{"kind": "origin", "plane": "YZ"}"#;
 
     fn mirror(plane: &str, extra: Value) -> MirrorParams {
-        let mut record = json!({"id": "f-mir1", "type": "mirror", "body": "b-1"});
-        record["plane"] = serde_json::from_str(plane).expect("valid plane JSON");
-        if let Value::Object(members) = extra {
-            for (key, value) in members {
-                record[key] = value;
-            }
-        }
-        params::<Mirror>(record)
+        let plane: Value = serde_json::from_str(plane).expect("valid plane JSON");
+        params_with::<Mirror>(
+            json!({"id": "f-mir1", "type": "mirror", "body": "b-1", "plane": plane}),
+            extra,
+        )
     }
 
     /// A 10 mm cube in `b-1` spanning [x,-5,0]-[x+10,5,10].

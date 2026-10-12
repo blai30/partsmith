@@ -92,24 +92,24 @@ feature(
 
 ### 3.2 Build
 
-1. Checks in order: bottom_radius ≥ 0 and top_radius ≥ 0 (`OutOfRange`, `AtLeast(0)`); not both 0 (`ConeRadiiZero`); height > 0 (`OutOfRange`, `GreaterThan(0)`).
-2. In the local frame the axis is local z; the circle of `bottom_radius` is at z = 0 and the circle of `top_radius` at z = height. A zero radius is a point (apex). With different radii the tool is kernel `make_cone`; with equal radii (within 1e-9 mm) it is kernel `make_cylinder`, because the kernel's cone needs different radii.
+1. Checks in order: bottom_radius ≥ 0 and top_radius ≥ 0 (`OutOfRange`, `AtLeast(0)`); not both 0 (`ConeRadiiZero`); height > 0 (`OutOfRange`, `GreaterThan(0)`). From the second check on, a radius below `LINEAR_TOLERANCE` (1e-6 mm) counts as 0: it is an apex, because the kernel builds no circle smaller than its modeling tolerance (kernel.md section 3.4.1), and such a value displays as 0 mm anyway.
+2. In the local frame the axis is local z; the circle of `bottom_radius` is at z = 0 and the circle of `top_radius` at z = height. A zero radius is a point (apex). With radii that differ by at least `LINEAR_TOLERANCE` the tool is kernel `make_cone`; with radii closer than that it is kernel `make_cylinder` of `bottom_radius`, because the kernel's cone needs radii at least `LINEAR_TOLERANCE` apart. With these rules every pair of radii that passes step 1 builds in the kernel.
 3. Name the faces, then `apply_op(ctx, body, op, vec![tool])`.
 
 ### 3.3 Element names
 
 | Name | Face (local frame) |
 | --- | --- |
-| `<id>/bottom` | Disc at z = 0 (absent when bottom_radius is 0) |
-| `<id>/top` | Disc at z = height (absent when top_radius is 0) |
-| `<id>/side` | Conical face (cylindrical when the radii are equal) |
+| `<id>/bottom` | Disc at z = 0 (absent when bottom_radius counts as 0) |
+| `<id>/top` | Disc at z = height (absent when top_radius counts as 0) |
+| `<id>/side` | Conical face (cylindrical when the radii are closer than `LINEAR_TOLERANCE`) |
 
 ## 4. Errors and warnings
 
 | Condition | Variant | Example message |
 | --- | --- | --- |
 | A radius < 0 | `OutOfRange` | `Top radius must be at least 0 mm, but it is -1 mm. Use 0 mm or more.` |
-| Both radii 0 | `ConeRadiiZero` | `Cone bottom and top radius cannot both be 0. Give one of them a size.` |
+| Both radii 0 (below 1e-6 mm) | `ConeRadiiZero` | `Cone bottom and top radius cannot both be 0. Give one of them a size.` |
 | Height ≤ 0 | `OutOfRange` | `Height must be greater than 0 mm, but it is 0 mm. Use a value greater than 0 mm.` |
 | Expression, placement, body and kernel errors | as in [box.md](box.md) section 4 | |
 
@@ -129,6 +129,9 @@ Conventions from features.md section 6.1. Bodies `[b-1]`. `CONE(r1, r2, h)`: `{"
 6. **Negative radius.** `CONE("10", "-1", "10")`. Expected: error `out_of_range`, field `top_radius`, rendered `Top radius must be at least 0 mm, but it is -1 mm. Use 0 mm or more.`
 7. **Zero height.** `CONE("10", "5", "0")`. Expected: error `out_of_range`, field `height`.
 8. **Performance.** Test 1 builds in under 2 ms (desktop, release).
+9. **Nearly equal radii.** `CONE("5", "5.0000005", "10")`. Expected: ok; volume 785.398163, 3 faces; `f-cone1/side` cylindrical.
+10. **Apex below the tolerance.** `CONE("10", "0.0000005", "10")`. Expected: ok; volume 1047.197551, 2 faces (`bottom`, `side`).
+11. **Both radii below the tolerance.** `CONE("0.0000000001", "0", "10")`. Expected: error `cone_radii_zero`.
 
 ## Open issues
 

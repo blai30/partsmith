@@ -208,9 +208,7 @@ pub(super) mod testing {
     use crate::error::FeatureError;
     use crate::feature::Feature;
     use crate::output::{BodyUpdate, FeatureOutput, OutputData};
-    use crate::test_support::{
-        Fixture, ScriptNames, assert_point, assert_relative, id, volume,
-    };
+    use crate::test_support::{Fixture, ScriptNames, assert_point, assert_relative, id, volume};
 
     /// The typed params of a feature record written as JSON.
     pub(crate) fn params<F: Feature>(record: Value) -> F::Params {
@@ -333,12 +331,14 @@ pub(super) mod testing {
 
 #[cfg(test)]
 mod tests {
-    use partsmith_model::Category;
+    use partsmith_model::{Category, EmptyContext, ParameterValues, Scope, Units};
     use partsmith_naming::ElementKind;
     use partsmith_occt_sys::Vector;
 
     use super::*;
-    use crate::builtin::common::{essential, manifest, selection_hint};
+    use crate::builtin::common::{essential, manifest, selection_hint, unit_hint};
+    use crate::context::Values;
+    use crate::deps::ExprUse;
     use crate::test_support::{Fixture, box_body, face_names, id, named_box};
 
     fn manifest_with_target() -> FeatureManifest {
@@ -352,6 +352,84 @@ mod tests {
                 partsmith_model::SelectionKind::Body,
             ))],
         )
+    }
+
+    /// A pattern fixture whose count, labeled Count, is declared at `count` as `expr`.
+    fn count_fixture(expr: &str) -> Fixture {
+        let mut fixture = Fixture::new("f-lp1");
+        fixture.manifest = manifest(
+            "Pattern",
+            Category::Pattern,
+            "pattern",
+            vec![unit_hint("count", "Count", FieldUnit::Count)],
+        );
+        let uses = [ExprUse {
+            field: "count".to_string(),
+            expr: Expr::new(expr),
+            kind: FieldUnit::Count,
+        }];
+        let parameters = ParameterValues::default();
+        let scope = Scope {
+            units: Units::Mm,
+            parameters: &parameters,
+            context: &EmptyContext,
+        };
+        fixture.values = Values::evaluate(&uses, &scope, &fixture.manifest);
+        fixture
+    }
+
+    /// The instance count of `count_fixture(expr)`.
+    fn instance_count_of(expr: &str) -> Result<u32, FeatureError> {
+        let fixture = count_fixture(expr);
+        instance_count(&fixture.context(), "count", &Expr::new(expr))
+    }
+
+    #[test]
+    fn a_whole_count_of_at_least_one_is_the_instance_count() {
+        assert_eq!(instance_count_of("3"), Ok(3));
+        assert_eq!(instance_count_of("1"), Ok(1));
+    }
+
+    #[test]
+    fn a_zero_count_is_below_one() {
+        let error = instance_count_of("0").expect_err("count 0 makes no instance");
+
+        assert_eq!(
+            error.to_string(),
+            "Count must be at least 1, but it is 0. Use 1 or more."
+        );
+        assert_eq!(error.suggestion(Units::Mm).as_deref(), Some("1"));
+    }
+
+    #[test]
+    fn a_negative_count_is_below_one_so_the_suggestion_works() {
+        let error = instance_count_of("-1").expect_err("count -1 makes no instance");
+
+        assert_eq!(error.field().expect("names a field").path, "count");
+        assert_eq!(
+            error.to_string(),
+            "Count must be at least 1, but it is -1. Use 1 or more."
+        );
+        assert_eq!(error.suggestion(Units::Mm).as_deref(), Some("1"));
+    }
+
+    #[test]
+    fn a_fractional_count_is_not_a_whole_number() {
+        let error = instance_count_of("2.5").expect_err("count 2.5 is not whole");
+
+        assert_eq!(error.code(), "not_whole_number");
+    }
+
+    #[test]
+    fn ten_thousand_instances_are_the_limit() {
+        assert_eq!(check_instance_limit(10_000), Ok(()));
+        assert_eq!(
+            check_instance_limit(10_001),
+            Err(FeatureError::TooManyInstances {
+                count: 10_001,
+                limit: 10_000
+            })
+        );
     }
 
     #[test]
@@ -529,6 +607,41 @@ mod tests {
         assert_eq!(
             output.warnings,
             [FeatureWarning::NoEffect { body: id("b-2") }]
+        );
+    }
+
+    #[test]
+    fn without_copies_op_new_still_needs_an_empty_target() {
+        let fixture = Fixture::new("f-lp1")
+            .with_body("b-1", box_body("f-box1", [0.0, 0.0, 0.0], 10.0))
+            .with_body("b-2", box_body("f-box2", [50.0, 0.0, 0.0], 1.0));
+        let context = fixture.context();
+        let body = id("b-1");
+        let source = Source::new(&context, &body).expect("the body holds a solid");
+
+        let result = source.place(&context, CopyOp::New, Some(&id("b-2")), Vec::new());
+
+        assert_eq!(
+            result.map(|_| ()),
+            Err(FeatureError::BodyNotEmpty { body: id("b-2") })
+        );
+    }
+
+    #[test]
+    fn copies_into_a_target_with_a_solid_are_body_not_empty() {
+        let fixture = Fixture::new("f-lp1")
+            .with_body("b-1", box_body("f-box1", [0.0, 0.0, 0.0], 10.0))
+            .with_body("b-2", box_body("f-box2", [50.0, 0.0, 0.0], 1.0));
+        let context = fixture.context();
+        let body = id("b-1");
+        let source = Source::new(&context, &body).expect("the body holds a solid");
+        let copies = vec![named_box("f-box9", [20.0, 0.0, 0.0], 10.0)];
+
+        let result = source.place(&context, CopyOp::New, Some(&id("b-2")), copies);
+
+        assert_eq!(
+            result.map(|_| ()),
+            Err(FeatureError::BodyNotEmpty { body: id("b-2") })
         );
     }
 }

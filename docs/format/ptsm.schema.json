@@ -1,0 +1,1390 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Partsmith document",
+  "description": "A Partsmith .ptsm document, format version 1.",
+  "type": "object",
+  "properties": {
+    "format": {"const": "partsmith"},
+    "format_version": {"const": 1},
+    "units": {"$ref": "#/$defs/Units"},
+    "printer": {"type": "string"},
+    "parameters": {"type": "array", "items": {"$ref": "#/$defs/Parameter"}},
+    "bodies": {"type": "array", "items": {"$ref": "#/$defs/Body"}},
+    "features": {"type": "array", "items": {"$ref": "#/$defs/FeatureRecord"}},
+    "rollback": {"$ref": "#/$defs/Id"}
+  },
+  "required": ["format", "format_version", "units"],
+  "additionalProperties": false,
+  "$defs": {
+    "AxisRef": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "axis": {"$ref": "#/$defs/OriginAxis", "description": "Which origin axis."},
+            "kind": {"type": "string", "const": "origin"}
+          },
+          "required": ["kind", "axis"],
+          "description": "One of the three origin axes, through the origin."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "sketch": {"$ref": "#/$defs/Id", "description": "The sketch feature."},
+            "line": {"$ref": "#/$defs/Id", "description": "The line entity."},
+            "kind": {"type": "string", "const": "sketch_line"}
+          },
+          "required": ["kind", "sketch", "line"],
+          "description": "A line entity of a sketch (construction lines allowed), directed from its start to its end."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "body": {"$ref": "#/$defs/Id", "description": "The body the edge is resolved in."},
+            "edge": {"$ref": "#/$defs/Reference", "description": "The edge."},
+            "kind": {"type": "string", "const": "edge"}
+          },
+          "required": ["kind", "body", "edge"],
+          "description": "A straight edge of a body."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "body": {"$ref": "#/$defs/Id", "description": "The body the face is resolved in."},
+            "face": {"$ref": "#/$defs/Reference", "description": "The face."},
+            "kind": {"type": "string", "const": "face"}
+          },
+          "required": ["kind", "body", "face"],
+          "description": "The axis of a cylindrical, conical, spherical or toroidal face of a body."
+        }
+      ],
+      "description": "An axis given by an origin axis, a sketch line, a straight edge, or a round face."
+    },
+    "Body": {
+      "type": "object",
+      "properties": {
+        "id": {"$ref": "#/$defs/Id"},
+        "name": {"type": "string"},
+        "material": {"type": "string"},
+        "color": {"$ref": "#/$defs/Color"},
+        "visible": {"type": "boolean"},
+        "role": {"$ref": "#/$defs/BodyRole"}
+      },
+      "required": ["id", "name"],
+      "additionalProperties": false
+    },
+    "BodyOp": {
+      "oneOf": [
+        {"type": "string", "const": "new", "description": "Start the body. The body must be empty at this point."},
+        {"type": "string", "const": "join", "description": "Add the tool to the body."},
+        {"type": "string", "const": "cut", "description": "Remove the tool from the body."},
+        {"type": "string", "const": "intersect", "description": "Keep only the overlap of body and tool."}
+      ],
+      "description": "How a solid feature combines its tool shape with its target body."
+    },
+    "BodyRole": {
+      "type": "string",
+      "enum": ["part", "negative_volume", "support_blocker", "support_enforcer", "settings_modifier"]
+    },
+    "BooleanOp": {
+      "oneOf": [
+        {"type": "string", "const": "join", "description": "The target joined with every tool (kernel `fuse`)."},
+        {"type": "string", "const": "cut", "description": "The target minus the union of the tools (kernel `cut`)."},
+        {
+          "type": "string",
+          "const": "intersect",
+          "description": "The part of the target inside every tool (kernel `common`)."
+        }
+      ],
+      "description": "The operation of a boolean feature."
+    },
+    "ChamferDistance": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "expr": {"$ref": "#/$defs/Expr", "description": "The distance on both faces."},
+            "kind": {"type": "string", "const": "equal"}
+          },
+          "required": ["kind", "expr"],
+          "description": "`expr` on both faces. Length, greater than 0."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "expr": {"$ref": "#/$defs/Expr", "description": "The distance on the first face."},
+            "second_expr": {"$ref": "#/$defs/Expr", "description": "The distance on the second face."},
+            "flip": {
+              "type": "boolean",
+              "description": "Swaps the two distances for every edge. Default false, omitted when false."
+            },
+            "kind": {"type": "string", "const": "two_distances"}
+          },
+          "required": ["kind", "expr", "second_expr"],
+          "description": "`expr` on the first face and `second_expr` on the second face of each edge, where the first\nface is the one whose element name sorts first. Lengths, greater than 0. `flip` swaps them."
+        }
+      ],
+      "description": "How far a chamfer cuts back on each face of an edge."
+    },
+    "Color": {"type": "string", "pattern": "^#[0-9A-Fa-f]{6}$"},
+    "CopyOp": {
+      "oneOf": [
+        {"type": "string", "const": "join", "description": "Fuse the copies into the source body (default)."},
+        {
+          "type": "string",
+          "const": "new",
+          "description": "Put the copies into the empty `target` body and leave the source unchanged."
+        }
+      ],
+      "description": "Where a mirror or pattern puts its copies."
+    },
+    "ElementName": {"type": "string", "minLength": 3, "maxLength": 16384, "pattern": "^[A-Za-z0-9_./()|#@:-]+$"},
+    "Expr": {"type": "string"},
+    "ExtrudeExtent": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "expr": {"$ref": "#/$defs/Expr", "description": "The distance."},
+            "kind": {"type": "string", "const": "distance"}
+          },
+          "required": ["kind", "expr"],
+          "description": "From the sketch plane to `expr` along the direction. Length, greater than 0."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "expr": {"$ref": "#/$defs/Expr", "description": "The total length."},
+            "kind": {"type": "string", "const": "symmetric"}
+          },
+          "required": ["kind", "expr"],
+          "description": "Total length `expr`, centered on the sketch plane. Length, greater than 0."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "expr": {"$ref": "#/$defs/Expr", "description": "The distance along the direction."},
+            "opposite_expr": {"$ref": "#/$defs/Expr", "description": "The distance against the direction."},
+            "kind": {"type": "string", "const": "two_sides"}
+          },
+          "required": ["kind", "expr", "opposite_expr"],
+          "description": "`expr` along the direction and `opposite_expr` against it. Lengths, at least 0, not both 0."
+        },
+        {
+          "type": "object",
+          "properties": {"kind": {"type": "string", "const": "through_all"}},
+          "required": ["kind"],
+          "additionalProperties": false,
+          "description": "From the sketch plane through the whole target body along the direction."
+        }
+      ],
+      "description": "How far an extrusion goes, measured along its direction from the sketch plane."
+    },
+    "FeatureRecord": {
+      "type": "object",
+      "properties": {
+        "id": {"$ref": "#/$defs/Id"},
+        "type": {"type": "string", "pattern": "^[a-z][a-z0-9_]{0,63}$"},
+        "name": {"type": "string"},
+        "suppressed": {"type": "boolean"}
+      },
+      "required": ["id", "type"],
+      "allOf": [
+        {
+          "if": {"properties": {"type": {"const": "boolean"}}, "required": ["type"]},
+          "then": {"$ref": "#/$defs/feature.boolean"}
+        },
+        {
+          "if": {"properties": {"type": {"const": "box"}}, "required": ["type"]},
+          "then": {"$ref": "#/$defs/feature.box"}
+        },
+        {
+          "if": {"properties": {"type": {"const": "chamfer"}}, "required": ["type"]},
+          "then": {"$ref": "#/$defs/feature.chamfer"}
+        },
+        {
+          "if": {"properties": {"type": {"const": "circular_pattern"}}, "required": ["type"]},
+          "then": {"$ref": "#/$defs/feature.circular_pattern"}
+        },
+        {
+          "if": {"properties": {"type": {"const": "cone"}}, "required": ["type"]},
+          "then": {"$ref": "#/$defs/feature.cone"}
+        },
+        {
+          "if": {"properties": {"type": {"const": "cylinder"}}, "required": ["type"]},
+          "then": {"$ref": "#/$defs/feature.cylinder"}
+        },
+        {
+          "if": {"properties": {"type": {"const": "datum_plane"}}, "required": ["type"]},
+          "then": {"$ref": "#/$defs/feature.datum_plane"}
+        },
+        {
+          "if": {"properties": {"type": {"const": "extrude"}}, "required": ["type"]},
+          "then": {"$ref": "#/$defs/feature.extrude"}
+        },
+        {
+          "if": {"properties": {"type": {"const": "fillet"}}, "required": ["type"]},
+          "then": {"$ref": "#/$defs/feature.fillet"}
+        },
+        {
+          "if": {"properties": {"type": {"const": "hole"}}, "required": ["type"]},
+          "then": {"$ref": "#/$defs/feature.hole"}
+        },
+        {
+          "if": {"properties": {"type": {"const": "import"}}, "required": ["type"]},
+          "then": {"$ref": "#/$defs/feature.import"}
+        },
+        {
+          "if": {"properties": {"type": {"const": "linear_pattern"}}, "required": ["type"]},
+          "then": {"$ref": "#/$defs/feature.linear_pattern"}
+        },
+        {
+          "if": {"properties": {"type": {"const": "mirror"}}, "required": ["type"]},
+          "then": {"$ref": "#/$defs/feature.mirror"}
+        },
+        {
+          "if": {"properties": {"type": {"const": "move_body"}}, "required": ["type"]},
+          "then": {"$ref": "#/$defs/feature.move_body"}
+        },
+        {
+          "if": {"properties": {"type": {"const": "revolve"}}, "required": ["type"]},
+          "then": {"$ref": "#/$defs/feature.revolve"}
+        },
+        {
+          "if": {"properties": {"type": {"const": "shell"}}, "required": ["type"]},
+          "then": {"$ref": "#/$defs/feature.shell"}
+        },
+        {
+          "if": {"properties": {"type": {"const": "sketch"}}, "required": ["type"]},
+          "then": {"$ref": "#/$defs/feature.sketch"}
+        },
+        {
+          "if": {"properties": {"type": {"const": "sphere"}}, "required": ["type"]},
+          "then": {"$ref": "#/$defs/feature.sphere"}
+        },
+        {
+          "if": {"properties": {"type": {"const": "split_body"}}, "required": ["type"]},
+          "then": {"$ref": "#/$defs/feature.split_body"}
+        },
+        {
+          "if": {"properties": {"type": {"const": "torus"}}, "required": ["type"]},
+          "then": {"$ref": "#/$defs/feature.torus"}
+        }
+      ]
+    },
+    "Fingerprint": {
+      "type": "string",
+      "pattern": "^(plane|cylinder|cone|sphere|torus|revolution|extrusion|bspline_surface|bezier_surface|offset_surface|other_surface|line|circle|ellipse|hyperbola|parabola|bspline_curve|bezier_curve|offset_curve|other_curve|point)(\\|[a-z]+=[-0-9.,]+)*$"
+    },
+    "HoleExtent": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "expr": {"$ref": "#/$defs/Expr", "description": "The depth."},
+            "kind": {"type": "string", "const": "distance"}
+          },
+          "required": ["kind", "expr"],
+          "description": "To the shoulder at depth `expr` (the tip, if any, goes beyond). Length, greater than 0."
+        },
+        {
+          "type": "object",
+          "properties": {"kind": {"type": "string", "const": "through_all"}},
+          "required": ["kind"],
+          "additionalProperties": false,
+          "description": "Through the whole body."
+        }
+      ],
+      "description": "How deep a hole goes, from the sketch plane."
+    },
+    "HoleType": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {"kind": {"type": "string", "const": "simple"}},
+          "required": ["kind"],
+          "additionalProperties": false,
+          "description": "A plain cylinder."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "diameter": {"$ref": "#/$defs/Expr", "description": "The counterbore diameter."},
+            "depth": {"$ref": "#/$defs/Expr", "description": "The counterbore depth."},
+            "kind": {"type": "string", "const": "counterbore"}
+          },
+          "required": ["kind", "diameter", "depth"],
+          "description": "A wider cylinder of `diameter` and `depth` at the top. Lengths."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "diameter": {"$ref": "#/$defs/Expr", "description": "The diameter at the top of the cone."},
+            "angle": {"$ref": "#/$defs/Expr", "description": "The included angle of the cone."},
+            "kind": {"type": "string", "const": "countersink"}
+          },
+          "required": ["kind", "diameter", "angle"],
+          "description": "A cone of top `diameter` and included `angle` at the top. Length and angle."
+        }
+      ],
+      "description": "The head of a hole."
+    },
+    "Id": {"type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$"},
+    "LinearPatternDirection": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "axis": {"$ref": "#/$defs/AxisRef", "description": "The direction (only its direction is used)."},
+        "count": {
+          "$ref": "#/$defs/Expr",
+          "description": "Number of instances along this direction, including the original. Count, at least 1."
+        },
+        "spacing": {
+          "$ref": "#/$defs/Expr",
+          "description": "Distance between neighboring instances. Length, greater than 0."
+        },
+        "reverse": {
+          "type": "boolean",
+          "description": "Go against the axis direction. Default false, omitted when false."
+        }
+      },
+      "required": ["axis", "count", "spacing"],
+      "description": "One direction of a linear pattern. Named with the feature prefix so its schema definition is\nunique (features.md section 2.2)."
+    },
+    "MoveBodyRotation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "axis": {"$ref": "#/$defs/AxisRef", "description": "The axis, resolved before the move."},
+        "angle": {
+          "$ref": "#/$defs/Expr",
+          "description": "Angle, positive by the right-hand rule about the axis direction. Any value."
+        }
+      },
+      "required": ["axis", "angle"],
+      "description": "A rotation about an axis. Named with the feature prefix so its schema definition is unique\n(features.md section 2.2)."
+    },
+    "OriginAxis": {
+      "oneOf": [
+        {"type": "string", "const": "X", "description": "The x axis."},
+        {"type": "string", "const": "Y", "description": "The y axis."},
+        {"type": "string", "const": "Z", "description": "The z axis."}
+      ],
+      "description": "The origin axes. Serialized \"X\", \"Y\", \"Z\"."
+    },
+    "OriginPlane": {
+      "oneOf": [
+        {"type": "string", "const": "XY", "description": "Normal +Z, x axis +X."},
+        {"type": "string", "const": "XZ", "description": "Normal -Y, x axis +X, so sketch up is +Z."},
+        {"type": "string", "const": "YZ", "description": "Normal +X, x axis +Y, so sketch up is +Z."}
+      ],
+      "description": "An origin plane, serialized as \"XY\", \"XZ\" or \"YZ\"."
+    },
+    "Parameter": {
+      "type": "object",
+      "properties": {
+        "id": {"$ref": "#/$defs/Id"},
+        "name": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,63}$"},
+        "expr": {"$ref": "#/$defs/Expr"},
+        "comment": {"type": "string"}
+      },
+      "required": ["id", "name", "expr"],
+      "additionalProperties": false
+    },
+    "Placement": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "origin": {
+          "type": "array",
+          "items": {"type": "number", "format": "double"},
+          "minItems": 3,
+          "maxItems": 3,
+          "description": "Model-space position (mm) of sketch point (0, 0)."
+        },
+        "x_axis": {
+          "type": "array",
+          "items": {"type": "number", "format": "double"},
+          "minItems": 3,
+          "maxItems": 3,
+          "description": "Unit model-space direction of sketch +u."
+        },
+        "normal": {
+          "type": "array",
+          "items": {"type": "number", "format": "double"},
+          "minItems": 3,
+          "maxItems": 3,
+          "description": "Unit normal of the sketch plane; sketch +v is `normal x x_axis`."
+        }
+      },
+      "required": ["origin", "x_axis", "normal"],
+      "description": "A right-handed frame that places sketch coordinates in model space."
+    },
+    "PlaneRef": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "plane": {"$ref": "#/$defs/OriginPlane", "description": "Which origin plane."},
+            "kind": {"type": "string", "const": "origin"}
+          },
+          "required": ["kind", "plane"],
+          "description": "One of the three origin planes (sketch.md `OriginPlane`, serialized \"XY\", \"XZ\", \"YZ\")."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "feature": {"$ref": "#/$defs/Id", "description": "The datum feature."},
+            "kind": {"type": "string", "const": "datum"}
+          },
+          "required": ["kind", "feature"],
+          "description": "A datum plane feature."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "body": {"$ref": "#/$defs/Id", "description": "The body the face is resolved in."},
+            "face": {"$ref": "#/$defs/Reference", "description": "The face."},
+            "kind": {"type": "string", "const": "face"}
+          },
+          "required": ["kind", "body", "face"],
+          "description": "A flat face of a body, resolved at this point in the timeline."
+        }
+      ],
+      "description": "A plane given by an origin plane, a datum plane, or a flat face of a body."
+    },
+    "PointRef": {"type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}(\\.(start|end|center))?$"},
+    "ProfileRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "sketch": {"$ref": "#/$defs/Id", "description": "The sketch feature."},
+        "regions": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/RegionRef"},
+          "description": "The regions, at least one, in pick order (sketch.md `RegionRef`: key text and fingerprint text)."
+        }
+      },
+      "required": ["sketch", "regions"],
+      "description": "Closed regions of one sketch used as a profile."
+    },
+    "Reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "q": {"$ref": "#/$defs/ElementName", "description": "The element name the reference was made with."},
+        "fp": {"$ref": "#/$defs/Fingerprint", "description": "The element's fingerprint when the reference was made."}
+      },
+      "required": ["q", "fp"],
+      "description": "A stored reference to a face, edge or vertex: a name query plus the fingerprint it had when picked.\n\nA reference carries no body: it always sits next to a `body` field of its containing struct that\nnames the body it is resolved in."
+    },
+    "RegionFingerprint": {
+      "type": "string",
+      "pattern": "^c=-?[0-9]+(\\.[0-9]+)?,-?[0-9]+(\\.[0-9]+)?\\|a=[0-9]+(\\.[0-9]+)?$"
+    },
+    "RegionKey": {
+      "type": "string",
+      "pattern": "^~?[A-Za-z0-9_-]{1,64}(,~?[A-Za-z0-9_-]{1,64})*(;~?[A-Za-z0-9_-]{1,64}(,~?[A-Za-z0-9_-]{1,64})*)*$"
+    },
+    "RegionRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "key": {"$ref": "#/$defs/RegionKey", "description": "The region's key."},
+        "fp": {
+          "$ref": "#/$defs/RegionFingerprint",
+          "description": "The region's fingerprint when the reference was made."
+        }
+      },
+      "required": ["key", "fp"],
+      "description": "A stored reference to a region of a sketch."
+    },
+    "RevolveExtent": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "expr": {"$ref": "#/$defs/Expr", "description": "The angle."},
+            "kind": {"type": "string", "const": "angle"}
+          },
+          "required": ["kind", "expr"],
+          "description": "Turn by `expr`. Angle, greater than 0 and at most 360 deg."
+        },
+        {
+          "type": "object",
+          "properties": {"kind": {"type": "string", "const": "full"}},
+          "required": ["kind"],
+          "additionalProperties": false,
+          "description": "A full turn."
+        }
+      ],
+      "description": "How far a revolve turns."
+    },
+    "SketchConstraint": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {"type": "string", "const": "coincident"},
+            "id": {"$ref": "#/$defs/Id"},
+            "points": {"type": "array", "items": {"$ref": "#/$defs/PointRef"}, "minItems": 2, "maxItems": 2}
+          },
+          "required": ["id", "type", "points"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {"type": "string", "const": "point_on_object"},
+            "id": {"$ref": "#/$defs/Id"},
+            "point": {"$ref": "#/$defs/PointRef"},
+            "curve": {"$ref": "#/$defs/Id"}
+          },
+          "required": ["id", "type", "point", "curve"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {"type": "string", "const": "horizontal"},
+            "id": {"$ref": "#/$defs/Id"},
+            "line": {"$ref": "#/$defs/Id"}
+          },
+          "required": ["id", "type", "line"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {"type": "string", "const": "horizontal"},
+            "id": {"$ref": "#/$defs/Id"},
+            "points": {"type": "array", "items": {"$ref": "#/$defs/PointRef"}, "minItems": 2, "maxItems": 2}
+          },
+          "required": ["id", "type", "points"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {"type": "string", "const": "vertical"},
+            "id": {"$ref": "#/$defs/Id"},
+            "line": {"$ref": "#/$defs/Id"}
+          },
+          "required": ["id", "type", "line"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {"type": "string", "const": "vertical"},
+            "id": {"$ref": "#/$defs/Id"},
+            "points": {"type": "array", "items": {"$ref": "#/$defs/PointRef"}, "minItems": 2, "maxItems": 2}
+          },
+          "required": ["id", "type", "points"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {"type": "string", "const": "parallel"},
+            "id": {"$ref": "#/$defs/Id"},
+            "lines": {"type": "array", "items": {"$ref": "#/$defs/Id"}, "minItems": 2, "maxItems": 2}
+          },
+          "required": ["id", "type", "lines"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {"type": "string", "const": "perpendicular"},
+            "id": {"$ref": "#/$defs/Id"},
+            "lines": {"type": "array", "items": {"$ref": "#/$defs/Id"}, "minItems": 2, "maxItems": 2}
+          },
+          "required": ["id", "type", "lines"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {"type": "string", "const": "tangent"},
+            "id": {"$ref": "#/$defs/Id"},
+            "curves": {"type": "array", "items": {"$ref": "#/$defs/Id"}, "minItems": 2, "maxItems": 2}
+          },
+          "required": ["id", "type", "curves"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {"type": "string", "const": "collinear"},
+            "id": {"$ref": "#/$defs/Id"},
+            "lines": {"type": "array", "items": {"$ref": "#/$defs/Id"}, "minItems": 2, "maxItems": 2}
+          },
+          "required": ["id", "type", "lines"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {"type": "string", "const": "concentric"},
+            "id": {"$ref": "#/$defs/Id"},
+            "curves": {"type": "array", "items": {"$ref": "#/$defs/Id"}, "minItems": 2, "maxItems": 2}
+          },
+          "required": ["id", "type", "curves"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {"type": "string", "const": "equal"},
+            "id": {"$ref": "#/$defs/Id"},
+            "curves": {"type": "array", "items": {"$ref": "#/$defs/Id"}, "minItems": 2, "maxItems": 2}
+          },
+          "required": ["id", "type", "curves"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {"type": "string", "const": "symmetric"},
+            "id": {"$ref": "#/$defs/Id"},
+            "points": {"type": "array", "items": {"$ref": "#/$defs/PointRef"}, "minItems": 2, "maxItems": 2},
+            "line": {"$ref": "#/$defs/Id"}
+          },
+          "required": ["id", "type", "points", "line"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {"type": "string", "const": "midpoint"},
+            "id": {"$ref": "#/$defs/Id"},
+            "point": {"$ref": "#/$defs/PointRef"},
+            "line": {"$ref": "#/$defs/Id"}
+          },
+          "required": ["id", "type", "point", "line"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {"type": "string", "const": "fix"},
+            "id": {"$ref": "#/$defs/Id"},
+            "target": {"$ref": "#/$defs/PointRef"}
+          },
+          "required": ["id", "type", "target"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {"type": "string", "const": "distance"},
+            "id": {"$ref": "#/$defs/Id"},
+            "points": {"type": "array", "items": {"$ref": "#/$defs/PointRef"}, "minItems": 2, "maxItems": 2},
+            "expr": {"$ref": "#/$defs/Expr"},
+            "driving": {"type": "boolean", "default": true}
+          },
+          "required": ["id", "type", "points", "expr"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {"type": "string", "const": "distance"},
+            "id": {"$ref": "#/$defs/Id"},
+            "point": {"$ref": "#/$defs/PointRef"},
+            "line": {"$ref": "#/$defs/Id"},
+            "expr": {"$ref": "#/$defs/Expr"},
+            "driving": {"type": "boolean", "default": true}
+          },
+          "required": ["id", "type", "point", "line", "expr"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {"type": "string", "const": "distance"},
+            "id": {"$ref": "#/$defs/Id"},
+            "line": {"$ref": "#/$defs/Id"},
+            "expr": {"$ref": "#/$defs/Expr"},
+            "driving": {"type": "boolean", "default": true}
+          },
+          "required": ["id", "type", "line", "expr"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {"type": "string", "const": "horizontal_distance"},
+            "id": {"$ref": "#/$defs/Id"},
+            "line": {"$ref": "#/$defs/Id"},
+            "expr": {"$ref": "#/$defs/Expr"},
+            "driving": {"type": "boolean", "default": true}
+          },
+          "required": ["id", "type", "line", "expr"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {"type": "string", "const": "horizontal_distance"},
+            "id": {"$ref": "#/$defs/Id"},
+            "points": {"type": "array", "items": {"$ref": "#/$defs/PointRef"}, "minItems": 2, "maxItems": 2},
+            "expr": {"$ref": "#/$defs/Expr"},
+            "driving": {"type": "boolean", "default": true}
+          },
+          "required": ["id", "type", "points", "expr"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {"type": "string", "const": "vertical_distance"},
+            "id": {"$ref": "#/$defs/Id"},
+            "line": {"$ref": "#/$defs/Id"},
+            "expr": {"$ref": "#/$defs/Expr"},
+            "driving": {"type": "boolean", "default": true}
+          },
+          "required": ["id", "type", "line", "expr"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {"type": "string", "const": "vertical_distance"},
+            "id": {"$ref": "#/$defs/Id"},
+            "points": {"type": "array", "items": {"$ref": "#/$defs/PointRef"}, "minItems": 2, "maxItems": 2},
+            "expr": {"$ref": "#/$defs/Expr"},
+            "driving": {"type": "boolean", "default": true}
+          },
+          "required": ["id", "type", "points", "expr"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {"type": "string", "const": "radius"},
+            "id": {"$ref": "#/$defs/Id"},
+            "curve": {"$ref": "#/$defs/Id"},
+            "expr": {"$ref": "#/$defs/Expr"},
+            "driving": {"type": "boolean", "default": true}
+          },
+          "required": ["id", "type", "curve", "expr"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {"type": "string", "const": "diameter"},
+            "id": {"$ref": "#/$defs/Id"},
+            "curve": {"$ref": "#/$defs/Id"},
+            "expr": {"$ref": "#/$defs/Expr"},
+            "driving": {"type": "boolean", "default": true}
+          },
+          "required": ["id", "type", "curve", "expr"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {"type": "string", "const": "angle"},
+            "id": {"$ref": "#/$defs/Id"},
+            "lines": {"type": "array", "items": {"$ref": "#/$defs/Id"}, "minItems": 2, "maxItems": 2},
+            "expr": {"$ref": "#/$defs/Expr"},
+            "driving": {"type": "boolean", "default": true}
+          },
+          "required": ["id", "type", "lines", "expr"],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "SketchEntity": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "id": {"$ref": "#/$defs/Id", "description": "The entity id."},
+            "position": {
+              "type": "array",
+              "items": {"type": "number", "format": "double"},
+              "minItems": 2,
+              "maxItems": 2,
+              "description": "Its position."
+            },
+            "construction": {
+              "type": "boolean",
+              "description": "Construction flag, false when omitted.",
+              "default": false
+            },
+            "type": {"type": "string", "const": "point"}
+          },
+          "required": ["type", "id", "position"],
+          "description": "A point entity."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "id": {"$ref": "#/$defs/Id", "description": "The entity id."},
+            "start": {
+              "type": "array",
+              "items": {"type": "number", "format": "double"},
+              "minItems": 2,
+              "maxItems": 2,
+              "description": "First point."
+            },
+            "end": {
+              "type": "array",
+              "items": {"type": "number", "format": "double"},
+              "minItems": 2,
+              "maxItems": 2,
+              "description": "Second point."
+            },
+            "construction": {
+              "type": "boolean",
+              "description": "Construction flag, false when omitted.",
+              "default": false
+            },
+            "type": {"type": "string", "const": "line"}
+          },
+          "required": ["type", "id", "start", "end"],
+          "description": "A line entity."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "id": {"$ref": "#/$defs/Id", "description": "The entity id."},
+            "center": {
+              "type": "array",
+              "items": {"type": "number", "format": "double"},
+              "minItems": 2,
+              "maxItems": 2,
+              "description": "Center point."
+            },
+            "radius": {"type": "number", "format": "double", "description": "Radius in mm."},
+            "construction": {
+              "type": "boolean",
+              "description": "Construction flag, false when omitted.",
+              "default": false
+            },
+            "type": {"type": "string", "const": "circle"}
+          },
+          "required": ["type", "id", "center", "radius"],
+          "description": "A circle entity."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "id": {"$ref": "#/$defs/Id", "description": "The entity id."},
+            "center": {
+              "type": "array",
+              "items": {"type": "number", "format": "double"},
+              "minItems": 2,
+              "maxItems": 2,
+              "description": "Center point."
+            },
+            "radius": {"type": "number", "format": "double", "description": "Radius in mm."},
+            "start_angle": {"type": "number", "format": "double", "description": "Start angle in radians."},
+            "end_angle": {"type": "number", "format": "double", "description": "End angle in radians."},
+            "construction": {
+              "type": "boolean",
+              "description": "Construction flag, false when omitted.",
+              "default": false
+            },
+            "type": {"type": "string", "const": "arc"}
+          },
+          "required": ["type", "id", "center", "radius", "start_angle", "end_angle"],
+          "description": "An arc entity."
+        }
+      ],
+      "description": "The JSON record of an entity, with the `type` tag and the geometry fields at one level."
+    },
+    "SketchPlane": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "plane": {"$ref": "#/$defs/OriginPlane", "description": "Which origin plane."},
+            "kind": {"type": "string", "const": "origin"}
+          },
+          "required": ["kind", "plane"],
+          "description": "One of the three origin planes."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "feature": {"$ref": "#/$defs/Id", "description": "The datum feature."},
+            "kind": {"type": "string", "const": "datum"}
+          },
+          "required": ["kind", "feature"],
+          "description": "The plane produced by a datum feature, for example a `datum_plane`."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "body": {"$ref": "#/$defs/Id", "description": "The body the face reference is resolved in."},
+            "face": {"$ref": "#/$defs/Reference", "description": "The face."},
+            "fallback": {
+              "$ref": "#/$defs/Placement",
+              "description": "The placement recorded when the sketch was attached."
+            },
+            "kind": {"type": "string", "const": "face"}
+          },
+          "required": ["kind", "body", "face", "fallback"],
+          "description": "A planar face of `body`, plus the placement used when the face cannot be resolved."
+        }
+      ],
+      "description": "Where a sketch lies."
+    },
+    "Units": {"type": "string", "enum": ["mm", "cm", "m", "in"]},
+    "feature.boolean": {
+      "type": "object",
+      "properties": {
+        "target": {"$ref": "#/$defs/Id", "description": "The body that receives the result."},
+        "tools": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/Id"},
+          "description": "Tool bodies, at least one, distinct, not the target."
+        },
+        "op": {"$ref": "#/$defs/BooleanOp", "description": "The operation. Required."},
+        "keep_tools": {
+          "type": "boolean",
+          "description": "Leave the tools unchanged instead of consuming them. Default false, omitted when false."
+        }
+      },
+      "required": ["target", "tools", "op"],
+      "description": "Params of a boolean feature.",
+      "title": "Boolean"
+    },
+    "feature.box": {
+      "type": "object",
+      "properties": {
+        "body": {"$ref": "#/$defs/Id", "description": "Target body."},
+        "size": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/Expr"},
+          "minItems": 3,
+          "maxItems": 3,
+          "description": "Size along the placement x, y and z axes. Lengths, greater than 0."
+        },
+        "plane": {
+          "$ref": "#/$defs/PlaneRef",
+          "description": "Placement plane. Default origin XY, omitted when default."
+        },
+        "position": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/Expr"},
+          "minItems": 3,
+          "maxItems": 3,
+          "description": "Placement offset. Default [\"0\", \"0\", \"0\"], omitted when default."
+        },
+        "op": {"$ref": "#/$defs/BodyOp", "description": "How the box combines with the body. Required."}
+      },
+      "required": ["body", "size", "op"],
+      "description": "Params of a box feature.",
+      "title": "Box"
+    },
+    "feature.chamfer": {
+      "type": "object",
+      "properties": {
+        "body": {"$ref": "#/$defs/Id", "description": "The body whose edges are beveled."},
+        "edges": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/Reference"},
+          "description": "Edges to bevel, at least one."
+        },
+        "distance": {"$ref": "#/$defs/ChamferDistance", "description": "Distances from each edge."}
+      },
+      "required": ["body", "edges", "distance"],
+      "description": "Params of a chamfer feature.",
+      "title": "Chamfer"
+    },
+    "feature.circular_pattern": {
+      "type": "object",
+      "properties": {
+        "body": {"$ref": "#/$defs/Id", "description": "The body to copy."},
+        "axis": {"$ref": "#/$defs/AxisRef", "description": "The rotation axis."},
+        "count": {
+          "$ref": "#/$defs/Expr",
+          "description": "Number of instances, including the original. Count, at least 1."
+        },
+        "angle": {
+          "$ref": "#/$defs/Expr",
+          "description": "Total angle. Angle, greater than 0 and at most 360 deg. Default \"360 deg\", omitted when\ndefault."
+        },
+        "reverse": {
+          "type": "boolean",
+          "description": "Turn in the negative sense about the axis direction. Default false, omitted when false."
+        },
+        "op": {"$ref": "#/$defs/CopyOp", "description": "Where the copies go. Default join, omitted when join."},
+        "target": {
+          "anyOf": [
+            {"$ref": "#/$defs/Id"},
+            {"type": "null"}
+          ],
+          "description": "The empty body that receives the copies. Required with op new, not allowed with op join.\nOmitted when None."
+        }
+      },
+      "required": ["body", "axis", "count"],
+      "description": "Params of a circular pattern feature.",
+      "title": "Circular pattern"
+    },
+    "feature.cone": {
+      "type": "object",
+      "properties": {
+        "body": {"$ref": "#/$defs/Id", "description": "Target body."},
+        "bottom_radius": {"$ref": "#/$defs/Expr", "description": "Radius at z = 0. Length, at least 0."},
+        "top_radius": {
+          "$ref": "#/$defs/Expr",
+          "description": "Radius at z = height. Length, at least 0. Not both radii 0."
+        },
+        "height": {"$ref": "#/$defs/Expr", "description": "Height along the placement normal. Length, greater than 0."},
+        "plane": {
+          "$ref": "#/$defs/PlaneRef",
+          "description": "Placement plane. Default origin XY, omitted when default."
+        },
+        "position": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/Expr"},
+          "minItems": 3,
+          "maxItems": 3,
+          "description": "Placement offset. Default [\"0\", \"0\", \"0\"], omitted when default."
+        },
+        "op": {"$ref": "#/$defs/BodyOp", "description": "How the cone combines with the body. Required."}
+      },
+      "required": ["body", "bottom_radius", "top_radius", "height", "op"],
+      "description": "Params of a cone feature.",
+      "title": "Cone"
+    },
+    "feature.cylinder": {
+      "type": "object",
+      "properties": {
+        "body": {"$ref": "#/$defs/Id", "description": "Target body."},
+        "radius": {"$ref": "#/$defs/Expr", "description": "Radius. Length, greater than 0."},
+        "height": {"$ref": "#/$defs/Expr", "description": "Height along the placement normal. Length, greater than 0."},
+        "plane": {
+          "$ref": "#/$defs/PlaneRef",
+          "description": "Placement plane. Default origin XY, omitted when default."
+        },
+        "position": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/Expr"},
+          "minItems": 3,
+          "maxItems": 3,
+          "description": "Placement offset. Default [\"0\", \"0\", \"0\"], omitted when default."
+        },
+        "op": {"$ref": "#/$defs/BodyOp", "description": "How the cylinder combines with the body. Required."}
+      },
+      "required": ["body", "radius", "height", "op"],
+      "description": "Params of a cylinder feature.",
+      "title": "Cylinder"
+    },
+    "feature.datum_plane": {
+      "type": "object",
+      "properties": {
+        "base": {"$ref": "#/$defs/PlaneRef", "description": "The plane to offset from."},
+        "offset": {
+          "$ref": "#/$defs/Expr",
+          "description": "Distance along the base normal. Length, any sign. Default \"0\", omitted when \"0\"."
+        },
+        "flip": {
+          "type": "boolean",
+          "description": "Reverse the normal (the x-axis stays). Default false, omitted when false."
+        }
+      },
+      "required": ["base"],
+      "description": "Params of a datum plane feature.",
+      "title": "Datum plane"
+    },
+    "feature.extrude": {
+      "type": "object",
+      "properties": {
+        "body": {"$ref": "#/$defs/Id", "description": "Target body."},
+        "profile": {"$ref": "#/$defs/ProfileRef", "description": "Closed regions of one sketch."},
+        "extent": {"$ref": "#/$defs/ExtrudeExtent", "description": "How far the extrusion goes."},
+        "reverse": {
+          "type": "boolean",
+          "description": "Extrude against the sketch normal. Default false, omitted when false."
+        },
+        "op": {"$ref": "#/$defs/BodyOp", "description": "How the extrusion combines with the body. Required."}
+      },
+      "required": ["body", "profile", "extent", "op"],
+      "description": "Params of an extrude feature.",
+      "title": "Extrude"
+    },
+    "feature.fillet": {
+      "type": "object",
+      "properties": {
+        "body": {"$ref": "#/$defs/Id", "description": "The body whose edges are rounded."},
+        "edges": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/Reference"},
+          "description": "Edges to round, at least one."
+        },
+        "radius": {"$ref": "#/$defs/Expr", "description": "Fillet radius. Length, greater than 0."}
+      },
+      "required": ["body", "edges", "radius"],
+      "description": "Params of a fillet feature.",
+      "title": "Fillet"
+    },
+    "feature.hole": {
+      "type": "object",
+      "properties": {
+        "body": {"$ref": "#/$defs/Id", "description": "The body to cut."},
+        "sketch": {
+          "$ref": "#/$defs/Id",
+          "description": "The sketch whose points place the holes; its plane sets the drilling direction."
+        },
+        "points": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/PointRef"},
+          "description": "Sketch points, at least one, as point refs (`e-p1`, `e-1.start`, `e-5.center`)."
+        },
+        "diameter": {"$ref": "#/$defs/Expr", "description": "Hole diameter. Length, greater than 0."},
+        "hole_type": {
+          "$ref": "#/$defs/HoleType",
+          "description": "Simple, counterbore or countersink. Default simple, omitted when simple."
+        },
+        "extent": {"$ref": "#/$defs/HoleExtent", "description": "Depth or through all."},
+        "tip_angle": {
+          "anyOf": [
+            {"$ref": "#/$defs/Expr"},
+            {"type": "null"}
+          ],
+          "description": "Included angle of a drill-point tip. Angle, greater than 0 and less than 180 deg. None (omitted) is a flat bottom."
+        },
+        "reverse": {
+          "type": "boolean",
+          "description": "Drill along the sketch normal instead of against it. Default false, omitted when false."
+        }
+      },
+      "required": ["body", "sketch", "points", "diameter", "extent"],
+      "description": "Params of a hole feature.",
+      "title": "Hole"
+    },
+    "feature.import": {
+      "type": "object",
+      "properties": {
+        "body": {"$ref": "#/$defs/Id", "description": "Target body."},
+        "asset": {
+          "type": "string",
+          "description": "The STEP asset: the lowercase hex BLAKE3 hash of the file's bytes followed by \".step\"\n(engine.md section 3.14)."
+        },
+        "op": {"$ref": "#/$defs/BodyOp", "description": "How the imported solids combine with the body. Required."}
+      },
+      "required": ["body", "asset", "op"],
+      "description": "Params of an import feature.",
+      "title": "Import"
+    },
+    "feature.linear_pattern": {
+      "type": "object",
+      "properties": {
+        "body": {"$ref": "#/$defs/Id", "description": "The body to copy."},
+        "direction": {"$ref": "#/$defs/LinearPatternDirection", "description": "The first direction."},
+        "second_direction": {
+          "anyOf": [
+            {"$ref": "#/$defs/LinearPatternDirection"},
+            {"type": "null"}
+          ],
+          "description": "An optional second direction for a grid. Omitted when None."
+        },
+        "op": {"$ref": "#/$defs/CopyOp", "description": "Where the copies go. Default join, omitted when join."},
+        "target": {
+          "anyOf": [
+            {"$ref": "#/$defs/Id"},
+            {"type": "null"}
+          ],
+          "description": "The empty body that receives the copies. Required with op new, not allowed with op join.\nOmitted when None."
+        }
+      },
+      "required": ["body", "direction"],
+      "description": "Params of a linear pattern feature.",
+      "title": "Linear pattern"
+    },
+    "feature.mirror": {
+      "type": "object",
+      "properties": {
+        "body": {"$ref": "#/$defs/Id", "description": "The body to mirror."},
+        "plane": {"$ref": "#/$defs/PlaneRef", "description": "The mirror plane."},
+        "op": {"$ref": "#/$defs/CopyOp", "description": "Where the image goes. Default join, omitted when join."},
+        "target": {
+          "anyOf": [
+            {"$ref": "#/$defs/Id"},
+            {"type": "null"}
+          ],
+          "description": "The empty body that receives the image. Required with op new, not allowed with op join.\nOmitted when None."
+        }
+      },
+      "required": ["body", "plane"],
+      "description": "Params of a mirror feature.",
+      "title": "Mirror"
+    },
+    "feature.move_body": {
+      "type": "object",
+      "properties": {
+        "body": {"$ref": "#/$defs/Id", "description": "The body to move."},
+        "translation": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/Expr"},
+          "minItems": 3,
+          "maxItems": 3,
+          "description": "Translation along world X, Y and Z, applied after the rotation. Lengths. Default\n[\"0\", \"0\", \"0\"], omitted when default."
+        },
+        "rotation": {
+          "anyOf": [
+            {"$ref": "#/$defs/MoveBodyRotation"},
+            {"type": "null"}
+          ],
+          "description": "Rotation applied first. Omitted when None."
+        }
+      },
+      "required": ["body"],
+      "description": "Params of a move body feature.",
+      "title": "Move body"
+    },
+    "feature.revolve": {
+      "type": "object",
+      "properties": {
+        "body": {"$ref": "#/$defs/Id", "description": "Target body."},
+        "profile": {"$ref": "#/$defs/ProfileRef", "description": "Closed regions of one sketch."},
+        "axis": {"$ref": "#/$defs/AxisRef", "description": "The axis of revolution. Must lie in the sketch plane."},
+        "extent": {"$ref": "#/$defs/RevolveExtent", "description": "How far the profile turns."},
+        "reverse": {
+          "type": "boolean",
+          "description": "Turn in the negative sense about the axis direction. Default false, omitted when false."
+        },
+        "op": {"$ref": "#/$defs/BodyOp", "description": "How the solid combines with the body. Required."}
+      },
+      "required": ["body", "profile", "axis", "extent", "op"],
+      "description": "Params of a revolve feature.",
+      "title": "Revolve"
+    },
+    "feature.shell": {
+      "type": "object",
+      "properties": {
+        "body": {"$ref": "#/$defs/Id", "description": "The body to hollow."},
+        "thickness": {"$ref": "#/$defs/Expr", "description": "Wall thickness, measured inward. Length, greater than 0."},
+        "remove_faces": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/Reference"},
+          "description": "Faces to remove, opening the shell. Default empty (a closed hollow), omitted when empty."
+        }
+      },
+      "required": ["body", "thickness"],
+      "description": "Params of a shell feature.",
+      "title": "Shell"
+    },
+    "feature.sketch": {
+      "type": "object",
+      "properties": {
+        "plane": {"$ref": "#/$defs/SketchPlane", "description": "Where the sketch lies in model space."},
+        "entities": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/SketchEntity"},
+          "description": "Geometry in creation order; always written, a missing key loads as empty.",
+          "default": []
+        },
+        "constraints": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/SketchConstraint"},
+          "description": "Constraints in creation order; always written, a missing key loads as empty.",
+          "default": []
+        }
+      },
+      "required": ["plane"],
+      "description": "Params of a `sketch` feature; flattened into its feature record after the record's own fields (`id`, `type`, `name`, `suppressed`).",
+      "title": "Sketch"
+    },
+    "feature.sphere": {
+      "type": "object",
+      "properties": {
+        "body": {"$ref": "#/$defs/Id", "description": "Target body."},
+        "radius": {"$ref": "#/$defs/Expr", "description": "Radius. Length, greater than 0."},
+        "plane": {
+          "$ref": "#/$defs/PlaneRef",
+          "description": "Placement plane. Default origin XY, omitted when default."
+        },
+        "position": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/Expr"},
+          "minItems": 3,
+          "maxItems": 3,
+          "description": "Placement offset (the center). Default [\"0\", \"0\", \"0\"], omitted when default."
+        },
+        "op": {"$ref": "#/$defs/BodyOp", "description": "How the sphere combines with the body. Required."}
+      },
+      "required": ["body", "radius", "op"],
+      "description": "Params of a sphere feature.",
+      "title": "Sphere"
+    },
+    "feature.split_body": {
+      "type": "object",
+      "properties": {
+        "body": {"$ref": "#/$defs/Id", "description": "The body to split. It keeps the front part."},
+        "plane": {"$ref": "#/$defs/PlaneRef", "description": "The split plane."},
+        "flip": {
+          "type": "boolean",
+          "description": "Keep the back part instead of the front part. Default false, omitted when false."
+        },
+        "target": {
+          "anyOf": [
+            {"$ref": "#/$defs/Id"},
+            {"type": "null"}
+          ],
+          "description": "The empty body that receives the other part. Omitted (None) discards it."
+        }
+      },
+      "required": ["body", "plane"],
+      "description": "Params of a split body feature.",
+      "title": "Split body"
+    },
+    "feature.torus": {
+      "type": "object",
+      "properties": {
+        "body": {"$ref": "#/$defs/Id", "description": "Target body."},
+        "major_radius": {
+          "$ref": "#/$defs/Expr",
+          "description": "Distance from the axis to the tube center. Length, greater than `minor_radius`."
+        },
+        "minor_radius": {"$ref": "#/$defs/Expr", "description": "Tube radius. Length, greater than 0."},
+        "plane": {
+          "$ref": "#/$defs/PlaneRef",
+          "description": "Placement plane. Default origin XY, omitted when default."
+        },
+        "position": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/Expr"},
+          "minItems": 3,
+          "maxItems": 3,
+          "description": "Placement offset (the center). Default [\"0\", \"0\", \"0\"], omitted when default."
+        },
+        "op": {"$ref": "#/$defs/BodyOp", "description": "How the torus combines with the body. Required."}
+      },
+      "required": ["body", "major_radius", "minor_radius", "op"],
+      "description": "Params of a torus feature.",
+      "title": "Torus"
+    }
+  }
+}

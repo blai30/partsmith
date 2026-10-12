@@ -97,10 +97,12 @@ impl Feature for DatumPlane {
 
 #[cfg(test)]
 mod tests {
+    use partsmith_model::FeatureRecord;
     use partsmith_sketch::Placement;
     use serde_json::json;
 
     use super::*;
+    use crate::registry::Registry;
     use crate::test_support::{DocumentRun, ScriptNames, run};
 
     fn placement(run: &DocumentRun, feature: &str) -> Placement {
@@ -212,6 +214,44 @@ mod tests {
             [
                 "The face selected for Base plane is not flat. Pick a flat face, a datum plane or an origin plane."
             ]
+        );
+    }
+
+    /// The Python of a datum plane record, with the record keywords the registry appends.
+    fn python(record: serde_json::Value) -> String {
+        let record: FeatureRecord = serde_json::from_value(record).expect("a valid record");
+        Registry::with_builtins()
+            .python(&record, &ScriptNames::default())
+            .render(0)
+    }
+
+    #[test]
+    fn python_writes_the_spec_examples() {
+        let on_origin_plane = python(
+            json!({"id": "f-dp1", "type": "datum_plane", "base": {"kind": "origin", "plane": "XY"}, "offset": "10 mm"}),
+        );
+        let on_face = python(json!({
+            "id": "f-dp2", "type": "datum_plane",
+            "base": {"kind": "face", "body": "b-1", "face": {"q": "f-box1/top", "fp": "plane|n=0,0,1|c=3,4,10|a=100"}},
+            "offset": "5", "flip": true
+        }));
+
+        assert_eq!(
+            on_origin_plane,
+            r#"datum_plane(Plane.XY, 10*mm, id="f-dp1")"#
+        );
+        // Longer than 88 characters on one line, so one argument per line.
+        assert_eq!(
+            on_face,
+            [
+                "datum_plane(",
+                r#"    Ref("f-box1/top", "plane|n=0,0,1|c=3,4,10|a=100", part=block),"#,
+                "    5,",
+                "    flip=True,",
+                r#"    id="f-dp2","#,
+                ")",
+            ]
+            .join("\n")
         );
     }
 

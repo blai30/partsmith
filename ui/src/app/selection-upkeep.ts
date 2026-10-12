@@ -49,7 +49,10 @@ function exists(document: DocumentState, item: SelectionItem): boolean {
 }
 
 function isElement(item: SelectionItem): boolean {
-  return item.element !== null && (item.kind === 'face' || item.kind === 'edge' || item.kind === 'vertex')
+  return (
+    item.element !== null &&
+    (item.kind === 'face' || item.kind === 'edge' || item.kind === 'vertex')
+  )
 }
 
 /** Bodies whose model-layer mesh changed between two document states. */
@@ -75,7 +78,9 @@ export function installSelectionUpkeep(app: App): () => void {
       app.core.resolveReferences(
         request.documentHandle,
         request.items.flatMap((item): ElementRef[] =>
-          item.element === null ? [] : [{ body: item.element.body, reference: item.element.reference }],
+          item.element === null
+            ? []
+            : [{ body: item.element.body, reference: item.element.reference }],
         ),
       ),
     (results, request) => {

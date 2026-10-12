@@ -144,7 +144,10 @@ fn nearly_equal_radii_make_a_cylinder() {
     assert_volume(shape, 785.398163);
     assert_face_count(shape, 3);
     assert_bounding_box(shape, [-5.0, -5.0, 0.0], [5.0, 5.0, 10.0]);
-    assert_face_kind(&face(run.body("b-1"), "f-cone1/side"), GeometryKind::Cylinder);
+    assert_face_kind(
+        &face(run.body("b-1"), "f-cone1/side"),
+        GeometryKind::Cylinder,
+    );
 }
 
 #[test]

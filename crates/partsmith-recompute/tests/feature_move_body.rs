@@ -119,16 +119,7 @@ fn t005_references_survive_a_move() {
 
 #[test]
 fn t006_nothing_moves() {
-    let run = Run::records(
-        &BODIES,
-        &[
-            BOX123,
-            &move_body(&format!(
-                r#""translation": ["0", "0", "0"], "rotation": {}"#,
-                rotation_z("360 deg")
-            )),
-        ],
-    );
+    let run = Run::example("move_body/nothing-moves.ptsm");
 
     run.assert_warnings("f-mv1", &["no_effect"]);
     assert_unchanged(&run, "f-mv1", "b-1");

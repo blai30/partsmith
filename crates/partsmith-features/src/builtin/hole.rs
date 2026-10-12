@@ -7,38 +7,34 @@
 
 use std::f64::consts::{PI, TAU};
 
-use partsmith_model::{
-    Category, Expr, FeatureManifest, FieldUnit, Id, LINEAR_TOLERANCE, SelectionKind,
-};
+use partsmith_model::{Category, Expr, FeatureManifest, FieldUnit, Id, SelectionKind};
 use partsmith_naming::{FaceSource, Generator, roles};
 use partsmith_occt_sys::{
-    Axis, PlanarCurve, PlanarLoop, PlanarRegion, Plane, Point2, Shape, SweepFace, TaggedCurve,
-    common, make_profile, revolve,
+    Axis, PlanarCurve, PlanarLoop, PlanarRegion, Plane, Point, Point2, Shape, SweepFace,
+    TaggedCurve, Vector, common, make_profile, revolve,
 };
 use partsmith_sketch::{PointRef, PointRole};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use super::common::{
-    bodies, call, check_range, empty_selection, essential, face_name, flag, hint, is_false,
-    manifest, one_or_list, options_hint, selection_hint, solid_body, unchanged, unit_hint,
+    bodies, body_hint, call, check_range, empty_selection, essential, face_name, flag, hint,
+    is_false, manifest, one_or_list, options_hint, selection_hint, solid_body, unchanged,
+    unit_hint,
 };
-use super::extrude::farthest_corner;
+use super::extrude::{THROUGH_ALL_MARGIN, farthest_corner};
 use crate::context::BuildContext;
 use crate::deps::Dependencies;
 use crate::error::{Bound, FeatureError, FeatureWarning, IgnoredReason, Noun};
 use crate::feature::Feature;
-use crate::naming::{kernel, name_shape};
+use crate::name_shape;
 use crate::output::{BodyChange, FeatureOutput, Tool, apply_op};
-use crate::params::{BodyOp, point, vector};
+use crate::params::{BodyOp, PlacementExt};
 use crate::python::{PythonCall, PythonNames, PythonValue};
 
-/// How far past the farthest corner of the body's bounding box a through-all hole goes, in
-/// millimeters (features/hole.md section 3.3 step 4, decision D21).
-const THROUGH_ALL_MARGIN: f64 = 1.0;
-
 /// Relative common volume at or below which a tool does not touch the body (features/hole.md
-/// section 3.3 step 5, the volume rule of features.md section 3.5).
+/// section 3.3 step 5). The same rule as "the volume does not change" in features.md section 3.5,
+/// whose constant the framework keeps private.
 const VOLUME_TOLERANCE: f64 = 1e-9;
 
 /// Cuts round holes at sketch points.
@@ -161,7 +157,7 @@ impl Feature for Hole {
                 unit_hint("tip_angle", "Tip angle", FieldUnit::Angle),
                 hint("reverse", "Reverse"),
                 selection_hint("sketch", "Sketch", SelectionKind::Sketch),
-                selection_hint("body", "Body", SelectionKind::Body),
+                body_hint(),
             ],
         )
     }
@@ -209,13 +205,13 @@ impl Feature for Hole {
         let mut warnings = Vec::new();
         let size = HoleSize::checked(params, context, &mut warnings)?;
         let sketch = context.sketch("sketch", &params.sketch)?;
-        let placement = sketch.placement;
+        let plane = sketch.placement.to_kernel();
         let direction = if params.reverse {
-            placement.normal
+            plane.normal
         } else {
-            placement.normal.map(|component| -component)
+            plane.normal.scaled(-1.0)
         };
-        let mut points: Vec<(&PointRef, [f64; 3])> = Vec::new();
+        let mut points: Vec<(&PointRef, Point)> = Vec::new();
         for (index, point) in params.points.iter().enumerate() {
             let position = sketch
                 .point(point)
@@ -226,11 +222,14 @@ impl Feature for Hole {
                     noun: Noun::Point,
                 })?;
             if !points.iter().any(|(used, _)| *used == point) {
-                points.push((point, sketch.to_world(position)));
+                let [x, y, z] = sketch.to_world(position);
+                points.push((point, Point::new(x, y, z)));
             }
         }
 
-        let body_volume = body.volume().map_err(kernel)?;
+        let body_volume = body
+            .volume()
+            .map_err(|error| FeatureError::Kernel { error })?;
         let mut tools = Vec::new();
         for (point, position) in points {
             if context.is_canceled() {
@@ -238,14 +237,11 @@ impl Feature for Hole {
             }
             let length = match size.depth {
                 Some(depth) => Some(depth),
-                None => {
-                    let farthest = farthest_corner(body, position, direction)?;
-                    (farthest > LINEAR_TOLERANCE).then(|| size.through_length(farthest))
-                }
+                None => size.through_length(farthest_corner(body, position, direction)?),
             };
             let frame = Frame {
                 position,
-                radial: placement.x_axis,
+                radial: plane.x_axis,
                 direction,
             };
             let tool = match length {
@@ -431,10 +427,9 @@ impl HoleSize {
                 angle("hole_type.angle", head_angle, Bound::GreaterThan(0.0))?;
                 angle("hole_type.angle", head_angle, Bound::LessThan(PI))?;
                 let slope = (head_angle / 2.0).tan();
-                let sink = (head_diameter - diameter) / 2.0 / slope;
-                if let Some(depth) = depth
-                    && sink >= depth
-                {
+                // The cone must end above the shoulder. The check compares the head diameter with
+                // the bound its message names, so the message and the decision always agree.
+                if let Some(depth) = depth {
                     length(
                         "hole_type.diameter",
                         head_diameter,
@@ -444,7 +439,7 @@ impl HoleSize {
                 }
                 Head::Countersink {
                     radius: head_diameter / 2.0,
-                    depth: sink,
+                    depth: (head_diameter - diameter) / 2.0 / slope,
                 }
             }
             _ => Head::Simple,
@@ -485,11 +480,12 @@ impl HoleSize {
     }
 
     /// The length of a through-all hole at a point whose farthest body corner is `farthest` along
-    /// the drilling direction: 1 mm past it (features/hole.md section 3.3 step 4), and at least
-    /// 1 mm past the head, so a head deeper than the body still leaves a bore that closes the
-    /// cross-section.
-    fn through_length(&self, farthest: f64) -> f64 {
-        (farthest + THROUGH_ALL_MARGIN).max(self.head_depth() + THROUGH_ALL_MARGIN)
+    /// the drilling direction: 1 mm past it, and None when that distance is not positive
+    /// (features/hole.md section 3.3 step 4). It is also at least 1 mm past the head, so a head
+    /// deeper than the body still leaves a bore that closes the cross-section.
+    fn through_length(&self, farthest: f64) -> Option<f64> {
+        (farthest > 0.0)
+            .then(|| (farthest + THROUGH_ALL_MARGIN).max(self.head_depth() + THROUGH_ALL_MARGIN))
     }
 
     /// The half cross-section of a hole whose bore ends at `length`, as the end points of its
@@ -593,32 +589,30 @@ impl Role {
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct Frame {
     /// The sketch point in world space, on the axis of the hole.
-    position: [f64; 3],
+    position: Point,
     /// The unit direction of increasing radius in the cross-section: the sketch x axis, so the
     /// seam of the tool lies on the same side for every hole.
-    radial: [f64; 3],
+    radial: Vector,
     /// The unit drilling direction.
-    direction: [f64; 3],
+    direction: Vector,
 }
 
 impl Frame {
     /// The plane of the cross-section: through the point, spanned by the radial direction (its x
     /// axis) and the drilling direction (its y axis), so plane coordinates are (radius, depth).
     fn plane(&self) -> Plane {
-        let [x, y, z] = self.radial;
-        let [dx, dy, dz] = self.direction;
         Plane {
-            origin: point(self.position),
-            normal: vector([y * dz - z * dy, z * dx - x * dz, x * dy - y * dx]),
-            x_axis: vector(self.radial),
+            origin: self.position,
+            normal: self.radial.cross(self.direction),
+            x_axis: self.radial,
         }
     }
 
     /// The axis of the hole: through the point along the drilling direction.
     fn axis(&self) -> Axis {
         Axis {
-            origin: point(self.position),
-            direction: vector(self.direction),
+            origin: self.position,
+            direction: self.direction,
         }
     }
 }
@@ -647,8 +641,10 @@ fn hole_tool(
         outer: PlanarLoop { curves },
         holes: Vec::new(),
     };
-    let profile = make_profile(&frame.plane(), &[region]).map_err(kernel)?;
-    let sweep = revolve(&profile, &frame.axis(), TAU).map_err(kernel)?;
+    let profile =
+        make_profile(&frame.plane(), &[region]).map_err(|error| FeatureError::Kernel { error })?;
+    let sweep =
+        revolve(&profile, &frame.axis(), TAU).map_err(|error| FeatureError::Kernel { error })?;
     let point_text = point.to_string();
     let faces = sweep
         .faces
@@ -658,8 +654,8 @@ fn hole_tool(
                 SweepFace::Lateral { tag } => Role::of_tag(*tag).and_then(Role::word),
                 SweepFace::StartCap | SweepFace::EndCap => None,
             }
-            .ok_or_else(|| {
-                FeatureError::internal(format!("the hole tool has a face without a role: {face:?}"))
+            .ok_or_else(|| FeatureError::Internal {
+                message: format!("the hole tool has a face without a role: {face:?}"),
             })?;
             face_name(feature, word, Some(Generator::Sketch(&point_text))).map(FaceSource::New)
         })
@@ -674,8 +670,12 @@ fn hole_tool(
 /// True when the tool overlaps the body: their common volume is more than a billionth of the
 /// body's (features/hole.md section 3.3 step 5). Disjoint bounding boxes need no kernel boolean.
 fn touches(body: &Shape, body_volume: f64, tool: &Shape) -> Result<bool, FeatureError> {
-    let body_bounds = body.bounding_box().map_err(kernel)?;
-    let tool_bounds = tool.bounding_box().map_err(kernel)?;
+    let body_bounds = body
+        .bounding_box()
+        .map_err(|error| FeatureError::Kernel { error })?;
+    let tool_bounds = tool
+        .bounding_box()
+        .map_err(|error| FeatureError::Kernel { error })?;
     let overlap = (0..3).all(|axis| {
         body_bounds.min[axis] <= tool_bounds.max[axis]
             && tool_bounds.min[axis] <= body_bounds.max[axis]
@@ -683,8 +683,12 @@ fn touches(body: &Shape, body_volume: f64, tool: &Shape) -> Result<bool, Feature
     if !overlap {
         return Ok(false);
     }
-    let shared = common(body, std::slice::from_ref(tool)).map_err(kernel)?;
-    let volume = shared.shape.volume().map_err(kernel)?;
+    let shared =
+        common(body, std::slice::from_ref(tool)).map_err(|error| FeatureError::Kernel { error })?;
+    let volume = shared
+        .shape
+        .volume()
+        .map_err(|error| FeatureError::Kernel { error })?;
     Ok(volume > VOLUME_TOLERANCE * body_volume)
 }
 
@@ -695,7 +699,7 @@ fn plane_point([x, y]: [f64; 2]) -> Point2 {
 
 #[cfg(test)]
 mod tests {
-    use partsmith_occt_sys::{GeometryKind, Point, SubShapeKind};
+    use partsmith_occt_sys::{GeometryKind, SubShapeKind};
     use serde_json::json;
 
     use super::*;
@@ -908,22 +912,34 @@ mod tests {
             depth: 4.0,
         };
 
-        assert_eq!(size(Head::Simple, None, None).through_length(10.0), 11.0);
-        assert_eq!(size(head, None, None).through_length(2.0), 5.0);
+        assert_eq!(
+            size(Head::Simple, None, None).through_length(10.0),
+            Some(11.0)
+        );
+        assert_eq!(size(head, None, None).through_length(2.0), Some(5.0));
+    }
+
+    #[test]
+    fn through_all_needs_a_corner_ahead_of_the_point() {
+        let simple = size(Head::Simple, None, None);
+
+        assert_eq!(simple.through_length(0.0), None);
+        assert_eq!(simple.through_length(-3.0), None);
+        assert_eq!(simple.through_length(1e-9), Some(1.0 + 1e-9));
     }
 
     #[test]
     fn the_cross_section_plane_has_depth_along_its_y_axis() {
         let frame = Frame {
-            position: [1.0, 2.0, 3.0],
-            radial: [1.0, 0.0, 0.0],
-            direction: [0.0, 0.0, -1.0],
+            position: Point::new(1.0, 2.0, 3.0),
+            radial: Vector::new(1.0, 0.0, 0.0),
+            direction: Vector::new(0.0, 0.0, -1.0),
         };
 
         let plane = frame.plane();
 
-        assert_eq!(plane.y_axis(), vector(frame.direction));
-        assert_eq!(plane.origin, Point::new(1.0, 2.0, 3.0));
+        assert_eq!(plane.y_axis(), frame.direction);
+        assert_eq!(plane.origin, frame.position);
     }
 
     #[test]

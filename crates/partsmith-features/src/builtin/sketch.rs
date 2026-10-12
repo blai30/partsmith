@@ -14,7 +14,6 @@ use crate::context::BuildContext;
 use crate::deps::Dependencies;
 use crate::error::{FallbackReason, FeatureError, FeatureWarning};
 use crate::feature::Feature;
-use crate::naming::kernel;
 use crate::output::{DatumResult, FeatureOutput, OutputData, SketchResult};
 
 /// Field path of the face of a sketch on a face.
@@ -203,22 +202,31 @@ fn face_placement(
     };
     let first = found
         .first()
-        .ok_or_else(|| FeatureError::internal("a resolved face reference has no face"))?;
-    let geometry = shape.element(first.kind, first.index).map_err(kernel)?;
+        .ok_or_else(|| internal("a resolved face reference has no face"))?;
+    let geometry = shape
+        .element(first.kind, first.index)
+        .map_err(|error| FeatureError::Kernel { error })?;
     if geometry.kind != GeometryKind::Plane {
         return Ok((*fallback, Some(FallbackReason::NotPlanar)));
     }
     let normal = geometry
         .direction
-        .ok_or_else(|| FeatureError::internal("the kernel gave a plane without a normal"))?;
+        .ok_or_else(|| internal("the kernel gave a plane without a normal"))?;
     let centroid = geometry.centroid;
     let placement = Placement::on_plane(
         [centroid.x, centroid.y, centroid.z],
         [normal.x, normal.y, normal.z],
         fallback,
     )
-    .map_err(|error| FeatureError::internal(format!("placing the sketch failed: {error}")))?;
+    .map_err(|error| internal(format!("placing the sketch failed: {error}")))?;
     Ok((placement, None))
+}
+
+/// An internal error for a failure that valid kernel output cannot cause.
+fn internal(message: impl Into<String>) -> FeatureError {
+    FeatureError::Internal {
+        message: message.into(),
+    }
 }
 
 #[cfg(test)]

@@ -321,6 +321,29 @@ fn t020_sketch_on_the_body_face() {
 }
 
 #[test]
+fn repeated_point_is_drilled_once() {
+    // Section 3.3 step 5: points with identical refs are used once, so the wall keeps its name
+    // without a `#n` suffix.
+    let run = Run::example("hole/repeated-point.ptsm");
+
+    run.assert_all_ok();
+    assert_through_hole(&run, "e-p1");
+}
+
+#[test]
+fn countersink_at_its_depth_limit_is_out_of_range() {
+    // A head diameter equal to D + 2 L tan(angle / 2) as computed (here 11.21572042689736) is not
+    // less than that bound, even where the cone depth computed from it rounds just below L.
+    let run = run_hole(&hole(
+        r#"["e-p1"]"#,
+        r#""hole_type": {"kind": "countersink", "diameter": "11.21572042689736", "angle": "82 deg"}, "extent": {"kind": "distance", "expr": "3"}"#,
+    ));
+
+    let error = run.assert_error("f-hole1", "out_of_range");
+    assert_error_field(error, "hole_type.diameter");
+}
+
+#[test]
 #[cfg_attr(
     debug_assertions,
     ignore = "performance budgets hold for release builds: run with cargo test --release"

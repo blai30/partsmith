@@ -160,11 +160,11 @@ fn rebuild(
 ) -> Result<Report, CliError> {
     let opened = open(session, &arguments.file, arguments.printer.as_deref())?;
     let doc = opened.doc;
-    let document = session.document(doc)?.clone();
-    let features = feature_reports(&document, session.feature_statuses(doc)?);
-    let parameters = parameter_reports(&document, session.parameter_values(doc)?);
-    let bodies = document
-        .bodies
+    let document = session.document(doc)?;
+    let features = feature_reports(document, session.feature_statuses(doc)?);
+    let parameters = parameter_reports(document, session.parameter_values(doc)?);
+    let declared = document.bodies.clone();
+    let bodies = declared
         .iter()
         .map(|body| measure(session, doc, body))
         .collect::<Result<Vec<_>, _>>()?;
@@ -198,7 +198,11 @@ fn feature_reports(document: &Document, statuses: Vec<FeatureStatus>) -> Vec<Fea
     statuses
         .into_iter()
         .map(|status| FeatureReport {
-            kind: kinds.get(&status.id).copied().unwrap_or_default().to_owned(),
+            kind: kinds
+                .get(&status.id)
+                .copied()
+                .unwrap_or_default()
+                .to_owned(),
             id: status.id,
             status: status.status,
             messages: status.messages,
@@ -244,7 +248,10 @@ fn measure(session: &mut Session, doc: DocHandle, body: &Body) -> Result<BodyRep
 /// The metrics of a body measurement, which has every body field (engine.md section 3.11).
 fn body_metrics(body: &Body, measurement: Measurement) -> Result<BodyMetrics, CliError> {
     let incomplete = || CliError::Internal {
-        detail: format!("the engine measured body {} without every body field", body.id),
+        detail: format!(
+            "the engine measured body {} without every body field",
+            body.id
+        ),
     };
     Ok(BodyMetrics {
         id: body.id.clone(),
@@ -543,6 +550,58 @@ mod tests {
         let error = body_metrics(&body, Measurement::default()).expect_err("fields are missing");
 
         assert_eq!(error.status(), Status::Internal);
+    }
+
+    fn document() -> Document {
+        partsmith_model::load(
+            r#"{
+              "format": "partsmith",
+              "format_version": 1,
+              "units": "mm",
+              "parameters": [{"id": "p-h", "name": "height", "expr": "40 mm"}],
+              "bodies": [{"id": "b-1", "name": "Block"}],
+              "features": [{"id": "f-box1", "type": "box", "body": "b-1", "op": "new", "size": ["20 mm", "30 mm", "height"]}]
+            }"#,
+        )
+        .expect("the document loads")
+        .document
+    }
+
+    #[test]
+    fn feature_reports_carry_the_feature_type() {
+        let status = FeatureStatus {
+            id: id("f-box1"),
+            status: FeatureState::Ok,
+            messages: Vec::new(),
+            repairs: Vec::new(),
+        };
+
+        let reports = feature_reports(&document(), vec![status]);
+
+        assert_eq!(
+            serde_json::to_string(&reports).expect("serializes"),
+            r#"[{"id":"f-box1","type":"box","status":"ok","messages":[]}]"#
+        );
+    }
+
+    #[test]
+    fn parameter_reports_carry_the_parameter_name() {
+        let value = ParameterValue {
+            id: id("p-h"),
+            value: Some(40.0),
+            dimension: Some(Dimension {
+                length: 1,
+                angle: 0,
+            }),
+            error: None,
+        };
+
+        let reports = parameter_reports(&document(), vec![value]);
+
+        assert_eq!(
+            serde_json::to_string(&reports).expect("serializes"),
+            r#"[{"id":"p-h","name":"height","value":40.0,"dimension":{"length":1,"angle":0}}]"#
+        );
     }
 
     #[test]
