@@ -154,10 +154,10 @@ impl Checks<'_, '_> {
     fn params(&mut self) -> Vec<Option<Dependencies>> {
         let mut dependencies = Vec::with_capacity(self.document.features.len());
         for (position, record) in self.document.features.iter().enumerate() {
-            let checked = self
-                .registry
-                .validate_and_canonicalize(record)
-                .and_then(|validated| self.registry.dependencies(&validated.record));
+            let checked = match self.registry.validate_and_canonicalize(record) {
+                Ok(validated) => self.registry.dependencies(&validated.record),
+                Err(error) => Err(error),
+            };
             match checked {
                 Ok(found) => dependencies.push(Some(found)),
                 Err(error) => {
@@ -185,7 +185,9 @@ impl Checks<'_, '_> {
                 );
             }
         }
-        for (position, (record, found)) in self.document.features.iter().zip(dependencies).enumerate() {
+        for (position, (record, found)) in
+            self.document.features.iter().zip(dependencies).enumerate()
+        {
             let (Some(found), Some(feature)) = (found, self.registry.get(&record.kind)) else {
                 continue;
             };
@@ -205,7 +207,9 @@ impl Checks<'_, '_> {
 
     /// Step 4: feature and body links that name nothing or a later feature.
     fn references(&mut self, dependencies: &[Option<Dependencies>]) {
-        for (position, (record, found)) in self.document.features.iter().zip(dependencies).enumerate() {
+        for (position, (record, found)) in
+            self.document.features.iter().zip(dependencies).enumerate()
+        {
             let (Some(found), Some(feature)) = (found, self.registry.get(&record.kind)) else {
                 continue;
             };
@@ -245,7 +249,9 @@ impl Checks<'_, '_> {
 
     /// Step 6: each valid sketch is solved and its solver issues reported.
     fn sketches(&mut self, dependencies: &[Option<Dependencies>], scope: &Scope<'_>) {
-        for (position, (record, found)) in self.document.features.iter().zip(dependencies).enumerate() {
+        for (position, (record, found)) in
+            self.document.features.iter().zip(dependencies).enumerate()
+        {
             if record.kind != SKETCH_TYPE || found.is_none() {
                 continue;
             }
@@ -260,7 +266,9 @@ impl Checks<'_, '_> {
                 Ok(result) => {
                     for issue in result.issues(&params) {
                         let (severity, code) = match issue {
-                            SolveIssue::Conflicting { .. } => (Severity::Error, "sketch_conflicting"),
+                            SolveIssue::Conflicting { .. } => {
+                                (Severity::Error, "sketch_conflicting")
+                            }
                             SolveIssue::Redundant { .. } => (Severity::Warning, "sketch_redundant"),
                             SolveIssue::NotConverged => (Severity::Error, "sketch_not_converged"),
                         };
@@ -280,7 +288,9 @@ impl Checks<'_, '_> {
         assets: &[Asset],
     ) -> BTreeMap<String, Arc<[u8]>> {
         let mut stored = BTreeMap::new();
-        for (position, (record, found)) in self.document.features.iter().zip(dependencies).enumerate() {
+        for (position, (record, found)) in
+            self.document.features.iter().zip(dependencies).enumerate()
+        {
             let (Some(found), Some(feature)) = (found, self.registry.get(&record.kind)) else {
                 continue;
             };
@@ -298,7 +308,10 @@ impl Checks<'_, '_> {
                             name: asset.name.clone(),
                         }
                         .to_string();
-                        let path = feature_path(position, Some(&FieldRef::new(&link.field, feature.manifest())));
+                        let path = feature_path(
+                            position,
+                            Some(&FieldRef::new(&link.field, feature.manifest())),
+                        );
                         self.push(Severity::Error, "asset_mismatch", message, Some(path));
                     }
                     Some(asset) => {
@@ -451,7 +464,10 @@ mod tests {
             }),
             "unknown_name"
         );
-        assert_eq!(expression_code(&ExprErrorKind::DivisionByZero), "division_by_zero");
+        assert_eq!(
+            expression_code(&ExprErrorKind::DivisionByZero),
+            "division_by_zero"
+        );
     }
 
     #[test]

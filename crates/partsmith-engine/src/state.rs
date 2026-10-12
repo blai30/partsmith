@@ -126,11 +126,7 @@ fn final_state(report: &Report, body: &Id) -> BodyState {
 }
 
 /// A body view from its state and the writers that led to it.
-fn view(
-    body: &Id,
-    state: BodyState,
-    writers: &BTreeMap<Id, Option<(CacheKey, Id)>>,
-) -> BodyView {
+fn view(body: &Id, state: BodyState, writers: &BTreeMap<Id, Option<(CacheKey, Id)>>) -> BodyView {
     let writer = writers.get(body).cloned().flatten();
     let has_shape = !state.is_empty();
     let (identity, provider) = match writer {

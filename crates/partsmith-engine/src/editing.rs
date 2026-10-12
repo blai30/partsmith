@@ -71,7 +71,10 @@ impl Session {
     pub fn set_focus(&mut self, doc: DocHandle, feature: Option<&Id>) -> Result<(), EngineError> {
         let registry = std::sync::Arc::clone(&self.registry);
         let open = self.open_mut(doc)?;
-        let transaction = open.transaction.as_ref().ok_or(EngineError::NoTransaction)?;
+        let transaction = open
+            .transaction
+            .as_ref()
+            .ok_or(EngineError::NoTransaction)?;
         if let Some(feature) = feature {
             if open.document.feature(feature).is_none() {
                 return Err(EngineError::UnknownFeature {
@@ -115,7 +118,10 @@ impl Session {
     /// Reverts the open transaction; returns the new revision.
     pub fn cancel_transaction(&mut self, doc: DocHandle) -> Result<u64, EngineError> {
         let open = self.open_mut(doc)?;
-        let transaction = open.transaction.as_ref().ok_or(EngineError::NoTransaction)?;
+        let transaction = open
+            .transaction
+            .as_ref()
+            .ok_or(EngineError::NoTransaction)?;
         let reverted = if transaction.steps.is_empty() {
             None
         } else {

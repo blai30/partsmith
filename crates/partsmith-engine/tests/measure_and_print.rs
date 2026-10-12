@@ -90,6 +90,7 @@ fn t068_measuring_a_body_reports_mass_properties_and_counts_only() {
             "center_of_mass",
             "edge_count",
             "face_count",
+            "kind",
             "type",
             "vertex_count",
             "volume"

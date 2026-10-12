@@ -136,7 +136,9 @@ pub(crate) fn solve_in(
 fn params_map(params: &SketchParams) -> Result<serde_json::Map<String, Value>, EngineError> {
     match serde_json::to_value(params) {
         Ok(Value::Object(map)) => Ok(map),
-        Ok(_) => Err(EngineError::internal("sketch params serialize to an object")),
+        Ok(_) => Err(EngineError::internal(
+            "sketch params serialize to an object",
+        )),
         Err(error) => Err(EngineError::InvalidSketch {
             message: error.to_string(),
         }),
@@ -146,7 +148,10 @@ fn params_map(params: &SketchParams) -> Result<serde_json::Map<String, Value>, E
 /// The record a committed drag writes: the stored record with the last frame's entity geometry
 /// and, for a sketch on a face, the resolved placement as its fallback. None when that equals
 /// the stored geometry exactly.
-fn dragged_record(record: &FeatureRecord, drag: &Drag) -> Result<Option<FeatureRecord>, EngineError> {
+fn dragged_record(
+    record: &FeatureRecord,
+    drag: &Drag,
+) -> Result<Option<FeatureRecord>, EngineError> {
     let mut plane = drag.params.plane.clone();
     if let SketchPlane::Face { fallback, .. } = &mut plane {
         *fallback = drag.placement;

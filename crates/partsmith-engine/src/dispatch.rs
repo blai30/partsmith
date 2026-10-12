@@ -331,7 +331,11 @@ impl Session {
                 let open = self.open(doc)?;
                 let mut report = analysis.report;
                 for (body, overhang) in report.bodies.iter_mut().zip(analysis.overhang) {
-                    body.mesh_id = open.emitted.model.get(&body.body).map(|shown| shown.mesh_id);
+                    body.mesh_id = open
+                        .emitted
+                        .model
+                        .get(&body.body)
+                        .map(|shown| shown.mesh_id);
                     body.overhang = overhang.map(|values| output.buffer(Buffer::F32(values)));
                 }
                 let health = report.summary.health;
@@ -393,7 +397,11 @@ impl Session {
     }
 
     /// A solution with its region fill buffers in display sessions.
-    fn with_display(&self, solved: Solved, output: &mut Output) -> partsmith_protocol::SketchSolution {
+    fn with_display(
+        &self,
+        solved: Solved,
+        output: &mut Output,
+    ) -> partsmith_protocol::SketchSolution {
         let mut solution = solved.solution;
         if self.display {
             solution.display = Some(sketch_display(&solved.regions, output));
@@ -532,7 +540,10 @@ mod tests {
 
         let error = check_buffers(&command, &[Buffer::F32(Vec::new())]).expect_err("not bytes");
 
-        assert_eq!(error.to_string(), "The request is not valid: Buffer 0 must be u8.");
+        assert_eq!(
+            error.to_string(),
+            "The request is not valid: Buffer 0 must be u8."
+        );
     }
 
     #[test]

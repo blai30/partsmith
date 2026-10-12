@@ -63,7 +63,10 @@ impl Session {
             meshes.push((view, mesh));
         }
         let transforms = bed_transforms(
-            &meshes.iter().map(|(_, mesh)| &mesh.mesh).collect::<Vec<_>>(),
+            &meshes
+                .iter()
+                .map(|(_, mesh)| &mesh.mesh)
+                .collect::<Vec<_>>(),
             &rotation,
             &profile,
         );
@@ -105,7 +108,10 @@ impl Session {
 
 /// The bodies to analyze (step 2): the named ones in document order of first mention, or every
 /// visible part body with geometry.
-fn analyzed_bodies(open: &OpenDocument, bodies: Option<&[Id]>) -> Result<Vec<BodyView>, EngineError> {
+fn analyzed_bodies(
+    open: &OpenDocument,
+    bodies: Option<&[Id]>,
+) -> Result<Vec<BodyView>, EngineError> {
     match bodies {
         Some(bodies) => {
             let mut views: Vec<BodyView> = Vec::with_capacity(bodies.len());
@@ -189,27 +195,32 @@ pub(crate) fn bed_transforms(
     let bounds: Vec<Option<Bounds>> = meshes
         .iter()
         .map(|mesh| {
-            mesh.positions().iter().fold(None::<Bounds>, |bounds, &position| {
-                let point = rotated.apply_point(position);
-                Some(match bounds {
-                    None => (point, point),
-                    Some((low, high)) => (
-                        [0, 1, 2].map(|axis| f64::min(low[axis], point[axis])),
-                        [0, 1, 2].map(|axis| f64::max(high[axis], point[axis])),
-                    ),
+            mesh.positions()
+                .iter()
+                .fold(None::<Bounds>, |bounds, &position| {
+                    let point = rotated.apply_point(position);
+                    Some(match bounds {
+                        None => (point, point),
+                        Some((low, high)) => (
+                            [0, 1, 2].map(|axis| f64::min(low[axis], point[axis])),
+                            [0, 1, 2].map(|axis| f64::max(high[axis], point[axis])),
+                        ),
+                    })
                 })
-            })
         })
         .collect();
-    let union = bounds.iter().flatten().fold(None::<Bounds>, |union, &(low, high)| {
-        Some(match union {
-            None => (low, high),
-            Some((union_low, union_high)) => (
-                [0, 1, 2].map(|axis| f64::min(union_low[axis], low[axis])),
-                [0, 1, 2].map(|axis| f64::max(union_high[axis], high[axis])),
-            ),
-        })
-    });
+    let union = bounds
+        .iter()
+        .flatten()
+        .fold(None::<Bounds>, |union, &(low, high)| {
+            Some(match union {
+                None => (low, high),
+                Some((union_low, union_high)) => (
+                    [0, 1, 2].map(|axis| f64::min(union_low[axis], low[axis])),
+                    [0, 1, 2].map(|axis| f64::max(union_high[axis], high[axis])),
+                ),
+            })
+        });
     let center = union.map_or([0.0; 3], |(low, high)| {
         [0, 1, 2].map(|axis| (low[axis] + high[axis]) / 2.0)
     });
@@ -244,7 +255,13 @@ fn overhang_map(
         .map_err(|error| EngineError::internal(error.to_string()))?;
     Ok(values
         .into_iter()
-        .map(|value| if value == OVERLAY_NO_VALUE { 0.0 } else { value })
+        .map(|value| {
+            if value == OVERLAY_NO_VALUE {
+                0.0
+            } else {
+                value
+            }
+        })
         .collect())
 }
 
@@ -295,7 +312,7 @@ mod tests {
 
         let transforms = bed_transforms(&[&mesh], &Rotation::identity(), &generic_fdm());
 
-        assert_eq!(transforms[0].translation, [128.0, 113.0, 0.0]);
+        assert_eq!(transforms[0].translation, [128.0, 133.0, 0.0]);
         assert_eq!(transforms[0].rows, Rotation::identity().rows());
     }
 

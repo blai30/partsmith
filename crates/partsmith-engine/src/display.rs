@@ -30,7 +30,8 @@ pub(crate) struct TableEntry {
 }
 
 /// The displayed elements of one body state (section 3.8): faces, edges without seams, and the
-/// vertices of those edges, each sorted by name. An element's display id is its position.
+/// vertices of those edges, each sorted by name, repeated names by kernel index. An element's
+/// display id is its position.
 #[derive(Debug)]
 pub(crate) struct ElementTable {
     /// Displayed faces.
@@ -45,8 +46,6 @@ pub(crate) struct ElementTable {
     edge_ids: Vec<Option<u32>>,
     /// Display id of each vertex by kernel index minus one.
     vertex_ids: Vec<Option<u32>>,
-    /// True when two elements of one kind share a name (an internal error, section 3.8).
-    duplicates: bool,
     /// Descriptors in table order, computed on first use.
     descriptors: OnceLock<Result<Arc<[ElementDescriptor]>, EngineError>>,
 }
@@ -102,9 +101,6 @@ impl ElementTable {
                     })
                 })
         });
-        let duplicates = [&faces, &edges, &vertices]
-            .iter()
-            .any(|entries| entries.windows(2).any(|pair| pair[0].name == pair[1].name));
         Ok(ElementTable {
             face_ids: display_ids(&faces, topology.faces.len()),
             edge_ids,
@@ -112,7 +108,6 @@ impl ElementTable {
             faces,
             edges,
             vertices,
-            duplicates,
             descriptors: OnceLock::new(),
         })
     }
@@ -148,11 +143,6 @@ impl ElementTable {
             .binary_search_by(|entry| entry.name.cmp(name))
             .ok()?;
         u32::try_from(position).ok()
-    }
-
-    /// True when two elements of one kind share a name.
-    pub(crate) fn has_duplicates(&self) -> bool {
-        self.duplicates
     }
 
     /// The descriptors in table order (faces, edges, vertices), computed once by `describe`.
@@ -228,7 +218,9 @@ impl DisplayMesh {
             .iter()
             .map(|&face| table.display_id(ElementKind::Face, face))
             .collect::<Option<Vec<u32>>>()
-            .ok_or_else(|| EngineError::internal("a tessellated face is not in the element table"))?;
+            .ok_or_else(|| {
+                EngineError::internal("a tessellated face is not in the element table")
+            })?;
         let edges: Vec<EdgePolyline> = kernel
             .edges()
             .iter()
@@ -249,8 +241,17 @@ impl DisplayMesh {
                 })
             })
             .collect();
-        for (display_id, entry) in (0_u32..).zip(table.entries(ElementKind::Vertex)) {
-            if markers.iter().all(|marker| marker.vertex_id != display_id) {
+        let mut marked = vec![false; table.entries(ElementKind::Vertex).len()];
+        for marker in &markers {
+            if let Some(slot) = marked.get_mut(marker.vertex_id as usize) {
+                *slot = true;
+            }
+        }
+        for ((display_id, entry), marked) in (0_u32..)
+            .zip(table.entries(ElementKind::Vertex))
+            .zip(marked)
+        {
+            if !marked {
                 let vertex = shape
                     .element(SubShapeKind::Vertex, entry.index)
                     .map_err(kernel_failure)?;
@@ -494,7 +495,6 @@ mod tests {
             vertices: Vec::new(),
             edge_ids: Vec::new(),
             vertex_ids: Vec::new(),
-            duplicates: false,
             descriptors: OnceLock::new(),
         }
     }

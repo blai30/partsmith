@@ -17,6 +17,7 @@ use partsmith_protocol::{
 };
 use partsmith_recompute::Recompute;
 
+use crate::ENGINE_VERSION;
 use crate::display::DisplayCache;
 use crate::document::{OpenDocument, SavedText, canonical_text};
 use crate::error::EngineError;
@@ -25,7 +26,6 @@ use crate::profiles::{Profiles, tolerance};
 use crate::state::{self, Computed};
 use crate::status::{feature_statuses, parameter_values};
 use crate::types::{Asset, EngineInfo, Opened, Saved};
-use crate::ENGINE_VERSION;
 
 /// Bytes of one cached recompute result the engine assumes when it turns its byte budget into
 /// recompute's entry limit (recompute evicts by entry count in M1, recompute.md section 1), so
@@ -291,7 +291,10 @@ impl Session {
         doc: DocHandle,
         quality: TessellationQuality,
     ) -> Result<TessellationTolerance, EngineError> {
-        Ok(tolerance(&self.open(doc)?.computed.profile.profile, quality))
+        Ok(tolerance(
+            &self.open(doc)?.computed.profile.profile,
+            quality,
+        ))
     }
 
     /// An open document (`unknown_document` otherwise).

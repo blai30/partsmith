@@ -197,9 +197,9 @@ fn signed_area(points: &[Point]) -> f64 {
     doubled / 2.0
 }
 
-/// `(b - a) × (c - a)`: positive when `a`, `b`, `c` turn counterclockwise.
-fn cross(a: Point, b: Point, c: Point) -> f64 {
-    (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
+/// `(second - first) × (third - first)`: positive when the three points turn counterclockwise.
+fn cross(first: Point, second: Point, third: Point) -> f64 {
+    (second[0] - first[0]) * (third[1] - first[1]) - (second[1] - first[1]) * (third[0] - first[0])
 }
 
 /// Joins a clockwise hole to a counterclockwise polygon with a bridge from the hole's rightmost
@@ -230,9 +230,13 @@ fn visible_point(polygon: &[usize], from: Point, positions: &[Point]) -> Option<
     // The nearest polygon edge a ray from `from` towards +x crosses.
     let mut nearest: Option<(f64, usize)> = None;
     for position in 0..polygon.len() {
-        let a = positions[polygon[position]];
-        let b = positions[polygon[(position + 1) % polygon.len()]];
-        let (low, high) = if a[1] <= b[1] { (a, b) } else { (b, a) };
+        let start = positions[polygon[position]];
+        let end = positions[polygon[(position + 1) % polygon.len()]];
+        let (low, high) = if start[1] <= end[1] {
+            (start, end)
+        } else {
+            (end, start)
+        };
         if from[1] < low[1] || from[1] > high[1] || low[1] == high[1] {
             continue;
         }
@@ -265,9 +269,9 @@ fn visible_point(polygon: &[usize], from: Point, positions: &[Point]) -> Option<
         if position == candidate || !reflex || !inside_triangle(point, from, hit, corner) {
             continue;
         }
-        let dx = point[0] - from[0];
-        let dy = (point[1] - from[1]).abs();
-        let key = (dy.atan2(dx), dx * dx + dy * dy);
+        let along = point[0] - from[0];
+        let across = (point[1] - from[1]).abs();
+        let key = (across.atan2(along), along * along + across * across);
         if key < best_key {
             best_key = key;
             best = position;
@@ -276,13 +280,15 @@ fn visible_point(polygon: &[usize], from: Point, positions: &[Point]) -> Option<
     Some(best)
 }
 
-/// True when `point` lies inside or on the triangle `(a, b, c)`, in either orientation.
-fn inside_triangle(point: Point, a: Point, b: Point, c: Point) -> bool {
-    let first = cross(a, b, point);
-    let second = cross(b, c, point);
-    let third = cross(c, a, point);
-    let has_negative = first < 0.0 || second < 0.0 || third < 0.0;
-    let has_positive = first > 0.0 || second > 0.0 || third > 0.0;
+/// True when `point` lies inside or on the triangle of three corners, in either orientation.
+fn inside_triangle(point: Point, first: Point, second: Point, third: Point) -> bool {
+    let turns = [
+        cross(first, second, point),
+        cross(second, third, point),
+        cross(third, first, point),
+    ];
+    let has_negative = turns.iter().any(|&turn| turn < 0.0);
+    let has_positive = turns.iter().any(|&turn| turn > 0.0);
     !(has_negative && has_positive)
 }
 
@@ -326,7 +332,12 @@ fn clip_ears(mut polygon: Vec<usize>, positions: &[Point]) -> Vec<[usize; 3]> {
                 polygon[flattest],
                 polygon[(flattest + 1) % count],
             ];
-            if cross(positions[corner[0]], positions[corner[1]], positions[corner[2]]) > 0.0 {
+            if cross(
+                positions[corner[0]],
+                positions[corner[1]],
+                positions[corner[2]],
+            ) > 0.0
+            {
                 triangles.push(corner);
             }
             polygon.remove(flattest);
@@ -350,13 +361,15 @@ fn is_ear(
     next: usize,
     positions: &[Point],
 ) -> bool {
-    let (a, b, c) = (positions[previous], positions[current], positions[next]);
-    if cross(a, b, c) <= 0.0 {
+    let corners = [positions[previous], positions[current], positions[next]];
+    let [first, second, third] = corners;
+    if cross(first, second, third) <= 0.0 {
         return false;
     }
     polygon.iter().all(|&index| {
         let point = positions[index];
-        same(point, a) || same(point, b) || same(point, c) || !inside_triangle(point, a, b, c)
+        corners.iter().any(|&corner| same(point, corner))
+            || !inside_triangle(point, first, second, third)
     })
 }
 
@@ -371,8 +384,8 @@ mod tests {
         triangles
             .iter()
             .map(|triangle| {
-                let [a, b, c] = triangle.map(|corner| positions[corner as usize]);
-                cross(a, b, c) / 2.0
+                let [first, second, third] = triangle.map(|corner| positions[corner as usize]);
+                cross(first, second, third) / 2.0
             })
             .sum()
     }
@@ -415,13 +428,7 @@ mod tests {
 
     #[test]
     fn concave_polygons_are_covered_exactly() {
-        let shape = vec![
-            [0.0, 0.0],
-            [4.0, 0.0],
-            [4.0, 4.0],
-            [2.0, 1.0],
-            [0.0, 4.0],
-        ];
+        let shape = vec![[0.0, 0.0], [4.0, 0.0], [4.0, 4.0], [2.0, 1.0], [0.0, 4.0]];
 
         let (positions, triangles) = triangulate(&shape, &[]);
 
@@ -439,8 +446,8 @@ mod tests {
         assert_eq!(positions.len(), 8);
         assert!((total_area(&positions, &triangles) - 96.0).abs() < 1e-9);
         assert!(triangles.iter().all(|triangle| {
-            let [a, b, c] = triangle.map(|corner| positions[corner as usize]);
-            cross(a, b, c) > 0.0
+            let [first, second, third] = triangle.map(|corner| positions[corner as usize]);
+            cross(first, second, third) > 0.0
         }));
     }
 
@@ -525,7 +532,11 @@ mod tests {
         let points = outline(&arc);
 
         assert_eq!(points.len(), 18);
-        assert!(points.iter().all(|point| point[0] >= -1e-12 && point[1] >= -1e-12));
+        assert!(
+            points
+                .iter()
+                .all(|point| point[0] >= -1e-12 && point[1] >= -1e-12)
+        );
     }
 
     #[test]

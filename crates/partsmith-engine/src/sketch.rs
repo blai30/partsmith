@@ -15,8 +15,8 @@ use partsmith_protocol::{
 use partsmith_recompute::Status;
 use partsmith_sketch::{
     DimensionValues, DragSession, DragTarget, EntityState, Geometry, NativeDragSession,
-    NativeSolver, OriginPlane, Placement, PointRef, PointRole, Profile, Region, RegionRef, SketchEntity,
-    SketchParams, SketchPlane, SolveResult, Solver, ValueKind, build_profile,
+    NativeSolver, OriginPlane, Placement, PointRef, PointRole, Profile, Region, RegionRef,
+    SketchEntity, SketchParams, SketchPlane, SolveResult, Solver, ValueKind, build_profile,
 };
 
 use crate::error::EngineError;
@@ -103,15 +103,12 @@ pub(crate) fn dimension_values(
 /// before it (features/sketch.md section 3.3): an origin plane's placement, the datum's plane
 /// (the XY plane when the datum has no result), or the face's plane near the fallback (the
 /// fallback when the face does not resolve to one flat face).
-pub(crate) fn placement(
-    plane: &SketchPlane,
-    computed: &Computed,
-    position: usize,
-) -> Placement {
+pub(crate) fn placement(plane: &SketchPlane, computed: &Computed, position: usize) -> Placement {
     match plane {
         SketchPlane::Origin { plane } => plane.placement(),
-        SketchPlane::Datum { feature } => datum_placement(computed, feature)
-            .unwrap_or_else(|| OriginPlane::Xy.placement()),
+        SketchPlane::Datum { feature } => {
+            datum_placement(computed, feature).unwrap_or_else(|| OriginPlane::Xy.placement())
+        }
         SketchPlane::Face {
             body,
             face,
@@ -144,8 +141,9 @@ fn face_placement(
 ) -> Option<Placement> {
     let shape = state.shape()?;
     let elements = state.elements().ok()?;
-    let Resolution::Resolved { elements: names, .. } =
-        resolve(face, &elements, state.naming().aliases())
+    let Resolution::Resolved {
+        elements: names, ..
+    } = resolve(face, &elements, state.naming().aliases())
     else {
         return None;
     };
@@ -228,13 +226,16 @@ pub(crate) fn solve(
     values: &DimensionValues,
     placement: Placement,
 ) -> Result<Solved, EngineError> {
-    let result = NativeSolver
-        .solve(params, values)
-        .map_err(|error| EngineError::InvalidSketch {
-            message: error.to_string(),
-        })?;
+    let result =
+        NativeSolver
+            .solve(params, values)
+            .map_err(|error| EngineError::InvalidSketch {
+                message: error.to_string(),
+            })?;
     let profile = build_profile(&result.entities);
-    Ok(project(feature, params, &result, profile, placement, values))
+    Ok(project(
+        feature, params, &result, profile, placement, values,
+    ))
 }
 
 /// The solution of a sketch that built, from its recompute output.
@@ -532,10 +533,7 @@ mod tests {
     }
 
     fn constraint(name: &str, kind: ConstraintKind) -> SketchConstraint {
-        SketchConstraint {
-            id: id(name),
-            kind,
-        }
+        SketchConstraint { id: id(name), kind }
     }
 
     fn drag_sketch() -> SketchParams {
@@ -706,10 +704,22 @@ mod tests {
     fn reserved_and_missing_points_are_not_sketch_points() {
         let params = drag_sketch();
 
-        assert!(has_point(&params, &"e-1.end".parse().expect("a valid point")));
-        assert!(!has_point(&params, &"e-1.center".parse().expect("a valid point")));
-        assert!(!has_point(&params, &"origin".parse().expect("a valid point")));
-        assert!(!has_point(&params, &"e-9.end".parse().expect("a valid point")));
+        assert!(has_point(
+            &params,
+            &"e-1.end".parse().expect("a valid point")
+        ));
+        assert!(!has_point(
+            &params,
+            &"e-1.center".parse().expect("a valid point")
+        ));
+        assert!(!has_point(
+            &params,
+            &"origin".parse().expect("a valid point")
+        ));
+        assert!(!has_point(
+            &params,
+            &"e-9.end".parse().expect("a valid point")
+        ));
     }
 
     #[test]

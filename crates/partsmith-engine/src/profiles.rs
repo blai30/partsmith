@@ -4,7 +4,9 @@
 use std::collections::BTreeMap;
 
 use partsmith_mesh::TessellationTolerance;
-use partsmith_print::{PrinterProfile, ProfileInput, builtin_profile, builtin_profiles, generic_fdm};
+use partsmith_print::{
+    PrinterProfile, ProfileInput, builtin_profile, builtin_profiles, generic_fdm,
+};
 use partsmith_protocol::{Diagnostic, Severity, TessellationQuality};
 
 use crate::error::EngineError;
@@ -48,7 +50,10 @@ impl ResolvedProfile {
 impl Profiles {
     /// The session profile with this id, else the built-in one.
     pub(crate) fn find(&self, id: &str) -> Option<PrinterProfile> {
-        self.session.get(id).cloned().or_else(|| builtin_profile(id))
+        self.session
+            .get(id)
+            .cloned()
+            .or_else(|| builtin_profile(id))
     }
 
     /// The profile of a document's `printer`: the installed profile with that id, else the
@@ -85,13 +90,11 @@ impl Profiles {
         if builtin_profile(&input.id).is_some() {
             return Err(EngineError::ProfileIdReserved { id: input.id });
         }
-        let profile = PrinterProfile::try_from(input).map_err(|error| {
-            EngineError::InvalidProfile {
+        let profile =
+            PrinterProfile::try_from(input).map_err(|error| EngineError::InvalidProfile {
                 message: error.to_string(),
-            }
-        })?;
-        self.session
-            .insert(profile.id.to_string(), profile.clone());
+            })?;
+        self.session.insert(profile.id.to_string(), profile.clone());
         Ok(profile)
     }
 }

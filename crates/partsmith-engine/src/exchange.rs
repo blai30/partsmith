@@ -20,7 +20,7 @@ use crate::error::EngineError;
 use crate::profiles::{is_valid_tolerance, tolerance};
 use crate::session::Session;
 use crate::state::{self, BodyView, display_bodies};
-use crate::types::{Exported, ExportRequest, ExportedFile, Imported};
+use crate::types::{ExportRequest, Exported, ExportedFile, Imported};
 
 /// The type name of the import feature.
 const IMPORT_TYPE: &str = "import";
@@ -38,7 +38,11 @@ struct Exportable {
 
 impl Session {
     /// Exports bodies at the model state.
-    pub fn export(&mut self, doc: DocHandle, request: &ExportRequest) -> Result<Exported, EngineError> {
+    pub fn export(
+        &mut self,
+        doc: DocHandle,
+        request: &ExportRequest,
+    ) -> Result<Exported, EngineError> {
         if let Some(explicit) = &request.tolerance
             && !is_valid_tolerance(explicit)
         {
@@ -74,10 +78,15 @@ impl Session {
         let files = match request.format {
             ExportFormat::Step => self.export_step(&bodies, rotation.as_ref(), &profile.profile)?,
             format => {
-                let mesh_tolerance = request.tolerance.unwrap_or_else(|| {
-                    tolerance(&profile.profile, TessellationQuality::Standard)
-                });
-                let meshes = self.export_meshes(&bodies, &mesh_tolerance, rotation.as_ref(), &profile.profile)?;
+                let mesh_tolerance = request
+                    .tolerance
+                    .unwrap_or_else(|| tolerance(&profile.profile, TessellationQuality::Standard));
+                let meshes = self.export_meshes(
+                    &bodies,
+                    &mesh_tolerance,
+                    rotation.as_ref(),
+                    &profile.profile,
+                )?;
                 write_meshes(format, &bodies, &meshes, &mut warnings)?
             }
         };
@@ -121,7 +130,9 @@ impl Session {
             .map_err(|error| EngineError::internal(error.to_string()))?;
         let feature_id = self
             .ids
-            .generate(IdKind::Feature, &|id: &Id| used.contains(id) || *id == body_id)
+            .generate(IdKind::Feature, &|id: &Id| {
+                used.contains(id) || *id == body_id
+            })
             .map_err(|error| EngineError::internal(error.to_string()))?;
         let mut body = Body::new(body_id.clone(), body_name);
         body.color = color;
@@ -173,9 +184,10 @@ impl Session {
                 .identity
                 .clone()
                 .ok_or_else(|| EngineError::internal("an exported body has no geometry"))?;
-            let display = self
-                .cache
-                .mesh(&MeshKey::new(identity, mesh_tolerance), &exportable.view.state)?;
+            let display = self.cache.mesh(
+                &MeshKey::new(identity, mesh_tolerance),
+                &exportable.view.state,
+            )?;
             meshes.push(display.mesh.clone());
         }
         let Some(rotation) = rotation else {
@@ -324,10 +336,18 @@ fn write_meshes(
             if per_body {
                 let names = file_names(bodies);
                 for (body, name) in export_bodies.iter().zip(&names) {
-                    add(name, "stl", write(std::slice::from_ref(body)).map_err(export_failed)?);
+                    add(
+                        name,
+                        "stl",
+                        write(std::slice::from_ref(body)).map_err(export_failed)?,
+                    );
                 }
             } else {
-                add("model", "stl", write(&export_bodies).map_err(export_failed)?);
+                add(
+                    "model",
+                    "stl",
+                    write(&export_bodies).map_err(export_failed)?,
+                );
             }
         }
         ExportFormat::ThreeMf => {
@@ -340,7 +360,11 @@ fn write_meshes(
             add("model", "3mf", written);
         }
         ExportFormat::Obj => {
-            add("model", "obj", write_obj(&export_bodies).map_err(export_failed)?);
+            add(
+                "model",
+                "obj",
+                write_obj(&export_bodies).map_err(export_failed)?,
+            );
         }
         ExportFormat::Step => {
             return Err(EngineError::internal("STEP is not a mesh format"));

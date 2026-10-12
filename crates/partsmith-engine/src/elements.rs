@@ -40,7 +40,11 @@ pub(crate) struct ElementFields {
 
 /// The geometry fields of an element of `kind` with kernel geometry `geometry`.
 pub(crate) fn element_fields(kind: ElementKind, geometry: &ElementGeometry) -> ElementFields {
-    let centroid = [geometry.centroid.x, geometry.centroid.y, geometry.centroid.z];
+    let centroid = [
+        geometry.centroid.x,
+        geometry.centroid.y,
+        geometry.centroid.z,
+    ];
     let direction = geometry
         .direction
         .map(|direction| [direction.x, direction.y, direction.z]);
@@ -198,8 +202,9 @@ pub(crate) fn describe(
             let (faces, adjacent) = adjacency(kind, entry.index, &topology, &names)
                 .ok_or_else(|| EngineError::internal("a displayed element has no topology"))?;
             let feature = match kind {
-                ElementKind::Face => face_feature(entry.name.as_str())
-                    .and_then(|feature| Id::new(feature).ok()),
+                ElementKind::Face => {
+                    face_feature(entry.name.as_str()).and_then(|feature| Id::new(feature).ok())
+                }
                 ElementKind::Edge | ElementKind::Vertex => feature_of_faces(&faces),
             }
             .ok_or_else(|| EngineError::internal("an element name names no feature"))?;
@@ -227,6 +232,9 @@ pub(crate) fn describe(
     Ok(descriptors)
 }
 
+/// The sorted names of some kernel indices of a kind, only displayed ones when asked.
+type AdjacentNames<'a> = dyn Fn(ElementKind, &[u32], bool) -> Vec<String> + 'a;
+
 /// The adjacent faces (kernel indices) and the adjacent names of a descriptor (section 3.9):
 /// faces list their displayed edges; edges their faces then their displayed vertices; vertices
 /// their displayed edges. `names` gives the sorted names of a kind's kernel indices, displayed
@@ -235,7 +243,7 @@ fn adjacency(
     kind: ElementKind,
     index: u32,
     topology: &Topology,
-    names: &dyn Fn(ElementKind, &[u32], bool) -> Vec<String>,
+    names: &AdjacentNames<'_>,
 ) -> Option<(Vec<u32>, Vec<String>)> {
     let position = slot(index)?;
     match kind {
@@ -280,7 +288,10 @@ mod tests {
     fn instance_suffixes_name_the_copying_feature() {
         assert_eq!(face_feature("f-box1/top"), Some("f-box1"));
         assert_eq!(face_feature("f-box1/top@f-pat1:2"), Some("f-pat1"));
-        assert_eq!(face_feature("f-box1/top@f-pat1:2@f-mir1:1#2"), Some("f-mir1"));
+        assert_eq!(
+            face_feature("f-box1/top@f-pat1:2@f-mir1:1#2"),
+            Some("f-mir1")
+        );
         assert_eq!(
             face_feature("f-fil1/fillet/edge(f-box1/front@f-pat1:1|f-box1/left)"),
             Some("f-fil1")
@@ -362,6 +373,9 @@ mod tests {
     fn other_kinds_map_to_other() {
         assert_eq!(surface_kind(GeometryKind::Revolution), SurfaceKind::Other);
         assert_eq!(curve_kind(GeometryKind::Hyperbola), CurveKind::Other);
-        assert_eq!(surface_kind(GeometryKind::BsplineSurface), SurfaceKind::Bspline);
+        assert_eq!(
+            surface_kind(GeometryKind::BsplineSurface),
+            SurfaceKind::Bspline
+        );
     }
 }

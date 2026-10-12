@@ -27,22 +27,133 @@ const INDENT: usize = 4;
 /// Names a variable cannot take (rule 7): Python keywords and soft keywords, the names of
 /// `partsmith.__all__` (python-api.md section 2.3), and `doc`.
 const RESERVED_VARIABLES: &[&str] = &[
-    "False", "None", "True", "and", "as", "assert", "async", "await", "break", "class",
-    "continue", "def", "del", "elif", "else", "except", "finally", "for", "from", "global", "if",
-    "import", "in", "is", "lambda", "nonlocal", "not", "or", "pass", "raise", "return", "try",
-    "while", "with", "yield", "_", "case", "match", "type", "doc", "Document",
-    "current_document", "param", "Param", "rollback", "expr", "Expr", "mm", "cm", "meter",
-    "inch", "deg", "rad", "printer", "Part", "Sketch", "Plane", "Placement", "Region", "Point",
-    "Line", "Circle", "Arc", "Rectangle", "Polygon", "Coincident", "Horizontal", "Vertical",
-    "Parallel", "Perpendicular", "Tangent", "Collinear", "Equal", "Concentric", "Midpoint",
-    "PointOn", "Symmetric", "Fix", "Distance", "HorizontalDistance", "VerticalDistance",
-    "Radius", "Diameter", "Angle", "Feature", "DatumPlane", "extrude", "revolve", "fillet",
-    "chamfer", "shell", "hole", "box", "cylinder", "sphere", "cone", "torus", "boolean",
-    "mirror", "linear_pattern", "circular_pattern", "datum_plane", "move", "split", "feature",
-    "Axis", "Element", "Selection", "Ref", "faces", "edges", "vertices", "export_stl",
-    "export_3mf", "export_obj", "export_step", "BoundingBox", "PrintReport", "Finding",
-    "run_script", "run_code", "PartsmithError", "EngineError", "FeatureError",
-    "SelectionError", "ExpressionError", "PartsmithWarning",
+    "False",
+    "None",
+    "True",
+    "and",
+    "as",
+    "assert",
+    "async",
+    "await",
+    "break",
+    "class",
+    "continue",
+    "def",
+    "del",
+    "elif",
+    "else",
+    "except",
+    "finally",
+    "for",
+    "from",
+    "global",
+    "if",
+    "import",
+    "in",
+    "is",
+    "lambda",
+    "nonlocal",
+    "not",
+    "or",
+    "pass",
+    "raise",
+    "return",
+    "try",
+    "while",
+    "with",
+    "yield",
+    "_",
+    "case",
+    "match",
+    "type",
+    "doc",
+    "Document",
+    "current_document",
+    "param",
+    "Param",
+    "rollback",
+    "expr",
+    "Expr",
+    "mm",
+    "cm",
+    "meter",
+    "inch",
+    "deg",
+    "rad",
+    "printer",
+    "Part",
+    "Sketch",
+    "Plane",
+    "Placement",
+    "Region",
+    "Point",
+    "Line",
+    "Circle",
+    "Arc",
+    "Rectangle",
+    "Polygon",
+    "Coincident",
+    "Horizontal",
+    "Vertical",
+    "Parallel",
+    "Perpendicular",
+    "Tangent",
+    "Collinear",
+    "Equal",
+    "Concentric",
+    "Midpoint",
+    "PointOn",
+    "Symmetric",
+    "Fix",
+    "Distance",
+    "HorizontalDistance",
+    "VerticalDistance",
+    "Radius",
+    "Diameter",
+    "Angle",
+    "Feature",
+    "DatumPlane",
+    "extrude",
+    "revolve",
+    "fillet",
+    "chamfer",
+    "shell",
+    "hole",
+    "box",
+    "cylinder",
+    "sphere",
+    "cone",
+    "torus",
+    "boolean",
+    "mirror",
+    "linear_pattern",
+    "circular_pattern",
+    "datum_plane",
+    "move",
+    "split",
+    "feature",
+    "Axis",
+    "Element",
+    "Selection",
+    "Ref",
+    "faces",
+    "edges",
+    "vertices",
+    "export_stl",
+    "export_3mf",
+    "export_obj",
+    "export_step",
+    "BoundingBox",
+    "PrintReport",
+    "Finding",
+    "run_script",
+    "run_code",
+    "PartsmithError",
+    "EngineError",
+    "FeatureError",
+    "SelectionError",
+    "ExpressionError",
+    "PartsmithWarning",
 ];
 
 impl Session {
@@ -190,7 +301,7 @@ fn snake_case(name: &str) -> String {
 #[derive(Debug, Clone)]
 enum Plan {
     /// A `with Sketch(...)` block with its entities and constraints.
-    Sketch(SketchParams),
+    Sketch(Box<SketchParams>),
     /// The registry's call.
     Call,
 }
@@ -313,7 +424,11 @@ fn targets(record: &FeatureRecord, body: &Id) -> bool {
 /// The block part of a feature (rule 5): its `body` param (`target` for `boolean`) when it
 /// names a document body.
 fn own_part(document: &Document, record: &FeatureRecord) -> Option<Id> {
-    let key = if record.kind == "boolean" { "target" } else { "body" };
+    let key = if record.kind == "boolean" {
+        "target"
+    } else {
+        "body"
+    };
     let body = record.params.get(key).and_then(Value::as_str)?;
     document
         .bodies
@@ -348,10 +463,12 @@ fn plan(registry: &Registry, names: &Names<'_>, position: usize) -> Plan {
         }
         for constraint in &params.constraints {
             for entity in constraint_entities(constraint) {
-                requests.entities.insert((record.id.clone(), entity.clone()));
+                requests
+                    .entities
+                    .insert((record.id.clone(), entity.clone()));
             }
         }
-        return Plan::Sketch(params);
+        return Plan::Sketch(Box::new(params));
     }
     registry.python(record, names);
     Plan::Call
@@ -384,9 +501,7 @@ fn block_params(
 /// Every entity id a constraint names, reserved names included, in field order.
 fn constraint_entities(constraint: &SketchConstraint) -> Vec<&Id> {
     match &constraint.kind {
-        ConstraintKind::Coincident { points } => {
-            points.iter().map(|point| &point.entity).collect()
-        }
+        ConstraintKind::Coincident { points } => points.iter().map(|point| &point.entity).collect(),
         ConstraintKind::PointOnObject { point, curve } => vec![&point.entity, curve],
         ConstraintKind::Horizontal(target) | ConstraintKind::Vertical(target) => {
             alignment_entities(target)
@@ -404,9 +519,7 @@ fn constraint_entities(constraint: &SketchConstraint) -> Vec<&Id> {
         ConstraintKind::Midpoint { point, line } => vec![&point.entity, line],
         ConstraintKind::Fix { target } => vec![&target.entity],
         ConstraintKind::Distance { target, .. } => match target {
-            DistanceTarget::Points { points } => {
-                points.iter().map(|point| &point.entity).collect()
-            }
+            DistanceTarget::Points { points } => points.iter().map(|point| &point.entity).collect(),
             DistanceTarget::PointLine { point, line } => vec![&point.entity, line],
             DistanceTarget::Line { line } => vec![line],
         },
@@ -532,11 +645,17 @@ fn part_lines(document: &Document, names: &Names<'_>) -> String {
         if body.role != BodyRole::Part
             && let Ok(Value::String(role)) = serde_json::to_value(body.role)
         {
-            call.keywords.push(("role".to_string(), PythonValue::Str(role)));
+            call.keywords
+                .push(("role".to_string(), PythonValue::Str(role)));
         }
         call.keywords
             .push(("id".to_string(), PythonValue::Str(body.id.to_string())));
-        lines.push(statement(0, &format!("{} = ", variables.parts[&body.id]), &call, ""));
+        lines.push(statement(
+            0,
+            &format!("{} = ", variables.parts[&body.id]),
+            &call,
+            "",
+        ));
     }
     lines.join("\n")
 }
@@ -572,17 +691,19 @@ fn timeline(document: &Document, registry: &Registry, plans: &[Plan], names: &Na
             }
             None => 0,
         };
-        for current in position..end {
+        let features = document.features.iter().zip(plans).enumerate();
+        for (current, (record, plan)) in features.take(end).skip(position) {
             *names.current.borrow_mut() = current;
-            let record = &document.features[current];
             let variable = names.variables.borrow().features.get(&record.id).cloned();
-            lines.push(match &plans[current] {
+            lines.push(match plan {
                 Plan::Sketch(params) => {
                     sketch_block(record, params, variable.as_deref(), indent, names)
                 }
                 Plan::Call => {
                     let call = registry.python(record, names);
-                    let prefix = variable.map(|variable| format!("{variable} = ")).unwrap_or_default();
+                    let prefix = variable
+                        .map(|variable| format!("{variable} = "))
+                        .unwrap_or_default();
                     statement(indent, &prefix, &call, "")
                 }
             });
@@ -603,13 +724,14 @@ fn sketch_block(
     let units = names.document.units;
     let mut call = PythonCall::new("Sketch");
     match &params.plane {
-        SketchPlane::Origin { plane } => call.positional.push(PythonValue::Name(
-            format!("Plane.{}", match plane {
+        SketchPlane::Origin { plane } => call.positional.push(PythonValue::Name(format!(
+            "Plane.{}",
+            match plane {
                 partsmith_sketch::OriginPlane::Xy => "XY",
                 partsmith_sketch::OriginPlane::Xz => "XZ",
                 partsmith_sketch::OriginPlane::Yz => "YZ",
-            }),
-        )),
+            }
+        ))),
         SketchPlane::Datum { feature } => call.positional.push(PythonValue::Name(
             names.feature_variable(feature).unwrap_or_default(),
         )),
@@ -645,7 +767,14 @@ fn sketch_block(
     };
     let mut lines = vec![statement(indent, "with ", &call, &suffix)];
     let inner = indent + INDENT;
-    let entity = |id: &Id| names.entity_variable(&record.id, id);
+    let entity = |id: &Id| {
+        names
+            .variables
+            .borrow()
+            .entities
+            .get(&(record.id.clone(), id.clone()))
+            .cloned()
+    };
     for stored in &params.entities {
         let call = entity_call(stored, units);
         let prefix = entity(&stored.id)
@@ -759,14 +888,18 @@ fn constraint_call(
         }
         ConstraintKind::Horizontal(target) => ("Horizontal", alignment(target), None),
         ConstraintKind::Vertical(target) => ("Vertical", alignment(target), None),
-        ConstraintKind::Parallel { lines } => ("Parallel", lines.iter().map(variable).collect(), None),
+        ConstraintKind::Parallel { lines } => {
+            ("Parallel", lines.iter().map(variable).collect(), None)
+        }
         ConstraintKind::Perpendicular { lines } => {
             ("Perpendicular", lines.iter().map(variable).collect(), None)
         }
         ConstraintKind::Collinear { lines } => {
             ("Collinear", lines.iter().map(variable).collect(), None)
         }
-        ConstraintKind::Tangent { curves } => ("Tangent", curves.iter().map(variable).collect(), None),
+        ConstraintKind::Tangent { curves } => {
+            ("Tangent", curves.iter().map(variable).collect(), None)
+        }
         ConstraintKind::Concentric { curves } => {
             ("Concentric", curves.iter().map(variable).collect(), None)
         }
@@ -776,9 +909,10 @@ fn constraint_call(
             vec![point(&points[0]), point(&points[1]), variable(line)],
             None,
         ),
-        ConstraintKind::Midpoint { point: middle, line } => {
-            ("Midpoint", vec![point(middle), variable(line)], None)
-        }
+        ConstraintKind::Midpoint {
+            point: middle,
+            line,
+        } => ("Midpoint", vec![point(middle), variable(line)], None),
         ConstraintKind::Fix { target } => ("Fix", vec![point(target)], None),
         ConstraintKind::Distance { target, dimension } => {
             let targets = match target {
@@ -802,9 +936,11 @@ fn constraint_call(
         ConstraintKind::Diameter { curve, dimension } => {
             ("Diameter", vec![variable(curve)], Some(dimension))
         }
-        ConstraintKind::Angle { lines, dimension } => {
-            ("Angle", lines.iter().map(variable).collect(), Some(dimension))
-        }
+        ConstraintKind::Angle { lines, dimension } => (
+            "Angle",
+            lines.iter().map(variable).collect(),
+            Some(dimension),
+        ),
     };
     let mut call = PythonCall::new(function);
     if let Some(dimension) = dimension {
@@ -815,8 +951,10 @@ fn constraint_call(
         }
     }
     call.positional = positional;
-    call.keywords
-        .push(("id".to_string(), PythonValue::Str(constraint.id.to_string())));
+    call.keywords.push((
+        "id".to_string(),
+        PythonValue::Str(constraint.id.to_string()),
+    ));
     call
 }
 

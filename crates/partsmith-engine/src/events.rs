@@ -1,7 +1,7 @@
 //! Event emission: what changed since the last events of a document (engine.md sections 3.4
 //! and 3.8).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use partsmith_features::{OutputData, Registry};
@@ -60,13 +60,11 @@ pub(crate) struct Emitted {
     pub(crate) refresh_meshes: bool,
 }
 
-/// The fields of a `document_changed` event besides the handle.
+/// The fields of a `document_changed` event besides the handle and the recipe.
 #[derive(Debug, Clone, PartialEq)]
 struct Changed {
-    /// The revision.
+    /// The revision, which identifies the recipe: every recipe change increments it.
     revision: u64,
-    /// The recipe.
-    document: Arc<Document>,
     /// Whether it differs from the baseline.
     dirty: bool,
     /// The undo label.
@@ -145,7 +143,6 @@ fn document_changed(
 ) -> Result<(), EngineError> {
     let changed = Changed {
         revision: open.revision,
-        document: Arc::clone(&open.document),
         dirty: open.dirty()?,
         undo: open.undo.undo_label().map(str::to_string),
         redo: open.undo.redo_label().map(str::to_string),
@@ -161,7 +158,7 @@ fn document_changed(
     output.events.push(Event::DocumentChanged {
         doc,
         revision: changed.revision,
-        document: Document::clone(&changed.document),
+        document: Document::clone(&open.document),
         dirty: changed.dirty,
         undo: changed.undo.clone(),
         redo: changed.redo.clone(),
@@ -176,11 +173,7 @@ fn document_changed(
 /// The solution `sketch_solved` reports for the sketch at `position`: its recompute output when
 /// it built, the engine's own solve when it failed, nothing when it is suppressed or rolled back
 /// or the solve fails.
-fn event_solution(
-    registry: &Registry,
-    open: &OpenDocument,
-    position: usize,
-) -> Option<Solved> {
+fn event_solution(registry: &Registry, open: &OpenDocument, position: usize) -> Option<Solved> {
     let record = open.document.features.get(position)?;
     let report = open.computed.report.features.get(position)?;
     match report.status {
@@ -193,7 +186,14 @@ fn event_solution(
         }
         Status::Error => {
             let params = sketch_params(registry, &open.document, record).ok()?;
-            solve_in(&open.document, &open.computed, position, &record.id, &params).ok()
+            solve_in(
+                &open.document,
+                &open.computed,
+                position,
+                &record.id,
+                &params,
+            )
+            .ok()
         }
         Status::Suppressed | Status::RolledBack | Status::NotRun => None,
     }
@@ -208,12 +208,12 @@ fn sketch_events(
     output: &mut Output,
 ) {
     let revision = open.revision;
-    let mut present = Vec::new();
+    let mut present = BTreeSet::new();
     for (position, record) in open.document.features.iter().enumerate() {
         if record.kind != SKETCH_TYPE {
             continue;
         }
-        present.push(record.id.clone());
+        present.insert(record.id.clone());
         let Some(solved) = event_solution(registry, open, position) else {
             continue;
         };
@@ -258,7 +258,7 @@ pub(crate) fn sketch_display(
 /// Emits `datum_plane` for each active datum plane whose placement changed, in timeline order.
 fn datum_events(open: &mut OpenDocument, doc: DocHandle, output: &mut Output) {
     let revision = open.revision;
-    let mut present = Vec::new();
+    let mut present = BTreeSet::new();
     for (record, report) in open
         .document
         .features
@@ -268,7 +268,7 @@ fn datum_events(open: &mut OpenDocument, doc: DocHandle, output: &mut Output) {
         if record.kind != DATUM_PLANE_TYPE {
             continue;
         }
-        present.push(record.id.clone());
+        present.insert(record.id.clone());
         if matches!(
             report.status,
             Status::Suppressed | Status::RolledBack | Status::NotRun
@@ -315,10 +315,11 @@ fn mesh_events(open: &mut OpenDocument, meshes: &mut Meshes<'_>) -> Result<(), E
             .filter(|_| view.has_geometry())
             .map(|identity| MeshKey::new(identity, &tolerance))
     };
-    let model: Vec<(Id, Option<(MeshKey, BodyView)>)> = display_bodies(&open.document, &open.computed)
-        .into_iter()
-        .map(|view| (view.body.clone(), key(&view).map(|key| (key, view))))
-        .collect();
+    let model: Vec<(Id, Option<(MeshKey, BodyView)>)> =
+        display_bodies(&open.document, &open.computed)
+            .into_iter()
+            .map(|view| (view.body.clone(), key(&view).map(|key| (key, view))))
+            .collect();
     let previews = preview_bodies(&open.computed);
     let preview: Vec<(Id, Option<(MeshKey, BodyView)>)> = open
         .document
@@ -331,8 +332,20 @@ fn mesh_events(open: &mut OpenDocument, meshes: &mut Meshes<'_>) -> Result<(), E
             (body.id.clone(), wanted)
         })
         .collect();
-    layer_events(&mut open.emitted.model, Layer::Model, model, refresh, meshes)?;
-    layer_events(&mut open.emitted.preview, Layer::Preview, preview, refresh, meshes)
+    layer_events(
+        &mut open.emitted.model,
+        Layer::Model,
+        model,
+        refresh,
+        meshes,
+    )?;
+    layer_events(
+        &mut open.emitted.preview,
+        Layer::Preview,
+        preview,
+        refresh,
+        meshes,
+    )
 }
 
 /// Emits the `body_mesh` events of one layer: for each body in document order whose wanted mesh
@@ -357,14 +370,7 @@ fn layer_events(
             Some((key, view)) => {
                 let mesh = meshes.cache.mesh(&key, &view.state)?;
                 let buffers = mesh_buffers(&mesh, meshes.output);
-                shown.insert(
-                    body.clone(),
-                    Shown {
-                        mesh_id,
-                        key,
-                        mesh,
-                    },
-                );
+                shown.insert(body.clone(), Shown { mesh_id, key, mesh });
                 Some(buffers)
             }
             None => {

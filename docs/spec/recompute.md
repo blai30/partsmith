@@ -40,7 +40,8 @@ pub struct Recompute { /* registry, cache, run counter */ }
 impl Recompute {
     /// A recompute with the default cache size.
     pub fn new(registry: Arc<Registry>) -> Self;
-    /// A recompute that keeps at most `max_entries` results not used by the latest run.
+    /// A recompute whose cache keeps at most `max_entries` results after each run. Results the
+    /// latest run used are never evicted, so a run can leave more (section 3.7).
     pub fn with_cache_limit(registry: Arc<Registry>, max_entries: usize) -> Self;
     /// The feature registry.
     pub fn registry(&self) -> &Arc<Registry>;
@@ -286,7 +287,7 @@ For every feature record, in timeline order:
 
 1. **Validation.** `Registry::validate_and_canonicalize`. Failure (unknown type, invalid params, a sketch that fails its own validation) makes the node `Invalid` with that error. Results are memoized per record content within the `Recompute`, so unchanged records are not reparsed.
 2. **Dependencies.** `Registry::dependencies` of the canonical record.
-3. **State.** Active candidates are the records up to and including `input.stop_at` when it is set and names a record; otherwise the records before `document.rollback` (the first rolled-back record) when it is set and names a record; otherwise all records. Every other record is `RolledBack`: with a stop point, the records after it; with the rollback marker, the marker record and every later one. A `stop_at` or `rollback` that names no record is ignored (the whole timeline runs) with a document-level warning `unknown_stop`: `The preview or rollback point '{id}' is not in this document, so the whole timeline was rebuilt.` Among the candidates, suppressed records are `Suppressed`, invalid ones `Invalid`, the rest `Active`. Rollback is checked first: a suppressed record that is not a candidate is `RolledBack`.
+3. **State.** Active candidates are the records up to and including `input.stop_at` when it is set and names a record; otherwise the records before `document.rollback` (the first rolled-back record) when it is set and names a record; otherwise all records. Every other record is `RolledBack`: with a stop point, the records after it; with the rollback marker, the marker record and every later one. A `stop_at` that names no record is ignored with a document-level warning `unknown_stop`, and the rollback rule applies as if it were absent; a `rollback` that names no record is ignored the same way (the model rejects such documents at load, so this only guards in-memory edits). When nothing valid is left the whole timeline runs and the warning reads `The preview or rollback point '{id}' is not in this document, so the whole timeline was rebuilt.`; when an unknown `stop_at` falls back to a valid rollback marker it reads `The preview point '{id}' is not in this document, so the timeline was rebuilt up to the rollback marker.` Among the candidates, suppressed records are `Suppressed`, invalid ones `Invalid`, the rest `Active`. Rollback is checked first: a suppressed record that is not a candidate is `RolledBack`.
 4. **Parameters.** `Document::evaluate_parameters(context)` (expressions.md section 3.13) gives `ParameterValues`; the report's `parameters` list them.
 
 ### 3.2 The graph
@@ -297,7 +298,7 @@ Edges go only from earlier to later records, so the graph is acyclic by construc
 - **Body edges.** For each `Link` in `bodies_read` and `bodies_written`, a `Body(b)` edge from the body's **provider**: the last `Active` record before the node whose `bodies_written` contains `b`. `Suppressed`, `RolledBack` and `Invalid` records are never providers. A body with no provider has no edge (it is empty at that point).
 - **Assets** create no edges: an asset name is a content hash stored in the params, so it is part of the cache key (section 3.4).
 - **Parameters.** A node's `parameters` are the parameters named in its expressions (`Expr::references().parameters` resolved by name), plus every parameter those reference, transitively, in document order. Its `context_names` are the dotted names (`references().values`) of its expressions and of those parameters.
-- `affected_by(changes)`: the seed set is each `Feature(id)` itself; each active node whose `parameters` contain a changed `Parameter`; each active node whose `context_names` contain a changed `ContextName`; for `Units`, every active node with `uses_expressions`. The result is the seeds that are active plus every active node reachable from them along edges, in timeline order.
+- `affected_by(changes)`: the seed set is each `Feature(id)` itself; each active node whose `parameters` contain a changed `Parameter`; each active node whose `context_names` contain a changed `ContextName`; for `Units`, every active node with `uses_expressions`. The result is the seeds that are active plus every active node reachable from them along edges, in timeline order. Query the graph in which the changed feature is active: the graph after the edit for adding or unsuppressing a feature, the graph before it for removing or suppressing one, and the union of both results when an edit changes what a feature reads or writes.
 - `independent(a, b)` is true when neither node is reachable from the other.
 
 ### 3.3 Pre-build checks
@@ -381,7 +382,7 @@ Recompute has no error type of its own: every problem is a feature's status (`Fe
 
 | Code | Severity | Text |
 | --- | --- | --- |
-| `unknown_stop` | warning | `The preview or rollback point '{id}' is not in this document, so the whole timeline was rebuilt.` |
+| `unknown_stop` | warning | `The preview or rollback point '{id}' is not in this document, so the whole timeline was rebuilt.`, or `The preview point '{id}' is not in this document, so the timeline was rebuilt up to the rollback marker.` when a valid rollback marker remains (section 3.1) |
 
 ## 5. Performance budgets
 
