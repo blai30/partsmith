@@ -694,7 +694,10 @@ fn t041_union_of_circle_halves() {
     let sketch = r#"{"id": "f-sk1", "type": "sketch", "plane": {"kind": "origin", "plane": "XY"}, "entities": [{"id": "e-5", "type": "circle", "center": [0, 0], "radius": 10}, {"id": "e-6", "type": "line", "start": [-10, 0], "end": [10, 0]}]}"#;
     let profile = r#"{"sketch": "f-sk1", "regions": [{"key": "e-5,e-6", "fp": "c=0,4.244132|a=157.079633"}, {"key": "e-5,~e-6", "fp": "c=0,-4.244132|a=157.079633"}]}"#;
 
-    let run = Run::records(&["b-1"], &[sketch, &extrude(profile, &distance("20"), "new")]);
+    let run = Run::records(
+        &["b-1"],
+        &[sketch, &extrude(profile, &distance("20"), "new")],
+    );
 
     run.assert_all_ok();
     assert_volume_and_bounds(&run, 6283.185307, [-10.0, -10.0, 0.0], [10.0, 10.0, 20.0]);
@@ -709,7 +712,10 @@ fn t042_pieces_of_one_line_that_stay_separate() {
     let sketch = r#"{"id": "f-sk1", "type": "sketch", "plane": {"kind": "origin", "plane": "XY"}, "entities": [{"id": "e-1", "type": "line", "start": [0, 0], "end": [80, 0]}, {"id": "e-2", "type": "line", "start": [80, 0], "end": [80, 50]}, {"id": "e-3", "type": "line", "start": [80, 50], "end": [0, 50]}, {"id": "e-4", "type": "line", "start": [0, 50], "end": [0, 0]}, {"id": "e-5", "type": "circle", "center": [40, 0], "radius": 10}]}"#;
     let profile = r#"{"sketch": "f-sk1", "regions": [{"key": "e-1,e-2,e-3,e-4,~e-5", "fp": "c=40,25.848398|a=3842.920367"}]}"#;
 
-    let run = Run::records(&["b-1"], &[sketch, &extrude(profile, &distance("10"), "new")]);
+    let run = Run::records(
+        &["b-1"],
+        &[sketch, &extrude(profile, &distance("10"), "new")],
+    );
 
     run.assert_all_ok();
     let shape = run.shape("b-1");

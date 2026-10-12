@@ -758,6 +758,11 @@ function modelBounds(state: AppState): BoundingBox | null {
   return bounds
 }
 
+function visibleBounds(state: AppState): BoundingBox | null {
+  const bounds = modelBounds(state)
+  return bounds === null ? null : normalizedBox(bounds)
+}
+
 export function createScene(backend: RenderBackend): Scene {
   /** CPU copies of everything uploaded, for restore(). */
   const uploaded = new Map<string, Geometry>()
@@ -889,10 +894,6 @@ export function createScene(backend: RenderBackend): Scene {
 
 
 
-  function visibleBounds(state: AppState): BoundingBox | null {
-    const bounds = modelBounds(state)
-    return bounds === null ? null : normalizedBox(bounds)
-  }
 
 
   function frame(

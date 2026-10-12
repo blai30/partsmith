@@ -8,9 +8,8 @@ use std::time::Duration;
 
 use feature_support::{
     Run, assert_bounding_box, assert_canonical_example, assert_empty, assert_error_field,
-    assert_face_area,
-    assert_face_count, assert_face_kind, assert_face_names, assert_volume, example_paths, face,
-    face_index, load_example, median_build_time,
+    assert_face_area, assert_face_count, assert_face_kind, assert_face_names, assert_volume,
+    example_paths, face, face_index, load_example, median_build_time,
 };
 use partsmith_occt_sys::GeometryKind;
 
