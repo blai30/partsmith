@@ -105,6 +105,17 @@ describe('startCore (3.1)', () => {
     expect(document.recipe.units).toBe('mm')
   })
 
+  it('starts with the origin items hidden, as New and Open do (3.10)', async () => {
+    const fake = await startFakeApp()
+    const visible = fake.app.store.getState().view.sessionVisible
+    for (const name of ['XY', 'XZ', 'YZ', 'X', 'Y', 'Z', 'O']) {
+      expect(visible[`origin:${name}`]).toBe(false)
+    }
+    await newDocument(fake.app)
+    await settle()
+    expect(fake.app.store.getState().view.sessionVisible).toEqual(visible)
+  })
+
   it('a transport that fails to start sets the core status to failed with the reason', async () => {
     const fake = createFakeApp()
     fake.transport.failNextStart(new CoreFatalError('HTTP 404'))
@@ -632,6 +643,27 @@ describe('undo and redo (3.20)', () => {
     await settle()
     expect(bodiesOf(currentDocument(fake.app).recipe)[0]?.name).toBe('Box')
     expect(fake.transport.commandTypes()).toEqual(['apply_edits', 'undo', 'redo'])
+  })
+
+  it('announces "Undid {label}" and "Redid {label}" in the polite live region', async () => {
+    const fake = await startWithDocument('cube.ptsm', CUBE_DOCUMENT)
+    await applyEdits(fake.app, 'Rename', RENAME_TO_BOX)
+    await undo(fake.app)
+    await settle()
+    const undone = fake.app.store.getState().announcement
+    expect(undone?.message).toBe('Undid Rename')
+    await redo(fake.app)
+    await settle()
+    const redone = fake.app.store.getState().announcement
+    expect(redone?.message).toBe('Redid Rename')
+    expect(redone?.id).not.toBe(undone?.id)
+  })
+
+  it('announces nothing when there is nothing to undo', async () => {
+    const fake = await startWithDocument('cube.ptsm', CUBE_DOCUMENT)
+    await undo(fake.app)
+    await settle()
+    expect(fake.app.store.getState().announcement).toBeNull()
   })
 
   it('U-66 Mod+Z with a feature command active cancels the command and calls no undo', async () => {

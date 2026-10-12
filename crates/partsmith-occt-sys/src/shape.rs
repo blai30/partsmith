@@ -4,7 +4,7 @@ use std::fmt;
 
 use partsmith_mesh::BoundingBox;
 
-use crate::element::{ElementGeometry, Topology};
+use crate::element::{EdgeNormals, ElementGeometry, Topology};
 use crate::error::{KernelError, Operation, call};
 use crate::ffi::bridge as sys;
 use crate::values::Point;
@@ -311,6 +311,16 @@ impl Shape {
         let topology = call(Operation::Query, || sys::shape_topology(self.inner()))?;
         Topology::from_ffi(topology)
     }
+
+    /// The point and tangent at the middle of an edge, and the outward normal there of each
+    /// face containing it (kernel spec section 3.6, item 5).
+    pub fn edge_normals(&self, edge: u32) -> Result<EdgeNormals, KernelError> {
+        self.check_index(Operation::Query, SubShapeKind::Edge, edge)?;
+        let normals = call(Operation::Query, || {
+            sys::shape_edge_normals(self.inner(), edge)
+        })?;
+        Ok(EdgeNormals::from_ffi(normals))
+    }
 }
 
 #[cfg(test)]
@@ -378,6 +388,18 @@ mod tests {
     #[test]
     fn empty_shape_has_no_solids() {
         assert!(Shape::empty().solids().expect("solids").is_empty());
+    }
+
+    #[test]
+    fn edge_normals_of_a_missing_edge_are_rejected_in_rust() {
+        let error = Shape::empty()
+            .edge_normals(1)
+            .expect_err("an empty shape has no edges");
+
+        assert_eq!(error.kind, crate::KernelErrorKind::InvalidInput);
+        assert_eq!(error.operation, Operation::Query);
+        assert_eq!(error.exception, "");
+        assert_eq!(error.message, "Edge 1 does not exist in this body.");
     }
 
     #[test]

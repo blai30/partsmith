@@ -9,7 +9,7 @@ import {
 } from '../test/fakes/documents'
 import { withoutNulls } from '../test/fakes/protocol'
 import { createFakeTransport, type FakeTransport } from '../test/fakes/transport'
-import { createCoreApi, type CoreApi } from './api'
+import { createCoreApi, rebuildsDocument, rebuiltDocument, type CoreApi } from './api'
 import { CoreError, createCoreClient } from './client'
 
 type Setup = { readonly api: CoreApi; readonly transport: FakeTransport }
@@ -303,5 +303,43 @@ describe('createCoreApi', () => {
       doc: 1,
       format: { kind: 'stl', binary: true, per_body: false },
     })
+  })
+})
+
+describe('rebuildsDocument and rebuiltDocument', () => {
+  it('count edits, transactions, undo and opening as rebuilds, but not saving, exporting or queries', () => {
+    const rebuilding: readonly Command[] = [
+      { type: 'apply_edits', doc: 1, label: 'Rename', edits: [...RENAME_EDITS] },
+      { type: 'commit_transaction', doc: 1 },
+      { type: 'undo', doc: 1 },
+      { type: 'open_document', text: '{}' },
+    ]
+    const quiet: readonly Command[] = [
+      { type: 'save_document', doc: 1 },
+      { type: 'mark_saved', doc: 1, revision: 2 },
+      { type: 'begin_transaction', doc: 1, label: 'Extrude' },
+      { type: 'export', doc: 1, format: { kind: 'step' } },
+      { type: 'engine_info' },
+    ]
+    expect(rebuilding.map(rebuildsDocument)).toEqual([true, true, true, true])
+    expect(quiet.map(rebuildsDocument)).toEqual([false, false, false, false, false])
+  })
+
+  it('names the document from the command, or from the result of open_document', () => {
+    expect(rebuiltDocument({ type: 'undo', doc: 3 }, { type: 'undo', revision: 4, label: 'Edit' })).toBe(
+      3,
+    )
+    expect(
+      rebuiltDocument(
+        { type: 'open_document', text: '{}' },
+        { type: 'open_document', doc: 7, migrated_from: null },
+      ),
+    ).toBe(7)
+    expect(
+      rebuiltDocument(
+        { type: 'save_document', doc: 3 },
+        { type: 'save_document', text: '', assets: [], revision: 1 },
+      ),
+    ).toBeNull()
   })
 })

@@ -27,11 +27,11 @@ const char *operation_name(BOPAlgo_Operation operation) {
   }
 }
 
-// Runs one boolean of `target` with `tools` in non-destructive mode, optionally unifying
-// coplanar faces and collinear edges, and merges its history.
-TopoDS_Shape run(BOPAlgo_Operation operation, const TopoDS_Shape &target,
-                 const TopTools_ListOfShape &tools, bool unify,
-                 const Handle(BRepTools_History) &history) {
+}  // namespace
+
+TopoDS_Shape detail::run_boolean(BOPAlgo_Operation operation, const TopoDS_Shape &target,
+                                 const TopTools_ListOfShape &tools, bool unify,
+                                 const Handle(BRepTools_History) &history) {
   BRepAlgoAPI_BooleanOperation boolean;
   boolean.SetOperation(operation);
   TopTools_ListOfShape arguments;
@@ -54,6 +54,8 @@ TopoDS_Shape run(BOPAlgo_Operation operation, const TopoDS_Shape &target,
   return boolean.Shape();
 }
 
+namespace {
+
 // Runs a boolean and normalizes, checks and repairs the result. History inputs: [target,
 // tools...].
 OpResultData boolean_result(BOPAlgo_Operation operation, const Shape &target,
@@ -70,14 +72,14 @@ OpResultData boolean_result(BOPAlgo_Operation operation, const Shape &target,
       }
       TopTools_ListOfShape tool;
       tool.Append(tool_shapes[position]);
-      result = run(operation, result, tool, position + 1 == tool_shapes.size(), history);
+      result = run_boolean(operation, result, tool, position + 1 == tool_shapes.size(), history);
     }
   } else {
     TopTools_ListOfShape all_tools;
     for (const TopoDS_Shape &tool : tool_shapes) {
       all_tools.Append(tool);
     }
-    result = run(operation, target.get(), all_tools, true, history);
+    result = run_boolean(operation, target.get(), all_tools, true, history);
   }
   result = solids_only(result);
   if (TopExp_Explorer(result, TopAbs_SOLID).More()) {

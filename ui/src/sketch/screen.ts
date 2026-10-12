@@ -1,0 +1,282 @@
+import type { SketchConstraint, SketchSolution } from '../generated/protocol'
+import { glyphAnchor } from './annotations'
+import type { DimensionGeometry } from './annotations'
+import type { PreviewShape } from './drawing'
+import {
+  add,
+  length,
+  scale,
+  segmentTouchesBox,
+  subtract,
+  tessellateArc,
+  boxContains,
+  type Box2,
+  type Vector2,
+} from './geometry'
+import type { SolvedEntity } from './operands'
+
+// The sketch overlay in canvas pixels (ui.md 3.16.2, 3.16.9): sketch geometry projected through the
+// camera into SVG path data, the screen offsets of constraint glyphs, and box selection.
+
+/** The canvas pixel (CSS pixels from the top left) of a sketch point, or null behind the eye. */
+export type Projector = (point: Vector2) => Vector2 | null
+
+/** Glyphs sit this many CSS pixels (times the UI scale) off their curve (3.16.2). */
+const GLYPH_OFFSET_PIXELS = 14
+/** Further glyphs on the same anchor stack this many CSS pixels apart along the curve. */
+const GLYPH_STACK_PIXELS = 20
+
+/** A number for SVG path data: two decimals are finer than a device pixel. */
+function coordinate(value: number): string {
+  return String(Math.round(value * 100) / 100)
+}
+
+/** Vertices of a tessellation, 2 floats per vertex, as points. */
+function vertices(positions: Float32Array): Vector2[] {
+  const points: Vector2[] = []
+  for (let i = 0; 2 * i + 1 < positions.length; i += 1) {
+    points.push([positions[2 * i] ?? 0, positions[2 * i + 1] ?? 0])
+  }
+  return points
+}
+
+/** A polyline through sketch points, projected; a point behind the eye breaks it into pieces. */
+export function projectPolyline(points: readonly Vector2[], project: Projector): Vector2[][] {
+  const pieces: Vector2[][] = []
+  let current: Vector2[] = []
+  for (const point of points) {
+    const pixel = project(point)
+    if (pixel === null) {
+      if (current.length > 1) {
+        pieces.push(current)
+      }
+      current = []
+      continue
+    }
+    current.push(pixel)
+  }
+  if (current.length > 1) {
+    pieces.push(current)
+  }
+  return pieces
+}
+
+/** SVG path data of open polylines in canvas pixels. */
+export function polylinePath(polylines: readonly (readonly Vector2[])[]): string {
+  return polylines
+    .filter((polyline) => polyline.length > 1)
+    .map((polyline) =>
+      polyline
+        .map(
+          (point, index) =>
+            `${index === 0 ? 'M' : 'L'}${coordinate(point[0])} ${coordinate(point[1])}`,
+        )
+        .join(' '),
+    )
+    .join(' ')
+}
+
+/** SVG path data of a circle of `radius` pixels around a canvas pixel. */
+export function circlePath(center: Vector2, radius: number): string {
+  const [x, y] = center
+  const left = `${coordinate(x - radius)} ${coordinate(y)}`
+  const diameter = coordinate(2 * radius)
+  const size = coordinate(radius)
+  return `M${left} a${size} ${size} 0 1 0 ${diameter} 0 a${size} ${size} 0 1 0 -${diameter} 0`
+}
+
+/** The sketch points along a circle or arc, a full turn when `end - start` is 2π or more. */
+function arcPoints(
+  center: Vector2,
+  radius: number,
+  start: number,
+  end: number,
+  toleranceMillimeters: number,
+): Vector2[] {
+  return vertices(tessellateArc(center, radius, start, end, toleranceMillimeters))
+}
+
+/** The sketch points along a rubber band shape. */
+export function shapePoints(shape: PreviewShape, toleranceMillimeters: number): Vector2[] {
+  switch (shape.kind) {
+    case 'line':
+      return [shape.start, shape.end]
+    case 'circle':
+      return arcPoints(shape.center, shape.radius, 0, 2 * Math.PI, toleranceMillimeters)
+    case 'arc':
+      return arcPoints(shape.center, shape.radius, shape.start, shape.end, toleranceMillimeters)
+  }
+}
+
+/** The sketch points along an entity's curve; a point entity is its position alone. */
+export function entityPoints(entity: SolvedEntity, toleranceMillimeters: number): Vector2[] {
+  switch (entity.type) {
+    case 'point':
+      return [entity.position]
+    case 'line':
+      return [entity.start, entity.end]
+    case 'circle':
+      return arcPoints(entity.center, entity.radius, 0, 2 * Math.PI, toleranceMillimeters)
+    case 'arc':
+      return arcPoints(
+        entity.center,
+        entity.radius,
+        entity.start_angle,
+        entity.end_angle,
+        toleranceMillimeters,
+      )
+  }
+}
+
+/** An arrowhead as a closed triangle: its tip and a base `size` pixels back toward `toward`. */
+export function arrowheadPath(tip: Vector2, toward: Vector2, size: number): string {
+  const along = subtract(toward, tip)
+  const span = length(along)
+  if (span === 0) {
+    return ''
+  }
+  const unit = scale(along, 1 / span)
+  const normal: Vector2 = [-unit[1], unit[0]]
+  const base = add(tip, scale(unit, size))
+  const left = add(base, scale(normal, size / 3))
+  const right = add(base, scale(normal, -size / 3))
+  return `M${coordinate(tip[0])} ${coordinate(tip[1])} L${coordinate(left[0])} ${coordinate(left[1])} L${coordinate(right[0])} ${coordinate(right[1])} Z`
+}
+
+/** A dimension's geometry in canvas pixels: line path data and filled arrowhead path data. */
+export function dimensionPaths(
+  geometry: DimensionGeometry,
+  project: Projector,
+  toleranceMillimeters: number,
+  arrowPixels: number,
+): { readonly lines: string; readonly arrows: string } {
+  const polylines = [
+    ...geometry.lines.flatMap(([start, end]) => projectPolyline([start, end], project)),
+    ...geometry.arcs.flatMap((arc) =>
+      projectPolyline(
+        arcPoints(arc.center, arc.radius, arc.start, arc.end, toleranceMillimeters),
+        project,
+      ),
+    ),
+  ]
+  const arrows = geometry.arrows.flatMap((arrow) => {
+    const tip = project(arrow.tip)
+    const toward = project(arrow.toward)
+    return tip === null || toward === null ? [] : [arrowheadPath(tip, toward, arrowPixels)]
+  })
+  return { lines: polylinePath(polylines), arrows: arrows.filter((path) => path !== '').join(' ') }
+}
+
+/** The screen direction of a sketch direction at a sketch point, as a unit vector, or null. */
+function screenDirection(
+  project: Projector,
+  at: Vector2,
+  direction: Vector2,
+  pixel: Vector2,
+): Vector2 | null {
+  const size = length(direction)
+  if (size === 0) {
+    return null
+  }
+  const ahead = project(add(at, scale(direction, 1 / size)))
+  if (ahead === null) {
+    return null
+  }
+  const along = subtract(ahead, pixel)
+  const span = length(along)
+  return span > 1e-9 ? scale(along, 1 / span) : null
+}
+
+/**
+ * The canvas pixel at the center of each glyph (3.16.2): its anchor moved 14 pixels (times the UI
+ * scale) off the curve on the side facing up the screen, further glyphs on the same anchor 20
+ * pixels apart along it; glyphs at a point sit up and to the right of it. Null when the anchor is
+ * not in view.
+ */
+export function glyphCenters(
+  constraints: readonly SketchConstraint[],
+  solution: SketchSolution,
+  project: Projector,
+  uiScale: number,
+): ReadonlyMap<string, Vector2 | null> {
+  const centers = new Map<string, Vector2 | null>()
+  const stacked = new Map<string, number>()
+  const offset = GLYPH_OFFSET_PIXELS * uiScale
+  const stack = GLYPH_STACK_PIXELS * uiScale
+  for (const constraint of constraints) {
+    const anchor = glyphAnchor(constraint, solution)
+    const pixel = anchor === null ? null : project(anchor.at)
+    if (anchor === null || pixel === null) {
+      centers.set(constraint.id, null)
+      continue
+    }
+    const index = stacked.get(anchor.group) ?? 0
+    stacked.set(anchor.group, index + 1)
+    const along =
+      anchor.tangent === null ? null : screenDirection(project, anchor.at, anchor.tangent, pixel)
+    if (along === null) {
+      const diagonal = offset / Math.SQRT2
+      centers.set(constraint.id, [pixel[0] + diagonal + index * stack, pixel[1] - diagonal])
+      continue
+    }
+    // Of the two normals, the one pointing up the screen (or right, for a vertical curve).
+    const normal: Vector2 = [-along[1], along[0]]
+    const facing =
+      normal[1] < -1e-9 || (Math.abs(normal[1]) <= 1e-9 && normal[0] > 0)
+        ? normal
+        : scale(normal, -1)
+    centers.set(constraint.id, add(add(pixel, scale(facing, offset)), scale(along, index * stack)))
+  }
+  return centers
+}
+
+/** A rectangle on the canvas in CSS pixels. */
+export type ScreenBox = {
+  readonly left: number
+  readonly top: number
+  readonly right: number
+  readonly bottom: number
+}
+
+/** The box spanned by two canvas pixels. */
+export function screenBox(start: Vector2, end: Vector2): ScreenBox {
+  return {
+    left: Math.min(start[0], end[0]),
+    top: Math.min(start[1], end[1]),
+    right: Math.max(start[0], end[0]),
+    bottom: Math.max(start[1], end[1]),
+  }
+}
+
+/**
+ * The entities a selection box takes (3.16.9): for a window selection those whose every point and
+ * tessellation vertex lies inside, for a crossing selection those with any part inside.
+ */
+export function entitiesInBox(
+  solution: SketchSolution,
+  project: Projector,
+  box: ScreenBox,
+  mode: 'window' | 'crossing',
+  toleranceMillimeters: number,
+): readonly SolvedEntity[] {
+  const area: Box2 = { min: [box.left, box.top], max: [box.right, box.bottom] }
+  return solution.entities.filter((entity) => {
+    const pixels = entityPoints(entity, toleranceMillimeters).map(project)
+    if (mode === 'window') {
+      return pixels.every((pixel) => pixel !== null && boxContains(area, pixel))
+    }
+    if (pixels.length === 1) {
+      const [only] = pixels
+      return only !== null && only !== undefined && boxContains(area, only)
+    }
+    return pixels.some((pixel, index) => {
+      const next = pixels[index + 1]
+      return (
+        pixel !== null &&
+        next !== null &&
+        next !== undefined &&
+        segmentTouchesBox(area, pixel, next)
+      )
+    })
+  })
+}

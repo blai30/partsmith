@@ -1,9 +1,10 @@
 import { featureLabel } from '../../core/labels'
+import { createLatestOnly } from '../../core/queue'
 import type { Edit, FeatureRecord } from '../../generated/protocol'
 import { MESSAGES } from '../../messages'
 import type { App } from '../createApp'
 import { coreUndo } from './document'
-import { commitEdits, documentOf } from './edits'
+import { commitEdits, documentOf, showCoreError } from './edits'
 import { notify } from './notifications'
 
 // Timeline edits (ui.md 3.9): rollback marker, reorder, suppress, delete and rename.
@@ -41,6 +42,96 @@ function rollbackEdit(records: readonly FeatureRecord[], position: number): Edit
 /** Moves the rollback marker to position 0 to N, labeled "Roll back". */
 export async function setRollback(app: App, position: number): Promise<void> {
   await commitEdits(app, 'Roll back', [rollbackEdit(recordsOf(app), position)])
+}
+
+/** A drag of the rollback marker in progress (3.9). */
+export type RollbackDrag = {
+  /** The marker is over gap `position` (0 to N): the model follows it live. */
+  move(position: number): void
+  /** Commits the drag as one undo entry, or cancels it when the marker is back where it started. */
+  drop(): Promise<void>
+  /** Cancels the drag (Esc): nothing is recorded and the model is as before. */
+  cancel(): Promise<void>
+}
+
+/**
+ * Starts dragging the rollback marker from gap `start` (3.9): a transaction labeled "Roll back"
+ * whose set_rollback follows the marker through a LatestOnly on the mutation queue, so the model
+ * updates live and newer gaps replace waiting ones. Null without a document.
+ */
+export function startRollbackDrag(app: App, start: number): RollbackDrag | null {
+  const document = documentOf(app)
+  if (document === null) {
+    return null
+  }
+  const { documentHandle } = document
+  // Gaps count the timeline as it was when the drag started; the drag reorders nothing.
+  const records = document.recipe.features ?? []
+  let position = start
+  let ended = false
+  const began = app.mutations
+    .run(() => app.core.beginTransaction(documentHandle, 'Roll back'))
+    .then(
+      () => true,
+      (error: unknown) => {
+        showCoreError(app, error)
+        return false
+      },
+    )
+  const rollbacks = createLatestOnly<number, void>(
+    async (gap) => {
+      if (await began) {
+        await app.mutations.run(() =>
+          app.core.applyEdits(documentHandle, null, [rollbackEdit(records, gap)]),
+        )
+      }
+    },
+    () => undefined,
+    (error) => {
+      showCoreError(app, error)
+    },
+  )
+
+  /** Ends the transaction after the last gap was applied: committed, or canceled. */
+  async function end(commit: boolean): Promise<void> {
+    ended = true
+    if (!commit) {
+      rollbacks.cancel()
+    }
+    await rollbacks.flush()
+    if (!(await began)) {
+      return
+    }
+    try {
+      if (commit) {
+        await app.mutations.run(() => app.core.commitTransaction(documentHandle))
+      } else {
+        await app.mutations.run(() => app.core.cancelTransaction(documentHandle))
+      }
+    } catch (error) {
+      showCoreError(app, error)
+    }
+  }
+
+  return {
+    move(gap) {
+      if (ended || gap === position) {
+        return
+      }
+      position = gap
+      rollbacks.submit(gap)
+    },
+    async drop() {
+      if (!ended) {
+        await end(position !== start)
+      }
+    },
+    async cancel() {
+      if (!ended) {
+        await end(false)
+      }
+    },
+  }
 }
 
 /** Moves a feature to a timeline index, labeled "Reorder"; its own index changes nothing. */

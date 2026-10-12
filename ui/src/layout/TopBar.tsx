@@ -131,7 +131,7 @@ function PaletteButton() {
     >
       <Search aria-hidden="true" strokeWidth={1.75} className="size-4" />
       <span>Search</span>
-      <kbd className="hidden text-xs font-normal @3xl:inline">{hint}</kbd>
+      <span className="hidden text-xs @3xl:inline">{hint}</span>
     </button>
   )
 }

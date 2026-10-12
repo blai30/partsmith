@@ -133,6 +133,20 @@ pub(crate) mod bridge {
         vertex_faces: IndexLists,
     }
 
+    /// One face containing an edge, with its outward unit normal at the edge's middle.
+    #[derive(Debug, Clone, Copy)]
+    struct FaceNormalData {
+        face: u32,
+        normal: Vec3,
+    }
+
+    /// The point and unit tangent at the middle of an edge, and the normals of its faces there.
+    struct EdgeNormalsData {
+        point: Vec3,
+        tangent: Vec3,
+        faces: Vec<FaceNormalData>,
+    }
+
     /// An axis-aligned box.
     #[derive(Debug, Clone, Copy)]
     struct BoundsData {
@@ -275,6 +289,7 @@ pub(crate) mod bridge {
         fn shape_element(shape: &Shape, kind: ElementKind, index: u32) -> Result<ElementData>;
         fn shape_elements(shape: &Shape, kind: ElementKind) -> Result<Vec<ElementData>>;
         fn shape_topology(shape: &Shape) -> Result<TopologyData>;
+        fn shape_edge_normals(shape: &Shape, edge: u32) -> Result<EdgeNormalsData>;
         fn shape_tessellate(shape: &Shape, chord_deviation: f64, angle: f64) -> Result<MeshData>;
         fn shape_to_brep(shape: &Shape) -> Result<UniquePtr<CxxString>>;
         fn shape_from_brep(bytes: &[u8]) -> Result<SharedPtr<Shape>>;

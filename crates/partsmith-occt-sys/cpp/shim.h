@@ -62,6 +62,7 @@ struct ShapeHandle;
 struct OpResultData;
 struct ElementData;
 struct TopologyData;
+struct EdgeNormalsData;
 struct BoundsData;
 struct ProfileCurveData;
 struct ProfileData;
@@ -109,6 +110,7 @@ BoundsData shape_bounding_box(const Shape &shape);
 ElementData shape_element(const Shape &shape, ElementKind kind, std::uint32_t index);
 rust::Vec<ElementData> shape_elements(const Shape &shape, ElementKind kind);
 TopologyData shape_topology(const Shape &shape);
+EdgeNormalsData shape_edge_normals(const Shape &shape, std::uint32_t edge);
 
 // mesh.cpp
 MeshData shape_tessellate(const Shape &shape, double chord_deviation, double angle);

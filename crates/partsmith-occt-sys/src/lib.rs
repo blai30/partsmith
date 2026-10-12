@@ -22,7 +22,8 @@ mod values;
 pub use blends::{ChamferEdge, ChamferSize, EdgeRadius, chamfer, fillet, shell};
 pub use booleans::{common, cut, fuse};
 pub use element::{
-    EdgeTopology, ElementGeometry, FaceTopology, GeometryKind, Topology, VertexTopology,
+    EdgeNormals, EdgeTopology, ElementGeometry, FaceNormal, FaceTopology, GeometryKind, Topology,
+    VertexTopology,
 };
 pub use error::{KernelError, KernelErrorKind, Operation};
 pub use exchange::{StepBody, StepImport, read_step, write_step};

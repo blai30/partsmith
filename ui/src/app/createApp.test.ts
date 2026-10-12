@@ -216,18 +216,21 @@ describe('core events in the store', () => {
   it('counts and times only the requests that rebuild the document, not a save or an export', async () => {
     const { fake } = await cubeWithHandle()
     const before = currentDocument(fake.app).lastRebuildMilliseconds
-    fake.transport.pause()
-    const saving = save(fake.app)
-    const exporting = exportModel(fake.app, { format: 'step', scope: 'visible' })
-    await settle()
+    for (const run of [
+      () => exportModel(fake.app, { format: 'step', scope: 'visible' }),
+      () => save(fake.app),
+    ]) {
+      fake.transport.pause()
+      const running = run()
+      await settle()
+      expect(fake.app.store.getState().core.pendingMutations).toBe(0)
+      fake.transport.resume()
+      await running
+      await settle()
+    }
     expect(fake.transport.commandTypes()).toEqual(
-      expect.arrayContaining(['save_document', 'export_bodies']),
+      expect.arrayContaining(['export', 'save_document', 'mark_saved']),
     )
-    expect(fake.app.store.getState().core.pendingMutations).toBe(0)
-    fake.transport.resume()
-    await Promise.all([saving, exporting])
-    await settle()
-    expect(fake.transport.commandTypes()).toContain('mark_saved')
     expect(currentDocument(fake.app).lastRebuildMilliseconds).toBe(before)
   })
 

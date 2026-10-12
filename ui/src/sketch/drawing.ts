@@ -1,4 +1,5 @@
 import type { PointRef, SketchConstraint, SketchSolution } from '../generated/protocol'
+import { MESSAGES } from '../messages'
 import type { ConstraintType } from './constraints'
 import {
   add,
@@ -122,9 +123,6 @@ export type DrawStep = { readonly state: DrawState; readonly commit: DrawCommit 
 const MINIMUM_SIZE_PIXELS = 2
 /** Typed angles within this of a multiple of 90 degrees become horizontal or vertical. */
 const ANGLE_TOLERANCE = 1e-9
-
-export const ARC_COLLINEAR_HINT =
-  'These three points are in a line. Move the last point off the line to make an arc.'
 
 const LABELS: Readonly<Record<DrawingTool, string>> = {
   line: 'Line',
@@ -644,7 +642,7 @@ function arcPreview(state: DrawState, input: DrawInput): DrawPreview {
       shapes: [{ kind: 'line', start: state.first.at, end: state.second.at }],
       snap: null,
       glyphs: [],
-      hint: ARC_COLLINEAR_HINT,
+      hint: MESSAGES.arc_collinear(),
       inputsAt: midpoint(state.first.at, state.second.at),
       measures: {},
     }

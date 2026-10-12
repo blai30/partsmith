@@ -4,7 +4,9 @@
 //! a piece two selected regions share appears in both of their loops, once in each direction.
 //! The union drops every such pair and chains the remaining pieces into loops, turning at each
 //! vertex the way the arrangement's own loops do, so the result keeps the region on its left:
-//! counterclockwise outer loops and clockwise holes.
+//! counterclockwise outer loops and clockwise holes. Consecutive pieces of one entity that continue
+//! its line or circle are then merged into one curve, so a union sweeps the faces of the single
+//! region covering the same area.
 
 use std::collections::BTreeMap;
 
@@ -31,7 +33,8 @@ pub struct ProfileFaces {
 impl ResolvedProfile<'_> {
     /// Builds the union of the resolved regions as kernel faces with kernel `make_profile`, each
     /// curve tagged by the sketch entity it came from. Boundary pieces two resolved regions share
-    /// are dropped, so no lateral face is ever swept from them.
+    /// are dropped, so no lateral face is ever swept from them, and the pieces of one entity that
+    /// then follow each other along a line or circle become one curve.
     pub fn faces(&self) -> Result<ProfileFaces, FeatureError> {
         let regions = self
             .regions
@@ -69,8 +72,8 @@ struct HalfEdge<'a> {
 }
 
 /// The union of `regions`: the outer loop of each connected component with its holes, in the
-/// order the components' outer loops are found. Fails only on regions that are not faces of one
-/// arrangement.
+/// order the components' outer loops are found, with the pieces of each loop merged. Fails only on
+/// regions that are not faces of one arrangement.
 fn union(regions: &[&Region]) -> Result<Vec<(ProfileLoop, Vec<ProfileLoop>)>, FeatureError> {
     let half_edges = half_edges(regions);
     let twins = twins(&half_edges);
@@ -103,7 +106,9 @@ fn union(regions: &[&Region]) -> Result<Vec<(ProfileLoop, Vec<ProfileLoop>)>, Fe
             }
         }
         let component = components.find(half_edges[start].region);
-        let profile_loop = ProfileLoop { edges };
+        let profile_loop = ProfileLoop {
+            edges: merge_pieces(edges),
+        };
         if profile_loop.signed_area() > 0.0 {
             // A connected union has exactly one outer boundary.
             if outers.insert(component, profile_loop).is_some() {
@@ -184,6 +189,96 @@ fn successor(
         }
     }
     Err(malformed())
+}
+
+/// The loop `edges` with each run of consecutive pieces that continue one line or circle of one
+/// entity merged into one curve, the last and the first piece included (section 3.7). Pieces of an
+/// entity with another piece between them stay separate. A loop that is one entity all the way
+/// round is the whole circle. The loop starts at the first piece that does not continue the one
+/// before it, so a loop without merges keeps its order.
+fn merge_pieces(edges: Vec<ProfileEdge>) -> Vec<ProfileEdge> {
+    let count = edges.len();
+    let first_run = (0..count).find(|&index| {
+        let previous = &edges[(index + count - 1) % count];
+        !continues(previous, &edges[index])
+    });
+    let Some(first_run) = first_run else {
+        return whole_circle(&edges).map_or(edges, |circle| vec![circle]);
+    };
+    let mut merged: Vec<ProfileEdge> = Vec::with_capacity(count);
+    for offset in 0..count {
+        let edge = &edges[(first_run + offset) % count];
+        match merged.last_mut() {
+            Some(last) if continues(last, edge) => extend(last, edge),
+            _ => merged.push(edge.clone()),
+        }
+    }
+    merged
+}
+
+/// True when `next` continues `piece`: both come from the same entity, run the same way along it
+/// as two lines or two arcs, and `next` starts exactly where `piece` ends. A line entity is one
+/// straight segment and an arc or circle entity one circle, so such pieces lie on one curve.
+fn continues(piece: &ProfileEdge, next: &ProfileEdge) -> bool {
+    if piece.entity != next.entity || piece.reversed != next.reversed {
+        return false;
+    }
+    match (piece.curve, next.curve) {
+        (ProfileCurve::Line { end, .. }, ProfileCurve::Line { start, .. }) => end == start,
+        (
+            ProfileCurve::Arc {
+                center,
+                radius,
+                end,
+                ccw,
+                ..
+            },
+            ProfileCurve::Arc {
+                center: next_center,
+                radius: next_radius,
+                start,
+                ccw: next_ccw,
+                ..
+            },
+        ) => end == start && center == next_center && radius == next_radius && ccw == next_ccw,
+        _ => false,
+    }
+}
+
+/// Extends `piece` to the end of `next`, which continues it.
+fn extend(piece: &mut ProfileEdge, next: &ProfileEdge) {
+    let next_end = match next.curve {
+        ProfileCurve::Line { end, .. } | ProfileCurve::Arc { end, .. } => end,
+        ProfileCurve::Circle { .. } => return,
+    };
+    match &mut piece.curve {
+        ProfileCurve::Line { end, .. } | ProfileCurve::Arc { end, .. } => *end = next_end,
+        ProfileCurve::Circle { .. } => {}
+    }
+}
+
+/// The circle that a loop of arcs of one entity, each continuing the one before it, goes round.
+/// None for any other loop.
+fn whole_circle(edges: &[ProfileEdge]) -> Option<ProfileEdge> {
+    let first = edges.first()?;
+    let ProfileCurve::Arc {
+        center,
+        radius,
+        ccw,
+        ..
+    } = first.curve
+    else {
+        return None;
+    };
+    Some(ProfileEdge {
+        entity: first.entity.clone(),
+        reversed: first.reversed,
+        curve: ProfileCurve::Circle {
+            center,
+            radius,
+            ccw,
+        },
+    })
 }
 
 /// The error for a profile whose loops do not form an arrangement.
@@ -473,7 +568,7 @@ mod tests {
     }
 
     #[test]
-    fn two_halves_drop_their_shared_line() {
+    fn two_halves_drop_their_shared_line_and_merge_the_split_sides() {
         let mut sketch = rectangle();
         sketch.push(line("e-5", [40.0, 0.0], [40.0, 50.0]));
         let profile = build_profile(&sketch);
@@ -483,10 +578,64 @@ mod tests {
         let union = union(&regions).expect("the union builds");
 
         assert_eq!(union.len(), 1);
-        let outer = entities(&union[0].0);
-        assert!(!outer.contains(&"e-5"));
-        assert_eq!(outer.len(), 6);
+        let mut outer = entities(&union[0].0);
+        outer.sort_unstable();
+        assert_eq!(outer, ["e-1", "e-2", "e-3", "e-4"]);
+        assert!(union[0].0.edges.contains(&ProfileEdge {
+            entity: Id::new("e-1").expect("valid id"),
+            reversed: false,
+            curve: ProfileCurve::Line {
+                start: [0.0, 0.0],
+                end: [80.0, 0.0]
+            },
+        }));
         assert!((union[0].0.signed_area() - 4000.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn two_circle_halves_make_the_whole_circle() {
+        let sketch = vec![
+            circle("e-5", [0.0, 0.0], 10.0),
+            line("e-6", [-10.0, 0.0], [10.0, 0.0]),
+        ];
+        let profile = build_profile(&sketch);
+        assert_eq!(profile.regions.len(), 2);
+        let regions: Vec<&Region> = profile.regions.iter().collect();
+
+        let union = union(&regions).expect("the union builds");
+
+        assert_eq!(union.len(), 1);
+        assert_eq!(union[0].0.edges.len(), 1);
+        assert_eq!(union[0].0.edges[0].entity.as_str(), "e-5");
+        assert!(matches!(
+            union[0].0.edges[0].curve,
+            ProfileCurve::Circle {
+                radius: 10.0,
+                ccw: true,
+                ..
+            }
+        ));
+        let expected = std::f64::consts::PI * 100.0;
+        assert!((area(&union) - expected).abs() < 1e-6);
+    }
+
+    #[test]
+    fn pieces_of_a_line_with_an_arc_between_them_stay_separate() {
+        let mut sketch = rectangle();
+        sketch.push(circle("e-5", [40.0, 0.0], 10.0));
+        let profile = build_profile(&sketch);
+        let without_half_disc: Vec<&Region> = profile
+            .regions
+            .iter()
+            .filter(|region| region.key.to_string() == "e-1,e-2,e-3,e-4,~e-5")
+            .collect();
+        assert_eq!(without_half_disc.len(), 1);
+
+        let union = union(&without_half_disc).expect("the union builds");
+
+        let mut outer = entities(&union[0].0);
+        outer.sort_unstable();
+        assert_eq!(outer, ["e-1", "e-1", "e-2", "e-3", "e-4", "e-5"]);
     }
 
     #[test]
@@ -502,11 +651,9 @@ mod tests {
 
         assert_eq!(union.len(), 1);
         assert!((area(&union) - 4000.0).abs() < 1e-6);
-        assert!(
-            !entities(&union[0].0)
-                .iter()
-                .any(|entity| *entity == "e-5" || *entity == "e-6")
-        );
+        let mut outer = entities(&union[0].0);
+        outer.sort_unstable();
+        assert_eq!(outer, ["e-1", "e-2", "e-3", "e-4"]);
     }
 
     #[test]
@@ -560,6 +707,139 @@ mod tests {
 
         assert_eq!(union.len(), 2);
         assert!((area(&union) - 4400.0).abs() < 1e-6);
+    }
+
+    fn piece(entity: &str, reversed: bool, curve: ProfileCurve) -> ProfileEdge {
+        ProfileEdge {
+            entity: Id::new(entity).expect("valid id"),
+            reversed,
+            curve,
+        }
+    }
+
+    fn segment(entity: &str, start: [f64; 2], end: [f64; 2]) -> ProfileEdge {
+        piece(entity, false, ProfileCurve::Line { start, end })
+    }
+
+    fn quarter(entity: &str, start: [f64; 2], end: [f64; 2]) -> ProfileEdge {
+        piece(
+            entity,
+            false,
+            ProfileCurve::Arc {
+                center: [0.0, 0.0],
+                radius: 1.0,
+                start,
+                end,
+                ccw: true,
+            },
+        )
+    }
+
+    #[test]
+    fn a_loop_without_continuing_pieces_is_unchanged() {
+        let edges = vec![
+            segment("e-1", [0.0, 0.0], [1.0, 0.0]),
+            segment("e-2", [1.0, 0.0], [0.0, 1.0]),
+            segment("e-3", [0.0, 1.0], [0.0, 0.0]),
+        ];
+
+        assert_eq!(merge_pieces(edges.clone()), edges);
+    }
+
+    #[test]
+    fn consecutive_pieces_of_a_line_become_one_segment() {
+        let edges = vec![
+            segment("e-1", [0.0, 0.0], [1.0, 0.0]),
+            segment("e-1", [1.0, 0.0], [2.0, 0.0]),
+            segment("e-2", [2.0, 0.0], [0.0, 1.0]),
+            segment("e-3", [0.0, 1.0], [0.0, 0.0]),
+        ];
+
+        assert_eq!(
+            merge_pieces(edges),
+            [
+                segment("e-1", [0.0, 0.0], [2.0, 0.0]),
+                segment("e-2", [2.0, 0.0], [0.0, 1.0]),
+                segment("e-3", [0.0, 1.0], [0.0, 0.0]),
+            ]
+        );
+    }
+
+    #[test]
+    fn the_last_piece_merges_with_the_first() {
+        let edges = vec![
+            segment("e-1", [1.0, 0.0], [2.0, 0.0]),
+            segment("e-2", [2.0, 0.0], [0.0, 1.0]),
+            segment("e-3", [0.0, 1.0], [0.0, 0.0]),
+            segment("e-1", [0.0, 0.0], [1.0, 0.0]),
+        ];
+
+        assert_eq!(
+            merge_pieces(edges),
+            [
+                segment("e-2", [2.0, 0.0], [0.0, 1.0]),
+                segment("e-3", [0.0, 1.0], [0.0, 0.0]),
+                segment("e-1", [0.0, 0.0], [2.0, 0.0]),
+            ]
+        );
+    }
+
+    #[test]
+    fn arcs_of_one_entity_merge_and_close_into_a_circle() {
+        let edges = vec![
+            quarter("e-5", [1.0, 0.0], [0.0, 1.0]),
+            quarter("e-5", [0.0, 1.0], [-1.0, 0.0]),
+            quarter("e-5", [-1.0, 0.0], [1.0, 0.0]),
+        ];
+
+        assert_eq!(
+            merge_pieces(edges),
+            [piece(
+                "e-5",
+                false,
+                ProfileCurve::Circle {
+                    center: [0.0, 0.0],
+                    radius: 1.0,
+                    ccw: true,
+                }
+            )]
+        );
+    }
+
+    #[test]
+    fn consecutive_arcs_of_one_entity_become_one_arc() {
+        let edges = vec![
+            quarter("e-5", [1.0, 0.0], [0.0, 1.0]),
+            quarter("e-5", [0.0, 1.0], [-1.0, 0.0]),
+            segment("e-6", [-1.0, 0.0], [1.0, 0.0]),
+        ];
+
+        assert_eq!(
+            merge_pieces(edges),
+            [
+                quarter("e-5", [1.0, 0.0], [-1.0, 0.0]),
+                segment("e-6", [-1.0, 0.0], [1.0, 0.0]),
+            ]
+        );
+    }
+
+    #[test]
+    fn pieces_of_other_entities_or_directions_stay_separate() {
+        let edges = vec![
+            segment("e-1", [0.0, 0.0], [1.0, 0.0]),
+            segment("e-2", [1.0, 0.0], [2.0, 0.0]),
+            piece(
+                "e-2",
+                true,
+                ProfileCurve::Line {
+                    start: [2.0, 0.0],
+                    end: [3.0, 0.0],
+                },
+            ),
+            segment("e-3", [3.0, 0.0], [0.0, 0.0]),
+        ];
+
+        assert_eq!(merge_pieces(edges.clone()), edges);
     }
 
     #[test]

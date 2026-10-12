@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 
+#include <BOPAlgo_Operation.hxx>
 #include <BRepTools_History.hxx>
 #include <TopAbs_ShapeEnum.hxx>
 #include <TopTools_ListOfShape.hxx>
@@ -62,6 +63,14 @@ Shape copy_shape(const Shape &shape);
 // again on each use; checks and queries of the shape get much cheaper. Only for shapes the
 // operation built itself: it writes to the edges.
 void store_plane_pcurves(const TopoDS_Shape &shape);
+
+// Runs one boolean of `target` with `tools` with the settings of kernel spec section 3.4.5
+// (non-destructive, sequential, history filled), unifying coplanar faces and collinear edges
+// when `unify` is set, and merges its history into `history`. Raises StdFail_NotDone with the
+// algorithm's alerts when it fails.
+TopoDS_Shape run_boolean(BOPAlgo_Operation operation, const TopoDS_Shape &target,
+                         const TopTools_ListOfShape &tools, bool unify,
+                         const Handle(BRepTools_History) &history);
 
 // Appends the next step of an operation to its history.
 void merge_history(const Handle(BRepTools_History) &history,

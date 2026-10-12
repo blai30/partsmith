@@ -110,6 +110,29 @@ pub struct VertexTopology {
     pub faces: Vec<u32>,
 }
 
+/// An edge at the middle of its parameter range, with the outward normal there of each face
+/// containing it (kernel spec section 3.6, item 5).
+#[derive(Debug, Clone, PartialEq)]
+pub struct EdgeNormals {
+    /// The point of the edge's curve at the middle of its parameter range.
+    pub point: Point,
+    /// Unit tangent at `point`, running from the edge's first vertex toward its last.
+    pub tangent: Vector,
+    /// One entry per face containing the edge, ascending by face index (the order of
+    /// `EdgeTopology::faces`).
+    pub faces: Vec<FaceNormal>,
+}
+
+/// One face containing an edge, with its outward unit normal at the edge's middle.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FaceNormal {
+    /// 1-based face index.
+    pub face: u32,
+    /// Unit surface normal at `EdgeNormals::point`, flipped when the face is reversed, so it
+    /// points out of the material of a valid solid.
+    pub normal: Vector,
+}
+
 impl GeometryKind {
     fn from_ffi(kind: sys::GeometryType) -> Result<GeometryKind, KernelError> {
         let kind = match kind {
@@ -155,6 +178,23 @@ impl ElementGeometry {
             centroid: Point::from_ffi(data.centroid),
             measure: data.measure,
         })
+    }
+}
+
+impl EdgeNormals {
+    pub(crate) fn from_ffi(data: sys::EdgeNormalsData) -> EdgeNormals {
+        EdgeNormals {
+            point: Point::from_ffi(data.point),
+            tangent: Vector::from_ffi(data.tangent),
+            faces: data
+                .faces
+                .iter()
+                .map(|face| FaceNormal {
+                    face: face.face,
+                    normal: Vector::from_ffi(face.normal),
+                })
+                .collect(),
+        }
     }
 }
 
@@ -281,6 +321,59 @@ mod tests {
         assert_eq!(element.location, None);
         assert_eq!(element.radius, None);
         assert_eq!(element.centroid, Point::new(1.0, 2.0, 3.0));
+    }
+
+    #[test]
+    fn edge_normals_keep_the_face_order_of_the_shim() {
+        let vector = |x, y, z| sys::Vec3 { x, y, z };
+        let data = sys::EdgeNormalsData {
+            point: vector(5.0, 0.0, 30.0),
+            tangent: vector(1.0, 0.0, 0.0),
+            faces: vec![
+                sys::FaceNormalData {
+                    face: 3,
+                    normal: vector(0.0, -1.0, 0.0),
+                },
+                sys::FaceNormalData {
+                    face: 6,
+                    normal: vector(0.0, 0.0, 1.0),
+                },
+            ],
+        };
+
+        let normals = EdgeNormals::from_ffi(data);
+
+        assert_eq!(normals.point, Point::new(5.0, 0.0, 30.0));
+        assert_eq!(normals.tangent, Vector::new(1.0, 0.0, 0.0));
+        assert_eq!(
+            normals.faces,
+            [
+                FaceNormal {
+                    face: 3,
+                    normal: Vector::new(0.0, -1.0, 0.0),
+                },
+                FaceNormal {
+                    face: 6,
+                    normal: Vector::new(0.0, 0.0, 1.0),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn free_edge_has_no_face_normals() {
+        let origin = sys::Vec3 {
+            x: 0.0,
+            y: 0.0,
+            z: 0.0,
+        };
+        let data = sys::EdgeNormalsData {
+            point: origin,
+            tangent: origin,
+            faces: Vec::new(),
+        };
+
+        assert!(EdgeNormals::from_ffi(data).faces.is_empty());
     }
 
     #[test]

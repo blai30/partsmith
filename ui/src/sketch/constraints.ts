@@ -378,6 +378,94 @@ export function constraintFor(
   return only ?? null
 }
 
+/** What a constraint tool makes of its pick list (3.16.6). */
+export type PickVerdict = 'complete' | 'partial' | 'refused'
+
+/** One operand of a constraint's operand set: `round` is a circle or arc, `curve` any curve. */
+type Slot = 'point' | 'line' | 'round' | 'curve'
+
+/** The operand sets of the table of 3.16.6, which picks fill one at a time. */
+const OPERAND_SETS: Readonly<Record<Exclude<ConstraintType, 'fix'>, readonly (readonly Slot[])[]>> =
+  {
+    coincident: [
+      ['point', 'point'],
+      ['point', 'curve'],
+    ],
+    point_on_object: [['point', 'curve']],
+    horizontal: [['line'], ['point', 'point']],
+    vertical: [['line'], ['point', 'point']],
+    parallel: [['line', 'line']],
+    perpendicular: [['line', 'line']],
+    tangent: [
+      ['line', 'round'],
+      ['round', 'round'],
+    ],
+    collinear: [['line', 'line']],
+    concentric: [['round', 'round']],
+    equal: [
+      ['line', 'line'],
+      ['round', 'round'],
+    ],
+    symmetric: [['point', 'point', 'line']],
+    midpoint: [['point', 'line']],
+  }
+
+function fitsSlot(operand: Operand, slot: Slot): boolean {
+  switch (slot) {
+    case 'point':
+      return operand.kind === 'point'
+    case 'line':
+      return operand.kind === 'line'
+    case 'round':
+      return operand.kind === 'circle' || operand.kind === 'arc'
+    case 'curve':
+      return operand.kind !== 'point'
+  }
+}
+
+/** Whether each operand can take a different one of the slots. */
+function fitsSlots(operands: readonly Operand[], slots: readonly Slot[]): boolean {
+  const [first, ...rest] = operands
+  if (first === undefined) {
+    return true
+  }
+  return slots.some(
+    (slot, index) => fitsSlot(first, slot) && fitsSlots(rest, slots.toSpliced(index, 1)),
+  )
+}
+
+/**
+ * Whether a constraint tool's picks, in pick order, form a valid operand set (`complete`), can still
+ * become one with more picks (`partial`), or cannot (`refused`): a pick that makes the list
+ * `refused` is not added (3.16.6).
+ */
+export function pickVerdict(
+  type: ConstraintType,
+  picks: readonly SelectionItem[],
+  solution: SketchSolution,
+): PickVerdict {
+  const operands = validOperands(picks, solution)
+  const keys = new Set(picks.map((pick) => pick.key))
+  if (operands === null || operands.length === 0 || keys.size !== picks.length) {
+    return 'refused'
+  }
+  if (type === 'fix') {
+    return fixTargets(operands) === null ? 'refused' : 'complete'
+  }
+  const sorted = sortOperands(operands)
+  const complete =
+    build(type, sorted, '') !== null ||
+    (type === 'coincident' && build('point_on_object', sorted, '') !== null)
+  if (complete) {
+    return 'complete'
+  }
+  return OPERAND_SETS[type].some(
+    (slots) => operands.length < slots.length && fitsSlots(operands, slots),
+  )
+    ? 'partial'
+    : 'refused'
+}
+
 /** Whether a constraint is a dimension (it has an expression). */
 export function isDimension(
   constraint: SketchConstraint,

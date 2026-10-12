@@ -13,6 +13,7 @@ import {
 } from '../../inspector/model'
 import { acceptsTarget, selectionValue } from '../../inspector/selection-values'
 import { MESSAGES } from '../../messages'
+import { TIMING_NAMES } from '../../performance/marks'
 import type {
   ActiveCommand,
   AppState,
@@ -22,6 +23,7 @@ import type {
   SelectionItem,
 } from '../../state/store'
 import type { App } from '../createApp'
+import { measureToNextFrame } from '../timing'
 import { commitEdits, documentOf, reportNewFailures, showCoreError } from './edits'
 import { notify } from './notifications'
 import { enterSketch, finishSketch, startNewSketch } from './sketch'
@@ -33,12 +35,19 @@ import { setSuppressed } from './timeline'
 
 type Params = Readonly<Record<string, unknown>>
 
+/** One preview request: the params, and when the user changed the value they come from. */
+type PreviewRequest = {
+  readonly params: Params
+  /** `performance.now()` of the inspector change, which starts `ps:preview` (2.18), or null. */
+  readonly changedAt: number | null
+}
+
 /** What a command keeps beside its store state. */
 type CommandSession = {
   readonly featureId: string
   readonly feature: CatalogFeature
   /** The preview requests, one at a time with only the newest waiting. */
-  readonly preview: LatestOnly<Params>
+  readonly preview: LatestOnly<PreviewRequest>
   /** Record properties that are not params (`name`, `suppressed`), kept on every update. */
   readonly recordExtras: Readonly<Record<string, unknown>>
   /** Feature statuses before the command, to report a failure it causes. */
@@ -50,6 +59,8 @@ type CommandSession = {
   submitted: Params | null
   /** Whether the newest preview request failed in the core. */
   failed: boolean
+  /** When the user last changed a value, until a preview request carries it. */
+  changedAt: number | null
 }
 
 const sessions = new WeakMap<AppStore, CommandSession>()
@@ -312,17 +323,22 @@ function previewStateAfter(app: App, featureId: string): ActiveCommand['preview'
 
 function createSession(
   app: App,
-  input: Omit<CommandSession, 'preview' | 'pendingFields' | 'submitted' | 'failed'>,
+  input: Omit<CommandSession, 'preview' | 'pendingFields' | 'submitted' | 'failed' | 'changedAt'>,
 ): CommandSession {
   const session: CommandSession = {
     ...input,
     pendingFields: new Set(),
     submitted: null,
     failed: false,
-    preview: createLatestOnly<Params, void>(
-      (params) => app.mutations.run(() => applyPreview(app, session, params)),
-      () => {
+    changedAt: null,
+    preview: createLatestOnly<PreviewRequest, void>(
+      (request) => app.mutations.run(() => applyPreview(app, session, request.params)),
+      (_output, request) => {
         session.failed = false
+        if (request.changedAt !== null) {
+          // The preview meshes reached the scene with the response; the next frame draws them.
+          measureToNextFrame(TIMING_NAMES.preview, request.changedAt)
+        }
         if (sessionOf(app) === session) {
           updateCommand(app, () => ({ preview: previewStateAfter(app, session.featureId) }))
         }
@@ -338,6 +354,13 @@ function createSession(
   }
   sessions.set(app.store, session)
   return session
+}
+
+/** Sends the params as the newest preview, carrying the time of the change they come from. */
+function submitPreview(session: CommandSession, params: Params): void {
+  session.submitted = params
+  session.preview.submit({ params, changedAt: session.changedAt })
+  session.changedAt = null
 }
 
 /** Submits a preview of the current params when they are complete; otherwise hides the preview. */
@@ -359,8 +382,7 @@ function refreshPreview(app: App): void {
     return
   }
   updateCommand(app, () => ({ preview: 'pending' }))
-  session.submitted = command.params
-  session.preview.submit(command.params)
+  submitPreview(session, command.params)
 }
 
 function endSession(app: App): void {
@@ -652,6 +674,7 @@ export function setCommandField(app: App, path: string, value: unknown): void {
   if (session === null || command === null) {
     return
   }
+  session.changedAt = performance.now()
   let params = setParam(session.feature, command.params, path, value)
   const previousOp = command.params['op']
   const hasBodyField = session.feature.manifest.fields.some(
@@ -790,6 +813,7 @@ export async function capturePick(app: App, item: SelectionItem): Promise<void> 
     }
   }
   const value = toggledValue(accepts, multiple, field.value, item)
+  session.changedAt = performance.now()
   params = setParam(session.feature, params, field.path, value)
   if (value !== undefined) {
     params = withSiblingBody(session.feature, params, field, item)
@@ -834,8 +858,7 @@ export async function confirmCommand(app: App): Promise<void> {
     return
   }
   if (!sameValue(session.submitted, command.params)) {
-    session.submitted = command.params
-    session.preview.submit(command.params)
+    submitPreview(session, command.params)
   }
   await session.preview.flush()
   if (session.failed || sessionOf(app) !== session) {
