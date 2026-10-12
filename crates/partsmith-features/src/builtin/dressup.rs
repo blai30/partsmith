@@ -1,7 +1,7 @@
 //! Helpers shared by the dress-up features `fillet`, `chamfer` and `shell` (features/fillet.md,
 //! features/chamfer.md and features/shell.md): edge selection with the smooth-edge rule, the
-//! kernel call with the "too large" search, the origins and names of result faces, the outputs,
-//! and Python reference lists.
+//! kernel call with the "too large" search, the origins and names of result faces, and the
+//! outputs.
 
 use std::sync::Arc;
 
@@ -14,9 +14,10 @@ use partsmith_occt_sys::{
     OpResult, Point, Shape, SubShapeKind, Topology, Vector,
 };
 
+use super::common::{bodies, unchanged};
 use crate::{
-    BodyChange, BodyState, BodyUpdate, BuildContext, FeatureError, FeatureOutput,
-    FeatureWarning, IgnoredReason, OutputData, PythonValue, name_shape, too_large_search,
+    BodyChange, BodyState, BodyUpdate, BuildContext, FeatureError, FeatureOutput, FeatureWarning,
+    IgnoredReason, name_shape, too_large_search,
 };
 
 /// Largest angle in radians between the outward normals of an edge's two faces at the edge's
@@ -79,7 +80,11 @@ pub(super) fn select_edges(
 /// normal up to its sign. An edge whose midpoint or face normals cannot be found that way (an
 /// edge that is not a line or circle, or a face on another kind of surface) counts as having a
 /// corner, and the kernel decides whether it can be blended.
-pub(super) fn is_smooth(shape: &Shape, topology: &Topology, edge: u32) -> Result<bool, FeatureError> {
+pub(super) fn is_smooth(
+    shape: &Shape,
+    topology: &Topology,
+    edge: u32,
+) -> Result<bool, FeatureError> {
     let entry = edge
         .checked_sub(1)
         .and_then(|position| topology.edges.get(position as usize))
@@ -111,9 +116,7 @@ fn edge_midpoint(
     entry: &EdgeTopology,
     edge: u32,
 ) -> Result<Option<Point>, FeatureError> {
-    let geometry = shape
-        .element(SubShapeKind::Edge, edge)
-        .map_err(kernel)?;
+    let geometry = shape.element(SubShapeKind::Edge, edge).map_err(kernel)?;
     let (GeometryKind::Circle, Some(center), Some(radius)) =
         (geometry.kind, geometry.location, geometry.radius)
     else {
@@ -236,10 +239,11 @@ pub(super) fn add_origins(
     final_face: impl Fn(u32) -> Option<u32>,
 ) -> Result<(), FeatureError> {
     let face_count = origins.len();
-    let mut entry = |face: u32| {
+    let position = |face: u32| {
         final_face(face)
             .and_then(|index| index.checked_sub(1))
-            .and_then(|position| origins.get_mut(position as usize))
+            .map(|position| position as usize)
+            .filter(|&position| position < face_count)
             .ok_or_else(|| {
                 internal(format!(
                     "the kernel history names result face {face}, which is not one of the {face_count} faces"
@@ -260,14 +264,14 @@ pub(super) fn add_origins(
             })?;
             if kind == SubShapeKind::Face {
                 for &face in &fate.modified {
-                    entry(face)?.modified.push(body);
+                    origins[position(face)?].modified.push(body);
                 }
             }
             for generated in &fate.generated {
                 if generated.kind != SubShapeKind::Face {
                     continue;
                 }
-                let origin = entry(generated.index)?;
+                let origin = &mut origins[position(generated.index)?];
                 match kind {
                     SubShapeKind::Face => origin.faces.push(body),
                     SubShapeKind::Edge => origin.edges.push(body),
@@ -285,8 +289,7 @@ pub(super) fn single_input_origins(result: &OpResult) -> Result<Vec<FaceOrigins>
     let [history] = &result.history.inputs[..] else {
         return Err(internal("a fillet or chamfer result has one history input"));
     };
-    let mut origins =
-        vec![FaceOrigins::default(); result.shape.count(SubShapeKind::Face) as usize];
+    let mut origins = vec![FaceOrigins::default(); result.shape.count(SubShapeKind::Face) as usize];
     add_origins(&mut origins, history, |_, index| Some(index), Some)?;
     Ok(origins)
 }
@@ -368,48 +371,24 @@ pub(super) fn modified(
     naming: NamingMap,
     warnings: Vec<FeatureWarning>,
 ) -> FeatureOutput {
-    FeatureOutput {
-        data: OutputData::Bodies(vec![BodyUpdate {
-            body: body.clone(),
-            shape: Some(shape),
-            naming: Arc::new(naming),
-            change: BodyChange::Modify,
-        }]),
-        warnings,
-    }
+    let update = BodyUpdate {
+        body: body.clone(),
+        shape: Some(shape),
+        naming: Arc::new(naming),
+        change: BodyChange::Modify,
+    };
+    bodies(vec![update], warnings)
 }
 
 /// The output of a fillet or chamfer left with no edge to work on: `body` keeps its `state`, and a
 /// `NoEffect` warning follows the other warnings (fillet.md section 3.3 step 4).
-pub(super) fn unchanged(
+pub(super) fn no_effect(
     body: &Id,
     state: &BodyState,
     mut warnings: Vec<FeatureWarning>,
 ) -> FeatureOutput {
     warnings.push(FeatureWarning::NoEffect { body: body.clone() });
-    FeatureOutput {
-        data: OutputData::Bodies(vec![BodyUpdate {
-            body: body.clone(),
-            shape: state.shape().cloned(),
-            naming: Arc::clone(state.naming()),
-            change: BodyChange::Modify,
-        }]),
-        warnings,
-    }
-}
-
-/// References as dedicated Python forms write them: one alone, several as a list (features.md
-/// section 3.11).
-pub(super) fn python_references(references: &[Reference]) -> PythonValue {
-    match references {
-        [reference] => PythonValue::reference(reference, None),
-        _ => PythonValue::List(
-            references
-                .iter()
-                .map(|reference| PythonValue::reference(reference, None))
-                .collect(),
-        ),
-    }
+    bodies(vec![unchanged(body, state, BodyChange::Modify)], warnings)
 }
 
 /// Fixtures shared by the dress-up unit tests.
@@ -462,11 +441,8 @@ pub(super) mod test_fixtures {
 
 #[cfg(test)]
 mod tests {
-    use partsmith_occt_sys::{
-        EdgeRadius, ElementFate, Plane, SubShape, fillet, make_cylinder,
-    };
+    use partsmith_occt_sys::{EdgeRadius, ElementFate, Plane, SubShape, fillet, make_cylinder};
 
-    use super::test_fixtures::reference;
     use super::*;
     use crate::test_support::{Fixture, face_names as sorted_face_names, id, named_box};
 
@@ -533,7 +509,10 @@ mod tests {
         let topology = cube.shape.topology().expect("topology");
 
         for edge in 1..=12 {
-            assert!(!is_smooth(&cube.shape, &topology, edge).expect("checked"), "edge {edge}");
+            assert!(
+                !is_smooth(&cube.shape, &topology, edge).expect("checked"),
+                "edge {edge}"
+            );
         }
     }
 
@@ -546,7 +525,10 @@ mod tests {
             .zip(&topology.edges)
             .filter(|(_, edge)| edge.faces.contains(&fillet_face))
             .filter(|(index, _)| {
-                shape.element(SubShapeKind::Edge, *index).expect("edge").kind
+                shape
+                    .element(SubShapeKind::Edge, *index)
+                    .expect("edge")
+                    .kind
                     == GeometryKind::Line
             })
             .map(|(index, _)| index)
@@ -554,7 +536,10 @@ mod tests {
 
         assert_eq!(tangent.len(), 2, "the fillet meets the top and the front");
         for edge in tangent {
-            assert!(is_smooth(&shape, &topology, edge).expect("checked"), "edge {edge}");
+            assert!(
+                is_smooth(&shape, &topology, edge).expect("checked"),
+                "edge {edge}"
+            );
         }
     }
 
@@ -567,7 +552,10 @@ mod tests {
             .zip(&topology.edges)
             .filter(|(_, edge)| edge.faces.contains(&fillet_face))
             .filter(|(index, _)| {
-                shape.element(SubShapeKind::Edge, *index).expect("edge").kind
+                shape
+                    .element(SubShapeKind::Edge, *index)
+                    .expect("edge")
+                    .kind
                     == GeometryKind::Circle
             })
             .map(|(index, _)| index)
@@ -575,13 +563,18 @@ mod tests {
 
         assert_eq!(arcs.len(), 2, "the fillet ends at the left and right faces");
         for edge in arcs {
-            assert!(!is_smooth(&shape, &topology, edge).expect("checked"), "edge {edge}");
+            assert!(
+                !is_smooth(&shape, &topology, edge).expect("checked"),
+                "edge {edge}"
+            );
         }
     }
 
     #[test]
     fn a_cylinder_seam_is_smooth_and_its_rims_have_corners() {
-        let cylinder = make_cylinder(&Plane::XY, 5.0, 10.0).expect("cylinder").shape;
+        let cylinder = make_cylinder(&Plane::XY, 5.0, 10.0)
+            .expect("cylinder")
+            .shape;
         let topology = cylinder.topology().expect("topology");
 
         let seams: Vec<bool> = topology.edges.iter().map(|edge| edge.seam).collect();
@@ -602,7 +595,10 @@ mod tests {
             .zip(&topology.edges)
             .find(|(index, edge)| {
                 edge.faces.contains(&fillet_face)
-                    && shape.element(SubShapeKind::Edge, *index).expect("edge").kind
+                    && shape
+                        .element(SubShapeKind::Edge, *index)
+                        .expect("edge")
+                        .kind
                         == GeometryKind::Circle
             })
             .expect("the fillet has an arc edge");
@@ -801,15 +797,23 @@ mod tests {
     #[test]
     fn three_fillets_at_a_corner_name_the_corner_blend_after_the_vertex() {
         let cube = named_box("f-box1", [0.0, 0.0, 0.0], 10.0);
-        let edges: Vec<EdgeRadius> = (1..=12).map(|edge| EdgeRadius { edge, radius: 1.0 }).collect();
+        let edges: Vec<EdgeRadius> = (1..=12)
+            .map(|edge| EdgeRadius { edge, radius: 1.0 })
+            .collect();
         let result = fillet(&cube.shape, &edges).expect("fillets");
 
         let naming = name_blend(&id("f-fil1"), roles::FILLET, &cube.naming, &result)
             .expect("the result is named");
 
         let names = sorted_face_names(&naming);
-        let corners = names.iter().filter(|name| name.starts_with("f-fil1/corner/vertex(")).count();
-        let fillets = names.iter().filter(|name| name.starts_with("f-fil1/fillet/edge(")).count();
+        let corners = names
+            .iter()
+            .filter(|name| name.starts_with("f-fil1/corner/vertex("))
+            .count();
+        let fillets = names
+            .iter()
+            .filter(|name| name.starts_with("f-fil1/fillet/edge("))
+            .count();
         assert_eq!((corners, fillets, names.len()), (8, 12, 26));
     }
 
@@ -823,29 +827,17 @@ mod tests {
     }
 
     #[test]
-    fn one_reference_is_written_alone_and_several_as_a_list() {
-        let top = reference(r#"{"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,30|a=4000"}"#);
-        let front = reference(r#"{"q": "f-box1/front", "fp": "plane|n=0,-1,0|c=0,-25,15|a=2400"}"#);
-
-        assert_eq!(
-            python_references(std::slice::from_ref(&top)).render(),
-            r#"Ref("f-box1/top", "plane|n=0,0,1|c=0,0,30|a=4000")"#
-        );
-        assert_eq!(
-            python_references(&[top, front]).render(),
-            r#"[Ref("f-box1/top", "plane|n=0,0,1|c=0,0,30|a=4000"), Ref("f-box1/front", "plane|n=0,-1,0|c=0,-25,15|a=2400")]"#
-        );
-    }
-
-    #[test]
     fn an_unchanged_body_keeps_its_state_and_warns() {
         let cube = named_box("f-box1", [0.0, 0.0, 0.0], 10.0);
         let state = BodyState::new(cube.shape, Arc::new(cube.naming));
 
-        let output = unchanged(&id("b-1"), &state, Vec::new());
+        let output = no_effect(&id("b-1"), &state, Vec::new());
 
-        assert_eq!(output.warnings, [FeatureWarning::NoEffect { body: id("b-1") }]);
-        let OutputData::Bodies(updates) = output.data else {
+        assert_eq!(
+            output.warnings,
+            [FeatureWarning::NoEffect { body: id("b-1") }]
+        );
+        let crate::OutputData::Bodies(updates) = output.data else {
             panic!("a body update");
         };
         assert_eq!(updates.len(), 1);

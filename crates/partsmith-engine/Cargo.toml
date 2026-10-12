@@ -10,15 +10,22 @@ authors.workspace = true
 publish = false
 
 [dependencies]
-
-[dev-dependencies]
 blake3.workspace = true
+partsmith-features.workspace = true
+partsmith-io.workspace = true
 partsmith-mesh.workspace = true
 partsmith-model.workspace = true
+partsmith-naming.workspace = true
+partsmith-occt-sys.workspace = true
 partsmith-print.workspace = true
 partsmith-protocol.workspace = true
-pretty_assertions.workspace = true
+partsmith-recompute.workspace = true
+partsmith-sketch.workspace = true
 serde_json.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+pretty_assertions.workspace = true
 zip.workspace = true
 
 [lints]

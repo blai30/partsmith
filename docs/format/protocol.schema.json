@@ -1,0 +1,6835 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Partsmith protocol",
+  "description": "The JSON header exactly as it appears on the wire.",
+  "type": "object",
+  "properties": {
+    "protocol_version": {
+      "description": "Always `PROTOCOL_VERSION`.",
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0
+    },
+    "messages": {
+      "description": "Messages in wire order.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Message"
+      }
+    },
+    "buffers": {
+      "description": "Location and type of each raw buffer.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/BufferInfo"
+      }
+    }
+  },
+  "required": [
+    "protocol_version",
+    "messages",
+    "buffers"
+  ],
+  "x-protocol-version": 1,
+  "$defs": {
+    "Message": {
+      "description": "One message in a frame.",
+      "oneOf": [
+        {
+          "description": "A command from a client.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "request"
+            }
+          },
+          "$ref": "#/$defs/Request",
+          "required": [
+            "kind"
+          ],
+          "unevaluatedProperties": false
+        },
+        {
+          "description": "The engine's answer to one request.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "response"
+            }
+          },
+          "$ref": "#/$defs/Response",
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "description": "A state change caused by the request answered in the same frame.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "event"
+            }
+          },
+          "$ref": "#/$defs/Event",
+          "required": [
+            "kind"
+          ]
+        }
+      ]
+    },
+    "Command": {
+      "description": "Every command a client can send. Tagged by `type`; unknown types and fields are rejected.",
+      "oneOf": [
+        {
+          "description": "Engine and format versions.",
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "engine_info"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "Every registered feature type with its manifest and params JSON Schema, sorted by type.",
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "feature_catalog"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "Built-in printer profiles, then session profiles, each group sorted by id.",
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "list_printer_profiles"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "Adds or replaces a session (user) printer profile.",
+          "type": "object",
+          "properties": {
+            "profile": {
+              "description": "The profile; omitted fields come from its technology's generic profile.",
+              "$ref": "#/$defs/ProfileInput"
+            },
+            "type": {
+              "type": "string",
+              "const": "put_printer_profile"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "profile"
+          ]
+        },
+        {
+          "description": "Creates an empty document.",
+          "type": "object",
+          "properties": {
+            "units": {
+              "description": "Document units; `mm` when absent.",
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Units"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "printer": {
+              "description": "Printer profile id.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "type": {
+              "type": "string",
+              "const": "new_document"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "type"
+          ]
+        },
+        {
+          "description": "Parses, migrates and recomputes a `.ptsm` text.",
+          "type": "object",
+          "properties": {
+            "text": {
+              "description": "The `.ptsm` text.",
+              "type": "string"
+            },
+            "assets": {
+              "description": "Files of the document's `assets/` folder.",
+              "type": "array",
+              "items": {
+                "allOf": [
+                  {
+                    "$ref": "#/$defs/AssetData"
+                  }
+                ],
+                "unevaluatedProperties": false
+              },
+              "default": []
+            },
+            "type": {
+              "type": "string",
+              "const": "open_document"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "text"
+          ]
+        },
+        {
+          "description": "Canonical `.ptsm` text plus every asset the document references.",
+          "type": "object",
+          "properties": {
+            "doc": {
+              "description": "The document.",
+              "$ref": "#/$defs/DocHandle"
+            },
+            "type": {
+              "type": "string",
+              "const": "save_document"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "doc"
+          ]
+        },
+        {
+          "description": "Discards the document, its undo log and its display state.",
+          "type": "object",
+          "properties": {
+            "doc": {
+              "description": "The document.",
+              "$ref": "#/$defs/DocHandle"
+            },
+            "type": {
+              "type": "string",
+              "const": "close_document"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "doc"
+          ]
+        },
+        {
+          "description": "The current recipe.",
+          "type": "object",
+          "properties": {
+            "doc": {
+              "description": "The document.",
+              "$ref": "#/$defs/DocHandle"
+            },
+            "type": {
+              "type": "string",
+              "const": "get_document"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "doc"
+          ]
+        },
+        {
+          "description": "The host wrote the text that `save_document` returned for `revision`.",
+          "type": "object",
+          "properties": {
+            "doc": {
+              "description": "The document.",
+              "$ref": "#/$defs/DocHandle"
+            },
+            "revision": {
+              "description": "The revision of the written text.",
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0
+            },
+            "type": {
+              "type": "string",
+              "const": "mark_saved"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "doc",
+            "revision"
+          ]
+        },
+        {
+          "description": "Applies edits atomically.",
+          "type": "object",
+          "properties": {
+            "doc": {
+              "description": "The document.",
+              "$ref": "#/$defs/DocHandle"
+            },
+            "label": {
+              "description": "Undo label; required outside a transaction and absent inside one.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "edits": {
+              "description": "The edits, in order.",
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Edit"
+              },
+              "default": []
+            },
+            "type": {
+              "type": "string",
+              "const": "apply_edits"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "doc"
+          ]
+        },
+        {
+          "description": "Renames a parameter and rewrites every expression that uses it.",
+          "type": "object",
+          "properties": {
+            "doc": {
+              "description": "The document.",
+              "$ref": "#/$defs/DocHandle"
+            },
+            "parameter": {
+              "description": "The parameter.",
+              "$ref": "#/$defs/Id"
+            },
+            "name": {
+              "description": "Its new name.",
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "const": "rename_parameter"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "doc",
+            "parameter",
+            "name"
+          ]
+        },
+        {
+          "description": "Opens a transaction; later `apply_edits` join it and are previewed.",
+          "type": "object",
+          "properties": {
+            "doc": {
+              "description": "The document.",
+              "$ref": "#/$defs/DocHandle"
+            },
+            "label": {
+              "description": "Undo label of the transaction.",
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "const": "begin_transaction"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "doc",
+            "label"
+          ]
+        },
+        {
+          "description": "Inside a transaction, previews the state before `feature` and the feature's own output.",
+          "type": "object",
+          "properties": {
+            "doc": {
+              "description": "The document.",
+              "$ref": "#/$defs/DocHandle"
+            },
+            "feature": {
+              "description": "The focused feature; absent clears the focus.",
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Id"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": {
+              "type": "string",
+              "const": "set_focus"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "doc"
+          ]
+        },
+        {
+          "description": "Records the transaction as one undo entry and clears the focus.",
+          "type": "object",
+          "properties": {
+            "doc": {
+              "description": "The document.",
+              "$ref": "#/$defs/DocHandle"
+            },
+            "type": {
+              "type": "string",
+              "const": "commit_transaction"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "doc"
+          ]
+        },
+        {
+          "description": "Reverts every edit of the transaction and clears the focus.",
+          "type": "object",
+          "properties": {
+            "doc": {
+              "description": "The document.",
+              "$ref": "#/$defs/DocHandle"
+            },
+            "type": {
+              "type": "string",
+              "const": "cancel_transaction"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "doc"
+          ]
+        },
+        {
+          "description": "Reverts the newest undo entry.",
+          "type": "object",
+          "properties": {
+            "doc": {
+              "description": "The document.",
+              "$ref": "#/$defs/DocHandle"
+            },
+            "type": {
+              "type": "string",
+              "const": "undo"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "doc"
+          ]
+        },
+        {
+          "description": "Reapplies the newest redo entry.",
+          "type": "object",
+          "properties": {
+            "doc": {
+              "description": "The document.",
+              "$ref": "#/$defs/DocHandle"
+            },
+            "type": {
+              "type": "string",
+              "const": "redo"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "doc"
+          ]
+        },
+        {
+          "description": "Solves the stored sketch, or `candidate` params in its place, without recording anything.",
+          "type": "object",
+          "properties": {
+            "doc": {
+              "description": "The document.",
+              "$ref": "#/$defs/DocHandle"
+            },
+            "feature": {
+              "description": "The sketch feature.",
+              "$ref": "#/$defs/Id"
+            },
+            "candidate": {
+              "description": "Params to solve instead of the stored ones.",
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/SketchParams"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": {
+              "type": "string",
+              "const": "solve_sketch"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "doc",
+            "feature"
+          ]
+        },
+        {
+          "description": "Solves with `point` weakly pinned to `to`, starting from the previous drag frame. Not recorded.",
+          "type": "object",
+          "properties": {
+            "doc": {
+              "description": "The document.",
+              "$ref": "#/$defs/DocHandle"
+            },
+            "feature": {
+              "description": "The sketch feature.",
+              "$ref": "#/$defs/Id"
+            },
+            "point": {
+              "description": "The dragged point.",
+              "$ref": "#/$defs/PointRef"
+            },
+            "to": {
+              "description": "Where the point is dragged to, in sketch coordinates.",
+              "type": "array",
+              "items": {
+                "type": "number",
+                "format": "double"
+              },
+              "minItems": 2,
+              "maxItems": 2
+            },
+            "type": {
+              "type": "string",
+              "const": "drag_sketch"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "doc",
+            "feature",
+            "point",
+            "to"
+          ]
+        },
+        {
+          "description": "Ends a drag; with `commit`, writes the last drag solution into the sketch.",
+          "type": "object",
+          "properties": {
+            "doc": {
+              "description": "The document.",
+              "$ref": "#/$defs/DocHandle"
+            },
+            "feature": {
+              "description": "The sketch feature.",
+              "$ref": "#/$defs/Id"
+            },
+            "commit": {
+              "description": "Whether to record the dragged geometry.",
+              "type": "boolean"
+            },
+            "type": {
+              "type": "string",
+              "const": "end_sketch_drag"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "doc",
+            "feature",
+            "commit"
+          ]
+        },
+        {
+          "description": "Sets the display quality and re-tessellates.",
+          "type": "object",
+          "properties": {
+            "doc": {
+              "description": "The document.",
+              "$ref": "#/$defs/DocHandle"
+            },
+            "quality": {
+              "description": "The display quality.",
+              "$ref": "#/$defs/TessellationQuality"
+            },
+            "type": {
+              "type": "string",
+              "const": "set_tessellation"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "doc",
+            "quality"
+          ]
+        },
+        {
+          "description": "Evaluates an expression against the document's parameters and printer profile.",
+          "type": "object",
+          "properties": {
+            "doc": {
+              "description": "The document.",
+              "$ref": "#/$defs/DocHandle"
+            },
+            "expr": {
+              "description": "The expression.",
+              "$ref": "#/$defs/Expr"
+            },
+            "type": {
+              "type": "string",
+              "const": "evaluate"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "doc",
+            "expr"
+          ]
+        },
+        {
+          "description": "Every displayable element of a body at the display state.",
+          "type": "object",
+          "properties": {
+            "doc": {
+              "description": "The document.",
+              "$ref": "#/$defs/DocHandle"
+            },
+            "body": {
+              "description": "The body.",
+              "$ref": "#/$defs/Id"
+            },
+            "kind": {
+              "description": "Only elements of this kind; all kinds when absent.",
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/ElementKind"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": {
+              "type": "string",
+              "const": "list_elements"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "doc",
+            "body"
+          ]
+        },
+        {
+          "description": "Converts a pick in a current model-layer mesh into the element and its reference.",
+          "type": "object",
+          "properties": {
+            "doc": {
+              "description": "The document.",
+              "$ref": "#/$defs/DocHandle"
+            },
+            "pick": {
+              "description": "The pick.",
+              "$ref": "#/$defs/Pick"
+            },
+            "type": {
+              "type": "string",
+              "const": "pick_reference"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "doc",
+            "pick"
+          ]
+        },
+        {
+          "description": "Resolves references at the display state and returns the matching mesh elements.",
+          "type": "object",
+          "properties": {
+            "doc": {
+              "description": "The document.",
+              "$ref": "#/$defs/DocHandle"
+            },
+            "references": {
+              "description": "The references, each with its body.",
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/ElementRef"
+              },
+              "default": []
+            },
+            "type": {
+              "type": "string",
+              "const": "resolve_references"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "doc"
+          ]
+        },
+        {
+          "description": "Measures one body or element at the display state.",
+          "type": "object",
+          "properties": {
+            "doc": {
+              "description": "The document.",
+              "$ref": "#/$defs/DocHandle"
+            },
+            "targets": {
+              "description": "Exactly one target in M1.",
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/MeasureTarget"
+              },
+              "default": []
+            },
+            "type": {
+              "type": "string",
+              "const": "measure"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "doc"
+          ]
+        },
+        {
+          "description": "Runs every printability check.",
+          "type": "object",
+          "properties": {
+            "doc": {
+              "description": "The document.",
+              "$ref": "#/$defs/DocHandle"
+            },
+            "profile": {
+              "description": "Printer profile id; the document's resolved profile when absent.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "orientation": {
+              "description": "How the bodies are placed on the bed.",
+              "allOf": [
+                {
+                  "$ref": "#/$defs/Orientation"
+                }
+              ],
+              "unevaluatedProperties": false
+            },
+            "bodies": {
+              "description": "Bodies to analyze; visible part bodies with geometry when absent.",
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "$ref": "#/$defs/Id"
+              }
+            },
+            "type": {
+              "type": "string",
+              "const": "analyze_print"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "doc",
+            "orientation"
+          ]
+        },
+        {
+          "description": "Exports bodies as files.",
+          "type": "object",
+          "properties": {
+            "doc": {
+              "description": "The document.",
+              "$ref": "#/$defs/DocHandle"
+            },
+            "format": {
+              "description": "File format and its options.",
+              "$ref": "#/$defs/ExportFormat"
+            },
+            "bodies": {
+              "description": "Bodies to export; every visible part body with geometry when absent.",
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "$ref": "#/$defs/Id"
+              }
+            },
+            "tolerance": {
+              "description": "Mesh tolerances; derived from the printer profile when absent.",
+              "anyOf": [
+                {
+                  "allOf": [
+                    {
+                      "$ref": "#/$defs/TessellationTolerance"
+                    }
+                  ],
+                  "unevaluatedProperties": false
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "orientation": {
+              "description": "How the bodies are rotated; as modeled when absent.",
+              "anyOf": [
+                {
+                  "allOf": [
+                    {
+                      "$ref": "#/$defs/Orientation"
+                    }
+                  ],
+                  "unevaluatedProperties": false
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": {
+              "type": "string",
+              "const": "export"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "doc",
+            "format"
+          ]
+        },
+        {
+          "description": "Stores a STEP file as an asset and adds one body and one `import` feature.",
+          "type": "object",
+          "properties": {
+            "doc": {
+              "description": "The document.",
+              "$ref": "#/$defs/DocHandle"
+            },
+            "data": {
+              "description": "The STEP bytes (a `u8` buffer).",
+              "$ref": "#/$defs/BufferIndex"
+            },
+            "name": {
+              "description": "Name of the new body.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "type": {
+              "type": "string",
+              "const": "import_step"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "doc",
+            "data"
+          ]
+        },
+        {
+          "description": "The document as a Python script.",
+          "type": "object",
+          "properties": {
+            "doc": {
+              "description": "The document.",
+              "$ref": "#/$defs/DocHandle"
+            },
+            "type": {
+              "type": "string",
+              "const": "export_python"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "doc"
+          ]
+        }
+      ]
+    },
+    "ProfileInput": {
+      "description": "The accepted JSON input: `id`, `name` and `technology` are required, every other field is\noptional, and `fit` may name only some classes.\n\nThe protocol's `put_printer_profile` carries this type; `PrinterProfile::try_from` turns it\ninto a valid profile (section 3.1).",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "Profile id; validated as a `partsmith_model::Id` by the conversion (`InvalidId`).",
+          "type": "string"
+        },
+        "name": {
+          "description": "Display name.",
+          "type": "string"
+        },
+        "technology": {
+          "description": "FDM or resin; selects the generic profile that fills omitted fields.",
+          "$ref": "#/$defs/Technology"
+        },
+        "bed": {
+          "description": "Replaces the whole bed when present.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Bed"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "nozzle_diameter": {
+          "description": "Nozzle diameter in mm (FDM only).",
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "layer_height": {
+          "description": "Layer height in mm.",
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "max_overhang_angle": {
+          "description": "Steepest printable overhang from vertical, in radians.",
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "max_bridge_length": {
+          "description": "Longest unsupported horizontal span in mm.",
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "fit": {
+          "description": "Replaces only the fit classes it names.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FitInput"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "technology"
+      ]
+    },
+    "Technology": {
+      "description": "Printing technology.",
+      "oneOf": [
+        {
+          "description": "Filament extrusion.",
+          "type": "string",
+          "const": "fdm"
+        },
+        {
+          "description": "Masked or laser stereolithography (MSLA, SLA).",
+          "type": "string",
+          "const": "resin"
+        }
+      ]
+    },
+    "Bed": {
+      "description": "Build plate shape and build volume height. Bed coordinates: a rectangle spans\n`[0, width] × [0, depth]`; a circle is centered on the origin.",
+      "oneOf": [
+        {
+          "description": "Rectangular plate.",
+          "type": "object",
+          "properties": {
+            "width": {
+              "description": "Extent along x in mm.",
+              "type": "number",
+              "format": "double"
+            },
+            "depth": {
+              "description": "Extent along y in mm.",
+              "type": "number",
+              "format": "double"
+            },
+            "height": {
+              "description": "Maximum build height in mm.",
+              "type": "number",
+              "format": "double"
+            },
+            "kind": {
+              "type": "string",
+              "const": "rectangle"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "width",
+            "depth",
+            "height"
+          ]
+        },
+        {
+          "description": "Round plate (delta printers).",
+          "type": "object",
+          "properties": {
+            "diameter": {
+              "description": "Plate diameter in mm.",
+              "type": "number",
+              "format": "double"
+            },
+            "height": {
+              "description": "Maximum build height in mm.",
+              "type": "number",
+              "format": "double"
+            },
+            "kind": {
+              "type": "string",
+              "const": "circle"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "diameter",
+            "height"
+          ]
+        }
+      ]
+    },
+    "FitInput": {
+      "description": "Fit clearances in a profile input, in mm; each class is optional.",
+      "type": "object",
+      "properties": {
+        "press": {
+          "description": "Press fit clearance.",
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "snug": {
+          "description": "Snug fit clearance.",
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "slip": {
+          "description": "Slip fit clearance.",
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "loose": {
+          "description": "Loose fit clearance.",
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        }
+      },
+      "additionalProperties": false
+    },
+    "Units": {
+      "description": "Document units: the unit of bare numbers in length expressions and the display unit for lengths.",
+      "oneOf": [
+        {
+          "description": "Millimeters, `\"mm\"`.",
+          "type": "string",
+          "const": "mm"
+        },
+        {
+          "description": "Centimeters, `\"cm\"`.",
+          "type": "string",
+          "const": "cm"
+        },
+        {
+          "description": "Meters, `\"m\"`.",
+          "type": "string",
+          "const": "m"
+        },
+        {
+          "description": "Inches, `\"in\"`.",
+          "type": "string",
+          "const": "in"
+        }
+      ]
+    },
+    "AssetData": {
+      "description": "A file passed into or out of the engine.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "File name inside the document's `assets/` folder.",
+          "type": "string"
+        },
+        "data": {
+          "description": "The file bytes (a `u8` buffer).",
+          "$ref": "#/$defs/BufferIndex"
+        }
+      },
+      "required": [
+        "name",
+        "data"
+      ]
+    },
+    "BufferIndex": {
+      "description": "Index of a buffer in the enclosing frame; serialized as a bare integer.",
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0
+    },
+    "DocHandle": {
+      "description": "Handle of an open document; starts at 1 per session and is never reused.",
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0
+    },
+    "Edit": {
+      "description": "One change to a document. Every change goes through an Edit; applying one returns its exact inverse.",
+      "oneOf": [
+        {
+          "description": "Inserts a parameter at `index` (0 to the number of parameters).",
+          "type": "object",
+          "properties": {
+            "index": {
+              "description": "Position of the new parameter.",
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0
+            },
+            "parameter": {
+              "description": "The new parameter.",
+              "$ref": "#/$defs/Parameter"
+            },
+            "type": {
+              "type": "string",
+              "const": "add_parameter"
+            }
+          },
+          "required": [
+            "type",
+            "index",
+            "parameter"
+          ]
+        },
+        {
+          "description": "Replaces the parameter with the same id.",
+          "type": "object",
+          "properties": {
+            "parameter": {
+              "description": "The new record.",
+              "$ref": "#/$defs/Parameter"
+            },
+            "type": {
+              "type": "string",
+              "const": "update_parameter"
+            }
+          },
+          "required": [
+            "type",
+            "parameter"
+          ]
+        },
+        {
+          "description": "Removes a parameter.",
+          "type": "object",
+          "properties": {
+            "id": {
+              "description": "The parameter to remove.",
+              "$ref": "#/$defs/Id"
+            },
+            "type": {
+              "type": "string",
+              "const": "remove_parameter"
+            }
+          },
+          "required": [
+            "type",
+            "id"
+          ]
+        },
+        {
+          "description": "Moves a parameter so that it ends up at `index`.",
+          "type": "object",
+          "properties": {
+            "id": {
+              "description": "The parameter to move.",
+              "$ref": "#/$defs/Id"
+            },
+            "index": {
+              "description": "Its position after the move.",
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0
+            },
+            "type": {
+              "type": "string",
+              "const": "move_parameter"
+            }
+          },
+          "required": [
+            "type",
+            "id",
+            "index"
+          ]
+        },
+        {
+          "description": "Inserts a body at `index`.",
+          "type": "object",
+          "properties": {
+            "index": {
+              "description": "Position of the new body.",
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0
+            },
+            "body": {
+              "description": "The new body.",
+              "$ref": "#/$defs/Body"
+            },
+            "type": {
+              "type": "string",
+              "const": "add_body"
+            }
+          },
+          "required": [
+            "type",
+            "index",
+            "body"
+          ]
+        },
+        {
+          "description": "Replaces the body with the same id.",
+          "type": "object",
+          "properties": {
+            "body": {
+              "description": "The new record.",
+              "$ref": "#/$defs/Body"
+            },
+            "type": {
+              "type": "string",
+              "const": "update_body"
+            }
+          },
+          "required": [
+            "type",
+            "body"
+          ]
+        },
+        {
+          "description": "Removes a body.",
+          "type": "object",
+          "properties": {
+            "id": {
+              "description": "The body to remove.",
+              "$ref": "#/$defs/Id"
+            },
+            "type": {
+              "type": "string",
+              "const": "remove_body"
+            }
+          },
+          "required": [
+            "type",
+            "id"
+          ]
+        },
+        {
+          "description": "Moves a body so that it ends up at `index`.",
+          "type": "object",
+          "properties": {
+            "id": {
+              "description": "The body to move.",
+              "$ref": "#/$defs/Id"
+            },
+            "index": {
+              "description": "Its position after the move.",
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0
+            },
+            "type": {
+              "type": "string",
+              "const": "move_body"
+            }
+          },
+          "required": [
+            "type",
+            "id",
+            "index"
+          ]
+        },
+        {
+          "description": "Inserts a feature record at timeline position `index`.",
+          "type": "object",
+          "properties": {
+            "index": {
+              "description": "Timeline position of the new feature.",
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0
+            },
+            "feature": {
+              "description": "The new feature record.",
+              "$ref": "#/$defs/FeatureRecord"
+            },
+            "type": {
+              "type": "string",
+              "const": "add_feature"
+            }
+          },
+          "required": [
+            "type",
+            "index",
+            "feature"
+          ]
+        },
+        {
+          "description": "Replaces the feature record with the same id.",
+          "type": "object",
+          "properties": {
+            "feature": {
+              "description": "The new record.",
+              "$ref": "#/$defs/FeatureRecord"
+            },
+            "type": {
+              "type": "string",
+              "const": "update_feature"
+            }
+          },
+          "required": [
+            "type",
+            "feature"
+          ]
+        },
+        {
+          "description": "Removes a feature record.",
+          "type": "object",
+          "properties": {
+            "id": {
+              "description": "The feature to remove.",
+              "$ref": "#/$defs/Id"
+            },
+            "type": {
+              "type": "string",
+              "const": "remove_feature"
+            }
+          },
+          "required": [
+            "type",
+            "id"
+          ]
+        },
+        {
+          "description": "Moves a feature record so that it ends up at timeline position `index`.",
+          "type": "object",
+          "properties": {
+            "id": {
+              "description": "The feature to move.",
+              "$ref": "#/$defs/Id"
+            },
+            "index": {
+              "description": "Its timeline position after the move.",
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0
+            },
+            "type": {
+              "type": "string",
+              "const": "move_feature"
+            }
+          },
+          "required": [
+            "type",
+            "id",
+            "index"
+          ]
+        },
+        {
+          "description": "Sets the rollback marker; `None` means nothing is rolled back.",
+          "type": "object",
+          "properties": {
+            "rollback": {
+              "description": "The first rolled-back feature.",
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Id"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": {
+              "type": "string",
+              "const": "set_rollback"
+            }
+          },
+          "required": [
+            "type"
+          ]
+        },
+        {
+          "description": "Sets the document units.",
+          "type": "object",
+          "properties": {
+            "units": {
+              "description": "The new units.",
+              "$ref": "#/$defs/Units"
+            },
+            "type": {
+              "type": "string",
+              "const": "set_units"
+            }
+          },
+          "required": [
+            "type",
+            "units"
+          ]
+        },
+        {
+          "description": "Sets or clears the printer profile id.",
+          "type": "object",
+          "properties": {
+            "printer": {
+              "description": "The printer profile id.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "type": {
+              "type": "string",
+              "const": "set_printer"
+            }
+          },
+          "required": [
+            "type"
+          ]
+        }
+      ]
+    },
+    "Parameter": {
+      "description": "A named expression that other expressions use by name.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "Permanent id.",
+          "$ref": "#/$defs/Id"
+        },
+        "name": {
+          "description": "Name used in expressions; a valid parameter name, unique in the document.",
+          "type": "string"
+        },
+        "expr": {
+          "description": "Expression source text.",
+          "$ref": "#/$defs/Expr"
+        },
+        "comment": {
+          "description": "Free-text note shown next to the parameter.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "expr"
+      ]
+    },
+    "Id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{1,64}$"
+    },
+    "Expr": {
+      "type": "string"
+    },
+    "Body": {
+      "description": "A declared solid body that features build into.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "Permanent id.",
+          "$ref": "#/$defs/Id"
+        },
+        "name": {
+          "description": "Display name; a valid label.",
+          "type": "string"
+        },
+        "material": {
+          "description": "Material name such as \"PETG\"; a valid label when present.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "color": {
+          "description": "Display and export color.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Color"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "visible": {
+          "description": "Shown in the viewport; default true, omitted when true.",
+          "type": "boolean"
+        },
+        "role": {
+          "description": "Print role; default `Part`, omitted when `Part`.",
+          "$ref": "#/$defs/BodyRole"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name"
+      ]
+    },
+    "Color": {
+      "type": "string",
+      "pattern": "^#[0-9A-Fa-f]{6}$"
+    },
+    "BodyRole": {
+      "description": "What a body is for when it is printed.",
+      "oneOf": [
+        {
+          "description": "A printed part (default, omitted when saved).",
+          "type": "string",
+          "const": "part"
+        },
+        {
+          "description": "Negative volume: subtracted by the slicer.",
+          "type": "string",
+          "const": "negative_volume"
+        },
+        {
+          "description": "Region where the slicer must not place supports.",
+          "type": "string",
+          "const": "support_blocker"
+        },
+        {
+          "description": "Region where the slicer must place supports.",
+          "type": "string",
+          "const": "support_enforcer"
+        },
+        {
+          "description": "Region with its own slicer settings (the settings themselves come later).",
+          "type": "string",
+          "const": "settings_modifier"
+        }
+      ]
+    },
+    "FeatureRecord": {
+      "description": "One timeline entry. Its params are stored generically and owned by the feature registry.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "Permanent id.",
+          "$ref": "#/$defs/Id"
+        },
+        "type": {
+          "description": "Feature type name such as \"extrude\"; serialized as \"type\".",
+          "type": "string"
+        },
+        "name": {
+          "description": "Display name in the timeline; a valid label when present.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "suppressed": {
+          "description": "Skipped by recompute; default false, omitted when false.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "type"
+      ],
+      "additionalProperties": true
+    },
+    "SketchParams": {
+      "description": "Params of a `sketch` feature; flattened into its feature record after the record's own fields (`id`, `type`, `name`, `suppressed`).",
+      "type": "object",
+      "properties": {
+        "plane": {
+          "description": "Where the sketch lies in model space.",
+          "$ref": "#/$defs/SketchPlane"
+        },
+        "entities": {
+          "description": "Geometry in creation order; always written, a missing key loads as empty.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SketchEntity"
+          },
+          "default": []
+        },
+        "constraints": {
+          "description": "Constraints in creation order; always written, a missing key loads as empty.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SketchConstraint"
+          },
+          "default": []
+        }
+      },
+      "required": [
+        "plane"
+      ]
+    },
+    "SketchPlane": {
+      "description": "Where a sketch lies.",
+      "oneOf": [
+        {
+          "description": "One of the three origin planes.",
+          "type": "object",
+          "properties": {
+            "plane": {
+              "description": "Which origin plane.",
+              "$ref": "#/$defs/OriginPlane"
+            },
+            "kind": {
+              "type": "string",
+              "const": "origin"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "plane"
+          ]
+        },
+        {
+          "description": "The plane produced by a datum feature, for example a `datum_plane`.",
+          "type": "object",
+          "properties": {
+            "feature": {
+              "description": "The datum feature.",
+              "$ref": "#/$defs/Id"
+            },
+            "kind": {
+              "type": "string",
+              "const": "datum"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "feature"
+          ]
+        },
+        {
+          "description": "A planar face of `body`, plus the placement used when the face cannot be resolved.",
+          "type": "object",
+          "properties": {
+            "body": {
+              "description": "The body the face reference is resolved in.",
+              "$ref": "#/$defs/Id"
+            },
+            "face": {
+              "description": "The face.",
+              "$ref": "#/$defs/Reference"
+            },
+            "fallback": {
+              "description": "The placement recorded when the sketch was attached.",
+              "$ref": "#/$defs/Placement"
+            },
+            "kind": {
+              "type": "string",
+              "const": "face"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "body",
+            "face",
+            "fallback"
+          ]
+        }
+      ]
+    },
+    "OriginPlane": {
+      "description": "An origin plane, serialized as \"XY\", \"XZ\" or \"YZ\".",
+      "oneOf": [
+        {
+          "description": "Normal +Z, x axis +X.",
+          "type": "string",
+          "const": "XY"
+        },
+        {
+          "description": "Normal -Y, x axis +X, so sketch up is +Z.",
+          "type": "string",
+          "const": "XZ"
+        },
+        {
+          "description": "Normal +X, x axis +Y, so sketch up is +Z.",
+          "type": "string",
+          "const": "YZ"
+        }
+      ]
+    },
+    "Reference": {
+      "description": "A stored reference to a face, edge or vertex: a name query plus the fingerprint it had when picked.\n\nA reference carries no body: it always sits next to a `body` field of its containing struct that\nnames the body it is resolved in.",
+      "type": "object",
+      "properties": {
+        "q": {
+          "description": "The element name the reference was made with.",
+          "$ref": "#/$defs/ElementName"
+        },
+        "fp": {
+          "description": "The element's fingerprint when the reference was made.",
+          "$ref": "#/$defs/Fingerprint"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "q",
+        "fp"
+      ]
+    },
+    "ElementName": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 16384,
+      "pattern": "^[A-Za-z0-9_./()|#@:-]+$"
+    },
+    "Fingerprint": {
+      "type": "string",
+      "pattern": "^(plane|cylinder|cone|sphere|torus|revolution|extrusion|bspline_surface|bezier_surface|offset_surface|other_surface|line|circle|ellipse|hyperbola|parabola|bspline_curve|bezier_curve|offset_curve|other_curve|point)(\\|[a-z]+=[-0-9.,]+)*$"
+    },
+    "Placement": {
+      "description": "A right-handed frame that places sketch coordinates in model space.",
+      "type": "object",
+      "properties": {
+        "origin": {
+          "description": "Model-space position (mm) of sketch point (0, 0).",
+          "type": "array",
+          "items": {
+            "type": "number",
+            "format": "double"
+          },
+          "minItems": 3,
+          "maxItems": 3
+        },
+        "x_axis": {
+          "description": "Unit model-space direction of sketch +u.",
+          "type": "array",
+          "items": {
+            "type": "number",
+            "format": "double"
+          },
+          "minItems": 3,
+          "maxItems": 3
+        },
+        "normal": {
+          "description": "Unit normal of the sketch plane; sketch +v is `normal x x_axis`.",
+          "type": "array",
+          "items": {
+            "type": "number",
+            "format": "double"
+          },
+          "minItems": 3,
+          "maxItems": 3
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "origin",
+        "x_axis",
+        "normal"
+      ]
+    },
+    "SketchEntity": {
+      "description": "The JSON record of an entity, with the `type` tag and the geometry fields at one level.",
+      "oneOf": [
+        {
+          "description": "A point entity.",
+          "type": "object",
+          "properties": {
+            "id": {
+              "description": "The entity id.",
+              "$ref": "#/$defs/Id"
+            },
+            "position": {
+              "description": "Its position.",
+              "type": "array",
+              "items": {
+                "type": "number",
+                "format": "double"
+              },
+              "minItems": 2,
+              "maxItems": 2
+            },
+            "construction": {
+              "description": "Construction flag, false when omitted.",
+              "type": "boolean",
+              "default": false
+            },
+            "type": {
+              "type": "string",
+              "const": "point"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "id",
+            "position"
+          ]
+        },
+        {
+          "description": "A line entity.",
+          "type": "object",
+          "properties": {
+            "id": {
+              "description": "The entity id.",
+              "$ref": "#/$defs/Id"
+            },
+            "start": {
+              "description": "First point.",
+              "type": "array",
+              "items": {
+                "type": "number",
+                "format": "double"
+              },
+              "minItems": 2,
+              "maxItems": 2
+            },
+            "end": {
+              "description": "Second point.",
+              "type": "array",
+              "items": {
+                "type": "number",
+                "format": "double"
+              },
+              "minItems": 2,
+              "maxItems": 2
+            },
+            "construction": {
+              "description": "Construction flag, false when omitted.",
+              "type": "boolean",
+              "default": false
+            },
+            "type": {
+              "type": "string",
+              "const": "line"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "id",
+            "start",
+            "end"
+          ]
+        },
+        {
+          "description": "A circle entity.",
+          "type": "object",
+          "properties": {
+            "id": {
+              "description": "The entity id.",
+              "$ref": "#/$defs/Id"
+            },
+            "center": {
+              "description": "Center point.",
+              "type": "array",
+              "items": {
+                "type": "number",
+                "format": "double"
+              },
+              "minItems": 2,
+              "maxItems": 2
+            },
+            "radius": {
+              "description": "Radius in mm.",
+              "type": "number",
+              "format": "double"
+            },
+            "construction": {
+              "description": "Construction flag, false when omitted.",
+              "type": "boolean",
+              "default": false
+            },
+            "type": {
+              "type": "string",
+              "const": "circle"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "id",
+            "center",
+            "radius"
+          ]
+        },
+        {
+          "description": "An arc entity.",
+          "type": "object",
+          "properties": {
+            "id": {
+              "description": "The entity id.",
+              "$ref": "#/$defs/Id"
+            },
+            "center": {
+              "description": "Center point.",
+              "type": "array",
+              "items": {
+                "type": "number",
+                "format": "double"
+              },
+              "minItems": 2,
+              "maxItems": 2
+            },
+            "radius": {
+              "description": "Radius in mm.",
+              "type": "number",
+              "format": "double"
+            },
+            "start_angle": {
+              "description": "Start angle in radians.",
+              "type": "number",
+              "format": "double"
+            },
+            "end_angle": {
+              "description": "End angle in radians.",
+              "type": "number",
+              "format": "double"
+            },
+            "construction": {
+              "description": "Construction flag, false when omitted.",
+              "type": "boolean",
+              "default": false
+            },
+            "type": {
+              "type": "string",
+              "const": "arc"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "id",
+            "center",
+            "radius",
+            "start_angle",
+            "end_angle"
+          ]
+        }
+      ]
+    },
+    "SketchConstraint": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "coincident"
+            },
+            "id": {
+              "$ref": "#/$defs/Id"
+            },
+            "points": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/PointRef"
+              },
+              "minItems": 2,
+              "maxItems": 2
+            }
+          },
+          "required": [
+            "id",
+            "type",
+            "points"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "point_on_object"
+            },
+            "id": {
+              "$ref": "#/$defs/Id"
+            },
+            "point": {
+              "$ref": "#/$defs/PointRef"
+            },
+            "curve": {
+              "$ref": "#/$defs/Id"
+            }
+          },
+          "required": [
+            "id",
+            "type",
+            "point",
+            "curve"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "horizontal"
+            },
+            "id": {
+              "$ref": "#/$defs/Id"
+            },
+            "line": {
+              "$ref": "#/$defs/Id"
+            }
+          },
+          "required": [
+            "id",
+            "type",
+            "line"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "horizontal"
+            },
+            "id": {
+              "$ref": "#/$defs/Id"
+            },
+            "points": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/PointRef"
+              },
+              "minItems": 2,
+              "maxItems": 2
+            }
+          },
+          "required": [
+            "id",
+            "type",
+            "points"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "vertical"
+            },
+            "id": {
+              "$ref": "#/$defs/Id"
+            },
+            "line": {
+              "$ref": "#/$defs/Id"
+            }
+          },
+          "required": [
+            "id",
+            "type",
+            "line"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "vertical"
+            },
+            "id": {
+              "$ref": "#/$defs/Id"
+            },
+            "points": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/PointRef"
+              },
+              "minItems": 2,
+              "maxItems": 2
+            }
+          },
+          "required": [
+            "id",
+            "type",
+            "points"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "parallel"
+            },
+            "id": {
+              "$ref": "#/$defs/Id"
+            },
+            "lines": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Id"
+              },
+              "minItems": 2,
+              "maxItems": 2
+            }
+          },
+          "required": [
+            "id",
+            "type",
+            "lines"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "perpendicular"
+            },
+            "id": {
+              "$ref": "#/$defs/Id"
+            },
+            "lines": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Id"
+              },
+              "minItems": 2,
+              "maxItems": 2
+            }
+          },
+          "required": [
+            "id",
+            "type",
+            "lines"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "tangent"
+            },
+            "id": {
+              "$ref": "#/$defs/Id"
+            },
+            "curves": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Id"
+              },
+              "minItems": 2,
+              "maxItems": 2
+            }
+          },
+          "required": [
+            "id",
+            "type",
+            "curves"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "collinear"
+            },
+            "id": {
+              "$ref": "#/$defs/Id"
+            },
+            "lines": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Id"
+              },
+              "minItems": 2,
+              "maxItems": 2
+            }
+          },
+          "required": [
+            "id",
+            "type",
+            "lines"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "concentric"
+            },
+            "id": {
+              "$ref": "#/$defs/Id"
+            },
+            "curves": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Id"
+              },
+              "minItems": 2,
+              "maxItems": 2
+            }
+          },
+          "required": [
+            "id",
+            "type",
+            "curves"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "equal"
+            },
+            "id": {
+              "$ref": "#/$defs/Id"
+            },
+            "curves": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Id"
+              },
+              "minItems": 2,
+              "maxItems": 2
+            }
+          },
+          "required": [
+            "id",
+            "type",
+            "curves"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "symmetric"
+            },
+            "id": {
+              "$ref": "#/$defs/Id"
+            },
+            "points": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/PointRef"
+              },
+              "minItems": 2,
+              "maxItems": 2
+            },
+            "line": {
+              "$ref": "#/$defs/Id"
+            }
+          },
+          "required": [
+            "id",
+            "type",
+            "points",
+            "line"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "midpoint"
+            },
+            "id": {
+              "$ref": "#/$defs/Id"
+            },
+            "point": {
+              "$ref": "#/$defs/PointRef"
+            },
+            "line": {
+              "$ref": "#/$defs/Id"
+            }
+          },
+          "required": [
+            "id",
+            "type",
+            "point",
+            "line"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "fix"
+            },
+            "id": {
+              "$ref": "#/$defs/Id"
+            },
+            "target": {
+              "$ref": "#/$defs/PointRef"
+            }
+          },
+          "required": [
+            "id",
+            "type",
+            "target"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "distance"
+            },
+            "id": {
+              "$ref": "#/$defs/Id"
+            },
+            "points": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/PointRef"
+              },
+              "minItems": 2,
+              "maxItems": 2
+            },
+            "expr": {
+              "$ref": "#/$defs/Expr"
+            },
+            "driving": {
+              "type": "boolean",
+              "default": true
+            }
+          },
+          "required": [
+            "id",
+            "type",
+            "points",
+            "expr"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "distance"
+            },
+            "id": {
+              "$ref": "#/$defs/Id"
+            },
+            "point": {
+              "$ref": "#/$defs/PointRef"
+            },
+            "line": {
+              "$ref": "#/$defs/Id"
+            },
+            "expr": {
+              "$ref": "#/$defs/Expr"
+            },
+            "driving": {
+              "type": "boolean",
+              "default": true
+            }
+          },
+          "required": [
+            "id",
+            "type",
+            "point",
+            "line",
+            "expr"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "distance"
+            },
+            "id": {
+              "$ref": "#/$defs/Id"
+            },
+            "line": {
+              "$ref": "#/$defs/Id"
+            },
+            "expr": {
+              "$ref": "#/$defs/Expr"
+            },
+            "driving": {
+              "type": "boolean",
+              "default": true
+            }
+          },
+          "required": [
+            "id",
+            "type",
+            "line",
+            "expr"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "horizontal_distance"
+            },
+            "id": {
+              "$ref": "#/$defs/Id"
+            },
+            "line": {
+              "$ref": "#/$defs/Id"
+            },
+            "expr": {
+              "$ref": "#/$defs/Expr"
+            },
+            "driving": {
+              "type": "boolean",
+              "default": true
+            }
+          },
+          "required": [
+            "id",
+            "type",
+            "line",
+            "expr"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "horizontal_distance"
+            },
+            "id": {
+              "$ref": "#/$defs/Id"
+            },
+            "points": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/PointRef"
+              },
+              "minItems": 2,
+              "maxItems": 2
+            },
+            "expr": {
+              "$ref": "#/$defs/Expr"
+            },
+            "driving": {
+              "type": "boolean",
+              "default": true
+            }
+          },
+          "required": [
+            "id",
+            "type",
+            "points",
+            "expr"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "vertical_distance"
+            },
+            "id": {
+              "$ref": "#/$defs/Id"
+            },
+            "line": {
+              "$ref": "#/$defs/Id"
+            },
+            "expr": {
+              "$ref": "#/$defs/Expr"
+            },
+            "driving": {
+              "type": "boolean",
+              "default": true
+            }
+          },
+          "required": [
+            "id",
+            "type",
+            "line",
+            "expr"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "vertical_distance"
+            },
+            "id": {
+              "$ref": "#/$defs/Id"
+            },
+            "points": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/PointRef"
+              },
+              "minItems": 2,
+              "maxItems": 2
+            },
+            "expr": {
+              "$ref": "#/$defs/Expr"
+            },
+            "driving": {
+              "type": "boolean",
+              "default": true
+            }
+          },
+          "required": [
+            "id",
+            "type",
+            "points",
+            "expr"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "radius"
+            },
+            "id": {
+              "$ref": "#/$defs/Id"
+            },
+            "curve": {
+              "$ref": "#/$defs/Id"
+            },
+            "expr": {
+              "$ref": "#/$defs/Expr"
+            },
+            "driving": {
+              "type": "boolean",
+              "default": true
+            }
+          },
+          "required": [
+            "id",
+            "type",
+            "curve",
+            "expr"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "diameter"
+            },
+            "id": {
+              "$ref": "#/$defs/Id"
+            },
+            "curve": {
+              "$ref": "#/$defs/Id"
+            },
+            "expr": {
+              "$ref": "#/$defs/Expr"
+            },
+            "driving": {
+              "type": "boolean",
+              "default": true
+            }
+          },
+          "required": [
+            "id",
+            "type",
+            "curve",
+            "expr"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "angle"
+            },
+            "id": {
+              "$ref": "#/$defs/Id"
+            },
+            "lines": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Id"
+              },
+              "minItems": 2,
+              "maxItems": 2
+            },
+            "expr": {
+              "$ref": "#/$defs/Expr"
+            },
+            "driving": {
+              "type": "boolean",
+              "default": true
+            }
+          },
+          "required": [
+            "id",
+            "type",
+            "lines",
+            "expr"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "PointRef": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{1,64}(\\.(start|end|center))?$"
+    },
+    "TessellationQuality": {
+      "description": "Display and export tessellation quality relative to the printer profile.",
+      "oneOf": [
+        {
+          "description": "Coarser than the profile's tolerance, for fast display.",
+          "type": "string",
+          "const": "draft"
+        },
+        {
+          "description": "The profile's tolerance.",
+          "type": "string",
+          "const": "standard"
+        },
+        {
+          "description": "Finer than the profile's tolerance.",
+          "type": "string",
+          "const": "fine"
+        }
+      ]
+    },
+    "ElementKind": {
+      "description": "The topological kind of an element.",
+      "oneOf": [
+        {
+          "description": "A face.",
+          "type": "string",
+          "const": "face"
+        },
+        {
+          "description": "An edge.",
+          "type": "string",
+          "const": "edge"
+        },
+        {
+          "description": "A vertex.",
+          "type": "string",
+          "const": "vertex"
+        }
+      ]
+    },
+    "Pick": {
+      "description": "A pixel pick in a displayed mesh.",
+      "type": "object",
+      "properties": {
+        "mesh_id": {
+          "description": "The displayed mesh.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "kind": {
+          "description": "Face, edge or vertex.",
+          "$ref": "#/$defs/ElementKind"
+        },
+        "index": {
+          "description": "Display id of the element within the mesh.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "mesh_id",
+        "kind",
+        "index"
+      ]
+    },
+    "ElementRef": {
+      "description": "A face, edge or vertex reference with the body it is resolved in.",
+      "type": "object",
+      "properties": {
+        "body": {
+          "description": "Body the reference is resolved in.",
+          "$ref": "#/$defs/Id"
+        },
+        "reference": {
+          "description": "The stored reference.",
+          "$ref": "#/$defs/Reference"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "body",
+        "reference"
+      ]
+    },
+    "MeasureTarget": {
+      "description": "What to measure, resolved at the display state.",
+      "oneOf": [
+        {
+          "description": "A whole body.",
+          "type": "object",
+          "properties": {
+            "body": {
+              "description": "The body.",
+              "$ref": "#/$defs/Id"
+            },
+            "kind": {
+              "type": "string",
+              "const": "body"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "body"
+          ]
+        },
+        {
+          "description": "A face, edge or vertex of `body`.",
+          "type": "object",
+          "properties": {
+            "body": {
+              "description": "Body that owns the element.",
+              "$ref": "#/$defs/Id"
+            },
+            "reference": {
+              "description": "The element, resolved in `body`.",
+              "$ref": "#/$defs/Reference"
+            },
+            "kind": {
+              "type": "string",
+              "const": "element"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "body",
+            "reference"
+          ]
+        }
+      ]
+    },
+    "Orientation": {
+      "description": "How bodies are rotated onto the build plate.",
+      "oneOf": [
+        {
+          "description": "No rotation.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "as_modeled"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "description": "Rotation by a proper orthonormal 3 × 3 matrix, row-major.",
+          "type": "object",
+          "properties": {
+            "rows": {
+              "description": "The matrix rows.",
+              "type": "array",
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "number",
+                  "format": "double"
+                },
+                "minItems": 3,
+                "maxItems": 3
+              },
+              "minItems": 3,
+              "maxItems": 3
+            },
+            "kind": {
+              "type": "string",
+              "const": "matrix"
+            }
+          },
+          "required": [
+            "kind",
+            "rows"
+          ]
+        },
+        {
+          "description": "The rotation that turns this planar face of `body` (outward normal) to -Z.",
+          "type": "object",
+          "properties": {
+            "body": {
+              "description": "Body that owns the face.",
+              "$ref": "#/$defs/Id"
+            },
+            "face": {
+              "description": "The face, resolved in `body`.",
+              "$ref": "#/$defs/Reference"
+            },
+            "kind": {
+              "type": "string",
+              "const": "face_down"
+            }
+          },
+          "required": [
+            "kind",
+            "body",
+            "face"
+          ]
+        }
+      ]
+    },
+    "ExportFormat": {
+      "description": "Export file format and its options. A value enum inside the command, so it is tagged `kind`.",
+      "oneOf": [
+        {
+          "description": "STL; one file, or one per body.",
+          "type": "object",
+          "properties": {
+            "binary": {
+              "description": "Binary STL instead of ASCII.",
+              "type": "boolean"
+            },
+            "per_body": {
+              "description": "One file per body instead of one file.",
+              "type": "boolean"
+            },
+            "kind": {
+              "type": "string",
+              "const": "stl"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "binary",
+            "per_body"
+          ]
+        },
+        {
+          "description": "3MF with every exported body as an object.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "3mf"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "Wavefront OBJ; one file with one object per body.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "obj"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "STEP AP214 B-rep with body names and colors.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "step"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "TessellationTolerance": {
+      "description": "Tessellation accuracy: how far triangles may deviate from the exact surface.",
+      "type": "object",
+      "properties": {
+        "chord_deviation": {
+          "description": "Chord deflection (OCCT `Deflection`, absolute): maximum distance between a triangle or segment and the exact surface or curve, in mm.",
+          "type": "number",
+          "format": "double"
+        },
+        "angular_deviation": {
+          "description": "Angular deflection (OCCT `Angle`): maximum angle between consecutive segments along curves and between adjacent triangle normals, in radians.",
+          "type": "number",
+          "format": "double"
+        }
+      },
+      "required": [
+        "chord_deviation",
+        "angular_deviation"
+      ]
+    },
+    "Request": {
+      "description": "A command with a client-chosen id.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "Client-chosen id, echoed in the response; at most `MAX_SAFE_INTEGER` (0 is reserved for the worker's own calls).",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "command": {
+          "description": "The command.",
+          "$ref": "#/$defs/Command"
+        }
+      },
+      "required": [
+        "id",
+        "command"
+      ]
+    },
+    "Outcome": {
+      "description": "Success or failure of one request. A value enum inside `Response`, so it is tagged `kind`.",
+      "oneOf": [
+        {
+          "description": "The command succeeded; its `type` equals the command's `type`.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "ok"
+            }
+          },
+          "$ref": "#/$defs/CommandResult",
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "description": "The command failed and changed nothing.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "error"
+            }
+          },
+          "$ref": "#/$defs/ErrorInfo",
+          "required": [
+            "kind"
+          ]
+        }
+      ]
+    },
+    "CatalogEntry": {
+      "description": "One registered feature type.",
+      "type": "object",
+      "properties": {
+        "type": {
+          "description": "Feature type name, for example `box`.",
+          "type": "string"
+        },
+        "manifest": {
+          "description": "Label, category, icon, version and inspector hints.",
+          "$ref": "#/$defs/FeatureManifest"
+        },
+        "params_schema": {
+          "description": "JSON Schema of the feature's params."
+        }
+      },
+      "required": [
+        "type",
+        "manifest",
+        "params_schema"
+      ]
+    },
+    "FeatureManifest": {
+      "description": "Static description of a feature type for the UI, schema and registry.",
+      "type": "object",
+      "properties": {
+        "label": {
+          "description": "Display name, for example \"Extrude\". Also the base of default feature labels.",
+          "type": "string"
+        },
+        "category": {
+          "description": "Toolbar and palette grouping.",
+          "$ref": "#/$defs/Category"
+        },
+        "icon": {
+          "description": "Icon name in the UI icon set, kebab-case, for example \"linear-pattern\".",
+          "type": "string"
+        },
+        "version": {
+          "description": "Params version of this type, starting at 1. Bumped only with a document migration.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "fields": {
+          "description": "Inspector fields in display order.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/FieldHint"
+          }
+        }
+      },
+      "required": [
+        "label",
+        "category",
+        "icon",
+        "version",
+        "fields"
+      ]
+    },
+    "Category": {
+      "description": "Toolbar and palette group of a feature type.",
+      "oneOf": [
+        {
+          "description": "Sketches.",
+          "type": "string",
+          "const": "sketch"
+        },
+        {
+          "description": "Features that add or remove material from scratch or from a sketch.",
+          "type": "string",
+          "const": "create"
+        },
+        {
+          "description": "Features that change existing bodies.",
+          "type": "string",
+          "const": "modify"
+        },
+        {
+          "description": "Mirrors and patterns.",
+          "type": "string",
+          "const": "pattern"
+        },
+        {
+          "description": "Construction geometry such as datum planes.",
+          "type": "string",
+          "const": "construct"
+        }
+      ]
+    },
+    "FieldHint": {
+      "description": "How the inspector shows one params field.",
+      "type": "object",
+      "properties": {
+        "path": {
+          "description": "Path of the field inside params, for example `extent.expr` or `size[0]` (grammar in features.md section 3.2).",
+          "type": "string"
+        },
+        "label": {
+          "description": "Label shown next to the field, for example \"Distance\".",
+          "type": "string"
+        },
+        "essential": {
+          "description": "Shown without the \"More\" toggle. Default false, omitted when false.",
+          "type": "boolean"
+        },
+        "unit": {
+          "description": "Value kind of an `Expr` field. Omitted for non-expression fields.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FieldUnit"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "selection": {
+          "description": "What the viewport picks for a reference field. Omitted for typed fields.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SelectionKind"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "options": {
+          "description": "Labels for the values of an enumeration or a tag field, in display order. Omitted when empty.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/OptionHint"
+          }
+        }
+      },
+      "required": [
+        "path",
+        "label"
+      ]
+    },
+    "FieldUnit": {
+      "description": "Value kind of an expression field, which sets its input unit, its expected dimension and its validation.",
+      "oneOf": [
+        {
+          "description": "A length in millimeters (expected dimension `LENGTH`).",
+          "type": "string",
+          "const": "length"
+        },
+        {
+          "description": "An angle in radians (expected dimension `ANGLE`).",
+          "type": "string",
+          "const": "angle"
+        },
+        {
+          "description": "A plain number (expected dimension `NONE`).",
+          "type": "string",
+          "const": "scalar"
+        },
+        {
+          "description": "A plain non-negative whole number (expected dimension `NONE`).",
+          "type": "string",
+          "const": "count"
+        }
+      ]
+    },
+    "SelectionKind": {
+      "description": "What a reference field accepts from the viewport or the browser.",
+      "oneOf": [
+        {
+          "description": "A body.",
+          "type": "string",
+          "const": "body"
+        },
+        {
+          "description": "A sketch feature.",
+          "type": "string",
+          "const": "sketch"
+        },
+        {
+          "description": "One or more closed regions of a sketch.",
+          "type": "string",
+          "const": "sketch_region"
+        },
+        {
+          "description": "One or more points of a sketch (point entities, line and arc ends, arc and circle centers).",
+          "type": "string",
+          "const": "sketch_point"
+        },
+        {
+          "description": "Faces of a body.",
+          "type": "string",
+          "const": "face"
+        },
+        {
+          "description": "Edges of a body.",
+          "type": "string",
+          "const": "edge"
+        },
+        {
+          "description": "An origin plane, a datum plane or a flat face.",
+          "type": "string",
+          "const": "plane"
+        },
+        {
+          "description": "An origin axis, a sketch line, a straight edge, or a cylindrical, conical, spherical or toroidal face.",
+          "type": "string",
+          "const": "axis"
+        }
+      ]
+    },
+    "OptionHint": {
+      "description": "Display label for one value of an enumeration field.",
+      "type": "object",
+      "properties": {
+        "value": {
+          "description": "The serialized value, for example \"two_sides\".",
+          "type": "string"
+        },
+        "label": {
+          "description": "The label, for example \"Two sides\".",
+          "type": "string"
+        }
+      },
+      "required": [
+        "value",
+        "label"
+      ]
+    },
+    "PrinterProfile": {
+      "description": "A printer the model will be printed on. Deserialization fills omitted fields from the\ntechnology's generic profile and validates (section 3.1), so a deserialized profile is always\nvalid.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "Profile id; validated as a `partsmith_model::Id` by the conversion (`InvalidId`).",
+          "type": "string"
+        },
+        "name": {
+          "description": "Display name.",
+          "type": "string"
+        },
+        "technology": {
+          "description": "FDM or resin; selects the generic profile that fills omitted fields.",
+          "$ref": "#/$defs/Technology"
+        },
+        "bed": {
+          "description": "Replaces the whole bed when present.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Bed"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "nozzle_diameter": {
+          "description": "Nozzle diameter in mm (FDM only).",
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "layer_height": {
+          "description": "Layer height in mm.",
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "max_overhang_angle": {
+          "description": "Steepest printable overhang from vertical, in radians.",
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "max_bridge_length": {
+          "description": "Longest unsupported horizontal span in mm.",
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "fit": {
+          "description": "Replaces only the fit classes it names.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FitInput"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "technology"
+      ]
+    },
+    "Document": {
+      "description": "The document recipe. Geometry is never stored; it is regenerated from this.",
+      "type": "object",
+      "properties": {
+        "format": {
+          "description": "Always \"partsmith\".",
+          "type": "string"
+        },
+        "format_version": {
+          "description": "Format version; equals FORMAT_VERSION for every document in memory.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "units": {
+          "description": "Unit of bare numbers in length expressions, and the display unit for lengths.",
+          "$ref": "#/$defs/Units"
+        },
+        "printer": {
+          "description": "Printer profile id whose values `printer.*` names resolve to; `None` when no printer is chosen.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "parameters": {
+          "description": "Parameters in the order the user sees them.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Parameter"
+          },
+          "default": []
+        },
+        "bodies": {
+          "description": "Declared bodies in browser order.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Body"
+          },
+          "default": []
+        },
+        "features": {
+          "description": "Feature records in timeline order.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/FeatureRecord"
+          },
+          "default": []
+        },
+        "rollback": {
+          "description": "First rolled-back feature: it and every later feature do not run. `None` means nothing is rolled back.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "format",
+        "format_version",
+        "units"
+      ]
+    },
+    "SketchSolution": {
+      "description": "Solved state of one sketch.",
+      "type": "object",
+      "properties": {
+        "feature": {
+          "description": "The sketch feature.",
+          "$ref": "#/$defs/Id"
+        },
+        "status": {
+          "description": "Overall constraint status.",
+          "$ref": "#/$defs/SketchStatus"
+        },
+        "failed": {
+          "description": "True when some component did not converge; those components keep their previous geometry (sketch.md `SolveResult::failed`).",
+          "type": "boolean"
+        },
+        "dof": {
+          "description": "Remaining degrees of freedom.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "redundant": {
+          "description": "Ids of redundant constraints.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Id"
+          }
+        },
+        "conflicting": {
+          "description": "Ids of conflicting constraints.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Id"
+          }
+        },
+        "placement": {
+          "description": "Plane of the sketch in model coordinates.",
+          "$ref": "#/$defs/Placement"
+        },
+        "entities": {
+          "description": "Every entity with solved geometry, in stored order.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SolvedEntity"
+          }
+        },
+        "points": {
+          "description": "Every addressable point with its solved position, in entity order then role order.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SolvedPoint"
+          }
+        },
+        "constraints": {
+          "description": "Every constraint's state, in stored order.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ConstraintState"
+          }
+        },
+        "regions": {
+          "description": "Closed regions available as profiles, in `build_profile` order (sketch.md).",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RegionInfo"
+          }
+        },
+        "profile_findings": {
+          "description": "Open endpoints, overlaps, self-intersections and zero-length curves.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ProfileFinding"
+          }
+        },
+        "display": {
+          "description": "Display buffers; absent when the session has display off.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SketchDisplay"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "feature",
+        "status",
+        "failed",
+        "dof",
+        "redundant",
+        "conflicting",
+        "placement",
+        "entities",
+        "points",
+        "constraints",
+        "regions",
+        "profile_findings"
+      ]
+    },
+    "SketchStatus": {
+      "description": "Constraint state of a sketch.",
+      "oneOf": [
+        {
+          "description": "Some degrees of freedom remain and no constraint is redundant or conflicting.",
+          "type": "string",
+          "const": "under_constrained"
+        },
+        {
+          "description": "No degree of freedom remains and no constraint is redundant or conflicting.",
+          "type": "string",
+          "const": "fully_constrained"
+        },
+        {
+          "description": "Some constraint repeats what others determine; none conflicts.",
+          "type": "string",
+          "const": "redundant"
+        },
+        {
+          "description": "Some constraints cannot all hold.",
+          "type": "string",
+          "const": "conflicting"
+        }
+      ]
+    },
+    "SolvedEntity": {
+      "description": "A stored entity with solved coordinates plus its constraint state.",
+      "type": "object",
+      "properties": {
+        "constrained": {
+          "description": "The entity's state from `SolveResult::entity_states`, for coloring.",
+          "$ref": "#/$defs/EntityState"
+        }
+      },
+      "oneOf": [
+        {
+          "description": "A point entity.",
+          "type": "object",
+          "properties": {
+            "id": {
+              "description": "The entity id.",
+              "$ref": "#/$defs/Id"
+            },
+            "position": {
+              "description": "Its position.",
+              "type": "array",
+              "items": {
+                "type": "number",
+                "format": "double"
+              },
+              "minItems": 2,
+              "maxItems": 2
+            },
+            "construction": {
+              "description": "Construction flag, false when omitted.",
+              "type": "boolean",
+              "default": false
+            },
+            "type": {
+              "type": "string",
+              "const": "point"
+            }
+          },
+          "required": [
+            "type",
+            "id",
+            "position"
+          ]
+        },
+        {
+          "description": "A line entity.",
+          "type": "object",
+          "properties": {
+            "id": {
+              "description": "The entity id.",
+              "$ref": "#/$defs/Id"
+            },
+            "start": {
+              "description": "First point.",
+              "type": "array",
+              "items": {
+                "type": "number",
+                "format": "double"
+              },
+              "minItems": 2,
+              "maxItems": 2
+            },
+            "end": {
+              "description": "Second point.",
+              "type": "array",
+              "items": {
+                "type": "number",
+                "format": "double"
+              },
+              "minItems": 2,
+              "maxItems": 2
+            },
+            "construction": {
+              "description": "Construction flag, false when omitted.",
+              "type": "boolean",
+              "default": false
+            },
+            "type": {
+              "type": "string",
+              "const": "line"
+            }
+          },
+          "required": [
+            "type",
+            "id",
+            "start",
+            "end"
+          ]
+        },
+        {
+          "description": "A circle entity.",
+          "type": "object",
+          "properties": {
+            "id": {
+              "description": "The entity id.",
+              "$ref": "#/$defs/Id"
+            },
+            "center": {
+              "description": "Center point.",
+              "type": "array",
+              "items": {
+                "type": "number",
+                "format": "double"
+              },
+              "minItems": 2,
+              "maxItems": 2
+            },
+            "radius": {
+              "description": "Radius in mm.",
+              "type": "number",
+              "format": "double"
+            },
+            "construction": {
+              "description": "Construction flag, false when omitted.",
+              "type": "boolean",
+              "default": false
+            },
+            "type": {
+              "type": "string",
+              "const": "circle"
+            }
+          },
+          "required": [
+            "type",
+            "id",
+            "center",
+            "radius"
+          ]
+        },
+        {
+          "description": "An arc entity.",
+          "type": "object",
+          "properties": {
+            "id": {
+              "description": "The entity id.",
+              "$ref": "#/$defs/Id"
+            },
+            "center": {
+              "description": "Center point.",
+              "type": "array",
+              "items": {
+                "type": "number",
+                "format": "double"
+              },
+              "minItems": 2,
+              "maxItems": 2
+            },
+            "radius": {
+              "description": "Radius in mm.",
+              "type": "number",
+              "format": "double"
+            },
+            "start_angle": {
+              "description": "Start angle in radians.",
+              "type": "number",
+              "format": "double"
+            },
+            "end_angle": {
+              "description": "End angle in radians.",
+              "type": "number",
+              "format": "double"
+            },
+            "construction": {
+              "description": "Construction flag, false when omitted.",
+              "type": "boolean",
+              "default": false
+            },
+            "type": {
+              "type": "string",
+              "const": "arc"
+            }
+          },
+          "required": [
+            "type",
+            "id",
+            "center",
+            "radius",
+            "start_angle",
+            "end_angle"
+          ]
+        }
+      ],
+      "required": [
+        "constrained"
+      ]
+    },
+    "EntityState": {
+      "description": "Constraint state of one entity, used for coloring.",
+      "oneOf": [
+        {
+          "description": "Some of its parameters can still move.",
+          "type": "string",
+          "const": "under_constrained"
+        },
+        {
+          "description": "All of its parameters are determined.",
+          "type": "string",
+          "const": "fully_constrained"
+        },
+        {
+          "description": "A conflicting constraint references it.",
+          "type": "string",
+          "const": "conflicting"
+        }
+      ]
+    },
+    "SolvedPoint": {
+      "description": "A point address and its position in sketch coordinates.",
+      "type": "object",
+      "properties": {
+        "point": {
+          "description": "The point address, for example `e-1.end`.",
+          "$ref": "#/$defs/PointRef"
+        },
+        "at": {
+          "description": "Its solved position, mm.",
+          "type": "array",
+          "items": {
+            "type": "number",
+            "format": "double"
+          },
+          "minItems": 2,
+          "maxItems": 2
+        }
+      },
+      "required": [
+        "point",
+        "at"
+      ]
+    },
+    "ConstraintState": {
+      "description": "One constraint's state and, for dimensions, its current value.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "The constraint.",
+          "$ref": "#/$defs/Id"
+        },
+        "state": {
+          "description": "The constraint's state after the solve (engine.md 3.6).",
+          "$ref": "#/$defs/ConstraintSolveState"
+        },
+        "value": {
+          "description": "Measured value in mm or radians (dimensional constraints only).",
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        }
+      },
+      "required": [
+        "id",
+        "state"
+      ]
+    },
+    "ConstraintSolveState": {
+      "description": "State of one constraint, for constraint glyph coloring.",
+      "oneOf": [
+        {
+          "description": "Holds in the solved geometry.",
+          "type": "string",
+          "const": "satisfied"
+        },
+        {
+          "description": "Listed in `SolveResult::redundant`.",
+          "type": "string",
+          "const": "redundant"
+        },
+        {
+          "description": "Listed in `SolveResult::conflicting`.",
+          "type": "string",
+          "const": "conflicting"
+        },
+        {
+          "description": "Belongs to a component that did not converge.",
+          "type": "string",
+          "const": "unsatisfied"
+        }
+      ]
+    },
+    "RegionInfo": {
+      "description": "A closed region: the reference a profile param stores, plus its area and centroid.",
+      "type": "object",
+      "properties": {
+        "reference": {
+          "description": "The region key and fingerprint.",
+          "$ref": "#/$defs/RegionRef"
+        },
+        "area": {
+          "description": "Area in mm².",
+          "type": "number",
+          "format": "double"
+        },
+        "centroid": {
+          "description": "Area centroid in sketch coordinates.",
+          "type": "array",
+          "items": {
+            "type": "number",
+            "format": "double"
+          },
+          "minItems": 2,
+          "maxItems": 2
+        }
+      },
+      "required": [
+        "reference",
+        "area",
+        "centroid"
+      ]
+    },
+    "RegionRef": {
+      "description": "A stored reference to a region of a sketch.",
+      "type": "object",
+      "properties": {
+        "key": {
+          "description": "The region's key.",
+          "$ref": "#/$defs/RegionKey"
+        },
+        "fp": {
+          "description": "The region's fingerprint when the reference was made.",
+          "$ref": "#/$defs/RegionFingerprint"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "key",
+        "fp"
+      ]
+    },
+    "RegionKey": {
+      "type": "string",
+      "pattern": "^~?[A-Za-z0-9_-]{1,64}(,~?[A-Za-z0-9_-]{1,64})*(;~?[A-Za-z0-9_-]{1,64}(,~?[A-Za-z0-9_-]{1,64})*)*$"
+    },
+    "RegionFingerprint": {
+      "type": "string",
+      "pattern": "^c=-?[0-9]+(\\.[0-9]+)?,-?[0-9]+(\\.[0-9]+)?\\|a=[0-9]+(\\.[0-9]+)?$"
+    },
+    "ProfileFinding": {
+      "description": "A profile check finding. `Display` gives the message of section 4.3.",
+      "oneOf": [
+        {
+          "description": "A curve end that touches no other non-construction curve.",
+          "type": "object",
+          "properties": {
+            "entity": {
+              "description": "The curve that ends there.",
+              "$ref": "#/$defs/Id"
+            },
+            "point": {
+              "description": "Where it ends.",
+              "type": "array",
+              "items": {
+                "type": "number",
+                "format": "double"
+              },
+              "minItems": 2,
+              "maxItems": 2
+            },
+            "type": {
+              "type": "string",
+              "const": "open_endpoint"
+            }
+          },
+          "required": [
+            "type",
+            "entity",
+            "point"
+          ]
+        },
+        {
+          "description": "Two curves share a stretch of positive length.",
+          "type": "object",
+          "properties": {
+            "entities": {
+              "description": "The two curves, sorted by id.",
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Id"
+              },
+              "minItems": 2,
+              "maxItems": 2
+            },
+            "start": {
+              "description": "Start of the shared stretch in the direction of the first curve.",
+              "type": "array",
+              "items": {
+                "type": "number",
+                "format": "double"
+              },
+              "minItems": 2,
+              "maxItems": 2
+            },
+            "end": {
+              "description": "End of the shared stretch.",
+              "type": "array",
+              "items": {
+                "type": "number",
+                "format": "double"
+              },
+              "minItems": 2,
+              "maxItems": 2
+            },
+            "type": {
+              "type": "string",
+              "const": "overlap"
+            }
+          },
+          "required": [
+            "type",
+            "entities",
+            "start",
+            "end"
+          ]
+        },
+        {
+          "description": "Two curves of one connected chain cross at a point inside both.",
+          "type": "object",
+          "properties": {
+            "entities": {
+              "description": "The two curves, sorted by id.",
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Id"
+              },
+              "minItems": 2,
+              "maxItems": 2
+            },
+            "point": {
+              "description": "The crossing point.",
+              "type": "array",
+              "items": {
+                "type": "number",
+                "format": "double"
+              },
+              "minItems": 2,
+              "maxItems": 2
+            },
+            "type": {
+              "type": "string",
+              "const": "self_intersection"
+            }
+          },
+          "required": [
+            "type",
+            "entities",
+            "point"
+          ]
+        },
+        {
+          "description": "A curve too short to use; it is ignored.",
+          "type": "object",
+          "properties": {
+            "entity": {
+              "description": "The curve.",
+              "$ref": "#/$defs/Id"
+            },
+            "type": {
+              "type": "string",
+              "const": "zero_length"
+            }
+          },
+          "required": [
+            "type",
+            "entity"
+          ]
+        }
+      ]
+    },
+    "SketchDisplay": {
+      "description": "Buffer indices of the sketch region fills (all coordinates are sketch 2D, mm).",
+      "type": "object",
+      "properties": {
+        "region_positions": {
+          "description": "`f32`, 2 per vertex: region fill vertices.",
+          "$ref": "#/$defs/BufferIndex"
+        },
+        "region_indices": {
+          "description": "`u32`, 3 per triangle into `region_positions`.",
+          "$ref": "#/$defs/BufferIndex"
+        },
+        "region_ids": {
+          "description": "`u32`, 1 per region fill vertex: index into `regions`.",
+          "$ref": "#/$defs/BufferIndex"
+        }
+      },
+      "required": [
+        "region_positions",
+        "region_indices",
+        "region_ids"
+      ]
+    },
+    "Dimension": {
+      "description": "Physical dimension as integer exponents of length and angle.",
+      "type": "object",
+      "properties": {
+        "length": {
+          "description": "Exponent of length.",
+          "type": "integer",
+          "format": "int8",
+          "minimum": -128,
+          "maximum": 127
+        },
+        "angle": {
+          "description": "Exponent of angle.",
+          "type": "integer",
+          "format": "int8",
+          "minimum": -128,
+          "maximum": 127
+        }
+      },
+      "required": [
+        "length",
+        "angle"
+      ]
+    },
+    "ElementDescriptor": {
+      "description": "Geometry and identity of one B-rep element at the display state.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "Element name from partsmith-naming.",
+          "type": "string"
+        },
+        "kind": {
+          "description": "Face, edge or vertex.",
+          "$ref": "#/$defs/ElementKind"
+        },
+        "body": {
+          "description": "Body that owns the element.",
+          "$ref": "#/$defs/Id"
+        },
+        "feature": {
+          "description": "Feature whose output created the element (engine.md 3.9).",
+          "$ref": "#/$defs/Id"
+        },
+        "reference": {
+          "description": "The stored reference a feature param uses for this element.",
+          "$ref": "#/$defs/Reference"
+        },
+        "surface": {
+          "description": "Surface type (faces only).",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SurfaceKind"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "curve": {
+          "description": "Curve type (edges only).",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CurveKind"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "centroid": {
+          "description": "Area centroid (faces), length centroid (edges) or position (vertices).",
+          "type": "array",
+          "items": {
+            "type": "number",
+            "format": "double"
+          },
+          "minItems": 3,
+          "maxItems": 3
+        },
+        "area": {
+          "description": "Area in mm² (faces only).",
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "length": {
+          "description": "Length in mm (edges only).",
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "normal": {
+          "description": "Outward unit normal (planar faces only).",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "number",
+            "format": "double"
+          },
+          "minItems": 3,
+          "maxItems": 3
+        },
+        "direction": {
+          "description": "Unit direction from the first to the last vertex (line edges only).",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "number",
+            "format": "double"
+          },
+          "minItems": 3,
+          "maxItems": 3
+        },
+        "axis": {
+          "description": "Axis (cylinder, cone and torus faces; circle edges).",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Axis"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "radius": {
+          "description": "Radius in mm (cylinder and sphere faces; circle edges). A sphere's center is its `centroid`.",
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "placement": {
+          "description": "Sketch placement a sketch on this face receives (planar faces only).",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Placement"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "adjacent": {
+          "description": "Names of adjacent elements: a face's edges; an edge's faces then vertices; a vertex's edges. Each group sorted by name.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "name",
+        "kind",
+        "body",
+        "feature",
+        "reference",
+        "centroid",
+        "adjacent"
+      ]
+    },
+    "SurfaceKind": {
+      "description": "Surface type of a face.",
+      "oneOf": [
+        {
+          "description": "A plane.",
+          "type": "string",
+          "const": "plane"
+        },
+        {
+          "description": "A cylinder.",
+          "type": "string",
+          "const": "cylinder"
+        },
+        {
+          "description": "A cone.",
+          "type": "string",
+          "const": "cone"
+        },
+        {
+          "description": "A sphere.",
+          "type": "string",
+          "const": "sphere"
+        },
+        {
+          "description": "A torus.",
+          "type": "string",
+          "const": "torus"
+        },
+        {
+          "description": "A B-spline surface.",
+          "type": "string",
+          "const": "bspline"
+        },
+        {
+          "description": "Any other surface.",
+          "type": "string",
+          "const": "other"
+        }
+      ]
+    },
+    "CurveKind": {
+      "description": "Curve type of an edge.",
+      "oneOf": [
+        {
+          "description": "A straight line.",
+          "type": "string",
+          "const": "line"
+        },
+        {
+          "description": "A circle or circular arc.",
+          "type": "string",
+          "const": "circle"
+        },
+        {
+          "description": "An ellipse or elliptical arc.",
+          "type": "string",
+          "const": "ellipse"
+        },
+        {
+          "description": "A B-spline curve.",
+          "type": "string",
+          "const": "bspline"
+        },
+        {
+          "description": "Any other curve.",
+          "type": "string",
+          "const": "other"
+        }
+      ]
+    },
+    "Axis": {
+      "description": "An infinite line.",
+      "type": "object",
+      "properties": {
+        "origin": {
+          "description": "A point on the line, mm.",
+          "type": "array",
+          "items": {
+            "type": "number",
+            "format": "double"
+          },
+          "minItems": 3,
+          "maxItems": 3
+        },
+        "direction": {
+          "description": "Unit direction of the line.",
+          "type": "array",
+          "items": {
+            "type": "number",
+            "format": "double"
+          },
+          "minItems": 3,
+          "maxItems": 3
+        }
+      },
+      "required": [
+        "origin",
+        "direction"
+      ]
+    },
+    "Resolution": {
+      "description": "The mesh elements one reference resolved to.",
+      "type": "object",
+      "properties": {
+        "status": {
+          "description": "How the reference resolved.",
+          "$ref": "#/$defs/ResolutionStatus"
+        },
+        "matches": {
+          "description": "The matching elements, for highlighting.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/MeshElement"
+          }
+        }
+      },
+      "required": [
+        "status",
+        "matches"
+      ]
+    },
+    "ResolutionStatus": {
+      "description": "How a reference resolved.",
+      "oneOf": [
+        {
+          "description": "Exactly one element matched.",
+          "type": "string",
+          "const": "resolved"
+        },
+        {
+          "description": "Several elements matched equally well.",
+          "type": "string",
+          "const": "ambiguous"
+        },
+        {
+          "description": "No element matched.",
+          "type": "string",
+          "const": "missing"
+        }
+      ]
+    },
+    "MeshElement": {
+      "description": "An element of a displayed mesh.",
+      "type": "object",
+      "properties": {
+        "body": {
+          "description": "Body that owns the element.",
+          "$ref": "#/$defs/Id"
+        },
+        "mesh_id": {
+          "description": "The displayed mesh.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "kind": {
+          "description": "Face, edge or vertex.",
+          "$ref": "#/$defs/ElementKind"
+        },
+        "index": {
+          "description": "Display id of the element within the mesh.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "body",
+        "mesh_id",
+        "kind",
+        "index"
+      ]
+    },
+    "BoundingBox": {
+      "description": "Axis-aligned bounding box.",
+      "type": "object",
+      "properties": {
+        "min": {
+          "description": "Smallest x, y and z.",
+          "type": "array",
+          "items": {
+            "type": "number",
+            "format": "double"
+          },
+          "minItems": 3,
+          "maxItems": 3
+        },
+        "max": {
+          "description": "Largest x, y and z.",
+          "type": "array",
+          "items": {
+            "type": "number",
+            "format": "double"
+          },
+          "minItems": 3,
+          "maxItems": 3
+        }
+      },
+      "required": [
+        "min",
+        "max"
+      ]
+    },
+    "Measurement": {
+      "description": "Measured values of one target; which fields are present depends on the target (engine.md 3.11).",
+      "type": "object",
+      "properties": {
+        "volume": {
+          "description": "Volume in mm³ (bodies).",
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "area": {
+          "description": "Area in mm² (bodies and faces).",
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "length": {
+          "description": "Length in mm (edges).",
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "center_of_mass": {
+          "description": "Center of mass at uniform density (bodies).",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "number",
+            "format": "double"
+          },
+          "minItems": 3,
+          "maxItems": 3
+        },
+        "centroid": {
+          "description": "Area or length centroid, or position (elements).",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "number",
+            "format": "double"
+          },
+          "minItems": 3,
+          "maxItems": 3
+        },
+        "bounding_box": {
+          "description": "Bounding box of the exact geometry (bodies).",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BoundingBox"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "face_count": {
+          "description": "Number of faces (bodies).",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0
+        },
+        "edge_count": {
+          "description": "Number of edges (bodies).",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0
+        },
+        "vertex_count": {
+          "description": "Number of vertices (bodies).",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0
+        },
+        "surface": {
+          "description": "Surface type (faces).",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SurfaceKind"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "curve": {
+          "description": "Curve type (edges).",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CurveKind"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "normal": {
+          "description": "Outward unit normal (planar faces).",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "number",
+            "format": "double"
+          },
+          "minItems": 3,
+          "maxItems": 3
+        },
+        "direction": {
+          "description": "Unit direction (line edges).",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "number",
+            "format": "double"
+          },
+          "minItems": 3,
+          "maxItems": 3
+        },
+        "axis": {
+          "description": "Axis (cylinder, cone and torus faces; circle edges).",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Axis"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "radius": {
+          "description": "Radius in mm (cylinder and sphere faces; circle edges).",
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        }
+      }
+    },
+    "Health": {
+      "description": "Print health of a body or of everything analyzed. Info findings do not lower it.",
+      "oneOf": [
+        {
+          "description": "Ready to print.",
+          "type": "string",
+          "const": "ok"
+        },
+        {
+          "description": "May print badly.",
+          "type": "string",
+          "const": "warning"
+        },
+        {
+          "description": "Will not print or export correctly.",
+          "type": "string",
+          "const": "error"
+        }
+      ]
+    },
+    "ExportFile": {
+      "description": "A file produced by an export.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "Suggested file name.",
+          "type": "string"
+        },
+        "media_type": {
+          "description": "IANA media type.",
+          "type": "string"
+        },
+        "data": {
+          "description": "The file bytes (a `u8` buffer).",
+          "$ref": "#/$defs/BufferIndex"
+        }
+      },
+      "required": [
+        "name",
+        "media_type",
+        "data"
+      ]
+    },
+    "Diagnostic": {
+      "description": "A message about a document, feature or export.",
+      "type": "object",
+      "properties": {
+        "severity": {
+          "description": "Info, warning or error.",
+          "$ref": "#/$defs/Severity"
+        },
+        "code": {
+          "description": "Stable snake_case code from the crate that produced it.",
+          "type": "string"
+        },
+        "message": {
+          "description": "Plain-sentence message for the user.",
+          "type": "string"
+        },
+        "field": {
+          "description": "JSON Pointer of the feature param the message is about, relative to the feature record (for example `/radius`). Feature messages only.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "suggestion": {
+          "description": "Replacement expression for `field` that fixes the problem, in document units (for example `2.3 mm`). Feature messages only.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "severity",
+        "code",
+        "message"
+      ]
+    },
+    "Severity": {
+      "description": "How serious a finding is.",
+      "oneOf": [
+        {
+          "description": "Worth knowing; does not lower print health.",
+          "type": "string",
+          "const": "info"
+        },
+        {
+          "description": "The part may print badly.",
+          "type": "string",
+          "const": "warning"
+        },
+        {
+          "description": "The part will not print or export correctly.",
+          "type": "string",
+          "const": "error"
+        }
+      ]
+    },
+    "CommandResult": {
+      "description": "The success value of every command; its `type` equals the command's `type`.",
+      "oneOf": [
+        {
+          "description": "Result of `engine_info`.",
+          "type": "object",
+          "properties": {
+            "protocol_version": {
+              "description": "`PROTOCOL_VERSION` of the engine.",
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0
+            },
+            "engine_version": {
+              "description": "Engine crate version.",
+              "type": "string"
+            },
+            "format_version": {
+              "description": "Newest `.ptsm` format version the engine reads and writes.",
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0
+            },
+            "kernel": {
+              "description": "Kernel name and version, for example `OCCT 7.9.3`.",
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "const": "engine_info"
+            }
+          },
+          "required": [
+            "type",
+            "protocol_version",
+            "engine_version",
+            "format_version",
+            "kernel"
+          ]
+        },
+        {
+          "description": "Result of `feature_catalog`.",
+          "type": "object",
+          "properties": {
+            "features": {
+              "description": "Every registered feature type, sorted by type.",
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/CatalogEntry"
+              }
+            },
+            "type": {
+              "type": "string",
+              "const": "feature_catalog"
+            }
+          },
+          "required": [
+            "type",
+            "features"
+          ]
+        },
+        {
+          "description": "Result of `list_printer_profiles`.",
+          "type": "object",
+          "properties": {
+            "profiles": {
+              "description": "Built-in profiles, then session profiles, each group sorted by id.",
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/PrinterProfile"
+              }
+            },
+            "type": {
+              "type": "string",
+              "const": "list_printer_profiles"
+            }
+          },
+          "required": [
+            "type",
+            "profiles"
+          ]
+        },
+        {
+          "description": "Result of `put_printer_profile`.",
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "put_printer_profile"
+            }
+          },
+          "required": [
+            "type"
+          ]
+        },
+        {
+          "description": "Result of `new_document`.",
+          "type": "object",
+          "properties": {
+            "doc": {
+              "description": "The new document.",
+              "$ref": "#/$defs/DocHandle"
+            },
+            "type": {
+              "type": "string",
+              "const": "new_document"
+            }
+          },
+          "required": [
+            "type",
+            "doc"
+          ]
+        },
+        {
+          "description": "Result of `open_document`.",
+          "type": "object",
+          "properties": {
+            "doc": {
+              "description": "The opened document.",
+              "$ref": "#/$defs/DocHandle"
+            },
+            "migrated_from": {
+              "description": "The original `format_version` when a migration ran.",
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint32",
+              "minimum": 0
+            },
+            "type": {
+              "type": "string",
+              "const": "open_document"
+            }
+          },
+          "required": [
+            "type",
+            "doc"
+          ]
+        },
+        {
+          "description": "Result of `save_document`.",
+          "type": "object",
+          "properties": {
+            "text": {
+              "description": "Canonical `.ptsm` text.",
+              "type": "string"
+            },
+            "assets": {
+              "description": "Every asset the document references, sorted by name.",
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/AssetData"
+              }
+            },
+            "revision": {
+              "description": "The revision the text describes.",
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0
+            },
+            "type": {
+              "type": "string",
+              "const": "save_document"
+            }
+          },
+          "required": [
+            "type",
+            "text",
+            "assets",
+            "revision"
+          ]
+        },
+        {
+          "description": "Result of `close_document`.",
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "close_document"
+            }
+          },
+          "required": [
+            "type"
+          ]
+        },
+        {
+          "description": "Result of `get_document`.",
+          "type": "object",
+          "properties": {
+            "revision": {
+              "description": "The current revision.",
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0
+            },
+            "document": {
+              "description": "The current recipe, including uncommitted transaction edits.",
+              "$ref": "#/$defs/Document"
+            },
+            "type": {
+              "type": "string",
+              "const": "get_document"
+            }
+          },
+          "required": [
+            "type",
+            "revision",
+            "document"
+          ]
+        },
+        {
+          "description": "Result of `mark_saved`.",
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "mark_saved"
+            }
+          },
+          "required": [
+            "type"
+          ]
+        },
+        {
+          "description": "Result of `apply_edits`.",
+          "type": "object",
+          "properties": {
+            "revision": {
+              "description": "The revision after the edits.",
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0
+            },
+            "type": {
+              "type": "string",
+              "const": "apply_edits"
+            }
+          },
+          "required": [
+            "type",
+            "revision"
+          ]
+        },
+        {
+          "description": "Result of `rename_parameter`.",
+          "type": "object",
+          "properties": {
+            "revision": {
+              "description": "The revision after the rename.",
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0
+            },
+            "type": {
+              "type": "string",
+              "const": "rename_parameter"
+            }
+          },
+          "required": [
+            "type",
+            "revision"
+          ]
+        },
+        {
+          "description": "Result of `begin_transaction`.",
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "begin_transaction"
+            }
+          },
+          "required": [
+            "type"
+          ]
+        },
+        {
+          "description": "Result of `set_focus`.",
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "set_focus"
+            }
+          },
+          "required": [
+            "type"
+          ]
+        },
+        {
+          "description": "Result of `commit_transaction`.",
+          "type": "object",
+          "properties": {
+            "revision": {
+              "description": "The current revision.",
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0
+            },
+            "recorded": {
+              "description": "Whether an undo entry was recorded.",
+              "type": "boolean"
+            },
+            "type": {
+              "type": "string",
+              "const": "commit_transaction"
+            }
+          },
+          "required": [
+            "type",
+            "revision",
+            "recorded"
+          ]
+        },
+        {
+          "description": "Result of `cancel_transaction`.",
+          "type": "object",
+          "properties": {
+            "revision": {
+              "description": "The revision after reverting.",
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0
+            },
+            "type": {
+              "type": "string",
+              "const": "cancel_transaction"
+            }
+          },
+          "required": [
+            "type",
+            "revision"
+          ]
+        },
+        {
+          "description": "Result of `undo`.",
+          "type": "object",
+          "properties": {
+            "revision": {
+              "description": "The revision after undoing.",
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0
+            },
+            "label": {
+              "description": "Label of the reverted entry.",
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "const": "undo"
+            }
+          },
+          "required": [
+            "type",
+            "revision",
+            "label"
+          ]
+        },
+        {
+          "description": "Result of `redo`.",
+          "type": "object",
+          "properties": {
+            "revision": {
+              "description": "The revision after redoing.",
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0
+            },
+            "label": {
+              "description": "Label of the reapplied entry.",
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "const": "redo"
+            }
+          },
+          "required": [
+            "type",
+            "revision",
+            "label"
+          ]
+        },
+        {
+          "description": "Result of `solve_sketch`.",
+          "type": "object",
+          "properties": {
+            "solution": {
+              "description": "The solved sketch.",
+              "$ref": "#/$defs/SketchSolution"
+            },
+            "type": {
+              "type": "string",
+              "const": "solve_sketch"
+            }
+          },
+          "required": [
+            "type",
+            "solution"
+          ]
+        },
+        {
+          "description": "Result of `drag_sketch`.",
+          "type": "object",
+          "properties": {
+            "solution": {
+              "description": "The solved drag frame.",
+              "$ref": "#/$defs/SketchSolution"
+            },
+            "type": {
+              "type": "string",
+              "const": "drag_sketch"
+            }
+          },
+          "required": [
+            "type",
+            "solution"
+          ]
+        },
+        {
+          "description": "Result of `end_sketch_drag`.",
+          "type": "object",
+          "properties": {
+            "revision": {
+              "description": "The current revision.",
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0
+            },
+            "type": {
+              "type": "string",
+              "const": "end_sketch_drag"
+            }
+          },
+          "required": [
+            "type",
+            "revision"
+          ]
+        },
+        {
+          "description": "Result of `set_tessellation`.",
+          "type": "object",
+          "properties": {
+            "tolerance": {
+              "description": "The resolved tolerances.",
+              "$ref": "#/$defs/TessellationTolerance"
+            },
+            "type": {
+              "type": "string",
+              "const": "set_tessellation"
+            }
+          },
+          "required": [
+            "type",
+            "tolerance"
+          ]
+        },
+        {
+          "description": "Result of `evaluate`.",
+          "type": "object",
+          "properties": {
+            "value": {
+              "description": "Value in internal units (mm, radians).",
+              "type": "number",
+              "format": "double"
+            },
+            "dimension": {
+              "description": "Dimension of the value.",
+              "$ref": "#/$defs/Dimension"
+            },
+            "type": {
+              "type": "string",
+              "const": "evaluate"
+            }
+          },
+          "required": [
+            "type",
+            "value",
+            "dimension"
+          ]
+        },
+        {
+          "description": "Result of `list_elements`.",
+          "type": "object",
+          "properties": {
+            "elements": {
+              "description": "Faces, then edges, then vertices, each sorted by name.",
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/ElementDescriptor"
+              }
+            },
+            "type": {
+              "type": "string",
+              "const": "list_elements"
+            }
+          },
+          "required": [
+            "type",
+            "elements"
+          ]
+        },
+        {
+          "description": "Result of `pick_reference`.",
+          "type": "object",
+          "properties": {
+            "element": {
+              "description": "The picked element.",
+              "$ref": "#/$defs/ElementDescriptor"
+            },
+            "type": {
+              "type": "string",
+              "const": "pick_reference"
+            }
+          },
+          "required": [
+            "type",
+            "element"
+          ]
+        },
+        {
+          "description": "Result of `resolve_references`.",
+          "type": "object",
+          "properties": {
+            "results": {
+              "description": "One resolution per reference, in request order.",
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Resolution"
+              }
+            },
+            "type": {
+              "type": "string",
+              "const": "resolve_references"
+            }
+          },
+          "required": [
+            "type",
+            "results"
+          ]
+        },
+        {
+          "description": "Result of `measure`.",
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "measure"
+            }
+          },
+          "$ref": "#/$defs/Measurement",
+          "required": [
+            "type"
+          ]
+        },
+        {
+          "description": "Result of `analyze_print`; the full report travels in the `print_health` event.",
+          "type": "object",
+          "properties": {
+            "health": {
+              "description": "Overall health of the analyzed bodies.",
+              "$ref": "#/$defs/Health"
+            },
+            "type": {
+              "type": "string",
+              "const": "analyze_print"
+            }
+          },
+          "required": [
+            "type",
+            "health"
+          ]
+        },
+        {
+          "description": "Result of `export`.",
+          "type": "object",
+          "properties": {
+            "files": {
+              "description": "The exported files.",
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/ExportFile"
+              }
+            },
+            "warnings": {
+              "description": "Problems found while exporting.",
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Diagnostic"
+              }
+            },
+            "type": {
+              "type": "string",
+              "const": "export"
+            }
+          },
+          "required": [
+            "type",
+            "files",
+            "warnings"
+          ]
+        },
+        {
+          "description": "Result of `import_step`.",
+          "type": "object",
+          "properties": {
+            "feature": {
+              "description": "The new `import` feature.",
+              "$ref": "#/$defs/Id"
+            },
+            "body": {
+              "description": "The new body.",
+              "$ref": "#/$defs/Id"
+            },
+            "type": {
+              "type": "string",
+              "const": "import_step"
+            }
+          },
+          "required": [
+            "type",
+            "feature",
+            "body"
+          ]
+        },
+        {
+          "description": "Result of `export_python`.",
+          "type": "object",
+          "properties": {
+            "code": {
+              "description": "The Python script.",
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "const": "export_python"
+            }
+          },
+          "required": [
+            "type",
+            "code"
+          ]
+        }
+      ]
+    },
+    "ErrorCode": {
+      "description": "Stable code of a failed request (protocol.md section 4).",
+      "oneOf": [
+        {
+          "description": "The bytes are not a valid frame.",
+          "type": "string",
+          "const": "malformed_frame"
+        },
+        {
+          "description": "The frame is valid but its request is not: unknown command or field, a buffer index out of range or of the wrong element type, or an id above `MAX_SAFE_INTEGER`.",
+          "type": "string",
+          "const": "malformed_request"
+        },
+        {
+          "description": "The frame uses another protocol version.",
+          "type": "string",
+          "const": "protocol_version_mismatch"
+        },
+        {
+          "description": "The worker dropped a queued request because a newer one replaced it.",
+          "type": "string",
+          "const": "superseded"
+        },
+        {
+          "description": "A panic or an engine invariant failure.",
+          "type": "string",
+          "const": "internal_error"
+        },
+        {
+          "description": "The `doc` handle is not open.",
+          "type": "string",
+          "const": "unknown_document"
+        },
+        {
+          "description": "The document had an internal error earlier.",
+          "type": "string",
+          "const": "document_poisoned"
+        },
+        {
+          "description": "The `open_document` text is not a valid document.",
+          "type": "string",
+          "const": "parse_error"
+        },
+        {
+          "description": "The document's `format_version` is newer than this engine reads.",
+          "type": "string",
+          "const": "unsupported_format_version"
+        },
+        {
+          "description": "A referenced asset's bytes do not hash to its name.",
+          "type": "string",
+          "const": "asset_mismatch"
+        },
+        {
+          "description": "The command is not allowed while a transaction is open.",
+          "type": "string",
+          "const": "transaction_open"
+        },
+        {
+          "description": "The command needs an open transaction.",
+          "type": "string",
+          "const": "no_transaction"
+        },
+        {
+          "description": "`apply_edits` outside a transaction has no label.",
+          "type": "string",
+          "const": "label_required"
+        },
+        {
+          "description": "`apply_edits` inside a transaction has a label.",
+          "type": "string",
+          "const": "label_not_allowed"
+        },
+        {
+          "description": "The model refused an edit, or a parameter rename.",
+          "type": "string",
+          "const": "edit_rejected"
+        },
+        {
+          "description": "The registry or the sketch crate rejected feature params.",
+          "type": "string",
+          "const": "invalid_params"
+        },
+        {
+          "description": "The undo stack is empty.",
+          "type": "string",
+          "const": "nothing_to_undo"
+        },
+        {
+          "description": "The redo stack is empty.",
+          "type": "string",
+          "const": "nothing_to_redo"
+        },
+        {
+          "description": "A command names a feature that does not exist.",
+          "type": "string",
+          "const": "unknown_feature"
+        },
+        {
+          "description": "`set_focus` names a suppressed or rolled-back feature.",
+          "type": "string",
+          "const": "focus_inactive"
+        },
+        {
+          "description": "A sketch command names a feature that is not a sketch.",
+          "type": "string",
+          "const": "not_a_sketch"
+        },
+        {
+          "description": "`drag_sketch` names a point that does not exist.",
+          "type": "string",
+          "const": "unknown_point"
+        },
+        {
+          "description": "`end_sketch_drag` without a drag in progress.",
+          "type": "string",
+          "const": "no_drag"
+        },
+        {
+          "description": "`pick_reference` names a mesh that is no longer displayed.",
+          "type": "string",
+          "const": "stale_pick"
+        },
+        {
+          "description": "`pick_reference` names a preview mesh.",
+          "type": "string",
+          "const": "preview_not_pickable"
+        },
+        {
+          "description": "The pick's index is not below the mesh's element count.",
+          "type": "string",
+          "const": "invalid_pick"
+        },
+        {
+          "description": "A command names a body that does not exist.",
+          "type": "string",
+          "const": "unknown_body"
+        },
+        {
+          "description": "A body has no geometry at the display state.",
+          "type": "string",
+          "const": "body_empty"
+        },
+        {
+          "description": "A reference does not resolve uniquely.",
+          "type": "string",
+          "const": "reference_unresolved"
+        },
+        {
+          "description": "`measure` does not have exactly one target.",
+          "type": "string",
+          "const": "invalid_measure"
+        },
+        {
+          "description": "An expression does not evaluate.",
+          "type": "string",
+          "const": "expression_error"
+        },
+        {
+          "description": "`analyze_print` names an unknown printer profile.",
+          "type": "string",
+          "const": "unknown_printer_profile"
+        },
+        {
+          "description": "`put_printer_profile` uses a built-in profile id.",
+          "type": "string",
+          "const": "profile_id_reserved"
+        },
+        {
+          "description": "The print crate rejected a profile.",
+          "type": "string",
+          "const": "invalid_profile"
+        },
+        {
+          "description": "The orientation is not a rotation, or lays a curved face on the bed.",
+          "type": "string",
+          "const": "invalid_orientation"
+        },
+        {
+          "description": "No body qualifies for export.",
+          "type": "string",
+          "const": "nothing_to_export"
+        },
+        {
+          "description": "The writer or kernel failed during export.",
+          "type": "string",
+          "const": "export_failed"
+        },
+        {
+          "description": "The STEP file could not be read or has no solids.",
+          "type": "string",
+          "const": "import_failed"
+        },
+        {
+          "description": "A tessellation tolerance is out of range.",
+          "type": "string",
+          "const": "invalid_tolerance"
+        }
+      ]
+    },
+    "Span": {
+      "description": "A half-open UTF-8 byte range `[start, end)` into an expression's source text.",
+      "type": "object",
+      "properties": {
+        "start": {
+          "description": "First byte.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "end": {
+          "description": "One past the last byte.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "start",
+        "end"
+      ]
+    },
+    "ErrorInfo": {
+      "description": "A failed request.",
+      "type": "object",
+      "properties": {
+        "code": {
+          "description": "Stable snake_case code.",
+          "$ref": "#/$defs/ErrorCode"
+        },
+        "message": {
+          "description": "Plain sentence for the user, naming the fix where possible.",
+          "type": "string"
+        },
+        "edit_index": {
+          "description": "Index of the offending edit in an `apply_edits` batch.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0
+        },
+        "span": {
+          "description": "For `expression_error`: the UTF-8 byte range of the problem in the expression text (expressions.md spans). The UI converts it to string indices.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Span"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ]
+    },
+    "Response": {
+      "description": "The engine's answer to one request.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "The request id, or 0 when the request id could not be read.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "result": {
+          "description": "Success value or error.",
+          "$ref": "#/$defs/Outcome"
+        }
+      },
+      "required": [
+        "id",
+        "result"
+      ]
+    },
+    "FeatureStatus": {
+      "description": "The recompute status of one feature.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "The feature.",
+          "$ref": "#/$defs/Id"
+        },
+        "status": {
+          "description": "`ok`, `warning`, `error`, `suppressed` or `rolled_back`.",
+          "$ref": "#/$defs/FeatureState"
+        },
+        "messages": {
+          "description": "The error first, then warnings, each with `field` and `suggestion` when the feature reported them.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Diagnostic"
+          }
+        },
+        "repairs": {
+          "description": "Lost references and profile regions the repair panel offers to re-pick.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Repair"
+          }
+        }
+      },
+      "required": [
+        "id",
+        "status",
+        "messages",
+        "repairs"
+      ]
+    },
+    "FeatureState": {
+      "description": "Outcome of one feature in the last recompute.",
+      "oneOf": [
+        {
+          "description": "Built without problems.",
+          "type": "string",
+          "const": "ok"
+        },
+        {
+          "description": "Built with warnings.",
+          "type": "string",
+          "const": "warning"
+        },
+        {
+          "description": "Failed; its bodies are unchanged.",
+          "type": "string",
+          "const": "error"
+        },
+        {
+          "description": "Skipped because it is suppressed.",
+          "type": "string",
+          "const": "suppressed"
+        },
+        {
+          "description": "Skipped because it is at or after the rollback marker (or after the focused feature).",
+          "type": "string",
+          "const": "rolled_back"
+        }
+      ]
+    },
+    "Repair": {
+      "description": "A reference or region that did not resolve uniquely: the engine's projection of features.md `Repair` (engine.md 3.4).",
+      "oneOf": [
+        {
+          "description": "A face, edge or vertex reference.",
+          "type": "object",
+          "properties": {
+            "path": {
+              "description": "JSON Pointer into the feature record, for example `/edges/1`.",
+              "type": "string"
+            },
+            "body": {
+              "description": "Body the reference is resolved in.",
+              "$ref": "#/$defs/Id"
+            },
+            "reference": {
+              "description": "The stored reference.",
+              "$ref": "#/$defs/Reference"
+            },
+            "resolution": {
+              "description": "`missing` or `ambiguous`.",
+              "$ref": "#/$defs/ResolutionStatus"
+            },
+            "centroid": {
+              "description": "Centroid from the stored fingerprint, for drawing a ghost marker.",
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "type": "number",
+                "format": "double"
+              },
+              "minItems": 3,
+              "maxItems": 3
+            },
+            "kind": {
+              "type": "string",
+              "const": "element"
+            }
+          },
+          "required": [
+            "kind",
+            "path",
+            "body",
+            "reference",
+            "resolution"
+          ]
+        },
+        {
+          "description": "A profile region.",
+          "type": "object",
+          "properties": {
+            "path": {
+              "description": "JSON Pointer into the feature record, for example `/profile/regions/0`.",
+              "type": "string"
+            },
+            "sketch": {
+              "description": "The sketch feature the region belongs to.",
+              "$ref": "#/$defs/Id"
+            },
+            "region": {
+              "description": "The stored region reference.",
+              "$ref": "#/$defs/RegionRef"
+            },
+            "resolution": {
+              "description": "`missing` or `ambiguous`.",
+              "$ref": "#/$defs/ResolutionStatus"
+            },
+            "kind": {
+              "type": "string",
+              "const": "region"
+            }
+          },
+          "required": [
+            "kind",
+            "path",
+            "sketch",
+            "region",
+            "resolution"
+          ]
+        }
+      ]
+    },
+    "ParameterValue": {
+      "description": "The evaluated value of one parameter.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "The parameter.",
+          "$ref": "#/$defs/Id"
+        },
+        "value": {
+          "description": "Value in internal units; absent when evaluation failed.",
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "dimension": {
+          "description": "Dimension of the value; absent when evaluation failed.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Dimension"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "error": {
+          "description": "The evaluation error message.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "Layer": {
+      "description": "Which rendering layer a mesh belongs to.",
+      "oneOf": [
+        {
+          "description": "The pickable model at the display state.",
+          "type": "string",
+          "const": "model"
+        },
+        {
+          "description": "The non-pickable result of the focused feature.",
+          "type": "string",
+          "const": "preview"
+        }
+      ]
+    },
+    "MeshBuffers": {
+      "description": "Buffer indices and counts of one body's display mesh (protocol.md section 3.4 lists the invariants).",
+      "type": "object",
+      "properties": {
+        "positions": {
+          "description": "`f32`, 3 per mesh vertex, mm.",
+          "$ref": "#/$defs/BufferIndex"
+        },
+        "normals": {
+          "description": "`f32`, 3 per mesh vertex, unit length.",
+          "$ref": "#/$defs/BufferIndex"
+        },
+        "indices": {
+          "description": "`u32`, 3 per triangle, counter-clockwise seen from outside.",
+          "$ref": "#/$defs/BufferIndex"
+        },
+        "face_ids": {
+          "description": "`u32`, 1 per mesh vertex: display face id.",
+          "$ref": "#/$defs/BufferIndex"
+        },
+        "edge_positions": {
+          "description": "`f32`, 3 per point, line list: 2 points per edge segment.",
+          "$ref": "#/$defs/BufferIndex"
+        },
+        "edge_ids": {
+          "description": "`u32`, 1 per edge segment: display edge id.",
+          "$ref": "#/$defs/BufferIndex"
+        },
+        "vertex_positions": {
+          "description": "`f32`, 3 per displayed B-rep vertex marker.",
+          "$ref": "#/$defs/BufferIndex"
+        },
+        "vertex_ids": {
+          "description": "`u32`, 1 per displayed B-rep vertex marker: display vertex id.",
+          "$ref": "#/$defs/BufferIndex"
+        },
+        "face_count": {
+          "description": "Number of display face ids.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "edge_count": {
+          "description": "Number of display edge ids.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "vertex_count": {
+          "description": "Number of display vertex ids.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "bounding_box": {
+          "description": "Bounding box of the exact B-rep.",
+          "$ref": "#/$defs/BoundingBox"
+        }
+      },
+      "required": [
+        "positions",
+        "normals",
+        "indices",
+        "face_ids",
+        "edge_positions",
+        "edge_ids",
+        "vertex_positions",
+        "vertex_ids",
+        "face_count",
+        "edge_count",
+        "vertex_count",
+        "bounding_box"
+      ]
+    },
+    "PrintReport": {
+      "description": "The report of one `analyze_print`.",
+      "type": "object",
+      "properties": {
+        "profile": {
+          "description": "Profile id the checks used.",
+          "$ref": "#/$defs/Id"
+        },
+        "orientation": {
+          "description": "Orientation the checks used.",
+          "$ref": "#/$defs/Orientation"
+        },
+        "summary": {
+          "description": "The status bar badge over all analyzed bodies.",
+          "$ref": "#/$defs/HealthSummary"
+        },
+        "bodies": {
+          "description": "One entry per analyzed body, in document order.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/BodyPrint"
+          }
+        }
+      },
+      "required": [
+        "profile",
+        "orientation",
+        "summary",
+        "bodies"
+      ]
+    },
+    "HealthSummary": {
+      "description": "The status bar badge for everything analyzed.",
+      "type": "object",
+      "properties": {
+        "health": {
+          "description": "Worst health over the bodies; `ok` when there are none.",
+          "$ref": "#/$defs/Health"
+        },
+        "errors": {
+          "description": "Error findings, including omitted ones.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "warnings": {
+          "description": "Warning findings, including omitted ones.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "infos": {
+          "description": "Info findings, including omitted ones.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "label": {
+          "description": "Badge text (section 3.10).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "health",
+        "errors",
+        "warnings",
+        "infos",
+        "label"
+      ]
+    },
+    "BodyPrint": {
+      "description": "The print analysis of one body.",
+      "type": "object",
+      "properties": {
+        "body": {
+          "description": "The body.",
+          "$ref": "#/$defs/Id"
+        },
+        "transform": {
+          "description": "Column-major 4 × 4 matrix from model to bed coordinates.",
+          "type": "array",
+          "items": {
+            "type": "number",
+            "format": "double"
+          },
+          "minItems": 16,
+          "maxItems": 16
+        },
+        "mesh_id": {
+          "description": "The model-layer mesh that the overhang map and the findings' `triangles` and `faces` refer to (display sessions only).",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "overhang": {
+          "description": "`f32`, 1 per mesh vertex of `mesh_id`: overhang angle from vertical in radians, 0 where not overhanging.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BufferIndex"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "report": {
+          "description": "The print crate's report: health, and per check its status, findings and omitted count.",
+          "$ref": "#/$defs/BodyReport"
+        }
+      },
+      "required": [
+        "body",
+        "transform",
+        "report"
+      ]
+    },
+    "BodyReport": {
+      "description": "All check results for one body.",
+      "type": "object",
+      "properties": {
+        "profile": {
+          "description": "Profile id the checks used.",
+          "$ref": "#/$defs/Id"
+        },
+        "rotation": {
+          "description": "Rotation the checks used.",
+          "$ref": "#/$defs/Rotation"
+        },
+        "health": {
+          "description": "Error if any check has an error, else warning if any has a warning, else ok.",
+          "$ref": "#/$defs/Health"
+        },
+        "checks": {
+          "description": "One result per requested check, in canonical order.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CheckResult"
+          }
+        }
+      },
+      "required": [
+        "profile",
+        "rotation",
+        "health",
+        "checks"
+      ]
+    },
+    "Rotation": {
+      "description": "A proper rotation (orthonormal, determinant +1) applied to the body before checks.\nDeserialization validates.",
+      "type": "object",
+      "properties": {
+        "rows": {
+          "description": "Row-major rows.",
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "number",
+              "format": "double"
+            },
+            "minItems": 3,
+            "maxItems": 3
+          },
+          "minItems": 3,
+          "maxItems": 3
+        }
+      },
+      "required": [
+        "rows"
+      ]
+    },
+    "CheckResult": {
+      "description": "The outcome of one check on one body.",
+      "type": "object",
+      "properties": {
+        "check": {
+          "description": "The check.",
+          "$ref": "#/$defs/CheckKind"
+        },
+        "status": {
+          "description": "Worst severity among its findings, including omitted ones; `ok` when none.",
+          "$ref": "#/$defs/CheckStatus"
+        },
+        "findings": {
+          "description": "At most `MAX_FINDINGS_PER_CHECK` findings, in the check's order.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Finding"
+          }
+        },
+        "omitted": {
+          "description": "Findings not listed because of the cap; they have the check's listed severity.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "check",
+        "status",
+        "findings",
+        "omitted"
+      ]
+    },
+    "CheckKind": {
+      "description": "One printability check.",
+      "oneOf": [
+        {
+          "description": "Watertight, manifold, consistently oriented, not inside out, no zero-area triangles.",
+          "type": "string",
+          "const": "mesh_validity"
+        },
+        {
+          "description": "The part fits the build volume.",
+          "type": "string",
+          "const": "bed_fit"
+        },
+        {
+          "description": "Enough of the part touches the bed and it stands steadily.",
+          "type": "string",
+          "const": "first_layer_contact"
+        },
+        {
+          "description": "No part starts printing in mid-air.",
+          "type": "string",
+          "const": "islands"
+        },
+        {
+          "description": "Downward faces are not steeper than the printer allows.",
+          "type": "string",
+          "const": "overhangs"
+        },
+        {
+          "description": "Walls are thick enough to print.",
+          "type": "string",
+          "const": "thin_walls"
+        },
+        {
+          "description": "Pins, details and holes are wide enough to print.",
+          "type": "string",
+          "const": "small_features"
+        },
+        {
+          "description": "No sealed cavities.",
+          "type": "string",
+          "const": "trapped_volumes"
+        }
+      ]
+    },
+    "CheckStatus": {
+      "description": "Result state of a check or a body.",
+      "oneOf": [
+        {
+          "description": "No findings.",
+          "type": "string",
+          "const": "ok"
+        },
+        {
+          "description": "Only info findings.",
+          "type": "string",
+          "const": "info"
+        },
+        {
+          "description": "At least one warning and no errors.",
+          "type": "string",
+          "const": "warning"
+        },
+        {
+          "description": "At least one error.",
+          "type": "string",
+          "const": "error"
+        }
+      ]
+    },
+    "Finding": {
+      "description": "One problem found by a check.",
+      "type": "object",
+      "properties": {
+        "check": {
+          "description": "The check that produced it.",
+          "$ref": "#/$defs/CheckKind"
+        },
+        "code": {
+          "description": "What kind of problem it is.",
+          "$ref": "#/$defs/FindingCode"
+        },
+        "severity": {
+          "description": "Info, warning or error.",
+          "$ref": "#/$defs/Severity"
+        },
+        "message": {
+          "description": "Plain sentence naming the problem and the fix (section 3.9).",
+          "type": "string"
+        },
+        "location": {
+          "description": "Zoom target in model coordinates.",
+          "$ref": "#/$defs/Location"
+        },
+        "value": {
+          "description": "The measured value (mm, mm², mm³, radians or a ratio, per code); omitted when there is\nnone.",
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "limit": {
+          "description": "The limit `value` was compared with; omitted when there is none.",
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "triangles": {
+          "description": "Affected triangles of the analyzed mesh, sorted, merged, possibly empty.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TriangleRange"
+          }
+        },
+        "faces": {
+          "description": "Distinct face ids of the affected triangles, ascending.",
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          }
+        },
+        "suggestion": {
+          "description": "A suggested fix; omitted when there is none.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Suggestion"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "check",
+        "code",
+        "severity",
+        "message",
+        "location",
+        "triangles",
+        "faces"
+      ]
+    },
+    "FindingCode": {
+      "description": "Stable identifier of a finding's kind.",
+      "oneOf": [
+        {
+          "description": "Edges used by only one triangle.",
+          "type": "string",
+          "const": "open_edges"
+        },
+        {
+          "description": "Edges used by more than two triangles.",
+          "type": "string",
+          "const": "non_manifold_edges"
+        },
+        {
+          "description": "Edges whose two triangles face opposite ways.",
+          "type": "string",
+          "const": "misoriented_edges"
+        },
+        {
+          "description": "The closed mesh has negative volume.",
+          "type": "string",
+          "const": "inside_out"
+        },
+        {
+          "description": "Triangles without area.",
+          "type": "string",
+          "const": "degenerate_triangles"
+        },
+        {
+          "description": "The footprint does not fit the bed.",
+          "type": "string",
+          "const": "footprint_too_large"
+        },
+        {
+          "description": "The footprint fits only when turned 90 degrees about Z.",
+          "type": "string",
+          "const": "fits_rotated"
+        },
+        {
+          "description": "The part is taller than the build height.",
+          "type": "string",
+          "const": "too_tall"
+        },
+        {
+          "description": "No face rests on the bed.",
+          "type": "string",
+          "const": "no_bed_contact"
+        },
+        {
+          "description": "Too little of the footprint rests on the bed.",
+          "type": "string",
+          "const": "low_bed_contact"
+        },
+        {
+          "description": "The part is tall compared with its bed contact.",
+          "type": "string",
+          "const": "tall_and_thin"
+        },
+        {
+          "description": "Printing starts in mid-air.",
+          "type": "string",
+          "const": "island"
+        },
+        {
+          "description": "A downward face steeper than the limit.",
+          "type": "string",
+          "const": "overhang"
+        },
+        {
+          "description": "A wall thinner than the limit.",
+          "type": "string",
+          "const": "thin_wall"
+        },
+        {
+          "description": "A pin, rib or text stroke narrower than the limit.",
+          "type": "string",
+          "const": "small_detail"
+        },
+        {
+          "description": "A hole narrower than the limit.",
+          "type": "string",
+          "const": "small_hole"
+        },
+        {
+          "description": "A sealed cavity.",
+          "type": "string",
+          "const": "enclosed_hollow"
+        }
+      ]
+    },
+    "Location": {
+      "description": "Where the viewport zooms for a finding, in model coordinates.",
+      "oneOf": [
+        {
+          "description": "An axis-aligned box.",
+          "type": "object",
+          "properties": {
+            "min": {
+              "description": "Smallest x, y and z.",
+              "type": "array",
+              "items": {
+                "type": "number",
+                "format": "double"
+              },
+              "minItems": 3,
+              "maxItems": 3
+            },
+            "max": {
+              "description": "Largest x, y and z.",
+              "type": "array",
+              "items": {
+                "type": "number",
+                "format": "double"
+              },
+              "minItems": 3,
+              "maxItems": 3
+            },
+            "kind": {
+              "type": "string",
+              "const": "bounds"
+            }
+          },
+          "required": [
+            "kind",
+            "min",
+            "max"
+          ]
+        },
+        {
+          "description": "A single point.",
+          "type": "object",
+          "properties": {
+            "at": {
+              "description": "The point.",
+              "type": "array",
+              "items": {
+                "type": "number",
+                "format": "double"
+              },
+              "minItems": 3,
+              "maxItems": 3
+            },
+            "kind": {
+              "type": "string",
+              "const": "point"
+            }
+          },
+          "required": [
+            "kind",
+            "at"
+          ]
+        }
+      ]
+    },
+    "TriangleRange": {
+      "description": "Half-open range of triangle indices `[start, end)` in the analyzed mesh.",
+      "type": "object",
+      "properties": {
+        "start": {
+          "description": "First triangle in the range.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "end": {
+          "description": "One past the last triangle in the range.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "start",
+        "end"
+      ]
+    },
+    "Suggestion": {
+      "description": "A suggested fix with geometry the UI can show.",
+      "oneOf": [
+        {
+          "description": "Split the part along these planes, in order.",
+          "type": "object",
+          "properties": {
+            "planes": {
+              "description": "The cutting planes.",
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Plane"
+              }
+            },
+            "kind": {
+              "type": "string",
+              "const": "split"
+            }
+          },
+          "required": [
+            "kind",
+            "planes"
+          ]
+        },
+        {
+          "description": "Put a drain hole near this point (model coordinates).",
+          "type": "object",
+          "properties": {
+            "at": {
+              "description": "Where the hole should go.",
+              "type": "array",
+              "items": {
+                "type": "number",
+                "format": "double"
+              },
+              "minItems": 3,
+              "maxItems": 3
+            },
+            "kind": {
+              "type": "string",
+              "const": "drain_hole"
+            }
+          },
+          "required": [
+            "kind",
+            "at"
+          ]
+        }
+      ]
+    },
+    "Plane": {
+      "description": "A plane in model coordinates.",
+      "type": "object",
+      "properties": {
+        "origin": {
+          "description": "A point on the plane.",
+          "type": "array",
+          "items": {
+            "type": "number",
+            "format": "double"
+          },
+          "minItems": 3,
+          "maxItems": 3
+        },
+        "normal": {
+          "description": "Unit normal.",
+          "type": "array",
+          "items": {
+            "type": "number",
+            "format": "double"
+          },
+          "minItems": 3,
+          "maxItems": 3
+        }
+      },
+      "required": [
+        "origin",
+        "normal"
+      ]
+    },
+    "Event": {
+      "description": "A state change caused by the request answered in the same frame. Tagged by `type`; every event carries `doc` and the document `revision` it describes.",
+      "oneOf": [
+        {
+          "description": "The recipe and undo state.",
+          "type": "object",
+          "properties": {
+            "doc": {
+              "description": "The document.",
+              "$ref": "#/$defs/DocHandle"
+            },
+            "revision": {
+              "description": "The revision described.",
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0
+            },
+            "document": {
+              "description": "The full current recipe, including uncommitted transaction edits.",
+              "$ref": "#/$defs/Document"
+            },
+            "dirty": {
+              "description": "Whether the canonical text differs from the dirty baseline: the opened text, or the text named by the latest effective `mark_saved`.",
+              "type": "boolean"
+            },
+            "undo": {
+              "description": "Label of the entry `undo` would revert.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "redo": {
+              "description": "Label of the entry `redo` would reapply.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "transaction_open": {
+              "description": "Whether a transaction is open.",
+              "type": "boolean"
+            },
+            "transaction": {
+              "description": "Label of the open transaction.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "focus": {
+              "description": "The focused feature.",
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Id"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": {
+              "type": "string",
+              "const": "document_changed"
+            }
+          },
+          "required": [
+            "type",
+            "doc",
+            "revision",
+            "document",
+            "dirty",
+            "transaction_open"
+          ]
+        },
+        {
+          "description": "Status of every feature in timeline order, every parameter value, and document diagnostics.",
+          "type": "object",
+          "properties": {
+            "doc": {
+              "description": "The document.",
+              "$ref": "#/$defs/DocHandle"
+            },
+            "revision": {
+              "description": "The revision described.",
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0
+            },
+            "features": {
+              "description": "One status per feature, in timeline order.",
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/FeatureStatus"
+              }
+            },
+            "parameters": {
+              "description": "One value per parameter, in document order.",
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/ParameterValue"
+              }
+            },
+            "diagnostics": {
+              "description": "Messages about the document as a whole.",
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Diagnostic"
+              }
+            },
+            "type": {
+              "type": "string",
+              "const": "recomputed"
+            }
+          },
+          "required": [
+            "type",
+            "doc",
+            "revision",
+            "features",
+            "parameters",
+            "diagnostics"
+          ]
+        },
+        {
+          "description": "A sketch whose solution changed.",
+          "type": "object",
+          "properties": {
+            "doc": {
+              "description": "The document.",
+              "$ref": "#/$defs/DocHandle"
+            },
+            "revision": {
+              "description": "The revision described.",
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0
+            },
+            "solution": {
+              "description": "The new solution.",
+              "$ref": "#/$defs/SketchSolution"
+            },
+            "type": {
+              "type": "string",
+              "const": "sketch_solved"
+            }
+          },
+          "required": [
+            "type",
+            "doc",
+            "revision",
+            "solution"
+          ]
+        },
+        {
+          "description": "A datum plane whose result changed.",
+          "type": "object",
+          "properties": {
+            "doc": {
+              "description": "The document.",
+              "$ref": "#/$defs/DocHandle"
+            },
+            "revision": {
+              "description": "The revision described.",
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0
+            },
+            "feature": {
+              "description": "The datum plane feature.",
+              "$ref": "#/$defs/Id"
+            },
+            "placement": {
+              "description": "The plane; absent when the feature failed.",
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Placement"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": {
+              "type": "string",
+              "const": "datum_plane"
+            }
+          },
+          "required": [
+            "type",
+            "doc",
+            "revision",
+            "feature"
+          ]
+        },
+        {
+          "description": "The display mesh of one body in one layer.",
+          "type": "object",
+          "properties": {
+            "doc": {
+              "description": "The document.",
+              "$ref": "#/$defs/DocHandle"
+            },
+            "revision": {
+              "description": "The revision described.",
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0
+            },
+            "body": {
+              "description": "The body.",
+              "$ref": "#/$defs/Id"
+            },
+            "layer": {
+              "description": "The layer the mesh belongs to.",
+              "$ref": "#/$defs/Layer"
+            },
+            "mesh_id": {
+              "description": "Id of this mesh; picks and resolutions name it.",
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "mesh": {
+              "description": "The buffers; absent when the body has no geometry in this layer.",
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/MeshBuffers"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": {
+              "type": "string",
+              "const": "body_mesh"
+            }
+          },
+          "required": [
+            "type",
+            "doc",
+            "revision",
+            "body",
+            "layer",
+            "mesh_id"
+          ]
+        },
+        {
+          "description": "The report of one `analyze_print`.",
+          "type": "object",
+          "properties": {
+            "doc": {
+              "description": "The document.",
+              "$ref": "#/$defs/DocHandle"
+            },
+            "revision": {
+              "description": "The revision described.",
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0
+            },
+            "report": {
+              "description": "The full report.",
+              "$ref": "#/$defs/PrintReport"
+            },
+            "type": {
+              "type": "string",
+              "const": "print_health"
+            }
+          },
+          "required": [
+            "type",
+            "doc",
+            "revision",
+            "report"
+          ]
+        }
+      ]
+    },
+    "BufferInfo": {
+      "description": "Location of one buffer inside the frame's buffer section.",
+      "type": "object",
+      "properties": {
+        "offset": {
+          "description": "Byte offset from the start of the buffer section; a multiple of 8.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "length": {
+          "description": "Length in bytes; a multiple of the element size.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "element_type": {
+          "description": "Element type of the buffer.",
+          "$ref": "#/$defs/ElementType"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "offset",
+        "length",
+        "element_type"
+      ]
+    },
+    "ElementType": {
+      "description": "Element type of a raw buffer. All multi-byte values are little-endian.",
+      "oneOf": [
+        {
+          "description": "Unsigned bytes (file contents).",
+          "type": "string",
+          "const": "u8"
+        },
+        {
+          "description": "Unsigned 32-bit integers (indices, element ids).",
+          "type": "string",
+          "const": "u32"
+        },
+        {
+          "description": "IEEE 754 binary32 floats (positions, normals, analysis values).",
+          "type": "string",
+          "const": "f32"
+        }
+      ]
+    }
+  }
+}

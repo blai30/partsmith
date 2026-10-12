@@ -142,7 +142,12 @@ fn t008_a_raw_call_answers_with_the_raw_response_frame_of_the_host() {
     let app = app();
     let main = window(&app, "main");
 
-    let answer = invoke(&main, "call", InvokeBody::Raw(example_a()), HeaderMap::new());
+    let answer = invoke(
+        &main,
+        "call",
+        InvokeBody::Raw(example_a()),
+        HeaderMap::new(),
+    );
 
     assert_eq!(raw_answer(answer), Host::default().call(&example_a()));
 }
@@ -220,7 +225,12 @@ fn t012_a_call_from_another_window_is_rejected_by_the_acl() {
     let _main = window(&app, "main");
     let other = window(&app, "other");
 
-    let answer = invoke(&other, "call", InvokeBody::Raw(example_a()), HeaderMap::new());
+    let answer = invoke(
+        &other,
+        "call",
+        InvokeBody::Raw(example_a()),
+        HeaderMap::new(),
+    );
 
     let message = rejection_text(answer);
     assert!(
@@ -370,7 +380,12 @@ fn write_file_with_a_grant_header_that_is_not_visible_ascii_rejects_with_permiss
         HeaderValue::from_bytes(&[0xe9]).expect("HTTP allows opaque header bytes"),
     );
 
-    let answer = invoke(&main, "write_file", InvokeBody::Raw(b"new".to_vec()), headers);
+    let answer = invoke(
+        &main,
+        "write_file",
+        InvokeBody::Raw(b"new".to_vec()),
+        headers,
+    );
 
     assert_eq!(
         rejection(answer),

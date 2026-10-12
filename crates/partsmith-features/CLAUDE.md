@@ -27,6 +27,10 @@ Spec (the definition of done): `docs/spec/features.md` and `docs/spec/features/<
 
 Each type lives in `src/builtin/<type>.rs` and is registered by adding `Registry::register::<Type>` to `BUILTINS` in `src/builtin/mod.rs`. Tests that need all 20 types are marked `#[ignore = "needs all built-in features"]` until every type is registered.
 
+Registered types:
+
+- Primitives (features.md section 3.14): `box` (`BoxFeature`, since `Box` is the standard library's pointer), `cylinder` (`Cylinder`), `sphere` (`Sphere`), `cone` (`Cone`), `torus` (`Torus`). Each params struct puts its sizes first, then the shared `plane` and `position` (`PrimitivePlacement`), then `op`; sizes are checked in field order before any kernel work, faces are named `<feature>/<role>` from the kernel's `PrimitiveFace` roles (`common::primitive_tool`), and the tool goes through `apply_op`. The box shifts the kernel's corner-anchored frame by half its length and width; a cone with radii within 1e-9 mm of each other builds a kernel cylinder.
+
 ## Commands
 
 ```sh

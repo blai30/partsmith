@@ -2420,12 +2420,19 @@ name = "partsmith-engine"
 version = "0.1.0"
 dependencies = [
  "blake3",
+ "partsmith-features",
+ "partsmith-io",
  "partsmith-mesh",
  "partsmith-model",
+ "partsmith-naming",
+ "partsmith-occt-sys",
  "partsmith-print",
  "partsmith-protocol",
+ "partsmith-recompute",
+ "partsmith-sketch",
  "pretty_assertions",
  "serde_json",
+ "thiserror 2.0.21",
  "zip",
 ]
 

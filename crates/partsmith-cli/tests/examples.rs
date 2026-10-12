@@ -77,7 +77,11 @@ impl Problems {
             return;
         }
         self.entries.sort_by(|left, right| left.0.cmp(&right.0));
-        let lines: Vec<String> = self.entries.into_iter().map(|(_, message)| message).collect();
+        let lines: Vec<String> = self
+            .entries
+            .into_iter()
+            .map(|(_, message)| message)
+            .collect();
         panic!("{}", lines.join("\n"));
     }
 }
@@ -139,7 +143,9 @@ fn split_file_name(file: &str) -> Option<(&str, Role)> {
 fn placement(relative: &str, types: &BTreeSet<String>) -> Placement {
     let parts: Vec<&str> = relative.split('/').collect();
     let (folder, rest, benchmark) = match parts.as_slice() {
-        ["bench", name, rest @ ..] if is_example_name(name) => (format!("bench/{name}"), rest, true),
+        ["bench", name, rest @ ..] if is_example_name(name) => {
+            (format!("bench/{name}"), rest, true)
+        }
         [feature_type, rest @ ..] if types.contains(*feature_type) => {
             ((*feature_type).to_owned(), rest, false)
         }
@@ -165,8 +171,9 @@ fn collect_files(directory: &Path, prefix: &str, files: &mut Vec<String>) {
     let entries = fs::read_dir(directory)
         .unwrap_or_else(|error| panic!("cannot read {}: {error}", directory.display()));
     for entry in entries {
-        let entry = entry
-            .unwrap_or_else(|error| panic!("cannot read an entry of {}: {error}", directory.display()));
+        let entry = entry.unwrap_or_else(|error| {
+            panic!("cannot read an entry of {}: {error}", directory.display())
+        });
         // A name that is not UTF-8 is never an allowed path, and the lossy form still names the file.
         let name = entry.file_name().to_string_lossy().into_owned();
         let relative = if prefix.is_empty() {
@@ -774,8 +781,14 @@ fn t023_extra_key_is_reported_at_its_pointer() {
 
 #[test]
 fn t023_arrays_of_different_lengths_do_not_match() {
-    let shorter = compare(&literal(r#"{"min": [1, 2]}"#), &literal(r#"{"min": [1, 2, 3]}"#));
-    let longer = compare(&literal(r#"{"min": [1, 2, 3]}"#), &literal(r#"{"min": [1, 2]}"#));
+    let shorter = compare(
+        &literal(r#"{"min": [1, 2]}"#),
+        &literal(r#"{"min": [1, 2, 3]}"#),
+    );
+    let longer = compare(
+        &literal(r#"{"min": [1, 2, 3]}"#),
+        &literal(r#"{"min": [1, 2]}"#),
+    );
 
     assert_eq!(shorter, ["/min/2 is missing"]);
     assert_eq!(longer, ["/min/2 is unexpected"]);
@@ -798,7 +811,10 @@ fn t023_pointer_escapes_slash_and_tilde_in_keys() {
         &literal(r#"{"a/b": 3, "c~d": 4}"#),
     );
 
-    assert_eq!(mismatches, ["/a~1b is 1, expected 3", "/c~0d is 2, expected 4"]);
+    assert_eq!(
+        mismatches,
+        ["/a~1b is 1, expected 3", "/c~0d is 2, expected 4"]
+    );
 }
 
 #[test]
@@ -916,12 +932,18 @@ fn t025_no_bless_variable_means_no_bless() {
 fn layout_allows_the_three_files_of_an_example_under_a_feature_type() {
     let types = test_types();
 
-    assert_eq!(placement("box/default.ptsm", &types), example_file("box/default", Role::Model));
+    assert_eq!(
+        placement("box/default.ptsm", &types),
+        example_file("box/default", Role::Model)
+    );
     assert_eq!(
         placement("box/default.expected.json", &types),
         example_file("box/default", Role::Expected)
     );
-    assert_eq!(placement("box/default.py", &types), example_file("box/default", Role::Twin));
+    assert_eq!(
+        placement("box/default.py", &types),
+        example_file("box/default", Role::Twin)
+    );
 }
 
 #[test]
@@ -932,8 +954,14 @@ fn layout_allows_the_benchmark_model_only() {
         placement("bench/fifty-features/model.ptsm", &types),
         example_file("bench/fifty-features/model", Role::Model)
     );
-    assert_eq!(placement("bench/fifty-features/part.ptsm", &types), Placement::NotAllowed);
-    assert_eq!(placement("bench/Fifty/model.ptsm", &types), Placement::NotAllowed);
+    assert_eq!(
+        placement("bench/fifty-features/part.ptsm", &types),
+        Placement::NotAllowed
+    );
+    assert_eq!(
+        placement("bench/Fifty/model.ptsm", &types),
+        Placement::NotAllowed
+    );
 }
 
 #[test]
@@ -941,7 +969,10 @@ fn layout_leaves_assets_of_example_folders_alone() {
     let types = test_types();
 
     assert_eq!(placement("hole/assets/0a1b.step", &types), Placement::Asset);
-    assert_eq!(placement("bench/fifty-features/assets/0a1b.step", &types), Placement::Asset);
+    assert_eq!(
+        placement("bench/fifty-features/assets/0a1b.step", &types),
+        Placement::Asset
+    );
     assert_eq!(placement("assets/0a1b.step", &types), Placement::NotAllowed);
 }
 
@@ -964,7 +995,9 @@ fn layout_rejects_unknown_folders_names_and_extensions() {
 
 #[test]
 fn qualification_needs_no_import_and_no_failed_feature() {
-    let ok = literal(r#"{"features": [{"type": "box", "status": "ok"}, {"type": "fillet", "status": "warning"}]}"#);
+    let ok = literal(
+        r#"{"features": [{"type": "box", "status": "ok"}, {"type": "fillet", "status": "warning"}]}"#,
+    );
     let failed = literal(r#"{"features": [{"type": "box", "status": "error"}]}"#);
     let imported = literal(r#"{"features": [{"type": "import", "status": "ok"}]}"#);
 
@@ -975,7 +1008,9 @@ fn qualification_needs_no_import_and_no_failed_feature() {
 
 #[test]
 fn expected_text_is_pretty_json_with_one_trailing_newline() {
-    let text = expected_text(&literal(r#"{"printer": "generic-fdm", "bodies": [{"faces": 6}]}"#));
+    let text = expected_text(&literal(
+        r#"{"printer": "generic-fdm", "bodies": [{"faces": 6}]}"#,
+    ));
 
     assert_eq!(
         text,

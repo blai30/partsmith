@@ -1,0 +1,679 @@
+{
+  "format": "partsmith",
+  "format_version": 1,
+  "units": "mm",
+  "parameters": [
+    {"id": "p-base", "name": "base", "expr": "240 mm", "comment": "Plate length; drives the first sketch."},
+    {"id": "p-lid", "name": "lid_width", "expr": "24 mm", "comment": "Lid width; drives the last five features."}
+  ],
+  "bodies": [
+    {"id": "b-1", "name": "Base"},
+    {"id": "b-2", "name": "Fins"},
+    {"id": "b-3", "name": "Bins"},
+    {"id": "b-4", "name": "Lids"}
+  ],
+  "features": [
+    {"id": "f-dp1", "type": "datum_plane", "base": {"kind": "origin", "plane": "XY"}, "offset": "8 mm"},
+    {"id": "f-dp2", "type": "datum_plane", "base": {"kind": "origin", "plane": "YZ"}, "offset": "30 mm"},
+    {
+      "id": "f-sk1",
+      "type": "sketch",
+      "plane": {"kind": "datum", "feature": "f-dp1"},
+      "entities": [
+        {"id": "e-101", "type": "line", "start": [-120, -80], "end": [120, -80]},
+        {"id": "e-102", "type": "line", "start": [120, -80], "end": [120, 80]},
+        {"id": "e-103", "type": "line", "start": [120, 80], "end": [-120, 80]},
+        {"id": "e-104", "type": "line", "start": [-120, 80], "end": [-120, -80]},
+        {"id": "e-105", "type": "circle", "center": [-108, -68], "radius": 3.25, "construction": true},
+        {"id": "e-106", "type": "circle", "center": [108, -68], "radius": 3.25, "construction": true},
+        {"id": "e-107", "type": "circle", "center": [108, 68], "radius": 3.25, "construction": true},
+        {"id": "e-108", "type": "circle", "center": [-108, 68], "radius": 3.25, "construction": true}
+      ],
+      "constraints": [
+        {"id": "c-101", "type": "coincident", "points": ["e-101.end", "e-102.start"]},
+        {"id": "c-102", "type": "coincident", "points": ["e-102.end", "e-103.start"]},
+        {"id": "c-103", "type": "coincident", "points": ["e-103.end", "e-104.start"]},
+        {"id": "c-104", "type": "coincident", "points": ["e-104.end", "e-101.start"]},
+        {"id": "c-105", "type": "symmetric", "points": ["e-101.start", "e-101.end"], "line": "y_axis"},
+        {"id": "c-106", "type": "symmetric", "points": ["e-102.start", "e-102.end"], "line": "x_axis"},
+        {"id": "c-107", "type": "horizontal", "line": "e-103"},
+        {"id": "c-108", "type": "vertical", "line": "e-104"},
+        {"id": "c-109", "type": "distance", "line": "e-101", "expr": "base"},
+        {"id": "c-110", "type": "distance", "line": "e-102", "expr": "160 mm"},
+        {"id": "c-111", "type": "horizontal_distance", "points": ["e-101.start", "e-105.center"], "expr": "12 mm"},
+        {"id": "c-112", "type": "vertical_distance", "points": ["e-101.start", "e-105.center"], "expr": "12 mm"},
+        {"id": "c-113", "type": "horizontal_distance", "points": ["e-106.center", "e-102.start"], "expr": "12 mm"},
+        {"id": "c-114", "type": "vertical_distance", "points": ["e-102.start", "e-106.center"], "expr": "12 mm"},
+        {"id": "c-115", "type": "horizontal_distance", "points": ["e-107.center", "e-103.start"], "expr": "12 mm"},
+        {"id": "c-116", "type": "vertical_distance", "points": ["e-107.center", "e-103.start"], "expr": "12 mm"},
+        {"id": "c-117", "type": "horizontal_distance", "points": ["e-104.start", "e-108.center"], "expr": "12 mm"},
+        {"id": "c-118", "type": "vertical_distance", "points": ["e-108.center", "e-104.start"], "expr": "12 mm"}
+      ]
+    },
+    {
+      "id": "f-ext1",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk1",
+        "regions": [
+          {"key": "e-101,e-102,e-103,e-104", "fp": "c=0,0|a=38400"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "8 mm"},
+      "reverse": true,
+      "op": "new"
+    },
+    {
+      "id": "f-fil1",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-ext1/lateral/e-101|f-ext1/lateral/e-102)", "fp": "line|n=0,0,1|c=120,-80,4|l=8"},
+        {"q": "edge(f-ext1/lateral/e-102|f-ext1/lateral/e-103)", "fp": "line|n=0,0,1|c=120,80,4|l=8"},
+        {"q": "edge(f-ext1/lateral/e-103|f-ext1/lateral/e-104)", "fp": "line|n=0,0,1|c=-120,80,4|l=8"},
+        {"q": "edge(f-ext1/lateral/e-101|f-ext1/lateral/e-104)", "fp": "line|n=0,0,1|c=-120,-80,4|l=8"}
+      ],
+      "radius": "6 mm"
+    },
+    {
+      "id": "f-hole1",
+      "type": "hole",
+      "body": "b-1",
+      "sketch": "f-sk1",
+      "points": ["e-105.center", "e-106.center", "e-107.center", "e-108.center"],
+      "diameter": "3.4 mm",
+      "hole_type": {"kind": "counterbore", "diameter": "6.5 mm", "depth": "3.5 mm"},
+      "extent": {"kind": "through_all"}
+    },
+    {
+      "id": "f-cha1",
+      "type": "chamfer",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-ext1/lateral/e-101|f-ext1/start-cap)", "fp": "line|n=1,0,0|c=0,-80,8|l=228"},
+        {"q": "edge(f-ext1/lateral/e-102|f-ext1/start-cap)", "fp": "line|n=0,1,0|c=120,0,8|l=148"},
+        {"q": "edge(f-ext1/lateral/e-103|f-ext1/start-cap)", "fp": "line|n=1,0,0|c=0,80,8|l=228"},
+        {"q": "edge(f-ext1/lateral/e-104|f-ext1/start-cap)", "fp": "line|n=0,1,0|c=-120,0,8|l=148"}
+      ],
+      "distance": {"kind": "equal", "expr": "1 mm"}
+    },
+    {
+      "id": "f-sk2",
+      "type": "sketch",
+      "plane": {"kind": "datum", "feature": "f-dp1"},
+      "entities": [
+        {"id": "e-201", "type": "line", "start": [-20, -20], "end": [20, -20]},
+        {"id": "e-202", "type": "line", "start": [20, -20], "end": [20, 20]},
+        {"id": "e-203", "type": "line", "start": [20, 20], "end": [-20, 20]},
+        {"id": "e-204", "type": "line", "start": [-20, 20], "end": [-20, -20]},
+        {"id": "e-205", "type": "circle", "center": [-12, -12], "radius": 2, "construction": true},
+        {"id": "e-206", "type": "circle", "center": [12, -12], "radius": 2, "construction": true},
+        {"id": "e-207", "type": "circle", "center": [12, 12], "radius": 2, "construction": true},
+        {"id": "e-208", "type": "circle", "center": [-12, 12], "radius": 2, "construction": true}
+      ],
+      "constraints": [
+        {"id": "c-201", "type": "coincident", "points": ["e-201.end", "e-202.start"]},
+        {"id": "c-202", "type": "coincident", "points": ["e-202.end", "e-203.start"]},
+        {"id": "c-203", "type": "coincident", "points": ["e-203.end", "e-204.start"]},
+        {"id": "c-204", "type": "coincident", "points": ["e-204.end", "e-201.start"]},
+        {"id": "c-205", "type": "symmetric", "points": ["e-201.start", "e-201.end"], "line": "y_axis"},
+        {"id": "c-206", "type": "symmetric", "points": ["e-202.start", "e-202.end"], "line": "x_axis"},
+        {"id": "c-207", "type": "horizontal", "line": "e-203"},
+        {"id": "c-208", "type": "vertical", "line": "e-204"},
+        {"id": "c-209", "type": "distance", "line": "e-201", "expr": "40 mm"},
+        {"id": "c-210", "type": "distance", "line": "e-202", "expr": "40 mm"}
+      ]
+    },
+    {
+      "id": "f-ext2",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk2",
+        "regions": [
+          {"key": "e-201,e-202,e-203,e-204", "fp": "c=0,0|a=1600"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "20 mm"},
+      "op": "join"
+    },
+    {
+      "id": "f-fil2",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-ext2/lateral/e-201|f-ext2/lateral/e-202)", "fp": "line|n=0,0,1|c=20,-20,18|l=20"},
+        {"q": "edge(f-ext2/lateral/e-202|f-ext2/lateral/e-203)", "fp": "line|n=0,0,1|c=20,20,18|l=20"},
+        {"q": "edge(f-ext2/lateral/e-203|f-ext2/lateral/e-204)", "fp": "line|n=0,0,1|c=-20,20,18|l=20"},
+        {"q": "edge(f-ext2/lateral/e-201|f-ext2/lateral/e-204)", "fp": "line|n=0,0,1|c=-20,-20,18|l=20"}
+      ],
+      "radius": "4 mm"
+    },
+    {
+      "id": "f-hole2",
+      "type": "hole",
+      "body": "b-1",
+      "sketch": "f-sk2",
+      "points": ["e-205.center", "e-206.center", "e-207.center", "e-208.center"],
+      "diameter": "4 mm",
+      "extent": {"kind": "through_all"},
+      "reverse": true
+    },
+    {
+      "id": "f-cha2",
+      "type": "chamfer",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-ext2/end-cap|f-ext2/lateral/e-201)", "fp": "line|n=1,0,0|c=0,-20,28|l=32"},
+        {"q": "edge(f-ext2/end-cap|f-ext2/lateral/e-202)", "fp": "line|n=0,1,0|c=20,0,28|l=32"},
+        {"q": "edge(f-ext2/end-cap|f-ext2/lateral/e-203)", "fp": "line|n=1,0,0|c=0,20,28|l=32"},
+        {"q": "edge(f-ext2/end-cap|f-ext2/lateral/e-204)", "fp": "line|n=0,1,0|c=-20,0,28|l=32"}
+      ],
+      "distance": {"kind": "equal", "expr": "1 mm"}
+    },
+    {
+      "id": "f-sk3",
+      "type": "sketch",
+      "plane": {"kind": "datum", "feature": "f-dp2"},
+      "entities": [
+        {"id": "e-301", "type": "line", "start": [-32, 8], "end": [-16, 8]},
+        {"id": "e-302", "type": "line", "start": [-16, 8], "end": [-16, 22]},
+        {"id": "e-303", "type": "line", "start": [-16, 22], "end": [-32, 22]},
+        {"id": "e-304", "type": "line", "start": [-32, 22], "end": [-32, 8]},
+        {"id": "e-305", "type": "circle", "center": [-24, 15], "radius": 3}
+      ],
+      "constraints": [
+        {"id": "c-301", "type": "coincident", "points": ["e-301.end", "e-302.start"]},
+        {"id": "c-302", "type": "coincident", "points": ["e-302.end", "e-303.start"]},
+        {"id": "c-303", "type": "coincident", "points": ["e-303.end", "e-304.start"]},
+        {"id": "c-304", "type": "coincident", "points": ["e-304.end", "e-301.start"]},
+        {"id": "c-305", "type": "horizontal", "line": "e-301"},
+        {"id": "c-306", "type": "horizontal", "line": "e-303"},
+        {"id": "c-307", "type": "vertical", "line": "e-302"},
+        {"id": "c-308", "type": "vertical", "line": "e-304"},
+        {"id": "c-309", "type": "distance", "line": "e-301", "expr": "16 mm"},
+        {"id": "c-310", "type": "distance", "line": "e-302", "expr": "14 mm"},
+        {"id": "c-311", "type": "radius", "curve": "e-305", "expr": "3 mm"}
+      ]
+    },
+    {
+      "id": "f-ext3",
+      "type": "extrude",
+      "body": "b-2",
+      "profile": {
+        "sketch": "f-sk3",
+        "regions": [
+          {"key": "e-301,e-302,e-303,e-304;~e-305", "fp": "c=-24,15|a=195.725666"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "4 mm"},
+      "op": "new"
+    },
+    {
+      "id": "f-fil3",
+      "type": "fillet",
+      "body": "b-2",
+      "edges": [
+        {"q": "edge(f-ext3/lateral/e-303|f-ext3/start-cap)", "fp": "line|n=0,1,0|c=30,-24,22|l=16"},
+        {"q": "edge(f-ext3/end-cap|f-ext3/lateral/e-303)", "fp": "line|n=0,1,0|c=34,-24,22|l=16"},
+        {"q": "edge(f-ext3/lateral/e-302|f-ext3/lateral/e-303)", "fp": "line|n=1,0,0|c=32,-16,22|l=4"},
+        {"q": "edge(f-ext3/lateral/e-303|f-ext3/lateral/e-304)", "fp": "line|n=1,0,0|c=32,-32,22|l=4"}
+      ],
+      "radius": "1.5 mm"
+    },
+    {
+      "id": "f-lp1",
+      "type": "linear_pattern",
+      "body": "b-2",
+      "direction": {"axis": {"kind": "origin", "axis": "X"}, "count": "3", "spacing": "12 mm"}
+    },
+    {
+      "id": "f-lp2",
+      "type": "linear_pattern",
+      "body": "b-2",
+      "direction": {"axis": {"kind": "origin", "axis": "Y"}, "count": "3", "spacing": "24 mm"}
+    },
+    {"id": "f-mir1", "type": "mirror", "body": "b-2", "plane": {"kind": "origin", "plane": "YZ"}},
+    {
+      "id": "f-sk4",
+      "type": "sketch",
+      "plane": {"kind": "datum", "feature": "f-dp1"},
+      "entities": [
+        {"id": "e-401", "type": "line", "start": [-38, -66], "end": [-18, -66]},
+        {"id": "e-402", "type": "line", "start": [-18, -66], "end": [-18, -46]},
+        {"id": "e-403", "type": "line", "start": [-18, -46], "end": [-38, -46]},
+        {"id": "e-404", "type": "line", "start": [-38, -46], "end": [-38, -66]},
+        {"id": "e-405", "type": "circle", "center": [-28, -56], "radius": 4, "construction": true}
+      ],
+      "constraints": [
+        {"id": "c-401", "type": "coincident", "points": ["e-401.end", "e-402.start"]},
+        {"id": "c-402", "type": "coincident", "points": ["e-402.end", "e-403.start"]},
+        {"id": "c-403", "type": "coincident", "points": ["e-403.end", "e-404.start"]},
+        {"id": "c-404", "type": "coincident", "points": ["e-404.end", "e-401.start"]},
+        {"id": "c-405", "type": "horizontal", "line": "e-401"},
+        {"id": "c-406", "type": "horizontal", "line": "e-403"},
+        {"id": "c-407", "type": "vertical", "line": "e-402"},
+        {"id": "c-408", "type": "vertical", "line": "e-404"},
+        {"id": "c-409", "type": "distance", "line": "e-401", "expr": "20 mm"},
+        {"id": "c-410", "type": "equal", "curves": ["e-401", "e-402"]}
+      ]
+    },
+    {
+      "id": "f-ext4",
+      "type": "extrude",
+      "body": "b-3",
+      "profile": {
+        "sketch": "f-sk4",
+        "regions": [
+          {"key": "e-401,e-402,e-403,e-404", "fp": "c=-28,-56|a=400"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "16 mm"},
+      "op": "new"
+    },
+    {
+      "id": "f-fil4",
+      "type": "fillet",
+      "body": "b-3",
+      "edges": [
+        {"q": "edge(f-ext4/lateral/e-401|f-ext4/lateral/e-402)", "fp": "line|n=0,0,1|c=-18,-66,16|l=16"},
+        {"q": "edge(f-ext4/lateral/e-402|f-ext4/lateral/e-403)", "fp": "line|n=0,0,1|c=-18,-46,16|l=16"},
+        {"q": "edge(f-ext4/lateral/e-403|f-ext4/lateral/e-404)", "fp": "line|n=0,0,1|c=-38,-46,16|l=16"},
+        {"q": "edge(f-ext4/lateral/e-401|f-ext4/lateral/e-404)", "fp": "line|n=0,0,1|c=-38,-66,16|l=16"}
+      ],
+      "radius": "3 mm"
+    },
+    {
+      "id": "f-sh1",
+      "type": "shell",
+      "body": "b-3",
+      "thickness": "1.2 mm",
+      "remove_faces": [
+        {"q": "f-ext4/end-cap", "fp": "plane|n=0,0,1|c=-28,-56,24|a=392.274334"}
+      ]
+    },
+    {
+      "id": "f-lp3",
+      "type": "linear_pattern",
+      "body": "b-3",
+      "direction": {"axis": {"kind": "origin", "axis": "X"}, "count": "3", "spacing": "28 mm"}
+    },
+    {"id": "f-mir2", "type": "mirror", "body": "b-3", "plane": {"kind": "origin", "plane": "XZ"}},
+    {"id": "f-bool1", "type": "boolean", "target": "b-1", "tools": ["b-2"], "op": "join"},
+    {"id": "f-bool2", "type": "boolean", "target": "b-1", "tools": ["b-3"], "op": "join"},
+    {
+      "id": "f-sk5",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XY"},
+      "entities": [
+        {"id": "e-501", "type": "line", "start": [-96, -44], "end": [96, -44], "construction": true},
+        {"id": "e-502", "type": "line", "start": [96, -44], "end": [96, 44], "construction": true},
+        {"id": "e-503", "type": "line", "start": [96, 44], "end": [-96, 44], "construction": true},
+        {"id": "e-504", "type": "line", "start": [-96, 44], "end": [-96, -44], "construction": true},
+        {"id": "e-505", "type": "circle", "center": [-96, -44], "radius": 6},
+        {"id": "e-506", "type": "circle", "center": [96, -44], "radius": 6},
+        {"id": "e-507", "type": "circle", "center": [96, 44], "radius": 6},
+        {"id": "e-508", "type": "circle", "center": [-96, 44], "radius": 6}
+      ],
+      "constraints": [
+        {"id": "c-501", "type": "coincident", "points": ["e-501.end", "e-502.start"]},
+        {"id": "c-502", "type": "coincident", "points": ["e-502.end", "e-503.start"]},
+        {"id": "c-503", "type": "coincident", "points": ["e-503.end", "e-504.start"]},
+        {"id": "c-504", "type": "coincident", "points": ["e-504.end", "e-501.start"]},
+        {"id": "c-505", "type": "horizontal", "line": "e-501"},
+        {"id": "c-506", "type": "horizontal", "line": "e-503"},
+        {"id": "c-507", "type": "vertical", "line": "e-502"},
+        {"id": "c-508", "type": "vertical", "line": "e-504"},
+        {"id": "c-509", "type": "coincident", "points": ["e-505.center", "e-501.start"]},
+        {"id": "c-510", "type": "coincident", "points": ["e-506.center", "e-502.start"]},
+        {"id": "c-511", "type": "coincident", "points": ["e-507.center", "e-503.start"]},
+        {"id": "c-512", "type": "coincident", "points": ["e-508.center", "e-504.start"]},
+        {"id": "c-513", "type": "equal", "curves": ["e-505", "e-506"]},
+        {"id": "c-514", "type": "equal", "curves": ["e-506", "e-507"]},
+        {"id": "c-515", "type": "equal", "curves": ["e-507", "e-508"]},
+        {"id": "c-516", "type": "radius", "curve": "e-505", "expr": "6 mm"}
+      ]
+    },
+    {
+      "id": "f-ext5",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk5",
+        "regions": [
+          {"key": "e-505", "fp": "c=-96,-44|a=113.097336"},
+          {"key": "e-506", "fp": "c=96,-44|a=113.097336"},
+          {"key": "e-507", "fp": "c=96,44|a=113.097336"},
+          {"key": "e-508", "fp": "c=-96,44|a=113.097336"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "1.5 mm"},
+      "op": "cut"
+    },
+    {
+      "id": "f-cha3",
+      "type": "chamfer",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-ext1/end-cap|f-ext1/lateral/e-101)", "fp": "line|n=1,0,0|c=0,-80,0|l=228"},
+        {"q": "edge(f-ext1/end-cap|f-ext1/lateral/e-102)", "fp": "line|n=0,1,0|c=120,0,0|l=148"},
+        {"q": "edge(f-ext1/end-cap|f-ext1/lateral/e-103)", "fp": "line|n=1,0,0|c=0,80,0|l=228"},
+        {"q": "edge(f-ext1/end-cap|f-ext1/lateral/e-104)", "fp": "line|n=0,1,0|c=-120,0,0|l=148"}
+      ],
+      "distance": {"kind": "equal", "expr": "0.5 mm"}
+    },
+    {
+      "id": "f-sk6",
+      "type": "sketch",
+      "plane": {"kind": "datum", "feature": "f-dp1"},
+      "entities": [
+        {"id": "e-601", "type": "line", "start": [72, -10], "end": [100, -10]},
+        {"id": "e-602", "type": "line", "start": [100, -10], "end": [100, 10]},
+        {"id": "e-603", "type": "line", "start": [100, 10], "end": [72, 10]},
+        {"id": "e-604", "type": "line", "start": [72, 10], "end": [72, -10]},
+        {"id": "e-605", "type": "circle", "center": [78, -16], "radius": 1.25, "construction": true},
+        {"id": "e-606", "type": "circle", "center": [94, -16], "radius": 1.25, "construction": true},
+        {"id": "e-607", "type": "circle", "center": [94, 16], "radius": 1.25, "construction": true},
+        {"id": "e-608", "type": "circle", "center": [78, 16], "radius": 1.25, "construction": true}
+      ],
+      "constraints": [
+        {"id": "c-601", "type": "coincident", "points": ["e-601.end", "e-602.start"]},
+        {"id": "c-602", "type": "coincident", "points": ["e-602.end", "e-603.start"]},
+        {"id": "c-603", "type": "coincident", "points": ["e-603.end", "e-604.start"]},
+        {"id": "c-604", "type": "coincident", "points": ["e-604.end", "e-601.start"]},
+        {"id": "c-605", "type": "horizontal", "line": "e-601"},
+        {"id": "c-606", "type": "horizontal", "line": "e-603"},
+        {"id": "c-607", "type": "vertical", "line": "e-602"},
+        {"id": "c-608", "type": "vertical", "line": "e-604"},
+        {"id": "c-609", "type": "distance", "line": "e-601", "expr": "28 mm"},
+        {"id": "c-610", "type": "distance", "line": "e-602", "expr": "20 mm"}
+      ]
+    },
+    {
+      "id": "f-ext6",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk6",
+        "regions": [
+          {"key": "e-601,e-602,e-603,e-604", "fp": "c=86,0|a=560"}
+        ]
+      },
+      "extent": {"kind": "through_all"},
+      "reverse": true,
+      "op": "cut"
+    },
+    {
+      "id": "f-fil5",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-ext6/lateral/e-601|f-ext6/lateral/e-602)", "fp": "line|n=0,0,1|c=100,-10,4|l=8"},
+        {"q": "edge(f-ext6/lateral/e-602|f-ext6/lateral/e-603)", "fp": "line|n=0,0,1|c=100,10,4|l=8"},
+        {"q": "edge(f-ext6/lateral/e-603|f-ext6/lateral/e-604)", "fp": "line|n=0,0,1|c=72,10,4|l=8"},
+        {"q": "edge(f-ext6/lateral/e-601|f-ext6/lateral/e-604)", "fp": "line|n=0,0,1|c=72,-10,4|l=8"}
+      ],
+      "radius": "3 mm"
+    },
+    {
+      "id": "f-cha4",
+      "type": "chamfer",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-ext1/start-cap|f-ext6/lateral/e-601)", "fp": "line|n=1,0,0|c=86,-10,8|l=22"},
+        {"q": "edge(f-ext1/start-cap|f-ext6/lateral/e-602)", "fp": "line|n=0,1,0|c=100,0,8|l=14"},
+        {"q": "edge(f-ext1/start-cap|f-ext6/lateral/e-603)", "fp": "line|n=1,0,0|c=86,10,8|l=22"},
+        {"q": "edge(f-ext1/start-cap|f-ext6/lateral/e-604)", "fp": "line|n=0,1,0|c=72,0,8|l=14"}
+      ],
+      "distance": {"kind": "equal", "expr": "0.5 mm"}
+    },
+    {
+      "id": "f-hole3",
+      "type": "hole",
+      "body": "b-1",
+      "sketch": "f-sk6",
+      "points": ["e-605.center", "e-606.center", "e-607.center", "e-608.center"],
+      "diameter": "2.5 mm",
+      "extent": {"kind": "distance", "expr": "6 mm"},
+      "tip_angle": "118 deg"
+    },
+    {
+      "id": "f-sk7",
+      "type": "sketch",
+      "plane": {"kind": "datum", "feature": "f-dp1"},
+      "entities": [
+        {"id": "e-701", "type": "line", "start": [-104, -18], "end": [-68, -18]},
+        {"id": "e-702", "type": "line", "start": [-68, -18], "end": [-68, 18]},
+        {"id": "e-703", "type": "line", "start": [-68, 18], "end": [-104, 18]},
+        {"id": "e-704", "type": "line", "start": [-104, 18], "end": [-104, -18]},
+        {"id": "e-705", "type": "circle", "center": [-86, 0], "radius": 6, "construction": true}
+      ],
+      "constraints": [
+        {"id": "c-701", "type": "coincident", "points": ["e-701.end", "e-702.start"]},
+        {"id": "c-702", "type": "coincident", "points": ["e-702.end", "e-703.start"]},
+        {"id": "c-703", "type": "coincident", "points": ["e-703.end", "e-704.start"]},
+        {"id": "c-704", "type": "coincident", "points": ["e-704.end", "e-701.start"]},
+        {"id": "c-705", "type": "horizontal", "line": "e-701"},
+        {"id": "c-706", "type": "horizontal", "line": "e-703"},
+        {"id": "c-707", "type": "vertical", "line": "e-702"},
+        {"id": "c-708", "type": "vertical", "line": "e-704"},
+        {"id": "c-709", "type": "distance", "line": "e-701", "expr": "36 mm"},
+        {"id": "c-710", "type": "equal", "curves": ["e-701", "e-702"]}
+      ]
+    },
+    {
+      "id": "f-ext7",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk7",
+        "regions": [
+          {"key": "e-701,e-702,e-703,e-704", "fp": "c=-86,0|a=1296"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "3 mm"},
+      "reverse": true,
+      "op": "cut"
+    },
+    {
+      "id": "f-fil6",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-ext7/lateral/e-701|f-ext7/lateral/e-702)", "fp": "line|n=0,0,1|c=-68,-18,6.5|l=3"},
+        {"q": "edge(f-ext7/lateral/e-702|f-ext7/lateral/e-703)", "fp": "line|n=0,0,1|c=-68,18,6.5|l=3"},
+        {"q": "edge(f-ext7/lateral/e-703|f-ext7/lateral/e-704)", "fp": "line|n=0,0,1|c=-104,18,6.5|l=3"},
+        {"q": "edge(f-ext7/lateral/e-701|f-ext7/lateral/e-704)", "fp": "line|n=0,0,1|c=-104,-18,6.5|l=3"}
+      ],
+      "radius": "4 mm"
+    },
+    {
+      "id": "f-cha5",
+      "type": "chamfer",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-ext1/start-cap|f-ext7/lateral/e-701)", "fp": "line|n=1,0,0|c=-86,-18,8|l=28"},
+        {"q": "edge(f-ext1/start-cap|f-ext7/lateral/e-702)", "fp": "line|n=0,1,0|c=-68,0,8|l=28"},
+        {"q": "edge(f-ext1/start-cap|f-ext7/lateral/e-703)", "fp": "line|n=1,0,0|c=-86,18,8|l=28"},
+        {"q": "edge(f-ext1/start-cap|f-ext7/lateral/e-704)", "fp": "line|n=0,1,0|c=-104,0,8|l=28"}
+      ],
+      "distance": {"kind": "equal", "expr": "0.5 mm"}
+    },
+    {
+      "id": "f-sk8",
+      "type": "sketch",
+      "plane": {"kind": "datum", "feature": "f-dp1"},
+      "entities": [
+        {"id": "e-801", "type": "line", "start": [72, 24], "end": [104, 24]},
+        {"id": "e-802", "type": "line", "start": [104, 24], "end": [104, 56]},
+        {"id": "e-803", "type": "line", "start": [104, 56], "end": [72, 56]},
+        {"id": "e-804", "type": "line", "start": [72, 56], "end": [72, 24]},
+        {"id": "e-805", "type": "circle", "center": [88, 40], "radius": 8, "construction": true}
+      ],
+      "constraints": [
+        {"id": "c-801", "type": "coincident", "points": ["e-801.end", "e-802.start"]},
+        {"id": "c-802", "type": "coincident", "points": ["e-802.end", "e-803.start"]},
+        {"id": "c-803", "type": "coincident", "points": ["e-803.end", "e-804.start"]},
+        {"id": "c-804", "type": "coincident", "points": ["e-804.end", "e-801.start"]},
+        {"id": "c-805", "type": "horizontal", "line": "e-801"},
+        {"id": "c-806", "type": "horizontal", "line": "e-803"},
+        {"id": "c-807", "type": "vertical", "line": "e-802"},
+        {"id": "c-808", "type": "vertical", "line": "e-804"},
+        {"id": "c-809", "type": "distance", "line": "e-801", "expr": "32 mm"},
+        {"id": "c-810", "type": "equal", "curves": ["e-801", "e-802"]}
+      ]
+    },
+    {
+      "id": "f-ext8",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk8",
+        "regions": [
+          {"key": "e-801,e-802,e-803,e-804", "fp": "c=88,40|a=1024"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "16 mm"},
+      "op": "join"
+    },
+    {
+      "id": "f-fil7",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-ext8/lateral/e-801|f-ext8/lateral/e-802)", "fp": "line|n=0,0,1|c=104,24,16|l=16"},
+        {"q": "edge(f-ext8/lateral/e-802|f-ext8/lateral/e-803)", "fp": "line|n=0,0,1|c=104,56,16|l=16"},
+        {"q": "edge(f-ext8/lateral/e-803|f-ext8/lateral/e-804)", "fp": "line|n=0,0,1|c=72,56,16|l=16"},
+        {"q": "edge(f-ext8/lateral/e-801|f-ext8/lateral/e-804)", "fp": "line|n=0,0,1|c=72,24,16|l=16"}
+      ],
+      "radius": "4 mm"
+    },
+    {
+      "id": "f-sk9",
+      "type": "sketch",
+      "plane": {"kind": "datum", "feature": "f-dp1"},
+      "entities": [
+        {"id": "e-901", "type": "line", "start": [-104, 24], "end": [-72, 24]},
+        {"id": "e-902", "type": "line", "start": [-72, 24], "end": [-72, 56]},
+        {"id": "e-903", "type": "line", "start": [-72, 56], "end": [-104, 56]},
+        {"id": "e-904", "type": "line", "start": [-104, 56], "end": [-104, 24]},
+        {"id": "e-905", "type": "circle", "center": [-96, 32], "radius": 3, "construction": true},
+        {"id": "e-906", "type": "circle", "center": [-80, 32], "radius": 3, "construction": true},
+        {"id": "e-907", "type": "circle", "center": [-80, 48], "radius": 3, "construction": true},
+        {"id": "e-908", "type": "circle", "center": [-96, 48], "radius": 3, "construction": true}
+      ],
+      "constraints": [
+        {"id": "c-901", "type": "coincident", "points": ["e-901.end", "e-902.start"]},
+        {"id": "c-902", "type": "coincident", "points": ["e-902.end", "e-903.start"]},
+        {"id": "c-903", "type": "coincident", "points": ["e-903.end", "e-904.start"]},
+        {"id": "c-904", "type": "coincident", "points": ["e-904.end", "e-901.start"]},
+        {"id": "c-905", "type": "horizontal", "line": "e-901"},
+        {"id": "c-906", "type": "horizontal", "line": "e-903"},
+        {"id": "c-907", "type": "vertical", "line": "e-902"},
+        {"id": "c-908", "type": "vertical", "line": "e-904"},
+        {"id": "c-909", "type": "distance", "line": "e-901", "expr": "32 mm"},
+        {"id": "c-910", "type": "equal", "curves": ["e-901", "e-902"]}
+      ]
+    },
+    {
+      "id": "f-ext9",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk9",
+        "regions": [
+          {"key": "e-901,e-902,e-903,e-904", "fp": "c=-88,40|a=1024"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "12 mm"},
+      "op": "join"
+    },
+    {
+      "id": "f-hole4",
+      "type": "hole",
+      "body": "b-1",
+      "sketch": "f-sk9",
+      "points": ["e-905.center", "e-906.center", "e-907.center", "e-908.center"],
+      "diameter": "6 mm",
+      "extent": {"kind": "through_all"},
+      "reverse": true
+    },
+    {
+      "id": "f-cha6",
+      "type": "chamfer",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-ext9/end-cap|f-ext9/lateral/e-901)", "fp": "line|n=1,0,0|c=-88,24,20|l=32"},
+        {"q": "edge(f-ext9/end-cap|f-ext9/lateral/e-902)", "fp": "line|n=0,1,0|c=-72,40,20|l=32"},
+        {"q": "edge(f-ext9/end-cap|f-ext9/lateral/e-903)", "fp": "line|n=1,0,0|c=-88,56,20|l=32"},
+        {"q": "edge(f-ext9/end-cap|f-ext9/lateral/e-904)", "fp": "line|n=0,1,0|c=-104,40,20|l=32"}
+      ],
+      "distance": {"kind": "equal", "expr": "1 mm"}
+    },
+    {
+      "id": "f-sk10",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XY"},
+      "entities": [
+        {"id": "e-1001", "type": "line", "start": [-40, -122], "end": [-16, -122]},
+        {"id": "e-1002", "type": "line", "start": [-16, -122], "end": [-16, -98]},
+        {"id": "e-1003", "type": "line", "start": [-16, -98], "end": [-40, -98]},
+        {"id": "e-1004", "type": "line", "start": [-40, -98], "end": [-40, -122]},
+        {"id": "e-1005", "type": "circle", "center": [-28, -110], "radius": 3, "construction": true}
+      ],
+      "constraints": [
+        {"id": "c-1001", "type": "coincident", "points": ["e-1001.end", "e-1002.start"]},
+        {"id": "c-1002", "type": "coincident", "points": ["e-1002.end", "e-1003.start"]},
+        {"id": "c-1003", "type": "coincident", "points": ["e-1003.end", "e-1004.start"]},
+        {"id": "c-1004", "type": "coincident", "points": ["e-1004.end", "e-1001.start"]},
+        {"id": "c-1005", "type": "horizontal", "line": "e-1001"},
+        {"id": "c-1006", "type": "horizontal", "line": "e-1003"},
+        {"id": "c-1007", "type": "vertical", "line": "e-1002"},
+        {"id": "c-1008", "type": "vertical", "line": "e-1004"},
+        {"id": "c-1009", "type": "distance", "line": "e-1001", "expr": "lid_width"},
+        {"id": "c-1010", "type": "equal", "curves": ["e-1001", "e-1002"]}
+      ]
+    },
+    {
+      "id": "f-ext10",
+      "type": "extrude",
+      "body": "b-4",
+      "profile": {
+        "sketch": "f-sk10",
+        "regions": [
+          {"key": "e-1001,e-1002,e-1003,e-1004", "fp": "c=-28,-110|a=576"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "6 mm"},
+      "op": "new"
+    },
+    {
+      "id": "f-fil8",
+      "type": "fillet",
+      "body": "b-4",
+      "edges": [
+        {"q": "edge(f-ext10/lateral/e-1001|f-ext10/lateral/e-1002)", "fp": "line|n=0,0,1|c=-16,-122,3|l=6"},
+        {"q": "edge(f-ext10/lateral/e-1002|f-ext10/lateral/e-1003)", "fp": "line|n=0,0,1|c=-16,-98,3|l=6"},
+        {"q": "edge(f-ext10/lateral/e-1003|f-ext10/lateral/e-1004)", "fp": "line|n=0,0,1|c=-40,-98,3|l=6"},
+        {"q": "edge(f-ext10/lateral/e-1001|f-ext10/lateral/e-1004)", "fp": "line|n=0,0,1|c=-40,-122,3|l=6"}
+      ],
+      "radius": "3 mm"
+    },
+    {
+      "id": "f-sh2",
+      "type": "shell",
+      "body": "b-4",
+      "thickness": "1.2 mm",
+      "remove_faces": [
+        {"q": "f-ext10/start-cap", "fp": "plane|n=0,0,-1|c=-28,-110,0|a=568.274334"}
+      ]
+    },
+    {
+      "id": "f-lp4",
+      "type": "linear_pattern",
+      "body": "b-4",
+      "direction": {"axis": {"kind": "origin", "axis": "X"}, "count": "3", "spacing": "28 mm"}
+    }
+  ]
+}

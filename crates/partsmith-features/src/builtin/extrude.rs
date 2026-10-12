@@ -1,30 +1,30 @@
-//! The `extrude` feature: sweeps closed regions of one sketch along the sketch normal and combines
-//! the solid with a body (docs/spec/features/extrude.md).
-//!
-//! The naming of swept profiles (naming.md sections 3.6.2 and 3.6.3), the profile and op arguments
-//! of the Python forms, the through-all distance and the manifest hint helpers are shared with the
-//! other features of this group (`sketch`, `revolve`, `hole`, `datum_plane`).
+//! The `extrude` feature: sweeps closed regions of a sketch along its normal and combines the solid
+//! with a body (features/extrude.md).
 
-use partsmith_model::{
-    Category, Expr, FeatureManifest, FieldHint, FieldUnit, Id, LINEAR_TOLERANCE, OptionHint,
-    SelectionKind,
-};
-use partsmith_naming::{ElementName, FaceSource, Generator, roles};
-use partsmith_occt_sys::{SweepFace, SweepResult, Vector, extrude};
-use partsmith_sketch::Placement;
+use partsmith_model::{Category, Expr, FeatureManifest, FieldUnit, Id, SelectionKind};
+use partsmith_occt_sys::extrude;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    BodyOp, Bound, BuildContext, Dependencies, Feature, FeatureError, FeatureOutput, Noun,
-    OutputData, ProfileRef, PythonCall, PythonNames, PythonValue, Tool, apply_op, name_shape,
+use super::common::{
+    apply_tool, body_hint, body_op_hint, call, check_range, empty_selection, essential, flag, hint,
+    is_false, manifest, op_keyword, options_hint, profile_arguments, selection_hint, sweep_tool,
+    unit_hint,
 };
+use crate::context::BuildContext;
+use crate::deps::Dependencies;
+use crate::error::{Bound, FeatureError, Noun};
+use crate::feature::Feature;
+use crate::naming::kernel;
+use crate::output::FeatureOutput;
+use crate::params::{BodyOp, ProfileRef};
+use crate::python::{PythonCall, PythonNames, PythonValue};
 
-/// How far past the farthest corner of the body's bounding box a through-all sweep goes, in
-/// millimeters (spec section 3.3, decision D21).
-pub(super) const THROUGH_ALL_MARGIN: f64 = 1.0;
+/// How far past the body's bounding box a through-all extrusion goes, in millimeters (D21).
+const THROUGH_ALL_MARGIN: f64 = 1.0;
 
 /// Extrudes closed sketch regions along the sketch normal and combines the result with a body.
+#[derive(Clone, Copy, Debug)]
 pub struct Extrude;
 
 /// Params of an extrude feature.
@@ -37,7 +37,7 @@ pub struct ExtrudeParams {
     /// How far the extrusion goes.
     pub extent: ExtrudeExtent,
     /// Extrude against the sketch normal. Default false, omitted when false.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[serde(default, skip_serializing_if = "is_false")]
     pub reverse: bool,
     /// How the extrusion combines with the body. Required.
     pub op: BodyOp,
@@ -73,44 +73,50 @@ impl Feature for Extrude {
     type Params = ExtrudeParams;
 
     fn manifest() -> FeatureManifest {
-        FeatureManifest {
-            label: "Extrude".to_string(),
-            category: Category::Create,
-            icon: "extrude".to_string(),
-            version: 1,
-            fields: vec![
-                FieldHint {
-                    selection: Some(SelectionKind::SketchRegion),
-                    ..hint("profile", "Profile", true)
-                },
-                FieldHint {
-                    options: options(&[
+        manifest(
+            "Extrude",
+            Category::Create,
+            "extrude",
+            vec![
+                essential(selection_hint(
+                    "profile",
+                    "Profile",
+                    SelectionKind::SketchRegion,
+                )),
+                essential(options_hint(
+                    "extent.kind",
+                    "Extent",
+                    &[
                         ("distance", "Distance"),
                         ("symmetric", "Symmetric"),
                         ("two_sides", "Two sides"),
                         ("through_all", "Through all"),
-                    ]),
-                    ..hint("extent.kind", "Extent", true)
-                },
-                FieldHint {
-                    unit: Some(FieldUnit::Length),
-                    ..hint("extent.expr", "Distance", true)
-                },
-                FieldHint {
-                    unit: Some(FieldUnit::Length),
-                    ..hint("extent.opposite_expr", "Opposite distance", true)
-                },
-                op_hint(),
-                hint("reverse", "Reverse", false),
-                FieldHint {
-                    selection: Some(SelectionKind::Body),
-                    ..hint("body", "Body", false)
-                },
+                    ],
+                )),
+                essential(unit_hint("extent.expr", "Distance", FieldUnit::Length)),
+                essential(unit_hint(
+                    "extent.opposite_expr",
+                    "Opposite distance",
+                    FieldUnit::Length,
+                )),
+                body_op_hint(),
+                hint("reverse", "Reverse"),
+                body_hint(),
             ],
-        }
+        )
     }
 
-    /// The profile's sketch, the written body and the extent lengths (spec section 3.2).
+    fn validate(params: &ExtrudeParams) -> Result<(), FeatureError> {
+        if params.profile.regions.is_empty() {
+            return Err(empty_selection(
+                &Extrude::manifest(),
+                "profile",
+                Noun::Region,
+            ));
+        }
+        Ok(())
+    }
+
     fn dependencies(params: &ExtrudeParams) -> Dependencies {
         let mut dependencies = Dependencies::default();
         dependencies.add_feature(&params.profile.sketch, "profile.sketch");
@@ -135,115 +141,102 @@ impl Feature for Extrude {
         dependencies
     }
 
-    /// Sweeps the union of the resolved regions over the extent and applies the op (spec
-    /// section 3.3).
     fn build(
         params: &ExtrudeParams,
         context: &BuildContext<'_>,
     ) -> Result<FeatureOutput, FeatureError> {
         let profile = context.profile("profile", &params.profile)?;
-        let mut warnings = profile.warnings.clone();
         let placement = profile.sketch.placement;
-        let direction = direction(&placement, params);
-        let (start, end) = interval(params, context, &placement, direction)?;
+        let symmetric = matches!(params.extent, ExtrudeExtent::Symmetric { .. });
+        let direction = if params.reverse && !symmetric {
+            placement.normal.map(|component| -component)
+        } else {
+            placement.normal
+        };
+        let (start, end) = interval(params, context, placement.origin, direction)?;
         let faces = profile.faces()?;
         if context.is_canceled() {
             return Err(FeatureError::Canceled);
         }
-        let sweep = extrude(&faces.profile, vector(direction), start, end)
-            .map_err(|error| FeatureError::Kernel { error })?;
-        let tool = sweep_tool(context.feature(), &faces.entities, sweep)?;
-        let (update, op_warnings) = apply_op(context, &params.body, params.op, vec![tool])?;
-        warnings.extend(op_warnings);
-        Ok(FeatureOutput {
-            data: OutputData::Bodies(vec![update]),
-            warnings,
-        })
+        let sweep = extrude(
+            &faces.profile,
+            crate::params::vector(direction),
+            start,
+            end,
+        )
+        .map_err(kernel)?;
+        let tool = sweep_tool(context.feature(), sweep, &faces.entities)?;
+        apply_tool(context, &params.body, params.op, tool, profile.warnings)
     }
 
-    /// At least one region (spec section 3.1).
-    fn validate(params: &ExtrudeParams) -> Result<(), FeatureError> {
-        if params.profile.regions.is_empty() {
-            return Err(FeatureError::EmptySelection {
-                field: crate::FieldRef::new("profile", &Extrude::manifest()),
-                noun: Noun::Region,
-            });
-        }
-        Ok(())
-    }
-
-    /// `extrude(profile, distance, regions=..., symmetric=True, reverse=True, through_all=True,
-    /// op=...)`. A two-sided extent has no dedicated form (spec section 2, Python).
     fn python(params: &ExtrudeParams, names: &dyn PythonNames) -> Option<PythonCall> {
-        let (distance, symmetric, through_all) = match &params.extent {
-            ExtrudeExtent::Distance { expr } => (Some(expr), false, false),
-            ExtrudeExtent::Symmetric { expr } => (Some(expr), true, false),
-            ExtrudeExtent::TwoSides { .. } => return None,
-            ExtrudeExtent::ThroughAll => (None, false, true),
-        };
-        let (sketch, regions) = python_profile(&params.profile, names)?;
-        let mut call = PythonCall::new("extrude");
-        call.positional.push(sketch);
-        if let Some(expr) = distance {
-            call.positional.push(PythonValue::expression(expr, names));
-        }
-        call.keywords.extend(regions);
-        for (flag, set) in [
-            ("symmetric", symmetric),
-            ("reverse", params.reverse),
-            ("through_all", through_all),
-        ] {
-            if set {
-                call.keywords
-                    .push((flag.to_string(), PythonValue::Bool(true)));
+        let (sketch, regions) = profile_arguments(&params.profile, names)?;
+        let mut positional = vec![sketch];
+        let mut keywords: Vec<(String, PythonValue)> = regions.into_iter().collect();
+        match &params.extent {
+            ExtrudeExtent::Distance { expr } => {
+                positional.push(PythonValue::expression(expr, names));
             }
+            ExtrudeExtent::Symmetric { expr } => {
+                positional.push(PythonValue::expression(expr, names));
+                keywords.push(flag("symmetric"));
+            }
+            ExtrudeExtent::TwoSides { .. } => return None,
+            ExtrudeExtent::ThroughAll => {}
         }
-        call.keywords
-            .extend(python_op(params.op, &params.body, names));
-        Some(call)
+        if params.reverse {
+            keywords.push(flag("reverse"));
+        }
+        if params.extent == ExtrudeExtent::ThroughAll {
+            keywords.push(flag("through_all"));
+        }
+        keywords.extend(op_keyword(names, &params.body, params.op));
+        Some(call("extrude", positional, keywords))
     }
 }
 
-/// The unit extrusion direction: the sketch normal, reversed when `reverse` is set, except for a
-/// symmetric extent, which is the same solid with the same names either way (spec section 3.3
-/// step 2).
-fn direction(placement: &Placement, params: &ExtrudeParams) -> [f64; 3] {
-    let symmetric = matches!(params.extent, ExtrudeExtent::Symmetric { .. });
-    if params.reverse && !symmetric {
-        placement.normal.map(|component| -component)
-    } else {
-        placement.normal
-    }
-}
-
-/// The interval `[start, end]` along `direction`, measured from the sketch plane, with the range
-/// checks of spec section 3.3 step 3 in their order.
+/// The interval `[start, end]` swept along `direction`, measured from the sketch plane through
+/// `origin` (features/extrude.md section 3.3).
 fn interval(
     params: &ExtrudeParams,
     context: &BuildContext<'_>,
-    placement: &Placement,
+    origin: [f64; 3],
     direction: [f64; 3],
 ) -> Result<(f64, f64), FeatureError> {
+    let positive = |field: &str, expr: &Expr| -> Result<f64, FeatureError> {
+        let value = context.eval_length(field, expr)?;
+        check_range(
+            context,
+            field,
+            FieldUnit::Length,
+            value,
+            Bound::GreaterThan(0.0),
+            None,
+        )
+    };
+    let not_negative = |field: &str, expr: &Expr| -> Result<f64, FeatureError> {
+        let value = context.eval_length(field, expr)?;
+        check_range(
+            context,
+            field,
+            FieldUnit::Length,
+            value,
+            Bound::AtLeast(0.0),
+            None,
+        )
+    };
     match &params.extent {
-        ExtrudeExtent::Distance { expr } => {
-            let length = positive_length(context, "extent.expr", expr)?;
-            Ok((0.0, length))
-        }
+        ExtrudeExtent::Distance { expr } => Ok((0.0, positive("extent.expr", expr)?)),
         ExtrudeExtent::Symmetric { expr } => {
-            let length = positive_length(context, "extent.expr", expr)?;
+            let length = positive("extent.expr", expr)?;
             Ok((-length / 2.0, length / 2.0))
         }
         ExtrudeExtent::TwoSides {
             expr,
             opposite_expr,
         } => {
-            let along = context.eval_length("extent.expr", expr)?;
-            let against = context.eval_length("extent.opposite_expr", opposite_expr)?;
-            for (field, value) in [("extent.expr", along), ("extent.opposite_expr", against)] {
-                if value < 0.0 {
-                    return Err(out_of_range(context, field, value, Bound::AtLeast(0.0)));
-                }
-            }
+            let along = not_negative("extent.expr", expr)?;
+            let against = not_negative("extent.opposite_expr", opposite_expr)?;
             if along + against <= 0.0 {
                 return Err(FeatureError::BothSidesZero);
             }
@@ -260,427 +253,478 @@ fn interval(
                     use_new: true,
                 });
             };
-            let bounds = shape
-                .bounding_box()
-                .map_err(|error| FeatureError::Kernel { error })?;
-            let farthest = farthest_corner(bounds.min, bounds.max, placement.origin, direction);
-            if farthest <= LINEAR_TOLERANCE {
+            let reach = farthest_corner(shape, origin, direction)?;
+            if reach <= 0.0 {
                 return Err(FeatureError::ThroughAllMisses {
                     body: params.body.clone(),
                 });
             }
-            Ok((0.0, farthest + THROUGH_ALL_MARGIN))
+            Ok((0.0, reach + THROUGH_ALL_MARGIN))
         }
     }
 }
 
-/// The length at `field`, which must be greater than 0.
-fn positive_length(
-    context: &BuildContext<'_>,
-    field: &str,
-    expr: &Expr,
-) -> Result<f64, FeatureError> {
-    let length = context.eval_length(field, expr)?;
-    if length <= 0.0 {
-        return Err(out_of_range(context, field, length, Bound::GreaterThan(0.0)));
-    }
-    Ok(length)
-}
-
-/// The `OutOfRange` error of a length at `field`.
-fn out_of_range(context: &BuildContext<'_>, field: &str, value: f64, bound: Bound) -> FeatureError {
-    FeatureError::OutOfRange {
-        field: context.field(field),
-        kind: FieldUnit::Length,
-        value,
-        bound,
-        bound_name: None,
-    }
-}
-
-/// The largest signed distance `(corner - origin) · direction` over the eight corners of the box
-/// from `min` to `max`: how far a sweep from `origin` along the unit `direction` must go to pass
-/// the whole box.
-pub(super) fn farthest_corner(
-    min: [f64; 3],
-    max: [f64; 3],
+/// The largest signed distance `(corner - origin) · direction` over the eight corners of the
+/// shape's tight bounding box.
+pub(crate) fn farthest_corner(
+    shape: &partsmith_occt_sys::Shape,
     origin: [f64; 3],
     direction: [f64; 3],
-) -> f64 {
-    // Each coordinate contributes its larger product with the direction, independently.
-    (0..3)
-        .map(|axis| {
-            let low = (min[axis] - origin[axis]) * direction[axis];
-            let high = (max[axis] - origin[axis]) * direction[axis];
-            low.max(high)
-        })
-        .sum()
-}
-
-/// The tool of a sweep of a profile union, its faces named `<feature>/lateral/<entity>` after the
-/// sketch entity of their profile edge, `<feature>/start-cap` and `<feature>/end-cap` (naming.md
-/// sections 3.6.2 and 3.6.3). Tag `i` of the sweep names `entities[i]`.
-pub(super) fn sweep_tool(
-    feature: &Id,
-    entities: &[Id],
-    sweep: SweepResult,
-) -> Result<Tool, FeatureError> {
-    let faces = sweep
-        .faces
-        .iter()
-        .map(|face| {
-            let name = match face {
-                SweepFace::Lateral { tag } => {
-                    let entity = usize::try_from(*tag)
-                        .ok()
-                        .and_then(|index| entities.get(index))
-                        .ok_or_else(|| FeatureError::Internal {
-                            message: format!("the sweep names profile tag {tag}, which has no sketch entity"),
-                        })?;
-                    ElementName::generated(
-                        feature,
-                        roles::LATERAL,
-                        Some(Generator::Sketch(entity.as_str())),
-                    )
-                }
-                SweepFace::StartCap => ElementName::generated(feature, roles::START_CAP, None),
-                SweepFace::EndCap => ElementName::generated(feature, roles::END_CAP, None),
-            };
-            name.map(FaceSource::New)
-                .map_err(|error| FeatureError::Internal {
-                    message: format!("naming a swept face failed: {error}"),
-                })
-        })
-        .collect::<Result<Vec<_>, FeatureError>>()?;
-    let naming = name_shape(&sweep.shape, faces, &[])?;
-    Ok(Tool {
-        shape: sweep.shape,
-        naming,
-    })
-}
-
-/// The profile argument of a sweep's Python form: the sketch's variable, and the `regions=`
-/// keyword when the stored regions are not all of the sketch's regions in solved order
-/// (features.md section 3.11). None when a script name is missing.
-pub(super) fn python_profile(
-    profile: &ProfileRef,
-    names: &dyn PythonNames,
-) -> Option<(PythonValue, Option<(String, PythonValue)>)> {
-    let sketch = PythonValue::Name(names.feature(&profile.sketch)?);
-    let regions = (names.regions(&profile.sketch)? != profile.regions).then(|| {
-        let listed = profile.regions.iter().map(PythonValue::region).collect();
-        ("regions".to_string(), PythonValue::List(listed))
-    });
-    Some((sketch, regions))
-}
-
-/// The `op=` keyword of a solid feature's Python form, when `op` differs from the default op of
-/// `body` (features.md section 3.11).
-pub(super) fn python_op(
-    op: BodyOp,
-    body: &Id,
-    names: &dyn PythonNames,
-) -> Option<(String, PythonValue)> {
-    (op != names.default_op(body)).then(|| {
-        let text = match op {
-            BodyOp::New => "new",
-            BodyOp::Join => "join",
-            BodyOp::Cut => "cut",
-            BodyOp::Intersect => "intersect",
-        };
-        ("op".to_string(), PythonValue::Str(text.to_string()))
-    })
-}
-
-/// The manifest hint of a solid feature's `op`, with the labels of every `BodyOp`.
-pub(super) fn op_hint() -> FieldHint {
-    FieldHint {
-        options: options(&[
-            ("new", "New body"),
-            ("join", "Join"),
-            ("cut", "Cut"),
-            ("intersect", "Intersect"),
-        ]),
-        ..hint("op", "Operation", true)
+) -> Result<f64, FeatureError> {
+    let bounds = shape.bounding_box().map_err(kernel)?;
+    let mut farthest = f64::NEG_INFINITY;
+    for corner in 0..8 {
+        let point = [0, 1, 2].map(|axis| {
+            if corner & (1 << axis) == 0 {
+                bounds.min[axis]
+            } else {
+                bounds.max[axis]
+            }
+        });
+        let distance: f64 = (0..3)
+            .map(|axis| (point[axis] - origin[axis]) * direction[axis])
+            .sum();
+        farthest = farthest.max(distance);
     }
-}
-
-/// A manifest hint without unit, selection or options.
-pub(super) fn hint(path: &str, label: &str, essential: bool) -> FieldHint {
-    FieldHint {
-        path: path.to_string(),
-        label: label.to_string(),
-        essential,
-        unit: None,
-        selection: None,
-        options: Vec::new(),
-    }
-}
-
-/// Option labels from `(value, label)` pairs, in display order.
-pub(super) fn options(pairs: &[(&str, &str)]) -> Vec<OptionHint> {
-    pairs
-        .iter()
-        .map(|(value, label)| OptionHint {
-            value: (*value).to_string(),
-            label: (*label).to_string(),
-        })
-        .collect()
-}
-
-/// The kernel vector of world components.
-pub(super) fn vector([x, y, z]: [f64; 3]) -> Vector {
-    Vector::new(x, y, z)
+    Ok(farthest)
 }
 
 #[cfg(test)]
 mod tests {
-    use partsmith_model::Units;
-    use partsmith_sketch::{OriginPlane, RegionRef};
+    use std::f64::consts::PI;
+
+    use partsmith_occt_sys::Vector;
     use serde_json::json;
 
     use super::*;
-    use crate::Registry;
+    use crate::output::{BodyChange, OutputData};
+    use crate::test_support::{DocumentRun, ScriptNames, assert_point, id, run, run_document};
 
-    /// Script names with `f-sk1` as `sketch_1`, the parameter `height`, every region of `f-sk1`
-    /// being the rectangle of features.md section 6.1, and default op new.
-    struct Names;
-
-    impl PythonNames for Names {
-        fn units(&self) -> Units {
-            Units::Mm
-        }
-
-        fn body(&self, _body: &Id) -> Option<String> {
-            Some("block".to_string())
-        }
-
-        fn feature(&self, feature: &Id) -> Option<String> {
-            (feature.as_str() == "f-sk1").then(|| "sketch_1".to_string())
-        }
-
-        fn entity(&self, _sketch: &Id, _entity: &Id) -> Option<String> {
-            None
-        }
-
-        fn parameter(&self, name: &str) -> Option<String> {
-            (name == "height").then(|| "height".to_string())
-        }
-
-        fn regions(&self, sketch: &Id) -> Option<Vec<RegionRef>> {
-            (sketch.as_str() == "f-sk1").then(|| vec![rectangle_region()])
-        }
-
-        fn default_op(&self, _body: &Id) -> BodyOp {
-            BodyOp::New
-        }
+    /// The rectangle (0, 0)-(80, 50) on XY.
+    fn rectangle() -> serde_json::Value {
+        json!({"id": "f-sk1", "type": "sketch", "plane": {"kind": "origin", "plane": "XY"}, "entities": [
+            {"id": "e-1", "type": "line", "start": [0, 0], "end": [80, 0]},
+            {"id": "e-2", "type": "line", "start": [80, 0], "end": [80, 50]},
+            {"id": "e-3", "type": "line", "start": [80, 50], "end": [0, 50]},
+            {"id": "e-4", "type": "line", "start": [0, 50], "end": [0, 0]}
+        ]})
     }
 
-    fn rectangle_region() -> RegionRef {
-        serde_json::from_value(json!({"key": "e-1,e-2,e-3,e-4", "fp": "c=40,25|a=4000"}))
-            .expect("the region ref is valid")
+    /// One circle `e-5`.
+    fn circle(center: [f64; 2], radius: f64) -> serde_json::Value {
+        json!({"id": "f-sk1", "type": "sketch", "plane": {"kind": "origin", "plane": "XY"}, "entities": [
+            {"id": "e-5", "type": "circle", "center": center, "radius": radius}
+        ]})
     }
 
-    /// The extrude of `P-RECT` with this extent and op, plus `extra` members.
-    fn params(extent: serde_json::Value, op: &str, extra: serde_json::Value) -> ExtrudeParams {
-        let mut record = json!({
-            "body": "b-1",
-            "profile": {"sketch": "f-sk1", "regions": [{"key": "e-1,e-2,e-3,e-4", "fp": "c=40,25|a=4000"}]},
-            "extent": extent,
-            "op": op
-        });
-        if let (Some(target), Some(source)) = (record.as_object_mut(), extra.as_object()) {
-            target.extend(source.clone());
+    fn rectangle_profile() -> serde_json::Value {
+        json!({"sketch": "f-sk1", "regions": [{"key": "e-1,e-2,e-3,e-4", "fp": "c=40,25|a=4000"}]})
+    }
+
+    fn circle_profile(fingerprint: &str) -> serde_json::Value {
+        json!({"sketch": "f-sk1", "regions": [{"key": "e-5", "fp": fingerprint}]})
+    }
+
+    fn extrusion(
+        profile: serde_json::Value,
+        extent: serde_json::Value,
+        op: &str,
+        reverse: bool,
+    ) -> serde_json::Value {
+        let mut record = json!({"id": "f-ext1", "type": "extrude", "body": "b-1", "profile": profile, "extent": extent, "op": op});
+        if reverse {
+            record["reverse"] = json!(true);
         }
-        serde_json::from_value(record).expect("the extrude params are valid")
+        record
     }
 
-    fn python(params: &ExtrudeParams) -> Option<String> {
-        Extrude::python(params, &Names).map(|call| call.render(0))
+    /// A 40 x 40 x 10 box below the XY plane.
+    fn box_below() -> serde_json::Value {
+        json!({"id": "f-box1", "type": "box", "body": "b-1", "size": ["40", "40", "10"], "position": ["0", "0", "-10"], "op": "new"})
     }
 
-    #[test]
-    fn registers_through_the_public_registry() {
-        let mut registry = Registry::new();
+    fn rectangle_run(extent: serde_json::Value, reverse: bool) -> DocumentRun {
+        run(
+            &["b-1"],
+            &[
+                rectangle(),
+                extrusion(rectangle_profile(), extent, "new", reverse),
+            ],
+        )
+    }
 
-        assert_eq!(registry.register::<Extrude>(), Ok(()));
+    fn cap_z(run: &DocumentRun, cap: &str) -> f64 {
+        run.face("b-1", &format!("f-ext1/{cap}")).centroid.z
     }
 
     #[test]
-    fn reverse_is_omitted_when_false() {
-        let extrude = params(
-            json!({"kind": "distance", "expr": "30 mm"}),
-            "new",
-            json!({"reverse": false}),
+    fn a_distance_extrusion_names_caps_and_sides() {
+        let run = rectangle_run(json!({"kind": "distance", "expr": "30 mm"}), false);
+
+        run.assert_ok("f-ext1");
+        run.assert_volume("b-1", 120000.0);
+        run.assert_faces("b-1", 6);
+        run.assert_bounding_box("b-1", [0.0; 3], [80.0, 50.0, 30.0]);
+        let start = run.face("b-1", "f-ext1/start-cap");
+        assert_eq!(start.direction, Some(Vector::new(0.0, 0.0, -1.0)));
+        assert_point("start cap", start.centroid, [40.0, 25.0, 0.0]);
+        run.assert_face_area("b-1", "f-ext1/lateral/e-1", 2400.0);
+        run.assert_face_area("b-1", "f-ext1/lateral/e-2", 1500.0);
+        assert_point(
+            "lateral e-3",
+            run.face("b-1", "f-ext1/lateral/e-3").centroid,
+            [40.0, 50.0, 15.0],
         );
-
-        let text = serde_json::to_value(&extrude).expect("serializes");
-
-        assert!(text.get("reverse").is_none(), "{text}");
+        let OutputData::Bodies(updates) = &run.output("f-ext1").data else {
+            panic!("an extrusion updates bodies");
+        };
+        assert_eq!(updates[0].change, BodyChange::New);
     }
 
     #[test]
-    fn extents_reject_unknown_keys() {
-        let extent: Result<ExtrudeExtent, _> =
-            serde_json::from_value(json!({"kind": "distance", "expr": "1", "taper": "2 deg"}));
+    fn reverse_extrudes_against_the_normal() {
+        let run = rectangle_run(json!({"kind": "distance", "expr": "30 mm"}), true);
 
-        assert!(extent.is_err());
+        run.assert_bounding_box("b-1", [0.0, 0.0, -30.0], [80.0, 50.0, 0.0]);
+        assert!(cap_z(&run, "end-cap") < -29.0);
     }
 
     #[test]
-    fn dependencies_declare_both_sides_of_a_two_sided_extent() {
-        let dependencies = Extrude::dependencies(&params(
+    fn symmetric_ignores_reverse() {
+        let plain = rectangle_run(json!({"kind": "symmetric", "expr": "30 mm"}), false);
+        let reversed = rectangle_run(json!({"kind": "symmetric", "expr": "30 mm"}), true);
+
+        for run in [&plain, &reversed] {
+            run.assert_ok("f-ext1");
+            run.assert_bounding_box("b-1", [0.0, 0.0, -15.0], [80.0, 50.0, 15.0]);
+            assert!((cap_z(run, "start-cap") + 15.0).abs() < 1e-9);
+        }
+    }
+
+    #[test]
+    fn two_sides_extend_both_ways() {
+        let run = rectangle_run(
             json!({"kind": "two_sides", "expr": "20 mm", "opposite_expr": "10 mm"}),
-            "new",
-            json!({}),
-        ));
-
-        let fields: Vec<&str> = dependencies
-            .expressions
-            .iter()
-            .map(|usage| usage.field.as_str())
-            .collect();
-        assert_eq!(fields, ["extent.expr", "extent.opposite_expr"]);
-        assert_eq!(dependencies.features[0].field, "profile.sketch");
-        assert_eq!(dependencies.bodies_written[0].field, "body");
-    }
-
-    #[test]
-    fn dependencies_of_through_all_have_no_expression() {
-        let dependencies =
-            Extrude::dependencies(&params(json!({"kind": "through_all"}), "cut", json!({})));
-
-        assert!(dependencies.expressions.is_empty());
-    }
-
-    #[test]
-    fn validate_rejects_an_empty_profile() {
-        let mut extrude = params(json!({"kind": "distance", "expr": "1"}), "new", json!({}));
-        extrude.profile.regions.clear();
-
-        let error = Extrude::validate(&extrude).expect_err("a profile needs a region");
-
-        assert_eq!(error.code(), "empty_selection");
-        assert_eq!(error.to_string(), "Select at least one region for Profile.");
-    }
-
-    #[test]
-    fn direction_follows_the_normal_unless_reversed() {
-        let placement = OriginPlane::Xy.placement();
-        let forward = params(json!({"kind": "distance", "expr": "1"}), "new", json!({}));
-        let reversed = params(
-            json!({"kind": "distance", "expr": "1"}),
-            "new",
-            json!({"reverse": true}),
+            true,
         );
 
-        assert_eq!(direction(&placement, &forward), [0.0, 0.0, 1.0]);
-        assert_eq!(direction(&placement, &reversed), [0.0, 0.0, -1.0]);
+        run.assert_bounding_box("b-1", [0.0, 0.0, -20.0], [80.0, 50.0, 10.0]);
+        assert!((cap_z(&run, "start-cap") - 10.0).abs() < 1e-9);
     }
 
     #[test]
-    fn symmetric_direction_ignores_reverse() {
-        let placement = OriginPlane::Xz.placement();
-        let symmetric = params(
-            json!({"kind": "symmetric", "expr": "1"}),
-            "new",
-            json!({"reverse": true}),
+    fn two_sides_of_zero_are_an_error() {
+        let run = rectangle_run(
+            json!({"kind": "two_sides", "expr": "0", "opposite_expr": "0"}),
+            false,
         );
 
-        assert_eq!(direction(&placement, &symmetric), placement.normal);
+        assert_eq!(run.error_code("f-ext1"), "both_sides_zero");
+        assert!(run.is_empty("b-1"));
     }
 
     #[test]
-    fn farthest_corner_takes_the_far_side_of_each_axis() {
-        let farthest = farthest_corner(
-            [-20.0, -20.0, -10.0],
-            [20.0, 20.0, 0.0],
-            [0.0, 0.0, 0.0],
-            [0.0, 0.0, -1.0],
-        );
-
-        assert_eq!(farthest, 10.0);
-    }
-
-    #[test]
-    fn farthest_corner_is_not_positive_when_the_box_is_behind() {
-        let farthest = farthest_corner(
-            [-20.0, -20.0, -10.0],
-            [20.0, 20.0, 0.0],
-            [0.0, 0.0, 0.0],
-            [0.0, 0.0, 1.0],
-        );
-
-        assert_eq!(farthest, 0.0);
-    }
-
-    #[test]
-    fn python_writes_a_distance_with_the_sketch_variable() {
-        let extrude = params(json!({"kind": "distance", "expr": "30 mm"}), "new", json!({}));
-
-        assert_eq!(
-            python(&extrude),
-            Some("extrude(sketch_1, 30*mm)".to_string())
-        );
-    }
-
-    #[test]
-    fn python_writes_symmetric_and_reverse_flags() {
-        let extrude = params(
-            json!({"kind": "symmetric", "expr": "height"}),
-            "new",
-            json!({"reverse": true}),
+    fn a_negative_opposite_distance_is_out_of_range() {
+        let run = rectangle_run(
+            json!({"kind": "two_sides", "expr": "5", "opposite_expr": "-1"}),
+            false,
         );
 
         assert_eq!(
-            python(&extrude),
-            Some("extrude(sketch_1, height, symmetric=True, reverse=True)".to_string())
+            run.messages("f-ext1"),
+            ["Opposite distance must be at least 0 mm, but it is -1 mm. Use 0 mm or more."]
         );
     }
 
     #[test]
-    fn python_writes_through_all_without_a_distance_and_a_non_default_op() {
-        let extrude = params(json!({"kind": "through_all"}), "cut", json!({}));
+    fn a_zero_distance_is_out_of_range() {
+        let run = rectangle_run(json!({"kind": "distance", "expr": "0"}), false);
 
         assert_eq!(
-            python(&extrude),
-            Some("extrude(sketch_1, through_all=True, op=\"cut\")".to_string())
+            run.messages("f-ext1"),
+            ["Distance must be greater than 0 mm, but it is 0 mm. Use a value greater than 0 mm."]
         );
     }
 
     #[test]
-    fn python_has_no_form_for_two_sides() {
-        let extrude = params(
-            json!({"kind": "two_sides", "expr": "20 mm", "opposite_expr": "10 mm"}),
-            "new",
-            json!({}),
+    fn bare_numbers_take_document_units() {
+        let run = run_document(
+            "in",
+            &[],
+            &["b-1"],
+            &[
+                rectangle(),
+                extrusion(
+                    rectangle_profile(),
+                    json!({"kind": "distance", "expr": "1"}),
+                    "new",
+                    false,
+                ),
+            ],
+            &Default::default(),
         );
 
-        assert_eq!(python(&extrude), None);
+        run.assert_volume("b-1", 101600.0);
     }
 
     #[test]
-    fn python_lists_regions_that_differ_from_the_sketch() {
-        let extrude = params(
-            json!({"kind": "distance", "expr": "5"}),
-            "new",
-            json!({"profile": {"sketch": "f-sk1", "regions": [{"key": "e-5", "fp": "c=0,0|a=1"}]}}),
+    fn a_region_with_a_hole_has_an_inner_wall() {
+        let mut sketch = rectangle();
+        sketch["entities"]
+            .as_array_mut()
+            .expect("entities")
+            .push(json!({"id": "e-5", "type": "circle", "center": [40, 25], "radius": 10}));
+        let run = run(
+            &["b-1"],
+            &[
+                sketch,
+                extrusion(
+                    json!({"sketch": "f-sk1", "regions": [{"key": "e-1,e-2,e-3,e-4;~e-5", "fp": "c=40,25|a=3685.840735"}]}),
+                    json!({"kind": "distance", "expr": "10"}),
+                    "new",
+                    false,
+                ),
+            ],
+        );
+
+        run.assert_volume("b-1", 36858.407346);
+        run.assert_faces("b-1", 7);
+        run.assert_face_area("b-1", "f-ext1/lateral/e-5", 200.0 * PI);
+    }
+
+    #[test]
+    fn two_regions_extrude_as_their_union() {
+        let mut sketch = rectangle();
+        sketch["entities"]
+            .as_array_mut()
+            .expect("entities")
+            .push(json!({"id": "e-5", "type": "circle", "center": [40, 25], "radius": 10}));
+        let run = run(
+            &["b-1"],
+            &[
+                sketch,
+                extrusion(
+                    json!({"sketch": "f-sk1", "regions": [
+                        {"key": "e-1,e-2,e-3,e-4;~e-5", "fp": "c=40,25|a=3685.840735"},
+                        {"key": "e-5", "fp": "c=40,25|a=314.159265"}
+                    ]}),
+                    json!({"kind": "distance", "expr": "10"}),
+                    "new",
+                    false,
+                ),
+            ],
+        );
+
+        run.assert_volume("b-1", 40000.0);
+        run.assert_faces("b-1", 6);
+        assert!(run.faces_named("b-1", "f-ext1/lateral/e-5").is_empty());
+        run.assert_face_area("b-1", "f-ext1/start-cap", 4000.0);
+    }
+
+    #[test]
+    fn a_join_keeps_the_body_faces() {
+        let run = run(
+            &["b-1"],
+            &[
+                box_below(),
+                circle([0.0, 0.0], 5.0),
+                extrusion(
+                    circle_profile("c=0,0|a=78.539816"),
+                    json!({"kind": "distance", "expr": "5"}),
+                    "join",
+                    false,
+                ),
+            ],
+        );
+
+        run.assert_volume("b-1", 16392.699082);
+        run.assert_faces("b-1", 8);
+        let names = run.face_names("b-1");
+        assert!(names.contains(&"f-box1/top".to_string()));
+        assert!(names.contains(&"f-ext1/end-cap".to_string()));
+        assert!(!names.contains(&"f-ext1/start-cap".to_string()));
+    }
+
+    #[test]
+    fn through_all_cuts_through_the_body() {
+        let run = run(
+            &["b-1"],
+            &[
+                box_below(),
+                circle([0.0, 0.0], 5.0),
+                extrusion(
+                    circle_profile("c=0,0|a=78.539816"),
+                    json!({"kind": "through_all"}),
+                    "cut",
+                    true,
+                ),
+            ],
+        );
+
+        run.assert_volume("b-1", 15214.601837);
+        run.assert_faces("b-1", 7);
+        assert!(run.faces_named("b-1", "f-ext1/").contains(&"f-ext1/lateral/e-5".to_string()));
+        assert_eq!(run.faces_named("b-1", "f-ext1/").len(), 1);
+    }
+
+    #[test]
+    fn through_all_pointing_away_misses() {
+        let run = run(
+            &["b-1"],
+            &[
+                box_below(),
+                circle([0.0, 0.0], 5.0),
+                extrusion(
+                    circle_profile("c=0,0|a=78.539816"),
+                    json!({"kind": "through_all"}),
+                    "cut",
+                    false,
+                ),
+            ],
         );
 
         assert_eq!(
-            python(&extrude),
-            Some("extrude(sketch_1, 5, regions=[Region(\"e-5\", \"c=0,0|a=1\")])".to_string())
+            run.messages("f-ext1"),
+            ["Through all points away from body 'Body 1', so there is nothing to go through. Turn on Reverse, or use a distance."]
         );
     }
 
     #[test]
-    fn python_needs_the_sketch_variable() {
-        let extrude = params(
-            json!({"kind": "distance", "expr": "5"}),
-            "new",
-            json!({"profile": {"sketch": "f-sk9", "regions": [{"key": "e-5", "fp": "c=0,0|a=1"}]}}),
+    fn through_all_needs_a_body() {
+        let run = rectangle_run(json!({"kind": "through_all"}), false);
+
+        assert_eq!(run.error_code("f-ext1"), "through_all_needs_body");
+    }
+
+    #[test]
+    fn a_cut_that_misses_has_no_effect() {
+        let run = run(
+            &["b-1"],
+            &[
+                box_below(),
+                circle([100.0, 0.0], 5.0),
+                extrusion(
+                    circle_profile("c=100,0|a=78.539816"),
+                    json!({"kind": "distance", "expr": "4"}),
+                    "cut",
+                    true,
+                ),
+            ],
         );
 
-        assert_eq!(python(&extrude), None);
+        assert_eq!(run.warning_codes("f-ext1"), ["no_effect"]);
+        run.assert_unchanged_by("f-ext1", "b-1");
+    }
+
+    #[test]
+    fn a_region_found_by_fingerprint_is_remapped() {
+        let run = run(
+            &["b-1"],
+            &[
+                rectangle(),
+                extrusion(
+                    json!({"sketch": "f-sk1", "regions": [{"key": "e-1,e-2,e-3,e-9", "fp": "c=40,25|a=4000"}]}),
+                    json!({"kind": "distance", "expr": "30"}),
+                    "new",
+                    false,
+                ),
+            ],
+        );
+
+        assert_eq!(run.warning_codes("f-ext1"), ["region_remapped"]);
+        run.assert_volume("b-1", 120000.0);
+    }
+
+    #[test]
+    fn a_datum_is_not_a_profile_sketch() {
+        let run = run(
+            &["b-1"],
+            &[
+                json!({"id": "f-dp1", "type": "datum_plane", "base": {"kind": "origin", "plane": "XY"}}),
+                extrusion(
+                    json!({"sketch": "f-dp1", "regions": [{"key": "e-1,e-2,e-3,e-4", "fp": "c=40,25|a=4000"}]}),
+                    json!({"kind": "distance", "expr": "30"}),
+                    "new",
+                    false,
+                ),
+            ],
+        );
+
+        assert_eq!(
+            run.messages("f-ext1"),
+            ["'Datum plane 1' is not a sketch. Pick a sketch for Profile."]
+        );
+    }
+
+    #[test]
+    fn an_empty_profile_is_an_empty_selection() {
+        let run = run(
+            &["b-1"],
+            &[
+                rectangle(),
+                extrusion(
+                    json!({"sketch": "f-sk1", "regions": []}),
+                    json!({"kind": "distance", "expr": "30"}),
+                    "new",
+                    false,
+                ),
+            ],
+        );
+
+        assert_eq!(
+            run.messages("f-ext1"),
+            ["Select at least one region for Profile."]
+        );
+    }
+
+    #[test]
+    fn python_writes_the_sketch_and_distance() {
+        let mut names = ScriptNames::default();
+        names.regions.insert(
+            id("f-sk1"),
+            vec![serde_json::from_value(json!({"key": "e-1,e-2,e-3,e-4", "fp": "c=40,25|a=4000"})).expect("region")],
+        );
+        let params = |extent: serde_json::Value, op: &str| -> ExtrudeParams {
+            serde_json::from_value(json!({"body": "b-1", "profile": rectangle_profile(), "extent": extent, "reverse": true, "op": op})).expect("valid params")
+        };
+
+        let distance = Extrude::python(
+            &params(json!({"kind": "distance", "expr": "30 mm"}), "new"),
+            &names,
+        )
+        .expect("a dedicated form");
+        let through = Extrude::python(&params(json!({"kind": "through_all"}), "cut"), &names)
+            .expect("a dedicated form");
+        let two_sides = Extrude::python(
+            &params(
+                json!({"kind": "two_sides", "expr": "1", "opposite_expr": "2"}),
+                "new",
+            ),
+            &names,
+        );
+
+        assert_eq!(distance.render(0), "extrude(sketch_1, 30*mm, reverse=True)");
+        assert_eq!(
+            through.render(0),
+            r#"extrude(sketch_1, reverse=True, through_all=True, op="cut")"#
+        );
+        assert_eq!(two_sides, None);
+    }
+
+    #[test]
+    fn python_writes_regions_that_are_not_every_region() {
+        let names = {
+            let mut names = ScriptNames::default();
+            names.regions.insert(id("f-sk1"), Vec::new());
+            names
+        };
+        let params: ExtrudeParams = serde_json::from_value(json!({"body": "b-1", "profile": rectangle_profile(), "extent": {"kind": "symmetric", "expr": "4"}, "op": "new"})).expect("valid params");
+
+        let python = Extrude::python(&params, &names).expect("a dedicated form");
+
+        assert_eq!(
+            python.render(0),
+            r#"extrude(sketch_1, 4, regions=[Region("e-1,e-2,e-3,e-4", "c=40,25|a=4000")], symmetric=True)"#
+        );
     }
 }

@@ -6,9 +6,10 @@ mod feature_support;
 use std::time::Duration;
 
 use feature_support::{
-    Run, assert_bounding_box, assert_error_field, assert_face_area, assert_face_count,
-    assert_face_kind, assert_face_names, assert_face_normal, assert_face_position, assert_volume,
-    face, link_ids, load_example, median_build_time,
+    Run, assert_bounding_box, assert_canonical_example, assert_error_field, assert_face_area,
+    assert_face_count, assert_face_kind, assert_face_names, assert_face_normal,
+    assert_face_position, assert_volume, example_paths, face, link_ids, load_example,
+    median_build_time,
 };
 use partsmith_occt_sys::GeometryKind;
 
@@ -20,6 +21,15 @@ fn assert_box_face(run: &Run, name: &str, area: f64, axis: usize, position: f64,
     assert_face_area(&geometry, area);
     assert_face_position(&geometry, axis, position);
     assert_face_normal(&geometry, normal);
+}
+
+#[test]
+fn examples_are_canonical() {
+    let paths = example_paths("box");
+    assert!(!paths.is_empty(), "examples/box has examples");
+    for path in paths {
+        assert_canonical_example(&path);
+    }
 }
 
 #[test]

@@ -8,8 +8,8 @@ use std::sync::Arc;
 use std::thread;
 
 use common::{
-    EXAMPLE_A_VERSION_OFFSET, error_info, example_a, new_document_frame, ok_result,
-    request_frame, response_frame,
+    EXAMPLE_A_VERSION_OFFSET, error_info, example_a, new_document_frame, ok_result, request_frame,
+    response_frame,
 };
 use partsmith_desktop::Host;
 use partsmith_engine::{ENGINE_VERSION, SessionOptions};
@@ -194,5 +194,8 @@ fn t007_a_headless_host_produces_no_display_meshes() {
         matches!(ok_result(&frame), CommandResult::OpenDocument { .. }),
         "box.ptsm opens"
     );
-    assert!(!has_body_mesh(&frame), "a headless session sends no body_mesh");
+    assert!(
+        !has_body_mesh(&frame),
+        "a headless session sends no body_mesh"
+    );
 }

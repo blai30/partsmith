@@ -1,11 +1,7 @@
 //! The `sketch` feature: places a sketch, evaluates its driving dimensions, solves it and outputs
-//! its geometry and regions (docs/spec/features/sketch.md).
-//!
-//! The params, the solver and the profile belong to `partsmith_sketch`; this module is the feature
-//! wrapper. A sketch has no naming map (naming.md section 3.6.1), and its Python form is a block
-//! the engine's script generator writes, so the type has no Python hook.
+//! its geometry and closed regions (features/sketch.md).
 
-use partsmith_model::{Category, FeatureManifest, FieldHint, FieldUnit, Id, SelectionKind};
+use partsmith_model::{Category, FeatureManifest, FieldUnit, Id, SelectionKind};
 use partsmith_naming::{ElementKind, Reference};
 use partsmith_occt_sys::GeometryKind;
 use partsmith_sketch::{
@@ -13,42 +9,58 @@ use partsmith_sketch::{
     ValueKind, build_profile,
 };
 
-use super::extrude::hint;
-use crate::{
-    BuildContext, DatumResult, Dependencies, FallbackReason, Feature, FeatureError, FeatureOutput,
-    FeatureWarning, OutputData, SketchResult,
-};
+use super::common::{essential, hint, manifest, selection_hint};
+use crate::context::BuildContext;
+use crate::deps::Dependencies;
+use crate::error::{FallbackReason, FeatureError, FeatureWarning};
+use crate::feature::Feature;
+use crate::naming::kernel;
+use crate::output::{DatumResult, FeatureOutput, OutputData, SketchResult};
 
-/// The field of a face plane's reference, which `PlaneFallback` warnings point at.
+/// Field path of the face of a sketch on a face.
 const FACE_FIELD: &str = "plane.face";
 
 /// A 2D sketch placed on a plane.
+#[derive(Clone, Copy, Debug)]
 pub struct SketchFeature;
+
+/// The unit of a dimension's expression.
+fn field_unit(kind: ValueKind) -> FieldUnit {
+    match kind {
+        ValueKind::Length => FieldUnit::Length,
+        ValueKind::Angle => FieldUnit::Angle,
+    }
+}
+
+/// The field path of the expression of constraint `index`.
+fn dimension_field(index: usize) -> String {
+    format!("constraints[{index}].expr")
+}
 
 impl Feature for SketchFeature {
     const TYPE: &'static str = "sketch";
     type Params = SketchParams;
 
     fn manifest() -> FeatureManifest {
-        FeatureManifest {
-            label: "Sketch".to_string(),
-            category: Category::Sketch,
-            icon: "sketch".to_string(),
-            version: 1,
-            fields: vec![
-                FieldHint {
-                    selection: Some(SelectionKind::Plane),
-                    ..hint("plane", "Plane", true)
-                },
-                hint("entities", "Entities", false),
-                hint("constraints", "Constraints", false),
-                hint("constraints[*].expr", "Dimension", false),
+        manifest(
+            "Sketch",
+            Category::Sketch,
+            "sketch",
+            vec![
+                essential(selection_hint("plane", "Plane", SelectionKind::Plane)),
+                hint("entities", "Entities"),
+                hint("constraints", "Constraints"),
+                hint("constraints[*].expr", "Dimension"),
             ],
-        }
+        )
     }
 
-    /// The datum or face body of the plane, one expression per dimensional constraint (driving or
-    /// reference) and every entity and constraint id (spec section 3.2).
+    fn validate(params: &SketchParams) -> Result<(), FeatureError> {
+        params
+            .validate()
+            .map_err(|error| FeatureError::SketchInvalid { error })
+    }
+
     fn dependencies(params: &SketchParams) -> Dependencies {
         let mut dependencies = Dependencies::default();
         match &params.plane {
@@ -59,7 +71,11 @@ impl Feature for SketchFeature {
         for (index, constraint) in params.constraints.iter().enumerate() {
             if let (Some(dimension), Some(kind)) = (constraint.dimension(), constraint.value_kind())
             {
-                dependencies.add_expression(&dimension_field(index), &dimension.expr, unit(kind));
+                dependencies.add_expression(
+                    &dimension_field(index),
+                    &dimension.expr,
+                    field_unit(kind),
+                );
             }
         }
         dependencies.declared_ids = params
@@ -71,8 +87,6 @@ impl Feature for SketchFeature {
         dependencies
     }
 
-    /// Places the sketch, evaluates its driving dimensions, solves it and builds its profile
-    /// (spec section 3.3).
     fn build(
         params: &SketchParams,
         context: &BuildContext<'_>,
@@ -87,18 +101,18 @@ impl Feature for SketchFeature {
                 body,
                 face,
                 fallback,
-            } => match face_placement(context, body, face, fallback)? {
-                Ok(placement) => placement,
-                Err(reason) => {
+            } => {
+                let (placement, fallback_reason) = face_placement(context, body, face, fallback)?;
+                if let Some(reason) = fallback_reason {
                     warnings.push(FeatureWarning::PlaneFallback {
                         field: context.field(FACE_FIELD),
                         body: body.clone(),
                         reference: face.clone(),
                         reason,
                     });
-                    *fallback
                 }
-            },
+                placement
+            }
         };
         let values = driving_values(params, context)?;
         let solved = NativeSolver
@@ -106,7 +120,7 @@ impl Feature for SketchFeature {
             .map_err(|error| FeatureError::SketchInvalid { error })?;
         if !solved.conflicting.is_empty() {
             return Err(FeatureError::SketchConflict {
-                constraints: solved.conflicting,
+                constraints: solved.conflicting.clone(),
             });
         }
         if solved.failed {
@@ -130,68 +144,9 @@ impl Feature for SketchFeature {
             warnings,
         })
     }
-
-    /// The sketch crate's validation; its first error is `SketchInvalid` (spec section 3.1).
-    fn validate(params: &SketchParams) -> Result<(), FeatureError> {
-        params
-            .validate()
-            .map_err(|error| FeatureError::SketchInvalid { error })
-    }
 }
 
-/// The placement on the resolved face, or why the sketch keeps its fallback placement (spec
-/// section 3.3 step 1): an empty body or a lost face is `Missing`, a face that matches several
-/// faces is `Ambiguous`, and a face that is not flat is `NotPlanar`.
-fn face_placement(
-    context: &BuildContext<'_>,
-    body: &Id,
-    face: &Reference,
-    fallback: &Placement,
-) -> Result<Result<Placement, FallbackReason>, FeatureError> {
-    let found = match context.resolve(FACE_FIELD, body, face, ElementKind::Face) {
-        Ok(found) => found,
-        Err(FeatureError::BodyEmpty { .. }) => return Ok(Err(FallbackReason::Missing)),
-        Err(FeatureError::ReferenceNotFound { candidates, .. }) => {
-            let reason = if candidates.is_empty() {
-                FallbackReason::Missing
-            } else {
-                FallbackReason::Ambiguous
-            };
-            return Ok(Err(reason));
-        }
-        Err(error) => return Err(error),
-    };
-    let first = found.first().ok_or_else(|| FeatureError::Internal {
-        message: "a resolved face reference has no element".to_string(),
-    })?;
-    let shape = context
-        .body(body)?
-        .shape()
-        .ok_or_else(|| FeatureError::Internal {
-            message: "a body with a resolved face has no shape".to_string(),
-        })?;
-    let geometry = shape
-        .element(first.kind, first.index)
-        .map_err(|error| FeatureError::Kernel { error })?;
-    if geometry.kind != GeometryKind::Plane {
-        return Ok(Err(FallbackReason::NotPlanar));
-    }
-    let normal = geometry.direction.ok_or_else(|| FeatureError::Internal {
-        message: "the kernel gave a plane without a normal".to_string(),
-    })?;
-    let centroid = geometry.centroid;
-    Placement::on_plane(
-        [centroid.x, centroid.y, centroid.z],
-        [normal.x, normal.y, normal.z],
-        fallback,
-    )
-    .map(Ok)
-    .map_err(|error| FeatureError::Internal {
-        message: format!("placing the sketch on its face failed: {error}"),
-    })
-}
-
-/// The evaluated driving dimensions, keyed by constraint id. Reference dimensions are not
+/// The values of the driving dimensions, keyed by constraint id. Reference dimensions are not
 /// evaluated, so a broken one never fails the sketch.
 fn driving_values(
     params: &SketchParams,
@@ -199,8 +154,7 @@ fn driving_values(
 ) -> Result<DimensionValues, FeatureError> {
     let mut values = DimensionValues::new();
     for (index, constraint) in params.constraints.iter().enumerate() {
-        let (Some(dimension), Some(kind)) = (constraint.dimension(), constraint.value_kind())
-        else {
+        let (Some(dimension), Some(kind)) = (constraint.dimension(), constraint.value_kind()) else {
             continue;
         };
         if !dimension.driving {
@@ -216,332 +170,337 @@ fn driving_values(
     Ok(values)
 }
 
-/// The field path of the expression of the constraint at `index`.
-fn dimension_field(index: usize) -> String {
-    format!("constraints[{index}].expr")
-}
-
-/// The expression unit of a dimension's value kind.
-fn unit(kind: ValueKind) -> FieldUnit {
-    match kind {
-        ValueKind::Length => FieldUnit::Length,
-        ValueKind::Angle => FieldUnit::Angle,
+/// The placement of a sketch on a face (features/sketch.md section 3.3): the face's plane with the
+/// origin and x-axis kept as close to the fallback as possible, or the fallback itself with the
+/// reason when the body is empty or the face is missing, ambiguous or not flat.
+fn face_placement(
+    context: &BuildContext<'_>,
+    body: &Id,
+    face: &Reference,
+    fallback: &Placement,
+) -> Result<(Placement, Option<FallbackReason>), FeatureError> {
+    let state = context.body(body)?;
+    let Some(shape) = state.shape() else {
+        return Ok((*fallback, Some(FallbackReason::Missing)));
+    };
+    let found = match context.resolve(FACE_FIELD, body, face, ElementKind::Face) {
+        Ok(found) => found,
+        Err(FeatureError::ReferenceNotFound { candidates, .. }) => {
+            let reason = if candidates.is_empty() {
+                FallbackReason::Missing
+            } else {
+                FallbackReason::Ambiguous
+            };
+            return Ok((*fallback, Some(reason)));
+        }
+        Err(error) => return Err(error),
+    };
+    let first = found
+        .first()
+        .ok_or_else(|| FeatureError::internal("a resolved face reference has no face"))?;
+    let geometry = shape.element(first.kind, first.index).map_err(kernel)?;
+    if geometry.kind != GeometryKind::Plane {
+        return Ok((*fallback, Some(FallbackReason::NotPlanar)));
     }
+    let normal = geometry
+        .direction
+        .ok_or_else(|| FeatureError::internal("the kernel gave a plane without a normal"))?;
+    let centroid = geometry.centroid;
+    let placement = Placement::on_plane(
+        [centroid.x, centroid.y, centroid.z],
+        [normal.x, normal.y, normal.z],
+        fallback,
+    )
+    .map_err(|error| FeatureError::internal(format!("placing the sketch failed: {error}")))?;
+    Ok((placement, None))
 }
 
 #[cfg(test)]
 mod tests {
-    use partsmith_model::{EmptyContext, ParameterValues, Scope, Units};
-    use partsmith_sketch::{OriginPlane, SketchError};
     use serde_json::json;
 
     use super::*;
-    use crate::context::BodyState;
-    use crate::test_support::{Fixture, box_body};
-    use crate::{Registry, Values};
+    use crate::test_support::{id, run, run_document};
 
-    fn params(value: serde_json::Value) -> SketchParams {
-        serde_json::from_value(value).expect("the sketch params are valid")
+    /// The rectangle (0, 0)-(80, 50) of features/sketch.md on `plane`.
+    fn rectangle(plane: serde_json::Value) -> serde_json::Value {
+        json!({"id": "f-sk1", "type": "sketch", "plane": plane, "entities": [
+            {"id": "e-1", "type": "line", "start": [0, 0], "end": [80, 0]},
+            {"id": "e-2", "type": "line", "start": [80, 0], "end": [80, 50]},
+            {"id": "e-3", "type": "line", "start": [80, 50], "end": [0, 50]},
+            {"id": "e-4", "type": "line", "start": [0, 50], "end": [0, 0]}
+        ]})
     }
 
-    /// A line `e-1` from (0, 0) to (80, 0), fixed at its start, horizontal, with a driving
-    /// distance `expr` and `extra` constraints after it.
-    fn line_dimension(expr: &str, extra: &[serde_json::Value]) -> SketchParams {
+    /// A line with a dimension `expr` and `extra` constraints after it.
+    fn line_dimension(expr: &str, extra: &[serde_json::Value]) -> serde_json::Value {
         let mut constraints = vec![
             json!({"id": "c-1", "type": "fix", "target": "e-1.start"}),
             json!({"id": "c-2", "type": "horizontal", "line": "e-1"}),
             json!({"id": "c-3", "type": "distance", "line": "e-1", "expr": expr}),
         ];
-        constraints.extend(extra.iter().cloned());
-        params(json!({
-            "plane": {"kind": "origin", "plane": "XY"},
+        constraints.extend_from_slice(extra);
+        json!({"id": "f-sk1", "type": "sketch", "plane": {"kind": "origin", "plane": "XY"},
             "entities": [{"id": "e-1", "type": "line", "start": [0, 0], "end": [80, 0]}],
-            "constraints": constraints
-        }))
+            "constraints": constraints})
     }
 
-    /// The rectangle `RECT(0, 0, 80, 50)` on `plane`.
-    fn rectangle(plane: serde_json::Value) -> SketchParams {
-        params(json!({
-            "plane": plane,
-            "entities": [
-                {"id": "e-1", "type": "line", "start": [0, 0], "end": [80, 0]},
-                {"id": "e-2", "type": "line", "start": [80, 0], "end": [80, 50]},
-                {"id": "e-3", "type": "line", "start": [80, 50], "end": [0, 50]},
-                {"id": "e-4", "type": "line", "start": [0, 50], "end": [0, 0]}
-            ]
-        }))
+    /// The face plane of features/sketch.md test 4 with fallback origin (3, 4, 0).
+    fn face_plane(face: &str, fingerprint: &str) -> serde_json::Value {
+        json!({"kind": "face", "body": "b-1", "face": {"q": face, "fp": fingerprint},
+            "fallback": {"origin": [3, 4, 0], "x_axis": [1, 0, 0], "normal": [0, 0, 1]}})
     }
 
-    /// Builds `params` in a millimeter document, with these bodies declared.
-    fn built(
-        params: &SketchParams,
-        bodies: Vec<(&str, BodyState)>,
-    ) -> Result<FeatureOutput, FeatureError> {
-        let mut fixture = Fixture::new("f-sk1");
-        fixture.manifest = SketchFeature::manifest();
-        for (body, state) in bodies {
-            fixture = fixture.with_body(body, state);
-        }
-        let parameters = ParameterValues::default();
-        let scope = Scope {
-            units: Units::Mm,
-            parameters: &parameters,
-            context: &EmptyContext,
-        };
-        fixture.values = Values::evaluate(
-            &SketchFeature::dependencies(params).expressions,
-            &scope,
-            &fixture.manifest,
+    fn cube() -> serde_json::Value {
+        json!({"id": "f-box1", "type": "box", "body": "b-1", "size": ["10", "10", "10"], "op": "new"})
+    }
+
+    fn end_point(run: &crate::test_support::DocumentRun) -> [f64; 2] {
+        run.sketch("f-sk1")
+            .point(&"e-1.end".parse().expect("valid point"))
+            .expect("e-1 has an end")
+    }
+
+    #[test]
+    fn a_rectangle_on_xy_has_one_region() {
+        let run = run(&[], &[rectangle(json!({"kind": "origin", "plane": "XY"}))]);
+
+        run.assert_ok("f-sk1");
+        let sketch = run.sketch("f-sk1");
+        assert_eq!(sketch.placement.normal, [0.0, 0.0, 1.0]);
+        assert_eq!(sketch.profile.regions.len(), 1);
+        assert_eq!(sketch.profile.regions[0].key.to_string(), "e-1,e-2,e-3,e-4");
+        assert!((sketch.profile.regions[0].area - 4000.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn a_sketch_on_xz_maps_sketch_up_to_z() {
+        let run = run(&[], &[rectangle(json!({"kind": "origin", "plane": "XZ"}))]);
+
+        assert_eq!(run.sketch("f-sk1").to_world([10.0, 20.0]), [10.0, 0.0, 20.0]);
+    }
+
+    #[test]
+    fn a_sketch_on_a_face_projects_its_fallback_origin() {
+        let run = run(
+            &["b-1"],
+            &[
+                cube(),
+                rectangle(face_plane("f-box1/top", "plane|n=0,0,1|c=0,0,10|a=100")),
+            ],
         );
-        SketchFeature::build(params, &fixture.context())
-    }
 
-    fn sketch(output: &FeatureOutput) -> &SketchResult {
-        match &output.data {
-            OutputData::Sketch(sketch) => sketch,
-            other => panic!("expected a sketch, got {other:?}"),
-        }
-    }
-
-    fn face_plane(query: &str, fingerprint: &str) -> serde_json::Value {
-        json!({
-            "kind": "face",
-            "body": "b-1",
-            "face": {"q": query, "fp": fingerprint},
-            "fallback": {"origin": [3, 4, 0], "x_axis": [1, 0, 0], "normal": [0, 0, 1]}
-        })
+        run.assert_ok("f-sk1");
+        let placement = run.sketch("f-sk1").placement;
+        assert_eq!(placement.origin, [3.0, 4.0, 10.0]);
+        assert_eq!(placement.x_axis, [1.0, 0.0, 0.0]);
     }
 
     #[test]
-    fn registers_through_the_public_registry() {
-        let mut registry = Registry::new();
+    fn a_lost_face_keeps_the_fallback() {
+        let run = run(
+            &["b-1"],
+            &[
+                cube(),
+                rectangle(face_plane(
+                    "f-box1/nothing",
+                    "plane|n=0,0,1|c=500,500,500|a=1",
+                )),
+            ],
+        );
 
-        assert_eq!(registry.register::<SketchFeature>(), Ok(()));
+        assert_eq!(run.warning_codes("f-sk1"), ["plane_fallback"]);
+        assert_eq!(
+            run.messages("f-sk1"),
+            ["The face this sketch is on can no longer be found, so the sketch stays at its last position. Re-attach it in the repair panel."]
+        );
+        assert_eq!(run.sketch("f-sk1").placement.origin, [3.0, 4.0, 0.0]);
+        let warning = &run.output("f-sk1").warnings[0];
+        assert_eq!(
+            warning.field().map(|field| field.pointer()),
+            Some("/plane/face".to_string())
+        );
     }
 
     #[test]
-    fn dimension_hints_label_every_constraint_expression() {
-        let field = crate::FieldRef::new("constraints[7].expr", &SketchFeature::manifest());
+    fn a_round_face_is_not_flat() {
+        let run = run(
+            &["b-1"],
+            &[
+                json!({"id": "f-cyl1", "type": "cylinder", "body": "b-1", "radius": "5", "height": "10", "op": "new"}),
+                rectangle(face_plane(
+                    "f-cyl1/side",
+                    "cylinder|n=0,0,1|c=0,0,5|a=314.159265|r=5",
+                )),
+            ],
+        );
 
-        assert_eq!(field.label, "Dimension");
+        assert!(matches!(
+            run.output("f-sk1").warnings[0],
+            FeatureWarning::PlaneFallback {
+                reason: FallbackReason::NotPlanar,
+                ..
+            }
+        ));
     }
 
     #[test]
-    fn dependencies_list_reference_dimensions_with_their_constraint_index() {
+    fn an_empty_body_under_a_face_plane_keeps_the_fallback() {
+        let run = run(
+            &["b-1"],
+            &[rectangle(face_plane(
+                "f-box1/top",
+                "plane|n=0,0,1|c=0,0,10|a=100",
+            ))],
+        );
+
+        assert_eq!(run.warning_codes("f-sk1"), ["plane_fallback"]);
+        assert_eq!(run.sketch("f-sk1").placement.origin, [3.0, 4.0, 0.0]);
+    }
+
+    #[test]
+    fn driving_dimensions_take_parameters_and_document_units() {
+        let parameters = [json!({"id": "p-w", "name": "width", "expr": "100 mm"})];
+        let with_parameter = run_document(
+            "mm",
+            &parameters,
+            &[],
+            &[line_dimension("width", &[])],
+            &Default::default(),
+        );
+        let in_inches = run_document(
+            "in",
+            &[],
+            &[],
+            &[line_dimension("2", &[])],
+            &Default::default(),
+        );
+
+        let close = |actual: [f64; 2], expected: [f64; 2]| {
+            (actual[0] - expected[0]).abs() < 1e-9 && (actual[1] - expected[1]).abs() < 1e-9
+        };
+        assert!(close(end_point(&with_parameter), [100.0, 0.0]));
+        assert!(close(end_point(&in_inches), [50.8, 0.0]));
+    }
+
+    #[test]
+    fn conflicting_dimensions_fail_the_sketch_and_its_users() {
+        let parameters = [json!({"id": "p-w", "name": "width", "expr": "100 mm"})];
+        let run = run_document(
+            "mm",
+            &parameters,
+            &["b-1"],
+            &[
+                line_dimension(
+                    "width",
+                    &[json!({"id": "c-4", "type": "distance", "line": "e-1", "expr": "50 mm"})],
+                ),
+                json!({"id": "f-hole1", "type": "hole", "body": "b-1", "sketch": "f-sk1", "points": ["e-1.start"], "diameter": "3", "extent": {"kind": "through_all"}}),
+            ],
+            &Default::default(),
+        );
+
+        let FeatureError::SketchConflict { constraints } = run.error("f-sk1") else {
+            panic!("expected a conflict, got {:?}", run.error("f-sk1"));
+        };
+        assert!(constraints.contains(&id("c-4")));
+        assert_eq!(run.error_code("f-hole1"), "upstream_failed");
+    }
+
+    #[test]
+    fn a_redundant_dimension_warns() {
+        let parameters = [json!({"id": "p-w", "name": "width", "expr": "100 mm"})];
+        let run = run_document(
+            "mm",
+            &parameters,
+            &[],
+            &[line_dimension(
+                "width",
+                &[json!({"id": "c-4", "type": "distance", "line": "e-1", "expr": "100 mm"})],
+            )],
+            &Default::default(),
+        );
+
+        assert_eq!(run.warning_codes("f-sk1"), ["redundant_constraints"]);
+    }
+
+    #[test]
+    fn a_value_the_solver_rejects_is_invalid() {
+        let run = run(&[], &[line_dimension("-5", &[])]);
+
+        assert_eq!(run.error_code("f-sk1"), "sketch_invalid");
+    }
+
+    #[test]
+    fn a_dimension_with_an_unknown_name_is_labeled_dimension() {
+        let run = run(&[], &[line_dimension("wdth", &[])]);
+
+        assert_eq!(
+            run.messages("f-sk1"),
+            ["Dimension: Unknown name 'wdth'. Check the spelling, or add a parameter named wdth."]
+        );
+        assert_eq!(
+            run.error("f-sk1").field().map(|field| field.path.as_str()),
+            Some("constraints[2].expr")
+        );
+    }
+
+    #[test]
+    fn a_sketch_is_not_a_datum_plane() {
+        let run = run(
+            &[],
+            &[
+                rectangle(json!({"kind": "origin", "plane": "XY"})),
+                json!({"id": "f-sk2", "type": "sketch", "plane": {"kind": "datum", "feature": "f-sk1"}}),
+            ],
+        );
+
+        assert_eq!(
+            run.messages("f-sk2"),
+            ["'Sketch 1' is not a datum plane. Pick a datum plane for Plane."]
+        );
+    }
+
+    #[test]
+    fn reference_dimensions_are_declared_but_not_evaluated() {
+        let parameters = [json!({"id": "p-w", "name": "width", "expr": "100 mm"})];
         let sketch = line_dimension(
             "width",
             &[json!({"id": "c-4", "type": "distance", "line": "e-1", "expr": "wdth", "driving": false})],
         );
+        let run = run_document("mm", &parameters, &[], &[sketch], &Default::default());
 
-        let uses: Vec<(String, String, FieldUnit)> = SketchFeature::dependencies(&sketch)
+        run.assert_ok("f-sk1");
+        let dependencies = run
+            .registry
+            .dependencies(&run.document.features[0])
+            .expect("valid params");
+        let fields: Vec<&str> = dependencies
             .expressions
-            .into_iter()
-            .map(|usage| (usage.field, usage.expr.as_str().to_string(), usage.kind))
-            .collect();
-
-        assert_eq!(
-            uses,
-            [
-                (
-                    "constraints[2].expr".to_string(),
-                    "width".to_string(),
-                    FieldUnit::Length
-                ),
-                (
-                    "constraints[3].expr".to_string(),
-                    "wdth".to_string(),
-                    FieldUnit::Length
-                ),
-            ]
-        );
-    }
-
-    #[test]
-    fn dependencies_declare_entity_ids_then_constraint_ids() {
-        let declared: Vec<String> = SketchFeature::dependencies(&line_dimension("5", &[]))
-            .declared_ids
             .iter()
-            .map(|id| id.to_string())
+            .map(|expression| expression.field.as_str())
             .collect();
-
-        assert_eq!(declared, ["e-1", "c-1", "c-2", "c-3"]);
-    }
-
-    #[test]
-    fn dependencies_declare_the_datum_of_the_plane() {
-        let dependencies =
-            SketchFeature::dependencies(&rectangle(json!({"kind": "datum", "feature": "f-dp1"})));
-
-        assert_eq!(dependencies.features.len(), 1);
-        assert_eq!(dependencies.features[0].id.as_str(), "f-dp1");
-        assert!(dependencies.bodies_read.is_empty());
-    }
-
-    #[test]
-    fn dependencies_read_the_body_of_a_face_plane() {
-        let dependencies = SketchFeature::dependencies(&rectangle(face_plane(
-            "f-box1/top",
-            "plane|n=0,0,1",
-        )));
-
-        assert_eq!(dependencies.bodies_read.len(), 1);
-        assert_eq!(dependencies.bodies_read[0].id.as_str(), "b-1");
-        assert!(dependencies.features.is_empty());
-    }
-
-    #[test]
-    fn validate_reports_the_sketch_crate_error() {
-        let sketch = params(json!({
-            "plane": {"kind": "origin", "plane": "XY"},
-            "entities": [{"id": "e-1", "type": "line", "start": [0, 0], "end": [10, 0]}],
-            "constraints": [{"id": "c-1", "type": "horizontal", "line": "e-9"}]
-        }));
-
-        let error = SketchFeature::validate(&sketch).expect_err("e-9 does not exist");
-
-        assert!(
-            matches!(
-                error,
-                FeatureError::SketchInvalid {
-                    error: SketchError::UnknownEntity { .. }
-                }
-            ),
-            "{error:?}"
+        assert_eq!(fields, ["constraints[2].expr", "constraints[3].expr"]);
+        assert_eq!(
+            dependencies.declared_ids,
+            [id("e-1"), id("c-1"), id("c-2"), id("c-3"), id("c-4")]
         );
     }
 
     #[test]
-    fn build_places_an_origin_sketch_and_finds_its_region() {
-        let output = built(
-            &rectangle(json!({"kind": "origin", "plane": "XZ"})),
-            Vec::new(),
-        )
-        .expect("the rectangle builds");
-
-        assert_eq!(sketch(&output).placement, OriginPlane::Xz.placement());
-        assert_eq!(sketch(&output).profile.regions.len(), 1);
-        assert!(output.warnings.is_empty());
-    }
-
-    #[test]
-    fn build_solves_driving_dimensions() {
-        let output = built(&line_dimension("100 mm", &[]), Vec::new()).expect("the line solves");
-
-        let end = sketch(&output)
-            .point(&"e-1.end".parse().expect("valid point reference"))
-            .expect("the line has an end");
-        assert!((end[0] - 100.0).abs() < 1e-9 && end[1].abs() < 1e-9, "{end:?}");
-    }
-
-    #[test]
-    fn build_does_not_evaluate_reference_dimensions() {
-        let sketch = line_dimension(
-            "100 mm",
-            &[json!({"id": "c-4", "type": "distance", "line": "e-1", "expr": "wdth", "driving": false})],
+    fn an_unknown_entity_fails_validation() {
+        let run = run(
+            &[],
+            &[json!({"id": "f-sk1", "type": "sketch", "plane": {"kind": "origin", "plane": "XY"},
+                "entities": [{"id": "e-1", "type": "line", "start": [0, 0], "end": [10, 0]}],
+                "constraints": [{"id": "c-1", "type": "horizontal", "line": "e-9"}]})],
         );
 
-        let output = built(&sketch, Vec::new()).expect("a broken reference dimension is ignored");
-
-        assert!(output.warnings.is_empty());
-    }
-
-    #[test]
-    fn build_reports_conflicting_constraints() {
-        let sketch = line_dimension(
-            "100 mm",
-            &[json!({"id": "c-4", "type": "distance", "line": "e-1", "expr": "50 mm"})],
-        );
-
-        let error = built(&sketch, Vec::new()).expect_err("the dimensions conflict");
-
-        match error {
-            FeatureError::SketchConflict { constraints } => {
-                assert!(constraints.iter().any(|id| id.as_str() == "c-4"), "{constraints:?}");
+        assert!(matches!(
+            run.error("f-sk1"),
+            FeatureError::SketchInvalid {
+                error: partsmith_sketch::SketchError::UnknownEntity { .. }
             }
-            other => panic!("expected a conflict, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn build_warns_about_redundant_constraints() {
-        let sketch = line_dimension(
-            "100 mm",
-            &[json!({"id": "c-4", "type": "distance", "line": "e-1", "expr": "100 mm"})],
-        );
-
-        let output = built(&sketch, Vec::new()).expect("a redundant dimension still solves");
-
-        assert_eq!(output.warnings.len(), 1);
-        assert_eq!(output.warnings[0].code(), "redundant_constraints");
-    }
-
-    #[test]
-    fn build_reports_a_value_the_solver_rejects() {
-        let error = built(&line_dimension("-5", &[]), Vec::new()).expect_err("-5 is not a length");
-
-        assert!(
-            matches!(
-                error,
-                FeatureError::SketchInvalid {
-                    error: SketchError::ValueNotPositive { .. }
-                }
-            ),
-            "{error:?}"
-        );
-    }
-
-    #[test]
-    fn build_projects_the_fallback_onto_a_resolved_face() {
-        let output = built(
-            &rectangle(face_plane("f-box1/top", "plane|n=0,0,1|c=5,5,10|a=100")),
-            vec![("b-1", box_body("f-box1", [0.0, 0.0, 0.0], 10.0))],
-        )
-        .expect("the sketch builds on the face");
-
-        let placement = sketch(&output).placement;
-        assert_eq!(placement.origin, [3.0, 4.0, 10.0]);
-        assert_eq!(placement.x_axis, [1.0, 0.0, 0.0]);
-        assert_eq!(placement.normal, [0.0, 0.0, 1.0]);
-        assert!(output.warnings.is_empty());
-    }
-
-    #[test]
-    fn build_keeps_the_fallback_when_the_face_is_lost() {
-        let params = rectangle(face_plane(
-            "f-box1/nothing",
-            "plane|n=0,0,1|c=500,500,500|a=1",
         ));
-        let output = built(
-            &params,
-            vec![("b-1", box_body("f-box1", [0.0, 0.0, 0.0], 10.0))],
-        )
-        .expect("a lost face falls back");
-
-        assert_fallback(&output, &params, FallbackReason::Missing);
-    }
-
-    #[test]
-    fn build_keeps_the_fallback_when_the_body_is_empty() {
-        let params = rectangle(face_plane("f-box1/top", "plane|n=0,0,1|c=5,5,10|a=100"));
-        let output = built(&params, vec![("b-1", BodyState::empty())])
-            .expect("an empty body falls back");
-
-        assert_fallback(&output, &params, FallbackReason::Missing);
-    }
-
-    /// Asserts that the sketch kept its fallback placement with one `PlaneFallback` warning.
-    fn assert_fallback(output: &FeatureOutput, params: &SketchParams, expected: FallbackReason) {
-        let SketchPlane::Face { fallback, .. } = &params.plane else {
-            panic!("the sketch is on a face");
-        };
-        assert_eq!(sketch(output).placement, *fallback);
-        match output.warnings.as_slice() {
-            [FeatureWarning::PlaneFallback { field, reason, .. }] => {
-                assert_eq!(*reason, expected);
-                assert_eq!(field.pointer(), "/plane/face");
-            }
-            other => panic!("expected one plane fallback warning, got {other:?}"),
-        }
     }
 }

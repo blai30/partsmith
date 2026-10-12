@@ -8,7 +8,7 @@ use partsmith_naming::{ElementName, FaceSource, Generator, Reference, roles};
 use partsmith_occt_sys::{Primitive, PrimitiveFace, Shape, SweepFace, SweepResult};
 
 use crate::context::{BodyState, BuildContext};
-use crate::error::{Bound, FeatureError, FeatureWarning};
+use crate::error::{Bound, FeatureError, FeatureWarning, FieldRef, Noun};
 use crate::naming::{name_shape, naming};
 use crate::output::{BodyChange, BodyUpdate, FeatureOutput, OutputData, Tool, apply_op};
 use crate::params::{BodyOp, CopyOp, ProfileRef};
@@ -104,6 +104,15 @@ pub(crate) fn body_op_hint() -> FieldHint {
 /// The `body` hint of a feature that names its body in a `with <part>:` block.
 pub(crate) fn body_hint() -> FieldHint {
     selection_hint("body", "Body", SelectionKind::Body)
+}
+
+/// `EmptySelection` of `noun` at `path`, labeled from `manifest`. For `Feature::validate`, which
+/// has no context.
+pub(crate) fn empty_selection(manifest: &FeatureManifest, path: &str, noun: Noun) -> FeatureError {
+    FeatureError::EmptySelection {
+        field: FieldRef::new(path, manifest),
+        noun,
+    }
 }
 
 /// True when `value` satisfies `bound`.

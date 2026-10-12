@@ -1185,7 +1185,7 @@ Checks run in this order; the first failure is returned:
 3. `header_length <= MAX_HEADER_LENGTH`, else `HeaderTooLarge`.
 4. `8 + header_length + pad <= bytes.len()`, else `Truncated`.
 5. Header is UTF-8 JSON, else `InvalidHeader`.
-6. Header is an object whose `protocol_version` is an integer; if it is not 1, `VersionMismatch` (with `request_id` read from `messages[0].id` when it is an integer). A missing or non-integer `protocol_version` is `InvalidMessage`.
+6. Header is an object whose `protocol_version` is a 32-bit unsigned integer; if it is not 1, `VersionMismatch` (with `request_id` read from `messages[0].id` when it is an integer). A missing `protocol_version`, or one that is not an integer from 0 to 4294967295, is `InvalidMessage`.
 7. `buffers` matches `Vec<BufferInfo>`, else `InvalidMessage`.
 8. Padding bytes after the header are zero, else `NonZeroPadding`.
 9. Each buffer: offset equals the rule's offset and length is a multiple of the element size, else `BadBufferLayout`; it ends within the frame, else `Truncated`; gap bytes are zero, else `NonZeroPadding`.

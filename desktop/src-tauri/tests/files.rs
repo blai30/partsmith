@@ -142,7 +142,9 @@ fn grant_of_is_the_first_16_bytes_of_the_blake3_hash_of_the_path_text() {
 fn t017_reading_with_a_grant_that_was_never_picked_fails_with_unknown_grant() {
     let files = Files::in_memory();
 
-    let error = files.read(UNKNOWN_GRANT).expect_err("an unknown grant reads nothing");
+    let error = files
+        .read(UNKNOWN_GRANT)
+        .expect_err("an unknown grant reads nothing");
 
     assert_eq!(error, FileError::UnknownGrant);
     assert_eq!(error.reason(), "permission");
@@ -180,7 +182,9 @@ fn t018_write_replaces_the_contents_of_a_granted_file_and_leaves_no_temporary_fi
     let files = Files::in_memory();
     let grant = grant_by_open(&files, &path).grant;
 
-    files.write(&grant, b"new").expect("writing a granted file succeeds");
+    files
+        .write(&grant, b"new")
+        .expect("writing a granted file succeeds");
 
     assert_eq!(fs::read(&path).expect("the file exists"), b"new");
     let leftovers: Vec<String> = folder_entries(folder.path())
@@ -202,9 +206,14 @@ fn t018_write_keeps_the_permissions_of_the_file_it_replaces() {
     let files = Files::in_memory();
     let grant = grant_by_open(&files, &path).grant;
 
-    files.write(&grant, b"new").expect("writing a granted file succeeds");
+    files
+        .write(&grant, b"new")
+        .expect("writing a granted file succeeds");
 
-    let mode = fs::metadata(&path).expect("the file exists").permissions().mode();
+    let mode = fs::metadata(&path)
+        .expect("the file exists")
+        .permissions()
+        .mode();
     assert_eq!(mode & 0o777, 0o640);
 }
 
@@ -218,7 +227,9 @@ fn write_creates_a_granted_save_path_that_does_not_exist_yet() {
         .expect("the fake dialog chose a path")
         .grant;
 
-    files.write(&grant, b"saved").expect("writing a new granted file succeeds");
+    files
+        .write(&grant, b"saved")
+        .expect("writing a new granted file succeeds");
 
     assert_eq!(fs::read(&path).expect("the file was created"), b"saved");
 }
@@ -231,7 +242,9 @@ fn t019_reading_a_granted_file_that_was_deleted_fails_with_not_found() {
     let grant = grant_by_open(&files, &path).grant;
     fs::remove_file(&path).expect("the test can delete the file");
 
-    let error = files.read(&grant).expect_err("a deleted file cannot be read");
+    let error = files
+        .read(&grant)
+        .expect_err("a deleted file cannot be read");
 
     assert_eq!(
         error,
@@ -403,7 +416,9 @@ fn reading_a_granted_path_that_is_a_folder_fails_with_the_operating_system_messa
         .expect_err("a folder cannot be read as a file")
         .to_string();
 
-    let error = files.read(&grant).expect_err("a folder cannot be read as a file");
+    let error = files
+        .read(&grant)
+        .expect_err("a folder cannot be read as a file");
 
     assert_eq!(error, FileError::Io { detail: expected });
     assert_eq!(error.reason(), "io");
@@ -502,7 +517,9 @@ fn t026_a_successful_write_moves_its_path_to_the_front() {
     let grant = grant_by_open(&files, &first).grant;
     grant_by_open(&files, &second);
 
-    files.write(&grant, b"new").expect("writing a granted file succeeds");
+    files
+        .write(&grant, b"new")
+        .expect("writing a granted file succeeds");
 
     assert_eq!(
         stored_paths(&store),
@@ -539,7 +556,10 @@ fn t027_a_store_of_version_2_loads_as_no_grants_and_the_next_pick_replaces_it() 
 
     let files = Files::load(store.clone());
 
-    assert_eq!(files.read(&grant_of(path_text(&old))), Err(FileError::UnknownGrant));
+    assert_eq!(
+        files.read(&grant_of(path_text(&old))),
+        Err(FileError::UnknownGrant)
+    );
     grant_by_open(&files, &path);
     assert_eq!(stored_paths(&store), vec![path_text(&path).to_owned()]);
 }
@@ -577,7 +597,10 @@ fn loading_a_missing_store_gives_no_grants_and_writes_nothing() {
 
     let files = Files::load(store.clone());
 
-    assert_eq!(files.read(&grant_of(path_text(&path))), Err(FileError::UnknownGrant));
+    assert_eq!(
+        files.read(&grant_of(path_text(&path))),
+        Err(FileError::UnknownGrant)
+    );
     assert!(!store.exists(), "loading creates no grant store");
 }
 
@@ -613,7 +636,10 @@ fn loading_a_store_with_more_than_max_grants_paths_keeps_the_first_100() {
 
     let files = Files::load(store);
 
-    assert_eq!(files.read(&grant_of(path_text(&paths[99]))), Ok(b"hello".to_vec()));
+    assert_eq!(
+        files.read(&grant_of(path_text(&paths[99]))),
+        Ok(b"hello".to_vec())
+    );
     assert_eq!(
         files.read(&grant_of(path_text(&paths[100]))),
         Err(FileError::UnknownGrant)
@@ -714,7 +740,10 @@ fn file_error_messages_are_the_ones_of_the_spec() {
             FileError::NotUnicode,
             "Partsmith can only use files whose path is valid Unicode. Rename the file or its folder.",
         ),
-        (FileError::NotBytes, "The file contents must be sent as bytes."),
+        (
+            FileError::NotBytes,
+            "The file contents must be sent as bytes.",
+        ),
     ];
     for (error, message) in cases {
         assert_eq!(error.to_string(), message);
@@ -754,7 +783,11 @@ fn t030_file_kinds_describe_their_dialog_filters_as_the_ui_does() {
         (FileKind::Step, "STEP model", &["step", "stp"]),
     ];
     for (kind, description, extensions) in cases {
-        assert_eq!(kind.description(), description, "the description of {kind:?}");
+        assert_eq!(
+            kind.description(),
+            description,
+            "the description of {kind:?}"
+        );
         assert_eq!(kind.extensions(), extensions, "the extensions of {kind:?}");
     }
 }

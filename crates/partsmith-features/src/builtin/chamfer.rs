@@ -1,20 +1,21 @@
 //! The `chamfer` feature: bevels edges of a body with a flat face (features/chamfer.md).
 
-use partsmith_model::{
-    Category, Expr, FeatureManifest, FieldHint, FieldUnit, Id, OptionHint, SelectionKind,
-};
+use partsmith_model::{Category, Expr, FeatureManifest, FieldUnit, Id, SelectionKind};
 use partsmith_naming::{ElementKind, NamingMap, Reference, roles};
 use partsmith_occt_sys::{ChamferEdge, ChamferSize, Topology, chamfer};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use super::common::{
+    body_hint, essential, hint, is_false, manifest, options_hint, positive_length, references,
+    selection_hint, solid_body, unit_hint,
+};
 use super::dressup::{
-    internal, kernel, modified, name_blend, python_references, run_or_search, select_edges,
-    smallest_name, unchanged,
+    internal, kernel, modified, name_blend, no_effect, run_or_search, select_edges, smallest_name,
 };
 use crate::{
-    Bound, BuildContext, Dependencies, Feature, FeatureError, FeatureOutput, FieldRef, Noun,
-    PythonCall, PythonNames, PythonValue,
+    BuildContext, Dependencies, Feature, FeatureError, FeatureOutput, FieldRef, Noun, PythonCall,
+    PythonNames, PythonValue,
 };
 
 /// Bevels edges of a body.
@@ -51,11 +52,6 @@ pub enum ChamferDistance {
         #[serde(default, skip_serializing_if = "is_false")]
         flip: bool,
     },
-}
-
-/// True for `false`; for `skip_serializing_if`.
-fn is_false(value: &bool) -> bool {
-    !*value
 }
 
 /// The evaluated distances of a chamfer, in millimeters.
@@ -102,50 +98,30 @@ impl Feature for Chamfer {
     type Params = ChamferParams;
 
     fn manifest() -> FeatureManifest {
-        let hint = |path: &str, label: &str, essential: bool| FieldHint {
-            path: path.to_string(),
-            label: label.to_string(),
-            essential,
-            unit: None,
-            selection: None,
-            options: Vec::new(),
-        };
-        let option = |value: &str, label: &str| OptionHint {
-            value: value.to_string(),
-            label: label.to_string(),
-        };
-        FeatureManifest {
-            label: "Chamfer".to_string(),
-            category: Category::Modify,
-            icon: "chamfer".to_string(),
-            version: 1,
-            fields: vec![
-                FieldHint {
-                    selection: Some(SelectionKind::Edge),
-                    ..hint("edges", "Edges", true)
-                },
-                FieldHint {
-                    options: vec![
-                        option("equal", "Equal distance"),
-                        option("two_distances", "Two distances"),
+        manifest(
+            "Chamfer",
+            Category::Modify,
+            "chamfer",
+            vec![
+                essential(selection_hint("edges", "Edges", SelectionKind::Edge)),
+                essential(options_hint(
+                    "distance.kind",
+                    "Type",
+                    &[
+                        ("equal", "Equal distance"),
+                        ("two_distances", "Two distances"),
                     ],
-                    ..hint("distance.kind", "Type", true)
-                },
-                FieldHint {
-                    unit: Some(FieldUnit::Length),
-                    ..hint("distance.expr", "Distance", true)
-                },
-                FieldHint {
-                    unit: Some(FieldUnit::Length),
-                    ..hint("distance.second_expr", "Second distance", true)
-                },
-                hint("distance.flip", "Flip", false),
-                FieldHint {
-                    selection: Some(SelectionKind::Body),
-                    ..hint("body", "Body", false)
-                },
+                )),
+                essential(unit_hint("distance.expr", "Distance", FieldUnit::Length)),
+                essential(unit_hint(
+                    "distance.second_expr",
+                    "Second distance",
+                    FieldUnit::Length,
+                )),
+                hint("distance.flip", "Flip"),
+                body_hint(),
             ],
-        }
+        )
     }
 
     fn dependencies(params: &ChamferParams) -> Dependencies {
@@ -179,13 +155,7 @@ impl Feature for Chamfer {
         params: &ChamferParams,
         context: &BuildContext<'_>,
     ) -> Result<FeatureOutput, FeatureError> {
-        let state = context.body(&params.body)?;
-        let Some(shape) = state.shape() else {
-            return Err(FeatureError::BodyEmpty {
-                body: params.body.clone(),
-                use_new: false,
-            });
-        };
+        let (state, shape) = solid_body(context, &params.body)?;
         let (distances, field) = match &params.distance {
             ChamferDistance::Equal { expr } => (
                 Distances::Equal(positive_length(context, "distance.expr", expr)?),
@@ -203,16 +173,15 @@ impl Feature for Chamfer {
                 } else {
                     (first, second)
                 };
-                (
-                    Distances::TwoDistances { on_first, on_other },
-                    "distance",
-                )
+                (Distances::TwoDistances { on_first, on_other }, "distance")
             }
         };
         let selection = select_edges(context, &params.body, shape, &params.edges)?;
         if selection.edges.is_empty() {
-            return Ok(unchanged(&params.body, state, selection.warnings));
+            return Ok(no_effect(&params.body, state, selection.warnings));
         }
+        // The first face of each edge sets the side of two distances; an equal distance has no
+        // side, so its entries are never read.
         let first_faces = match distances {
             Distances::Equal(_) => vec![0; selection.edges.len()],
             Distances::TwoDistances { .. } => {
@@ -265,30 +234,11 @@ impl Feature for Chamfer {
         };
         let mut call = PythonCall::new("chamfer");
         call.positional = vec![
-            python_references(&params.edges),
+            references(&params.edges),
             PythonValue::expression(expr, names),
         ];
         Some(call)
     }
-}
-
-/// The declared length at `field`, which must be greater than 0 (chamfer.md section 3.3 step 2).
-fn positive_length(
-    context: &BuildContext<'_>,
-    field: &str,
-    expr: &Expr,
-) -> Result<f64, FeatureError> {
-    let value = context.eval_length(field, expr)?;
-    if value <= 0.0 {
-        return Err(FeatureError::OutOfRange {
-            field: context.field(field),
-            kind: FieldUnit::Length,
-            value,
-            bound: Bound::GreaterThan(0.0),
-            bound_name: None,
-        });
-    }
-    Ok(value)
 }
 
 /// The face next to `edge` whose element name sorts first in byte order: a two-distance chamfer
@@ -350,6 +300,11 @@ mod tests {
         registry
     }
 
+    /// `E-FT` as JSON.
+    fn edge() -> serde_json::Value {
+        serde_json::from_str(FRONT_TOP).expect("valid JSON")
+    }
+
     fn canonical(params: serde_json::Value) -> serde_json::Map<String, serde_json::Value> {
         let mut record = json!({"id": "f-cha1", "type": "chamfer"});
         record
@@ -379,7 +334,7 @@ mod tests {
     #[test]
     fn an_unflipped_two_distance_chamfer_omits_flip() {
         let params = canonical(json!({
-            "body": "b-1", "edges": [],
+            "body": "b-1", "edges": [edge()],
             "distance": {"second_expr": "3 mm", "flip": false, "expr": "1 mm", "kind": "two_distances"}
         }));
 
@@ -392,7 +347,7 @@ mod tests {
     #[test]
     fn a_flipped_two_distance_chamfer_keeps_flip() {
         let params = canonical(json!({
-            "body": "b-1", "edges": [],
+            "body": "b-1", "edges": [edge()],
             "distance": {"kind": "two_distances", "expr": "1 mm", "second_expr": "3 mm", "flip": true}
         }));
 
@@ -408,7 +363,7 @@ mod tests {
     #[test]
     fn an_unknown_distance_kind_is_invalid() {
         let record: FeatureRecord = serde_json::from_value(json!({
-            "id": "f-cha1", "type": "chamfer", "body": "b-1", "edges": [],
+            "id": "f-cha1", "type": "chamfer", "body": "b-1", "edges": [edge()],
             "distance": {"kind": "angle", "expr": "1 mm"}
         }))
         .expect("a record");

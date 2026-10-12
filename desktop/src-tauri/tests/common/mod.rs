@@ -158,6 +158,10 @@ pub fn grant_by_open(files: &Files, path: &Path) -> Granted {
 }
 
 /// Asks the save dialog for a file of `kind` and answers it with `path`.
-pub fn pick_save_path(files: &Files, path: &Path, kind: FileKind) -> Result<Option<Granted>, FileError> {
+pub fn pick_save_path(
+    files: &Files,
+    path: &Path,
+    kind: FileKind,
+) -> Result<Option<Granted>, FileError> {
     files.pick_save(&FakeDialogs::choosing(path), "suggested.ptsm", kind)
 }

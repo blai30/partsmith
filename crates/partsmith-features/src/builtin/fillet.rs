@@ -1,19 +1,19 @@
 //! The `fillet` feature: rounds edges of a body with a constant radius (features/fillet.md).
 
-use partsmith_model::{
-    Category, Expr, FeatureManifest, FieldHint, FieldUnit, Id, SelectionKind,
-};
+use partsmith_model::{Category, Expr, FeatureManifest, FieldUnit, Id, SelectionKind};
 use partsmith_naming::{Reference, roles};
 use partsmith_occt_sys::{EdgeRadius, fillet};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use super::dressup::{
-    modified, name_blend, python_references, run_or_search, select_edges, unchanged,
+use super::common::{
+    body_hint, essential, manifest, positive_length, references, selection_hint, solid_body,
+    unit_hint,
 };
+use super::dressup::{modified, name_blend, no_effect, run_or_search, select_edges};
 use crate::{
-    Bound, BuildContext, Dependencies, Feature, FeatureError, FeatureOutput, FieldRef, Noun,
-    PythonCall, PythonNames, PythonValue,
+    BuildContext, Dependencies, Feature, FeatureError, FeatureOutput, FieldRef, Noun, PythonCall,
+    PythonNames, PythonValue,
 };
 
 /// Rounds edges of a body with a constant radius.
@@ -35,34 +35,16 @@ impl Feature for Fillet {
     type Params = FilletParams;
 
     fn manifest() -> FeatureManifest {
-        let hint = |path: &str, label: &str, essential: bool| FieldHint {
-            path: path.to_string(),
-            label: label.to_string(),
-            essential,
-            unit: None,
-            selection: None,
-            options: Vec::new(),
-        };
-        FeatureManifest {
-            label: "Fillet".to_string(),
-            category: Category::Modify,
-            icon: "fillet".to_string(),
-            version: 1,
-            fields: vec![
-                FieldHint {
-                    selection: Some(SelectionKind::Edge),
-                    ..hint("edges", "Edges", true)
-                },
-                FieldHint {
-                    unit: Some(FieldUnit::Length),
-                    ..hint("radius", "Radius", true)
-                },
-                FieldHint {
-                    selection: Some(SelectionKind::Body),
-                    ..hint("body", "Body", false)
-                },
+        manifest(
+            "Fillet",
+            Category::Modify,
+            "fillet",
+            vec![
+                essential(selection_hint("edges", "Edges", SelectionKind::Edge)),
+                essential(unit_hint("radius", "Radius", FieldUnit::Length)),
+                body_hint(),
             ],
-        }
+        )
     }
 
     fn dependencies(params: &FilletParams) -> Dependencies {
@@ -86,26 +68,11 @@ impl Feature for Fillet {
         params: &FilletParams,
         context: &BuildContext<'_>,
     ) -> Result<FeatureOutput, FeatureError> {
-        let state = context.body(&params.body)?;
-        let Some(shape) = state.shape() else {
-            return Err(FeatureError::BodyEmpty {
-                body: params.body.clone(),
-                use_new: false,
-            });
-        };
-        let radius = context.eval_length("radius", &params.radius)?;
-        if radius <= 0.0 {
-            return Err(FeatureError::OutOfRange {
-                field: context.field("radius"),
-                kind: FieldUnit::Length,
-                value: radius,
-                bound: Bound::GreaterThan(0.0),
-                bound_name: None,
-            });
-        }
+        let (state, shape) = solid_body(context, &params.body)?;
+        let radius = positive_length(context, "radius", &params.radius)?;
         let selection = select_edges(context, &params.body, shape, &params.edges)?;
         if selection.edges.is_empty() {
-            return Ok(unchanged(&params.body, state, selection.warnings));
+            return Ok(no_effect(&params.body, state, selection.warnings));
         }
         let result = run_or_search(
             context,
@@ -139,7 +106,7 @@ impl Feature for Fillet {
     fn python(params: &FilletParams, names: &dyn PythonNames) -> Option<PythonCall> {
         let mut call = PythonCall::new("fillet");
         call.positional = vec![
-            python_references(&params.edges),
+            references(&params.edges),
             PythonValue::expression(&params.radius, names),
         ];
         Some(call)
