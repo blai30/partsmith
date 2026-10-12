@@ -189,7 +189,7 @@ class Selection(Sequence[Element]):
         return iter(self._elements)
 
     def __repr__(self) -> str:
-        return f"<Selection of {len(self)} {self.kind or 'element'}s>"
+        return f"<Selection of {len(self)} {_plural(self.kind or 'element')}>"
 
     @property
     def kind(self) -> str | None:
@@ -293,7 +293,7 @@ class Selection(Sequence[Element]):
     def _require(self, function: str, kind: str) -> None:
         """Raises SelectionError when the selection has elements of another kind."""
         if self.kind is not None and self.kind != kind:
-            raise SelectionError(f"{function}() applies to {kind}s; this selection has {self.kind}s.")
+            raise SelectionError(f"{function}() applies to {_plural(kind)}; this selection has {_plural(self.kind)}.")
 
     def _oriented(self, function: str, axis: Axis, deviation: Callable[[Point3], float]) -> Selection:
         """Planar faces by normal, or line edges by direction, whose deviation is within 1e-9."""
@@ -345,20 +345,21 @@ def element_references(function: str, value: object, kind: str) -> list[dict]:
         items = value
     else:
         raise TypeError(
-            f"{function}() takes {kind}s: a Selection, an Element, a Ref or a list of them, not {type(value).__name__}."
+            f"{function}() takes {_plural(kind)}: a Selection, an Element, a Ref or a list of them, "
+            f"not {type(value).__name__}."
         )
     references: dict[tuple[str, str], dict] = {}
     for item in items:
         for entry in item if isinstance(item, Selection) else [item]:
             if isinstance(entry, Element):
                 if entry.kind != kind:
-                    raise SelectionError(f"{function}() takes {kind}s, got {entry.kind}s.")
+                    raise SelectionError(f"{function}() takes {_plural(kind)}, got {_plural(entry.kind)}.")
                 reference = entry.reference
             elif isinstance(entry, Ref):
                 reference = entry
             else:
                 raise TypeError(
-                    f"{function}() takes {kind}s: a Selection, an Element or a Ref, not {type(entry).__name__}."
+                    f"{function}() takes {_plural(kind)}: a Selection, an Element or a Ref, not {type(entry).__name__}."
                 )
             references.setdefault((reference.q, reference.fp), reference._json())
     if not references:
@@ -428,6 +429,11 @@ def _rotation(axis: str, angle: float) -> list[list[float]]:
     if axis == "Y":
         return [[cosine, 0.0, sine], [0.0, 1.0, 0.0], [-sine, 0.0, cosine]]
     return [[cosine, -sine, 0.0], [sine, cosine, 0.0], [0.0, 0.0, 1.0]]
+
+
+def _plural(kind: str) -> str:
+    """`faces`, `edges`, `vertices`."""
+    return "vertices" if kind == "vertex" else f"{kind}s"
 
 
 def _article(kind: str) -> str:

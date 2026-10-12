@@ -3,9 +3,10 @@
 import json
 
 import pytest
+from support import EXAMPLE_A
+
 from partsmith import PartsmithError
 from partsmith._frames import aligned, decode_response, encode_request
-from support import EXAMPLE_A
 
 EXAMPLE_B_HEADER = (
     '{"protocol_version":1,"messages":[{"kind":"request","id":2,"command":'

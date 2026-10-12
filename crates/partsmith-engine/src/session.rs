@@ -236,8 +236,10 @@ impl Session {
     pub fn close_document(&mut self, doc: DocHandle) -> Result<(), EngineError> {
         self.documents
             .remove(&doc)
-            .map(|_| ())
-            .ok_or(EngineError::UnknownDocument { doc })
+            .ok_or(EngineError::UnknownDocument { doc })?;
+        // Its displayed meshes are unpinned now.
+        self.cache.trim();
+        Ok(())
     }
 
     /// The current recipe, including uncommitted transaction edits.

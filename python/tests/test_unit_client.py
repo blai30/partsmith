@@ -1,6 +1,7 @@
 """Unit tests of the event state and error mapping in partsmith._client."""
 
 import pytest
+
 from partsmith import EngineError, ExpressionError, PartsmithError
 from partsmith._client import Client, State, engine_error
 

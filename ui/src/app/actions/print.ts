@@ -1,12 +1,14 @@
 import { createLatestOnly, type LatestOnly } from '../../core/queue'
-import type { BoundingBox, Health } from '../../generated/protocol'
-import type { AppStore, FindingKey } from '../../state/store'
-import type { Vector3 } from '../../viewport/camera'
+import type { Health } from '../../generated/protocol'
+import { ALWAYS_SHOWN_CHECK } from '../../print/checks'
+import { findingAt, locationCenter } from '../../print/health'
+import type { AppState, AppStore, FindingKey } from '../../state/store'
 import type { App } from '../createApp'
 import { commitEdits, showCoreError } from './edits'
 import { updateSettings } from './settings'
 
-// The Print context (ui.md 3.17): printer choice, check visibility, analysis runs and findings.
+// The Print context (ui.md 3.17): printer choice, check visibility, the overhang map, analysis
+// runs and findings.
 
 /** Delay after the last revision change before the analysis runs in Print context. */
 const ANALYSIS_DELAY_MILLISECONDS = 300
@@ -46,6 +48,14 @@ function analysisOf(app: App): LatestOnly<number> {
   return latest
 }
 
+/** Whether the open document has no report of its current revision. */
+function reportStale(state: AppState): boolean {
+  return (
+    state.document !== null &&
+    (state.print.report === null || state.print.reportRevision !== state.document.revision)
+  )
+}
+
 /** Chooses the document's printer profile, or none, labeled "Change printer". */
 export async function setPrinter(app: App, profileId: string | null): Promise<void> {
   await commitEdits(app, 'Change printer', [
@@ -53,10 +63,23 @@ export async function setPrinter(app: App, profileId: string | null): Promise<vo
   ])
 }
 
-/** Hides or shows a check's findings; the choice persists in the settings. */
+/**
+ * Hides or shows a check's findings; the choice persists in the settings. Mesh validity is always
+ * shown, so hiding it does nothing.
+ */
 export function setCheckHidden(app: App, check: string, hidden: boolean): void {
+  if (hidden && check === ALWAYS_SHOWN_CHECK) {
+    return
+  }
   const others = app.store.getState().settings.hiddenChecks.filter((name) => name !== check)
   updateSettings(app, { hiddenChecks: hidden ? [...others, check] : others })
+}
+
+/** Turns the overhang color map and its legend on or off for this session (the Overhangs toggle). */
+export function setOverhangMap(app: App, shown: boolean): void {
+  app.store.setState((state) =>
+    state.print.overhangMap === shown ? {} : { print: { ...state.print, overhangMap: shown } },
+  )
 }
 
 /** Analyzes the open document as modeled, outside the mutation queue; resolves when no analysis is left. */
@@ -70,28 +93,29 @@ export async function runPrintAnalysis(app: App): Promise<void> {
   await latest.flush()
 }
 
-function centerOf(bounds: BoundingBox): Vector3 {
-  return [
-    (bounds.min[0] + bounds.max[0]) / 2,
-    (bounds.min[1] + bounds.max[1]) / 2,
-    (bounds.min[2] + bounds.max[2]) / 2,
-  ]
+/**
+ * The health badge's click (3.17): opens the health panel, and runs the analysis when the report
+ * is missing or describes an older revision.
+ */
+export async function openPrintHealth(app: App): Promise<void> {
+  app.store.setState((state) =>
+    state.panels.side === 'health' ? {} : { panels: { ...state.panels, side: 'health' } },
+  )
+  if (reportStale(app.store.getState())) {
+    await runPrintAnalysis(app)
+  }
 }
 
 /** Shows a finding: marks it and frames a cube around its location (3.17). */
 export function focusFinding(app: App, finding: FindingKey): void {
   app.store.setState((state) => ({ print: { ...state.print, focusedFinding: finding } }))
   const state = app.store.getState()
-  const located = state.print.report?.bodies
-    .find((body) => body.body === finding.body)
-    ?.report.checks.find((check) => check.check === finding.check)?.findings[finding.index]
+  const located = findingAt(state.print.report, finding)
   const viewport = app.viewport()
   if (located === undefined || viewport === null) {
     return
   }
-  const location = located.location
-  const center: Vector3 =
-    location.kind === 'point' ? location.at : centerOf({ min: location.min, max: location.max })
+  const center = locationCenter(located.location)
   const bodyBounds = state.document?.meshes[finding.body]?.boundingBox
   const diagonal =
     bodyBounds === undefined
@@ -111,10 +135,22 @@ export function focusFinding(app: App, finding: FindingKey): void {
   )
 }
 
+/** Whether the focused finding's marker must go: the health panel closed or the document changed (3.17). */
+function focusOutdated(state: AppState, previous: AppState): boolean {
+  return (
+    state.print.focusedFinding !== null &&
+    ((previous.panels.side === 'health' && state.panels.side !== 'health') ||
+      state.document?.documentHandle !== previous.document?.documentHandle ||
+      state.document?.revision !== previous.document?.revision)
+  )
+}
+
 /**
- * Runs the analysis on its own in Print context: 300 ms after the document revision last changed
- * with no transaction open, and on entering Print when the report is stale or missing (3.17).
- * Returns the function that stops it.
+ * Keeps the Print context's derived state (3.17). The analysis runs on its own in Print context:
+ * 300 ms after the document revision last changed with no transaction open (or after the
+ * transaction closes), and at once on entering Print when the report is stale or missing. The
+ * focused finding is dropped when the health panel closes or the document changes. Returns the
+ * function that stops both.
  */
 export function installPrintAnalysis(app: App): () => void {
   let timer: ReturnType<typeof setTimeout> | null = null
@@ -130,7 +166,7 @@ export function installPrintAnalysis(app: App): () => void {
     void runPrintAnalysis(app)
   }
 
-  const unsubscribe = app.store.subscribe((state, previous) => {
+  function schedule(state: AppState, previous: AppState): void {
     const document = state.document
     if (state.context !== 'print' || document === null) {
       cancelTimer()
@@ -138,21 +174,32 @@ export function installPrintAnalysis(app: App): () => void {
     }
     if (previous.context !== 'print') {
       cancelTimer()
-      const stale = state.print.report === null || state.print.reportRevision !== document.revision
-      if (stale && !document.transactionOpen) {
+      if (reportStale(state) && !document.transactionOpen) {
         run()
       }
       return
     }
-    if (document.revision === previous.document?.revision) {
+    const revisionChanged =
+      document.documentHandle !== previous.document?.documentHandle ||
+      document.revision !== previous.document?.revision
+    const transactionClosed = previous.document?.transactionOpen === true && !document.transactionOpen
+    if (!revisionChanged && !transactionClosed) {
       return
     }
     cancelTimer()
-    if (!document.transactionOpen) {
+    if (!document.transactionOpen && reportStale(state)) {
       timer = setTimeout(() => {
         timer = null
         run()
       }, ANALYSIS_DELAY_MILLISECONDS)
+    }
+  }
+
+  const unsubscribe = app.store.subscribe((state, previous) => {
+    schedule(state, previous)
+    if (focusOutdated(state, previous)) {
+      // Notifies every listener again; this one then sees no change that schedules anything.
+      app.store.setState((current) => ({ print: { ...current.print, focusedFinding: null } }))
     }
   })
   return () => {

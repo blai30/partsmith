@@ -7,11 +7,13 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "check:dist": "node scripts/check-dist.mjs dist",
     "preview": "vite preview",
     "lint": "oxlint --deny-warnings && oxfmt --check",
     "format": "oxfmt",
     "typecheck": "tsc -b",
     "test": "vitest run",
+    "test:scripts": "node --test \"scripts/**/*.test.mjs\"",
     "e2e": "playwright test",
     "generate:protocol": "node scripts/generate-protocol-types.mjs"
   },

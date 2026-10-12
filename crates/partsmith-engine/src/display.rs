@@ -388,6 +388,8 @@ impl DisplayCache {
                 used: self.tick,
             },
         );
+        // The caller holds the new table, so trimming keeps it.
+        self.trim();
         Ok(table)
     }
 
@@ -415,10 +417,14 @@ impl DisplayCache {
                 used: self.tick,
             },
         );
+        // The caller holds the new mesh, so trimming keeps it.
+        self.trim();
         Ok(mesh)
     }
 
-    /// Evicts unpinned values, least recently used first, until the cache fits its budget.
+    /// Evicts unpinned values, least recently used first, until the cache fits its budget. Every
+    /// insert trims, so typed callers stay within the budget too; `execute` and
+    /// `close_document` trim again once they have unpinned what they replaced.
     pub(crate) fn trim(&mut self) {
         let mut total = self.size();
         if total <= self.budget {
@@ -587,6 +593,70 @@ mod tests {
 
         assert!(cache.tables.contains_key(&state_key(1)));
         assert!(!cache.tables.contains_key(&state_key(2)));
+    }
+
+    /// A session with display `display`, no cache budget and `fixture` open.
+    fn session_without_budget(
+        display: bool,
+        fixture: &str,
+    ) -> (crate::Session, partsmith_protocol::DocHandle) {
+        let mut session = crate::Session::new(crate::SessionOptions {
+            display,
+            cache_budget: 0,
+            ..crate::SessionOptions::headless()
+        });
+        let doc = session
+            .open_document(fixture, Vec::new())
+            .expect("the fixture opens")
+            .doc;
+        (session, doc)
+    }
+
+    #[test]
+    fn typed_queries_keep_only_what_the_latest_query_used() {
+        let (mut session, doc) =
+            session_without_budget(false, include_str!("../tests/fixtures/two-bodies.ptsm"));
+        let body = |text: &str| Id::new(text).expect("a valid id");
+
+        for id in ["b-1", "b-2"] {
+            session
+                .list_elements(doc, &body(id), None)
+                .expect("the body has elements");
+        }
+        let tables = session.cache.tables.len();
+        session
+            .export(
+                doc,
+                &crate::ExportRequest {
+                    format: partsmith_protocol::ExportFormat::Stl {
+                        binary: true,
+                        per_body: false,
+                    },
+                    bodies: None,
+                    tolerance: None,
+                    orientation: None,
+                },
+            )
+            .expect("both bodies export");
+
+        assert_eq!(tables, 1);
+        assert_eq!(session.cache.meshes.len(), 1);
+    }
+
+    #[test]
+    fn closing_a_document_evicts_what_it_displayed() {
+        let (mut session, doc) =
+            session_without_budget(true, include_str!("../tests/fixtures/box.ptsm"));
+        let mut output = crate::events::Output::default();
+        session
+            .collect_events(doc, &mut output)
+            .expect("the box displays");
+        assert_eq!(session.cache.meshes.len(), 1, "a displayed mesh is pinned");
+
+        session.close_document(doc).expect("the document closes");
+
+        assert!(session.cache.meshes.is_empty());
+        assert!(session.cache.tables.is_empty());
     }
 
     #[test]

@@ -402,6 +402,8 @@ def boolean(
     if op not in BOOLEAN_OPS:
         raise ValueError(f"boolean() op must be 'join', 'cut' or 'intersect', not {op!r}.")
     tool_parts = [tools] if isinstance(tools, Part) else list(tools)
+    if not tool_parts:
+        raise ValueError("boolean() needs at least one tool part.")
     params: dict = {
         "target": target.id,
         "tools": [target.document._own_part(tool, "boolean()").id for tool in tool_parts],

@@ -1,0 +1,164 @@
+name: Release
+
+# A version tag builds the desktop bundles and drafts a GitHub Release that a human publishes.
+# A manual run is a dry run: it builds the bundles without a release.
+on:
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  OCCT_ROOT: ${{ github.workspace }}/.occt/native
+
+jobs:
+  verify:
+    name: Verify the tag
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - run: rustup show active-toolchain || rustup toolchain install
+      - name: Check that the tag names the version of the app
+        run: |
+          tag_version="${GITHUB_REF_NAME#v}"
+          desktop_version="$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "partsmith-desktop") | .version')"
+          ui_version="$(jq -r .version ui/package.json)"
+          mismatch=false
+          for version in $(printf '%s\n' "$desktop_version" "$ui_version" | sort -u); do
+            if [ "$version" != "$tag_version" ]; then
+              echo "::error::Tag v$tag_version does not match the version $version of partsmith-desktop and ui/package.json."
+              mismatch=true
+            fi
+          done
+          if [ "$mismatch" = true ]; then
+            exit 1
+          fi
+      - name: Check that CI passed for the tagged commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          passed="$(gh run list --workflow ci.yml --commit "$GITHUB_SHA" --status success --limit 1 --json databaseId --jq length)"
+          if [ "$passed" != 1 ]; then
+            echo "::error::CI has not passed for $GITHUB_SHA. Tag a commit whose CI run succeeded."
+            exit 1
+          fi
+
+  bundle:
+    name: Bundle (${{ matrix.runner }})
+    needs: verify
+    # verify is skipped in a dry run, and the bundles still build.
+    if: ${{ !cancelled() && (needs.verify.result == 'success' || needs.verify.result == 'skipped') }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            bundles: deb,rpm,appimage
+            files: target/release/bundle/deb/*.deb target/release/bundle/rpm/*.rpm target/release/bundle/appimage/*.AppImage
+          - runner: windows-2025
+            bundles: nsis
+            files: target/release/bundle/nsis/*-setup.exe
+          - runner: macos-15
+            bundles: app,dmg
+            files: target/release/bundle/dmg/*.dmg
+    runs-on: ${{ matrix.runner }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - if: runner.os == 'Linux'
+        name: Install the Tauri Linux packages and Ninja
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libxdo-dev libssl-dev librsvg2-dev ninja-build
+      # MSVC, CMake and Ninja from Visual Studio on PATH.
+      - if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1.13.0
+      # The oldest macOS the app supports, for OCCT, Rust and the bundle (desktop.md 2.8).
+      - if: runner.os == 'macOS'
+        name: Install Ninja and set the deployment target
+        run: |
+          brew install ninja
+          echo "MACOSX_DEPLOYMENT_TARGET=13.0" >> "$GITHUB_ENV"
+      - id: occt
+        uses: actions/cache@v6.1.0
+        with:
+          path: .occt/native
+          key: occt-native-${{ runner.os }}-${{ hashFiles('scripts/build-occt.sh', 'scripts/occt-version.sh') }}
+      # OCCT_JOBS spares the script nproc, which macOS lacks.
+      - if: steps.occt.outputs.cache-hit != 'true'
+        env:
+          OCCT_JOBS: 4
+        run: scripts/build-occt.sh native "$OCCT_ROOT"
+      - run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2.9.2
+      - uses: pnpm/action-setup@v6.1.0
+        with:
+          package_json_file: ui/package.json
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: ui/pnpm-lock.yaml
+      - run: pnpm -C ui install --frozen-lockfile
+      - run: pnpm -C ui build
+      - id: tauri-cli
+        uses: actions/cache@v6.1.0
+        with:
+          path: ~/.cargo/bin/cargo-tauri${{ runner.os == 'Windows' && '.exe' || '' }}
+          key: tauri-cli-2.12.2-${{ runner.os }}-${{ runner.arch }}
+      - if: steps.tauri-cli.outputs.cache-hit != 'true'
+        run: cargo install tauri-cli --version 2.12.2 --locked
+      - run: cargo tauri build --bundles ${{ matrix.bundles }} --ci
+        working-directory: desktop/src-tauri
+      # One flat folder, so the release assets and SHA256SUMS name the files without folders.
+      - name: Collect the bundles
+        env:
+          BUNDLE_FILES: ${{ matrix.files }}
+        run: |
+          mkdir bundles
+          # Unquoted, so each pattern expands; a pattern that matches nothing fails the copy.
+          # shellcheck disable=SC2086
+          cp $BUNDLE_FILES bundles/
+      - uses: actions/upload-artifact@v7.0.2
+        with:
+          name: bundle-${{ runner.os }}
+          path: bundles/
+          if-no-files-found: error
+
+  draft:
+    name: Draft the release
+    needs: bundle
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8.0.2
+        with:
+          pattern: bundle-*
+          path: release
+          merge-multiple: true
+      - name: Write SHA256SUMS
+        working-directory: release
+        run: |
+          # Byte order, so the files sort by name the same everywhere.
+          export LC_ALL=C
+          sha256sum -- * > SHA256SUMS
+      - name: Create the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          gh release create "$GITHUB_REF_NAME" --draft --verify-tag --title "Partsmith $VERSION" --generate-notes release/*

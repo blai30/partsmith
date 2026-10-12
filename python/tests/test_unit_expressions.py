@@ -4,6 +4,7 @@ partsmith.expressions."""
 import math
 
 import pytest
+
 from partsmith import cm, deg, expr, inch, meter, mm, printer, rad
 from partsmith.expressions import (
     ATOM,
@@ -84,9 +85,7 @@ def test_a_number_times_a_unit_is_a_quantity_literal(build, expected):
     assert is_quantity(quantity)
 
 
-@pytest.mark.parametrize(
-    "value", [expr("2 mm"), 2 * mm * 3, -(2 * mm), mm * expr("wall"), "2 mm", 2], ids=str
-)
+@pytest.mark.parametrize("value", [expr("2 mm"), 2 * mm * 3, -(2 * mm), mm * expr("wall"), "2 mm", 2], ids=str)
 def test_other_values_are_not_quantity_literals(value):
     assert not is_quantity(value)
 
@@ -106,7 +105,7 @@ def test_other_values_are_not_quantity_literals(value):
         (lambda a, b: -(a**2), "-a ^ 2"),
         (lambda a, b: -(a + b), "-(a + b)"),
         (lambda a, b: -(a * b), "-(a * b)"),
-        (lambda a, b: a ** -2, "a ^ (-2)"),
+        (lambda a, b: a**-2, "a ^ (-2)"),
         (lambda a, b: (-2) ** a, "(-2) ^ a"),
         (lambda a, b: 2 - a, "2 - a"),
         (lambda a, b: 1 / a, "1 / a"),
@@ -125,7 +124,7 @@ def test_operators_add_only_the_parentheses_that_keep_the_meaning(build, expecte
 
 def test_an_unsupported_operand_raises_type_error():
     with pytest.raises(TypeError):
-        expr("a") + [1]
+        expr("a") + {1}
 
 
 def test_a_bool_operand_raises_type_error():
@@ -204,7 +203,7 @@ def test_a_length_quantity_converts_by_its_unit():
 
 
 def test_an_angle_quantity_is_not_a_length():
-    with pytest.raises(ValueError, match="x must be a length, but '30 deg' is an angle."):
+    with pytest.raises(ValueError, match=r"^x must be a length, but '30 deg' is an angle\.$"):
         raw_length(30 * deg, FakeDocument(), "x")
 
 

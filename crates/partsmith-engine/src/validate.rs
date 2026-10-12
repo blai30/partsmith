@@ -3,19 +3,28 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use partsmith_features::builtin::hole::HoleParams;
 use partsmith_features::{
-    CancelToken, Dependencies, DocumentNames, FeatureError, FieldRef, Registry, Values,
+    CancelToken, Dependencies, DocumentNames, ExprUse, FeatureError, FieldRef, Noun, Registry,
+    Values,
 };
-use partsmith_model::{Document, ExprErrorKind, LoadError, Scope, load};
+use partsmith_model::{Document, ExprErrorKind, FeatureRecord, Id, LoadError, Scope, load};
 use partsmith_print::{PrinterValues, Severity};
 use partsmith_recompute::{Input, Severity as MessageSeverity};
-use partsmith_sketch::{NativeSolver, SolveIssue, Solver};
+use partsmith_sketch::{NativeSolver, PointRef, SketchParams, SolveIssue, Solver};
+use serde_json::Value;
 
 use crate::document::canonical_text;
 use crate::error::EngineError;
 use crate::session::{Session, asset_matches, canonicalize_params, load_error};
 use crate::sketch::{SKETCH_TYPE, dimension_values, sketch_params};
 use crate::types::{Asset, ValidateOptions, ValidationDiagnostic, ValidationReport};
+
+/// The type name of the hole feature, whose `points` name sketch points (features/hole.md).
+const HOLE_TYPE: &str = "hole";
+
+/// The `kind` of an axis that is a sketch line (features.md `AxisRef::SketchLine`).
+const SKETCH_LINE_KIND: &str = "sketch_line";
 
 impl Session {
     /// Validates a `.ptsm` text without opening it.
@@ -191,7 +200,8 @@ impl Checks<'_, '_> {
             let (Some(found), Some(feature)) = (found, self.registry.get(&record.kind)) else {
                 continue;
             };
-            let values = Values::evaluate(&found.expressions, scope, feature.manifest());
+            let uses = self.evaluated_uses(record, &found.expressions);
+            let values = Values::evaluate(&uses, scope, feature.manifest());
             let errors: Vec<FeatureError> = values
                 .iter()
                 .filter_map(|(_, value)| value.as_ref().err().cloned())
@@ -205,7 +215,7 @@ impl Checks<'_, '_> {
         }
     }
 
-    /// Step 4: feature and body links that name nothing or a later feature.
+    /// Step 4: feature, body and sketch entity links that name nothing or a later feature.
     fn references(&mut self, dependencies: &[Option<Dependencies>]) {
         for (position, (record, found)) in
             self.document.features.iter().zip(dependencies).enumerate()
@@ -244,7 +254,57 @@ impl Checks<'_, '_> {
                     self.feature_error(position, "unknown_body", &error);
                 }
             }
+            for link in entity_links(record) {
+                let Some(sketch) = self.earlier_sketch(&link.sketch, position) else {
+                    continue;
+                };
+                let (exists, entity, noun) = match &link.target {
+                    EntityTarget::Point(point) => {
+                        (sketch.point(point).is_some(), point.to_string(), Noun::Point)
+                    }
+                    EntityTarget::Line(line) => {
+                        (sketch.entity(line).is_some(), line.to_string(), Noun::Line)
+                    }
+                };
+                if !exists {
+                    let error = FeatureError::UnknownEntity {
+                        field: FieldRef::new(&link.field, manifest),
+                        sketch: link.sketch.clone(),
+                        entity,
+                        noun,
+                    };
+                    self.feature_error(position, "unknown_entity", &error);
+                }
+            }
         }
+    }
+
+    /// The params of the sketch `id` when it is a valid sketch feature before timeline position
+    /// `position`. Other cases are reported by the feature link checks or at rebuild.
+    fn earlier_sketch(&self, id: &Id, position: usize) -> Option<SketchParams> {
+        let target = self.document.feature_index(id)?;
+        let record = self.document.features.get(target)?;
+        if target >= position || record.kind != SKETCH_TYPE {
+            return None;
+        }
+        sketch_params(self.registry, self.document, record).ok()
+    }
+
+    /// The expression uses recompute evaluates: every declared use except the expressions of a
+    /// sketch's reference dimensions (`driving: false`), which the sketch feature never evaluates
+    /// (features/sketch.md).
+    fn evaluated_uses(&self, record: &FeatureRecord, uses: &[ExprUse]) -> Vec<ExprUse> {
+        let reference_fields: Vec<String> = if record.kind == SKETCH_TYPE {
+            sketch_params(self.registry, self.document, record)
+                .map(|params| reference_dimension_fields(&params))
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        uses.iter()
+            .filter(|usage| !reference_fields.contains(&usage.field))
+            .cloned()
+            .collect()
     }
 
     /// Step 6: each valid sketch is solved and its solver issues reported.
@@ -321,6 +381,92 @@ impl Checks<'_, '_> {
             }
         }
         stored
+    }
+}
+
+/// The field paths of a sketch's reference dimensions, as the sketch feature declares them
+/// (`constraints[<index>].expr`).
+fn reference_dimension_fields(params: &SketchParams) -> Vec<String> {
+    params
+        .constraints
+        .iter()
+        .enumerate()
+        .filter(|(_, constraint)| {
+            constraint
+                .dimension()
+                .is_some_and(|dimension| !dimension.driving)
+        })
+        .map(|(index, _)| format!("constraints[{index}].expr"))
+        .collect()
+}
+
+/// A sketch entity that a feature's params name (step 4).
+#[derive(Debug, Clone, PartialEq)]
+struct EntityLink {
+    /// The sketch feature.
+    sketch: Id,
+    /// Path of the params field that names the entity, for example `points[0]` or `axis`.
+    field: String,
+    /// The point or line it must be.
+    target: EntityTarget,
+}
+
+/// What a sketch entity reference must resolve to.
+#[derive(Debug, Clone, PartialEq)]
+enum EntityTarget {
+    /// A point of the sketch, as a hole point.
+    Point(PointRef),
+    /// An entity used as a line, as a sketch line axis.
+    Line(Id),
+}
+
+/// The sketch entities a record's params name, in params order: the points of a hole, and every
+/// `sketch_line` axis.
+fn entity_links(record: &FeatureRecord) -> Vec<EntityLink> {
+    let mut links = Vec::new();
+    if record.kind == HOLE_TYPE
+        && let Ok(hole) = serde_json::from_value::<HoleParams>(Value::Object(record.params.clone()))
+    {
+        for (index, point) in hole.points.into_iter().enumerate() {
+            links.push(EntityLink {
+                sketch: hole.sketch.clone(),
+                field: format!("points[{index}]"),
+                target: EntityTarget::Point(point),
+            });
+        }
+    }
+    for (key, value) in &record.params {
+        sketch_lines(value, key, &mut links);
+    }
+    links
+}
+
+/// Adds every `sketch_line` axis inside `value`, found at params path `path`.
+fn sketch_lines(value: &Value, path: &str, links: &mut Vec<EntityLink>) {
+    match value {
+        Value::Object(members) => {
+            let text = |key: &str| members.get(key).and_then(Value::as_str);
+            if text("kind") == Some(SKETCH_LINE_KIND)
+                && let (Some(Ok(sketch)), Some(Ok(line))) =
+                    (text("sketch").map(Id::new), text("line").map(Id::new))
+            {
+                links.push(EntityLink {
+                    sketch,
+                    field: path.to_string(),
+                    target: EntityTarget::Line(line),
+                });
+                return;
+            }
+            for (key, member) in members {
+                sketch_lines(member, &format!("{path}.{key}"), links);
+            }
+        }
+        Value::Array(items) => {
+            for (index, item) in items.iter().enumerate() {
+                sketch_lines(item, &format!("{path}[{index}]"), links);
+            }
+        }
+        _ => {}
     }
 }
 
@@ -467,6 +613,88 @@ mod tests {
         assert_eq!(
             expression_code(&ExprErrorKind::DivisionByZero),
             "division_by_zero"
+        );
+    }
+
+    fn record(json: serde_json::Value) -> FeatureRecord {
+        serde_json::from_value(json).expect("a valid feature record")
+    }
+
+    fn id(text: &str) -> Id {
+        Id::new(text).expect("a valid test id")
+    }
+
+    #[test]
+    fn hole_points_name_sketch_points() {
+        let hole = record(serde_json::json!({
+            "id": "f-hole1", "type": "hole", "body": "b-1", "sketch": "f-sk1",
+            "points": ["e-p9", "e-1.start"], "diameter": "3 mm", "extent": {"kind": "through_all"}
+        }));
+
+        let links = entity_links(&hole);
+
+        assert_eq!(
+            links,
+            [
+                EntityLink {
+                    sketch: id("f-sk1"),
+                    field: "points[0]".to_string(),
+                    target: EntityTarget::Point("e-p9".parse().expect("a point ref")),
+                },
+                EntityLink {
+                    sketch: id("f-sk1"),
+                    field: "points[1]".to_string(),
+                    target: EntityTarget::Point("e-1.start".parse().expect("a point ref")),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn nested_sketch_line_axes_are_found_with_their_path() {
+        let pattern = record(serde_json::json!({
+            "id": "f-lp1", "type": "linear_pattern", "body": "b-1",
+            "direction": {"axis": {"kind": "sketch_line", "sketch": "f-sk1", "line": "e-9"}, "count": "2", "spacing": "5"},
+            "second_direction": {"axis": {"kind": "origin", "axis": "Y"}, "count": "2", "spacing": "5"}
+        }));
+
+        let links = entity_links(&pattern);
+
+        assert_eq!(
+            links,
+            [EntityLink {
+                sketch: id("f-sk1"),
+                field: "direction.axis".to_string(),
+                target: EntityTarget::Line(id("e-9")),
+            }]
+        );
+    }
+
+    #[test]
+    fn records_without_entity_references_have_no_links() {
+        let block = record(serde_json::json!({
+            "id": "f-box1", "type": "box", "body": "b-1", "size": ["1", "2", "3"], "op": "new"
+        }));
+
+        assert!(entity_links(&block).is_empty());
+    }
+
+    #[test]
+    fn only_reference_dimensions_are_left_unevaluated() {
+        let params: SketchParams = serde_json::from_value(serde_json::json!({
+            "plane": {"kind": "origin", "plane": "XY"},
+            "entities": [{"id": "e-1", "type": "line", "start": [0, 0], "end": [10, 0]}],
+            "constraints": [
+                {"id": "c-1", "type": "horizontal", "line": "e-1"},
+                {"id": "c-2", "type": "distance", "line": "e-1", "expr": "10 mm"},
+                {"id": "c-3", "type": "distance", "line": "e-1", "expr": "wdth", "driving": false}
+            ]
+        }))
+        .expect("valid sketch params");
+
+        assert_eq!(
+            reference_dimension_fields(&params),
+            ["constraints[2].expr"]
         );
     }
 
