@@ -817,6 +817,8 @@ export function fuzzyScore(query: string, text: string): number | null
 export type PaletteItem = {
   readonly id: string
   readonly kind: 'command' | 'feature' | 'body' | 'parameter' | 'recent' | 'setting'
+  /** The command category for `command` and `setting` items; null for every other kind. With an empty query, items sort by category order, and items with a null category follow Settings, grouped by kind. */
+  readonly category: CommandCategory | null
   readonly title: string
   readonly keywords: readonly string[]
   readonly detail: string | null
