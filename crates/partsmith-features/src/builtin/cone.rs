@@ -62,11 +62,7 @@ impl ConeParams {
 }
 
 /// A radius that must be at least 0.
-fn radius(
-    context: &BuildContext<'_>,
-    field: &str,
-    expr: &Expr,
-) -> Result<f64, FeatureError> {
+fn radius(context: &BuildContext<'_>, field: &str, expr: &Expr) -> Result<f64, FeatureError> {
     let value = context.eval_length(field, expr)?;
     check_range(
         context,
@@ -84,7 +80,11 @@ impl Feature for Cone {
 
     fn manifest() -> FeatureManifest {
         let mut fields = vec![
-            essential(unit_hint("bottom_radius", "Bottom radius", FieldUnit::Length)),
+            essential(unit_hint(
+                "bottom_radius",
+                "Bottom radius",
+                FieldUnit::Length,
+            )),
             essential(unit_hint("top_radius", "Top radius", FieldUnit::Length)),
             essential(unit_hint("height", "Height", FieldUnit::Length)),
             body_op_hint(),
@@ -104,7 +104,10 @@ impl Feature for Cone {
         dependencies
     }
 
-    fn build(params: &ConeParams, context: &BuildContext<'_>) -> Result<FeatureOutput, FeatureError> {
+    fn build(
+        params: &ConeParams,
+        context: &BuildContext<'_>,
+    ) -> Result<FeatureOutput, FeatureError> {
         let bottom = radius(context, "bottom_radius", &params.bottom_radius)?;
         let top = radius(context, "top_radius", &params.top_radius)?;
         if bottom == 0.0 && top == 0.0 {
@@ -165,10 +168,7 @@ mod tests {
         let run = run(&["b-1"], &[cone("10", "0", "10")]);
 
         run.assert_volume("b-1", 1047.197551);
-        assert_eq!(
-            run.face_names("b-1"),
-            ["f-cone1/bottom", "f-cone1/side"]
-        );
+        assert_eq!(run.face_names("b-1"), ["f-cone1/bottom", "f-cone1/side"]);
     }
 
     #[test]
@@ -186,10 +186,7 @@ mod tests {
 
         run.assert_volume("b-1", 250.0 * PI);
         run.assert_faces("b-1", 3);
-        assert_eq!(
-            run.face("b-1", "f-cone1/side").kind,
-            GeometryKind::Cylinder
-        );
+        assert_eq!(run.face("b-1", "f-cone1/side").kind, GeometryKind::Cylinder);
     }
 
     #[test]
@@ -217,7 +214,9 @@ mod tests {
         let run = run(&["b-1"], &[cone("10", "5", "0")]);
 
         assert_eq!(
-            run.error("f-cone1").field().map(|field| field.path.as_str()),
+            run.error("f-cone1")
+                .field()
+                .map(|field| field.path.as_str()),
             Some("height")
         );
     }

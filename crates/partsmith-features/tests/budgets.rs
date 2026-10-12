@@ -50,7 +50,10 @@ fn assert_within(operation: &str, duration: Duration, budget: Duration) {
 }
 
 #[test]
-#[cfg_attr(debug_assertions, ignore = "performance budgets hold for release builds: run with cargo test --release")]
+#[cfg_attr(
+    debug_assertions,
+    ignore = "performance budgets hold for release builds: run with cargo test --release"
+)]
 fn validate_and_canonicalize_of_one_record_within_50_microseconds() {
     let registry = test_registry();
     let shuffled = record(json!({
@@ -80,7 +83,10 @@ fn validate_and_canonicalize_of_one_record_within_50_microseconds() {
 }
 
 #[test]
-#[cfg_attr(debug_assertions, ignore = "performance budgets hold for release builds: run with cargo test --release")]
+#[cfg_attr(
+    debug_assertions,
+    ignore = "performance budgets hold for release builds: run with cargo test --release"
+)]
 fn dependencies_of_one_record_within_20_microseconds() {
     let registry = test_registry();
     let slab = slab_record();
@@ -97,7 +103,10 @@ fn dependencies_of_one_record_within_20_microseconds() {
 }
 
 #[test]
-#[cfg_attr(debug_assertions, ignore = "performance budgets hold for release builds: run with cargo test --release")]
+#[cfg_attr(
+    debug_assertions,
+    ignore = "performance budgets hold for release builds: run with cargo test --release"
+)]
 fn python_of_one_record_within_50_microseconds() {
     let registry = test_registry();
     let probe = record(json!({
@@ -118,15 +127,26 @@ fn python_of_one_record_within_50_microseconds() {
         black_box(registry.python(black_box(&probe), &ScriptNames).render(0));
     });
     let generic = median(1001, || {
-        black_box(registry.python(black_box(&two_sides), &ScriptNames).render(0));
+        black_box(
+            registry
+                .python(black_box(&two_sides), &ScriptNames)
+                .render(0),
+        );
     });
 
-    assert_within("python (dedicated form)", dedicated, Duration::from_micros(50));
+    assert_within(
+        "python (dedicated form)",
+        dedicated,
+        Duration::from_micros(50),
+    );
     assert_within("python (generic form)", generic, Duration::from_micros(50));
 }
 
 #[test]
-#[cfg_attr(debug_assertions, ignore = "performance budgets hold for release builds: run with cargo test --release")]
+#[cfg_attr(
+    debug_assertions,
+    ignore = "performance budgets hold for release builds: run with cargo test --release"
+)]
 fn params_schemas_of_every_registered_builtin_within_20_milliseconds() {
     // The registry computes and checks every params schema once, at registration, so the budget
     // covers building the registry and listing its schemas.
@@ -139,7 +159,10 @@ fn params_schemas_of_every_registered_builtin_within_20_milliseconds() {
 }
 
 #[test]
-#[cfg_attr(debug_assertions, ignore = "performance budgets hold for release builds: run with cargo test --release")]
+#[cfg_attr(
+    debug_assertions,
+    ignore = "performance budgets hold for release builds: run with cargo test --release"
+)]
 fn context_overhead_of_one_build_within_50_microseconds() {
     let registry = test_registry();
     let probe = record(json!({

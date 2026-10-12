@@ -1,36 +1,48 @@
 //! The `hole` feature: simple, counterbore and countersink holes drilled at sketch points along the
-//! sketch normal (docs/spec/features/hole.md).
+//! sketch normal (features/hole.md).
 //!
-//! Each point gets its own tool, the revolution of a half cross-section whose curves are tagged by
-//! role, so every tool face is named `<feature>/<role>/<point>` (naming.md section 3.6.8). The
-//! tools are cut from the body with one kernel call.
+//! Each point gets its own tool, the full revolution of a half cross-section whose curves are
+//! tagged by role, so every tool face is named `<feature>/<role>/<point>` (naming.md section
+//! 3.6.8). The tools are cut from the body with one kernel call.
 
 use std::f64::consts::{PI, TAU};
 
 use partsmith_model::{
-    Category, Expr, FeatureManifest, FieldHint, FieldUnit, Id, LINEAR_TOLERANCE, SelectionKind,
+    Category, Expr, FeatureManifest, FieldUnit, Id, LINEAR_TOLERANCE, SelectionKind,
 };
-use partsmith_naming::{ElementName, FaceSource, Generator, roles};
+use partsmith_naming::{FaceSource, Generator, roles};
 use partsmith_occt_sys::{
-    Axis, PlanarCurve, PlanarLoop, PlanarRegion, Plane, Point, Point2, Shape, SweepFace,
-    TaggedCurve, common, make_profile, revolve,
+    Axis, PlanarCurve, PlanarLoop, PlanarRegion, Plane, Point2, Shape, SweepFace, TaggedCurve,
+    common, make_profile, revolve,
 };
 use partsmith_sketch::{PointRef, PointRole};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use super::extrude::{THROUGH_ALL_MARGIN, farthest_corner, hint, options, vector};
-use crate::{
-    BodyChange, BodyOp, BodyUpdate, Bound, BuildContext, Dependencies, Feature, FeatureError,
-    FeatureOutput, FeatureWarning, IgnoredReason, Noun, OutputData, PythonCall, PythonNames,
-    PythonValue, Tool, apply_op, name_shape,
+use super::common::{
+    bodies, call, check_range, empty_selection, essential, face_name, flag, hint, is_false,
+    manifest, one_or_list, options_hint, selection_hint, solid_body, unchanged, unit_hint,
 };
+use super::extrude::farthest_corner;
+use crate::context::BuildContext;
+use crate::deps::Dependencies;
+use crate::error::{Bound, FeatureError, FeatureWarning, IgnoredReason, Noun};
+use crate::feature::Feature;
+use crate::naming::{kernel, name_shape};
+use crate::output::{BodyChange, FeatureOutput, Tool, apply_op};
+use crate::params::{BodyOp, point, vector};
+use crate::python::{PythonCall, PythonNames, PythonValue};
 
-/// Relative common volume at or below which a tool does not touch the body (spec section 3.3 step
-/// 5, the volume rule of features.md section 3.5).
+/// How far past the farthest corner of the body's bounding box a through-all hole goes, in
+/// millimeters (features/hole.md section 3.3 step 4, decision D21).
+const THROUGH_ALL_MARGIN: f64 = 1.0;
+
+/// Relative common volume at or below which a tool does not touch the body (features/hole.md
+/// section 3.3 step 5, the volume rule of features.md section 3.5).
 const VOLUME_TOLERANCE: f64 = 1e-9;
 
 /// Cuts round holes at sketch points.
+#[derive(Clone, Copy, Debug)]
 pub struct Hole;
 
 /// Params of a hole feature.
@@ -53,7 +65,7 @@ pub struct HoleParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tip_angle: Option<Expr>,
     /// Drill along the sketch normal instead of against it. Default false, omitted when false.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[serde(default, skip_serializing_if = "is_false")]
     pub reverse: bool,
 }
 
@@ -105,58 +117,63 @@ impl Feature for Hole {
     type Params = HoleParams;
 
     fn manifest() -> FeatureManifest {
-        let length = |path: &str, label: &str| FieldHint {
-            unit: Some(FieldUnit::Length),
-            ..hint(path, label, true)
-        };
-        FeatureManifest {
-            label: "Hole".to_string(),
-            category: Category::Create,
-            icon: "hole".to_string(),
-            version: 1,
-            fields: vec![
-                FieldHint {
-                    selection: Some(SelectionKind::SketchPoint),
-                    ..hint("points", "Points", true)
-                },
-                length("diameter", "Diameter"),
-                FieldHint {
-                    options: options(&[
+        manifest(
+            "Hole",
+            Category::Create,
+            "hole",
+            vec![
+                essential(selection_hint(
+                    "points",
+                    "Points",
+                    SelectionKind::SketchPoint,
+                )),
+                essential(unit_hint("diameter", "Diameter", FieldUnit::Length)),
+                essential(options_hint(
+                    "hole_type.kind",
+                    "Type",
+                    &[
                         ("simple", "Simple"),
                         ("counterbore", "Counterbore"),
                         ("countersink", "Countersink"),
-                    ]),
-                    ..hint("hole_type.kind", "Type", true)
-                },
-                length("hole_type.diameter", "Head diameter"),
-                length("hole_type.depth", "Counterbore depth"),
-                FieldHint {
-                    unit: Some(FieldUnit::Angle),
-                    ..hint("hole_type.angle", "Countersink angle", true)
-                },
-                FieldHint {
-                    options: options(&[("distance", "Depth"), ("through_all", "Through all")]),
-                    ..hint("extent.kind", "Extent", true)
-                },
-                length("extent.expr", "Depth"),
-                FieldHint {
-                    unit: Some(FieldUnit::Angle),
-                    ..hint("tip_angle", "Tip angle", false)
-                },
-                hint("reverse", "Reverse", false),
-                FieldHint {
-                    selection: Some(SelectionKind::Sketch),
-                    ..hint("sketch", "Sketch", false)
-                },
-                FieldHint {
-                    selection: Some(SelectionKind::Body),
-                    ..hint("body", "Body", false)
-                },
+                    ],
+                )),
+                essential(unit_hint(
+                    "hole_type.diameter",
+                    "Head diameter",
+                    FieldUnit::Length,
+                )),
+                essential(unit_hint(
+                    "hole_type.depth",
+                    "Counterbore depth",
+                    FieldUnit::Length,
+                )),
+                essential(unit_hint(
+                    "hole_type.angle",
+                    "Countersink angle",
+                    FieldUnit::Angle,
+                )),
+                essential(options_hint(
+                    "extent.kind",
+                    "Extent",
+                    &[("distance", "Depth"), ("through_all", "Through all")],
+                )),
+                essential(unit_hint("extent.expr", "Depth", FieldUnit::Length)),
+                unit_hint("tip_angle", "Tip angle", FieldUnit::Angle),
+                hint("reverse", "Reverse"),
+                selection_hint("sketch", "Sketch", SelectionKind::Sketch),
+                selection_hint("body", "Body", SelectionKind::Body),
             ],
-        }
+        )
     }
 
-    /// The sketch, the cut body and the expressions in the order of spec section 3.2.
+    fn validate(params: &HoleParams) -> Result<(), FeatureError> {
+        if params.points.is_empty() {
+            return Err(empty_selection(&Hole::manifest(), "points", Noun::Point));
+        }
+        Ok(())
+    }
+
+    /// The sketch, the cut body and the expressions in the order of features/hole.md section 3.2.
     fn dependencies(params: &HoleParams) -> Dependencies {
         let mut dependencies = Dependencies::default();
         dependencies.add_feature(&params.sketch, "sketch");
@@ -183,15 +200,12 @@ impl Feature for Hole {
     }
 
     /// Checks the values, builds one tool per sketch point that touches the body and cuts them
-    /// all at once (spec section 3.3).
-    fn build(params: &HoleParams, context: &BuildContext<'_>) -> Result<FeatureOutput, FeatureError> {
-        let state = context.body(&params.body)?;
-        let Some(body) = state.shape() else {
-            return Err(FeatureError::BodyEmpty {
-                body: params.body.clone(),
-                use_new: false,
-            });
-        };
+    /// all with one kernel call (features/hole.md section 3.3).
+    fn build(
+        params: &HoleParams,
+        context: &BuildContext<'_>,
+    ) -> Result<FeatureOutput, FeatureError> {
+        let (state, body) = solid_body(context, &params.body)?;
         let mut warnings = Vec::new();
         let size = HoleSize::checked(params, context, &mut warnings)?;
         let sketch = context.sketch("sketch", &params.sketch)?;
@@ -216,10 +230,7 @@ impl Feature for Hole {
             }
         }
 
-        let body_bounds = body
-            .bounding_box()
-            .map_err(|error| FeatureError::Kernel { error })?;
-        let body_volume = body.volume().map_err(|error| FeatureError::Kernel { error })?;
+        let body_volume = body.volume().map_err(kernel)?;
         let mut tools = Vec::new();
         for (point, position) in points {
             if context.is_canceled() {
@@ -228,18 +239,17 @@ impl Feature for Hole {
             let length = match size.depth {
                 Some(depth) => Some(depth),
                 None => {
-                    let farthest =
-                        farthest_corner(body_bounds.min, body_bounds.max, position, direction);
+                    let farthest = farthest_corner(body, position, direction)?;
                     (farthest > LINEAR_TOLERANCE).then(|| size.through_length(farthest))
                 }
             };
+            let frame = Frame {
+                position,
+                radial: placement.x_axis,
+                direction,
+            };
             let tool = match length {
                 Some(length) => {
-                    let frame = Frame {
-                        position,
-                        radial: placement.x_axis,
-                        direction,
-                    };
                     let tool = hole_tool(context.feature(), point, &frame, &size.section(length))?;
                     touches(body, body_volume, &tool.shape)?.then_some(tool)
                 }
@@ -254,58 +264,35 @@ impl Feature for Hole {
             }
         }
 
-        let update = if tools.is_empty() {
+        if tools.is_empty() {
             warnings.push(FeatureWarning::NoEffect {
                 body: params.body.clone(),
             });
-            BodyUpdate {
-                body: params.body.clone(),
-                shape: Some(body.clone()),
-                naming: state.naming().clone(),
-                change: BodyChange::Cut,
-            }
-        } else {
-            let (update, op_warnings) = apply_op(context, &params.body, BodyOp::Cut, tools)?;
-            warnings.extend(op_warnings);
-            update
-        };
-        Ok(FeatureOutput {
-            data: OutputData::Bodies(vec![update]),
-            warnings,
-        })
-    }
-
-    /// At least one point (spec section 3.1).
-    fn validate(params: &HoleParams) -> Result<(), FeatureError> {
-        if params.points.is_empty() {
-            return Err(FeatureError::EmptySelection {
-                field: crate::FieldRef::new("points", &Hole::manifest()),
-                noun: Noun::Point,
-            });
+            return Ok(bodies(
+                vec![unchanged(&params.body, state, BodyChange::Cut)],
+                warnings,
+            ));
         }
-        Ok(())
+        let (update, op_warnings) = apply_op(context, &params.body, BodyOp::Cut, tools)?;
+        warnings.extend(op_warnings);
+        Ok(bodies(vec![update], warnings))
     }
 
-    /// `hole(points, diameter, depth, counterbore=(d, depth), countersink=(d, angle),
-    /// tip_angle=..., reverse=True)`, without `depth` for a through-all hole (spec section 2,
-    /// Python).
+    /// `hole(points, diameter, depth, counterbore=(diameter, depth), countersink=(diameter,
+    /// angle), tip_angle=..., reverse=True)`, without `depth` for a through-all hole
+    /// (features/hole.md section 2, Python).
     fn python(params: &HoleParams, names: &dyn PythonNames) -> Option<PythonCall> {
-        let mut points = params
+        let points = params
             .points
             .iter()
             .map(|point| python_point(&params.sketch, point, names))
             .collect::<Option<Vec<_>>>()?;
-        let points = if points.len() == 1 {
-            points.remove(0)
-        } else {
-            PythonValue::List(points)
-        };
-        let mut call = PythonCall::new("hole");
-        call.positional.push(points);
-        call.positional
-            .push(PythonValue::expression(&params.diameter, names));
+        let mut positional = vec![
+            one_or_list(points),
+            PythonValue::expression(&params.diameter, names),
+        ];
         if let HoleExtent::Distance { expr } = &params.extent {
-            call.positional.push(PythonValue::expression(expr, names));
+            positional.push(PythonValue::expression(expr, names));
         }
         let pair = |first: &Expr, second: &Expr| {
             PythonValue::Tuple(vec![
@@ -313,26 +300,26 @@ impl Feature for Hole {
                 PythonValue::expression(second, names),
             ])
         };
+        let mut keywords = Vec::new();
         match &params.hole_type {
             HoleType::Simple => {}
-            HoleType::Counterbore { diameter, depth } => call
-                .keywords
-                .push(("counterbore".to_string(), pair(diameter, depth))),
-            HoleType::Countersink { diameter, angle } => call
-                .keywords
-                .push(("countersink".to_string(), pair(diameter, angle))),
+            HoleType::Counterbore { diameter, depth } => {
+                keywords.push(("counterbore".to_string(), pair(diameter, depth)));
+            }
+            HoleType::Countersink { diameter, angle } => {
+                keywords.push(("countersink".to_string(), pair(diameter, angle)));
+            }
         }
         if let Some(tip_angle) = &params.tip_angle {
-            call.keywords.push((
+            keywords.push((
                 "tip_angle".to_string(),
                 PythonValue::expression(tip_angle, names),
             ));
         }
         if params.reverse {
-            call.keywords
-                .push(("reverse".to_string(), PythonValue::Bool(true)));
+            keywords.push(flag("reverse"));
         }
-        Some(call)
+        Some(call("hole", positional, keywords))
     }
 }
 
@@ -353,14 +340,14 @@ fn python_point(sketch: &Id, point: &PointRef, names: &dyn PythonNames) -> Optio
 enum Head {
     /// No head.
     Simple,
-    /// A counterbore of this radius and depth.
+    /// A counterbore of this radius whose floor is at `depth`.
     Counterbore {
         /// Radius of the counterbore.
         radius: f64,
         /// Depth of the counterbore floor.
         depth: f64,
     },
-    /// A countersink of this top radius narrowing to the bore at `depth`.
+    /// A countersink of this top radius whose cone meets the bore at `depth`.
     Countersink {
         /// Radius at the top of the cone.
         radius: f64,
@@ -383,8 +370,8 @@ struct HoleSize {
 }
 
 impl HoleSize {
-    /// Evaluates the values and checks them in the order of spec section 3.3 step 2. A tip angle
-    /// on a through-all hole adds an `Ignored` warning and is not evaluated.
+    /// Evaluates the values and checks them in the order of features/hole.md section 3.3 step 2.
+    /// A tip angle on a through-all hole adds an `Ignored` warning and is not evaluated.
     fn checked(
         params: &HoleParams,
         context: &BuildContext<'_>,
@@ -407,42 +394,28 @@ impl HoleSize {
             HoleExtent::ThroughAll => None,
         };
 
-        let check = |field: &str, kind, value, bound, bound_name: Option<&str>| {
-            let ok = match bound {
-                Bound::GreaterThan(limit) => value > limit,
-                Bound::LessThan(limit) => value < limit,
-                Bound::AtLeast(limit) => value >= limit,
-                Bound::AtMost(limit) => value <= limit,
-            };
-            if ok {
-                Ok(())
-            } else {
-                Err(FeatureError::OutOfRange {
-                    field: context.field(field),
-                    kind,
-                    value,
-                    bound,
-                    bound_name: bound_name.map(str::to_string),
-                })
-            }
+        let length = |field: &str, value: f64, bound: Bound, bound_name: Option<&str>| {
+            check_range(context, field, FieldUnit::Length, value, bound, bound_name)
         };
-        let length = FieldUnit::Length;
-        let angle = FieldUnit::Angle;
-        check("diameter", length, diameter, Bound::GreaterThan(0.0), None)?;
+        let angle = |field: &str, value: f64, bound: Bound| {
+            check_range(context, field, FieldUnit::Angle, value, bound, None)
+        };
+        length("diameter", diameter, Bound::GreaterThan(0.0), None)?;
+        let wider = |head_diameter: f64| {
+            length(
+                "hole_type.diameter",
+                head_diameter,
+                Bound::GreaterThan(diameter),
+                Some("the hole diameter"),
+            )
+        };
         let head = match (&params.hole_type, head) {
             (HoleType::Counterbore { .. }, Some((head_diameter, head_depth))) => {
-                check(
-                    "hole_type.diameter",
-                    length,
-                    head_diameter,
-                    Bound::GreaterThan(diameter),
-                    Some("the hole diameter"),
-                )?;
-                check("hole_type.depth", length, head_depth, Bound::GreaterThan(0.0), None)?;
+                wider(head_diameter)?;
+                length("hole_type.depth", head_depth, Bound::GreaterThan(0.0), None)?;
                 if let Some(depth) = depth {
-                    check(
+                    length(
                         "hole_type.depth",
-                        length,
                         head_depth,
                         Bound::LessThan(depth),
                         Some("the hole depth"),
@@ -454,23 +427,16 @@ impl HoleSize {
                 }
             }
             (HoleType::Countersink { .. }, Some((head_diameter, head_angle))) => {
-                check(
-                    "hole_type.diameter",
-                    length,
-                    head_diameter,
-                    Bound::GreaterThan(diameter),
-                    Some("the hole diameter"),
-                )?;
-                check("hole_type.angle", angle, head_angle, Bound::GreaterThan(0.0), None)?;
-                check("hole_type.angle", angle, head_angle, Bound::LessThan(PI), None)?;
+                wider(head_diameter)?;
+                angle("hole_type.angle", head_angle, Bound::GreaterThan(0.0))?;
+                angle("hole_type.angle", head_angle, Bound::LessThan(PI))?;
                 let slope = (head_angle / 2.0).tan();
                 let sink = (head_diameter - diameter) / 2.0 / slope;
                 if let Some(depth) = depth
                     && sink >= depth
                 {
-                    check(
+                    length(
                         "hole_type.diameter",
-                        length,
                         head_diameter,
                         Bound::LessThan(diameter + 2.0 * depth * slope),
                         Some("the largest that fits the hole depth"),
@@ -484,7 +450,7 @@ impl HoleSize {
             _ => Head::Simple,
         };
         if let Some(depth) = depth {
-            check("extent.expr", length, depth, Bound::GreaterThan(0.0), None)?;
+            length("extent.expr", depth, Bound::GreaterThan(0.0), None)?;
         }
         let tip = match (&params.tip_angle, depth) {
             (None, _) => None,
@@ -497,8 +463,8 @@ impl HoleSize {
             }
             (Some(expr), Some(_)) => {
                 let tip = context.eval_angle("tip_angle", expr)?;
-                check("tip_angle", angle, tip, Bound::GreaterThan(0.0), None)?;
-                check("tip_angle", angle, tip, Bound::LessThan(PI), None)?;
+                angle("tip_angle", tip, Bound::GreaterThan(0.0))?;
+                angle("tip_angle", tip, Bound::LessThan(PI))?;
                 Some(tip)
             }
         };
@@ -519,16 +485,17 @@ impl HoleSize {
     }
 
     /// The length of a through-all hole at a point whose farthest body corner is `farthest` along
-    /// the drilling direction: 1 mm past it (spec section 3.3 step 4), and at least 1 mm past the
-    /// head, so a head deeper than the body still leaves a bore that closes the cross-section.
+    /// the drilling direction: 1 mm past it (features/hole.md section 3.3 step 4), and at least
+    /// 1 mm past the head, so a head deeper than the body still leaves a bore that closes the
+    /// cross-section.
     fn through_length(&self, farthest: f64) -> f64 {
         (farthest + THROUGH_ALL_MARGIN).max(self.head_depth() + THROUGH_ALL_MARGIN)
     }
 
     /// The half cross-section of a hole whose bore ends at `length`, as the end points of its
     /// segments in (radius, depth) coordinates, each with the role of the segment that ends there.
-    /// It starts at the origin, runs out along the entry, down the head and bore, in along the end,
-    /// and back up the axis.
+    /// It starts at the origin, runs out along the entry, down the head and the bore, in along the
+    /// end, and back up the axis.
     fn section(&self, length: f64) -> Vec<(Role, [f64; 2])> {
         let bore = self.radius;
         let mut corners = Vec::new();
@@ -576,7 +543,7 @@ enum Role {
 }
 
 impl Role {
-    /// Every role, in tag order: a curve's tag is its role's position here.
+    /// Every role in tag order: the tag of a curve is the position of its role here.
     const ALL: [Role; 8] = [
         Role::Axis,
         Role::Entry,
@@ -590,8 +557,16 @@ impl Role {
 
     /// The tag of curves with this role.
     fn tag(self) -> u32 {
-        // The position always exists and is below 8.
-        Role::ALL.iter().position(|role| *role == self).unwrap_or(0) as u32
+        match self {
+            Role::Axis => 0,
+            Role::Entry => 1,
+            Role::Counterbore => 2,
+            Role::CounterboreFloor => 3,
+            Role::Countersink => 4,
+            Role::Bore => 5,
+            Role::Bottom => 6,
+            Role::Tip => 7,
+        }
     }
 
     /// The role of a curve tag.
@@ -619,7 +594,8 @@ impl Role {
 struct Frame {
     /// The sketch point in world space, on the axis of the hole.
     position: [f64; 3],
-    /// The unit direction of increasing radius in the cross-section: the sketch x axis.
+    /// The unit direction of increasing radius in the cross-section: the sketch x axis, so the
+    /// seam of the tool lies on the same side for every hole.
     radial: [f64; 3],
     /// The unit drilling direction.
     direction: [f64; 3],
@@ -655,15 +631,14 @@ fn hole_tool(
     frame: &Frame,
     section: &[(Role, [f64; 2])],
 ) -> Result<Tool, FeatureError> {
-    let kernel = |error| FeatureError::Kernel { error };
     let mut curves = Vec::with_capacity(section.len());
     let mut start = [0.0, 0.0];
     for &(role, end) in section {
         curves.push(TaggedCurve {
             tag: role.tag(),
             curve: PlanarCurve::Line {
-                start: point2(start),
-                end: point2(end),
+                start: plane_point(start),
+                end: plane_point(end),
             },
         });
         start = end;
@@ -683,14 +658,10 @@ fn hole_tool(
                 SweepFace::Lateral { tag } => Role::of_tag(*tag).and_then(Role::word),
                 SweepFace::StartCap | SweepFace::EndCap => None,
             }
-            .ok_or_else(|| FeatureError::Internal {
-                message: format!("the hole tool has a face without a role: {face:?}"),
+            .ok_or_else(|| {
+                FeatureError::internal(format!("the hole tool has a face without a role: {face:?}"))
             })?;
-            ElementName::generated(feature, word, Some(Generator::Sketch(&point_text)))
-                .map(FaceSource::New)
-                .map_err(|error| FeatureError::Internal {
-                    message: format!("naming a hole face failed: {error}"),
-                })
+            face_name(feature, word, Some(Generator::Sketch(&point_text))).map(FaceSource::New)
         })
         .collect::<Result<Vec<_>, FeatureError>>()?;
     let naming = name_shape(&sweep.shape, faces, &[])?;
@@ -701,9 +672,8 @@ fn hole_tool(
 }
 
 /// True when the tool overlaps the body: their common volume is more than a billionth of the
-/// body's (spec section 3.3 step 5). Disjoint bounding boxes need no kernel boolean.
+/// body's (features/hole.md section 3.3 step 5). Disjoint bounding boxes need no kernel boolean.
 fn touches(body: &Shape, body_volume: f64, tool: &Shape) -> Result<bool, FeatureError> {
-    let kernel = |error| FeatureError::Kernel { error };
     let body_bounds = body.bounding_box().map_err(kernel)?;
     let tool_bounds = tool.bounding_box().map_err(kernel)?;
     let overlap = (0..3).all(|axis| {
@@ -718,76 +688,70 @@ fn touches(body: &Shape, body_volume: f64, tool: &Shape) -> Result<bool, Feature
     Ok(volume > VOLUME_TOLERANCE * body_volume)
 }
 
-/// The kernel point of world coordinates.
-fn point([x, y, z]: [f64; 3]) -> Point {
-    Point::new(x, y, z)
-}
-
-/// The kernel plane point of plane coordinates.
-fn point2([x, y]: [f64; 2]) -> Point2 {
+/// The kernel point of plane coordinates.
+fn plane_point([x, y]: [f64; 2]) -> Point2 {
     Point2 { x, y }
 }
 
 #[cfg(test)]
 mod tests {
-    use partsmith_model::Units;
-    use partsmith_sketch::RegionRef;
+    use partsmith_occt_sys::{GeometryKind, Point, SubShapeKind};
     use serde_json::json;
 
     use super::*;
-    use crate::Registry;
+    use crate::registry::Registry;
+    use crate::test_support::{ScriptNames, assert_point, id, run};
 
-    /// Script names with every point entity `e-p<n>` as `point_<n>`, `e-1` as `line_1` and
-    /// `e-5` as `circle_1`.
-    struct Names;
+    /// `BOX-BELOW`: spans [-20,-20,-10]-[20,20,0], top face at z = 0.
+    fn box_below() -> serde_json::Value {
+        json!({"id": "f-box1", "type": "box", "body": "b-1", "size": ["40", "40", "10"], "position": ["0", "0", "-10"], "op": "new"})
+    }
 
-    impl PythonNames for Names {
-        fn units(&self) -> Units {
-            Units::Mm
-        }
-
-        fn body(&self, _body: &Id) -> Option<String> {
-            Some("block".to_string())
-        }
-
-        fn feature(&self, _feature: &Id) -> Option<String> {
-            Some("sketch_1".to_string())
-        }
-
-        fn entity(&self, _sketch: &Id, entity: &Id) -> Option<String> {
-            match entity.as_str() {
-                "e-1" => Some("line_1".to_string()),
-                "e-5" => Some("circle_1".to_string()),
-                other => other
-                    .strip_prefix("e-p")
-                    .map(|number| format!("point_{number}")),
-            }
-        }
-
-        fn parameter(&self, _name: &str) -> Option<String> {
-            None
-        }
-
-        fn regions(&self, _sketch: &Id) -> Option<Vec<RegionRef>> {
-            None
-        }
-
-        fn default_op(&self, _body: &Id) -> BodyOp {
-            BodyOp::New
-        }
+    /// `SK-PTS`: the points `e-p1` (0, 0), `e-p2` (10, 10) and `e-p3` (100, 0) on XY.
+    fn points_sketch() -> serde_json::Value {
+        json!({"id": "f-sk1", "type": "sketch", "plane": {"kind": "origin", "plane": "XY"}, "entities": [
+            {"id": "e-p1", "type": "point", "position": [0, 0]},
+            {"id": "e-p2", "type": "point", "position": [10, 10]},
+            {"id": "e-p3", "type": "point", "position": [100, 0]}
+        ]})
     }
 
     /// `HOLE(points, extra)` of the spec: diameter 6, plus `extra` members.
-    fn params(points: serde_json::Value, extra: serde_json::Value) -> HoleParams {
-        let mut record = json!({"body": "b-1", "sketch": "f-sk1", "points": points, "diameter": "6"});
+    fn record(points: serde_json::Value, extra: serde_json::Value) -> serde_json::Value {
+        let mut record = json!({"id": "f-hole1", "type": "hole", "body": "b-1", "sketch": "f-sk1", "points": points, "diameter": "6"});
         if let (Some(target), Some(source)) = (record.as_object_mut(), extra.as_object()) {
             target.extend(source.clone());
         }
+        record
+    }
+
+    fn params(record: serde_json::Value) -> HoleParams {
         serde_json::from_value(record).expect("the hole params are valid")
     }
 
-    fn python(params: &HoleParams) -> Option<String> {
-        Hole::python(params, &Names).map(|call| call.render(0))
+    fn through_all() -> serde_json::Value {
+        json!({"extent": {"kind": "through_all"}})
+    }
+
+    /// Script names with the points `e-p1` and `e-p2` as `point_1` and `point_2`, `e-1` as
+    /// `line_1` and `e-5` as `circle_1`.
+    fn names() -> ScriptNames {
+        let mut names = ScriptNames::default();
+        for (entity, variable) in [
+            ("e-p1", "point_1"),
+            ("e-p2", "point_2"),
+            ("e-1", "line_1"),
+            ("e-5", "circle_1"),
+        ] {
+            names
+                .entities
+                .insert((id("f-sk1"), id(entity)), variable.to_string());
+        }
+        names
+    }
+
+    fn python(record: serde_json::Value) -> Option<String> {
+        Hole::python(&params(record), &names()).map(|call| call.render(0))
     }
 
     fn size(head: Head, depth: Option<f64>, tip: Option<f64>) -> HoleSize {
@@ -808,10 +772,10 @@ mod tests {
 
     #[test]
     fn a_simple_type_is_omitted() {
-        let hole = params(
+        let hole = params(record(
             json!(["e-p1"]),
             json!({"hole_type": {"kind": "simple"}, "extent": {"kind": "through_all"}}),
-        );
+        ));
 
         let text = serde_json::to_value(&hole).expect("serializes");
 
@@ -821,14 +785,14 @@ mod tests {
 
     #[test]
     fn dependencies_list_expressions_in_spec_order() {
-        let hole = params(
+        let hole = params(record(
             json!(["e-p1"]),
             json!({
                 "hole_type": {"kind": "countersink", "diameter": "12", "angle": "90 deg"},
                 "extent": {"kind": "distance", "expr": "8"},
                 "tip_angle": "118 deg"
             }),
-        );
+        ));
 
         let uses: Vec<(String, FieldUnit)> = Hole::dependencies(&hole)
             .expressions
@@ -850,20 +814,18 @@ mod tests {
 
     #[test]
     fn dependencies_read_the_sketch_and_write_the_body() {
-        let dependencies =
-            Hole::dependencies(&params(json!(["e-p1"]), json!({"extent": {"kind": "through_all"}})));
+        let dependencies = Hole::dependencies(&params(record(json!(["e-p1"]), through_all())));
 
-        assert_eq!(dependencies.features[0].id.as_str(), "f-sk1");
+        assert_eq!(dependencies.features[0].id, id("f-sk1"));
         assert_eq!(dependencies.features[0].field, "sketch");
-        assert_eq!(dependencies.bodies_written[0].id.as_str(), "b-1");
+        assert_eq!(dependencies.bodies_written[0].id, id("b-1"));
         assert!(dependencies.bodies_read.is_empty());
     }
 
     #[test]
     fn validate_rejects_no_points() {
-        let hole = params(json!([]), json!({"extent": {"kind": "through_all"}}));
-
-        let error = Hole::validate(&hole).expect_err("a hole needs a point");
+        let error = Hole::validate(&params(record(json!([]), through_all())))
+            .expect_err("a hole needs a point");
 
         assert_eq!(error.to_string(), "Select at least one point for Points.");
     }
@@ -965,55 +927,155 @@ mod tests {
     }
 
     #[test]
-    fn python_writes_the_spec_example() {
-        let hole = params(
-            json!(["e-p1", "e-p2"]),
-            json!({
-                "diameter": "3.4 mm",
-                "hole_type": {"kind": "counterbore", "diameter": "6.5 mm", "depth": "3.5 mm"},
-                "extent": {"kind": "through_all"}
-            }),
+    fn a_blind_hole_with_a_tip_ends_at_its_apex() {
+        let document = run(
+            &["b-1"],
+            &[
+                box_below(),
+                points_sketch(),
+                record(
+                    json!(["e-p1"]),
+                    json!({"extent": {"kind": "distance", "expr": "5"}, "tip_angle": "118 deg"}),
+                ),
+            ],
+        );
+
+        document.assert_ok("f-hole1");
+        document.assert_volume("b-1", 15841.639397);
+        assert_eq!(
+            document.face("b-1", "f-hole1/tip/e-p1").kind,
+            GeometryKind::Cone
+        );
+        let apex = document.element("b-1", "vertex(f-hole1/tip/e-p1)", SubShapeKind::Vertex);
+        assert_point("tip apex", apex.centroid, [0.0, 0.0, -6.802582]);
+    }
+
+    #[test]
+    fn a_counterbore_through_all_names_every_wall() {
+        let document = run(
+            &["b-1"],
+            &[
+                box_below(),
+                points_sketch(),
+                record(
+                    json!(["e-p1"]),
+                    json!({"hole_type": {"kind": "counterbore", "diameter": "11", "depth": "4"}, "extent": {"kind": "through_all"}}),
+                ),
+            ],
+        );
+
+        document.assert_ok("f-hole1");
+        document.assert_volume("b-1", 15450.221286);
+        assert_eq!(
+            document.faces_named("b-1", "f-hole1/"),
+            [
+                "f-hole1/bore/e-p1",
+                "f-hole1/counterbore-floor/e-p1",
+                "f-hole1/counterbore/e-p1"
+            ]
+        );
+    }
+
+    #[test]
+    fn a_point_off_the_body_is_left_out_with_a_warning() {
+        let document = run(
+            &["b-1"],
+            &[
+                box_below(),
+                points_sketch(),
+                record(json!(["e-p3"]), through_all()),
+            ],
         );
 
         assert_eq!(
-            python(&hole),
+            document.warning_codes("f-hole1"),
+            ["hole_misses_body", "no_effect"]
+        );
+        document.assert_unchanged_by("f-hole1", "b-1");
+    }
+
+    #[test]
+    fn a_tip_on_a_through_hole_is_ignored() {
+        let document = run(
+            &["b-1"],
+            &[
+                box_below(),
+                points_sketch(),
+                record(
+                    json!(["e-p1"]),
+                    json!({"extent": {"kind": "through_all"}, "tip_angle": "118 deg"}),
+                ),
+            ],
+        );
+
+        assert_eq!(document.warning_codes("f-hole1"), ["ignored"]);
+        document.assert_volume("b-1", 15717.256661);
+    }
+
+    #[test]
+    fn a_countersink_deeper_than_the_hole_names_the_largest_head() {
+        let document = run(
+            &["b-1"],
+            &[
+                box_below(),
+                points_sketch(),
+                record(
+                    json!(["e-p1"]),
+                    json!({"hole_type": {"kind": "countersink", "diameter": "20", "angle": "90 deg"}, "extent": {"kind": "distance", "expr": "5"}}),
+                ),
+            ],
+        );
+
+        assert_eq!(
+            document.messages("f-hole1"),
+            [
+                "Head diameter must be less than the largest that fits the hole depth (16 mm), but it is 20 mm. Use a value less than 16 mm."
+            ]
+        );
+    }
+
+    #[test]
+    fn python_writes_the_spec_example() {
+        assert_eq!(
+            python(record(
+                json!(["e-p1", "e-p2"]),
+                json!({
+                    "diameter": "3.4 mm",
+                    "hole_type": {"kind": "counterbore", "diameter": "6.5 mm", "depth": "3.5 mm"},
+                    "extent": {"kind": "through_all"}
+                }),
+            )),
             Some("hole([point_1, point_2], 3.4*mm, counterbore=(6.5*mm, 3.5*mm))".to_string())
         );
     }
 
     #[test]
     fn python_writes_one_point_alone_with_its_role_and_a_depth() {
-        let hole = params(
-            json!(["e-1.start"]),
-            json!({"extent": {"kind": "distance", "expr": "8 mm"}, "tip_angle": "118 deg", "reverse": true}),
-        );
-
         assert_eq!(
-            python(&hole),
+            python(record(
+                json!(["e-1.start"]),
+                json!({"extent": {"kind": "distance", "expr": "8 mm"}, "tip_angle": "118 deg", "reverse": true}),
+            )),
             Some("hole(line_1.start, 6, 8*mm, tip_angle=118*deg, reverse=True)".to_string())
         );
     }
 
     #[test]
     fn python_writes_a_countersink_pair() {
-        let hole = params(
-            json!(["e-5.center"]),
-            json!({
-                "hole_type": {"kind": "countersink", "diameter": "12", "angle": "90 deg"},
-                "extent": {"kind": "through_all"}
-            }),
-        );
-
         assert_eq!(
-            python(&hole),
+            python(record(
+                json!(["e-5.center"]),
+                json!({
+                    "hole_type": {"kind": "countersink", "diameter": "12", "angle": "90 deg"},
+                    "extent": {"kind": "through_all"}
+                }),
+            )),
             Some("hole(circle_1.center, 6, countersink=(12, 90*deg))".to_string())
         );
     }
 
     #[test]
     fn python_needs_every_point_variable() {
-        let hole = params(json!(["origin"]), json!({"extent": {"kind": "through_all"}}));
-
-        assert_eq!(python(&hole), None);
+        assert_eq!(python(record(json!(["origin"]), through_all())), None);
     }
 }

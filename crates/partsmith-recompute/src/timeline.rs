@@ -93,14 +93,11 @@ impl<'a> Timeline<'a> {
         let mut steps = Vec::with_capacity(document.features.len());
         let mut nodes = Vec::with_capacity(document.features.len());
         for (position, record) in document.features.iter().enumerate() {
-            let validation = validations.check(registry, record).and_then(|valid| {
-                let feature =
-                    registry
-                        .get(&record.kind)
-                        .ok_or_else(|| FeatureError::UnknownType {
-                            type_name: record.kind.clone(),
-                        })?;
-                Ok((feature, valid))
+            let validation = validations.check(registry, record).map(|valid| {
+                let feature = registry.get(&record.kind).expect(
+                    "validation passed for this type on this registry, which never changes, so the type is registered",
+                );
+                (feature, valid)
             });
             let mut node = Node {
                 feature: record.id.clone(),
@@ -280,22 +277,27 @@ impl<'a> Linker<'a> {
 /// The number of active candidates (recompute.md section 3.1 step 3): the records up to and
 /// including the stop point when it names a record, else the records before the rollback marker
 /// when it names a record, else all records; with an `unknown_stop` message for each of the two
-/// that is set but names no record.
+/// that is set but names no record, worded after where the run then stops.
 fn active_end(
     document: &Document,
     positions: &BTreeMap<&Id, usize>,
     stop_at: Option<&Id>,
 ) -> (usize, Vec<Message>) {
+    let rollback_position = document
+        .rollback
+        .as_ref()
+        .and_then(|rollback| positions.get(rollback).copied());
     let mut messages = Vec::new();
     if let Some(stop_at) = stop_at {
-        match positions.get(stop_at) {
-            Some(&position) => return (position + 1, messages),
-            None => messages.push(Message::unknown_stop(stop_at)),
+        match (positions.get(stop_at), rollback_position) {
+            (Some(&position), _) => return (position + 1, messages),
+            (None, Some(_)) => messages.push(Message::unknown_stop_before_rollback(stop_at)),
+            (None, None) => messages.push(Message::unknown_stop(stop_at)),
         }
     }
     if let Some(rollback) = &document.rollback {
-        match positions.get(rollback) {
-            Some(&position) => return (position, messages),
+        match rollback_position {
+            Some(position) => return (position, messages),
             None => messages.push(Message::unknown_stop(rollback)),
         }
     }
@@ -470,12 +472,38 @@ mod tests {
         let timeline = prepare(&registry, &document, Some(&stop));
 
         assert_eq!(kinds(&timeline), ["active", "rolled_back"]);
-        let codes: Vec<&str> = timeline
+        let messages: Vec<(&str, &str)> = timeline
             .messages
             .iter()
-            .map(|message| message.code)
+            .map(|message| (message.code, message.text.as_str()))
             .collect();
-        assert_eq!(codes, ["unknown_stop"]);
+        assert_eq!(
+            messages,
+            [(
+                "unknown_stop",
+                "The preview point 'f-nope' is not in this document, so the timeline was rebuilt up to the rollback marker."
+            )]
+        );
+    }
+
+    #[test]
+    fn an_unknown_stop_point_without_a_rollback_runs_every_record() {
+        let registry = registry();
+        let document = document(json!([datum("f-1", "1"), datum("f-2", "1")]));
+        let stop = id("f-nope");
+
+        let timeline = prepare(&registry, &document, Some(&stop));
+
+        assert_eq!(kinds(&timeline), ["active", "active"]);
+        let texts: Vec<&str> = timeline
+            .messages
+            .iter()
+            .map(|message| message.text.as_str())
+            .collect();
+        assert_eq!(
+            texts,
+            ["The preview or rollback point 'f-nope' is not in this document, so the whole timeline was rebuilt."]
+        );
     }
 
     #[test]

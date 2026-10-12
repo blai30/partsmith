@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use partsmith_features::{Dependencies, FeatureError, Registry};
-use partsmith_model::{Document, FeatureRecord, Id};
+use partsmith_model::FeatureRecord;
 use serde_json::{Map, Value};
 
 use crate::key::params_text;
@@ -52,53 +52,67 @@ fn check(registry: &Registry, record: &FeatureRecord) -> Checked {
     }))
 }
 
-/// Validation outcomes memoized per feature id and record content, so unchanged records are not
-/// parsed again. One per `Recompute`, whose registry never changes.
+/// Validation outcomes memoized per record content, so unchanged records are not parsed again,
+/// even when several documents use the same feature ids. One per `Recompute`, whose registry
+/// never changes.
 #[derive(Debug, Default)]
 pub(crate) struct Validations {
-    /// The latest outcome for each feature id, with the content it was computed from.
-    entries: BTreeMap<Id, Memo>,
+    /// The outcome for each record content (see [`content_hash`]).
+    entries: BTreeMap<[u8; 32], Memo>,
+    /// Number of the current (or latest) pass over a document.
+    pass: u64,
 }
 
 /// One memoized outcome.
 #[derive(Debug)]
 struct Memo {
-    /// The record type the outcome was computed for.
-    kind: String,
-    /// The params, in their stored order, the outcome was computed for.
-    params: Map<String, Value>,
     /// The outcome.
     checked: Checked,
+    /// The pass that last used it.
+    last_use: u64,
 }
 
 impl Validations {
-    /// The validation outcome of `record`, computed only when its type or params changed since
-    /// the last time a record with its id was checked.
+    /// Starts a pass over a document: outcomes looked up from now on count as used by it.
+    pub(crate) fn begin_pass(&mut self) {
+        self.pass += 1;
+    }
+
+    /// The validation outcome of `record`, computed only when no record with the same id, type
+    /// and params was checked before.
     pub(crate) fn check(&mut self, registry: &Registry, record: &FeatureRecord) -> Checked {
-        if let Some(memo) = self.entries.get(&record.id)
-            && memo.kind == record.kind
-            && same_params(&memo.params, &record.params)
-        {
+        let content = content_hash(record);
+        if let Some(memo) = self.entries.get_mut(&content) {
+            memo.last_use = self.pass;
             return memo.checked.clone();
         }
         let checked = check(registry, record);
         self.entries.insert(
-            record.id.clone(),
+            content,
             Memo {
-                kind: record.kind.clone(),
-                params: record.params.clone(),
                 checked: checked.clone(),
+                last_use: self.pass,
             },
         );
         checked
     }
 
-    /// When more than `limit` outcomes are kept, keeps only those of `document`'s records.
-    pub(crate) fn prune(&mut self, limit: usize, document: &Document) {
-        if self.entries.len() > limit {
-            let current: BTreeSet<&Id> =
-                document.features.iter().map(|record| &record.id).collect();
-            self.entries.retain(|feature, _| current.contains(feature));
+    /// While more than `limit` outcomes are kept, drops the one whose last use is oldest (the
+    /// smaller content hash first on ties) among those the latest pass did not use.
+    pub(crate) fn prune(&mut self, limit: usize) {
+        let excess = self.entries.len().saturating_sub(limit);
+        if excess == 0 {
+            return;
+        }
+        let mut unused: Vec<(u64, [u8; 32])> = self
+            .entries
+            .iter()
+            .filter(|(_, memo)| memo.last_use != self.pass)
+            .map(|(content, memo)| (memo.last_use, *content))
+            .collect();
+        unused.sort_unstable();
+        for (_, content) in unused.into_iter().take(excess) {
+            self.entries.remove(&content);
         }
     }
 
@@ -109,16 +123,14 @@ impl Validations {
     }
 }
 
-/// True when two params maps have equal keys in the same order with equal values. The order
-/// matters because the unknown keys keep it.
-fn same_params(left: &Map<String, Value>, right: &Map<String, Value>) -> bool {
-    left.len() == right.len()
-        && left
-            .iter()
-            .zip(right)
-            .all(|((left_key, left_value), (right_key, right_value))| {
-                left_key == right_key && left_value == right_value
-            })
+/// The BLAKE3 hash of what a record's validation outcome is computed from: its id, its type and
+/// its params in stored order (the order matters because the unknown keys keep it). Names and
+/// suppression are not part of it.
+fn content_hash(record: &FeatureRecord) -> [u8; 32] {
+    let mut hasher = blake3::Hasher::new();
+    serde_json::to_writer(&mut hasher, &(&record.id, &record.kind, &record.params))
+        .expect("ids, strings and JSON values always serialize, and a hasher accepts every write");
+    *hasher.finalize().as_bytes()
 }
 
 #[cfg(test)]
@@ -206,7 +218,42 @@ mod tests {
         let checked = validations.check(&registry, &edited).expect("valid");
 
         assert_eq!(checked.params_text, r#"{"offset":"2"}"#);
-        assert_eq!(validations.len(), 1);
+        assert_eq!(validations.len(), 2);
+    }
+
+    #[test]
+    fn documents_that_share_ids_keep_their_outcomes() {
+        let registry = registry();
+        let mut validations = Validations::default();
+        let in_first = record(json!({"id": "f-000000000001", "type": "test_datum", "offset": "1"}));
+        let in_second =
+            record(json!({"id": "f-000000000001", "type": "test_datum", "offset": "2"}));
+
+        validations.begin_pass();
+        let first = validations.check(&registry, &in_first).expect("valid");
+        validations.begin_pass();
+        let second = validations.check(&registry, &in_second).expect("valid");
+        validations.begin_pass();
+        let first_again = validations.check(&registry, &in_first).expect("valid");
+        validations.begin_pass();
+        let second_again = validations.check(&registry, &in_second).expect("valid");
+
+        assert!(Arc::ptr_eq(&first, &first_again));
+        assert!(Arc::ptr_eq(&second, &second_again));
+    }
+
+    #[test]
+    fn records_with_other_ids_are_checked_on_their_own() {
+        let registry = registry();
+        let mut validations = Validations::default();
+        let one = record(json!({"id": "f-1", "type": "test_datum", "offset": "1"}));
+        let other = record(json!({"id": "f-2", "type": "test_datum", "offset": "1"}));
+
+        let first = validations.check(&registry, &one).expect("valid");
+        let second = validations.check(&registry, &other).expect("valid");
+
+        assert!(!Arc::ptr_eq(&first, &second));
+        assert_eq!(validations.len(), 2);
     }
 
     #[test]
@@ -237,33 +284,88 @@ mod tests {
         assert!(checked.is_err());
     }
 
-    #[test]
-    fn pruning_keeps_the_current_document_once_over_the_limit() {
-        let registry = registry();
-        let mut validations = Validations::default();
-        let old = record(json!({"id": "f-old", "type": "test_datum", "offset": "1"}));
-        let current = document(json!([{"id": "f-new", "type": "test_datum", "offset": "1"}]));
-        validations.check(&registry, &old).expect("valid");
-        validations
-            .check(&registry, &current.features[0])
-            .expect("valid");
-
-        validations.prune(2, &current);
-        assert_eq!(validations.len(), 2);
-        validations.prune(1, &current);
-        assert_eq!(validations.len(), 1);
+    /// Checks a `test_datum` record with this id in a new pass.
+    fn check_in_pass(validations: &mut Validations, registry: &Registry, feature: &str) -> Checked {
+        validations.begin_pass();
+        validations.check(
+            registry,
+            &record(json!({"id": feature, "type": "test_datum", "offset": "1"})),
+        )
     }
 
     #[test]
-    fn params_compare_by_order_and_value() {
-        let left = json!({"a": 1, "b": {"x": 1, "y": 2}});
-        let same = json!({"a": 1, "b": {"y": 2, "x": 1}});
-        let reordered = json!({"b": {"x": 1, "y": 2}, "a": 1});
-        let changed = json!({"a": 2, "b": {"x": 1, "y": 2}});
-        let as_map = |value: &Value| value.as_object().expect("an object").clone();
+    fn pruning_drops_the_least_recently_used_outcomes_first() {
+        let registry = registry();
+        let mut validations = Validations::default();
+        let oldest = check_in_pass(&mut validations, &registry, "f-1").expect("valid");
+        check_in_pass(&mut validations, &registry, "f-2").expect("valid");
+        check_in_pass(&mut validations, &registry, "f-3").expect("valid");
 
-        assert!(same_params(&as_map(&left), &as_map(&same)));
-        assert!(!same_params(&as_map(&left), &as_map(&reordered)));
-        assert!(!same_params(&as_map(&left), &as_map(&changed)));
+        validations.prune(2);
+
+        assert_eq!(validations.len(), 2);
+        let checked_again = check_in_pass(&mut validations, &registry, "f-1").expect("valid");
+        assert!(!Arc::ptr_eq(&oldest, &checked_again));
+    }
+
+    #[test]
+    fn pruning_keeps_every_outcome_the_latest_pass_used() {
+        let registry = registry();
+        let mut validations = Validations::default();
+        let current = document(json!([
+            {"id": "f-1", "type": "test_datum", "offset": "1"},
+            {"id": "f-2", "type": "test_datum", "offset": "1"}
+        ]));
+        check_in_pass(&mut validations, &registry, "f-old").expect("valid");
+        validations.begin_pass();
+        for record in &current.features {
+            validations.check(&registry, record).expect("valid");
+        }
+
+        validations.prune(1);
+
+        assert_eq!(validations.len(), 2);
+    }
+
+    #[test]
+    fn pruning_within_the_limit_keeps_everything() {
+        let registry = registry();
+        let mut validations = Validations::default();
+        check_in_pass(&mut validations, &registry, "f-1").expect("valid");
+        check_in_pass(&mut validations, &registry, "f-2").expect("valid");
+
+        validations.prune(2);
+
+        assert_eq!(validations.len(), 2);
+    }
+
+    #[test]
+    fn content_hashes_follow_id_type_and_params_in_stored_order() {
+        let hash = |value: serde_json::Value| content_hash(&record(value));
+        let original = hash(json!({"id": "f-1", "type": "test_datum", "offset": "1", "a": 1, "b": 2}));
+
+        assert_eq!(
+            original,
+            hash(json!({
+                "id": "f-1", "type": "test_datum", "name": "Top", "suppressed": true,
+                "offset": "1", "a": 1, "b": 2
+            }))
+        );
+        assert_ne!(
+            original,
+            hash(json!({"id": "f-2", "type": "test_datum", "offset": "1", "a": 1, "b": 2}))
+        );
+        assert_ne!(
+            original,
+            hash(json!({"id": "f-1", "type": "test_other", "offset": "1", "a": 1, "b": 2}))
+        );
+        assert_ne!(
+            original,
+            hash(json!({"id": "f-1", "type": "test_datum", "offset": "1", "b": 2, "a": 1}))
+        );
+        assert_ne!(
+            original,
+            hash(json!({"id": "f-1", "type": "test_datum", "offset": "2", "a": 1, "b": 2}))
+        );
     }
 }

@@ -250,7 +250,7 @@ fn t007_cut_volume_faces_and_bounds() {
     let shape = run.shape("b-1");
     assert_volume(shape, 14000.0);
     assert_face_count(shape, 10);
-    assert_bounding_box(shape, [-20.0, -20.0, 0.0], [20.0, 20.0, 10.0]);
+    assert_bounding_box(shape, [-20.0, -15.0, 0.0], [20.0, 25.0, 10.0]);
     assert_eq!(body_changes(&run, "f-imp1"), ["b-1 Cut"]);
 }
 

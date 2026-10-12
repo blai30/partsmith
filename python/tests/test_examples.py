@@ -116,17 +116,16 @@ TWINNED = [model for model in example_models() if twin_of(model).is_file()]
 
 
 @pytest.mark.parametrize("model", TWINNED, ids=example_id)
-def test_check_1_twin_rebuilds_the_example_byte_for_byte(model: Path, capsys) -> None:
-    if not bless_mode(os.environ):
-        problem = check_1_problem(model)
-        assert problem is None, problem
-        return
+def test_check_1_twin_rebuilds_the_example_byte_for_byte(model: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    bless = bless_mode(os.environ)
     try:
         problem = check_1_problem(model)
     except Exception as error:
+        if not bless:
+            raise
         # When blessing, a twin that raises fails check 1 like one that builds another model.
         problem = f"{shown(twin_of(model))} raised {error!r}"
-    if problem is not None and qualifies(model):
+    if bless and problem is not None and qualifies(model):
         bless_twin(model, capsys)
         return
     assert problem is None, problem
@@ -149,7 +148,7 @@ def test_check_3_example_round_trips_through_python(model: Path, tmp_path: Path)
     assert_round_trip(read_text(model), tmp_path)
 
 
-def test_bless_writes_the_missing_twins_of_qualifying_examples(capsys) -> None:
+def test_bless_writes_the_missing_twins_of_qualifying_examples(capsys: pytest.CaptureFixture[str]) -> None:
     if not bless_mode(os.environ):
         pytest.skip("writes twins only with PARTSMITH_BLESS=1; the Rust examples runner reports missing twins")
     for model in example_models():

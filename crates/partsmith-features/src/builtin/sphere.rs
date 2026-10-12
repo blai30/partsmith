@@ -113,17 +113,16 @@ mod tests {
     fn a_default_sphere_is_centered_on_the_origin() {
         let run = run(
             &["b-1"],
-            &[json!({"id": "f-sph1", "type": "sphere", "body": "b-1", "radius": "10", "op": "new"})],
+            &[
+                json!({"id": "f-sph1", "type": "sphere", "body": "b-1", "radius": "10", "op": "new"}),
+            ],
         );
 
         run.assert_ok("f-sph1");
         run.assert_volume("b-1", 4000.0 * PI / 3.0);
         run.assert_faces("b-1", 1);
         run.assert_bounding_box("b-1", [-10.0; 3], [10.0; 3]);
-        assert_eq!(
-            run.face("b-1", "f-sph1/surface").kind,
-            GeometryKind::Sphere
-        );
+        assert_eq!(run.face("b-1", "f-sph1/surface").kind, GeometryKind::Sphere);
         run.assert_face_area("b-1", "f-sph1/surface", 400.0 * PI);
     }
 

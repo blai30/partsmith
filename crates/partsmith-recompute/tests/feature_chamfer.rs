@@ -7,9 +7,10 @@ mod feature_support;
 use std::time::Duration;
 
 use feature_support::{
-    Run, assert_bounding_box, assert_element_repair, assert_error_field, assert_face_area,
-    assert_face_count, assert_face_kind, assert_list_field, assert_same_body, assert_volume,
-    body_update, document, face, load_example, median_build_time, output_body, suggested_limit,
+    Run, assert_bounding_box, assert_canonical_example, assert_element_repair, assert_error_field,
+    assert_face_area, assert_face_count, assert_face_kind, assert_list_field, assert_same_body,
+    assert_volume, body_update, document, example_paths, face, load_example, median_build_time,
+    output_body, suggested_limit,
 };
 use partsmith_features::{BodyChange, FeatureError};
 use partsmith_model::{Document, Units};
@@ -57,6 +58,15 @@ fn plate_document(distance: &str) -> Document {
             &chamfer_record(&PLATE_TOP_EDGES, &equal_distance(distance)),
         ],
     )
+}
+
+#[test]
+fn examples_are_canonical() {
+    let paths = example_paths("chamfer");
+    assert!(!paths.is_empty(), "examples/chamfer has examples");
+    for path in paths {
+        assert_canonical_example(&path);
+    }
 }
 
 #[test]

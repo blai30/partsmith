@@ -68,7 +68,7 @@ pub struct Recompute {
     registry: Arc<Registry>,
     /// Cached build results by key, with the run counter of their last use.
     cache: Cache,
-    /// Validation outcomes of the records seen lately, so unchanged records are not parsed again.
+    /// Validation outcomes by record content, so unchanged records are not parsed again.
     validations: Mutex<Validations>,
 }
 
@@ -165,8 +165,8 @@ impl Recompute {
     }
 }
 
-/// Prepares the timeline of `input` through the validation memo, then prunes the memo when it
-/// holds more than `limit` outcomes.
+/// Prepares the timeline of `input` through the validation memo in a new pass, then prunes the
+/// memo down to `limit` outcomes besides those the pass used.
 fn prepare<'a>(
     registry: &'a Registry,
     validations: &Mutex<Validations>,
@@ -175,8 +175,9 @@ fn prepare<'a>(
 ) -> Timeline<'a> {
     // The memo is a pure cache, so one left behind by a panicking feature is still consistent.
     let mut validations = validations.lock().unwrap_or_else(PoisonError::into_inner);
+    validations.begin_pass();
     let timeline = Timeline::prepare(registry, &mut validations, input.document, input.stop_at);
-    validations.prune(limit, input.document);
+    validations.prune(limit);
     timeline
 }
 
@@ -428,6 +429,25 @@ mod tests {
 
         assert_eq!(statuses(&report), [Status::Ok, Status::RolledBack]);
         assert!(report.messages.is_empty());
+    }
+
+    #[test]
+    fn a_feature_change_is_queried_in_the_graph_where_the_feature_is_active() {
+        let recompute = recompute();
+        let writer = |feature: &str, suppressed: bool| {
+            json!({"id": feature, "type": "test_writer", "suppressed": suppressed, "body": "b-1"})
+        };
+        let reader = json!({"id": "f-3", "type": "test_reader", "body": "b-1"});
+        let before = document(json!([writer("f-1", false), writer("f-2", true), reader]));
+        let after = document(json!([writer("f-1", false), writer("f-2", false), reader]));
+        let assets = BTreeMap::new();
+        let change = [Change::Feature(id("f-2"))];
+
+        let graph_before = recompute.graph(&input(&before, &assets));
+        let graph_after = recompute.graph(&input(&after, &assets));
+
+        assert!(graph_before.affected_by(&change).is_empty());
+        assert_eq!(graph_after.affected_by(&change), [id("f-2"), id("f-3")]);
     }
 
     #[test]

@@ -84,7 +84,10 @@ impl Feature for BoxFeature {
         dependencies
     }
 
-    fn build(params: &BoxParams, context: &BuildContext<'_>) -> Result<FeatureOutput, FeatureError> {
+    fn build(
+        params: &BoxParams,
+        context: &BuildContext<'_>,
+    ) -> Result<FeatureOutput, FeatureError> {
         let mut size = [0.0; 3];
         for ((value, field), expr) in size.iter_mut().zip(SIZE_FIELDS).zip(&params.size) {
             *value = positive_length(context, field, expr)?;
@@ -139,7 +142,11 @@ mod tests {
         run.assert_face_area("b-1", "f-box1/bottom", 200.0);
         run.assert_face_area("b-1", "f-box1/front", 300.0);
         run.assert_face_area("b-1", "f-box1/left", 600.0);
-        assert_point("top", run.face("b-1", "f-box1/top").centroid, [0.0, 0.0, 30.0]);
+        assert_point(
+            "top",
+            run.face("b-1", "f-box1/top").centroid,
+            [0.0, 0.0, 30.0],
+        );
     }
 
     #[test]
@@ -157,7 +164,11 @@ mod tests {
         );
 
         run.assert_bounding_box("b-1", [-5.0, -30.0, -10.0], [5.0, 0.0, 10.0]);
-        assert_point("top", run.face("b-1", "f-box1/top").centroid, [0.0, -30.0, 0.0]);
+        assert_point(
+            "top",
+            run.face("b-1", "f-box1/top").centroid,
+            [0.0, -30.0, 0.0],
+        );
         assert_point(
             "front",
             run.face("b-1", "f-box1/front").centroid,

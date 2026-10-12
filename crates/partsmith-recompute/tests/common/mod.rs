@@ -4,12 +4,15 @@
 //!
 //! Documents are written as JSON and parsed with `partsmith_model::load`, as features.md section 6.1
 //! describes. A [`Harness`] owns one `Recompute` plus the evaluation context and asset map of its
-//! runs.
+//! runs. Tolerances, measurements and element names come from the feature tests' shared helpers
+//! (`tests/feature_support`), so every test measures the same way.
 
 // Each test binary uses only some of these helpers.
-#![allow(dead_code)]
+#![allow(dead_code, unused_imports)]
 
 pub mod features;
+#[path = "../feature_support/mod.rs"]
+pub mod feature_support;
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -19,22 +22,18 @@ use partsmith_features::{
 };
 use partsmith_model::{Document, ExprError, Id, Quantity};
 use partsmith_naming::{ElementKind, ElementName};
-use partsmith_occt_sys::{ElementGeometry, Shape, SubShapeKind};
+use partsmith_occt_sys::{Shape, SubShapeKind};
 use partsmith_recompute::{
     Action, BodyReport, CacheKey, EdgeKind, FeatureReport, Graph, Input, Message, Node, NodeState,
     Plan, PlanStep, Recompute, Report, Severity, Status,
 };
-use partsmith_sketch::Placement;
 use serde_json::{Value, json};
 
-/// Relative tolerance for volumes and areas (features.md section 6.1).
-pub const MEASURE_TOLERANCE: f64 = 1e-6;
-
-/// Absolute tolerance in millimeters per bounding box coordinate (features.md section 6.1).
-pub const BOUNDS_TOLERANCE: f64 = 1e-5;
-
-/// Absolute tolerance for placements and directions (features.md section 6.1).
-pub const PLACEMENT_TOLERANCE: f64 = 1e-9;
+pub use feature_support::{
+    AXIS_TOLERANCE, LENGTH_TOLERANCE, MEASURE_TOLERANCE, assert_absolute, assert_bounding_box,
+    assert_coordinates, assert_face_normal, assert_face_position, assert_relative,
+    assert_solid_count, assert_volume, element_names, face, face_names,
+};
 
 // Ids and documents.
 
@@ -314,7 +313,8 @@ impl Harness {
         Harness::from_recompute(Recompute::new(Arc::new(registry)))
     }
 
-    /// A harness over `registry` that keeps at most `max_entries` results not used by the latest run.
+    /// A harness over `registry` whose cache keeps at most `max_entries` results after each run,
+    /// except that results the latest run used are never evicted (recompute.md section 3.7).
     pub fn with_cache_limit(registry: Registry, max_entries: usize) -> Harness {
         Harness::from_recompute(Recompute::with_cache_limit(Arc::new(registry), max_entries))
     }
@@ -464,17 +464,17 @@ pub fn output_update<'r>(report: &'r Report, feature_id: &str, body_id: &str) ->
     }
 }
 
-/// The placement of a datum output.
-pub fn datum_placement<'r>(report: &'r Report, feature_id: &str) -> &'r Placement {
+/// The origin of a datum plane output.
+pub fn datum_origin(report: &Report, feature_id: &str) -> [f64; 3] {
     match &output(report, feature_id).data {
-        OutputData::Datum(DatumResult::Plane(placement)) => placement,
+        OutputData::Datum(DatumResult::Plane(placement)) => placement.origin,
         other => panic!("{feature_id} output is not a datum: {other:?}"),
     }
 }
 
 /// The height of a datum output's origin (test features place their datums at (0, 0, z)).
 pub fn datum_height(report: &Report, feature_id: &str) -> f64 {
-    datum_placement(report, feature_id).origin[2]
+    datum_origin(report, feature_id)[2]
 }
 
 /// The reported value of one parameter.
@@ -690,7 +690,7 @@ pub fn hex(key: &CacheKey) -> String {
     key.0.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
-// Measurements.
+// Body states. Assertions and tolerances are the shared ones re-exported above.
 
 /// The shape of a body that holds a solid.
 pub fn shape(state: &BodyState) -> &Shape {
@@ -709,92 +709,22 @@ pub fn face_count(state: &BodyState) -> u32 {
     shape(state).count(SubShapeKind::Face)
 }
 
-/// Number of solids of a body that holds a solid.
-pub fn solid_count(state: &BodyState) -> usize {
-    shape(state)
-        .solids()
-        .expect("the kernel lists the solids")
-        .len()
-}
-
-/// Asserts `actual` is within `MEASURE_TOLERANCE` of `expected`, relatively.
-pub fn assert_relative(actual: f64, expected: f64, what: &str) {
-    let difference = (actual - expected).abs();
-    assert!(
-        difference <= MEASURE_TOLERANCE * expected.abs().max(1.0),
-        "{what}: expected {expected}, got {actual}"
-    );
-}
-
-/// Asserts `actual` is within `tolerance` of `expected`.
-pub fn assert_close(actual: f64, expected: f64, tolerance: f64, what: &str) {
-    assert!(
-        (actual - expected).abs() <= tolerance,
-        "{what}: expected {expected}, got {actual}"
-    );
-}
-
-/// Asserts the volume of a body that holds a solid.
-pub fn assert_volume(state: &BodyState, expected: f64) {
-    assert_relative(volume(state), expected, "volume");
-}
-
-/// Asserts the tight bounding box of a body that holds a solid.
-pub fn assert_bounds(state: &BodyState, minimum: [f64; 3], maximum: [f64; 3]) {
-    let bounds = shape(state)
-        .bounding_box()
-        .expect("the kernel measures the bounding box");
-    for axis in 0..3 {
-        assert_close(
-            bounds.min[axis],
-            minimum[axis],
-            BOUNDS_TOLERANCE,
-            "bounding box minimum",
-        );
-        assert_close(
-            bounds.max[axis],
-            maximum[axis],
-            BOUNDS_TOLERANCE,
-            "bounding box maximum",
-        );
-    }
-}
-
-/// Asserts two vectors or points are equal within `tolerance` per component.
-pub fn assert_vector(actual: [f64; 3], expected: [f64; 3], tolerance: f64, what: &str) {
-    for axis in 0..3 {
-        assert!(
-            (actual[axis] - expected[axis]).abs() <= tolerance,
-            "{what}: expected {expected:?}, got {actual:?}"
-        );
-    }
-}
-
-/// Names of every element of `kind` of a body state, in index order.
-pub fn element_names(state: &BodyState, kind: ElementKind) -> Vec<String> {
-    state
-        .naming()
-        .names(kind)
-        .map(|(_, name)| name.as_str().to_string())
-        .collect()
-}
-
-/// Face names of a body state, sorted.
-pub fn face_names(state: &BodyState) -> Vec<String> {
-    let mut names = element_names(state, ElementKind::Face);
-    names.sort();
-    names
-}
-
-/// Every face, edge and vertex name of a body state, in index order per kind.
+/// Every face, edge and vertex name of a body state, in kernel index order per kind, so equal
+/// lists mean equal names at equal indices.
 pub fn all_element_names(state: &BodyState) -> Vec<String> {
     [ElementKind::Face, ElementKind::Edge, ElementKind::Vertex]
         .into_iter()
-        .flat_map(|kind| element_names(state, kind))
+        .flat_map(|kind| {
+            state
+                .naming()
+                .names(kind)
+                .map(|(_, name)| name.as_str().to_string())
+                .collect::<Vec<_>>()
+        })
         .collect()
 }
 
-/// Asserts that a body state has an element named `name` of the name's kind.
+/// Asserts that a body state has an element (face, edge or vertex) named `name`.
 pub fn assert_has_element(state: &BodyState, name: &str) {
     let element = ElementName::parse(name).expect("the expected name is valid");
     assert!(
@@ -802,30 +732,4 @@ pub fn assert_has_element(state: &BodyState, name: &str) {
         "no element named {name}; faces are {:?}",
         face_names(state)
     );
-}
-
-/// The kernel geometry of the face named `name`.
-pub fn face_geometry(state: &BodyState, name: &str) -> ElementGeometry {
-    let element = ElementName::parse(name).expect("the expected name is valid");
-    let index = state
-        .naming()
-        .index(&element)
-        .unwrap_or_else(|| panic!("no face named {name}; faces are {:?}", face_names(state)));
-    shape(state)
-        .element(SubShapeKind::Face, index)
-        .expect("the kernel describes the face")
-}
-
-/// The outward normal of a planar face.
-pub fn face_normal(state: &BodyState, name: &str) -> [f64; 3] {
-    let direction = face_geometry(state, name)
-        .direction
-        .unwrap_or_else(|| panic!("face {name} has no direction"));
-    [direction.x, direction.y, direction.z]
-}
-
-/// The area centroid of a face.
-pub fn face_centroid(state: &BodyState, name: &str) -> [f64; 3] {
-    let centroid = face_geometry(state, name).centroid;
-    [centroid.x, centroid.y, centroid.z]
 }

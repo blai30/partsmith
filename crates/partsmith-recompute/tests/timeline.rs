@@ -890,6 +890,10 @@ fn two_updates_of_one_body_are_rejected_and_not_applied() {
     let report = harness.run(&document);
 
     assert_eq!(error_code(&report, "f-t"), "undeclared_dependency");
+    assert_eq!(
+        message_texts(&report, "f-t"),
+        ["This feature read body 'b-1' again to update it a second time without declaring it. This is a bug in the feature; please report it."]
+    );
     assert_volume(final_state(&report, "b-1"), 8.0);
 }
 

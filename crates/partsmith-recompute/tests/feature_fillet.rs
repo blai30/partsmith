@@ -8,10 +8,11 @@ use std::f64::consts::PI;
 use std::time::Duration;
 
 use feature_support::{
-    Run, assert_bounding_box, assert_element_repair, assert_error_field, assert_face_area,
-    assert_face_count, assert_face_kind, assert_face_radius, assert_list_field, assert_same_body,
-    assert_volume, body_update, document, face, face_names_with_prefix, load_example,
-    median_build_time, median_failed_build_time, output_body, suggested_limit,
+    Run, assert_bounding_box, assert_canonical_example, assert_element_repair, assert_error_field,
+    assert_face_area, assert_face_count, assert_face_kind, assert_face_radius, assert_list_field,
+    assert_same_body, assert_volume, body_update, document, example_paths, face,
+    face_names_with_prefix, load_example, median_build_time, median_failed_build_time, output_body,
+    suggested_limit,
 };
 use partsmith_features::{BodyChange, FeatureError, FeatureWarning, IgnoredReason};
 use partsmith_model::{Document, Units};
@@ -87,6 +88,15 @@ fn prefixed(prefix: &str, names: &[&str]) -> Vec<String> {
     let mut prefixed: Vec<String> = names.iter().map(|name| format!("{prefix}{name}")).collect();
     prefixed.sort();
     prefixed
+}
+
+#[test]
+fn examples_are_canonical() {
+    let paths = example_paths("fillet");
+    assert!(!paths.is_empty(), "examples/fillet has examples");
+    for path in paths {
+        assert_canonical_example(&path);
+    }
 }
 
 #[test]

@@ -16,10 +16,12 @@ pub mod datum_plane;
 mod dressup;
 pub mod extrude;
 pub mod fillet;
+pub mod hole;
 pub mod import;
 pub mod linear_pattern;
 pub mod mirror;
 pub mod move_body;
+pub mod revolve;
 pub mod shell;
 pub mod sketch;
 pub mod sphere;
@@ -42,10 +44,12 @@ pub(crate) const BUILTINS: &[Registration] = &[
     Registry::register::<datum_plane::DatumPlane>,
     Registry::register::<extrude::Extrude>,
     Registry::register::<fillet::Fillet>,
+    Registry::register::<hole::Hole>,
     Registry::register::<import::Import>,
     Registry::register::<linear_pattern::LinearPattern>,
     Registry::register::<mirror::Mirror>,
     Registry::register::<move_body::MoveBody>,
+    Registry::register::<revolve::Revolve>,
     Registry::register::<shell::Shell>,
     Registry::register::<sketch::SketchFeature>,
     Registry::register::<sphere::Sphere>,

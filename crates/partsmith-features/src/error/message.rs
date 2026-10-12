@@ -328,7 +328,14 @@ mod tests {
 
     #[test]
     fn limits_never_exceed_the_value() {
-        for value in [2.39999999995, 0.30000000000000004, 1.0, 7.77, 99.99999999999, 1e-7] {
+        for value in [
+            2.39999999995,
+            0.30000000000000004,
+            1.0,
+            7.77,
+            99.99999999999,
+            1e-7,
+        ] {
             assert!(round_down_to_two_digits(value) <= value, "value {value}");
         }
     }

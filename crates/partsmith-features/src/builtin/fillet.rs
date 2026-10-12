@@ -119,7 +119,8 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::builtin::dressup::test_fixtures::{ScriptNames, reference};
+    use crate::builtin::dressup::test_fixtures::reference;
+    use crate::test_support::ScriptNames;
     use crate::{Registry, test_support::id};
 
     /// `E-FT` of fillet.md section 6.
@@ -196,8 +197,8 @@ mod tests {
 
     #[test]
     fn python_writes_one_edge_alone_and_wraps_long_calls() {
-        let mut call =
-            Fillet::python(&params(&[FRONT_TOP], "2 mm"), &ScriptNames).expect("a dedicated form");
+        let mut call = Fillet::python(&params(&[FRONT_TOP], "2 mm"), &ScriptNames::default())
+            .expect("a dedicated form");
         call.keywords
             .push(("id".to_string(), PythonValue::Str("f-fil1".to_string())));
 
@@ -212,8 +213,11 @@ mod tests {
         let back_top =
             r#"{"q": "edge(f-box1/back|f-box1/top)", "fp": "line|n=1,0,0|c=0,10,20|l=20"}"#;
 
-        let call = Fillet::python(&params(&[FRONT_TOP, back_top], "radius"), &ScriptNames)
-            .expect("a dedicated form");
+        let call = Fillet::python(
+            &params(&[FRONT_TOP, back_top], "radius"),
+            &ScriptNames::default(),
+        )
+        .expect("a dedicated form");
 
         assert!(matches!(&call.positional[0], PythonValue::List(items) if items.len() == 2));
         assert_eq!(call.positional[1], PythonValue::Str("radius".to_string()));

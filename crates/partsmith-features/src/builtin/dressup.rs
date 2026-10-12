@@ -394,44 +394,7 @@ pub(super) fn no_effect(
 /// Fixtures shared by the dress-up unit tests.
 #[cfg(test)]
 pub(super) mod test_fixtures {
-    use partsmith_model::{Id, Units};
     use partsmith_naming::Reference;
-    use partsmith_sketch::RegionRef;
-
-    use crate::{BodyOp, PythonNames};
-
-    /// Script names with millimeter units, `b-1` as `block` and the parameter `wall` as `wall`.
-    pub(in crate::builtin) struct ScriptNames;
-
-    impl PythonNames for ScriptNames {
-        fn units(&self) -> Units {
-            Units::Mm
-        }
-
-        fn body(&self, body: &Id) -> Option<String> {
-            (body.as_str() == "b-1").then(|| "block".to_string())
-        }
-
-        fn feature(&self, _feature: &Id) -> Option<String> {
-            None
-        }
-
-        fn entity(&self, _sketch: &Id, _entity: &Id) -> Option<String> {
-            None
-        }
-
-        fn parameter(&self, name: &str) -> Option<String> {
-            (name == "wall").then(|| "wall".to_string())
-        }
-
-        fn regions(&self, _sketch: &Id) -> Option<Vec<RegionRef>> {
-            None
-        }
-
-        fn default_op(&self, _body: &Id) -> BodyOp {
-            BodyOp::Join
-        }
-    }
 
     /// A reference parsed from its JSON form.
     pub(in crate::builtin) fn reference(json: &str) -> Reference {

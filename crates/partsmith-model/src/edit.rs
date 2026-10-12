@@ -14,7 +14,9 @@ use crate::{Body, Document, FeatureRecord, Id, Parameter, Units};
 
 /// One change to a document. Every change goes through an Edit; applying one returns its exact inverse.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
-#[serde(tag = "type", rename_all = "snake_case")]
+// Edits are read only from protocol requests, which reject unknown fields (protocol.md section
+// 2.3). Serde enforces this for struct variants only: a unit variant would ignore unknown fields.
+#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Edit {
     /// Inserts a parameter at `index` (0 to the number of parameters).
     AddParameter {
@@ -555,7 +557,7 @@ fn check_feature(feature: &FeatureRecord) -> Result<(), EditError> {
 
 #[cfg(test)]
 mod tests {
-    use serde_json::json;
+    use serde_json::{Value, json};
 
     use super::*;
 
@@ -893,5 +895,130 @@ mod tests {
             EditError::IndexOutOfRange { index: 5, max: 2 }.to_string(),
             "Position 5 is out of range. Use a position from 0 to 2."
         );
+    }
+
+    /// Asserts that `edit` deserializes, and that it no longer does once it has the field `extra`.
+    fn assert_unknown_field_rejected(mut edit: Value) {
+        if let Err(error) = serde_json::from_value::<Edit>(edit.clone()) {
+            panic!("{edit} does not deserialize: {error}");
+        }
+        edit["extra"] = json!(1);
+
+        match serde_json::from_value::<Edit>(edit.clone()) {
+            Ok(read) => panic!("{edit} is accepted as {read:?}"),
+            Err(error) => assert!(
+                error.to_string().contains("unknown field `extra`"),
+                "{edit}: {error}"
+            ),
+        }
+    }
+
+    #[test]
+    fn edits_with_a_position_and_a_record_reject_unknown_fields() {
+        assert_unknown_field_rejected(json!({
+            "type": "add_parameter",
+            "index": 0,
+            "parameter": {"id": "p-1", "name": "a", "expr": "1"}
+        }));
+        assert_unknown_field_rejected(json!({
+            "type": "add_body",
+            "index": 0,
+            "body": {"id": "b-1", "name": "Base"}
+        }));
+        assert_unknown_field_rejected(json!({
+            "type": "add_feature",
+            "index": 0,
+            "feature": {"id": "f-1", "type": "box"}
+        }));
+    }
+
+    #[test]
+    fn edits_with_a_record_reject_unknown_fields() {
+        assert_unknown_field_rejected(json!({
+            "type": "update_parameter",
+            "parameter": {"id": "p-1", "name": "a", "expr": "1"}
+        }));
+        assert_unknown_field_rejected(json!({
+            "type": "update_body",
+            "body": {"id": "b-1", "name": "Base"}
+        }));
+        assert_unknown_field_rejected(json!({
+            "type": "update_feature",
+            "feature": {"id": "f-1", "type": "box"}
+        }));
+    }
+
+    #[test]
+    fn edits_with_an_id_reject_unknown_fields() {
+        assert_unknown_field_rejected(json!({"type": "remove_parameter", "id": "p-1"}));
+        assert_unknown_field_rejected(json!({"type": "remove_body", "id": "b-1"}));
+        assert_unknown_field_rejected(json!({"type": "remove_feature", "id": "f-1"}));
+    }
+
+    #[test]
+    fn edits_with_an_id_and_a_position_reject_unknown_fields() {
+        assert_unknown_field_rejected(json!({"type": "move_parameter", "id": "p-1", "index": 0}));
+        assert_unknown_field_rejected(json!({"type": "move_body", "id": "b-1", "index": 0}));
+        assert_unknown_field_rejected(json!({"type": "move_feature", "id": "f-1", "index": 0}));
+    }
+
+    #[test]
+    fn edits_with_a_required_value_reject_unknown_fields() {
+        assert_unknown_field_rejected(json!({"type": "set_units", "units": "in"}));
+    }
+
+    #[test]
+    fn edits_with_an_optional_value_reject_unknown_fields() {
+        assert_unknown_field_rejected(json!({"type": "set_rollback", "rollback": "f-1"}));
+        assert_unknown_field_rejected(json!({"type": "set_printer", "printer": "generic-fdm"}));
+    }
+
+    #[test]
+    fn edits_that_omit_their_optional_value_reject_unknown_fields() {
+        assert_unknown_field_rejected(json!({"type": "set_rollback"}));
+        assert_unknown_field_rejected(json!({"type": "set_printer"}));
+    }
+
+    #[test]
+    fn a_rollback_named_by_an_unknown_field_is_rejected() {
+        let error =
+            serde_json::from_str::<Edit>(r#"{"type":"set_rollback","feature":"f-1","extra":1}"#)
+                .expect_err("unknown fields are rejected");
+
+        assert!(
+            error.to_string().contains("unknown field `feature`"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn unknown_keys_of_a_feature_in_an_edit_stay_params() {
+        let edit: Edit = serde_json::from_value(json!({
+            "type": "add_feature",
+            "index": 0,
+            "feature": {"id": "f-1", "type": "box", "size": [1, 2, 3], "note": "x"}
+        }))
+        .expect("feature params are open");
+
+        let Edit::AddFeature { feature, .. } = edit else {
+            panic!("expected AddFeature, got {edit:?}");
+        };
+        assert_eq!(
+            feature.params.keys().map(String::as_str).collect::<Vec<_>>(),
+            ["size", "note"]
+        );
+    }
+
+    #[test]
+    fn the_edit_schema_closes_every_variant() {
+        let schema = schemars::schema_for!(Edit);
+        let variants = schema.as_value()["oneOf"]
+            .as_array()
+            .expect("Edit lists its variants");
+
+        assert!(!variants.is_empty());
+        for variant in variants {
+            assert_eq!(variant["additionalProperties"], json!(false), "{variant}");
+        }
     }
 }

@@ -487,7 +487,7 @@ pub enum ValidationError {
 ```rust
 /// One change to a document. Every change goes through an Edit; applying one returns its exact inverse.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
-#[serde(tag = "type", rename_all = "snake_case")]
+#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Edit {
     /// Inserts a parameter at `index` (0 to the number of parameters).
     AddParameter { index: usize, parameter: Parameter },
@@ -556,6 +556,8 @@ pub enum RecordKind {
     Feature,
 }
 ```
+
+`Edit` is read only from protocol requests, so every variant rejects unknown fields when deserialized (protocol.md section 2.3), while the records it carries follow section 2.5 (a `FeatureRecord`'s unknown keys are still params).
 
 ### 2.10 Undo log
 

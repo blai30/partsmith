@@ -7,10 +7,11 @@ mod feature_support;
 use std::time::Duration;
 
 use feature_support::{
-    Run, assert_bounding_box, assert_element_repair, assert_error_field, assert_face_area,
-    assert_face_count, assert_face_kind, assert_face_position, assert_list_field, assert_same_body,
-    assert_solid_count, assert_volume, body_update, document, face, face_index,
-    face_names_with_prefix, load_example, median_build_time, output_body, suggested_limit,
+    Run, assert_bounding_box, assert_canonical_example, assert_element_repair, assert_error_field,
+    assert_face_area, assert_face_count, assert_face_kind, assert_face_position, assert_list_field,
+    assert_same_body, assert_solid_count, assert_volume, body_update, document, example_paths,
+    face, face_index, face_names_with_prefix, load_example, median_build_time, output_body,
+    suggested_limit,
 };
 use partsmith_features::{BodyChange, FeatureError};
 use partsmith_model::{Document, Units};
@@ -72,6 +73,15 @@ fn assert_open_top_geometry(run: &Run) {
         "the removed top face disappears"
     );
     assert_face_area(&face(body, "f-box1/bottom"), 4000.0);
+}
+
+#[test]
+fn examples_are_canonical() {
+    let paths = example_paths("shell");
+    assert!(!paths.is_empty(), "examples/shell has examples");
+    for path in paths {
+        assert_canonical_example(&path);
+    }
 }
 
 #[test]

@@ -354,9 +354,12 @@ fn check_updates(output: &FeatureOutput, written: &[Link]) -> Result<(), Feature
                 what: format!("body '{}' to update it", update.body),
             });
         }
+        // A declared write covers one update, so a second one is undeclared. The sentence
+        // `UndeclaredDependency` renders frames `what` as "This feature read {what} without
+        // declaring it.", so `what` names the second update.
         if !updated.insert(&update.body) {
             return Err(FeatureError::UndeclaredDependency {
-                what: format!("body '{}' to update it twice", update.body),
+                what: format!("body '{}' again to update it a second time", update.body),
             });
         }
     }
@@ -440,8 +443,12 @@ mod tests {
         assert_eq!(
             error,
             FeatureError::UndeclaredDependency {
-                what: "body 'b-1' to update it twice".to_string()
+                what: "body 'b-1' again to update it a second time".to_string()
             }
+        );
+        assert_eq!(
+            error.to_string(),
+            "This feature read body 'b-1' again to update it a second time without declaring it. This is a bug in the feature; please report it."
         );
     }
 

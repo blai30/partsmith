@@ -9,9 +9,9 @@ use partsmith_sketch::{ORIGIN, Placement, PointRef, PointRole, Profile, SolveRes
 
 use crate::context::BuildContext;
 use crate::error::FeatureError;
+use crate::error::FeatureWarning;
 use crate::naming::{kernel, name_by_history};
 use crate::params::BodyOp;
-use crate::error::FeatureWarning;
 
 /// Relative volume change at or below which a boolean leaves the body unchanged (section 3.5).
 const VOLUME_TOLERANCE: f64 = 1e-9;

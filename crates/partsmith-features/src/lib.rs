@@ -60,9 +60,7 @@ pub use partsmith_occt_sys::OCCT_VERSION;
 pub use primitive::{PrimitivePlacement, default_position, is_default_position};
 pub use profile::ProfileFaces;
 pub use python::{PythonCall, PythonNames, PythonValue};
-pub use registry::{
-    Canonical, DynFeature, Registry, RegistryError, Validated, register_builtins,
-};
+pub use registry::{Canonical, DynFeature, Registry, RegistryError, Validated, register_builtins};
 pub use search::too_large_search;
 
 /// Version of this crate. Recompute puts it and `OCCT_VERSION` into every cache key (recompute.md section 3.4).

@@ -297,8 +297,9 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::builtin::dressup::test_fixtures::{ScriptNames, reference};
+    use crate::builtin::dressup::test_fixtures::reference;
     use crate::name_by_history;
+    use crate::test_support::ScriptNames;
     use crate::test_support::{face_names as sorted_face_names, id, named_box};
 
     /// `F-TOP` of shell.md section 6.
@@ -376,7 +377,11 @@ mod tests {
 
     #[test]
     fn python_writes_removed_faces_and_the_thickness() {
-        let mut call = Shell::python(&params("wall", &[TOP]), &ScriptNames).expect("a form");
+        let names = ScriptNames {
+            parameters: [("wall".to_string(), "wall".to_string())].into(),
+            ..ScriptNames::default()
+        };
+        let mut call = Shell::python(&params("wall", &[TOP]), &names).expect("a form");
         call.keywords
             .push(("id".to_string(), PythonValue::Str("f-sh1".to_string())));
 
@@ -388,7 +393,7 @@ mod tests {
 
     #[test]
     fn python_writes_a_closed_hollow_with_none() {
-        let mut call = Shell::python(&params("2", &[]), &ScriptNames).expect("a form");
+        let mut call = Shell::python(&params("2", &[]), &ScriptNames::default()).expect("a form");
         call.keywords
             .push(("id".to_string(), PythonValue::Str("f-sh1".to_string())));
 

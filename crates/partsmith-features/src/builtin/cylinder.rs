@@ -131,19 +131,22 @@ mod tests {
         let side = run.face("b-1", "f-cyl1/side");
         assert_eq!(side.kind, GeometryKind::Cylinder);
         assert_eq!(side.radius, Some(5.0));
-        assert_eq!(
-            side.direction.map(|direction| direction.z.abs()),
-            Some(1.0)
-        );
+        assert_eq!(side.direction.map(|direction| direction.z.abs()), Some(1.0));
         run.assert_face_area("b-1", "f-cyl1/top", 25.0 * PI);
-        assert_point("top", run.face("b-1", "f-cyl1/top").centroid, [0.0, 0.0, 10.0]);
+        assert_point(
+            "top",
+            run.face("b-1", "f-cyl1/top").centroid,
+            [0.0, 0.0, 10.0],
+        );
     }
 
     #[test]
     fn a_cylinder_on_yz_points_along_x() {
         let run = run(
             &["b-1"],
-            &[cylinder(json!({"plane": {"kind": "origin", "plane": "YZ"}}))],
+            &[cylinder(
+                json!({"plane": {"kind": "origin", "plane": "YZ"}}),
+            )],
         );
 
         run.assert_bounding_box("b-1", [0.0, -5.0, -5.0], [10.0, 5.0, 5.0]);
@@ -185,17 +188,15 @@ mod tests {
 
         run.assert_volume("b-1", 15717.256661);
         run.assert_faces("b-1", 7);
-        assert!(
-            run.face_names("b-1")
-                .contains(&"f-cyl1/side".to_string())
-        );
+        assert!(run.face_names("b-1").contains(&"f-cyl1/side".to_string()));
     }
 
     #[test]
     fn python_writes_radius_and_height() {
-        let params: CylinderParams =
-            serde_json::from_value(json!({"body": "b-1", "radius": "5", "height": "10", "op": "new"}))
-                .expect("valid params");
+        let params: CylinderParams = serde_json::from_value(
+            json!({"body": "b-1", "radius": "5", "height": "10", "op": "new"}),
+        )
+        .expect("valid params");
 
         let python = Cylinder::python(&params, &ScriptNames::default()).expect("a dedicated form");
 

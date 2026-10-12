@@ -11,10 +11,10 @@ use partsmith_occt_sys::KernelError;
 use partsmith_sketch::{SketchError, SolveIssue};
 
 pub use field::FieldRef;
-use message::{IdNames, Renderer, plural, suggested_limit};
 pub use message::{
     Bound, DocumentNames, FallbackReason, IgnoredReason, Names, Noun, Repair, format_value,
 };
+use message::{IdNames, Renderer, plural, suggested_limit};
 pub use warning::FeatureWarning;
 
 use crate::params::BodyOp;

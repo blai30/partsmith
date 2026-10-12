@@ -27,7 +27,8 @@ use serde_json::{Number, Value};
 const BLESS_IN_CI: &str =
     "PARTSMITH_BLESS is set in CI. Bless expected results locally and commit them.";
 
-/// Relative tolerance and absolute floor for numbers that are not both integers (delivery spec section 2.8).
+/// Relative tolerance and absolute floor for numbers that are not both integers
+/// (delivery spec section 2.8).
 const TOLERANCE: f64 = 1e-6;
 
 /// The repository root, the working directory of every `partsmith` run.
@@ -43,14 +44,16 @@ fn partsmith<S: AsRef<OsStr>>(arguments: impl IntoIterator<Item = S>) -> io::Res
         .output()
 }
 
-/// An exit status as the runner's messages show it: the exit code, or the status itself when a signal stopped the process.
+/// An exit status as the runner's messages show it: the exit code, or the status itself when a
+/// signal stopped the process.
 fn exit_description(status: ExitStatus) -> String {
     status
         .code()
         .map_or_else(|| status.to_string(), |code| code.to_string())
 }
 
-/// Prints a line past the test harness's output capture, so bless results show without `--nocapture`.
+/// Prints a line past the test harness's output capture, so bless results show without
+/// `--nocapture`.
 fn announce(line: &str) {
     let mut standard_output = io::stdout().lock();
     // A lost note does not change the result, so a failed write is ignored.
@@ -71,7 +74,8 @@ impl Problems {
         self.entries.push((path.to_owned(), message));
     }
 
-    /// Fails with every problem when there is any. The sort is stable, so problems of one path keep their order.
+    /// Fails with every problem when there is any. The sort is stable, so problems of one path keep
+    /// their order.
     fn assert_none(mut self) {
         if self.entries.is_empty() {
             return;
@@ -117,7 +121,8 @@ enum Placement {
     NotAllowed,
 }
 
-/// Whether `text` matches `[a-z0-9]+(-[a-z0-9]+)*`, the pattern of example stems and benchmark names.
+/// Whether `text` matches `[a-z0-9]+(-[a-z0-9]+)*`, the pattern of example stems and benchmark
+/// names.
 fn is_example_name(text: &str) -> bool {
     text.split('-').all(|part| {
         !part.is_empty()
@@ -174,7 +179,7 @@ fn collect_files(directory: &Path, prefix: &str, files: &mut Vec<String>) {
         let entry = entry.unwrap_or_else(|error| {
             panic!("cannot read an entry of {}: {error}", directory.display())
         });
-        // A name that is not UTF-8 is never an allowed path, and the lossy form still names the file.
+        // A name that is not UTF-8 is never an allowed path; the lossy form still names the file.
         let name = entry.file_name().to_string_lossy().into_owned();
         let relative = if prefix.is_empty() {
             name
@@ -233,7 +238,8 @@ impl Example {
         self.path.rsplit_once('/').map_or("", |(folder, _)| folder)
     }
 
-    /// The parsed `.ptsm` text, or `None` when it is not JSON (the canonical form check reports that).
+    /// The parsed `.ptsm` text, or `None` when it is not JSON (the canonical form check reports
+    /// that).
     fn document(&self) -> Option<Value> {
         let text = fs::read_to_string(repository_root().join(self.model()))
             .unwrap_or_else(|error| panic!("cannot read {}: {error}", self.model()));
@@ -308,7 +314,8 @@ fn numbers_match(actual: &Number, expected: &Number) -> bool {
     }
 }
 
-/// Adds every mismatch between `actual` and `expected` under `pointer` to `mismatches`, in document order.
+/// Adds every mismatch between `actual` and `expected` under `pointer` to `mismatches`, in
+/// document order.
 fn compare_at(pointer: &str, actual: &Value, expected: &Value, mismatches: &mut Vec<String>) {
     let matches = match (actual, expected) {
         (Value::Object(actual_members), Value::Object(expected_members)) => {
@@ -367,7 +374,8 @@ fn compare(actual: &Value, expected: &Value) -> Vec<String> {
 }
 
 /// The expected-results form of a `rebuild --checks --json` report: without the top-level `path`
-/// and without every finding's `triangles`, every other member kept in order (delivery spec section 2.8).
+/// and without every finding's `triangles`, every other member kept in order (delivery spec
+/// section 2.8).
 fn project(mut report: Value) -> Value {
     if let Some(members) = report.as_object_mut() {
         members.shift_remove("path");
@@ -401,7 +409,8 @@ fn qualifies_for_twin(report: &Value) -> bool {
     })
 }
 
-/// The text of an expected results file: pretty JSON with two-space indentation and one trailing newline.
+/// The text of an expected results file: pretty JSON with two-space indentation and one trailing
+/// newline.
 fn expected_text(report: &Value) -> String {
     let text = serde_json::to_string_pretty(report).expect("a JSON value always serializes");
     format!("{text}\n")
@@ -473,7 +482,8 @@ fn bless_expected(example: &Example, report: &Value, problems: &mut Problems) {
     }
 }
 
-/// Checks the projected `report` of `example` against its expected results, blessing them when asked.
+/// Checks the projected `report` of `example` against its expected results, blessing them when
+/// asked.
 fn check_expected(example: &Example, report: &Value, bless: bool, problems: &mut Problems) {
     let expected = example.expected();
     let model = example.model();

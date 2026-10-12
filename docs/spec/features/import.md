@@ -135,7 +135,7 @@ The asset map is `{A: BYTES}` unless stated.
 4. **Not a STEP file.** Asset map `{A: b"not a step file"}`. Expected: error `kernel` rendered `The file is not a valid STEP file.`; b-1 empty.
 5. **Invalid asset name.** `IMP("new")` with `"asset": "box.step"`. Expected: `validate_and_canonicalize` returns `InvalidParams` with detail `'asset' must name a file in the assets folder, such as <64 hex digits>.step`; recompute reports `invalid_params`.
 6. **Two solids.** Asset map `{A: TWO}`. Expected: ok; volume 2000, 12 faces, 2 solids, bbox [0,0,0]-[60,10,10].
-7. **Cut.** `{"id": "f-box1", "type": "box", "body": "b-1", "size": ["40", "40", "10"], "op": "new"}`, then `IMP("cut")`. The imported block passes through the plate. Expected: ok; volume 14000, 10 faces, bbox [-20,-20,0]-[20,20,10]; the walls of the rectangular hole are `f-imp1/face#1` (x=0), `f-imp1/face#2` (y=0), `f-imp1/face#5` (y=20) and `f-imp1/face#6` (x=10); change `Cut`.
+7. **Cut.** `{"id": "f-box1", "type": "box", "body": "b-1", "size": ["40", "40", "10"], "position": ["0", "5", "0"], "op": "new"}` (spanning [-20,-15,0]-[20,25,10], so the block's y range 0 to 20 lies inside it), then `IMP("cut")`. The imported block passes through the plate. Expected: ok; volume 14000, 10 faces, bbox [-20,-15,0]-[20,25,10]; the walls of the rectangular hole are `f-imp1/face#1` (x=0), `f-imp1/face#2` (y=0), `f-imp1/face#5` (y=20) and `f-imp1/face#6` (x=10); change `Cut`.
 8. **Performance.** Test 1 builds in under 10 ms plus the kernel's `read_step` time (desktop, release).
 
 ## Open issues

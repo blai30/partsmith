@@ -7,7 +7,7 @@
     {"id": "b-1", "name": "Body 1"}
   ],
   "features": [
-    {"id": "f-box1", "type": "box", "body": "b-1", "size": ["40", "40", "10"], "op": "new"},
+    {"id": "f-box1", "type": "box", "body": "b-1", "size": ["40", "40", "10"], "position": ["0", "5", "0"], "op": "new"},
     {
       "id": "f-imp1",
       "type": "import",

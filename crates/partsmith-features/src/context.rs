@@ -15,12 +15,12 @@ use partsmith_sketch::{Geometry, MatchMethod, OriginPlane, Placement, RegionMatc
 
 use crate::deps::ExprUse;
 use crate::error::FeatureError;
+use crate::error::FeatureWarning;
 use crate::error::FieldRef;
 use crate::error::{Bound, Noun};
 use crate::naming::{kernel, naming, sub_shape_kind, topology_info};
 use crate::output::{DatumResult, FeatureOutput, OutputData, SketchResult};
 use crate::params::{AxisRef, PlaneRef, ProfileRef, point, vector};
-use crate::error::FeatureWarning;
 
 /// Largest distance from a whole number that a count may have (section 3.4).
 const WHOLE_NUMBER_TOLERANCE: f64 = 1e-9;
@@ -770,7 +770,9 @@ fn canonical_axis(through: Point, direction: Vector) -> Result<Axis, FeatureErro
 mod tests {
     use partsmith_model::{EmptyContext, ParameterValues};
     use partsmith_naming::Fingerprint;
-    use partsmith_occt_sys::{Plane as KernelPlane, make_cone, make_cylinder, make_sphere, make_torus};
+    use partsmith_occt_sys::{
+        Plane as KernelPlane, make_cone, make_cylinder, make_sphere, make_torus,
+    };
     use partsmith_sketch::{SketchEntity, build_profile};
     use serde_json::json;
 
@@ -942,7 +944,10 @@ mod tests {
         assert_eq!(candidates.len(), 6);
         assert!(matches!(
             error.repair(),
-            Some(crate::error::Repair::Element { ambiguous: true, .. })
+            Some(crate::error::Repair::Element {
+                ambiguous: true,
+                ..
+            })
         ));
         assert_eq!(
             error.to_string(),
@@ -972,7 +977,10 @@ mod tests {
             ..
         } = &resolved.warnings[0]
         else {
-            panic!("expected ReferenceAmbiguous, got {:?}", resolved.warnings[0]);
+            panic!(
+                "expected ReferenceAmbiguous, got {:?}",
+                resolved.warnings[0]
+            );
         };
         assert_eq!(*position, 0);
         assert_eq!(candidates.len(), 6);

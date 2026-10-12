@@ -68,7 +68,8 @@ pub enum EdgeKind {
 /// A change to a document, for `Graph::affected_by`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Change {
-    /// The feature's own record changed (params, suppression).
+    /// The feature's own record changed (params, suppression). Query the graph in which the
+    /// feature is active: after unsuppressing or adding it, before suppressing or removing it.
     Feature(Id),
     /// A parameter's expression changed.
     Parameter(Id),
@@ -126,6 +127,12 @@ impl Graph {
     /// The changed features themselves, the active nodes that use a changed parameter or context
     /// name, and for a units change every active node that evaluates an expression, are the
     /// seeds; the result is every active node among the seeds and the nodes reachable from them.
+    ///
+    /// A graph describes one version of the document, and a node that is not active provides no
+    /// body, so later readers of its bodies are not its dependents. For an edit that makes a
+    /// feature active (unsuppressing, adding, moving it before the rollback marker), query the
+    /// graph after the edit; for one that makes it inactive, the graph before the edit; for an
+    /// edit that changes what a feature reads or writes, take the union of both results.
     pub fn affected_by(&self, changes: &[Change]) -> Vec<Id> {
         let mut reached = vec![false; self.nodes.len()];
         let mut pending: Vec<usize> = (0..self.nodes.len())

@@ -11,7 +11,7 @@ use super::common::{
     selection_hint, solid_body, unit_hint,
 };
 use super::dressup::{
-    internal, kernel, modified, name_blend, no_effect, run_or_search, select_edges, smallest_name,
+    internal, kernel, modified, name_blend, no_effect, run_or_search, select_edges,
 };
 use crate::{
     BuildContext, Dependencies, Feature, FeatureError, FeatureOutput, FieldRef, Noun, PythonCall,
@@ -249,11 +249,12 @@ fn first_face(topology: &Topology, naming: &NamingMap, edge: u32) -> Result<u32,
         .and_then(|position| topology.edges.get(position as usize))
         .map(|entry| entry.faces.as_slice())
         .ok_or_else(|| internal(format!("edge {edge} is not in the body's topology")))?;
-    let first = smallest_name(naming, ElementKind::Face, faces)
-        .ok_or_else(|| internal(format!("edge {edge} has no named face")))?;
-    naming
-        .index(&first)
-        .ok_or_else(|| internal(format!("the face {first} has no index")))
+    faces
+        .iter()
+        .filter_map(|&face| Some((naming.name(ElementKind::Face, face)?, face)))
+        .min()
+        .map(|(_, face)| face)
+        .ok_or_else(|| internal(format!("edge {edge} has no named face")))
 }
 
 #[cfg(test)]
@@ -263,7 +264,8 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::builtin::dressup::test_fixtures::{ScriptNames, reference};
+    use crate::builtin::dressup::test_fixtures::reference;
+    use crate::test_support::ScriptNames;
     use crate::{Registry, test_support::id, test_support::named_box};
 
     /// `E-FT` of fillet.md section 6.
@@ -458,8 +460,11 @@ mod tests {
 
     #[test]
     fn python_writes_an_equal_distance() {
-        let call = Chamfer::python(&params(&[FRONT_TOP], equal("1 mm")), &ScriptNames)
-            .expect("a dedicated form");
+        let call = Chamfer::python(
+            &params(&[FRONT_TOP], equal("1 mm")),
+            &ScriptNames::default(),
+        )
+        .expect("a dedicated form");
 
         assert_eq!(
             call.render(0),
@@ -471,7 +476,7 @@ mod tests {
     fn two_distances_have_no_dedicated_python_form() {
         let call = Chamfer::python(
             &params(&[FRONT_TOP], two_distances("1", "3", false)),
-            &ScriptNames,
+            &ScriptNames::default(),
         );
 
         assert_eq!(call, None);

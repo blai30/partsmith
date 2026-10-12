@@ -157,7 +157,9 @@ mod tests {
 
         assert_eq!(
             run.messages("f-tor1"),
-            ["Tube radius must be less than the ring radius (20 mm), but it is 20 mm. Use a value less than 20 mm."]
+            [
+                "Tube radius must be less than the ring radius (20 mm), but it is 20 mm. Use a value less than 20 mm."
+            ]
         );
     }
 

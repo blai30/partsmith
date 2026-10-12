@@ -3,7 +3,9 @@
 
 use std::f64::consts::{PI, TAU};
 
-use partsmith_model::{Category, Expr, FeatureManifest, FieldUnit, Id, LINEAR_TOLERANCE, SelectionKind};
+use partsmith_model::{
+    Category, Expr, FeatureManifest, FieldUnit, Id, LINEAR_TOLERANCE, SelectionKind,
+};
 use partsmith_occt_sys::{Axis, revolve};
 use partsmith_sketch::{Placement, ProfileCurve};
 use schemars::JsonSchema;
@@ -376,8 +378,12 @@ mod tests {
     fn dependencies_read_an_axis_body_other_than_the_target() {
         let edge = json!({"kind": "edge", "body": "b-2", "edge": {"q": "edge(f-box1/front|f-box1/left)", "fp": "line|n=0,0,1"}});
 
-        let dependencies =
-            Revolve::dependencies(&params(record(edge, json!({"kind": "full"}), "new", json!({}))));
+        let dependencies = Revolve::dependencies(&params(record(
+            edge,
+            json!({"kind": "full"}),
+            "new",
+            json!({}),
+        )));
 
         assert_eq!(dependencies.bodies_written[0].id, id("b-1"));
         assert_eq!(dependencies.bodies_read.len(), 1);
@@ -389,8 +395,12 @@ mod tests {
     fn dependencies_do_not_read_the_target_as_the_axis_body() {
         let edge = json!({"kind": "edge", "body": "b-1", "edge": {"q": "edge(f-box1/front|f-box1/left)", "fp": "line|n=0,0,1"}});
 
-        let dependencies =
-            Revolve::dependencies(&params(record(edge, json!({"kind": "full"}), "join", json!({}))));
+        let dependencies = Revolve::dependencies(&params(record(
+            edge,
+            json!({"kind": "full"}),
+            "join",
+            json!({}),
+        )));
 
         assert!(dependencies.bodies_read.is_empty());
         assert_eq!(dependencies.bodies_written.len(), 1);
@@ -485,7 +495,10 @@ mod tests {
 
         let (low, high) = distance_range(&arc, [0.0, 0.0], [1.0, 0.0]);
 
-        assert!(low.abs() < 1e-12 && (high - 1.0).abs() < 1e-12, "{low} {high}");
+        assert!(
+            low.abs() < 1e-12 && (high - 1.0).abs() < 1e-12,
+            "{low} {high}"
+        );
     }
 
     #[test]
@@ -501,14 +514,20 @@ mod tests {
 
         let (low, high) = distance_range(&arc, [0.0, 0.0], [1.0, 0.0]);
 
-        assert!((low + 1.0).abs() < 1e-12 && high.abs() < 1e-12, "{low} {high}");
+        assert!(
+            (low + 1.0).abs() < 1e-12 && high.abs() < 1e-12,
+            "{low} {high}"
+        );
     }
 
     #[test]
     fn a_full_ring_has_four_lateral_faces_and_no_caps() {
         let document = run(
             &["b-1"],
-            &[ring_sketch(), record(axis_z(), json!({"kind": "full"}), "new", json!({}))],
+            &[
+                ring_sketch(),
+                record(axis_z(), json!({"kind": "full"}), "new", json!({})),
+            ],
         );
 
         document.assert_ok("f-rev1");
@@ -541,7 +560,11 @@ mod tests {
 
         document.assert_ok("f-rev1");
         document.assert_bounding_box("b-1", [0.0, -20.0, 0.0], [20.0, 0.0, 30.0]);
-        assert!(document.face_names("b-1").contains(&"f-rev1/end-cap".to_string()));
+        assert!(
+            document
+                .face_names("b-1")
+                .contains(&"f-rev1/end-cap".to_string())
+        );
     }
 
     #[test]
@@ -550,7 +573,12 @@ mod tests {
             &["b-1"],
             &[
                 ring_sketch(),
-                record(axis_z(), json!({"kind": "angle", "expr": "400 deg"}), "new", json!({})),
+                record(
+                    axis_z(),
+                    json!({"kind": "angle", "expr": "400 deg"}),
+                    "new",
+                    json!({}),
+                ),
             ],
         );
 
@@ -579,7 +607,12 @@ mod tests {
     #[test]
     fn python_writes_a_partial_turn_about_an_origin_axis() {
         assert_eq!(
-            python(record(axis_z(), json!({"kind": "angle", "expr": "90 deg"}), "new", json!({}))),
+            python(record(
+                axis_z(),
+                json!({"kind": "angle", "expr": "90 deg"}),
+                "new",
+                json!({})
+            )),
             Some("revolve(sketch_1, Axis.Z, 90*deg)".to_string())
         );
     }
@@ -614,6 +647,9 @@ mod tests {
     fn python_needs_the_axis_variable() {
         let line = json!({"kind": "sketch_line", "sketch": "f-sk1", "line": "e-7"});
 
-        assert_eq!(python(record(line, json!({"kind": "full"}), "new", json!({}))), None);
+        assert_eq!(
+            python(record(line, json!({"kind": "full"}), "new", json!({}))),
+            None
+        );
     }
 }
