@@ -144,11 +144,11 @@ feature(
 ### 3.3 Build
 
 1. The body must hold a solid, else `BodyEmpty { use_new: false }`.
-2. Values, checked in this order (D hole diameter, L depth):
-   - D > 0 (`GreaterThan(0)`).
-   - Distance extent: L > 0 (`GreaterThan(0)` on `extent.expr`). It comes before the head checks, so a head check never compares with a depth that is not positive and its message always names a value that can work.
-   - Counterbore: head diameter > D (`GreaterThan(D)`, bound name `the hole diameter`); depth > 0; with a distance extent, depth ≤ L - `LINEAR_TOLERANCE`, else `OutOfRange` on `hole_type.depth` with `LessThan(L)` and bound name `the hole depth`.
-   - Countersink: head diameter > D (as above); 0 < angle < 180 deg (`GreaterThan(0)`, `LessThan(π)`); with a distance extent, the countersink depth (head - D) / 2 / tan(angle / 2) must be at most L - `LINEAR_TOLERANCE`, else `OutOfRange` on `hole_type.diameter` with `LessThan(D + 2 L tan(angle / 2))` and bound name `the largest that fits the hole depth`.
+2. Values, checked in this order (D hole diameter, L depth), each length by the positive length rule of features.md section 3.4:
+   - D > 0 (`GreaterThan(0)`): the bore radius D / 2 at least `LINEAR_TOLERANCE`, since the entry and bottom segments of the cross-section are that long.
+   - Distance extent: L > 0 (`GreaterThan(0)` on `extent.expr`), at least `LINEAR_TOLERANCE`. It comes before the head checks, so a head check never compares with a depth that is not positive and its message always names a value that can work.
+   - Counterbore: head diameter > D (`GreaterThan(D)`, bound name `the hole diameter`), at least D + 2 `LINEAR_TOLERANCE` so the floor between the head and the bore radius is at least `LINEAR_TOLERANCE` wide; depth > 0 (`GreaterThan(0)`), at least `LINEAR_TOLERANCE`; with a distance extent, depth ≤ L - `LINEAR_TOLERANCE`, else `OutOfRange` on `hole_type.depth` with `LessThan(L)` and bound name `the hole depth`.
+   - Countersink: head diameter > D, at least D + 2 `LINEAR_TOLERANCE` (as above); 0 < angle < 180 deg (`GreaterThan(0)`, `LessThan(π)`); with a distance extent, the countersink depth (head - D) / 2 / tan(angle / 2) must be at most L - `LINEAR_TOLERANCE`, else `OutOfRange` on `hole_type.diameter` with `LessThan(D + 2 L tan(angle / 2))` and bound name `the largest that fits the hole depth`.
    - Tip angle, when set: 0 < tip < 180 deg. With a through-all extent the tip is ignored with an `Ignored { field: "tip_angle", reason: TipAngleThroughAll }` warning.
 
    A head must end at least `LINEAR_TOLERANCE` (1e-6 mm) above the shoulder, because a shorter bore between them is below the kernel's modeling tolerance and the kernel would fail on it (kernel.md section 3.4.2). The messages keep the bounds L and D + 2 L tan(angle / 2), which come from the depth the user typed.
@@ -183,9 +183,9 @@ feature(
 | --- | --- | --- |
 | No points | `EmptySelection` | `Select at least one point for Points.` |
 | Unknown point | `UnknownEntity` | `'Sketch 1' has no point 'e-p9'. Re-pick it for Points.` |
-| Diameter ≤ 0 | `OutOfRange` | `Diameter must be greater than 0 mm, but it is 0 mm. Use a value greater than 0 mm.` |
-| Depth ≤ 0 | `OutOfRange` | `Depth must be greater than 0 mm, but it is 0 mm. Use a value greater than 0 mm.` |
-| Head diameter too small | `OutOfRange` | `Head diameter must be greater than the hole diameter (6 mm), but it is 5 mm. Use a value greater than 6 mm.` |
+| Diameter below 2e-6 mm (bore radius below 1e-6 mm, 0 and negative included) | `OutOfRange` | `Diameter must be greater than 0 mm, but it is 0 mm. Use a value greater than 0 mm.` |
+| Depth or counterbore depth below 1e-6 mm (0 and negative included) | `OutOfRange` | `Depth must be greater than 0 mm, but it is 0 mm. Use a value greater than 0 mm.` |
+| Head diameter not at least 2e-6 mm larger than the hole diameter | `OutOfRange` | `Head diameter must be greater than the hole diameter (6 mm), but it is 5 mm. Use a value greater than 6 mm.` |
 | Counterbore not at least 1e-6 mm shallower than the hole | `OutOfRange` | `Counterbore depth must be less than the hole depth (5 mm), but it is 6 mm. Use a value less than 5 mm.` |
 | Countersink angle out of range | `OutOfRange` | `Countersink angle must be less than 180 deg, but it is 180 deg. Use a value less than 180 deg.` |
 | Countersink not at least 1e-6 mm shallower than the hole | `OutOfRange` | `Head diameter must be less than the largest that fits the hole depth (16 mm), but it is 20 mm. Use a value less than 16 mm.` |
@@ -237,6 +237,11 @@ Bodies `[b-1]`; features `BOX-BELOW`, `SK-PTS`, then the hole, unless stated. Th
 24. **Through all with a head deeper than the body.** Features `{"id": "f-box1", "type": "box", "body": "b-1", "size": ["40", "40", "2"], "position": ["0", "0", "-2"], "op": "new"}` (a plate [-20,-20,-2]-[20,20,0]), `SK-PTS`, then as 4 (counterbore 11 x 4, through all). Expected: ok; volume 3009.933644, 7 faces, bbox [-20,-20,-2]-[20,20,0]; `f-hole1/counterbore/e-p1` cylindrical with radius 5.5 and area 69.115038; no `f-hole1/bore/e-p1` and no `f-hole1/counterbore-floor/e-p1`; change `Cut`.
 25. **Counterbore ending at the shoulder within the tolerance.** `"hole_type": {"kind": "counterbore", "diameter": "11", "depth": "4.9999999"}, "extent": {"kind": "distance", "expr": "5"}`. Expected: error `out_of_range`, field `hole_type.depth`, rendered `Counterbore depth must be less than the hole depth (5 mm), but it is 5 mm. Use a value less than 5 mm.`
 26. **Countersink ending at the shoulder within the tolerance.** `"hole_type": {"kind": "countersink", "diameter": "15.9999999", "angle": "90 deg"}, "extent": {"kind": "distance", "expr": "5"}` (countersink depth 4.99999995). Expected: error `out_of_range`, field `hole_type.diameter`, rendered `Head diameter must be less than the largest that fits the hole depth (16 mm), but it is 16 mm. Use a value less than 16 mm.`
+27. **Diameter below the tolerance.** As 1 with `"diameter": "0.0000001"`. Expected: error `out_of_range`, field `diameter`, rendered `Diameter must be greater than 0 mm, but it is 0 mm. Use a value greater than 0 mm.`; b-1 unchanged.
+28. **Bore radius below the tolerance.** As 1 with `"diameter": "0.0000015"` (radius 7.5e-7 mm). Expected: error `out_of_range`, field `diameter`, bound `GreaterThan(0)`; b-1 unchanged.
+29. **Depth below the tolerance.** `"extent": {"kind": "distance", "expr": "0.0000001"}`. Expected: error `out_of_range`, field `extent.expr`, rendered `Depth must be greater than 0 mm, but it is 0 mm. Use a value greater than 0 mm.`; b-1 unchanged.
+30. **Counterbore depth below the tolerance.** `"hole_type": {"kind": "counterbore", "diameter": "11", "depth": "0.0000001"}`, through all. Expected: error `out_of_range`, field `hole_type.depth`, rendered `Counterbore depth must be greater than 0 mm, but it is 0 mm. Use a value greater than 0 mm.`; b-1 unchanged.
+31. **Head within the tolerance of the hole diameter.** As 4 with head diameter `"6.0000001"`. Expected: error `out_of_range`, field `hole_type.diameter`, rendered `Head diameter must be greater than the hole diameter (6 mm), but it is 6 mm. Use a value greater than 6 mm.`; b-1 unchanged.
 
 ## Open issues
 
@@ -244,3 +249,4 @@ Bodies `[b-1]`; features `BOX-BELOW`, `SK-PTS`, then the hole, unless stated. Th
 2. **Depth checked before the head.** Resolved: section 3.3 step 2 checked the head against L before L > 0, so a head on a hole whose depth is not positive got a fix that cannot be followed (a counterbore 11 x 4 with depth `0` rendered `Use a value less than 0 mm.`). Step 2 now checks L > 0 right after D > 0 and reports the depth (tests 22 and 23).
 3. **Through all past the head.** Resolved: a through-all length of the farthest corner distance plus 1 mm can be less than the head depth (a counterbore 4 mm deep in a 2 mm plate gives 3 mm), which makes the bore run back up from the counterbore floor and the cross-section invalid. Section 3.3 step 4 now takes L = max(farthest corner distance, head depth) + 1 mm (test 24).
 4. **Head ending at the shoulder.** Resolved: the head checks accepted a head that ends less than the modeling tolerance above the shoulder, which left a bore too short for the kernel (a counterbore 11 x 4.9999999 in a hole 5 deep failed with the kernel's `Curve 5 of the profile has zero length.`). Section 3.3 step 2 now requires the head to end at least `LINEAR_TOLERANCE` above L and reports `OutOfRange` on the head's field (tests 25 and 26).
+5. **Sizes below the tolerance.** Resolved: a diameter, depth or counterbore depth between 0 and `LINEAR_TOLERANCE`, or a head diameter within 2 `LINEAR_TOLERANCE` of D, passed the checks and failed in the kernel with `Curve <n> of the profile has zero length.`, which names no field. Section 3.3 step 2 now applies the positive length rule of features.md section 3.4 to each of them (tests 27 to 31).

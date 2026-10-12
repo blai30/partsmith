@@ -529,7 +529,7 @@ Startup (ui.md 3.1 step 2) creates the file service with `chooseFileService(wind
 
 ### 3.1 `call`
 
-1. The command takes the request body: the bytes of a raw body, or, for a JSON body, the bytes of its JSON text (which do not start with `PSM1`, so the engine answers `malformed_frame`, "The frame does not start with PSM1."). It never returns an error for a bad frame; the engine answers every frame with a response frame (engine.md 3.1).
+1. The command takes the request body: the bytes of a raw body, or, for a JSON body, the bytes of its JSON text (which never start with `PSM1`, so the engine answers `malformed_frame` with the first failing check of protocol.md 3.2, which checks the length before the magic: "The frame is {length} bytes long, but its layout needs 8 bytes." for a text shorter than 8 bytes, such as `{}`, else "The frame does not start with PSM1."). It never returns an error for a bad frame; the engine answers every frame with a response frame (engine.md 3.1).
 2. It runs `Host::call` on Tauri's blocking thread pool (`tauri::async_runtime::spawn_blocking`) with a clone of the `Arc<Host>`, so a long recompute never blocks the event loop or the window.
 3. `Host::call` locks the session mutex and calls `Session::call`. Calls are serialized: at most one `Session::call` runs at a time. Order between concurrent callers is not guaranteed by the host; the UI's Tauri transport sends one request at a time in FIFO order and applies superseding with `isSuperseded` before sending (protocol.md 2.11 and 2.12, ui.md 2.4), so responses arrive in request order.
 4. `Session::call` contains panics and poisons only the affected document (engine.md 3.15), so the session stays usable. A poisoned mutex can therefore only come from a panic outside `Session::call`, which the host's code does not have; `Host::call` recovers the guard with `PoisonError::into_inner` rather than failing every later call.
@@ -569,8 +569,13 @@ Startup (ui.md 3.1 step 2) creates the file service with `chooseFileService(wind
 
 1. `read(grant)` finds the path whose grant matches (`UnknownGrant` if none), reads the whole file and moves the path to the front of the list.
 2. `write(grant, bytes)` finds the path the same way and replaces the file's contents atomically: the original is either untouched or fully replaced.
-3. I/O errors map to `FileError`: `NotFound` for `std::io::ErrorKind::NotFound` (the file was moved or deleted, or for a write, its folder was), `Denied` with the operating system's message for `PermissionDenied`, and `Io` with the operating system's message (`std::io::Error`'s `Display`, for example "No space left on device (os error 28)") for anything else. `name` is the path's final component.
-4. The atomic write: create `.{name}.{process id}-{n}.partsmith.tmp` in the same folder (`n` from a per-`Files` counter, so concurrent writes never share a temporary file), write all bytes, `sync_all`, copy the permissions of the existing target if there is one, and rename it over the target. On any failure the temporary file is removed and the target is unchanged.
+3. I/O errors map to `FileError`: `NotFound` for `std::io::ErrorKind::NotFound` (the file was moved or deleted, or for a write, its folder was), `Denied` with the operating system's message for `PermissionDenied` (or with `the file is read-only`, step 4), and `Io` with the operating system's message (`std::io::Error`'s `Display`, for example "No space left on device (os error 28)") for anything else. `name` is the final component of the granted path (for a symbolic link, the link's name).
+4. The atomic write, which on any failure removes its temporary file and leaves the target unchanged:
+   1. The target is the granted path, except when that path is a symbolic link: then the target is the file it points to (`std::fs::canonicalize`, which follows every link in the chain), and the link itself stays as it is.
+   2. An existing target that is read-only (`std::fs::Permissions::readonly`: on Unix no write bit is set, on Windows the read-only attribute) fails with `Denied` with the detail `the file is read-only` before anything is created, and is not changed. Without this check the rename of step 4.5 would replace it, because a rename needs write access to the folder only.
+   3. Otherwise the host creates `.{target name}.{process id}-{n}.partsmith.tmp` in the target's folder (`n` from a per-`Files` counter, so concurrent writes never share a temporary file), as a new file (`create_new`, so an existing file of that name is never reused). When the target exists, its permissions are applied to the temporary file before any byte is written: on Unix the file is created with the target's mode, which the umask can only narrow, and the target's permissions are then set on it in full, so other users never see more than the target shows them. A new target gets the default permissions.
+   4. It writes all bytes and calls `sync_all`.
+   5. It renames the temporary file over the target.
 5. A successful write moves the path to the front of the list.
 6. The command layer: `read_file` returns the bytes as `tauri::ipc::Response`; `write_file` takes the grant from the `Partsmith-Grant` header (missing or not visible ASCII: `UnknownGrant`) and the bytes from a raw body (a JSON body: `NotBytes`). Both run their file work on the blocking pool.
 
@@ -622,7 +627,7 @@ The Linux packages are built on Ubuntu 24.04, so they need glibc 2.39 or later a
 | The blocking task failed to join | `call` rejection | `The geometry core failed: {join error}` |
 | Grant not in the list, or missing `Partsmith-Grant` header | `FileError::UnknownGrant`, reason `permission` | `Partsmith has no access to this file. Choose it again in a file dialog.` |
 | File or its folder missing | `FileError::NotFound`, reason `not_found` | `{name} was not found.` |
-| The OS denied access | `FileError::Denied`, reason `permission` | `Partsmith has no access to {name}: {os message}` |
+| The OS denied access, or the write target is read-only (3.4 step 4) | `FileError::Denied`, reason `permission` | `Partsmith has no access to {name}: {os message}`; for a read-only target `Partsmith has no access to {name}: the file is read-only` |
 | Any other I/O failure | `FileError::Io`, reason `io` | `{os message}` |
 | Path not valid UTF-8 | `FileError::NotUnicode`, reason `io` | `Partsmith can only use files whose path is valid Unicode. Rename the file or its folder.` |
 | Save name gained an extension and that file exists | `FileError::Exists`, reason `io` | `{name} already exists. Choose it in the dialog to replace it.` |
@@ -638,7 +643,7 @@ The Linux packages are built on Ubuntu 24.04, so they need glibc 2.39 or later a
 
 ## 5. Performance budgets
 
-Release builds on the reference machine (technical design section 14). The first two rows are checked by Rust benchmarks in `desktop/src-tauri/benches/` (`harness = false`, `std::time::Instant`, as sketch.md); the others are release gates measured by the desktop harness once it exists (section 1.2, ui.md 6.7).
+Release builds on the reference machine (technical design section 14). The first two rows are checked by the Rust benchmark `desktop/src-tauri/benches/budgets.rs` (`cargo bench -p partsmith-desktop --bench budgets`; `harness = false`, `std::time::Instant`, as sketch.md); the others are release gates measured by the desktop harness once it exists (section 1.2, ui.md 6.7). Each benchmark scenario runs 3 warm-up repetitions, then 21 measured repetitions, and compares its median with its budget; the run prints each scenario's median and budget and exits with status 1 naming every scenario over budget. The `Host::call` row is the median time per call of `Host::call` on a fresh copy of an `engine_info` request frame (the copy the `call` command makes) minus that of `Session::call` on the same frame, both on headless sessions, with 1000 calls per repetition; the `Files::load` row loads a store of `MAX_GRANTS` absolute paths.
 
 | Operation | Budget |
 | --- | --- |
@@ -657,7 +662,7 @@ Rust tests live in `desktop/src-tauri/tests/` and run with `cargo test -p partsm
 **Host (`tests/host.rs`)**
 
 1. `Host::new(SessionOptions::headless()).call(example A)` decodes with `decode_response_frame` to no events and a response with id 1 and result `engine_info` whose `protocol_version` is 1 and `engine_version` equals `partsmith_engine::ENGINE_VERSION`.
-2. `call(b"hello")` returns a response frame with id 0, error code `malformed_frame` and message `The frame does not start with PSM1.`.
+2. `call(b"hello, frame")` returns a response frame with id 0, error code `malformed_frame` and message `The frame does not start with PSM1.`; `call(b"hello")` returns a response frame with id 0, error code `malformed_frame` and message `The frame is 5 bytes long, but its layout needs 8 bytes.` (protocol.md 3.2 checks the length before the magic).
 3. `call` of example A re-encoded with `protocol_version` 2 returns an error response with id 1 and code `protocol_version_mismatch`.
 4. The session persists: `call(new_document)` then `call(save_document { doc: 1 })` both succeed.
 5. Concurrent calls serialize: one `Arc<Host>` with a headless session, 8 threads each sending 25 `new_document` requests with distinct request ids. Every one of the 200 responses is ok and echoes its request's id, and the returned document handles are exactly 1 to 200, each once.
@@ -698,7 +703,7 @@ Rust tests live in `desktop/src-tauri/tests/` and run with `cargo test -p partsm
 **Configuration (`tests/config.rs`, parsing the checked-in files)**
 
 33. `tauri.conf.json` parses as JSON and equals the object of 2.8 exactly (key order ignored).
-34. `capabilities/main.json` equals the object of 2.9 exactly, its permissions are `allow-` plus each `COMMAND_NAMES` entry with underscores replaced by hyphens, in order, and `capabilities/` contains no other file.
+34. `capabilities/main.json` equals the object of 2.9 exactly, its permissions are `allow-` plus each `COMMAND_NAMES` entry with underscores replaced by hyphens, in order, and `capabilities/` contains no other file. `permissions/autogenerated/` contains exactly one file per `COMMAND_NAMES` entry, named `{entry}.toml` with the underscores kept (2.2), and no other file.
 35. Each path in `bundle.icon` exists under `desktop/src-tauri/`, and `icons/` contains no other file.
 
 **UI (Vitest)**
@@ -721,6 +726,11 @@ Rust tests live in `desktop/src-tauri/tests/` and run with `cargo test -p partsm
 
 49. On `ubuntu-24.04`, after `pnpm -C ui build`, `cargo tauri build --bundles deb` in `desktop/src-tauri` exits 0 and produces exactly one `.deb` under `target/release/bundle/deb/`, whose `dpkg-deb --contents` lists `./usr/bin/partsmith-desktop` and exactly one `.desktop` file under `./usr/share/applications/`.
 50. `cargo clippy -p partsmith-desktop --all-targets -- -D warnings` passes (part of the workspace clippy run).
+
+**Added file tests (`tests/files.rs`)**
+
+51. (Unix) With `<dir>/link.ptsm` a symbolic link to `<dir>/synced/part.ptsm` (holding `old contents`) and the link granted by `pick_open`, `write(grant, b"new")` succeeds; `link.ptsm` is still a symbolic link, `synced/part.ptsm` holds `new`, `synced/` holds only `part.ptsm` and `<dir>` holds only `link.ptsm` and `synced` (3.4 step 4).
+52. A granted `<dir>/part.ptsm` holding `old contents` and made read-only (`Permissions::set_readonly(true)`): `write(grant, b"new")` fails with `Denied { name: "part.ptsm", detail: "the file is read-only" }`, reason `permission`; the file still holds `old contents` and `<dir>` holds only `part.ptsm`.
 
 **Manual checks at the gate** (no harness yet; the reviewer records the result per OS): the window opens at 1440 by 900 with the UI and fonts (online) or system fonts (offline); Open, Save, Save as and Export show native dialogs and write the chosen files; Open recent reopens a file after restarting the app; dropping a `.ptsm` opens it; closing with unsaved changes asks; `cargo tauri dev` loads the UI with hot reload.
 
