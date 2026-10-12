@@ -136,11 +136,7 @@ impl Feature for LinearPattern {
                     SelectionKind::Axis,
                 )),
                 essential(unit_hint("direction.count", "Count", FieldUnit::Count)),
-                essential(unit_hint(
-                    "direction.spacing",
-                    "Spacing",
-                    FieldUnit::Length,
-                )),
+                essential(unit_hint("direction.spacing", "Spacing", FieldUnit::Length)),
                 hint("direction.reverse", "Reverse"),
                 selection_hint(
                     "second_direction.axis",
@@ -390,7 +386,10 @@ mod tests {
                 ("second_direction.spacing", "15", FieldUnit::Length),
             ]
         );
-        assert_eq!(dependencies.features[0].field, "second_direction.axis.sketch");
+        assert_eq!(
+            dependencies.features[0].field,
+            "second_direction.axis.sketch"
+        );
         assert_eq!(dependencies.bodies_written[0].id, id("b-1"));
     }
 
@@ -422,7 +421,11 @@ mod tests {
         assert_volume(shape, 6000.0);
         assert_bounds(shape, [-5.0, -5.0, 0.0], [45.0, 20.0, 10.0]);
         let names = face_names(&update(&output, "b-1").naming);
-        for name in ["f-box1/top@f-lp1:1", "f-box1/top@f-lp1:0.1", "f-box1/top@f-lp1:2.1"] {
+        for name in [
+            "f-box1/top@f-lp1:1",
+            "f-box1/top@f-lp1:0.1",
+            "f-box1/top@f-lp1:2.1",
+        ] {
             assert!(names.contains(&name.to_string()), "{name} exists");
         }
     }
@@ -443,7 +446,10 @@ mod tests {
 
     #[test]
     fn op_new_fuses_the_copies_into_the_target() {
-        let params = pattern(direction(X, "3", "20"), json!({"op": "new", "target": "b-2"}));
+        let params = pattern(
+            direction(X, "3", "20"),
+            json!({"op": "new", "target": "b-2"}),
+        );
 
         let output = run(&params).expect("the pattern builds");
 
@@ -465,7 +471,10 @@ mod tests {
     fn a_zero_count_is_out_of_range() {
         let error = run(&pattern(direction(X, "0", "20"), json!({}))).expect_err("count 0");
 
-        assert_eq!(error.field().expect("names a field").path, "direction.count");
+        assert_eq!(
+            error.field().expect("names a field").path,
+            "direction.count"
+        );
         assert_eq!(
             error.to_string(),
             "Count must be at least 1, but it is 0. Use 1 or more."
@@ -477,7 +486,10 @@ mod tests {
         let error = run(&pattern(direction(X, "3", "0"), json!({}))).expect_err("spacing 0");
 
         assert_eq!(error.code(), "out_of_range");
-        assert_eq!(error.field().expect("names a field").path, "direction.spacing");
+        assert_eq!(
+            error.field().expect("names a field").path,
+            "direction.spacing"
+        );
     }
 
     #[test]
@@ -520,7 +532,10 @@ mod tests {
             python::<LinearPattern>(&params).as_deref(),
             Some("linear_pattern(Axis.X, 3, 20*mm, second=(Axis.Y, 2, 15*mm))")
         );
-        let into = pattern(direction(X, "3", "20"), json!({"op": "new", "target": "b-2"}));
+        let into = pattern(
+            direction(X, "3", "20"),
+            json!({"op": "new", "target": "b-2"}),
+        );
         assert_eq!(
             python::<LinearPattern>(&into).as_deref(),
             Some("linear_pattern(Axis.X, 3, 20, into=part_2)")
@@ -534,7 +549,11 @@ mod tests {
             .entities
             .insert((id("f-sk1"), id("e-1")), "line_1".to_string());
         let params = pattern(
-            direction(r#"{"kind": "sketch_line", "sketch": "f-sk1", "line": "e-1"}"#, "2", "50"),
+            direction(
+                r#"{"kind": "sketch_line", "sketch": "f-sk1", "line": "e-1"}"#,
+                "2",
+                "50",
+            ),
             json!({}),
         );
 

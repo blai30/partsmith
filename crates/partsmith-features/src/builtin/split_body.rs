@@ -10,8 +10,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use super::common::{
-    bodies, essential, face_name, flag, hint, is_false, manifest, part, selection_hint,
-    solid_body,
+    bodies, essential, face_name, flag, hint, is_false, manifest, part, selection_hint, solid_body,
 };
 use crate::context::BuildContext;
 use crate::deps::Dependencies;
@@ -144,7 +143,8 @@ impl Feature for SplitBody {
         call.positional
             .push(PythonValue::plane(&params.plane, names)?);
         if let Some(target) = &params.target {
-            call.keywords.push(("into".to_string(), part(names, target)?));
+            call.keywords
+                .push(("into".to_string(), part(names, target)?));
         }
         if params.flip {
             call.keywords.push(flag("flip"));
@@ -275,7 +275,8 @@ mod tests {
     use crate::test_support::{box_body, face_names, id};
 
     fn split_body(plane: Value, extra: Value) -> SplitBodyParams {
-        let mut record = json!({"id": "f-split1", "type": "split_body", "body": "b-1", "plane": plane});
+        let mut record =
+            json!({"id": "f-split1", "type": "split_body", "body": "b-1", "plane": plane});
         if let Value::Object(members) = extra {
             for (key, value) in members {
                 record[key] = value;
@@ -353,8 +354,7 @@ mod tests {
 
     #[test]
     fn dependencies_write_the_body_then_the_target() {
-        let dependencies =
-            SplitBody::dependencies(&split_body(datum(), json!({"target": "b-2"})));
+        let dependencies = SplitBody::dependencies(&split_body(datum(), json!({"target": "b-2"})));
 
         let written: Vec<(&str, &str)> = dependencies
             .bodies_written
@@ -367,32 +367,41 @@ mod tests {
 
     #[test]
     fn the_body_keeps_the_side_the_normal_points_to() {
-        let output = run(&split_body(datum(), json!({"target": "b-2"})), 5.0).expect("the split builds");
+        let output =
+            run(&split_body(datum(), json!({"target": "b-2"})), 5.0).expect("the split builds");
 
         let upper = updated_shape(&output, "b-1");
         assert_volume(upper, 6000.0);
         assert_bounds(upper, [-10.0, -10.0, 5.0], [10.0, 10.0, 20.0]);
         let lower = updated_shape(&output, "b-2");
         assert_volume(lower, 2000.0);
-        let changes: Vec<BodyChange> = updates(&output).iter().map(|update| update.change).collect();
+        let changes: Vec<BodyChange> = updates(&output)
+            .iter()
+            .map(|update| update.change)
+            .collect();
         assert_eq!(changes, [BodyChange::Modify, BodyChange::New]);
     }
 
     #[test]
     fn section_faces_are_named_by_side() {
-        let output = run(&split_body(datum(), json!({"target": "b-2"})), 5.0).expect("the split builds");
+        let output =
+            run(&split_body(datum(), json!({"target": "b-2"})), 5.0).expect("the split builds");
 
         let upper = face(&output, "b-1", "f-split1/split-positive");
         assert_eq!(upper.kind, GeometryKind::Plane);
         let normal = upper.direction.expect("a plane has a normal");
-        assert!((normal.z + 1.0).abs() < 1e-9, "outward normal is -Z, got {normal:?}");
+        assert!(
+            (normal.z + 1.0).abs() < 1e-9,
+            "outward normal is -Z, got {normal:?}"
+        );
         let lower = face(&output, "b-2", "f-split1/split-negative");
         assert!((lower.centroid.z - 5.0).abs() < 1e-9);
     }
 
     #[test]
     fn pieces_of_a_cut_face_are_numbered_across_both_parts() {
-        let output = run(&split_body(datum(), json!({"target": "b-2"})), 5.0).expect("the split builds");
+        let output =
+            run(&split_body(datum(), json!({"target": "b-2"})), 5.0).expect("the split builds");
 
         assert!((face(&output, "b-1", "f-box1/front#2").centroid.z - 12.5).abs() < 1e-9);
         assert!((face(&output, "b-2", "f-box1/front#1").centroid.z - 2.5).abs() < 1e-9);
@@ -410,11 +419,17 @@ mod tests {
 
     #[test]
     fn flip_keeps_the_back_part() {
-        let output = run(&split_body(datum(), json!({"flip": true, "target": "b-2"})), 5.0)
-            .expect("the split builds");
+        let output = run(
+            &split_body(datum(), json!({"flip": true, "target": "b-2"})),
+            5.0,
+        )
+        .expect("the split builds");
 
         assert_volume(updated_shape(&output, "b-1"), 2000.0);
-        assert!(face_names(&update(&output, "b-1").naming).contains(&"f-split1/split-negative".to_string()));
+        assert!(
+            face_names(&update(&output, "b-1").naming)
+                .contains(&"f-split1/split-negative".to_string())
+        );
         assert_volume(updated_shape(&output, "b-2"), 6000.0);
     }
 
@@ -423,10 +438,7 @@ mod tests {
         let error = run(&split_body(datum(), json!({"target": "b-2"})), 30.0)
             .expect_err("the plane is above the body");
 
-        assert_eq!(
-            error,
-            FeatureError::PlaneMissesBody { body: id("b-1") }
-        );
+        assert_eq!(error, FeatureError::PlaneMissesBody { body: id("b-1") });
     }
 
     #[test]

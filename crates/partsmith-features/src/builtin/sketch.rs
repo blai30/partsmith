@@ -82,7 +82,12 @@ impl Feature for SketchFeature {
             .entities
             .iter()
             .map(|entity| entity.id.clone())
-            .chain(params.constraints.iter().map(|constraint| constraint.id.clone()))
+            .chain(
+                params
+                    .constraints
+                    .iter()
+                    .map(|constraint| constraint.id.clone()),
+            )
             .collect();
         dependencies
     }
@@ -154,7 +159,8 @@ fn driving_values(
 ) -> Result<DimensionValues, FeatureError> {
     let mut values = DimensionValues::new();
     for (index, constraint) in params.constraints.iter().enumerate() {
-        let (Some(dimension), Some(kind)) = (constraint.dimension(), constraint.value_kind()) else {
+        let (Some(dimension), Some(kind)) = (constraint.dimension(), constraint.value_kind())
+        else {
             continue;
         };
         if !dimension.driving {
@@ -277,7 +283,10 @@ mod tests {
     fn a_sketch_on_xz_maps_sketch_up_to_z() {
         let run = run(&[], &[rectangle(json!({"kind": "origin", "plane": "XZ"}))]);
 
-        assert_eq!(run.sketch("f-sk1").to_world([10.0, 20.0]), [10.0, 0.0, 20.0]);
+        assert_eq!(
+            run.sketch("f-sk1").to_world([10.0, 20.0]),
+            [10.0, 0.0, 20.0]
+        );
     }
 
     #[test]
@@ -312,7 +321,9 @@ mod tests {
         assert_eq!(run.warning_codes("f-sk1"), ["plane_fallback"]);
         assert_eq!(
             run.messages("f-sk1"),
-            ["The face this sketch is on can no longer be found, so the sketch stays at its last position. Re-attach it in the repair panel."]
+            [
+                "The face this sketch is on can no longer be found, so the sketch stays at its last position. Re-attach it in the repair panel."
+            ]
         );
         assert_eq!(run.sketch("f-sk1").placement.origin, [3.0, 4.0, 0.0]);
         let warning = &run.output("f-sk1").warnings[0];
@@ -466,7 +477,9 @@ mod tests {
         let parameters = [json!({"id": "p-w", "name": "width", "expr": "100 mm"})];
         let sketch = line_dimension(
             "width",
-            &[json!({"id": "c-4", "type": "distance", "line": "e-1", "expr": "wdth", "driving": false})],
+            &[
+                json!({"id": "c-4", "type": "distance", "line": "e-1", "expr": "wdth", "driving": false}),
+            ],
         );
         let run = run_document("mm", &parameters, &[], &[sketch], &Default::default());
 
@@ -491,9 +504,11 @@ mod tests {
     fn an_unknown_entity_fails_validation() {
         let run = run(
             &[],
-            &[json!({"id": "f-sk1", "type": "sketch", "plane": {"kind": "origin", "plane": "XY"},
+            &[
+                json!({"id": "f-sk1", "type": "sketch", "plane": {"kind": "origin", "plane": "XY"},
                 "entities": [{"id": "e-1", "type": "line", "start": [0, 0], "end": [10, 0]}],
-                "constraints": [{"id": "c-1", "type": "horizontal", "line": "e-9"}]})],
+                "constraints": [{"id": "c-1", "type": "horizontal", "line": "e-9"}]}),
+            ],
         );
 
         assert!(matches!(

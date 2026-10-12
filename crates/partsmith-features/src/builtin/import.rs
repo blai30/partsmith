@@ -46,7 +46,11 @@ impl Feature for Import {
             "Import",
             Category::Create,
             "import",
-            vec![essential(hint("asset", "File")), body_op_hint(), body_hint()],
+            vec![
+                essential(hint("asset", "File")),
+                body_op_hint(),
+                body_hint(),
+            ],
         )
     }
 
@@ -57,8 +61,9 @@ impl Feature for Import {
             Ok(())
         } else {
             Err(FeatureError::InvalidParams {
-                detail: "'asset' must name a file in the assets folder, such as <64 hex digits>.step"
-                    .to_string(),
+                detail:
+                    "'asset' must name a file in the assets folder, such as <64 hex digits>.step"
+                        .to_string(),
             })
         }
     }
@@ -75,7 +80,10 @@ impl Feature for Import {
     /// `<id>/face`, numbered by naming.md's geometric order, and combines it with the body by
     /// `op`. The kernel's notes about skipped or repaired content come first as warnings
     /// (import.md section 3.3).
-    fn build(params: &ImportParams, context: &BuildContext<'_>) -> Result<FeatureOutput, FeatureError> {
+    fn build(
+        params: &ImportParams,
+        context: &BuildContext<'_>,
+    ) -> Result<FeatureOutput, FeatureError> {
         let bytes = context.asset("asset", &params.asset)?;
         let imported = read_step(bytes).map_err(kernel)?;
         let warnings = imported
@@ -190,7 +198,10 @@ mod tests {
     #[test]
     fn asset_names_are_hashes_with_the_step_extension() {
         assert!(is_step_asset(&asset()));
-        assert!(is_step_asset(&format!("{}.step", "0123456789abcdef".repeat(4))));
+        assert!(is_step_asset(&format!(
+            "{}.step",
+            "0123456789abcdef".repeat(4)
+        )));
         assert!(!is_step_asset("box.step"));
         assert!(!is_step_asset(&format!("{}.step", "A".repeat(64))));
         assert!(!is_step_asset(&format!("{}.stp", "0".repeat(64))));
@@ -213,8 +224,9 @@ mod tests {
         assert_eq!(
             error,
             FeatureError::InvalidParams {
-                detail: "'asset' must name a file in the assets folder, such as <64 hex digits>.step"
-                    .to_string()
+                detail:
+                    "'asset' must name a file in the assets folder, such as <64 hex digits>.step"
+                        .to_string()
             }
         );
     }
@@ -253,7 +265,10 @@ mod tests {
         let geometry = shape
             .element(SubShapeKind::Face, index)
             .expect("the face has geometry");
-        assert!((geometry.centroid.z - 30.0).abs() < 1e-9, "face #4 is the top");
+        assert!(
+            (geometry.centroid.z - 30.0).abs() < 1e-9,
+            "face #4 is the top"
+        );
         assert_eq!(update(&output, "b-1").change, BodyChange::New);
     }
 
@@ -290,8 +305,12 @@ mod tests {
 
     #[test]
     fn bytes_that_are_not_step_are_a_kernel_error() {
-        let error = run(&import("new"), Arc::from(b"not a step file".as_slice()), None)
-            .expect_err("the bytes are not STEP");
+        let error = run(
+            &import("new"),
+            Arc::from(b"not a step file".as_slice()),
+            None,
+        )
+        .expect_err("the bytes are not STEP");
 
         assert_eq!(error.to_string(), "The file is not a valid STEP file.");
     }

@@ -76,7 +76,10 @@ pub(super) struct Source<'a> {
 
 impl<'a> Source<'a> {
     /// The source `body` just before this feature; an empty body is `BodyEmpty`.
-    pub(super) fn new(context: &BuildContext<'a>, body: &'a Id) -> Result<Source<'a>, FeatureError> {
+    pub(super) fn new(
+        context: &BuildContext<'a>,
+        body: &'a Id,
+    ) -> Result<Source<'a>, FeatureError> {
         let (state, shape) = solid_body(context, body)?;
         Ok(Source { body, state, shape })
     }
@@ -198,7 +201,7 @@ pub(super) mod testing {
         fixture
     }
 
-    /// Builds feature `feature` with `params` in the fixture of `fixture`.
+    /// Builds `params` as feature `feature` over the fixture that `fixture` makes for them.
     pub(crate) fn build<F: Feature>(
         feature: &str,
         params: &F::Params,

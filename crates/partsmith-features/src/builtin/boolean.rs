@@ -287,7 +287,10 @@ mod tests {
         ]
     }
 
-    fn run(params: &BooleanParams, bodies: Vec<(&str, BodyState)>) -> Result<FeatureOutput, FeatureError> {
+    fn run(
+        params: &BooleanParams,
+        bodies: Vec<(&str, BodyState)>,
+    ) -> Result<FeatureOutput, FeatureError> {
         build::<Boolean>("f-bool1", params, bodies, Vec::new())
     }
 
@@ -326,7 +329,10 @@ mod tests {
     fn no_tools_is_an_empty_selection() {
         let error = Boolean::validate(&boolean(json!([]), "join")).expect_err("no tools");
 
-        assert_eq!(error.to_string(), "Select at least one body for Tool bodies.");
+        assert_eq!(
+            error.to_string(),
+            "Select at least one body for Tool bodies."
+        );
     }
 
     #[test]
@@ -390,7 +396,13 @@ mod tests {
 
         let changes: Vec<(String, BodyChange, bool)> = updates(&output)
             .iter()
-            .map(|update| (update.body.to_string(), update.change, update.shape.is_some()))
+            .map(|update| {
+                (
+                    update.body.to_string(),
+                    update.change,
+                    update.shape.is_some(),
+                )
+            })
             .collect();
         assert_eq!(
             changes,

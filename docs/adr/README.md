@@ -22,3 +22,4 @@ Format: title, status (proposed, accepted, superseded by NNNN), context, decisio
 | [0014](0014-desktop-host-and-dependencies.md) | Tauri 2 desktop host with tauri-build and tauri-plugin-dialog, and no Tauri npm package | Proposed, needs human review |
 | [0015](0015-sketch-solver-own-sparse-qr.md) | Sketch solver uses its own sparse rank-revealing QR instead of faer | Accepted, needs human review |
 | [0016](0016-generated-schema-check-ins.md) | Generated schema check-ins (log) | Accepted, needs human review |
+| [0017](0017-keep-the-web-build-desktop-leads.md) | Keep the web build; the desktop app leads where the platforms differ | Accepted, needs human review |

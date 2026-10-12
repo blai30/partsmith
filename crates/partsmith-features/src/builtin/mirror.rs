@@ -7,7 +7,9 @@ use partsmith_occt_sys::Transform;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use super::common::{COPY_OP_OPTIONS, essential, into_keyword, manifest, options_hint, selection_hint};
+use super::common::{
+    COPY_OP_OPTIONS, essential, into_keyword, manifest, options_hint, selection_hint,
+};
 use super::copy::{self, Source};
 use crate::context::BuildContext;
 use crate::deps::Dependencies;
@@ -54,7 +56,11 @@ impl Feature for Mirror {
             "mirror",
             vec![
                 essential(selection_hint("body", "Body", SelectionKind::Body)),
-                essential(selection_hint("plane", "Mirror plane", SelectionKind::Plane)),
+                essential(selection_hint(
+                    "plane",
+                    "Mirror plane",
+                    SelectionKind::Plane,
+                )),
                 essential(options_hint("op", "Operation", &COPY_OP_OPTIONS)),
                 essential(selection_hint("target", "Target body", SelectionKind::Body)),
             ],
@@ -168,8 +174,7 @@ mod tests {
 
     #[test]
     fn op_new_reads_the_source_and_writes_the_target() {
-        let dependencies =
-            Mirror::dependencies(&mirror(YZ, json!({"op": "new", "target": "b-2"})));
+        let dependencies = Mirror::dependencies(&mirror(YZ, json!({"op": "new", "target": "b-2"})));
 
         assert_eq!(dependencies.bodies_read[0].id, id("b-1"));
         assert_eq!(dependencies.bodies_written[0].id, id("b-2"));
@@ -220,7 +225,10 @@ mod tests {
             .expect("the face has geometry");
         assert_eq!(geometry.kind, GeometryKind::Plane);
         let normal = geometry.direction.expect("a plane has a normal");
-        assert!((normal.x + 1.0).abs() < 1e-9, "outward normal is -X, got {normal:?}");
+        assert!(
+            (normal.x + 1.0).abs() < 1e-9,
+            "outward normal is -X, got {normal:?}"
+        );
         assert!((geometry.centroid.x + 15.0).abs() < 1e-9);
     }
 
@@ -228,8 +236,8 @@ mod tests {
     fn op_new_puts_the_image_into_the_target_only() {
         let params = mirror(YZ, json!({"op": "new", "target": "b-2"}));
 
-        let output =
-            build::<Mirror>("f-mir1", &params, cube_at(5.0), Vec::new()).expect("the mirror builds");
+        let output = build::<Mirror>("f-mir1", &params, cube_at(5.0), Vec::new())
+            .expect("the mirror builds");
 
         assert_eq!(updates(&output).len(), 1);
         let target = update(&output, "b-2");
@@ -302,7 +310,10 @@ mod tests {
     #[test]
     fn python_needs_the_plane_variable() {
         assert_eq!(
-            python::<Mirror>(&mirror(r#"{"kind": "datum", "feature": "f-dp9"}"#, json!({}))),
+            python::<Mirror>(&mirror(
+                r#"{"kind": "datum", "feature": "f-dp9"}"#,
+                json!({})
+            )),
             None
         );
     }

@@ -158,13 +158,8 @@ impl Feature for Extrude {
         if context.is_canceled() {
             return Err(FeatureError::Canceled);
         }
-        let sweep = extrude(
-            &faces.profile,
-            crate::params::vector(direction),
-            start,
-            end,
-        )
-        .map_err(kernel)?;
+        let sweep = extrude(&faces.profile, crate::params::vector(direction), start, end)
+            .map_err(kernel)?;
         let tool = sweep_tool(context.feature(), sweep, &faces.entities)?;
         apply_tool(context, &params.body, params.op, tool, profile.warnings)
     }
@@ -563,7 +558,10 @@ mod tests {
 
         run.assert_volume("b-1", 15214.601837);
         run.assert_faces("b-1", 7);
-        assert!(run.faces_named("b-1", "f-ext1/").contains(&"f-ext1/lateral/e-5".to_string()));
+        assert!(
+            run.faces_named("b-1", "f-ext1/")
+                .contains(&"f-ext1/lateral/e-5".to_string())
+        );
         assert_eq!(run.faces_named("b-1", "f-ext1/").len(), 1);
     }
 
@@ -585,7 +583,9 @@ mod tests {
 
         assert_eq!(
             run.messages("f-ext1"),
-            ["Through all points away from body 'Body 1', so there is nothing to go through. Turn on Reverse, or use a distance."]
+            [
+                "Through all points away from body 'Body 1', so there is nothing to go through. Turn on Reverse, or use a distance."
+            ]
         );
     }
 
@@ -682,7 +682,10 @@ mod tests {
         let mut names = ScriptNames::default();
         names.regions.insert(
             id("f-sk1"),
-            vec![serde_json::from_value(json!({"key": "e-1,e-2,e-3,e-4", "fp": "c=40,25|a=4000"})).expect("region")],
+            vec![
+                serde_json::from_value(json!({"key": "e-1,e-2,e-3,e-4", "fp": "c=40,25|a=4000"}))
+                    .expect("region"),
+            ],
         );
         let params = |extent: serde_json::Value, op: &str| -> ExtrudeParams {
             serde_json::from_value(json!({"body": "b-1", "profile": rectangle_profile(), "extent": extent, "reverse": true, "op": op})).expect("valid params")

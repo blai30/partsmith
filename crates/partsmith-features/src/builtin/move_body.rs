@@ -66,7 +66,11 @@ impl Feature for MoveBody {
     type Params = MoveBodyParams;
 
     fn manifest() -> FeatureManifest {
-        let mut fields = vec![essential(selection_hint("body", "Body", SelectionKind::Body))];
+        let mut fields = vec![essential(selection_hint(
+            "body",
+            "Body",
+            SelectionKind::Body,
+        ))];
         fields.extend(
             TRANSLATION_FIELDS
                 .into_iter()
@@ -236,7 +240,8 @@ mod tests {
 
     #[test]
     fn canonical_params_omit_a_zero_translation() {
-        let params = move_body(json!({"rotation": about_z("90 deg"), "translation": ["0", "0", "0"]}));
+        let params =
+            move_body(json!({"rotation": about_z("90 deg"), "translation": ["0", "0", "0"]}));
 
         assert_eq!(
             serde_json::to_string(&params).expect("serializes"),
@@ -246,7 +251,8 @@ mod tests {
 
     #[test]
     fn dependencies_declare_translation_then_angle() {
-        let params = move_body(json!({"translation": ["5", "0", "0"], "rotation": about_z("90 deg")}));
+        let params =
+            move_body(json!({"translation": ["5", "0", "0"], "rotation": about_z("90 deg")}));
 
         let dependencies = MoveBody::dependencies(&params);
 
@@ -283,7 +289,8 @@ mod tests {
     #[test]
     fn a_translation_keeps_every_name() {
         let before = cube();
-        let output = run(&move_body(json!({"translation": ["5", "0", "0"]}))).expect("the move builds");
+        let output =
+            run(&move_body(json!({"translation": ["5", "0", "0"]}))).expect("the move builds");
 
         let shape = updated_shape(&output, "b-1");
         assert_volume(shape, 1000.0);
@@ -295,12 +302,14 @@ mod tests {
 
     #[test]
     fn the_rotation_comes_before_the_translation() {
-        let params = move_body(json!({"translation": ["5", "0", "0"], "rotation": about_z("90 deg")}));
+        let params =
+            move_body(json!({"translation": ["5", "0", "0"], "rotation": about_z("90 deg")}));
         // The cube spans [-5,-10,0]-[5,0,10]: turned a quarter about Z it spans x 0..10 and
         // y -5..5, then moves 5 along X. Translating first would end at x 0..10, y 0..10.
         let bodies = vec![("b-1", box_body("f-box1", [-5.0, -10.0, 0.0], 10.0))];
 
-        let output = build::<MoveBody>("f-mv1", &params, bodies, Vec::new()).expect("the move builds");
+        let output =
+            build::<MoveBody>("f-mv1", &params, bodies, Vec::new()).expect("the move builds");
 
         assert_bounds(
             updated_shape(&output, "b-1"),
@@ -311,7 +320,8 @@ mod tests {
 
     #[test]
     fn a_rotation_turns_the_front_face_to_plus_x() {
-        let output = run(&move_body(json!({"rotation": about_z("90 deg")}))).expect("the move builds");
+        let output =
+            run(&move_body(json!({"rotation": about_z("90 deg")}))).expect("the move builds");
 
         let name = ElementName::parse("f-box1/front").expect("valid name");
         let index = update(&output, "b-1")
@@ -329,7 +339,8 @@ mod tests {
     #[test]
     fn a_whole_turn_without_translation_moves_nothing() {
         let state = cube();
-        let params = move_body(json!({"translation": ["0", "0", "0"], "rotation": about_z("360 deg")}));
+        let params =
+            move_body(json!({"translation": ["0", "0", "0"], "rotation": about_z("360 deg")}));
 
         let output =
             build::<MoveBody>("f-mv1", &params, state.clone(), Vec::new()).expect("nothing moves");
@@ -367,7 +378,8 @@ mod tests {
 
     #[test]
     fn a_length_as_the_angle_is_an_expression_error() {
-        let error = run(&move_body(json!({"rotation": about_z("5 mm")}))).expect_err("5 mm is no angle");
+        let error =
+            run(&move_body(json!({"rotation": about_z("5 mm")}))).expect_err("5 mm is no angle");
 
         assert_eq!(error.field().expect("names a field").path, "rotation.angle");
         assert_eq!(
@@ -378,7 +390,8 @@ mod tests {
 
     #[test]
     fn python_writes_translate_and_rotate() {
-        let params = move_body(json!({"translation": ["5", "0", "0"], "rotation": about_z("90 deg")}));
+        let params =
+            move_body(json!({"translation": ["5", "0", "0"], "rotation": about_z("90 deg")}));
 
         assert_eq!(
             python::<MoveBody>(&params).as_deref(),

@@ -242,7 +242,10 @@ mod tests {
         let cylinder =
             partsmith_occt_sys::make_cylinder(&placement, 2.0, 5.0).expect("the cylinder builds");
         let tool = named_primitive("f-cyl1", cylinder);
-        vec![("b-1", BodyState::new(tool.shape, std::sync::Arc::new(tool.naming)))]
+        vec![(
+            "b-1",
+            BodyState::new(tool.shape, std::sync::Arc::new(tool.naming)),
+        )]
     }
 
     fn run(params: &CircularPatternParams) -> Result<FeatureOutput, FeatureError> {
@@ -324,7 +327,9 @@ mod tests {
         assert_eq!(shape.count(SubShapeKind::Solid), 6);
         assert_eq!(shape.count(SubShapeKind::Face), 18);
         assert_eq!(update(&output, "b-1").change, BodyChange::Join);
-        assert!(face_names(&update(&output, "b-1").naming).contains(&"f-cyl1/top@f-cp1:3".to_string()));
+        assert!(
+            face_names(&update(&output, "b-1").naming).contains(&"f-cyl1/top@f-cp1:3".to_string())
+        );
     }
 
     #[test]
@@ -341,8 +346,10 @@ mod tests {
 
     #[test]
     fn reverse_turns_the_other_way() {
-        let output = run(&pattern(json!({"count": "3", "angle": "90 deg", "reverse": true})))
-            .expect("the pattern builds");
+        let output = run(&pattern(
+            json!({"count": "3", "angle": "90 deg", "reverse": true}),
+        ))
+        .expect("the pattern builds");
 
         assert_bounds(
             updated_shape(&output, "b-1"),
@@ -406,14 +413,13 @@ mod tests {
 
     #[test]
     fn op_new_puts_the_copies_into_the_target() {
-        let output = run(&pattern(json!({"count": "6", "op": "new", "target": "b-2"})))
-            .expect("the pattern builds");
+        let output = run(&pattern(
+            json!({"count": "6", "op": "new", "target": "b-2"}),
+        ))
+        .expect("the pattern builds");
 
         assert_eq!(update(&output, "b-2").change, BodyChange::New);
-        assert_eq!(
-            updated_shape(&output, "b-2").count(SubShapeKind::Face),
-            15
-        );
+        assert_eq!(updated_shape(&output, "b-2").count(SubShapeKind::Face), 15);
     }
 
     #[test]

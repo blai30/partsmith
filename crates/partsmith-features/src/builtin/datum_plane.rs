@@ -209,7 +209,9 @@ mod tests {
 
         assert_eq!(
             run.messages("f-dp1"),
-            ["The face selected for Base plane is not flat. Pick a flat face, a datum plane or an origin plane."]
+            [
+                "The face selected for Base plane is not flat. Pick a flat face, a datum plane or an origin plane."
+            ]
         );
     }
 

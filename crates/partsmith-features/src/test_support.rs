@@ -9,9 +9,7 @@ use partsmith_model::{
     Category, Document, EmptyContext, FeatureManifest, FieldHint, Id, Scope, Units,
 };
 use partsmith_naming::{ElementKind, ElementName, NamingMap};
-use partsmith_occt_sys::{
-    ElementGeometry, Plane, Point, Primitive, Shape, SubShapeKind, make_box,
-};
+use partsmith_occt_sys::{ElementGeometry, Plane, Point, Primitive, Shape, SubShapeKind, make_box};
 use partsmith_sketch::RegionRef;
 use serde_json::Value;
 
@@ -339,12 +337,13 @@ impl DocumentRun {
             .iter()
             .chain(&dependencies.bodies_read)
         {
-            let state = self.bodies.get(&link.id).ok_or_else(|| {
-                FeatureError::UnknownBody {
+            let state = self
+                .bodies
+                .get(&link.id)
+                .ok_or_else(|| FeatureError::UnknownBody {
                     field: crate::error::FieldRef::new(&link.field, &manifest),
                     body: link.id.clone(),
-                }
-            })?;
+                })?;
             bodies.insert(link.id.clone(), state.clone());
         }
         self.before.insert(record.id.clone(), bodies.clone());
@@ -516,7 +515,11 @@ impl DocumentRun {
             .shape(body)
             .bounding_box()
             .expect("the body has bounds");
-        for (actual, expected) in actual_min.iter().chain(&actual_max).zip(min.iter().chain(&max)) {
+        for (actual, expected) in actual_min
+            .iter()
+            .chain(&actual_max)
+            .zip(min.iter().chain(&max))
+        {
             assert!(
                 (actual - expected).abs() <= LENGTH_TOLERANCE,
                 "bounding box of {body}: {actual_min:?}-{actual_max:?}, expected {min:?}-{max:?}"

@@ -25,6 +25,8 @@ type Countdown = {
 type NotificationTimers = {
   nextNumber: number
   readonly countdowns: Map<string, Countdown>
+  /** Notifications kept until acted on, which never count down. */
+  readonly persistent: Set<string>
 }
 
 const timersByStore = new WeakMap<AppStore, NotificationTimers>()
@@ -32,7 +34,7 @@ const timersByStore = new WeakMap<AppStore, NotificationTimers>()
 function timersOf(store: AppStore): NotificationTimers {
   let timers = timersByStore.get(store)
   if (timers === undefined) {
-    timers = { nextNumber: 1, countdowns: new Map() }
+    timers = { nextNumber: 1, countdowns: new Map(), persistent: new Set() }
     timersByStore.set(store, timers)
   }
   return timers
@@ -58,7 +60,7 @@ function runCountdown(store: AppStore, id: string, countdown: Countdown): void {
 function startCountdown(store: AppStore, notification: Notification): void {
   stopCountdown(store, notification.id)
   const lifetime = LIFETIMES[notification.severity]
-  if (lifetime === null) {
+  if (lifetime === null || timersOf(store).persistent.has(notification.id)) {
     return
   }
   const countdown: Countdown = { remaining: lifetime, startedAt: 0, timer: null }
@@ -68,6 +70,7 @@ function startCountdown(store: AppStore, notification: Notification): void {
 
 function removeNotification(store: AppStore, id: string): void {
   stopCountdown(store, id)
+  timersOf(store).persistent.delete(id)
   store.setState((state) => {
     const notifications = state.notifications.filter((notification) => notification.id !== id)
     return notifications.length === state.notifications.length ? {} : { notifications }
@@ -81,9 +84,19 @@ function oldestRemovable(notifications: readonly Notification[]): Notification |
   )
 }
 
+export type NotifyOptions = {
+  /** Keeps an info, success or warning notification until the user acts on it or dismisses it. */
+  readonly persistent?: boolean
+}
+
 /** Shows a notification and returns its id; a message already shown restarts that one instead. */
-export function notify(app: App, notification: Omit<Notification, 'id' | 'createdAt'>): string {
+export function notify(
+  app: App,
+  notification: Omit<Notification, 'id' | 'createdAt'>,
+  options: NotifyOptions = {},
+): string {
   const { store } = app
+  const persistent = options.persistent ?? false
   const shown = store
     .getState()
     .notifications.find((candidate) => candidate.message === notification.message)
@@ -98,6 +111,9 @@ export function notify(app: App, notification: Omit<Notification, 'id' | 'create
     createdAt: Date.now(),
   }
   timers.nextNumber += 1
+  if (persistent) {
+    timers.persistent.add(added.id)
+  }
   let notifications = [...store.getState().notifications, added]
   while (notifications.length > MAXIMUM_SHOWN) {
     const dropped = oldestRemovable(notifications)
@@ -105,6 +121,7 @@ export function notify(app: App, notification: Omit<Notification, 'id' | 'create
       break
     }
     stopCountdown(store, dropped.id)
+    timers.persistent.delete(dropped.id)
     notifications = notifications.filter((candidate) => candidate.id !== dropped.id)
   }
   store.setState({ notifications })
