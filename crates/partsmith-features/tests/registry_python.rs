@@ -1,8 +1,7 @@
 //! Acceptance tests for Python code generation: the generic form, dedicated forms through feature hooks, and value rendering (features.md section 6.2, tests 17 to 20 and 22 to 24).
 //!
-//! Tests that need the built-in feature types are ignored until every built-in is registered. Each
-//! of them has a companion with the same number that checks the same registry behavior with the
-//! `probe` and `slab` test features.
+//! Tests of the built-in feature types each have a companion with the same number that checks the
+//! same registry behavior with the `probe` and `slab` test features.
 
 mod common;
 
@@ -316,7 +315,6 @@ fn t020_json_values_map_one_to_one() {
 }
 
 #[test]
-#[ignore = "needs all built-in features"]
 fn t022_dedicated_box_form_omits_the_default_op() {
     let registry = Registry::with_builtins();
 
@@ -328,7 +326,6 @@ fn t022_dedicated_box_form_omits_the_default_op() {
 }
 
 #[test]
-#[ignore = "needs all built-in features"]
 fn t022_dedicated_box_form_writes_an_op_other_than_the_default() {
     let registry = Registry::with_builtins();
 
@@ -343,7 +340,6 @@ fn t022_dedicated_box_form_writes_an_op_other_than_the_default() {
 }
 
 #[test]
-#[ignore = "needs all built-in features"]
 fn t022_dedicated_box_form_appends_name_suppressed_and_id() {
     let registry = Registry::with_builtins();
 
@@ -400,7 +396,6 @@ fn t022_dedicated_form_omits_suppressed_when_false() {
 }
 
 #[test]
-#[ignore = "needs all built-in features"]
 fn t023_extrude_with_two_sides_uses_the_generic_form() {
     let registry = Registry::with_builtins();
     let mut two_sides = extrude_record();
@@ -416,7 +411,6 @@ fn t023_extrude_with_two_sides_uses_the_generic_form() {
 }
 
 #[test]
-#[ignore = "needs all built-in features"]
 fn t023_box_with_invalid_params_uses_the_generic_form() {
     let registry = Registry::with_builtins();
     let invalid = record(json!({
@@ -445,7 +439,6 @@ fn t023_unregistered_type_uses_the_generic_form() {
 }
 
 #[test]
-#[ignore = "needs all built-in features"]
 fn t023_sketch_uses_the_generic_form() {
     let registry = Registry::with_builtins();
     let sketch = rectangle_sketch_record();

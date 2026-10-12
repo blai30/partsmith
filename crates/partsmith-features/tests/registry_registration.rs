@@ -1,8 +1,7 @@
 //! Acceptance tests for feature registration, built-in manifests and params schemas (features.md section 6.2, tests 1 to 7 and 15).
 //!
-//! Tests that need the 20 built-in feature types are ignored until every built-in is registered.
-//! Each of them that checks framework behavior has a companion with the same number that uses test
-//! features instead.
+//! Tests of the 20 built-in feature types that check framework behavior each have a companion with
+//! the same number that uses test features instead.
 
 mod common;
 
@@ -256,7 +255,6 @@ fn keys(value: &Value) -> Vec<&str> {
 }
 
 #[test]
-#[ignore = "needs all built-in features"]
 fn t001_with_builtins_lists_the_twenty_types_in_byte_order() {
     let registry = Registry::with_builtins();
 
@@ -300,7 +298,6 @@ fn t001_a_new_registry_is_empty() {
 }
 
 #[test]
-#[ignore = "needs all built-in features"]
 fn t002_registering_a_second_extrude_is_a_duplicate_and_changes_nothing() {
     let mut registry = Registry::with_builtins();
 
@@ -479,7 +476,6 @@ fn t006_identical_definitions_with_one_name_are_shared() {
 }
 
 #[test]
-#[ignore = "needs all built-in features"]
 fn t007_builtin_manifests_match_the_catalog() {
     let registry = Registry::with_builtins();
 
@@ -506,7 +502,6 @@ fn t007_registered_manifest_is_the_feature_manifest() {
 }
 
 #[test]
-#[ignore = "needs all built-in features"]
 fn t015_builtin_params_schemas_are_open_objects_titled_by_label() {
     let registry = Registry::with_builtins();
 
@@ -534,7 +529,6 @@ fn t015_builtin_params_schemas_are_open_objects_titled_by_label() {
 }
 
 #[test]
-#[ignore = "needs all built-in features"]
 fn t015_builtin_params_schemas_compose_into_the_ptsm_schema() {
     let registry = Registry::with_builtins();
 

@@ -64,80 +64,94 @@ function isFromWorker(data: unknown): data is FromWorker {
   return type === 'ready' || type === 'frame' || type === 'fatal'
 }
 
+/** One run of the core worker, from start() until it ends. */
+type WorkerSession = {
+  readonly started: Promise<CoreReady>
+  readonly startup: Deferred<CoreReady>
+  readonly pending: Settlers<ArrayBuffer>[]
+  worker: Worker | null
+  ready: boolean
+  ended: CoreFatalError | null
+  startTimer: ReturnType<typeof setTimeout> | null
+}
+
 /** Creates the web transport. `createWorker` is injectable for tests. */
 export function createWorkerTransport(options: WorkerTransportOptions = {}): Transport {
   const createWorker = options.createWorker ?? createCoreWorker
   const startTimeout = options.startTimeoutMilliseconds ?? DEFAULT_START_TIMEOUT_MILLISECONDS
-  const pending: Settlers<ArrayBuffer>[] = []
   const fatalListeners = new Set<(error: CoreFatalError) => void>()
-  let worker: Worker | null = null
-  let starting: Deferred<CoreReady> | null = null
-  let started: Promise<CoreReady> | null = null
-  let ready = false
-  let ended: CoreFatalError | null = null
-  let startTimer: ReturnType<typeof setTimeout> | null = null
+  let session: WorkerSession | null = null
 
-  /** Ends the transport: the worker is gone and every pending and later send rejects with `error`. */
-  function end(error: CoreFatalError, reportFatal: boolean): void {
-    if (ended !== null) {
+  /** Ends a session: its worker is gone and every pending and later send rejects with `error`. */
+  function end(ending: WorkerSession, error: CoreFatalError, reportFatal: boolean): void {
+    if (ending.ended !== null) {
       return
     }
-    ended = error
-    if (startTimer !== null) {
-      clearTimeout(startTimer)
-      startTimer = null
+    ending.ended = error
+    if (ending.startTimer !== null) {
+      clearTimeout(ending.startTimer)
+      ending.startTimer = null
     }
-    worker?.terminate()
-    worker = null
-    starting?.reject(error)
-    starting = null
-    for (const settlers of pending.splice(0)) {
+    ending.worker?.terminate()
+    ending.worker = null
+    if (!ending.ready) {
+      ending.startup.reject(error)
+    }
+    for (const settlers of ending.pending.splice(0)) {
       settlers.reject(error)
     }
-    if (reportFatal && ready) {
+    // A core that never became ready is reported through start(), not as a fatal error.
+    if (reportFatal && ending.ready) {
       for (const listener of [...fatalListeners]) {
         listener(error)
       }
     }
   }
 
-  function receive(data: FromWorker): void {
+  function receive(receiving: WorkerSession, data: FromWorker): void {
     switch (data.type) {
       case 'ready':
-        if (starting !== null) {
-          if (startTimer !== null) {
-            clearTimeout(startTimer)
-            startTimer = null
+        if (!receiving.ready) {
+          if (receiving.startTimer !== null) {
+            clearTimeout(receiving.startTimer)
+            receiving.startTimer = null
           }
-          ready = true
-          starting.resolve({
+          receiving.ready = true
+          receiving.startup.resolve({
             protocolVersion: data.protocolVersion,
             engineVersion: data.engineVersion,
           })
-          starting = null
         }
         return
       case 'frame': {
         // The worker answers in request order (protocol.md 2.11 rule 5).
-        const oldest = pending.shift()
+        const oldest = receiving.pending.shift()
         if (oldest === undefined) {
-          end(new CoreFatalError('The geometry core sent a response nobody asked for.'), true)
+          end(
+            receiving,
+            new CoreFatalError('The geometry core sent a response nobody asked for.'),
+            true,
+          )
           return
         }
         oldest.resolve(data.frame)
         return
       }
       case 'fatal':
-        end(new CoreFatalError(data.message), true)
+        end(receiving, new CoreFatalError(data.message), true)
     }
   }
 
-  function listen(target: Worker): void {
+  function listen(listening: WorkerSession, target: Worker): void {
     target.addEventListener('message', (event: MessageEvent<unknown>) => {
       if (isFromWorker(event.data)) {
-        receive(event.data)
+        receive(listening, event.data)
       } else {
-        end(new CoreFatalError('The geometry core sent a message the app cannot read.'), true)
+        end(
+          listening,
+          new CoreFatalError('The geometry core sent a message the app cannot read.'),
+          true,
+        )
       }
     })
     target.addEventListener('error', (event: Event) => {
@@ -145,60 +159,72 @@ export function createWorkerTransport(options: WorkerTransportOptions = {}): Tra
         event instanceof ErrorEvent && event.message !== ''
           ? event.message
           : 'The geometry core stopped.'
-      end(new CoreFatalError(message), true)
+      end(listening, new CoreFatalError(message), true)
     })
     target.addEventListener('messageerror', () => {
-      end(new CoreFatalError('The geometry core sent a message the app cannot read.'), true)
+      end(
+        listening,
+        new CoreFatalError('The geometry core sent a message the app cannot read.'),
+        true,
+      )
     })
   }
 
   return {
     kind: 'worker',
     start() {
-      if (started !== null) {
-        return started
+      if (session !== null && session.ended === null) {
+        return session.started
       }
-      if (ended !== null) {
-        return Promise.reject(ended)
-      }
+      // A transport whose core ended starts a fresh worker (the restart of ui.md 4.4).
       const startup = deferred<CoreReady>()
-      const promise = startup.promise
-      starting = startup
-      started = promise
-      try {
-        worker = createWorker()
-        listen(worker)
-      } catch (error) {
-        end(new CoreFatalError(error instanceof Error ? error.message : String(error)), false)
-        return promise
+      const starting: WorkerSession = {
+        started: startup.promise,
+        startup,
+        pending: [],
+        worker: null,
+        ready: false,
+        ended: null,
+        startTimer: null,
       }
-      startTimer = setTimeout(() => {
-        startTimer = null
+      session = starting
+      try {
+        starting.worker = createWorker()
+        listen(starting, starting.worker)
+      } catch (error) {
+        end(starting, new CoreFatalError(error instanceof Error ? error.message : String(error)), false)
+        return starting.started
+      }
+      starting.startTimer = setTimeout(() => {
+        starting.startTimer = null
         end(
+          starting,
           new CoreFatalError(
             `The geometry core did not start within ${String(startTimeout / 1000)} seconds.`,
           ),
           false,
         )
       }, startTimeout)
-      return promise
+      return starting.started
     },
     send(request) {
-      if (ended !== null) {
-        return Promise.reject(ended)
-      }
-      if (worker === null) {
+      if (session === null) {
         return Promise.reject(new CoreFatalError('The geometry core is not running.'))
       }
-      const target = worker
+      const sending = session
+      if (sending.ended !== null) {
+        return Promise.reject(sending.ended)
+      }
       return new Promise<ArrayBuffer>((resolve, reject) => {
-        pending.push({ resolve, reject })
+        sending.pending.push({ resolve, reject })
         const message: ToWorker = { type: 'call', frame: request }
-        target.postMessage(message, [request])
+        sending.worker?.postMessage(message, [request])
       })
     },
     stop() {
-      end(new CoreFatalError('The geometry core was stopped.'), false)
+      if (session !== null) {
+        end(session, new CoreFatalError('The geometry core was stopped.'), false)
+      }
     },
     onFatal(listener) {
       fatalListeners.add(listener)

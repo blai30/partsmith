@@ -1,8 +1,7 @@
 //! Acceptance tests for params validation and canonicalization, dependencies, the feature inspector and labels (features.md section 6.2, tests 8 to 14, 16 and 21).
 //!
-//! Tests that need the built-in feature types are ignored until every built-in is registered. Each
-//! of them has a companion with the same number that checks the same framework behavior with the
-//! `slab` test feature, whose params have extrude's shape.
+//! Tests of the built-in feature types each have a companion with the same number that checks the
+//! same framework behavior with the `slab` test feature, whose params have extrude's shape.
 
 mod common;
 
@@ -119,7 +118,6 @@ fn labels(registry: &Registry, document: &Document) -> Vec<Option<String>> {
 }
 
 #[test]
-#[ignore = "needs all built-in features"]
 fn t008_extrude_params_take_struct_order_without_defaults() {
     let registry = Registry::with_builtins();
 
@@ -132,7 +130,6 @@ fn t008_extrude_params_take_struct_order_without_defaults() {
 }
 
 #[test]
-#[ignore = "needs all built-in features"]
 fn t008_extrude_unknown_keys_are_reported() {
     let registry = Registry::with_builtins();
 
@@ -178,7 +175,6 @@ fn t008_record_fields_other_than_params_are_unchanged() {
 }
 
 #[test]
-#[ignore = "needs all built-in features"]
 fn t009_canonicalizing_canonical_extrude_params_changes_nothing() {
     let registry = Registry::with_builtins();
     let first = canonical(&registry, &shuffled_record("f-ext1", "extrude"));
@@ -313,7 +309,6 @@ fn t010_unknown_type_message() {
 }
 
 #[test]
-#[ignore = "needs all built-in features"]
 fn t011_extrude_without_body_names_the_missing_setting() {
     let registry = Registry::with_builtins();
 
@@ -338,7 +333,6 @@ fn t011_missing_field_names_the_missing_setting() {
 }
 
 #[test]
-#[ignore = "needs all built-in features"]
 fn t012_extrude_with_unknown_op_names_the_invalid_choice() {
     let registry = Registry::with_builtins();
 
@@ -390,7 +384,6 @@ fn t012_invalid_params_message() {
 }
 
 #[test]
-#[ignore = "needs all built-in features"]
 fn t013_fillet_without_edges_is_an_empty_selection() {
     let registry = Registry::with_builtins();
     let fillet = record(json!({
@@ -441,7 +434,6 @@ fn t013_validate_rejects_an_empty_selection() {
 }
 
 #[test]
-#[ignore = "needs all built-in features"]
 fn t014_extrude_with_a_misspelled_unit_canonicalizes() {
     let registry = Registry::with_builtins();
     let typo = with_param(
@@ -456,7 +448,6 @@ fn t014_extrude_with_a_misspelled_unit_canonicalizes() {
 }
 
 #[test]
-#[ignore = "needs all built-in features"]
 fn t014_extrude_with_a_misspelled_unit_fails_when_evaluated() {
     let registry = Registry::with_builtins();
     let typo = with_param(
@@ -520,7 +511,6 @@ fn t014_misspelled_unit_fails_when_evaluated() {
 }
 
 #[test]
-#[ignore = "needs all built-in features"]
 fn t016_extrude_dependencies() {
     let registry = Registry::with_builtins();
 
@@ -550,7 +540,6 @@ fn t016_extrude_dependencies() {
 }
 
 #[test]
-#[ignore = "needs all built-in features"]
 fn t016_extrude_inspect() {
     let registry = Registry::with_builtins();
 
@@ -571,7 +560,6 @@ fn t016_extrude_inspect() {
 }
 
 #[test]
-#[ignore = "needs all built-in features"]
 fn t016_sketch_declares_its_entity_ids() {
     let registry = Registry::with_builtins();
 
@@ -655,7 +643,6 @@ fn t016_inspect_of_invalid_params_returns_the_error_text() {
 }
 
 #[test]
-#[ignore = "needs all built-in features"]
 fn t021_labels_count_records_of_each_type_in_timeline_order() {
     let registry = Registry::with_builtins();
     let document = document(vec![

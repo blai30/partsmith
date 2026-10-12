@@ -300,7 +300,6 @@ fn t015_out_of_range_message_with_a_named_bound() {
 }
 
 #[test]
-#[ignore = "needs all built-in features"]
 fn t018_builtin_field_labels() {
     let registry = Registry::with_builtins();
     let manifest_of = |type_name: &str| {
