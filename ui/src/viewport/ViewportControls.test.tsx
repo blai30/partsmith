@@ -1,6 +1,6 @@
-import { cleanup, render, screen, within } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { installPopoverPolyfill } from '../components/popover-polyfill.testing'
 import { COLOR_CLASSES } from '../theme/roles'
 import type { SectionPlane } from './section'
@@ -12,16 +12,7 @@ import {
   type ViewportControlsProps,
 } from './ViewportControls'
 
-let uninstallPopovers: () => void
-
-beforeEach(() => {
-  uninstallPopovers = installPopoverPolyfill()
-})
-
-afterEach(() => {
-  cleanup()
-  uninstallPopovers()
-})
+beforeEach(installPopoverPolyfill)
 
 const DEFAULT_FILTER: SelectionFilter = { body: false, face: true, edge: true, vertex: true }
 const SECTION_ON: SectionSettings = { plane: 'XY', flipped: false }

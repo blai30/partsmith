@@ -9,18 +9,17 @@ import { createModelApp, renderWithApp, stubMatchMedia } from '../layout/test-ap
 import type { AppState } from '../state/store'
 import { MAC_WEB } from '../test/fakes/app'
 
-let uninstallPopovers: () => void
 let uninstallDispatcher: () => void = () => undefined
 
+beforeEach(installPopoverPolyfill)
+
 beforeEach(() => {
-  uninstallPopovers = installPopoverPolyfill()
   stubMatchMedia()
 })
 
 afterEach(() => {
   uninstallDispatcher()
   cleanup()
-  uninstallPopovers()
   vi.unstubAllGlobals()
 })
 

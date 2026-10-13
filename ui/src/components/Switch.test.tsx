@@ -1,12 +1,8 @@
-import { cleanup, render, screen } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { COLOR_CLASSES } from '../theme/roles'
 import { Switch } from './Switch'
-
-afterEach(() => {
-  cleanup()
-})
 
 describe('Switch', () => {
   it('is a switch named by its label that reflects checked', () => {

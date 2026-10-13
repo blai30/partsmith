@@ -3,7 +3,7 @@ import type { FeatureStatus, PrintReport } from '../generated/protocol'
 import { documentState, meshSummary, readyState, CUBE_BOUNDS } from '../layout/fixtures.testing'
 import { createAppStore, INITIAL_STATE, type AppState } from '../state/store'
 import { CUBE_FEATURES_DOCUMENT, CUBE_TOP_FACE } from '../test/fakes/documents'
-import { exportFailedText, exportStatus, type ExportStatusLine } from './status'
+import { exportFailedText, exportStatus, statusLines, type ExportStatusLine } from './status'
 
 // What an export is about to write (ui.md 3.18).
 
@@ -113,5 +113,33 @@ describe('exportStatus (U-119)', () => {
             },
     }
     expect(exportFailedText(rolledBack)).toBeNull()
+  })
+})
+
+describe('statusLines', () => {
+  const warnings = { state: 'warning', errors: 0, warnings: 2, stale: false } as const
+
+  it('lists the failure, the print check and the orientation for STL, in that order', () => {
+    const lines = statusLines('stl', {
+      failedText: 'Fillet 1 failed, so it is not in the export.',
+      badge: warnings,
+      orientationBody: 'Cube',
+    })
+    expect(lines.map((line) => line.kind)).toEqual(['failed', 'print_check', 'orientation'])
+    expect(lines[1]).toEqual({
+      kind: 'print_check',
+      text: 'Print check: 2 warnings',
+      badge: warnings,
+      checkOffered: false,
+    })
+  })
+
+  it('keeps only the failure for STEP', () => {
+    const lines = statusLines('step', {
+      failedText: 'Fillet 1 failed, so it is not in the export.',
+      badge: warnings,
+      orientationBody: 'Cube',
+    })
+    expect(lines.map((line) => line.kind)).toEqual(['failed'])
   })
 })

@@ -6,12 +6,13 @@ import {
   documentState,
   readyState,
 } from '../layout/fixtures.testing'
-import { createFakeViewport, createModelApp } from '../layout/test-app.testing'
+import { createModelApp } from '../layout/test-app.testing'
 import { MESSAGES } from '../messages'
 import type { AppContext, SketchSession } from '../state/store'
 import { PARAMETRIC_DOCUMENT } from '../test/fakes/documents'
 import { rankPaletteItems, type PaletteItem } from './fuzzy'
 import { paletteItems } from './palette'
+import { createFakeViewport } from '../test/fakes/viewport'
 
 const EDITING_SKETCH: SketchSession = {
   sketchId: 'f-sk1',

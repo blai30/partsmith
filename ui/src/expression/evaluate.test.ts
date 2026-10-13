@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Dimension } from '../generated/protocol'
-import { convertForField } from './evaluate'
+import { convertForField, formatEvaluated, formatParameterValue } from './evaluate'
 
 const LENGTH: Dimension = { length: 1, angle: 0 }
 const ANGLE: Dimension = { length: 0, angle: 1 }
@@ -209,5 +209,23 @@ describe('convertForField', () => {
       ok: true,
       value: 0,
     })
+  })
+})
+
+describe('formatParameterValue', () => {
+  it('shows an evaluated value as formatEvaluated does', () => {
+    expect(formatParameterValue({ id: 'p1', value: 12.5, dimension: LENGTH }, 'mm')).toBe(
+      formatEvaluated(12.5, LENGTH, 'mm'),
+    )
+    expect(formatParameterValue({ id: 'p2', value: 3, dimension: NONE }, 'mm')).toBe(
+      formatEvaluated(3, NONE, 'mm'),
+    )
+  })
+
+  it('is null without a value or a dimension', () => {
+    expect(formatParameterValue(undefined, 'mm')).toBeNull()
+    expect(formatParameterValue({ id: 'p1', value: null, dimension: LENGTH }, 'mm')).toBeNull()
+    expect(formatParameterValue({ id: 'p1', value: 2, dimension: null }, 'mm')).toBeNull()
+    expect(formatParameterValue({ id: 'p1' }, 'mm')).toBeNull()
   })
 })

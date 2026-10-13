@@ -41,16 +41,14 @@ import {
 import { settle } from '../test/fakes/settle'
 import { COLOR_CLASSES, FONT_CLASSES } from '../theme/roles'
 
-let uninstallPopovers: () => void
+beforeEach(installPopoverPolyfill)
 
 beforeEach(() => {
-  uninstallPopovers = installPopoverPolyfill()
   stubMatchMedia()
 })
 
 afterEach(() => {
   cleanup()
-  uninstallPopovers()
   vi.useRealTimers()
   vi.unstubAllGlobals()
 })
@@ -193,7 +191,7 @@ describe('the command inspector (3.7)', () => {
       expect(within(field('radius')).getByTestId('expression-result')).toHaveTextContent('= 2 mm')
     })
     expect(within(field('radius')).getByRole('combobox', { name: 'Radius' })).toHaveClass(
-      ...FONT_CLASSES.values.split(' '),
+      FONT_CLASSES.values,
     )
   })
 
@@ -517,7 +515,7 @@ describe('the selection inspector (3.8)', () => {
     expect(within(panel).getByTestId('selection-title')).toHaveTextContent('Cube')
     expect(within(panel).getByTestId('body-size')).toHaveTextContent('20 × 20 × 20 mm')
     expect(within(panel).getByTestId('body-center')).toHaveTextContent('0, 0, 10 mm')
-    expect(within(panel).getByTestId('body-size')).toHaveClass(...FONT_CLASSES.values.split(' '))
+    expect(within(panel).getByTestId('body-size')).toHaveClass(FONT_CLASSES.values)
     expect(within(panel).getByRole('switch', { name: 'Visible' })).toBeChecked()
   })
 
@@ -773,7 +771,7 @@ describe('the selection inspector (3.8)', () => {
     const item = screen
       .getAllByTestId('timeline-item')
       .find((candidate) => candidate.getAttribute('data-feature-id') === 'f-ext1')
-    expect(item?.querySelector('button')).toHaveClass(...COLOR_CLASSES.hover.active.split(' '))
+    expect(item?.querySelector('button')).toHaveClass(COLOR_CLASSES.hover.active)
     await user.unhover(row)
     expect(app.store.getState().hover).toBeNull()
   })

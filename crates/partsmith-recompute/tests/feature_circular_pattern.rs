@@ -7,10 +7,10 @@ mod feature_support;
 use std::time::Duration;
 
 use feature_support::{
-    Run, assert_bounding_box, assert_canonical_example, assert_error_field, assert_face_area,
-    assert_face_count, assert_face_kind, assert_face_position, assert_same_body,
-    assert_solid_count, assert_unchanged, assert_volume, body_changes, example_paths, face,
-    link_ids, load_example, median_build_time,
+    Run, assert_bounding_box, assert_error_field, assert_examples_canonical, assert_face_area,
+    assert_face_count, assert_face_kind, assert_face_position, assert_median_build_within,
+    assert_same_body, assert_solid_count, assert_unchanged, assert_volume, body_changes, face,
+    link_ids, load_example,
 };
 use partsmith_model::Units;
 use partsmith_occt_sys::{ElementGeometry, GeometryKind};
@@ -40,11 +40,7 @@ fn assert_top_disc(run: &Run, name: &str, center: [f64; 3]) -> ElementGeometry {
 
 #[test]
 fn examples_are_canonical() {
-    let paths = example_paths("circular_pattern");
-    assert!(!paths.is_empty(), "examples/circular_pattern has examples");
-    for path in paths {
-        assert_canonical_example(&path);
-    }
+    assert_examples_canonical("circular_pattern");
 }
 
 #[test]
@@ -218,11 +214,7 @@ fn t009_new_body() {
 fn t010_six_around_builds_within_40_ms() {
     let document = load_example("circular_pattern/six-around.ptsm");
 
-    let duration = median_build_time(&document, "f-cp1", 21);
-    assert!(
-        duration < Duration::from_millis(40),
-        "the pattern took {duration:?} to build (median of 21 runs), over the 40 ms budget",
-    );
+    assert_median_build_within(&document, "f-cp1", 21, Duration::from_millis(40));
 }
 
 #[test]

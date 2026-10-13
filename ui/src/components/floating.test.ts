@@ -1,5 +1,6 @@
-import { afterEach, describe, expect, it } from 'vitest'
-import { hidePopover, placeNextTo, showPopover } from './floating'
+import { renderHook } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { hidePopover, placeNextTo, showPopover, usePopoverVisibility } from './floating'
 import { installPopoverPolyfill, isPopoverOpen } from './popover-polyfill.testing'
 
 // The declarations of an element's style attribute, read through the attribute.
@@ -96,6 +97,54 @@ describe('showPopover and hidePopover', () => {
         hidePopover(element)
       }).not.toThrow()
       expect(isPopoverOpen(element)).toBe(false)
+    } finally {
+      uninstall()
+    }
+  })
+})
+
+function popoverElement(): HTMLElement {
+  const element = document.createElement('div')
+  element.setAttribute('popover', 'manual')
+  document.body.append(element)
+  return element
+}
+
+describe('usePopoverVisibility', () => {
+  it('shows the popover while open, runs onShow after showing, and hides it once closed', () => {
+    const uninstall = installPopoverPolyfill()
+    try {
+      const element = { current: popoverElement() }
+      const onShow = vi.fn<() => void>(() => {
+        expect(isPopoverOpen(element.current)).toBe(true)
+      })
+      const { rerender, unmount } = renderHook(
+        ({ open }) => {
+          usePopoverVisibility(element, open, null, onShow)
+        },
+        { initialProps: { open: true } },
+      )
+      expect(isPopoverOpen(element.current)).toBe(true)
+      expect(onShow).toHaveBeenCalledTimes(1)
+      rerender({ open: false })
+      expect(isPopoverOpen(element.current)).toBe(false)
+      expect(onShow).toHaveBeenCalledTimes(1)
+      unmount()
+    } finally {
+      uninstall()
+    }
+  })
+
+  it('never hides a popover it did not show', () => {
+    const uninstall = installPopoverPolyfill()
+    try {
+      const element = { current: popoverElement() }
+      element.current.showPopover()
+      const { unmount } = renderHook(() => {
+        usePopoverVisibility(element, false, null)
+      })
+      expect(isPopoverOpen(element.current)).toBe(true)
+      unmount()
     } finally {
       uninstall()
     }

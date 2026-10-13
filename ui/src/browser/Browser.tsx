@@ -32,7 +32,7 @@ import { featureIcon } from '../commands/icons'
 import { explainDisabled } from '../commands/registry'
 import { Tooltip } from '../components/Tooltip'
 import { featureLabel } from '../core/labels'
-import { formatEvaluated } from '../expression/evaluate'
+import { formatParameterValue } from '../expression/evaluate'
 import { isPlainNumber } from '../expression/step'
 import type { Body, FeatureRecord, Parameter } from '../generated/protocol'
 import { activatesRow, pickRow, togglesSelection } from '../layout/pick-row'
@@ -500,12 +500,7 @@ function ParameterRow({
   const value = useAppState((state) => state.document?.parameterValues[parameter.id])
   const units = useAppState((state) => state.document?.recipe.units ?? 'mm')
   const text = `${parameter.name} = ${parameter.expr}`
-  const evaluated =
-    isPlainNumber(parameter.expr) || value === undefined
-      ? null
-      : typeof value.value === 'number' && value.dimension != null
-        ? formatEvaluated(value.value, value.dimension, units)
-        : null
+  const evaluated = isPlainNumber(parameter.expr) ? null : formatParameterValue(value, units)
   return (
     <Row
       kind="parameter"

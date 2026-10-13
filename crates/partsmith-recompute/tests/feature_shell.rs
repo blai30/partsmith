@@ -7,11 +7,11 @@ mod feature_support;
 use std::time::Duration;
 
 use feature_support::{
-    Run, assert_bounding_box, assert_canonical_example, assert_element_repair, assert_error_field,
+    Run, assert_bounding_box, assert_element_repair, assert_error_field, assert_examples_canonical,
     assert_face_area, assert_face_count, assert_face_kind, assert_face_normal,
-    assert_face_position, assert_list_field, assert_solid_count, assert_unchanged, assert_volume,
-    body_update, document, example_paths, face, face_index, face_names_with_prefix, load_example,
-    median_build_time, suggested_limit,
+    assert_face_position, assert_has_face, assert_list_field, assert_median_build_within,
+    assert_solid_count, assert_unchanged, assert_volume, body_update, document, face, face_index,
+    face_names_with_prefix, load_example, suggested_limit,
 };
 use partsmith_features::{BodyChange, FeatureError};
 use partsmith_model::{Document, Units};
@@ -88,11 +88,7 @@ fn assert_open_top_geometry(run: &Run) {
 
 #[test]
 fn examples_are_canonical() {
-    let paths = example_paths("shell");
-    assert!(!paths.is_empty(), "examples/shell has examples");
-    for path in paths {
-        assert_canonical_example(&path);
-    }
+    assert_examples_canonical("shell");
 }
 
 #[test]
@@ -143,10 +139,7 @@ fn t003_closed_hollow() {
         ],
         "one inner wall per outer face"
     );
-    assert!(
-        face_index(body, "f-box1/top").is_some(),
-        "a closed hollow keeps the top face"
-    );
+    assert_has_face(body, "f-box1/top");
     assert_solid_count(shape, 1);
 }
 
@@ -324,13 +317,14 @@ fn removed_face_beside_a_concave_edge() {
 #[test]
 #[cfg_attr(
     debug_assertions,
-    ignore = "performance budgets hold for release builds; run with cargo test --release"
+    ignore = "performance budgets hold for release builds: run with cargo test --release"
 )]
 fn t012_performance() {
-    let open_top = median_build_time(&load_example("shell/open-top.ptsm"), "f-sh1", 5);
-    assert!(
-        open_top < Duration::from_millis(50),
-        "shelling the open-top box took {open_top:?}, the budget is 50 ms"
+    assert_median_build_within(
+        &load_example("shell/open-top.ptsm"),
+        "f-sh1",
+        5,
+        Duration::from_millis(50),
     );
 }
 

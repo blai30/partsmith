@@ -1,16 +1,8 @@
-import { cleanup, render, screen } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { COLOR_CLASSES } from '../theme/roles'
 import { HealthBadge, type HealthBadgeProps } from './HealthBadge'
-
-afterEach(() => {
-  cleanup()
-})
-
-function classes(roleClasses: string): string[] {
-  return roleClasses.split(' ')
-}
 
 // The badge as `selectHealthBadge` (state/selectors.ts) derives it from the print state (ui.md 3.17).
 type Badge = HealthBadgeProps['badge']
@@ -112,20 +104,20 @@ describe('HealthBadge', () => {
 
   it('draws the ok check in successMark', () => {
     const { badge } = renderBadge(badgeState({ state: 'ok' }))
-    expect(badge.querySelector('svg')).toHaveClass(...classes(COLOR_CLASSES.successMark.foreground))
+    expect(badge.querySelector('svg')).toHaveClass(COLOR_CLASSES.successMark.foreground)
   })
 
   it('draws the warning hazard sign in warningMark', () => {
     const { badge } = renderBadge(badgeState({ state: 'warning', warnings: 1 }))
     expect(badge.querySelector('svg')).toHaveClass(
-      ...classes(COLOR_CLASSES.warningMark.fill),
-      ...classes(COLOR_CLASSES.warningMark.foreground),
+      COLOR_CLASSES.warningMark.fill,
+      COLOR_CLASSES.warningMark.foreground,
     )
   })
 
   it('draws the error mark in errorMark', () => {
     const { badge } = renderBadge(badgeState({ state: 'error', errors: 1 }))
-    expect(badge.querySelector('svg')).toHaveClass(...classes(COLOR_CLASSES.errorMark.foreground))
+    expect(badge.querySelector('svg')).toHaveClass(COLOR_CLASSES.errorMark.foreground)
   })
 
   it('U-81 marks a stale report: data-stale, muted text, a dimmed icon, "(out of date)" and ", out of date"', () => {
@@ -135,14 +127,14 @@ describe('HealthBadge', () => {
     expect(badge).toHaveAttribute('data-stale', 'true')
     // The text stays readable (textMuted keeps 4.5:1, 2.16.6); only the icon is dimmed (3.17).
     expect(badge).not.toHaveClass('opacity-50')
-    expect(badge).toHaveClass(...classes(COLOR_CLASSES.textMuted.foreground))
+    expect(badge).toHaveClass(COLOR_CLASSES.textMuted.foreground)
     expect(badge.querySelector('svg')?.parentElement).toHaveClass('opacity-50')
     expect(badge).toHaveTextContent('1 warning (out of date)')
   })
 
   it('draws a current report in the text role at full opacity', () => {
     const { badge } = renderBadge(badgeState({ state: 'ok' }))
-    expect(badge).toHaveClass(...classes(COLOR_CLASSES.text.foreground))
+    expect(badge).toHaveClass(COLOR_CLASSES.text.foreground)
     expect(badge.querySelector('svg')?.parentElement).not.toHaveClass('opacity-50')
   })
 

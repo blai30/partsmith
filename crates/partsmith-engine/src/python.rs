@@ -1,7 +1,7 @@
 //! Python code generation (engine.md section 3.16, python-api.md section 3.8): the script layout,
 //! variables and sketch blocks; every other feature's call comes from `Registry::python`.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, BTreeSet};
 
 use partsmith_features::{BodyOp, PythonCall, PythonNames, PythonValue, Registry};
@@ -16,7 +16,8 @@ use partsmith_protocol::DocHandle;
 
 use crate::error::EngineError;
 use crate::session::Session;
-use crate::sketch::{SKETCH_TYPE, solved_regions};
+use crate::sketch::{SKETCH_TYPE, sketch_params};
+use crate::sketching::solved_regions;
 
 /// Longest statement, indentation included, written on one line (rule 11).
 const MAX_LINE_LENGTH: usize = 88;
@@ -187,10 +188,10 @@ pub(crate) fn script(
     let names = Names {
         document,
         variables: RefCell::new(variables),
-        recording: RefCell::new(true),
+        recording: Cell::new(true),
         requests: RefCell::default(),
-        current: RefCell::new(0),
-        visible_parameters: RefCell::new(document.parameters.len()),
+        current: Cell::new(0),
+        visible_parameters: Cell::new(document.parameters.len()),
         regions,
         solved: RefCell::default(),
     };
@@ -198,7 +199,7 @@ pub(crate) fn script(
         .map(|position| plan(registry, &names, position))
         .collect();
     assign_timeline_variables(document, &plans, &names);
-    *names.recording.borrow_mut() = false;
+    names.recording.set(false);
 
     let mut sections = vec![
         "from partsmith import *".to_string(),
@@ -314,13 +315,13 @@ struct Names<'a> {
     variables: RefCell<Variables>,
     /// True while planning: feature and entity lookups are recorded and answered with a
     /// placeholder.
-    recording: RefCell<bool>,
+    recording: Cell<bool>,
     /// Features and entities later statements refer to.
     requests: RefCell<Requests>,
     /// Timeline position of the feature being written.
-    current: RefCell<usize>,
+    current: Cell<usize>,
     /// Number of parameters, in document order, an expression may name.
-    visible_parameters: RefCell<usize>,
+    visible_parameters: Cell<usize>,
     /// Solved regions of a sketch.
     regions: &'a dyn Fn(&Id) -> Option<Vec<RegionRef>>,
     /// Memoized regions by sketch.
@@ -340,13 +341,13 @@ impl Names<'_> {
     /// The timeline position of `feature` when it comes before the current feature.
     fn earlier(&self, feature: &Id) -> Option<usize> {
         let position = self.document.feature_index(feature)?;
-        (position < *self.current.borrow()).then_some(position)
+        (position < self.current.get()).then_some(position)
     }
 
     /// The variable of an earlier feature: a placeholder while planning (recording the request).
     fn feature_variable(&self, feature: &Id) -> Option<String> {
         self.earlier(feature)?;
-        if *self.recording.borrow() {
+        if self.recording.get() {
             self.requests.borrow_mut().features.insert(feature.clone());
             return Some(feature.to_string());
         }
@@ -362,7 +363,7 @@ impl Names<'_> {
             return None;
         }
         let key = (sketch.clone(), entity.clone());
-        if *self.recording.borrow() {
+        if self.recording.get() {
             self.requests.borrow_mut().entities.insert(key);
             return Some(entity.to_string());
         }
@@ -388,7 +389,7 @@ impl PythonNames for Names<'_> {
     }
 
     fn parameter(&self, name: &str) -> Option<String> {
-        let visible = *self.visible_parameters.borrow();
+        let visible = self.visible_parameters.get();
         self.document.parameters[..visible.min(self.document.parameters.len())]
             .iter()
             .any(|parameter| parameter.name == name)
@@ -405,7 +406,7 @@ impl PythonNames for Names<'_> {
     }
 
     fn default_op(&self, body: &Id) -> BodyOp {
-        let current = *self.current.borrow();
+        let current = self.current.get();
         let targeted = self.document.features[..current.min(self.document.features.len())]
             .iter()
             .any(|record| targets(record, body));
@@ -452,7 +453,7 @@ fn stored_entities(record: &FeatureRecord) -> Vec<Id> {
 
 /// Decides how the feature at `position` is written and records what it refers to.
 fn plan(registry: &Registry, names: &Names<'_>, position: usize) -> Plan {
-    *names.current.borrow_mut() = position;
+    names.current.set(position);
     let record = &names.document.features[position];
     if record.kind == SKETCH_TYPE
         && let Some(params) = block_params(registry, names, record)
@@ -462,12 +463,10 @@ fn plan(registry: &Registry, names: &Names<'_>, position: usize) -> Plan {
             requests.features.insert(feature.clone());
         }
         for constraint in &params.constraints {
-            for entity in constraint_entities(constraint) {
-                if reserved_name(entity).is_none() {
-                    requests
-                        .entities
-                        .insert((record.id.clone(), entity.clone()));
-                }
+            for entity in constraint.referenced_entities() {
+                requests
+                    .entities
+                    .insert((record.id.clone(), entity.clone()));
             }
         }
         return Plan::Sketch(Box::new(params));
@@ -484,18 +483,17 @@ fn block_params(
     names: &Names<'_>,
     record: &FeatureRecord,
 ) -> Option<SketchParams> {
-    let validated = registry.validate_and_canonicalize(record).ok()?;
-    let params: SketchParams =
-        serde_json::from_value(Value::Object(validated.record.params)).ok()?;
+    let params = sketch_params(registry, names.document, record).ok()?;
     let plane_ok = match &params.plane {
         SketchPlane::Origin { .. } => true,
         SketchPlane::Datum { feature } => names.earlier(feature).is_some(),
         SketchPlane::Face { body, .. } => names.body(body).is_some(),
     };
     let own_entities = params.constraints.iter().all(|constraint| {
-        constraint_entities(constraint)
+        constraint
+            .referenced_entities()
             .iter()
-            .all(|entity| params.entity(entity).is_some() || reserved_name(entity).is_some())
+            .all(|entity| params.entity(entity).is_some())
     });
     (plane_ok && own_entities).then_some(params)
 }
@@ -508,47 +506,6 @@ fn reserved_name(entity: &Id) -> Option<&'static str> {
         X_AXIS => Some("Sketch.X_AXIS"),
         Y_AXIS => Some("Sketch.Y_AXIS"),
         _ => None,
-    }
-}
-
-/// Every entity id a constraint names, reserved names included, in field order.
-fn constraint_entities(constraint: &SketchConstraint) -> Vec<&Id> {
-    match &constraint.kind {
-        ConstraintKind::Coincident { points } => points.iter().map(|point| &point.entity).collect(),
-        ConstraintKind::PointOnObject { point, curve } => vec![&point.entity, curve],
-        ConstraintKind::Horizontal(target) | ConstraintKind::Vertical(target) => {
-            alignment_entities(target)
-        }
-        ConstraintKind::Parallel { lines }
-        | ConstraintKind::Perpendicular { lines }
-        | ConstraintKind::Collinear { lines }
-        | ConstraintKind::Angle { lines, .. } => lines.iter().collect(),
-        ConstraintKind::Tangent { curves }
-        | ConstraintKind::Concentric { curves }
-        | ConstraintKind::Equal { curves } => curves.iter().collect(),
-        ConstraintKind::Symmetric { points, line } => {
-            vec![&points[0].entity, &points[1].entity, line]
-        }
-        ConstraintKind::Midpoint { point, line } => vec![&point.entity, line],
-        ConstraintKind::Fix { target } => vec![&target.entity],
-        ConstraintKind::Distance { target, .. } => match target {
-            DistanceTarget::Points { points } => points.iter().map(|point| &point.entity).collect(),
-            DistanceTarget::PointLine { point, line } => vec![&point.entity, line],
-            DistanceTarget::Line { line } => vec![line],
-        },
-        ConstraintKind::HorizontalDistance { target, .. }
-        | ConstraintKind::VerticalDistance { target, .. } => alignment_entities(target),
-        ConstraintKind::Radius { curve, .. } | ConstraintKind::Diameter { curve, .. } => {
-            vec![curve]
-        }
-    }
-}
-
-/// The entity ids of a line or point-pair target.
-fn alignment_entities(alignment: &Alignment) -> Vec<&Id> {
-    match alignment {
-        Alignment::Line { line } => vec![line],
-        Alignment::Points { points } => points.iter().map(|point| &point.entity).collect(),
     }
 }
 
@@ -617,7 +574,7 @@ fn document_line(document: &Document) -> String {
 fn parameter_lines(document: &Document, names: &Names<'_>) -> String {
     let mut lines = Vec::with_capacity(document.parameters.len());
     for (position, parameter) in document.parameters.iter().enumerate() {
-        *names.visible_parameters.borrow_mut() = position;
+        names.visible_parameters.set(position);
         let mut call = PythonCall::new("param");
         call.positional = vec![
             PythonValue::Str(parameter.name.clone()),
@@ -632,7 +589,7 @@ fn parameter_lines(document: &Document, names: &Names<'_>) -> String {
         let variable = names.variables.borrow().parameters[&parameter.name].clone();
         lines.push(statement(0, &format!("{variable} = "), &call, ""));
     }
-    *names.visible_parameters.borrow_mut() = document.parameters.len();
+    names.visible_parameters.set(document.parameters.len());
     lines.join("\n")
 }
 
@@ -706,7 +663,7 @@ fn timeline(document: &Document, registry: &Registry, plans: &[Plan], names: &Na
         };
         let features = document.features.iter().zip(plans).enumerate();
         for (current, (record, plan)) in features.take(end).skip(position) {
-            *names.current.borrow_mut() = current;
+            names.current.set(current);
             let variable = names.variables.borrow().features.get(&record.id).cloned();
             lines.push(match plan {
                 Plan::Sketch(params) => {
@@ -1024,6 +981,7 @@ fn arguments(call: &PythonCall) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::id;
 
     #[test]
     fn names_become_snake_case() {
@@ -1096,7 +1054,7 @@ mod tests {
     #[test]
     fn arcs_write_their_angles_in_radians() {
         let entity = SketchEntity {
-            id: Id::new("e-1").expect("a valid id"),
+            id: id("e-1"),
             geometry: Geometry::Arc {
                 center: [0.0, 0.0],
                 radius: 5.0,
@@ -1117,7 +1075,7 @@ mod tests {
     #[test]
     fn circles_at_the_origin_omit_their_center() {
         let circle = |center| SketchEntity {
-            id: Id::new("e-1").expect("a valid id"),
+            id: id("e-1"),
             geometry: Geometry::Circle {
                 center,
                 radius: 5.0,
@@ -1137,19 +1095,17 @@ mod tests {
 
     #[test]
     fn records_target_their_body_or_target_param() {
-        let mut record = FeatureRecord::new(Id::new("f-1").expect("a valid id"), "boolean");
+        let mut record = FeatureRecord::new(id("f-1"), "boolean");
         record
             .params
             .insert("target".to_string(), Value::String("b-2".to_string()));
 
-        assert!(targets(&record, &Id::new("b-2").expect("a valid id")));
-        assert!(!targets(&record, &Id::new("b-1").expect("a valid id")));
+        assert!(targets(&record, &id("b-2")));
+        assert!(!targets(&record, &id("b-1")));
     }
 
     #[test]
     fn reserved_references_are_written_by_their_python_names() {
-        let id = |text: &str| Id::new(text).expect("a valid id");
-
         assert_eq!(reserved_name(&id("origin")), Some("Sketch.ORIGIN"));
         assert_eq!(reserved_name(&id("x_axis")), Some("Sketch.X_AXIS"));
         assert_eq!(reserved_name(&id("y_axis")), Some("Sketch.Y_AXIS"));

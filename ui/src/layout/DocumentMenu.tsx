@@ -1,31 +1,18 @@
-import { useEffect, useState, type RefObject } from 'react'
+import type { RefObject } from 'react'
 import { openRecent } from '../app/actions/document'
 import { useApp, useAppState } from '../app/AppProvider'
 import type { App } from '../app/createApp'
 import { reportFailure } from '../app/report'
 import { runCommand } from '../commands/registry'
 import { Menu, type MenuEntry } from '../components/Menu'
-import type { RecentFile } from '../files/recent'
-import type { Settings } from '../settings/settings'
+import { NAVIGATIONS, scalePercent, SETTING_LABELS, THEMES, UI_SCALES } from '../settings/settings'
 import { commandMenuItem, useCommandViews, type CommandView } from './use-commands'
+import { useRecentFiles } from './use-recent-files'
 
 // The Document menu under the document name (ui.md 3.2): New, Open..., Open recent, Save,
 // Save as..., Export..., then the Theme, Navigation and UI scale settings.
 
 const FILE_COMMANDS = ['file.new', 'file.open', 'file.save', 'file.save_as', 'file.export']
-
-const THEMES: readonly { readonly value: Settings['theme']; readonly label: string }[] = [
-  { value: 'system', label: 'System' },
-  { value: 'light', label: 'Light' },
-  { value: 'dark', label: 'Dark' },
-]
-
-const NAVIGATIONS: readonly { readonly value: Settings['navigation']; readonly label: string }[] = [
-  { value: 'fusion', label: 'Fusion' },
-  { value: 'freecad', label: 'FreeCAD' },
-]
-
-const SCALES: readonly Settings['uiScale'][] = [1, 1.25, 1.5, 2, 3]
 
 /** How the menu shows when a recent file was opened, for example "Oct 12, 2026, 4:05 PM". */
 function openedText(openedAt: number): string {
@@ -50,23 +37,8 @@ export function DocumentMenu({ open, anchor, onOpenChange }: DocumentMenuProps) 
   const views = useCommandViews(app, FILE_COMMANDS)
   const settings = useAppState((state) => state.settings)
   const coreReady = useAppState((state) => state.core.status === 'ready')
-  const [recent, setRecent] = useState<readonly RecentFile[]>([])
-
   // The recent files are read each time the menu opens, newest first (3.19).
-  useEffect(() => {
-    if (!open) {
-      return undefined
-    }
-    let current = true
-    app.recent.list().then((files) => {
-      if (current) {
-        setRecent(files)
-      }
-    }, reportFailure('Reading the recent files'))
-    return () => {
-      current = false
-    }
-  }, [app, open])
+  const recent = useRecentFiles(app, open)
 
   const byId = new Map(views.map((view) => [view.definition.id, view]))
   const recentEntries: MenuEntry[] =
@@ -94,10 +66,10 @@ export function DocumentMenu({ open, anchor, onOpenChange }: DocumentMenuProps) 
       label: 'Theme',
       entries: THEMES.map((theme) => ({
         kind: 'radio',
-        label: theme.label,
-        checked: settings.theme === theme.value,
+        label: SETTING_LABELS[theme],
+        checked: settings.theme === theme,
         onSelect: () => {
-          runCommand(app, `settings.theme.${theme.value}`, 'menu')
+          runCommand(app, `settings.theme.${theme}`, 'menu')
         },
       })),
     },
@@ -106,18 +78,18 @@ export function DocumentMenu({ open, anchor, onOpenChange }: DocumentMenuProps) 
       label: 'Navigation',
       entries: NAVIGATIONS.map((navigation) => ({
         kind: 'radio',
-        label: navigation.label,
-        checked: settings.navigation === navigation.value,
+        label: SETTING_LABELS[navigation],
+        checked: settings.navigation === navigation,
         onSelect: () => {
-          runCommand(app, `settings.navigation.${navigation.value}`, 'menu')
+          runCommand(app, `settings.navigation.${navigation}`, 'menu')
         },
       })),
     },
     {
       kind: 'submenu',
       label: 'UI scale',
-      entries: SCALES.map((scale) => {
-        const percent = String(Math.round(scale * 100))
+      entries: UI_SCALES.map((scale) => {
+        const percent = scalePercent(scale)
         return {
           kind: 'radio',
           label: `${percent}%`,

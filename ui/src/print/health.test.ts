@@ -9,6 +9,7 @@ import {
   healthRows,
   locationCenter,
   missingReport,
+  withOutdatedSuffix,
 } from './health'
 import {
   CUBE,
@@ -324,5 +325,22 @@ describe('missingReport', () => {
   it('is checking while the first analysis runs, and unchecked before', () => {
     expect(missingReport(stateWith({ print: printState({ running: true }) }))).toBe('checking')
     expect(missingReport(stateWith({ print: printState() }))).toBe('unchecked')
+  })
+})
+
+describe('withOutdatedSuffix', () => {
+  const warnings = { state: 'warning', errors: 0, warnings: 2, stale: false } as const
+
+  it('marks the text of a stale badge', () => {
+    expect(withOutdatedSuffix({ ...warnings, stale: true }, '2 warnings')).toBe(
+      '2 warnings (out of date)',
+    )
+  })
+
+  it('leaves the text of a current or running badge as it is', () => {
+    expect(withOutdatedSuffix(warnings, '2 warnings')).toBe('2 warnings')
+    expect(withOutdatedSuffix({ ...warnings, state: 'running', stale: true }, 'Checking')).toBe(
+      'Checking',
+    )
   })
 })

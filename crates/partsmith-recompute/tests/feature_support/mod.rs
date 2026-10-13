@@ -12,11 +12,15 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use partsmith_features::{BodyState, CancelToken, Dependencies, FeatureError, Link, Registry};
-use partsmith_model::{Document, EmptyContext, FeatureRecord};
+use partsmith_features::{
+    BodyState, BodyUpdate, CancelToken, DatumResult, Dependencies, FeatureError, FeatureOutput,
+    FieldRef, Link, OutputData, Registry, Repair, SketchResult,
+};
+use partsmith_model::{Document, EmptyContext, FeatureRecord, FieldUnit};
 use partsmith_naming::{ElementKind, ElementName};
 use partsmith_occt_sys::{ElementGeometry, GeometryKind, Shape, SubShapeKind, Vector};
-use partsmith_recompute::{FeatureReport, Input, Recompute, Report, Status};
+use partsmith_recompute::{BodyReport, FeatureReport, Input, Message, Recompute, Report, Status};
+use partsmith_sketch::Placement;
 
 /// Relative tolerance for volumes and areas (features.md section 6.1).
 pub const MEASURE_TOLERANCE: f64 = 1e-6;
@@ -27,6 +31,29 @@ pub const LENGTH_TOLERANCE: f64 = 1e-5;
 
 /// Absolute tolerance for placements and axis directions (features.md section 6.1).
 pub const AXIS_TOLERANCE: f64 = 1e-9;
+
+/// `CUBE20`: a 20 mm cube in `b-1` spanning [-10,-10,0]-[10,10,20].
+pub const CUBE20: &str =
+    r#"{"id": "f-box1", "type": "box", "body": "b-1", "size": ["20", "20", "20"], "op": "new"}"#;
+
+/// `E-FT`: the edge between the front and top faces of `CUBE20`.
+pub const FRONT_TOP_EDGE: &str =
+    r#"{"q": "edge(f-box1/front|f-box1/top)", "fp": "line|n=1,0,0|c=0,-10,20|l=20"}"#;
+
+/// The 20 x 20 x 2.4 mm plate of the dress-up "too large" tests.
+pub const PLATE: &str =
+    r#"{"id": "f-box1", "type": "box", "body": "b-1", "size": ["20", "20", "2.4"], "op": "new"}"#;
+
+/// The top loop of `PLATE`: `E-FT`, `E-BT`, `E-LT` and `E-RT` with the plate's fingerprints.
+pub const PLATE_TOP_EDGES: [&str; 4] = [
+    r#"{"q": "edge(f-box1/front|f-box1/top)", "fp": "line|n=1,0,0|c=0,-10,2.4|l=20"}"#,
+    r#"{"q": "edge(f-box1/back|f-box1/top)", "fp": "line|n=1,0,0|c=0,10,2.4|l=20"}"#,
+    r#"{"q": "edge(f-box1/left|f-box1/top)", "fp": "line|n=0,1,0|c=-10,0,2.4|l=20"}"#,
+    r#"{"q": "edge(f-box1/right|f-box1/top)", "fp": "line|n=0,1,0|c=10,0,2.4|l=20"}"#,
+];
+
+/// `BOX-BELOW`: a box in `b-1` spanning [-20,-20,-10]-[20,20,0], volume 16000.
+pub const BOX_BELOW: &str = r#"{"id": "f-box1", "type": "box", "body": "b-1", "size": ["40", "40", "10"], "position": ["0", "0", "-10"], "op": "new"}"#;
 
 /// The `examples/` folder at the repository root.
 pub fn examples_folder() -> &'static Path {
@@ -79,6 +106,21 @@ pub fn document(bodies: &[&str], features: &[&str]) -> Document {
     parse_document(&document_text("mm", &[], bodies, features))
 }
 
+/// Asset bytes by name, as `Input::assets` takes them.
+pub type Assets = BTreeMap<String, Arc<[u8]>>;
+
+/// Runs `document` on `recompute` with an empty evaluation context, these asset bytes and a new
+/// cancel token (features.md section 6.1).
+pub fn run_document(recompute: &mut Recompute, document: &Document, assets: &Assets) -> Report {
+    let input = Input {
+        document,
+        context: &EmptyContext,
+        stop_at: None,
+        assets,
+    };
+    recompute.run(&input, &CancelToken::new())
+}
+
 /// A document run once through `Recompute` with the built-in registry.
 pub struct Run {
     /// The document that was run.
@@ -94,6 +136,23 @@ impl Run {
     /// a new cancel token (features.md section 6.1).
     pub fn new(document: Document) -> Run {
         Run::with_assets(document, &Assets::new())
+    }
+
+    /// Runs `document` as `Run::new` does, with these asset bytes.
+    pub fn with_assets(document: Document, assets: &Assets) -> Run {
+        let mut recompute = Recompute::new(Arc::new(Registry::with_builtins()));
+        let report = run_document(&mut recompute, &document, assets);
+        Run {
+            document,
+            recompute,
+            report,
+        }
+    }
+
+    /// Runs the document again on the same recompute, so its cached results are reused, with these
+    /// asset bytes. The new report replaces the old one.
+    pub fn rerun(&mut self, assets: &Assets) {
+        self.report = run_document(&mut self.recompute, &self.document, assets);
     }
 
     /// Loads and runs `examples/<relative_path>`.
@@ -117,22 +176,23 @@ impl Run {
 
     /// The report of `feature`.
     pub fn feature(&self, feature: &str) -> &FeatureReport {
-        self.report
-            .features
-            .iter()
-            .find(|report| report.feature.as_str() == feature)
-            .unwrap_or_else(|| panic!("the report has no feature {feature}"))
+        self::feature(&self.report, feature)
+    }
+
+    /// The output of `feature`; fails the test when it has none.
+    pub fn output(&self, feature: &str) -> &FeatureOutput {
+        output(&self.report, feature)
+    }
+
+    /// The body updates of `feature`'s output, in output order; fails the test when the output
+    /// is not body updates.
+    pub fn body_updates(&self, feature: &str) -> &[BodyUpdate] {
+        body_updates(&self.report, feature)
     }
 
     /// The state of `body` at the end of the run.
     pub fn body(&self, body: &str) -> &BodyState {
-        &self
-            .report
-            .bodies
-            .iter()
-            .find(|report| report.body.as_str() == body)
-            .unwrap_or_else(|| panic!("the report has no body {body}"))
-            .state
+        final_state(&self.report, body)
     }
 
     /// The shape of `body` at the end of the run; fails the test when the body is empty.
@@ -213,21 +273,99 @@ impl Run {
 
     /// Every feature's status and messages, for failure output.
     pub fn summary(&self) -> String {
-        let lines: Vec<String> = self
-            .report
-            .features
-            .iter()
-            .map(|report| {
-                format!(
-                    "{}: {:?} {:?}",
-                    report.feature,
-                    report.status,
-                    self.messages(report.feature.as_str()),
-                )
-            })
-            .collect();
-        lines.join("; ")
+        summary(&self.report)
     }
+}
+
+// Reading reports, shared with `tests/common`.
+
+/// The report of `feature`.
+pub fn feature<'r>(report: &'r Report, feature: &str) -> &'r FeatureReport {
+    report
+        .features
+        .iter()
+        .find(|entry| entry.feature.as_str() == feature)
+        .unwrap_or_else(|| panic!("the report has no feature {feature}"))
+}
+
+/// The end-of-run report of `body`.
+pub fn body<'r>(report: &'r Report, body: &str) -> &'r BodyReport {
+    report
+        .bodies
+        .iter()
+        .find(|entry| entry.body.as_str() == body)
+        .unwrap_or_else(|| panic!("the report has no body {body}"))
+}
+
+/// The state of `body` at the end of the run.
+pub fn final_state<'r>(report: &'r Report, body: &str) -> &'r BodyState {
+    &self::body(report, body).state
+}
+
+/// The state of `body` just before `feature` (its `bodies_before`, which holds the bodies it
+/// declares).
+pub fn state_before<'r>(report: &'r Report, feature: &str, body: &str) -> &'r BodyState {
+    self::feature(report, feature)
+        .bodies_before
+        .iter()
+        .find(|(id, _)| id.as_str() == body)
+        .map(|(_, state)| state)
+        .unwrap_or_else(|| {
+            panic!(
+                "{feature} has no state of body {body} before it; {}",
+                summary(report)
+            )
+        })
+}
+
+/// The output of `feature`; fails the test when it has none.
+pub fn output<'r>(report: &'r Report, feature: &str) -> &'r FeatureOutput {
+    self::feature(report, feature)
+        .output
+        .as_deref()
+        .unwrap_or_else(|| panic!("{feature} has no output; {}", summary(report)))
+}
+
+/// The body updates of `feature`'s output, in output order; fails the test when the output is
+/// not body updates.
+pub fn body_updates<'r>(report: &'r Report, feature: &str) -> &'r [BodyUpdate] {
+    let OutputData::Bodies(updates) = &output(report, feature).data else {
+        panic!("{feature} did not output body updates");
+    };
+    updates
+}
+
+/// The `BodyUpdate` of `body` in `feature`'s output.
+pub fn output_update<'r>(report: &'r Report, feature: &str, body: &str) -> &'r BodyUpdate {
+    body_updates(report, feature)
+        .iter()
+        .find(|update| update.body.as_str() == body)
+        .unwrap_or_else(|| panic!("{feature} did not update body {body}"))
+}
+
+/// The placement of the datum plane that `feature` produced.
+pub fn datum_plane<'r>(report: &'r Report, feature: &str) -> &'r Placement {
+    let OutputData::Datum(DatumResult::Plane(placement)) = &output(report, feature).data else {
+        panic!("{feature} did not output a datum plane");
+    };
+    placement
+}
+
+/// Every feature's status and messages, for failure output.
+pub fn summary(report: &Report) -> String {
+    let lines: Vec<String> = report
+        .features
+        .iter()
+        .map(|entry| {
+            let texts: Vec<&str> = entry
+                .messages
+                .iter()
+                .map(|message| message.text.as_str())
+                .collect();
+            format!("{}: {:?} {:?}", entry.feature, entry.status, texts)
+        })
+        .collect();
+    lines.join("; ")
 }
 
 /// Asserts that the field an error is about has this path, for example `size[0]`.
@@ -293,21 +431,8 @@ pub fn assert_bounding_box(shape: &Shape, min: [f64; 3], max: [f64; 3]) {
     let bounds = shape
         .bounding_box()
         .expect("the kernel bounds a non-empty shape");
-    for axis in 0..3 {
-        let name = ["x", "y", "z"][axis];
-        assert_absolute(
-            &format!("bounding box minimum {name}"),
-            bounds.min[axis],
-            min[axis],
-            LENGTH_TOLERANCE,
-        );
-        assert_absolute(
-            &format!("bounding box maximum {name}"),
-            bounds.max[axis],
-            max[axis],
-            LENGTH_TOLERANCE,
-        );
-    }
+    assert_coordinates("bounding box minimum", bounds.min, min, LENGTH_TOLERANCE);
+    assert_coordinates("bounding box maximum", bounds.max, max, LENGTH_TOLERANCE);
 }
 
 /// The face names of a body, sorted by byte order.
@@ -332,11 +457,30 @@ pub fn face_index(state: &BodyState, name: &str) -> Option<u32> {
 /// The geometry of the face named `name` (features.md section 6.1: found by name through the
 /// body's naming map, measured with the kernel's `element`).
 pub fn face(state: &BodyState, name: &str) -> ElementGeometry {
-    let index = face_index(state, name)
-        .unwrap_or_else(|| panic!("no face named {name}; faces: {:?}", face_names(state)));
-    let shape = state.shape().expect("a body with named faces has a solid");
+    element(state, ElementKind::Face, name)
+}
+
+/// The geometry of the element of `kind` named `name`, found through the body's naming map and
+/// measured with the kernel's `element`.
+fn element(state: &BodyState, kind: ElementKind, name: &str) -> ElementGeometry {
+    let (sub_shape, plural) = match kind {
+        ElementKind::Face => (SubShapeKind::Face, "faces"),
+        ElementKind::Edge => (SubShapeKind::Edge, "edges"),
+        ElementKind::Vertex => (SubShapeKind::Vertex, "vertices"),
+    };
+    let element = ElementName::parse(name)
+        .unwrap_or_else(|error| panic!("{name} is not a valid element name: {error}"));
+    let index = state.naming().index(&element).unwrap_or_else(|| {
+        panic!(
+            "no {kind} named {name}; {plural}: {:?}",
+            element_names(state, kind)
+        )
+    });
+    let shape = state
+        .shape()
+        .unwrap_or_else(|| panic!("a body with named {plural} has a solid"));
     shape
-        .element(SubShapeKind::Face, index)
+        .element(sub_shape, index)
         .unwrap_or_else(|error| panic!("geometry of {name}: {error}"))
 }
 
@@ -382,14 +526,12 @@ pub fn assert_face_normal(geometry: &ElementGeometry, expected: [f64; 3]) {
     let normal = geometry
         .direction
         .unwrap_or_else(|| panic!("the face has no normal: {geometry:?}"));
-    for (axis, (actual, wanted)) in components(normal).into_iter().zip(expected).enumerate() {
-        assert_absolute(
-            &format!("normal component {axis} of {geometry:?}"),
-            actual,
-            wanted,
-            AXIS_TOLERANCE,
-        );
-    }
+    assert_coordinates(
+        &format!("normal of {geometry:?}"),
+        components(normal),
+        expected,
+        AXIS_TOLERANCE,
+    );
 }
 
 /// Asserts a round face's axis direction up to its sign (the kernel keeps OCCT's sign).
@@ -455,11 +597,26 @@ pub fn median_build_time(document: &Document, feature: &str, runs: usize) -> Dur
 }
 
 /// The median of `runs` durations, each one call of `measure`.
-fn median_duration(runs: usize, mut measure: impl FnMut() -> Duration) -> Duration {
+pub fn median_duration(runs: usize, mut measure: impl FnMut() -> Duration) -> Duration {
     assert!(runs > 0, "at least one run");
     let mut durations: Vec<Duration> = (0..runs).map(|_| measure()).collect();
     durations.sort();
     durations[runs / 2]
+}
+
+/// Asserts that the median build time of `feature` over `runs` fresh runs of `document` is under
+/// `budget` (features.md section 5).
+pub fn assert_median_build_within(
+    document: &Document,
+    feature: &str,
+    runs: usize,
+    budget: Duration,
+) {
+    let duration = median_build_time(document, feature, runs);
+    assert!(
+        duration < budget,
+        "{feature} took {duration:?} to build (median of {runs} runs), over the {budget:?} budget",
+    );
 }
 
 /// How long `feature` took to build in `run`, which must have built it rather than reused a cached
@@ -474,23 +631,8 @@ fn build_time(run: &Run, feature: &str) -> Duration {
 // name prefixes, repair data and the "too large" search (features.md sections 4.3 and 6.1).
 
 /// The `BodyUpdate` of `body` in `feature`'s output.
-pub fn body_update<'a>(
-    run: &'a Run,
-    feature: &str,
-    body: &str,
-) -> &'a partsmith_features::BodyUpdate {
-    let output = run
-        .feature(feature)
-        .output
-        .as_ref()
-        .unwrap_or_else(|| panic!("{feature} has no output; {}", run.summary()));
-    let partsmith_features::OutputData::Bodies(updates) = &output.data else {
-        panic!("{feature} did not output body updates");
-    };
-    updates
-        .iter()
-        .find(|update| update.body.as_str() == body)
-        .unwrap_or_else(|| panic!("{feature} did not update body {body}"))
+pub fn body_update<'a>(run: &'a Run, feature: &str, body: &str) -> &'a BodyUpdate {
+    output_update(&run.report, feature, body)
 }
 
 /// The state `feature`'s output gives `body`: the shape and naming map of its `BodyUpdate`.
@@ -546,7 +688,7 @@ pub fn assert_same_body(actual: &BodyState, expected: &BodyState) {
 
 /// Asserts that a message field is a reference list or one of its entries: feature specs name the
 /// list ("field `edges`") and the repair data points at the entry (`/edges/1`).
-pub fn assert_list_field(field: Option<&partsmith_features::FieldRef>, list: &str, index: usize) {
+pub fn assert_list_field(field: Option<&FieldRef>, list: &str, index: usize) {
     let field = field.unwrap_or_else(|| panic!("the message names no field; expected {list}"));
     let entry = format!("{list}[{index}]");
     assert!(
@@ -557,13 +699,9 @@ pub fn assert_list_field(field: Option<&partsmith_features::FieldRef>, list: &st
 }
 
 /// Asserts element repair data: the JSON Pointer of the lost reference and the body it is resolved in.
-pub fn assert_element_repair(
-    repair: Option<partsmith_features::Repair>,
-    pointer: &str,
-    body: &str,
-) {
+pub fn assert_element_repair(repair: Option<Repair>, pointer: &str, body: &str) {
     match repair {
-        Some(partsmith_features::Repair::Element {
+        Some(Repair::Element {
             pointer: actual_pointer,
             body: actual_body,
             ..
@@ -619,49 +757,24 @@ pub fn median_failed_build_time(
 
 /// The state of `body` just before `feature` (its `bodies_before`, which holds the bodies it declares).
 pub fn body_before<'a>(run: &'a Run, feature: &str, body: &str) -> &'a BodyState {
-    run.feature(feature)
-        .bodies_before
-        .iter()
-        .find(|(id, _)| id.as_str() == body)
-        .map(|(_, state)| state)
-        .unwrap_or_else(|| {
-            panic!(
-                "{feature} has no state of body {body} before it; {}",
-                run.summary()
-            )
-        })
+    state_before(&run.report, feature, body)
 }
 
 /// The solved sketch that `feature` produced.
-pub fn sketch_result<'a>(run: &'a Run, feature: &str) -> &'a partsmith_features::SketchResult {
-    let output = run
-        .feature(feature)
-        .output
-        .as_ref()
-        .unwrap_or_else(|| panic!("{feature} has no output; {}", run.summary()));
-    let partsmith_features::OutputData::Sketch(result) = &output.data else {
+pub fn sketch_result<'a>(run: &'a Run, feature: &str) -> &'a SketchResult {
+    let OutputData::Sketch(result) = &run.output(feature).data else {
         panic!("{feature} did not output a sketch");
     };
     result
 }
 
 /// The placement of the datum plane that `feature` produced.
-pub fn datum_placement<'a>(run: &'a Run, feature: &str) -> &'a partsmith_sketch::Placement {
-    let output = run
-        .feature(feature)
-        .output
-        .as_ref()
-        .unwrap_or_else(|| panic!("{feature} has no output; {}", run.summary()));
-    let partsmith_features::OutputData::Datum(partsmith_features::DatumResult::Plane(placement)) =
-        &output.data
-    else {
-        panic!("{feature} did not output a datum plane");
-    };
-    placement
+pub fn datum_placement<'a>(run: &'a Run, feature: &str) -> &'a Placement {
+    datum_plane(&run.report, feature)
 }
 
 /// The rendered message of `feature` with this code.
-pub fn message<'a>(run: &'a Run, feature: &str, code: &str) -> &'a partsmith_recompute::Message {
+pub fn message<'a>(run: &'a Run, feature: &str, code: &str) -> &'a Message {
     run.feature(feature)
         .messages
         .iter()
@@ -670,9 +783,7 @@ pub fn message<'a>(run: &'a Run, feature: &str, code: &str) -> &'a partsmith_rec
 }
 
 /// Each expression use of `dependencies` as its field path, expression source and unit, in order.
-pub fn expression_uses(
-    dependencies: &Dependencies,
-) -> Vec<(&str, &str, partsmith_model::FieldUnit)> {
+pub fn expression_uses(dependencies: &Dependencies) -> Vec<(&str, &str, FieldUnit)> {
     dependencies
         .expressions
         .iter()
@@ -699,7 +810,7 @@ pub fn assert_coordinates<const N: usize>(
 
 /// Asserts a placement's origin, x axis and normal (absolute 1e-9, features.md section 6.1).
 pub fn assert_placement(
-    placement: &partsmith_sketch::Placement,
+    placement: &Placement,
     origin: [f64; 3],
     x_axis: [f64; 3],
     normal: [f64; 3],
@@ -711,20 +822,7 @@ pub fn assert_placement(
 
 /// The geometry of the vertex named `name`, for example `vertex(f-hole1/tip/e-p1)`.
 pub fn vertex(state: &BodyState, name: &str) -> ElementGeometry {
-    let element = ElementName::parse(name)
-        .unwrap_or_else(|error| panic!("{name} is not a valid element name: {error}"));
-    let index = state.naming().index(&element).unwrap_or_else(|| {
-        panic!(
-            "no vertex named {name}; vertices: {:?}",
-            element_names(state, ElementKind::Vertex)
-        )
-    });
-    let shape = state
-        .shape()
-        .expect("a body with named vertices has a solid");
-    shape
-        .element(SubShapeKind::Vertex, index)
-        .unwrap_or_else(|error| panic!("geometry of {name}: {error}"))
+    element(state, ElementKind::Vertex, name)
 }
 
 /// Asserts that a face lies in the plane where coordinate `axis` (0 for x, 1 for y, 2 for z) equals
@@ -756,6 +854,15 @@ pub fn example_paths(folder: &str) -> Vec<String> {
         .collect();
     paths.sort();
     paths
+}
+
+/// Asserts that `examples/<folder>/` has examples and that every one of them is canonical.
+pub fn assert_examples_canonical(folder: &str) {
+    let paths = example_paths(folder);
+    assert!(!paths.is_empty(), "examples/{folder} has examples");
+    for path in paths {
+        assert_canonical_example(&path);
+    }
 }
 
 /// Asserts that `examples/<relative_path>` is canonical, as `partsmith fmt` writes it (file-format.md
@@ -793,54 +900,12 @@ pub fn assert_canonical_example(relative_path: &str) {
 }
 
 // Helpers for the combine features (boolean, mirror, linear and circular patterns, move body, split
-// body, import): runs with asset bytes, every body update of an output, empty and unchanged bodies.
-
-/// Asset bytes by name, as `Input::assets` takes them.
-pub type Assets = BTreeMap<String, Arc<[u8]>>;
-
-/// Runs `document` on `recompute` with an empty evaluation context, these asset bytes and a new
-/// cancel token (features.md section 6.1).
-pub fn run_document(recompute: &mut Recompute, document: &Document, assets: &Assets) -> Report {
-    let input = Input {
-        document,
-        context: &EmptyContext,
-        stop_at: None,
-        assets,
-    };
-    recompute.run(&input, &CancelToken::new())
-}
-
-impl Run {
-    /// Runs `document` as `Run::new` does, with these asset bytes.
-    pub fn with_assets(document: Document, assets: &Assets) -> Run {
-        let mut recompute = Recompute::new(Arc::new(Registry::with_builtins()));
-        let report = run_document(&mut recompute, &document, assets);
-        Run {
-            document,
-            recompute,
-            report,
-        }
-    }
-
-    /// Runs the document again on the same recompute, so its cached results are reused, with these
-    /// asset bytes. The new report replaces the old one.
-    pub fn rerun(&mut self, assets: &Assets) {
-        self.report = run_document(&mut self.recompute, &self.document, assets);
-    }
-}
+// body, import): every body update of an output, empty and unchanged bodies.
 
 /// Every body update of `feature`'s output in output order, as `<body> <change>`, for example
 /// `b-2 Clear`, so a test compares them with a spec's `[b-1 Join, b-2 Clear]`.
 pub fn body_changes(run: &Run, feature: &str) -> Vec<String> {
-    let output = run
-        .feature(feature)
-        .output
-        .as_ref()
-        .unwrap_or_else(|| panic!("{feature} has no output; {}", run.summary()));
-    let partsmith_features::OutputData::Bodies(updates) = &output.data else {
-        panic!("{feature} did not output body updates");
-    };
-    updates
+    run.body_updates(feature)
         .iter()
         .map(|update| format!("{} {:?}", update.body, update.change))
         .collect()

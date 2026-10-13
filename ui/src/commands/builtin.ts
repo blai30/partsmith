@@ -90,12 +90,21 @@ import {
 } from '../app/actions/sketch'
 import { deleteFeatures, setSuppressed } from '../app/actions/timeline'
 import type { App, Platform } from '../app/createApp'
-import type { Edit, Placement, SketchSolution, Units } from '../generated/protocol'
+import { DOCUMENT_UNITS } from '../expression/format'
+import type { Edit, Placement, SketchSolution } from '../generated/protocol'
 import { parseSelectionKey } from '../inspector/selection-values'
 import { resolvedTheme } from '../layout/color-scheme'
+import { BROWSER_PANEL_ID } from '../layout/panel-ids'
 import { requestUi } from '../layout/requests'
 import { MESSAGES } from '../messages'
-import type { Settings } from '../settings/settings'
+import {
+  NAVIGATIONS,
+  scalePercent,
+  SETTING_LABELS,
+  THEMES,
+  UI_SCALES,
+  type Settings,
+} from '../settings/settings'
 import { CONSTRAINT_TITLES, CONSTRAINT_TYPES, type ConstraintType } from '../sketch/constraints'
 import type { SketchToolId } from '../sketch/session'
 import { selectSketchRadioTooltip } from '../state/selectors'
@@ -325,7 +334,7 @@ function renameTarget(state: AppState): SelectionItem | null {
 /** Whether keyboard focus is inside the browser, so a rename there edits the browser row. */
 function focusInBrowser(): boolean {
   const active = typeof document === 'undefined' ? null : document.activeElement
-  return active?.closest('[data-testid="browser"]') !== null && active !== null
+  return active?.closest(`#${BROWSER_PANEL_ID}`) !== null && active !== null
 }
 
 function editFeatureAvailability(app: App): Availability {
@@ -643,27 +652,11 @@ async function toggleConstruction(app: App): Promise<void> {
 
 // Settings commands.
 
-const THEMES: readonly {
-  readonly theme: Settings['theme']
-  readonly title: string
-  readonly icon: LucideIcon
-}[] = [
-  { theme: 'system', title: 'Theme: System', icon: Monitor },
-  { theme: 'light', title: 'Theme: Light', icon: Sun },
-  { theme: 'dark', title: 'Theme: Dark', icon: Moon },
-]
-
-const NAVIGATIONS: readonly {
-  readonly navigation: Settings['navigation']
-  readonly title: string
-}[] = [
-  { navigation: 'fusion', title: 'Navigation: Fusion' },
-  { navigation: 'freecad', title: 'Navigation: FreeCAD' },
-]
-
-const SCALES: readonly Settings['uiScale'][] = [1, 1.25, 1.5, 2, 3]
-
-const UNITS: readonly Units[] = ['mm', 'cm', 'm', 'in']
+const THEME_ICONS: Readonly<Record<Settings['theme'], LucideIcon>> = {
+  system: Monitor,
+  light: Sun,
+  dark: Moon,
+}
 
 const EXPORTS: readonly {
   readonly format: ExportRequest['format']
@@ -1285,7 +1278,7 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
     ),
 
     // Document units.
-    ...UNITS.map((unit) =>
+    ...DOCUMENT_UNITS.map((unit) =>
       command({
         id: `document.units.${unit}`,
         title: `Units: ${unit}`,
@@ -1299,16 +1292,16 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
     ),
 
     // Settings.
-    ...THEMES.map((entry) =>
+    ...THEMES.map((theme) =>
       command({
-        id: `settings.theme.${entry.theme}`,
-        title: entry.title,
+        id: `settings.theme.${theme}`,
+        title: `Theme: ${SETTING_LABELS[theme]}`,
         category: 'Settings',
-        icon: entry.icon,
+        icon: THEME_ICONS[theme],
         contexts: ALL,
-        checked: (app) => stateOf(app).settings.theme === entry.theme,
+        checked: (app) => stateOf(app).settings.theme === theme,
         run: (app) => {
-          updateSettings(app, { theme: entry.theme })
+          updateSettings(app, { theme })
         },
       }),
     ),
@@ -1323,23 +1316,23 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
         updateSettings(app, { theme: toggledTheme(resolvedTheme(stateOf(app).settings)) })
       },
     }),
-    ...NAVIGATIONS.map((entry) =>
+    ...NAVIGATIONS.map((navigation) =>
       command({
-        id: `settings.navigation.${entry.navigation}`,
-        title: entry.title,
+        id: `settings.navigation.${navigation}`,
+        title: `Navigation: ${SETTING_LABELS[navigation]}`,
         category: 'Settings',
         icon: MousePointer2,
         contexts: ALL,
-        checked: (app) => stateOf(app).settings.navigation === entry.navigation,
+        checked: (app) => stateOf(app).settings.navigation === navigation,
         run: (app) => {
-          updateSettings(app, { navigation: entry.navigation })
+          updateSettings(app, { navigation })
         },
       }),
     ),
-    ...SCALES.map((scale) =>
+    ...UI_SCALES.map((scale) =>
       command({
-        id: `settings.scale.${String(Math.round(scale * 100))}`,
-        title: `UI scale: ${String(Math.round(scale * 100))}%`,
+        id: `settings.scale.${scalePercent(scale)}`,
+        title: `UI scale: ${scalePercent(scale)}%`,
         category: 'Settings',
         icon: ZoomIn,
         contexts: ALL,

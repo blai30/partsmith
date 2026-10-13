@@ -157,10 +157,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-
-    fn id(text: &str) -> Id {
-        Id::new(text).expect("valid test id")
-    }
+    use crate::test_support::id;
 
     fn object(value: Value) -> Map<String, Value> {
         match value {

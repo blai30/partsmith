@@ -5,8 +5,6 @@ import { describedBy } from './described-by'
 import { HelpLabel } from './HelpLabel'
 import { installPopoverPolyfill } from './popover-polyfill.testing'
 
-let uninstallPopovers: () => void
-
 beforeEach(() => {
   vi.useFakeTimers()
   vi.stubGlobal('jest', {
@@ -14,12 +12,12 @@ beforeEach(() => {
       vi.advanceTimersByTime(milliseconds)
     },
   })
-  uninstallPopovers = installPopoverPolyfill()
 })
+
+beforeEach(installPopoverPolyfill)
 
 afterEach(() => {
   cleanup()
-  uninstallPopovers()
   vi.unstubAllGlobals()
   vi.useRealTimers()
 })
@@ -65,12 +63,5 @@ describe('HelpLabel (3.7)', () => {
     expect(document.getElementById('width-help')).toBeNull()
     expect(screen.getByText('Width')).not.toHaveAttribute('aria-describedby')
     expect(screen.getByRole('textbox', { name: 'Width' })).not.toHaveAttribute('aria-describedby')
-  })
-})
-
-describe('describedBy', () => {
-  it('joins the ids that are shown', () => {
-    expect(describedBy('a', null, undefined, '', 'b')).toBe('a b')
-    expect(describedBy(null, undefined)).toBeUndefined()
   })
 })

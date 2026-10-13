@@ -1,5 +1,7 @@
 // The IndexedDB database behind recent files and recovery (ui.md 2.15).
 
+import { isDomError } from './file-service'
+
 export const DATABASE_NAME = 'partsmith'
 export const DATABASE_VERSION = 1
 export const RECENT_STORE = 'recent'
@@ -78,10 +80,6 @@ export type Connection = {
   transaction(storeName: StoreName, mode: IDBTransactionMode): Promise<IDBTransaction>
 }
 
-function isInvalidState(error: unknown): boolean {
-  return error instanceof DOMException && error.name === 'InvalidStateError'
-}
-
 /** The connection one store (recent files or recovery) shares between its operations. */
 export function createConnection(factory: IDBFactory): Connection {
   let opening: Promise<IDBDatabase> | null = null
@@ -121,7 +119,7 @@ export function createConnection(factory: IDBFactory): Connection {
       try {
         return database.transaction(storeName, mode)
       } catch (error) {
-        if (!isInvalidState(error)) {
+        if (!isDomError(error, 'InvalidStateError')) {
           throw error
         }
         // The browser closed the connection without a close event: open a new one, once.
@@ -146,4 +144,31 @@ export async function withStore<Result>(
   const done = transactionDone(transaction)
   const [result] = await Promise.all([operation(transaction.objectStore(storeName)), done])
   return result
+}
+
+/**
+ * Runs an operation against one object store in a transaction of `mode`. A failure is logged as a
+ * warning and yields `fallback`, so the app never depends on IndexedDB working.
+ */
+export type StoreAccess = <Result, Fallback>(
+  mode: IDBTransactionMode,
+  operation: (store: IDBObjectStore) => Promise<Result>,
+  fallback: Fallback,
+) => Promise<Result | Fallback>
+
+/** Access to one object store over its own lazily opened connection; failures warn with `failureMessage`. */
+export function createStoreAccess(
+  factory: IDBFactory,
+  storeName: StoreName,
+  failureMessage: string,
+): StoreAccess {
+  const connection = createConnection(factory)
+  return async (mode, operation, fallback) => {
+    try {
+      return await withStore(connection, storeName, mode, operation)
+    } catch (error) {
+      console.warn(failureMessage, error)
+      return fallback
+    }
+  }
 }

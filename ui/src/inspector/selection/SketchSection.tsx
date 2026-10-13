@@ -15,7 +15,7 @@ import { Button } from '../../components/Button'
 import { Switch } from '../../components/Switch'
 import { ExpressionInput } from '../../expression/ExpressionInput'
 import type { SketchConstraint, SketchSolution } from '../../generated/protocol'
-import { MESSAGES } from '../../messages'
+import { counted, MESSAGES } from '../../messages'
 import {
   applicableConstraints,
   CONSTRAINT_TITLES,
@@ -25,18 +25,19 @@ import {
 } from '../../sketch/constraints'
 import type { AppState, DocumentState, SelectionItem } from '../../state/store'
 import { entitySize, entitySizeDimension, type EntitySize } from '../entity-size'
-import { counted, itemsCount } from './counts'
 import { InspectorCommandButton, Title } from './parts'
 
 // The selection inspector in a sketch (ui.md 3.8): a dimension's value, a curve's size field, the
 // constraints that fit the selection, construction and Delete.
 
-const ENTITY_NOUNS = {
+const ENTITY_NOUNS: Readonly<
+  Record<'point' | 'line' | 'circle' | 'arc', readonly [singular: string, plural: string]>
+> = {
   point: ['point', 'points'],
   line: ['line', 'lines'],
   circle: ['circle', 'circles'],
   arc: ['arc', 'arcs'],
-} as const
+}
 
 /**
  * The selection inspector's fields of one dimension (3.8): its value, committed on Enter, and the
@@ -231,7 +232,7 @@ export function SketchSection({
     if (constraint === undefined) {
       return (
         <>
-          <Title>{itemsCount(1)}</Title>
+          <Title>{counted(1, 'item')}</Title>
           {remove}
         </>
       )
@@ -257,7 +258,9 @@ export function SketchSection({
   const [firstType] = entityTypes
   const uniform =
     firstType !== null && firstType !== undefined && entityTypes.every((type) => type === firstType)
-  const title = uniform ? counted(items.length, ENTITY_NOUNS[firstType]) : itemsCount(items.length)
+  const title = uniform
+    ? counted(items.length, ...ENTITY_NOUNS[firstType])
+    : counted(items.length, 'item')
   const entities = items.flatMap((item) => {
     const reference = item.sketchItem
     if (reference?.kind === 'entity') {

@@ -1,4 +1,5 @@
 import type { AppContext } from '../state/store'
+import { keywordWord } from './keywords'
 import type { CommandCategory, Keyword } from './registry'
 
 /** Previous text characters that make the next character a word start. */
@@ -204,7 +205,7 @@ function itemScore(
     best = { score: title, tagged: null }
   }
   for (const keyword of item.keywords) {
-    const word = typeof keyword === 'string' ? keyword : keyword.word
+    const word = keywordWord(keyword)
     const score = scoreNormalized(query, word, rows)
     if (score !== null && (best === null || score - KEYWORD_PENALTY > best.score)) {
       best = {
@@ -229,7 +230,7 @@ function longestText(items: readonly PaletteItem[]): number {
   for (const item of items) {
     longest = Math.max(longest, item.title.length)
     for (const keyword of item.keywords) {
-      longest = Math.max(longest, (typeof keyword === 'string' ? keyword : keyword.word).length)
+      longest = Math.max(longest, keywordWord(keyword).length)
     }
   }
   return longest

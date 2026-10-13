@@ -7,6 +7,8 @@ use std::f64::consts::TAU;
 
 use partsmith_sketch::{ProfileCurve, ProfileLoop, Region};
 
+use crate::error::saturating_u32;
+
 /// Segments of a full turn of a circle.
 const SEGMENTS_PER_TURN: f64 = 72.0;
 
@@ -37,7 +39,7 @@ pub(crate) fn fill_regions(regions: &[Region]) -> Fill {
         let outer = outline(&region.outer);
         let holes: Vec<Vec<Point>> = region.holes.iter().map(outline).collect();
         let (positions, triangles) = triangulate(&outer, &holes);
-        let offset = u32::try_from(fill.positions.len()).unwrap_or(u32::MAX);
+        let offset = saturating_u32(fill.positions.len());
         fill.triangles.extend(
             triangles
                 .iter()
@@ -149,7 +151,7 @@ pub(crate) fn triangulate(outer: &[Point], holes: &[Vec<Point>]) -> (Vec<Point>,
     }
     let triangles = clip_ears(polygon, &positions)
         .into_iter()
-        .map(|triangle| triangle.map(|index| u32::try_from(index).unwrap_or(u32::MAX)))
+        .map(|triangle| triangle.map(saturating_u32))
         .collect();
     (positions, triangles)
 }
@@ -375,10 +377,10 @@ fn is_ear(
 
 #[cfg(test)]
 mod tests {
-    use partsmith_model::Id;
     use partsmith_sketch::ProfileEdge;
 
     use super::*;
+    use crate::test_support::id;
 
     fn total_area(positions: &[Point], triangles: &[[u32; 3]]) -> f64 {
         triangles
@@ -401,7 +403,7 @@ mod tests {
 
     fn edge(curve: ProfileCurve) -> ProfileEdge {
         ProfileEdge {
-            entity: Id::new("e-1").expect("a valid id"),
+            entity: id("e-1"),
             reversed: false,
             curve,
         }

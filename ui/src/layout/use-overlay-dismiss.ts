@@ -1,4 +1,4 @@
-import { useEffect, useRef, type RefObject } from 'react'
+import { useEffect, useEffectEvent, type RefObject } from 'react'
 
 // Narrow windows (ui.md 3.2): below the lg breakpoint the browser and the side panel open as
 // overlays above the viewport, and close on Esc or on a pointer press outside them.
@@ -19,10 +19,7 @@ export function useOverlayDismiss(
   panel: RefObject<HTMLElement | null>,
   onDismiss: () => void,
 ): void {
-  const latest = useRef(onDismiss)
-  useEffect(() => {
-    latest.current = onDismiss
-  })
+  const dismiss = useEffectEvent(onDismiss)
   useEffect(() => {
     const onPointerDown = (event: PointerEvent): void => {
       const element = panel.current
@@ -42,13 +39,13 @@ export function useOverlayDismiss(
       ) {
         return
       }
-      latest.current()
+      dismiss()
     }
     const onKeyDown = (event: KeyboardEvent): void => {
       // Menus and editors inside the panel take their Esc first and prevent its default.
       if (event.key === 'Escape' && !event.defaultPrevented && isNarrowWindow()) {
         event.preventDefault()
-        latest.current()
+        dismiss()
       }
     }
     document.addEventListener('pointerdown', onPointerDown, true)

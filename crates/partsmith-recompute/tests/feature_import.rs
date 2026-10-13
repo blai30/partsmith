@@ -9,9 +9,9 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use feature_support::{
-    Assets, Run, assert_bounding_box, assert_canonical_example, assert_empty, assert_face_count,
+    Assets, Run, assert_bounding_box, assert_empty, assert_examples_canonical, assert_face_count,
     assert_face_kind, assert_face_names, assert_face_position, assert_solid_count, assert_volume,
-    body_changes, example_paths, face, load_example, median_build_time_with_assets,
+    body_changes, face, load_example, median_build_time_with_assets, median_duration,
 };
 use partsmith_features::FeatureError;
 use partsmith_occt_sys::{GeometryKind, Plane, Point, StepBody, make_box, read_step, write_step};
@@ -73,11 +73,7 @@ fn assert_imported_block(run: &Run) {
 
 #[test]
 fn examples_are_canonical() {
-    let paths = example_paths("import");
-    assert!(!paths.is_empty(), "examples/import has examples");
-    for path in paths {
-        assert_canonical_example(&path);
-    }
+    assert_examples_canonical("import");
 }
 
 #[test]
@@ -280,15 +276,11 @@ fn t008_op_new_builds_within_10_ms_plus_reading() {
     let bytes = block_bytes();
     let document = load_example("import/new-body.ptsm");
     let runs = 21;
-    let mut read_times: Vec<Duration> = (0..runs)
-        .map(|_| {
-            let start = Instant::now();
-            read_step(&bytes).expect("the kernel reads its own STEP output");
-            start.elapsed()
-        })
-        .collect();
-    read_times.sort();
-    let read_time = read_times[runs / 2];
+    let read_time = median_duration(runs, || {
+        let start = Instant::now();
+        read_step(&bytes).expect("the kernel reads its own STEP output");
+        start.elapsed()
+    });
 
     let duration = median_build_time_with_assets(&document, "f-imp1", runs, &assets(bytes));
     assert!(

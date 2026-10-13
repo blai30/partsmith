@@ -7,11 +7,11 @@ mod feature_support;
 use std::time::Duration;
 
 use feature_support::{
-    Run, assert_bounding_box, assert_canonical_example, assert_empty, assert_error_field,
-    assert_face_area, assert_face_count, assert_face_in_plane, assert_face_names,
-    assert_face_normal, assert_has_face, assert_no_face, assert_unchanged, assert_volume,
-    body_update, document_text, element_names, example_paths, face, load_example,
-    median_build_time, message, parse_document,
+    BOX_BELOW, Run, assert_bounding_box, assert_empty, assert_error_field,
+    assert_examples_canonical, assert_face_area, assert_face_count, assert_face_in_plane,
+    assert_face_names, assert_face_normal, assert_has_face, assert_median_build_within,
+    assert_no_face, assert_unchanged, assert_volume, body_update, document_text, element_names,
+    face, load_example, message, parse_document,
 };
 use partsmith_features::BodyChange;
 use partsmith_naming::ElementKind;
@@ -22,9 +22,6 @@ const RECTANGLE_SKETCH: &str = r#"{"id": "f-sk1", "type": "sketch", "plane": {"k
 /// `P-RECT`: the region of `SK-RECT`.
 const RECTANGLE_PROFILE: &str =
     r#"{"sketch": "f-sk1", "regions": [{"key": "e-1,e-2,e-3,e-4", "fp": "c=40,25|a=4000"}]}"#;
-
-/// `BOX-BELOW`: spans [-20,-20,-10]-[20,20,0], volume 16000.
-const BOX_BELOW: &str = r#"{"id": "f-box1", "type": "box", "body": "b-1", "size": ["40", "40", "10"], "position": ["0", "0", "-10"], "op": "new"}"#;
 
 /// The extent that goes through the whole target body.
 const THROUGH_ALL: &str = r#"{"kind": "through_all"}"#;
@@ -89,11 +86,7 @@ fn assert_symmetric_extrusion(run: &Run) {
 
 #[test]
 fn examples_are_canonical() {
-    let paths = example_paths("extrude");
-    assert!(!paths.is_empty(), "examples/extrude has examples");
-    for path in paths {
-        assert_canonical_example(&path);
-    }
+    assert_examples_canonical("extrude");
 }
 
 #[test]
@@ -651,16 +644,17 @@ fn t038_empty_profile() {
     ignore = "performance budgets hold for release builds: run with cargo test --release"
 )]
 fn t039_builds_within_budget() {
-    let distance = median_build_time(&load_example("extrude/distance.ptsm"), "f-ext1", 21);
-    assert!(
-        distance < Duration::from_millis(3),
-        "test 1 took {distance:?} to build (median of 21 runs), over the 3 ms budget",
+    assert_median_build_within(
+        &load_example("extrude/distance.ptsm"),
+        "f-ext1",
+        21,
+        Duration::from_millis(3),
     );
-    let through_all =
-        median_build_time(&load_example("extrude/through-all-cut.ptsm"), "f-ext1", 21);
-    assert!(
-        through_all < Duration::from_millis(30),
-        "test 21 took {through_all:?} to build (median of 21 runs), over the 30 ms budget",
+    assert_median_build_within(
+        &load_example("extrude/through-all-cut.ptsm"),
+        "f-ext1",
+        21,
+        Duration::from_millis(30),
     );
 }
 

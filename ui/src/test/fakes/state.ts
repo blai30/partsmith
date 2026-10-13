@@ -1,21 +1,52 @@
 import type {
   BodyPrint,
+  BoundingBox,
   CheckResult,
   Document,
+  FeatureStatus,
   Finding,
   PrintReport,
 } from '../../generated/protocol'
-import type { AppState, DocumentState } from '../../state/store'
+import type { AppState, CoreState, DocumentState, MeshSummary } from '../../state/store'
 import { INITIAL_STATE } from '../../state/store'
 import { TEST_CATALOG } from './catalog'
+import { featuresOf } from './documents'
 import { TEST_PRINTERS } from './printers'
 
 // Store states for tests that read or start from a state without going through the core.
 
-/** A DocumentState for a recipe at the given revision, with nothing computed yet. */
+/** The core started and answering. */
+export const READY_CORE: CoreState = {
+  status: 'ready',
+  engineVersion: '0.1.0',
+  fatal: null,
+  pendingMutations: 0,
+}
+
+/** The bounds of the 20 mm cube of cube.ptsm. */
+export const CUBE_BOUNDS: BoundingBox = { min: [-10, -10, 0], max: [10, 10, 20] }
+/** The bounds of the peg of two-bodies.ptsm. */
+export const PEG_BOUNDS: BoundingBox = { min: [-4, -4, 10], max: [4, 4, 30] }
+
+/** A model-layer mesh with a box's element counts. */
+export function meshSummary(meshId: number, boundingBox: BoundingBox): MeshSummary {
+  return { meshId, boundingBox, faceCount: 6, edgeCount: 12, vertexCount: 8 }
+}
+
+function okStatus(id: string): FeatureStatus {
+  return { id, status: 'ok', messages: [], repairs: [] }
+}
+
+export type DocumentStateOptions = {
+  /** Gives every feature of the recipe an ok status, as after a rebuild (default: no statuses yet). */
+  readonly okStatuses?: boolean
+}
+
+/** A DocumentState (document handle 1) for a recipe at revision 1, with nothing computed yet. */
 export function documentStateFor(
   recipe: Document,
   overrides: Partial<DocumentState> = {},
+  options: DocumentStateOptions = {},
 ): DocumentState {
   return {
     documentHandle: 1,
@@ -29,7 +60,12 @@ export function documentStateFor(
     redoLabel: null,
     transactionOpen: false,
     focus: null,
-    featureStatus: {},
+    featureStatus:
+      options.okStatuses === true
+        ? Object.fromEntries(
+            featuresOf(recipe).map((feature) => [feature.id, okStatus(feature.id)]),
+          )
+        : {},
     parameterValues: {},
     diagnostics: [],
     sketches: {},
@@ -48,7 +84,7 @@ export function stateWithDocument(
 ): AppState {
   return {
     ...INITIAL_STATE,
-    core: { status: 'ready', engineVersion: '0.1.0', fatal: null, pendingMutations: 0 },
+    core: READY_CORE,
     catalog: TEST_CATALOG,
     printers: TEST_PRINTERS,
     document: documentStateFor(recipe, documentOverrides),

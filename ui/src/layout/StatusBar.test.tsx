@@ -1,5 +1,4 @@
 import { act, cleanup, screen, within } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { installPopoverPolyfill } from '../components/popover-polyfill.testing'
 import type { Document } from '../generated/protocol'
@@ -8,28 +7,25 @@ import type { ActiveCommand, AppState, DocumentState } from '../state/store'
 import { CUBE_DOCUMENT, RECT_SKETCH_SOLUTION } from '../test/fakes/documents'
 import { settle } from '../test/fakes/settle'
 import { COLOR_CLASSES, FONT_CLASSES } from '../theme/roles'
-import { cubeDocumentState, readyState, rectSketchDocumentState } from './fixtures.testing'
+import { cubeDocumentState, rectSketchDocumentState } from './fixtures.testing'
 import { StatusBar } from './StatusBar'
-import { createModelApp, renderWithApp, stubMatchMedia } from './test-app.testing'
+import { renderModelApp, stubMatchMedia } from './test-app.testing'
 
-let uninstallPopovers: () => void
+beforeEach(installPopoverPolyfill)
 
 beforeEach(() => {
-  uninstallPopovers = installPopoverPolyfill()
   stubMatchMedia()
 })
 
 afterEach(() => {
   cleanup()
-  uninstallPopovers()
   vi.useRealTimers()
   vi.unstubAllGlobals()
 })
 
 function renderApp(state: Partial<AppState> = {}, document: DocumentState = cubeDocumentState()) {
-  const test = createModelApp({ state: readyState(document, state) })
-  renderWithApp(test.app, <StatusBar />)
-  return { ...test, user: userEvent.setup(), statusBar: screen.getByTestId('status-bar') }
+  const test = renderModelApp({ document, state, element: <StatusBar /> })
+  return { ...test, statusBar: screen.getByTestId('status-bar') }
 }
 
 const EXTRUDE_COMMAND: ActiveCommand = {
@@ -126,7 +122,7 @@ describe('the status bar (3.21)', () => {
     renderApp({}, cubeDocumentState({ lastRebuildMilliseconds: 12.4 }))
     const recompute = screen.getByTestId('status-recompute')
     expect(recompute).toHaveTextContent('Rebuilt in 12 ms')
-    expect(within(recompute).getByText('12')).toHaveClass(...FONT_CLASSES.values.split(' '))
+    expect(within(recompute).getByText('12')).toHaveClass(FONT_CLASSES.values)
   })
 
   it('shows rebuilds of a second or more in seconds with one decimal', () => {
@@ -230,7 +226,7 @@ describe('the status bar (3.21)', () => {
     expect(dof).toHaveTextContent('3 DOF')
     expect(dof).toHaveAttribute('data-dof', '3')
     expect(dof).toHaveAttribute('data-state', 'under')
-    expect(within(dof).getByText('3')).toHaveClass(...FONT_CLASSES.values.split(' '))
+    expect(within(dof).getByText('3')).toHaveClass(FONT_CLASSES.values)
     // "DOF" is explained in plain words (3.16.8, 3.21).
     expect(dof).toHaveAccessibleDescription(
       'Degrees of freedom: how many ways the sketch can still move.',

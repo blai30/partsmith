@@ -9,16 +9,11 @@ use partsmith_mesh::{
     BoundingBox, EdgePolyline, Mesh, RenderBuffers, TessellationTolerance, VertexMarker,
 };
 use partsmith_naming::{EdgeInfo, ElementKind, ElementName, FaceInfo, TopologyInfo, VertexInfo};
-use partsmith_occt_sys::{KernelError, Shape, SubShapeKind};
+use partsmith_occt_sys::{Shape, SubShapeKind};
 use partsmith_protocol::ElementDescriptor;
 
-use crate::error::EngineError;
+use crate::error::{EngineError, saturating_u32};
 use crate::state::StateKey;
-
-/// An internal error for a kernel failure on a shape the engine already holds.
-pub(crate) fn kernel_failure(error: KernelError) -> EngineError {
-    EngineError::internal(error.to_string())
-}
 
 /// One displayed element: its name and its 1-based kernel index.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -61,9 +56,7 @@ impl ElementTable {
         if state.is_empty() {
             return Err(EngineError::internal("an element table needs a shape"));
         }
-        let topology = state
-            .topology()
-            .map_err(|error| EngineError::internal(error.to_string()))?;
+        let topology = state.topology().map_err(EngineError::unexpected)?;
         let naming = state.naming();
         let consistent = [
             (ElementKind::Face, topology.faces.len()),
@@ -136,7 +129,7 @@ impl ElementTable {
 
     /// Number of displayed elements of `kind`.
     pub(crate) fn count(&self, kind: ElementKind) -> u32 {
-        u32::try_from(self.entries(kind).len()).unwrap_or(u32::MAX)
+        saturating_u32(self.entries(kind).len())
     }
 
     /// The display id of the element with kernel index `index`, if it is displayed.
@@ -247,7 +240,9 @@ impl DisplayMesh {
         table: Arc<ElementTable>,
         tolerance: &TessellationTolerance,
     ) -> Result<DisplayMesh, EngineError> {
-        let kernel = shape.tessellate(tolerance).map_err(kernel_failure)?;
+        let kernel = shape
+            .tessellate(tolerance)
+            .map_err(EngineError::unexpected)?;
         let face_ids = kernel
             .face_ids()
             .iter()
@@ -289,7 +284,7 @@ impl DisplayMesh {
             if !marked {
                 let vertex = shape
                     .element(SubShapeKind::Vertex, entry.index)
-                    .map_err(kernel_failure)?;
+                    .map_err(EngineError::unexpected)?;
                 markers.push(VertexMarker {
                     vertex_id: display_id,
                     position: [vertex.centroid.x, vertex.centroid.y, vertex.centroid.z],
@@ -305,9 +300,9 @@ impl DisplayMesh {
             edges,
             markers,
         )
-        .map_err(|error| EngineError::internal(error.to_string()))?;
+        .map_err(EngineError::unexpected)?;
         let buffers = mesh.render_buffers();
-        let bounding_box = shape.bounding_box().map_err(kernel_failure)?;
+        let bounding_box = shape.bounding_box().map_err(EngineError::unexpected)?;
         Ok(DisplayMesh {
             table,
             mesh,
@@ -379,6 +374,71 @@ struct Cached<T> {
     used: u64,
 }
 
+/// The cached values of one kind by key.
+#[derive(Debug)]
+struct Store<K, T> {
+    /// The values.
+    entries: BTreeMap<K, Cached<T>>,
+}
+
+impl<K, T> Default for Store<K, T> {
+    fn default() -> Self {
+        Store {
+            entries: BTreeMap::new(),
+        }
+    }
+}
+
+impl<K: Ord + Clone, T> Store<K, T> {
+    /// The value under `key`, marked as used at `tick`.
+    fn get(&mut self, key: &K, tick: u64) -> Option<Arc<T>> {
+        let cached = self.entries.get_mut(key)?;
+        cached.used = tick;
+        Some(Arc::clone(&cached.value))
+    }
+
+    /// Stores `value` of `size` bytes under `key`, used at `tick`.
+    fn insert(&mut self, key: K, value: Arc<T>, size: usize, tick: u64) {
+        self.entries.insert(
+            key,
+            Cached {
+                value,
+                size,
+                used: tick,
+            },
+        );
+    }
+
+    /// Total size of the values in bytes.
+    fn size(&self) -> usize {
+        self.entries.values().map(|cached| cached.size).sum()
+    }
+
+    /// While `total` is over `budget`, evicts the least recently used value that only the cache
+    /// holds; returns the total left.
+    fn evict_unpinned(&mut self, mut total: usize, budget: usize) -> usize {
+        if total <= budget {
+            return total;
+        }
+        let mut unpinned: Vec<(u64, K)> = self
+            .entries
+            .iter()
+            .filter(|(_, cached)| Arc::strong_count(&cached.value) == 1)
+            .map(|(key, cached)| (cached.used, key.clone()))
+            .collect();
+        unpinned.sort();
+        for (_, key) in unpinned {
+            if total <= budget {
+                break;
+            }
+            if let Some(cached) = self.entries.remove(&key) {
+                total -= cached.size;
+            }
+        }
+        total
+    }
+}
+
 /// The session's element tables and display meshes, kept under a byte budget. Values that an
 /// open document holds (its displayed meshes) are pinned: only the cache owns the others, and
 /// those are evicted least recently used first. Hits and misses never change any output.
@@ -389,9 +449,9 @@ pub(crate) struct DisplayCache {
     /// Increases on every use.
     tick: u64,
     /// Element tables by body state.
-    tables: BTreeMap<StateKey, Cached<ElementTable>>,
+    tables: Store<StateKey, ElementTable>,
     /// Display meshes by body state and tolerance.
-    meshes: BTreeMap<MeshKey, Cached<DisplayMesh>>,
+    meshes: Store<MeshKey, DisplayMesh>,
 }
 
 impl DisplayCache {
@@ -410,19 +470,12 @@ impl DisplayCache {
         state: &BodyState,
     ) -> Result<Arc<ElementTable>, EngineError> {
         self.tick += 1;
-        if let Some(cached) = self.tables.get_mut(key) {
-            cached.used = self.tick;
-            return Ok(Arc::clone(&cached.value));
+        if let Some(table) = self.tables.get(key, self.tick) {
+            return Ok(table);
         }
         let table = Arc::new(ElementTable::build(state)?);
-        self.tables.insert(
-            key.clone(),
-            Cached {
-                size: table.size(),
-                value: Arc::clone(&table),
-                used: self.tick,
-            },
-        );
+        self.tables
+            .insert(key.clone(), Arc::clone(&table), table.size(), self.tick);
         // The caller holds the new table, so trimming keeps it.
         self.trim();
         Ok(table)
@@ -435,23 +488,16 @@ impl DisplayCache {
         state: &BodyState,
     ) -> Result<Arc<DisplayMesh>, EngineError> {
         self.tick += 1;
-        if let Some(cached) = self.meshes.get_mut(key) {
-            cached.used = self.tick;
-            return Ok(Arc::clone(&cached.value));
+        if let Some(mesh) = self.meshes.get(key, self.tick) {
+            return Ok(mesh);
         }
         let shape = state
             .shape()
             .ok_or_else(|| EngineError::internal("a display mesh needs a shape"))?;
         let table = self.table(&key.state, state)?;
         let mesh = Arc::new(DisplayMesh::build(shape, table, &key.tolerance())?);
-        self.meshes.insert(
-            key.clone(),
-            Cached {
-                size: mesh.size(),
-                value: Arc::clone(&mesh),
-                used: self.tick,
-            },
-        );
+        self.meshes
+            .insert(key.clone(), Arc::clone(&mesh), mesh.size(), self.tick);
         // The caller holds the new mesh, so trimming keeps it.
         self.trim();
         Ok(mesh)
@@ -461,63 +507,25 @@ impl DisplayCache {
     /// insert trims, so typed callers stay within the budget too; `execute` and
     /// `close_document` trim again once they have unpinned what they replaced.
     pub(crate) fn trim(&mut self) {
-        let mut total = self.size();
-        if total <= self.budget {
-            return;
-        }
+        let total = self.tables.size() + self.meshes.size();
         // Meshes go first: a pinned mesh pins its table, so tables become evictable once their
         // meshes are gone.
-        let mut meshes: Vec<(u64, MeshKey)> = self
-            .meshes
-            .iter()
-            .filter(|(_, cached)| Arc::strong_count(&cached.value) == 1)
-            .map(|(key, cached)| (cached.used, key.clone()))
-            .collect();
-        meshes.sort();
-        for (_, key) in meshes {
-            if total <= self.budget {
-                return;
-            }
-            if let Some(cached) = self.meshes.remove(&key) {
-                total -= cached.size;
-            }
-        }
-        let mut tables: Vec<(u64, StateKey)> = self
-            .tables
-            .iter()
-            .filter(|(_, cached)| Arc::strong_count(&cached.value) == 1)
-            .map(|(key, cached)| (cached.used, key.clone()))
-            .collect();
-        tables.sort();
-        for (_, key) in tables {
-            if total <= self.budget {
-                return;
-            }
-            if let Some(cached) = self.tables.remove(&key) {
-                total -= cached.size;
-            }
-        }
-    }
-
-    /// Total size of the cached values in bytes.
-    fn size(&self) -> usize {
-        let tables: usize = self.tables.values().map(|cached| cached.size).sum();
-        let meshes: usize = self.meshes.values().map(|cached| cached.size).sum();
-        tables + meshes
+        let total = self.meshes.evict_unpinned(total, self.budget);
+        self.tables.evict_unpinned(total, self.budget);
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use partsmith_model::Id;
     use partsmith_recompute::CacheKey;
 
     use super::*;
+    use crate::test_support::id;
 
     fn state_key(byte: u8) -> StateKey {
         StateKey {
             feature: CacheKey([byte; 32]),
-            body: Id::new("b-1").expect("a valid id"),
+            body: id("b-1"),
         }
     }
 
@@ -619,20 +627,15 @@ mod tests {
         let mut cache = DisplayCache::new(0);
         let pinned = Arc::new(table(Vec::new()));
         for (byte, value) in [(1, Arc::clone(&pinned)), (2, Arc::new(table(Vec::new())))] {
-            cache.tables.insert(
-                state_key(byte),
-                Cached {
-                    value,
-                    size: 100,
-                    used: u64::from(byte),
-                },
-            );
+            cache
+                .tables
+                .insert(state_key(byte), value, 100, u64::from(byte));
         }
 
         cache.trim();
 
-        assert!(cache.tables.contains_key(&state_key(1)));
-        assert!(!cache.tables.contains_key(&state_key(2)));
+        assert!(cache.tables.entries.contains_key(&state_key(1)));
+        assert!(!cache.tables.entries.contains_key(&state_key(2)));
     }
 
     /// A session with display `display`, no cache budget and `fixture` open.
@@ -656,14 +659,13 @@ mod tests {
     fn typed_queries_keep_only_what_the_latest_query_used() {
         let (mut session, doc) =
             session_without_budget(false, include_str!("../tests/fixtures/two-bodies.ptsm"));
-        let body = |text: &str| Id::new(text).expect("a valid id");
 
-        for id in ["b-1", "b-2"] {
+        for body in ["b-1", "b-2"] {
             session
-                .list_elements(doc, &body(id), None)
+                .list_elements(doc, &id(body), None)
                 .expect("the body has elements");
         }
-        let tables = session.cache.tables.len();
+        let tables = session.cache.tables.entries.len();
         session
             .export(
                 doc,
@@ -680,7 +682,7 @@ mod tests {
             .expect("both bodies export");
 
         assert_eq!(tables, 1);
-        assert_eq!(session.cache.meshes.len(), 1);
+        assert_eq!(session.cache.meshes.entries.len(), 1);
     }
 
     #[test]
@@ -691,12 +693,16 @@ mod tests {
         session
             .collect_events(doc, &mut output)
             .expect("the box displays");
-        assert_eq!(session.cache.meshes.len(), 1, "a displayed mesh is pinned");
+        assert_eq!(
+            session.cache.meshes.entries.len(),
+            1,
+            "a displayed mesh is pinned"
+        );
 
         session.close_document(doc).expect("the document closes");
 
-        assert!(session.cache.meshes.is_empty());
-        assert!(session.cache.tables.is_empty());
+        assert!(session.cache.meshes.entries.is_empty());
+        assert!(session.cache.tables.entries.is_empty());
     }
 
     #[test]
@@ -711,6 +717,7 @@ mod tests {
             session.documents[&doc]
                 .emitted
                 .model
+                .shown
                 .values()
                 .next()
                 .cloned()
@@ -744,11 +751,8 @@ mod tests {
     fn element_tables_keep_the_topology_they_were_built_from() {
         let (mut session, doc) =
             session_without_budget(false, include_str!("../tests/fixtures/box.ptsm"));
-        let view = crate::inspect::body_with_geometry(
-            &session.documents[&doc],
-            &Id::new("b-1").expect("a valid id"),
-        )
-        .expect("the box has geometry");
+        let view = crate::inspect::body_with_geometry(&session.documents[&doc], &id("b-1"))
+            .expect("the box has geometry");
 
         let table = session.table_of(&view).expect("the box has a table");
 
@@ -768,11 +772,8 @@ mod tests {
     fn element_tables_share_the_topology_of_their_body_state() {
         let (mut session, doc) =
             session_without_budget(false, include_str!("../tests/fixtures/box.ptsm"));
-        let view = crate::inspect::body_with_geometry(
-            &session.documents[&doc],
-            &Id::new("b-1").expect("a valid id"),
-        )
-        .expect("the box has geometry");
+        let view = crate::inspect::body_with_geometry(&session.documents[&doc], &id("b-1"))
+            .expect("the box has geometry");
 
         let table = session.table_of(&view).expect("the box has a table");
 
@@ -807,17 +808,12 @@ mod tests {
     #[test]
     fn trimming_within_the_budget_keeps_everything() {
         let mut cache = DisplayCache::new(1000);
-        cache.tables.insert(
-            state_key(1),
-            Cached {
-                value: Arc::new(table(Vec::new())),
-                size: 100,
-                used: 1,
-            },
-        );
+        cache
+            .tables
+            .insert(state_key(1), Arc::new(table(Vec::new())), 100, 1);
 
         cache.trim();
 
-        assert_eq!(cache.tables.len(), 1);
+        assert_eq!(cache.tables.entries.len(), 1);
     }
 }

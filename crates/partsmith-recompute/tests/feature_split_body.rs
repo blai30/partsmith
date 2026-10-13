@@ -7,19 +7,15 @@ mod feature_support;
 use std::time::Duration;
 
 use feature_support::{
-    Run, assert_bounding_box, assert_canonical_example, assert_empty, assert_error_field,
+    CUBE20, Run, assert_bounding_box, assert_empty, assert_error_field, assert_examples_canonical,
     assert_face_count, assert_face_kind, assert_face_normal, assert_face_position, assert_has_face,
-    assert_solid_count, assert_unchanged, assert_volume, body_changes, example_paths, face,
-    load_example, median_build_time,
+    assert_median_build_within, assert_solid_count, assert_unchanged, assert_volume, body_changes,
+    face, load_example,
 };
 use partsmith_occt_sys::GeometryKind;
 
 /// The bodies of every split body test.
 const BODIES: [&str; 2] = ["b-1", "b-2"];
-
-/// The `CUBE20` fixture: b-1 spanning [-10,-10,0]-[10,10,20].
-const CUBE20: &str =
-    r#"{"id": "f-box1", "type": "box", "body": "b-1", "size": ["20", "20", "20"], "op": "new"}"#;
 
 /// The `DP5` fixture with another offset: a datum plane parallel to XY at z = `offset`.
 fn datum_plane(offset: &str) -> String {
@@ -45,11 +41,7 @@ fn assert_section_face(run: &Run, body: &str, name: &str, normal: [f64; 3]) {
 
 #[test]
 fn examples_are_canonical() {
-    let paths = example_paths("split_body");
-    assert!(!paths.is_empty(), "examples/split_body has examples");
-    for path in paths {
-        assert_canonical_example(&path);
-    }
+    assert_examples_canonical("split_body");
 }
 
 #[test]
@@ -231,9 +223,5 @@ fn t009_parts_with_several_solids_lower_part() {
 fn t010_split_into_two_bodies_builds_within_15_ms() {
     let document = load_example("split_body/into-two-bodies.ptsm");
 
-    let duration = median_build_time(&document, "f-split1", 21);
-    assert!(
-        duration < Duration::from_millis(15),
-        "the split took {duration:?} to build (median of 21 runs), over the 15 ms budget",
-    );
+    assert_median_build_within(&document, "f-split1", 21, Duration::from_millis(15));
 }

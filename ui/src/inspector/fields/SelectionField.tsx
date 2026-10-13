@@ -261,6 +261,7 @@ export function SelectionField({
           // oxlint-disable-next-line jsx-a11y/no-redundant-roles
           role="button"
           data-testid="selection-field"
+          data-selection-field=""
           data-active={active}
           data-count={items.length}
           aria-labelledby={`${labelId} ${textId}`}

@@ -6,6 +6,30 @@ use partsmith_model::Scope;
 use crate::key::{CacheKey, KeyInput};
 use crate::timeline::{ActiveStep, Timeline};
 
+/// What the steps walked so far leave for the later ones, as a plan or a run walks them.
+pub(crate) struct Progress {
+    /// For every step so far, true when it is invalid or ended with an error.
+    pub(crate) failed: Vec<bool>,
+    /// The key of every step so far (None for records without one).
+    pub(crate) keys: Vec<Option<CacheKey>>,
+}
+
+impl Progress {
+    /// No steps walked yet, with room for `steps`.
+    pub(crate) fn with_capacity(steps: usize) -> Progress {
+        Progress {
+            keys: Vec::with_capacity(steps),
+            failed: Vec::with_capacity(steps),
+        }
+    }
+
+    /// Records the next step: its key and whether it failed.
+    pub(crate) fn push(&mut self, key: Option<CacheKey>, failed: bool) {
+        self.keys.push(key);
+        self.failed.push(failed);
+    }
+}
+
 /// The evaluated values and the cache key of the active step at `position`. `keys` holds the
 /// key of every earlier step (None for records without one).
 ///
@@ -54,15 +78,13 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::test_support::{document, registry};
+    use crate::test_support::{document, prepared};
     use crate::timeline::StepKind;
-    use crate::validation::Validations;
 
     /// The key of every record of `features` in timeline order, None for records that do not run.
     fn keys(features: serde_json::Value) -> Vec<Option<CacheKey>> {
-        let registry = registry();
         let document = document(features);
-        let timeline = Timeline::prepare(&registry, &mut Validations::default(), &document, None);
+        let timeline = prepared(&document);
         let parameters = document.evaluate_parameters(&EmptyContext);
         let scope = Scope {
             units: document.units,

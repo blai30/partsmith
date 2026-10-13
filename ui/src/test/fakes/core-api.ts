@@ -1,9 +1,9 @@
 import type { CoreApi } from '../../core/api'
 import { CoreError, createCoreClient } from '../../core/client'
 import type { Transport } from '../../core/transport'
-import { PROTOCOL_VERSION, type Resolution } from '../../generated/protocol'
+import { PROTOCOL_VERSION } from '../../generated/protocol'
 import { TEST_CATALOG_ENTRIES } from './catalog'
-import { evaluateExpression } from './core'
+import { evaluateExpression, resolvedWithoutMatches } from './core'
 import { TEST_PRINTERS } from './printers'
 import { readRequest, responseFrame, type ErrorReply } from './protocol'
 
@@ -46,10 +46,6 @@ export async function coreErrorFor(error: ErrorReply): Promise<CoreError> {
     client.close()
   }
   throw new Error('The core client resolved an error response.')
-}
-
-function resolvedWithoutMatches(): Resolution {
-  return { status: 'resolved', matches: [] }
 }
 
 export function createFakeCoreApi(stubs: Partial<CoreApi> = {}): FakeCoreApi {

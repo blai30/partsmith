@@ -7,19 +7,15 @@ mod feature_support;
 use std::time::Duration;
 
 use feature_support::{
-    Run, assert_bounding_box, assert_canonical_example, assert_empty, assert_error_field,
-    assert_face_area, assert_face_count, assert_face_kind, assert_face_names, assert_volume,
-    example_paths, face, load_example, median_build_time,
+    Run, assert_bounding_box, assert_empty, assert_error_field, assert_examples_canonical,
+    assert_face_area, assert_face_count, assert_face_kind, assert_face_names,
+    assert_median_build_within, assert_volume, face, load_example,
 };
 use partsmith_occt_sys::GeometryKind;
 
 #[test]
 fn examples_are_canonical() {
-    let paths = example_paths("sphere");
-    assert!(!paths.is_empty(), "examples/sphere has examples");
-    for path in paths {
-        assert_canonical_example(&path);
-    }
+    assert_examples_canonical("sphere");
 }
 
 #[test]
@@ -98,11 +94,7 @@ fn t005_zero_radius_is_out_of_range() {
 fn t006_default_sphere_builds_within_2_ms() {
     let document = load_example("sphere/default.ptsm");
 
-    let duration = median_build_time(&document, "f-sph1", 21);
-    assert!(
-        duration < Duration::from_millis(2),
-        "the default sphere took {duration:?} to build (median of 21 runs), over the 2 ms budget",
-    );
+    assert_median_build_within(&document, "f-sph1", 21, Duration::from_millis(2));
 }
 
 #[test]

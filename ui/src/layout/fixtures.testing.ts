@@ -1,38 +1,37 @@
 // Test support for the ui-model slice, on top of the shared fakes in src/test/fakes: store states
 // of the e2e fixture documents, the cube's element descriptors in list_elements order, mesh buffers
-// and body_mesh events for the scene, and selection items with the keys of ui.md 3.6. Nothing here
-// is part of the app.
+// and body_mesh events for the scene, and the shared selection items and mesh summaries, which it
+// re-exports. Nothing here is part of the app.
 
 import type { BodyMeshData, CoreEvent } from '../core/events'
-import type {
-  BoundingBox,
-  Document,
-  ElementDescriptor,
-  FeatureStatus,
-  RegionInfo,
-} from '../generated/protocol'
+import type { Document, ElementDescriptor } from '../generated/protocol'
 import { DEFAULT_SETTINGS } from '../settings/settings'
-import type {
-  ActiveCommand,
-  AppState,
-  CatalogFeature,
-  DocumentState,
-  MeshSummary,
-  OriginName,
-  SelectionItem,
-} from '../state/store'
+import type { ActiveCommand, AppState, CatalogFeature, DocumentState } from '../state/store'
 import { TEST_CATALOG, TEST_CATALOG_ENTRIES } from '../test/fakes/catalog'
 import {
   CUBE_DOCUMENT,
   CUBE_FRONT_FACE,
   CUBE_SKETCH_SOLUTION,
   CUBE_TOP_FACE,
-  featuresOf,
   RECT_SKETCH_DOCUMENT,
   RECT_SKETCH_SOLUTION,
   type FeatureRecord,
 } from '../test/fakes/documents'
 import { TEST_PRINTERS } from '../test/fakes/printers'
+import { CUBE_BOUNDS, documentStateFor, meshSummary, READY_CORE } from '../test/fakes/state'
+
+export {
+  bodyItem,
+  datumItem,
+  elementItem,
+  featureItem,
+  originItem,
+  parameterItem,
+  regionItem,
+  sketchLineItem,
+  sketchPointItem,
+} from '../test/fakes/selection'
+export { CUBE_BOUNDS, meshSummary, PEG_BOUNDS } from '../test/fakes/state'
 
 /** Every type of the test catalog, sorted. */
 export const CATALOG_TYPES: readonly string[] = TEST_CATALOG_ENTRIES.map(
@@ -341,13 +340,6 @@ export function boxMesh(min: Point, max: Point): BodyMeshData {
   }
 }
 
-export const CUBE_BOUNDS: BoundingBox = { min: [-10, -10, 0], max: [10, 10, 20] }
-export const PEG_BOUNDS: BoundingBox = { min: [-4, -4, 10], max: [4, 4, 30] }
-
-export function meshSummary(meshId: number, bounds: BoundingBox): MeshSummary {
-  return { meshId, boundingBox: bounds, faceCount: 6, edgeCount: 12, vertexCount: 8 }
-}
-
 /** A `body_mesh` event of document 1. */
 export function bodyMeshEvent(input: {
   readonly body: string
@@ -369,38 +361,12 @@ export function bodyMeshEvent(input: {
 
 // Store states.
 
-function okStatus(id: string): FeatureStatus {
-  return { id, status: 'ok', messages: [], repairs: [] }
-}
-
 /** The store's document state for a recipe (document handle 1): every feature ok, no meshes unless given. */
 export function documentState(
   recipe: Document,
   overrides: Partial<DocumentState> = {},
 ): DocumentState {
-  return {
-    documentHandle: 1,
-    name: 'Untitled',
-    file: null,
-    revision: 1,
-    recipe,
-    dirty: false,
-    localUnsaved: false,
-    undoLabel: null,
-    redoLabel: null,
-    transactionOpen: false,
-    focus: null,
-    featureStatus: Object.fromEntries(
-      featuresOf(recipe).map((feature) => [feature.id, okStatus(feature.id)]),
-    ),
-    parameterValues: {},
-    diagnostics: [],
-    sketches: {},
-    datums: {},
-    meshes: {},
-    lastRebuildMilliseconds: null,
-    ...overrides,
-  }
+  return documentStateFor(recipe, overrides, { okStatuses: true })
 }
 
 /** cube.ptsm as the store holds it after opening: the cube's model-layer mesh and the sketch solution. */
@@ -429,7 +395,7 @@ export function readyState(
   overrides: Partial<AppState> = {},
 ): Partial<AppState> {
   return {
-    core: { status: 'ready', engineVersion: '0.1.0', fatal: null, pendingMutations: 0 },
+    core: READY_CORE,
     catalog: TEST_CATALOG,
     printers: TEST_PRINTERS,
     document,
@@ -454,97 +420,4 @@ export const FILLET_EDGES_COMMAND: ActiveCommand = {
   history: [],
   future: [],
   preview: 'none',
-}
-
-// Selection items with the keys of ui.md 3.6.
-
-const NO_ITEM_DATA = {
-  body: null,
-  feature: null,
-  element: null,
-  sketchItem: null,
-  origin: null,
-} as const
-
-export function bodyItem(id: string, name: string): SelectionItem {
-  return { ...NO_ITEM_DATA, key: `body:${id}`, kind: 'body', label: name, body: id }
-}
-
-export function featureItem(id: string, label: string): SelectionItem {
-  return { ...NO_ITEM_DATA, key: `feature:${id}`, kind: 'feature', label, feature: id }
-}
-
-export function datumItem(id: string, label: string): SelectionItem {
-  return { ...featureItem(id, label), kind: 'datum_plane' }
-}
-
-export function parameterItem(id: string, name: string): SelectionItem {
-  return { ...NO_ITEM_DATA, key: `parameter:${id}`, kind: 'parameter', label: name }
-}
-
-/** A face, edge or vertex item from its descriptor. */
-export function elementItem(element: ElementDescriptor, bodyName = 'Cube'): SelectionItem {
-  const noun = element.kind === 'face' ? 'Face' : element.kind === 'edge' ? 'Edge' : 'Vertex'
-  return {
-    ...NO_ITEM_DATA,
-    key: `element:${element.body}:${element.name}`,
-    kind: element.kind,
-    label: `${noun} of ${bodyName}`,
-    body: element.body,
-    feature: element.feature,
-    element,
-  }
-}
-
-const ORIGIN_LABELS: Readonly<Record<OriginName, string>> = {
-  XY: 'Top plane (XY)',
-  XZ: 'Front plane (XZ)',
-  YZ: 'Right plane (YZ)',
-  X: 'X axis',
-  Y: 'Y axis',
-  Z: 'Z axis',
-  O: 'Origin',
-}
-
-export function originItem(origin: OriginName): SelectionItem {
-  const kind =
-    origin === 'O'
-      ? 'origin_point'
-      : origin === 'XY' || origin === 'XZ' || origin === 'YZ'
-        ? 'origin_plane'
-        : 'origin_axis'
-  return { ...NO_ITEM_DATA, key: `origin:${origin}`, kind, label: ORIGIN_LABELS[origin], origin }
-}
-
-export function regionItem(sketch: string, region: RegionInfo, label = 'Region 1'): SelectionItem {
-  return {
-    ...NO_ITEM_DATA,
-    key: `region:${sketch}:${region.reference.key}`,
-    kind: 'sketch_region',
-    label,
-    feature: sketch,
-    sketchItem: { kind: 'region', sketch, region },
-  }
-}
-
-export function sketchLineItem(sketch: string, line: string): SelectionItem {
-  return {
-    ...NO_ITEM_DATA,
-    key: `sketch:${sketch}:${line}`,
-    kind: 'sketch_curve',
-    label: `Line ${line}`,
-    feature: sketch,
-    sketchItem: { kind: 'entity', sketch, entity: line, entityType: 'line' },
-  }
-}
-
-export function sketchPointItem(sketch: string, point: string): SelectionItem {
-  return {
-    ...NO_ITEM_DATA,
-    key: `point:${sketch}:${point}`,
-    kind: 'sketch_point',
-    label: `Point ${point}`,
-    feature: sketch,
-    sketchItem: { kind: 'point', sketch, point },
-  }
 }

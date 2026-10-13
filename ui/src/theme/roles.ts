@@ -175,36 +175,26 @@ export type BodySwatch = {
   readonly hex: string | null
 }
 
+/** A colored swatch: its palette step, as a full background class and as the stored `Body.color`. */
+function swatch(name: string, step: PaletteStep, background: string): BodySwatch {
+  return { name, step, background, hex: PALETTE_HEX[step] }
+}
+
 /** Body color swatches of the color popover (ui.md 3.10), in order; `hex` null is Default (removes `Body.color`). */
 export const BODY_SWATCHES: readonly BodySwatch[] = [
   { name: 'Default', step: 'zinc-400', background: 'bg-zinc-400', hex: null },
-  { name: 'White', step: 'zinc-100', background: 'bg-zinc-100', hex: PALETTE_HEX['zinc-100'] },
-  { name: 'Black', step: 'zinc-800', background: 'bg-zinc-800', hex: PALETTE_HEX['zinc-800'] },
-  { name: 'Gray', step: 'zinc-500', background: 'bg-zinc-500', hex: PALETTE_HEX['zinc-500'] },
-  { name: 'Red', step: 'red-600', background: 'bg-red-600', hex: PALETTE_HEX['red-600'] },
-  {
-    name: 'Orange',
-    step: 'orange-500',
-    background: 'bg-orange-500',
-    hex: PALETTE_HEX['orange-500'],
-  },
-  {
-    name: 'Yellow',
-    step: 'yellow-400',
-    background: 'bg-yellow-400',
-    hex: PALETTE_HEX['yellow-400'],
-  },
-  { name: 'Green', step: 'green-600', background: 'bg-green-600', hex: PALETTE_HEX['green-600'] },
-  { name: 'Teal', step: 'teal-600', background: 'bg-teal-600', hex: PALETTE_HEX['teal-600'] },
-  { name: 'Blue', step: 'blue-600', background: 'bg-blue-600', hex: PALETTE_HEX['blue-600'] },
-  {
-    name: 'Purple',
-    step: 'purple-600',
-    background: 'bg-purple-600',
-    hex: PALETTE_HEX['purple-600'],
-  },
-  { name: 'Pink', step: 'pink-600', background: 'bg-pink-600', hex: PALETTE_HEX['pink-600'] },
-  { name: 'Brown', step: 'amber-800', background: 'bg-amber-800', hex: PALETTE_HEX['amber-800'] },
+  swatch('White', 'zinc-100', 'bg-zinc-100'),
+  swatch('Black', 'zinc-800', 'bg-zinc-800'),
+  swatch('Gray', 'zinc-500', 'bg-zinc-500'),
+  swatch('Red', 'red-600', 'bg-red-600'),
+  swatch('Orange', 'orange-500', 'bg-orange-500'),
+  swatch('Yellow', 'yellow-400', 'bg-yellow-400'),
+  swatch('Green', 'green-600', 'bg-green-600'),
+  swatch('Teal', 'teal-600', 'bg-teal-600'),
+  swatch('Blue', 'blue-600', 'bg-blue-600'),
+  swatch('Purple', 'purple-600', 'bg-purple-600'),
+  swatch('Pink', 'pink-600', 'bg-pink-600'),
+  swatch('Brown', 'amber-800', 'bg-amber-800'),
 ]
 
 /** Font family classes (ui.md 2.16.7): Inter for interface text, JetBrains Mono for values. */

@@ -10,6 +10,7 @@
 //! `docs/spec/engine.md`.
 
 mod analysis;
+mod assets;
 mod dispatch;
 mod display;
 mod document;
@@ -27,6 +28,8 @@ mod sketch;
 mod sketching;
 mod state;
 mod status;
+#[cfg(test)]
+mod test_support;
 mod triangulate;
 mod types;
 mod validate;

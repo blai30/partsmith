@@ -8,16 +8,19 @@ use partsmith_features::{
     CancelToken, Dependencies, DocumentNames, ExprUse, FeatureError, FieldRef, Noun, Registry,
     Values,
 };
-use partsmith_model::{Document, ExprErrorKind, FeatureRecord, Id, LoadError, Scope, load};
+use partsmith_model::{
+    Document, ExprErrorKind, FeatureManifest, FeatureRecord, Id, LoadError, Scope, load,
+};
 use partsmith_print::{PrinterValues, Severity};
 use partsmith_recompute::{Input, Severity as MessageSeverity};
 use partsmith_sketch::{NativeSolver, PointRef, SketchParams, SolveIssue, Solver};
 use serde_json::Value;
 
-use crate::document::canonical_text;
-use crate::error::EngineError;
-use crate::session::{Session, asset_matches, canonicalize_params, load_error};
-use crate::sketch::{SKETCH_TYPE, dimension_values, sketch_params};
+use crate::assets::asset_matches;
+use crate::document::{canonical_text, canonicalize_params, load_error};
+use crate::error::{EngineError, saturating_u32};
+use crate::session::Session;
+use crate::sketch::{SKETCH_TYPE, dimension_values};
 use crate::types::{Asset, ValidateOptions, ValidationDiagnostic, ValidationReport};
 
 /// The type name of the hole feature, whose `points` name sketch points (features/hole.md).
@@ -55,7 +58,7 @@ impl Session {
             document: &document,
             diagnostics: &mut report.diagnostics,
         };
-        let dependencies = checks.params();
+        let checked = checks.params();
         let profile = self.profiles.resolve(document.printer.as_deref());
         let context = PrinterValues::new(&profile.profile);
         let parameters = document.evaluate_parameters(&context);
@@ -64,8 +67,8 @@ impl Session {
             parameters: &parameters,
             context: &context,
         };
-        checks.expressions(&dependencies, &scope);
-        checks.references(&dependencies);
+        checks.expressions(&checked, &scope);
+        checks.references(&checked);
         if let Some(diagnostic) = profile.diagnostic() {
             checks.push(
                 Severity::Warning,
@@ -74,8 +77,8 @@ impl Session {
                 None,
             );
         }
-        checks.sketches(&dependencies, &scope);
-        let stored = checks.assets(&dependencies, assets);
+        checks.sketches(&checked, &scope);
+        let stored = checks.assets(&checked, assets);
         if options.rebuild {
             let input = Input {
                 document: &document,
@@ -127,6 +130,16 @@ impl Session {
     }
 }
 
+/// What step 2 finds out about a valid record, for the later steps.
+struct Checked<'a> {
+    /// What it declares.
+    dependencies: Dependencies,
+    /// Its feature type's manifest.
+    manifest: &'a FeatureManifest,
+    /// Its params as sketch params, when it is a sketch.
+    sketch: Option<SketchParams>,
+}
+
 /// The checks of section 3.19, steps 2 to 7, writing diagnostics in step order.
 struct Checks<'a, 'r> {
     /// The registry.
@@ -139,7 +152,7 @@ struct Checks<'a, 'r> {
     diagnostics: &'a mut Vec<ValidationDiagnostic>,
 }
 
-impl Checks<'_, '_> {
+impl<'a> Checks<'a, '_> {
     /// Adds a diagnostic without a position in the text.
     fn push(&mut self, severity: Severity, code: &str, message: String, path: Option<String>) {
         self.diagnostics.push(ValidationDiagnostic {
@@ -159,31 +172,64 @@ impl Checks<'_, '_> {
         self.push(Severity::Error, code, message, Some(path));
     }
 
-    /// Step 2: unknown types and invalid params. Returns the dependencies of the valid records.
-    fn params(&mut self) -> Vec<Option<Dependencies>> {
-        let mut dependencies = Vec::with_capacity(self.document.features.len());
+    /// Step 2: unknown types and invalid params. Returns what each valid record declares, `None`
+    /// for the others.
+    fn params(&mut self) -> Vec<Option<Checked<'a>>> {
+        let mut checked = Vec::with_capacity(self.document.features.len());
         for (position, record) in self.document.features.iter().enumerate() {
-            let checked = match self.registry.validate_and_canonicalize(record) {
-                Ok(validated) => self.registry.dependencies(&validated.record),
+            let found = match self.registry.validate_and_canonicalize(record) {
+                Ok(validated) => self
+                    .registry
+                    .dependencies(&validated.record)
+                    .map(|dependencies| (validated.record, dependencies)),
                 Err(error) => Err(error),
             };
-            match checked {
-                Ok(found) => dependencies.push(Some(found)),
+            match found {
+                Ok((canonical, dependencies)) => {
+                    checked.push(self.checked(canonical, dependencies));
+                }
                 Err(error) => {
                     let code = match error {
                         FeatureError::UnknownType { .. } => "unknown_type",
                         _ => "invalid_params",
                     };
                     self.feature_error(position, code, &error);
-                    dependencies.push(None);
+                    checked.push(None);
                 }
             }
         }
-        dependencies
+        checked
+    }
+
+    /// What the later steps need from a valid record with these canonical params, read once.
+    fn checked(&self, canonical: FeatureRecord, dependencies: Dependencies) -> Option<Checked<'a>> {
+        let manifest = self.registry.get(&canonical.kind)?.manifest();
+        let sketch = (canonical.kind == SKETCH_TYPE)
+            .then(|| serde_json::from_value(Value::Object(canonical.params)).ok())
+            .flatten();
+        Some(Checked {
+            dependencies,
+            manifest,
+            sketch,
+        })
+    }
+
+    /// Every valid record with its position and what step 2 found out about it, in timeline
+    /// order.
+    fn valid<'c>(
+        &self,
+        checked: &'c [Option<Checked<'a>>],
+    ) -> impl Iterator<Item = (usize, &'a FeatureRecord, &'c Checked<'a>)> + use<'a, 'c> {
+        self.document
+            .features
+            .iter()
+            .zip(checked)
+            .enumerate()
+            .filter_map(|(position, (record, found))| Some((position, record, found.as_ref()?)))
     }
 
     /// Step 3: expression errors of parameters, then of feature params.
-    fn expressions(&mut self, dependencies: &[Option<Dependencies>], scope: &Scope<'_>) {
+    fn expressions(&mut self, checked: &[Option<Checked<'a>>], scope: &Scope<'_>) {
         for (position, parameter) in self.document.parameters.iter().enumerate() {
             if let Some(Err(error)) = scope.parameters.get(&parameter.name) {
                 self.push(
@@ -194,14 +240,9 @@ impl Checks<'_, '_> {
                 );
             }
         }
-        for (position, (record, found)) in
-            self.document.features.iter().zip(dependencies).enumerate()
-        {
-            let (Some(found), Some(feature)) = (found, self.registry.get(&record.kind)) else {
-                continue;
-            };
-            let uses = self.evaluated_uses(record, &found.expressions);
-            let values = Values::evaluate(&uses, scope, feature.manifest());
+        for (position, _, found) in self.valid(checked) {
+            let uses = evaluated_uses(found);
+            let values = Values::evaluate(&uses, scope, found.manifest);
             let errors: Vec<FeatureError> = values
                 .iter()
                 .filter_map(|(_, value)| value.as_ref().err().cloned())
@@ -216,15 +257,11 @@ impl Checks<'_, '_> {
     }
 
     /// Step 4: feature, body and sketch entity links that name nothing or a later feature.
-    fn references(&mut self, dependencies: &[Option<Dependencies>]) {
-        for (position, (record, found)) in
-            self.document.features.iter().zip(dependencies).enumerate()
-        {
-            let (Some(found), Some(feature)) = (found, self.registry.get(&record.kind)) else {
-                continue;
-            };
-            let manifest = feature.manifest();
-            for link in &found.features {
+    fn references(&mut self, checked: &[Option<Checked<'a>>]) {
+        for (position, record, found) in self.valid(checked) {
+            let manifest = found.manifest;
+            let dependencies = &found.dependencies;
+            for link in &dependencies.features {
                 let field = FieldRef::new(&link.field, manifest);
                 let (code, error) = match self.document.feature_index(&link.id) {
                     None => (
@@ -245,7 +282,11 @@ impl Checks<'_, '_> {
                 };
                 self.feature_error(position, code, &error);
             }
-            for link in found.bodies_read.iter().chain(&found.bodies_written) {
+            for link in dependencies
+                .bodies_read
+                .iter()
+                .chain(&dependencies.bodies_written)
+            {
                 if self.document.body(&link.id).is_none() {
                     let error = FeatureError::UnknownBody {
                         field: FieldRef::new(&link.field, manifest),
@@ -255,7 +296,7 @@ impl Checks<'_, '_> {
                 }
             }
             for link in entity_links(record) {
-                let Some(sketch) = self.earlier_sketch(&link.sketch, position) else {
+                let Some(sketch) = self.earlier_sketch(checked, &link.sketch, position) else {
                     continue;
                 };
                 let (exists, entity, noun) = match &link.target {
@@ -283,50 +324,32 @@ impl Checks<'_, '_> {
 
     /// The params of the sketch `id` when it is a valid sketch feature before timeline position
     /// `position`. Other cases are reported by the feature link checks or at rebuild.
-    fn earlier_sketch(&self, id: &Id, position: usize) -> Option<SketchParams> {
+    fn earlier_sketch<'c>(
+        &self,
+        checked: &'c [Option<Checked<'a>>],
+        id: &Id,
+        position: usize,
+    ) -> Option<&'c SketchParams> {
         let target = self.document.feature_index(id)?;
-        let record = self.document.features.get(target)?;
-        if target >= position || record.kind != SKETCH_TYPE {
+        if target >= position {
             return None;
         }
-        sketch_params(self.registry, self.document, record).ok()
-    }
-
-    /// The expression uses recompute evaluates: every declared use except the expressions of a
-    /// sketch's reference dimensions (`driving: false`), which the sketch feature never evaluates
-    /// (features/sketch.md).
-    fn evaluated_uses(&self, record: &FeatureRecord, uses: &[ExprUse]) -> Vec<ExprUse> {
-        let reference_fields: Vec<String> = if record.kind == SKETCH_TYPE {
-            sketch_params(self.registry, self.document, record)
-                .map(|params| reference_dimension_fields(&params))
-                .unwrap_or_default()
-        } else {
-            Vec::new()
-        };
-        uses.iter()
-            .filter(|usage| !reference_fields.contains(&usage.field))
-            .cloned()
-            .collect()
+        checked.get(target)?.as_ref()?.sketch.as_ref()
     }
 
     /// Step 6: each valid sketch is solved and its solver issues reported.
-    fn sketches(&mut self, dependencies: &[Option<Dependencies>], scope: &Scope<'_>) {
-        for (position, (record, found)) in
-            self.document.features.iter().zip(dependencies).enumerate()
-        {
-            if record.kind != SKETCH_TYPE || found.is_none() {
-                continue;
-            }
-            let Ok(params) = sketch_params(self.registry, self.document, record) else {
+    fn sketches(&mut self, checked: &[Option<Checked<'a>>], scope: &Scope<'_>) {
+        for (position, _, found) in self.valid(checked) {
+            let Some(params) = &found.sketch else {
                 continue;
             };
-            let Ok(values) = dimension_values(&params, scope) else {
+            let Ok(values) = dimension_values(params, scope) else {
                 continue;
             };
             let path = Some(format!("/features/{position}"));
-            match NativeSolver.solve(&params, &values) {
+            match NativeSolver.solve(params, &values) {
                 Ok(result) => {
-                    for issue in result.issues(&params) {
+                    for issue in result.issues(params) {
                         let (severity, code) = match issue {
                             SolveIssue::Conflicting { .. } => {
                                 (Severity::Error, "sketch_conflicting")
@@ -346,21 +369,16 @@ impl Checks<'_, '_> {
     /// supplied assets that match.
     fn assets(
         &mut self,
-        dependencies: &[Option<Dependencies>],
+        checked: &[Option<Checked<'a>>],
         assets: &[Asset],
     ) -> BTreeMap<String, Arc<[u8]>> {
         let mut stored = BTreeMap::new();
-        for (position, (record, found)) in
-            self.document.features.iter().zip(dependencies).enumerate()
-        {
-            let (Some(found), Some(feature)) = (found, self.registry.get(&record.kind)) else {
-                continue;
-            };
-            for link in &found.assets {
+        for (position, _, found) in self.valid(checked) {
+            for link in &found.dependencies.assets {
                 match assets.iter().find(|asset| asset.name == link.name) {
                     None => {
                         let error = FeatureError::AssetMissing {
-                            field: FieldRef::new(&link.field, feature.manifest()),
+                            field: FieldRef::new(&link.field, found.manifest),
                             asset: link.name.clone(),
                         };
                         self.feature_error(position, "asset_missing", &error);
@@ -372,7 +390,7 @@ impl Checks<'_, '_> {
                         .to_string();
                         let path = feature_path(
                             position,
-                            Some(&FieldRef::new(&link.field, feature.manifest())),
+                            Some(&FieldRef::new(&link.field, found.manifest)),
                         );
                         self.push(Severity::Error, "asset_mismatch", message, Some(path));
                     }
@@ -384,6 +402,24 @@ impl Checks<'_, '_> {
         }
         stored
     }
+}
+
+/// The expression uses recompute evaluates: every declared use except the expressions of a
+/// sketch's reference dimensions (`driving: false`), which the sketch feature never evaluates
+/// (features/sketch.md).
+fn evaluated_uses(found: &Checked<'_>) -> Vec<ExprUse> {
+    let reference_fields = found
+        .sketch
+        .as_ref()
+        .map(reference_dimension_fields)
+        .unwrap_or_default();
+    found
+        .dependencies
+        .expressions
+        .iter()
+        .filter(|usage| !reference_fields.contains(&usage.field))
+        .cloned()
+        .collect()
 }
 
 /// The field paths of a sketch's reference dimensions, as the sketch feature declares them
@@ -515,7 +551,7 @@ fn first_difference_line(text: &str, canonical: &str) -> u32 {
         .iter()
         .filter(|&&byte| byte == b'\n')
         .count();
-    u32::try_from(newlines + 1).unwrap_or(u32::MAX)
+    saturating_u32(newlines + 1)
 }
 
 /// The code of an expression error: its kind in snake case (expressions.md section 4).
@@ -556,6 +592,7 @@ fn expression_code(kind: &ExprErrorKind) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::id;
 
     #[test]
     fn differences_are_located_by_line() {
@@ -613,10 +650,6 @@ mod tests {
 
     fn record(json: serde_json::Value) -> FeatureRecord {
         serde_json::from_value(json).expect("a valid feature record")
-    }
-
-    fn id(text: &str) -> Id {
-        Id::new(text).expect("a valid test id")
     }
 
     #[test]

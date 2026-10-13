@@ -1,19 +1,11 @@
-import { cleanup, render, screen, within } from '@testing-library/react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { render, screen, within } from '@testing-library/react'
+import { describe, expect, it } from 'vitest'
 import { COLOR_CLASSES } from '../theme/roles'
 import { OverhangLegend } from './OverhangLegend'
-
-afterEach(() => {
-  cleanup()
-})
 
 function renderLegend(limit: number): HTMLElement {
   render(<OverhangLegend limit={limit} />)
   return screen.getByTestId('overhang-legend')
-}
-
-function classes(roleClasses: string): string[] {
-  return roleClasses.split(' ')
 }
 
 describe('OverhangLegend', () => {
@@ -41,7 +33,7 @@ describe('OverhangLegend', () => {
 
   it('draws an h-2 bar with the analysis gradient', () => {
     const legend = renderLegend(Math.PI / 6)
-    const gradient = classes(COLOR_CLASSES.analysis.background)
+    const gradient = COLOR_CLASSES.analysis.background.split(' ')
     const bars = Array.from(legend.querySelectorAll('*')).filter(
       (element) =>
         element.classList.contains('h-2') &&
@@ -58,6 +50,6 @@ describe('OverhangLegend', () => {
 
   it('sits on a surfaceRaised chip over the viewport', () => {
     const legend = renderLegend(Math.PI / 4)
-    expect(legend).toHaveClass(...classes(COLOR_CLASSES.surfaceRaised.background))
+    expect(legend).toHaveClass(COLOR_CLASSES.surfaceRaised.background)
   })
 })

@@ -181,6 +181,7 @@ function Panel({
       aria-labelledby={name === null ? undefined : titleId}
       aria-label={name === null ? 'Selection' : undefined}
       data-testid="inspector"
+      data-inspector=""
       data-mode={mode}
       data-preview={preview}
       className={clsx(

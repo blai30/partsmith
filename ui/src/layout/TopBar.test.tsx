@@ -1,5 +1,4 @@
 import { cleanup, screen, waitFor, within } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { installPopoverPolyfill } from '../components/popover-polyfill.testing'
 import { MESSAGES } from '../messages'
@@ -13,23 +12,20 @@ import {
   cubeDocumentState,
   documentState,
   featureItem,
-  readyState,
   rectSketchDocumentState,
   regionItem,
   THREE_BOXES_DOCUMENT,
 } from './fixtures.testing'
-import { createModelApp, renderWithApp, stubMatchMedia } from './test-app.testing'
+import { renderModelApp, stubMatchMedia } from './test-app.testing'
 
-let uninstallPopovers: () => void
+beforeEach(installPopoverPolyfill)
 
 beforeEach(() => {
-  uninstallPopovers = installPopoverPolyfill()
   stubMatchMedia()
 })
 
 afterEach(() => {
   cleanup()
-  uninstallPopovers()
   document.documentElement.classList.remove('dark')
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
@@ -46,9 +42,8 @@ const EDITING_SKETCH: SketchSession = {
 }
 
 function renderApp(state: Partial<AppState> = {}, document = cubeDocumentState()) {
-  const test = createModelApp({ state: readyState(document, state) })
-  renderWithApp(test.app)
-  return { ...test, user: userEvent.setup(), topBar: screen.getByTestId('top-bar') }
+  const test = renderModelApp({ document, state })
+  return { ...test, topBar: screen.getByTestId('top-bar') }
 }
 
 type AddedBody = {

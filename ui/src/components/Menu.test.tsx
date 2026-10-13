@@ -1,22 +1,13 @@
-import { cleanup, render, screen, within } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { FilePlus } from 'lucide-react'
 import { useRef, useState } from 'react'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { COLOR_CLASSES } from '../theme/roles'
 import { Menu, type MenuEntry } from './Menu'
 import { installPopoverPolyfill } from './popover-polyfill.testing'
 
-let uninstallPopovers: () => void
-
-beforeEach(() => {
-  uninstallPopovers = installPopoverPolyfill()
-})
-
-afterEach(() => {
-  cleanup()
-  uninstallPopovers()
-})
+beforeEach(installPopoverPolyfill)
 
 function Harness({
   entries,

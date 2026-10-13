@@ -7,10 +7,10 @@ mod feature_support;
 use std::time::Duration;
 
 use feature_support::{
-    Run, assert_bounding_box, assert_canonical_example, assert_error_field, assert_face_area,
+    Run, assert_bounding_box, assert_error_field, assert_examples_canonical, assert_face_area,
     assert_face_count, assert_face_kind, assert_face_normal, assert_face_position, assert_has_face,
-    assert_solid_count, assert_unchanged, assert_volume, body_changes, example_paths, face,
-    link_ids, load_example, median_build_time,
+    assert_median_build_within, assert_solid_count, assert_unchanged, assert_volume, body_changes,
+    face, link_ids, load_example,
 };
 use partsmith_occt_sys::GeometryKind;
 
@@ -39,11 +39,7 @@ fn mirror(plane: &str, extra: &str) -> String {
 
 #[test]
 fn examples_are_canonical() {
-    let paths = example_paths("mirror");
-    assert!(!paths.is_empty(), "examples/mirror has examples");
-    for path in paths {
-        assert_canonical_example(&path);
-    }
+    assert_examples_canonical("mirror");
 }
 
 #[test]
@@ -234,9 +230,5 @@ fn t011_empty_source() {
 fn t012_join_apart_builds_within_15_ms() {
     let document = load_example("mirror/join-apart.ptsm");
 
-    let duration = median_build_time(&document, "f-mir1", 21);
-    assert!(
-        duration < Duration::from_millis(15),
-        "the mirror took {duration:?} to build (median of 21 runs), over the 15 ms budget",
-    );
+    assert_median_build_within(&document, "f-mir1", 21, Duration::from_millis(15));
 }

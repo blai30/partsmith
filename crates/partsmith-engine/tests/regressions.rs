@@ -15,14 +15,6 @@ use partsmith_protocol::{DocHandle, TessellationQuality};
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 
-/// Validation without rebuild or the canonical check.
-fn load_checks() -> ValidateOptions {
-    ValidateOptions {
-        rebuild: false,
-        canonical: false,
-    }
-}
-
 /// A fixture with `features` appended to its timeline, as JSON text.
 fn with_features(name: &str, features: &[Value]) -> String {
     let mut document: Value = serde_json::from_str(&fixture(name)).expect("fixtures are JSON");
@@ -72,7 +64,7 @@ fn validate_reports_a_hole_at_an_unknown_sketch_point_without_rebuild() {
     let mut session = session();
     let text = with_features("plate.ptsm", &[hole(&["e-1.start", "e-p9"])]);
 
-    let report = session.validate(&text, &[], load_checks());
+    let report = session.validate(&text, &[], ValidateOptions::default());
 
     assert_eq!(
         findings(&report),
@@ -94,7 +86,7 @@ fn validate_reports_an_unknown_sketch_line_axis() {
     let mut session = session();
     let text = with_features("plate.ptsm", &[pattern_along("e-9")]);
 
-    let report = session.validate(&text, &[], load_checks());
+    let report = session.validate(&text, &[], ValidateOptions::default());
 
     assert_eq!(
         findings(&report),
@@ -114,7 +106,7 @@ fn validate_accepts_existing_sketch_points_and_lines() {
         &[hole(&["e-1.start", "e-3.end"]), pattern_along("e-1")],
     );
 
-    let report = session.validate(&text, &[], load_checks());
+    let report = session.validate(&text, &[], ValidateOptions::default());
 
     assert_eq!(findings(&report), []);
 }
@@ -130,7 +122,7 @@ fn validate_ignores_reference_dimensions_that_recompute_does_not_evaluate() {
         .push(json!({"id": "c-3", "type": "distance", "line": "e-1", "expr": "wdth", "driving": false}));
     let text = document.to_string();
 
-    let report = session.validate(&text, &[], load_checks());
+    let report = session.validate(&text, &[], ValidateOptions::default());
     let opened = open_text(&mut session, &text);
 
     assert_eq!(findings(&report), []);
@@ -147,7 +139,7 @@ fn validate_still_reports_broken_driving_dimensions() {
         .expect("the sketch has constraints")
         .push(json!({"id": "c-3", "type": "distance", "line": "e-1", "expr": "wdth"}));
 
-    let report = session.validate(&document.to_string(), &[], load_checks());
+    let report = session.validate(&document.to_string(), &[], ValidateOptions::default());
 
     assert_eq!(
         findings(&report)[0],

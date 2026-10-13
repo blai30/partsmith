@@ -1,7 +1,7 @@
 import { ArrowUpFromLine, Layers2, PencilRuler, Shapes } from 'lucide-react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import type { CatalogEntry } from '../generated/protocol'
-import { cleanup, screen, within } from '@testing-library/react'
+import { screen, within } from '@testing-library/react'
 import { editFeature } from '../app/actions/command'
 import { installPopoverPolyfill } from '../components/popover-polyfill.testing'
 import {
@@ -276,10 +276,6 @@ function availabilityIn(document: DocumentState, type: string) {
 }
 
 describe('availability reasons (2.10, U-98)', () => {
-  afterEach(() => {
-    cleanup()
-  })
-
   const NEW_DOCUMENT = documentState(emptyDocument())
 
   it('U-98 disables extrude and fillet in a new document with what is missing', () => {

@@ -7,6 +7,7 @@ import { finishSketch, setSketchTool } from '../app/actions/sketch'
 import type { App } from '../app/createApp'
 import { reportFailure } from '../app/report'
 import { MESSAGES } from '../messages'
+import { isView } from './focus'
 import { isNarrowWindow } from './use-overlay-dismiss'
 
 // The Esc and Enter ladders (ui.md 3.5): what the two keys do when no focused control takes them.
@@ -128,7 +129,7 @@ function handlesOwnEnter(element: Element): boolean {
  * command and a non-empty selection, Enter runs Repeat, which starts the last feature command with
  * the selection preselected (or says there is nothing to repeat yet). Returns whether it applied.
  */
-export function repeatOnSelection(app: App): boolean {
+function repeatOnSelection(app: App): boolean {
   const state = app.store.getState()
   if (state.command !== null || state.context === 'sketch' || state.selection.length === 0) {
     return false
@@ -161,11 +162,8 @@ export function useEnterLadder(app: App): void {
         return
       }
       const inInspector =
-        target.closest('[data-testid="inspector"][data-mode="command"]') !== null &&
-        !handlesOwnEnter(target)
-      const onViewport =
-        target.getAttribute('role') === 'application' &&
-        target.closest('[data-testid="viewport"]') !== null
+        target.closest('[data-inspector][data-mode="command"]') !== null && !handlesOwnEnter(target)
+      const onViewport = isView(target)
       if ((inInspector || onViewport) && event.repeat && app.store.getState().command !== null) {
         // A held key confirms the command once.
         event.preventDefault()

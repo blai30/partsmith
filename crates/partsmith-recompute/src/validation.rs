@@ -1,13 +1,14 @@
 //! Validated feature records and their memo (recompute.md section 3.1 steps 1 and 2).
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
-use partsmith_features::{Dependencies, FeatureError, Registry};
+use partsmith_features::{Dependencies, FeatureError, Link, Registry};
 use partsmith_model::FeatureRecord;
 use serde_json::{Map, Value};
 
 use crate::key::params_text;
+use crate::pass_lru::PassLru;
 
 /// A record that passed validation, with what recompute derives from it.
 #[derive(Debug)]
@@ -24,6 +25,16 @@ pub(crate) struct Valid {
     pub(crate) parameter_names: Vec<String>,
     /// Dotted names its expressions use directly, without repeats.
     pub(crate) value_names: Vec<String>,
+}
+
+impl Valid {
+    /// The body links in key order: read, then written.
+    pub(crate) fn body_links(&self) -> impl Iterator<Item = &Link> {
+        self.dependencies
+            .bodies_read
+            .iter()
+            .chain(&self.dependencies.bodies_written)
+    }
 }
 
 /// The outcome of validating a record: what it declares, or why it is invalid.
@@ -54,66 +65,34 @@ fn check(registry: &Registry, record: &FeatureRecord) -> Checked {
 
 /// Validation outcomes memoized per record content, so unchanged records are not parsed again,
 /// even when several documents use the same feature ids. One per `Recompute`, whose registry
-/// never changes.
+/// never changes. Each pass over a document is one pass of the memo.
 #[derive(Debug, Default)]
 pub(crate) struct Validations {
-    /// The outcome for each record content (see [`content_hash`]).
-    entries: BTreeMap<[u8; 32], Memo>,
-    /// Number of the current (or latest) pass over a document.
-    pass: u64,
-}
-
-/// One memoized outcome.
-#[derive(Debug)]
-struct Memo {
-    /// The outcome.
-    checked: Checked,
-    /// The pass that last used it.
-    last_use: u64,
+    /// The outcome for each record content (see [`content_hash`]), with the pass that last used it.
+    entries: PassLru<[u8; 32], Checked>,
 }
 
 impl Validations {
     /// Starts a pass over a document: outcomes looked up from now on count as used by it.
     pub(crate) fn begin_pass(&mut self) {
-        self.pass += 1;
+        self.entries.begin_pass();
     }
 
     /// The validation outcome of `record`, computed only when no record with the same id, type
     /// and params was checked before.
     pub(crate) fn check(&mut self, registry: &Registry, record: &FeatureRecord) -> Checked {
         let content = content_hash(record);
-        if let Some(memo) = self.entries.get_mut(&content) {
-            memo.last_use = self.pass;
-            return memo.checked.clone();
+        if let Some(checked) = self.entries.touch(&content) {
+            return checked.clone();
         }
         let checked = check(registry, record);
-        self.entries.insert(
-            content,
-            Memo {
-                checked: checked.clone(),
-                last_use: self.pass,
-            },
-        );
+        self.entries.insert(content, checked.clone());
         checked
     }
 
-    /// While more than `limit` outcomes are kept, drops the one whose last use is oldest (the
-    /// smaller content hash first on ties) among those the latest pass did not use.
+    /// Drops the outcomes used longest ago, beyond `limit`, that the latest pass did not use.
     pub(crate) fn prune(&mut self, limit: usize) {
-        let excess = self.entries.len().saturating_sub(limit);
-        if excess == 0 {
-            return;
-        }
-        let mut unused: Vec<(u64, [u8; 32])> = self
-            .entries
-            .iter()
-            .filter(|(_, memo)| memo.last_use != self.pass)
-            .map(|(content, memo)| (memo.last_use, *content))
-            .collect();
-        unused.sort_unstable();
-        for (_, content) in unused.into_iter().take(excess) {
-            self.entries.remove(&content);
-        }
+        self.entries.evict_to(limit);
     }
 
     /// Number of memoized outcomes.
@@ -138,7 +117,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::test_support::{document, record, registry};
+    use crate::test_support::{record, registry};
 
     #[test]
     fn a_valid_record_gives_canonical_params_dependencies_and_names() {
@@ -306,37 +285,6 @@ mod tests {
         assert_eq!(validations.len(), 2);
         let checked_again = check_in_pass(&mut validations, &registry, "f-1").expect("valid");
         assert!(!Arc::ptr_eq(&oldest, &checked_again));
-    }
-
-    #[test]
-    fn pruning_keeps_every_outcome_the_latest_pass_used() {
-        let registry = registry();
-        let mut validations = Validations::default();
-        let current = document(json!([
-            {"id": "f-1", "type": "test_datum", "offset": "1"},
-            {"id": "f-2", "type": "test_datum", "offset": "1"}
-        ]));
-        check_in_pass(&mut validations, &registry, "f-old").expect("valid");
-        validations.begin_pass();
-        for record in &current.features {
-            validations.check(&registry, record).expect("valid");
-        }
-
-        validations.prune(1);
-
-        assert_eq!(validations.len(), 2);
-    }
-
-    #[test]
-    fn pruning_within_the_limit_keeps_everything() {
-        let registry = registry();
-        let mut validations = Validations::default();
-        check_in_pass(&mut validations, &registry, "f-1").expect("valid");
-        check_in_pass(&mut validations, &registry, "f-2").expect("valid");
-
-        validations.prune(2);
-
-        assert_eq!(validations.len(), 2);
     }
 
     #[test]

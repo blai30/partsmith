@@ -2,6 +2,7 @@ import type { PrinterProfile, PrintReport } from '../generated/protocol'
 import type { AppState } from '../state/store'
 import { encodedFromHex, VIEWPORT_COLORS, type ThemeName } from '../theme/roles'
 import type { RenderFrame } from '../viewport/backend'
+import { findPrinter } from './printer'
 
 // The overhang color map (ui.md 3.12 pass 3, 3.17): which bodies show it, its ramp and its legend.
 
@@ -28,7 +29,7 @@ export function overhangLimit(
       }
     }
   }
-  return printers.find((printer) => printer.id === report.profile)?.max_overhang_angle ?? null
+  return findPrinter(printers, report.profile)?.max_overhang_angle ?? null
 }
 
 /**

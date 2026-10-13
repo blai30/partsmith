@@ -17,15 +17,13 @@ pub mod features;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use partsmith_features::{
-    BodyState, BodyUpdate, CancelToken, DatumResult, FeatureOutput, OutputData, Registry,
-};
+use partsmith_features::{BodyState, CancelToken, Registry};
 use partsmith_model::{Document, ExprError, Id, Quantity};
 use partsmith_naming::{ElementKind, ElementName};
 use partsmith_occt_sys::{Shape, SubShapeKind};
 use partsmith_recompute::{
-    Action, BodyReport, CacheKey, EdgeKind, FeatureReport, Graph, Input, Message, Node, NodeState,
-    Plan, PlanStep, Recompute, Report, Severity, Status,
+    Action, CacheKey, EdgeKind, Graph, Input, Message, Node, NodeState, Plan, PlanStep, Recompute,
+    Report, Severity, Status,
 };
 use serde_json::{Value, json};
 
@@ -34,7 +32,8 @@ use serde_json::{Value, json};
 pub use feature_support::{
     AXIS_TOLERANCE, LENGTH_TOLERANCE, MEASURE_TOLERANCE, assert_absolute, assert_bounding_box,
     assert_coordinates, assert_face_normal, assert_face_position, assert_relative,
-    assert_solid_count, assert_volume, element_names, face, face_names,
+    assert_solid_count, assert_volume, body, datum_plane, element_names, face, face_names, feature,
+    final_state, output, output_update, state_before,
 };
 
 // Ids and documents.
@@ -405,39 +404,6 @@ impl Harness {
 
 // Reading reports, plans and graphs.
 
-/// The report of one feature.
-pub fn feature<'r>(report: &'r Report, feature: &str) -> &'r FeatureReport {
-    report
-        .features
-        .iter()
-        .find(|entry| entry.feature.as_str() == feature)
-        .unwrap_or_else(|| panic!("the report has no feature {feature}"))
-}
-
-/// The end-of-run report of one body.
-pub fn body<'r>(report: &'r Report, body: &str) -> &'r BodyReport {
-    report
-        .bodies
-        .iter()
-        .find(|entry| entry.body.as_str() == body)
-        .unwrap_or_else(|| panic!("the report has no body {body}"))
-}
-
-/// The end-of-run state of one body.
-pub fn final_state<'r>(report: &'r Report, body_id: &str) -> &'r BodyState {
-    &body(report, body_id).state
-}
-
-/// The state of `body_id` just before `feature_id` (from its `bodies_before`).
-pub fn state_before<'r>(report: &'r Report, feature_id: &str, body_id: &str) -> &'r BodyState {
-    feature(report, feature_id)
-        .bodies_before
-        .iter()
-        .find(|(body, _)| body.as_str() == body_id)
-        .map(|(_, state)| state)
-        .unwrap_or_else(|| panic!("{feature_id} has no state of {body_id} before it"))
-}
-
 /// The ids in a feature's `bodies_before`, in order.
 pub fn bodies_before_ids(report: &Report, feature_id: &str) -> Vec<String> {
     feature(report, feature_id)
@@ -447,31 +413,9 @@ pub fn bodies_before_ids(report: &Report, feature_id: &str) -> Vec<String> {
         .collect()
 }
 
-/// The output of a feature that ended `Ok` or `Warning`.
-pub fn output<'r>(report: &'r Report, feature_id: &str) -> &'r FeatureOutput {
-    feature(report, feature_id)
-        .output
-        .as_deref()
-        .unwrap_or_else(|| panic!("{feature_id} has no output"))
-}
-
-/// The body update for `body_id` in a feature's output.
-pub fn output_update<'r>(report: &'r Report, feature_id: &str, body_id: &str) -> &'r BodyUpdate {
-    match &output(report, feature_id).data {
-        OutputData::Bodies(updates) => updates
-            .iter()
-            .find(|update| update.body.as_str() == body_id)
-            .unwrap_or_else(|| panic!("{feature_id} has no update of {body_id}")),
-        other => panic!("{feature_id} output is not a body update: {other:?}"),
-    }
-}
-
 /// The origin of a datum plane output.
 pub fn datum_origin(report: &Report, feature_id: &str) -> [f64; 3] {
-    match &output(report, feature_id).data {
-        OutputData::Datum(DatumResult::Plane(placement)) => placement.origin,
-        other => panic!("{feature_id} output is not a datum: {other:?}"),
-    }
+    datum_plane(report, feature_id).origin
 }
 
 /// The height of a datum output's origin (test features place their datums at (0, 0, z)).

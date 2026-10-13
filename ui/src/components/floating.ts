@@ -1,7 +1,7 @@
 // Native popovers (menus, popovers, tooltips) anchored to their triggers (ui.md 3.2, 3.12). They
 // sit in the top layer at `fixed top-0 left-0` and are moved next to their anchor at runtime.
 
-import { useLayoutEffect, type RefObject } from 'react'
+import { useEffectEvent, useLayoutEffect, useRef, type RefObject } from 'react'
 import { positionElement } from '../viewport/overlay'
 import { placeFloating, type Placement } from './placement'
 
@@ -41,6 +41,36 @@ export function hidePopover(element: HTMLElement): void {
   }
 }
 
+/**
+ * Shows a popover element while `open` and hides it once closed, never touching one that was never
+ * shown. `source` is the invoker `showPopover` names; `onShow` runs after each showing, which a new
+ * source repeats while open.
+ */
+export function usePopoverVisibility(
+  element: RefObject<HTMLElement | null>,
+  open: boolean,
+  source: RefObject<HTMLElement | null> | null,
+  onShow?: () => void,
+): void {
+  const shown = useRef(false)
+  const afterShow = useEffectEvent(() => {
+    onShow?.()
+  })
+  useLayoutEffect(() => {
+    const popover = element.current
+    if (popover === null) {
+      return
+    }
+    if (open) {
+      showPopover(popover, source?.current ?? null)
+      shown.current = true
+      afterShow()
+    } else if (shown.current) {
+      hidePopover(popover)
+    }
+  }, [element, open, source])
+}
+
 /** Moves a floating element next to its anchor (centered in the window without one). */
 export function placeNextTo(
   element: HTMLElement,
@@ -49,18 +79,9 @@ export function placeNextTo(
 ): void {
   const document = element.ownerDocument
   const rem = remPixels(document)
-  const anchorBounds = anchor?.getBoundingClientRect() ?? null
-  const bounds = element.getBoundingClientRect()
   const position = placeFloating(
-    anchorBounds === null
-      ? null
-      : {
-          x: anchorBounds.x,
-          y: anchorBounds.y,
-          width: anchorBounds.width,
-          height: anchorBounds.height,
-        },
-    { width: bounds.width, height: bounds.height },
+    anchor?.getBoundingClientRect() ?? null,
+    element.getBoundingClientRect(),
     {
       width: document.documentElement.clientWidth,
       height: document.documentElement.clientHeight,

@@ -8,39 +8,20 @@ use std::f64::consts::PI;
 use std::time::Duration;
 
 use feature_support::{
-    Run, assert_bounding_box, assert_canonical_example, assert_element_repair, assert_error_field,
-    assert_face_area, assert_face_count, assert_face_kind, assert_face_radius, assert_list_field,
-    assert_same_body, assert_unchanged, assert_volume, body_update, document, example_paths, face,
-    face_names_with_prefix, load_example, median_build_time, median_failed_build_time, output_body,
+    CUBE20, FRONT_TOP_EDGE, PLATE, PLATE_TOP_EDGES, Run, assert_bounding_box,
+    assert_element_repair, assert_error_field, assert_examples_canonical, assert_face_area,
+    assert_face_count, assert_face_kind, assert_face_radius, assert_list_field,
+    assert_median_build_within, assert_same_body, assert_unchanged, assert_volume, body_update,
+    document, face, face_names_with_prefix, load_example, median_failed_build_time, output_body,
     suggested_limit,
 };
 use partsmith_features::{BodyChange, FeatureError, FeatureWarning, IgnoredReason};
 use partsmith_model::{Document, Units};
 use partsmith_occt_sys::GeometryKind;
 
-/// `CUBE20`: a 20 mm cube in `b-1` spanning [-10,-10,0]-[10,10,20].
-const CUBE20: &str =
-    r#"{"id": "f-box1", "type": "box", "body": "b-1", "size": ["20", "20", "20"], "op": "new"}"#;
-
-/// `E-FT`: the edge between the front and top faces of `CUBE20`.
-const FRONT_TOP_EDGE: &str =
-    r#"{"q": "edge(f-box1/front|f-box1/top)", "fp": "line|n=1,0,0|c=0,-10,20|l=20"}"#;
-
 /// `E-LOST`: an edge reference that matches nothing.
 const LOST_EDGE: &str =
     r#"{"q": "edge(f-box1/nothing|f-box1/top)", "fp": "line|n=0,0,1|c=500,500,500|l=1"}"#;
-
-/// The 20 x 20 x 2.4 mm plate of test 8.
-const PLATE: &str =
-    r#"{"id": "f-box1", "type": "box", "body": "b-1", "size": ["20", "20", "2.4"], "op": "new"}"#;
-
-/// The top loop of `PLATE`: `E-FT`, `E-BT`, `E-LT` and `E-RT` with the plate's fingerprints.
-const PLATE_TOP_EDGES: [&str; 4] = [
-    r#"{"q": "edge(f-box1/front|f-box1/top)", "fp": "line|n=1,0,0|c=0,-10,2.4|l=20"}"#,
-    r#"{"q": "edge(f-box1/back|f-box1/top)", "fp": "line|n=1,0,0|c=0,10,2.4|l=20"}"#,
-    r#"{"q": "edge(f-box1/left|f-box1/top)", "fp": "line|n=0,1,0|c=-10,0,2.4|l=20"}"#,
-    r#"{"q": "edge(f-box1/right|f-box1/top)", "fp": "line|n=0,1,0|c=10,0,2.4|l=20"}"#,
-];
 
 /// The names of the twelve edges of a box `f-box1`.
 const BOX_EDGE_NAMES: [&str; 12] = [
@@ -92,11 +73,7 @@ fn prefixed(prefix: &str, names: &[&str]) -> Vec<String> {
 
 #[test]
 fn examples_are_canonical() {
-    let paths = example_paths("fillet");
-    assert!(!paths.is_empty(), "examples/fillet has examples");
-    for path in paths {
-        assert_canonical_example(&path);
-    }
+    assert_examples_canonical("fillet");
 }
 
 #[test]
@@ -399,13 +376,14 @@ fn t014_edges_of_another_body() {
 #[test]
 #[cfg_attr(
     debug_assertions,
-    ignore = "performance budgets hold for release builds; run with cargo test --release"
+    ignore = "performance budgets hold for release builds: run with cargo test --release"
 )]
 fn t015_performance() {
-    let every_edge = median_build_time(&load_example("fillet/every-edge.ptsm"), "f-fil1", 5);
-    assert!(
-        every_edge < Duration::from_millis(100),
-        "filleting every edge of a cube took {every_edge:?}, the budget is 100 ms"
+    assert_median_build_within(
+        &load_example("fillet/every-edge.ptsm"),
+        "f-fil1",
+        5,
+        Duration::from_millis(100),
     );
     let too_large = median_failed_build_time(&plate_document("3"), "f-fil1", "fillet_too_large", 3);
     assert!(

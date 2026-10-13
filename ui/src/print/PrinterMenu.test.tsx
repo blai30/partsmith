@@ -1,7 +1,7 @@
-import { cleanup, render, screen, within } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useRef, useState } from 'react'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { installPopoverPolyfill } from '../components/popover-polyfill.testing'
 import type { PrinterProfile } from '../generated/protocol'
 import { COLOR_CLASSES } from '../theme/roles'
@@ -9,16 +9,7 @@ import { PrinterMenu } from './PrinterMenu'
 import { GENERIC_FDM } from '../test/fakes/printers'
 import { PRINTERS } from './fixtures.testing'
 
-let uninstallPopovers: () => void
-
-beforeEach(() => {
-  uninstallPopovers = installPopoverPolyfill()
-})
-
-afterEach(() => {
-  cleanup()
-  uninstallPopovers()
-})
+beforeEach(installPopoverPolyfill)
 
 type HarnessProps = {
   readonly printers?: readonly PrinterProfile[]
@@ -105,7 +96,7 @@ describe('PrinterMenu', () => {
     )
     expect(radio(menu, 'Generic resin MSLA')).toHaveAccessibleDescription('Resin 130 × 80 × 160 mm')
     expect(within(menu).getByText('130 × 80 × 160 mm')).toHaveClass(
-      ...COLOR_CLASSES.textMuted.foreground.split(' '),
+      COLOR_CLASSES.textMuted.foreground,
     )
   })
 

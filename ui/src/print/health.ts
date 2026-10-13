@@ -1,4 +1,5 @@
 import type { Finding, Location, PrintReport, Severity } from '../generated/protocol'
+import { counted } from '../messages'
 import { memoized, type HealthBadge } from '../state/selectors'
 import type { AppState, FindingKey } from '../state/store'
 import type { Vector3 } from '../viewport/math'
@@ -119,10 +120,6 @@ export function missingReport(state: AppState): MissingReport | null {
   return state.print.running ? 'checking' : 'unchecked'
 }
 
-function counted(count: number, noun: string): string {
-  return `${String(count)} ${noun}${count === 1 ? '' : 's'}`
-}
-
 /**
  * The badge's visible text before the out-of-date suffix (3.17): "Check print", "Checking", "Ready
  * to print", "1 warning" or "{n} warnings", "1 error" or "{n} errors".
@@ -145,6 +142,11 @@ export function healthBadgeText(badge: HealthBadge): string {
 /** Whether the badge is shown out of date: a stale report while no analysis runs (3.17). */
 export function healthBadgeOutdated(badge: HealthBadge): boolean {
   return badge.stale && badge.state !== 'running'
+}
+
+/** A text about the badge's report with " (out of date)" appended while the badge is out of date. */
+export function withOutdatedSuffix(badge: HealthBadge, text: string): string {
+  return healthBadgeOutdated(badge) ? `${text} (out of date)` : text
 }
 
 /**

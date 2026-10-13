@@ -1,4 +1,5 @@
 import type { ProfileFinding, SketchSolution } from '../generated/protocol'
+import { counted } from '../messages'
 import { midpoint, type Vector2 } from './geometry'
 
 // The solver's and profile check's messages (sketch.md 4.2, 4.3). A solution carries ids and
@@ -115,7 +116,7 @@ export function outlineProblems(solution: SketchSolution): string | null {
     return null
   }
   if (findings.every((finding) => finding.type === 'open_endpoint')) {
-    return count === 1 ? '1 open end' : `${String(count)} open ends`
+    return counted(count, 'open end')
   }
-  return count === 1 ? '1 outline problem' : `${String(count)} outline problems`
+  return counted(count, 'outline problem')
 }

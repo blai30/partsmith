@@ -7,9 +7,9 @@ mod feature_support;
 use std::time::Duration;
 
 use feature_support::{
-    AXIS_TOLERANCE, Run, assert_canonical_example, assert_coordinates, assert_error_field,
-    assert_placement, assert_relative, document_text, example_paths, expression_uses, link_ids,
-    load_example, median_build_time, message, parse_document, sketch_result,
+    AXIS_TOLERANCE, Run, assert_coordinates, assert_error_field, assert_examples_canonical,
+    assert_median_build_within, assert_placement, assert_relative, document_text, expression_uses,
+    link_ids, load_example, message, parse_document, sketch_result,
 };
 use partsmith_features::{FallbackReason, FeatureError, FeatureWarning, Registry, Repair};
 use partsmith_model::{FeatureInspector, FieldUnit};
@@ -97,11 +97,7 @@ fn plane_fallback_reason(run: &Run) -> &FallbackReason {
 
 #[test]
 fn examples_are_canonical() {
-    let paths = example_paths("sketch");
-    assert!(!paths.is_empty(), "examples/sketch has examples");
-    for path in paths {
-        assert_canonical_example(&path);
-    }
+    assert_examples_canonical("sketch");
 }
 
 #[test]
@@ -424,11 +420,7 @@ fn t017_rectangle_builds_within_2_ms() {
 
     // The budget excludes the solve and the profile, which the report does not time separately;
     // for these four unconstrained lines they take a negligible part of the whole build.
-    let duration = median_build_time(&document, "f-sk1", 21);
-    assert!(
-        duration < Duration::from_millis(2),
-        "the rectangle sketch took {duration:?} to build (median of 21 runs), over the 2 ms budget",
-    );
+    assert_median_build_within(&document, "f-sk1", 21, Duration::from_millis(2));
 }
 
 #[test]

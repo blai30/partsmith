@@ -7,9 +7,9 @@ mod feature_support;
 use std::time::Duration;
 
 use feature_support::{
-    Run, assert_bounding_box, assert_canonical_example, assert_empty, assert_error_field,
+    Run, assert_bounding_box, assert_empty, assert_error_field, assert_examples_canonical,
     assert_face_area, assert_face_axis_direction, assert_face_count, assert_face_kind,
-    assert_face_names, assert_volume, example_paths, face, load_example, median_build_time,
+    assert_face_names, assert_median_build_within, assert_volume, face, load_example,
 };
 use partsmith_features::{Bound, FeatureError};
 use partsmith_occt_sys::GeometryKind;
@@ -23,11 +23,7 @@ fn torus_with_tube(minor_radius: &str) -> String {
 
 #[test]
 fn examples_are_canonical() {
-    let paths = example_paths("torus");
-    assert!(!paths.is_empty(), "examples/torus has examples");
-    for path in paths {
-        assert_canonical_example(&path);
-    }
+    assert_examples_canonical("torus");
 }
 
 #[test]
@@ -112,11 +108,7 @@ fn t005_zero_tube_is_out_of_range() {
 fn t006_default_torus_builds_within_2_ms() {
     let document = load_example("torus/default.ptsm");
 
-    let duration = median_build_time(&document, "f-tor1", 21);
-    assert!(
-        duration < Duration::from_millis(2),
-        "the default torus took {duration:?} to build (median of 21 runs), over the 2 ms budget",
-    );
+    assert_median_build_within(&document, "f-tor1", 21, Duration::from_millis(2));
 }
 
 #[test]

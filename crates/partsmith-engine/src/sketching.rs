@@ -1,18 +1,25 @@
-//! Sketch commands: candidate solves, drag frames and committing a drag (engine.md section 3.6).
+//! Sketch commands: candidate solves, drag frames and committing a drag (engine.md section 3.6),
+//! and the context a stored sketch is solved in: its dimension values and its placement.
 
 use std::sync::Arc;
 
+use partsmith_features::{BodyState, DatumResult, OutputData, Registry};
 use partsmith_model::{Document, Edit, FeatureRecord, Id, canonical};
+use partsmith_naming::{Reference, Resolution, resolve};
+use partsmith_occt_sys::{GeometryKind, SubShapeKind};
 use partsmith_protocol::{DocHandle, SketchSolution};
-use partsmith_sketch::{PointRef, SketchParams, SketchPlane};
+use partsmith_sketch::{
+    DimensionValues, NativeSolver, OriginPlane, Placement, PointRef, Region, RegionRef,
+    SketchParams, SketchPlane, Solver, build_profile,
+};
 use serde_json::Value;
 
 use crate::error::EngineError;
 use crate::session::{Session, evaluate_in};
 use crate::sketch::{
-    Drag, Solved, dimension_values, has_point, placement, sketch_params, sketch_record, solve,
+    Drag, Solved, dimension_values, has_point, sketch_params, sketch_record, solve,
 };
-use crate::state::{Computed, feature_label};
+use crate::state::{Computed, built_output, feature_label, state_before};
 
 impl Session {
     /// Solves the stored sketch or a candidate in its place; records nothing.
@@ -106,10 +113,7 @@ impl Session {
                 point: point.to_string(),
             });
         }
-        let values = evaluate_in(&open.document, &open.computed, |scope| {
-            dimension_values(&params, scope)
-        })?;
-        let placement = placement(&params.plane, &open.computed, position);
+        let (values, placement) = sketch_inputs(&open.document, &open.computed, position, &params)?;
         let drag = Drag::begin(params, values, placement, point.clone(), to)?;
         let solved = drag.solved(feature);
         open.drags.insert(feature.clone(), drag);
@@ -127,9 +131,100 @@ pub(crate) fn solve_in(
     feature: &Id,
     params: &SketchParams,
 ) -> Result<Solved, EngineError> {
-    let values = evaluate_in(document, computed, |scope| dimension_values(params, scope))?;
-    let placement = placement(&params.plane, computed, position);
+    let (values, placement) = sketch_inputs(document, computed, position, params)?;
     solve(feature, params, &values, placement)
+}
+
+/// What the sketch at timeline position `position` is solved with: its driving dimensions
+/// evaluated in the document's context, and its plane resolved against the state before it.
+fn sketch_inputs(
+    document: &Document,
+    computed: &Computed,
+    position: usize,
+    params: &SketchParams,
+) -> Result<(DimensionValues, Placement), EngineError> {
+    let values = evaluate_in(document, computed, |scope| dimension_values(params, scope))?;
+    Ok((values, placement(&params.plane, computed, position)))
+}
+
+/// The placement of a sketch at timeline position `position`, resolved against the state
+/// before it (features/sketch.md section 3.3): an origin plane's placement, the datum's plane
+/// (the XY plane when the datum has no result), or the face's plane near the fallback (the
+/// fallback when the face does not resolve to one flat face).
+fn placement(plane: &SketchPlane, computed: &Computed, position: usize) -> Placement {
+    match plane {
+        SketchPlane::Origin { plane } => plane.placement(),
+        SketchPlane::Datum { feature } => {
+            datum_placement(computed, feature).unwrap_or_else(|| OriginPlane::Xy.placement())
+        }
+        SketchPlane::Face {
+            body,
+            face,
+            fallback,
+        } => {
+            let state = state_before(computed, position, body);
+            face_placement(&state, face, fallback).unwrap_or(*fallback)
+        }
+    }
+}
+
+/// The plane a datum feature built, if it built one.
+pub(crate) fn datum_placement(computed: &Computed, feature: &Id) -> Option<Placement> {
+    let (_, report) = computed.feature(feature)?;
+    match &built_output(report)?.data {
+        OutputData::Datum(DatumResult::Plane(placement)) => Some(*placement),
+        _ => None,
+    }
+}
+
+/// The placement on the face `face` of `state` near `fallback`, when the reference resolves and
+/// its first face is flat.
+fn face_placement(state: &BodyState, face: &Reference, fallback: &Placement) -> Option<Placement> {
+    let shape = state.shape()?;
+    let elements = state.elements().ok()?;
+    let Resolution::Resolved {
+        elements: names, ..
+    } = resolve(face, &elements, state.naming().aliases())
+    else {
+        return None;
+    };
+    let index = state.naming().index(names.first()?)?;
+    let geometry = shape.element(SubShapeKind::Face, index).ok()?;
+    if geometry.kind != GeometryKind::Plane {
+        return None;
+    }
+    let normal = geometry.direction?;
+    let centroid = geometry.centroid;
+    Placement::on_plane(
+        [centroid.x, centroid.y, centroid.z],
+        [normal.x, normal.y, normal.z],
+        fallback,
+    )
+    .ok()
+}
+
+/// Every region of a stored sketch in solved order, or `None` when its params are invalid, a
+/// dimension does not evaluate, or the solve fails or does not converge.
+pub(crate) fn solved_regions(
+    registry: &Registry,
+    document: &Document,
+    computed: &Computed,
+    sketch: &Id,
+) -> Option<Vec<RegionRef>> {
+    let (_, record) = sketch_record(document, sketch).ok()?;
+    let params = sketch_params(registry, document, record).ok()?;
+    let values = evaluate_in(document, computed, |scope| dimension_values(&params, scope)).ok()?;
+    let result = NativeSolver.solve(&params, &values).ok()?;
+    if result.failed {
+        return None;
+    }
+    Some(
+        build_profile(&result.entities)
+            .regions
+            .iter()
+            .map(Region::reference)
+            .collect(),
+    )
 }
 
 /// Sketch params as a feature record's params.
@@ -139,9 +234,7 @@ fn params_map(params: &SketchParams) -> Result<serde_json::Map<String, Value>, E
         Ok(_) => Err(EngineError::internal(
             "sketch params serialize to an object",
         )),
-        Err(error) => Err(EngineError::InvalidSketch {
-            message: error.to_string(),
-        }),
+        Err(error) => Err(EngineError::invalid_sketch(error)),
     }
 }
 
@@ -161,7 +254,7 @@ fn dragged_record(
     }
     let mut updated = record.clone();
     let mut set = |key: &str, value: Result<Value, serde_json::Error>| {
-        let mut value = value.map_err(|error| EngineError::internal(error.to_string()))?;
+        let mut value = value.map_err(EngineError::unexpected)?;
         canonical::normalize_numbers(&mut value);
         updated.params.insert(key.to_string(), value);
         Ok::<(), EngineError>(())

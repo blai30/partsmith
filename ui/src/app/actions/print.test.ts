@@ -5,7 +5,6 @@ import {
   DOCUMENT_HANDLE,
   bodyPrint,
   createPrintApp,
-  deferred,
   documentState,
   finding,
   meshSummary,
@@ -23,6 +22,7 @@ import {
   type FindingKey,
 } from '../../state/store'
 import { coreErrorFor } from '../../test/fakes/core-api'
+import { deferred } from '../../test/fakes/deferred'
 import { settle } from '../../test/fakes/settle'
 import {
   focusFinding,

@@ -1,13 +1,9 @@
-import { cleanup, render, screen } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useState, type KeyboardEvent } from 'react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { COLOR_CLASSES } from '../theme/roles'
 import { TextField } from './TextField'
-
-afterEach(() => {
-  cleanup()
-})
 
 function Controlled({ onChange }: { readonly onChange: (value: string) => void }) {
   const [value, setValue] = useState('size')

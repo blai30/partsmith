@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { commandValueField, setCommandField } from '../app/actions/command'
 import type { App } from '../app/createApp'
 import { fieldInputId } from '../inspector/fields/field-id'
+import { isView } from './focus'
 
 // Typing values (ui.md 3.7): while a feature command is active, a value typed with focus on the
 // viewport or on a selection field box goes to the command's value field, so pick, type 2, Enter
@@ -9,14 +10,6 @@ import { fieldInputId } from '../inspector/fields/field-id'
 
 /** The characters that start a typed value: digits, a decimal point, a minus sign, a parenthesis. */
 const VALUE_START = /^[0-9.\-(]$/
-
-/** Whether the key event's target is the focused viewport canvas. */
-function onViewport(target: Element): boolean {
-  return (
-    target.getAttribute('role') === 'application' &&
-    target.closest('[data-testid="viewport"]') !== null
-  )
-}
 
 /** The input of the active command's value field, or null without one. */
 function valueInput(app: App): { readonly path: string; readonly input: HTMLInputElement } | null {
@@ -46,7 +39,7 @@ export function useTypedValues(app: App): void {
       ) {
         return
       }
-      const viewport = onViewport(target)
+      const viewport = isView(target)
       if (event.key === 'Tab' && !event.shiftKey && viewport) {
         const field = valueInput(app)
         if (field !== null) {
@@ -56,7 +49,7 @@ export function useTypedValues(app: App): void {
         }
         return
       }
-      const selectionBox = target.closest('[data-testid="selection-field"]') !== null
+      const selectionBox = target.closest('[data-selection-field]') !== null
       if (!VALUE_START.test(event.key) || !(viewport || selectionBox)) {
         return
       }

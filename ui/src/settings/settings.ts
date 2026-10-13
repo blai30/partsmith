@@ -1,7 +1,14 @@
+/** The theme choices, in menu order. */
+export const THEMES = ['system', 'light', 'dark'] as const
+/** The UI scales, in menu order (ui.md 2.16.9). */
+export const UI_SCALES = [1, 1.25, 1.5, 2, 3] as const
+/** The navigation schemes, in menu order. */
+export const NAVIGATIONS = ['fusion', 'freecad'] as const
+
 export type Settings = {
-  readonly theme: 'system' | 'light' | 'dark'
-  readonly uiScale: 1 | 1.25 | 1.5 | 2 | 3
-  readonly navigation: 'fusion' | 'freecad'
+  readonly theme: (typeof THEMES)[number]
+  readonly uiScale: (typeof UI_SCALES)[number]
+  readonly navigation: (typeof NAVIGATIONS)[number]
   /** Ids of palette items, most recently run first. */
   readonly paletteRecent: readonly string[]
   /** Print checks hidden from the health counts. */
@@ -25,9 +32,20 @@ export const DEFAULT_SETTINGS: Settings = {
   moreExpanded: {},
 }
 
-const THEMES: readonly Settings['theme'][] = ['system', 'light', 'dark']
-const UI_SCALES: readonly Settings['uiScale'][] = [1, 1.25, 1.5, 2, 3]
-const NAVIGATIONS: readonly Settings['navigation'][] = ['fusion', 'freecad']
+/** How menus and command titles name each theme and navigation choice. */
+export const SETTING_LABELS: Readonly<Record<Settings['theme'] | Settings['navigation'], string>> =
+  {
+    system: 'System',
+    light: 'Light',
+    dark: 'Dark',
+    fusion: 'Fusion',
+    freecad: 'FreeCAD',
+  }
+
+/** A UI scale in percent, as its command id and menu item show it: "125" for 1.25. */
+export function scalePercent(scale: Settings['uiScale']): string {
+  return String(Math.round(scale * 100))
+}
 
 function oneOf<Value>(options: readonly Value[], value: unknown, fallback: Value): Value {
   return options.find((option) => option === value) ?? fallback

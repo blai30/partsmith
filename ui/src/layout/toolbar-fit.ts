@@ -4,7 +4,7 @@
 // tools, no labels, with as many movable buttons as then fit.
 
 /** Which buttons show their label. */
-export type LabelLevel = 'all' | 'primary' | 'none'
+type LabelLevel = 'all' | 'primary' | 'none'
 
 export type ToolbarFit = {
   readonly labels: LabelLevel

@@ -1,7 +1,7 @@
 import { clsx } from 'clsx/lite'
-import { useEffect, useLayoutEffect, useRef, type ReactNode, type RefObject } from 'react'
+import { useEffect, useEffectEvent, useRef, type ReactNode, type RefObject } from 'react'
 import { COLOR_CLASSES } from '../theme/roles'
-import { hidePopover, showPopover, useAnchoredPosition } from './floating'
+import { useAnchoredPosition, usePopoverVisibility } from './floating'
 
 /** Elements that take keyboard focus, in the order a popover tries them when it opens. */
 const FOCUSABLE =
@@ -31,10 +31,11 @@ export type PopoverProps = {
  */
 export function Popover({ label, open, anchor, onOpenChange, children, className }: PopoverProps) {
   const element = useRef<HTMLDialogElement>(null)
-  // The latest props for the toggle listener, which the browser calls outside React's render.
-  const latest = useRef({ open, onOpenChange })
-  useLayoutEffect(() => {
-    latest.current = { open, onOpenChange }
+  // The browser closed the popover; the owner learns it unless it closed it itself.
+  const closed = useEffectEvent(() => {
+    if (open) {
+      onOpenChange(false)
+    }
   })
 
   useEffect(() => {
@@ -58,9 +59,7 @@ export function Popover({ label, open, anchor, onOpenChange, children, className
       if (focusWasInside && (active === null || active === popover.ownerDocument.body)) {
         anchor.current?.focus()
       }
-      if (latest.current.open) {
-        latest.current.onOpenChange(false)
-      }
+      closed()
     }
     popover.addEventListener('beforetoggle', onBeforeToggle)
     popover.addEventListener('toggle', onToggle)
@@ -70,22 +69,10 @@ export function Popover({ label, open, anchor, onOpenChange, children, className
     }
   }, [anchor])
 
-  // Whether the popover has been shown, so closing never touches a popover that never opened.
-  const shown = useRef(false)
-  useLayoutEffect(() => {
+  // Showing moves focus into the popover unless it is there already.
+  usePopoverVisibility(element, open, anchor, () => {
     const popover = element.current
-    if (popover === null) {
-      return
-    }
-    if (!open) {
-      if (shown.current) {
-        hidePopover(popover)
-      }
-      return
-    }
-    showPopover(popover, anchor.current)
-    shown.current = true
-    if (popover.contains(popover.ownerDocument.activeElement)) {
+    if (popover === null || popover.contains(popover.ownerDocument.activeElement)) {
       return
     }
     const target =
@@ -93,7 +80,7 @@ export function Popover({ label, open, anchor, onOpenChange, children, className
       popover.querySelector<HTMLElement>(FOCUSABLE) ??
       popover
     target.focus()
-  }, [open, anchor])
+  })
   useAnchoredPosition(element, anchor, open, 'below')
 
   return (

@@ -324,7 +324,8 @@ function modelFeatures(entry: DocumentEntry): readonly FeatureRecord[] {
   )
 }
 
-function resolvedWithoutMatches(): Resolution {
+/** A reference that still resolves, to nothing the fake can list. */
+export function resolvedWithoutMatches(): Resolution {
   return { status: 'resolved', matches: [] }
 }
 

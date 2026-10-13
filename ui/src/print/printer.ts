@@ -27,9 +27,17 @@ export function printerGroups(printers: readonly PrinterProfile[]): readonly Pri
   })
 }
 
+/** The installed profile with this id, if there is one. */
+export function findPrinter(
+  printers: readonly PrinterProfile[],
+  id: string | null | undefined,
+): PrinterProfile | undefined {
+  return printers.find((printer) => printer.id === id)
+}
+
 /** The display name of a profile, or its id when it is not installed. */
 export function printerName(printers: readonly PrinterProfile[], id: string): string {
-  return printers.find((printer) => printer.id === id)?.name ?? id
+  return findPrinter(printers, id)?.name ?? id
 }
 
 /** The profile the core resolves for a document printer id (engine.md 3.7). */
@@ -37,11 +45,7 @@ export function resolvedPrinter(
   printers: readonly PrinterProfile[],
   id: string | null | undefined,
 ): PrinterProfile | null {
-  return (
-    printers.find((printer) => printer.id === id) ??
-    printers.find((printer) => printer.id === DEFAULT_PRINTER_ID) ??
-    null
-  )
+  return findPrinter(printers, id) ?? findPrinter(printers, DEFAULT_PRINTER_ID) ?? null
 }
 
 /** The name of the profile the print check panel describes: the report's, else the one the next analysis will use. */
@@ -50,11 +54,9 @@ export function healthProfileName(state: AppState): string {
   if (report !== null) {
     return printerName(state.printers, report.profile)
   }
+  // Without the document's profile or the default installed, the id stands for its name.
   const printer = state.document?.recipe.printer
-  return (
-    resolvedPrinter(state.printers, printer)?.name ??
-    printerName(state.printers, printer ?? DEFAULT_PRINTER_ID)
-  )
+  return resolvedPrinter(state.printers, printer)?.name ?? printer ?? DEFAULT_PRINTER_ID
 }
 
 /** The name of the default profile, which the engine uses for a document without a printer. */

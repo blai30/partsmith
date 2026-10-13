@@ -1,6 +1,6 @@
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { AppProvider } from '../app/AppProvider'
 import type { App } from '../app/createApp'
 import type { CoreApi } from '../core/api'
@@ -20,15 +20,12 @@ import {
   SKETCH_ID,
 } from '../sketch/fixtures.testing'
 import { createAppStore, type SelectionItem } from '../state/store'
+import { READY_CORE } from '../test/fakes/state'
 import { createTestApp } from '../test/fakes/test-app'
 import { entitySize, entitySizeDimension } from './entity-size'
 import { SelectionInspector } from './SelectionInspector'
 
 // The size field of the selection inspector (ui.md 3.8).
-
-afterEach(() => {
-  cleanup()
-})
 
 const LINE = lineEntity('e-1', [0, 0], [30, 0])
 const CIRCLE = circleEntity('e-5', [55, 0], 5)
@@ -115,7 +112,7 @@ function sketchApp(constraints: SketchConstraint[], core: Partial<CoreApi>): App
       ...core,
     }),
     store: createAppStore({
-      core: { status: 'ready', engineVersion: '0.1.0', fatal: null, pendingMutations: 0 },
+      core: READY_CORE,
       context: 'sketch',
       sketch: sketchSession(),
       document: documentState({

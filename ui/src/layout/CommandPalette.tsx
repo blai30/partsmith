@@ -14,7 +14,6 @@ import { recordPaletteRecent } from '../app/actions/settings'
 import { setPaletteOpen } from '../app/actions/panels'
 import { useApp, useAppState } from '../app/AppProvider'
 import type { App } from '../app/createApp'
-import { reportFailure } from '../app/report'
 import { rankPaletteItems, recentItems, type PaletteItem } from '../commands/fuzzy'
 import { featureIcon } from '../commands/icons'
 import { paletteItems } from '../commands/palette'
@@ -23,6 +22,7 @@ import { measureTiming, TIMING_NAMES } from '../performance/marks'
 import type { AppContext } from '../state/store'
 import { COLOR_CLASSES } from '../theme/roles'
 import { keepInViewVertically } from './scroll'
+import { useRecentFiles } from './use-recent-files'
 
 // The command palette (ui.md 3.4): a dialog with a combobox over a listbox of commands, features,
 // bodies, parameters, recent files and settings, ranked on every keystroke. Focus stays in the
@@ -131,7 +131,9 @@ function OpenPalette() {
   const descriptionId = useId()
   const recentIds = useAppState((state) => state.settings.paletteRecent)
   const context = useAppState((state) => state.context)
-  const [items, setItems] = useState<readonly PaletteItem[]>(() => paletteItems(app, []))
+  // Recent files join the items once they are read.
+  const recent = useRecentFiles(app, true)
+  const items = useMemo(() => paletteItems(app, recent), [app, recent])
   const [query, setQuery] = useState('')
   const ranked = useMemo(
     () => rank(query, items, recentIds, context),
@@ -160,19 +162,6 @@ function OpenPalette() {
       }
     }
   }, [])
-
-  // Recent files join the items once they are read.
-  useEffect(() => {
-    let current = true
-    app.recent.list().then((recent) => {
-      if (current && recent.length > 0) {
-        setItems(paletteItems(app, recent))
-      }
-    }, reportFailure('Reading the recent files'))
-    return () => {
-      current = false
-    }
-  }, [app])
 
   // A press outside closes the palette.
   useEffect(() => {

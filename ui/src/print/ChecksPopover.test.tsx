@@ -1,20 +1,11 @@
-import { cleanup, render, screen, within } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { createRef } from 'react'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { installPopoverPolyfill } from '../components/popover-polyfill.testing'
 import { ChecksPopover } from './ChecksPopover'
 
-let uninstallPopovers: () => void
-
-beforeEach(() => {
-  uninstallPopovers = installPopoverPolyfill()
-})
-
-afterEach(() => {
-  cleanup()
-  uninstallPopovers()
-})
+beforeEach(installPopoverPolyfill)
 
 // The switches the user can turn off, in display order (ui.md 3.17).
 const SWITCHABLE: readonly { readonly title: string; readonly check: string }[] = [

@@ -39,34 +39,30 @@ pub(crate) fn feature_statuses(
             let mut status = FeatureStatus {
                 id: report.feature.clone(),
                 status: state(report.status),
-                messages: report.messages.iter().map(diagnostic).collect(),
+                messages: report.messages.iter().map(message_diagnostic).collect(),
                 repairs: report.messages.iter().filter_map(repair).collect(),
             };
             for view in &duplicated {
                 if view.provider.as_ref() == Some(&report.feature) {
                     status.status = FeatureState::Error;
-                    status.messages.push(Diagnostic {
-                        severity: Severity::Error,
-                        code: "duplicate_element_name".to_string(),
-                        message: format!(
+                    status.messages.push(diagnostic(
+                        Severity::Error,
+                        "duplicate_element_name",
+                        format!(
                             "Two elements of body {} have the same name. This is a bug in Partsmith; please report it.",
                             view.body
                         ),
-                        field: None,
-                        suggestion: None,
-                    });
+                    ));
                 }
             }
             for failure in failures {
                 if failure.feature.as_ref() == Some(&report.feature) {
                     status.status = FeatureState::Error;
-                    status.messages.push(Diagnostic {
-                        severity: Severity::Error,
-                        code: "display_failed".to_string(),
-                        message: failure.message.clone(),
-                        field: None,
-                        suggestion: None,
-                    });
+                    status.messages.push(diagnostic(
+                        Severity::Error,
+                        "display_failed",
+                        failure.message.clone(),
+                    ));
                 }
             }
             status
@@ -86,8 +82,19 @@ fn state(status: Status) -> FeatureState {
     }
 }
 
+/// A diagnostic about no field, with no suggestion.
+pub(crate) fn diagnostic(severity: Severity, code: &str, message: String) -> Diagnostic {
+    Diagnostic {
+        severity,
+        code: code.to_string(),
+        message,
+        field: None,
+        suggestion: None,
+    }
+}
+
 /// A rendered feature message as a protocol diagnostic.
-fn diagnostic(message: &Message) -> Diagnostic {
+fn message_diagnostic(message: &Message) -> Diagnostic {
     Diagnostic {
         severity: match message.severity {
             MessageSeverity::Error => Severity::Error,
@@ -182,6 +189,7 @@ mod tests {
     use partsmith_naming::Reference;
 
     use super::*;
+    use crate::test_support::id;
 
     fn message(repair: Option<FeatureRepair>) -> Message {
         Message {
@@ -216,7 +224,7 @@ mod tests {
         let mut rendered = message(None);
         rendered.suggestion = Some("2.3 mm".to_string());
 
-        let diagnostic = diagnostic(&rendered);
+        let diagnostic = message_diagnostic(&rendered);
 
         assert_eq!(diagnostic.severity, Severity::Warning);
         assert_eq!(diagnostic.code, "reference_missing");
@@ -228,7 +236,7 @@ mod tests {
     fn element_repairs_carry_the_fingerprint_centroid() {
         let rendered = message(Some(FeatureRepair::Element {
             pointer: "/edges/0".to_string(),
-            body: Id::new("b-1").expect("a valid id"),
+            body: id("b-1"),
             reference: reference(),
             ambiguous: false,
             candidates: Vec::new(),

@@ -1,14 +1,13 @@
 //! The session: options, the registry, open documents and their lifecycle, and the queries that
 //! read a document's latest recompute (engine.md sections 2, 3.2, 3.4, 3.7 and 3.10).
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use partsmith_features::{FieldRef, Registry};
+use partsmith_features::Registry;
 use partsmith_mesh::TessellationTolerance;
 use partsmith_model::{
-    Document, Edit, Expr, FORMAT_VERSION, IdGenerator, LoadError, Quantity, Scope, Units,
-    canonical, load,
+    Document, Edit, Expr, FORMAT_VERSION, IdGenerator, Quantity, Scope, Units, load,
 };
 use partsmith_occt_sys::OCCT_VERSION;
 use partsmith_print::{PrinterProfile, PrinterValues, ProfileInput};
@@ -18,8 +17,9 @@ use partsmith_protocol::{
 use partsmith_recompute::Recompute;
 
 use crate::ENGINE_VERSION;
+use crate::assets::{referenced_assets, stored_assets};
 use crate::display::DisplayCache;
-use crate::document::{OpenDocument, SavedText, canonical_text};
+use crate::document::{OpenDocument, SavedText, canonical_text, canonicalize_params, load_error};
 use crate::error::EngineError;
 use crate::options::SessionOptions;
 use crate::profiles::{Profiles, tolerance};
@@ -342,11 +342,6 @@ impl Session {
         );
         Ok(())
     }
-
-    /// The display tolerance of a document.
-    pub(crate) fn display_tolerance(open: &OpenDocument) -> TessellationTolerance {
-        tolerance(&open.computed.profile.profile, open.quality)
-    }
 }
 
 /// Runs `evaluate` with the document's parameters and the `printer.*` values of its profile.
@@ -362,119 +357,6 @@ pub(crate) fn evaluate_in<T>(
         parameters: &parameters,
         context: &context,
     })
-}
-
-/// The engine error of a model load error: `unsupported_format_version` for a newer format,
-/// `parse_error` for everything else, with the line and column of JSON problems and the JSON
-/// Pointer of the field a structure problem names (section 4).
-pub(crate) fn load_error(error: LoadError) -> EngineError {
-    let detail = error.to_string();
-    let position = |line: usize, column: usize| {
-        (
-            Some(u32::try_from(line).unwrap_or(u32::MAX)),
-            Some(u32::try_from(column).unwrap_or(u32::MAX)),
-        )
-    };
-    let (line, column) = match &error {
-        LoadError::NewerFormatVersion { found, .. } => {
-            return EngineError::UnsupportedFormatVersion {
-                found: u32::try_from(*found).unwrap_or(u32::MAX),
-            };
-        }
-        LoadError::Syntax { line, column, .. } | LoadError::DuplicateKey { line, column, .. } => {
-            position(*line, *column)
-        }
-        _ => (None, None),
-    };
-    let path = match error {
-        LoadError::Invalid { path, .. } if !path.is_empty() => Some(
-            FieldRef {
-                path,
-                label: String::new(),
-            }
-            .pointer(),
-        ),
-        _ => None,
-    };
-    EngineError::Parse {
-        detail,
-        line,
-        column,
-        path,
-    }
-}
-
-/// Replaces the params of every record the registry accepts by its canonical params; records it
-/// rejects keep their params exactly as loaded.
-pub(crate) fn canonicalize_params(registry: &Registry, document: &mut Document) {
-    for record in &mut document.features {
-        if let Ok(validated) = registry.validate_and_canonicalize(record) {
-            record.params = validated.record.params;
-            for value in record.params.values_mut() {
-                canonical::normalize_numbers(value);
-            }
-        }
-    }
-}
-
-/// The asset names the valid records of `document` read.
-pub(crate) fn asset_names(registry: &Registry, document: &Document) -> BTreeSet<String> {
-    document
-        .features
-        .iter()
-        .filter_map(|record| registry.dependencies(record).ok())
-        .flat_map(|dependencies| dependencies.assets)
-        .map(|asset| asset.name)
-        .collect()
-}
-
-/// The supplied assets `document` references, checked against their names (section 3.14).
-fn referenced_assets(
-    registry: &Registry,
-    document: &Document,
-    assets: Vec<Asset>,
-) -> Result<BTreeMap<String, Arc<[u8]>>, EngineError> {
-    let referenced = asset_names(registry, document);
-    let mut stored = BTreeMap::new();
-    for asset in assets {
-        if !referenced.contains(&asset.name) {
-            continue;
-        }
-        if !asset_matches(&asset.name, &asset.bytes) {
-            return Err(EngineError::AssetMismatch { name: asset.name });
-        }
-        stored.insert(asset.name, Arc::from(asset.bytes));
-    }
-    Ok(stored)
-}
-
-/// True when `name` is `<64 lowercase hex>.<ext>` with the BLAKE3 hash of `bytes`.
-pub(crate) fn asset_matches(name: &str, bytes: &[u8]) -> bool {
-    let Some((hash, extension)) = name.split_once('.') else {
-        return false;
-    };
-    let valid_extension = !extension.is_empty()
-        && extension
-            .bytes()
-            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit());
-    valid_extension && hash == blake3::hash(bytes).to_hex().as_str()
-}
-
-/// The stored assets `document` references, sorted by name.
-fn stored_assets(
-    registry: &Registry,
-    document: &Document,
-    assets: &BTreeMap<String, Arc<[u8]>>,
-) -> Vec<Asset> {
-    let referenced = asset_names(registry, document);
-    assets
-        .iter()
-        .filter(|(name, _)| referenced.contains(*name))
-        .map(|(name, bytes)| Asset {
-            name: name.clone(),
-            bytes: bytes.to_vec(),
-        })
-        .collect()
 }
 
 #[cfg(test)]
@@ -538,68 +420,6 @@ mod tests {
             session.close_document(doc),
             Err(EngineError::UnknownDocument { doc })
         );
-    }
-
-    #[test]
-    fn json_problems_are_parse_errors_with_a_position() {
-        let error = load_error(LoadError::Syntax {
-            line: 1,
-            column: 23,
-            message: "EOF while parsing an object".to_string(),
-        });
-
-        let EngineError::Parse { line, column, .. } = &error else {
-            panic!("a parse error, got {error:?}");
-        };
-        assert_eq!((*line, *column), (Some(1), Some(23)));
-        assert!(error.to_string().contains("line 1"));
-    }
-
-    #[test]
-    fn structure_problems_are_parse_errors_with_a_pointer() {
-        let error = load_error(LoadError::Invalid {
-            path: "bodies[0].id".to_string(),
-            message: "\"b 1\" is not a valid id".to_string(),
-        });
-
-        let EngineError::Parse {
-            line, column, path, ..
-        } = &error
-        else {
-            panic!("a parse error, got {error:?}");
-        };
-        assert_eq!((*line, *column), (None, None));
-        assert_eq!(path.as_deref(), Some("/bodies/0/id"));
-    }
-
-    #[test]
-    fn problems_of_the_whole_document_have_no_pointer() {
-        let error = load_error(LoadError::Invalid {
-            path: String::new(),
-            message: "missing field `units`".to_string(),
-        });
-
-        assert!(matches!(error, EngineError::Parse { path: None, .. }));
-    }
-
-    #[test]
-    fn newer_format_versions_are_unsupported() {
-        let error = load_error(LoadError::NewerFormatVersion {
-            found: 99,
-            supported: 1,
-        });
-
-        assert_eq!(error, EngineError::UnsupportedFormatVersion { found: 99 });
-    }
-
-    #[test]
-    fn asset_names_are_the_hash_and_extension() {
-        let name = format!("{}.step", blake3::hash(b"solid").to_hex());
-
-        assert!(asset_matches(&name, b"solid"));
-        assert!(!asset_matches(&name, b"hello"));
-        assert!(!asset_matches(&name.replace(".step", ""), b"solid"));
-        assert!(!asset_matches(&name.replace(".step", ".STEP"), b"solid"));
     }
 
     #[test]

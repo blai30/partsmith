@@ -43,7 +43,7 @@ export type FakeAppOptions = {
 type FakeCoreOptions = Omit<FakeTransportOptions, 'journal'>
 
 /** A recovery store that also logs "recovery.<method>" to the journal. */
-export function journaledRecovery(recovery: RecoveryStore, journal: string[]): RecoveryStore {
+function journaledRecovery(recovery: RecoveryStore, journal: string[]): RecoveryStore {
   return {
     read: () => {
       journal.push('recovery.read')

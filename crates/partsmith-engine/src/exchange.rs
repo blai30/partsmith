@@ -15,11 +15,13 @@ use partsmith_protocol::{Diagnostic, DocHandle, ExportFormat, Severity, Tessella
 use serde_json::Value;
 
 use crate::analysis::{bed_transforms, rotation};
-use crate::display::{MeshKey, kernel_failure};
+use crate::assets::asset_name;
+use crate::display::MeshKey;
 use crate::error::EngineError;
 use crate::profiles::{is_valid_tolerance, tolerance};
 use crate::session::Session;
-use crate::state::{self, BodyView, display_bodies};
+use crate::state::{self, BodyView, display_bodies, select_bodies};
+use crate::status::diagnostic;
 use crate::types::{ExportRequest, Exported, ExportedFile, Imported};
 
 /// The type name of the import feature.
@@ -115,7 +117,7 @@ impl Session {
             })
             .unwrap_or_else(|| DEFAULT_IMPORT_NAME.to_string());
         let color = first.and_then(|solid| solid.color);
-        let asset = format!("{}.step", blake3::hash(&bytes).to_hex());
+        let asset = asset_name(&bytes, "step");
         let used = open.document.used_ids(&*self.registry);
         let body_index = open.document.bodies.len();
         let feature_index = open
@@ -127,13 +129,13 @@ impl Session {
         let body_id = self
             .ids
             .generate(IdKind::Body, &|id: &Id| used.contains(id))
-            .map_err(|error| EngineError::internal(error.to_string()))?;
+            .map_err(EngineError::unexpected)?;
         let feature_id = self
             .ids
             .generate(IdKind::Feature, &|id: &Id| {
                 used.contains(id) || *id == body_id
             })
-            .map_err(|error| EngineError::internal(error.to_string()))?;
+            .map_err(EngineError::unexpected)?;
         let mut body = Body::new(body_id.clone(), body_name);
         body.color = color;
         let mut record = FeatureRecord::new(feature_id.clone(), IMPORT_TYPE);
@@ -197,10 +199,7 @@ impl Session {
         meshes
             .iter()
             .zip(&transforms)
-            .map(|(mesh, transform)| {
-                mesh.transformed(transform)
-                    .map_err(|error| EngineError::internal(error.to_string()))
-            })
+            .map(|(mesh, transform)| mesh.transformed(transform).map_err(EngineError::unexpected))
             .collect()
     }
 
@@ -232,7 +231,7 @@ impl Session {
                 .map(|(shape, placement)| {
                     transform(shape, &kernel_transform(placement))
                         .map(|result| result.shape)
-                        .map_err(kernel_failure)
+                        .map_err(EngineError::unexpected)
                 })
                 .collect::<Result<_, _>>()?;
         }
@@ -263,40 +262,12 @@ fn exported_bodies(
             view,
         })
     };
-    let bodies: Vec<Exportable> = match requested {
-        Some(requested) => {
-            let mut selected: Vec<Id> = Vec::new();
-            for body in requested {
-                let record = document
-                    .body(body)
-                    .ok_or_else(|| EngineError::UnknownBody { id: body.clone() })?;
-                let has_geometry = views
-                    .iter()
-                    .any(|view| view.body == *body && view.has_geometry());
-                if !has_geometry {
-                    return Err(EngineError::BodyEmpty {
-                        name: record.name.clone(),
-                    });
-                }
-                if !selected.contains(body) {
-                    selected.push(body.clone());
-                }
-            }
-            views
-                .into_iter()
-                .filter(|view| selected.contains(&view.body))
-                .filter_map(pair)
-                .collect()
-        }
-        None => views
-            .into_iter()
-            .filter(BodyView::has_geometry)
-            .filter_map(pair)
-            .filter(|exportable| {
-                exportable.body.visible && (exportable.body.role == BodyRole::Part || three_mf)
-            })
-            .collect(),
-    };
+    let bodies: Vec<Exportable> = select_bodies(document, views, requested, |body| {
+        body.visible && (body.role == BodyRole::Part || three_mf)
+    })?
+    .into_iter()
+    .filter_map(pair)
+    .collect();
     if bodies.is_empty() {
         return Err(EngineError::NothingToExport);
     }
@@ -316,16 +287,13 @@ fn write_meshes(
         .map(|(exportable, mesh)| ExportBody::new(&exportable.body, mesh))
         .collect();
     let mut files = Vec::new();
-    let mut add = |name: &str, extension: &str, written: ExportOutput| {
-        warnings.extend(written.warnings.into_iter().map(|warning| Diagnostic {
-            severity: Severity::Warning,
-            code: warning.code.as_str().to_string(),
-            message: warning.message,
-            field: None,
-            suggestion: None,
-        }));
-        files.push(file(name, extension, written.bytes));
-    };
+    let mut add =
+        |name: &str, extension: &str, written: ExportOutput| {
+            warnings.extend(written.warnings.into_iter().map(|warning| {
+                diagnostic(Severity::Warning, warning.code.as_str(), warning.message)
+            }));
+            files.push(file(name, extension, written.bytes));
+        };
     match format {
         ExportFormat::Stl { binary, per_body } => {
             let write = if binary {
@@ -442,13 +410,14 @@ mod tests {
     use partsmith_features::BodyState;
 
     use super::*;
+    use crate::test_support::id;
 
-    fn exportable(id: &str, name: &str) -> Exportable {
-        let id = Id::new(id).expect("a valid id");
+    fn exportable(body: &str, name: &str) -> Exportable {
+        let body = id(body);
         Exportable {
-            body: Body::new(id.clone(), name),
+            body: Body::new(body.clone(), name),
             view: BodyView {
-                body: id,
+                body,
                 state: BodyState::empty(),
                 identity: None,
                 provider: None,

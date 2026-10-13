@@ -7,7 +7,7 @@ use std::sync::Arc;
 use partsmith_features::{DynFeature, FeatureError, FieldRef, Link, Registry};
 use partsmith_model::{Document, FeatureRecord, Id, Parameter};
 
-use crate::graph::{Edge, EdgeKind, Graph, Node, NodeState};
+use crate::graph::{Edge, EdgeKind, Graph, Node, NodeState, first_positions};
 use crate::report::Message;
 use crate::validation::{Valid, Validations};
 
@@ -71,11 +71,7 @@ pub(crate) struct ActiveStep<'a> {
 impl ActiveStep<'_> {
     /// The body links in key order: read, then written.
     pub(crate) fn body_links(&self) -> impl Iterator<Item = &Link> {
-        let dependencies = &self.valid.dependencies;
-        dependencies
-            .bodies_read
-            .iter()
-            .chain(&dependencies.bodies_written)
+        self.valid.body_links()
     }
 }
 
@@ -88,8 +84,9 @@ impl<'a> Timeline<'a> {
         document: &'a Document,
         stop_at: Option<&Id>,
     ) -> Timeline<'a> {
-        let mut linker = Linker::new(document);
-        let (end, messages) = active_end(document, &linker.positions, stop_at);
+        let positions = first_positions(document.features.iter().map(|record| &record.id));
+        let mut linker = Linker::new(document, &positions);
+        let (end, messages) = active_end(document, &positions, stop_at);
         let mut steps = Vec::with_capacity(document.features.len());
         let mut nodes = Vec::with_capacity(document.features.len());
         for (position, record) in document.features.iter().enumerate() {
@@ -136,7 +133,7 @@ impl<'a> Timeline<'a> {
         Timeline {
             document,
             steps,
-            graph: Graph::new(nodes),
+            graph: Graph::with_positions(nodes, positions),
             messages,
             bodies: document.bodies.iter().map(|body| &body.id).collect(),
         }
@@ -204,7 +201,7 @@ struct Linker<'a> {
     /// The document.
     document: &'a Document,
     /// Timeline position of the first record with each id.
-    positions: BTreeMap<&'a Id, usize>,
+    positions: &'a BTreeMap<Id, usize>,
     /// The document's parameters and what they name.
     parameters: ParameterTable<'a>,
     /// The last active writer of each body among the records walked so far.
@@ -212,12 +209,9 @@ struct Linker<'a> {
 }
 
 impl<'a> Linker<'a> {
-    /// A linker at the start of `document`'s timeline.
-    fn new(document: &'a Document) -> Linker<'a> {
-        let mut positions = BTreeMap::new();
-        for (position, record) in document.features.iter().enumerate() {
-            positions.entry(&record.id).or_insert(position);
-        }
+    /// A linker at the start of `document`'s timeline, whose first record with each id is at
+    /// `positions`.
+    fn new(document: &'a Document, positions: &'a BTreeMap<Id, usize>) -> Linker<'a> {
         Linker {
             document,
             positions,
@@ -243,11 +237,7 @@ impl<'a> Linker<'a> {
             }
         }
         let mut providers = Vec::new();
-        for link in dependencies
-            .bodies_read
-            .iter()
-            .chain(&dependencies.bodies_written)
-        {
+        for link in valid.body_links() {
             let provider = self.writers.get(&link.id).copied();
             if let Some(provider) = provider {
                 node.upstream.push(Edge {
@@ -280,7 +270,7 @@ impl<'a> Linker<'a> {
 /// that is set but names no record, worded after where the run then stops.
 fn active_end(
     document: &Document,
-    positions: &BTreeMap<&Id, usize>,
+    positions: &BTreeMap<Id, usize>,
     stop_at: Option<&Id>,
 ) -> (usize, Vec<Message>) {
     let rollback_position = document
@@ -379,14 +369,15 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::test_support::{document, document_with, id, registry};
+    use crate::test_support::{datum, document, document_with, id, prepared, registry, writer};
 
-    fn prepare<'a>(
+    /// The timeline of `document` prepared to stop after `stop`.
+    fn prepared_until<'a>(
         registry: &'a Registry,
         document: &'a Document,
-        stop_at: Option<&Id>,
+        stop: &Id,
     ) -> Timeline<'a> {
-        Timeline::prepare(registry, &mut Validations::default(), document, stop_at)
+        Timeline::prepare(registry, &mut Validations::default(), document, Some(stop))
     }
 
     fn kinds(timeline: &Timeline<'_>) -> Vec<&'static str> {
@@ -409,17 +400,8 @@ mod tests {
         }
     }
 
-    fn datum(feature: &str, offset: &str) -> serde_json::Value {
-        json!({"id": feature, "type": "test_datum", "offset": offset})
-    }
-
-    fn writer(feature: &str, body: &str) -> serde_json::Value {
-        json!({"id": feature, "type": "test_writer", "body": body})
-    }
-
     #[test]
     fn records_get_their_states_with_rollback_first() {
-        let registry = registry();
         let document = document_with(json!({
             "features": [
                 datum("f-1", "1"),
@@ -431,7 +413,7 @@ mod tests {
             "rollback": "f-4"
         }));
 
-        let timeline = prepare(&registry, &document, None);
+        let timeline = prepared(&document);
 
         assert_eq!(
             kinds(&timeline),
@@ -455,7 +437,7 @@ mod tests {
         }));
         let stop = id("f-2");
 
-        let timeline = prepare(&registry, &document, Some(&stop));
+        let timeline = prepared_until(&registry, &document, &stop);
 
         assert_eq!(kinds(&timeline), ["active", "active", "rolled_back"]);
     }
@@ -469,7 +451,7 @@ mod tests {
         }));
         let stop = id("f-nope");
 
-        let timeline = prepare(&registry, &document, Some(&stop));
+        let timeline = prepared_until(&registry, &document, &stop);
 
         assert_eq!(kinds(&timeline), ["active", "rolled_back"]);
         let messages: Vec<(&str, &str)> = timeline
@@ -492,7 +474,7 @@ mod tests {
         let document = document(json!([datum("f-1", "1"), datum("f-2", "1")]));
         let stop = id("f-nope");
 
-        let timeline = prepare(&registry, &document, Some(&stop));
+        let timeline = prepared_until(&registry, &document, &stop);
 
         assert_eq!(kinds(&timeline), ["active", "active"]);
         let texts: Vec<&str> = timeline
@@ -510,12 +492,10 @@ mod tests {
 
     #[test]
     fn an_unknown_rollback_runs_every_record_with_a_warning() {
-        let registry = registry();
-        let document = document(json!([datum("f-1", "1")]));
-        let mut document = document;
+        let mut document = document(json!([datum("f-1", "1")]));
         document.rollback = Some(id("f-gone"));
 
-        let timeline = prepare(&registry, &document, None);
+        let timeline = prepared(&document);
 
         assert_eq!(kinds(&timeline), ["active"]);
         assert!(timeline.messages[0].text.contains("'f-gone'"));
@@ -523,7 +503,6 @@ mod tests {
 
     #[test]
     fn providers_are_the_last_active_writers() {
-        let registry = registry();
         let document = document(json!([
             writer("f-1", "b-1"),
             writer("f-2", "b-1"),
@@ -532,7 +511,7 @@ mod tests {
             {"id": "f-5", "type": "test_reader", "body": "b-2"}
         ]));
 
-        let timeline = prepare(&registry, &document, None);
+        let timeline = prepared(&document);
 
         assert_eq!(active(&timeline, 0).providers, [None]);
         assert_eq!(active(&timeline, 1).providers, [Some(0)]);
@@ -550,7 +529,6 @@ mod tests {
 
     #[test]
     fn output_edges_need_an_earlier_record() {
-        let registry = registry();
         let document = document(json!([
             datum("f-1", "1"),
             {"id": "f-2", "type": "test_datum", "base": "f-1", "offset": "1"},
@@ -558,7 +536,7 @@ mod tests {
             datum("f-4", "1")
         ]));
 
-        let timeline = prepare(&registry, &document, None);
+        let timeline = prepared(&document);
 
         let edges = |feature: &str| {
             timeline
@@ -574,7 +552,6 @@ mod tests {
 
     #[test]
     fn parameters_and_context_names_include_those_of_used_parameters() {
-        let registry = registry();
         let document = document_with(json!({
             "parameters": [
                 {"id": "p-h", "name": "h", "expr": "printer.fit.slip * 2"},
@@ -584,7 +561,7 @@ mod tests {
             "features": [datum("f-1", "w + printer.layer.height")]
         }));
 
-        let timeline = prepare(&registry, &document, None);
+        let timeline = prepared(&document);
 
         let node = timeline.graph.node(&id("f-1")).expect("a node");
         assert_eq!(node.parameters, [id("p-h"), id("p-w")]);
@@ -621,7 +598,6 @@ mod tests {
 
     #[test]
     fn links_are_checked_in_declaration_order() {
-        let registry = registry();
         let document = document(json!([
             datum("f-1", "1"),
             {"id": "f-2", "type": "test_datum", "suppressed": true, "offset": "1"},
@@ -632,7 +608,7 @@ mod tests {
             {"id": "f-7", "type": "test_reader", "body": "b-9"},
             {"id": "f-8", "type": "test_asset", "asset": "a.step"}
         ]));
-        let timeline = prepare(&registry, &document, None);
+        let timeline = prepared(&document);
         let assets = BTreeMap::new();
         let mut failed = vec![false; 8];
         let code = |position: usize, failed: &[bool]| {
@@ -654,11 +630,10 @@ mod tests {
 
     #[test]
     fn link_errors_name_the_field_with_its_label() {
-        let registry = registry();
         let document = document(json!([
             {"id": "f-1", "type": "test_datum", "base": "f-nope", "offset": "1"}
         ]));
-        let timeline = prepare(&registry, &document, None);
+        let timeline = prepared(&document);
 
         let error = timeline
             .check_links(0, active(&timeline, 0), &[false], &BTreeMap::new())
@@ -671,9 +646,8 @@ mod tests {
 
     #[test]
     fn an_asset_that_is_supplied_passes() {
-        let registry = registry();
         let document = document(json!([{"id": "f-1", "type": "test_asset", "asset": "a.step"}]));
-        let timeline = prepare(&registry, &document, None);
+        let timeline = prepared(&document);
         let assets = BTreeMap::from([("a.step".to_string(), Arc::from(&b"x"[..]))]);
 
         assert!(

@@ -4,14 +4,14 @@ import {
   useCallback,
   useEffect,
   useId,
-  useLayoutEffect,
   useRef,
   useState,
   type PointerEvent,
   type ReactElement,
 } from 'react'
 import { COLOR_CLASSES } from '../theme/roles'
-import { hidePopover, showPopover, useAnchoredPosition } from './floating'
+import { describedBy } from './described-by'
+import { useAnchoredPosition, usePopoverVisibility } from './floating'
 
 /** How long the pointer rests on the trigger before the tooltip appears (ui.md 3.24). */
 const SHOW_DELAY_MILLISECONDS = 500
@@ -97,28 +97,16 @@ export function Tooltip({ label, shortcut = null, description = null, children }
     }
   }, [clearTimer, hideNow])
 
-  // Whether the tooltip has been shown, so hiding never touches a popover that never opened.
-  const shown = useRef(false)
-  useLayoutEffect(() => {
-    const element = tooltip.current
-    if (element === null) {
-      return
-    }
-    if (visible) {
-      trigger.current = wrapper.current?.firstElementChild ?? null
-      showPopover(element, null)
-      shown.current = true
-    } else if (shown.current) {
-      hidePopover(element)
-    }
-  }, [visible])
+  // The tooltip is placed under the trigger it describes now.
+  usePopoverVisibility(tooltip, visible, null, () => {
+    trigger.current = wrapper.current?.firstElementChild ?? null
+  })
   useAnchoredPosition(tooltip, trigger, visible, 'below')
   // A label that goes away closes the tooltip, so it never reopens on its own when one returns.
   if (label === null && visible) {
     setVisible(false)
   }
 
-  const describedBy = children.props['aria-describedby']
   // Spans, so a tooltip is valid wherever its trigger (phrasing content such as a button) is.
   return (
     <span
@@ -158,7 +146,7 @@ export function Tooltip({ label, shortcut = null, description = null, children }
       {label === null
         ? children
         : cloneElement(children, {
-            'aria-describedby': describedBy === undefined ? id : `${describedBy} ${id}`,
+            'aria-describedby': describedBy(children.props['aria-describedby'], id),
           })}
       {label === null ? null : (
         <span

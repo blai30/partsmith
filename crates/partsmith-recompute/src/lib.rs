@@ -28,6 +28,7 @@ mod cache;
 mod evaluate;
 mod graph;
 mod key;
+mod pass_lru;
 mod plan;
 mod report;
 mod run;
@@ -240,7 +241,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::test_support::{document, id, input, registry};
+    use crate::test_support::{datum, document, id, input, registry};
 
     fn recompute() -> Recompute {
         Recompute::new(Arc::new(registry()))
@@ -252,10 +253,6 @@ mod tests {
             .iter()
             .map(|feature| feature.status)
             .collect()
-    }
-
-    fn datum(feature: &str, offset: &str) -> serde_json::Value {
-        json!({"id": feature, "type": "test_datum", "offset": offset})
     }
 
     #[test]
@@ -285,26 +282,6 @@ mod tests {
     }
 
     #[test]
-    fn parameters_are_reported_in_document_order() {
-        let mut recompute = recompute();
-        let document = document(json!([]));
-        let assets = BTreeMap::new();
-
-        let report = recompute.run(&input(&document, &assets), &CancelToken::new());
-
-        let parameters: Vec<&str> = report
-            .parameters
-            .iter()
-            .map(|parameter| parameter.parameter.as_str())
-            .collect();
-        assert_eq!(parameters, ["p-h", "p-w"]);
-        assert_eq!(
-            report.parameters[1].value,
-            Ok(partsmith_model::Quantity::length(3.0))
-        );
-    }
-
-    #[test]
     fn an_invalid_record_reports_its_validation_error() {
         let mut recompute = recompute();
         let document = document(json!([{"id": "f-g", "type": "gear_demo"}]));
@@ -316,39 +293,6 @@ mod tests {
         assert_eq!(feature.status, Status::Error);
         assert_eq!(feature.key, None);
         assert_eq!(feature.messages[0].code, "unknown_type");
-    }
-
-    #[test]
-    fn a_canceled_token_runs_nothing() {
-        let mut recompute = recompute();
-        let document = document(json!([datum("f-1", "1")]));
-        let assets = BTreeMap::new();
-        let cancel = CancelToken::new();
-        cancel.cancel();
-
-        let report = recompute.run(&input(&document, &assets), &cancel);
-
-        assert_eq!(statuses(&report), [Status::NotRun]);
-        assert!(report.canceled);
-        assert_eq!(recompute.cache_len(), 0);
-    }
-
-    #[test]
-    fn a_panic_is_isolated_and_never_cached() {
-        let mut recompute = recompute();
-        let document = document(json!([{"id": "f-p", "type": "test_panic"}, datum("f-1", "1")]));
-        let assets = BTreeMap::new();
-
-        let report = recompute.run(&input(&document, &assets), &CancelToken::new());
-
-        assert_eq!(statuses(&report), [Status::Error, Status::Ok]);
-        assert_eq!(
-            report.features[0].error,
-            Some(FeatureError::Internal {
-                message: "boom".to_string()
-            })
-        );
-        assert_eq!(recompute.cache_len(), 1);
     }
 
     #[test]
@@ -415,23 +359,6 @@ mod tests {
     }
 
     #[test]
-    fn a_stop_point_rolls_back_the_later_records() {
-        let mut recompute = recompute();
-        let document = document(json!([datum("f-1", "1"), datum("f-2", "2")]));
-        let assets = BTreeMap::new();
-        let stop = id("f-1");
-        let input = Input {
-            stop_at: Some(&stop),
-            ..input(&document, &assets)
-        };
-
-        let report = recompute.run(&input, &CancelToken::new());
-
-        assert_eq!(statuses(&report), [Status::Ok, Status::RolledBack]);
-        assert!(report.messages.is_empty());
-    }
-
-    #[test]
     fn a_feature_change_is_queried_in_the_graph_where_the_feature_is_active() {
         let recompute = recompute();
         let writer = |feature: &str, suppressed: bool| json!({"id": feature, "type": "test_writer", "suppressed": suppressed, "body": "b-1"});
@@ -446,25 +373,6 @@ mod tests {
 
         assert!(graph_before.affected_by(&change).is_empty());
         assert_eq!(graph_after.affected_by(&change), [id("f-2"), id("f-3")]);
-    }
-
-    #[test]
-    fn clear_cache_empties_the_cache() {
-        let mut recompute = recompute();
-        let document = document(json!([datum("f-1", "1")]));
-        let assets = BTreeMap::new();
-        recompute.run(&input(&document, &assets), &CancelToken::new());
-
-        recompute.clear_cache();
-
-        assert_eq!(recompute.cache_len(), 0);
-    }
-
-    #[test]
-    fn recompute_can_be_shared_between_threads() {
-        fn assert_send_and_sync<T: Send + Sync>() {}
-
-        assert_send_and_sync::<Recompute>();
     }
 
     #[test]

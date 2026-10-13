@@ -134,7 +134,8 @@ function pickerType(kind: FileKind): FilePickerType {
   return { description: type.description, accept: { [type.mediaType]: type.extensions } }
 }
 
-function isDomError(error: unknown, name: string): boolean {
+/** Whether an error is a DOMException (or a stand-in for one) with this name. */
+export function isDomError(error: unknown, name: string): boolean {
   return typeof error === 'object' && error !== null && Reflect.get(error, 'name') === name
 }
 

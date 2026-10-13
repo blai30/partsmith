@@ -1,12 +1,12 @@
 //! The in-memory result cache with least-recently-used eviction (recompute.md section 3.7).
 
-use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use partsmith_features::{BodyState, FeatureError, FeatureOutput, OutputData};
 use partsmith_model::Id;
 
 use crate::key::CacheKey;
+use crate::pass_lru::PassLru;
 
 /// What building a feature gave: its output or its error.
 #[derive(Clone, Debug)]
@@ -44,33 +44,21 @@ impl Built {
     }
 }
 
-/// Cached outcomes by key, shared by every document of a session.
+/// Cached outcomes by key, shared by every document of a session. Each run is one pass.
 #[derive(Debug)]
 pub(crate) struct Cache {
-    /// The cached outcomes.
-    entries: BTreeMap<CacheKey, Entry>,
+    /// The cached outcomes with the run that last used each.
+    entries: PassLru<CacheKey, Outcome>,
     /// How many entries a run leaves at most, besides those it used.
     limit: usize,
-    /// Number of the current (or latest) run.
-    run: u64,
-}
-
-/// One cached outcome.
-#[derive(Debug)]
-struct Entry {
-    /// The outcome.
-    outcome: Outcome,
-    /// The run that last used it.
-    last_use: u64,
 }
 
 impl Cache {
     /// An empty cache that keeps at most `limit` entries after a run, plus those the run used.
     pub(crate) fn new(limit: usize) -> Cache {
         Cache {
-            entries: BTreeMap::new(),
+            entries: PassLru::default(),
             limit,
-            run: 0,
         }
     }
 
@@ -91,49 +79,28 @@ impl Cache {
 
     /// The outcome cached under `key`, without marking it used (for plans).
     pub(crate) fn peek(&self, key: &CacheKey) -> Option<&Outcome> {
-        self.entries.get(key).map(|entry| &entry.outcome)
+        self.entries.peek(key)
     }
 
     /// Starts a run: entries used from now on count as used by it.
     pub(crate) fn begin_run(&mut self) {
-        self.run += 1;
+        self.entries.begin_pass();
     }
 
     /// The outcome cached under `key`, marked as used by the current run.
     pub(crate) fn get(&mut self, key: &CacheKey) -> Option<Outcome> {
-        let entry = self.entries.get_mut(key)?;
-        entry.last_use = self.run;
-        Some(entry.outcome.clone())
+        self.entries.touch(key).cloned()
     }
 
     /// Caches `outcome` under `key`, used by the current run.
     pub(crate) fn insert(&mut self, key: CacheKey, outcome: Outcome) {
-        self.entries.insert(
-            key,
-            Entry {
-                outcome,
-                last_use: self.run,
-            },
-        );
+        self.entries.insert(key, outcome);
     }
 
-    /// Ends a run: while there are more entries than the limit, evicts the entry whose last use
-    /// is oldest (the smaller key first on ties) among those the run did not use.
+    /// Ends a run: evicts the entries used longest ago, beyond the limit, that the run did not
+    /// use.
     pub(crate) fn end_run(&mut self) {
-        let excess = self.entries.len().saturating_sub(self.limit);
-        if excess == 0 {
-            return;
-        }
-        let mut unused: Vec<(u64, CacheKey)> = self
-            .entries
-            .iter()
-            .filter(|(_, entry)| entry.last_use != self.run)
-            .map(|(key, entry)| (entry.last_use, *key))
-            .collect();
-        unused.sort_unstable();
-        for (_, key) in unused.into_iter().take(excess) {
-            self.entries.remove(&key);
-        }
+        self.entries.evict_to(self.limit);
     }
 }
 
@@ -143,6 +110,7 @@ mod tests {
     use partsmith_sketch::OriginPlane;
 
     use super::*;
+    use crate::test_support::id;
 
     fn key(byte: u8) -> CacheKey {
         CacheKey([byte; 32])
@@ -150,21 +118,6 @@ mod tests {
 
     fn failed() -> Outcome {
         Outcome::Failed(FeatureError::BothSidesZero)
-    }
-
-    /// Runs `keys` (each looked up, then inserted when missing) as one run.
-    fn run(cache: &mut Cache, keys: &[u8]) {
-        cache.begin_run();
-        for &byte in keys {
-            if cache.get(&key(byte)).is_none() {
-                cache.insert(key(byte), failed());
-            }
-        }
-        cache.end_run();
-    }
-
-    fn cached(cache: &Cache) -> Vec<u8> {
-        cache.entries.keys().map(|key| key.0[0]).collect()
     }
 
     #[test]
@@ -181,79 +134,6 @@ mod tests {
     }
 
     #[test]
-    fn nothing_is_evicted_within_the_limit() {
-        let mut cache = Cache::new(3);
-
-        run(&mut cache, &[1, 2]);
-        run(&mut cache, &[3]);
-
-        assert_eq!(cached(&cache), [1, 2, 3]);
-    }
-
-    #[test]
-    fn the_oldest_unused_entries_go_first() {
-        let mut cache = Cache::new(2);
-
-        run(&mut cache, &[1]);
-        run(&mut cache, &[2]);
-        run(&mut cache, &[1]);
-        run(&mut cache, &[3]);
-
-        assert_eq!(cached(&cache), [1, 3]);
-    }
-
-    #[test]
-    fn ties_evict_the_smaller_key_first() {
-        let mut cache = Cache::new(2);
-
-        run(&mut cache, &[7, 5, 9]);
-        run(&mut cache, &[1]);
-
-        assert_eq!(cached(&cache), [1, 9]);
-    }
-
-    #[test]
-    fn entries_of_the_latest_run_are_never_evicted() {
-        let mut cache = Cache::new(1);
-
-        run(&mut cache, &[1, 2, 3]);
-
-        assert_eq!(cache.len(), 3);
-    }
-
-    #[test]
-    fn a_zero_limit_keeps_only_the_latest_run() {
-        let mut cache = Cache::new(0);
-
-        run(&mut cache, &[1, 2]);
-        run(&mut cache, &[3]);
-
-        assert_eq!(cached(&cache), [3]);
-    }
-
-    #[test]
-    fn peeking_does_not_count_as_a_use() {
-        let mut cache = Cache::new(1);
-        run(&mut cache, &[1]);
-        run(&mut cache, &[2]);
-        cache.peek(&key(2));
-
-        run(&mut cache, &[3]);
-
-        assert_eq!(cached(&cache), [3]);
-    }
-
-    #[test]
-    fn clear_drops_every_entry() {
-        let mut cache = Cache::new(5);
-        run(&mut cache, &[1, 2]);
-
-        cache.clear();
-
-        assert_eq!(cache.len(), 0);
-    }
-
-    #[test]
     fn built_outputs_without_bodies_have_no_states() {
         let built = Built::new(FeatureOutput {
             data: OutputData::Datum(DatumResult::Plane(OriginPlane::Xy.placement())),
@@ -265,7 +145,7 @@ mod tests {
 
     #[test]
     fn an_emptied_body_gets_an_empty_state() {
-        let body = Id::new("b-1").expect("valid id");
+        let body = id("b-1");
         let built = Built::new(FeatureOutput {
             data: OutputData::Bodies(vec![partsmith_features::BodyUpdate {
                 body: body.clone(),

@@ -9,6 +9,9 @@ export const MILLIMETERS_PER_UNIT: Readonly<Record<Units, number>> = {
   in: 25.4,
 }
 
+/** The document units, in menu order. */
+export const DOCUMENT_UNITS: readonly Units[] = ['mm', 'cm', 'm', 'in']
+
 /** Decimals a length keeps in each document unit. */
 const LENGTH_DECIMALS: Readonly<Record<Units, number>> = { mm: 3, cm: 4, m: 6, in: 4 }
 

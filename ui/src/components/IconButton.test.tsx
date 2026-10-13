@@ -1,13 +1,9 @@
-import { cleanup, render, screen } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Maximize, Moon } from 'lucide-react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { COLOR_CLASSES } from '../theme/roles'
 import { IconButton } from './IconButton'
-
-afterEach(() => {
-  cleanup()
-})
 
 describe('IconButton', () => {
   it('is a button named by its label', () => {

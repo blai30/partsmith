@@ -47,7 +47,7 @@ function isNonEmptyString(value: unknown): value is string {
 }
 
 /** A rejected invoke as a FileServiceError: the host's `{reason, message}` keeps both, anything else is `io`. */
-function fileServiceErrorOf(rejection: unknown): FileServiceError {
+function hostRejectionError(rejection: unknown): FileServiceError {
   if (typeof rejection === 'object' && rejection !== null) {
     const reason: unknown = Reflect.get(rejection, 'reason')
     const message: unknown = Reflect.get(rejection, 'message')
@@ -100,7 +100,7 @@ export function createDesktopFileService(tauri: TauriInvokeGlobal): FileService 
     try {
       return await tauri.core.invoke(command, payload, options)
     } catch (error) {
-      throw fileServiceErrorOf(error)
+      throw hostRejectionError(error)
     }
   }
 

@@ -11,14 +11,17 @@
 //! memory is read from `/proc/self/status`, so it is measured on Linux only, and first, before
 //! the other operations grow the process.
 
+#[path = "../tests/common/mod.rs"]
+mod common;
+
 use std::hint::black_box;
 use std::path::Path;
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
+use common::{Sent, doc_handle, request_frame, session};
 use partsmith_budgets::{Report, median};
-use partsmith_engine::{SequentialIds, Session, SessionOptions};
-use partsmith_protocol::{Request, decode_response_frame, encode_request_frame};
+use partsmith_engine::Session;
 use serde_json::{Value, json};
 
 /// Times each operation runs; the median counts.
@@ -46,39 +49,25 @@ const MEMORY_FEATURES: usize = 300;
 /// 200 000 triangles.
 const SPHERE_RADIUS: &str = "250 mm";
 
-/// A decoded response frame as JSON.
-struct Answer {
-    /// The response `result`.
-    result: Value,
-    /// The events in order.
-    events: Vec<Value>,
-}
+/// A decoded response frame.
+struct Answer(Sent);
 
 impl Answer {
     /// The success value; panics with the error when the command failed.
     fn ok(&self) -> &Value {
-        assert_eq!(
-            self.result["kind"], "ok",
-            "the command failed: {}",
-            self.result
-        );
-        &self.result
+        self.0.ok()
     }
 
     /// The document handle of an open or new document.
     fn doc(&self) -> u64 {
-        self.ok()["doc"]
-            .as_u64()
-            .expect("the result names the document")
+        doc_handle(&self.0)
     }
 
     /// The `mesh_id` of the model-layer `body_mesh` event of `body`.
     fn mesh_id(&self, body: &str) -> Value {
-        self.events
-            .iter()
-            .find(|event| {
-                event["type"] == "body_mesh" && event["body"] == body && event["layer"] == "model"
-            })
+        self.0
+            .body_meshes(body, "model")
+            .first()
             .map(|event| event["mesh_id"].clone())
             .unwrap_or_else(|| panic!("no model body_mesh for {body}"))
     }
@@ -96,11 +85,7 @@ impl Driver {
     /// A display session with deterministic ids, as engine.md section 6 uses.
     fn new() -> Driver {
         Driver {
-            session: Session::new(SessionOptions {
-                display: true,
-                id_generator: Box::new(SequentialIds::new()),
-                ..SessionOptions::default()
-            }),
+            session: session(),
             next_id: 1,
         }
     }
@@ -108,25 +93,12 @@ impl Driver {
     /// Sends one command and returns the time `Session::call` took and the decoded answer.
     /// Encoding the request and decoding the response are not timed.
     fn timed(&mut self, command: Value) -> (Duration, Answer) {
-        let request: Request =
-            serde_json::from_value(json!({"id": self.next_id, "command": command}))
-                .expect("the benchmark sends valid requests");
+        let frame = request_frame(self.next_id, command, &[]);
         self.next_id += 1;
-        let frame = encode_request_frame(&request, &[]).expect("requests encode");
         let start = Instant::now();
         let response = black_box(self.session.call(black_box(&frame)));
         let time = start.elapsed();
-        let decoded = decode_response_frame(&response).expect("the engine returns valid frames");
-        let response = serde_json::to_value(&decoded.response).expect("responses serialize");
-        let answer = Answer {
-            result: response["result"].clone(),
-            events: decoded
-                .events
-                .iter()
-                .map(|event| serde_json::to_value(event).expect("events serialize"))
-                .collect(),
-        };
-        (time, answer)
+        (time, Answer(Sent::from_frame(&response)))
     }
 
     /// Sends one command and returns the decoded answer.

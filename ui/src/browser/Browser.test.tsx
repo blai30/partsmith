@@ -23,16 +23,14 @@ import {
 import { settle } from '../test/fakes/settle'
 import { BODY_SWATCHES, FONT_CLASSES, VIEWPORT_COLORS } from '../theme/roles'
 
-let uninstallPopovers: () => void
+beforeEach(installPopoverPolyfill)
 
 beforeEach(() => {
-  uninstallPopovers = installPopoverPolyfill()
   stubMatchMedia()
 })
 
 afterEach(() => {
   cleanup()
-  uninstallPopovers()
   vi.unstubAllGlobals()
 })
 
@@ -170,7 +168,7 @@ describe('the browser tree (3.10)', () => {
       }),
     )
     const value = within(row('parameter', 'p-size')).getByText('20 mm')
-    expect(value).toHaveClass(...FONT_CLASSES.values.split(' '))
+    expect(value).toHaveClass(FONT_CLASSES.values)
   })
 })
 
@@ -312,7 +310,7 @@ describe('body rows (3.10)', () => {
       within(row('body', 'b-cube')).getByRole('button', { name: 'Color of Cube', hidden: true }),
     )
     const field = within(screen.getByTestId('color-popover')).getByRole('textbox')
-    expect(field).toHaveClass(...FONT_CLASSES.values.split(' '))
+    expect(field).toHaveClass(FONT_CLASSES.values)
     await user.clear(field)
     await user.type(field, '#123456{Enter}')
     await settle()

@@ -15,7 +15,7 @@ import { SeverityIcon } from '../print/SeverityIcon'
 import { selectHealthBadge } from '../state/selectors'
 import type { AppState } from '../state/store'
 import { COLOR_CLASSES } from '../theme/roles'
-import { exportFailedText, exportStatus, type ExportStatusLine } from './status'
+import { exportFailedText, statusLines, type ExportStatusLine } from './status'
 
 // The export popover (ui.md 3.18): a format, which bodies, what the export is about to write, and
 // "Export". It is open only while shown, so a closed popover leaves nothing in the page.
@@ -64,11 +64,11 @@ function StatusLines({
   readonly onClose: () => void
 }) {
   const app = useApp()
-  // The lines derive from these; each is a stable value, so the popover re-renders only for them.
-  useAppState(exportFailedText)
-  useAppState(selectHealthBadge)
-  useAppState(selectOrientationBody)
-  const lines = exportStatus(app.store.getState(), format)
+  // Each is a stable value, so the popover re-renders only when a line changes.
+  const failedText = useAppState(exportFailedText)
+  const badge = useAppState(selectHealthBadge)
+  const orientationBody = useAppState(selectOrientationBody)
+  const lines = statusLines(format, { failedText, badge, orientationBody })
   if (lines.length === 0) {
     return null
   }

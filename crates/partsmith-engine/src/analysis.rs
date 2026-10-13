@@ -8,19 +8,22 @@ use partsmith_model::{BodyRole, Id};
 use partsmith_naming::{ElementKind, Reference};
 use partsmith_occt_sys::{GeometryKind, SubShapeKind};
 use partsmith_print::{
-    AnalysisOptions, CheckKind, OVERLAY_NO_VALUE, PrinterProfile, Rotation, analyze, summarize,
+    AnalysisOptions, CheckKind, Health, OVERLAY_NO_VALUE, PrinterProfile, Rotation, analyze,
+    summarize,
 };
-use partsmith_protocol::{BodyPrint, DocHandle, Orientation, PrintReport};
+use partsmith_protocol::{
+    BodyPrint, Buffer, DocHandle, Event, Orientation, PrintReport, TessellationQuality,
+};
 
-use crate::display::{DisplayMesh, MeshKey, kernel_failure};
+use crate::display::{DisplayMesh, MeshKey};
 use crate::document::OpenDocument;
 use crate::error::EngineError;
-use crate::inspect::{body_with_geometry, shape_of, unique_element};
+use crate::events::Output;
+use crate::inspect::{body_with_geometry, unique_element};
 use crate::profiles::tolerance;
 use crate::session::Session;
-use crate::state::{BodyView, display_bodies};
+use crate::state::{BodyView, display_bodies, select_bodies};
 use crate::types::{PrintAnalysis, PrintRequest};
-use partsmith_protocol::TessellationQuality;
 
 /// The message of a matrix that is not a rotation.
 const NOT_A_ROTATION: &str = "The orientation is not a rotation.";
@@ -77,8 +80,8 @@ impl Session {
         let mut bodies = Vec::with_capacity(meshes.len());
         let mut overhang = Vec::with_capacity(meshes.len());
         for ((view, mesh), transform) in meshes.iter().zip(transforms) {
-            let analysis = analyze(&mesh.mesh, &profile, &options)
-                .map_err(|error| EngineError::internal(error.to_string()))?;
+            let analysis =
+                analyze(&mesh.mesh, &profile, &options).map_err(EngineError::unexpected)?;
             let map = if self.display {
                 Some(overhang_map(&analysis.overlays, mesh)?)
             } else {
@@ -104,6 +107,35 @@ impl Session {
             overhang,
         })
     }
+
+    /// `analyze_print` for the protocol: emits the report as a `print_health` event, with each
+    /// body's displayed model mesh id and its overhang buffer, and returns the overall health.
+    pub(crate) fn analyze_print_command(
+        &mut self,
+        doc: DocHandle,
+        request: &PrintRequest,
+        output: &mut Output,
+    ) -> Result<Health, EngineError> {
+        let analysis = self.analyze_print(doc, request)?;
+        let open = self.open(doc)?;
+        let mut report = analysis.report;
+        for (body, overhang) in report.bodies.iter_mut().zip(analysis.overhang) {
+            body.mesh_id = open
+                .emitted
+                .model
+                .shown
+                .get(&body.body)
+                .map(|shown| shown.mesh_id);
+            body.overhang = overhang.map(|values| output.buffer(Buffer::F32(values)));
+        }
+        let health = report.summary.health;
+        output.events.push(Event::PrintHealth {
+            doc,
+            revision: open.revision,
+            report,
+        });
+        Ok(health)
+    }
 }
 
 /// The bodies to analyze (step 2), in document order: the named ones, checked in request order,
@@ -112,28 +144,12 @@ fn analyzed_bodies(
     open: &OpenDocument,
     bodies: Option<&[Id]>,
 ) -> Result<Vec<BodyView>, EngineError> {
-    let views = display_bodies(&open.document, &open.computed);
-    match bodies {
-        Some(bodies) => {
-            for body in bodies {
-                body_with_geometry(open, body)?;
-            }
-            Ok(views
-                .into_iter()
-                .filter(|view| bodies.contains(&view.body))
-                .collect())
-        }
-        None => Ok(views
-            .into_iter()
-            .filter(|view| {
-                view.has_geometry()
-                    && open
-                        .document
-                        .body(&view.body)
-                        .is_some_and(|body| body.visible && body.role == BodyRole::Part)
-            })
-            .collect()),
-    }
+    select_bodies(
+        &open.document,
+        display_bodies(&open.document, &open.computed),
+        bodies,
+        |body| body.visible && body.role == BodyRole::Part,
+    )
 }
 
 /// The rotation of an orientation (step 3), resolving a face-down face at the display state.
@@ -173,9 +189,10 @@ fn flat_face_normal(
     if kind != ElementKind::Face {
         return Err(not_flat());
     }
-    let geometry = shape_of(&view)?
+    let geometry = view
+        .shape()?
         .element(SubShapeKind::Face, index)
-        .map_err(kernel_failure)?;
+        .map_err(EngineError::unexpected)?;
     match (geometry.kind, geometry.direction) {
         (GeometryKind::Plane, Some(normal)) => Ok([normal.x, normal.y, normal.z]),
         _ => Err(not_flat()),
@@ -253,7 +270,7 @@ fn overhang_map(
     };
     let values = overlay
         .per_vertex(&mesh.buffers.indices, vertex_count)
-        .map_err(|error| EngineError::internal(error.to_string()))?;
+        .map_err(EngineError::unexpected)?;
     Ok(values
         .into_iter()
         .map(|value| {

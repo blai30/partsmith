@@ -9,16 +9,14 @@ import { MESSAGES } from '../messages'
 import { INITIAL_STATE, type ActiveCommand, type DocumentState } from '../state/store'
 import { CUBE_FEATURES_DOCUMENT, featuresOf } from '../test/fakes/documents'
 
-let uninstallPopovers: () => void
+beforeEach(installPopoverPolyfill)
 
 beforeEach(() => {
-  uninstallPopovers = installPopoverPolyfill()
   stubMatchMedia()
 })
 
 afterEach(() => {
   cleanup()
-  uninstallPopovers()
   vi.unstubAllGlobals()
 })
 

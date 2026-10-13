@@ -54,8 +54,8 @@ export function gapsBetween(items: readonly Extent[], start: number): readonly n
 
 /** The gaps around the timeline items of a strip as laid out now. */
 export function gapPositions(strip: HTMLElement): readonly number[] {
-  const items = [...strip.querySelectorAll<HTMLElement>('[data-testid="timeline-item"]')].map(
-    (item) => item.getBoundingClientRect(),
+  const items = [...strip.querySelectorAll<HTMLElement>('[data-feature-id]')].map((item) =>
+    item.getBoundingClientRect(),
   )
   return gapsBetween(items, strip.getBoundingClientRect().left)
 }

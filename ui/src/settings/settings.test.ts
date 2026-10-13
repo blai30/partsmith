@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { DEFAULT_SETTINGS, loadSettings, saveSettings, type Settings } from './settings'
+import {
+  DEFAULT_SETTINGS,
+  loadSettings,
+  saveSettings,
+  scalePercent,
+  UI_SCALES,
+  type Settings,
+} from './settings'
 
 const KEY = 'partsmith.settings.v1'
 
@@ -144,5 +151,11 @@ describe('saveSettings', () => {
     expect(() => {
       saveSettings(blockedStorage(), DEFAULT_SETTINGS)
     }).not.toThrow()
+  })
+})
+
+describe('scalePercent', () => {
+  it('names each UI scale in percent', () => {
+    expect(UI_SCALES.map(scalePercent)).toEqual(['100', '125', '150', '200', '300'])
   })
 })

@@ -1,12 +1,8 @@
-import { cleanup, render, screen } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { COLOR_CLASSES } from '../theme/roles'
 import { Button } from './Button'
-
-afterEach(() => {
-  cleanup()
-})
 
 describe('Button', () => {
   it('renders a button named by its content that does not submit forms', () => {

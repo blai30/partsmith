@@ -65,7 +65,7 @@ export type FakeBackend = RenderBackend & {
 }
 
 /** The number of vertices of a geometry: `positions` holds 3 floats per vertex. */
-export function vertexCountOf(geometry: Geometry): number {
+function vertexCountOf(geometry: Geometry): number {
   return geometry.positions.length / 3
 }
 
@@ -127,7 +127,7 @@ export function geometryLayoutProblem(geometry: Geometry): string | null {
 }
 
 /** Why a frame cannot be drawn from the uploaded geometry, or null when it can. */
-export function frameProblem(
+function frameProblem(
   frame: RenderFrame,
   geometries: ReadonlyMap<string, Geometry>,
 ): string | null {

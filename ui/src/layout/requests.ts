@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useEffectEvent } from 'react'
 import type { App } from '../app/createApp'
 
 // Requests from commands to the chrome that shows them (ui.md 3.4, 3.9, 3.10, 3.18): a command run
@@ -31,7 +31,7 @@ export type UiRequest =
   /** Open the viewport context menu at (x, y) CSS pixels from the viewport's top-left corner (3.13). */
   | { readonly kind: 'viewport_menu'; readonly x: number; readonly y: number }
 
-export type UiRequestKind = UiRequest['kind']
+type UiRequestKind = UiRequest['kind']
 
 type RequestOf<Kind extends UiRequestKind> = Extract<UiRequest, { readonly kind: Kind }>
 
@@ -90,14 +90,11 @@ export function useUiRequest<Kind extends UiRequestKind>(
   kind: Kind,
   handler: (request: RequestOf<Kind>) => boolean,
 ): void {
-  const latest = useRef(handler)
-  useEffect(() => {
-    latest.current = handler
-  })
+  const handle = useEffectEvent(handler)
   useEffect(
     () =>
       onUiRequest(app, (request) =>
-        request.kind === kind ? latest.current(request as RequestOf<Kind>) : false,
+        request.kind === kind ? handle(request as RequestOf<Kind>) : false,
       ),
     [app, kind],
   )

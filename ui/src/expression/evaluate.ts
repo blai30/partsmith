@@ -1,4 +1,4 @@
-import type { Dimension, FieldUnit, Units } from '../generated/protocol'
+import type { Dimension, FieldUnit, ParameterValue, Units } from '../generated/protocol'
 import { formatNumber, formatQuantity, MILLIMETERS_PER_UNIT } from './format'
 
 // What a field's value will be (ui.md 2.13), mirroring features.md 3.4: an evaluate() result
@@ -32,14 +32,14 @@ function exponentPart(symbol: string, exponent: number): string | null {
 }
 
 /** A dimension's units in internal units, such as `mm^3` or `mm rad`; empty for a plain number. */
-export function dimensionUnits(dimension: Dimension): string {
+function dimensionUnits(dimension: Dimension): string {
   return [exponentPart('mm', dimension.length), exponentPart('rad', dimension.angle)]
     .filter((part) => part !== null)
     .join(' ')
 }
 
 /** What a value of this dimension is, for messages: `a length`, `an area`, `a mm^3`. */
-export function dimensionName(dimension: Dimension): string {
+function dimensionName(dimension: Dimension): string {
   if (isDimension(dimension, 1, 0)) {
     return 'a length'
   }
@@ -65,6 +65,18 @@ export function formatEvaluated(value: number, dimension: Dimension, units: Unit
   }
   const number = formatNumber(value, 'scalar', units)
   return isDimension(dimension, 0, 0) ? number : `${number} ${dimensionUnits(dimension)}`
+}
+
+/** A parameter's value as the Parameters panel shows it; null while it has none (unevaluated or failed). */
+export function formatParameterValue(
+  value: ParameterValue | undefined,
+  units: Units,
+): string | null {
+  const number = value?.value
+  const dimension = value?.dimension
+  return number === undefined || number === null || dimension === undefined || dimension === null
+    ? null
+    : formatEvaluated(number, dimension, units)
 }
 
 function wrongDimension(

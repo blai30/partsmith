@@ -1,22 +1,22 @@
 // Test support for the ui-model slice, on top of the shared fakes in src/test/fakes: an App built
 // by hand around a FakeCoreApi with the built-in and catalog commands registered, the React provider
-// around it, a fake viewport handle, and the browser features jsdom lacks (matchMedia, animation
-// frames under the test's control, element sizes). Nothing here is part of the app.
+// around it, and the browser features jsdom lacks (matchMedia, animation frames under the test's
+// control, element sizes). Nothing here is part of the app.
 
 import { render, type RenderResult } from '@testing-library/react'
+import userEvent, { type UserEvent } from '@testing-library/user-event'
 import type { ReactElement } from 'react'
-import { vi, type Mock } from 'vitest'
+import { vi } from 'vitest'
 import { App as AppShell } from '../App'
 import { AppProvider } from '../app/AppProvider'
 import type { App, Platform } from '../app/createApp'
 import { builtinCommands } from '../commands/builtin'
 import { featureCommands } from '../commands/features'
 import { createCommandRegistry } from '../commands/registry'
-import { createAppStore, type AppState } from '../state/store'
+import { createAppStore, type AppState, type DocumentState } from '../state/store'
 import { createTestApp, LINUX_WEB } from '../test/fakes/test-app'
 import { createFakeCoreApi, type FakeCoreApi } from '../test/fakes/core-api'
-import { DEFAULT_CAMERA } from '../viewport/camera'
-import type { ViewportHandle } from '../viewport/controller'
+import { cubeDocumentState, readyState } from './fixtures.testing'
 
 /** Registers the built-in commands and the commands of the store's catalog that are not registered yet. */
 export function registerMissingCommands(app: App): void {
@@ -57,23 +57,27 @@ export function renderWithApp(app: App, element: ReactElement = <AppShell />): R
   return render(<AppProvider app={app}>{element}</AppProvider>)
 }
 
-/** A ViewportHandle whose every method is a mock. */
-export type FakeViewport = {
-  readonly [Method in keyof ViewportHandle]: Mock<ViewportHandle[Method]>
-}
+/** A rendered model app with a user-event session. */
+export type RenderedModelApp = ModelApp & { readonly user: UserEvent }
 
-export function createFakeViewport(): FakeViewport {
-  return {
-    getCamera: vi.fn<ViewportHandle['getCamera']>(() => DEFAULT_CAMERA),
-    setCamera: vi.fn<ViewportHandle['setCamera']>(),
-    fit: vi.fn<ViewportHandle['fit']>(),
-    setStandardView: vi.fn<ViewportHandle['setStandardView']>(),
-    toggleProjection: vi.fn<ViewportHandle['toggleProjection']>(),
-    lookAlong: vi.fn<ViewportHandle['lookAlong']>(),
-    zoomToBounds: vi.fn<ViewportHandle['zoomToBounds']>(),
-    screenRectangle: vi.fn<ViewportHandle['screenRectangle']>(() => null),
-    requestRender: vi.fn<ViewportHandle['requestRender']>(),
-  }
+/**
+ * Renders an element (the whole shell by default) for a ready app around a document (the cube by
+ * default), then starts a user-event session.
+ */
+export function renderModelApp(
+  options: {
+    readonly document?: DocumentState
+    readonly state?: Partial<AppState>
+    readonly element?: ReactElement
+    readonly platform?: Platform
+  } = {},
+): RenderedModelApp {
+  const test = createModelApp({
+    state: readyState(options.document ?? cubeDocumentState(), options.state),
+    ...(options.platform === undefined ? {} : { platform: options.platform }),
+  })
+  renderWithApp(test.app, options.element)
+  return { ...test, user: userEvent.setup() }
 }
 
 // Browser features jsdom lacks. `vi.unstubAllGlobals()` removes the stubs.
@@ -153,26 +157,4 @@ export function stubElementSize(
     width.mockRestore()
     height.mockRestore()
   }
-}
-
-function ignore(): void {
-  // Replaced by the promise executor before anyone can call it.
-}
-
-/** A promise with its resolve and reject functions, for answering a core call later. */
-export class Deferred<Value> {
-  readonly promise: Promise<Value>
-  resolve: (value: Value) => void = ignore
-  reject: (error: unknown) => void = ignore
-
-  constructor() {
-    this.promise = new Promise<Value>((resolve, reject) => {
-      this.resolve = resolve
-      this.reject = reject
-    })
-  }
-}
-
-export function deferred<Value>(): Deferred<Value> {
-  return new Deferred<Value>()
 }

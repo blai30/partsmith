@@ -17,16 +17,14 @@ import { INITIAL_STATE, type AppState, type DocumentState } from '../state/store
 import { CUBE_FEATURES_DOCUMENT, CUBE_TOP_FACE, TWO_BODIES_DOCUMENT } from '../test/fakes/documents'
 import type { FakeFileService } from '../test/fakes/files'
 
-let uninstallPopovers: () => void
+beforeEach(installPopoverPolyfill)
 
 beforeEach(() => {
-  uninstallPopovers = installPopoverPolyfill()
   stubMatchMedia()
 })
 
 afterEach(() => {
   cleanup()
-  uninstallPopovers()
   vi.unstubAllGlobals()
 })
 

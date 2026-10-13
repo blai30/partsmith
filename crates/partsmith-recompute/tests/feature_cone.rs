@@ -7,9 +7,9 @@ mod feature_support;
 use std::time::Duration;
 
 use feature_support::{
-    Run, assert_bounding_box, assert_canonical_example, assert_empty, assert_error_field,
-    assert_face_area, assert_face_count, assert_face_kind, assert_face_names, assert_volume,
-    example_paths, face, face_index, load_example, median_build_time,
+    Run, assert_bounding_box, assert_empty, assert_error_field, assert_examples_canonical,
+    assert_face_area, assert_face_count, assert_face_kind, assert_face_names,
+    assert_median_build_within, assert_volume, face, face_index, load_example,
 };
 use partsmith_occt_sys::GeometryKind;
 
@@ -22,11 +22,7 @@ fn cone(bottom_radius: &str, top_radius: &str, height: &str) -> String {
 
 #[test]
 fn examples_are_canonical() {
-    let paths = example_paths("cone");
-    assert!(!paths.is_empty(), "examples/cone has examples");
-    for path in paths {
-        assert_canonical_example(&path);
-    }
+    assert_examples_canonical("cone");
 }
 
 #[test]
@@ -139,11 +135,7 @@ fn t007_zero_height_is_out_of_range() {
 fn t008_frustum_builds_within_2_ms() {
     let document = load_example("cone/frustum.ptsm");
 
-    let duration = median_build_time(&document, "f-cone1", 21);
-    assert!(
-        duration < Duration::from_millis(2),
-        "the frustum took {duration:?} to build (median of 21 runs), over the 2 ms budget",
-    );
+    assert_median_build_within(&document, "f-cone1", 21, Duration::from_millis(2));
 }
 
 #[test]

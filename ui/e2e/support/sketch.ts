@@ -1,6 +1,8 @@
 /// <reference lib="dom" />
 import { expect, type Locator, type Page } from '@playwright/test'
 import {
+  browserRow,
+  clickTool,
   hoverKindAt,
   originRow,
   timelineItem,
@@ -62,21 +64,13 @@ export async function expectDof(page: Page, dof: number): Promise<void> {
   await expect(page.getByTestId('status-dof')).toHaveAttribute('data-dof', String(dof))
 }
 
-/** Clicks a button of the Model tools toolbar. */
-export async function clickModelTool(page: Page, title: string): Promise<void> {
-  await page
-    .getByRole('toolbar', { name: 'Model tools' })
-    .getByRole('button', { name: title, exact: true })
-    .click()
-}
-
 /**
  * Starts a new sketch on the top plane as E-12 does: Sketch in the toolbar, then the browser row
  * "Top plane (XY)". Waits for the empty sketch, seen from the top with the origin at the canvas
  * center (an empty sketch keeps the visible height and targets its origin, 3.16.1).
  */
 export async function newSketchOnTopPlane(page: Page): Promise<void> {
-  await clickModelTool(page, 'Sketch')
+  await clickTool(page, 'Sketch')
   await expect(app(page)).toHaveAttribute('data-context', 'sketch')
   await expect(sketchHeader(page)).toHaveAttribute('data-state', 'picking')
   await (await originRow(page, 'Top plane (XY)')).click()
@@ -100,10 +94,7 @@ export async function editSketchFromTimeline(page: Page, label: string): Promise
 
 /** The browser row of a sketch by its label. */
 export function sketchRow(page: Page, label: string): Locator {
-  return page
-    .getByTestId('browser')
-    .locator('[data-testid=browser-row][data-kind=sketch]')
-    .filter({ has: page.getByText(label, { exact: true }) })
+  return browserRow(page, 'sketch', label)
 }
 
 /**

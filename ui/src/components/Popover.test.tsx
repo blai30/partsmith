@@ -1,21 +1,12 @@
-import { cleanup, render, screen } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useRef, useState } from 'react'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { COLOR_CLASSES } from '../theme/roles'
 import { Popover } from './Popover'
 import { installPopoverPolyfill, isPopoverOpen } from './popover-polyfill.testing'
 
-let uninstallPopovers: () => void
-
-beforeEach(() => {
-  uninstallPopovers = installPopoverPolyfill()
-})
-
-afterEach(() => {
-  cleanup()
-  uninstallPopovers()
-})
+beforeEach(installPopoverPolyfill)
 
 function Harness({ onOpenChange }: { readonly onOpenChange?: (open: boolean) => void }) {
   const anchor = useRef<HTMLButtonElement>(null)

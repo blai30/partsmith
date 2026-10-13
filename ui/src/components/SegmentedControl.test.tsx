@@ -1,6 +1,6 @@
-import { cleanup, render, screen } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { COLOR_CLASSES } from '../theme/roles'
 import { SegmentedControl } from './SegmentedControl'
 
@@ -17,10 +17,6 @@ const PLANES: readonly { readonly value: 'XY' | 'XZ' | 'YZ'; readonly label: str
   { value: 'XZ', label: 'XZ' },
   { value: 'YZ', label: 'YZ' },
 ]
-
-afterEach(() => {
-  cleanup()
-})
 
 // The visible segment of a radio: its label when it is a native input inside one, else itself.
 function segment(radio: HTMLElement): HTMLElement {

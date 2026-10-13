@@ -122,3 +122,8 @@ export const MESSAGES = {
 
 /** The id of a UI-owned message, such as 'not_ptsm'. */
 export type MessageId = keyof typeof MESSAGES
+
+/** "1 face", "3 faces", "2 bodies": a count with its noun, singular only for one. */
+export function counted(count: number, singular: string, plural = `${singular}s`): string {
+  return `${String(count)} ${count === 1 ? singular : plural}`
+}

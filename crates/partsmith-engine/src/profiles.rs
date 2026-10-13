@@ -10,6 +10,7 @@ use partsmith_print::{
 use partsmith_protocol::{Diagnostic, Severity, TessellationQuality};
 
 use crate::error::EngineError;
+use crate::status::diagnostic;
 
 /// Smallest display or export chord deviation, in mm.
 const MIN_CHORD: f64 = 0.001;
@@ -35,14 +36,14 @@ pub(crate) struct ResolvedProfile {
 impl ResolvedProfile {
     /// The `unknown_printer_profile` warning when the document's printer is not installed.
     pub(crate) fn diagnostic(&self) -> Option<Diagnostic> {
-        self.missing.as_ref().map(|id| Diagnostic {
-            severity: Severity::Warning,
-            code: "unknown_printer_profile".to_string(),
-            message: format!(
-                "Printer profile \"{id}\" is not installed, so the default FDM profile is used. Install it or pick another printer."
-            ),
-            field: None,
-            suggestion: None,
+        self.missing.as_ref().map(|id| {
+            diagnostic(
+                Severity::Warning,
+                "unknown_printer_profile",
+                format!(
+                    "Printer profile \"{id}\" is not installed, so the default FDM profile is used. Install it or pick another printer."
+                ),
+            )
         })
     }
 }

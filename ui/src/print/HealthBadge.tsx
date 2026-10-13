@@ -2,7 +2,7 @@ import { clsx } from 'clsx/lite'
 import { CircleCheck, CircleDashed, LoaderCircle } from 'lucide-react'
 import type { HealthBadge as HealthBadgeState } from '../state/selectors'
 import { COLOR_CLASSES } from '../theme/roles'
-import { healthBadgeName, healthBadgeOutdated, healthBadgeText } from './health'
+import { healthBadgeName, healthBadgeOutdated, healthBadgeText, withOutdatedSuffix } from './health'
 import { SeverityIcon } from './SeverityIcon'
 
 export type HealthBadgeProps = {
@@ -54,7 +54,6 @@ export function HealthBadgeIcon({ state }: { readonly state: HealthBadgeState['s
  * marked out of date.
  */
 export function HealthBadge({ badge, onClick }: HealthBadgeProps) {
-  const text = healthBadgeText(badge)
   // A running analysis checks the current revision, so the badge is not out of date while it
   // runs: not drawn, named or marked so.
   const outdated = healthBadgeOutdated(badge)
@@ -80,7 +79,7 @@ export function HealthBadge({ badge, onClick }: HealthBadgeProps) {
       <span className={clsx('inline-flex', outdated && 'opacity-50')}>
         <HealthBadgeIcon state={badge.state} />
       </span>
-      {outdated ? `${text} (out of date)` : text}
+      {withOutdatedSuffix(badge, healthBadgeText(badge))}
     </button>
   )
 }

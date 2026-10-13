@@ -7,8 +7,8 @@ use std::sync::Arc;
 
 use partsmith_model::Units;
 use partsmith_protocol::{
-    AssetData, Buffer, BufferIndex, Command, CommandResult, DocHandle, ErrorCode, Event,
-    ExportFile, FrameError, MAX_SAFE_INTEGER, Outcome, Request, Response, decode_request_frame,
+    AssetData, Buffer, BufferIndex, Command, CommandResult, DocHandle, ErrorCode, ExportFile,
+    FrameError, MAX_SAFE_INTEGER, Outcome, Request, Response, decode_request_frame,
     encode_response_frame, error_response_frame,
 };
 
@@ -55,7 +55,7 @@ impl Session {
         let reply = self.execute(request, buffers);
         encode_response_frame(&reply.events, &reply.response, &reply.buffers).unwrap_or_else(
             |error| {
-                let message = EngineError::internal(error.to_string()).to_string();
+                let message = EngineError::unexpected(error).to_string();
                 error_response_frame(reply.response.id, ErrorCode::InternalError, &message)
             },
         )
@@ -337,24 +337,9 @@ impl Session {
                     orientation,
                     bodies,
                 };
-                let analysis = self.analyze_print(doc, &request)?;
-                let open = self.open(doc)?;
-                let mut report = analysis.report;
-                for (body, overhang) in report.bodies.iter_mut().zip(analysis.overhang) {
-                    body.mesh_id = open
-                        .emitted
-                        .model
-                        .get(&body.body)
-                        .map(|shown| shown.mesh_id);
-                    body.overhang = overhang.map(|values| output.buffer(Buffer::F32(values)));
+                CommandResult::AnalyzePrint {
+                    health: self.analyze_print_command(doc, &request, &mut output)?,
                 }
-                let health = report.summary.health;
-                output.events.push(Event::PrintHealth {
-                    doc,
-                    revision: open.revision,
-                    report,
-                });
-                CommandResult::AnalyzePrint { health }
             }
             Command::Export {
                 doc,
@@ -522,24 +507,15 @@ fn panic_message(payload: &(dyn Any + Send)) -> String {
 
 #[cfg(test)]
 mod tests {
-    use partsmith_model::{Edit, Id, Parameter};
+    use partsmith_model::{Edit, Parameter};
 
     use super::*;
-
-    /// A headless session with `box.ptsm` open.
-    fn box_session() -> (Session, DocHandle) {
-        let mut session = Session::new(crate::SessionOptions::headless());
-        let doc = session
-            .open_document(include_str!("../tests/fixtures/box.ptsm"), Vec::new())
-            .expect("box.ptsm opens")
-            .doc;
-        (session, doc)
-    }
+    use crate::test_support::{box_session, id};
 
     /// The edit that sets the box's `height` parameter.
     fn set_height(expr: &str) -> Edit {
         Edit::UpdateParameter {
-            parameter: Parameter::new(Id::new("p-h").expect("a valid id"), "height", expr),
+            parameter: Parameter::new(id("p-h"), "height", expr),
         }
     }
 
@@ -554,7 +530,7 @@ mod tests {
 
     #[test]
     fn a_panic_is_an_internal_error_that_poisons_its_document() {
-        let (mut session, doc) = box_session();
+        let (mut session, doc) = box_session(false);
 
         let result: Result<(), EngineError> =
             session.contained(Some(doc), |_| panic!("the kernel fell over"));
@@ -575,7 +551,7 @@ mod tests {
 
     #[test]
     fn a_poisoned_document_saves_its_recipe_from_before_the_failed_command() {
-        let (mut session, doc) = box_session();
+        let (mut session, doc) = box_session(false);
         session
             .begin_transaction(doc, "Resize")
             .expect("a transaction opens");
@@ -614,7 +590,7 @@ mod tests {
 
     #[test]
     fn a_failure_after_the_document_changed_poisons_it() {
-        let (mut session, doc) = box_session();
+        let (mut session, doc) = box_session(false);
 
         let result: Result<(), EngineError> = session.contained(Some(doc), |_| {
             Err(Failure::Events(EngineError::internal("no events")))
@@ -629,7 +605,7 @@ mod tests {
 
     #[test]
     fn a_failed_command_does_not_poison_its_document() {
-        let (mut session, doc) = box_session();
+        let (mut session, doc) = box_session(false);
 
         let result: Result<(), EngineError> = session.contained(Some(doc), |_| {
             Err(Failure::Command(EngineError::NothingToUndo))

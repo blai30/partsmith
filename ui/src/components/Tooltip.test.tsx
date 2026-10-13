@@ -5,8 +5,6 @@ import { COLOR_CLASSES } from '../theme/roles'
 import { installPopoverPolyfill } from './popover-polyfill.testing'
 import { Tooltip } from './Tooltip'
 
-let uninstallPopovers: () => void
-
 beforeEach(() => {
   vi.useFakeTimers()
   // Testing Library's asyncWrapper, which user-event calls, waits for a setTimeout(0) and advances
@@ -16,12 +14,12 @@ beforeEach(() => {
       vi.advanceTimersByTime(milliseconds)
     },
   })
-  uninstallPopovers = installPopoverPolyfill()
 })
+
+beforeEach(installPopoverPolyfill)
 
 afterEach(() => {
   cleanup()
-  uninstallPopovers()
   vi.unstubAllGlobals()
   vi.useRealTimers()
 })
@@ -214,7 +212,7 @@ describe('Tooltip with a description (3.24)', () => {
     advance(500)
     const description = screen.getByText('Hollows out a body.')
     expect(shownTooltip()).toContainElement(description)
-    expect(description).toHaveClass(...COLOR_CLASSES.textMuted.foreground.split(' '))
+    expect(description).toHaveClass(COLOR_CLASSES.textMuted.foreground)
     expect(description.parentElement).toBe(shownTooltip())
     expect(shownTooltip()?.firstElementChild).toHaveTextContent('Shell')
   })

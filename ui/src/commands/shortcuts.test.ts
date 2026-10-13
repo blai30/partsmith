@@ -259,5 +259,7 @@ describe('ariaKeyShortcut', () => {
     expect(ariaKeyShortcut('Mod+Shift+S', linux)).toBe('Control+Shift+S')
     expect(ariaKeyShortcut('Mod+Shift+S', mac)).toBe('Shift+Meta+S')
     expect(ariaKeyShortcut('Ctrl+Alt+F2', mac)).toBe('Control+Alt+F2')
+    expect(ariaKeyShortcut('Mod+K', linux)).toBe('Control+K')
+    expect(ariaKeyShortcut('Mod+K', mac)).toBe('Meta+K')
   })
 })

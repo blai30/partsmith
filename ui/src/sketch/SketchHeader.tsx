@@ -17,7 +17,7 @@ import { originPlaneName, originPlaneView, type OriginPlane } from '../core/labe
 import type { ProfileFinding, SketchConstraint, SketchSolution } from '../generated/protocol'
 import { originItem } from '../inspector/selection-values'
 import { focusLost, focusView } from '../layout/focus'
-import { MESSAGES } from '../messages'
+import { counted, MESSAGES } from '../messages'
 import {
   selectEditedSketch,
   selectFeatureLabel,
@@ -36,10 +36,6 @@ import { sketchStepHint, type SketchOverlayModel } from './session'
 // under it the step prompt. While a plane is picked for a new sketch, it offers the three origin
 // planes. The sketch overlay renders it with the sketch controller's hint.
 
-function plural(count: number, singular: string, several: string): string {
-  return `${String(count)} ${count === 1 ? singular : several}`
-}
-
 /** The status text of a header state, and whether it reads as an error. */
 function statusOf(dof: SketchDof): { readonly text: string; readonly error: boolean } {
   switch (dof.state) {
@@ -49,7 +45,7 @@ function statusOf(dof: SketchDof): { readonly text: string; readonly error: bool
       return { text: 'No geometry yet', error: false }
     case 'conflict':
       return {
-        text: plural(dof.conflicting, 'conflicting constraint', 'conflicting constraints'),
+        text: counted(dof.conflicting, 'conflicting constraint'),
         error: true,
       }
     case 'failed':
@@ -206,7 +202,7 @@ function EditingHeader({ sketchId }: { readonly sketchId: string }) {
               )}
               {dof.redundant > 0 ? (
                 <span className={COLOR_CLASSES.warningText.foreground}>
-                  {` · ${plural(dof.redundant, 'extra constraint', 'extra constraints')}`}
+                  {` · ${counted(dof.redundant, 'extra constraint')}`}
                 </span>
               ) : null}
             </span>
@@ -280,12 +276,14 @@ function SketchHint({ sketchId, active, hint, freePlacement }: SketchHintProps) 
 
 type ConstraintProblem = { readonly constraint: SketchConstraint; readonly conflicting: boolean }
 
-const ENTITY_NOUNS = {
+const ENTITY_NOUNS: Readonly<
+  Record<'point' | 'line' | 'circle' | 'arc', readonly [singular: string, plural: string]>
+> = {
   point: ['point', 'points'],
   line: ['line', 'lines'],
   circle: ['circle', 'circles'],
   arc: ['arc', 'arcs'],
-} as const
+}
 
 /** "3 lines, 1 circle": the under-constrained entities counted by type, in type order (3.16.8). */
 function freeGeometry(solution: SketchSolution): string {
@@ -298,8 +296,7 @@ function freeGeometry(solution: SketchSolution): string {
   return (['line', 'circle', 'arc', 'point'] as const)
     .flatMap((type) => {
       const count = counts.get(type) ?? 0
-      const [singular, several] = ENTITY_NOUNS[type]
-      return count === 0 ? [] : [plural(count, singular, several)]
+      return count === 0 ? [] : [counted(count, ...ENTITY_NOUNS[type])]
     })
     .join(', ')
 }

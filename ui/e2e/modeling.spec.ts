@@ -2,7 +2,9 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import {
   bodyRow,
+  browserRow,
   canvas,
+  clickTool,
   download,
   dropFile,
   expandOrigin,
@@ -18,24 +20,17 @@ import {
   timelineItem,
 } from './helpers'
 import {
-  browserRow,
   chooseOption,
-  clickTool,
   expectPreviewShown,
   fillInspector,
   runFromGroup,
   selectionField,
   timelineLabels,
 } from './support/modeling'
+import { offset } from './support/sketch'
 
 // Feature commands, the inspector, previews, the timeline, the browser, the palette and the
 // parameters panel against the production build and the real core (ui.md 3.3 to 3.11, 6.5).
-
-/** The page position of the canvas center plus an offset in pixels. */
-async function at(page: Page, dx: number, dy: number): Promise<{ x: number; y: number }> {
-  const box = await canvas(page)
-  return { x: box.cx + dx, y: box.cy + dy }
-}
 
 /** Clicks the canvas at an offset from its center given in canvas heights (`H`). */
 async function clickCanvas(page: Page, dxInHeights: number, dyInHeights: number): Promise<void> {
@@ -51,7 +46,7 @@ async function expectBodySize(page: Page, name: string, size: string): Promise<v
 }
 
 /** Expects the timeline to hold items with these labels, in order. */
-async function expectTimeline(page: Page, labels: readonly string[]): Promise<void> {
+async function expectTimelineLabels(page: Page, labels: readonly string[]): Promise<void> {
   await expect.poll(() => timelineLabels(page)).toEqual(labels)
 }
 
@@ -264,7 +259,7 @@ test.describe('palette and shortcuts', () => {
       .toBe('e')
     await expect(inspector(page)).toHaveCount(0)
     await page.keyboard.press('Escape')
-    const center = await at(page, 0, 0)
+    const center = offset(await canvas(page), 0, 0)
     await page.mouse.click(center.x, center.y)
     await page.keyboard.press('e')
     await expect(inspector(page)).toHaveAttribute('data-mode', 'command')
@@ -306,7 +301,7 @@ test.describe('inspector, timeline and browser', () => {
       'Cube (empty)',
       { useInnerText: true },
     )
-    const center = await at(page, 0, 0)
+    const center = offset(await canvas(page), 0, 0)
     await expect
       .poll(async () => {
         await page.mouse.move(center.x + 1, center.y)
@@ -338,9 +333,9 @@ test.describe('inspector, timeline and browser', () => {
   test('E-26 reordering the timeline, a failure after a reorder and its Undo', async ({ page }) => {
     await openApp(page)
     await dropFile(page, 'two-bodies.ptsm')
-    await expectTimeline(page, ['Sketch 1', 'Extrude 1', 'Cylinder 1'])
+    await expectTimelineLabels(page, ['Sketch 1', 'Extrude 1', 'Cylinder 1'])
     await dragTo(page, timelineItem(page, 'Cylinder 1'), await timelineGap(page, 0))
-    await expectTimeline(page, ['Cylinder 1', 'Sketch 1', 'Extrude 1'])
+    await expectTimelineLabels(page, ['Cylinder 1', 'Sketch 1', 'Extrude 1'])
     await expectEveryItem(page, 3, 'data-status', 'ok')
     await dragTo(page, timelineItem(page, 'Extrude 1'), await timelineGap(page, 1))
     await expect(timelineItem(page, 'Extrude 1')).toHaveAttribute('data-status', 'error')
@@ -349,7 +344,7 @@ test.describe('inspector, timeline and browser', () => {
       .filter({ hasText: /^Extrude 1 failed\./ })
     await expect(failed).toBeVisible()
     await failed.getByRole('button', { name: 'Undo', exact: true }).click()
-    await expectTimeline(page, ['Cylinder 1', 'Sketch 1', 'Extrude 1'])
+    await expectTimelineLabels(page, ['Cylinder 1', 'Sketch 1', 'Extrude 1'])
     await expect(timelineItem(page, 'Extrude 1')).toHaveAttribute('data-status', 'ok')
   })
 
@@ -502,7 +497,7 @@ test.describe('inspector, timeline and browser', () => {
     await openApp(page)
     await dropFile(page, 'cube.ptsm')
     await fitView(page, 'Front')
-    const center = await at(page, 0, 0)
+    const center = offset(await canvas(page), 0, 0)
     await page.mouse.dblclick(center.x, center.y)
     await expect(inspector(page)).toHaveAccessibleName('Extrude 1')
   })
@@ -1009,7 +1004,7 @@ test.describe('one interface for everyone', () => {
     await expect(points).toHaveText('Click a flat face or pick sketch points')
     await pickOnCanvas(page, 0, 0, 'points', 1, 'shown')
     await page.keyboard.press('Enter')
-    await expectTimeline(page, ['Sketch 1', 'Extrude 1', 'Sketch 2', 'Hole 1'])
+    await expectTimelineLabels(page, ['Sketch 1', 'Extrude 1', 'Sketch 2', 'Hole 1'])
     await expectEveryItem(page, 4, 'data-status', 'ok')
     const { cx, cy } = await canvas(page)
     await expectHover(page, cx, cy, 'none')
@@ -1361,7 +1356,7 @@ test.describe('one interface for everyone', () => {
     await openApp(page)
     await dropFile(page, 'cube.ptsm')
     await fitView(page, 'Front')
-    const top = await at(page, 0, 0)
+    const top = offset(await canvas(page), 0, 0)
     const box = await canvas(page)
     await page.mouse.click(top.x, top.y - 0.4 * box.H, { button: 'right' })
     const menu = page.getByTestId('viewport-menu')

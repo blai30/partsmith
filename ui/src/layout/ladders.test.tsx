@@ -1,9 +1,9 @@
 import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { commandComplete } from '../app/actions/command'
 import { installPopoverPolyfill } from '../components/popover-polyfill.testing'
 import type { ActiveCommand, AppState, SketchSession } from '../state/store'
+import { deferred } from '../test/fakes/deferred'
 import { CUBE_TOP_FRONT_EDGE, RECT_REGION } from '../test/fakes/documents'
 import { settle } from '../test/fakes/settle'
 import {
@@ -15,18 +15,16 @@ import {
   sketchLineItem,
 } from './fixtures.testing'
 import { escapeStep } from './ladders'
-import { createModelApp, deferred, renderWithApp, stubMatchMedia } from './test-app.testing'
+import { createModelApp, renderModelApp, renderWithApp, stubMatchMedia } from './test-app.testing'
 
-let uninstallPopovers: () => void
+beforeEach(installPopoverPolyfill)
 
 beforeEach(() => {
-  uninstallPopovers = installPopoverPolyfill()
   stubMatchMedia()
 })
 
 afterEach(() => {
   cleanup()
-  uninstallPopovers()
   vi.unstubAllGlobals()
 })
 
@@ -71,9 +69,7 @@ const EDITING_SKETCH: SketchSession = {
 }
 
 function renderApp(state: Partial<AppState>) {
-  const test = createModelApp({ state: readyState(rectSketchDocumentState(), state) })
-  renderWithApp(test.app)
-  return { ...test, user: userEvent.setup() }
+  return renderModelApp({ document: rectSketchDocumentState(), state })
 }
 
 function viewportSurface(): HTMLElement {

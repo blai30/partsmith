@@ -7,7 +7,7 @@ import { updateSettings } from '../app/actions/settings'
 import { useApp, useAppState } from '../app/AppProvider'
 import { reportFailure } from '../app/report'
 import { runCommand } from '../commands/registry'
-import { formatShortcut } from '../commands/shortcuts'
+import { ariaKeyShortcut, formatShortcut } from '../commands/shortcuts'
 import { IconButton } from '../components/IconButton'
 import { SegmentedControl, type SegmentedOption } from '../components/SegmentedControl'
 import { Tooltip } from '../components/Tooltip'
@@ -110,7 +110,7 @@ function PaletteButton() {
     <button
       type="button"
       data-testid="palette-button"
-      aria-keyshortcuts={app.platform.operatingSystem === 'mac' ? 'Meta+K' : 'Control+K'}
+      aria-keyshortcuts={ariaKeyShortcut('Mod+K', app.platform)}
       onClick={() => {
         setPaletteOpen(app, true)
       }}

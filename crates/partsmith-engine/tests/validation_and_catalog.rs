@@ -16,14 +16,6 @@ fn all_checks() -> ValidateOptions {
     }
 }
 
-/// Validation of loading, references, expressions, profiles, sketches and assets only.
-fn load_checks() -> ValidateOptions {
-    ValidateOptions {
-        rebuild: false,
-        canonical: false,
-    }
-}
-
 /// Every diagnostic as `severity code: message`, for failure output.
 fn describe(report: &ValidationReport) -> Vec<String> {
     report
@@ -118,7 +110,7 @@ fn t103_validation_reports_canonical_form_and_sketch_conflicts() {
             canonical: true,
         },
     );
-    let conflict = session.validate(&fixture("conflict.ptsm"), &[], load_checks());
+    let conflict = session.validate(&fixture("conflict.ptsm"), &[], ValidateOptions::default());
 
     assert!(
         valid.diagnostics.is_empty(),
@@ -149,7 +141,7 @@ fn t104_validation_points_at_the_broken_parameter_expression() {
         r#""expr": "width * 2""#,
     );
 
-    let report = session.validate(&text, &[], load_checks());
+    let report = session.validate(&text, &[], ValidateOptions::default());
 
     assert!(
         report.diagnostics.iter().any(|diagnostic| {
@@ -202,7 +194,7 @@ fn t114_load_errors_carry_the_position_validate_reports() {
             .open_document(text, Vec::new())
             .expect_err("the text does not load");
         let formatted = session.format(text).expect_err("the text does not format");
-        let report = session.validate(text, &[], load_checks());
+        let report = session.validate(text, &[], ValidateOptions::default());
 
         assert_eq!(formatted, opened);
         let [diagnostic] = report.diagnostics.as_slice() else {

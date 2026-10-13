@@ -5,7 +5,7 @@
 //! feature that panics. None of them calls the kernel.
 
 use std::collections::BTreeMap;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use partsmith_features::{
     AssetLink, BodyChange, BodyUpdate, BuildContext, DatumResult, Dependencies, ExprUse, Feature,
@@ -21,6 +21,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::Input;
+use crate::timeline::Timeline;
+use crate::validation::Validations;
 
 /// A registry with every test feature of this module.
 pub(crate) fn registry() -> Registry {
@@ -41,6 +43,37 @@ pub(crate) fn registry() -> Registry {
         .register::<TestPanic>()
         .expect("test_panic registers");
     registry
+}
+
+/// The registry of [`registry`], built once for the helpers whose results borrow it.
+fn shared_registry() -> &'static Registry {
+    static REGISTRY: OnceLock<Registry> = OnceLock::new();
+    REGISTRY.get_or_init(registry)
+}
+
+/// The timeline of `document` prepared without a stop point, over a fresh validation memo.
+pub(crate) fn prepared(document: &Document) -> Timeline<'_> {
+    Timeline::prepare(
+        shared_registry(),
+        &mut Validations::default(),
+        document,
+        None,
+    )
+}
+
+/// A `test_datum` record offset by `offset`.
+pub(crate) fn datum(feature: &str, offset: &str) -> Value {
+    json!({"id": feature, "type": "test_datum", "offset": offset})
+}
+
+/// A `test_datum` record offset by 1 from the datum `base`.
+pub(crate) fn datum_on(feature: &str, base: &str) -> Value {
+    json!({"id": feature, "type": "test_datum", "base": base, "offset": "1"})
+}
+
+/// A `test_writer` record of `body`.
+pub(crate) fn writer(feature: &str, body: &str) -> Value {
+    json!({"id": feature, "type": "test_writer", "body": body})
 }
 
 /// A feature record from its JSON form.

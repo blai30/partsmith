@@ -1,10 +1,6 @@
-import { cleanup, render } from '@testing-library/react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { render } from '@testing-library/react'
+import { describe, expect, it } from 'vitest'
 import { SeverityIcon } from './SeverityIcon'
-
-afterEach(() => {
-  cleanup()
-})
 
 function icon(element: React.ReactElement): SVGElement {
   const { container } = render(element)

@@ -23,7 +23,6 @@ import {
 } from '../layout/fixtures.testing'
 import {
   createModelApp,
-  deferred,
   stubAnimationFrames,
   stubElementSize,
   stubMatchMedia,
@@ -35,6 +34,7 @@ import { DEFAULT_SETTINGS } from '../settings/settings'
 import { INITIAL_STATE, type AppState, type DocumentState } from '../state/store'
 import { createFakeBackend, type FakeBackend } from '../test/fakes/backend'
 import type { FakeCoreApi } from '../test/fakes/core-api'
+import { deferred } from '../test/fakes/deferred'
 import {
   CUBE_FEATURES_DOCUMENT,
   CUBE_FRONT_FACE,

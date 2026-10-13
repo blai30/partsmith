@@ -8,8 +8,7 @@ import { reportFailure } from '../app/report'
 import { explainDisabled, type DisabledAvailability } from '../commands/registry'
 import { Menu, type MenuEntry } from '../components/Menu'
 import { Tooltip } from '../components/Tooltip'
-import { formatQuantity } from '../expression/format'
-import type { Units } from '../generated/protocol'
+import { DOCUMENT_UNITS, formatQuantity } from '../expression/format'
 import { HealthBadge } from '../print/HealthBadge'
 import { PrinterMenu } from '../print/PrinterMenu'
 import { printerLabel } from '../print/printer'
@@ -23,8 +22,6 @@ import { useCommandViews } from './use-commands'
 
 /** How long a mutation is pending before the status bar says "Rebuilding". */
 const REBUILDING_DELAY_MILLISECONDS = 300
-
-const UNITS: readonly Units[] = ['mm', 'cm', 'm', 'in']
 
 function Spinner() {
   return (
@@ -189,7 +186,6 @@ function useDisabled(commandId: string): DisabledAvailability | null {
   return command?.availability.state === 'disabled' ? command.availability : null
 }
 
-/** A disabled control's click shows its reason with its message id, as a disabled toolbar command's does (3.3). */
 function UnitsButton() {
   const app = useApp()
   const units = useAppState((state) => state.document?.recipe.units ?? null)
@@ -201,7 +197,7 @@ function UnitsButton() {
   if (units === null) {
     return null
   }
-  const entries: MenuEntry[] = UNITS.map((unit) => ({
+  const entries: MenuEntry[] = DOCUMENT_UNITS.map((unit) => ({
     kind: 'radio',
     label: unit,
     checked: unit === units,

@@ -1,27 +1,24 @@
 import { cleanup, screen, waitFor, within } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { installPopoverPolyfill } from '../components/popover-polyfill.testing'
 import type { Edit } from '../generated/protocol'
 import type { ActiveCommand, AppState } from '../state/store'
 import { CUBE_TOP_FRONT_EDGE, RECT_REGION } from '../test/fakes/documents'
 import { settle } from '../test/fakes/settle'
-import { cubeDocumentState, readyState, rectSketchDocumentState } from './fixtures.testing'
-import { createModelApp, renderWithApp, stubMatchMedia } from './test-app.testing'
+import { cubeDocumentState, rectSketchDocumentState } from './fixtures.testing'
+import { renderModelApp, stubMatchMedia } from './test-app.testing'
 
 // Typing values (ui.md 3.7, U-104): a value typed on the viewport or a selection field box goes to
 // the command's value field, so pick, type 2, Enter makes a 2 mm fillet.
 
-let uninstallPopovers: () => void
+beforeEach(installPopoverPolyfill)
 
 beforeEach(() => {
-  uninstallPopovers = installPopoverPolyfill()
   stubMatchMedia()
 })
 
 afterEach(() => {
   cleanup()
-  uninstallPopovers()
   vi.unstubAllGlobals()
 })
 
@@ -56,10 +53,8 @@ const EXTRUDE: ActiveCommand = {
 }
 
 function renderApp(state: Partial<AppState>, document = cubeDocumentState()) {
-  const test = createModelApp({ state: readyState(document, state) })
-  renderWithApp(test.app)
-  const viewport = within(screen.getByTestId('viewport')).getByRole('application')
-  return { ...test, viewport, user: userEvent.setup() }
+  const test = renderModelApp({ document, state })
+  return { ...test, viewport: within(screen.getByTestId('viewport')).getByRole('application') }
 }
 
 function lastFeatureEdit(edits: readonly (readonly unknown[])[]): Edit | undefined {

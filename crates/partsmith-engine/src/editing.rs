@@ -5,7 +5,7 @@ use partsmith_model::{Document, Edit, Id, RecordKind, Step, Transaction};
 use partsmith_protocol::DocHandle;
 
 use crate::document::OpenTransaction;
-use crate::error::{EngineError, wire_index};
+use crate::error::{EngineError, saturating_u32};
 use crate::session::Session;
 use crate::state::{feature_label, is_active};
 use crate::types::{Committed, Stepped};
@@ -134,7 +134,7 @@ impl Session {
                 .collect();
             document
                 .apply_all(inverses)
-                .map_err(|error| EngineError::internal(error.to_string()))?;
+                .map_err(EngineError::unexpected)?;
             Some(document)
         };
         let focused = transaction.focus.is_some();
@@ -170,7 +170,7 @@ impl Session {
         } else {
             open.undo.redo(&mut document)
         }
-        .map_err(|error| EngineError::internal(error.to_string()))?;
+        .map_err(EngineError::unexpected)?;
         let label = match stepped {
             Some(transaction) => transaction.label.clone(),
             None if backward => return Err(EngineError::NothingToUndo),
@@ -197,7 +197,7 @@ impl Session {
         let mut document = Document::clone(&open.document);
         let mut steps = Vec::with_capacity(edits.len());
         for (position, edit) in edits.into_iter().enumerate() {
-            let index = wire_index(position);
+            let index = saturating_u32(position);
             let edit = canonical_edit(&self.registry, &document, edit, index)?;
             let step = document
                 .apply_all(vec![edit])
@@ -292,10 +292,7 @@ mod tests {
     use partsmith_model::{Body, Parameter, Units};
 
     use super::*;
-
-    fn id(text: &str) -> Id {
-        Id::new(text).expect("a valid test id")
-    }
+    use crate::test_support::id;
 
     fn set_height(expr: &str, previous: &str) -> Step {
         Step {

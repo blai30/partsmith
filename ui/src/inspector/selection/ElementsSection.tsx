@@ -8,11 +8,11 @@ import { Tooltip } from '../../components/Tooltip'
 import { featureLabel } from '../../core/labels'
 import { formatPoint, formatQuantity } from '../../expression/format'
 import type { CurveKind, SurfaceKind, Units } from '../../generated/protocol'
+import { counted } from '../../messages'
 import type { AppState, DocumentState, SelectionItem } from '../../state/store'
 import { COLOR_CLASSES } from '../../theme/roles'
 import { formatArea } from '../area'
 import { bodySelectionItem, featureKey } from '../selection-values'
-import { counted, itemsCount } from './counts'
 import { MeasureRows, Row, Suggestions, Title, Value } from './parts'
 
 // The selection inspector of faces, edges and vertices (ui.md 3.8): their bodies, the feature that
@@ -36,11 +36,13 @@ const CURVE_NAMES: Readonly<Record<CurveKind, string>> = {
   other: 'Edge',
 }
 
-const ELEMENT_NOUNS = {
+const ELEMENT_NOUNS: Readonly<
+  Record<'face' | 'edge' | 'vertex', readonly [singular: string, plural: string]>
+> = {
   face: ['face', 'faces'],
   edge: ['edge', 'edges'],
   vertex: ['vertex', 'vertices'],
-} as const
+}
 
 /**
  * "Made by {label}" for one face, edge or vertex (3.8): "Edit {label}" opens the feature that made
@@ -125,7 +127,9 @@ export function ElementsSection({
   const element = first?.element ?? null
   const kind = first?.kind
   const single = kinds.size === 1 && (kind === 'face' || kind === 'edge' || kind === 'vertex')
-  const title = single ? counted(items.length, ELEMENT_NOUNS[kind]) : itemsCount(items.length)
+  const title = single
+    ? counted(items.length, ...ELEMENT_NOUNS[kind])
+    : counted(items.length, 'item')
   const bodies = [...new Set(items.flatMap((item) => (item.body === null ? [] : [item.body])))]
     .map((id) => document.recipe.bodies?.find((candidate) => candidate.id === id))
     .filter((body) => body !== undefined)

@@ -7,10 +7,10 @@ mod feature_support;
 use std::time::Duration;
 
 use feature_support::{
-    Run, assert_bounding_box, assert_canonical_example, assert_empty, assert_error_field,
-    assert_face_count, assert_face_kind, assert_face_position, assert_has_face, assert_solid_count,
-    assert_unchanged, assert_volume, body_changes, example_paths, face, link_ids, load_example,
-    median_build_time,
+    Run, assert_bounding_box, assert_empty, assert_error_field, assert_examples_canonical,
+    assert_face_count, assert_face_kind, assert_face_position, assert_has_face,
+    assert_median_build_within, assert_solid_count, assert_unchanged, assert_volume, body_changes,
+    face, link_ids, load_example,
 };
 use partsmith_occt_sys::GeometryKind;
 
@@ -33,11 +33,7 @@ fn boolean(tools: &str, op: &str) -> String {
 
 #[test]
 fn examples_are_canonical() {
-    let paths = example_paths("boolean");
-    assert!(!paths.is_empty(), "examples/boolean has examples");
-    for path in paths {
-        assert_canonical_example(&path);
-    }
+    assert_examples_canonical("boolean");
 }
 
 #[test]
@@ -256,9 +252,5 @@ fn t015_tool_names_survive_for_a_later_fillet() {
 fn t016_join_builds_within_15_ms() {
     let document = load_example("boolean/join.ptsm");
 
-    let duration = median_build_time(&document, "f-bool1", 21);
-    assert!(
-        duration < Duration::from_millis(15),
-        "the join took {duration:?} to build (median of 21 runs), over the 15 ms budget",
-    );
+    assert_median_build_within(&document, "f-bool1", 21, Duration::from_millis(15));
 }

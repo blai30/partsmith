@@ -9,32 +9,26 @@ import type { AppState } from '../state/store'
 import { MAC_WEB } from '../test/fakes/app'
 import { settle } from '../test/fakes/settle'
 import { COLOR_CLASSES } from '../theme/roles'
-import { cubeDocumentState, readyState } from './fixtures.testing'
-import { createModelApp, renderWithApp, stubMatchMedia } from './test-app.testing'
+import { renderModelApp, stubMatchMedia } from './test-app.testing'
 
-let uninstallPopovers: () => void
 let uninstallDispatcher: () => void = () => undefined
 
+beforeEach(installPopoverPolyfill)
+
 beforeEach(() => {
-  uninstallPopovers = installPopoverPolyfill()
   stubMatchMedia()
 })
 
 afterEach(() => {
   uninstallDispatcher()
   cleanup()
-  uninstallPopovers()
   vi.unstubAllGlobals()
 })
 
 function renderApp(state: Partial<AppState> = {}, platform?: Platform) {
-  const test = createModelApp({
-    state: readyState(cubeDocumentState(), state),
-    ...(platform === undefined ? {} : { platform }),
-  })
-  renderWithApp(test.app)
+  const test = renderModelApp({ state, ...(platform === undefined ? {} : { platform }) })
   uninstallDispatcher = installShortcutDispatcher(test.app, window)
-  return { ...test, user: userEvent.setup() }
+  return test
 }
 
 async function openPalette(user: ReturnType<typeof userEvent.setup>): Promise<HTMLElement> {

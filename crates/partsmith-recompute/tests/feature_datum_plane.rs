@@ -8,8 +8,8 @@ use std::f64::consts::FRAC_1_SQRT_2;
 use std::time::Duration;
 
 use feature_support::{
-    AXIS_TOLERANCE, Run, assert_canonical_example, assert_coordinates, assert_element_repair,
-    assert_placement, datum_placement, example_paths, link_ids, load_example, median_build_time,
+    AXIS_TOLERANCE, Run, assert_coordinates, assert_element_repair, assert_examples_canonical,
+    assert_median_build_within, assert_placement, datum_placement, link_ids, load_example,
 };
 
 /// A box of size 10 at position (3, 4, 0) in `b-1`: x from -2 to 8, y from -1 to 9, z from 0 to 10.
@@ -22,11 +22,7 @@ fn datum_plane(base: &str, extra: &str) -> String {
 
 #[test]
 fn examples_are_canonical() {
-    let paths = example_paths("datum_plane");
-    assert!(!paths.is_empty(), "examples/datum_plane has examples");
-    for path in paths {
-        assert_canonical_example(&path);
-    }
+    assert_examples_canonical("datum_plane");
 }
 
 #[test]
@@ -275,9 +271,5 @@ fn t014_expression_offset() {
 fn t015_xy_offset_builds_within_0_1_ms() {
     let document = load_example("datum_plane/xy-offset.ptsm");
 
-    let duration = median_build_time(&document, "f-dp1", 21);
-    assert!(
-        duration < Duration::from_micros(100),
-        "the datum plane took {duration:?} to build (median of 21 runs), over the 0.1 ms budget",
-    );
+    assert_median_build_within(&document, "f-dp1", 21, Duration::from_micros(100));
 }

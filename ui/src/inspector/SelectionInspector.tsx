@@ -1,9 +1,9 @@
 import { openSidePanel } from '../app/actions/panels'
 import { useApp, useAppState } from '../app/AppProvider'
 import { Button } from '../components/Button'
+import { counted } from '../messages'
 import type { SelectionItem } from '../state/store'
 import { BodySection } from './selection/BodySection'
-import { counted, itemsCount } from './selection/counts'
 import { ElementsSection } from './selection/ElementsSection'
 import { FeatureSection } from './selection/FeatureSection'
 import { Suggestions, Title } from './selection/parts'
@@ -76,12 +76,12 @@ export function SelectionInspector({ items }: { readonly items: readonly Selecti
     return <ElementsSection state={state} document={document} items={items} />
   }
   const title = items.every((item) => item.kind === 'sketch_region')
-    ? counted(items.length, ['region', 'regions'])
+    ? counted(items.length, 'region')
     : items.every((item) => item.kind === 'sketch_point')
-      ? counted(items.length, ['point', 'points'])
+      ? counted(items.length, 'point')
       : items.every((item) => item.kind === 'body')
-        ? counted(items.length, ['body', 'bodies'])
-        : itemsCount(items.length)
+        ? counted(items.length, 'body', 'bodies')
+        : counted(items.length, 'item')
   return (
     <>
       <Title>{title}</Title>

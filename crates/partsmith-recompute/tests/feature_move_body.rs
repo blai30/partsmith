@@ -7,10 +7,9 @@ mod feature_support;
 use std::time::Duration;
 
 use feature_support::{
-    Run, assert_bounding_box, assert_canonical_example, assert_error_field, assert_face_area,
+    Run, assert_bounding_box, assert_error_field, assert_examples_canonical, assert_face_area,
     assert_face_count, assert_face_kind, assert_face_normal, assert_face_position,
-    assert_unchanged, assert_volume, body_changes, example_paths, face, load_example,
-    median_build_time,
+    assert_median_build_within, assert_unchanged, assert_volume, body_changes, face, load_example,
 };
 use partsmith_occt_sys::GeometryKind;
 
@@ -33,11 +32,7 @@ fn rotation_z(angle: &str) -> String {
 
 #[test]
 fn examples_are_canonical() {
-    let paths = example_paths("move_body");
-    assert!(!paths.is_empty(), "examples/move_body has examples");
-    for path in paths {
-        assert_canonical_example(&path);
-    }
+    assert_examples_canonical("move_body");
 }
 
 #[test]
@@ -158,9 +153,5 @@ fn t008_wrong_angle_dimension() {
 fn t009_rotate_then_translate_builds_within_5_ms() {
     let document = load_example("move_body/rotate-translate.ptsm");
 
-    let duration = median_build_time(&document, "f-mv1", 21);
-    assert!(
-        duration < Duration::from_millis(5),
-        "the move took {duration:?} to build (median of 21 runs), over the 5 ms budget",
-    );
+    assert_median_build_within(&document, "f-mv1", 21, Duration::from_millis(5));
 }

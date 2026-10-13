@@ -1,7 +1,7 @@
 import type { ExportRequest } from '../app/actions/export'
 import { featureLabel } from '../core/labels'
 import { MESSAGES } from '../messages'
-import { healthBadgeOutdated, healthBadgeText } from '../print/health'
+import { healthBadgeOutdated, healthBadgeText, withOutdatedSuffix } from '../print/health'
 import { selectOrientationBody } from '../print/orientation'
 import { selectActiveFeatureIds, selectHealthBadge, type HealthBadge } from '../state/selectors'
 import type { AppState } from '../state/store'
@@ -38,6 +38,10 @@ function failedFeatures(state: AppState): readonly string[] {
  * `export_failed_features` for several, or null when no active feature is in error.
  */
 export function exportFailedText(state: AppState): string | null {
+  const document = state.document
+  if (document === null) {
+    return null
+  }
   const failed = failedFeatures(state)
   const [only] = failed
   if (only === undefined) {
@@ -46,40 +50,57 @@ export function exportFailedText(state: AppState): string | null {
   if (failed.length > 1) {
     return MESSAGES.export_failed_features(failed.length)
   }
-  return state.document === null
-    ? only
-    : MESSAGES.export_failed_feature(featureLabel(state.document.recipe, only, state.catalog))
+  return MESSAGES.export_failed_feature(featureLabel(document.recipe, only, state.catalog))
 }
 
 /** "Print check: {state}": the badge's text, "Not checked" before any report, and " (out of date)" when stale. */
 function printCheckText(badge: HealthBadge): string {
   const text = badge.state === 'none' ? 'Not checked' : healthBadgeText(badge)
-  return `Print check: ${text}${healthBadgeOutdated(badge) ? ' (out of date)' : ''}`
+  return `Print check: ${withOutdatedSuffix(badge, text)}`
+}
+
+/** What the status lines are made from, each read from the state by its own selector. */
+export type ExportStatusInputs = {
+  /** `exportFailedText`. */
+  readonly failedText: string | null
+  /** `selectHealthBadge`. */
+  readonly badge: HealthBadge
+  /** `selectOrientationBody`. */
+  readonly orientationBody: string | null
 }
 
 /** The status lines of the export popover for a format (3.18). */
-export function exportStatus(
-  state: AppState,
+export function statusLines(
   format: ExportRequest['format'],
+  { failedText, badge, orientationBody }: ExportStatusInputs,
 ): readonly ExportStatusLine[] {
   const lines: ExportStatusLine[] = []
-  const failed = exportFailedText(state)
-  if (failed !== null) {
-    lines.push({ kind: 'failed', text: failed })
+  if (failedText !== null) {
+    lines.push({ kind: 'failed', text: failedText })
   }
   if (!PRINT_FORMATS.has(format)) {
     return lines
   }
-  const badge = selectHealthBadge(state)
   lines.push({
     kind: 'print_check',
     text: printCheckText(badge),
     badge,
     checkOffered: badge.state === 'none' || healthBadgeOutdated(badge),
   })
-  const body = selectOrientationBody(state)
-  if (body !== null) {
-    lines.push({ kind: 'orientation', text: MESSAGES.orientation_set(body) })
+  if (orientationBody !== null) {
+    lines.push({ kind: 'orientation', text: MESSAGES.orientation_set(orientationBody) })
   }
   return lines
+}
+
+/** The status lines of the export popover for a format, read from the state (3.18). */
+export function exportStatus(
+  state: AppState,
+  format: ExportRequest['format'],
+): readonly ExportStatusLine[] {
+  return statusLines(format, {
+    failedText: exportFailedText(state),
+    badge: selectHealthBadge(state),
+    orientationBody: selectOrientationBody(state),
+  })
 }

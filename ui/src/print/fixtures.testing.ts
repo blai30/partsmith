@@ -1,14 +1,12 @@
 // Fixtures for the print and export tests (ui.md 3.17, 3.18; print.md 2.6): recipes with bodies and
-// model meshes, print reports, a recording viewport, and an App over the shared fakes of
-// src/test/fakes with a chosen starting state.
+// model meshes, print reports, and an App over the shared fakes of src/test/fakes with a recording
+// viewport and a chosen starting state.
 
-import { vi, type Mock } from 'vitest'
 import type { App } from '../app/createApp'
 import type { ExportedFile } from '../core/api'
 import type {
   Body,
   BodyPrint,
-  BoundingBox,
   CheckKind,
   CheckResult,
   Document,
@@ -22,7 +20,6 @@ import type {
 import {
   createAppStore,
   type AppState,
-  type CoreState,
   type DocumentState,
   type MeshSummary,
   type PrintState,
@@ -31,17 +28,12 @@ import { createTestApp } from '../test/fakes/app'
 import { createFakeCoreApi, type FakeCoreApi } from '../test/fakes/core-api'
 import { createFakeFileService, type FakeFileService } from '../test/fakes/files'
 import { TEST_PRINTERS } from '../test/fakes/printers'
-import { DEFAULT_CAMERA } from '../viewport/camera'
-import type { ViewportHandle } from '../viewport/controller'
+import { CUBE_BOUNDS, documentStateFor, meshSummary, READY_CORE } from '../test/fakes/state'
+import { createFakeViewport, type FakeViewport } from '../test/fakes/viewport'
+
+export { CUBE_BOUNDS, meshSummary, PEG_BOUNDS } from '../test/fakes/state'
 
 export const DOCUMENT_HANDLE = 7
-
-const READY_CORE: CoreState = {
-  status: 'ready',
-  engineVersion: '0.1.0',
-  fatal: null,
-  pendingMutations: 0,
-}
 
 /** A session profile, listed after the built-in ones (protocol.md list_printer_profiles). */
 export const MY_MK4: PrinterProfile = {
@@ -68,13 +60,6 @@ export const GHOST: Body = { id: 'b-ghost', name: 'Ghost', visible: false }
 /** A visible body without model-layer geometry. */
 export const EMPTY: Body = { id: 'b-empty', name: 'Empty' }
 
-export const CUBE_BOUNDS: BoundingBox = { min: [-10, -10, 0], max: [10, 10, 20] }
-export const PEG_BOUNDS: BoundingBox = { min: [-4, -4, 10], max: [4, 4, 30] }
-
-export function meshSummary(meshId: number, boundingBox: BoundingBox): MeshSummary {
-  return { meshId, boundingBox, faceCount: 6, edgeCount: 12, vertexCount: 8 }
-}
-
 export function recipe(bodies: readonly Body[], printer: string | null = null): Document {
   return {
     format: 'partsmith',
@@ -98,26 +83,13 @@ export type DocumentOptions = {
 
 /** An open document; by default "cube" at revision 3 with the Cube body and its model mesh. */
 export function documentState(options: DocumentOptions = {}): DocumentState {
-  return {
+  return documentStateFor(recipe(options.bodies ?? [CUBE], options.printer ?? null), {
     documentHandle: DOCUMENT_HANDLE,
     name: options.name ?? 'cube',
-    file: null,
     revision: options.revision ?? 3,
-    recipe: recipe(options.bodies ?? [CUBE], options.printer ?? null),
-    dirty: false,
-    localUnsaved: false,
-    undoLabel: null,
-    redoLabel: null,
     transactionOpen: options.transactionOpen ?? false,
-    focus: null,
-    featureStatus: {},
-    parameterValues: {},
-    diagnostics: [],
-    sketches: {},
-    datums: {},
     meshes: options.meshes ?? { [CUBE.id]: meshSummary(1, CUBE_BOUNDS) },
-    lastRebuildMilliseconds: null,
-  }
+  })
 }
 
 export function printState(overrides: Partial<PrintState> = {}): PrintState {
@@ -266,25 +238,6 @@ export function exportedFile(name: string, bytes: Uint8Array): ExportedFile {
 
 // The App.
 
-/** A `ViewportHandle` whose every method is a mock. */
-export type FakeViewport = {
-  readonly [Method in keyof ViewportHandle]: Mock<ViewportHandle[Method]>
-}
-
-export function createFakeViewport(): FakeViewport {
-  return {
-    getCamera: vi.fn<ViewportHandle['getCamera']>(() => DEFAULT_CAMERA),
-    setCamera: vi.fn<ViewportHandle['setCamera']>(),
-    fit: vi.fn<ViewportHandle['fit']>(),
-    setStandardView: vi.fn<ViewportHandle['setStandardView']>(),
-    toggleProjection: vi.fn<ViewportHandle['toggleProjection']>(),
-    lookAlong: vi.fn<ViewportHandle['lookAlong']>(),
-    zoomToBounds: vi.fn<ViewportHandle['zoomToBounds']>(),
-    screenRectangle: vi.fn<ViewportHandle['screenRectangle']>(() => null),
-    requestRender: vi.fn<ViewportHandle['requestRender']>(),
-  }
-}
-
 /** The state tests start from: the core ready, the test printers and the cube document, then `overrides`. */
 export function baseState(overrides: Partial<AppState> = {}): Partial<AppState> {
   return { core: READY_CORE, printers: PRINTERS, document: documentState(), ...overrides }
@@ -337,18 +290,4 @@ export function setRevision(app: App, revision: number): void {
   app.store.setState((state) =>
     state.document === null ? {} : { document: { ...state.document, revision } },
   )
-}
-
-export type Deferred<Value> = {
-  readonly promise: Promise<Value>
-  resolve(value: Value): void
-}
-
-/** A promise the test resolves by hand. */
-export function deferred<Value>(): Deferred<Value> {
-  let resolvePromise: ((value: Value) => void) | undefined
-  const promise = new Promise<Value>((resolve) => {
-    resolvePromise = resolve
-  })
-  return { promise, resolve: (value) => resolvePromise?.(value) }
 }

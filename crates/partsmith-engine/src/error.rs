@@ -1,5 +1,7 @@
 //! Every failure of a session command and its protocol code (engine.md section 4).
 
+use std::fmt;
+
 use partsmith_model::{EditError, Id, Span};
 use partsmith_naming::ElementKind;
 use partsmith_protocol::{DocHandle, ErrorCode, ErrorInfo};
@@ -308,11 +310,23 @@ impl EngineError {
             detail: detail.into(),
         }
     }
+
+    /// An internal error describing an error that a valid document never causes.
+    pub(crate) fn unexpected(error: impl fmt::Display) -> EngineError {
+        EngineError::internal(error.to_string())
+    }
+
+    /// The `invalid_params` error for sketch params that the solver rejects.
+    pub(crate) fn invalid_sketch(error: impl fmt::Display) -> EngineError {
+        EngineError::InvalidSketch {
+            message: error.to_string(),
+        }
+    }
 }
 
-/// A position in a list as a protocol index; lists longer than `u32::MAX` saturate.
-pub(crate) fn wire_index(position: usize) -> u32 {
-    u32::try_from(position).unwrap_or(u32::MAX)
+/// A count or position as a protocol `u32`; values above `u32::MAX` saturate.
+pub(crate) fn saturating_u32(value: usize) -> u32 {
+    u32::try_from(value).unwrap_or(u32::MAX)
 }
 
 #[cfg(test)]
@@ -320,10 +334,7 @@ mod tests {
     use partsmith_model::RecordKind;
 
     use super::*;
-
-    fn id(text: &str) -> Id {
-        Id::new(text).expect("a valid test id")
-    }
+    use crate::test_support::id;
 
     #[test]
     fn unknown_documents_name_their_handle() {
@@ -396,8 +407,8 @@ mod tests {
     }
 
     #[test]
-    fn wire_indices_saturate() {
-        assert_eq!(wire_index(3), 3);
-        assert_eq!(wire_index(usize::MAX), u32::MAX);
+    fn u32_conversions_saturate() {
+        assert_eq!(saturating_u32(3), 3);
+        assert_eq!(saturating_u32(usize::MAX), u32::MAX);
     }
 }

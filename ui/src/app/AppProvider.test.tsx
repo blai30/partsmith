@@ -1,12 +1,8 @@
-import { act, cleanup, render, screen } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { act, render, screen } from '@testing-library/react'
+import { describe, expect, it, vi } from 'vitest'
 import { createTestApp } from '../test/fakes/app'
 import { AppProvider, useApp, useAppState } from './AppProvider'
 import type { App } from './createApp'
-
-afterEach(() => {
-  cleanup()
-})
 
 function AppProbe(props: { readonly onRender: (app: App) => void }) {
   props.onRender(useApp())

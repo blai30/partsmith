@@ -6,16 +6,14 @@ import type { Notification } from '../state/store'
 import { cubeDocumentState, readyState } from './fixtures.testing'
 import { createModelApp, renderWithApp, stubMatchMedia } from './test-app.testing'
 
-let uninstallPopovers: () => void
+beforeEach(installPopoverPolyfill)
 
 beforeEach(() => {
-  uninstallPopovers = installPopoverPolyfill()
   stubMatchMedia()
 })
 
 afterEach(() => {
   cleanup()
-  uninstallPopovers()
   vi.unstubAllGlobals()
 })
 

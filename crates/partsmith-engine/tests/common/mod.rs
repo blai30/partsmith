@@ -9,7 +9,9 @@
 use std::path::Path;
 
 use partsmith_engine::{SequentialIds, Session, SessionOptions};
-use partsmith_protocol::{Buffer, ErrorCode, Request, encode_request_frame};
+use partsmith_protocol::{
+    Buffer, ErrorCode, Event, Request, Response, decode_response_frame, encode_request_frame,
+};
 use serde_json::{Value, json};
 
 /// Relative tolerance for geometry values (engine.md section 6).
@@ -58,6 +60,24 @@ pub struct Sent {
 }
 
 impl Sent {
+    /// The events, response and buffers of one reply.
+    fn new(events: &[Event], response: &Response, buffers: Vec<Buffer>) -> Sent {
+        Sent {
+            events: events
+                .iter()
+                .map(|event| serde_json::to_value(event).expect("events serialize"))
+                .collect(),
+            response: serde_json::to_value(response).expect("responses serialize"),
+            buffers,
+        }
+    }
+
+    /// The decoded content of a response frame.
+    pub fn from_frame(frame: &[u8]) -> Sent {
+        let decoded = decode_response_frame(frame).expect("response frames decode");
+        Sent::new(&decoded.events, &decoded.response, decoded.buffers)
+    }
+
     /// The `result` of the response.
     pub fn result(&self) -> &Value {
         &self.response["result"]
@@ -325,15 +345,7 @@ pub fn send_with_buffers(session: &mut Session, command: Value, buffers: Vec<Buf
     let request: Request = serde_json::from_value(json!({"id": 1, "command": command.clone()}))
         .unwrap_or_else(|error| panic!("{command} is a valid request ({error})"));
     let reply = session.execute(request, buffers);
-    Sent {
-        events: reply
-            .events
-            .iter()
-            .map(|event| serde_json::to_value(event).expect("events serialize"))
-            .collect(),
-        response: serde_json::to_value(&reply.response).expect("responses serialize"),
-        buffers: reply.buffers,
-    }
+    Sent::new(&reply.events, &reply.response, reply.buffers)
 }
 
 /// The bytes of a request frame with id `id`.

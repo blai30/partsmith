@@ -18,16 +18,14 @@ import { startFeatureCommand } from '../app/actions/command'
 // The command inspector of the one-interface amendments (ui.md 3.7, 4.2): the inline Reverse, its
 // fixes, what "More options" hides, created bodies in their fields and where focus starts.
 
-let uninstallPopovers: () => void
+beforeEach(installPopoverPolyfill)
 
 beforeEach(() => {
-  uninstallPopovers = installPopoverPolyfill()
   stubMatchMedia()
 })
 
 afterEach(() => {
   cleanup()
-  uninstallPopovers()
   vi.unstubAllGlobals()
 })
 

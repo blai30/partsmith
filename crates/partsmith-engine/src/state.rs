@@ -4,11 +4,13 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use partsmith_features::{BodyState, CancelToken, OutputData, Registry};
-use partsmith_model::{Document, Id};
+use partsmith_features::{BodyState, BodyUpdate, CancelToken, FeatureOutput, OutputData, Registry};
+use partsmith_model::{Body, Document, Id};
+use partsmith_occt_sys::Shape;
 use partsmith_print::PrinterValues;
 use partsmith_recompute::{CacheKey, FeatureReport, Input, Recompute, Report, Status};
 
+use crate::error::EngineError;
 use crate::profiles::ResolvedProfile;
 
 /// The latest recompute of a document.
@@ -84,9 +86,32 @@ pub(crate) struct BodyView {
 }
 
 impl BodyView {
-    /// True when the body has a shape at this point.
+    /// True when the body has a shape at this point (a view has an identity only then).
     pub(crate) fn has_geometry(&self) -> bool {
-        self.identity.is_some() && !self.state.is_empty()
+        self.identity.is_some()
+    }
+
+    /// The shape of a view with geometry.
+    pub(crate) fn shape(&self) -> Result<&Shape, EngineError> {
+        self.state
+            .shape()
+            .ok_or_else(|| EngineError::internal("a body with geometry has no shape"))
+    }
+}
+
+/// The output of a feature that built (status ok or warning); `None` for every other status.
+pub(crate) fn built_output(report: &FeatureReport) -> Option<&FeatureOutput> {
+    if !matches!(report.status, Status::Ok | Status::Warning) {
+        return None;
+    }
+    report.output.as_deref()
+}
+
+/// The body updates of a feature that built bodies, in output order; empty otherwise.
+pub(crate) fn body_updates(report: &FeatureReport) -> &[BodyUpdate] {
+    match built_output(report).map(|output| &output.data) {
+        Some(OutputData::Bodies(updates)) => updates,
+        _ => &[],
     }
 }
 
@@ -95,22 +120,17 @@ impl BodyView {
 fn writers(features: &[FeatureReport]) -> BTreeMap<Id, Option<(CacheKey, Id)>> {
     let mut writers = BTreeMap::new();
     for feature in features {
-        if !matches!(feature.status, Status::Ok | Status::Warning) {
-            continue;
-        }
-        let (Some(output), Some(key)) = (&feature.output, feature.key) else {
+        let Some(key) = feature.key else {
             continue;
         };
-        if let OutputData::Bodies(updates) = &output.data {
-            for update in updates {
-                writers.insert(
-                    update.body.clone(),
-                    update
-                        .shape
-                        .is_some()
-                        .then(|| (key, feature.feature.clone())),
-                );
-            }
+        for update in body_updates(feature) {
+            writers.insert(
+                update.body.clone(),
+                update
+                    .shape
+                    .is_some()
+                    .then(|| (key, feature.feature.clone())),
+            );
         }
     }
     writers
@@ -163,17 +183,43 @@ pub(crate) fn display_bodies(document: &Document, computed: &Computed) -> Vec<Bo
         .bodies
         .iter()
         .map(|body| {
-            let before = focus.and_then(|(_, feature)| {
-                feature
-                    .bodies_before
-                    .iter()
-                    .find(|(id, _)| id == &body.id)
-                    .map(|(_, state)| state.clone())
-            });
+            let before = focus.and_then(|(_, feature)| body_before(feature, &body.id).cloned());
             let state = before.unwrap_or_else(|| final_state(report, &body.id));
             view(&body.id, state, &writers)
         })
         .collect()
+}
+
+/// The state of `body` just before the feature at timeline position `position`: the state the
+/// feature read when it ran, else the output of the last earlier feature that changed the body.
+pub(crate) fn state_before(computed: &Computed, position: usize, body: &Id) -> BodyState {
+    let features = &computed.report.features;
+    if let Some(state) = features
+        .get(position)
+        .and_then(|feature| body_before(feature, body))
+    {
+        return state.clone();
+    }
+    for feature in features[..position.min(features.len())].iter().rev() {
+        if let Some(update) = body_updates(feature)
+            .iter()
+            .find(|update| update.body == *body)
+        {
+            // Keeps the topology and volume the feature carried (features.md section 2.7).
+            return BodyState::from_update(update);
+        }
+    }
+    BodyState::empty()
+}
+
+/// The state of `body` that `feature` read when it ran (its `bodies_before`), if it declares the
+/// body.
+fn body_before<'r>(feature: &'r FeatureReport, body: &Id) -> Option<&'r BodyState> {
+    feature
+        .bodies_before
+        .iter()
+        .find(|(id, _)| id == body)
+        .map(|(_, state)| state)
 }
 
 /// The bodies the focus feature's output updates, with their states after it, by body id. Empty
@@ -193,6 +239,41 @@ pub(crate) fn preview_bodies(computed: &Computed) -> BTreeMap<Id, BodyView> {
         previews.insert(body.clone(), view(body, state, &writers));
     }
     previews
+}
+
+/// The views of the bodies an analysis or export works on, in document order: the `requested`
+/// bodies, checked in request order (`unknown_body` for a body the document does not have,
+/// `body_empty` for one without geometry), or else every body with geometry that `include`
+/// accepts.
+pub(crate) fn select_bodies(
+    document: &Document,
+    views: Vec<BodyView>,
+    requested: Option<&[Id]>,
+    include: impl Fn(&Body) -> bool,
+) -> Result<Vec<BodyView>, EngineError> {
+    let Some(requested) = requested else {
+        return Ok(views
+            .into_iter()
+            .filter(|view| view.has_geometry() && document.body(&view.body).is_some_and(&include))
+            .collect());
+    };
+    for body in requested {
+        let record = document
+            .body(body)
+            .ok_or_else(|| EngineError::UnknownBody { id: body.clone() })?;
+        if !views
+            .iter()
+            .any(|view| view.body == *body && view.has_geometry())
+        {
+            return Err(EngineError::BodyEmpty {
+                name: record.name.clone(),
+            });
+        }
+    }
+    Ok(views
+        .into_iter()
+        .filter(|view| requested.contains(&view.body))
+        .collect())
 }
 
 /// The display state of one body, if the document has it.
@@ -226,10 +307,7 @@ mod tests {
     use partsmith_model::{FeatureRecord, Units};
 
     use super::*;
-
-    fn id(text: &str) -> Id {
-        Id::new(text).expect("a valid test id")
-    }
+    use crate::test_support::id;
 
     fn document() -> Document {
         let mut document = Document::new(Units::Mm);

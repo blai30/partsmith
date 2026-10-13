@@ -22,12 +22,8 @@ import {
   SquareSplitVertical,
   Torus,
 } from 'lucide-react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { CONSTRAINT_ICONS, FEATURE_ICONS, featureIcon } from './icons'
-
-afterEach(() => {
-  cleanup()
-})
 
 // Manifest icon names (features.md 3.13) and their lucide icons (ui.md 2.10).
 const FEATURE_ICON_TABLE = [

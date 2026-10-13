@@ -1,14 +1,10 @@
-import { cleanup, render, screen, within } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { FindingKey } from '../state/store'
 import { COLOR_CLASSES } from '../theme/roles'
 import type { HealthRow } from './health'
 import { HealthList, type HealthListProps } from './HealthList'
-
-afterEach(() => {
-  cleanup()
-})
 
 const PROFILE = 'Generic FDM 0.4 mm'
 
@@ -32,10 +28,6 @@ const ROWS: readonly HealthRow[] = [
     bodyName: 'Mushroom',
   },
 ]
-
-function classes(roleClasses: string): string[] {
-  return roleClasses.split(' ')
-}
 
 function renderList(overrides: Partial<HealthListProps> = {}) {
   const onCheckAgain = vi.fn<() => void>()
@@ -102,29 +94,24 @@ describe('HealthList', () => {
     renderList()
     const error = item(0)
     expect(within(error).getByText(ROWS[0]?.message ?? '')).toBeInTheDocument()
-    expect(within(error).getByText('Slab')).toHaveClass(
-      ...classes(COLOR_CLASSES.textMuted.foreground),
-    )
+    expect(within(error).getByText('Slab')).toHaveClass(COLOR_CLASSES.textMuted.foreground)
   })
 
   it.each([
     {
       severity: 'error',
       icon: 'lucide-circle-x',
-      iconClasses: classes(COLOR_CLASSES.errorMark.foreground),
+      iconClasses: [COLOR_CLASSES.errorMark.foreground],
     },
     {
       severity: 'warning',
       icon: 'lucide-triangle-alert',
-      iconClasses: [
-        ...classes(COLOR_CLASSES.warningMark.fill),
-        ...classes(COLOR_CLASSES.warningMark.foreground),
-      ],
+      iconClasses: [COLOR_CLASSES.warningMark.fill, COLOR_CLASSES.warningMark.foreground],
     },
     {
       severity: 'info',
       icon: 'lucide-info',
-      iconClasses: classes(COLOR_CLASSES.textMuted.foreground),
+      iconClasses: [COLOR_CLASSES.textMuted.foreground],
     },
   ])('marks $severity rows with their severity icon', ({ severity, icon, iconClasses }) => {
     renderList()
@@ -170,7 +157,7 @@ describe('HealthList details', () => {
   it('marks the row of the focused finding as current', () => {
     renderList({ focusedFinding: { body: 'b-mushroom', check: 'overhangs', index: 1 } })
     expect(items().map((row) => row.getAttribute('aria-current'))).toEqual([null, 'true', null])
-    expect(item(1)).toHaveClass(...classes(COLOR_CLASSES.selection.background))
+    expect(item(1)).toHaveClass(COLOR_CLASSES.selection.background)
   })
 
   it('marks no row without a focused finding', () => {

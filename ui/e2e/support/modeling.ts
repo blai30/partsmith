@@ -2,9 +2,8 @@
 import { expect, type Locator, type Page } from '@playwright/test'
 import { inspector, inspectorField, inspectorInput } from '../helpers'
 
-// Helpers for the modeling end-to-end tests: the Model toolbar and its groups, inspector fields
-// and choices, previews, timeline labels and browser rows by kind. The shared helpers of ui.md
-// 6.3 are in ../helpers.ts.
+// Helpers for the modeling end-to-end tests: the Model toolbar's groups, inspector fields and
+// choices, previews and timeline labels. The shared helpers of ui.md 6.3 are in ../helpers.ts.
 
 /** Opens a toolbar group ("Shapes", "Pattern") and runs one of its commands. */
 export async function runFromGroup(page: Page, group: string, title: string): Promise<void> {
@@ -13,14 +12,6 @@ export async function runFromGroup(page: Page, group: string, title: string): Pr
     .getByRole('button', { name: group, exact: true })
     .click()
   await page.getByRole('menuitem', { name: title }).first().click()
-}
-
-/** Clicks a toolbar button of the Model context. */
-export async function clickTool(page: Page, title: string): Promise<void> {
-  await page
-    .getByRole('toolbar', { name: 'Model tools' })
-    .getByRole('button', { name: title, exact: true })
-    .click()
 }
 
 /** The selection box of the inspector field with a param path. */
@@ -58,12 +49,4 @@ export function timelineLabels(page: Page): Promise<string[]> {
     .evaluateAll((items) =>
       items.map((item) => item.querySelector('button')?.getAttribute('aria-label') ?? ''),
     )
-}
-
-/** The browser row of a body, sketch or other item, by its kind and the exact text of its name. */
-export function browserRow(page: Page, kind: string, name: string): Locator {
-  return page
-    .getByTestId('browser')
-    .locator(`[data-testid=browser-row][data-kind=${kind}]`)
-    .filter({ has: page.getByText(name, { exact: true }) })
 }

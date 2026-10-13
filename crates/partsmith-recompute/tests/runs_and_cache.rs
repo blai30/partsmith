@@ -756,8 +756,8 @@ fn the_default_cache_holds_4096_entries() {
 
 #[test]
 fn recompute_is_send_and_exposes_its_registry() {
-    fn assert_send<T: Send>() {}
-    assert_send::<Recompute>();
+    fn assert_send_and_sync<T: Send + Sync>() {}
+    assert_send_and_sync::<Recompute>();
     let registry = Arc::new(test_registry());
 
     let recompute = Recompute::new(Arc::clone(&registry));

@@ -223,6 +223,7 @@ mod tests {
     use partsmith_features::FieldRef;
 
     use super::*;
+    use crate::test_support::id;
 
     /// Names that know body `b-1` as `Bracket` and feature `f-1` as `Base`.
     struct Bracket;
@@ -235,10 +236,6 @@ mod tests {
         fn feature_label(&self, feature: &Id) -> Option<String> {
             (feature.as_str() == "f-1").then(|| "Base".to_string())
         }
-    }
-
-    fn id(text: &str) -> Id {
-        Id::new(text).expect("valid test id")
     }
 
     fn field(path: &str, label: &str) -> FieldRef {

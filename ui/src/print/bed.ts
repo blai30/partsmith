@@ -2,6 +2,7 @@ import type { Bed, BodyPrint } from '../generated/protocol'
 import { memoized } from '../state/selectors'
 import type { AppState } from '../state/store'
 import { cross, dot, scale, subtract, type Vector3 } from '../viewport/math'
+import { findPrinter } from './printer'
 
 // The print bed outline drawn in Print context after a report (ui.md 3.12 pass 8, 3.17).
 
@@ -87,7 +88,7 @@ export const bedOutline: (state: AppState) => Float32Array | null = memoized(
       return null
     }
     // The core lists every profile with all its fields; the schema shares the input form, where the bed is optional.
-    const bed = printers.find((printer) => printer.id === report.profile)?.bed
+    const bed = findPrinter(printers, report.profile)?.bed
     return bed === undefined || bed === null ? null : bedOutlineSegments(bed, body)
   },
 )

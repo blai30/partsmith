@@ -6,7 +6,7 @@ use std::sync::Arc;
 use partsmith_model::{Id, Scope};
 
 use crate::cache::{Cache, Outcome};
-use crate::evaluate::evaluate;
+use crate::evaluate::{Progress, evaluate};
 use crate::key::CacheKey;
 use crate::timeline::{StepKind, Timeline};
 
@@ -52,8 +52,7 @@ pub(crate) fn plan(
     cache: &Cache,
     assets: &BTreeMap<String, Arc<[u8]>>,
 ) -> Plan {
-    let mut keys: Vec<Option<CacheKey>> = Vec::with_capacity(timeline.steps.len());
-    let mut failed: Vec<bool> = Vec::with_capacity(timeline.steps.len());
+    let mut progress = Progress::with_capacity(timeline.steps.len());
     let mut steps = Vec::with_capacity(timeline.steps.len());
     for (position, step) in timeline.steps.iter().enumerate() {
         let (action, key, fails) = match &step.kind {
@@ -61,9 +60,9 @@ pub(crate) fn plan(
             StepKind::Suppressed => (Action::Suppressed, None, false),
             StepKind::Invalid(_) => (Action::Fail, None, true),
             StepKind::Active(active) => {
-                let (_, key) = evaluate(timeline, position, active, &keys, scope);
+                let (_, key) = evaluate(timeline, position, active, &progress.keys, scope);
                 let (action, fails) = if timeline
-                    .check_links(position, active, &failed, assets)
+                    .check_links(position, active, &progress.failed, assets)
                     .is_err()
                 {
                     (Action::Fail, true)
@@ -77,8 +76,7 @@ pub(crate) fn plan(
                 (action, Some(key), fails)
             }
         };
-        keys.push(key);
-        failed.push(fails);
+        progress.push(key, fails);
         steps.push(PlanStep {
             feature: step.record.id.clone(),
             action,
@@ -92,17 +90,15 @@ pub(crate) fn plan(
 mod tests {
     use partsmith_features::{FeatureError, FeatureOutput, OutputData};
     use partsmith_model::{Document, EmptyContext};
-    use serde_json::{Value, json};
+    use serde_json::json;
 
     use super::*;
     use crate::cache::Built;
-    use crate::test_support::{document, registry};
-    use crate::validation::Validations;
+    use crate::test_support::{datum, datum_on, document, id, prepared};
 
     /// The plan of `document` over `cache`, with no assets.
     fn plan_of(document: &Document, cache: &Cache) -> Plan {
-        let registry = registry();
-        let timeline = Timeline::prepare(&registry, &mut Validations::default(), document, None);
+        let timeline = prepared(document);
         let parameters = document.evaluate_parameters(&EmptyContext);
         let scope = Scope {
             units: document.units,
@@ -114,14 +110,6 @@ mod tests {
 
     fn actions(plan: &Plan) -> Vec<Action> {
         plan.steps.iter().map(|step| step.action).collect()
-    }
-
-    fn datum(feature: &str, offset: &str) -> Value {
-        json!({"id": feature, "type": "test_datum", "offset": offset})
-    }
-
-    fn datum_on(feature: &str, base: &str) -> Value {
-        json!({"id": feature, "type": "test_datum", "base": base, "offset": "1"})
     }
 
     fn nothing() -> Outcome {
@@ -216,7 +204,7 @@ mod tests {
     #[test]
     fn rolled_back_records_are_predicted_rolled_back() {
         let mut document = document(json!([datum("f-1", "1"), datum("f-2", "1")]));
-        document.rollback = Some(partsmith_model::Id::new("f-2").expect("valid id"));
+        document.rollback = Some(id("f-2"));
 
         let plan = plan_of(&document, &Cache::new(10));
 

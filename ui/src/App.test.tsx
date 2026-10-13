@@ -5,7 +5,12 @@ import { installPopoverPolyfill } from './components/popover-polyfill.testing'
 import type { App as AppInstance } from './app/createApp'
 import type { Edit, SketchEntity } from './generated/protocol'
 import { bodyItem, cubeDocumentState, documentState, readyState } from './layout/fixtures.testing'
-import { createModelApp, renderWithApp, stubMatchMedia } from './layout/test-app.testing'
+import {
+  createModelApp,
+  renderModelApp,
+  renderWithApp,
+  stubMatchMedia,
+} from './layout/test-app.testing'
 import { MESSAGES } from './messages'
 import { DEFAULT_SETTINGS } from './settings/settings'
 import { INITIAL_STATE, type ActiveCommand, type AppState } from './state/store'
@@ -23,16 +28,14 @@ import { checkResult, finding, printReport } from './test/fakes/state'
 import { COLOR_CLASSES, FONT_CLASSES } from './theme/roles'
 import { classifyView } from './viewport/camera'
 
-let uninstallPopovers: () => void
+beforeEach(installPopoverPolyfill)
 
 beforeEach(() => {
-  uninstallPopovers = installPopoverPolyfill()
   stubMatchMedia()
 })
 
 afterEach(() => {
   cleanup()
-  uninstallPopovers()
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
 })
@@ -55,9 +58,7 @@ const EXTRUDE_COMMAND: ActiveCommand = {
 }
 
 function renderApp(state: Partial<AppState> = {}) {
-  const test = createModelApp({ state: readyState(cubeDocumentState(), state) })
-  renderWithApp(test.app)
-  return { ...test, user: userEvent.setup() }
+  return renderModelApp({ state })
 }
 
 describe('the app shell (3.2)', () => {

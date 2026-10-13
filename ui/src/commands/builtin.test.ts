@@ -12,7 +12,8 @@ import {
   readyState,
   rectSketchDocumentState,
 } from '../layout/fixtures.testing'
-import { createFakeViewport, createModelApp, stubMatchMedia } from '../layout/test-app.testing'
+import { BROWSER_PANEL_ID } from '../layout/panel-ids'
+import { createModelApp, stubMatchMedia } from '../layout/test-app.testing'
 import { onUiRequest, type UiRequest } from '../layout/requests'
 import { MESSAGES } from '../messages'
 import { DEFAULT_SETTINGS } from '../settings/settings'
@@ -25,6 +26,7 @@ import { builtinCommands } from './builtin'
 import { featureCommands } from './features'
 import { paletteItems } from './palette'
 import { createCommandRegistry, type CommandDefinition } from './registry'
+import { createFakeViewport } from '../test/fakes/viewport'
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -540,6 +542,7 @@ describe('running built-in commands', () => {
       return true
     })
     const browser = document.createElement('nav')
+    browser.id = BROWSER_PANEL_ID
     browser.dataset['testid'] = 'browser'
     const row = document.createElement('button')
     browser.append(row)

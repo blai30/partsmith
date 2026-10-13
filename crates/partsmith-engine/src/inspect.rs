@@ -11,7 +11,7 @@ use partsmith_protocol::{
     Resolution, ResolutionStatus,
 };
 
-use crate::display::{ElementTable, kernel_failure};
+use crate::display::ElementTable;
 use crate::document::OpenDocument;
 use crate::elements::{describe, describe_element, element_fields, sub_shape_kind};
 use crate::error::EngineError;
@@ -49,12 +49,14 @@ impl Session {
         let Some((body, shown)) = open
             .emitted
             .model
+            .shown
             .iter()
             .find(|(_, shown)| shown.mesh_id == pick.mesh_id)
         else {
             let preview = open
                 .emitted
                 .preview
+                .shown
                 .values()
                 .any(|shown| shown.mesh_id == pick.mesh_id);
             return Err(if preview {
@@ -98,6 +100,7 @@ impl Session {
                 let mesh_id = open
                     .emitted
                     .model
+                    .shown
                     .get(&element.body)
                     .map_or(0, |shown| shown.mesh_id);
                 let view = display_body(&open.document, &open.computed, &element.body)
@@ -146,18 +149,15 @@ impl Session {
             MeasureTarget::Body { body } => {
                 let view = body_with_geometry(self.open(doc)?, body)?;
                 let table = self.table_of(&view)?;
-                let shape = shape_of(&view)?;
-                let center = shape.center_of_mass().map_err(kernel_failure)?;
+                let shape = view.shape()?;
+                let center = shape.center_of_mass().map_err(EngineError::unexpected)?;
                 // The body state's volume, which the feature that made it usually carries.
-                let volume = view
-                    .state
-                    .volume()
-                    .map_err(|error| EngineError::internal(error.to_string()))?;
+                let volume = view.state.volume().map_err(EngineError::unexpected)?;
                 Ok(Measurement {
                     volume: Some(volume),
-                    area: Some(shape.area().map_err(kernel_failure)?),
+                    area: Some(shape.area().map_err(EngineError::unexpected)?),
                     center_of_mass: Some([center.x, center.y, center.z]),
-                    bounding_box: Some(shape.bounding_box().map_err(kernel_failure)?),
+                    bounding_box: Some(shape.bounding_box().map_err(EngineError::unexpected)?),
                     face_count: Some(table.count(ElementKind::Face)),
                     edge_count: Some(table.count(ElementKind::Edge)),
                     vertex_count: Some(table.count(ElementKind::Vertex)),
@@ -167,9 +167,10 @@ impl Session {
             MeasureTarget::Element { body, reference } => {
                 let view = body_with_geometry(self.open(doc)?, body)?;
                 let (kind, index) = unique_element(&view, reference)?;
-                let geometry = shape_of(&view)?
+                let geometry = view
+                    .shape()?
                     .element(sub_shape_kind(kind), index)
-                    .map_err(kernel_failure)?;
+                    .map_err(EngineError::unexpected)?;
                 let fields = element_fields(kind, &geometry);
                 Ok(Measurement {
                     area: fields.area,
@@ -210,13 +211,6 @@ pub(crate) fn body_with_geometry(open: &OpenDocument, body: &Id) -> Result<BodyV
         })
 }
 
-/// The shape of a body view with geometry.
-pub(crate) fn shape_of(view: &BodyView) -> Result<&partsmith_occt_sys::Shape, EngineError> {
-    view.state
-        .shape()
-        .ok_or_else(|| EngineError::internal("a body with geometry has no shape"))
-}
-
 /// The timeline position of every feature, for the features of edges and vertices.
 pub(crate) fn timeline(document: &Document) -> BTreeMap<Id, usize> {
     document
@@ -241,10 +235,7 @@ fn resolve_in(
     view: &BodyView,
     reference: &Reference,
 ) -> Result<(ResolutionStatus, Vec<ElementName>), EngineError> {
-    let elements = view
-        .state
-        .elements()
-        .map_err(|error| EngineError::internal(error.to_string()))?;
+    let elements = view.state.elements().map_err(EngineError::unexpected)?;
     Ok(
         match resolve(reference, &elements, view.state.naming().aliases()) {
             Resolved::Resolved { elements, .. } => (ResolutionStatus::Resolved, elements),

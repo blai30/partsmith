@@ -1,4 +1,4 @@
-import { createConnection, RECENT_STORE, requestResult, withStore } from './database'
+import { createStoreAccess, RECENT_STORE, requestResult } from './database'
 import { isFileHandle, type FileHandle } from './file-service'
 
 export type RecentFile = {
@@ -10,18 +10,19 @@ export type RecentFile = {
   readonly text: string | null
 }
 
+/** A file to remember: its name and handle, and its text for when it has no handle. */
+export type RememberedFile = {
+  readonly name: string
+  readonly handle: FileHandle | null
+  readonly text: string
+}
+
 export type RecentFilesStore = {
   /** The remembered files, most recent first. */
   list(): Promise<readonly RecentFile[]>
-  remember(file: {
-    readonly name: string
-    readonly handle: FileHandle | null
-    readonly text: string
-  }): Promise<void>
+  remember(file: RememberedFile): Promise<void>
   forget(id: string): Promise<void>
 }
-
-type OpenedFile = Parameters<RecentFilesStore['remember']>[0]
 
 /** The most files the list keeps. */
 export const RECENT_FILES_LIMIT = 10
@@ -37,7 +38,7 @@ function createQueue(): <Result>(task: () => Promise<Result>) => Promise<Result>
 }
 
 /** Whether a remembered entry is the same file: the same handle, or for entries without one, the same name. */
-async function isSameFile(entry: RecentFile, file: OpenedFile): Promise<boolean> {
+async function isSameFile(entry: RecentFile, file: RememberedFile): Promise<boolean> {
   if (file.handle === null || entry.handle === null) {
     return file.handle === null && entry.handle === null && entry.name === file.name
   }
@@ -68,7 +69,7 @@ type RememberPlan = {
 
 async function planRemember(
   entries: readonly RecentFile[],
-  file: OpenedFile,
+  file: RememberedFile,
   now: () => number,
 ): Promise<RememberPlan> {
   const added: RecentFile = {
@@ -122,8 +123,17 @@ function isRecentFile(value: unknown): value is RecentFile {
   )
 }
 
-function warn(error: unknown): void {
-  console.warn('Partsmith could not use the recent files store in IndexedDB.', error)
+/** Every stored record of the `recent` object store. */
+function readRecords(store: IDBObjectStore): Promise<readonly unknown[]> {
+  return requestResult(store.getAll())
+}
+
+/** The remembered files among stored records, most recent first, at most the limit. */
+function recentFilesOf(records: readonly unknown[]): readonly RecentFile[] {
+  return records
+    .filter(isRecentFile)
+    .toSorted((first, second) => second.openedAt - first.openedAt)
+    .slice(0, RECENT_FILES_LIMIT)
 }
 
 /** Recent files in the IndexedDB object store `recent`; every failure is logged and ignored. */
@@ -131,51 +141,34 @@ export function createIndexedDbRecentFiles(
   factory: IDBFactory,
   now: () => number = Date.now,
 ): RecentFilesStore {
-  const connection = createConnection(factory)
+  const run = createStoreAccess(
+    factory,
+    RECENT_STORE,
+    'Partsmith could not use the recent files store in IndexedDB.',
+  )
   const queue = createQueue()
-
-  async function readAll(): Promise<readonly RecentFile[]> {
-    const records = await withStore(connection, RECENT_STORE, 'readonly', (store) =>
-      requestResult(store.getAll()),
-    )
-    return records
-      .filter(isRecentFile)
-      .toSorted((first, second) => second.openedAt - first.openedAt)
-      .slice(0, RECENT_FILES_LIMIT)
-  }
-
   return {
-    list: () =>
-      queue(async () => {
-        try {
-          return await readAll()
-        } catch (error) {
-          warn(error)
-          return []
-        }
-      }),
+    list: () => queue(async () => recentFilesOf(await run('readonly', readRecords, []))),
     remember: (file) =>
       queue(async () => {
-        try {
-          const plan = await planRemember(await readAll(), file, now)
-          await withStore(connection, RECENT_STORE, 'readwrite', async (store) => {
+        const records = await run('readonly', readRecords, null)
+        if (records === null) {
+          return
+        }
+        const plan = await planRemember(recentFilesOf(records), file, now)
+        await run(
+          'readwrite',
+          async (store) => {
             const requests = plan.removedIds.map((id) => requestResult(store.delete(id)))
             requests.push(requestResult(store.put(plan.added)).then(() => undefined))
             await Promise.all(requests)
-          })
-        } catch (error) {
-          warn(error)
-        }
+          },
+          null,
+        )
       }),
     forget: (id) =>
       queue(async () => {
-        try {
-          await withStore(connection, RECENT_STORE, 'readwrite', (store) =>
-            requestResult(store.delete(id)),
-          )
-        } catch (error) {
-          warn(error)
-        }
+        await run('readwrite', (store) => requestResult(store.delete(id)), null)
       }),
   }
 }

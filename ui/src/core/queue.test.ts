@@ -1,25 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
+import { deferred, type Deferred } from '../test/fakes/deferred'
 import { settle } from '../test/fakes/settle'
 import { createLatestOnly, createMutationQueue } from './queue'
-
-type Deferred<Value> = {
-  readonly promise: Promise<Value>
-  resolve(value: Value): void
-  reject(error: unknown): void
-}
-
-function deferred<Value>(): Deferred<Value> {
-  const settlers: { resolve?: (value: Value) => void; reject?: (error: unknown) => void } = {}
-  const promise = new Promise<Value>((resolve, reject) => {
-    settlers.resolve = resolve
-    settlers.reject = reject
-  })
-  return {
-    promise,
-    resolve: (value) => settlers.resolve?.(value),
-    reject: (error) => settlers.reject?.(error),
-  }
-}
 
 describe('createMutationQueue', () => {
   it('U-15 starts the second task only after the first settles', async () => {

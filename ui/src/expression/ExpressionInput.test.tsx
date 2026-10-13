@@ -1,29 +1,18 @@
-import {
-  act,
-  cleanup,
-  fireEvent,
-  renderHook,
-  screen,
-  waitFor,
-  within,
-} from '@testing-library/react'
+import { act, fireEvent, renderHook, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useState, type ReactNode } from 'react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { AppProvider } from '../app/AppProvider'
 import type { App } from '../app/createApp'
 import type { Dimension } from '../generated/protocol'
 import { cubeDocumentState, readyState } from '../layout/fixtures.testing'
-import { createModelApp, deferred, renderWithApp, type Deferred } from '../layout/test-app.testing'
+import { createModelApp, renderWithApp } from '../layout/test-app.testing'
 import { coreErrorFor, type FakeCoreApi } from '../test/fakes/core-api'
+import { deferred, type Deferred } from '../test/fakes/deferred'
 import { settle } from '../test/fakes/settle'
 import { FONT_CLASSES } from '../theme/roles'
 import { ExpressionInput, type ExpressionInputProps, type ExpressionState } from './ExpressionInput'
 import { useExpression } from './useExpression'
-
-afterEach(() => {
-  cleanup()
-})
 
 const LENGTH: Dimension = { length: 1, angle: 0 }
 
@@ -514,7 +503,7 @@ describe('parameter name completion (2.13, U-118)', () => {
     const { input, user } = setUpNames()
     await user.type(input, 'si')
     const [first] = within(screen.getByTestId('expression-suggestions')).getAllByRole('option')
-    expect(first).toHaveClass(...FONT_CLASSES.values.split(' '))
+    expect(first).toHaveClass(FONT_CLASSES.values)
   })
 })
 

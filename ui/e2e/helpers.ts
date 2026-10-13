@@ -316,6 +316,14 @@ export function inspectorInput(page: Page, label: string): Locator {
     .or(panel.getByRole('textbox', { name: label, exact: true }))
 }
 
+/** Clicks a button of the Model tools toolbar. */
+export async function clickTool(page: Page, title: string): Promise<void> {
+  await page
+    .getByRole('toolbar', { name: 'Model tools' })
+    .getByRole('button', { name: title, exact: true })
+    .click()
+}
+
 /** The timeline item of a feature, by its label (the accessible name of its button). */
 export function timelineItem(page: Page, label: string): Locator {
   return page
@@ -323,14 +331,24 @@ export function timelineItem(page: Page, label: string): Locator {
     .filter({ has: page.getByRole('button', { name: label, exact: true }) })
 }
 
+/** The browser rows of one kind ("body", "sketch"). */
+function browserRows(page: Page, kind: string): Locator {
+  return page.getByTestId('browser').locator(`[data-testid=browser-row][data-kind=${kind}]`)
+}
+
+/** The browser row of a body, sketch or other item, by its kind and the exact text of its name. */
+export function browserRow(page: Page, kind: string, name: string): Locator {
+  return browserRows(page, kind).filter({ has: page.getByText(name, { exact: true }) })
+}
+
 /** The browser rows of bodies. */
 export function bodyRows(page: Page): Locator {
-  return page.getByTestId('browser').locator('[data-testid=browser-row][data-kind=body]')
+  return browserRows(page, 'body')
 }
 
 /** The browser row of a body whose name is exactly `name`. */
 export function bodyRow(page: Page, name: string): Locator {
-  return bodyRows(page).filter({ has: page.getByText(name, { exact: true }) })
+  return browserRow(page, 'body', name)
 }
 
 /** Renames a body in the browser: click its row, F2, type the new name, Enter (ui.md 3.10). */

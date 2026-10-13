@@ -12,7 +12,8 @@ import { reportFailure } from '../app/report'
 import { Button } from '../components/Button'
 import { IconButton } from '../components/IconButton'
 import { TextField } from '../components/TextField'
-import { formatEvaluated } from '../expression/evaluate'
+import { PARAMETER_NAME } from '../expression/completion'
+import { formatParameterValue } from '../expression/evaluate'
 import { ExpressionInput, type ExpressionState } from '../expression/ExpressionInput'
 import type { Parameter, ParameterValue, Units } from '../generated/protocol'
 import { PanelHeader } from '../layout/PanelHeader'
@@ -24,11 +25,10 @@ import { COLOR_CLASSES, FONT_CLASSES } from '../theme/roles'
 // The Parameters panel (ui.md 3.11): one row per parameter with its name, expression, value and
 // comment, each committed on Enter or blur and reverted with Esc, and a draft row to add one.
 
-const NAME_RULE = /^[A-Za-z_][A-Za-z0-9_]*$/
 const MAXIMUM_NAME_LENGTH = 64
 
 function validName(name: string): boolean {
-  return NAME_RULE.test(name) && name.length <= MAXIMUM_NAME_LENGTH
+  return PARAMETER_NAME.test(name) && name.length <= MAXIMUM_NAME_LENGTH
 }
 
 function expressionId(parameterId: string): string {
@@ -53,8 +53,6 @@ function ParameterValueText({
       </span>
     )
   }
-  const number = value?.value
-  const dimension = value?.dimension
   return (
     <span
       data-testid="parameter-value"
@@ -64,9 +62,7 @@ function ParameterValueText({
         COLOR_CLASSES.textMuted.foreground,
       )}
     >
-      {number === undefined || number === null || dimension === undefined || dimension === null
-        ? ''
-        : formatEvaluated(number, dimension, units)}
+      {formatParameterValue(value, units) ?? ''}
     </span>
   )
 }

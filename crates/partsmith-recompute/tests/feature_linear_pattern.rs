@@ -9,10 +9,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use feature_support::{
-    Run, assert_bounding_box, assert_canonical_example, assert_error_field, assert_face_area,
-    assert_face_count, assert_face_kind, assert_face_position, assert_has_face, assert_solid_count,
-    assert_unchanged, assert_volume, body_changes, document, example_paths, face, link_ids,
-    median_build_time,
+    Run, assert_bounding_box, assert_error_field, assert_examples_canonical, assert_face_area,
+    assert_face_count, assert_face_kind, assert_face_position, assert_has_face,
+    assert_median_build_within, assert_solid_count, assert_unchanged, assert_volume, body_changes,
+    document, face, link_ids,
 };
 use partsmith_features::{
     BodyState, BuildContext, BuildInputs, CancelToken, FeatureError, FeatureOutput, Values,
@@ -52,11 +52,7 @@ fn pattern(direction: &str, extra: &str) -> String {
 
 #[test]
 fn examples_are_canonical() {
-    let paths = example_paths("linear_pattern");
-    assert!(!paths.is_empty(), "examples/linear_pattern has examples");
-    for path in paths {
-        assert_canonical_example(&path);
-    }
+    assert_examples_canonical("linear_pattern");
 }
 
 #[test]
@@ -329,11 +325,7 @@ fn t013_canceled_build_returns_canceled() {
 fn t014_one_hundred_instances_build_within_500_ms() {
     let document = document(&BODIES, &[CUBE10, &pattern(&direction(X, "100", "20"), "")]);
 
-    let duration = median_build_time(&document, "f-lp1", 5);
-    assert!(
-        duration < Duration::from_millis(500),
-        "100 instances took {duration:?} to build (median of 5 runs), over the 500 ms budget",
-    );
+    assert_median_build_within(&document, "f-lp1", 5, Duration::from_millis(500));
 }
 
 #[test]

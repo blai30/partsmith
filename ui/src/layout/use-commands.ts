@@ -20,7 +20,7 @@ export type CommandView = {
 }
 
 /** The registered command definitions; re-renders when commands register or unregister. */
-export function useCommandList(app: App): readonly CommandDefinition[] {
+function useCommandList(app: App): readonly CommandDefinition[] {
   return useSyncExternalStore(app.commands.subscribe, app.commands.list, app.commands.list)
 }
 

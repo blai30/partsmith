@@ -7,6 +7,7 @@ import {
   completionNames,
   insertCompletion,
   missingParameterName,
+  PARAMETER_NAME,
   type CompletionName,
 } from './completion'
 
@@ -113,5 +114,19 @@ describe('missingParameterName', () => {
     expect(missingParameterName('pi', { start: 0, end: 2 }, sizedState())).toBeNull()
     expect(missingParameterName('printer.x', { start: 0, end: 9 }, sizedState())).toBeNull()
     expect(missingParameterName('wall', null, sizedState())).toBeNull()
+  })
+})
+
+describe('PARAMETER_NAME', () => {
+  it('takes a letter or underscore, then letters, digits and underscores', () => {
+    for (const name of ['width', '_gap', 'wall_2', 'A1']) {
+      expect(PARAMETER_NAME.test(name)).toBe(true)
+    }
+  })
+
+  it('refuses names that start with a digit or hold other characters', () => {
+    for (const name of ['2nd', 'wall-2', 'printer.nozzle', '', 'a b']) {
+      expect(PARAMETER_NAME.test(name)).toBe(false)
+    }
   })
 })

@@ -7,10 +7,10 @@ mod feature_support;
 use std::time::Duration;
 
 use feature_support::{
-    Run, assert_bounding_box, assert_canonical_example, assert_empty, assert_error_field,
+    Run, assert_bounding_box, assert_empty, assert_error_field, assert_examples_canonical,
     assert_face_area, assert_face_count, assert_face_in_plane, assert_face_kind,
-    assert_face_radius, assert_has_face, assert_no_face, assert_unchanged, assert_volume,
-    example_paths, face, link_ids, load_example, median_build_time,
+    assert_face_radius, assert_has_face, assert_median_build_within, assert_no_face,
+    assert_unchanged, assert_volume, face, link_ids, load_example,
 };
 use partsmith_occt_sys::{ElementGeometry, GeometryKind};
 
@@ -131,11 +131,7 @@ fn assert_end_cap(run: &Run, low: f64, high: f64) {
 
 #[test]
 fn examples_are_canonical() {
-    let paths = example_paths("revolve");
-    assert!(!paths.is_empty(), "examples/revolve has examples");
-    for path in paths {
-        assert_canonical_example(&path);
-    }
+    assert_examples_canonical("revolve");
 }
 
 #[test]
@@ -353,11 +349,7 @@ fn t019_new_on_a_body_with_a_solid() {
 fn t020_full_ring_builds_within_5_ms() {
     let document = load_example("revolve/full-ring.ptsm");
 
-    let duration = median_build_time(&document, "f-rev1", 21);
-    assert!(
-        duration < Duration::from_millis(5),
-        "test 1 took {duration:?} to build (median of 21 runs), over the 5 ms budget",
-    );
+    assert_median_build_within(&document, "f-rev1", 21, Duration::from_millis(5));
 }
 
 #[test]

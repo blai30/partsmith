@@ -1,16 +1,12 @@
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { createRef } from 'react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { COLOR_CLASSES } from '../theme/roles'
 import { standardViewRotation } from './camera'
 import type { Quaternion } from './math'
 import { ViewCube } from './ViewCube'
 import { VIEW_CUBE_PARTS } from './view-cube'
-
-afterEach(() => {
-  cleanup()
-})
 
 // The primary button pressed: `button` names the button that changed, `buttons` every button held.
 const PRIMARY_BUTTONS = { button: 0, buttons: 1 } as const

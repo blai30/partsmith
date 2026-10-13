@@ -1,6 +1,7 @@
 import { clsx } from 'clsx/lite'
 import {
   useEffect,
+  useEffectEvent,
   useId,
   useLayoutEffect,
   useRef,
@@ -175,10 +176,7 @@ export function ExpressionInput({
   // render that still shows an older typed text is not a change.
   const reported = useRef<{ readonly value: string; readonly state: ExpressionState } | null>(null)
   const renderedValue = useRef(value)
-  const latestOnChange = useRef(onChange)
-  useEffect(() => {
-    latestOnChange.current = onChange
-  })
+  const reportChange = useEffectEvent(onChange)
   useEffect(() => {
     const last = reported.current
     const fromOutside = value !== renderedValue.current && value !== last?.value
@@ -192,7 +190,7 @@ export function ExpressionInput({
     reported.current = { value, state }
     // A first state worth knowing (a required field left empty) is reported too.
     if (last !== null || state.state !== 'pending') {
-      latestOnChange.current(value, state)
+      reportChange(value, state)
     }
   }, [value, state])
 
@@ -204,10 +202,6 @@ export function ExpressionInput({
 
   // Enter pressed while the text is evaluated commits it once its result arrives.
   const commitWhenSettled = useRef<string | null>(null)
-  const latestOnCommit = useRef(onCommit)
-  useEffect(() => {
-    latestOnCommit.current = onCommit
-  })
   useEffect(() => {
     if (commitWhenSettled.current !== value || state.state === 'pending') {
       return
@@ -264,9 +258,8 @@ export function ExpressionInput({
       input.current?.setSelectionRange(settled.range.start, settled.range.end)
       return true
     }
-    const commit = latestOnCommit.current
-    if (commit !== undefined && (settled.state === 'valid' || settled.state === 'empty')) {
-      commit(text, settled)
+    if (onCommit !== undefined && (settled.state === 'valid' || settled.state === 'empty')) {
+      onCommit(text, settled)
       return true
     }
     return false

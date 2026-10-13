@@ -13,16 +13,14 @@ import { PARAMETRIC_DOCUMENT } from '../test/fakes/documents'
 import { settle } from '../test/fakes/settle'
 import { COLOR_CLASSES, FONT_CLASSES } from '../theme/roles'
 
-let uninstallPopovers: () => void
+beforeEach(installPopoverPolyfill)
 
 beforeEach(() => {
-  uninstallPopovers = installPopoverPolyfill()
   stubMatchMedia()
 })
 
 afterEach(() => {
   cleanup()
-  uninstallPopovers()
   vi.unstubAllGlobals()
 })
 
@@ -75,7 +73,7 @@ describe('the Parameters panel (3.11)', () => {
     expect(empty).toHaveTextContent(
       "Parameters are named values, such as wall = 2 mm. Type a parameter's name in any size or angle field to use it.",
     )
-    expect(empty).toHaveClass(...COLOR_CLASSES.textMuted.foreground.split(' '))
+    expect(empty).toHaveClass(COLOR_CLASSES.textMuted.foreground)
     const add = within(panel).getByRole('button', { name: 'Add parameter' })
     expect(empty.compareDocumentPosition(add) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
@@ -98,7 +96,7 @@ describe('the Parameters panel (3.11)', () => {
     renderPanel()
     const value = within(sizeRow()).getByTestId('parameter-value')
     expect(value).toHaveTextContent('20 mm')
-    expect(value).toHaveClass(...FONT_CLASSES.values.split(' '))
+    expect(value).toHaveClass(FONT_CLASSES.values)
   })
 
   it('shows the evaluation error instead of a value, in the error text role', () => {
@@ -344,7 +342,7 @@ describe('the Parameters panel during a command and from a field (3.7)', () => {
       'Changes are part of Extrude until you press OK.',
     )
     expect(screen.getByTestId('parameters-transaction')).toHaveClass(
-      ...COLOR_CLASSES.textMuted.foreground.split(' '),
+      COLOR_CLASSES.textMuted.foreground,
     )
   })
 

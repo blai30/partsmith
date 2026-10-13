@@ -28,18 +28,17 @@ import {
 import { settle } from '../test/fakes/settle'
 import { COLOR_CLASSES } from '../theme/roles'
 
-let uninstallPopovers: () => void
 let uninstallDispatcher: () => void = () => undefined
 
+beforeEach(installPopoverPolyfill)
+
 beforeEach(() => {
-  uninstallPopovers = installPopoverPolyfill()
   stubMatchMedia()
 })
 
 afterEach(() => {
   uninstallDispatcher()
   cleanup()
-  uninstallPopovers()
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
 })
@@ -120,9 +119,7 @@ describe('timeline items (3.9)', () => {
     expect(screen.getByTestId('timeline-empty')).toHaveTextContent(
       /^Each step you add appears here\. Double-click a step to change it later\.$/,
     )
-    expect(screen.getByTestId('timeline-empty')).toHaveClass(
-      ...COLOR_CLASSES.textMuted.foreground.split(' '),
-    )
+    expect(screen.getByTestId('timeline-empty')).toHaveClass(COLOR_CLASSES.textMuted.foreground)
   })
 
   it('shows no empty text once there is a feature', () => {

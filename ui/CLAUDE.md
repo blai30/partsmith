@@ -23,3 +23,4 @@ pnpm e2e                 # Playwright against the production build and the core 
 - `src/index.css` holds only the font import, the Tailwind import and the `dark` custom variant. Do not add CSS or CSS variables there without human approval.
 - Light and dark themes come from the role-to-color mapping documented in `docs/spec/ui.md`; the `dark` class on the root element switches themes.
 - Icons from `lucide-react`.
+- Tests build on the shared fakes in `src/test/fakes` (core, app, state, selection items, viewport, deferred promises). `src/test/setup.ts` unmounts Testing Library renders after each test, after the file's own `afterEach` hooks, so a file calls `cleanup()` itself only when its teardown must follow the unmount; `beforeEach(installPopoverPolyfill)` installs and removes the popover stand-in.

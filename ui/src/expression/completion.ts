@@ -1,7 +1,7 @@
 import { fuzzyScore } from '../commands/fuzzy'
 import { resolvedPrinter } from '../print/printer'
 import type { AppState } from '../state/store'
-import { formatEvaluated } from './evaluate'
+import { formatParameterValue } from './evaluate'
 
 // Parameter name completion in expression fields (ui.md 2.13): the names a field can use, the
 // identifier the caret ends, and the names that match it.
@@ -64,13 +64,7 @@ export function completionNames(state: AppState): readonly CompletionName[] {
   }
   const units = document.recipe.units
   const parameters = (document.recipe.parameters ?? []).map((parameter) => {
-    const value = document.parameterValues[parameter.id]
-    const number = value?.value
-    const dimension = value?.dimension
-    const shown =
-      number === undefined || number === null || dimension === undefined || dimension === null
-        ? null
-        : formatEvaluated(number, dimension, units)
+    const shown = formatParameterValue(document.parameterValues[parameter.id], units)
     return {
       name: parameter.name,
       display: shown === null ? parameter.name : `${parameter.name} = ${shown}`,
@@ -85,6 +79,9 @@ export function completionNames(state: AppState): readonly CompletionName[] {
 }
 
 const NAME_CHARACTER = /[A-Za-z0-9_.]/
+
+/** A parameter name: a letter or `_`, then letters, digits and `_`. */
+export const PARAMETER_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/
 
 /**
  * The completion at the caret, or null when the list stays closed: the caret must end an
@@ -156,7 +153,7 @@ export function missingParameterName(
   }
   const name = text.slice(range.start, range.end)
   // An identifier has no dot, so `printer.*` names are never offered.
-  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name) || RESERVED.has(name)) {
+  if (!PARAMETER_NAME.test(name) || RESERVED.has(name)) {
     return null
   }
   const parameters = state.document?.recipe.parameters ?? []

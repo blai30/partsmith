@@ -1,6 +1,6 @@
-import { act, cleanup, render, screen, within } from '@testing-library/react'
+import { act, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { AppProvider } from '../app/AppProvider'
 import { installPopoverPolyfill } from '../components/popover-polyfill.testing'
 import type { ProfileFinding, SketchEntity, SketchSolution } from '../generated/protocol'
@@ -22,10 +22,6 @@ import { SketchHeader } from './SketchHeader'
 import { settleCommits, sketchHarness } from './view.testing'
 
 const LINE = lineEntity('e-1', [0, 0], [10, 0])
-
-afterEach(() => {
-  cleanup()
-})
 
 /** Renders the header in sketch mode on f-sk1 with these entities and this solution. */
 function renderHeader(entities: SketchEntity[], solution: SketchSolution): HTMLElement {
@@ -361,14 +357,7 @@ describe('sketch problems (3.16.8)', () => {
 })
 
 describe('sketch problems actions (3.16.8)', () => {
-  let uninstallPopovers: () => void
-  beforeEach(() => {
-    uninstallPopovers = installPopoverPolyfill()
-  })
-  afterEach(() => {
-    cleanup()
-    uninstallPopovers()
-  })
+  beforeEach(installPopoverPolyfill)
 
   const HORIZONTAL = { id: 'c-1', type: 'horizontal', line: 'e-1' } as const
   const VERTICAL = { id: 'c-2', type: 'vertical', line: 'e-1' } as const

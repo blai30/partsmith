@@ -15,11 +15,11 @@ use partsmith_sketch::Placement;
 
 use crate::display::{DisplayCache, DisplayMesh, MeshKey};
 use crate::document::OpenDocument;
-use crate::error::EngineError;
+use crate::error::{EngineError, saturating_u32};
 use crate::session::Session;
-use crate::sketch::{DATUM_PLANE_TYPE, SKETCH_TYPE, Solved, built, datum_placement, sketch_params};
-use crate::sketching::solve_in;
-use crate::state::{BodyView, display_bodies, preview_bodies};
+use crate::sketch::{DATUM_PLANE_TYPE, SKETCH_TYPE, Solved, built, sketch_params};
+use crate::sketching::{datum_placement, solve_in};
+use crate::state::{BodyView, built_output, display_bodies, preview_bodies};
 use crate::status::{DisplayFailure, document_diagnostics, feature_statuses, parameter_values};
 use crate::triangulate::fill_regions;
 
@@ -35,7 +35,7 @@ pub(crate) struct Output {
 impl Output {
     /// Adds a buffer and returns its index.
     pub(crate) fn buffer(&mut self, buffer: Buffer) -> BufferIndex {
-        let index = BufferIndex(u32::try_from(self.buffers.len()).unwrap_or(u32::MAX));
+        let index = BufferIndex(saturating_u32(self.buffers.len()));
         self.buffers.push(buffer);
         index
     }
@@ -52,14 +52,10 @@ pub(crate) struct Emitted {
     sketches: BTreeMap<Id, SketchSolution>,
     /// The last placement (or its absence) of each datum plane.
     datums: BTreeMap<Id, Option<Placement>>,
-    /// The model-layer mesh of each body that has one.
-    pub(crate) model: BTreeMap<Id, Shown>,
-    /// The preview-layer mesh of each body that has one.
-    pub(crate) preview: BTreeMap<Id, Shown>,
-    /// The model-layer bodies whose mesh could not be built.
-    model_failures: BTreeMap<Id, Failed>,
-    /// The preview-layer bodies whose mesh could not be built.
-    preview_failures: BTreeMap<Id, Failed>,
+    /// What the model layer shows.
+    pub(crate) model: LayerState,
+    /// What the preview layer shows.
+    pub(crate) preview: LayerState,
     /// Re-send every mesh with a new id (after `set_tessellation`).
     pub(crate) refresh_meshes: bool,
 }
@@ -67,12 +63,23 @@ pub(crate) struct Emitted {
 impl Emitted {
     /// The current display failures, model layer first, each layer in body id order.
     pub(crate) fn display_failures(&self) -> Vec<DisplayFailure> {
-        self.model_failures
+        self.model
+            .failures
             .values()
-            .chain(self.preview_failures.values())
+            .chain(self.preview.failures.values())
             .map(|failed| failed.failure.clone())
             .collect()
     }
+}
+
+/// What one display layer shows: the mesh of each body that has one, and the bodies whose mesh
+/// could not be built.
+#[derive(Debug, Default)]
+pub(crate) struct LayerState {
+    /// The mesh of each body that has one.
+    pub(crate) shown: BTreeMap<Id, Shown>,
+    /// The bodies whose mesh could not be built.
+    failures: BTreeMap<Id, Failed>,
 }
 
 /// A mesh that could not be built: the body state and tolerance that failed, and its diagnostic.
@@ -214,7 +221,7 @@ fn event_solution(registry: &Registry, open: &OpenDocument, position: usize) -> 
     let report = open.computed.report.features.get(position)?;
     match report.status {
         Status::Ok | Status::Warning => {
-            let OutputData::Sketch(result) = &report.output.as_ref()?.data else {
+            let OutputData::Sketch(result) = &built_output(report)?.data else {
                 return None;
             };
             let params = sketch_params(registry, &open.document, record).ok()?;
@@ -357,12 +364,11 @@ fn mesh_changes(
     open: &mut OpenDocument,
     cache: &mut DisplayCache,
 ) -> (Vec<MeshChange>, Vec<MeshChange>) {
-    let tolerance = crate::session::Session::display_tolerance(open);
+    let tolerance = open.display_tolerance();
     let refresh = std::mem::take(&mut open.emitted.refresh_meshes);
     let key = |view: &BodyView| {
         view.identity
             .clone()
-            .filter(|_| view.has_geometry())
             .map(|identity| MeshKey::new(identity, &tolerance))
     };
     let model: Wanted = display_bodies(&open.document, &open.computed)
@@ -387,8 +393,8 @@ fn mesh_changes(
         cache,
         refresh,
     };
-    let model = planner.changes(&emitted.model, &mut emitted.model_failures, model);
-    let preview = planner.changes(&emitted.preview, &mut emitted.preview_failures, preview);
+    let model = planner.changes(&mut emitted.model, model);
+    let preview = planner.changes(&mut emitted.preview, preview);
     (model, preview)
 }
 
@@ -405,13 +411,10 @@ struct MeshPlanner<'a> {
 impl MeshPlanner<'_> {
     /// The changes of one layer: for each body in document order whose wanted mesh differs from
     /// the shown one (or every shown mesh when refreshing), then for shown bodies that are no
-    /// longer in the document. `failures` is updated with the meshes that cannot be built.
-    fn changes(
-        &mut self,
-        shown: &BTreeMap<Id, Shown>,
-        failures: &mut BTreeMap<Id, Failed>,
-        wanted: Wanted,
-    ) -> Vec<MeshChange> {
+    /// longer in the document. The layer's failures are updated with the meshes that cannot be
+    /// built.
+    fn changes(&mut self, layer: &mut LayerState, wanted: Wanted) -> Vec<MeshChange> {
+        let LayerState { shown, failures } = layer;
         let bodies: Vec<Id> = wanted.iter().map(|(body, _)| body.clone()).collect();
         let mut changes = Vec::new();
         for (body, wanted) in wanted {
@@ -478,7 +481,7 @@ fn display_failure(document: &Document, view: &BodyView, error: &EngineError) ->
 
 /// Emits the `body_mesh` events of one layer's changes and records what the layer shows.
 fn emit_layer(
-    shown: &mut BTreeMap<Id, Shown>,
+    state: &mut LayerState,
     layer: Layer,
     changes: Vec<MeshChange>,
     meshes: &mut Meshes<'_>,
@@ -488,11 +491,13 @@ fn emit_layer(
         let mesh = match change.mesh {
             Some((key, mesh)) => {
                 let buffers = mesh_buffers(&mesh, meshes.output);
-                shown.insert(change.body.clone(), Shown { mesh_id, key, mesh });
+                state
+                    .shown
+                    .insert(change.body.clone(), Shown { mesh_id, key, mesh });
                 Some(buffers)
             }
             None => {
-                shown.remove(&change.body);
+                state.shown.remove(&change.body);
                 None
             }
         };
@@ -536,26 +541,11 @@ fn mesh_buffers(mesh: &DisplayMesh, output: &mut Output) -> MeshBuffers {
 #[cfg(test)]
 mod tests {
     use partsmith_features::BodyState;
-    use partsmith_model::SequentialIds;
     use partsmith_protocol::{FeatureState, Pick};
     use partsmith_recompute::{CacheKey, Report};
 
     use super::*;
-    use crate::SessionOptions;
-
-    /// A display session with `box.ptsm` open and no events collected yet.
-    fn box_session() -> (Session, DocHandle) {
-        let mut session = Session::new(SessionOptions {
-            display: true,
-            id_generator: Box::new(SequentialIds::new()),
-            ..SessionOptions::default()
-        });
-        let doc = session
-            .open_document(include_str!("../tests/fixtures/box.ptsm"), Vec::new())
-            .expect("box.ptsm opens")
-            .doc;
-        (session, doc)
-    }
+    use crate::test_support::box_session;
 
     /// Replaces the document's latest recompute by a new run in which `b-1` holds its shape with
     /// an empty naming map, which no element table accepts, as a state written under `key`.
@@ -611,7 +601,7 @@ mod tests {
 
     #[test]
     fn a_body_that_cannot_be_displayed_is_an_error_of_its_feature() {
-        let (mut session, doc) = box_session();
+        let (mut session, doc) = box_session(true);
         break_display(&mut session, doc, 7);
 
         let first = events(&mut session, doc);
@@ -633,7 +623,7 @@ mod tests {
 
     #[test]
     fn a_failed_display_is_not_retried_until_the_state_changes() {
-        let (mut session, doc) = box_session();
+        let (mut session, doc) = box_session(true);
         break_display(&mut session, doc, 7);
         events(&mut session, doc);
         session.open_mut(doc).expect("open").emitted.refresh_meshes = true;
@@ -645,10 +635,10 @@ mod tests {
 
     #[test]
     fn a_shown_body_that_can_no_longer_be_displayed_loses_its_mesh() {
-        let (mut session, doc) = box_session();
+        let (mut session, doc) = box_session(true);
         let opened = events(&mut session, doc);
         assert_eq!(model_meshes(&opened), [("b-1".to_string(), true)]);
-        let shown = session.open(doc).expect("open").emitted.model["b-1"].mesh_id;
+        let shown = session.open(doc).expect("open").emitted.model.shown["b-1"].mesh_id;
 
         break_display(&mut session, doc, 7);
         let broken = events(&mut session, doc);
@@ -668,7 +658,7 @@ mod tests {
 
     #[test]
     fn a_display_failure_clears_when_the_body_displays_again() {
-        let (mut session, doc) = box_session();
+        let (mut session, doc) = box_session(true);
         let good = Arc::clone(&session.open(doc).expect("open").computed.report);
         break_display(&mut session, doc, 7);
         events(&mut session, doc);

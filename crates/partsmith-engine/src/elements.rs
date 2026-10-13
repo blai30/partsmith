@@ -9,7 +9,7 @@ use partsmith_occt_sys::{ElementGeometry, GeometryKind, SubShapeKind};
 use partsmith_protocol::{Axis, CurveKind, ElementDescriptor, SurfaceKind, Vec3};
 use partsmith_sketch::{OriginPlane, Placement};
 
-use crate::display::{ElementTable, TableEntry, kernel_failure, slot};
+use crate::display::{ElementTable, TableEntry, slot};
 use crate::error::EngineError;
 
 /// The geometry fields of one element (protocol.md section 2.4), as descriptors and
@@ -166,7 +166,7 @@ pub(crate) fn describe(
     for kind in kinds {
         let geometries = shape
             .elements(sub_shape_kind(kind))
-            .map_err(kernel_failure)?;
+            .map_err(EngineError::unexpected)?;
         for entry in table.entries(kind) {
             let geometry = slot(entry.index)
                 .and_then(|position| geometries.get(position))
@@ -194,7 +194,7 @@ pub(crate) fn describe_element(
         .ok_or_else(|| EngineError::internal("a display id names no displayed element"))?;
     let geometry = shape_of(state)?
         .element(sub_shape_kind(kind), entry.index)
-        .map_err(kernel_failure)?;
+        .map_err(EngineError::unexpected)?;
     Describer::for_one_element(table, body, timeline).descriptor(kind, entry, &geometry)
 }
 
@@ -277,9 +277,9 @@ impl<'a> Describer<'a> {
             .table
             .topology()
             .fingerprint(kind, entry.index)
-            .map_err(|error| EngineError::internal(error.to_string()))?;
-        let reference = Reference::new(entry.name.clone(), fingerprint)
-            .map_err(|error| EngineError::internal(error.to_string()))?;
+            .map_err(EngineError::unexpected)?;
+        let reference =
+            Reference::new(entry.name.clone(), fingerprint).map_err(EngineError::unexpected)?;
         let fields = element_fields(kind, geometry);
         Ok(ElementDescriptor {
             name: entry.name.as_str().to_owned(),

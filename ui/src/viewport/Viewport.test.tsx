@@ -39,12 +39,12 @@ vi.mock('./webgl2/backend', async () => {
   }
 })
 
-let uninstallPopovers: () => void
 let restoreSize: () => void
 let frames: FrameQueue
 
+beforeEach(installPopoverPolyfill)
+
 beforeEach(() => {
-  uninstallPopovers = installPopoverPolyfill()
   restoreSize = stubElementSize(HTMLCanvasElement.prototype, { width: 800, height: 600 })
   stubMatchMedia({ reducedMotion: true })
   frames = stubAnimationFrames()
@@ -53,7 +53,6 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup()
-  uninstallPopovers()
   restoreSize()
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
@@ -387,7 +386,7 @@ describe('overlays', () => {
     const marker = screen.getByTestId('finding-marker')
     expect(marker.tagName.toLowerCase()).toBe('circle')
     expect(marker).toHaveAttribute('r', '8')
-    expect(marker).toHaveClass(...COLOR_CLASSES.errorMark.stroke.split(' '))
+    expect(marker).toHaveClass(COLOR_CLASSES.errorMark.stroke)
     // The finding is at the origin, which the default camera sees: the ring is placed and shown.
     expect(marker).not.toHaveAttribute('display')
     expect(Number(marker.getAttribute('cx'))).toBeGreaterThan(0)
@@ -433,7 +432,7 @@ describe('overlays', () => {
     ])
     for (const label of labels) {
       expect(label).toHaveClass('pointer-events-none', 'text-xs')
-      expect(label).toHaveClass(...COLOR_CLASSES.surfaceRaised.background.split(' '))
+      expect(label).toHaveClass(COLOR_CLASSES.surfaceRaised.background)
       expect(label).toHaveAttribute('data-positioned')
       expect(label).not.toHaveAttribute('hidden')
     }
@@ -493,7 +492,7 @@ describe('repair markers (3.7, U-110)', () => {
     expect(marker?.tagName.toLowerCase()).toBe('circle')
     expect(marker).toHaveAttribute('r', '8')
     expect(marker).toHaveAttribute('stroke-dasharray', '4 3')
-    expect(marker).toHaveClass(...COLOR_CLASSES.errorMark.stroke.split(' '))
+    expect(marker).toHaveClass(COLOR_CLASSES.errorMark.stroke)
     expect(marker?.querySelector('title')).toHaveTextContent('Where the missing edge was')
     expect(marker).not.toHaveAttribute('display')
     await act(async () => {

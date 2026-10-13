@@ -10,6 +10,11 @@ export function focusLost(): boolean {
   return active === null || active === document.body
 }
 
+/** Whether an element is the 3D view's focusable surface. */
+export function isView(target: Element): boolean {
+  return target.id === VIEW_ID
+}
+
 /** Moves focus to the 3D view. */
 export function focusView(): void {
   document.getElementById(VIEW_ID)?.focus()

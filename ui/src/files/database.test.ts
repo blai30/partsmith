@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { createFakeIndexedDb, type FakeIndexedDb } from '../test/fakes/indexed-db'
 import {
   createConnection,
+  createStoreAccess,
   DATABASE_NAME,
   RECENT_STORE,
   RECOVERY_STORE,
@@ -125,5 +126,28 @@ describe('withStore', () => {
         requestResult(store.put({ id: 'a' })),
       ),
     ).rejects.toMatchObject({ name: 'ReadOnlyError' })
+  })
+})
+
+describe('createStoreAccess', () => {
+  it('resolves with the result of the operation', async () => {
+    const fake = createFakeIndexedDb()
+    const run = createStoreAccess(fake.factory, RECOVERY_STORE, 'The recovery store failed.')
+    const key = await run(
+      'readwrite',
+      (store) => requestResult(store.put({ slot: 'current', name: 'bracket' })),
+      null,
+    )
+    expect(key).toBe('current')
+  })
+
+  it('warns with its message and resolves with the fallback when the operation fails', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const fake = createFakeIndexedDb()
+    const run = createStoreAccess(fake.factory, RECENT_STORE, 'The recent store failed.')
+    const result = await run('readonly', (store) => requestResult(store.put({ id: 'a' })), 'none')
+    expect(result).toBe('none')
+    expect(warn).toHaveBeenCalledWith('The recent store failed.', expect.anything())
+    warn.mockRestore()
   })
 })

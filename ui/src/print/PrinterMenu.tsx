@@ -1,16 +1,12 @@
 import { clsx } from 'clsx/lite'
 import { Check } from 'lucide-react'
+import { Fragment, useId, useRef, useState, type KeyboardEvent, type RefObject } from 'react'
 import {
-  Fragment,
-  useEffect,
-  useId,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type KeyboardEvent,
-  type RefObject,
-} from 'react'
-import { showPopover, useAnchoredPosition } from '../components/floating'
+  focusOnPointerMove,
+  nextIndex,
+  typeaheadIndex,
+  useMenuPopover,
+} from '../components/menu-navigation'
 import type { PrinterProfile, Technology } from '../generated/protocol'
 import { COLOR_CLASSES } from '../theme/roles'
 import { defaultPrinterName, printerDetail, printerGroups } from './printer'
@@ -49,11 +45,6 @@ export function PrinterMenu(props: PrinterMenuProps) {
   return props.open ? <PrinterMenuList {...props} /> : null
 }
 
-/** An index wrapped into [0, count). */
-function wrap(index: number, count: number): number {
-  return ((index % count) + count) % count
-}
-
 function PrinterMenuList({ anchor, onOpenChange, printers, current, onChoose }: PrinterMenuProps) {
   const element = useRef<HTMLDivElement>(null)
   const items = useRef<(HTMLButtonElement | null)[]>([])
@@ -88,38 +79,21 @@ function PrinterMenuList({ anchor, onOpenChange, printers, current, onChoose }: 
   }
 
   // The browser light-dismisses the menu on a press outside it; the owner learns it closed.
-  const latestOnOpenChange = useRef(onOpenChange)
-  useLayoutEffect(() => {
-    latestOnOpenChange.current = onOpenChange
-  })
-  useEffect(() => {
-    const menu = element.current
-    if (menu === null) {
-      return undefined
-    }
-    const onToggle = (event: ToggleEvent): void => {
-      if (event.newState === 'closed') {
-        latestOnOpenChange.current(false)
-      }
-    }
-    menu.addEventListener('toggle', onToggle)
-    return () => {
-      menu.removeEventListener('toggle', onToggle)
-    }
-  }, [])
-
-  useLayoutEffect(() => {
-    const menu = element.current
-    if (menu === null) {
-      return
-    }
-    showPopover(menu, anchor.current)
-    items.current[0]?.focus()
-  }, [anchor])
-  useAnchoredPosition(element, anchor, true, 'below')
+  // Showing it focuses the first item.
+  useMenuPopover(
+    element,
+    anchor,
+    'below',
+    () => {
+      onOpenChange(false)
+    },
+    () => {
+      items.current[0]?.focus()
+    },
+  )
 
   function focusItem(index: number): void {
-    items.current[wrap(index, choices.length)]?.focus()
+    items.current[index]?.focus()
   }
 
   function choose(choice: Choice | undefined): void {
@@ -133,13 +107,13 @@ function PrinterMenuList({ anchor, onOpenChange, printers, current, onChoose }: 
   }
 
   function typeahead(character: string, from: number): void {
-    const wanted = character.toLocaleLowerCase()
-    for (let step = 1; step <= choices.length; step++) {
-      const index = wrap(from + step, choices.length)
-      if (choices[index]?.label.toLocaleLowerCase().startsWith(wanted) === true) {
-        focusItem(index)
-        return
-      }
+    const index = typeaheadIndex(
+      choices.map((choice) => choice.label),
+      from,
+      character,
+    )
+    if (index !== null) {
+      focusItem(index)
     }
   }
 
@@ -152,11 +126,11 @@ function PrinterMenuList({ anchor, onOpenChange, printers, current, onChoose }: 
     switch (event.key) {
       case 'ArrowDown':
         handled()
-        focusItem(position + 1)
+        focusItem(nextIndex(choices.length, position, 1))
         return
       case 'ArrowUp':
         handled()
-        focusItem(position === -1 ? -1 : position - 1)
+        focusItem(nextIndex(choices.length, position === -1 ? choices.length : position, -1))
         return
       case 'Home':
         handled()
@@ -164,7 +138,7 @@ function PrinterMenuList({ anchor, onOpenChange, printers, current, onChoose }: 
         return
       case 'End':
         handled()
-        focusItem(-1)
+        focusItem(choices.length - 1)
         return
       case 'Enter':
         handled()
@@ -218,14 +192,7 @@ function PrinterMenuList({ anchor, onOpenChange, printers, current, onChoose }: 
         onBlur={() => {
           setActive((previous) => (previous === index ? null : previous))
         }}
-        onPointerMove={(event) => {
-          if (
-            event.pointerType !== 'touch' &&
-            event.currentTarget.ownerDocument.activeElement !== event.currentTarget
-          ) {
-            event.currentTarget.focus({ preventScroll: true })
-          }
-        }}
+        onPointerMove={focusOnPointerMove}
         onClick={() => {
           choose(choice)
         }}

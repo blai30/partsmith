@@ -1,20 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import type { App, Platform } from '../app/createApp'
 import type { AppContext } from '../state/store'
-import { createTestApp as createFakeTestApp, LINUX_WEB, MAC_WEB } from '../test/fakes/test-app'
+import { createTestApp, LINUX_WEB, MAC_WEB } from '../test/fakes/test-app'
 import { installShortcutDispatcher } from './dispatcher'
-import {
-  createCommandRegistry,
-  type Availability,
-  type CommandDefinition,
-  type CommandRegistry,
-} from './registry'
+import { createCommandRegistry, type Availability, type CommandDefinition } from './registry'
 
 const ALL_CONTEXTS: readonly AppContext[] = ['model', 'sketch', 'print']
-
-function createTestApp(commands: CommandRegistry, platform: Platform): App {
-  return createFakeTestApp({ commands, platform })
-}
 
 type Fixture = {
   readonly app: App
@@ -67,7 +58,7 @@ function setUp(platform: Platform = LINUX_WEB): Fixture {
     }
     registry.register(definition)
   }
-  return { app: createTestApp(registry, platform), runs }
+  return { app: createTestApp({ commands: registry, platform }), runs }
 }
 
 function keydown(target: EventTarget, init: KeyboardEventInit): KeyboardEvent {

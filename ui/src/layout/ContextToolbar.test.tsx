@@ -15,8 +15,6 @@ const ICON = 36
 const SEPARATOR = 9
 
 let available = 0
-let uninstallPopovers: () => void
-
 function widthOf(element: Element): number {
   if (element.tagName === 'HR') {
     return SEPARATOR
@@ -51,15 +49,15 @@ function layOut(): void {
   })
 }
 
+beforeEach(installPopoverPolyfill)
+
 beforeEach(() => {
-  uninstallPopovers = installPopoverPolyfill()
   stubMatchMedia()
   layOut()
 })
 
 afterEach(() => {
   cleanup()
-  uninstallPopovers()
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
 })

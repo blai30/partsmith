@@ -21,6 +21,7 @@ import type { AppState, SelectionItem } from '../../state/store'
 import { TEST_CATALOG } from '../../test/fakes/catalog'
 import { coreErrorFor } from '../../test/fakes/core-api'
 import { createFakeFileHandle } from '../../test/fakes/files'
+import { bodyItem } from '../../test/fakes/selection'
 import { exportModel, type ExportRequest } from './export'
 
 const NOTHING_TO_EXPORT = 'There is no visible body with geometry to export.'
@@ -40,19 +41,6 @@ function exportApp(overrides: Partial<AppState> = {}): PrintApp {
     }),
     ...overrides,
   })
-}
-
-function bodyItem(id: string, name: string): SelectionItem {
-  return {
-    key: `body:${id}`,
-    kind: 'body',
-    label: name,
-    body: id,
-    feature: null,
-    element: null,
-    sketchItem: null,
-    origin: null,
-  }
 }
 
 function faceItem(body: string): SelectionItem {

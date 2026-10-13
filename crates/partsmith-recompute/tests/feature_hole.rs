@@ -7,18 +7,15 @@ mod feature_support;
 use std::time::Duration;
 
 use feature_support::{
-    LENGTH_TOLERANCE, Run, assert_bounding_box, assert_canonical_example, assert_coordinates,
-    assert_error_field, assert_face_area, assert_face_count, assert_face_in_plane,
-    assert_face_kind, assert_face_radius, assert_has_face, assert_no_face, assert_solid_count,
-    assert_unchanged, assert_volume, body_update, document, example_paths, face,
-    face_names_with_prefix, load_example, median_build_time, output_body, vertex,
+    BOX_BELOW, LENGTH_TOLERANCE, Run, assert_bounding_box, assert_coordinates, assert_error_field,
+    assert_examples_canonical, assert_face_area, assert_face_count, assert_face_in_plane,
+    assert_face_kind, assert_face_radius, assert_has_face, assert_median_build_within,
+    assert_no_face, assert_solid_count, assert_unchanged, assert_volume, body_update, document,
+    face, face_names_with_prefix, load_example, output_body, vertex,
 };
 use partsmith_features::{BodyChange, Bound, FeatureError};
 use partsmith_model::Document;
 use partsmith_occt_sys::GeometryKind;
-
-/// `BOX-BELOW`: spans [-20,-20,-10]-[20,20,0], volume 16000, top face at z = 0.
-const BOX_BELOW: &str = r#"{"id": "f-box1", "type": "box", "body": "b-1", "size": ["40", "40", "10"], "position": ["0", "0", "-10"], "op": "new"}"#;
 
 /// `SK-PTS`: the points `e-p1` (0, 0), `e-p2` (10, 10) and `e-p3` (100, 0) on XY.
 const POINTS_SKETCH: &str = r#"{"id": "f-sk1", "type": "sketch", "plane": {"kind": "origin", "plane": "XY"}, "entities": [{"id": "e-p1", "type": "point", "position": [0, 0]}, {"id": "e-p2", "type": "point", "position": [10, 10]}, {"id": "e-p3", "type": "point", "position": [100, 0]}]}"#;
@@ -60,11 +57,7 @@ fn assert_through_hole(run: &Run, point: &str) {
 
 #[test]
 fn examples_are_canonical() {
-    let paths = example_paths("hole");
-    assert!(!paths.is_empty(), "examples/hole has examples");
-    for path in paths {
-        assert_canonical_example(&path);
-    }
+    assert_examples_canonical("hole");
 }
 
 #[test]
@@ -353,11 +346,7 @@ fn countersink_at_its_depth_limit_is_out_of_range() {
 fn t021_two_points_build_within_25_ms() {
     let document = load_example("hole/two-points.ptsm");
 
-    let duration = median_build_time(&document, "f-hole1", 21);
-    assert!(
-        duration < Duration::from_millis(25),
-        "test 6 took {duration:?} to build (median of 21 runs), over the 25 ms budget",
-    );
+    assert_median_build_within(&document, "f-hole1", 21, Duration::from_millis(25));
 }
 
 #[test]
@@ -641,9 +630,5 @@ fn t033_ten_holes_in_a_200_face_body_within_80_ms() {
     assert_face_count(plate.shape().expect("the plate is a solid"), 200);
     assert_face_count(run.shape("b-1"), 210);
 
-    let duration = median_build_time(&document, "f-hole2", 7);
-    assert!(
-        duration < Duration::from_millis(80),
-        "ten holes in a 200-face body took {duration:?} to build (median of 7 runs), over the 80 ms budget",
-    );
+    assert_median_build_within(&document, "f-hole2", 7, Duration::from_millis(80));
 }

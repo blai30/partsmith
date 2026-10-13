@@ -12,6 +12,7 @@ import {
 } from './fixtures.testing'
 import {
   defaultPrinterName,
+  findPrinter,
   healthProfileName,
   printerButtonText,
   printerDetail,
@@ -32,6 +33,14 @@ describe('printerGroups', () => {
   it('leaves out a technology without profiles', () => {
     expect(printerGroups([GENERIC_RESIN]).map((group) => group.title)).toEqual(['Resin'])
     expect(printerGroups([])).toEqual([])
+  })
+})
+
+describe('findPrinter', () => {
+  it('finds an installed profile by id', () => {
+    expect(findPrinter(PRINTERS, 'my-mk4')).toBe(MY_MK4)
+    expect(findPrinter(PRINTERS, 'retired-printer')).toBeUndefined()
+    expect(findPrinter(PRINTERS, null)).toBeUndefined()
   })
 })
 
@@ -72,6 +81,14 @@ describe('healthProfileName', () => {
       'My MK4',
     )
     expect(healthProfileName(stateWith({ document: documentState() }))).toBe('Generic FDM 0.4 mm')
+  })
+
+  it('shows the id of the profile the next analysis uses when no profile is listed', () => {
+    const printer = documentState({ printer: 'my-mk4' })
+    expect(healthProfileName(stateWith({ printers: [], document: printer }))).toBe('my-mk4')
+    expect(healthProfileName(stateWith({ printers: [], document: documentState() }))).toBe(
+      'generic-fdm',
+    )
   })
 })
 

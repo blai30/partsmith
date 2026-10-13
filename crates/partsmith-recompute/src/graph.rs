@@ -81,11 +81,15 @@ pub enum Change {
 
 impl Graph {
     /// A graph of `nodes` in timeline order. Every upstream edge must name an earlier node.
+    #[cfg(test)]
     pub(crate) fn new(nodes: Vec<Node>) -> Graph {
-        let mut positions = BTreeMap::new();
-        for (position, node) in nodes.iter().enumerate() {
-            positions.entry(node.feature.clone()).or_insert(position);
-        }
+        let positions = first_positions(nodes.iter().map(|node| &node.feature));
+        Graph::with_positions(nodes, positions)
+    }
+
+    /// A graph of `nodes` in timeline order, where `positions` is the position of the first node
+    /// with each feature id. Every upstream edge must name an earlier node.
+    pub(crate) fn with_positions(nodes: Vec<Node>, positions: BTreeMap<Id, usize>) -> Graph {
         let mut dependents: Vec<Vec<usize>> = vec![Vec::new(); nodes.len()];
         for (position, node) in nodes.iter().enumerate() {
             for edge in &node.upstream {
@@ -206,6 +210,15 @@ impl Graph {
     }
 }
 
+/// The position of the first of `ids` with each id.
+pub(crate) fn first_positions<'a>(ids: impl Iterator<Item = &'a Id>) -> BTreeMap<Id, usize> {
+    let mut positions = BTreeMap::new();
+    for (position, id) in ids.enumerate() {
+        positions.entry(id.clone()).or_insert(position);
+    }
+    positions
+}
+
 /// True when `change` seeds `affected_by` at `node` (recompute.md section 3.2).
 fn is_seed(node: &Node, change: &Change) -> bool {
     let active = node.state == NodeState::Active;
@@ -220,10 +233,7 @@ fn is_seed(node: &Node, change: &Change) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn id(text: &str) -> Id {
-        Id::new(text).expect("valid test id")
-    }
+    use crate::test_support::id;
 
     /// A node with these upstream edges (`"output f-x"` or `"body b-1 f-x"`), active unless stated.
     fn node(feature: &str, upstream: &[&str]) -> Node {

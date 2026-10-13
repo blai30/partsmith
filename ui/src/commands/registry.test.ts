@@ -1,26 +1,15 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { App, Platform } from '../app/createApp'
 import type { AppContext } from '../state/store'
-import {
-  createTestApp as createFakeTestApp,
-  LINUX_WEB,
-  MAC_WEB,
-  WINDOWS_DESKTOP,
-} from '../test/fakes/test-app'
+import { createTestApp, LINUX_WEB, MAC_WEB, WINDOWS_DESKTOP } from '../test/fakes/test-app'
 import {
   createCommandRegistry,
   explainDisabled,
   runCommand,
   type Availability,
   type CommandDefinition,
-  type CommandRegistry,
 } from './registry'
 
 const ALL_CONTEXTS: readonly AppContext[] = ['model', 'sketch', 'print']
-
-function createTestApp(commands: CommandRegistry, platform: Platform = LINUX_WEB): App {
-  return createFakeTestApp({ commands, platform })
-}
 
 type CommandOptions = {
   readonly shortcuts?: readonly string[]
@@ -140,7 +129,7 @@ describe('run', () => {
         run,
       }),
     )
-    const app = createTestApp(registry)
+    const app = createTestApp({ commands: registry })
     await registry.run(app, 'edit.undo', 'palette')
     expect(run).not.toHaveBeenCalled()
     expect(app.store.getState().notifications).toEqual([
@@ -152,7 +141,7 @@ describe('run', () => {
     const registry = createCommandRegistry()
     const run = vi.fn<CommandDefinition['run']>()
     registry.register(command('file.save', { run }))
-    const app = createTestApp(registry)
+    const app = createTestApp({ commands: registry })
     await registry.run(app, 'file.save', 'toolbar')
     expect(run).toHaveBeenCalledTimes(1)
     expect(run).toHaveBeenCalledWith(app, 'toolbar')
@@ -170,7 +159,7 @@ describe('run', () => {
         },
       }),
     )
-    const app = createTestApp(registry)
+    const app = createTestApp({ commands: registry })
     await registry.run(app, 'file.save', 'shortcut')
     expect(finished).toBe(true)
   })
@@ -178,7 +167,7 @@ describe('run', () => {
 
 describe('explainDisabled', () => {
   it('shows the reason as an info notification with its code', () => {
-    const app = createTestApp(createCommandRegistry())
+    const app = createTestApp()
     explainDisabled(app, { reason: 'Finish or cancel Fillet first.', code: 'finish_command_first' })
     expect(app.store.getState().notifications).toEqual([
       expect.objectContaining({
@@ -191,7 +180,7 @@ describe('explainDisabled', () => {
   })
 
   it('leaves the code out when the reason has none', () => {
-    const app = createTestApp(createCommandRegistry())
+    const app = createTestApp()
     explainDisabled(app, { reason: 'Nothing to undo.' })
     const [notification] = app.store.getState().notifications
     expect(notification).toEqual(
@@ -206,7 +195,7 @@ describe('runCommand', () => {
     const registry = createCommandRegistry()
     const run = vi.fn<CommandDefinition['run']>()
     registry.register(command('file.save', { run }))
-    const app = createTestApp(registry)
+    const app = createTestApp({ commands: registry })
     runCommand(app, 'file.save', 'menu')
     await vi.waitFor(() => {
       expect(run).toHaveBeenCalledWith(app, 'menu')
@@ -218,7 +207,7 @@ describe('runCommand', () => {
     const error = new Error('The disk is full.')
     const registry = createCommandRegistry()
     registry.register(command('file.save', { run: () => Promise.reject(error) }))
-    runCommand(createTestApp(registry), 'file.save', 'toolbar')
+    runCommand(createTestApp({ commands: registry }), 'file.save', 'toolbar')
     await vi.waitFor(() => {
       expect(log).toHaveBeenCalledWith('The command file.save failed.', error)
     })
@@ -231,7 +220,7 @@ describe('recent palette items (3.4)', () => {
     const registry = createCommandRegistry()
     registry.register(command('feature.fillet'))
     registry.register(command('feature.chamfer'))
-    const app = createTestApp(registry)
+    const app = createTestApp({ commands: registry })
     await registry.run(app, 'feature.fillet', 'toolbar')
     await registry.run(app, 'feature.chamfer', 'inspector')
     expect(app.store.getState().settings.paletteRecent).toEqual([
@@ -252,7 +241,7 @@ describe('recent palette items (3.4)', () => {
     registry.register(
       command('feature.boolean', { availability: { state: 'disabled', reason: 'No.' } }),
     )
-    const app = createTestApp(registry)
+    const app = createTestApp({ commands: registry })
     await registry.run(app, 'feature.fillet', 'palette')
     await registry.run(app, 'file.save', 'toolbar')
     await registry.run(app, 'feature.boolean', 'toolbar')
@@ -264,7 +253,7 @@ describe('forChord', () => {
   it('finds the command bound to a chord in a context', () => {
     const registry = createCommandRegistry()
     registry.register(command('file.save', { shortcuts: ['Mod+S'] }))
-    const app = createTestApp(registry)
+    const app = createTestApp({ commands: registry })
     expect(registry.forChord(app, 'Mod+S', 'model')?.id).toBe('file.save')
     expect(registry.forChord(app, 'Mod+O', 'model')).toBeUndefined()
   })
@@ -272,7 +261,7 @@ describe('forChord', () => {
   it('matches every shortcut of a command, not only the displayed one', () => {
     const registry = createCommandRegistry()
     registry.register(command('edit.redo', { shortcuts: ['Mod+Shift+Z', 'Mod+Y'] }))
-    const app = createTestApp(registry)
+    const app = createTestApp({ commands: registry })
     expect(registry.forChord(app, 'Mod+Shift+Z', 'model')?.id).toBe('edit.redo')
     expect(registry.forChord(app, 'Mod+Y', 'print')?.id).toBe('edit.redo')
   })
@@ -283,7 +272,7 @@ describe('forChord', () => {
     registry.register(
       command('sketch.constrain_horizontal', { shortcuts: ['H'], contexts: ['sketch'] }),
     )
-    const app = createTestApp(registry)
+    const app = createTestApp({ commands: registry })
     expect(registry.forChord(app, 'H', 'model')?.id).toBe('feature.hole')
     expect(registry.forChord(app, 'H', 'print')?.id).toBe('feature.hole')
     expect(registry.forChord(app, 'H', 'sketch')?.id).toBe('sketch.constrain_horizontal')
@@ -295,7 +284,7 @@ describe('forChord', () => {
     registry.register(
       command('sketch.constrain_horizontal', { shortcuts: ['H'], contexts: ['sketch'] }),
     )
-    const app = createTestApp(registry)
+    const app = createTestApp({ commands: registry })
     expect(registry.forChord(app, 'H', 'model')?.id).toBe('feature.hole')
     expect(registry.forChord(app, 'H', 'print')?.id).toBe('feature.hole')
     expect(registry.forChord(app, 'H', 'sketch')?.id).toBe('sketch.constrain_horizontal')
@@ -304,16 +293,26 @@ describe('forChord', () => {
   it('finds no command for a shortcut outside its shortcut contexts', () => {
     const registry = createCommandRegistry()
     registry.register(holeCommand())
-    expect(registry.forChord(createTestApp(registry), 'H', 'sketch')).toBeUndefined()
+    expect(registry.forChord(createTestApp({ commands: registry }), 'H', 'sketch')).toBeUndefined()
   })
 
   it('skips a command for another host', () => {
     const registry = createCommandRegistry()
     registry.register(command('file.new', { shortcuts: ['Mod+N'], host: 'desktop' }))
-    expect(registry.forChord(createTestApp(registry, LINUX_WEB), 'Mod+N', 'model')).toBeUndefined()
-    expect(registry.forChord(createTestApp(registry, WINDOWS_DESKTOP), 'Mod+N', 'model')?.id).toBe(
-      'file.new',
-    )
+    expect(
+      registry.forChord(
+        createTestApp({ commands: registry, platform: LINUX_WEB }),
+        'Mod+N',
+        'model',
+      ),
+    ).toBeUndefined()
+    expect(
+      registry.forChord(
+        createTestApp({ commands: registry, platform: WINDOWS_DESKTOP }),
+        'Mod+N',
+        'model',
+      )?.id,
+    ).toBe('file.new')
   })
 
   it('skips a hidden command and finds another command bound to the same chord', () => {
@@ -322,7 +321,7 @@ describe('forChord', () => {
       command('first.delete', { shortcuts: ['Delete'], availability: { state: 'hidden' } }),
     )
     registry.register(command('second.delete', { shortcuts: ['Delete'] }))
-    const app = createTestApp(registry)
+    const app = createTestApp({ commands: registry })
     expect(registry.forChord(app, 'Delete', 'model')?.id).toBe('second.delete')
   })
 
@@ -330,7 +329,7 @@ describe('forChord', () => {
     const registry = createCommandRegistry()
     registry.register(command('view.browser', { shortcuts: ['Mod+B'] }))
     registry.register(command('control.command', { shortcuts: ['Ctrl+B'] }))
-    const app = createTestApp(registry, MAC_WEB)
+    const app = createTestApp({ commands: registry, platform: MAC_WEB })
     expect(registry.forChord(app, 'Mod+B', 'model')?.id).toBe('view.browser')
     expect(registry.forChord(app, 'Ctrl+B', 'model')?.id).toBe('control.command')
   })
@@ -339,9 +338,13 @@ describe('forChord', () => {
     const registry = createCommandRegistry()
     registry.register(command('control.command', { shortcuts: ['Ctrl+B'] }))
     // chordFromEvent reports the Control key as the primary modifier outside macOS.
-    expect(registry.forChord(createTestApp(registry, LINUX_WEB), 'Mod+B', 'model')?.id).toBe(
-      'control.command',
-    )
+    expect(
+      registry.forChord(
+        createTestApp({ commands: registry, platform: LINUX_WEB }),
+        'Mod+B',
+        'model',
+      )?.id,
+    ).toBe('control.command')
   })
 
   it('returns a disabled command so its reason can be shown', () => {
@@ -352,7 +355,7 @@ describe('forChord', () => {
         availability: { state: 'disabled', reason: 'Nothing to undo.' },
       }),
     )
-    const app = createTestApp(registry)
+    const app = createTestApp({ commands: registry })
     expect(registry.forChord(app, 'Mod+Z', 'model')?.id).toBe('edit.undo')
   })
 })

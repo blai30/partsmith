@@ -11,16 +11,14 @@ import { createModelApp, renderWithApp, stubMatchMedia } from './test-app.testin
 
 // The shell's live regions (3.6) and file drops (3.19).
 
-let uninstallPopovers: () => void
+beforeEach(installPopoverPolyfill)
 
 beforeEach(() => {
-  uninstallPopovers = installPopoverPolyfill()
   stubMatchMedia()
 })
 
 afterEach(() => {
   cleanup()
-  uninstallPopovers()
   vi.useRealTimers()
   vi.unstubAllGlobals()
 })

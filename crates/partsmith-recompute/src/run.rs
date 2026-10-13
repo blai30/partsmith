@@ -14,7 +14,7 @@ use partsmith_features::{
 use partsmith_model::{FeatureRecord, Id, Scope};
 
 use crate::cache::{Built, Cache, Outcome};
-use crate::evaluate::evaluate;
+use crate::evaluate::{Progress, evaluate};
 use crate::key::CacheKey;
 use crate::report::{BodyReport, FeatureReport, Status, Timing, render_messages};
 use crate::timeline::{ActiveStep, StepKind, Timeline};
@@ -53,8 +53,7 @@ pub(crate) fn run(inputs: &Inputs<'_>, cache: &mut Cache) -> Ran {
             document: inputs.timeline.document,
             registry: inputs.registry,
         },
-        keys: Vec::with_capacity(steps.len()),
-        failed: Vec::with_capacity(steps.len()),
+        progress: Progress::with_capacity(steps.len()),
         outputs: Vec::with_capacity(steps.len()),
         bodies: inputs
             .timeline
@@ -74,8 +73,9 @@ pub(crate) fn run(inputs: &Inputs<'_>, cache: &mut Cache) -> Ran {
     let mut features = Vec::with_capacity(steps.len());
     for position in 0..steps.len() {
         let report = runner.step(cache, position);
-        runner.keys.push(report.key);
-        runner.failed.push(report.status == Status::Error);
+        runner
+            .progress
+            .push(report.key, report.status == Status::Error);
         runner.outputs.push(report.output.clone());
         features.push(report);
     }
@@ -92,10 +92,8 @@ struct Runner<'r> {
     inputs: &'r Inputs<'r>,
     /// Current names for messages.
     names: DocumentNames<'r>,
-    /// The key of every step so far (None for records without one).
-    keys: Vec<Option<CacheKey>>,
-    /// For every step so far, true when it is invalid or ended with an error.
-    failed: Vec<bool>,
+    /// The key and failure of every step so far.
+    progress: Progress,
     /// The output of every step so far that built or was reused.
     outputs: Vec<Option<Arc<FeatureOutput>>>,
     /// The current state and provider of every body of the document.
@@ -142,8 +140,16 @@ impl Runner<'_> {
             return FeatureReport::idle(&record.id, Status::NotRun);
         }
         let timeline = self.inputs.timeline;
-        let (values, key) = evaluate(timeline, position, step, &self.keys, self.inputs.scope);
-        if let Err(error) = timeline.check_links(position, step, &self.failed, self.inputs.assets) {
+        let (values, key) = evaluate(
+            timeline,
+            position,
+            step,
+            &self.progress.keys,
+            self.inputs.scope,
+        );
+        if let Err(error) =
+            timeline.check_links(position, step, &self.progress.failed, self.inputs.assets)
+        {
             self.provide(step, position);
             return self.report(record, step, key, Err(error), Timing::default(), Vec::new());
         }
@@ -154,39 +160,13 @@ impl Runner<'_> {
                 Some((link.id.clone(), slot.state.clone()))
             })
             .collect();
-        let (outcome, timing) = match cache.get(&key) {
-            Some(outcome) => (
-                outcome,
-                Timing {
-                    duration: Duration::ZERO,
-                    from_cache: true,
-                },
-            ),
-            None => {
-                let (result, duration) = self.build(record, step, &values, &bodies_before);
-                let outcome = match result {
-                    Ok(output) => Outcome::Built(Built::new(output)),
-                    Err(FeatureError::Canceled) => {
-                        self.canceled = true;
-                        return FeatureReport {
-                            key: Some(key),
-                            ..FeatureReport::idle(&record.id, Status::NotRun)
-                        };
-                    }
-                    Err(error) => Outcome::Failed(error),
-                };
-                // A panic is never cached, so the next run builds the feature again.
-                if !matches!(outcome, Outcome::Failed(FeatureError::Internal { .. })) {
-                    cache.insert(key, outcome.clone());
-                }
-                (
-                    outcome,
-                    Timing {
-                        duration,
-                        from_cache: false,
-                    },
-                )
-            }
+        let Some((outcome, timing)) =
+            self.reuse_or_build(cache, record, step, key, &values, &bodies_before)
+        else {
+            return FeatureReport {
+                key: Some(key),
+                ..FeatureReport::idle(&record.id, Status::NotRun)
+            };
         };
         self.provide(step, position);
         let result = match outcome {
@@ -201,6 +181,44 @@ impl Runner<'_> {
             Outcome::Failed(error) => Err(error),
         };
         self.report(record, step, key, result, timing, bodies_before)
+    }
+
+    /// The cached outcome under `key`, or the outcome of building the step, cached unless it is a
+    /// panic; `None` when the build was canceled, which cancels the run.
+    fn reuse_or_build(
+        &mut self,
+        cache: &mut Cache,
+        record: &FeatureRecord,
+        step: &ActiveStep<'_>,
+        key: CacheKey,
+        values: &Values,
+        bodies_before: &[(Id, BodyState)],
+    ) -> Option<(Outcome, Timing)> {
+        if let Some(outcome) = cache.get(&key) {
+            let timing = Timing {
+                duration: Duration::ZERO,
+                from_cache: true,
+            };
+            return Some((outcome, timing));
+        }
+        let (result, duration) = self.build(record, step, values, bodies_before);
+        let outcome = match result {
+            Ok(output) => Outcome::Built(Built::new(output)),
+            Err(FeatureError::Canceled) => {
+                self.canceled = true;
+                return None;
+            }
+            Err(error) => Outcome::Failed(error),
+        };
+        // A panic is never cached, so the next run builds the feature again.
+        if !matches!(outcome, Outcome::Failed(FeatureError::Internal { .. })) {
+            cache.insert(key, outcome.clone());
+        }
+        let timing = Timing {
+            duration,
+            from_cache: false,
+        };
+        Some((outcome, timing))
     }
 
     /// Builds a step through the registry with a context holding only what it declared, inside
@@ -333,7 +351,7 @@ impl Runner<'_> {
                 Some(BodyReport {
                     body: body.id.clone(),
                     state: slot.state.clone(),
-                    key: slot.writer.and_then(|writer| self.keys[writer]),
+                    key: slot.writer.and_then(|writer| self.progress.keys[writer]),
                     last_feature: slot.writer.map(|writer| steps[writer].record.id.clone()),
                 })
             })

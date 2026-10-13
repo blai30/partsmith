@@ -7,10 +7,10 @@ mod feature_support;
 use std::time::Duration;
 
 use feature_support::{
-    Run, assert_bounding_box, assert_canonical_example, assert_empty, assert_error_field,
+    Run, assert_bounding_box, assert_empty, assert_error_field, assert_examples_canonical,
     assert_face_area, assert_face_axis_direction, assert_face_axis_through, assert_face_count,
-    assert_face_kind, assert_face_names, assert_face_position, assert_face_radius, assert_volume,
-    example_paths, face, face_index, load_example, median_build_time,
+    assert_face_kind, assert_face_names, assert_face_position, assert_face_radius, assert_has_face,
+    assert_median_build_within, assert_volume, face, load_example,
 };
 use partsmith_occt_sys::GeometryKind;
 
@@ -23,11 +23,7 @@ fn cylinder(radius: &str, height: &str) -> String {
 
 #[test]
 fn examples_are_canonical() {
-    let paths = example_paths("cylinder");
-    assert!(!paths.is_empty(), "examples/cylinder has examples");
-    for path in paths {
-        assert_canonical_example(&path);
-    }
+    assert_examples_canonical("cylinder");
 }
 
 #[test]
@@ -136,10 +132,7 @@ fn t006_cut_a_round_hole() {
 fn t006_cut_a_round_hole_keeps_the_side_name() {
     let run = Run::example("cylinder/cut-round-hole.ptsm");
 
-    assert!(
-        face_index(run.body("b-1"), "f-cyl1/side").is_some(),
-        "b-1 should have a face named f-cyl1/side",
-    );
+    assert_has_face(run.body("b-1"), "f-cyl1/side");
 }
 
 #[test]
@@ -150,11 +143,7 @@ fn t006_cut_a_round_hole_keeps_the_side_name() {
 fn t007_default_cylinder_builds_within_2_ms() {
     let document = load_example("cylinder/default.ptsm");
 
-    let duration = median_build_time(&document, "f-cyl1", 21);
-    assert!(
-        duration < Duration::from_millis(2),
-        "the default cylinder took {duration:?} to build (median of 21 runs), over the 2 ms budget",
-    );
+    assert_median_build_within(&document, "f-cyl1", 21, Duration::from_millis(2));
 }
 
 #[test]

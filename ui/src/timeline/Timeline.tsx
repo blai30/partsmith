@@ -18,9 +18,9 @@ import {
   setRollback,
   setSuppressed,
   startRollbackDrag,
-  type RollbackDrag,
 } from '../app/actions/timeline'
 import { useApp, useAppState } from '../app/AppProvider'
+import type { App } from '../app/createApp'
 import { reportFailure } from '../app/report'
 import { markerPosition } from '../core/recipe'
 import { FEATURE_ICONS } from '../commands/icons'
@@ -36,10 +36,11 @@ import { RenameField } from '../layout/RenameField'
 import { useUiRequest } from '../layout/requests'
 import { arrowTarget, rovingTabStop } from '../layout/roving'
 import { keepInViewHorizontally } from '../layout/scroll'
+import { counted } from '../messages'
 import { selectCommandBlock, selectProblems } from '../state/selectors'
 import { COLOR_CLASSES } from '../theme/roles'
-import { positionElement } from '../viewport/overlay'
-import { gapPositions, itemStatus, markerText, nearestGap, statusText } from './strip'
+import { itemStatus, markerText, statusText } from './strip'
+import { useStripDrag } from './use-strip-drag'
 
 // The timeline (ui.md 3.9): the features in timeline order with the rollback marker in its gap,
 // reordering by drag, inline rename, a context menu, and the problems count. The strip is a
@@ -47,19 +48,10 @@ import { gapPositions, itemStatus, markerText, nearestGap, statusText } from './
 
 const NO_FEATURES: readonly FeatureRecord[] = []
 
-/** A press must move this far (CSS pixels) before it drags an item or the marker. */
-const DRAG_THRESHOLD_PIXELS = 4
-
-/** The primary button's bit in `MouseEvent.buttons`. */
-const PRIMARY_BUTTON_BIT = 1
 /** `MouseEvent.button` of the secondary (right) button. */
 const SECONDARY_BUTTON_INDEX = 2
 /** The secondary button's bit in `MouseEvent.buttons`. */
 const SECONDARY_BUTTON_BIT = 2
-
-function plural(count: number, singular: string, several: string): string {
-  return `${String(count)} ${count === 1 ? singular : several}`
-}
 
 /** Everything the strip draws, read from the store with one subscription per slice. */
 function useTimelineState() {
@@ -74,18 +66,6 @@ function useTimelineState() {
     state.context === 'sketch' ? (state.sketch?.sketchId ?? null) : null,
   )
   return { recipe, statuses, catalog, selection, editing, editedSketch }
-}
-
-type Press = {
-  readonly pointerId: number
-  readonly startX: number
-  /** The dragged feature, or null for the rollback marker. */
-  readonly featureId: string | null
-  readonly index: number
-  dragging: boolean
-  gaps: readonly number[]
-  gap: number
-  rollback: RollbackDrag | null
 }
 
 type ItemProps = {
@@ -329,19 +309,70 @@ function Marker({ position, count, valueText, onPress }: MarkerProps) {
   )
 }
 
+/** A timeline item's context menu (3.9); Suppress and Delete cover `targets`. */
+function featureMenuEntries(
+  app: App,
+  record: FeatureRecord,
+  records: readonly FeatureRecord[],
+  targets: readonly string[],
+  blocked: boolean,
+  setRenaming: (id: string) => void,
+): MenuEntry[] {
+  const suppressed = record.suppressed === true
+  const index = records.indexOf(record)
+  return [
+    {
+      kind: 'item',
+      label: 'Edit',
+      disabled: record.type === 'import',
+      onSelect: () => {
+        editFeature(app, record.id).catch(reportFailure('Editing the feature'))
+      },
+    },
+    {
+      kind: 'item',
+      label: 'Rename',
+      disabled: blocked,
+      onSelect: () => {
+        setRenaming(record.id)
+      },
+    },
+    {
+      kind: 'item',
+      label: suppressed ? 'Unsuppress' : 'Suppress',
+      disabled: blocked,
+      onSelect: () => {
+        setSuppressed(app, targets, !suppressed).catch(reportFailure('Suppressing'))
+      },
+    },
+    {
+      kind: 'item',
+      label: 'Roll back to here',
+      disabled: blocked,
+      onSelect: () => {
+        setRollback(app, index + 1).catch(reportFailure('Rolling back'))
+      },
+    },
+    {
+      kind: 'item',
+      label: 'Delete',
+      disabled: blocked,
+      onSelect: () => {
+        deleteFeatures(app, targets).catch(reportFailure('Deleting'))
+      },
+    },
+  ]
+}
+
 /** The strip of items and the marker, with reordering, renaming and the context menu. */
 function Strip() {
   const app = useApp()
   const { recipe, statuses, catalog, selection, editing, editedSketch } = useTimelineState()
   const strip = useRef<HTMLDivElement>(null)
-  const ghost = useRef<HTMLDivElement>(null)
-  const bar = useRef<HTMLDivElement>(null)
-  const press = useRef<Press | null>(null)
   const lastFocused = useRef<Element | null>(null)
   const menuAnchor = useRef<HTMLButtonElement | null>(null)
   const [menuFor, setMenuFor] = useState<string | null>(null)
   const [renaming, setRenaming] = useState<string | null>(null)
-  const [dragging, setDragging] = useState<string | 'marker' | null>(null)
   // Timeline edits wait for an open feature command (3.7); editing another feature ends it.
   const blocked = useAppState(selectCommandBlock) !== null
   const records = recipe?.features ?? NO_FEATURES
@@ -398,31 +429,21 @@ function Strip() {
         ? element.querySelector<HTMLElement>(`[data-feature-id="${added.id}"]`)
         : position === previous.position
           ? null
-          : element.querySelector<HTMLElement>('[data-testid="timeline-marker"]')
+          : element.querySelector<HTMLElement>('[role="slider"]')
     if (target !== null) {
       keepInViewHorizontally(element, target)
     }
   }, [records, position])
 
-  // Esc cancels a drag (3.9).
-  useEffect(() => {
-    if (dragging === null) {
-      return undefined
-    }
-    const onKeyDown = (event: globalThis.KeyboardEvent): void => {
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        const current = press.current
-        press.current = null
-        setDragging(null)
-        current?.rollback?.cancel().catch(reportFailure('Canceling the roll back'))
-      }
-    }
-    window.addEventListener('keydown', onKeyDown, true)
-    return () => {
-      window.removeEventListener('keydown', onKeyDown, true)
-    }
-  }, [dragging])
+  const { dragging, bar, ghost, startPress, onPointerMove, onPointerUp, onPointerCancel } =
+    useStripDrag(strip, {
+      // The timeline drag and the marker do not start during a feature command (3.7).
+      canPress: () => renaming === null && app.store.getState().command === null,
+      onRollback: (index) => startRollbackDrag(app, index),
+      onMove: (featureId, target) => {
+        moveFeature(app, featureId, target).catch(reportFailure('Reordering'))
+      },
+    })
 
   function labelOf(id: string): string {
     return recipe === null ? id : featureLabel(recipe, id, catalog)
@@ -436,96 +457,6 @@ function Strip() {
     return records
       .filter((record) => selectedKeys.has(featureKey(record.id)))
       .map((record) => record.id)
-  }
-
-  function startPress(
-    event: PointerEvent<HTMLElement>,
-    featureId: string | null,
-    index: number,
-  ): void {
-    // The timeline drag and the marker do not start during a feature command (3.7).
-    if (event.button !== 0 || renaming !== null || app.store.getState().command !== null) {
-      return
-    }
-    press.current = {
-      pointerId: event.pointerId,
-      startX: event.clientX,
-      featureId,
-      index,
-      dragging: false,
-      gaps: [],
-      gap: index,
-      rollback: null,
-    }
-  }
-
-  function onPointerMove(event: PointerEvent<HTMLDivElement>): void {
-    const current = press.current
-    const element = strip.current
-    if (current === null || element === null || current.pointerId !== event.pointerId) {
-      return
-    }
-    if (!current.dragging) {
-      // Not captured yet, a press released outside the strip never reaches it; it ends here.
-      if ((event.buttons & PRIMARY_BUTTON_BIT) === 0) {
-        press.current = null
-        return
-      }
-      if (Math.abs(event.clientX - current.startX) <= DRAG_THRESHOLD_PIXELS) {
-        return
-      }
-      current.dragging = true
-      // The strip captures the pointer only once a drag starts: captured at the press, the
-      // release, click and double-click would go to the strip and never reach the item's button.
-      // jsdom has no pointer capture.
-      element.setPointerCapture?.(event.pointerId)
-      current.gaps = gapPositions(element)
-      if (current.featureId === null) {
-        current.rollback = startRollbackDrag(app, current.index)
-      }
-      setDragging(current.featureId ?? 'marker')
-    }
-    current.gap = nearestGap(current.gaps, event.clientX)
-    current.rollback?.move(current.gap)
-    // The ghost and the bar sit in the strip's scrolled content.
-    const left = element.getBoundingClientRect().left - element.scrollLeft
-    if (bar.current !== null) {
-      positionElement(bar.current, (current.gaps[current.gap] ?? left) - left, 0)
-    }
-    if (ghost.current !== null) {
-      positionElement(ghost.current, event.clientX - left - ghost.current.offsetWidth / 2, 0)
-    }
-  }
-
-  function onPointerUp(event: PointerEvent<HTMLDivElement>): void {
-    const current = press.current
-    if (current === null || current.pointerId !== event.pointerId) {
-      return
-    }
-    press.current = null
-    if (!current.dragging) {
-      return
-    }
-    setDragging(null)
-    if (current.featureId === null) {
-      current.rollback?.drop().catch(reportFailure('Rolling back'))
-      return
-    }
-    // Dropping at gap g moves the feature to g before its own index, else to g - 1 (3.9).
-    const target = current.gap < current.index ? current.gap : current.gap - 1
-    if (target !== current.index) {
-      moveFeature(app, current.featureId, target).catch(reportFailure('Reordering'))
-    }
-  }
-
-  function onPointerCancel(event: PointerEvent<HTMLDivElement>): void {
-    const current = press.current
-    if (current === null || current.pointerId !== event.pointerId) {
-      return
-    }
-    press.current = null
-    setDragging(null)
-    current.rollback?.cancel().catch(reportFailure('Canceling the roll back'))
   }
 
   function moveFocus(event: KeyboardEvent<HTMLDivElement>): void {
@@ -549,53 +480,7 @@ function Strip() {
   const menuEntries: MenuEntry[] =
     menuRecord === undefined
       ? []
-      : (() => {
-          const targets = targetsOf(menuRecord.id)
-          const suppressed = menuRecord.suppressed === true
-          const index = records.indexOf(menuRecord)
-          return [
-            {
-              kind: 'item',
-              label: 'Edit',
-              disabled: menuRecord.type === 'import',
-              onSelect: () => {
-                editFeature(app, menuRecord.id).catch(reportFailure('Editing the feature'))
-              },
-            },
-            {
-              kind: 'item',
-              label: 'Rename',
-              disabled: blocked,
-              onSelect: () => {
-                setRenaming(menuRecord.id)
-              },
-            },
-            {
-              kind: 'item',
-              label: suppressed ? 'Unsuppress' : 'Suppress',
-              disabled: blocked,
-              onSelect: () => {
-                setSuppressed(app, targets, !suppressed).catch(reportFailure('Suppressing'))
-              },
-            },
-            {
-              kind: 'item',
-              label: 'Roll back to here',
-              disabled: blocked,
-              onSelect: () => {
-                setRollback(app, index + 1).catch(reportFailure('Rolling back'))
-              },
-            },
-            {
-              kind: 'item',
-              label: 'Delete',
-              disabled: blocked,
-              onSelect: () => {
-                deleteFeatures(app, targets).catch(reportFailure('Deleting'))
-              },
-            },
-          ]
-        })()
+      : featureMenuEntries(app, menuRecord, records, targetsOf(menuRecord.id), blocked, setRenaming)
 
   const markerElement = (
     <Marker
@@ -622,9 +507,7 @@ function Strip() {
         selected={selectedKeys.has(featureKey(record.id))}
         outlined={record.id === editing || record.id === editedSketch}
         renaming={renaming === record.id}
-        onPress={(event, featureId, itemIndex) => {
-          startPress(event, featureId, itemIndex)
-        }}
+        onPress={startPress}
         onPick={(picked, label, toggle) => {
           pickRow(app, featureSelectionItem(picked.id, label), toggle)
         }}
@@ -753,7 +636,7 @@ function ProblemsButton() {
           )}
         />
       )}
-      {plural(count, 'problem', 'problems')}
+      {counted(count, 'problem')}
     </button>
   )
 }
@@ -783,7 +666,7 @@ export function Timeline() {
       />
       {collapsed ? (
         <span className={clsx('flex-1 text-xs tabular-nums', COLOR_CLASSES.textMuted.foreground)}>
-          {plural(count, 'feature', 'features')}
+          {counted(count, 'feature')}
         </span>
       ) : (
         <Strip />

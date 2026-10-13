@@ -13,6 +13,7 @@ import {
 } from './helpers'
 import { selectionField } from './support/modeling'
 import { chooseContext, expectCurrentReport } from './support/print'
+import { editSketchFromTimeline } from './support/sketch'
 
 // Visual tests (ui.md 6.6): screenshots of the whole window in both themes, compared with the
 // baselines in visual.spec.ts-snapshots/. The configuration sets `animations: 'disabled'`,
@@ -77,14 +78,12 @@ async function expectWindow(page: Page, name: string): Promise<void> {
   await expect(page).toHaveScreenshot(name, { stylePath: SCREENSHOT_STYLE })
 }
 
-/** Edits a sketch by double-clicking its timeline item and waits for its solved state. */
+/** Edits "Sketch 1" by double-clicking its timeline item and waits for its solved state. */
 async function editSketch(page: Page, state: string, dof: string): Promise<void> {
-  await timelineItem(page, 'Sketch 1').getByRole('button', { name: 'Sketch 1' }).dblclick()
-  await expect(page.getByTestId('app')).toHaveAttribute('data-context', 'sketch')
+  await editSketchFromTimeline(page, 'Sketch 1')
   const header = page.getByTestId('sketch-header')
   await expect(header).toHaveAttribute('data-state', state)
   await expect(header).toHaveAttribute('data-dof', dof)
-  await expect(page.getByTestId('viewport')).toHaveAttribute('data-view', 'top')
 }
 
 /** Opens the Problems panel of `fillet-error.ptsm` and edits "Fillet 1" from it (E-28). */

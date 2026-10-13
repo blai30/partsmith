@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Platform } from './app/createApp'
-import { MESSAGES } from './messages'
+import { counted, MESSAGES } from './messages'
 
 type Case = readonly [id: string, render: () => string, text: string]
 
@@ -317,5 +317,18 @@ describe('MESSAGES', () => {
     expect(MESSAGES.sketch_step_line_next(MAC)).toMatch(/press ↩ to stop\.$/)
     expect(MESSAGES.sketch_leave(MAC)).toBe('To leave the sketch, click Finish sketch or press ⌘↩.')
     expect(MESSAGES.sketch_free_placement(MAC)).toBe('Hold ⌘ to place freely.')
+  })
+})
+
+describe('counted', () => {
+  it('uses the singular only for one', () => {
+    expect(counted(1, 'warning')).toBe('1 warning')
+    expect(counted(0, 'warning')).toBe('0 warnings')
+    expect(counted(3, 'warning')).toBe('3 warnings')
+  })
+
+  it('takes an irregular plural', () => {
+    expect(counted(1, 'body', 'bodies')).toBe('1 body')
+    expect(counted(2, 'body', 'bodies')).toBe('2 bodies')
   })
 })

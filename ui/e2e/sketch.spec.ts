@@ -3,6 +3,7 @@ import { expect, test, type Page } from '@playwright/test'
 import {
   bodyRow,
   canvas,
+  clickTool,
   dropFile,
   expandOrigin,
   expectHover,
@@ -75,10 +76,7 @@ async function drawLine(
  * origin, and its width and height dimensioned to 40 and 20 with the dimension tool.
  */
 async function drawDimensionedRectangle(page: Page): Promise<void> {
-  await page
-    .getByRole('toolbar', { name: 'Model tools' })
-    .getByRole('button', { name: 'Sketch', exact: true })
-    .click()
+  await clickTool(page, 'Sketch')
   await expect(app(page)).toHaveAttribute('data-context', 'sketch')
   await expect(sketchHeader(page)).toHaveAttribute('data-state', 'picking')
   await expandOrigin(page)
@@ -473,10 +471,7 @@ test.describe('sketch mode for everyone', () => {
     page,
   }) => {
     await openApp(page)
-    await page
-      .getByRole('toolbar', { name: 'Model tools' })
-      .getByRole('button', { name: 'Sketch', exact: true })
-      .click()
+    await clickTool(page, 'Sketch')
     const labels = page.getByTestId('plane-label')
     await expect(labels).toHaveText(['Top (XY)', 'Front (XZ)', 'Right (YZ)'])
     await expect(sketchHint(page)).toHaveText('Top plane (XY) is the print bed.')

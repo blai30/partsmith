@@ -3,25 +3,18 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use partsmith_features::{
-    BodyState, DatumResult, DocumentNames, OutputData, Registry, SketchResult,
-};
+use partsmith_features::{DocumentNames, Registry, SketchResult};
 use partsmith_model::{Dimension, Document, FeatureRecord, Id, Scope};
-use partsmith_naming::{Resolution, resolve};
-use partsmith_occt_sys::{GeometryKind, SubShapeKind};
 use partsmith_protocol::{
     ConstraintSolveState, ConstraintState, RegionInfo, SketchSolution, SolvedEntity, SolvedPoint,
 };
-use partsmith_recompute::Status;
 use partsmith_sketch::{
     DimensionValues, DragSession, DragTarget, EntityState, Geometry, NativeDragSession,
-    NativeSolver, OriginPlane, Placement, PointRef, PointRole, Profile, Region, RegionRef,
-    SketchEntity, SketchParams, SketchPlane, SolveResult, Solver, ValueKind, build_profile,
+    NativeSolver, Placement, PointRef, PointRole, Profile, Region, SketchEntity, SketchParams,
+    SolveResult, Solver, ValueKind, build_profile,
 };
 
 use crate::error::EngineError;
-use crate::session::evaluate_in;
-use crate::state::Computed;
 
 /// The type name of sketch features.
 pub(crate) const SKETCH_TYPE: &str = "sketch";
@@ -50,7 +43,7 @@ pub(crate) fn sketch_params(
             message: error.render(&DocumentNames { document, registry }, document.units),
         })?;
     serde_json::from_value(serde_json::Value::Object(validated.record.params))
-        .map_err(|error| EngineError::internal(error.to_string()))
+        .map_err(EngineError::unexpected)
 }
 
 /// The record of a sketch command's feature: `unknown_feature` when missing, `not_a_sketch` when
@@ -99,123 +92,6 @@ pub(crate) fn dimension_values(
     Ok(values)
 }
 
-/// The placement of a sketch at timeline position `position`, resolved against the state
-/// before it (features/sketch.md section 3.3): an origin plane's placement, the datum's plane
-/// (the XY plane when the datum has no result), or the face's plane near the fallback (the
-/// fallback when the face does not resolve to one flat face).
-pub(crate) fn placement(plane: &SketchPlane, computed: &Computed, position: usize) -> Placement {
-    match plane {
-        SketchPlane::Origin { plane } => plane.placement(),
-        SketchPlane::Datum { feature } => {
-            datum_placement(computed, feature).unwrap_or_else(|| OriginPlane::Xy.placement())
-        }
-        SketchPlane::Face {
-            body,
-            face,
-            fallback,
-        } => {
-            let state = state_before(computed, position, body);
-            face_placement(&state, face, fallback).unwrap_or(*fallback)
-        }
-    }
-}
-
-/// The plane a datum feature built, if it built one.
-pub(crate) fn datum_placement(computed: &Computed, feature: &Id) -> Option<Placement> {
-    let (_, report) = computed.feature(feature)?;
-    if !matches!(report.status, Status::Ok | Status::Warning) {
-        return None;
-    }
-    match &report.output.as_ref()?.data {
-        OutputData::Datum(DatumResult::Plane(placement)) => Some(*placement),
-        _ => None,
-    }
-}
-
-/// The placement on the face `face` of `state` near `fallback`, when the reference resolves and
-/// its first face is flat.
-fn face_placement(
-    state: &BodyState,
-    face: &partsmith_naming::Reference,
-    fallback: &Placement,
-) -> Option<Placement> {
-    let shape = state.shape()?;
-    let elements = state.elements().ok()?;
-    let Resolution::Resolved {
-        elements: names, ..
-    } = resolve(face, &elements, state.naming().aliases())
-    else {
-        return None;
-    };
-    let index = state.naming().index(names.first()?)?;
-    let geometry = shape.element(SubShapeKind::Face, index).ok()?;
-    if geometry.kind != GeometryKind::Plane {
-        return None;
-    }
-    let normal = geometry.direction?;
-    let centroid = geometry.centroid;
-    Placement::on_plane(
-        [centroid.x, centroid.y, centroid.z],
-        [normal.x, normal.y, normal.z],
-        fallback,
-    )
-    .ok()
-}
-
-/// The state of `body` just before the feature at timeline position `position`: the state the
-/// feature read when it ran, else the output of the last earlier feature that changed the body.
-fn state_before(computed: &Computed, position: usize, body: &Id) -> BodyState {
-    let features = &computed.report.features;
-    let read = features.get(position).and_then(|feature| {
-        feature
-            .bodies_before
-            .iter()
-            .find(|(id, _)| id == body)
-            .map(|(_, state)| state.clone())
-    });
-    if let Some(state) = read {
-        return state;
-    }
-    for feature in features[..position.min(features.len())].iter().rev() {
-        if !matches!(feature.status, Status::Ok | Status::Warning) {
-            continue;
-        }
-        let Some(OutputData::Bodies(updates)) = feature.output.as_ref().map(|output| &output.data)
-        else {
-            continue;
-        };
-        if let Some(update) = updates.iter().find(|update| update.body == *body) {
-            // Keeps the topology and volume the feature carried (features.md section 2.7).
-            return BodyState::from_update(update);
-        }
-    }
-    BodyState::empty()
-}
-
-/// Every region of a stored sketch in solved order, or `None` when its params are invalid, a
-/// dimension does not evaluate, or the solve fails or does not converge.
-pub(crate) fn solved_regions(
-    registry: &Registry,
-    document: &Document,
-    computed: &Computed,
-    sketch: &Id,
-) -> Option<Vec<RegionRef>> {
-    let (_, record) = sketch_record(document, sketch).ok()?;
-    let params = sketch_params(registry, document, record).ok()?;
-    let values = evaluate_in(document, computed, |scope| dimension_values(&params, scope)).ok()?;
-    let result = NativeSolver.solve(&params, &values).ok()?;
-    if result.failed {
-        return None;
-    }
-    Some(
-        build_profile(&result.entities)
-            .regions
-            .iter()
-            .map(Region::reference)
-            .collect(),
-    )
-}
-
 /// Solves `params` with `values` (`invalid_params` with the sketch crate's message when the
 /// solver rejects them) and projects the result.
 pub(crate) fn solve(
@@ -224,12 +100,9 @@ pub(crate) fn solve(
     values: &DimensionValues,
     placement: Placement,
 ) -> Result<Solved, EngineError> {
-    let result =
-        NativeSolver
-            .solve(params, values)
-            .map_err(|error| EngineError::InvalidSketch {
-                message: error.to_string(),
-            })?;
+    let result = NativeSolver
+        .solve(params, values)
+        .map_err(EngineError::invalid_sketch)?;
     let profile = build_profile(&result.entities);
     Ok(project(
         feature, params, &result, profile, placement, values,
@@ -458,9 +331,7 @@ impl Drag {
         };
         let mut session = NativeSolver
             .begin_drag(&params, &values, &target)
-            .map_err(|error| EngineError::InvalidSketch {
-                message: error.to_string(),
-            })?;
+            .map_err(EngineError::invalid_sketch)?;
         let last = frame(&mut session, to)?;
         Ok(Drag {
             point,
@@ -494,11 +365,7 @@ impl Drag {
 
 /// One drag frame (`invalid_params` when the solver rejects the cursor).
 fn frame(session: &mut NativeDragSession, to: [f64; 2]) -> Result<SolveResult, EngineError> {
-    session
-        .update(to)
-        .map_err(|error| EngineError::InvalidSketch {
-            message: error.to_string(),
-        })
+    session.update(to).map_err(EngineError::invalid_sketch)
 }
 
 /// True when `point` addresses a point of an entity of `params` (reserved references are not
@@ -513,14 +380,12 @@ pub(crate) fn has_point(params: &SketchParams, point: &PointRef) -> bool {
 mod tests {
     use partsmith_model::{EmptyContext, ParameterValues, Units};
     use partsmith_sketch::{
-        Alignment, ConstraintKind, DimensionExpr, DistanceTarget, SketchConstraint, SketchStatus,
+        Alignment, ConstraintKind, DimensionExpr, DistanceTarget, OriginPlane, SketchConstraint,
+        SketchPlane, SketchStatus,
     };
 
     use super::*;
-
-    fn id(text: &str) -> Id {
-        Id::new(text).expect("a valid test id")
-    }
+    use crate::test_support::id;
 
     fn line(name: &str, start: [f64; 2], end: [f64; 2]) -> SketchEntity {
         SketchEntity {

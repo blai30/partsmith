@@ -2,16 +2,16 @@ import { clsx } from 'clsx/lite'
 import { Check, ChevronRight, type LucideIcon } from 'lucide-react'
 import {
   useCallback,
-  useEffect,
   useId,
   useLayoutEffect,
   useRef,
   useState,
   type KeyboardEvent,
+  type PointerEvent,
   type RefObject,
 } from 'react'
 import { COLOR_CLASSES } from '../theme/roles'
-import { showPopover, useAnchoredPosition } from './floating'
+import { focusOnPointerMove, nextIndex, typeaheadIndex, useMenuPopover } from './menu-navigation'
 import type { Placement } from './placement'
 
 type EntryBase = {
@@ -81,19 +81,15 @@ export function Menu({
   if (!open) {
     return null
   }
-  const focusBack = (): void => {
+  const closeAndFocusButton = (): void => {
     const target = returnFocus ?? anchor
     target.current?.focus()
+    onOpenChange(false)
   }
   const choose = (entry: ChoiceEntry): void => {
     // Focus returns first, so a dialog the choice opens can take it.
-    focusBack()
-    onOpenChange(false)
+    closeAndFocusButton()
     entry.onSelect()
-  }
-  const closeAndFocusButton = (): void => {
-    focusBack()
-    onOpenChange(false)
   }
   const dismiss = (): void => {
     onOpenChange(false)
@@ -147,20 +143,14 @@ function roleOf(entry: FocusableEntry): 'menuitem' | 'menuitemcheckbox' | 'menui
   }
 }
 
-/** An index wrapped into [0, count). */
-function wrap(index: number, count: number): number {
-  return ((index % count) + count) % count
-}
-
-/** The index of the next focusable entry from `start` in `direction`, wrapping around. */
+/** The index of the next entry that is not a separator from `start` in `direction`, wrapping around. */
 function nextFocusable(entries: readonly MenuEntry[], start: number, direction: 1 | -1): number {
-  for (let step = 1; step <= entries.length; step++) {
-    const index = wrap(start + direction * step, entries.length)
-    if (entries[index]?.kind !== 'separator') {
-      return index
-    }
-  }
-  return start
+  return nextIndex(
+    entries.length,
+    start,
+    direction,
+    (index) => entries[index]?.kind !== 'separator',
+  )
 }
 
 function MenuList({
@@ -189,39 +179,12 @@ function MenuList({
   const firstItem = nextFocusable(entries, -1, 1)
 
   // The browser light-dismisses a menu on a press outside it; the owner learns it closed.
-  const latestDismiss = useRef(dismiss)
-  useLayoutEffect(() => {
-    latestDismiss.current = dismiss
-  })
-  useEffect(() => {
-    const menu = element.current
-    if (menu === null) {
-      return undefined
-    }
-    const onToggle = (event: ToggleEvent): void => {
-      if (event.newState === 'closed') {
-        latestDismiss.current()
-      }
-    }
-    menu.addEventListener('toggle', onToggle)
-    return () => {
-      menu.removeEventListener('toggle', onToggle)
-    }
-  }, [])
-
-  useLayoutEffect(() => {
-    const menu = element.current
-    if (menu === null) {
-      return
-    }
-    showPopover(menu, anchor.current)
-  }, [anchor])
+  useMenuPopover(element, anchor, placement, dismiss)
   useLayoutEffect(() => {
     if (focusRequest > 0) {
       focusItem(firstItem)
     }
   }, [focusRequest, firstItem, focusItem])
-  useAnchoredPosition(element, anchor, true, placement)
 
   const closeSubmenu = useCallback(() => {
     setSubmenu(null)
@@ -253,16 +216,10 @@ function MenuList({
   }
 
   function typeahead(character: string, from: number): void {
-    const wanted = character.toLocaleLowerCase()
-    for (let step = 1; step <= entries.length; step++) {
-      const index = (from + step) % entries.length
-      const entry = entries[index]
-      if (entry !== undefined && entry.kind !== 'separator') {
-        if (entry.label.toLocaleLowerCase().startsWith(wanted)) {
-          focusItem(index)
-          return
-        }
-      }
+    const labels = entries.map((entry) => (entry.kind === 'separator' ? null : entry.label))
+    const index = typeaheadIndex(labels, from, character)
+    if (index !== null) {
+      focusItem(index)
     }
   }
 
@@ -361,30 +318,20 @@ function MenuList({
             />
           )
         }
-        const disabled = entry.disabled === true
         const expanded = submenu?.index === index
         const itemId = `${idPrefix}-${String(index)}`
         const submenuId = `${itemId}-menu`
         const item = (
-          <button
+          <MenuItem
             key={itemId}
-            ref={(button) => {
+            entry={entry}
+            id={itemId}
+            active={active === index}
+            expanded={expanded}
+            submenuId={submenuId}
+            buttonRef={(button) => {
               items.current[index] = button
             }}
-            id={itemId}
-            type="button"
-            role={roleOf(entry)}
-            tabIndex={-1}
-            aria-checked={
-              entry.kind === 'checkbox' || entry.kind === 'radio' ? entry.checked : undefined
-            }
-            aria-disabled={disabled ? true : undefined}
-            aria-haspopup={entry.kind === 'submenu' ? 'menu' : undefined}
-            aria-expanded={entry.kind === 'submenu' ? expanded : undefined}
-            // The submenu's invoker: the browser counts a press on it as a press inside the open
-            // submenu, so clicking the item does not light-dismiss the submenu that hovering opened.
-            popoverTarget={entry.kind === 'submenu' ? submenuId : undefined}
-            popoverTargetAction={entry.kind === 'submenu' ? 'show' : undefined}
             onFocus={() => {
               setActive(index)
             }}
@@ -392,13 +339,10 @@ function MenuList({
               setActive((previous) => (previous === index ? null : previous))
             }}
             onPointerMove={(event) => {
-              if (event.pointerType === 'touch') {
+              if (!focusOnPointerMove(event)) {
                 return
               }
-              if (event.currentTarget.ownerDocument.activeElement !== event.currentTarget) {
-                event.currentTarget.focus({ preventScroll: true })
-              }
-              if (entry.kind === 'submenu' && !disabled && !expanded) {
+              if (entry.kind === 'submenu' && entry.disabled !== true && !expanded) {
                 openSubmenu(index, false)
               } else if (entry.kind !== 'submenu' && submenu !== null) {
                 setSubmenu(null)
@@ -407,43 +351,7 @@ function MenuList({
             onClick={() => {
               activate(index, 'pointer')
             }}
-            className={clsx(
-              'flex h-8 w-full shrink-0 items-center gap-2 rounded-sm px-2 text-left whitespace-nowrap transition-colors duration-150 motion-reduce:transition-none',
-              COLOR_CLASSES.focusRing.outline,
-              // A resting outline color equal to the ring's, so transition-colors does not fade the
-              // ring in from the text color.
-              COLOR_CLASSES.accent.outline,
-              disabled && COLOR_CLASSES.textDisabled.foreground,
-              disabled && 'cursor-not-allowed',
-              !disabled && active === index && COLOR_CLASSES.hover.active,
-              !disabled && active !== index && COLOR_CLASSES.hover.background,
-            )}
-          >
-            <span
-              aria-hidden="true"
-              className={clsx(
-                'flex size-4 shrink-0 items-center justify-center',
-                !disabled && COLOR_CLASSES.textMuted.foreground,
-              )}
-            >
-              <EntryMark entry={entry} />
-            </span>
-            <span className="min-w-0 flex-1 truncate">{entry.label}</span>
-            {entry.kind === 'item' && entry.shortcut !== undefined ? (
-              <span
-                className={clsx('pl-4 text-xs', !disabled && COLOR_CLASSES.textMuted.foreground)}
-              >
-                {entry.shortcut}
-              </span>
-            ) : null}
-            {entry.kind === 'submenu' ? (
-              <ChevronRight
-                aria-hidden="true"
-                strokeWidth={1.75}
-                className={clsx('size-4 shrink-0', !disabled && COLOR_CLASSES.textMuted.foreground)}
-              />
-            ) : null}
-          </button>
+          />
         )
         if (entry.kind !== 'submenu') {
           return item
@@ -473,6 +381,93 @@ function MenuList({
         )
       })}
     </div>
+  )
+}
+
+type MenuItemProps = {
+  readonly entry: FocusableEntry
+  readonly id: string
+  /** Whether the item has focus, which highlights it. */
+  readonly active: boolean
+  /** Whether a submenu item's submenu is open. */
+  readonly expanded: boolean
+  /** The element id of a submenu item's submenu. */
+  readonly submenuId: string
+  readonly buttonRef: (button: HTMLButtonElement | null) => void
+  readonly onFocus: () => void
+  readonly onBlur: () => void
+  readonly onPointerMove: (event: PointerEvent<HTMLButtonElement>) => void
+  readonly onClick: () => void
+}
+
+/** One item of a menu: its mark, label and shortcut, or the chevron of a submenu item. */
+function MenuItem({
+  entry,
+  id,
+  active,
+  expanded,
+  submenuId,
+  buttonRef,
+  onFocus,
+  onBlur,
+  onPointerMove,
+  onClick,
+}: MenuItemProps) {
+  const disabled = entry.disabled === true
+  return (
+    <button
+      ref={buttonRef}
+      id={id}
+      type="button"
+      role={roleOf(entry)}
+      tabIndex={-1}
+      aria-checked={entry.kind === 'checkbox' || entry.kind === 'radio' ? entry.checked : undefined}
+      aria-disabled={disabled ? true : undefined}
+      aria-haspopup={entry.kind === 'submenu' ? 'menu' : undefined}
+      aria-expanded={entry.kind === 'submenu' ? expanded : undefined}
+      // The submenu's invoker: the browser counts a press on it as a press inside the open
+      // submenu, so clicking the item does not light-dismiss the submenu that hovering opened.
+      popoverTarget={entry.kind === 'submenu' ? submenuId : undefined}
+      popoverTargetAction={entry.kind === 'submenu' ? 'show' : undefined}
+      onFocus={onFocus}
+      onBlur={onBlur}
+      onPointerMove={onPointerMove}
+      onClick={onClick}
+      className={clsx(
+        'flex h-8 w-full shrink-0 items-center gap-2 rounded-sm px-2 text-left whitespace-nowrap transition-colors duration-150 motion-reduce:transition-none',
+        COLOR_CLASSES.focusRing.outline,
+        // A resting outline color equal to the ring's, so transition-colors does not fade the
+        // ring in from the text color.
+        COLOR_CLASSES.accent.outline,
+        disabled && COLOR_CLASSES.textDisabled.foreground,
+        disabled && 'cursor-not-allowed',
+        !disabled && active && COLOR_CLASSES.hover.active,
+        !disabled && !active && COLOR_CLASSES.hover.background,
+      )}
+    >
+      <span
+        aria-hidden="true"
+        className={clsx(
+          'flex size-4 shrink-0 items-center justify-center',
+          !disabled && COLOR_CLASSES.textMuted.foreground,
+        )}
+      >
+        <EntryMark entry={entry} />
+      </span>
+      <span className="min-w-0 flex-1 truncate">{entry.label}</span>
+      {entry.kind === 'item' && entry.shortcut !== undefined ? (
+        <span className={clsx('pl-4 text-xs', !disabled && COLOR_CLASSES.textMuted.foreground)}>
+          {entry.shortcut}
+        </span>
+      ) : null}
+      {entry.kind === 'submenu' ? (
+        <ChevronRight
+          aria-hidden="true"
+          strokeWidth={1.75}
+          className={clsx('size-4 shrink-0', !disabled && COLOR_CLASSES.textMuted.foreground)}
+        />
+      ) : null}
+    </button>
   )
 }
 
