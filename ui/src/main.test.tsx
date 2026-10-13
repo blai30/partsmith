@@ -2,6 +2,8 @@ import { screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { stubMatchMedia } from './layout/test-app.testing'
 import { MESSAGES } from './messages'
+import { createFakeLocks } from './test/fakes/locks'
+import { createFakeStorage } from './test/fakes/storage'
 import { COLOR_CLASSES, FONT_CLASSES } from './theme/roles'
 
 // main.tsx runs when imported: each test imports a fresh copy into a page with a #root element.
@@ -73,6 +75,25 @@ function spyOnChooseFileService(): ReturnType<typeof vi.fn<(environment: object)
   return chosen
 }
 
+/** Records the environment main.tsx gives the recovery store, passing it to the real store. */
+function spyOnRecoveryEnvironments(): unknown[] {
+  const environments: unknown[] = []
+  vi.doMock('./files/recovery', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('./files/recovery')>()
+    return {
+      ...actual,
+      createIndexedDbRecovery: (
+        factory: IDBFactory,
+        environment: Parameters<typeof actual.createIndexedDbRecovery>[1],
+      ) => {
+        environments.push(environment)
+        return actual.createIndexedDbRecovery(factory, environment)
+      },
+    }
+  })
+  return environments
+}
+
 describe('startup wiring (3.1, desktop.md 3.6 and 3.7)', () => {
   beforeEach(() => {
     stubMatchMedia()
@@ -98,6 +119,7 @@ describe('startup wiring (3.1, desktop.md 3.6 and 3.7)', () => {
 
   afterEach(() => {
     vi.doUnmock('./files/choose-file-service')
+    vi.doUnmock('./files/recovery')
     Reflect.deleteProperty(window, '__TAURI__')
   })
 
@@ -106,6 +128,32 @@ describe('startup wiring (3.1, desktop.md 3.6 and 3.7)', () => {
     await import('./main')
     await screen.findByTestId('app')
     expect(chosen).toHaveBeenCalledWith(window)
+  })
+
+  it("passes the page's lock manager and storage manager to the recovery store (2.15)", async () => {
+    const environments = spyOnRecoveryEnvironments()
+    const { locks } = createFakeLocks().page()
+    const { storage } = createFakeStorage({ persisted: true })
+    Object.defineProperty(navigator, 'locks', { value: locks, configurable: true })
+    Object.defineProperty(navigator, 'storage', { value: storage, configurable: true })
+    try {
+      await import('./main')
+      await screen.findByTestId('app')
+    } finally {
+      Reflect.deleteProperty(navigator, 'locks')
+      Reflect.deleteProperty(navigator, 'storage')
+    }
+    expect(environments).toEqual([{ locks, storage }])
+  })
+
+  it('passes null for a lock manager or storage manager the browser lacks (2.15)', async () => {
+    const environments = spyOnRecoveryEnvironments()
+    // jsdom has neither navigator.locks nor navigator.storage.
+    expect('locks' in navigator).toBe(false)
+    expect('storage' in navigator).toBe(false)
+    await import('./main')
+    await screen.findByTestId('app')
+    expect(environments).toEqual([{ locks: null, storage: null }])
   })
 
   it('tells the desktop host whether closing would lose changes', async () => {

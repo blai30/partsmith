@@ -5,16 +5,22 @@ import { expect, type Locator, type Page } from '@playwright/test'
 
 // The shared end-to-end helpers of ui.md 6.3: opening the app and fixtures, the canvas geometry
 // the spec's positions are relative to, the mapping from model and sketch millimeters to page
-// pixels, hover polling, downloads, performance measures, and the locators every area uses. The
-// files in support/ hold the helpers of one area each.
+// pixels, hover polling, downloads, performance measures, percentiles and long tasks, and the
+// locators every area uses. The files in support/ hold the helpers of one area each.
 
 const fixtures = new URL('fixtures/', import.meta.url)
 
-/** How long opening the app or a fixture may take: the core compiles, then rebuilds the document. */
-const OPEN_TIMEOUT_MILLISECONDS = 30_000
+/**
+ * How long opening the app or a fixture may take: the core compiles, then rebuilds the document.
+ * Opening `dense.ptsm` alone takes about 25 seconds, and longer on a busy runner.
+ */
+const OPEN_TIMEOUT_MILLISECONDS = 60_000
 
 /** The fraction of the view that fitting leaves on each side (ui.md 2.11 `fitBounds`). */
 const FIT_MARGIN = 0.1
+
+/** The `window` property where `watchLongTasks` keeps what it observes. */
+const LONG_TASKS_KEY = 'partsmithLongTasks'
 
 /** The canvas box in page pixels, its center and its height `H` (ui.md 6.3). */
 export type CanvasBox = {
@@ -109,12 +115,90 @@ export async function expectReady(page: Page): Promise<void> {
   })
 }
 
-/** The durations of the performance entries named `name` (ui.md 2.18), oldest first. */
-export function measures(page: Page, name: string): Promise<number[]> {
+/**
+ * The durations of the performance entries named `name` (ui.md 2.18) that started at or after
+ * `since` (a `pageTime`), oldest first.
+ */
+export function measures(page: Page, name: string, since = 0): Promise<number[]> {
   return page.evaluate(
-    (entryName) => performance.getEntriesByName(entryName).map((entry) => entry.duration),
-    name,
+    ({ entryName, start }) =>
+      performance
+        .getEntriesByName(entryName)
+        .filter((entry) => entry.startTime >= start)
+        .map((entry) => entry.duration),
+    { entryName: name, start: since },
   )
+}
+
+/** The page's `performance.now()`: the `since` of `measures` and `longTasks` for what follows. */
+export function pageTime(page: Page): Promise<number> {
+  return page.evaluate(() => performance.now())
+}
+
+/**
+ * The nearest-rank percentile of `values` (ui.md 6.3): the values sorted ascending, the one at
+ * index `ceil(fraction × n) - 1`. The median is `percentile(values, 0.5)` (the lower middle value
+ * of an even count) and the 95th percentile `percentile(values, 0.95)`.
+ */
+export function percentile(values: readonly number[], fraction: number): number {
+  if (values.length === 0) {
+    throw new Error('A percentile needs at least one value.')
+  }
+  const sorted = values.toSorted((first, second) => first - second)
+  return sorted[Math.min(Math.max(Math.ceil(fraction * sorted.length) - 1, 0), sorted.length - 1)]
+}
+
+/** A long task as `watchLongTasks` keeps it. */
+type LongTask = { readonly startTime: number; readonly duration: number }
+
+/**
+ * Observes the page's long tasks (ui.md 6.3): an init script that, on every load and before the
+ * page's own scripts run, keeps the start time and duration of each `longtask` entry on `window`.
+ * Called before `openApp`.
+ */
+export async function watchLongTasks(page: Page): Promise<void> {
+  await page.addInitScript((key) => {
+    const tasks: LongTask[] = []
+    const observer = new PerformanceObserver((list) => {
+      for (const entry of list.getEntries()) {
+        tasks.push({ startTime: entry.startTime, duration: entry.duration })
+      }
+    })
+    observer.observe({ type: 'longtask', buffered: true })
+    Reflect.set(window, key, { tasks, observer })
+  }, LONG_TASKS_KEY)
+}
+
+/**
+ * The durations of the long tasks `watchLongTasks` saw that started at or after `since` (a
+ * `pageTime`), oldest first.
+ */
+export async function longTasks(page: Page, since = 0): Promise<number[]> {
+  const durations = await page.evaluate(
+    ({ key, start }) => {
+      const watched: unknown = Reflect.get(window, key)
+      if (typeof watched !== 'object' || watched === null) {
+        return null
+      }
+      const { tasks, observer } = watched as {
+        readonly tasks: LongTask[]
+        readonly observer: PerformanceObserver
+      }
+      // Entries the observer has queued but not delivered yet.
+      for (const entry of observer.takeRecords()) {
+        tasks.push({ startTime: entry.startTime, duration: entry.duration })
+      }
+      return tasks
+        .filter((task) => task.startTime >= start)
+        .toSorted((first, second) => first.startTime - second.startTime)
+        .map((task) => task.duration)
+    },
+    { key: LONG_TASKS_KEY, start: since },
+  )
+  if (durations === null) {
+    throw new Error('Long tasks are not watched: call watchLongTasks before openApp.')
+  }
+  return durations
 }
 
 /**
@@ -272,6 +356,38 @@ export async function expectHover(page: Page, x: number, y: number, kind: string
 export async function download(page: Page, action: () => Promise<void>): Promise<Download> {
   const [started] = await Promise.all([page.waitForEvent('download'), action()])
   return { name: started.suggestedFilename(), bytes: await readFile(await started.path()) }
+}
+
+/**
+ * Makes the core hang on one request, as a call stuck in the kernel would (ui.md 6.3). Called
+ * before `openApp`: the core module URL without a query is routed to a module that loads the real
+ * one (`partsmith_core.mjs?real`) and replaces `_ps_call` of the instance it made, so a request
+ * frame whose bytes contain `marker` in UTF-8 loops forever and every other request reaches the
+ * real core. The route serves every load of the page, its reloads and the core worker's restarts.
+ */
+export async function stallCore(page: Page, marker: string): Promise<void> {
+  const module = [
+    "import createRealCore from './partsmith_core.mjs?real'",
+    `const marker = ${JSON.stringify(marker)}`,
+    'export default async function createPartsmithCore(...options) {',
+    '  const core = await createRealCore(...options)',
+    '  const call = core._ps_call',
+    '  core._ps_call = (request, requestLength, responseLengthOut) => {',
+    '    const frame = core.HEAPU8.slice(request, request + requestLength)',
+    '    if (new TextDecoder().decode(frame).includes(marker)) {',
+    '      for (;;) {',
+    '        // Stuck, as a call that never leaves the kernel.',
+    '      }',
+    '    }',
+    '    return call(request, requestLength, responseLengthOut)',
+    '  }',
+    '  return core',
+    '}',
+  ].join('\n')
+  await page.route(
+    (url) => url.pathname.endsWith('/core/partsmith_core.mjs') && url.search === '',
+    (route) => route.fulfill({ contentType: 'text/javascript', body: module }),
+  )
 }
 
 /** Runs a command from the palette: the option whose title is exactly `title`. */

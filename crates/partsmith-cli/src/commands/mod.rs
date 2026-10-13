@@ -4,6 +4,8 @@ mod export;
 mod fmt;
 mod rebuild;
 mod schema;
+#[cfg(test)]
+mod test_support;
 mod validate;
 
 use std::io;
@@ -82,21 +84,10 @@ fn open(
 
 #[cfg(test)]
 mod tests {
-    use partsmith_engine::{SessionOptions, ValidateOptions};
+    use partsmith_engine::ValidateOptions;
 
+    use super::test_support::{BAD_ID, EMPTY, session};
     use super::*;
-
-    /// A document whose body id has a space, which the file format rejects at `/bodies/0/id`.
-    const BAD_ID: &str = r#"{"format": "partsmith", "format_version": 1, "units": "mm",
-        "parameters": [], "bodies": [{"id": "b 1", "name": "Block"}], "features": []}"#;
-
-    /// A document without parameters, bodies or features.
-    const EMPTY: &str = r#"{"format": "partsmith", "format_version": 1, "units": "mm",
-        "parameters": [], "bodies": [], "features": []}"#;
-
-    fn session() -> Session {
-        Session::new(SessionOptions::headless())
-    }
 
     fn rejection(session: &Session, text: &str) -> EngineError {
         session.format(text).expect_err("the text does not load")

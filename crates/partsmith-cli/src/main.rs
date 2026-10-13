@@ -104,11 +104,10 @@ mod tests {
     use super::*;
 
     fn failed_output(kind: io::ErrorKind, message: &str) -> (Status, String) {
-        let mut stdout = Vec::new();
-        let mut stderr = Vec::new();
-        let mut output = Output::new(&mut stdout, &mut stderr);
-        let status = standard_output_failed(&io::Error::new(kind, message), &mut output);
-        (status, String::from_utf8(stderr).expect("UTF-8"))
+        let error = io::Error::new(kind, message);
+        let (status, _, stderr) =
+            output::capture(|output| Ok(standard_output_failed(&error, output)));
+        (status, stderr)
     }
 
     #[test]

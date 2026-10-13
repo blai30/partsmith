@@ -142,6 +142,8 @@ mod tests {
     use partsmith_protocol::Severity;
 
     use super::*;
+    use crate::commands::test_support::session;
+    use crate::output::capture;
 
     fn report(severities: &[Severity]) -> ValidationReport {
         ValidationReport {
@@ -160,14 +162,8 @@ mod tests {
     }
 
     fn human(checked: &Result<ValidationReport, CliError>) -> (String, String) {
-        let mut stdout = Vec::new();
-        let mut stderr = Vec::new();
-        let mut output = Output::new(&mut stdout, &mut stderr);
-        write_human("box.ptsm", checked, &mut output).expect("writing to memory succeeds");
-        (
-            String::from_utf8(stdout).expect("UTF-8"),
-            String::from_utf8(stderr).expect("UTF-8"),
-        )
+        let ((), stdout, stderr) = capture(|output| write_human("box.ptsm", checked, output));
+        (stdout, stderr)
     }
 
     #[test]
@@ -242,7 +238,7 @@ mod tests {
 
     #[test]
     fn files_that_are_not_utf8_report_a_parse_error() {
-        let mut session = Session::new(partsmith_engine::SessionOptions::headless());
+        let mut session = session();
         let directory = tempfile::tempdir().expect("a temporary directory");
         let path = directory.path().join("x.ptsm");
         std::fs::write(&path, b"\xff\xfe{}").expect("written");

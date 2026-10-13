@@ -15,13 +15,14 @@ Rust (`src/lib.rs`):
 Python (`python/partsmith/`), a protocol client: every operation is one or more commands sent through `Session.call`.
 
 - `__init__.py`: the exact `__all__` of section 2.3. `__main__.py`: `python -m partsmith build <SCRIPT> [-o OUTPUT]` and `--version`.
-- `_frames.py` (frame codec), `_client.py` (`Client`: one session per document, request ids, error mapping to `EngineError`/`ExpressionError`, and `State`, the latest `document_changed`, `recomputed`, `sketch_solved` and `datum_plane` events), `_files.py` (atomic writes).
-- `document.py`: `Document`, `Part`, `Param`, `param`, `rollback`, `current_document`, the `ContextVar`s (current document, current part, open sketch, documents of a `run_code` run), sequential id generation, and `Document._add_feature` (adds a record, undoes it and raises `FeatureError` on status `error` or an `invalid_params` rejection, warns on status `warning`).
-- `expressions.py`: `Expr` (operators with minimal parentheses), units, `printer`, `expr`, `render_value` (section 3.2) and the raw conversions `raw_length`, `raw_angle`, `raw_number`.
+- `_frames.py` (frame codec), `_client.py` (`Client`: one session per document, request ids, error mapping to `EngineError`/`ExpressionError`, `close()`, and `state`, a `State` of the latest `document_changed`, `recomputed`, `sketch_solved` and `datum_plane` events; commands and `state` raise `PartsmithError` once the document is closed), `_files.py` (atomic writes).
+- `document.py`: `Document`, `Part`, `Param`, `param`, `rollback`, `current_document`, the `ContextVar`s (current document, current part, open sketch, documents of a `run_code` run), sequential id generation, `check_no_sketch`, `warn` (a `PartsmithWarning` pointing at the caller's code), and `Document._add_feature` (adds a record, undoes it and raises `FeatureError` on status `error` or an `invalid_params` rejection, warns on status `warning`).
+- `expressions.py`: `Expr` (operators with minimal parentheses), units, `printer`, `expr`, `render_value` (section 3.2), the raw conversions `raw_length`, `raw_angle`, `raw_number`, and `items_of`, the shape check of tuple arguments.
 - `sketch.py`: `Plane`, `Placement`, `Region`, `Sketch` (with the reserved references `Sketch.ORIGIN`, `Sketch.X_AXIS` and `Sketch.Y_AXIS`, instances of `SketchOrigin` and `SketchAxis`, stored as `origin`, `x_axis` and `y_axis`), `PointRef`, the entities, `Rectangle`, `Polygon` and every constraint.
 - `features.py`: `Feature`, `DatumPlane`, every feature function, and the argument mappings `plane_reference`, `axis_reference`, `sketch_plane`.
 - `selectors.py`: `Axis`, `Ref`, `Element`, `Selection`, `faces`/`edges`/`vertices`, `element_references`, `single_element`, `rotation_rows`.
-- `exporting.py`, `reports.py`, `running.py`, `errors.py`, `_core.pyi`, `py.typed`.
+- `reports.py`: `BoundingBox`, `Finding`, `PrintReport` and their conversions from protocol values (`point`, `bounding_box`, `print_report`).
+- `exporting.py`, `running.py`, `errors.py`, `_core.pyi`, `py.typed`.
 
 ## Commands
 

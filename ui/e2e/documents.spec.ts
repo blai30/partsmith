@@ -15,12 +15,27 @@ import {
   openApp,
   renameBody,
   runCommand,
+  stallCore,
   timelineItem,
 } from './helpers'
-import { expectTimeline, recentFileNames, storedRecovery, timelineItems } from './support/documents'
+import {
+  expectStoredRecovery,
+  expectTimeline,
+  heldRecoveryLocks,
+  recentFileNames,
+  recoveryOffers,
+  storedRecoveries,
+  timelineItems,
+} from './support/documents'
 
-// Documents, files, recovery, undo and redo, notifications and the status bar (ui.md 3.1,
-// 3.19 to 3.22): the E-tests of ui.md 6.5 that exercise them, against the real core.
+// Documents, files, recovery, undo and redo, notifications, the status bar and a stuck core
+// (ui.md 3.1, 3.19 to 3.22, 4.4): the E-tests of ui.md 6.5 that exercise them, against the real
+// core.
+
+const STILL_WORKING =
+  'The geometry core has been working for more than 10 seconds, and Partsmith cannot tell whether it will finish. Stopping it reopens your document as it was after the last change the core finished.'
+const CHANGES_NOT_APPLIED =
+  'Your latest changes were not applied, because the geometry core was stopped before it finished them. Make them again if you still want them.'
 
 const MODEL_TOOLS = [
   'Sketch',
@@ -185,12 +200,7 @@ test.describe('Startup and files', () => {
     await renameBody(page, 'Cube', 'Box')
     // The spec waits 3 s: the recovery copy is written 2 s after the last change (ui.md 3.19).
     // Waiting for that copy itself keeps the test independent of timing.
-    await expect
-      .poll(async () => {
-        const recovery = await storedRecovery(page)
-        return recovery !== null && recovery.text.includes('"name": "Box"')
-      })
-      .toBe(true)
+    await expectStoredRecovery(page, '"name": "Box"')
     const dialogTypes: string[] = []
     page.on('dialog', (dialog) => {
       dialogTypes.push(dialog.type())
@@ -206,6 +216,143 @@ test.describe('Startup and files', () => {
     await offer.getByRole('button', { name: 'Open', exact: true }).click()
     await expect(bodyRow(page, 'Box')).toBeVisible()
     await expect(page.getByTestId('document-name')).toHaveAttribute('data-dirty', 'true')
+  })
+})
+
+test.describe('Recovery sessions and a stuck core', () => {
+  test('E-127 a replaced document keeps its copy through a later autosave and save', async ({
+    page,
+  }) => {
+    await openApp(page, { fileSystemAccess: false })
+    await dropFile(page, 'cube.ptsm')
+    await renameBody(page, 'Cube', 'Box')
+    await expectStoredRecovery(page, '"name": "Box"')
+    await dropFile(page, 'two-bodies.ptsm')
+    await expect(
+      notification(page, 'info', 'cube had unsaved changes. They are kept for you.'),
+    ).toBeVisible()
+    await renameBody(page, 'Peg', 'Pin')
+    await expectStoredRecovery(page, '"name": "Pin"')
+    const saved = await download(page, () => page.keyboard.press('ControlOrMeta+S'))
+    expect(saved.name).toBe('two-bodies.ptsm')
+    expect(saved.bytes.toString('utf8')).toContain('"name": "Pin"')
+    const name = page.getByTestId('document-name')
+    await expect(name).toHaveAttribute('data-dirty', 'false')
+
+    await page.reload()
+    await expectReady(page)
+    const offers = recoveryOffers(page)
+    await expect(offers).toHaveCount(1)
+    await expect(offers).toHaveText(/^Partsmith kept unsaved changes to cube from/)
+    await expect(offers).not.toContainText('other document')
+    await offers.getByRole('button', { name: 'Open', exact: true }).click()
+    await expect(name).toHaveText('cube')
+    await expect(bodyRow(page, 'Box')).toBeVisible()
+    await expect(name).toHaveAttribute('data-dirty', 'true')
+  })
+
+  test("E-128 two tabs never offer or discard each other's live copy", async ({ context }) => {
+    const tabA = await context.newPage()
+    await openApp(tabA)
+    await dropFile(tabA, 'cube.ptsm')
+    await renameBody(tabA, 'Cube', 'Box')
+    await expectStoredRecovery(tabA, '"name": "Box"')
+
+    const tabB = await context.newPage()
+    await openApp(tabB)
+    // A's copy is live, so B offers nothing.
+    await expect(recoveryOffers(tabB)).toHaveCount(0)
+    await dropFile(tabB, 'two-bodies.ptsm')
+    await renameBody(tabB, 'Peg', 'Pin')
+    await expectStoredRecovery(tabB, '"name": "Pin"')
+
+    // Closing a page runs no beforeunload; the browser releases its locks.
+    await tabA.close()
+    await expect.poll(() => heldRecoveryLocks(tabB)).toHaveLength(1)
+    const tabC = await context.newPage()
+    await openApp(tabC)
+    const offersOfC = recoveryOffers(tabC)
+    await expect(offersOfC).toHaveCount(1)
+    await expect(offersOfC).toHaveText(/^Partsmith kept unsaved changes to cube from/)
+    await expect(offersOfC).not.toContainText('other document')
+    await offersOfC.getByRole('button', { name: 'Discard', exact: true }).click()
+    await expect(offersOfC).toHaveCount(0)
+    await expect
+      .poll(async () => (await storedRecoveries(tabC)).map((entry) => entry.name))
+      .toEqual(['two-bodies'])
+
+    await tabB.close()
+    await expect.poll(() => heldRecoveryLocks(tabC)).toHaveLength(0)
+    const tabD = await context.newPage()
+    await openApp(tabD)
+    const offersOfD = recoveryOffers(tabD)
+    await expect(offersOfD).toHaveCount(1)
+    await expect(offersOfD).toHaveText(/^Partsmith kept unsaved changes to two-bodies from/)
+    await offersOfD.getByRole('button', { name: 'Open', exact: true }).click()
+    await expect(bodyRow(tabD, 'Cube')).toBeVisible()
+    await expect(bodyRow(tabD, 'Pin')).toBeVisible()
+    await expect(tabD.getByTestId('document-name')).toHaveAttribute('data-dirty', 'true')
+  })
+
+  test('E-129 a stuck core: Stop and restart core reopens the settled recipe and keeps its copy', async ({
+    page,
+  }) => {
+    test.setTimeout(60_000)
+    await stallCore(page, 'Stall here')
+    await openApp(page)
+    await dropFile(page, 'cube.ptsm')
+    await renameBody(page, 'Cube', 'Box')
+    await expectStoredRecovery(page, '"name": "Box"')
+
+    // The core never answers this rename, so the row keeps its name.
+    await bodyRow(page, 'Box').click()
+    await page.keyboard.press('F2')
+    const field = page.getByTestId('browser').getByRole('textbox', { name: 'Name', exact: true })
+    await expect(field).toBeFocused()
+    await page.keyboard.type('Stall here')
+    const stalledAt = Date.now()
+    await page.keyboard.press('Enter')
+    const status = page.getByTestId('status-core')
+    await expect(status).toHaveText('Rebuilding', { timeout: 1_000 })
+    // A change that waits behind the rename.
+    await bodyRow(page, 'Box').getByRole('button', { name: 'Hide Box', exact: true }).click()
+
+    const working = page.getByTestId('core-working')
+    await page.waitForTimeout(Math.max(0, stalledAt + 8_000 - Date.now()))
+    await expect(working).toBeHidden()
+    await expect(working).toBeVisible({ timeout: Math.max(0, stalledAt + 14_000 - Date.now()) })
+    await expect(working).toContainText(STILL_WORKING)
+    await expect(status).toHaveText('Still working')
+
+    await working.getByRole('button', { name: 'Stop and restart core', exact: true }).click()
+    await expect(working).toBeHidden()
+    // The warning comes once the document is open again in the new core.
+    await expect(notification(page, 'warning', CHANGES_NOT_APPLIED)).toBeVisible()
+    await expectReady(page)
+    await expect(page.getByTestId('core-fatal')).toHaveCount(0)
+    const name = page.getByTestId('document-name')
+    await expect(name).toHaveText('cube')
+    await expect(bodyRows(page)).toHaveCount(1)
+    await expect(
+      bodyRow(page, 'Box').getByRole('button', { name: 'Hide Box', exact: true }),
+    ).toHaveCount(1)
+    await expect(name).toHaveAttribute('data-dirty', 'true')
+
+    // The new core answers.
+    await renameBody(page, 'Box', 'Lid')
+    await expectStoredRecovery(page, '"name": "Lid"')
+    page.on('dialog', (dialog) => {
+      void dialog.accept()
+    })
+    await page.reload()
+    await expectReady(page)
+    const offers = recoveryOffers(page)
+    await expect(offers).toHaveCount(1)
+    // The restart continued the session's entry, so no second entry waits.
+    await expect(offers).toHaveText(/^Partsmith kept unsaved changes to cube from/)
+    await expect(offers).not.toContainText('other document')
+    await offers.getByRole('button', { name: 'Open', exact: true }).click()
+    await expect(bodyRow(page, 'Lid')).toBeVisible()
   })
 })
 

@@ -26,20 +26,20 @@ function failingOnce(fake: FakeIndexedDb): IDBFactory {
 }
 
 describe('createConnection', () => {
-  it('opens the database partsmith at version 1 with the stores recent and recovery', async () => {
+  it('U-155 opens the database partsmith at version 2 with the stores recent and recovery, both keyed by id', async () => {
     const fake = createFakeIndexedDb()
     await createConnection(fake.factory).transaction(RECENT_STORE, 'readonly')
     expect(DATABASE_NAME).toBe('partsmith')
-    expect(fake.version('partsmith')).toBe(1)
-    expect(fake.keyPaths('partsmith')).toEqual({ recent: 'id', recovery: 'slot' })
+    expect(fake.version('partsmith')).toBe(2)
+    expect(fake.keyPaths('partsmith')).toEqual({ recent: 'id', recovery: 'id' })
   })
 
   it('opens an existing database without touching its records', async () => {
     const fake = createFakeIndexedDb()
     await createConnection(fake.factory).transaction(RECOVERY_STORE, 'readonly')
-    fake.putRecord('partsmith', 'recovery', { slot: 'current', name: 'bracket' })
+    fake.putRecord('partsmith', 'recovery', { id: 'a', name: 'bracket' })
     await createConnection(fake.factory).transaction(RECOVERY_STORE, 'readonly')
-    expect(fake.records('partsmith', 'recovery')).toEqual([{ slot: 'current', name: 'bracket' }])
+    expect(fake.records('partsmith', 'recovery')).toEqual([{ id: 'a', name: 'bracket' }])
   })
 
   it('shares one connection between transactions', async () => {
@@ -89,8 +89,8 @@ describe('createConnection', () => {
     const connection = createConnection(fake.factory)
     await connection.transaction(RECENT_STORE, 'readonly')
     await fake.upgradeFromAnotherTab('partsmith')
-    expect(fake.version('partsmith')).toBe(2)
-    // This tab's version 1 can no longer open the upgraded database.
+    expect(fake.version('partsmith')).toBe(3)
+    // This tab's version 2 can no longer open the upgraded database.
     await expect(connection.transaction(RECENT_STORE, 'readonly')).rejects.toMatchObject({
       name: 'VersionError',
     })
@@ -102,10 +102,10 @@ describe('withStore', () => {
     const fake = createFakeIndexedDb()
     const connection = createConnection(fake.factory)
     const key = await withStore(connection, RECOVERY_STORE, 'readwrite', (store) =>
-      requestResult(store.put({ slot: 'current', name: 'bracket' })),
+      requestResult(store.put({ id: 'a', name: 'bracket' })),
     )
-    expect(key).toBe('current')
-    expect(fake.records('partsmith', 'recovery')).toEqual([{ slot: 'current', name: 'bracket' }])
+    expect(key).toBe('a')
+    expect(fake.records('partsmith', 'recovery')).toEqual([{ id: 'a', name: 'bracket' }])
   })
 
   it('runs every request the operation places, including those placed after a result', async () => {
@@ -135,10 +135,10 @@ describe('createStoreAccess', () => {
     const run = createStoreAccess(fake.factory, RECOVERY_STORE, 'The recovery store failed.')
     const key = await run(
       'readwrite',
-      (store) => requestResult(store.put({ slot: 'current', name: 'bracket' })),
+      (store) => requestResult(store.put({ id: 'a', name: 'bracket' })),
       null,
     )
-    expect(key).toBe('current')
+    expect(key).toBe('a')
   })
 
   it('warns with its message and resolves with the fallback when the operation fails', async () => {

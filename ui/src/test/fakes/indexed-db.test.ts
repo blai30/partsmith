@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createFakeIndexedDb } from './indexed-db'
 
 /** Opens a database, creating the store `items` (key path `id`) on upgrade. */
@@ -34,6 +34,10 @@ function completed(transaction: IDBTransaction): Promise<void> {
     })
   })
 }
+
+afterEach(() => {
+  vi.useRealTimers()
+})
 
 describe('createFakeIndexedDb', () => {
   it('runs put, get, getAll and delete, with getAll in key order', async () => {
@@ -79,13 +83,65 @@ describe('createFakeIndexedDb', () => {
     )
   })
 
-  it('creates object stores only during an upgrade', async () => {
+  it('creates and deletes object stores only during an upgrade', async () => {
     const fake = createFakeIndexedDb()
     const database = await open(fake.factory)
     expect(() => database.createObjectStore('more', { keyPath: 'id' })).toThrow(
       expect.objectContaining({ name: 'InvalidStateError' }),
     )
+    expect(() => {
+      database.deleteObjectStore('items')
+    }).toThrow(expect.objectContaining({ name: 'InvalidStateError' }))
     expect(fake.keyPaths('test')).toEqual({ items: 'id' })
+  })
+
+  it('runs an upgrade in a versionchange transaction that reads, deletes and creates stores before the open succeeds', async () => {
+    const fake = createFakeIndexedDb()
+    fake.createDatabase('test', 1, { items: 'slot' })
+    fake.putRecord('test', 'items', { slot: 'current', value: 7 })
+    const versions: [number, number][] = []
+    const request = fake.factory.open('test', 2)
+    request.addEventListener('upgradeneeded', (event) => {
+      // jsdom has no IDBVersionChangeEvent, so the versions are read by name.
+      versions.push([
+        Number(Reflect.get(event, 'oldVersion')),
+        Number(Reflect.get(event, 'newVersion')),
+      ])
+      const database = request.result
+      const old = request.transaction?.objectStore('items').get('current')
+      old?.addEventListener('success', () => {
+        database.deleteObjectStore('items')
+        const items = database.createObjectStore('items', { keyPath: 'id' })
+        items.put({ id: 'a', value: Reflect.get(Object(old.result), 'value') })
+      })
+    })
+    const database = await result(request)
+    expect(versions).toEqual([[1, 2]])
+    expect(request.transaction).toBeNull()
+    expect(database.version).toBe(2)
+    expect(fake.keyPaths('test')).toEqual({ items: 'id' })
+    expect(fake.records('test', 'items')).toEqual([{ id: 'a', value: 7 }])
+  })
+
+  it('creates a database as an earlier build left it, with its version and key paths', () => {
+    const fake = createFakeIndexedDb()
+    fake.createDatabase('test', 1, { recent: 'id', recovery: 'slot' })
+    fake.putRecord('test', 'recovery', { slot: 'current' })
+    expect(fake.version('test')).toBe(1)
+    expect(fake.keyPaths('test')).toEqual({ recent: 'id', recovery: 'slot' })
+    expect(fake.records('test', 'recovery')).toEqual([{ slot: 'current' }])
+    expect(() => {
+      fake.createDatabase('test', 2, {})
+    }).toThrow('The database test exists already.')
+  })
+
+  it('runs requests on the real clock, so they finish while a test uses fake timers', async () => {
+    vi.useFakeTimers()
+    const fake = createFakeIndexedDb()
+    const database = await open(fake.factory)
+    const store = database.transaction('items', 'readwrite').objectStore('items')
+    await result(store.put({ id: 'a' }))
+    expect(await result(store.get('a'))).toEqual({ id: 'a' })
   })
 
   it('fails to open a database at a lower version than it has', async () => {

@@ -10,6 +10,7 @@ describe('INITIAL_STATE', () => {
       engineVersion: null,
       fatal: null,
       pendingMutations: 0,
+      stillWorking: false,
     })
     expect(INITIAL_STATE.catalog).toBeNull()
     expect(INITIAL_STATE.printers).toEqual([])

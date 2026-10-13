@@ -169,18 +169,6 @@ mod tests {
     }
 
     #[test]
-    fn call_returns_the_engine_response_frame() {
-        Python::initialize();
-        let session = PySession::new(false, true);
-
-        let response =
-            Python::attach(|py| session.call(py, &engine_info_frame(7)).as_bytes().to_vec());
-
-        let decoded = decode_response_frame(&response).expect("the frame decodes");
-        assert_eq!(decoded.response.id, 7);
-    }
-
-    #[test]
     fn call_releases_the_gil_while_it_waits_for_the_session() {
         Python::initialize();
         let session = PySession::new(false, true);

@@ -1,15 +1,17 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useApp, useAppState } from '../app/AppProvider'
 import { CoreError } from '../core/client'
 import { createLatestOnly } from '../core/queue'
 import type { DocHandle, Dimension, FieldUnit, Units } from '../generated/protocol'
 import { MESSAGES } from '../messages'
+import { measureTiming, TIMING_NAMES } from '../performance/marks'
 import { convertForField } from './evaluate'
 import type { ExpressionState } from './ExpressionInput'
 import { utf16Range } from './span'
 
 // Live validation of an expression through the core (ui.md 2.13): the core evaluates the text, the
-// UI converts the result for the field, and results for an older text never show.
+// UI converts the result for the field, and results for an older text never show. The time from
+// submitting a new text to rendering its result is ps:expression (2.18).
 
 /** What an evaluation was asked for: the text and everything its conversion depends on. */
 type Request = {
@@ -23,6 +25,9 @@ type Request = {
 }
 
 type Evaluated = { readonly request: Request; readonly state: ExpressionState }
+
+/** A submitted text whose result has not rendered yet, and when it was submitted. */
+type Submitted = { readonly text: string; readonly submittedAt: number }
 
 const PENDING: ExpressionState = { state: 'pending' }
 
@@ -79,7 +84,8 @@ function stateForError(request: Request, error: unknown): ExpressionState {
  * Evaluates `text` through the core and converts it for `unit` (`any` keeps the returned value and
  * dimension). Empty text is invalid with "{label} needs a value."; a text waiting for its result
  * is pending. A change of the document revision evaluates again, keeping the last result shown
- * until the new one arrives.
+ * until the new one arrives. Each new text submitted is measured until its result renders, as
+ * ps:expression.
  */
 export function useExpression(
   text: string,
@@ -92,6 +98,9 @@ export function useExpression(
   const units = useAppState((state) => state.document?.recipe.units ?? 'mm')
   const [evaluated, setEvaluated] = useState<Evaluated | null>(null)
   const empty = text.trim() === ''
+  // The last text submitted, and the one whose result is awaited for ps:expression.
+  const lastSubmitted = useRef<string | null>(null)
+  const awaited = useRef<Submitted | null>(null)
 
   const latest = useMemo(
     () =>
@@ -118,6 +127,11 @@ export function useExpression(
     if (empty || documentHandle === null) {
       return
     }
+    if (text !== lastSubmitted.current) {
+      // A new text, not the same one again at a newer revision: its round trip starts now.
+      lastSubmitted.current = text
+      awaited.current = { text, submittedAt: performance.now() }
+    }
     latest.submit({ documentHandle, revision, text, unit, units, label })
   }, [latest, empty, documentHandle, revision, text, unit, units, label])
 
@@ -125,12 +139,29 @@ export function useExpression(
     () => ({ state: 'invalid', message: MESSAGES.field_required(label), range: null }),
     [label],
   )
+  let state: ExpressionState
   if (empty) {
-    return emptyState
+    state = emptyState
+  } else if (documentHandle === null) {
+    state = PENDING
+  } else {
+    const current: Request = { documentHandle, revision, text, unit, units, label }
+    state =
+      evaluated !== null && sameRequest(evaluated.request, current) ? evaluated.state : PENDING
   }
-  if (documentHandle === null) {
-    return PENDING
-  }
-  const current: Request = { documentHandle, revision, text, unit, units, label }
-  return evaluated !== null && sameRequest(evaluated.request, current) ? evaluated.state : PENDING
+
+  // Layout effects run once the field's DOM is committed, so the measure ends when the awaited
+  // text's result renders. A text replaced before its result renders records nothing.
+  useLayoutEffect(() => {
+    const submitted = awaited.current
+    if (submitted === null || (submitted.text === text && state.state === 'pending')) {
+      return
+    }
+    awaited.current = null
+    if (submitted.text === text) {
+      measureTiming(TIMING_NAMES.expression, submitted.submittedAt)
+    }
+  }, [text, state])
+
+  return state
 }

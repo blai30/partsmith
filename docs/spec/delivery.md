@@ -13,6 +13,7 @@ Every change is built and tested on every platform the project ships before it m
 - CI jobs: OCCT native and WebAssembly builds with caches; Rust format, lint and tests (including the desktop crate and the examples runner); `cargo-deny`; kernel tests on WebAssembly; the WebAssembly core built with `scripts/build-wasm.sh`; UI lint, typecheck, unit tests and script tests; the web build with the distribution check; Playwright end-to-end tests against the real WebAssembly core; schema and generated-type drift; Python package tests including the examples' Python twins; a Linux desktop build.
 - Cloudflare Pages: production on every push to `main`, a preview per pull request, through the Wrangler action, skipped cleanly when the secrets are absent (forks, unconfigured repositories).
 - The 25 MiB per-file gate on `ui/dist`, with the measured sizes and the plan when the core outgrows it (3.5).
+- The initial JavaScript limit of ui.md 5, 250 KB gzipped, checked on `ui/dist` by the same script (2.6).
 - `ui/public/_headers` with the cross-origin isolation headers.
 - The desktop release workflow: on a version tag, bundles on Linux, Windows and macOS with the Tauri bundler and a draft GitHub Release that a human publishes.
 - The examples corpus: one rule for every file under `examples/`, the expected-results format, the Rust runner with a documented way to regenerate expected files, the feature coverage check and the Python twin checks (section 2.8).
@@ -180,6 +181,9 @@ An ES module with no dependencies beyond Node's standard library, usable as a li
 /** Cloudflare Pages' per-file limit: 25 MiB. */
 export const PAGES_FILE_LIMIT = 26_214_400
 
+/** The initial JavaScript limit of ui.md section 5: 250 KB gzipped, with 1 KB = 1,000 bytes. */
+export const INITIAL_JAVASCRIPT_LIMIT = 250_000
+
 /** The exact text of `_headers` (2.7). */
 export const EXPECTED_HEADERS = '/*\n  Cross-Origin-Opener-Policy: same-origin\n  Cross-Origin-Embedder-Policy: require-corp\n'
 
@@ -189,17 +193,48 @@ export const EXPECTED_HEADERS = '/*\n  Cross-Origin-Opener-Policy: same-origin\n
  */
 export async function oversizedFiles(directory, limit = PAGES_FILE_LIMIT)
 
-/** Every problem that keeps `directory` from deploying to Pages, as messages (section 4); empty when it is ready. */
+/**
+ * The initial JavaScript of `directory` (below) as `{ files, unresolved }`. `files` lists each initial script once as
+ * `{ path, size, gzippedSize }`, sorted by path, with `path` as `oversizedFiles` writes it, `size` its length in bytes
+ * and `gzippedSize` the length of `gzipSync(contents, { level: 9 })` from `node:zlib`. `unresolved` lists each distinct
+ * reference of `index.html` that is not a file of the build, in order of first appearance.
+ */
+export async function initialJavaScript(directory)
+
+/**
+ * The initial JavaScript problems of `directory` as messages (section 4): one per unresolved reference, in order,
+ * then the limit message when the `gzippedSize` values of its files sum to more than `limit` bytes.
+ */
+export async function initialJavaScriptProblems(directory, limit = INITIAL_JAVASCRIPT_LIMIT)
+
+/**
+ * Every problem that keeps `directory` from deploying, as messages (section 4): oversized files by path, then
+ * `_headers`, then `initialJavaScriptProblems(directory)`; only the missing-directory message when `directory` does not
+ * exist; empty when it is ready.
+ */
 export async function checkDist(directory)
 ```
 
 Command: `node scripts/check-dist.mjs [directory]` (default `dist`, relative to the working directory). `ui/package.json` gains `"check:dist": "node scripts/check-dist.mjs dist"` and `"test:scripts": "node --test \"scripts/**/*.test.mjs\""`.
 
-- Exit 0 and one line on standard output, `{directory} is ready for Cloudflare Pages: {n} files, the largest is {path} ({size} bytes).`, when `checkDist` returns no problems.
+- Exit 0 and two lines on standard output, `{directory} is ready for Cloudflare Pages: {n} files, the largest is {path} ({size} bytes).` and `Initial JavaScript: {total} bytes gzipped, {percent} percent of the limit of 250000 bytes.`, when `checkDist` returns no problems. `{total}` is the sum of the `gzippedSize` values of `initialJavaScript(directory).files` (0 when there are none) and `{percent}` is `(total * 100 / INITIAL_JAVASCRIPT_LIMIT).toFixed(1)`.
 - Exit 1 with every problem on standard error, one per line, when it returns any.
 - Exit 2 with `usage: node scripts/check-dist.mjs [directory]` when given more than one argument.
 
 `build-wasm.sh` keeps its informational size line and warning; the gate is this script.
+
+**Initial JavaScript** is the JavaScript a browser downloads and runs before the app is usable (ui.md 3.1 and 5). In `directory` it is:
+
+1. Every file that the regular file `index.html` names in the `src` of a `<script>` tag or in the `href` of a `<link>` tag whose `rel` is `modulepreload`. Vite writes a `modulepreload` link for every chunk the entry script imports statically, directly or through other chunks, so these tags cover the whole static import graph; `vite.config.ts` keeps Vite's default `build.modulePreload` for that reason. Tags are read as Vite writes them: lowercase tag and attribute names, attribute values in double quotes, attributes in any order. An inline script (a `<script>` without `src`) is part of `index.html` and does not count, and neither its text nor the text of an HTML comment is read for tags. Without a regular file `index.html`, nothing is read.
+2. The core worker script: every regular file whose path starts with `assets/core.worker-`, ends with `.js` and contains no further `/`. That is the name Vite gives `src/core/core.worker.ts` (its default `assets/[name]-[hash].js`). The app starts the worker during startup (ui.md 3.1), before it is usable, so its script counts; a change that renames the worker entry or its output name changes this pattern too.
+
+A reference of `index.html` is a file of the build when, with one leading `/` or `./` removed, it equals the `path` of a regular file of `directory` as `oversizedFiles` writes paths. Any other reference is unresolved: a URL with a scheme or starting with `//`, a missing file, a folder, a symbolic link, or a path with a query or a fragment. Each file counts once, even when it is named twice or is both referenced and the worker script.
+
+Not initial: the core module under `core/` (`partsmith_core.mjs` and `partsmith_core.wasm`), which the worker loads and ui.md 5 excludes (3.5 gates its size); source maps; stylesheets; and every other `.js` file, such as a chunk Vite splits off for a dynamic `import()`.
+
+The measure is the sum of each file's gzipped length, each file compressed on its own (it is a separate response) with `gzipSync` at level 9, zlib's highest, the same as `gzip -9`. 1 KB is 1,000 bytes, as in the sizes Vite prints after a build, so the limit is 250,000 bytes, and a total of exactly 250,000 bytes passes. Pages compresses responses itself, with its own encodings and levels, so the measure is a fixed and reproducible stand-in for the transfer size, not the number of bytes served.
+
+**Measured (2026-10-13, a `vite build` of the current tree):** `index.html` names one script, `assets/index-*.js` (750,351 bytes, 230,688 gzipped), and no `modulepreload` link, because the app is one chunk; `assets/core.worker-*.js` is 7,286 bytes, 2,839 gzipped. The initial JavaScript is 233,527 bytes gzipped, 93.4 percent of the limit and 16,473 bytes under it (open issue 8). The gzip column of Vite's build report comes from another compressor and reads about 1 percent higher (233.24 kB for `assets/index-*.js`); the check's number is the one the limit applies to.
 
 ### 2.7 `ui/public/_headers`
 
@@ -334,6 +369,8 @@ The `rust` job runs the Rust runner as part of `cargo test --workspace` (with th
 | A file in `ui/dist` over the limit | `check:dist`, standard error, exit 1 | `{directory}/{path} is {size} bytes, over the Cloudflare Pages limit of 26214400 bytes (25 MiB). Split the core into lazily loaded modules or serve the file from R2 (docs/spec/delivery.md section 3.5).` |
 | `_headers` missing | `check:dist` | `{directory}/_headers is missing. It must set Cross-Origin-Opener-Policy and Cross-Origin-Embedder-Policy (docs/spec/delivery.md section 2.7).` |
 | `_headers` different | `check:dist` | `{directory}/_headers does not match the cross-origin isolation headers of docs/spec/delivery.md section 2.7.` |
+| A script or preload of `index.html` that is not a file of the build (2.6) | `check:dist`, exit 1 | `{directory}/index.html loads {reference}, which is not a file in {directory}. Every script the page loads must be part of the build.` (`{reference}` exactly as written in the tag) |
+| Initial JavaScript over the limit (2.6) | `check:dist`, exit 1 | `{directory} has {total} bytes of initial JavaScript gzipped, over the limit of {limit} bytes (docs/spec/ui.md section 5): {files}. Move code that startup does not need into modules loaded with import() (docs/spec/delivery.md section 2.6).` (`{limit}` is 250000 from `checkDist`; `{files}` is each initial file as `{path} ({gzippedSize} bytes)`, in path order, joined by `, `) |
 | Directory missing | `check:dist`, exit 1 | `{directory} does not exist. Run pnpm build first.` |
 | Wrong arguments | `check:dist`, exit 2 | `usage: node scripts/check-dist.mjs [directory]` |
 | Generated files drifted | `schema` job | `Generated files are out of date. Run: cargo run -p partsmith-cli -- schema --write && pnpm -C ui generate:protocol` |
@@ -394,7 +431,7 @@ Run by `pnpm test:scripts` in `ui/`. `node --test` takes files or glob patterns,
 16. A sparse file of 26,214,401 bytes at `core/big.wasm` makes `oversizedFiles` return `[{ path: 'core/big.wasm', size: 26214401 }]`; two oversized files in nested folders come back sorted by path.
 17. A symbolic link to an oversized file outside the directory is not reported.
 18. `checkDist` returns `[]` for a directory with a small file and the exact `_headers`; the missing-headers message when `_headers` is absent; the mismatch message when it lacks its trailing newline.
-19. The command on a ready directory exits 0 and prints the ready line with the file count and the largest file; on a directory with an oversized file exits 1 and prints the oversized message naming `{directory}/core/big.wasm`; on a missing directory exits 1 with the missing message; with two arguments exits 2 with the usage line.
+19. The command on a ready directory (its `index.html` names no script and it has no worker script) exits 0 and prints the ready line with the file count and the largest file, then `Initial JavaScript: 0 bytes gzipped, 0.0 percent of the limit of 250000 bytes.`; on a directory with an oversized file exits 1 and prints the oversized message naming `{directory}/core/big.wasm`; on a missing directory exits 1 with the missing message; with two arguments exits 2 with the usage line.
 
 **Examples comparison (`crates/partsmith-cli/tests/examples.rs`, on literal JSON)**
 
@@ -405,6 +442,15 @@ Run by `pnpm test:scripts` in `ui/`. `node --test` takes files or glob patterns,
 24. The projection of a report removes `path` and every finding's `triangles` and keeps every other member in order.
 25. With `PARTSMITH_BLESS=1` and `CI` set, the bless entry point fails with the bless-in-CI message.
 
+**Initial JavaScript (`ui/scripts/check-dist.test.mjs`, `node:test`, temporary directories, run by `pnpm test:scripts`)**
+
+26. `INITIAL_JAVASCRIPT_LIMIT` is 250000.
+27. Which files count: a directory whose `index.html` holds, in this order, `<script type="module" crossorigin src="/assets/index-a1.js"></script>`, `<link rel="modulepreload" crossorigin href="/assets/vendor-b2.js">`, `<link rel="modulepreload" crossorigin href="./assets/vendor-b2.js">`, `<link rel="stylesheet" crossorigin href="/assets/index-c3.css">` and `<script type="module">import './assets/inline-f6.js'</script>`, next to the files `assets/index-a1.js`, `assets/index-a1.js.map`, `assets/vendor-b2.js`, `assets/index-c3.css`, `assets/inline-f6.js`, `assets/lazy-d4.js`, `assets/core.worker-e5.js`, `assets/core.worker-e5.js.map`, `workers/core.worker-g7.js` and `core/partsmith_core.mjs`, each holding a different short text: `initialJavaScript` returns `unresolved` `[]` and `files` with exactly `assets/core.worker-e5.js`, `assets/index-a1.js` and `assets/vendor-b2.js`, in that order, each with its byte length as `size` and the length of `gzipSync(contents, { level: 9 })` as `gzippedSize`. A directory holding only `assets/core.worker-e5.js` (no `index.html`) returns that file alone, and one holding only `assets/core.worker-e5/nested.js` returns no file. An `index.html` holding `<!-- <script type="module" src="/assets/commented-h8.js"></script> -->`, `<script type="module">console.log('<link rel="modulepreload" href="/assets/text-i9.js">')</script>` and the script tag of `/assets/index-a1.js`, next to those three files, gives `assets/index-a1.js` alone.
+28. The gzip level: `assets/index-a1.js`, named by `index.html`, holds the text `const value{i} = {(i * 7919) % 10007};\n` for `i` from 0 to 9999 (237,788 bytes), whose `gzipSync` lengths at levels 1, 6 and 9 are three different numbers (the test asserts it first). Its `gzippedSize` is the level 9 length.
+29. Unresolved references: next to the exact `_headers` and the files `assets/index-a1.js` and `assets/folder/x.js`, with `assets/link.js` a symbolic link to a file outside the directory, an `index.html` naming, in this order, `<script type="module" src="/assets/missing.js"></script>`, `<script type="module" src="https://example.com/remote.js"></script>`, `<link rel="modulepreload" href="/assets/folder">`, `<link rel="modulepreload" href="/assets/link.js">`, `<script type="module" src="/assets/index-a1.js?v=1"></script>` and `<script type="module" src="/assets/missing.js"></script>` again: `initialJavaScript` returns `files` `[]` and `unresolved` `['/assets/missing.js', 'https://example.com/remote.js', '/assets/folder', '/assets/link.js', '/assets/index-a1.js?v=1']`, and `checkDist` returns the unresolved message of each, in that order. Script tags naming `data:text/javascript,1`, `/assets/index-a1.js?v=1` and `/assets/index-a1.js#top`, next to regular files whose paths are those references with any leading `/` removed, leave all three unresolved, in that order, and count no file.
+30. The limit: a directory with the exact `_headers`, an `index.html` naming `/assets/index-a1.js` (260,000 bytes from `randomBytes`) and the worker script `assets/core.worker-e5.js` (1,000 bytes from `randomBytes`), where `g1` and `g2` are the level 9 lengths of the worker and of `index-a1.js` and `T = g1 + g2` (over 250,000), all computed by the test. `checkDist` returns exactly the over-limit message with `{total}` T, `{limit}` 250000 and `{files}` `assets/core.worker-e5.js ({g1} bytes), assets/index-a1.js ({g2} bytes)`. `initialJavaScriptProblems(directory, T)` returns `[]`, and `initialJavaScriptProblems(directory, T - 1)` returns the same message with `{limit}` T - 1. With 200,000 random bytes in `assets/index-a1.js` instead, `checkDist` returns `[]`. With the 260,000 bytes, a sparse file of 26,214,401 bytes at `core/big.wasm`, no `_headers` and a second script `/assets/missing.js` after the first, `checkDist` returns the oversized, missing-headers, unresolved and over-limit messages, in that order.
+31. The command on a ready directory whose `index.html` names `/assets/index-a1.js` holding the text of test 28 exits 0 and prints the ready line (the largest file is `assets/index-a1.js`) and then `Initial JavaScript: {T} bytes gzipped, {percent} percent of the limit of 250000 bytes.`, with `T` the level 9 length of that text and `{percent}` `(T * 100 / 250000).toFixed(1)`, both computed by the test. On the over-limit directory of test 30 it exits 1, prints nothing on standard output and the over-limit message on standard error.
+
 ## 7. Open issues
 
 1. **OCCT on Windows and macOS.** `scripts/build-occt.sh` and `partsmith-occt-sys` have been built only on Linux and Emscripten. The release dry run is the first MSVC and Apple Clang build; it may need script changes beyond `INSTALL_DIR_LAYOUT` (3.6), which this spec lists but does not prove.
@@ -414,6 +460,7 @@ Run by `pnpm test:scripts` in `ui/`. `node --test` takes files or glob patterns,
 5. **Import examples.** The three `examples/import/` examples reference the placeholder asset name of features/import.md (64 zeros), which the feature tests supply at run time. Through the CLI they have no asset, so they rebuild with `asset_missing` errors (recorded in their expected results) and have no Python twin. An example that imports a real STEP file needs an `examples/import/assets/<hash>.step` and a new example name.
 6. **Source maps.** `vite.config.ts` emits source maps, which deploy with the app (about 1 MB today). That is fine for an open-source app and helps bug reports; dropping them from production is a one-line change if wanted.
 7. **features.md and cli.md open issues 3.** Both point at the examples layout, which section 2.8 now defines; their text can be updated to point here when those specs are next edited.
+8. **Initial JavaScript headroom.** The app is one chunk, and its initial JavaScript is 93.4 percent of the 250 KB limit (2.6), so a few more features will fail the `web` job. The first response is moving code that startup does not need into chunks loaded with a dynamic `import()` (candidates: the Print context, sketch mode, export), with the loading state each needs specified in ui.md. Raising the limit changes the budget of ui.md 5 and needs human review.
 
 ## 8. Needs human review
 

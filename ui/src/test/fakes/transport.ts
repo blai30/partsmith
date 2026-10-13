@@ -1,9 +1,16 @@
 import { CoreFatalError, type CoreReady, type Transport } from '../../core/transport'
 import { PROTOCOL_VERSION, type Command, type Request } from '../../generated/protocol'
-import { createFakeCore, type FakeCore, type FakeCoreOptions, type FakeReply } from './core'
-import { readRequest, responseFrame } from './protocol'
+import {
+  createFakeCore,
+  replyFrame,
+  type FakeCore,
+  type FakeCoreOptions,
+  type FakeReply,
+} from './core'
+import { readRequest } from './protocol'
 
-// A worker-kind Transport whose core is the in-memory fake of ./core. Every start() boots a fresh
+// A Transport whose core is the in-memory fake of ./core, of the worker kind unless a test asks
+// for the Tauri kind. Every start() boots a fresh
 // core (new documents, handles from 1), the way restarting the geometry core does. Requests are
 // answered one at a time in arrival order, with promises only (no timers), so tests may use fake
 // timers freely.
@@ -19,6 +26,8 @@ export type FakeHandler<Type extends Command['type']> = (
 export type FakeTransportOptions = FakeCoreOptions & {
   /** Receives "command:<type>" for every request, so tests can order requests against other effects. */
   readonly journal?: string[]
+  /** The transport's kind; default 'worker'. */
+  readonly kind?: Transport['kind']
 }
 
 export type FakeTransport = Transport & {
@@ -104,18 +113,11 @@ export function createFakeTransport(options: FakeTransportOptions = {}): FakeTra
     if (fatal !== null) {
       throw fatal
     }
-    return 'result' in reply
-      ? responseFrame({
-          id: request.id,
-          result: reply.result,
-          events: reply.events ?? [],
-          buffers: reply.buffers ?? [],
-        })
-      : responseFrame({ id: request.id, error: reply.error, events: reply.events ?? [] })
+    return replyFrame(request.id, reply)
   }
 
   const transport: FakeTransport = {
-    kind: 'worker',
+    kind: options.kind ?? 'worker',
     get requests() {
       return requests
     },

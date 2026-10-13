@@ -1,10 +1,13 @@
 import type { CoreEvent } from '../core/events'
 import type { DocHandle, Document } from '../generated/protocol'
+import { measureTiming, TIMING_NAMES } from '../performance/marks'
 import type { AppStore, DocumentState, FileReference } from './store'
 
 // Applies core events to the store (ui.md 2.7). The store shows one document, the one an action
 // adopted. Events for a document that is not adopted yet (the reply events of new_document and
-// open_document arrive before the request resolves) are kept until an action adopts it.
+// open_document arrive before the request resolves) are kept until an action adopts it. A
+// document_changed followed by the recomputed of the same document is measured as ps:apply-events
+// (2.18).
 
 /** What an action knows about a document that the core does not. */
 export type DocumentDetails = {
@@ -18,6 +21,11 @@ type DocumentRegistry = {
   readonly pending: Map<DocHandle, DocumentState>
   /** An adopted document whose first document_changed has not arrived yet. */
   awaiting: ({ readonly documentHandle: DocHandle } & DocumentDetails) | null
+  /**
+   * The document_changed that was the last event applied, and when its `applyCoreEvent` call
+   * started: the start of ps:apply-events if the recomputed of that document comes next.
+   */
+  changed: { readonly documentHandle: DocHandle; readonly startedAt: number } | null
 }
 
 const registries = new WeakMap<AppStore, DocumentRegistry>()
@@ -25,7 +33,7 @@ const registries = new WeakMap<AppStore, DocumentRegistry>()
 function registryOf(store: AppStore): DocumentRegistry {
   let registry = registries.get(store)
   if (registry === undefined) {
-    registry = { pending: new Map(), awaiting: null }
+    registry = { pending: new Map(), awaiting: null, changed: null }
     registries.set(store, registry)
   }
   return registry
@@ -147,9 +155,25 @@ function applied(document: DocumentState, event: CoreEvent): DocumentState | nul
   }
 }
 
-/** Applies one core event to the store, following the revision rule of ui.md 2.7. */
+/**
+ * Applies one core event to the store, following the revision rule of ui.md 2.7, and records
+ * ps:apply-events from a document_changed to the end of the recomputed of the same document that
+ * comes right after it (2.18).
+ */
 export function applyCoreEvent(store: AppStore, event: CoreEvent): void {
+  const startedAt = performance.now()
   const registry = registryOf(store)
+  const changed = registry.changed
+  registry.changed =
+    event.type === 'document_changed' ? { documentHandle: event.documentHandle, startedAt } : null
+  applyEvent(store, registry, event)
+  if (event.type === 'recomputed' && changed?.documentHandle === event.documentHandle) {
+    measureTiming(TIMING_NAMES.applyEvents, changed.startedAt)
+  }
+}
+
+/** Applies one event to the shown document, the awaited one or a pending one. */
+function applyEvent(store: AppStore, registry: DocumentRegistry, event: CoreEvent): void {
   const current = store.getState().document
   if (current !== null && current.documentHandle === event.documentHandle) {
     const next = applied(current, event)
@@ -247,5 +271,6 @@ export function releaseDocuments(store: AppStore): void {
   const registry = registryOf(store)
   registry.pending.clear()
   registry.awaiting = null
+  registry.changed = null
   store.setState({ document: null })
 }

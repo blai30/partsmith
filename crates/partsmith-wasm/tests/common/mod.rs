@@ -6,6 +6,7 @@
 pub mod block;
 
 use partsmith_protocol::{ErrorCode, ErrorInfo, Outcome, ResponseFrame, decode_response_frame};
+use partsmith_wasm::call;
 use serde_json::Value;
 
 /// Example A of protocol.md section 2.2: request id 1, `engine_info`, no buffers. 120 bytes, copied from the spec's hex dump.
@@ -51,6 +52,22 @@ pub fn request_frame(id: u64, command: &str) -> Vec<u8> {
     frame_from_header(&format!(
         r#"{{"protocol_version":1,"messages":[{{"kind":"request","id":{id},"command":{command}}}],"buffers":[]}}"#
     ))
+}
+
+/// A request frame holding request `id` with a command of `command_type` whose one field is `doc`, a document handle as JSON.
+pub fn document_command_frame(id: u64, command_type: &str, doc: &Value) -> Vec<u8> {
+    request_frame(id, &format!(r#"{{"type":"{command_type}","doc":{doc}}}"#))
+}
+
+/// Creates an empty document with request `id` and returns its handle as JSON.
+pub fn new_document(id: u64) -> Value {
+    let created = response_frame(&call(&request_frame(id, r#"{"type":"new_document"}"#)));
+    ok_result(&created, "new_document")["doc"].clone()
+}
+
+/// Sends request `id` with a command of `command_type` whose one field is `doc`, and decodes the response frame.
+pub fn send_for_document(id: u64, command_type: &str, doc: &Value) -> ResponseFrame {
+    response_frame(&call(&document_command_frame(id, command_type, doc)))
 }
 
 /// Decodes bytes the bridge returned as a response frame, failing the test with the decoder's message when they are not one.

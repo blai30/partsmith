@@ -30,6 +30,21 @@ const CASES: readonly Case[] = [
     'The geometry core stopped: out of memory. Restart it to keep working; your latest changes are kept.',
   ],
   [
+    'core_still_working',
+    () => MESSAGES.core_still_working(10),
+    'The geometry core has been working for more than 10 seconds, and Partsmith cannot tell whether it will finish. Stopping it reopens your document as it was after the last change the core finished.',
+  ],
+  [
+    'core_still_working_desktop',
+    () => MESSAGES.core_still_working_desktop(10),
+    'The geometry core has been working for more than 10 seconds, and Partsmith cannot tell whether it will finish. The desktop app cannot stop it yet: wait, or quit Partsmith, which keeps your changes up to the last one the core finished.',
+  ],
+  [
+    'changes_not_applied',
+    () => MESSAGES.changes_not_applied(),
+    'Your latest changes were not applied, because the geometry core was stopped before it finished them. Make them again if you still want them.',
+  ],
+  [
     'not_ptsm',
     () => MESSAGES.not_ptsm('model.stl'),
     'model.stl is not a Partsmith model. Partsmith opens .ptsm files.',
@@ -84,6 +99,11 @@ const CASES: readonly Case[] = [
     'recovered',
     () => MESSAGES.recovered('bracket', '14:32'),
     'Partsmith kept unsaved changes to bracket from 14:32.',
+  ],
+  [
+    'recovered_more',
+    () => MESSAGES.recovered_more('bracket', '14:32', 2),
+    'Partsmith kept unsaved changes to bracket from 14:32, and to 2 other documents.',
   ],
   [
     'nothing_to_export',
@@ -307,7 +327,13 @@ describe('MESSAGES', () => {
 
   it('U-73 has an entry for every message id of 4.3', () => {
     expect(Object.keys(MESSAGES)).toEqual(expect.arrayContaining(CASES.map(([id]) => id)))
-    expect(CASES).toHaveLength(77)
+    expect(CASES).toHaveLength(81)
+  })
+
+  it('U-73 recovered_more counts one other document in the singular', () => {
+    expect(MESSAGES.recovered_more('bracket', '14:32', 1)).toBe(
+      'Partsmith kept unsaved changes to bracket from 14:32, and to 1 other document.',
+    )
   })
 
   it('renders shortcut placeholders and the free placement key for macOS', () => {

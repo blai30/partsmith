@@ -86,24 +86,11 @@ mod tests {
     use std::fs;
     use std::path::Path;
 
-    use partsmith_engine::SessionOptions;
-
     use super::*;
-
-    /// A valid document that is not in canonical form.
-    const DOCUMENT: &str = r#"{"format": "partsmith", "format_version": 1, "units": "mm",
-        "parameters": [], "bodies": [], "features": []}"#;
-
-    /// A document whose body id has a space, which the file format rejects at `/bodies/0/id`.
-    const BAD_ID: &str = r#"{"format": "partsmith", "format_version": 1, "units": "mm",
-        "parameters": [], "bodies": [{"id": "b 1", "name": "Block"}], "features": []}"#;
-
-    fn session() -> Session {
-        Session::new(SessionOptions::headless())
-    }
+    use crate::commands::test_support::{BAD_ID, EMPTY, session};
 
     fn canonical(session: &Session) -> String {
-        session.format(DOCUMENT).expect("the document loads")
+        session.format(EMPTY).expect("the document loads")
     }
 
     fn file(directory: &Path, text: &str) -> Input {
@@ -128,7 +115,7 @@ mod tests {
     fn other_files_are_rewritten_in_canonical_form() {
         let mut session = session();
         let directory = tempfile::tempdir().expect("a temporary directory");
-        let input = file(directory.path(), DOCUMENT);
+        let input = file(directory.path(), EMPTY);
 
         let outcome = format_input(&mut session, &input, false).ok();
 
@@ -143,14 +130,14 @@ mod tests {
     fn check_reports_other_files_without_writing() {
         let mut session = session();
         let directory = tempfile::tempdir().expect("a temporary directory");
-        let input = file(directory.path(), DOCUMENT);
+        let input = file(directory.path(), EMPTY);
 
         let outcome = format_input(&mut session, &input, true).ok();
 
         assert_eq!(outcome, Some(Outcome::NotCanonical));
         assert_eq!(
             fs::read_to_string(directory.path().join("model.ptsm")).expect("readable"),
-            DOCUMENT
+            EMPTY
         );
     }
 

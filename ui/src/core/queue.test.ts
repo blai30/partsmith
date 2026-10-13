@@ -68,6 +68,79 @@ describe('createMutationQueue', () => {
   })
 })
 
+describe('MutationQueue.discard (4.4)', () => {
+  it('U-160 rejects the waiting tasks without running them and leaves the started task to settle', async () => {
+    const queue = createMutationQueue()
+    const first = deferred<string>()
+    const started: number[] = []
+    const firstResult = queue.run(() => {
+      started.push(1)
+      return first.promise
+    })
+    const secondResult = queue.run(async () => {
+      started.push(2)
+      return 'second'
+    })
+    const thirdResult = queue.run(async () => {
+      started.push(3)
+      return 'third'
+    })
+    // The rejections are observed before discard causes them.
+    const waiting = Promise.allSettled([secondResult, thirdResult])
+    await settle()
+    expect(started).toEqual([1])
+    expect(queue.pending).toBe(3)
+    const stopped = new Error('The geometry core was stopped.')
+    expect(queue.discard(stopped)).toBe(2)
+    expect(queue.pending).toBe(1)
+    expect(await waiting).toEqual([
+      { status: 'rejected', reason: stopped },
+      { status: 'rejected', reason: stopped },
+    ])
+    first.resolve('first')
+    await expect(firstResult).resolves.toBe('first')
+    await settle()
+    expect(started).toEqual([1])
+    expect(queue.pending).toBe(0)
+  })
+
+  it('U-160 runs a task submitted after discard once the started task has settled', async () => {
+    const queue = createMutationQueue()
+    const first = deferred<void>()
+    const started: string[] = []
+    const firstResult = queue.run(() => {
+      started.push('first')
+      return first.promise
+    })
+    const waiting = queue.run(async () => {
+      started.push('discarded')
+    })
+    const discarded = waiting.catch(() => 'rejected')
+    await settle()
+    expect(queue.discard(new Error('stopped'))).toBe(1)
+    const later = queue.run(async () => {
+      started.push('later')
+      return 'later'
+    })
+    expect(queue.pending).toBe(2)
+    await settle()
+    expect(started).toEqual(['first'])
+    first.resolve()
+    await firstResult
+    await expect(later).resolves.toBe('later')
+    await expect(discarded).resolves.toBe('rejected')
+    expect(started).toEqual(['first', 'later'])
+    expect(queue.pending).toBe(0)
+  })
+
+  it('U-160 returns 0 and changes nothing when no task is waiting', async () => {
+    const queue = createMutationQueue()
+    expect(queue.discard(new Error('stopped'))).toBe(0)
+    expect(queue.pending).toBe(0)
+    await expect(queue.run(async () => 'ran')).resolves.toBe('ran')
+  })
+})
+
 type LatestOnlyHarness = {
   readonly sends: Map<string, Deferred<string>>
   readonly sent: string[]

@@ -203,14 +203,9 @@ fn feature_reports(
     statuses
         .into_iter()
         .map(|status| {
-            let kind = kinds.get(&status.id).ok_or_else(|| CliError::Internal {
-                detail: format!(
-                    "the engine reported the status of feature {}, which the document does not have",
-                    status.id
-                ),
-            })?;
+            let kind = recorded(&kinds, &status.id, "the status of feature")?;
             Ok(FeatureReport {
-                kind: (*kind).to_owned(),
+                kind: kind.to_owned(),
                 id: status.id,
                 status: status.status,
                 messages: status.messages,
@@ -234,14 +229,9 @@ fn parameter_reports(
     values
         .into_iter()
         .map(|value| {
-            let name = names.get(&value.id).ok_or_else(|| CliError::Internal {
-                detail: format!(
-                    "the engine reported the value of parameter {}, which the document does not have",
-                    value.id
-                ),
-            })?;
+            let name = recorded(&names, &value.id, "the value of parameter")?;
             Ok(ParameterReport {
-                name: (*name).to_owned(),
+                name: name.to_owned(),
                 id: value.id,
                 value: value.value,
                 dimension: value.dimension,
@@ -249,6 +239,19 @@ fn parameter_reports(
             })
         })
         .collect()
+}
+
+/// The text the document records for `id` in `names`. The engine reports only records of the
+/// document, so a missing one is an internal error naming what was `reported`, for example "the
+/// status of feature".
+fn recorded<'a>(
+    names: &BTreeMap<&Id, &'a str>,
+    id: &Id,
+    reported: &str,
+) -> Result<&'a str, CliError> {
+    names.get(id).copied().ok_or_else(|| CliError::Internal {
+        detail: format!("the engine reported {reported} {id}, which the document does not have"),
+    })
 }
 
 /// Measures one body; a body without geometry is reported as empty.
@@ -382,10 +385,8 @@ mod tests {
     use partsmith_protocol::Severity;
 
     use super::*;
-
-    fn id(text: &str) -> Id {
-        Id::new(text).expect("a valid id")
-    }
+    use crate::commands::test_support::id;
+    use crate::output::capture;
 
     fn block() -> BodyMetrics {
         BodyMetrics {
@@ -425,14 +426,9 @@ mod tests {
     }
 
     fn human(report: &Report) -> String {
-        let mut stdout = Vec::new();
-        let mut stderr = Vec::new();
-        let mut output = Output::new(&mut stdout, &mut stderr);
-        report
-            .write_human(&mut output)
-            .expect("writing to memory succeeds");
+        let ((), stdout, stderr) = capture(|output| report.write_human(output));
         assert!(stderr.is_empty());
-        String::from_utf8(stdout).expect("UTF-8")
+        stdout
     }
 
     #[test]

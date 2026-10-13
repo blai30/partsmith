@@ -149,6 +149,21 @@ impl From<&CliError> for JsonDiagnostic {
     }
 }
 
+/// Runs `write` on an `Output` over memory, for tests: what it returned, then the text it wrote
+/// to standard output and to standard error.
+#[cfg(test)]
+pub fn capture<T>(write: impl FnOnce(&mut Output<'_>) -> io::Result<T>) -> (T, String, String) {
+    let mut stdout = Vec::new();
+    let mut stderr = Vec::new();
+    let mut output = Output::new(&mut stdout, &mut stderr);
+    let result = write(&mut output).expect("writing to memory succeeds");
+    (
+        result,
+        String::from_utf8(stdout).expect("UTF-8"),
+        String::from_utf8(stderr).expect("UTF-8"),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use partsmith_protocol::FeatureState;
@@ -168,17 +183,6 @@ mod tests {
             column,
             path: path.map(str::to_owned),
         }
-    }
-
-    fn captured(write: impl FnOnce(&mut Output<'_>) -> io::Result<()>) -> (String, String) {
-        let mut stdout = Vec::new();
-        let mut stderr = Vec::new();
-        let mut output = Output::new(&mut stdout, &mut stderr);
-        write(&mut output).expect("writing to memory succeeds");
-        (
-            String::from_utf8(stdout).expect("UTF-8"),
-            String::from_utf8(stderr).expect("UTF-8"),
-        )
     }
 
     #[test]
@@ -295,7 +299,7 @@ mod tests {
 
     #[test]
     fn json_documents_are_pretty_with_a_trailing_newline() {
-        let (stdout, stderr) = captured(|output| output.json(&serde_json::json!({"files": []})));
+        let ((), stdout, stderr) = capture(|output| output.json(&serde_json::json!({"files": []})));
 
         assert_eq!(stdout, "{\n  \"files\": []\n}\n");
         assert_eq!(stderr, "");
@@ -303,7 +307,7 @@ mod tests {
 
     #[test]
     fn lines_and_text_go_to_standard_output() {
-        let (stdout, stderr) = captured(|output| {
+        let ((), stdout, stderr) = capture(|output| {
             output.line("box.ptsm: ok")?;
             output.print("exact")
         });
@@ -314,7 +318,7 @@ mod tests {
 
     #[test]
     fn reports_go_to_standard_error() {
-        let (stdout, stderr) = captured(|output| {
+        let ((), stdout, stderr) = capture(|output| {
             output.report("warning[open_edges]: Not watertight.");
             Ok(())
         });

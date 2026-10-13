@@ -23,7 +23,7 @@ The protocol is the only boundary between the UI (and any other host) and the co
 **Later (not in M1)**
 
 - Unsolicited events (frames with events and no response), for background analysis on desktop.
-- Canceling a request that is already running (M1 only supersedes queued requests), and the `not_run` feature status a canceled recompute reports.
+- Canceling a request that is already running (M1 only supersedes queued requests), and the `not_run` feature status a canceled recompute reports. The desktop needs it to stop a call that runs too long (desktop.md open issue 9); the web terminates its worker instead (ui.md 4.4).
 - Delta document updates instead of full snapshots.
 - SharedArrayBuffer transport and multiple core workers.
 - Commands for components, joints, configurations, script features and Pyodide.
@@ -1592,7 +1592,7 @@ The full Rust-side variants and the mapping from engine errors are in engine.md 
 
 ## 5. Performance budgets
 
-Measured on the reference machine (technical design section 14), release builds, with benchmarks in `crates/partsmith-protocol/benches/` for the codec and `crates/partsmith-wasm/benches/` for the `ps_call` round trip (`harness = false`, `std::time::Instant`, as sketch.md) and a Vitest bench for the TypeScript codec:
+Measured on the reference machine (technical design section 14), release builds, with benchmarks in `crates/partsmith-protocol/benches/` for the codec and `crates/partsmith-wasm/benches/` for the `ps_call` round trip (`harness = false`, `std::time::Instant`, as sketch.md) and a Vitest bench for the TypeScript codec (`ui/src/core/frame.bench.ts`). The worker transfer is measured in Chrome by ui.md test P-12, an `@perf` Playwright test in `ui/e2e/perf.spec.ts`: the median of 20 transfers of a 50 MB response frame, one at a time, from just before the worker's `postMessage` to the main thread's `message` handler, with every sent buffer detached afterwards:
 
 | Operation | Native | Web (wasm or JS) |
 | --- | --- | --- |

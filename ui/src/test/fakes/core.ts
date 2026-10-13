@@ -29,7 +29,7 @@ import {
   type FeatureRecord,
 } from './documents'
 import { TEST_PRINTERS } from './printers'
-import { meshParts, type ErrorReply } from './protocol'
+import { meshParts, responseFrame, type ErrorReply } from './protocol'
 
 // An in-memory engine that answers protocol commands the way engine.md describes, closely enough for
 // UI tests: documents with revisions, labeled edits, transactions with a focus, undo and redo, the dirty
@@ -46,6 +46,18 @@ export type FakeReply =
       readonly buffers?: readonly BufferView[]
     }
   | { readonly error: ErrorReply; readonly events?: readonly ProtocolEvent[] }
+
+/** The response frame that answers request `id` with a reply. */
+export function replyFrame(id: number, reply: FakeReply): ArrayBuffer {
+  return 'result' in reply
+    ? responseFrame({
+        id,
+        result: reply.result,
+        events: reply.events ?? [],
+        buffers: reply.buffers ?? [],
+      })
+    : responseFrame({ id, error: reply.error, events: reply.events ?? [] })
+}
 
 /** A feature status other than ok that the fake core reports. */
 export type FakeFeatureStatus = {

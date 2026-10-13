@@ -120,6 +120,7 @@ fn file_state(path: &Path, text: &str) -> Result<FileState, CliError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::output::capture;
 
     fn files() -> Vec<(&'static str, String)> {
         vec![
@@ -128,26 +129,12 @@ mod tests {
         ]
     }
 
-    fn captured(
-        run: impl FnOnce(&mut Output<'_>) -> io::Result<Status>,
-    ) -> (Status, String, String) {
-        let mut stdout = Vec::new();
-        let mut stderr = Vec::new();
-        let mut output = Output::new(&mut stdout, &mut stderr);
-        let status = run(&mut output).expect("writing to memory succeeds");
-        (
-            status,
-            String::from_utf8(stdout).expect("UTF-8"),
-            String::from_utf8(stderr).expect("UTF-8"),
-        )
-    }
-
     #[test]
     fn write_creates_the_directory_and_both_files() {
         let root = tempfile::tempdir().expect("a temporary directory");
         let directory = root.path().join("docs/format");
 
-        let (status, stdout, _) = captured(|output| write(&directory, &files(), output));
+        let (status, stdout, _) = capture(|output| write(&directory, &files(), output));
 
         assert_eq!(status, Status::Success);
         assert_eq!(
@@ -167,10 +154,10 @@ mod tests {
     #[test]
     fn write_leaves_current_files_alone() {
         let root = tempfile::tempdir().expect("a temporary directory");
-        captured(|output| write(root.path(), &files(), output));
+        capture(|output| write(root.path(), &files(), output));
         fs::write(root.path().join("two.json"), "stale").expect("written");
 
-        let (status, stdout, _) = captured(|output| write(root.path(), &files(), output));
+        let (status, stdout, _) = capture(|output| write(root.path(), &files(), output));
 
         assert_eq!(status, Status::Success);
         assert_eq!(
@@ -186,9 +173,9 @@ mod tests {
     #[test]
     fn check_passes_for_current_files() {
         let root = tempfile::tempdir().expect("a temporary directory");
-        captured(|output| write(root.path(), &files(), output));
+        capture(|output| write(root.path(), &files(), output));
 
-        let (status, stdout, stderr) = captured(|output| check(root.path(), &files(), output));
+        let (status, stdout, stderr) = capture(|output| check(root.path(), &files(), output));
 
         assert_eq!(status, Status::Success);
         assert_eq!(stdout, "");
@@ -200,7 +187,7 @@ mod tests {
         let root = tempfile::tempdir().expect("a temporary directory");
         fs::write(root.path().join("one.json"), "{} \n").expect("written");
 
-        let (status, stdout, _) = captured(|output| check(root.path(), &files(), output));
+        let (status, stdout, _) = capture(|output| check(root.path(), &files(), output));
 
         assert_eq!(status, Status::Problems);
         assert_eq!(
@@ -218,7 +205,7 @@ mod tests {
         let root = tempfile::tempdir().expect("a temporary directory");
         fs::create_dir(root.path().join("one.json")).expect("created");
 
-        let (status, _, stderr) = captured(|output| check(root.path(), &files(), output));
+        let (status, _, stderr) = capture(|output| check(root.path(), &files(), output));
 
         assert_eq!(status, Status::Io);
         assert!(stderr.starts_with("error: cannot read "), "{stderr}");

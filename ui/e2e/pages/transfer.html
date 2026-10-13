@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Worker transfer test page</title>
+  </head>
+  <body>
+    <script type="module">
+      import * as harness from './transfer-harness.ts'
+
+      window.partsmithTransfer = harness
+      document.body.dataset.ready = 'true'
+    </script>
+  </body>
+</html>

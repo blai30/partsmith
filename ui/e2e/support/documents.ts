@@ -2,16 +2,20 @@
 import { expect, type Locator, type Page } from '@playwright/test'
 
 // Helpers for the document, file, recovery, undo, notification and status bar tests (ui.md 6.5
-// E-1 to E-9 and the tests of 3.19 to 3.22): the timeline as a whole, notifications by message,
-// and the IndexedDB records of recent files and recovery (2.15). The shared helpers of 6.3 are in
-// ../helpers.ts.
+// E-1 to E-9, E-127 to E-129 and the tests of 3.19 to 3.22): the timeline as a whole,
+// notifications by message, the IndexedDB records of recent files and recovery, and the Web Locks
+// of running recovery sessions (2.15). The shared helpers of 6.3 are in ../helpers.ts.
 
-/** The recovery copy in IndexedDB (ui.md 2.15), without its handle. */
+/** One recovery entry in IndexedDB (ui.md 2.15), without its handle. */
 export type StoredRecovery = {
+  readonly id: string
   readonly name: string
   readonly text: string
   readonly reason: string
 }
+
+/** The prefix of the recovery offers `recovered` and `recovered_more` (ui.md 3.19). */
+const RECOVERY_OFFER = /^Partsmith kept unsaved changes/
 
 /** The timeline items. */
 export function timelineItems(page: Page): Locator {
@@ -98,15 +102,47 @@ export async function recentFileNames(page: Page): Promise<string[]> {
   )
 }
 
-/** The recovery copy in IndexedDB (ui.md 2.15), or null when there is none. */
-export async function storedRecovery(page: Page): Promise<StoredRecovery | null> {
-  const record = await readStore(page, 'recovery', 'current')
-  if (typeof record !== 'object' || record === null) {
-    return null
+/** The recovery entries in IndexedDB (ui.md 2.15), in no particular order. */
+export async function storedRecoveries(page: Page): Promise<StoredRecovery[]> {
+  const records = await readStore(page, 'recovery', null)
+  if (!Array.isArray(records)) {
+    return []
   }
-  return {
-    name: String(Reflect.get(record, 'name')),
-    text: String(Reflect.get(record, 'text')),
-    reason: String(Reflect.get(record, 'reason')),
-  }
+  return records.flatMap((record: unknown) =>
+    typeof record === 'object' && record !== null
+      ? [
+          {
+            id: String(Reflect.get(record, 'id')),
+            name: String(Reflect.get(record, 'name')),
+            text: String(Reflect.get(record, 'text')),
+            reason: String(Reflect.get(record, 'reason')),
+          },
+        ]
+      : [],
+  )
+}
+
+/**
+ * Waits until a recovery entry holds `text`. The copy is written 2 s after the last change
+ * (ui.md 3.19), so waiting for it stands in for the spec's waits of 3 s.
+ */
+export async function expectStoredRecovery(page: Page, text: string): Promise<void> {
+  await expect
+    .poll(async () => (await storedRecoveries(page)).some((entry) => entry.text.includes(text)))
+    .toBe(true)
+}
+
+/** The shown recovery offers: the notifications starting with "Partsmith kept unsaved changes". */
+export function recoveryOffers(page: Page): Locator {
+  return page.getByTestId('notification').filter({ hasText: RECOVERY_OFFER })
+}
+
+/** The names of the recovery locks running sessions hold (`partsmith-recovery-{id}`, ui.md 2.15). */
+export function heldRecoveryLocks(page: Page): Promise<string[]> {
+  return page.evaluate(async () => {
+    const { held = [] } = await navigator.locks.query()
+    return held.flatMap((lock) =>
+      lock.name?.startsWith('partsmith-recovery-') === true ? [lock.name] : [],
+    )
+  })
 }

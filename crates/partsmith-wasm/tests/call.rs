@@ -5,10 +5,10 @@
 mod common;
 
 use common::{
-    EMPTY_DOCUMENT_TEXT, error_info, error_of, example_a, frame_from_header, ok_result,
-    request_frame, response_frame,
+    EMPTY_DOCUMENT_TEXT, error_info, error_of, example_a, frame_from_header, new_document,
+    ok_result, request_frame, response_frame, send_for_document,
 };
-use partsmith_protocol::{ErrorCode, Event, FrameError, MAX_SAFE_INTEGER, ResponseFrame};
+use partsmith_protocol::{ErrorCode, Event, FrameError, MAX_SAFE_INTEGER};
 use partsmith_wasm::{call, initialize_session};
 use proptest::prelude::*;
 use serde_json::Value;
@@ -28,19 +28,8 @@ const BOX_DOCUMENT: &str = r#"{
 }
 "#;
 
-/// Creates an empty document with request `id` and returns its handle as JSON.
-fn new_document(id: u64) -> Value {
-    let created = response_frame(&call(&request_frame(id, r#"{"type":"new_document"}"#)));
-    ok_result(&created, "new_document")["doc"].clone()
-}
-
-/// Sends request `id` with a command of `command_type` whose one field is `doc`, and decodes the response frame.
-fn send_for_document(id: u64, command_type: &str, doc: &Value) -> ResponseFrame {
-    response_frame(&call(&request_frame(
-        id,
-        &format!(r#"{{"type":"{command_type}","doc":{doc}}}"#),
-    )))
-}
+/// The header of an `engine_info` request with id 1 in protocol version 2, which this engine does not speak.
+const VERSION_2_HEADER: &str = r#"{"protocol_version":2,"messages":[{"kind":"request","id":1,"command":{"type":"engine_info"}}],"buffers":[]}"#;
 
 #[test]
 fn t048_engine_info_through_call_reports_the_protocol_engine_and_format_versions() {
@@ -63,9 +52,7 @@ fn t050_bytes_that_are_not_a_frame_answer_malformed_frame_with_id_0() {
 
 #[test]
 fn t051_protocol_version_2_answers_version_mismatch_with_the_request_id() {
-    let request = frame_from_header(
-        r#"{"protocol_version":2,"messages":[{"kind":"request","id":1,"command":{"type":"engine_info"}}],"buffers":[]}"#,
-    );
+    let request = frame_from_header(VERSION_2_HEADER);
 
     let frame = response_frame(&call(&request));
 
@@ -74,13 +61,9 @@ fn t051_protocol_version_2_answers_version_mismatch_with_the_request_id() {
 
 #[test]
 fn t052_the_session_keeps_a_new_document_for_the_next_call() {
-    let created = response_frame(&call(&request_frame(1, r#"{"type":"new_document"}"#)));
-    let doc = ok_result(&created, "new_document")["doc"].clone();
+    let doc = new_document(1);
 
-    let saved = response_frame(&call(&request_frame(
-        2,
-        &format!(r#"{{"type":"save_document","doc":{doc}}}"#),
-    )));
+    let saved = send_for_document(2, "save_document", &doc);
 
     let result = ok_result(&saved, "save_document");
     assert_eq!(result["text"], EMPTY_DOCUMENT_TEXT);
@@ -118,9 +101,7 @@ fn bytes_after_the_frame_answer_malformed_frame_with_id_0() {
 
 #[test]
 fn version_mismatch_response_names_the_version_found() {
-    let request = frame_from_header(
-        r#"{"protocol_version":2,"messages":[{"kind":"request","id":1,"command":{"type":"engine_info"}}],"buffers":[]}"#,
-    );
+    let request = frame_from_header(VERSION_2_HEADER);
 
     let frame = response_frame(&call(&request));
 

@@ -5,7 +5,10 @@
 mod common;
 
 use common::block::Block;
-use common::{error_of, example_a, ok_result, request_frame, response_frame};
+use common::{
+    document_command_frame, error_of, example_a, new_document, ok_result, response_frame,
+    send_for_document,
+};
 use partsmith_protocol::ErrorCode;
 use partsmith_wasm::call;
 
@@ -52,12 +55,8 @@ fn free_of_null_with_any_length_does_nothing() {
 
 #[test]
 fn ps_call_without_a_length_slot_returns_null_and_handles_nothing() {
-    let created = response_frame(&call(&request_frame(1, r#"{"type":"new_document"}"#)));
-    let doc = ok_result(&created, "new_document")["doc"].clone();
-    let close = Block::holding(&request_frame(
-        2,
-        &format!(r#"{{"type":"close_document","doc":{doc}}}"#),
-    ));
+    let doc = new_document(1);
+    let close = Block::holding(&document_command_frame(2, "close_document", &doc));
 
     let response = close.call_without_length_slot();
 
@@ -65,9 +64,6 @@ fn ps_call_without_a_length_slot_returns_null_and_handles_nothing() {
         response.is_null(),
         "ps_call returned a block it cannot size"
     );
-    let saved = response_frame(&call(&request_frame(
-        3,
-        &format!(r#"{{"type":"save_document","doc":{doc}}}"#),
-    )));
+    let saved = send_for_document(3, "save_document", &doc);
     ok_result(&saved, "save_document");
 }

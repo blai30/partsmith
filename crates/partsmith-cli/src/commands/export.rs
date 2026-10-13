@@ -309,6 +309,7 @@ mod tests {
     use partsmith_protocol::Severity;
 
     use super::*;
+    use crate::commands::test_support::id;
 
     fn arguments(output: &str) -> ExportArguments {
         ExportArguments {
@@ -327,12 +328,8 @@ mod tests {
         }
     }
 
-    fn body(id: &str, name: &str) -> Body {
-        Body::new(Id::new(id).expect("a valid id"), name)
-    }
-
-    fn id(text: &str) -> Id {
-        Id::new(text).expect("a valid id")
+    fn body(body_id: &str, name: &str) -> Body {
+        Body::new(id(body_id), name)
     }
 
     #[test]

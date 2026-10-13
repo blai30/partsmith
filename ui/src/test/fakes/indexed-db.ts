@@ -1,9 +1,11 @@
 // Test support: an in-memory IndexedDB for jsdom, which has none. It covers what the recent files
-// and recovery stores use (ui.md 2.15): opening and upgrading a database, object stores with a key
-// path, get, getAll, put and delete requests, transactions that commit once their requests have
-// settled, and the versionchange, blocked and close events. Requests run one at a time in the
-// order they are made, each in its own task. Values are kept as given rather than
-// structured-cloned, so test file handles keep their methods.
+// and recovery stores use (ui.md 2.15): opening and upgrading a database in a versionchange
+// transaction that can read, delete and create object stores, object stores with a key path, get,
+// getAll, put and delete requests, transactions that commit once their requests have settled, and
+// the versionchange, blocked and close events. Requests run one at a time in the order they are
+// made, each in its own task on the real clock, so they also progress while a test uses fake
+// timers. Values are kept as given rather than structured-cloned, so test file handles keep their
+// methods.
 
 /** The key of a record: the value its key path names. */
 type Key = string | number
@@ -29,6 +31,15 @@ export type FakeIndexedDb = {
   records(databaseName: string, storeName: string): readonly unknown[]
   /** Stores a record directly, as an earlier session would have. */
   putRecord(databaseName: string, storeName: string, record: unknown): void
+  /**
+   * Creates a database as an earlier build of the app left it: at `version`, with an empty object
+   * store per entry of `keyPaths` (store name to key path). Throws when the database exists.
+   */
+  createDatabase(
+    databaseName: string,
+    version: number,
+    keyPaths: Readonly<Record<string, string>>,
+  ): void
   /** How many connections to a database have been opened. */
   openCount(databaseName: string): number
   /**
@@ -69,15 +80,20 @@ function sortedRecords(store: StoreData): unknown[] {
     .map(([, record]) => record)
 }
 
-/** Runs a task in a later macrotask, after the current one and its promise reactions. */
+// Captured when this module loads, before any test installs fake timers.
+const realSetTimeout = globalThis.setTimeout
+
+/** Runs a task in a later macrotask on the real clock, after the current one and its promise reactions. */
 function later(task: () => void): void {
-  setTimeout(task, 0)
+  realSetTimeout(task, 0)
 }
 
 class FakeRequest extends EventTarget {
   result: unknown = undefined
   error: DOMException | null = null
   readyState: 'pending' | 'done' = 'pending'
+  /** The versionchange transaction while an open request upgrades its database, else null. */
+  transaction: FakeTransaction | null = null
 
   succeed(result: unknown): void {
     this.result = result
@@ -137,6 +153,18 @@ class FakeObjectStore {
   }
 }
 
+/** The `upgradeneeded` event, with the version the database had and the one requested. */
+class FakeVersionChangeEvent extends Event {
+  readonly oldVersion: number
+  readonly newVersion: number
+
+  constructor(type: string, oldVersion: number, newVersion: number) {
+    super(type)
+    this.oldVersion = oldVersion
+    this.newVersion = newVersion
+  }
+}
+
 function validated(key: unknown): Key {
   if (!isKey(key)) {
     throw domError('DataError', 'The key is not a valid key.')
@@ -163,7 +191,9 @@ class FakeTransaction extends EventTarget {
 
   objectStore(name: string): FakeObjectStore {
     const data = this.db.data.stores.get(name)
-    if (!this.#storeNames.includes(name) || data === undefined) {
+    // A versionchange transaction covers every store, including those its upgrade creates.
+    const inScope = this.mode === 'versionchange' || this.#storeNames.includes(name)
+    if (!inScope || data === undefined) {
       throw domError('NotFoundError', `The object store ${name} is not in this transaction.`)
     }
     return new FakeObjectStore(name, data, this)
@@ -173,6 +203,11 @@ class FakeTransaction extends EventTarget {
     if (this.#finished) {
       throw domError('TransactionInactiveError', 'The transaction has finished.')
     }
+  }
+
+  /** Whether the transaction has not committed yet. */
+  get active(): boolean {
+    return !this.#finished
   }
 
   requireWritable(): void {
@@ -208,7 +243,8 @@ class FakeTransaction extends EventTarget {
 class FakeDatabase extends EventTarget {
   readonly name: string
   readonly data: DatabaseData
-  upgrading = false
+  /** The versionchange transaction of the upgrade this connection runs, until it commits. */
+  upgrade: FakeTransaction | null = null
   #closed = false
 
   constructor(name: string, data: DatabaseData) {
@@ -226,14 +262,29 @@ class FakeDatabase extends EventTarget {
     return { length: names.length, contains: (name) => names.includes(name) }
   }
 
-  createObjectStore(name: string, options: { readonly keyPath: string }): void {
-    if (!this.upgrading) {
-      throw domError('InvalidStateError', 'Object stores are created only during an upgrade.')
-    }
+  createObjectStore(name: string, options: { readonly keyPath: string }): FakeObjectStore {
+    const upgrade = this.#activeUpgrade('created')
     if (this.data.stores.has(name)) {
       throw domError('ConstraintError', `The object store ${name} already exists.`)
     }
-    this.data.stores.set(name, { keyPath: options.keyPath, records: new Map() })
+    const data: StoreData = { keyPath: options.keyPath, records: new Map() }
+    this.data.stores.set(name, data)
+    return new FakeObjectStore(name, data, upgrade)
+  }
+
+  deleteObjectStore(name: string): void {
+    this.#activeUpgrade('deleted')
+    if (!this.data.stores.delete(name)) {
+      throw domError('NotFoundError', `The object store ${name} does not exist.`)
+    }
+  }
+
+  /** The upgrade's transaction while it runs; object stores change only then. */
+  #activeUpgrade(change: 'created' | 'deleted'): FakeTransaction {
+    if (this.upgrade === null || !this.upgrade.active) {
+      throw domError('InvalidStateError', `Object stores are ${change} only during an upgrade.`)
+    }
+    return this.upgrade
   }
 
   transaction(
@@ -290,18 +341,28 @@ export function createFakeIndexedDb(): FakeIndexedDb {
     return created
   }
 
+  // Opens a connection. An upgrade runs in a versionchange transaction that the upgradeneeded
+  // listeners use, and the open succeeds once that transaction has committed.
   function connect(request: FakeRequest, name: string, data: DatabaseData, version: number): void {
     const database = new FakeDatabase(name, data)
     data.connections.add(database)
     data.openCount++
     request.result = database
-    if (version > data.version) {
-      data.version = version
-      database.upgrading = true
-      request.dispatchEvent(new Event('upgradeneeded'))
-      database.upgrading = false
+    if (version <= data.version) {
+      request.succeed(database)
+      return
     }
-    request.succeed(database)
+    const oldVersion = data.version
+    data.version = version
+    const upgrade = new FakeTransaction(database, [], 'versionchange')
+    database.upgrade = upgrade
+    request.transaction = upgrade
+    upgrade.addEventListener('complete', () => {
+      database.upgrade = null
+      request.transaction = null
+      request.succeed(database)
+    })
+    request.dispatchEvent(new FakeVersionChangeEvent('upgradeneeded', oldVersion, version))
   }
 
   function open(name: string, version?: number): FakeRequest {
@@ -351,6 +412,16 @@ export function createFakeIndexedDb(): FakeIndexedDb {
     records(databaseName, storeName) {
       const store = databases.get(databaseName)?.stores.get(storeName)
       return store === undefined ? [] : sortedRecords(store)
+    },
+    createDatabase(databaseName, version, keyPaths) {
+      if (databases.has(databaseName)) {
+        throw new Error(`The database ${databaseName} exists already.`)
+      }
+      const data = databaseData(databaseName)
+      data.version = version
+      for (const [storeName, keyPath] of Object.entries(keyPaths)) {
+        data.stores.set(storeName, { keyPath, records: new Map() })
+      }
     },
     putRecord(databaseName, storeName, record) {
       const store = databases.get(databaseName)?.stores.get(storeName)

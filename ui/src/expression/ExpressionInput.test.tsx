@@ -544,3 +544,93 @@ describe('Add parameter {name} (3.7)', () => {
     expect(screen.queryByRole('button', { name: /^Add parameter/ })).toBeNull()
   })
 })
+
+describe('ps:expression (2.18)', () => {
+  const EXPRESSION = 'ps:expression'
+  const PLAIN: Dimension = { length: 0, angle: 0 }
+
+  /** One evaluate call: the text it was asked for and the answer the test gives by hand. */
+  type PendingEvaluation = { readonly expression: string; readonly answer: Deferred<Evaluation> }
+
+  function expressionMeasures(): PerformanceEntryList {
+    return performance.getEntriesByName(EXPRESSION, 'measure')
+  }
+
+  /** Waits for an evaluate call of `expression` after the first `skip` of them and answers it. */
+  async function answer(
+    asked: readonly PendingEvaluation[],
+    expression: string,
+    result: Evaluation,
+    skip = 0,
+  ): Promise<void> {
+    let calls: PendingEvaluation[] = []
+    await waitFor(() => {
+      calls = asked.filter((evaluation) => evaluation.expression === expression)
+      expect(calls.length).toBeGreaterThan(skip)
+    })
+    await act(async () => {
+      calls[skip]?.answer.resolve(result)
+      await settle()
+    })
+  }
+
+  it('U-151 measures from a changed text to its result shown, once per text whose result shows', async () => {
+    performance.clearMeasures(EXPRESSION)
+    const asked: PendingEvaluation[] = []
+    const { app, input, user } = setUp({ initial: '' }, (core) => {
+      core.stub('evaluate', (_documentHandle, expression) => {
+        const pending = deferred<Evaluation>()
+        asked.push({ expression, answer: pending })
+        return pending.promise
+      })
+    })
+
+    // 2: nothing while its evaluation is pending, one measure once its result shows.
+    await user.type(input, '2')
+    await waitFor(() => {
+      expect(asked.map((evaluation) => evaluation.expression)).toContain('2')
+    })
+    await settle()
+    expect(expressionMeasures()).toHaveLength(0)
+    await answer(asked, '2', { value: 2, dimension: PLAIN })
+    await waitFor(() => {
+      expect(screen.getByTestId('expression-result')).toHaveTextContent(/^mm$/)
+    })
+    await waitFor(() => {
+      expect(expressionMeasures()).toHaveLength(1)
+    })
+
+    // 23 replaced by 234 before its result shows: one measure, for 234, from its change.
+    await user.type(input, '3')
+    await waitFor(() => {
+      expect(asked.map((evaluation) => evaluation.expression)).toContain('23')
+    })
+    const beforeChange = performance.now()
+    await user.type(input, '4')
+    const afterChange = performance.now()
+    await answer(asked, '23', { value: 23, dimension: PLAIN })
+    await answer(asked, '234', { value: 234, dimension: PLAIN })
+    await waitFor(() => {
+      expect(expressionMeasures()).toHaveLength(2)
+    })
+    const latest = expressionMeasures()[1]
+    expect(latest?.startTime).toBeGreaterThanOrEqual(beforeChange)
+    expect(latest?.startTime).toBeLessThanOrEqual(afterChange)
+
+    // The same text at a newer revision: evaluated again, no new measure.
+    act(() => {
+      const document = app.store.getState().document
+      app.store.setState({ document: document && { ...document, revision: document.revision + 1 } })
+    })
+    await answer(asked, '234', { value: 234, dimension: PLAIN }, 1)
+    await settle()
+    expect(expressionMeasures()).toHaveLength(2)
+
+    // A newly shown field measures its first text.
+    renderWithApp(app, <Harness initial="10 mm" id="height" label="Height" />)
+    await answer(asked, '10 mm', { value: 10, dimension: LENGTH })
+    await waitFor(() => {
+      expect(expressionMeasures()).toHaveLength(3)
+    })
+  })
+})

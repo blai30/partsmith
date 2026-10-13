@@ -26,17 +26,17 @@ The Playwright tests in this folder run against the production build of the app 
 - The web server is `pnpm build && pnpm preview --port 4173 --strictPort`: the production build, with the core copied from `public/core` to `dist/core`, served with the cross-origin isolation headers of `public/_headers` (set again in `vite.config.ts` for the preview), so `crossOriginIsolated` is true as in production. `smoke.spec.ts` checks that the core reaches `data-core-status="ready"` and that the first frame is marked (`ps:usable`).
 - Outside CI, a server already listening on port 4173 is reused instead of building. To skip the build on repeated runs, start one yourself with `pnpm -C ui build && pnpm -C ui preview --port 4173 --strictPort`, and rebuild after changing `src/` or the core: the preview serves whatever `dist/` holds. Parallel runs that each start the server rebuild `dist/` under each other, so share one server instead.
 - The project is Desktop Chrome: 1280 by 720 at device scale factor 1. Headless Chromium renders WebGL2 with SwiftShader.
-- `viewport.spec.ts` tests the render backend on its own page (`pages/viewport.html`), served by a Vite dev server that each worker starts.
+- `viewport.spec.ts` tests the render backend on its own page (`pages/viewport.html`), served by a Vite dev server that each worker starts. `perf.spec.ts` serves the worker transfer page of P-12 (`pages/transfer.html`) the same way.
 - The page requests `/favicon.ico`, which the build does not have, so Chromium logs one 404 console error that tests collecting console errors need to ignore.
 
 ## Tags
 
 - `@visual` (ui.md 6.6): screenshot tests in `visual.spec.ts`, with their baselines in `visual.spec.ts-snapshots/`, left out unless `PARTSMITH_VISUAL=1`. A baseline matches only screenshots from the machine and Chromium build that took it, so they run on the fixed hardware runner (delivery.md 1.2), not in CI's `e2e` job. The baselines here were taken with `/opt/pw-browsers/chromium` (Chromium 141) in the development container and are not approved yet; run them there with `PARTSMITH_VISUAL=1 PLAYWRIGHT_CHROMIUM_EXECUTABLE=/opt/pw-browsers/chromium pnpm -C ui e2e visual.spec.ts`. The configuration sets `animations: 'disabled'`, `maxDiffPixelRatio: 0.002` and `threshold: 0.05` for `toHaveScreenshot`, and `visual.css` hides the rebuild time while a screenshot is taken. They need Google Fonts to be reachable. Baselines change only with reviewer approval; regenerate them with `--update-snapshots=all`, since the default mode keeps every baseline that still passes the comparison.
-- `@perf` (ui.md 6.7): left out unless `PARTSMITH_PERF=1`.
+- `@perf` (ui.md 6.7): the tests in `perf.spec.ts`, left out unless `PARTSMITH_PERF=1`. Until the fixed hardware runner exists they are run by hand on the reference machine before a release, with `PARTSMITH_PERF=1 pnpm -C ui e2e perf.spec.ts`. They run one after another in one worker, and each adds a `perf` annotation per measured value (`P-4 ps:rebuild: 1840.25 ms (budget 3000 ms)`) before it checks the budget, so the HTML or JSON report shows the numbers of a run that passes or fails.
 
 ## Helpers
 
-`helpers.ts` holds the shared helpers of ui.md 6.3 (opening the app and fixtures, the canvas geometry, the mapping from millimeters to page pixels, hover polling, downloads, performance measures) and the locators every area uses. `support/` holds the helpers of one area each: documents, modeling, print and export, and sketch.
+`helpers.ts` holds the shared helpers of ui.md 6.3 (opening the app and fixtures, the canvas geometry, the mapping from millimeters to page pixels, hover polling, downloads, performance measures, percentiles and long tasks) and the locators every area uses. `support/` holds the helpers of one area each: documents, modeling, print and export, and sketch.
 
 ## Fixtures
 

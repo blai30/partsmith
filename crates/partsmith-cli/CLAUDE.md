@@ -26,10 +26,10 @@ partsmith schema [--write | --check] [--out-dir <DIR>] [<NAME>]
 ## Internals
 
 - `main.rs`: panic containment (with `RUST_BACKTRACE` set, the standard panic report with its location comes before `internal error:`) and exit status; a broken standard output pipe ends the run with exit 3 and no message. `arguments.rs`: the clap grammar, `Format`, `SchemaAction` and the version text from `engine_info`.
-- `commands/`: one module per command; `commands/mod.rs` opens a document with its assets (file and assets first, then `open_document`, then the `--printer` check, as cli.md 3.3 orders them), applies `--printer` for `rebuild` and `export`, and reports the profile in effect from `Session::printer_profile`. A document that does not load is reported with the line, column and JSON Pointer its `EngineError::Parse` carries (`CliError::load`), the diagnostic `validate` reports for the same text, so `fmt`, `rebuild` and `export` name the same position `validate` does.
+- `commands/`: one module per command, plus `test_support.rs` (tests only: `BAD_ID`, `EMPTY`, `session()`, `id()`); `commands/mod.rs` opens a document with its assets (file and assets first, then `open_document`, then the `--printer` check, as cli.md 3.3 orders them), applies `--printer` for `rebuild` and `export`, and reports the profile in effect from `Session::printer_profile`. A document that does not load is reported with the line, column and JSON Pointer its `EngineError::Parse` carries (`CliError::load`), the diagnostic `validate` reports for the same text, so `fmt`, `rebuild` and `export` name the same position `validate` does.
 - `error.rs`: `CliError` and `UsageError` with exit status, code and report line; `status.rs`: `Status`, ordered so the largest wins.
-- `files.rs`: inputs (`-` is standard input) read as bytes, where bytes that are not UTF-8 are a `parse_error` load error with the file format's `NotUtf8` message; asset discovery in `assets/`; atomic writes that keep an existing file's permissions.
-- `output.rs`: standard output and error, human numbers, diagnostic lines, JSON diagnostics; `rotation.rs`: `--rotate` values to an `Orientation::Matrix`.
+- `files.rs`: inputs (`-` is standard input) read as bytes, where bytes that are not UTF-8 are a `parse_error` load error with the file format's `NotUtf8` message; asset discovery in `assets/`; `write` (atomic, keeping an existing file's permissions) and `create_directory`, whose failures are `CliError::Write` naming the path.
+- `output.rs`: standard output and error, human numbers, diagnostic lines, JSON diagnostics, and `capture` (tests only: runs a writer on memory); `rotation.rs`: `--rotate` values to an `Orientation::Matrix`.
 
 ## Commands
 

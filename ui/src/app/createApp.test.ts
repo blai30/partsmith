@@ -15,9 +15,11 @@ import {
   bodiesOf,
 } from '../test/fakes/documents'
 import { createFakeFileHandle } from '../test/fakes/files'
+import { createRecordingRecovery } from '../test/fakes/recovery'
 import { elementItem } from '../test/fakes/selection'
 import { settle } from '../test/fakes/settle'
 import { CoreFatalError } from '../core/transport'
+import type { RecoveryStore } from '../files/recovery'
 import { selectOriginVisible } from '../state/selectors'
 import { createAppStore } from '../state/store'
 import { startFeatureCommand } from './actions/command'
@@ -42,6 +44,69 @@ function documentChanged(doc: number, revision: number, document: Document): Pro
   return { type: 'document_changed', doc, revision, document, dirty: true, transaction_open: false }
 }
 
+/** What a `document_changed` the test delivers says about the document. */
+type Change = {
+  readonly recipe: Document
+  readonly dirty: boolean
+  readonly transactionOpen: boolean
+}
+
+/**
+ * Delivers a `document_changed` of the shown document at the current (fake) time, in the response
+ * to an `evaluate` request, with the next revision.
+ */
+async function deliverChange(fake: FakeApp, change: Change): Promise<void> {
+  const { documentHandle, revision } = currentDocument(fake.app)
+  const event: ProtocolEvent = {
+    type: 'document_changed',
+    doc: documentHandle,
+    revision: revision + 1,
+    document: change.recipe,
+    dirty: change.dirty,
+    transaction_open: change.transactionOpen,
+    transaction: change.transactionOpen ? 'Box' : null,
+  }
+  fake.transport.handle('evaluate', (command, core) => ({
+    ...core.reply(command),
+    events: [event],
+  }))
+  await fake.app.core.evaluate(documentHandle, '1 mm')
+  fake.transport.handle('evaluate', null)
+  await settle()
+}
+
+/** Advances the fake clock and lets the writes it starts finish. */
+async function advance(milliseconds: number): Promise<void> {
+  await vi.advanceTimersByTimeAsync(milliseconds)
+  await settle()
+}
+
+/** The cube renamed, as a settled change makes it. */
+const R1 = renamed('Box')
+/** R1 with a box the open Box command previews. */
+const R2: Document = {
+  ...R1,
+  bodies: [...bodiesOf(R1), { id: 'b-2', name: 'Body 2' }],
+  features: [
+    ...(R1.features ?? []),
+    {
+      id: 'f-box1',
+      type: 'box',
+      body: 'b-2',
+      size: ['10', '10', '10'],
+      position: ['30', '0', '0'],
+      op: 'new',
+    },
+  ],
+}
+/** The recipe after the Box command is committed: R1 with the box. */
+const R3: Document = R2
+
+/** The recipe of the settled change made at a time, in U-154. */
+function recipeAt(milliseconds: number): Document {
+  return renamed(`Box at ${String(milliseconds)}`)
+}
+
 function navigatorWith(fields: {
   readonly platform: string
   readonly userAgentData?: { readonly platform: string }
@@ -50,9 +115,14 @@ function navigatorWith(fields: {
 }
 
 /** cube.ptsm opened from a file handle; clean until a test edits it. */
-async function cubeWithHandle(): Promise<{ fake: FakeApp; handle: FileSystemFileHandle }> {
+async function cubeWithHandle(
+  recovery?: RecoveryStore,
+): Promise<{ fake: FakeApp; handle: FileSystemFileHandle }> {
   const handle = createFakeFileHandle('cube.ptsm')
-  const fake = await startWithDocument('cube.ptsm', CUBE_DOCUMENT, { handle })
+  const fake = await startWithDocument('cube.ptsm', CUBE_DOCUMENT, {
+    handle,
+    ...(recovery === undefined ? {} : { recovery }),
+  })
   return { fake, handle }
 }
 
@@ -264,24 +334,26 @@ describe('core events in the store', () => {
 })
 
 describe('recovery copy (3.19)', () => {
-  it('U-77 a dirty document_changed writes an autosave entry 2 s later', async () => {
+  it('U-77 a dirty document_changed writes an autosave entry under the session id 2 s later', async () => {
     const { fake, handle } = await cubeWithHandle()
     vi.useFakeTimers()
     await applyEdits(fake.app, 'Rename', RENAME_TO_BOX)
     await settle()
-    await vi.advanceTimersByTimeAsync(1_999)
-    await settle()
-    await expect(fake.recovery.read()).resolves.toBeNull()
-    await vi.advanceTimersByTimeAsync(1)
-    await settle()
-    const entry = await fake.recovery.read()
-    expect(entry).toMatchObject({
-      name: 'cube',
-      text: JSON.stringify(currentDocument(fake.app).recipe, null, 2),
-      handle,
-      reason: 'autosave',
-    })
-    expect(typeof entry?.savedAt).toBe('number')
+    await advance(1_999)
+    await expect(fake.recovery.list()).resolves.toEqual([])
+    await advance(1)
+    const document = currentDocument(fake.app)
+    const entries = await fake.recovery.list()
+    expect(entries).toEqual([
+      {
+        id: document.recoveryId,
+        name: 'cube',
+        text: JSON.stringify(document.recipe, null, 2),
+        savedAt: expect.any(Number),
+        handle,
+        reason: 'autosave',
+      },
+    ])
   })
 
   it('U-77 another change within 2 s postpones the write', async () => {
@@ -289,37 +361,134 @@ describe('recovery copy (3.19)', () => {
     vi.useFakeTimers()
     await applyEdits(fake.app, 'Rename', RENAME_TO_BOX)
     await settle()
-    await vi.advanceTimersByTimeAsync(1_500)
+    await advance(1_500)
     await applyEdits(fake.app, 'Rename', RENAME_TO_BLOCK)
     await settle()
-    await vi.advanceTimersByTimeAsync(1_000)
-    await settle()
-    await expect(fake.recovery.read()).resolves.toBeNull()
-    await vi.advanceTimersByTimeAsync(1_000)
-    await settle()
-    const entry = await fake.recovery.read()
-    expect(entry?.text).toBe(JSON.stringify(renamed('Block'), null, 2))
+    await advance(1_000)
+    await expect(fake.recovery.list()).resolves.toEqual([])
+    await advance(1_000)
+    const entries = await fake.recovery.list()
+    expect(entries.map((entry) => entry.text)).toEqual([JSON.stringify(renamed('Block'), null, 2)])
   })
 
   it('writes nothing for a clean document', async () => {
     const { fake } = await cubeWithHandle()
     vi.useFakeTimers()
-    await vi.advanceTimersByTimeAsync(5_000)
-    await settle()
-    await expect(fake.recovery.read()).resolves.toBeNull()
+    await advance(5_000)
+    await expect(fake.recovery.list()).resolves.toEqual([])
   })
 
-  it('U-77 a successful save clears the store', async () => {
+  it("U-77 a successful save removes the session's entry", async () => {
     const { fake } = await cubeWithHandle()
     vi.useFakeTimers()
     await applyEdits(fake.app, 'Rename', RENAME_TO_BOX)
     await settle()
-    await vi.advanceTimersByTimeAsync(2_000)
-    await settle()
-    expect(await fake.recovery.read()).not.toBeNull()
+    await advance(2_000)
+    expect(await fake.recovery.list()).toHaveLength(1)
     await save(fake.app)
     await settle()
-    await expect(fake.recovery.read()).resolves.toBeNull()
+    await expect(fake.recovery.list()).resolves.toEqual([])
+  })
+
+  it('U-153 the copy is the settled recipe: changes inside a transaction neither write nor delay it', async () => {
+    const recording = createRecordingRecovery()
+    const { fake } = await cubeWithHandle(recording)
+    vi.useFakeTimers()
+    await deliverChange(fake, { recipe: R1, dirty: true, transactionOpen: false })
+    await advance(500)
+    await deliverChange(fake, { recipe: R2, dirty: true, transactionOpen: true })
+    await advance(500)
+    await deliverChange(fake, { recipe: R2, dirty: true, transactionOpen: true })
+    await advance(900)
+    await deliverChange(fake, { recipe: R2, dirty: true, transactionOpen: true })
+    await advance(99)
+    expect(recording.writes).toEqual([])
+    await advance(1)
+    expect(recording.writes.map((entry) => entry.text)).toEqual([JSON.stringify(R1, null, 2)])
+    await advance(4_000)
+    expect(recording.writes).toHaveLength(1)
+    // The command is committed at 6,000 ms.
+    await deliverChange(fake, { recipe: R3, dirty: true, transactionOpen: false })
+    await advance(1_999)
+    expect(recording.writes).toHaveLength(1)
+    await advance(1)
+    expect(recording.writes.map((entry) => entry.text)).toEqual([
+      JSON.stringify(R1, null, 2),
+      JSON.stringify(R3, null, 2),
+    ])
+    expect(recording.writes.every((entry) => entry.reason === 'autosave')).toBe(true)
+  })
+
+  it('U-153 a canceled command writes the recipe from before it, never its preview', async () => {
+    const recording = createRecordingRecovery()
+    const { fake } = await cubeWithHandle(recording)
+    vi.useFakeTimers()
+    await deliverChange(fake, { recipe: R1, dirty: true, transactionOpen: false })
+    await advance(500)
+    await deliverChange(fake, { recipe: R2, dirty: true, transactionOpen: true })
+    await advance(500)
+    await deliverChange(fake, { recipe: R2, dirty: true, transactionOpen: true })
+    await advance(900)
+    await deliverChange(fake, { recipe: R2, dirty: true, transactionOpen: true })
+    await advance(4_100)
+    // The command is canceled at 6,000 ms.
+    await deliverChange(fake, { recipe: R1, dirty: true, transactionOpen: false })
+    await advance(1_999)
+    expect(recording.writes).toHaveLength(1)
+    await advance(1)
+    expect(recording.writes.map((entry) => entry.text)).toEqual([
+      JSON.stringify(R1, null, 2),
+      JSON.stringify(R1, null, 2),
+    ])
+    await advance(10_000)
+    const previewText = JSON.stringify(R2, null, 2)
+    expect(recording.writes.some((entry) => entry.text === previewText)).toBe(false)
+  })
+
+  it('U-154 a stream of settled changes is written at most 10 s after the first one no write stored', async () => {
+    const { fake } = await cubeWithHandle()
+    vi.useFakeTimers()
+    for (const at of [0, 1_500, 3_000, 4_500, 6_000, 7_500, 9_000]) {
+      if (at > 0) {
+        // The changes arrive one after another on the fake clock.
+        // oxlint-disable-next-line no-await-in-loop
+        await advance(1_500)
+      }
+      // oxlint-disable-next-line no-await-in-loop
+      await deliverChange(fake, { recipe: recipeAt(at), dirty: true, transactionOpen: false })
+    }
+    await advance(999)
+    await expect(fake.recovery.list()).resolves.toEqual([])
+    await advance(1)
+    const textsAt = async (): Promise<string[]> =>
+      (await fake.recovery.list()).map((entry) => entry.text)
+    expect(await textsAt()).toEqual([JSON.stringify(recipeAt(9_000), null, 2)])
+
+    await advance(500)
+    await deliverChange(fake, { recipe: recipeAt(10_500), dirty: true, transactionOpen: false })
+    await advance(1_999)
+    expect(await textsAt()).toEqual([JSON.stringify(recipeAt(9_000), null, 2)])
+    await advance(1)
+    expect(await textsAt()).toEqual([JSON.stringify(recipeAt(10_500), null, 2)])
+  })
+
+  it('U-154 a settled change back to the saved revision removes the entry at once and drops a pending write', async () => {
+    const { fake } = await cubeWithHandle()
+    vi.useFakeTimers()
+    await deliverChange(fake, { recipe: R1, dirty: true, transactionOpen: false })
+    await advance(2_000)
+    expect(await fake.recovery.list()).toHaveLength(1)
+    // An undo back to the saved revision.
+    await deliverChange(fake, { recipe: CUBE_DOCUMENT, dirty: false, transactionOpen: false })
+    await expect(fake.recovery.list()).resolves.toEqual([])
+    await advance(500)
+    await deliverChange(fake, { recipe: R1, dirty: true, transactionOpen: false })
+    await advance(500)
+    await deliverChange(fake, { recipe: CUBE_DOCUMENT, dirty: false, transactionOpen: false })
+    await advance(2_000)
+    await expect(fake.recovery.list()).resolves.toEqual([])
+    await advance(10_000)
+    await expect(fake.recovery.list()).resolves.toEqual([])
   })
 })
 

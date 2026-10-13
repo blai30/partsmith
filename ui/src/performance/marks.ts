@@ -9,6 +9,9 @@ export const TIMING_NAMES = {
   rebuild: 'ps:rebuild',
   open: 'ps:open',
   palette: 'ps:palette',
+  dropCheck: 'ps:drop-check',
+  applyEvents: 'ps:apply-events',
+  expression: 'ps:expression',
 } as const
 
 export type TimingName = (typeof TIMING_NAMES)[keyof typeof TIMING_NAMES]

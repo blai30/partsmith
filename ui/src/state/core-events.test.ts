@@ -1,8 +1,8 @@
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 import type { BodyMeshData, CoreEvent } from '../core/events'
 import type { Document } from '../generated/protocol'
 import { CUBE_DOCUMENT, CUBE_SKETCH_SOLUTION, emptyDocument } from '../test/fakes/documents'
-import { checkResult, finding, printReport } from '../test/fakes/state'
+import { checkResult, documentStateFor, finding, printReport } from '../test/fakes/state'
 import { adoptDocument, applyCoreEvent, releaseDocuments } from './core-events'
 import { createAppStore, type AppStore } from './store'
 
@@ -185,5 +185,98 @@ describe('applyCoreEvent', () => {
       placement: null,
     })
     expect(store.getState().document?.datums).toEqual({ 'f-dp1': null })
+  })
+})
+
+const APPLY_EVENTS = 'ps:apply-events'
+
+function applyMeasures(): PerformanceEntryList {
+  return performance.getEntriesByName(APPLY_EVENTS, 'measure')
+}
+
+function recomputed(revision: number, handle = 1): CoreEvent {
+  return {
+    type: 'recomputed',
+    documentHandle: handle,
+    revision,
+    features: [{ id: 'f-ext1', status: 'ok', messages: [], repairs: [] }],
+    parameters: [],
+    diagnostics: [],
+  }
+}
+
+/** A store showing cube.ptsm (handle 1) at revision 3, set directly so no event came before. */
+function shownWithoutEvents(): AppStore {
+  return createAppStore({ document: documentStateFor(CUBE_DOCUMENT, { revision: 3 }) })
+}
+
+describe('ps:apply-events (2.18)', () => {
+  beforeEach(() => {
+    performance.clearMeasures(APPLY_EVENTS)
+  })
+
+  it('U-150 a document_changed and then the recomputed of the same document record one measure around both calls', () => {
+    const store = shownWithoutEvents()
+    const beforeFirst = performance.now()
+    applyCoreEvent(store, documentChanged(4))
+    const betweenCalls = performance.now()
+    applyCoreEvent(store, recomputed(4))
+    const afterSecond = performance.now()
+    const recorded = applyMeasures()
+    expect(recorded).toHaveLength(1)
+    const [measure] = recorded
+    expect(measure?.startTime).toBeGreaterThanOrEqual(beforeFirst)
+    expect(measure?.startTime).toBeLessThanOrEqual(betweenCalls)
+    const end = (measure?.startTime ?? 0) + (measure?.duration ?? 0)
+    expect(end).toBeGreaterThanOrEqual(betweenCalls)
+    expect(end).toBeLessThanOrEqual(afterSecond)
+  })
+
+  it('U-150 a recomputed alone records no measure', () => {
+    const store = shownWithoutEvents()
+    applyCoreEvent(store, recomputed(4))
+    expect(applyMeasures()).toHaveLength(0)
+  })
+
+  it('U-150 another event between the document_changed and the recomputed records no measure', () => {
+    const store = shownWithoutEvents()
+    applyCoreEvent(store, documentChanged(4))
+    applyCoreEvent(store, bodyMesh(4, 5))
+    applyCoreEvent(store, recomputed(4))
+    expect(applyMeasures()).toHaveLength(0)
+  })
+
+  it('U-150 the recomputed of another document records no measure', () => {
+    const store = shownWithoutEvents()
+    applyCoreEvent(store, documentChanged(4))
+    applyCoreEvent(store, recomputed(0, 2))
+    expect(applyMeasures()).toHaveLength(0)
+  })
+
+  it('U-150 two document_changed events and then the recomputed record one measure from the second', () => {
+    const store = shownWithoutEvents()
+    applyCoreEvent(store, documentChanged(4))
+    const afterFirst = performance.now()
+    applyCoreEvent(store, documentChanged(5))
+    applyCoreEvent(store, recomputed(5))
+    const recorded = applyMeasures()
+    expect(recorded).toHaveLength(1)
+    expect(recorded[0]?.startTime).toBeGreaterThanOrEqual(afterFirst)
+  })
+
+  it('U-150 the pair of a document no action has adopted records one measure', () => {
+    const store = shownWithoutEvents()
+    applyCoreEvent(store, documentChanged(0, emptyDocument(), 2))
+    applyCoreEvent(store, recomputed(0, 2))
+    expect(applyMeasures()).toHaveLength(1)
+    expect(store.getState().document?.documentHandle).toBe(1)
+  })
+
+  it('forgets a document_changed when the documents are released, as after a core restart', () => {
+    const store = shownWithoutEvents()
+    applyCoreEvent(store, documentChanged(4))
+    releaseDocuments(store)
+    applyCoreEvent(store, recomputed(4))
+    expect(applyMeasures()).toHaveLength(0)
   })
 })

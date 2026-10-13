@@ -141,6 +141,7 @@ describe('startCore (3.1)', () => {
   it('a recovery entry shows the recovery notification and is not opened automatically', async () => {
     const recovery = createMemoryRecovery()
     await recovery.write({
+      id: 'kept',
       name: 'cube',
       text: JSON.stringify(renamed('Box'), null, 2),
       savedAt: Date.UTC(2026, 9, 12, 9, 30),
@@ -161,6 +162,7 @@ describe('startCore (3.1)', () => {
     const handle = createFakeFileHandle('cube.ptsm')
     const recovery = createMemoryRecovery()
     await recovery.write({
+      id: 'kept',
       name: 'cube',
       text: JSON.stringify(renamed('Box'), null, 2),
       savedAt: Date.UTC(2026, 9, 12, 9, 30),
@@ -177,9 +179,10 @@ describe('startCore (3.1)', () => {
     expect(document.localUnsaved).toBe(true)
   })
 
-  it("the recovery notification's Discard clears the store", async () => {
+  it("the recovery notification's Discard removes that entry", async () => {
     const recovery = createMemoryRecovery()
     await recovery.write({
+      id: 'kept',
       name: 'cube',
       text: JSON.stringify(renamed('Box'), null, 2),
       savedAt: Date.UTC(2026, 9, 12, 9, 30),
@@ -189,7 +192,7 @@ describe('startCore (3.1)', () => {
     const fake = await startFakeApp({ recovery })
     runAction(notificationWith(fake.app, /^Partsmith kept unsaved changes to cube/), 'Discard')
     await settle()
-    await expect(recovery.read()).resolves.toBeNull()
+    await expect(recovery.list()).resolves.toEqual([])
     expect(currentDocument(fake.app).name).toBe('Untitled')
   })
 })
@@ -218,34 +221,49 @@ describe('newDocument (3.19)', () => {
     expect(state.context).toBe('model')
   })
 
-  it('a New without changes clears the recovery store', async () => {
+  it("a New without changes removes the session's leftover entry and keeps every other entry", async () => {
     const fake = await startWithDocument('cube.ptsm', CUBE_DOCUMENT)
-    await fake.recovery.write({
+    const other = {
+      id: 'other',
       name: 'older',
       text: '{}',
       savedAt: 0,
       handle: null,
       reason: 'autosave',
+    } as const
+    await fake.recovery.write(other)
+    await fake.recovery.write({
+      id: currentDocument(fake.app).recoveryId,
+      name: 'cube',
+      text: '{}',
+      savedAt: 1,
+      handle: null,
+      reason: 'autosave',
     })
     await newDocument(fake.app)
     await settle()
-    await expect(fake.recovery.read()).resolves.toBeNull()
+    await expect(fake.recovery.list()).resolves.toEqual([other])
   })
 
-  it('replacing a dirty document stashes it before closing it and offers to reopen it', async () => {
+  it('replacing a dirty document stashes it under its session id before closing it and offers to reopen it', async () => {
     const { fake, handle } = await dirtyCubeWithHandle()
-    const recipe = currentDocument(fake.app).recipe
+    const { recipe, recoveryId } = currentDocument(fake.app)
     await newDocument(fake.app)
     await settle()
     const write = fake.journal.indexOf('recovery.write')
     expect(write).toBeGreaterThanOrEqual(0)
     expect(write).toBeLessThan(fake.journal.indexOf('command:close_document'))
-    await expect(fake.recovery.read()).resolves.toMatchObject({
-      name: 'cube',
-      text: JSON.stringify(recipe, null, 2),
-      handle,
-      reason: 'replaced',
-    })
+    await expect(fake.recovery.list()).resolves.toEqual([
+      {
+        id: recoveryId,
+        name: 'cube',
+        text: JSON.stringify(recipe, null, 2),
+        savedAt: expect.any(Number),
+        handle,
+        reason: 'replaced',
+      },
+    ])
+    expect(currentDocument(fake.app).recoveryId).not.toBe(recoveryId)
     const stashed = notificationWith(fake.app, MESSAGES.stashed('cube'))
     expect(stashed.severity).toBe('info')
     expect(actionLabels(stashed)).toEqual(['Reopen'])
@@ -374,7 +392,9 @@ describe('openFile (3.19)', () => {
     const write = fake.journal.indexOf('recovery.write')
     expect(write).toBeGreaterThanOrEqual(0)
     expect(write).toBeLessThan(fake.journal.indexOf('command:close_document'))
-    await expect(fake.recovery.read()).resolves.toMatchObject({ name: 'cube', reason: 'replaced' })
+    await expect(fake.recovery.list()).resolves.toMatchObject([
+      { name: 'cube', reason: 'replaced' },
+    ])
     expect(currentDocument(fake.app).name).toBe('other')
     notificationWith(fake.app, MESSAGES.stashed('cube'))
   })
@@ -557,9 +577,10 @@ describe('save (3.19)', () => {
     ])
   })
 
-  it('a successful save leaves the document clean and not locally unsaved, and clears the recovery store', async () => {
+  it("a successful save leaves the document clean and not locally unsaved, and removes the session's entry", async () => {
     const { fake } = await dirtyCubeWithHandle()
     await fake.recovery.write({
+      id: currentDocument(fake.app).recoveryId,
       name: 'cube',
       text: '{}',
       savedAt: 0,
@@ -571,7 +592,7 @@ describe('save (3.19)', () => {
     const document = currentDocument(fake.app)
     expect(document.dirty).toBe(false)
     expect(document.localUnsaved).toBe(false)
-    await expect(fake.recovery.read()).resolves.toBeNull()
+    await expect(fake.recovery.list()).resolves.toEqual([])
   })
 
   it('U-78 a write refused for permission sends no markSaved, keeps the document dirty and offers Save as', async () => {
