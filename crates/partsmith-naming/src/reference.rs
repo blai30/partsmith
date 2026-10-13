@@ -227,7 +227,7 @@ impl TryFrom<ReferenceData> for Reference {
 
 impl MergedName {
     /// Reads the text form: `<source>@<feature>:*` for copies, a face name otherwise.
-    pub fn parse(text: &str) -> Result<MergedName, NamingError> {
+    fn parse(text: &str) -> Result<MergedName, NamingError> {
         let invalid = || NamingError::InvalidName {
             text: text.to_owned(),
             reason: MERGED_NAME_REASON.to_owned(),
@@ -296,6 +296,7 @@ impl JsonSchema for MergedName {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::kind::GeometryKind;
 
     fn name(text: &str) -> ElementName {
         ElementName::parse(text).expect("the test name is valid")
@@ -327,7 +328,7 @@ mod tests {
             Reference::new(name("f-a/x"), fingerprint),
             Err(NamingError::KindMismatch {
                 name: "f-a/x".to_owned(),
-                kind: crate::kind::GeometryKind::Line
+                kind: GeometryKind::Line
             })
         );
     }

@@ -3,6 +3,8 @@
 use std::cmp::Ordering;
 
 use crate::fingerprint::Fingerprint;
+use crate::kind::{ElementKind, GeometryKind};
+use crate::name::ElementName;
 use crate::resolver::Candidate;
 use crate::score::score;
 
@@ -18,20 +20,19 @@ pub(super) struct Ranked {
 }
 
 impl Ranked {
-    /// The candidate named `info_name` with fingerprint `fingerprint` against the stored
-    /// fingerprint `stored`.
+    /// The candidate named `name` with fingerprint `fingerprint` against the stored fingerprint
+    /// `stored`; `meaning` says whether its name, history, anchors or relatives connect it.
     pub(super) fn new(
-        candidate_name: &crate::name::ElementName,
+        name: &ElementName,
         fingerprint: &Fingerprint,
         stored: &Fingerprint,
-        kind: crate::kind::ElementKind,
+        kind: ElementKind,
         meaning: bool,
     ) -> Ranked {
-        let agrees =
-            kind == crate::kind::ElementKind::Face && direction_agrees(stored, fingerprint);
+        let agrees = kind == ElementKind::Face && direction_agrees(stored, fingerprint);
         Ranked {
             candidate: Candidate {
-                name: candidate_name.clone(),
+                name: name.clone(),
                 meaning,
                 distance: distance(stored, fingerprint),
                 score: score(stored, fingerprint, kind),
@@ -87,7 +88,7 @@ fn direction_agrees(stored: &Fingerprint, candidate: &Fingerprint) -> bool {
         .zip(second)
         .map(|(first, second)| first * second)
         .sum();
-    let alignment = if stored.kind == crate::kind::GeometryKind::Plane {
+    let alignment = if stored.kind == GeometryKind::Plane {
         dot
     } else {
         dot.abs()

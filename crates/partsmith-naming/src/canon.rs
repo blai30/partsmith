@@ -20,6 +20,9 @@ pub(crate) struct Form {
     pub(crate) via: Vec<(ElementName, Links)>,
 }
 
+/// The alias and succession keys a match went through, each with the kinds of history used.
+pub(crate) type Via = BTreeMap<ElementName, Links>;
+
 /// A skeleton with one set of forms per term.
 #[derive(Debug, Clone)]
 pub(crate) struct Pattern {
@@ -302,12 +305,7 @@ impl NameSet {
 
     /// The keys whose chase gave a form a face of the set was matched by, against `canonical`, with
     /// the kinds of history used: the "via" of section 3.9.
-    pub(crate) fn matched_via(
-        &self,
-        face: u32,
-        canonical: &Forms,
-        via: &mut Vec<(ElementName, Links)>,
-    ) {
+    pub(crate) fn matched_via(&self, face: u32, canonical: &Forms, via: &mut Via) {
         let face_forms = match self.face_pattern(face) {
             Some(pattern) => Forms {
                 names: Vec::new(),
@@ -325,7 +323,7 @@ impl NameSet {
     }
 
     /// Adds the keys of the forms of `first` and `second` that meet each other.
-    fn collect_matches(&self, first: &Forms, second: &Forms, via: &mut Vec<(ElementName, Links)>) {
+    fn collect_matches(&self, first: &Forms, second: &Forms, via: &mut Via) {
         for left in &first.names {
             for right in second.with_piece_free(left.shape.piece_free_text()) {
                 if left.shape.extends(&right.shape) || right.shape.extends(&left.shape) {
@@ -375,11 +373,10 @@ impl NameSet {
     }
 }
 
-/// Adds keys not yet listed.
-fn push_via(via: &mut Vec<(ElementName, Links)>, more: &[(ElementName, Links)]) {
-    for entry in more {
-        if !via.contains(entry) {
-            via.push(entry.clone());
-        }
+/// Adds keys and the kinds of history they used.
+fn push_via(via: &mut Via, more: &[(ElementName, Links)]) {
+    for (key, links) in more {
+        let known = via.entry(key.clone()).or_default();
+        *known = *known | *links;
     }
 }

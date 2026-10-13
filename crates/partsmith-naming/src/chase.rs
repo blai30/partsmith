@@ -1,9 +1,10 @@
 //! Following aliases and successions to the names they stand for now (naming.md section 3.9,
 //! "Aliases and successions").
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use std::ops::BitOr;
 
+use crate::fast_hash::FastMap;
 use crate::name::ElementName;
 
 /// The kinds of recorded history a chase went through (section 3.9, "Follow").
@@ -52,7 +53,7 @@ pub(crate) struct Chaser<'a> {
 }
 
 /// Chases already done, for keys whose result does not depend on the path that reached them.
-type Memo<'a> = HashMap<&'a ElementName, Vec<Reached>>;
+type Memo<'a> = FastMap<&'a ElementName, Vec<Reached>>;
 
 impl<'a> Chaser<'a> {
     /// A chaser that follows merge aliases only (`Aliases::chase`).
@@ -84,12 +85,12 @@ impl<'a> Chaser<'a> {
 
     /// The names `name` stands for now, sorted and distinct; a name that is no key gives itself.
     pub(crate) fn chase(&self, name: &'a ElementName) -> Vec<Reached> {
-        self.walk(name, &mut Vec::new(), &mut Memo::new()).0
+        self.walk(name, &mut Vec::new(), &mut Memo::default()).0
     }
 
     /// `chase` of every key, sharing the work between keys.
     pub(crate) fn chase_every_key(&self) -> BTreeMap<ElementName, Vec<Reached>> {
-        let mut memo = Memo::new();
+        let mut memo = Memo::default();
         let keys = self
             .aliases
             .keys()

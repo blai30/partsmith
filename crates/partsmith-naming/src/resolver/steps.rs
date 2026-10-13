@@ -3,14 +3,15 @@
 use std::cell::OnceCell;
 use std::collections::BTreeSet;
 
+use crate::canon::Via;
 use crate::chase::Links;
 use crate::element_set::ElementSet;
 use crate::kind::ElementKind;
 use crate::name::ElementName;
-use crate::name_set::{NameSet, links_of};
+use crate::name_set::NameSet;
 use crate::reference::{MergedName, Reference, has_own_split};
 use crate::resolver::candidates::{Ranked, in_candidate_order};
-use crate::resolver::parts::{FacePart, OwnPart, face_id};
+use crate::resolver::parts::{FacePart, LiveAnchors, OwnPart, face_id};
 use crate::resolver::{
     AMBIGUITY_MARGIN, CONFIDENCE_THRESHOLD, Candidate, Follow, Lost, MatchMethod, Resolution,
 };
@@ -36,6 +37,50 @@ pub(crate) struct Resolver<'a> {
     own: Option<OwnPart>,
     /// Which face ids give a candidate `meaning` (section 3.9 step 5), computed when needed.
     meaningful: OnceCell<Vec<bool>>,
+    /// The face names the query holds, computed when needed.
+    named: OnceCell<QueryNames>,
+}
+
+/// The face names a query holds: its parts and its merged names (section 3.9, "Follow").
+struct QueryNames {
+    /// Face parts and merged face names.
+    faces: BTreeSet<String>,
+    /// `<source>@<feature>:` of every merged `Copies` entry.
+    copies: Vec<String>,
+}
+
+impl QueryNames {
+    /// The names `reference` holds.
+    fn of(reference: &Reference, faces: &[FacePart]) -> QueryNames {
+        let mut named = QueryNames {
+            faces: faces.iter().map(|part| part.name.to_string()).collect(),
+            copies: Vec::new(),
+        };
+        for merged in reference.merged.0.values().flatten() {
+            match merged {
+                MergedName::Face(face) => {
+                    named.faces.insert(face.to_string());
+                }
+                MergedName::Copies { source, feature } => {
+                    named.copies.push(format!("{source}@{feature}:"));
+                }
+            }
+        }
+        named
+    }
+
+    /// True when `text` is one of the names, or an instance name of a `Copies` entry.
+    fn holds(&self, text: &str) -> bool {
+        self.faces.contains(text)
+            || self.copies.iter().any(|prefix| {
+                text.strip_prefix(prefix.as_str()).is_some_and(|instance| {
+                    !instance.is_empty()
+                        && instance
+                            .bytes()
+                            .all(|byte| byte.is_ascii_digit() || byte == b'.')
+                })
+            })
+    }
 }
 
 /// How step 1 ended.
@@ -91,6 +136,7 @@ impl<'a> Resolver<'a> {
             faces,
             own: None,
             meaningful: OnceCell::new(),
+            named: OnceCell::new(),
         };
         if has_own_split(&reference.query) {
             let families: Vec<&[u32]> = resolver
@@ -705,27 +751,26 @@ impl<'a> Resolver<'a> {
 
     /// A `History` result for these elements, with `via` and `follow`.
     fn history(&self, elements: Vec<usize>) -> Resolution {
-        let mut via_entries: Vec<(ElementName, Links)> = Vec::new();
+        let mut via = Via::new();
         for &element in &elements {
             match self.kind {
                 ElementKind::Face => {
                     let face = self.set.face_id_at(element);
                     self.names
-                        .matched_via(face, &self.faces[0].canonical, &mut via_entries);
+                        .matched_via(face, &self.faces[0].canonical, &mut via);
                 }
                 ElementKind::Edge | ElementKind::Vertex => {
                     for &face in self.set.adjacent_faces(element) {
                         for part in &self.faces {
                             if part.family.binary_search(&face).is_ok() {
-                                self.names
-                                    .matched_via(face, &part.canonical, &mut via_entries);
+                                self.names.matched_via(face, &part.canonical, &mut via);
                             }
                         }
                     }
                 }
             }
         }
-        let links = links_of(&via_entries);
+        let links = via.values().fold(Links::NONE, |all, links| all | *links);
         let follow = if links.contains(Links::REPLACEMENT) {
             Some(Follow::Replaced)
         } else if links.contains(Links::EXTENSION) {
@@ -736,13 +781,12 @@ impl<'a> Resolver<'a> {
         } else {
             None
         };
-        let via: BTreeSet<ElementName> = via_entries.into_iter().map(|(key, _)| key).collect();
         Resolution::Resolved {
             elements: sorted_names(self.set, elements),
             method: MatchMethod::History,
             confidence: 1.0,
             follow,
-            via: via.into_iter().collect(),
+            via: via.into_keys().collect(),
             alternatives: Vec::new(),
         }
     }
@@ -768,27 +812,9 @@ impl<'a> Resolver<'a> {
 
     /// True when `text` is a part of the query or one of its merged names.
     fn names_in_query(&self, text: &str) -> bool {
-        self.faces.iter().any(|part| part.name.as_str() == text)
-            || self
-                .reference
-                .merged
-                .0
-                .values()
-                .flatten()
-                .any(|merged| match merged {
-                    MergedName::Face(face) => face.as_str() == text,
-                    MergedName::Copies { source, feature } => text
-                        .strip_prefix(source.as_str())
-                        .and_then(|rest| rest.strip_prefix('@'))
-                        .and_then(|rest| rest.strip_prefix(feature.as_str()))
-                        .and_then(|rest| rest.strip_prefix(':'))
-                        .is_some_and(|instance| {
-                            !instance.is_empty()
-                                && instance
-                                    .bytes()
-                                    .all(|byte| byte.is_ascii_digit() || byte == b'.')
-                        }),
-                })
+        self.named
+            .get_or_init(|| QueryNames::of(self.reference, &self.faces))
+            .holds(text)
     }
 
     /// The elements of the query's kind allowed by one face set per face part: for a face query the
@@ -916,7 +942,7 @@ impl<'a> Resolver<'a> {
 /// and the members that touch one together cover them, all of those; `None` when the part is
 /// piece-lost.
 fn select_anchored(
-    anchors: &crate::resolver::parts::LiveAnchors,
+    anchors: &LiveAnchors,
     members: &[usize],
     adjacent: impl Fn(usize) -> Vec<u32>,
 ) -> Option<Vec<usize>> {

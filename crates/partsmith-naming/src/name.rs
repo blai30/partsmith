@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize, Serializer};
 use crate::error::NamingError;
 use crate::grammar::{self, NameDefect};
 use crate::kind::ElementKind;
-use crate::shape::Shape;
+use crate::shape::{Shape, piece_free_text};
 
 /// A validated element name such as `f-ext1/end-cap#2` or `edge(f-ext1/end-cap|f-ext1/lateral/e-9e12)`.
 /// Ordering, equality and hashing are those of the underlying string (byte order).
@@ -182,7 +182,7 @@ impl ElementName {
         if !self.is_order_dependent() {
             return Some(self.clone());
         }
-        ElementName::parse(&crate::shape::piece_free_text(&self.0)).ok()
+        ElementName::parse(&piece_free_text(&self.0)).ok()
     }
 
     /// The text of the name, shared.

@@ -15,6 +15,7 @@ mod chase;
 mod element_info;
 mod element_set;
 mod error;
+mod fast_hash;
 mod fingerprint;
 mod grammar;
 mod kind;

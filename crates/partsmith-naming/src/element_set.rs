@@ -1,16 +1,16 @@
 //! The resolver's view of one body state: element infos with their name indexes (naming.md
 //! section 2.7).
 
-use std::collections::HashMap;
 use std::ops::Range;
 use std::sync::Arc;
 
 use crate::aliases::{Aliases, Successions};
 use crate::element_info::ElementInfo;
 use crate::error::NamingError;
+use crate::fast_hash::FastMap;
 use crate::kind::ElementKind;
 use crate::name::ElementName;
-use crate::name_set::NameSet;
+use crate::name_set::{NameSet, ids_by_name};
 
 /// The resolver's view of one body state: its element infos and their `NameSet` (section 3.9).
 /// Built once per body state and shared (features.md `BodyState::element_set`).
@@ -33,11 +33,11 @@ pub struct ElementSet {
     /// For each face id, the positions of the edges and then the vertices whose adjacency lists it.
     incident: Lists,
     /// Positions of the edges and vertices by name.
-    by_name: HashMap<Arc<str>, u32>,
+    by_name: FastMap<Arc<str>, u32>,
 }
 
 /// Lists of ids stored back to back.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 struct Lists {
     /// Where each list starts in `items`, plus the end.
     starts: Vec<u32>,
@@ -45,18 +45,59 @@ struct Lists {
     items: Vec<u32>,
 }
 
-impl Lists {
-    /// Lists from vectors.
-    fn from_vectors(vectors: impl IntoIterator<Item = Vec<u32>>) -> Lists {
-        let mut lists = Lists {
+impl Default for Lists {
+    fn default() -> Lists {
+        Lists {
             starts: vec![0],
             items: Vec::new(),
-        };
-        for vector in vectors {
-            lists.items.extend(vector);
-            lists.starts.push(count(lists.items.len()));
         }
-        lists
+    }
+}
+
+impl Lists {
+    /// Appends a list.
+    fn push(&mut self, list: impl IntoIterator<Item = u32>) {
+        self.items.extend(list);
+        self.starts.push(count(self.items.len()));
+    }
+
+    /// The same lists with every id replaced by its entry in `rank`, each list sorted and without
+    /// repeated ids.
+    fn renumbered(mut self, rank: &[u32]) -> Lists {
+        for id in &mut self.items {
+            *id = rank[*id as usize];
+        }
+        let mut kept = 0;
+        let mut start = 0;
+        for list in 1..self.starts.len() {
+            let end = self.starts[list] as usize;
+            let ids = &mut self.items[start..end];
+            ids.sort_unstable();
+            let list_start = kept;
+            for position in start..end {
+                let id = self.items[position];
+                if kept == list_start || self.items[kept - 1] != id {
+                    self.items[kept] = id;
+                    kept += 1;
+                }
+            }
+            start = end;
+            self.starts[list] = count(kept);
+        }
+        self.items.truncate(kept);
+        self
+    }
+
+    /// The lists from position `first` on.
+    fn tail(&self, first: usize) -> Lists {
+        let offset = self.starts[first];
+        Lists {
+            starts: self.starts[first..]
+                .iter()
+                .map(|start| start - offset)
+                .collect(),
+            items: self.items[offset as usize..].to_vec(),
+        }
     }
 
     /// For each of `targets` ids, the positions of the lists of `lists` that hold it.
@@ -109,30 +150,23 @@ impl ElementSet {
 
         let mut ids = ProvisionalIds::default();
         let mut face_ids = Vec::with_capacity(edges_start);
-        let mut face_infos_seen = Vec::new();
         for info in &elements[..edges_start] {
             let id = ids.of(&info.name);
-            if face_infos_seen.len() <= id as usize {
-                face_infos_seen.resize(id as usize + 1, false);
-            }
-            if face_infos_seen[id as usize] {
+            if ids.face_info_seen(id) {
                 return Err(NamingError::DuplicateName {
                     name: info.name.to_string(),
                 });
             }
-            face_infos_seen[id as usize] = true;
             face_ids.push(id);
         }
-        let adjacency: Vec<Vec<u32>> = elements
-            .iter()
-            .map(|info| {
-                info.adjacency
-                    .iter()
-                    .filter(|face| face.kind() == ElementKind::Face)
-                    .map(|face| ids.of(face))
-                    .collect()
-            })
-            .collect();
+        let mut adjacency = Lists::default();
+        for info in elements.iter() {
+            let faces = info
+                .adjacency
+                .iter()
+                .filter(|face| face.kind() == ElementKind::Face);
+            adjacency.push(faces.map(|face| ids.of(face)));
+        }
 
         let (names, rank) = ids.in_byte_order();
         let face_ids: Vec<u32> = face_ids.into_iter().map(|id| rank[id as usize]).collect();
@@ -140,30 +174,27 @@ impl ElementSet {
         for (position, &face) in face_ids.iter().enumerate() {
             face_elements[face as usize] = Some(count(position));
         }
+        let adjacency = adjacency.renumbered(&rank);
         let mut touching = vec![Vec::new(); names.len()];
-        let mut adjacent = Vec::with_capacity(elements.len() - edges_start);
-        for (position, faces) in adjacency.into_iter().enumerate() {
-            let mut faces: Vec<u32> = faces.into_iter().map(|id| rank[id as usize]).collect();
-            faces.sort_unstable();
-            faces.dedup();
-            if position < edges_start {
-                let face = face_ids[position];
-                for &other in faces.iter().filter(|&&other| other != face) {
-                    touching[face as usize].push(other);
-                    touching[other as usize].push(face);
-                }
-            } else {
-                adjacent.push(faces);
+        for (position, &face) in face_ids.iter().enumerate() {
+            for &other in adjacency
+                .get(position)
+                .iter()
+                .filter(|&&other| other != face)
+            {
+                touching[face as usize].push(other);
+                touching[other as usize].push(face);
             }
         }
-        let adjacent = Lists::from_vectors(adjacent);
+        let adjacent = adjacency.tail(edges_start);
         let mut incident = Lists::inverted(&adjacent, names.len());
         let start = count(edges_start);
         for position in &mut incident.items {
             *position += start;
         }
 
-        let mut by_name = HashMap::with_capacity(elements.len() - edges_start);
+        let mut by_name = FastMap::default();
+        by_name.reserve(elements.len() - edges_start);
         for (position, info) in elements.iter().enumerate().skip(edges_start) {
             if by_name
                 .insert(Arc::clone(info.name.shared_text()), count(position))
@@ -174,7 +205,7 @@ impl ElementSet {
                 });
             }
         }
-        let face_by_name = crate::name_set::ids_by_name(&names);
+        let face_by_name = ids_by_name(&names);
         let names = NameSet::build(names, face_by_name, touching, aliases, successions);
         Ok(ElementSet {
             elements,
@@ -299,9 +330,11 @@ fn in_kind_order(elements: Arc<[ElementInfo]>) -> Arc<[ElementInfo]> {
 #[derive(Default)]
 struct ProvisionalIds<'a> {
     /// Ids by name.
-    ids: HashMap<&'a str, u32>,
+    ids: FastMap<&'a str, u32>,
     /// Names by id.
     names: Vec<&'a ElementName>,
+    /// For each id, whether a face info of that name was met.
+    face_infos: Vec<bool>,
 }
 
 impl<'a> ProvisionalIds<'a> {
@@ -311,8 +344,14 @@ impl<'a> ProvisionalIds<'a> {
         let id = *self.ids.entry(name.as_str()).or_insert(next);
         if id == next {
             self.names.push(name);
+            self.face_infos.push(false);
         }
         id
+    }
+
+    /// Records that a face info of name `id` was met; true when one was met before.
+    fn face_info_seen(&mut self, id: u32) -> bool {
+        std::mem::replace(&mut self.face_infos[id as usize], true)
     }
 
     /// The names in byte order, and for each provisional id its position there.
@@ -400,7 +439,10 @@ mod tests {
 
     #[test]
     fn inverted_lists_hold_every_position() {
-        let lists = Lists::from_vectors([vec![1, 2], vec![2], vec![0]]);
+        let mut lists = Lists::default();
+        for list in [vec![1, 2], vec![2], vec![0]] {
+            lists.push(list);
+        }
 
         let inverted = Lists::inverted(&lists, 3);
 

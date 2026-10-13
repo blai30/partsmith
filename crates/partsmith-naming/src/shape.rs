@@ -11,6 +11,7 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use crate::grammar;
+use crate::roles;
 
 /// A face name taken apart. The text must be a structurally valid face name; its face terms need
 /// not be sorted (piece-free names of nested names may not be).
@@ -150,7 +151,7 @@ impl Shape {
 
     /// True for a fallback name: role `face` (section 3.6.14).
     pub(crate) fn is_fallback(&self) -> bool {
-        self.role() == crate::roles::FACE
+        self.role() == roles::FACE
     }
 
     /// True for a name without an element generator.

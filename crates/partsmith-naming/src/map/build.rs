@@ -1,18 +1,19 @@
 //! Building a naming map from face sources and topology (naming.md section 3.3) and its numbering
 //! in geometric order (section 3.4).
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use crate::aliases::{Aliases, Successions};
 use crate::error::NamingError;
+use crate::fast_hash::FastMap;
 use crate::fingerprint::Fingerprint;
 use crate::kind::ElementKind;
 use crate::map::NamingMap;
 use crate::map::motions::Motions;
 use crate::motion::Motion;
 use crate::name::ElementName;
-use crate::shape::Shape;
+use crate::shape::{Shape, piece_free_text};
 use crate::topology::{FaceSource, TopologyInfo, element_count, index_of, indices};
 
 /// Grid steps per millimeter of the order key: the inverse of `partsmith_model::LINEAR_TOLERANCE`.
@@ -172,7 +173,7 @@ fn face_base(source: FaceSource, index: u32, map_count: usize) -> Result<FaceBas
 
 /// The piece-free text of a name.
 fn piece_free(name: &ElementName) -> Arc<str> {
-    crate::shape::piece_free_text(name.shared_text())
+    piece_free_text(name.shared_text())
 }
 
 /// The aliases of the output (section 3.3, step 6): the union of every inherited list and the
@@ -225,7 +226,7 @@ pub(super) fn pruned(
     aliases: BTreeMap<ElementName, Vec<ElementName>>,
     faces: &[ElementName],
 ) -> Aliases {
-    let mut by_piece_free: HashMap<Arc<str>, Vec<Shape>> = HashMap::new();
+    let mut by_piece_free: FastMap<Arc<str>, Vec<Shape>> = FastMap::default();
     for face in faces {
         let shape = Shape::of(Arc::clone(face.shared_text()));
         by_piece_free

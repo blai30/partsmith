@@ -1,15 +1,17 @@
 //! The names-only view of one body state and its indexes (naming.md sections 2.7 and 3.9).
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use crate::aliases::{Aliases, Successions};
 use crate::canon::{Form, Forms, FormsBuilder, Pattern};
-use crate::chase::{Chaser, Links};
+use crate::chase::Chaser;
+use crate::fast_hash::FastMap;
 use crate::kind::ElementKind;
 use crate::map::NamingMap;
 use crate::name::ElementName;
 use crate::reference::Merged;
+use crate::roles;
 use crate::shape::Shape;
 
 /// The names-only view of one body state: its face names, aliases and successions, which faces
@@ -25,21 +27,21 @@ pub struct NameSet {
     /// Every face name of the body state in byte order; a face's id is its position.
     faces: Vec<FaceEntry>,
     /// Face ids by name.
-    by_name: HashMap<Arc<str>, u32>,
+    by_name: FastMap<Arc<str>, u32>,
     /// Face ids by piece-free name.
-    by_piece_free: HashMap<Arc<str>, Vec<u32>>,
+    by_piece_free: FastMap<Arc<str>, Vec<u32>>,
     /// Faces with an element generator by skeleton.
-    by_skeleton: HashMap<Arc<str>, SkeletonIndex>,
+    by_skeleton: FastMap<Arc<str>, SkeletonIndex>,
     /// Shell rims, `<feature>/rim/<face>`, with the canonical set of their generator.
     rims: Vec<Rim>,
     /// Faces with a sketch generator by feature, generator and `@` groups (`Shape::relative_key`).
-    relatives: HashMap<String, Vec<u32>>,
+    relatives: FastMap<String, Vec<u32>>,
     /// Face ids by every feature of their `ElementName::generators`.
-    by_feature: HashMap<String, Vec<u32>>,
+    by_feature: FastMap<String, Vec<u32>>,
     /// Alias and succession keys.
     keys: KeyIndex,
     /// Instance numbers known for each `<piece-free source>@<feature>`, from face names and keys.
-    copies: HashMap<String, BTreeSet<String>>,
+    copies: FastMap<String, BTreeSet<String>>,
 }
 
 /// One face name of a body state.
@@ -60,9 +62,9 @@ struct FaceEntry {
 #[derive(Debug, Clone, Default)]
 struct SkeletonIndex {
     /// Faces whose term sets hold a name with this piece-free name.
-    by_term_piece_free: HashMap<Arc<str>, Vec<u32>>,
+    by_term_piece_free: FastMap<Arc<str>, Vec<u32>>,
     /// Faces whose term sets hold a name with terms with this skeleton.
-    by_term_skeleton: HashMap<Arc<str>, Vec<u32>>,
+    by_term_skeleton: FastMap<Arc<str>, Vec<u32>>,
 }
 
 /// A shell rim: the face a shell leaves where it removed a face.
@@ -80,18 +82,18 @@ pub(crate) struct Rim {
 #[derive(Debug, Clone, Default)]
 struct KeyIndex {
     /// Every key with its chase.
-    chases: HashMap<Arc<str>, KeyEntry>,
+    chases: FastMap<Arc<str>, KeyEntry>,
     /// Keys by piece-free name.
-    by_piece_free: HashMap<Arc<str>, Vec<Arc<Shape>>>,
+    by_piece_free: FastMap<Arc<str>, Vec<Arc<Shape>>>,
     /// Keys with terms by skeleton.
-    with_terms_by_skeleton: HashMap<Arc<str>, Vec<Arc<Shape>>>,
+    with_terms_by_skeleton: FastMap<Arc<str>, Vec<Arc<Shape>>>,
     /// Alias targets by piece-free name.
-    alias_targets: HashMap<Arc<str>, Vec<Arc<Shape>>>,
+    alias_targets: FastMap<Arc<str>, Vec<Arc<Shape>>>,
     /// The names chases end at, by piece-free name, each with the key whose chase holds it.
-    ends: HashMap<Arc<str>, Vec<(Arc<Shape>, ElementName)>>,
+    ends: FastMap<Arc<str>, Vec<(Arc<Shape>, ElementName)>>,
     /// The names chases of merge aliases alone end at, by piece-free name, each with the alias key
     /// whose chase holds it.
-    merge_ends: HashMap<Arc<str>, Vec<(Arc<Shape>, ElementName)>>,
+    merge_ends: FastMap<Arc<str>, Vec<(Arc<Shape>, ElementName)>>,
 }
 
 /// One key and its chase.
@@ -105,7 +107,7 @@ struct KeyEntry {
 
 /// Shares one taken-apart name per text.
 #[derive(Default)]
-struct Shapes(HashMap<Arc<str>, Arc<Shape>>);
+struct Shapes(FastMap<Arc<str>, Arc<Shape>>);
 
 impl Shapes {
     /// The taken-apart name `text`.
@@ -152,7 +154,7 @@ impl NameSet {
     /// faces each touches, and the aliases and successions.
     pub(crate) fn build(
         names: Vec<ElementName>,
-        by_name: HashMap<Arc<str>, u32>,
+        by_name: FastMap<Arc<str>, u32>,
         mut touching: Vec<Vec<u32>>,
         aliases: Aliases,
         successions: Successions,
@@ -160,9 +162,9 @@ impl NameSet {
         let mut shapes = Shapes::default();
         let keys = KeyIndex::new(&aliases, &successions, &mut shapes);
         let mut faces = Vec::with_capacity(names.len());
-        let mut by_piece_free: HashMap<Arc<str>, Vec<u32>> = HashMap::new();
-        let mut relatives: HashMap<String, Vec<u32>> = HashMap::new();
-        let mut by_feature: HashMap<String, Vec<u32>> = HashMap::new();
+        let mut by_piece_free: FastMap<Arc<str>, Vec<u32>> = FastMap::default();
+        let mut relatives: FastMap<String, Vec<u32>> = FastMap::default();
+        let mut by_feature: FastMap<String, Vec<u32>> = FastMap::default();
         for (id, (name, mut touches)) in (0_u32..).zip(names.into_iter().zip(touching.drain(..))) {
             touches.sort_unstable();
             touches.dedup();
@@ -174,13 +176,20 @@ impl NameSet {
             if let Some(key) = shape.relative_key() {
                 relatives.entry(key).or_default().push(id);
             }
-            let features: BTreeSet<&str> = shape
+            let mut features: Vec<&str> = shape
                 .generators()
                 .into_iter()
                 .map(|(feature, _)| feature)
                 .collect();
+            features.sort_unstable();
+            features.dedup();
             for feature in features {
-                by_feature.entry(feature.to_owned()).or_default().push(id);
+                match by_feature.get_mut(feature) {
+                    Some(faces) => faces.push(id),
+                    None => {
+                        by_feature.insert(feature.to_owned(), vec![id]);
+                    }
+                }
             }
             faces.push(FaceEntry {
                 name,
@@ -195,12 +204,12 @@ impl NameSet {
             faces,
             by_name,
             by_piece_free,
-            by_skeleton: HashMap::new(),
+            by_skeleton: FastMap::default(),
             rims: Vec::new(),
             relatives,
             by_feature,
             keys,
-            copies: HashMap::new(),
+            copies: FastMap::default(),
         };
         set.index_terms(&mut shapes);
         set.index_copies();
@@ -437,7 +446,7 @@ impl NameSet {
 
     /// Builds the forms of faces with terms and the skeleton index.
     fn index_terms(&mut self, shapes: &mut Shapes) {
-        let mut by_skeleton: HashMap<Arc<str>, SkeletonIndex> = HashMap::new();
+        let mut by_skeleton: FastMap<Arc<str>, SkeletonIndex> = FastMap::default();
         for id in 0..self.faces.len() {
             let shape = Arc::clone(&self.faces[id].shape);
             let Some(skeleton) = shape.skeleton() else {
@@ -486,7 +495,7 @@ impl NameSet {
             .iter()
             .map(|face| &face.shape)
             .chain(self.keys.chases.values().map(|entry| &entry.shape));
-        let mut copies: HashMap<String, BTreeSet<String>> = HashMap::new();
+        let mut copies: FastMap<String, BTreeSet<String>> = FastMap::default();
         for shape in names {
             let piece_free = shape.piece_free_text();
             let Some((prefix, instance)) = piece_free.rsplit_once(':') else {
@@ -515,7 +524,7 @@ impl NameSet {
     fn find_rims(&self) -> Vec<Rim> {
         (0_u32..)
             .zip(&self.faces)
-            .filter(|(_, face)| face.shape.role() == crate::roles::RIM)
+            .filter(|(_, face)| face.shape.role() == roles::RIM)
             .filter_map(|(id, face)| {
                 let generator = face.shape.face_generator()?.clone();
                 let canonical = self.canonical(&generator, &Merged::default());
@@ -592,7 +601,7 @@ impl KeyIndex {
 }
 
 /// The ids of names in byte order: each name's position.
-pub(crate) fn ids_by_name(names: &[ElementName]) -> HashMap<Arc<str>, u32> {
+pub(crate) fn ids_by_name(names: &[ElementName]) -> FastMap<Arc<str>, u32> {
     (0_u32..)
         .zip(names)
         .map(|(id, name)| (Arc::clone(name.shared_text()), id))
@@ -607,10 +616,4 @@ pub(crate) fn share_a_face(first: &[u32], second: &[u32]) -> bool {
         (second, first)
     };
     fewer.iter().any(|face| more.binary_search(face).is_ok())
-}
-
-/// The links of every via entry together.
-pub(crate) fn links_of(via: &[(ElementName, Links)]) -> Links {
-    via.iter()
-        .fold(Links::NONE, |links, (_, more)| links | *more)
 }
