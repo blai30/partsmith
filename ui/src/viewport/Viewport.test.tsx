@@ -89,9 +89,9 @@ function flush(): void {
 
 /** The angle between two cameras' viewing directions projected onto the XY plane, in degrees. */
 function turnAboutZ(before: Camera, after: Camera): number {
-  const [x0, y0] = forward(before)
-  const [x1, y1] = forward(after)
-  const angle = Math.atan2(x0 * y1 - y0 * x1, x0 * x1 + y0 * y1)
+  const [beforeX, beforeY] = forward(before)
+  const [afterX, afterY] = forward(after)
+  const angle = Math.atan2(beforeX * afterY - beforeY * afterX, beforeX * afterX + beforeY * afterY)
   return Math.abs((angle * 180) / Math.PI)
 }
 

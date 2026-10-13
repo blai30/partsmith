@@ -52,6 +52,8 @@ export type FakeBackend = RenderBackend & {
   readonly contextLost: boolean
   readonly disposed: boolean
   lastFrame(): RenderFrame | null
+  /** The id under which a geometry was uploaded, found by its positions buffer (meshes are never copied); throws without one. */
+  idOf(positions: Float32Array): string
   /** Answers later `pick` calls; the default answers nothing. */
   setPickHandler(handler: PickHandler): void
   /** Simulates `webglcontextlost`: drops every GPU resource and notifies the lost listeners. */
@@ -326,6 +328,13 @@ export function createFakeBackend(): FakeBackend {
     },
     lastFrame() {
       return frames.at(-1) ?? null
+    },
+    idOf(positions) {
+      const found = [...geometries].find(([, geometry]) => geometry.positions === positions)
+      if (found === undefined) {
+        throw new Error('No geometry was uploaded with these positions.')
+      }
+      return found[0]
     },
     setPickHandler(handler) {
       pickHandler = handler

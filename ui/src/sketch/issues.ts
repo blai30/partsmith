@@ -15,7 +15,7 @@ function messagePoint(point: Vector2): string {
 }
 
 /** sketch.md 4.2 `NotConverged`. */
-export const NOT_CONVERGED_MESSAGE =
+const NOT_CONVERGED_MESSAGE =
   'The sketch could not be solved from its current shape. Undo the last change, or drag the geometry closer to the intended shape and try again.'
 
 /**
@@ -48,7 +48,7 @@ export function profileFindingMessage(finding: ProfileFinding): string {
 }
 
 /** The short name of a profile issue ring's title (ui.md 3.16.2), or null for findings without a ring. */
-export function profileIssueTitle(finding: ProfileFinding): string | null {
+function profileIssueTitle(finding: ProfileFinding): string | null {
   switch (finding.type) {
     case 'open_endpoint':
       return 'Open end'
@@ -62,7 +62,7 @@ export function profileIssueTitle(finding: ProfileFinding): string | null {
 }
 
 /** Where a profile issue's ring goes (ui.md 3.16.2), or null for zero-length curves. */
-export function profileIssuePosition(finding: ProfileFinding): Vector2 | null {
+function profileIssuePosition(finding: ProfileFinding): Vector2 | null {
   switch (finding.type) {
     case 'open_endpoint':
     case 'self_intersection':
@@ -72,13 +72,6 @@ export function profileIssuePosition(finding: ProfileFinding): Vector2 | null {
     case 'zero_length':
       return null
   }
-}
-
-/** The entities a finding names, for highlighting and framing. */
-export function findingEntities(finding: ProfileFinding): readonly string[] {
-  return finding.type === 'open_endpoint' || finding.type === 'zero_length'
-    ? [finding.entity]
-    : finding.entities
 }
 
 /** The sketch points a finding is about, for framing it. */

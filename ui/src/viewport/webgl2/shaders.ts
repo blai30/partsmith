@@ -13,7 +13,21 @@ export type Pass = 'color' | 'id'
 
 export type ShaderSources = { readonly vertex: string; readonly fragment: string }
 
-// Bits of the element state byte (RenderBackend.setElementStates).
+/** Every program of the backend by kind and pass; the background has only a color pass. */
+export const PROGRAMS: readonly { readonly kind: ProgramKind; readonly pass: Pass }[] = [
+  { kind: 'background', pass: 'color' },
+  { kind: 'triangles', pass: 'color' },
+  { kind: 'triangles', pass: 'id' },
+  { kind: 'fill', pass: 'color' },
+  { kind: 'fill', pass: 'id' },
+  { kind: 'lines', pass: 'color' },
+  { kind: 'lines', pass: 'id' },
+  { kind: 'points', pass: 'color' },
+  { kind: 'points', pass: 'id' },
+]
+
+// Bits of the element state byte: ELEMENT_STATE of RenderBackend.setElementStates, which shaders.test.ts checks.
+// Written out because '../backend' re-exports the backend that imports this module.
 const STATE_BITS = `
 const uint STATE_HOVER = 1u;
 const uint STATE_SELECTED = 2u;
@@ -192,7 +206,8 @@ void main() {
 }
 `
 
-const SURFACE_ID = `
+// Every ID pass fragment shader: the pick id and view depth of the element under the fragment.
+const ID_MAIN = `
 void main() {
   clipSection(v_worldPosition);
   writePick(v_elementId, v_viewDepth);
@@ -305,13 +320,6 @@ void main() {
 }
 `
 
-const LINES_ID = `
-void main() {
-  clipSection(v_worldPosition);
-  writePick(v_elementId, v_viewDepth);
-}
-`
-
 // Screen-space point quads: round dots in the color pass (hovered and selected ones at least 7 pixels), squares in the ID pass.
 const POINTS_VERTEX = `
 layout(location = ${String(POINT_ATTRIBUTES.center)}) in vec3 a_center;
@@ -380,13 +388,6 @@ void main() {
 }
 `
 
-const POINTS_ID = `
-void main() {
-  clipSection(v_worldPosition);
-  writePick(v_elementId, v_viewDepth);
-}
-`
-
 // A full-screen triangle with the vertical background gradient (3.12 pass 1).
 const BACKGROUND_VERTEX = `
 out float v_height;
@@ -418,10 +419,28 @@ function assemble(defines: readonly string[], ...chunks: readonly string[]): str
   return [HEADER, ...defines.map((define) => `#define ${define}\n`), ...chunks].join('')
 }
 
+/** The fragment shader of a geometry program: its varyings, then ID_MAIN in the ID pass or `colorMain`. */
+function fragmentSource(
+  defines: readonly string[],
+  pass: Pass,
+  inputs: string,
+  colorMain: string,
+): string {
+  return assemble(
+    defines,
+    STATE_BITS,
+    ELEMENT_LOOKUP,
+    CLIPPING,
+    COLOR_SPACE,
+    pass === 'id' ? ID_OUTPUT : COLOR_OUTPUT,
+    inputs,
+    pass === 'id' ? ID_MAIN : colorMain,
+  )
+}
+
 /** The vertex and fragment sources of a program for a pass. The background has only a color pass. */
 export function shaderSources(kind: ProgramKind, pass: Pass): ShaderSources {
   const defines = pass === 'id' ? ['ID_PASS'] : []
-  const fragmentOutput = pass === 'id' ? ID_OUTPUT : COLOR_OUTPUT
   switch (kind) {
     case 'background':
       if (pass === 'id') {
@@ -435,44 +454,22 @@ export function shaderSources(kind: ProgramKind, pass: Pass): ShaderSources {
     case 'fill':
       return {
         vertex: assemble(defines, TRANSFORMS, SURFACE_VERTEX),
-        fragment: assemble(
+        fragment: fragmentSource(
           defines,
-          STATE_BITS,
-          ELEMENT_LOOKUP,
-          CLIPPING,
-          COLOR_SPACE,
-          fragmentOutput,
+          pass,
           SURFACE_INPUTS,
-          pass === 'id' ? SURFACE_ID : kind === 'triangles' ? TRIANGLES_COLOR : FILL_COLOR,
+          kind === 'triangles' ? TRIANGLES_COLOR : FILL_COLOR,
         ),
       }
     case 'lines':
       return {
         vertex: assemble(defines, STATE_BITS, ELEMENT_LOOKUP, TRANSFORMS, LINES_VERTEX),
-        fragment: assemble(
-          defines,
-          STATE_BITS,
-          ELEMENT_LOOKUP,
-          CLIPPING,
-          COLOR_SPACE,
-          fragmentOutput,
-          LINES_INPUTS,
-          pass === 'id' ? LINES_ID : LINES_COLOR,
-        ),
+        fragment: fragmentSource(defines, pass, LINES_INPUTS, LINES_COLOR),
       }
     case 'points':
       return {
         vertex: assemble(defines, STATE_BITS, ELEMENT_LOOKUP, TRANSFORMS, POINTS_VERTEX),
-        fragment: assemble(
-          defines,
-          STATE_BITS,
-          ELEMENT_LOOKUP,
-          CLIPPING,
-          COLOR_SPACE,
-          fragmentOutput,
-          POINTS_INPUTS,
-          pass === 'id' ? POINTS_ID : POINTS_COLOR,
-        ),
+        fragment: fragmentSource(defines, pass, POINTS_INPUTS, POINTS_COLOR),
       }
   }
 }

@@ -13,6 +13,7 @@ import type {
 } from '../generated/protocol'
 import { DEFAULT_SETTINGS } from '../settings/settings'
 import type {
+  ActiveCommand,
   AppState,
   CatalogFeature,
   DocumentState,
@@ -435,6 +436,24 @@ export function readyState(
     settings: { ...DEFAULT_SETTINGS, theme: 'light' },
     ...overrides,
   }
+}
+
+/** A Fillet command with its edges field active and nothing picked yet. */
+export const FILLET_EDGES_COMMAND: ActiveCommand = {
+  featureType: 'fillet',
+  featureId: 'f-fil9',
+  editing: false,
+  title: 'Fillet',
+  params: { radius: '2 mm' },
+  activeField: 'edges',
+  fieldErrors: {},
+  applied: false,
+  newBody: null,
+  helper: null,
+  changedPaths: [],
+  history: [],
+  future: [],
+  preview: 'none',
 }
 
 // Selection items with the keys of ui.md 3.6.

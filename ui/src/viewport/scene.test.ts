@@ -7,6 +7,7 @@ import {
   CUBE_BOUNDS,
   cubeDocumentState,
   documentState,
+  FILLET_EDGES_COMMAND,
   meshSummary,
   PEG_BOUNDS,
   readyState,
@@ -65,17 +66,8 @@ function render(fixture: Fixture, state: AppState, camera: Camera = DEFAULT_CAME
   return frame
 }
 
-/** The id under which a geometry was uploaded, found by its buffer (meshes are never copied). */
-function uploadedId(backend: FakeBackend, positions: Float32Array): string {
-  const found = [...backend.geometries].find(([, geometry]) => geometry.positions === positions)
-  if (found === undefined) {
-    throw new Error('No geometry was uploaded with these positions.')
-  }
-  return found[0]
-}
-
 function drawOf(frame: RenderFrame, backend: FakeBackend, positions: Float32Array): DrawCall {
-  const id = uploadedId(backend, positions)
+  const id = backend.idOf(positions)
   const draw = frame.draws.find((candidate) => candidate.id === id)
   if (draw === undefined) {
     throw new Error(`The frame does not draw ${id}.`)
@@ -84,7 +76,7 @@ function drawOf(frame: RenderFrame, backend: FakeBackend, positions: Float32Arra
 }
 
 function geometryOf(backend: FakeBackend, positions: Float32Array): Geometry {
-  const geometry = backend.geometries.get(uploadedId(backend, positions))
+  const geometry = backend.geometries.get(backend.idOf(positions))
   if (geometry === undefined) {
     throw new Error('No geometry.')
   }
@@ -110,23 +102,6 @@ function pickId(draw: DrawCall, index: number): number {
   return draw.pickBase + index
 }
 
-const FILLET_EDGES_COMMAND: ActiveCommand = {
-  featureType: 'fillet',
-  featureId: 'f-fil9',
-  editing: false,
-  title: 'Fillet',
-  params: { radius: '2 mm' },
-  activeField: 'edges',
-  fieldErrors: {},
-  applied: false,
-  newBody: null,
-  helper: null,
-  changedPaths: [],
-  history: [],
-  future: [],
-  preview: 'none',
-}
-
 describe('uploads', () => {
   it('uploads a model-layer mesh as triangles, lines and points that alias the event buffers', () => {
     const fixture = cubeScene()
@@ -147,7 +122,7 @@ describe('uploads', () => {
   it('removes a body’s draws when its model-layer mesh becomes null', () => {
     const fixture = cubeScene()
     render(fixture, cubeState())
-    const id = uploadedId(fixture.backend, CUBE_MESH.positions)
+    const id = fixture.backend.idOf(CUBE_MESH.positions)
     fixture.scene.applyEvent(bodyMeshEvent({ body: 'b-cube', meshId: 2, mesh: null, revision: 2 }))
     const frame = render(fixture, cubeState({}, cubeDocumentState({ meshes: {} })))
     expect(fixture.backend.geometries.has(id)).toBe(false)
@@ -470,7 +445,7 @@ describe('frames', () => {
   it('does not draw hidden bodies', () => {
     const fixture = cubeScene()
     render(fixture, cubeState())
-    const id = uploadedId(fixture.backend, CUBE_MESH.positions)
+    const id = fixture.backend.idOf(CUBE_MESH.positions)
     const hidden: Document = {
       ...CUBE_DOCUMENT,
       bodies: [{ id: 'b-cube', name: 'Cube', visible: false }],

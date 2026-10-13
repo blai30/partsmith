@@ -104,31 +104,32 @@ function bufferAt(buffers: readonly BufferView[], index: number): BufferView {
   return buffer
 }
 
-/** The `f32` buffer at `index`; throws CoreFatalError when it is missing or of another type. */
-export function floatBuffer(buffers: readonly BufferView[], index: number): Float32Array {
+/** The buffer at `index` as a `type` view; throws CoreFatalError when it is missing or of another type. */
+function typedBuffer<View extends BufferView>(
+  buffers: readonly BufferView[],
+  index: number,
+  type: new (length: number) => View,
+): View {
   const buffer = bufferAt(buffers, index)
-  if (!(buffer instanceof Float32Array)) {
+  if (!(buffer instanceof type)) {
     throw new CoreFatalError(`The geometry core sent buffer ${String(index)} with the wrong type.`)
   }
   return buffer
+}
+
+/** The `f32` buffer at `index`; throws CoreFatalError when it is missing or of another type. */
+export function floatBuffer(buffers: readonly BufferView[], index: number): Float32Array {
+  return typedBuffer(buffers, index, Float32Array)
 }
 
 /** The `u32` buffer at `index`; throws CoreFatalError when it is missing or of another type. */
 export function integerBuffer(buffers: readonly BufferView[], index: number): Uint32Array {
-  const buffer = bufferAt(buffers, index)
-  if (!(buffer instanceof Uint32Array)) {
-    throw new CoreFatalError(`The geometry core sent buffer ${String(index)} with the wrong type.`)
-  }
-  return buffer
+  return typedBuffer(buffers, index, Uint32Array)
 }
 
 /** The `u8` buffer at `index`; throws CoreFatalError when it is missing or of another type. */
 export function byteBuffer(buffers: readonly BufferView[], index: number): Uint8Array {
-  const buffer = bufferAt(buffers, index)
-  if (!(buffer instanceof Uint8Array)) {
-    throw new CoreFatalError(`The geometry core sent buffer ${String(index)} with the wrong type.`)
-  }
-  return buffer
+  return typedBuffer(buffers, index, Uint8Array)
 }
 
 /** The region fill buffers a solution's `display` names, or null without them. */

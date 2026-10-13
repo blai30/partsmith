@@ -5,6 +5,8 @@ import {
   CUBE_FACES,
   FACE_PLACEMENT_CLASSES,
   faceCells,
+  faceName,
+  partById,
   partForFaces,
   VIEW_CUBE_PARTS,
   viewCubeRotation,
@@ -170,6 +172,15 @@ describe('view cube parts', () => {
   it('finds a part by its faces in any order and none for opposite faces', () => {
     expect(partForFaces(['top', 'right', 'front'])?.label).toBe('Front right top corner view')
     expect(partForFaces(['front', 'back'])).toBeNull()
+  })
+
+  it('finds a part by its id and none for an unknown id', () => {
+    expect(partById('front-top')?.label).toBe('Front top edge view')
+    expect(partById('front-back')).toBeNull()
+  })
+
+  it('names each face with a capital letter', () => {
+    expect(CUBE_FACES.map(faceName)).toEqual(['Front', 'Back', 'Left', 'Right', 'Top', 'Bottom'])
   })
 })
 

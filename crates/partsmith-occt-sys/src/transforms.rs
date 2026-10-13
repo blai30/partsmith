@@ -64,7 +64,6 @@ pub fn transform(shape: &Shape, transform: &Transform) -> Result<OpResult, Kerne
 /// Splits every solid of the shape by an unbounded plane.
 pub fn split(shape: &Shape, plane: &Plane) -> Result<SplitResult, KernelError> {
     let operation = Operation::Split;
-    check_finite(operation, &plane.values())?;
     let frame = plane.frame(operation)?;
     if shape.count(SubShapeKind::Solid) == 0 {
         return Err(KernelError::invalid_input(
@@ -97,7 +96,6 @@ pub fn split(shape: &Shape, plane: &Plane) -> Result<SplitResult, KernelError> {
 /// Intersection curves of the shape with an unbounded plane, as a compound of edges.
 pub fn section(shape: &Shape, plane: &Plane) -> Result<Shape, KernelError> {
     let operation = Operation::Section;
-    check_finite(operation, &plane.values())?;
     let frame = plane.frame(operation)?;
     let edges = call(operation, || sys::section(shape.inner(), &frame.to_ffi()))?;
     Shape::from_ffi(operation, edges)
@@ -283,12 +281,5 @@ mod tests {
         let edges = section(&Shape::empty(), &Plane::XY).expect("nothing to cut");
 
         assert!(edges.is_empty());
-    }
-
-    #[test]
-    fn split_of_an_empty_shape_is_rejected() {
-        let error = split(&Shape::empty(), &Plane::XY).expect_err("no solid");
-
-        assert_eq!(error.message, SPLIT_NOT_SOLID_MESSAGE);
     }
 }

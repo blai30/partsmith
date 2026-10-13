@@ -115,6 +115,16 @@ describe('createFakeBackend', () => {
     expect(backend.calls).toEqual([{ method: 'upload', id: 'body' }])
   })
 
+  it('finds the id of uploaded geometry by its positions buffer', () => {
+    const backend = createFakeBackend()
+    const geometry = quad()
+    backend.upload('body', geometry)
+    expect(backend.idOf(geometry.positions)).toBe('body')
+    expect(() => backend.idOf(new Float32Array(geometry.positions))).toThrow(
+      'No geometry was uploaded with these positions.',
+    )
+  })
+
   it('throws on an upload that breaks the buffer layout', () => {
     const backend = createFakeBackend()
     expect(() => {

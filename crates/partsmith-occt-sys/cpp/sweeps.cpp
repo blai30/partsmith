@@ -3,11 +3,9 @@
 #include <vector>
 
 #include <BRepPrimAPI_MakePrism.hxx>
-#include <BRep_Builder.hxx>
 #include <BRepPrimAPI_MakeRevol.hxx>
 #include <TopExp.hxx>
 #include <TopExp_Explorer.hxx>
-#include <TopoDS_Compound.hxx>
 #include <gp_Ax1.hxx>
 #include <gp_Trsf.hxx>
 #include <gp_Vec.hxx>
@@ -51,15 +49,13 @@ void add_lateral_faces(Roles &roles, Sweep &sweep, const TopoDS_Shape &profile) 
 
 // The caps of a sweep: the copied profile it started from and the profile moved to its end.
 TopoDS_Shape caps_of(const TopoDS_Shape &first, const TopoDS_Shape &last) {
-  BRep_Builder builder;
-  TopoDS_Compound caps;
-  builder.MakeCompound(caps);
+  std::vector<TopoDS_Shape> caps;
   for (const TopoDS_Shape &cap : {first, last}) {
     if (!cap.IsNull()) {
-      builder.Add(caps, cap);
+      caps.push_back(cap);
     }
   }
-  return caps;
+  return compound_of(caps);
 }
 
 // Normalizes, checks and repairs a swept shape, then gives every face exactly one role. The caps
@@ -69,9 +65,8 @@ TopoDS_Shape caps_of(const TopoDS_Shape &first, const TopoDS_Shape &last) {
 SweepData sweep_data(const TopoDS_Shape &swept, const TopoDS_Shape &caps, const Roles &roles,
                      const char *algorithm) {
   CheckInputs inputs = caps.IsNull() ? CheckInputs() : CheckInputs({caps});
-  inputs.settle();
   // The sweep copied the profile, so every sub-shape of the swept shape is new.
-  store_plane_pcurves(swept);
+  store_result_pcurves(inputs, swept);
   Handle(BRepTools_History) history = new BRepTools_History;
   std::shared_ptr<Shape> shape = make_shape(finish_solid(swept, history, inputs, algorithm));
 

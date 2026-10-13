@@ -3,7 +3,7 @@
 use partsmith_mesh::{EdgePolyline, Mesh, Point3, TessellationTolerance, VertexMarker};
 
 use crate::error::{KernelError, Operation, call};
-use crate::ffi::bridge as sys;
+use crate::ffi::{bridge as sys, split_at_offsets, triples};
 use crate::shape::Shape;
 use crate::values::check_finite;
 
@@ -12,14 +12,12 @@ const TOLERANCE_MESSAGE: &str =
 
 /// Groups a flat coordinate array into points.
 fn points(operation: Operation, coordinates: &[f64]) -> Result<Vec<Point3>, KernelError> {
-    let chunks = coordinates.chunks_exact(3);
-    if !chunks.remainder().is_empty() {
-        return Err(KernelError::internal(
+    triples(coordinates).ok_or_else(|| {
+        KernelError::internal(
             operation,
             "the shim returned a coordinate list that is not a multiple of 3",
-        ));
-    }
-    Ok(chunks.map(|point| [point[0], point[1], point[2]]).collect())
+        )
+    })
 }
 
 /// Converts the shim's flat arrays into a mesh.
@@ -28,31 +26,20 @@ fn mesh_from_ffi(data: sys::MeshData) -> Result<Mesh, KernelError> {
     let malformed = || KernelError::internal(operation, "the shim returned a malformed mesh");
     let positions = points(operation, &data.positions)?;
     let normals = points(operation, &data.normals)?;
-    let triangles_flat = data.triangles.chunks_exact(3);
-    if !triangles_flat.remainder().is_empty() {
-        return Err(malformed());
-    }
-    let triangles = triangles_flat
-        .map(|corners| [corners[0], corners[1], corners[2]])
-        .collect();
+    let triangles = triples(&data.triangles).ok_or_else(malformed)?;
     let edge_points = points(operation, &data.edge_points)?;
     if data.edge_offsets.len() != data.edge_ids.len() + 1 {
         return Err(malformed());
     }
-    let edges = data
-        .edge_ids
-        .iter()
-        .zip(data.edge_offsets.windows(2))
-        .map(|(edge_id, bounds)| {
-            edge_points
-                .get(bounds[0] as usize..bounds[1] as usize)
-                .map(|points| EdgePolyline {
-                    edge_id: *edge_id,
-                    points: points.to_vec(),
-                })
-                .ok_or_else(malformed)
+    let edges = split_at_offsets(&data.edge_offsets, &edge_points)
+        .ok_or_else(malformed)?
+        .into_iter()
+        .zip(&data.edge_ids)
+        .map(|(points, edge_id)| EdgePolyline {
+            edge_id: *edge_id,
+            points,
         })
-        .collect::<Result<_, KernelError>>()?;
+        .collect();
     let marker_positions = points(operation, &data.marker_positions)?;
     if marker_positions.len() != data.marker_ids.len() {
         return Err(malformed());

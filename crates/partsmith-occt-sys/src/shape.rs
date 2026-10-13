@@ -75,9 +75,10 @@ impl SubShapeKind {
             sys::ElementKind::Face => Ok(SubShapeKind::Face),
             sys::ElementKind::Edge => Ok(SubShapeKind::Edge),
             sys::ElementKind::Vertex => Ok(SubShapeKind::Vertex),
-            _ => Err(KernelError::internal(
+            _ => Err(KernelError::unknown_from_shim(
                 operation,
-                format!("the shim returned the unknown element kind {}", kind.repr),
+                "element kind",
+                kind.repr,
             )),
         }
     }
@@ -171,6 +172,8 @@ impl Shape {
             sys::ShapeType::Wire => ShapeKind::Wire,
             sys::ShapeType::Edge => ShapeKind::Edge,
             sys::ShapeType::Vertex => ShapeKind::Vertex,
+            // `shape_type` cannot fail, so an unknown value is a broken invariant of the bridge
+            // rather than an error to report.
             _ => unreachable!("the shim maps every TopAbs_ShapeEnum value to a ShapeType"),
         }
     }
@@ -391,18 +394,6 @@ mod tests {
     #[test]
     fn empty_shape_has_no_solids() {
         assert!(Shape::empty().solids().expect("solids").is_empty());
-    }
-
-    #[test]
-    fn edge_normals_of_a_missing_edge_are_rejected_in_rust() {
-        let error = Shape::empty()
-            .edge_normals(1)
-            .expect_err("an empty shape has no edges");
-
-        assert_eq!(error.kind, crate::KernelErrorKind::InvalidInput);
-        assert_eq!(error.operation, Operation::Query);
-        assert_eq!(error.exception, "");
-        assert_eq!(error.message, "Edge 1 does not exist in this body.");
     }
 
     #[test]

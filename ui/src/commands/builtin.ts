@@ -102,6 +102,7 @@ import { isSessionVisible } from '../state/visibility'
 import { toggledTheme } from '../theme/theme'
 import type { StandardView, Vector3 } from '../viewport/camera'
 import { cross } from '../viewport/math'
+import { ORIGIN_PLANE_PLACEMENTS } from '../viewport/planes'
 import { CONSTRAINT_ICONS } from './icons'
 import { keywordsFor } from './keywords'
 import {
@@ -372,12 +373,6 @@ function repeatAvailability(app: App): Availability {
 
 // View commands.
 
-const ORIGIN_PLANE_FRAMES: Readonly<Record<'XY' | 'XZ' | 'YZ', Placement>> = {
-  XY: { origin: [0, 0, 0], x_axis: [1, 0, 0], normal: [0, 0, 1] },
-  XZ: { origin: [0, 0, 0], x_axis: [1, 0, 0], normal: [0, -1, 0] },
-  YZ: { origin: [0, 0, 0], x_axis: [0, 1, 0], normal: [1, 0, 0] },
-}
-
 /** The plane Look at looks at: target point, normal and in-plane y axis (3.14). */
 type LookTarget = { readonly target: Vector3; readonly normal: Vector3; readonly yAxis: Vector3 }
 
@@ -406,7 +401,7 @@ function lookTarget(state: AppState): LookTarget | null {
     return null
   }
   if (only.kind === 'origin_plane' && isOriginPlane(only.origin)) {
-    return lookTargetOf(ORIGIN_PLANE_FRAMES[only.origin])
+    return lookTargetOf(ORIGIN_PLANE_PLACEMENTS[only.origin])
   }
   if (only.kind === 'datum_plane' && only.feature !== null) {
     const placement = state.document?.datums[only.feature] ?? null

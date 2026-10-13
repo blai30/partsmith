@@ -38,21 +38,6 @@ export function pickBlock(
   }
 }
 
-// Reads 4 bytes as the float32 whose bits they hold, least significant byte first.
-function floatFromBytes(bytes: Uint8Array, offset: number, scratch: DataView): number {
-  scratch.setUint32(
-    0,
-    decodePickId(
-      bytes[offset] ?? 0,
-      bytes[offset + 1] ?? 0,
-      bytes[offset + 2] ?? 0,
-      bytes[offset + 3] ?? 0,
-    ),
-    true,
-  )
-  return scratch.getFloat32(0, true)
-}
-
 /**
  * The pick ids of an ID pass block within `radius` CSS pixels of (x, y), one sample per id at its nearest pixel, nearest first (then by id). A pixel's distance is from the point to the nearest point of the pixel's square, so the pixel under the point is at 0. `ids` and `depths` hold RGBA8 pixels as `readPixels` returns them, bottom row first; `depths` holds the float bits of the view depth, or is null.
  */
@@ -68,7 +53,9 @@ export function collectPickSamples(input: {
 }): PickSample[] {
   const { ids, depths, block, bufferHeight, pixelRatio, x, y, radius } = input
   const nearest = new Map<number, PickSample>()
-  const scratch = new DataView(new ArrayBuffer(4))
+  // A depth pixel holds the bits of a float32, least significant byte first like a pick id.
+  const depthBits =
+    depths === null ? null : new DataView(depths.buffer, depths.byteOffset, depths.byteLength)
   for (let row = 0; row < block.height; row++) {
     const topDownRow = bufferHeight - 1 - (block.bottom + row)
     const top = topDownRow / pixelRatio
@@ -98,7 +85,7 @@ export function collectPickSamples(input: {
       if (known !== undefined && known.distance <= distance) {
         continue
       }
-      const depth = depths === null ? null : floatFromBytes(depths, offset, scratch)
+      const depth = depthBits === null ? null : depthBits.getFloat32(offset, true)
       nearest.set(pickId, {
         pickId,
         distance,

@@ -106,12 +106,30 @@ pub fn planar_face(shape: &Shape, direction: Vector, centroid: Point) -> u32 {
         .find(|face| {
             let element = geometry(shape, SubShapeKind::Face, *face);
             element.direction.is_some_and(|actual| {
-                (actual.x - direction.x).abs() <= POINT_TOLERANCE
-                    && (actual.y - direction.y).abs() <= POINT_TOLERANCE
-                    && (actual.z - direction.z).abs() <= POINT_TOLERANCE
+                coordinates_near(
+                    vector_coordinates(actual),
+                    vector_coordinates(direction),
+                    POINT_TOLERANCE,
+                )
             }) && element.centroid.distance(centroid) <= POINT_TOLERANCE
         })
         .unwrap_or_else(|| panic!("no planar face along {direction:?} at {centroid:?}"))
+}
+
+/// The single face of `shape` whose centroid is `centroid`.
+pub fn face_at(shape: &Shape, centroid: Point) -> u32 {
+    let faces: Vec<u32> = (1..=shape.count(SubShapeKind::Face))
+        .filter(|face| {
+            let found = geometry(shape, SubShapeKind::Face, *face).centroid;
+            found.distance(centroid) <= POINT_TOLERANCE
+        })
+        .collect();
+    assert_eq!(
+        faces.len(),
+        1,
+        "faces with centroid {centroid:?}: {faces:?}"
+    );
+    faces[0]
 }
 
 /// `BOX` read back from its BRep bytes with its corner (10, 20, 30) moved to (10, 20, 30.001),
@@ -415,11 +433,31 @@ pub fn assert_near(actual: f64, expected: f64, tolerance: f64, what: &str) {
     );
 }
 
+/// The coordinates of a point.
+fn point_coordinates(point: Point) -> [f64; 3] {
+    [point.x, point.y, point.z]
+}
+
+/// The components of a vector.
+fn vector_coordinates(vector: Vector) -> [f64; 3] {
+    [vector.x, vector.y, vector.z]
+}
+
+/// True when two coordinate triples agree per coordinate within `tolerance`.
+pub fn coordinates_near(actual: [f64; 3], expected: [f64; 3], tolerance: f64) -> bool {
+    actual
+        .iter()
+        .zip(expected)
+        .all(|(actual, expected)| (actual - expected).abs() <= tolerance)
+}
+
 /// Asserts that two points agree per coordinate within `tolerance`.
 pub fn assert_point_near(actual: Point, expected: Point, tolerance: f64, what: &str) {
-    let close = (actual.x - expected.x).abs() <= tolerance
-        && (actual.y - expected.y).abs() <= tolerance
-        && (actual.z - expected.z).abs() <= tolerance;
+    let close = coordinates_near(
+        point_coordinates(actual),
+        point_coordinates(expected),
+        tolerance,
+    );
     assert!(
         close,
         "{what}: expected {expected:?} within {tolerance}, got {actual:?}"
@@ -428,9 +466,11 @@ pub fn assert_point_near(actual: Point, expected: Point, tolerance: f64, what: &
 
 /// Asserts that two vectors agree per coordinate within `tolerance`.
 pub fn assert_vector_near(actual: Vector, expected: Vector, tolerance: f64, what: &str) {
-    let close = (actual.x - expected.x).abs() <= tolerance
-        && (actual.y - expected.y).abs() <= tolerance
-        && (actual.z - expected.z).abs() <= tolerance;
+    let close = coordinates_near(
+        vector_coordinates(actual),
+        vector_coordinates(expected),
+        tolerance,
+    );
     assert!(
         close,
         "{what}: expected {expected:?} within {tolerance}, got {actual:?}"
@@ -489,9 +529,11 @@ pub fn assert_same_points(actual: &[Point], expected: &[Point], tolerance: f64, 
     let mut unmatched: Vec<Point> = expected.to_vec();
     for point in actual {
         let position = unmatched.iter().position(|candidate| {
-            (candidate.x - point.x).abs() <= tolerance
-                && (candidate.y - point.y).abs() <= tolerance
-                && (candidate.z - point.z).abs() <= tolerance
+            coordinates_near(
+                point_coordinates(*candidate),
+                point_coordinates(*point),
+                tolerance,
+            )
         });
         match position {
             Some(position) => {
@@ -513,6 +555,15 @@ pub fn box_corners(min: Point, max: Point) -> Vec<Point> {
         }
     }
     corners
+}
+
+/// Asserts that `operation` leaves the BRep bytes of `shape` as they were (section 3.1, item 3).
+pub fn assert_leaves_unchanged(shape: &Shape, operation: impl FnOnce()) {
+    let before = shape.to_brep().expect("BRep bytes");
+
+    operation();
+
+    assert!(shape.to_brep().expect("BRep bytes") == before);
 }
 
 // Error assertions.

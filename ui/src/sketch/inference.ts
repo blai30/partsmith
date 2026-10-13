@@ -1,8 +1,6 @@
 import type { PointRef, SketchSolution } from '../generated/protocol'
 import {
-  closestPointOnArc,
   closestPointOnLine,
-  closestPointOnSegment,
   cross,
   distance,
   dot,
@@ -11,7 +9,7 @@ import {
   subtract,
   type Vector2,
 } from './geometry'
-import { curveCircle, ownerOf, solvedEntity } from './operands'
+import { closestOnEntity, ownerOf, solvedEntity } from './operands'
 import { ORIGIN_POINT, X_AXIS, Y_AXIS } from './refs'
 import type { SketchToolId } from './session'
 
@@ -47,9 +45,9 @@ export type InferenceResult = {
 }
 
 /** Points and line midpoints snap within this many pixels of the cursor. */
-export const POINT_SNAP_PIXELS = 8
+const POINT_SNAP_PIXELS = 8
 /** Curves, including the origin axes, snap within this many pixels. */
-export const CURVE_SNAP_PIXELS = 6
+const CURVE_SNAP_PIXELS = 6
 /** A segment within this angle of an axis direction (modulo 180 degrees) is horizontal or vertical. */
 const ALIGNMENT_TOLERANCE = (3 * Math.PI) / 180
 /** A segment within this angle of a curve's tangent at its start is tangent. */
@@ -99,30 +97,14 @@ function curveCandidates(cursor: Vector2, solution: SketchSolution): Candidate<S
     onCurve(Y_AXIS, closestPointOnLine(cursor, [0, 0], [0, 1])),
   ]
   const curves = solution.entities.flatMap((entity) => {
-    switch (entity.type) {
-      case 'line':
-        return [onCurve(entity.id, closestPointOnSegment(cursor, entity.start, entity.end))]
-      case 'circle':
-      case 'arc': {
-        const circle = curveCircle(solution, entity.id)
-        return circle === null
-          ? []
-          : [
-              onCurve(
-                entity.id,
-                closestPointOnArc(cursor, circle.center, circle.radius, circle.start, circle.end),
-              ),
-            ]
-      }
-      case 'point':
-        return []
-    }
+    const closest = closestOnEntity(entity, cursor)
+    return closest === null ? [] : [onCurve(entity.id, closest)]
   })
   return [...curves, ...axes]
 }
 
 /** The snap target under the cursor: points first, then line midpoints, then curves (3.16.5). */
-export function snapTarget(
+function snapTarget(
   cursor: Vector2,
   millimetersPerPixel: number,
   solution: SketchSolution,

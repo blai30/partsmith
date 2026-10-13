@@ -45,8 +45,11 @@ const SOURCES: &[&str] = &[
     "cpp/blends.cpp",
     "cpp/transforms.cpp",
     "cpp/queries.cpp",
+    "cpp/measure.cpp",
     "cpp/mesh.cpp",
     "cpp/exchange.cpp",
+    "cpp/shape.cpp",
+    "cpp/validity.cpp",
     "cpp/history.cpp",
 ];
 

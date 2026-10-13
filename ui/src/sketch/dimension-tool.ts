@@ -49,7 +49,7 @@ export function pickedItems(picking: DimensionPicking): readonly SelectionItem[]
 }
 
 /** The draft for picks with the label at `labelAt`, or why they cannot be dimensioned. */
-export function dimensionDraft(
+function dimensionDraft(
   picks: readonly SelectionItem[],
   labelAt: Vector2,
   solution: SketchSolution,

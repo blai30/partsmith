@@ -1,7 +1,6 @@
-// Shapes, indexing, measurement, element geometry and topology (kernel spec sections 3.2 and
-// 3.6).
+// Shape queries: indexing, validity, bounds, element geometry, topology and edge normals (kernel
+// spec sections 3.2 and 3.6).
 #include <algorithm>
-#include <cmath>
 #include <optional>
 #include <utility>
 #include <vector>
@@ -11,28 +10,19 @@
 #include <BRepBndLib.hxx>
 #include <BRepCheck_Analyzer.hxx>
 #include <BRepGProp.hxx>
-#include <BRepGProp_Domain.hxx>
-#include <BRepGProp_Face.hxx>
-#include <BRepGProp_Vinert.hxx>
 #include <BRepLProp_SLProps.hxx>
-#include <BRep_Builder.hxx>
 #include <BRep_CurveRepresentation.hxx>
 #include <BRep_TEdge.hxx>
 #include <BRep_Tool.hxx>
 #include <Bnd_Box.hxx>
 #include <GProp_GProps.hxx>
-#include <Geom2d_Circle.hxx>
 #include <Geom2d_Curve.hxx>
-#include <Geom2d_Line.hxx>
-#include <Geom2d_TrimmedCurve.hxx>
 #include <GeomAPI_ProjectPointOnSurf.hxx>
 #include <TopExp.hxx>
 #include <TopExp_Explorer.hxx>
 #include <TopoDS.hxx>
-#include <TopoDS_Compound.hxx>
 #include <TopoDS_Iterator.hxx>
 #include <gp_Circ.hxx>
-#include <gp_Circ2d.hxx>
 #include <gp_Cone.hxx>
 #include <gp_Cylinder.hxx>
 #include <gp_Elips.hxx>
@@ -50,43 +40,7 @@ namespace occt {
 
 using namespace detail;
 
-namespace {
-
-// The sub-shapes of one type in TopExp::MapShapes order (kernel spec section 3.2, item 1).
-TopTools_IndexedMapOfShape index_map(const TopoDS_Shape &shape, TopAbs_ShapeEnum type) {
-  TopTools_IndexedMapOfShape map;
-  TopExp::MapShapes(shape, type, map);
-  return map;
-}
-
-}  // namespace
-
-Shape::Shape(TopoDS_Shape shape)
-    : shape_(std::move(shape)),
-      solids_(index_map(shape_, TopAbs_SOLID)),
-      faces_(index_map(shape_, TopAbs_FACE)),
-      edges_(index_map(shape_, TopAbs_EDGE)),
-      vertices_(index_map(shape_, TopAbs_VERTEX)) {}
-
-const TopTools_IndexedMapOfShape &Shape::map(ElementKind kind) const {
-  switch (kind) {
-    case ElementKind::Solid:
-      return solids_;
-    case ElementKind::Face:
-      return faces_;
-    case ElementKind::Edge:
-      return edges_;
-    case ElementKind::Vertex:
-      return vertices_;
-  }
-  raise_invalid_input("Unknown element kind.");
-}
-
-std::shared_ptr<Shape> empty_shape() {
-  TopoDS_Compound compound;
-  BRep_Builder().MakeCompound(compound);
-  return make_shape(compound);
-}
+std::shared_ptr<Shape> empty_shape() { return make_shape(compound_of({})); }
 
 ShapeType shape_type(const Shape &shape) {
   switch (shape.get().ShapeType()) {
@@ -127,17 +81,6 @@ const TopoDS_Shape &element_at(const Shape &shape, ElementKind kind, std::uint32
   return map(static_cast<int>(index));
 }
 
-// Volume properties summed over the solids.
-GProp_GProps solid_properties(const Shape &shape) {
-  GProp_GProps total;
-  for (int index = 1; index <= shape.solids().Extent(); ++index) {
-    GProp_GProps properties;
-    BRepGProp::VolumeProperties(shape.solids()(index), properties);
-    total.Add(properties);
-  }
-  return total;
-}
-
 // The point on an axis closest to a point.
 gp_Pnt closest_on_axis(const gp_Ax1 &axis, const gp_Pnt &point) {
   const gp_XYZ origin = axis.Location().XYZ();
@@ -151,309 +94,6 @@ void set_axis(ElementData &data, const gp_Ax1 &axis) {
   data.direction = to_vec3(axis.Direction().XYZ());
   data.has_location = true;
   data.location = to_vec3(closest_on_axis(axis, to_point(data.centroid)).XYZ());
-}
-
-// The area of a face and its area centroid.
-struct FaceMass {
-  double area;
-  gp_Pnt centroid;
-};
-
-// Integrals over a region of a plane's parameter plane (x, y), accumulated along its boundary
-// by Green's theorem with the fields (-y / 2, x / 2), (0, x^2 / 2) and (-y^2 / 2, 0): `area`
-// integrates 1, `first_x` integrates x and `first_y` integrates y. Every boundary piece uses
-// the same fields, so the pieces of all loops add up to the exact integrals.
-struct PlaneIntegrals {
-  double area = 0.0;
-  double first_x = 0.0;
-  double first_y = 0.0;
-
-  // Adds the segment from `start` to `end`.
-  void add_segment(const gp_XY &start, const gp_XY &end) {
-    const double x0 = start.X(), y0 = start.Y(), x1 = end.X(), y1 = end.Y();
-    area += 0.5 * (x0 * y1 - x1 * y0);
-    first_x += (y1 - y0) * (x0 * x0 + x0 * x1 + x1 * x1) / 6.0;
-    first_y -= (x1 - x0) * (y0 * y0 + y0 * y1 + y1 * y1) / 6.0;
-  }
-
-  // Adds the arc of the circle with `center` and `radius` from `start` to `end` through
-  // `middle`, turning by `angle` (counterclockwise when positive): its chord, plus the loop of
-  // the arc and the chord back, which bounds a circular segment with closed-form integrals.
-  void add_arc(const gp_XY &start, const gp_XY &end, const gp_XY &middle, const gp_XY &center,
-               double radius, double angle) {
-    add_segment(start, end);
-    const double turn = std::abs(angle);
-    const double sign = angle < 0.0 ? -1.0 : 1.0;
-    const double segment_area = 0.5 * radius * radius * (turn - std::sin(turn));
-    const double half_sine = std::sin(0.5 * turn);
-    // The segment's first moment about the center, along the bisector toward `middle`.
-    const double offset = 2.0 / 3.0 * radius * radius * radius * half_sine * half_sine * half_sine;
-    const gp_XY bisector = (middle - center) / radius;
-    area += sign * segment_area;
-    first_x += sign * (segment_area * center.X() + offset * bisector.X());
-    first_y += sign * (segment_area * center.Y() + offset * bisector.Y());
-  }
-};
-
-// Integrals over a region of a cylinder's parameter plane (u, v), accumulated along its
-// boundary by Green's theorem with the fields (0, u), (0, sin u), (0, -cos u) and
-// (-v^2 / 2, 0): `area` integrates 1, `cosine` cos u, `sine` sin u and `height` v.
-struct CylinderIntegrals {
-  double area = 0.0;
-  double cosine = 0.0;
-  double sine = 0.0;
-  double height = 0.0;
-
-  // Adds the segment from `start` to `end`, both relative to `reference`; `height` stays
-  // relative to the reference's v.
-  void add_segment(const gp_XY &start, const gp_XY &end, const gp_XY &reference) {
-    const double u_span = end.X() - start.X();
-    const double v_span = end.Y() - start.Y();
-    const double mean_u = reference.X() + 0.5 * (start.X() + end.X());
-    const double half = 0.5 * u_span;
-    // sin(half) / half, with its series where the quotient loses precision.
-    const double sinc = std::abs(half) < 1e-4 ? 1.0 - half * half / 6.0 : std::sin(half) / half;
-    area += v_span * 0.5 * (start.X() + end.X());
-    cosine += v_span * std::sin(mean_u) * sinc;
-    sine -= v_span * std::cos(mean_u) * sinc;
-    const double v0 = start.Y(), v1 = end.Y();
-    height -= u_span * (v0 * v0 + v0 * v1 + v1 * v1) / 6.0;
-  }
-};
-
-// A parameter-plane curve without its trimming wrappers, which keep the parametrization.
-Handle(Geom2d_Curve) basis_curve(Handle(Geom2d_Curve) curve) {
-  while (!curve.IsNull() && curve->IsKind(STANDARD_TYPE(Geom2d_TrimmedCurve))) {
-    curve = Handle(Geom2d_TrimmedCurve)::DownCast(curve)->BasisCurve();
-  }
-  return curve;
-}
-
-// The boundary integrals of a face on a plane bounded by lines and circular arcs in its
-// parameter plane, or on a cylinder bounded by lines, over the forward face and relative to its
-// first boundary point `reference` (the integrals above).
-struct AnalyticFace {
-  bool planar;
-  gp_XY reference;
-  PlaneIntegrals plane;
-  CylinderIntegrals cylinder;
-};
-
-// The boundary integrals of a face on a plane or cylinder bounded as `AnalyticFace` says, checked
-// against the face's own surface; nothing for any other face. BRepGProp integrates numerically
-// with 18 x 18 points per boundary edge, which made element queries of faces with many edges
-// slow (kernel spec section 5).
-std::optional<AnalyticFace> analytic_face(const TopoDS_Face &face,
-                                          const BRepAdaptor_Surface &surface) {
-  const GeomAbs_SurfaceType type = surface.GetType();
-  // A scaled location would scale the parameter plane as well.
-  if ((type != GeomAbs_Plane && type != GeomAbs_Cylinder) || face.NbChildren() == 0 ||
-      std::abs(std::abs(surface.Trsf().ScaleFactor()) - 1.0) > 1e-12) {
-    return std::nullopt;
-  }
-  const bool planar = type == GeomAbs_Plane;
-  // The forward face has its material on the left of its oriented boundary.
-  const TopoDS_Face forward = TopoDS::Face(face.Oriented(TopAbs_FORWARD));
-  bool has_reference = false;
-  // Coordinates are taken relative to the first boundary point to keep the sums accurate.
-  gp_XY reference(0.0, 0.0);
-  PlaneIntegrals plane_integrals;
-  CylinderIntegrals cylinder_integrals;
-  for (TopExp_Explorer edges(forward, TopAbs_EDGE); edges.More(); edges.Next()) {
-    const TopoDS_Edge &edge = TopoDS::Edge(edges.Current());
-    const TopAbs_Orientation orientation = edge.Orientation();
-    // Internal and external edges bound nothing.
-    if (orientation != TopAbs_FORWARD && orientation != TopAbs_REVERSED) {
-      continue;
-    }
-    double first = 0.0, last = 0.0;
-    const Handle(Geom2d_Curve) curve =
-        basis_curve(BRep_Tool::CurveOnSurface(edge, forward, first, last));
-    if (curve.IsNull()) {
-      return std::nullopt;
-    }
-    const bool reversed = orientation == TopAbs_REVERSED;
-    gp_XY start = curve->Value(reversed ? last : first).XY();
-    gp_XY end = curve->Value(reversed ? first : last).XY();
-    if (!has_reference) {
-      has_reference = true;
-      reference = start;
-    }
-    start -= reference;
-    end -= reference;
-    if (curve->IsKind(STANDARD_TYPE(Geom2d_Line))) {
-      if (planar) {
-        plane_integrals.add_segment(start, end);
-      } else {
-        cylinder_integrals.add_segment(start, end, reference);
-      }
-    } else if (planar && curve->IsKind(STANDARD_TYPE(Geom2d_Circle))) {
-      const gp_Circ2d circle = Handle(Geom2d_Circle)::DownCast(curve)->Circ2d();
-      const gp_Ax22d &axes = circle.Position();
-      const double sense = axes.XDirection().Crossed(axes.YDirection()) < 0.0 ? -1.0 : 1.0;
-      const double angle = (last - first) * sense * (reversed ? -1.0 : 1.0);
-      const gp_XY middle = curve->Value(0.5 * (first + last)).XY() - reference;
-      plane_integrals.add_arc(start, end, middle, circle.Location().XY() - reference,
-                              circle.Radius(), angle);
-    } else {
-      return std::nullopt;
-    }
-  }
-  if (!has_reference) {
-    return std::nullopt;
-  }
-  // The integrals assume the parametrization below; the face's own surface must agree.
-  const gp_XYZ surface_point = surface.Value(reference.X(), reference.Y()).XYZ();
-  if (planar) {
-    const gp_Pln plane = surface.Plane();
-    const gp_XYZ expected = plane.Location().XYZ() +
-                            plane.XAxis().Direction().XYZ() * reference.X() +
-                            plane.YAxis().Direction().XYZ() * reference.Y();
-    if ((surface_point - expected).Modulus() > kLinear || !(plane_integrals.area > 0.0)) {
-      return std::nullopt;
-    }
-  } else {
-    const gp_Cylinder cylinder = surface.Cylinder();
-    const gp_Ax3 &frame = cylinder.Position();
-    const double radius = cylinder.Radius();
-    const gp_XYZ expected = frame.Location().XYZ() +
-                            frame.XDirection().XYZ() * (radius * std::cos(reference.X())) +
-                            frame.YDirection().XYZ() * (radius * std::sin(reference.X())) +
-                            frame.Direction().XYZ() * reference.Y();
-    if ((surface_point - expected).Modulus() > kLinear || !(cylinder_integrals.area > 0.0)) {
-      return std::nullopt;
-    }
-  }
-  return AnalyticFace{planar, reference, plane_integrals, cylinder_integrals};
-}
-
-// The exact area and centroid of a face from its `analytic_face` integrals.
-FaceMass mass_of(const AnalyticFace &integrals, const BRepAdaptor_Surface &surface) {
-  const gp_XY &reference = integrals.reference;
-  if (integrals.planar) {
-    const PlaneIntegrals &plane_integrals = integrals.plane;
-    const gp_Pln plane = surface.Plane();
-    const double x = reference.X() + plane_integrals.first_x / plane_integrals.area;
-    const double y = reference.Y() + plane_integrals.first_y / plane_integrals.area;
-    return FaceMass{plane_integrals.area,
-                    gp_Pnt(plane.Location().XYZ() + plane.XAxis().Direction().XYZ() * x +
-                           plane.YAxis().Direction().XYZ() * y)};
-  }
-  const CylinderIntegrals &cylinder_integrals = integrals.cylinder;
-  const gp_Cylinder cylinder = surface.Cylinder();
-  const gp_Ax3 &frame = cylinder.Position();
-  const double radius = cylinder.Radius();
-  const gp_XYZ z_axis = frame.Direction().XYZ();
-  // The area element is radius du dv, and a point is origin + radius (cos u x + sin u y) + v z.
-  const gp_XYZ moment = frame.XDirection().XYZ() * (radius * cylinder_integrals.cosine) +
-                        frame.YDirection().XYZ() * (radius * cylinder_integrals.sine) +
-                        z_axis * cylinder_integrals.height;
-  return FaceMass{radius * cylinder_integrals.area,
-                  gp_Pnt(frame.Location().XYZ() + z_axis * reference.Y() +
-                         moment / cylinder_integrals.area)};
-}
-
-// The exact area and centroid of a face that `analytic_face` integrates; nothing for any other
-// face.
-std::optional<FaceMass> analytic_face_mass(const TopoDS_Face &face,
-                                           const BRepAdaptor_Surface &surface) {
-  const std::optional<AnalyticFace> integrals = analytic_face(face, surface);
-  if (!integrals) {
-    return std::nullopt;
-  }
-  return mass_of(*integrals, surface);
-}
-
-// The face's term of the divergence theorem for the volume of the solid it bounds, exactly for
-// a face that `analytic_face` integrates: one third of the integral of (x - origin) . n over the
-// face, with n its normal out of the material (the surface normal, reversed for a reversed face).
-// Nothing for any other face.
-std::optional<double> analytic_volume_term(const TopoDS_Face &face,
-                                           const BRepAdaptor_Surface &surface,
-                                           const gp_XYZ &origin) {
-  const std::optional<AnalyticFace> integrals = analytic_face(face, surface);
-  if (!integrals) {
-    return std::nullopt;
-  }
-  // A mirroring location turns the parameter plane over against the surface normal.
-  if (surface.Trsf().IsNegative()) {
-    return std::nullopt;
-  }
-  const FaceMass mass = mass_of(*integrals, surface);
-  const double orientation = face.Orientation() == TopAbs_REVERSED ? -1.0 : 1.0;
-  if (surface.GetType() == GeomAbs_Plane) {
-    // The normal is constant, so the integral is the normal times the centroid times the area.
-    const gp_Ax3 frame = surface.Plane().Position();
-    const gp_XYZ normal = frame.XDirection().XYZ().Crossed(frame.YDirection().XYZ());
-    return orientation * normal.Dot(mass.centroid.XYZ() - origin) * mass.area / 3.0;
-  }
-  // On the cylinder the outward radial direction r(u) = cos u x + sin u y is the surface normal
-  // of a right-handed frame, and (x - origin) . r(u) = (axis origin - origin) . r(u) + radius,
-  // whose integral over the face is the radial part of its first moment plus radius times area.
-  const gp_Cylinder cylinder = surface.Cylinder();
-  const gp_Ax3 &frame = cylinder.Position();
-  const double radius = cylinder.Radius();
-  const double handedness = frame.Direct() ? 1.0 : -1.0;
-  const gp_XYZ offset = frame.Location().XYZ() - origin;
-  const double radial_moment =
-      radius * (offset.Dot(frame.XDirection().XYZ()) * integrals->cylinder.cosine +
-                offset.Dot(frame.YDirection().XYZ()) * integrals->cylinder.sine);
-  return orientation * handedness * (radial_moment + radius * mass.area) / 3.0;
-}
-
-// The volume of one solid by the divergence theorem (kernel spec section 3.6, item 1): the sum
-// over its faces of one third of the integral of (x - p) . n, with p the mean of its vertices
-// (the reference point BRepGProp uses), exact for planes and cylinders (`analytic_volume_term`)
-// and integrated by BRepGProp_Vinert, as BRepGProp::VolumeProperties does, for other faces.
-double solid_volume(const TopoDS_Shape &solid) {
-  gp_XYZ origin(0.0, 0.0, 0.0);
-  int vertices = 0;
-  for (TopExp_Explorer vertex(solid, TopAbs_VERTEX); vertex.More(); vertex.Next()) {
-    origin += BRep_Tool::Pnt(TopoDS::Vertex(vertex.Current())).XYZ();
-    ++vertices;
-  }
-  if (vertices > 0) {
-    origin /= vertices;
-  }
-  BRepGProp_Face properties;
-  BRepGProp_Domain domain;
-  BRepGProp_Vinert integrator;
-  integrator.SetLocation(gp_Pnt(origin));
-  double volume = 0.0;
-  for (TopExp_Explorer faces(solid, TopAbs_FACE); faces.More(); faces.Next()) {
-    const TopoDS_Face &face = TopoDS::Face(faces.Current());
-    const TopAbs_Orientation orientation = face.Orientation();
-    TopLoc_Location location;
-    if ((orientation != TopAbs_FORWARD && orientation != TopAbs_REVERSED) ||
-        BRep_Tool::Surface(face, location).IsNull()) {
-      continue;
-    }
-    const BRepAdaptor_Surface surface(face, Standard_False);
-    if (const std::optional<double> term = analytic_volume_term(face, surface, origin)) {
-      volume += *term;
-      continue;
-    }
-    properties.Load(face);
-    if (face.NbChildren() == 0) {
-      integrator.Perform(properties);
-    } else {
-      domain.Init(face);
-      integrator.Perform(properties, domain);
-    }
-    volume += integrator.Mass();
-  }
-  return volume;
-}
-
-// The area and area centroid of a face: exact where `analytic_face_mass` applies, else from
-// BRepGProp (kernel spec section 3.6, items 2 and 3).
-FaceMass face_mass(const TopoDS_Face &face, const BRepAdaptor_Surface &surface) {
-  if (const std::optional<FaceMass> exact = analytic_face_mass(face, surface)) {
-    return *exact;
-  }
-  GProp_GProps properties;
-  BRepGProp::SurfaceProperties(face, properties);
-  return FaceMass{properties.Mass(), properties.CentreOfMass()};
 }
 
 // Geometry of a face (kernel spec section 3.6, item 3).
@@ -737,41 +377,6 @@ rust::Vec<std::uint32_t> shape_locate(const Shape &shape, const Shape &part, Ele
 }
 
 bool shape_is_valid(const Shape &shape) { return BRepCheck_Analyzer(shape.get()).IsValid(); }
-
-double detail::solids_volume(const TopoDS_Shape &shape) {
-  TopTools_IndexedMapOfShape solids;
-  TopExp::MapShapes(shape, TopAbs_SOLID, solids);
-  double volume = 0.0;
-  for (int index = 1; index <= solids.Extent(); ++index) {
-    volume += solid_volume(solids(index));
-  }
-  return volume;
-}
-
-double shape_volume(const Shape &shape) {
-  double volume = 0.0;
-  for (int index = 1; index <= shape.solids().Extent(); ++index) {
-    volume += solid_volume(shape.solids()(index));
-  }
-  return volume;
-}
-
-double shape_area(const Shape &shape) {
-  double area = 0.0;
-  for (int index = 1; index <= shape.faces().Extent(); ++index) {
-    const TopoDS_Face &face = TopoDS::Face(shape.faces()(index));
-    area += face_mass(face, BRepAdaptor_Surface(face, Standard_False)).area;
-  }
-  return area;
-}
-
-Vec3 shape_center_of_mass(const Shape &shape) {
-  const GProp_GProps properties = solid_properties(shape);
-  if (std::abs(properties.Mass()) < 1e-12) {
-    raise_invalid_input("This shape has no volume, so it has no center of mass.");
-  }
-  return to_vec3(properties.CentreOfMass().XYZ());
-}
 
 BoundsData shape_bounding_box(const Shape &shape) {
   Bnd_Box box;

@@ -1,20 +1,30 @@
 import { describe, expect, it } from 'vitest'
 import {
+  aspectOf,
   cameraAfterSketch,
+  canvasPosition,
   classifyView,
   DEFAULT_CAMERA,
   DEFAULT_VERTICAL_FIELD_OF_VIEW,
   depthRange,
+  easeOutCubic,
   eye,
   fitBounds,
   forward,
+  interpolateCameras,
+  MAXIMUM_ZOOM_EXTENT,
+  MINIMUM_ZOOM_EXTENT,
+  normalizedPosition,
   orbit,
   pan,
+  pointAtDepth,
   projectionMatrix,
+  right,
   rotationLookingAlong,
   standardViewRotation,
   up,
   viewMatrix,
+  visibleHeightAtDepth,
   visibleHeightAtTarget,
   wheelZoomFactor,
   withProjection,
@@ -24,6 +34,7 @@ import {
   type StandardView,
   type Vector3,
 } from './camera'
+import { angleBetween, quaternionFromAxisAngle } from './math'
 
 type BoundingBox = Parameters<typeof fitBounds>[1]
 
@@ -180,6 +191,19 @@ function box(min: Vector3, max: Vector3): BoundingBox {
   return { min: [min[0], min[1], min[2]], max: [max[0], max[1], max[2]] }
 }
 
+// The front view and its orthographic twin, around a target off the origin.
+const frontView: Camera = {
+  ...DEFAULT_CAMERA,
+  rotation: standardViewRotation('front'),
+  target: [10, 0, 5],
+  distance: 100,
+}
+const frontOrthographicView: Camera = {
+  ...frontView,
+  projection: 'orthographic',
+  orthographicHeight: 40,
+}
+
 const STANDARD_VIEWS: readonly {
   readonly view: StandardView
   readonly forward: Vector3
@@ -318,6 +342,16 @@ describe('camera basis and matrices', () => {
     expect(visibleHeightAtTarget(camera)).toBeCloseTo(37.5, 9)
   })
 
+  it('visibleHeightAtDepth grows with the depth in perspective', () => {
+    const camera = cameraWith({ distance: 120, verticalFieldOfView: 40 * DEGREE })
+    expect(visibleHeightAtDepth(camera, 30)).toBeCloseTo(2 * 30 * Math.tan(20 * DEGREE), 9)
+  })
+
+  it('visibleHeightAtDepth is orthographicHeight at every depth in orthographic', () => {
+    const camera = cameraWith({ projection: 'orthographic', orthographicHeight: 37.5 })
+    expect(visibleHeightAtDepth(camera, 30)).toBe(37.5)
+  })
+
   it('viewMatrix is a column-major world-to-view matrix: the eye at the origin, the target on -Z', () => {
     const camera = cameraWith({
       rotation: standardViewRotation('front'),
@@ -367,6 +401,14 @@ describe('camera basis and matrices', () => {
     expect(projectToNormalized(matrix, [0, 0, 50])[2]).toBeCloseTo(-1, 4)
     expect(projectToNormalized(matrix, [0, 0, -150])[2]).toBeCloseTo(1, 4)
   })
+
+  it('completes a right-handed basis with up and the backward axis', () => {
+    const camera = { ...DEFAULT_CAMERA }
+    expect(cross(right(camera), up(camera))).toEqual(closeToVector(scale(forward(camera), -1)))
+    expect(right({ ...camera, rotation: standardViewRotation('front') })).toEqual(
+      closeToVector([1, 0, 0]),
+    )
+  })
 })
 
 describe('depthRange', () => {
@@ -405,6 +447,12 @@ describe('depthRange', () => {
     expect(range.near).toBeCloseTo(-130, 9)
     expect(range.far).toBeCloseTo(530, 9)
   })
+
+  it('keeps far beyond near when the scene is behind a perspective eye', () => {
+    const range = depthRange(frontView, [10, -500, 5], 1)
+    expect(range.near).toBe(0.01)
+    expect(range.far).toBeGreaterThan(range.near)
+  })
 })
 
 describe('rotationLookingAlong', () => {
@@ -435,6 +483,17 @@ describe('rotationLookingAlong', () => {
   it('returns a unit quaternion', () => {
     const [x, y, z, w] = rotationLookingAlong([3, -4, 2], [0, 0, 1])
     expect(Math.hypot(x, y, z, w)).toBeCloseTo(1, 12)
+  })
+
+  it('throws for a zero direction', () => {
+    expect(() => rotationLookingAlong([0, 0, 0], [0, 0, 1])).toThrow(RangeError)
+  })
+
+  it('uses the world axis least aligned with the direction when the hint is parallel to it', () => {
+    const camera = { ...DEFAULT_CAMERA, rotation: rotationLookingAlong([0, 0, -1], [0, 0, 1]) }
+    expect(forward(camera)).toEqual(closeToVector([0, 0, -1]))
+    expect(Math.abs(dot(up(camera), [0, 0, 1]))).toBeLessThan(1e-12)
+    expect(Math.hypot(...up(camera))).toBeCloseTo(1, 12)
   })
 })
 
@@ -490,6 +549,34 @@ describe('fitBounds', () => {
     const fitted = fitBounds(frontOrthographic, box([5, 5, 5], [5, 5, 5]), 1)
     expect(fitted.orthographicHeight).toBeCloseTo(125, 9)
     expect(fitted.target).toEqual(closeToVector([5, 5, 5]))
+  })
+
+  it('rejects a margin outside 0 to below 0.5', () => {
+    const bounds = { min: [0, 0, 0] as Vector3, max: [1, 1, 1] as Vector3 }
+    expect(() => fitBounds(DEFAULT_CAMERA, bounds, 1, 0.5)).toThrow(RangeError)
+    expect(() => fitBounds(DEFAULT_CAMERA, bounds, 1, -0.1)).toThrow(RangeError)
+  })
+
+  it('frames a line seen end-on with the smallest orthographic height, not zero', () => {
+    const rightView: Camera = {
+      ...frontOrthographicView,
+      rotation: standardViewRotation('right'),
+    }
+    const fitted = fitBounds(rightView, { min: [0, 0, 0], max: [40, 0, 0] }, 1.5)
+    expect(fitted.orthographicHeight).toBe(MINIMUM_ZOOM_EXTENT)
+    expect(Array.from(projectionMatrix(fitted, 1.5, -10, 10)).every(Number.isFinite)).toBe(true)
+  })
+
+  it('keeps a tiny perspective fit at the smallest distance', () => {
+    const rightView: Camera = { ...frontView, rotation: standardViewRotation('right') }
+    const fitted = fitBounds(rightView, { min: [0, 0, 0], max: [1e-6, 0, 0] }, 1.5)
+    expect(fitted.distance).toBe(MINIMUM_ZOOM_EXTENT)
+  })
+
+  it('clamps a huge box to the largest zoom extent', () => {
+    const huge = { min: [-1e8, -1e8, -1e8] as Vector3, max: [1e8, 1e8, 1e8] as Vector3 }
+    expect(fitBounds(frontOrthographicView, huge, 1).orthographicHeight).toBe(MAXIMUM_ZOOM_EXTENT)
+    expect(fitBounds(frontView, huge, 1).distance).toBe(MAXIMUM_ZOOM_EXTENT)
   })
 })
 
@@ -639,6 +726,10 @@ describe('pan', () => {
     expect(orientation(panned)).toEqual(closeToVector(orientation(camera)))
     expect(panned.distance).toBeCloseTo(200, 9)
     expect(panned.projection).toBe('perspective')
+  })
+
+  it('leaves the camera alone for a viewport without height', () => {
+    expect(pan(frontView, 10, 10, 0)).toBe(frontView)
   })
 })
 
@@ -797,5 +888,133 @@ describe('cameraAfterSketch (3.16.11)', () => {
     const isoNormal: Vector3 = [1, -1, 1]
     const after = cameraAfterSketch(DEFAULT_CAMERA, null, isoNormal)
     expect(classifyView(after ?? DEFAULT_CAMERA)).toBe('front')
+  })
+})
+
+describe('pointAtDepth and normalizedPosition', () => {
+  it.each([
+    ['perspective', frontView],
+    ['orthographic', frontOrthographicView],
+  ] as const)('are inverse projections in %s', (_name, camera) => {
+    const point = pointAtDepth(camera, [0.25, -0.5], 1.5, 80)
+    const position = normalizedPosition(camera, point, 1.5)
+    expect(position?.x).toBeCloseTo(0.25, 12)
+    expect(position?.y).toBeCloseTo(-0.5, 12)
+    expect(position?.depth).toBeCloseTo(80, 12)
+  })
+
+  it('put the target at the center at the camera distance', () => {
+    expect(pointAtDepth(frontView, [0, 0], 2, frontView.distance)).toEqual(
+      closeToVector(frontView.target),
+    )
+    expect(normalizedPosition(frontView, frontView.target, 2)).toEqual({
+      x: expect.closeTo(0, 12),
+      y: expect.closeTo(0, 12),
+      depth: expect.closeTo(100, 12),
+    })
+  })
+
+  it('reach the top edge of the view at half the visible height', () => {
+    // Perspective at depth 100 with a 30 degree field of view: half height 100 tan 15°.
+    const top = pointAtDepth(frontView, [0, 1], 1, 100)
+    expect(top[2] - frontView.target[2]).toBeCloseTo(100 * Math.tan(Math.PI / 12), 12)
+    const orthographicTop = pointAtDepth(frontOrthographicView, [0, 1], 1, 30)
+    expect(orthographicTop[2] - frontView.target[2]).toBeCloseTo(20, 12)
+  })
+
+  it('give no position for a point behind a perspective eye', () => {
+    expect(normalizedPosition(frontView, [10, -200, 5], 1)).toBeNull()
+    expect(normalizedPosition(frontView, eye(frontView), 1)).toBeNull()
+  })
+
+  it('give a position for a point behind an orthographic eye', () => {
+    expect(normalizedPosition(frontOrthographicView, [10, -200, 5], 1)?.depth).toBeCloseTo(-100, 12)
+  })
+})
+
+describe('easeOutCubic', () => {
+  it('runs from 0 to 1, fast at first', () => {
+    expect(easeOutCubic(0)).toBe(0)
+    expect(easeOutCubic(1)).toBe(1)
+    expect(easeOutCubic(0.5)).toBe(0.875)
+  })
+})
+
+describe('interpolateCameras', () => {
+  const from: Camera = { ...frontView, distance: 100, orthographicHeight: 10 }
+  const to: Camera = {
+    ...DEFAULT_CAMERA,
+    target: [0, 0, 0],
+    distance: 400,
+    orthographicHeight: 40,
+    projection: 'perspective',
+  }
+
+  it('starts at the first camera and ends exactly at the second', () => {
+    const start = interpolateCameras(from, to, 0)
+    expect(start.target).toEqual(closeToVector(from.target))
+    expect(start.distance).toBeCloseTo(100, 12)
+    expect(classifyView(start)).toBe('front')
+    expect(interpolateCameras(from, to, 1)).toBe(to)
+  })
+
+  it('changes lengths geometrically and the target linearly', () => {
+    const middle = interpolateCameras(from, to, 0.5)
+    expect(middle.distance).toBeCloseTo(200, 9)
+    expect(middle.orthographicHeight).toBeCloseTo(20, 9)
+    expect(middle.target).toEqual(closeToVector([5, 0, 2.5]))
+    expect(middle.projection).toBe('perspective')
+  })
+
+  it.each([
+    ['perspective to orthographic', { ...frontView, distance: 50 }, 'orthographic'],
+    ['orthographic to perspective', { ...frontOrthographicView, distance: 900 }, 'perspective'],
+  ] as const)(
+    'keeps the apparent size through a projection switch, %s',
+    (_name, zoomed, projection) => {
+      const switched = withProjection(zoomed, projection)
+      for (const amount of [0, 0.01, 0.5, 0.99]) {
+        const frame = interpolateCameras(zoomed, switched, amount)
+        expect(frame.projection).toBe(projection)
+        expect(visibleHeightAtTarget(frame)).toBeCloseTo(visibleHeightAtTarget(zoomed), 9)
+      }
+    },
+  )
+
+  it('zooms smoothly from the first camera when the projection switches during a zoom', () => {
+    const zoomed: Camera = { ...frontView, distance: 50 }
+    const fitted: Camera = { ...frontOrthographicView, orthographicHeight: 100 }
+    const heights = [0, 0.25, 0.5, 0.75, 1].map((amount) =>
+      visibleHeightAtTarget(interpolateCameras(zoomed, fitted, amount)),
+    )
+    expect(heights[0]).toBeCloseTo(visibleHeightAtTarget(zoomed), 9)
+    expect(heights.slice(1).every((height, index) => height > (heights[index] ?? 0))).toBe(true)
+  })
+
+  it('turns along the shorter arc', () => {
+    const turned: Camera = {
+      ...from,
+      rotation: multiplyQuaternions(quaternionFromAxisAngle([0, 0, 1], 0.2), from.rotation),
+    }
+    const middle = interpolateCameras(from, turned, 0.5)
+    expect(angleBetween(forward(middle), forward(from))).toBeCloseTo(0.1, 9)
+  })
+})
+
+describe('canvas coordinates', () => {
+  it('aspectOf divides the width by the height', () => {
+    expect(aspectOf({ width: 800, height: 600 })).toBe(800 / 600)
+  })
+
+  it('aspectOf is 1 while either side is empty', () => {
+    expect(aspectOf({ width: 0, height: 600 })).toBe(1)
+    expect(aspectOf({ width: 800, height: 0 })).toBe(1)
+  })
+
+  it('canvasPosition puts normalized device coordinates on the canvas, y down', () => {
+    const size = { width: 800, height: 600 }
+    expect(canvasPosition({ x: -1, y: 1 }, size)).toEqual({ x: 0, y: 0 })
+    expect(canvasPosition({ x: 0, y: 0 }, size)).toEqual({ x: 400, y: 300 })
+    expect(canvasPosition({ x: 1, y: -1 }, size)).toEqual({ x: 800, y: 600 })
   })
 })

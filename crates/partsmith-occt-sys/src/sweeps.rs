@@ -1,10 +1,12 @@
 //! Extrusion and revolution of profiles (kernel spec sections 2.6, 3.4.3 and 3.4.4).
 
-use std::f64::consts::TAU;
+use std::f64::consts::{PI, TAU};
 
 use crate::error::{KernelError, Operation, call};
 use crate::ffi::bridge as sys;
-use crate::profiles::{PlanarCurve, PlanarProfile, PlanarRegion};
+use crate::profiles::{
+    PlanarCurve, PlanarProfile, PlanarRegion, angle_around, counterclockwise_sweep,
+};
 use crate::shape::{Shape, SubShapeKind};
 use crate::values::{Axis, Frame, Point2, Vector, check_finite};
 use crate::{ANGULAR_TOLERANCE, LINEAR_TOLERANCE};
@@ -45,7 +47,6 @@ const CROSSES_AXIS_MESSAGE: &str =
 /// that do not match the edges mean the caller changed a profile `make_profile` built, a
 /// programming error rather than maker input, so they are an `Internal` error.
 fn profile_frame(operation: Operation, profile: &PlanarProfile) -> Result<Frame, KernelError> {
-    check_finite(operation, &profile.plane.values())?;
     let frame = profile.plane.frame(operation)?;
     let edges = profile.shape.count(SubShapeKind::Edge);
     if profile.edge_tags.len() != edges as usize {
@@ -146,10 +147,9 @@ fn distance_range(curve: &PlanarCurve, origin: Point2, normal: Point2) -> (f64, 
             start,
             end,
         } => {
-            let angle = |point: Point2| (point.y - center.y).atan2(point.x - center.x);
-            let start_angle = angle(start);
-            let sweep = (angle(end) - start_angle).rem_euclid(TAU);
-            let contains = |direction: f64| (direction - start_angle).rem_euclid(TAU) <= sweep;
+            let start_angle = angle_around(center, start);
+            let sweep = counterclockwise_sweep(start_angle, angle_around(center, end));
+            let contains = |direction: f64| counterclockwise_sweep(start_angle, direction) <= sweep;
             let toward_normal = normal.y.atan2(normal.x);
             let middle = distance(center);
             let (first, second) = (distance(start), distance(end));
@@ -158,7 +158,7 @@ fn distance_range(curve: &PlanarCurve, origin: Point2, normal: Point2) -> (f64, 
             if contains(toward_normal) {
                 high = middle + radius;
             }
-            if contains(toward_normal + std::f64::consts::PI) {
+            if contains(toward_normal + PI) {
                 low = middle - radius;
             }
             (low, high)
@@ -175,8 +175,7 @@ fn crosses_line(regions: &[PlanarRegion], origin: Point2, direction: Point2) -> 
     };
     let (low, high) = regions
         .iter()
-        .flat_map(PlanarRegion::loops)
-        .flat_map(|planar_loop| &planar_loop.curves)
+        .flat_map(PlanarRegion::curves)
         .map(|tagged| distance_range(&tagged.curve, origin, normal))
         .fold((f64::INFINITY, f64::NEG_INFINITY), |(low, high), range| {
             (low.min(range.0), high.max(range.1))

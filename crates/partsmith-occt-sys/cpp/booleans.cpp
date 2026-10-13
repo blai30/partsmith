@@ -1,11 +1,9 @@
 // Fuse, cut and common with unification of coplanar faces (kernel spec section 3.4.5).
-#include <sstream>
 #include <vector>
 
 #include <BRepAlgoAPI_BooleanOperation.hxx>
 #include <Precision.hxx>
 #include <Standard_NullObject.hxx>
-#include <TopExp_Explorer.hxx>
 
 #include "partsmith-occt-sys/cpp/internal.h"
 
@@ -39,15 +37,9 @@ TopoDS_Shape detail::run_boolean(BOPAlgo_Operation operation, const TopoDS_Shape
   arguments.Append(target);
   boolean.SetArguments(arguments);
   boolean.SetTools(tools);
-  boolean.SetNonDestructive(Standard_True);
-  boolean.SetRunParallel(Standard_False);
-  boolean.SetToFillHistory(Standard_True);
+  set_boolean_options(boolean);
   boolean.Build();
-  if (boolean.HasErrors()) {
-    std::ostringstream alerts;
-    boolean.DumpErrors(alerts);
-    raise_not_done(std::string(operation_name(operation)) + " failed: " + alerts.str());
-  }
+  require_no_errors(boolean, operation_name(operation));
   if (unify) {
     boolean.SimplifyResult(Standard_True, Standard_True, Precision::Angular());
   }
@@ -80,7 +72,7 @@ OpResultData boolean_result(BOPAlgo_Operation operation, const Shape &target,
     // The intersection with every tool: one common per tool, unified at the end.
     result = inputs.front();
     for (std::size_t position = 0; position < tool_shapes.size(); ++position) {
-      if (!TopExp_Explorer(result, TopAbs_SOLID).More()) {
+      if (!has_solid(result)) {
         break;
       }
       TopTools_ListOfShape tool;
@@ -95,12 +87,11 @@ OpResultData boolean_result(BOPAlgo_Operation operation, const Shape &target,
     result = run_boolean(operation, inputs.front(), all_tools, true, history);
   }
   result = solids_only(result);
-  if (TopExp_Explorer(result, TopAbs_SOLID).More()) {
+  if (has_solid(result)) {
     // Faces of the copies the result keeps are trusted unless unification changed them in place.
-    // The result shares edges only with the copies, so the shim may store the curves of its edges
-    // on planar faces, which the check would otherwise project again for every wire.
-    check_inputs.settle();
-    store_plane_pcurves(result);
+    // The result shares edges only with the copies, so its curves on planes can be stored, which
+    // the check would otherwise project again for every wire.
+    store_result_pcurves(check_inputs, result);
     ensure_valid(result, history, check_inputs, operation_name(operation));
     result = solids_only(result);
   }

@@ -4,7 +4,9 @@ import {
   angleBetween,
   boundsCenter,
   boundsCorners,
+  boundsDiagonal,
   cross,
+  extendBounds,
   IDENTITY_QUATERNION,
   length,
   multiplyQuaternions,
@@ -69,6 +71,10 @@ describe('bounds', () => {
     expect(boundsCenter(bounds)).toEqual([1, 2, 4])
   })
 
+  it('boundsDiagonal is the length from the minimum to the maximum corner', () => {
+    expect(boundsDiagonal(bounds)).toBe(Math.hypot(4, 4, 4))
+  })
+
   it('boundsCorners lists the 8 distinct corners', () => {
     const corners = boundsCorners(bounds)
     expect(corners).toHaveLength(8)
@@ -76,6 +82,32 @@ describe('bounds', () => {
     expect(corners).toContainEqual([-1, 0, 2])
     expect(corners).toContainEqual([3, 4, 6])
     expect(corners).toContainEqual([3, 0, 6])
+  })
+
+  it('extendBounds starts a box at the first point when there is none', () => {
+    expect(extendBounds(null, [[1, 2, 3]])).toEqual({ min: [1, 2, 3], max: [1, 2, 3] })
+  })
+
+  it('extendBounds grows a box to cover every point', () => {
+    expect(
+      extendBounds(bounds, [
+        [-2, 5, 4],
+        [0, -1, 7],
+      ]),
+    ).toEqual({
+      min: [-2, -1, 2],
+      max: [3, 5, 7],
+    })
+  })
+
+  it('extendBounds skips points with a coordinate that is not finite', () => {
+    expect(
+      extendBounds(null, [
+        [Number.NaN, 0, 0],
+        [0, Infinity, 0],
+      ]),
+    ).toBeNull()
+    expect(extendBounds(bounds, [[Number.NaN, 9, 9]])).toBe(bounds)
   })
 })
 

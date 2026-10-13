@@ -1,23 +1,12 @@
 import { describe, expect, it } from 'vitest'
+import { ELEMENT_STATE } from '../backend'
 import {
   ELEMENT_TEXTURE_WIDTH,
   LINE_ATTRIBUTES,
   POINT_ATTRIBUTES,
   SURFACE_ATTRIBUTES,
 } from './layout'
-import { shaderSources, type Pass, type ProgramKind } from './shaders'
-
-const PROGRAMS: readonly { readonly kind: ProgramKind; readonly pass: Pass }[] = [
-  { kind: 'background', pass: 'color' },
-  { kind: 'triangles', pass: 'color' },
-  { kind: 'triangles', pass: 'id' },
-  { kind: 'fill', pass: 'color' },
-  { kind: 'fill', pass: 'id' },
-  { kind: 'lines', pass: 'color' },
-  { kind: 'lines', pass: 'id' },
-  { kind: 'points', pass: 'color' },
-  { kind: 'points', pass: 'id' },
-]
+import { PROGRAMS, shaderSources } from './shaders'
 
 function uniformDeclarations(source: string): string[] {
   return [...source.matchAll(/^uniform\s+(?:\w+\s+)*?(\w+)\s+(u_\w+);$/gm)].map(
@@ -77,6 +66,15 @@ describe('shaderSources', () => {
       expect(mismatched).toEqual([])
     },
   )
+
+  it('declares the bits of ELEMENT_STATE as its STATE constants', () => {
+    for (const { kind, pass } of PROGRAMS.filter((program) => program.kind !== 'background')) {
+      const { fragment } = shaderSources(kind, pass)
+      for (const [name, bit] of Object.entries(ELEMENT_STATE)) {
+        expect(fragment).toContain(`const uint STATE_${name.toUpperCase()} = ${String(bit)}u;`)
+      }
+    }
+  })
 
   it('defines ID_PASS only in the ID pass', () => {
     expect(shaderSources('lines', 'id').vertex).toContain('#define ID_PASS\n')

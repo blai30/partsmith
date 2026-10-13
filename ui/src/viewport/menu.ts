@@ -53,30 +53,50 @@ function commandItem(app: App, state: AppState, id: string, label?: string): Com
   }
 }
 
+/** An item that runs `action` for `command`, which is not a registry command run (OK, Cancel, Edit). */
+function actionItem(
+  command: string,
+  label: string,
+  shortcut: string | null,
+  action: () => Promise<unknown>,
+): CommandItem {
+  return {
+    kind: 'command',
+    command,
+    label,
+    shortcut,
+    run: () => {
+      action().catch(report(command))
+    },
+  }
+}
+
 function present<Item>(items: readonly (Item | null)[]): Item[] {
   return items.filter((item) => item !== null)
 }
 
+/** The items, then `last` after a separator; just the items while `last` is not enabled. */
+function withTrailing(
+  above: readonly ViewportMenuItem[],
+  last: CommandItem | null,
+): readonly ViewportMenuItem[] {
+  if (last === null) {
+    return above
+  }
+  return above.length === 0 ? [last] : [...above, SEPARATOR, last]
+}
+
 /** OK (when complete) and Cancel of the active feature command. */
 function commandItems(app: App, state: AppState): readonly ViewportMenuItem[] {
-  const ok: CommandItem = {
-    kind: 'command',
-    command: 'command.confirm',
-    label: 'OK',
-    shortcut: formatShortcut('Enter', app.platform),
-    run: () => {
-      confirmCommand(app).catch(report('command.confirm'))
-    },
-  }
-  const cancel: CommandItem = {
-    kind: 'command',
-    command: 'command.cancel',
-    label: 'Cancel',
-    shortcut: formatShortcut('Escape', app.platform),
-    run: () => {
-      cancelCommand(app).catch(report('command.cancel'))
-    },
-  }
+  const ok = actionItem('command.confirm', 'OK', formatShortcut('Enter', app.platform), () =>
+    confirmCommand(app),
+  )
+  const cancel = actionItem(
+    'command.cancel',
+    'Cancel',
+    formatShortcut('Escape', app.platform),
+    () => cancelCommand(app),
+  )
   return commandComplete(state) ? [ok, cancel] : [cancel]
 }
 
@@ -95,12 +115,10 @@ function sketchItems(app: App, state: AppState): readonly ViewportMenuItem[] {
     selection.length === 0
       ? []
       : [commandItem(app, state, 'sketch.construction'), commandItem(app, state, 'edit.delete')]
-  const finish = commandItem(app, state, 'sketch.finish')
-  const above = present([...constraints, ...editing])
-  if (finish === null) {
-    return above
-  }
-  return above.length === 0 ? [finish] : [...above, SEPARATOR, finish]
+  return withTrailing(
+    present([...constraints, ...editing]),
+    commandItem(app, state, 'sketch.finish'),
+  )
 }
 
 /** The feature that "Edit {label}" opens: one feature, or the feature that made one element. */
@@ -135,18 +153,15 @@ function visibilityLabel(state: AppState): string {
 function modelItems(app: App, state: AppState): readonly ViewportMenuItem[] {
   const featureId = editedFeature(state, state.selection)
   const document = state.document
-  const edit: CommandItem | null =
+  const edit =
     featureId === null || document === null
       ? null
-      : {
-          kind: 'command',
-          command: 'edit.edit_feature',
-          label: `Edit ${featureLabel(document.recipe, featureId, state.catalog)}`,
-          shortcut: null,
-          run: () => {
-            editFeature(app, featureId).catch(report('edit.edit_feature'))
-          },
-        }
+      : actionItem(
+          'edit.edit_feature',
+          `Edit ${featureLabel(document.recipe, featureId, state.catalog)}`,
+          null,
+          () => editFeature(app, featureId),
+        )
   const above = present([
     commandItem(app, state, 'edit.repeat'),
     ...suggestedCommands(state, state.selection).map((id) => commandItem(app, state, id)),
@@ -154,11 +169,7 @@ function modelItems(app: App, state: AppState): readonly ViewportMenuItem[] {
     commandItem(app, state, 'view.visibility', visibilityLabel(state)),
     commandItem(app, state, 'view.look_at'),
   ])
-  const fit = commandItem(app, state, 'view.fit')
-  if (fit === null) {
-    return above
-  }
-  return above.length === 0 ? [fit] : [...above, SEPARATOR, fit]
+  return withTrailing(above, commandItem(app, state, 'view.fit'))
 }
 
 /** The items of the viewport context menu for the current state (3.13), disabled commands left out. */

@@ -3,7 +3,6 @@ import type { ProfileFinding } from '../generated/protocol'
 import { solutionFor } from './fixtures.testing'
 import {
   failedSolveMessage,
-  findingEntities,
   findingPoints,
   issueRings,
   messageNumber,
@@ -47,9 +46,7 @@ describe('profile findings', () => {
     ])
   })
 
-  it('names the entities and points a finding is about', () => {
-    expect(findingEntities(OPEN)).toEqual(['e-1'])
-    expect(findingEntities(OVERLAP)).toEqual(['e-1', 'e-2'])
+  it('names the points a finding is about', () => {
     expect(findingPoints(OVERLAP)).toEqual([
       [0, 0],
       [4, 2],

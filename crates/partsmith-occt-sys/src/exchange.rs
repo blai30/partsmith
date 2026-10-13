@@ -203,15 +203,6 @@ mod tests {
     }
 
     #[test]
-    fn truncated_brep_bytes_fail_to_read() {
-        let bytes = cube_at(0.0).to_brep().expect("bytes");
-
-        let error = Shape::from_brep(&bytes[..bytes.len() / 2]).expect_err("truncated");
-
-        assert_eq!(error.kind, crate::KernelErrorKind::ReadFailed);
-    }
-
-    #[test]
     fn empty_body_names_the_default_name() {
         let error = write_step(&[StepBody {
             shape: Shape::empty(),

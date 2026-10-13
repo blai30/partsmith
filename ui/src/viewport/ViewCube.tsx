@@ -3,13 +3,13 @@ import { House } from 'lucide-react'
 import { useRef, useState, type PointerEvent, type Ref } from 'react'
 import { COLOR_CLASSES } from '../theme/roles'
 import type { Quaternion } from './math'
-import { GESTURE_THRESHOLD_PIXELS } from './navigation'
+import { GESTURE_THRESHOLD_PIXELS, LEFT_BUTTON } from './navigation'
 import {
   CUBE_FACES,
   FACE_PLACEMENT_CLASSES,
   faceCells,
   faceName,
-  VIEW_CUBE_PARTS,
+  partById,
   viewCubeRotation,
   type CubeFace,
   type FaceCell,
@@ -27,9 +27,6 @@ export type ViewCubeProps = {
   readonly onOrbit: (deltaX: number, deltaY: number) => void
 }
 
-// Bit of PointerEvent.buttons for the primary button.
-const PRIMARY_BUTTON = 1
-
 type Press = {
   readonly pointerId: number
   readonly startX: number
@@ -44,16 +41,12 @@ const FACES_WITH_CELLS: readonly {
   readonly cells: readonly FaceCell[]
 }[] = CUBE_FACES.map((face) => ({ face, cells: faceCells(face) }))
 
-const PARTS_BY_ID: ReadonlyMap<string, ViewCubePart> = new Map(
-  VIEW_CUBE_PARTS.map((cubePart) => [cubePart.id, cubePart]),
-)
-
 function partAt(target: EventTarget | null): ViewCubePart | null {
   if (!(target instanceof Element)) {
     return null
   }
   const id = target.closest<HTMLElement>('[data-view-cube-part]')?.dataset.viewCubePart
-  return id === undefined ? null : (PARTS_BY_ID.get(id) ?? null)
+  return id === undefined ? null : partById(id)
 }
 
 /**
@@ -91,7 +84,7 @@ export function ViewCube({ rotorRef, onChooseView, onHome, onOrbit }: ViewCubePr
       return
     }
     // The button was released where the cube did not see it, so this is a hover, not a drag.
-    if ((event.buttons & PRIMARY_BUTTON) === 0) {
+    if ((event.buttons & LEFT_BUTTON) === 0) {
       press.current = null
       return
     }

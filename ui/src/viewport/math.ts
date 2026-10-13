@@ -60,6 +60,11 @@ export function boundsCenter(bounds: Bounds): Vector3 {
   return scale(add(bounds.min, bounds.max), 0.5)
 }
 
+/** The length of a box's diagonal. */
+export function boundsDiagonal(bounds: Bounds): number {
+  return length(subtract(bounds.max, bounds.min))
+}
+
 /** The 8 corners of a box. */
 export function boundsCorners(bounds: Bounds): Vector3[] {
   const corners: Vector3[] = []
@@ -71,6 +76,32 @@ export function boundsCorners(bounds: Bounds): Vector3[] {
     }
   }
   return corners
+}
+
+/** A box's union with the finite ones of some points; null stays null when there are none. */
+export function extendBounds(bounds: Bounds | null, points: Iterable<Vector3>): Bounds | null {
+  let result = bounds
+  for (const [x, y, z] of points) {
+    if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) {
+      continue
+    }
+    result =
+      result === null
+        ? { min: [x, y, z], max: [x, y, z] }
+        : {
+            min: [
+              Math.min(result.min[0], x),
+              Math.min(result.min[1], y),
+              Math.min(result.min[2], z),
+            ],
+            max: [
+              Math.max(result.max[0], x),
+              Math.max(result.max[1], y),
+              Math.max(result.max[2], z),
+            ],
+          }
+  }
+  return result
 }
 
 /** Rotation by `angle` radians about `axis` (right-handed). A zero axis gives the identity. */

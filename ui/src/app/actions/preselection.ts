@@ -8,7 +8,7 @@ import {
   type InspectorModel,
 } from '../../inspector/model'
 import { acceptsTarget, selectionValue } from '../../inspector/selection-values'
-import { pointSelectionItem } from '../../sketch/hit'
+import { drawnPointItems, pointSelectionItem, regionSelectionItem } from '../../sketch/hit'
 import type { AppState, CatalogFeature, SelectionItem } from '../../state/store'
 import { isEmptyValue, parentOf, siblingPath, type Params } from './command-values'
 import { sketchFaceBody, sketchRecordOf } from './sketch'
@@ -101,16 +101,7 @@ function onlyRegionOf(state: AppState, sketchId: string): SelectionItem | null {
   if (regions.length !== 1 || region === undefined) {
     return null
   }
-  return {
-    key: `region:${sketchId}:${region.reference.key}`,
-    kind: 'sketch_region',
-    label: 'Region 1',
-    body: null,
-    feature: sketchId,
-    element: null,
-    sketchItem: { kind: 'region', sketch: sketchId, region },
-    origin: null,
-  }
+  return regionSelectionItem(sketchId, region, 'Region 1')
 }
 
 /**
@@ -118,14 +109,19 @@ function onlyRegionOf(state: AppState, sketchId: string): SelectionItem | null {
  * none, the centers of its non-construction circles and arcs.
  */
 function sketchPointsOf(state: AppState, sketchId: string): SelectionItem[] {
-  const entities = state.document?.sketches[sketchId]?.solution.entities ?? []
-  const drawn = entities.filter((entity) => entity.construction !== true)
-  const points = drawn.filter((entity) => entity.type === 'point')
-  if (points.length > 0) {
-    return points.map((entity) => pointSelectionItem(sketchId, entity.id))
+  const solution = state.document?.sketches[sketchId]?.solution
+  if (solution === undefined) {
+    return []
   }
-  return drawn
-    .filter((entity) => entity.type === 'circle' || entity.type === 'arc')
+  const points = drawnPointItems(sketchId, solution)
+  if (points.length > 0) {
+    return points
+  }
+  return solution.entities
+    .filter(
+      (entity) =>
+        entity.construction !== true && (entity.type === 'circle' || entity.type === 'arc'),
+    )
     .map((entity) => pointSelectionItem(sketchId, `${entity.id}.center`))
 }
 

@@ -104,14 +104,16 @@ std::uint32_t shape_count(const Shape &shape, ElementKind kind);
 std::shared_ptr<Shape> shape_solid(const Shape &shape, std::uint32_t index);
 rust::Vec<std::uint32_t> shape_locate(const Shape &shape, const Shape &part, ElementKind kind);
 bool shape_is_valid(const Shape &shape);
-double shape_volume(const Shape &shape);
-double shape_area(const Shape &shape);
-Vec3 shape_center_of_mass(const Shape &shape);
 BoundsData shape_bounding_box(const Shape &shape);
 ElementData shape_element(const Shape &shape, ElementKind kind, std::uint32_t index);
 rust::Vec<ElementData> shape_elements(const Shape &shape, ElementKind kind);
 TopologyData shape_topology(const Shape &shape);
 EdgeNormalsData shape_edge_normals(const Shape &shape, std::uint32_t edge);
+
+// measure.cpp
+double shape_volume(const Shape &shape);
+double shape_area(const Shape &shape);
+Vec3 shape_center_of_mass(const Shape &shape);
 
 // mesh.cpp
 MeshData shape_tessellate(const Shape &shape, double chord_deviation, double angle);

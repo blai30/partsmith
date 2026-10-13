@@ -1,4 +1,4 @@
-//! The cxx bridge to the C++ shim (kernel spec section 3.9).
+//! The cxx bridge to the C++ shim (kernel spec section 3.9), and the decoders of its flat lists.
 //!
 //! Every function that can fail returns `Result`, so the shim's `trycatch` turns any C++
 //! exception into an error. The only functions without `Result` read values cached when a
@@ -350,5 +350,48 @@ pub(crate) mod bridge {
 
         fn write_step(bodies: &[StepBodyData]) -> Result<UniquePtr<CxxString>>;
         fn read_step(bytes: &[u8]) -> Result<StepImportData>;
+    }
+}
+
+/// Groups a flat list from the shim into triples; `None` when its length is not a multiple of 3.
+pub(crate) fn triples<T: Copy>(values: &[T]) -> Option<Vec<[T; 3]>> {
+    let (triples, rest) = values.as_chunks::<3>();
+    rest.is_empty().then(|| triples.to_vec())
+}
+
+/// Splits a flat list from the shim into the lists `values[offsets[i]..offsets[i + 1]]`; `None`
+/// when a range runs backward or past the end of `values`.
+pub(crate) fn split_at_offsets<T: Clone>(offsets: &[u32], values: &[T]) -> Option<Vec<Vec<T>>> {
+    offsets
+        .windows(2)
+        .map(|bounds| {
+            values
+                .get(bounds[0] as usize..bounds[1] as usize)
+                .map(<[T]>::to_vec)
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn flat_lists_group_into_triples() {
+        assert_eq!(
+            triples(&[1, 2, 3, 4, 5, 6]),
+            Some(vec![[1, 2, 3], [4, 5, 6]])
+        );
+        assert_eq!(triples::<u32>(&[]), Some(Vec::new()));
+    }
+
+    #[test]
+    fn lists_of_other_lengths_have_no_triples() {
+        assert_eq!(triples(&[1.0, 2.0, 3.0, 4.0]), None);
+    }
+
+    #[test]
+    fn backward_offsets_split_nothing() {
+        assert_eq!(split_at_offsets(&[2, 1], &[4, 5, 6]), None);
     }
 }

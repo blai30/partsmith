@@ -19,7 +19,14 @@ import {
   unitAt,
   type Vector2,
 } from './geometry'
-import { curveCircle, lineEnds, ownerOf, pointPosition, solvedEntity } from './operands'
+import {
+  curveCircle,
+  entityCircle,
+  lineEnds,
+  ownerOf,
+  pointPosition,
+  solvedEntity,
+} from './operands'
 import { isAxis, isReservedReference } from './refs'
 
 // Where constraint glyphs and dimensions draw (ui.md 3.16.2), in sketch coordinates; the overlay
@@ -107,10 +114,7 @@ export function glyphAnchor(
       }
     }
     if (entity?.type === 'circle' || entity?.type === 'arc') {
-      const circle = curveCircle(solution, entity.id)
-      if (circle === null) {
-        continue
-      }
+      const circle = entityCircle(entity)
       const eighth = Math.PI / 4
       const angle =
         circle.full || angleWithin(eighth, circle.start, circle.end - circle.start)

@@ -16,6 +16,7 @@ import {
   documentState,
   elementItem,
   featureItem,
+  FILLET_EDGES_COMMAND,
   FILLETED_CUBE_FACES,
   meshSummary,
   readyState,
@@ -31,12 +32,7 @@ import {
 import { onUiRequest } from '../layout/requests'
 import { MESSAGES } from '../messages'
 import { DEFAULT_SETTINGS } from '../settings/settings'
-import {
-  INITIAL_STATE,
-  type ActiveCommand,
-  type AppState,
-  type DocumentState,
-} from '../state/store'
+import { INITIAL_STATE, type AppState, type DocumentState } from '../state/store'
 import { createFakeBackend, type FakeBackend } from '../test/fakes/backend'
 import type { FakeCoreApi } from '../test/fakes/core-api'
 import {
@@ -120,15 +116,6 @@ function setUp(options: SetUpOptions = {}): Fixture {
   return { app, core, backend, scene, canvas, overlay, controller, frames }
 }
 
-/** The uploaded id of a mesh buffer (meshes are never copied). */
-function uploadedId(backend: FakeBackend, positions: Float32Array): string {
-  const found = [...backend.geometries].find(([, geometry]) => geometry.positions === positions)
-  if (found === undefined) {
-    throw new Error('No geometry was uploaded with these positions.')
-  }
-  return found[0]
-}
-
 /** Answers picks with one element of the cube mesh at distance 0. */
 function pickElement(
   fixture: Fixture,
@@ -143,7 +130,7 @@ function pickElement(
         ? mesh.edgePositions
         : mesh.vertexPositions
   fixture.backend.setPickHandler(({ frame }) => {
-    const id = uploadedId(fixture.backend, positions)
+    const id = fixture.backend.idOf(positions)
     const draw = frame.draws.find((candidate) => candidate.id === id)
     return draw?.pickBase === null || draw === undefined
       ? []
@@ -152,7 +139,7 @@ function pickElement(
 }
 
 function indicesWith(fixture: Fixture, positions: Float32Array, bit: number): number[] {
-  const states = fixture.backend.elementStates.get(uploadedId(fixture.backend, positions))
+  const states = fixture.backend.elementStates.get(fixture.backend.idOf(positions))
   return states === undefined
     ? []
     : [...states.keys()].filter((index) => ((states[index] ?? 0) & bit) !== 0)
@@ -209,23 +196,6 @@ function cameraDifference(actual: Camera, expected: Camera): number {
   )
 }
 
-const FILLET_COMMAND: ActiveCommand = {
-  featureType: 'fillet',
-  featureId: 'f-fil9',
-  editing: false,
-  title: 'Fillet',
-  params: { radius: '2 mm' },
-  activeField: 'edges',
-  fieldErrors: {},
-  applied: false,
-  newBody: null,
-  helper: null,
-  changedPaths: [],
-  history: [],
-  future: [],
-  preview: 'none',
-}
-
 describe('rendering on demand (3.12)', () => {
   it('renders a frame after mounting and nothing while idle', () => {
     const fixture = setUp()
@@ -273,7 +243,7 @@ describe('rendering on demand (3.12)', () => {
     fixture.backend.clearCalls()
     fixture.backend.restoreContext()
     fixture.frames.flush()
-    expect(uploadedId(fixture.backend, CUBE_MESH.positions)).toEqual(expect.any(String))
+    expect(fixture.backend.idOf(CUBE_MESH.positions)).toEqual(expect.any(String))
     expect(fixture.backend.calls.some((call) => call.method === 'render')).toBe(true)
   })
 
@@ -646,8 +616,7 @@ describe('hover (3.6)', () => {
     const fixture = setUp()
     fixture.backend.setPickHandler(({ frame }) => {
       const base = (positions: Float32Array) =>
-        frame.draws.find((draw) => draw.id === uploadedId(fixture.backend, positions))?.pickBase ??
-        0
+        frame.draws.find((draw) => draw.id === fixture.backend.idOf(positions))?.pickBase ?? 0
       return [
         { pickId: base(CUBE_MESH.positions) + 1, distance: 0, depth: 100 },
         { pickId: base(CUBE_MESH.edgePositions) + 2, distance: 1, depth: 100 },
@@ -792,7 +761,7 @@ describe('clicks (3.6)', () => {
 
   it('sends clicks to the active selection field during a feature command', async () => {
     const fixture = setUp({
-      state: { command: FILLET_COMMAND },
+      state: { command: FILLET_EDGES_COMMAND },
       prepare: (core) => {
         core.stub('pickReference', () => Promise.resolve(CUBE_TOP_FRONT_EDGE))
       },
@@ -907,7 +876,7 @@ describe('feature highlighting (3.6)', () => {
 
   it('highlights nothing for selected features while a feature command is active', async () => {
     const fixture = featuresSetUp(() => Promise.resolve(FILLETED_CUBE_FACES))
-    fixture.app.store.setState({ command: FILLET_COMMAND })
+    fixture.app.store.setState({ command: FILLET_EDGES_COMMAND })
     await select(fixture, 'f-ext1', 'Extrude 1')
     expect(indicesWith(fixture, CUBE_MESH.positions, ELEMENT_STATE.selected)).toEqual([])
   })
@@ -980,7 +949,7 @@ describe('faces hovered as their edges (3.7)', () => {
 
   function setUpFillet(): Fixture {
     return setUp({
-      state: { command: FILLET_COMMAND },
+      state: { command: FILLET_EDGES_COMMAND },
       prepare: (core) => {
         core.stub('listElements', (_handle, _body, kind) =>
           Promise.resolve(kind === 'edge' ? EDGES : CUBE_FACES),
@@ -1013,7 +982,7 @@ describe('faces hovered as their edges (3.7)', () => {
     const fixture = setUp({
       state: {
         command: {
-          ...FILLET_COMMAND,
+          ...FILLET_EDGES_COMMAND,
           featureType: 'shell',
           params: { thickness: '2 mm' },
           activeField: 'remove_faces',
@@ -1033,7 +1002,7 @@ describe('a hovered selection field box (3.7)', () => {
     const fixture = setUp({
       state: {
         command: {
-          ...FILLET_COMMAND,
+          ...FILLET_EDGES_COMMAND,
           params: { radius: '2 mm', body: 'b-cube', edges: [CUBE_TOP_FRONT_EDGE.reference] },
         },
       },
@@ -1064,7 +1033,7 @@ describe('a hovered selection field box (3.7)', () => {
     const fixture = setUp({
       state: {
         command: {
-          ...FILLET_COMMAND,
+          ...FILLET_EDGES_COMMAND,
           featureType: 'shell',
           params: { thickness: '2 mm', body: 'b-cube' },
           activeField: null,
@@ -1082,7 +1051,7 @@ describe('clicks into a command (3.7)', () => {
   it('a face clicked for its edges fills Edges and resolves them through the core', async () => {
     const edges = [0, 1, 2, 3].map((index) => edgeNamed(CUBE_TOP_FACE.adjacent[index] ?? ''))
     const fixture = setUp({
-      state: { command: FILLET_COMMAND },
+      state: { command: FILLET_EDGES_COMMAND },
       prepare: (core) => {
         core.stub('pickReference', () => Promise.resolve(CUBE_TOP_FACE))
         core.stub('listElements', () => Promise.resolve(edges))
@@ -1104,7 +1073,7 @@ describe('clicks into a command (3.7)', () => {
     const fixture = setUp({
       state: {
         command: {
-          ...FILLET_COMMAND,
+          ...FILLET_EDGES_COMMAND,
           featureType: 'hole',
           title: 'Hole',
           params: { diameter: '3.2 mm', extent: { kind: 'through_all' } },
@@ -1288,7 +1257,7 @@ describe('right clicks and the context menu (3.13)', () => {
   })
 
   it('opens the menu without picking during a feature command', async () => {
-    const fixture = setUp({ state: { command: FILLET_COMMAND } })
+    const fixture = setUp({ state: { command: FILLET_EDGES_COMMAND } })
     const requests = menuRequests(fixture.app)
     pickElement(fixture, 'edge', 0)
     rightClick(fixture.canvas, 200, 150)

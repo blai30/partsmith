@@ -19,8 +19,8 @@ import {
   packElementStates,
 } from './layout'
 import { drawState, hoverHighlight } from './draw-state'
-import { collectPickSamples, pickBlock } from './readback'
-import { shaderSources, type Pass, type ProgramKind } from './shaders'
+import { collectPickSamples, pickBlock, type PixelBlock } from './readback'
+import { PROGRAMS, shaderSources, type Pass, type ProgramKind } from './shaders'
 
 const CONTEXT_ATTRIBUTES: WebGLContextAttributes = {
   alpha: false,
@@ -41,7 +41,8 @@ type Program = {
   readonly uniforms: Map<string, WebGLUniformLocation | null>
 }
 
-type Programs = Readonly<Record<`${ProgramKind}-${Pass}`, Program | null>>
+/** The linked programs by kind and pass; the background has no ID pass. */
+type Programs = Readonly<Partial<Record<`${ProgramKind}-${Pass}`, Program>>>
 
 type Resources = {
   readonly programs: Programs
@@ -113,7 +114,7 @@ function linkProgram(gl: WebGL2RenderingContext, kind: ProgramKind, pass: Pass):
   return { program, uniforms: new Map() }
 }
 
-function staticBuffer(gl: WebGL2RenderingContext, data: Float32Array): WebGLBuffer {
+function staticBuffer(gl: WebGL2RenderingContext, data: Float32Array | Uint32Array): WebGLBuffer {
   const buffer = gl.createBuffer()
   gl.bindBuffer(gl.ARRAY_BUFFER, buffer)
   gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW)
@@ -220,17 +221,9 @@ export function createWebGl2Backend(canvas: HTMLCanvasElement): RenderBackend | 
   let disposed = false
 
   function createResources(): Resources {
-    const programs: Programs = {
-      'background-color': linkProgram(gl, 'background', 'color'),
-      'background-id': null,
-      'triangles-color': linkProgram(gl, 'triangles', 'color'),
-      'triangles-id': linkProgram(gl, 'triangles', 'id'),
-      'fill-color': linkProgram(gl, 'fill', 'color'),
-      'fill-id': linkProgram(gl, 'fill', 'id'),
-      'lines-color': linkProgram(gl, 'lines', 'color'),
-      'lines-id': linkProgram(gl, 'lines', 'id'),
-      'points-color': linkProgram(gl, 'points', 'color'),
-      'points-id': linkProgram(gl, 'points', 'id'),
+    const programs: Partial<Record<`${ProgramKind}-${Pass}`, Program>> = {}
+    for (const { kind, pass } of PROGRAMS) {
+      programs[`${kind}-${pass}`] = linkProgram(gl, kind, pass)
     }
     const noElementColors = nearestTexture(gl, COLOR_TEXTURE_UNIT)
     uploadColors(gl, noElementColors, new Float32Array(3), 1)
@@ -307,9 +300,7 @@ export function createWebGl2Backend(canvas: HTMLCanvasElement): RenderBackend | 
     deleteIdTarget()
     if (resources !== null) {
       for (const program of Object.values(resources.programs)) {
-        if (program !== null) {
-          gl.deleteProgram(program.program)
-        }
+        gl.deleteProgram(program.program)
       }
       gl.deleteBuffer(resources.lineCorners)
       gl.deleteBuffer(resources.pointCorners)
@@ -333,9 +324,7 @@ export function createWebGl2Backend(canvas: HTMLCanvasElement): RenderBackend | 
     gl.bindVertexArray(vertexArray)
     const buffers: WebGLBuffer[] = []
     const arrayBuffer = (data: Float32Array | Uint32Array): WebGLBuffer => {
-      const buffer = gl.createBuffer()
-      gl.bindBuffer(gl.ARRAY_BUFFER, buffer)
-      gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW)
+      const buffer = staticBuffer(gl, data)
       buffers.push(buffer)
       return buffer
     }
@@ -494,7 +483,7 @@ export function createWebGl2Backend(canvas: HTMLCanvasElement): RenderBackend | 
       return
     }
     const program = current.programs[`${geometry.kind}-${pass}`]
-    if (program === null) {
+    if (program === undefined) {
       return
     }
     const uniform = activate(program)
@@ -576,7 +565,7 @@ export function createWebGl2Backend(canvas: HTMLCanvasElement): RenderBackend | 
 
   function drawBackground(current: Resources, frame: RenderFrame): void {
     const program = current.programs['background-color']
-    if (program === null) {
+    if (program === undefined) {
       return
     }
     const uniform = activate(program)
@@ -634,10 +623,7 @@ export function createWebGl2Backend(canvas: HTMLCanvasElement): RenderBackend | 
     idFrame = frame
   }
 
-  function readAttachment(
-    attachment: number,
-    block: { left: number; bottom: number; width: number; height: number },
-  ): Uint8Array {
+  function readAttachment(attachment: number, block: PixelBlock): Uint8Array {
     const pixels = new Uint8Array(block.width * block.height * 4)
     gl.readBuffer(gl.COLOR_ATTACHMENT0 + attachment)
     gl.readPixels(

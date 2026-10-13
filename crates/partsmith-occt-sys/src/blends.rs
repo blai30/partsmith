@@ -75,38 +75,45 @@ fn check_selection(
     Ok(())
 }
 
-/// Checks that a shape to fillet or chamfer contains a solid.
-fn check_blend_solid(operation: Operation, shape: &Shape) -> Result<(), KernelError> {
+/// Checks a fillet or chamfer request, in this order: an edge is selected (else `no_edges`), the
+/// sizes are finite and at least the modeling tolerance (else `bad_size`), the shape contains a
+/// solid, and the edges exist and are selected once each.
+fn check_blend_request(
+    operation: Operation,
+    shape: &Shape,
+    edges: &[u32],
+    sizes: &[f64],
+    no_edges: &str,
+    bad_size: &str,
+) -> Result<(), KernelError> {
+    if edges.is_empty() {
+        return Err(KernelError::invalid_input(operation, no_edges));
+    }
+    check_finite(operation, sizes)?;
+    if !sizes.iter().copied().all(is_positive_length) {
+        return Err(KernelError::invalid_input(operation, bad_size));
+    }
     if shape.count(SubShapeKind::Solid) == 0 {
-        Err(KernelError::invalid_input(
+        return Err(KernelError::invalid_input(
             operation,
             BLEND_NOT_SOLID_MESSAGE,
-        ))
-    } else {
-        Ok(())
+        ));
     }
+    check_selection(operation, shape, SubShapeKind::Edge, edges.iter().copied())
 }
 
 /// Rounds edges with constant radii. History inputs: [shape].
 pub fn fillet(shape: &Shape, edges: &[EdgeRadius]) -> Result<OpResult, KernelError> {
     let operation = Operation::Fillet;
-    if edges.is_empty() {
-        return Err(KernelError::invalid_input(
-            operation,
-            NO_FILLET_EDGES_MESSAGE,
-        ));
-    }
+    let indices: Vec<u32> = edges.iter().map(|edge| edge.edge).collect();
     let radii: Vec<f64> = edges.iter().map(|edge| edge.radius).collect();
-    check_finite(operation, &radii)?;
-    if !radii.iter().copied().all(is_positive_length) {
-        return Err(KernelError::invalid_input(operation, FILLET_RADIUS_MESSAGE));
-    }
-    check_blend_solid(operation, shape)?;
-    check_selection(
+    check_blend_request(
         operation,
         shape,
-        SubShapeKind::Edge,
-        edges.iter().map(|edge| edge.edge),
+        &indices,
+        &radii,
+        NO_FILLET_EDGES_MESSAGE,
+        FILLET_RADIUS_MESSAGE,
     )?;
     let data: Vec<sys::FilletEdgeData> = edges
         .iter()
@@ -148,30 +155,19 @@ impl ChamferEdge {
 /// Bevels edges. History inputs: [shape].
 pub fn chamfer(shape: &Shape, edges: &[ChamferEdge]) -> Result<OpResult, KernelError> {
     let operation = Operation::Chamfer;
-    if edges.is_empty() {
-        return Err(KernelError::invalid_input(
-            operation,
-            NO_CHAMFER_EDGES_MESSAGE,
-        ));
-    }
     let data: Vec<sys::ChamferEdgeData> = edges.iter().map(|edge| edge.to_ffi()).collect();
+    let indices: Vec<u32> = data.iter().map(|edge| edge.edge).collect();
     let distances: Vec<f64> = data
         .iter()
         .flat_map(|edge| [edge.distance, edge.other_distance])
         .collect();
-    check_finite(operation, &distances)?;
-    if !distances.iter().copied().all(is_positive_length) {
-        return Err(KernelError::invalid_input(
-            operation,
-            CHAMFER_DISTANCE_MESSAGE,
-        ));
-    }
-    check_blend_solid(operation, shape)?;
-    check_selection(
+    check_blend_request(
         operation,
         shape,
-        SubShapeKind::Edge,
-        edges.iter().map(|edge| edge.edge),
+        &indices,
+        &distances,
+        NO_CHAMFER_EDGES_MESSAGE,
+        CHAMFER_DISTANCE_MESSAGE,
     )?;
     for edge in data.iter().filter(|edge| edge.two_distances) {
         shape.check_index(operation, SubShapeKind::Face, edge.face)?;

@@ -6,10 +6,10 @@ mod common;
 use std::f64::consts::{FRAC_PI_2, PI};
 
 use common::{
-    POINT_TOLERANCE, UP, arc, assert_bounds, assert_invalid_input, assert_near, assert_point_near,
-    assert_relative, assert_vector_near, circle, circle_profile, face_direction, geometry,
-    index_from_position, line, rectangle_curves, rectangle_profile, rectangle_with_hole_profile,
-    region, ring_profile, swept_face, volume, z_axis,
+    POINT_TOLERANCE, UP, arc, assert_bounds, assert_invalid_input, assert_leaves_unchanged,
+    assert_near, assert_point_near, assert_relative, assert_vector_near, circle, circle_profile,
+    face_direction, geometry, index_from_position, line, rectangle_curves, rectangle_profile,
+    rectangle_with_hole_profile, region, ring_profile, swept_face, volume, z_axis,
 };
 use partsmith_occt_sys::{
     Axis, GeometryKind, Operation, PlanarProfile, Plane, Point, ShapeKind, SubShapeKind, SweepFace,
@@ -597,21 +597,19 @@ fn every_profile_face_faces_along_the_plane_normal() {
 #[test]
 fn extrude_leaves_its_profile_unchanged() {
     let profile = rectangle_with_hole_profile();
-    let before = profile.shape.to_brep().expect("BRep bytes");
 
-    extrude(&profile, UP, 0.0, 30.0).expect("the profile is extruded");
-    extrude(&profile, Vector::new(0.0, 1.0, 1.0), -5.0, 10.0).expect("the profile is extruded");
-
-    assert!(profile.shape.to_brep().expect("BRep bytes") == before);
+    assert_leaves_unchanged(&profile.shape, || {
+        extrude(&profile, UP, 0.0, 30.0).expect("the profile is extruded");
+        extrude(&profile, Vector::new(0.0, 1.0, 1.0), -5.0, 10.0).expect("the profile is extruded");
+    });
 }
 
 #[test]
 fn revolve_leaves_its_profile_unchanged() {
     let profile = ring_profile();
-    let before = profile.shape.to_brep().expect("BRep bytes");
 
-    revolve(&profile, &z_axis(), 2.0 * PI).expect("the profile is revolved fully");
-    revolve(&profile, &z_axis(), FRAC_PI_2).expect("the profile is revolved partly");
-
-    assert!(profile.shape.to_brep().expect("BRep bytes") == before);
+    assert_leaves_unchanged(&profile.shape, || {
+        revolve(&profile, &z_axis(), 2.0 * PI).expect("the profile is revolved fully");
+        revolve(&profile, &z_axis(), FRAC_PI_2).expect("the profile is revolved partly");
+    });
 }

@@ -1,16 +1,15 @@
-import type { PointRef, SketchSolution } from '../generated/protocol'
+import type { PointRef, RegionInfo, SketchSolution } from '../generated/protocol'
 import type { SelectionItem } from '../state/store'
-import { closestPointOnArc, closestPointOnSegment, distance, type Vector2 } from './geometry'
-import { curveCircle, ownerOf, solvedEntity, type SolvedEntity } from './operands'
-import { ORIGIN_POINT, X_AXIS, Y_AXIS } from './refs'
+import { distance, type Vector2 } from './geometry'
+import { closestOnEntity, ownerOf, solvedEntity, type SolvedEntity } from './operands'
 
 // What the pointer is over in sketch mode (ui.md 3.6): the active sketch's points and curves and
 // the sketch's origin and axes, found from the solved geometry, and their selection items.
 
 /** Points are hit within half their 11-pixel pick square plus the 4-pixel pick radius. */
-export const POINT_HIT_PIXELS = 9.5
+const POINT_HIT_PIXELS = 9.5
 /** Curves are hit within half their 7-pixel pick width plus the 4-pixel pick radius. */
-export const CURVE_HIT_PIXELS = 7.5
+const CURVE_HIT_PIXELS = 7.5
 
 export type OriginPart = 'point' | 'x_axis' | 'y_axis'
 
@@ -43,27 +42,6 @@ function nearest(candidates: readonly Candidate[], reach: number): SketchHit | n
   return best?.hit ?? null
 }
 
-/** The closest point of an entity's curve to `cursor`, or null for point entities. */
-export function closestOnEntity(
-  solution: SketchSolution,
-  entity: SolvedEntity,
-  cursor: Vector2,
-): Vector2 | null {
-  switch (entity.type) {
-    case 'line':
-      return closestPointOnSegment(cursor, entity.start, entity.end)
-    case 'circle':
-    case 'arc': {
-      const circle = curveCircle(solution, entity.id)
-      return circle === null
-        ? null
-        : closestPointOnArc(cursor, circle.center, circle.radius, circle.start, circle.end)
-    }
-    case 'point':
-      return null
-  }
-}
-
 export type HitOptions = {
   /** Sketch millimeters per CSS pixel at the cursor. */
   readonly millimetersPerPixel: number
@@ -86,7 +64,7 @@ export function hitTest(
     origin: false,
   }))
   const curves: Candidate[] = solution.entities.flatMap((entity) => {
-    const closest = closestOnEntity(solution, entity, cursor)
+    const closest = closestOnEntity(entity, cursor)
     return closest === null
       ? []
       : [
@@ -200,6 +178,28 @@ export function constraintSelectionItem(
   }
 }
 
+/** The selection item of a sketch region, keyed `region:{sketch}:{region key}`. */
+export function regionSelectionItem(
+  sketchId: string,
+  region: RegionInfo,
+  label: string,
+): SelectionItem {
+  return {
+    ...sketchItemBase(sketchId),
+    key: `region:${sketchId}:${region.reference.key}`,
+    kind: 'sketch_region',
+    label,
+    sketchItem: { kind: 'region', sketch: sketchId, region },
+  }
+}
+
+/** The selection items of a solution's point entities that are not construction, in solution order. */
+export function drawnPointItems(sketchId: string, solution: SketchSolution): SelectionItem[] {
+  return solution.entities
+    .filter((entity) => entity.type === 'point' && entity.construction !== true)
+    .map((entity) => pointSelectionItem(sketchId, entity.id))
+}
+
 /** The selection item a hit stands for. */
 export function hitSelectionItem(
   sketchId: string,
@@ -219,9 +219,4 @@ export function hitSelectionItem(
     case 'origin':
       return originSelectionItem(sketchId, hit.part)
   }
-}
-
-/** The reserved reference of an origin part. */
-export function originReference(part: OriginPart): string {
-  return part === 'point' ? ORIGIN_POINT : part === 'x_axis' ? X_AXIS : Y_AXIS
 }

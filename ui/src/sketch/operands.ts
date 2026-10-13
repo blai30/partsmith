@@ -1,7 +1,7 @@
 import type { PointRef, SketchSolution } from '../generated/protocol'
 import type { SelectionItem } from '../state/store'
 import { axisLine, isAxis, ORIGIN_POINT } from './refs'
-import { arcSweep, pointOnCircle, type Vector2 } from './geometry'
+import { arcSweep, closestPointOnArc, closestPointOnSegment, type Vector2 } from './geometry'
 
 // Sketch selection items as constraint and dimension operands, and their solved geometry.
 
@@ -95,57 +95,50 @@ export function lineEnds(
   return entity?.type === 'line' ? { start: entity.start, end: entity.end } : null
 }
 
+/** A solved circle or arc. */
+export type RoundEntity = Extract<SolvedEntity, { type: 'circle' | 'arc' }>
+
 /** Center, radius and counterclockwise angles of a circle (a full turn) or an arc. */
-export function curveCircle(
-  solution: SketchSolution,
-  curve: string,
-): {
+export type CurveCircle = {
   readonly center: Vector2
   readonly radius: number
   readonly start: number
   readonly end: number
   readonly full: boolean
-} | null {
-  const entity = solvedEntity(solution, curve)
-  if (entity?.type === 'circle') {
-    return { center: entity.center, radius: entity.radius, start: 0, end: 2 * Math.PI, full: true }
-  }
-  if (entity?.type === 'arc') {
-    return {
-      center: entity.center,
-      radius: entity.radius,
-      start: entity.start_angle,
-      end: entity.start_angle + arcSweep(entity.start_angle, entity.end_angle),
-      full: false,
-    }
-  }
-  return null
 }
 
-/** The addressable points of an entity with their roles, in sketch.md's role order. */
-export function entityPoints(entity: SolvedEntity): readonly { point: PointRef; at: Vector2 }[] {
+/** The circle of a circle or arc entity, with the angles it runs through. */
+export function entityCircle(entity: RoundEntity): CurveCircle {
+  if (entity.type === 'circle') {
+    return { center: entity.center, radius: entity.radius, start: 0, end: 2 * Math.PI, full: true }
+  }
+  return {
+    center: entity.center,
+    radius: entity.radius,
+    start: entity.start_angle,
+    end: entity.start_angle + arcSweep(entity.start_angle, entity.end_angle),
+    full: false,
+  }
+}
+
+/** The circle of the solution's circle or arc with this id, or null when it is neither. */
+export function curveCircle(solution: SketchSolution, curve: string): CurveCircle | null {
+  const entity = solvedEntity(solution, curve)
+  return entity?.type === 'circle' || entity?.type === 'arc' ? entityCircle(entity) : null
+}
+
+/** The closest point of an entity's curve to `cursor`, or null for point entities. */
+export function closestOnEntity(entity: SolvedEntity, cursor: Vector2): Vector2 | null {
   switch (entity.type) {
-    case 'point':
-      return [{ point: entity.id, at: entity.position }]
     case 'line':
-      return [
-        { point: `${entity.id}.start`, at: entity.start },
-        { point: `${entity.id}.end`, at: entity.end },
-      ]
+      return closestPointOnSegment(cursor, entity.start, entity.end)
     case 'circle':
-      return [{ point: `${entity.id}.center`, at: entity.center }]
-    case 'arc':
-      return [
-        {
-          point: `${entity.id}.start`,
-          at: pointOnCircle(entity.center, entity.radius, entity.start_angle),
-        },
-        {
-          point: `${entity.id}.end`,
-          at: pointOnCircle(entity.center, entity.radius, entity.end_angle),
-        },
-        { point: `${entity.id}.center`, at: entity.center },
-      ]
+    case 'arc': {
+      const circle = entityCircle(entity)
+      return closestPointOnArc(cursor, circle.center, circle.radius, circle.start, circle.end)
+    }
+    case 'point':
+      return null
   }
 }
 

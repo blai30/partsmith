@@ -320,7 +320,7 @@ fn knob() -> OpResult {
 }
 
 /// The result of test 45: every BOX edge rounded at radius 1.
-fn rounded_box() -> Shape {
+fn fully_rounded_box() -> Shape {
     let edges: Vec<EdgeRadius> = (1..=12)
         .map(|edge| EdgeRadius { edge, radius: 1.0 })
         .collect();
@@ -340,7 +340,7 @@ fn closed_l_shell() -> Outcome {
 }
 
 fn closed_rounded_box_shell() -> Outcome {
-    Outcome::of_result(&shell(&rounded_box(), &[], 0.5).expect("the rounded box shells"))
+    Outcome::of_result(&shell(&fully_rounded_box(), &[], 0.5).expect("the rounded box shells"))
 }
 
 /// `L` of test 102 moved by a rigid transform, which gives it a location (section 3.4.10).
@@ -377,7 +377,7 @@ fn moved_l_shell_with_arc_join() -> Outcome {
 }
 
 fn open_rounded_box_shell() -> Outcome {
-    let body = rounded_box();
+    let body = fully_rounded_box();
     let bottom = planar_face(
         &body,
         Vector::new(0.0, 0.0, -1.0),
@@ -501,18 +501,18 @@ fn rigid_transform_case() -> Outcome {
     let axis = z_axis();
     let motion =
         Transform::translation(Vector::new(1.0, 2.0, 3.0)).then(&Transform::rotation(&axis, 0.3));
-    Outcome::of_result(&transform(&rounded_box(), &motion).expect("moved"))
+    Outcome::of_result(&transform(&fully_rounded_box(), &motion).expect("moved"))
 }
 
 fn mirror_transform_case() -> Outcome {
     Outcome::of_result(
-        &transform(&rounded_box(), &Transform::mirror(&Plane::YZ)).expect("mirrored"),
+        &transform(&fully_rounded_box(), &Transform::mirror(&Plane::YZ)).expect("mirrored"),
     )
 }
 
 fn scale_transform_case() -> Outcome {
     let scale = Transform::scale(Point::new(1.0, 1.0, 1.0), 2.0);
-    Outcome::of_result(&transform(&rounded_box(), &scale).expect("scaled"))
+    Outcome::of_result(&transform(&fully_rounded_box(), &scale).expect("scaled"))
 }
 
 fn split_case() -> Outcome {
@@ -542,13 +542,13 @@ fn compound_case() -> Outcome {
 fn tessellate_case() -> Outcome {
     Outcome::of_value(format!(
         "{:?}",
-        rounded_box().tessellate(&OPT).expect("meshed")
+        fully_rounded_box().tessellate(&OPT).expect("meshed")
     ))
 }
 
 fn write_step_case() -> Outcome {
     let body = StepBody {
-        shape: rounded_box(),
+        shape: fully_rounded_box(),
         name: "Rounded".to_owned(),
         color: Some(Color {
             red: 0.2,
@@ -578,7 +578,7 @@ fn brep_round_trip_case() -> Outcome {
 }
 
 fn queries_case() -> Outcome {
-    let shape = rounded_box();
+    let shape = fully_rounded_box();
     let topology = shape.topology().expect("topology");
     let normals: Vec<String> = topology
         .edges

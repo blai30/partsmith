@@ -1,5 +1,6 @@
 import { featureLabel, originPlaneName, type OriginPlane } from '../core/labels'
 import type { ElementKind, Reference, RegionInfo, SelectionKind } from '../generated/protocol'
+import { regionSelectionItem } from '../sketch/hit'
 import type { AppState, OriginName, SelectionItem } from '../state/store'
 
 // Param values of selection fields from selection items, and back (ui.md 2.12, features.md 2.5).
@@ -265,16 +266,7 @@ function regionItems(state: AppState, value: unknown): readonly SelectionItem[] 
       area: 0,
       centroid: [0, 0],
     }
-    return [
-      {
-        ...NO_ITEM_DATA,
-        key: `region:${sketch}:${region.reference.key}`,
-        kind: 'sketch_region' as const,
-        label: `Region ${String(index === -1 ? 1 : index + 1)}`,
-        feature: sketch,
-        sketchItem: { kind: 'region' as const, sketch, region },
-      },
-    ]
+    return [regionSelectionItem(sketch, region, `Region ${String(index === -1 ? 1 : index + 1)}`)]
   })
 }
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { orientElement, placeElement, positionElement } from './overlay'
+import { orientElement, placeElement, positionElement, visiblePosition } from './overlay'
 
 // The declarations of the element's style attribute, read through the attribute so this file has no style property access.
 function declarations(element: HTMLElement): string[] {
@@ -75,5 +75,21 @@ describe('placeElement', () => {
     placeElement(element, null)
     expect(element.hidden).toBe(true)
     expect(declarations(element)).toEqual(['translate: 3px 4px'])
+  })
+})
+
+describe('visiblePosition', () => {
+  const size = { width: 800, height: 600 }
+
+  it('keeps a position on the canvas, edges included', () => {
+    expect(visiblePosition({ x: 0, y: 600 }, size)).toEqual({ x: 0, y: 600 })
+    expect(visiblePosition({ x: 800, y: 0 }, size)).toEqual({ x: 800, y: 0 })
+  })
+
+  it('is null behind the camera, off the canvas or for a position that is not a number', () => {
+    expect(visiblePosition(null, size)).toBeNull()
+    expect(visiblePosition({ x: -0.5, y: 10 }, size)).toBeNull()
+    expect(visiblePosition({ x: 10, y: 600.5 }, size)).toBeNull()
+    expect(visiblePosition({ x: Number.NaN, y: 10 }, size)).toBeNull()
   })
 })

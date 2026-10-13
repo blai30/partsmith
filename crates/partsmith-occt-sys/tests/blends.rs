@@ -7,12 +7,12 @@ mod common;
 use std::f64::consts::PI;
 
 use common::{
-    POINT_TOLERANCE, UP, assert_argument_error, assert_bounds, assert_invalid_input, assert_near,
-    assert_parallel, assert_point_near, assert_relative, assert_vector_near, box_primitive,
-    box_with_displaced_corner, cube_a, cube_at, cylinder_primitive, edge_between, face_direction,
-    face_groups, face_with_role, faces_of_kind, generated_faces, geometry, index_from_position,
-    l_body, line, planar_face, rectangle_profile, region, swept_face, top_front_edge, volume,
-    z_axis,
+    POINT_TOLERANCE, UP, assert_argument_error, assert_bounds, assert_invalid_input,
+    assert_leaves_unchanged, assert_near, assert_parallel, assert_point_near, assert_relative,
+    assert_vector_near, box_primitive, box_with_displaced_corner, cube_a, cube_at,
+    cylinder_primitive, edge_between, face_direction, face_groups, face_with_role, faces_of_kind,
+    generated_faces, geometry, index_from_position, l_body, line, planar_face, rectangle_profile,
+    region, swept_face, top_front_edge, volume, z_axis,
 };
 use partsmith_occt_sys::{
     ChamferEdge, ChamferSize, EdgeRadius, ElementFate, GeometryKind, KernelError, KernelErrorKind,
@@ -942,42 +942,38 @@ fn shell_face_listed_twice_is_rejected() {
 #[test]
 fn fillet_leaves_its_input_unchanged() {
     let block = box_primitive();
-    let before = block.shape.to_brep().expect("BRep bytes");
 
-    fillet(&block.shape, &all_edges(1.0)).expect("every edge is filleted");
-
-    assert!(block.shape.to_brep().expect("BRep bytes") == before);
+    assert_leaves_unchanged(&block.shape, || {
+        fillet(&block.shape, &all_edges(1.0)).expect("every edge is filleted");
+    });
 }
 
 #[test]
 fn shell_leaves_its_input_unchanged() {
     let block = box_primitive();
-    let before = block.shape.to_brep().expect("BRep bytes");
 
-    open_box_shell(&block);
-
-    assert!(block.shape.to_brep().expect("BRep bytes") == before);
+    assert_leaves_unchanged(&block.shape, || {
+        open_box_shell(&block);
+    });
 }
 
 #[test]
 fn shell_beside_a_concave_edge_leaves_its_input_unchanged() {
     let (body, step) = l_body();
-    let before = body.to_brep().expect("BRep bytes");
 
-    shell(&body, &[step], 2.0).expect("the fallback shells L");
-
-    assert!(body.to_brep().expect("BRep bytes") == before);
+    assert_leaves_unchanged(&body, || {
+        shell(&body, &[step], 2.0).expect("the fallback shells L");
+    });
 }
 
 #[test]
 fn failed_shell_leaves_its_input_unchanged() {
     let cylinder = make_cylinder(&Plane::XY, 20.0, 40.0).expect("CYL20 builds");
     let top = face_with_role(&cylinder, PrimitiveFace::Top);
-    let before = cylinder.shape.to_brep().expect("BRep bytes");
 
-    shell(&cylinder.shape, &[top], 25.0).expect_err("a 25 mm wall does not fit");
-
-    assert!(cylinder.shape.to_brep().expect("BRep bytes") == before);
+    assert_leaves_unchanged(&cylinder.shape, || {
+        shell(&cylinder.shape, &[top], 25.0).expect_err("a 25 mm wall does not fit");
+    });
 }
 
 #[test]

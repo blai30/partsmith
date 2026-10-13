@@ -27,15 +27,6 @@ const FACE_DIRECTIONS: Readonly<Record<CubeFace, Vector3>> = {
   bottom: [0, 0, -1],
 }
 
-const FACE_NAMES: Readonly<Record<CubeFace, string>> = {
-  front: 'Front',
-  back: 'Back',
-  left: 'Left',
-  right: 'Right',
-  top: 'Top',
-  bottom: 'Bottom',
-}
-
 function capitalized(text: string): string {
   return text.charAt(0).toUpperCase() + text.slice(1)
 }
@@ -83,6 +74,15 @@ export const VIEW_CUBE_PARTS: readonly ViewCubePart[] = buildParts()
 const PARTS_BY_FACES = new Map(
   VIEW_CUBE_PARTS.map((cubePart) => [[...cubePart.faces].toSorted().join(' '), cubePart]),
 )
+
+const PARTS_BY_ID: ReadonlyMap<string, ViewCubePart> = new Map(
+  VIEW_CUBE_PARTS.map((cubePart) => [cubePart.id, cubePart]),
+)
+
+/** The part with this id (`ViewCubePart.id`), or null. */
+export function partById(id: string): ViewCubePart | null {
+  return PARTS_BY_ID.get(id) ?? null
+}
 
 /** The part made of exactly these faces, in any order, or null when they do not meet. */
 export function partForFaces(faces: readonly CubeFace[]): ViewCubePart | null {
@@ -209,5 +209,5 @@ export function faceCells(face: CubeFace): readonly FaceCell[] {
 
 /** The visible label of a face. */
 export function faceName(face: CubeFace): string {
-  return FACE_NAMES[face]
+  return capitalized(face)
 }

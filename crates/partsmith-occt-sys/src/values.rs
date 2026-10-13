@@ -266,7 +266,7 @@ impl Plane {
     }
 
     /// The plane coordinates, for the finite-value check.
-    pub(crate) fn values(&self) -> [f64; 9] {
+    fn values(&self) -> [f64; 9] {
         [
             self.origin.x,
             self.origin.y,
@@ -280,9 +280,10 @@ impl Plane {
         ]
     }
 
-    /// Validates the plane (section 3.1, item 5) and returns its orthonormal frame. The x axis is
-    /// made exactly perpendicular to the normal, as OCCT's `gp_Ax2` does.
+    /// Validates the plane (section 3.1, items 5 and 6) and returns its orthonormal frame. The x
+    /// axis is made exactly perpendicular to the normal, as OCCT's `gp_Ax2` does.
     pub(crate) fn frame(&self, operation: Operation) -> Result<Frame, KernelError> {
+        check_finite(operation, &self.values())?;
         let invalid = || KernelError::invalid_input(operation, PLANE_MESSAGE);
         let normal = self.normal.normalized().ok_or_else(invalid)?;
         let x_axis = self.x_axis.normalized().ok_or_else(invalid)?;
@@ -656,6 +657,21 @@ mod tests {
 
         assert_eq!(error.message, PLANE_MESSAGE);
         assert_eq!(error.operation, Operation::Split);
+    }
+
+    #[test]
+    fn plane_with_a_non_finite_value_is_not_finite() {
+        let plane = Plane {
+            normal: Vector::new(0.0, f64::NAN, 0.0),
+            ..Plane::XY
+        };
+
+        let error = plane
+            .frame(Operation::Section)
+            .expect_err("NaN is rejected");
+
+        assert_eq!(error.message, NOT_FINITE_MESSAGE);
+        assert_eq!(error.operation, Operation::Section);
     }
 
     #[test]

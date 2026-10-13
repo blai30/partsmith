@@ -1,12 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { circleEntity, lineEntity, pointEntity, SKETCH_ID, solutionFor } from './fixtures.testing'
-import {
-  constraintSelectionItem,
-  hitSelectionItem,
-  hitTest,
-  originReference,
-  type HitOptions,
-} from './hit'
+import { constraintSelectionItem, hitSelectionItem, hitTest, type HitOptions } from './hit'
 
 // What the pointer is over in sketch mode (3.6): points first, then curves.
 
@@ -79,11 +73,5 @@ describe('selection items of hits', () => {
       kind: 'sketch_constraint',
       label: 'Horizontal',
     })
-  })
-
-  it('names the reserved references of the origin parts', () => {
-    expect(originReference('point')).toBe('origin')
-    expect(originReference('x_axis')).toBe('x_axis')
-    expect(originReference('y_axis')).toBe('y_axis')
   })
 })

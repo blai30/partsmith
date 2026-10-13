@@ -16,6 +16,7 @@ import { HelpLabel } from '../../components/HelpLabel'
 import { IconButton } from '../../components/IconButton'
 import { Menu, type MenuEntry } from '../../components/Menu'
 import type { SelectionKind } from '../../generated/protocol'
+import { regionSelectionItem } from '../../sketch/hit'
 import type { AppState, SelectionItem } from '../../state/store'
 import { COLOR_CLASSES } from '../../theme/roles'
 import { isSessionVisible } from '../../state/visibility'
@@ -159,11 +160,10 @@ function candidatesFor(
       const units = recipe.units
       return sketches.flatMap((sketch) =>
         (document.sketches[sketch]?.solution.regions ?? []).map((region, index) =>
-          candidate(
-            `region:${sketch}:${region.reference.key}`,
-            'sketch_region',
+          regionSelectionItem(
+            sketch,
+            region,
             `Region ${String(index + 1)} (${formatArea(region.area, units)})`,
-            { feature: sketch, sketchItem: { kind: 'region', sketch, region } },
           ),
         ),
       )

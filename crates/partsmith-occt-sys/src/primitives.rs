@@ -4,7 +4,7 @@ use crate::element::GeometryKind;
 use crate::error::{KernelError, Operation, call};
 use crate::ffi::bridge as sys;
 use crate::shape::{Shape, SubShapeKind};
-use crate::values::{Frame, Plane, Vector, check_finite, is_positive_length};
+use crate::values::{Plane, Vector, check_finite, is_positive_length};
 
 /// A primitive solid with the role of each face.
 #[derive(Debug, Clone)]
@@ -47,24 +47,6 @@ const TORUS_MESSAGE: &str = "A torus needs a minor radius greater than 0 mm and 
 /// Smallest local component of a planar face's normal along the axis it faces.
 const AXIS_ALIGNMENT: f64 = 0.5;
 
-/// Checks the values and placement of a primitive, returning its frame.
-fn placement_frame(
-    operation: Operation,
-    placement: &Plane,
-    values: &[f64],
-    valid: bool,
-    message: &str,
-) -> Result<Frame, KernelError> {
-    check_finite(operation, &placement.values())?;
-    check_finite(operation, values)?;
-    let frame = placement.frame(operation)?;
-    if valid {
-        Ok(frame)
-    } else {
-        Err(KernelError::invalid_input(operation, message))
-    }
-}
-
 /// The role of a face from its geometry kind and its direction in the placement frame.
 fn classify(kind: GeometryKind, local_direction: Option<Vector>) -> Option<PrimitiveFace> {
     match (kind, local_direction) {
@@ -88,12 +70,23 @@ fn classify(kind: GeometryKind, local_direction: Option<Vector>) -> Option<Primi
     }
 }
 
-/// Wraps a primitive solid and classifies its faces.
-fn primitive(
+/// Checks, in this order, that the sizes are finite, that the placement is valid and that the
+/// sizes are `valid` (else `InvalidInput` with `message`), then builds the primitive with `shim`
+/// in the placement frame and classifies its faces.
+fn build(
     operation: Operation,
-    frame: &Frame,
-    shape: cxx::SharedPtr<sys::Shape>,
+    placement: &Plane,
+    sizes: &[f64],
+    valid: bool,
+    message: &str,
+    shim: impl FnOnce(&sys::Frame) -> Result<cxx::SharedPtr<sys::Shape>, cxx::Exception>,
 ) -> Result<Primitive, KernelError> {
+    check_finite(operation, sizes)?;
+    let frame = placement.frame(operation)?;
+    if !valid {
+        return Err(KernelError::invalid_input(operation, message));
+    }
+    let shape = call(operation, || shim(&frame.to_ffi()))?;
     let shape = Shape::from_ffi(operation, shape)?;
     let faces = shape
         .elements(SubShapeKind::Face)
@@ -122,19 +115,16 @@ pub fn make_box(
     width: f64,
     height: f64,
 ) -> Result<Primitive, KernelError> {
-    let operation = Operation::MakeBox;
-    let valid = [length, width, height].into_iter().all(is_positive_length);
-    let frame = placement_frame(
-        operation,
+    let sizes = [length, width, height];
+    let valid = sizes.into_iter().all(is_positive_length);
+    build(
+        Operation::MakeBox,
         placement,
-        &[length, width, height],
+        &sizes,
         valid,
         BOX_MESSAGE,
-    )?;
-    let shape = call(operation, || {
-        sys::make_box(&frame.to_ffi(), length, width, height)
-    })?;
-    primitive(operation, &frame, shape)
+        |frame| sys::make_box(frame, length, width, height),
+    )
 }
 
 /// Cylinder on local z from 0 to `height`, axis through the placement origin.
@@ -143,33 +133,27 @@ pub fn make_cylinder(
     radius: f64,
     height: f64,
 ) -> Result<Primitive, KernelError> {
-    let operation = Operation::MakeCylinder;
     let valid = is_positive_length(radius) && is_positive_length(height);
-    let frame = placement_frame(
-        operation,
+    build(
+        Operation::MakeCylinder,
         placement,
         &[radius, height],
         valid,
         CYLINDER_MESSAGE,
-    )?;
-    let shape = call(operation, || {
-        sys::make_cylinder(&frame.to_ffi(), radius, height)
-    })?;
-    primitive(operation, &frame, shape)
+        |frame| sys::make_cylinder(frame, radius, height),
+    )
 }
 
 /// Sphere centered at the placement origin, poles on local z.
 pub fn make_sphere(placement: &Plane, radius: f64) -> Result<Primitive, KernelError> {
-    let operation = Operation::MakeSphere;
-    let frame = placement_frame(
-        operation,
+    build(
+        Operation::MakeSphere,
         placement,
         &[radius],
         is_positive_length(radius),
         SPHERE_MESSAGE,
-    )?;
-    let shape = call(operation, || sys::make_sphere(&frame.to_ffi(), radius))?;
-    primitive(operation, &frame, shape)
+        |frame| sys::make_sphere(frame, radius),
+    )
 }
 
 /// Cone (or frustum) on local z, `bottom_radius` at z = 0 and `top_radius` at z = `height`.
@@ -179,24 +163,20 @@ pub fn make_cone(
     top_radius: f64,
     height: f64,
 ) -> Result<Primitive, KernelError> {
-    let operation = Operation::MakeCone;
     // Each radius is 0 (an apex) or a length, and the two differ beyond the tolerance.
     let is_radius = |radius: f64| radius == 0.0 || is_positive_length(radius);
     let valid = is_positive_length(height)
         && is_radius(bottom_radius)
         && is_radius(top_radius)
         && is_positive_length((bottom_radius - top_radius).abs());
-    let frame = placement_frame(
-        operation,
+    build(
+        Operation::MakeCone,
         placement,
         &[bottom_radius, top_radius, height],
         valid,
         CONE_MESSAGE,
-    )?;
-    let shape = call(operation, || {
-        sys::make_cone(&frame.to_ffi(), bottom_radius, top_radius, height)
-    })?;
-    primitive(operation, &frame, shape)
+        |frame| sys::make_cone(frame, bottom_radius, top_radius, height),
+    )
 }
 
 /// Torus centered at the placement origin with axis local z.
@@ -205,19 +185,15 @@ pub fn make_torus(
     major_radius: f64,
     minor_radius: f64,
 ) -> Result<Primitive, KernelError> {
-    let operation = Operation::MakeTorus;
     let valid = is_positive_length(minor_radius) && is_positive_length(major_radius - minor_radius);
-    let frame = placement_frame(
-        operation,
+    build(
+        Operation::MakeTorus,
         placement,
         &[major_radius, minor_radius],
         valid,
         TORUS_MESSAGE,
-    )?;
-    let shape = call(operation, || {
-        sys::make_torus(&frame.to_ffi(), major_radius, minor_radius)
-    })?;
-    primitive(operation, &frame, shape)
+        |frame| sys::make_torus(frame, major_radius, minor_radius),
+    )
 }
 
 #[cfg(test)]

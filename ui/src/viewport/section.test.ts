@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { defaultSectionOffset, sectionClip, sectionNormal, SECTION_PLANES } from './section'
+import {
+  defaultSectionOffset,
+  sectionClip,
+  sectionFrameClip,
+  sectionNormal,
+  sectionOffsetMillimeters,
+  SECTION_PLANES,
+} from './section'
 
 const CUBE = { min: [-10, -10, 0], max: [10, 10, 20] } as const
 
@@ -45,5 +52,38 @@ describe('defaultSectionOffset', () => {
 
   it('is 0 with nothing visible', () => {
     expect(defaultSectionOffset('XY', null)).toBe(0)
+  })
+})
+
+describe('sectionOffsetMillimeters', () => {
+  it('reads a plain number in the document unit', () => {
+    expect(sectionOffsetMillimeters(' 2.5 ', 'cm')).toBe(25)
+    expect(sectionOffsetMillimeters('-.5', 'mm')).toBe(-0.5)
+  })
+
+  it('reads a length unit word over the document unit', () => {
+    expect(sectionOffsetMillimeters('2 in', 'mm')).toBe(50.8)
+    expect(sectionOffsetMillimeters('3m', 'in')).toBe(3000)
+  })
+
+  it('is null for any other expression', () => {
+    expect(sectionOffsetMillimeters('width / 2', 'mm')).toBeNull()
+    expect(sectionOffsetMillimeters('2 deg', 'mm')).toBeNull()
+    expect(sectionOffsetMillimeters('', 'mm')).toBeNull()
+  })
+})
+
+describe('sectionFrameClip', () => {
+  it('is the section clip at the offset', () => {
+    expect(sectionFrameClip({ plane: 'YZ', offset: '4', flipped: true }, 4)).toEqual({
+      normal: [-1, 0, 0],
+      offset: -4,
+    })
+  })
+
+  it('writes every -0 as 0', () => {
+    const clip = sectionFrameClip({ plane: 'XY', offset: '0', flipped: true }, 0)
+    expect(clip.normal.map((component) => Object.is(component, -0))).toEqual([false, false, false])
+    expect(Object.is(clip.offset, -0)).toBe(false)
   })
 })

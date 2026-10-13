@@ -48,15 +48,6 @@ export const CONSTRAINT_TYPES: readonly ConstraintType[] = [
   'fix',
 ]
 
-export const DIMENSION_TYPES: readonly DimensionType[] = [
-  'distance',
-  'horizontal_distance',
-  'vertical_distance',
-  'radius',
-  'diameter',
-  'angle',
-]
-
 /** The title of each constraint type: its command title and accessible name. */
 export const CONSTRAINT_TITLES: Readonly<Record<ConstraintType, string>> = {
   coincident: 'Coincident',
@@ -101,10 +92,6 @@ const REQUIREMENTS: Readonly<Record<ConstraintType, string>> = {
 
 export function isConstraintType(value: string): value is ConstraintType {
   return (CONSTRAINT_TYPES as readonly string[]).includes(value)
-}
-
-export function isDimensionType(value: string): value is DimensionType {
-  return (DIMENSION_TYPES as readonly string[]).includes(value)
 }
 
 /** What a constraint tool asks for while it waits for picks (3.16.6). */

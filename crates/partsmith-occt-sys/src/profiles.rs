@@ -10,7 +10,7 @@ use crate::LINEAR_TOLERANCE;
 use crate::error::{KernelError, Operation, call, format_number};
 use crate::ffi::bridge as sys;
 use crate::shape::{Shape, SubShapeKind};
-use crate::values::{Plane, Point2, check_finite};
+use crate::values::{Plane, Point2, check_finite, is_positive_length};
 
 /// A planar curve in a plane's 2D coordinates.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -84,7 +84,7 @@ pub struct PlanarProfile {
 
 const NO_REGIONS_MESSAGE: &str = "The profile has no regions.";
 const EMPTY_LOOP_MESSAGE: &str = "A profile loop has no curves.";
-pub(crate) const INVALID_REGION_MESSAGE: &str =
+const INVALID_REGION_MESSAGE: &str =
     "The profile region crosses itself or has a hole outside its outer boundary.";
 
 impl PlanarCurve {
@@ -115,18 +115,23 @@ impl PlanarCurve {
 
 impl PlanarRegion {
     /// The outer loop followed by the holes.
-    pub(crate) fn loops(&self) -> impl Iterator<Item = &PlanarLoop> {
+    fn loops(&self) -> impl Iterator<Item = &PlanarLoop> {
         iter::once(&self.outer).chain(&self.holes)
+    }
+
+    /// The curves of the outer loop, then those of each hole.
+    pub(crate) fn curves(&self) -> impl Iterator<Item = &TaggedCurve> {
+        self.loops().flat_map(|planar_loop| &planar_loop.curves)
     }
 }
 
 /// The counterclockwise angle from `start` to `end`, in [0, 2 pi).
-fn counterclockwise_sweep(start: f64, end: f64) -> f64 {
+pub(crate) fn counterclockwise_sweep(start: f64, end: f64) -> f64 {
     (end - start).rem_euclid(TAU)
 }
 
 /// The angle of `point` around `center`.
-fn angle_around(center: Point2, point: Point2) -> f64 {
+pub(crate) fn angle_around(center: Point2, point: Point2) -> f64 {
     (point.y - center.y).atan2(point.x - center.x)
 }
 
@@ -140,37 +145,31 @@ struct ChainedCurve {
 }
 
 impl ChainedCurve {
-    /// Where the chain enters the curve; a circle's start is its point at angle 0.
-    fn start(&self) -> Point2 {
+    /// Where the chain enters and leaves the curve; a circle starts and ends at its point at
+    /// angle 0.
+    fn ends(&self) -> (Point2, Point2) {
         match self.curve {
             PlanarCurve::Line { start, end } | PlanarCurve::Arc { start, end, .. } => {
-                if self.reversed { end } else { start }
-            }
-            PlanarCurve::Circle { center, radius } => Point2 {
-                x: center.x + radius,
-                y: center.y,
-            },
-        }
-    }
-
-    /// Where the chain leaves the curve.
-    fn end(&self) -> Point2 {
-        match self.curve.end_points() {
-            Some((start, end)) => {
                 if self.reversed {
-                    start
+                    (end, start)
                 } else {
-                    end
+                    (start, end)
                 }
             }
-            None => self.start(),
+            PlanarCurve::Circle { center, radius } => {
+                let point = Point2 {
+                    x: center.x + radius,
+                    y: center.y,
+                };
+                (point, point)
+            }
         }
     }
 
     /// The curve's contribution to the loop's signed area (shoelace formula with circular
     /// segments).
     fn signed_area(&self) -> f64 {
-        let (start, end) = (self.start(), self.end());
+        let (start, end) = self.ends();
         let chord = (start.x * end.y - end.x * start.y) / 2.0;
         match self.curve {
             PlanarCurve::Line { .. } => chord,
@@ -213,7 +212,7 @@ fn check_curve(operation: Operation, tagged: &TaggedCurve) -> Result<(), KernelE
     };
     match tagged.curve {
         PlanarCurve::Line { start, end } => {
-            if start.distance(end) < LINEAR_TOLERANCE {
+            if !is_positive_length(start.distance(end)) {
                 return Err(zero_length());
             }
         }
@@ -223,7 +222,7 @@ fn check_curve(operation: Operation, tagged: &TaggedCurve) -> Result<(), KernelE
             start,
             end,
         } => {
-            if radius < LINEAR_TOLERANCE {
+            if !is_positive_length(radius) {
                 return Err(zero_length());
             }
             let off_circle =
@@ -237,12 +236,12 @@ fn check_curve(operation: Operation, tagged: &TaggedCurve) -> Result<(), KernelE
                     ),
                 ));
             }
-            if start.distance(end) <= LINEAR_TOLERANCE {
+            if meet(start, end) {
                 return Err(zero_length());
             }
         }
         PlanarCurve::Circle { radius, .. } => {
-            if radius < LINEAR_TOLERANCE {
+            if !is_positive_length(radius) {
                 return Err(zero_length());
             }
         }
@@ -298,7 +297,7 @@ fn chain(operation: Operation, curves: &[TaggedCurve]) -> Result<Vec<ChainedCurv
         None => false,
     };
     let mut result = vec![chained(first, first_reversed)];
-    let mut current = result[0].end();
+    let (chain_start, mut current) = result[0].ends();
     for pair in curves.windows(2) {
         let (previous, next) = (&pair[0], &pair[1]);
         let (start, end) = next
@@ -318,10 +317,10 @@ fn chain(operation: Operation, curves: &[TaggedCurve]) -> Result<Vec<ChainedCurv
             ));
         };
         let link = chained(next, reversed);
-        current = link.end();
+        current = link.ends().1;
         result.push(link);
     }
-    if !meet(current, result[0].start()) {
+    if !meet(current, chain_start) {
         let last = &curves[curves.len() - 1];
         return Err(gap_error(
             operation,
@@ -381,8 +380,9 @@ fn prepare_loop(
 fn junctions(chained: &[ChainedCurve]) -> Vec<Point2> {
     (0..chained.len())
         .map(|position| {
-            let previous = &chained[(position + chained.len() - 1) % chained.len()];
-            previous.end().midpoint(chained[position].start())
+            let (_, previous_end) = chained[(position + chained.len() - 1) % chained.len()].ends();
+            let (start, _) = chained[position].ends();
+            previous_end.midpoint(start)
         })
         .collect()
 }
@@ -421,12 +421,7 @@ fn bridge_index(value: usize) -> u32 {
 /// Builds faces from regions on a plane; every face's normal is the plane normal.
 pub fn make_profile(plane: &Plane, regions: &[PlanarRegion]) -> Result<PlanarProfile, KernelError> {
     let operation = Operation::MakeProfile;
-    check_finite(operation, &plane.values())?;
-    for tagged in regions
-        .iter()
-        .flat_map(PlanarRegion::loops)
-        .flat_map(|planar_loop| &planar_loop.curves)
-    {
+    for tagged in regions.iter().flat_map(PlanarRegion::curves) {
         check_finite(operation, &tagged.curve.values())?;
     }
     let frame = plane.frame(operation)?;
@@ -677,8 +672,7 @@ mod tests {
         };
 
         assert_eq!(circle.signed_area(), -4.0 * PI);
-        assert_eq!(circle.start(), point(5.0, 4.0));
-        assert_eq!(circle.end(), point(5.0, 4.0));
+        assert_eq!(circle.ends(), (point(5.0, 4.0), point(5.0, 4.0)));
     }
 
     #[test]
@@ -753,7 +747,7 @@ mod tests {
     }
 
     #[test]
-    fn edge_tags_follow_the_curve_edges() {
+    fn edge_tags_that_do_not_match_the_edges_are_internal_errors() {
         let shape = Shape::empty();
 
         let error = edge_tags(OPERATION, &shape, &[1], &[1]).expect_err("no edges");

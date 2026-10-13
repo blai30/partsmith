@@ -6,9 +6,10 @@ mod common;
 use std::f64::consts::FRAC_PI_2;
 
 use common::{
-    BOUNDS_TOLERANCE, ORIGIN, POINT_TOLERANCE, assert_bounds, assert_invalid_input, assert_near,
-    assert_point_near, assert_relative, assert_vector_near, box_primitive, cube_a, cube_c,
-    face_direction, face_with_role, geometry, volume, xy_plane_at, z_axis,
+    BOUNDS_TOLERANCE, ORIGIN, POINT_TOLERANCE, assert_bounds, assert_invalid_input,
+    assert_leaves_unchanged, assert_near, assert_point_near, assert_relative, assert_vector_near,
+    box_primitive, cube_a, cube_c, face_at, face_direction, face_with_role, geometry, volume,
+    xy_plane_at, z_axis,
 };
 use partsmith_occt_sys::{
     GeometryKind, Operation, Plane, PlaneSide, Point, PrimitiveFace, Shape, ShapeKind, SplitResult,
@@ -366,22 +367,6 @@ fn l_shape() -> Shape {
         .shape
 }
 
-/// The single face of `shape` whose centroid is `centroid`.
-fn face_at(shape: &Shape, centroid: Point) -> u32 {
-    let faces: Vec<u32> = (1..=shape.count(SubShapeKind::Face))
-        .filter(|face| {
-            let found = geometry(shape, SubShapeKind::Face, *face).centroid;
-            found.distance(centroid) <= POINT_TOLERANCE
-        })
-        .collect();
-    assert_eq!(
-        faces.len(),
-        1,
-        "faces with centroid {centroid:?}: {faces:?}"
-    );
-    faces[0]
-}
-
 #[test]
 fn split_through_a_face_on_the_plane_reports_only_new_section_faces() {
     let shape = l_shape();
@@ -452,31 +437,28 @@ fn plane_touching_a_face_creates_no_section_face() {
 #[test]
 fn split_leaves_its_input_unchanged() {
     let shape = l_shape();
-    let before = shape.to_brep().expect("BRep bytes");
 
-    split(&shape, &xy_plane_at(0.0, 0.0, 10.0)).expect("the L shape splits");
-    split(&shape, &xy_plane_at(0.0, 0.0, 5.0)).expect("the L shape splits");
-
-    assert!(shape.to_brep().expect("BRep bytes") == before);
+    assert_leaves_unchanged(&shape, || {
+        split(&shape, &xy_plane_at(0.0, 0.0, 10.0)).expect("the L shape splits");
+        split(&shape, &xy_plane_at(0.0, 0.0, 5.0)).expect("the L shape splits");
+    });
 }
 
 #[test]
 fn section_leaves_its_input_unchanged() {
     let shape = l_shape();
-    let before = shape.to_brep().expect("BRep bytes");
 
-    section(&shape, &xy_plane_at(0.0, 0.0, 15.0)).expect("the section is computed");
-
-    assert!(shape.to_brep().expect("BRep bytes") == before);
+    assert_leaves_unchanged(&shape, || {
+        section(&shape, &xy_plane_at(0.0, 0.0, 15.0)).expect("the section is computed");
+    });
 }
 
 #[test]
 fn mirror_and_scale_leave_their_input_unchanged() {
     let shape = box_primitive().shape;
-    let before = shape.to_brep().expect("BRep bytes");
 
-    transform(&shape, &Transform::mirror(&Plane::YZ)).expect("the box is mirrored");
-    transform(&shape, &Transform::scale(ORIGIN, 2.0)).expect("the box is scaled");
-
-    assert!(shape.to_brep().expect("BRep bytes") == before);
+    assert_leaves_unchanged(&shape, || {
+        transform(&shape, &Transform::mirror(&Plane::YZ)).expect("the box is mirrored");
+        transform(&shape, &Transform::scale(ORIGIN, 2.0)).expect("the box is scaled");
+    });
 }

@@ -10,7 +10,6 @@
 #include <ElSLib.hxx>
 #include <Geom_Circle.hxx>
 #include <TopoDS.hxx>
-#include <TopoDS_Compound.hxx>
 #include <TopoDS_Edge.hxx>
 #include <TopoDS_Face.hxx>
 #include <TopoDS_Vertex.hxx>
@@ -154,7 +153,7 @@ ProfileData make_profile(const Frame &frame, rust::Slice<const ProfileCurveData>
   const gp_Pln plane(axes);
   std::vector<TopoDS_Edge> curve_edges;
   curve_edges.reserve(curves.size());
-  std::vector<TopoDS_Face> faces;
+  std::vector<TopoDS_Shape> faces;
   std::size_t begin = 0;
   while (begin < curves.size()) {
     const std::uint32_t region = curves[begin].region;
@@ -175,17 +174,7 @@ ProfileData make_profile(const Frame &frame, rust::Slice<const ProfileCurveData>
     raise_invalid_input("The profile has no regions.");
   }
 
-  TopoDS_Shape result = faces.front();
-  if (faces.size() > 1) {
-    BRep_Builder builder;
-    TopoDS_Compound compound;
-    builder.MakeCompound(compound);
-    for (const TopoDS_Face &face : faces) {
-      builder.Add(compound, face);
-    }
-    result = compound;
-  }
-  std::shared_ptr<Shape> shape = make_shape(result);
+  std::shared_ptr<Shape> shape = make_shape(single_or_compound(faces));
   rust::Vec<std::uint32_t> edges;
   edges.reserve(curve_edges.size());
   for (const TopoDS_Edge &edge : curve_edges) {

@@ -231,6 +231,19 @@ impl KernelError {
         }
     }
 
+    /// An `Internal` error for a value of a shared enum, named `what`, that the facade does not
+    /// know: `repr` is its raw value.
+    pub(crate) fn unknown_from_shim(
+        operation: Operation,
+        what: &str,
+        repr: impl fmt::Display,
+    ) -> KernelError {
+        KernelError::internal(
+            operation,
+            format!("the shim returned the unknown {what} {repr}"),
+        )
+    }
+
     /// Classifies the shim's raw `"<exception>: <message>"` text (section 4.1).
     pub(crate) fn from_shim(operation: Operation, text: &str) -> KernelError {
         let (exception, message) = text.split_once(": ").unwrap_or((UNKNOWN_EXCEPTION, text));
@@ -248,11 +261,6 @@ impl KernelError {
             exception: exception.to_owned(),
             message: message.to_owned(),
         }
-    }
-
-    /// Converts an exception caught by the bridge.
-    pub(crate) fn from_exception(operation: Operation, exception: &cxx::Exception) -> KernelError {
-        KernelError::from_shim(operation, exception.what())
     }
 
     /// The plain-language message for makers (section 4.3).
@@ -290,7 +298,7 @@ pub(crate) fn call<T>(
     operation: Operation,
     shim: impl FnOnce() -> Result<T, cxx::Exception>,
 ) -> Result<T, KernelError> {
-    shim().map_err(|exception| KernelError::from_exception(operation, &exception))
+    shim().map_err(|exception| KernelError::from_shim(operation, exception.what()))
 }
 
 /// Formats a number for a message: at most 6 decimals, trailing zeros removed (naming spec
@@ -341,6 +349,17 @@ mod tests {
             let error = KernelError::from_shim(Operation::Shell, &format!("{exception}: text"));
             assert_eq!(error.kind, kind, "{exception}");
         }
+    }
+
+    #[test]
+    fn unknown_shim_values_are_internal_errors_naming_the_value() {
+        let error = KernelError::unknown_from_shim(Operation::Query, "geometry kind", 42);
+
+        assert_eq!(error.kind, KernelErrorKind::Internal);
+        assert_eq!(
+            error.message,
+            "the shim returned the unknown geometry kind 42"
+        );
     }
 
     #[test]

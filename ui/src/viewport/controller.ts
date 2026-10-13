@@ -4,22 +4,15 @@ import { clearSelection, elementSelectionItem, pickAt } from '../app/actions/sel
 import { createSketchOn, enterSketch, recordSketchView } from '../app/actions/sketch'
 import { onCoreEvent, type App } from '../app/createApp'
 import { CoreError } from '../core/client'
-import { createLatestOnly, type LatestOnly } from '../core/queue'
-import type {
-  BoundingBox,
-  DocHandle,
-  ElementDescriptor,
-  ElementRef,
-  MeshElement,
-  Reference,
-  Resolution,
-} from '../generated/protocol'
+import type { BoundingBox, ElementDescriptor } from '../generated/protocol'
 import type { Rectangle } from '../inspector/placement'
 import { requestUi } from '../layout/requests'
 import { measureTiming, TIMING_NAMES } from '../performance/marks'
 import type { AppState, SelectionItem } from '../state/store'
 import type { RenderBackend, RenderFrame } from './backend'
 import {
+  aspectOf,
+  canvasPosition,
   DEFAULT_CAMERA,
   classifyView,
   easeOutCubic,
@@ -33,6 +26,7 @@ import {
   pointAtDepth,
   rotationLookingAlong,
   standardViewRotation,
+  visibleHeightAtDepth,
   wheelZoomFactor,
   withProjection,
   zoomAt,
@@ -45,10 +39,14 @@ import { dot, normalize, scale, subtract } from './math'
 import {
   gestureFor,
   GESTURE_THRESHOLD_PIXELS,
+  LEFT_BUTTON,
+  MIDDLE_BUTTON,
   NAVIGATION_PRESETS,
+  RIGHT_BUTTON,
+  type Gesture,
   type KeyNavigation,
 } from './navigation'
-import { positionElement } from './overlay'
+import { placeElement, visiblePosition } from './overlay'
 import {
   candidateKind,
   choosePick,
@@ -56,11 +54,13 @@ import {
   type PickResult,
   type PointerRay,
 } from './picking'
-import { commandSelectionFields, type CommandSelectionField, type Scene } from './scene'
+import { createHighlights } from './highlights'
+import { selectionFieldAt } from './picking-rules'
+import type { Scene } from './scene'
 
 // The viewport controller (ui.md 2.11, 3.6, 3.12, 3.13): the camera, rendering on demand, mouse
-// and wheel navigation, hover and click picking, and the highlights that need the core. It
-// subscribes to the store itself, so the viewport bypasses React (ADR 0002).
+// and wheel navigation, and hover and click picking; `highlights.ts` keeps the highlights that
+// need the core. It subscribes to the store itself, so the viewport bypasses React (ADR 0002).
 
 export type ViewportHandle = {
   getCamera(): Camera
@@ -104,17 +104,14 @@ const PICK_RADIUS = 4
 const WHEEL_BURST_MILLISECONDS = 300
 /** The side of the cube framed when nothing is visible (3.14). */
 const EMPTY_FIT_SIDE = 100
-const FIT_MARGIN = 0.1
 
 /** A second middle click within this long of the first is a double-click (3.13). */
 const DOUBLE_CLICK_MILLISECONDS = 500
 /** Hover picking waits until the camera has been still this long (3.13). */
 const CAMERA_STILL_MILLISECONDS = 100
 
-const PRIMARY_BUTTON = 1
-const MIDDLE_BUTTONS = 4
+// PointerEvent.button values.
 const MIDDLE_BUTTON_INDEX = 1
-const SECONDARY_BUTTONS = 2
 const SECONDARY_BUTTON_INDEX = 2
 
 /** Pick errors that mean the geometry under the pointer is gone or not pickable. */
@@ -131,7 +128,7 @@ type Press = {
   lastX: number
   lastY: number
   /** The camera gesture once the press moved past the threshold; 'none' for a left drag. */
-  gesture: 'orbit' | 'pan' | 'none' | null
+  gesture: Gesture | null
   pivot: Vector3 | null
 }
 
@@ -141,98 +138,10 @@ type CameraAnimation = {
   readonly startedAt: number
 }
 
-/** A resolved reference: its display ids in the mesh its body had when it was resolved. */
-type ResolvedReference = {
-  readonly body: string
-  readonly meshId: number
-  /** Null until the reference is resolved; selected elements found by a click are known at once. */
-  readonly matches: readonly MeshElement[] | null
-}
-
-/** A face list of one body, in list_elements order (display ids are positions). */
-type FaceList = { readonly meshId: number; readonly faces: readonly ElementDescriptor[] }
-
-function referenceKey(body: string, reference: Reference): string {
-  return `${body}|${reference.q}|${reference.fp}`
-}
-
-function isReference(value: unknown): value is Reference {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    typeof Reflect.get(value, 'q') === 'string' &&
-    typeof Reflect.get(value, 'fp') === 'string'
-  )
-}
-
 /** Whether the active selection field takes a face as its edges (Fillet, Chamfer; 3.7). */
 function facesStandForEdges(state: AppState): boolean {
-  const command = state.command
-  const field = commandSelectionFields(state).find(
-    (candidate) => candidate.path === command?.activeField,
-  )
+  const field = selectionFieldAt(state, state.command?.activeField ?? null)
   return field?.accepts === 'edge' && field.multiple
-}
-
-/** The element references the viewport highlights: the app selection's elements, or the command's field values. */
-function highlightedReferences(state: AppState): {
-  readonly references: readonly ElementRef[]
-  /** Selection keys of the app selection's elements by reference key, to drop lost ones. */
-  readonly selectionKeys: ReadonlyMap<string, string>
-} {
-  const references: ElementRef[] = []
-  const selectionKeys = new Map<string, string>()
-  if (state.command === null) {
-    for (const item of state.selection) {
-      if (item.element !== null) {
-        const key = referenceKey(item.element.body, item.element.reference)
-        references.push({ body: item.element.body, reference: item.element.reference })
-        selectionKeys.set(key, item.key)
-      }
-    }
-    return { references, selectionKeys }
-  }
-  for (const field of commandSelectionFields(state)) {
-    references.push(...fieldReferences(field))
-  }
-  return { references, selectionKeys }
-}
-
-/** The model elements a command selection field names: its faces or edges, or the face or edge of a plane or axis. */
-function fieldReferences(field: CommandSelectionField): ElementRef[] {
-  const references: ElementRef[] = []
-  const values = Array.isArray(field.value) ? field.value : [field.value]
-  const body = field.siblings['body']
-  for (const value of values) {
-    if ((field.accepts === 'face' || field.accepts === 'edge') && typeof body === 'string') {
-      if (isReference(value)) {
-        references.push({ body, reference: value })
-      }
-      continue
-    }
-    if (field.accepts !== 'plane' && field.accepts !== 'axis') {
-      continue
-    }
-    if (typeof value !== 'object' || value === null) {
-      continue
-    }
-    const valueBody: unknown = Reflect.get(value, 'body')
-    const element: unknown = Reflect.get(value, 'face') ?? Reflect.get(value, 'edge')
-    if (typeof valueBody === 'string' && isReference(element)) {
-      references.push({ body: valueBody, reference: element })
-    }
-  }
-  return references
-}
-
-/** The model elements of the selection field whose box the pointer is over (3.7), or none. */
-function hoveredFieldReferences(state: AppState): readonly ElementRef[] {
-  const path = state.command?.hoveredField ?? null
-  const field =
-    path === null
-      ? undefined
-      : commandSelectionFields(state).find((candidate) => candidate.path === path)
-  return field === undefined ? [] : fieldReferences(field)
 }
 
 function prefersReducedMotion(): boolean {
@@ -283,20 +192,6 @@ function onContextMenu(event: Event): void {
   event.preventDefault()
 }
 
-/** The features whose faces are highlighted: the selected ones while no command is active (3.6). */
-function selectedFeatures(state: AppState): ReadonlySet<string> {
-  if (state.command !== null) {
-    return new Set()
-  }
-  return new Set(
-    state.selection.flatMap((item) =>
-      (item.kind === 'feature' || item.kind === 'datum_plane') && item.feature !== null
-        ? [item.feature]
-        : [],
-    ),
-  )
-}
-
 /** Whether a store change can change what the view draws. */
 function relevantChange(state: AppState, previous: AppState): boolean {
   return (
@@ -345,15 +240,11 @@ export function createViewportController(options: {
   const renderListeners = new Set<(frame: RenderedFrame) => void>()
   const cleanups: (() => void)[] = []
 
-  // Highlights that need the core (3.6, 3.7).
-  const resolved = new Map<string, ResolvedReference>()
-  const faceLists = new Map<string, FaceList>()
-  /** The mesh id each body's face list was last asked for. */
-  const requestedFaces = new Map<string, number>()
-  const faceRequests = new Map<string, LatestOnly<{ documentHandle: DocHandle; meshId: number }>>()
+  const highlights = createHighlights({ app, scene, onChange: requestRender })
 
-  function aspect(): number {
-    return size.width > 0 && size.height > 0 ? size.width / size.height : 1
+  /** The canvas point (x, y) in normalized device coordinates. */
+  function cursorAt(x: number, y: number): [number, number] {
+    return [(x / Math.max(size.width, 1)) * 2 - 1, 1 - (y / Math.max(size.height, 1)) * 2]
   }
 
   function radius(): number {
@@ -437,14 +328,8 @@ export function createViewportController(options: {
 
   /** The CSS pixel position of a world point, or null behind the eye. */
   function project(point: Vector3): { x: number; y: number } | null {
-    const position = normalizedPosition(camera, point, aspect())
-    if (position === null) {
-      return null
-    }
-    return {
-      x: ((position.x + 1) / 2) * size.width,
-      y: ((1 - position.y) / 2) * size.height,
-    }
+    const position = normalizedPosition(camera, point, aspectOf(size))
+    return position === null ? null : canvasPosition(position, size)
   }
 
   /** Moves the overlay's anchored elements (`data-anchor="x,y,z"`) to their projections (3.12). */
@@ -453,18 +338,7 @@ export function createViewportController(options: {
       const coordinates = (element.dataset['anchor'] ?? '').split(',').map(Number)
       const [x = Number.NaN, y = Number.NaN, z = Number.NaN] = coordinates
       const position = Number.isFinite(x + y + z) ? project([x, y, z]) : null
-      const inside =
-        position !== null &&
-        position.x >= 0 &&
-        position.y >= 0 &&
-        position.x <= size.width &&
-        position.y <= size.height
-      if (!inside) {
-        element.hidden = true
-        continue
-      }
-      element.hidden = false
-      positionElement(element, position.x, position.y)
+      placeElement(element, visiblePosition(position, size))
     }
   }
 
@@ -541,7 +415,7 @@ export function createViewportController(options: {
 
   function fit(bounds?: BoundingBox): void {
     const framed = bounds ?? scene.visibleBounds(store.getState()) ?? emptyFitBounds()
-    moveCamera(fitBounds(goalCamera(), framed, aspect(), FIT_MARGIN))
+    moveCamera(fitBounds(goalCamera(), framed, aspectOf(size)))
   }
 
   // Sizes.
@@ -614,12 +488,7 @@ export function createViewportController(options: {
     const world =
       found.depth === null
         ? null
-        : pointAtDepth(
-            camera,
-            [(x / Math.max(size.width, 1)) * 2 - 1, 1 - (y / Math.max(size.height, 1)) * 2],
-            aspect(),
-            found.depth,
-          )
+        : pointAtDepth(camera, cursorAt(x, y), aspectOf(size), found.depth)
     return { ...found.result, world }
   }
 
@@ -715,22 +584,16 @@ export function createViewportController(options: {
    * UI scale at the picked point, or at the camera target without one (3.7 hole centers).
    */
   function pointerRay(x: number, y: number, picked: Vector3 | null): PointerRay {
-    const cursor: [number, number] = [
-      (x / Math.max(size.width, 1)) * 2 - 1,
-      1 - (y / Math.max(size.height, 1)) * 2,
-    ]
-    const near = pointAtDepth(camera, cursor, aspect(), 0)
-    const far = pointAtDepth(camera, cursor, aspect(), 1)
+    const cursor = cursorAt(x, y)
+    const near = pointAtDepth(camera, cursor, aspectOf(size), 0)
+    const far = pointAtDepth(camera, cursor, aspectOf(size), 1)
     const direction =
       camera.projection === 'perspective'
         ? (normalize(subtract(far, eye(camera))) ?? forward(camera))
         : forward(camera)
     const origin = camera.projection === 'perspective' ? eye(camera) : near
     const depth = picked === null ? null : dot(subtract(picked, eye(camera)), forward(camera))
-    const visibleHeight =
-      camera.projection === 'perspective'
-        ? 2 * (depth ?? camera.distance) * Math.tan(camera.verticalFieldOfView / 2)
-        : camera.orthographicHeight
+    const visibleHeight = visibleHeightAtDepth(camera, depth ?? camera.distance)
     const millimetersPerPixel =
       (visibleHeight / Math.max(size.height, 1)) * store.getState().settings.uiScale
     return { origin, direction, millimetersPerPixel }
@@ -746,12 +609,7 @@ export function createViewportController(options: {
     if (sample?.depth === null || sample === undefined) {
       return camera.target
     }
-    return pointAtDepth(
-      camera,
-      [(x / Math.max(size.width, 1)) * 2 - 1, 1 - (y / Math.max(size.height, 1)) * 2],
-      aspect(),
-      sample.depth,
-    )
+    return pointAtDepth(camera, cursorAt(x, y), aspectOf(size), sample.depth)
   }
 
   /** The selection item of a mesh pick through the core, or null when the pick went stale. */
@@ -775,31 +633,6 @@ export function createViewportController(options: {
       }
       throw error
     }
-  }
-
-  /** Remembers a clicked element's display id, so it is highlighted without a core round trip. */
-  function rememberClick(
-    before: ReadonlySet<string>,
-    result: Extract<PickResult, { kind: 'mesh' }>,
-  ): void {
-    const { references } = highlightedReferences(store.getState())
-    const added = references.filter(
-      (reference) =>
-        !before.has(referenceKey(reference.body, reference.reference)) &&
-        reference.body === result.body,
-    )
-    // A click adds one element; anything else resolves through the core.
-    const [reference, ...others] = added
-    if (reference === undefined || others.length > 0) {
-      return
-    }
-    resolved.set(referenceKey(reference.body, reference.reference), {
-      body: result.body,
-      meshId: result.meshId,
-      matches: [
-        { body: result.body, mesh_id: result.meshId, kind: result.element, index: result.index },
-      ],
-    })
   }
 
   async function click(x: number, y: number, toggle: boolean): Promise<void> {
@@ -828,20 +661,16 @@ export function createViewportController(options: {
       }
       return
     }
-    const before = new Set(
-      highlightedReferences(state).references.map((reference) =>
-        referenceKey(reference.body, reference.reference),
-      ),
-    )
+    const before = highlights.referenceKeys(state)
     // A face that stands for its edges adds edge references, which resolve through the core.
     const standsForEdges =
       result.kind === 'mesh' && result.element === 'face' && facesStandForEdges(state)
     await pickAt(app, result, { toggle }, pointerRay(x, y, result.world))
     if (result.kind === 'mesh') {
       if (!standsForEdges) {
-        rememberClick(before, result)
+        highlights.rememberClick(before, result)
       }
-      updateHighlights()
+      highlights.update()
     }
   }
 
@@ -983,28 +812,16 @@ export function createViewportController(options: {
       if (moved <= GESTURE_THRESHOLD_PIXELS) {
         return
       }
-      press.gesture = gestureFor(store.getState().settings.navigation, press.buttons, {
+      const gesture = gestureFor(store.getState().settings.navigation, press.buttons, {
         shift: event.shiftKey,
       })
-      if (press.gesture !== 'none') {
-        recordSketchView(app, goalCamera())
-        animation = null
-        if (press.gesture === 'orbit') {
-          press.pivot = pivotAt(press.startX, press.startY)
-        }
-      }
+      beginGesture(press, gesture, { stopAnimation: true })
     } else if (press.gesture === 'none') {
       // A chord added after the press started can still become a gesture (FreeCAD orbit).
       const gesture = gestureFor(store.getState().settings.navigation, press.buttons, {
         shift: event.shiftKey,
       })
-      if (gesture !== 'none') {
-        press.gesture = gesture
-        recordSketchView(app, goalCamera())
-        if (gesture === 'orbit') {
-          press.pivot = pivotAt(press.startX, press.startY)
-        }
-      }
+      beginGesture(press, gesture, { stopAnimation: false })
     }
     if (press.gesture === 'orbit') {
       camera = orbit(camera, deltaX, deltaY, press.pivot ?? camera.target)
@@ -1012,6 +829,29 @@ export function createViewportController(options: {
     } else if (press.gesture === 'pan') {
       camera = pan(camera, deltaX, deltaY, Math.max(size.height, 1))
       requestRender()
+    }
+  }
+
+  /**
+   * Gives a press its gesture. A camera gesture records the view in the sketch view history and,
+   * for an orbit, takes the pivot under the press; a press that moved past the threshold also stops
+   * a camera animation.
+   */
+  function beginGesture(
+    current: Press,
+    gesture: Gesture,
+    { stopAnimation }: { readonly stopAnimation: boolean },
+  ): void {
+    current.gesture = gesture
+    if (gesture === 'none') {
+      return
+    }
+    recordSketchView(app, goalCamera())
+    if (stopAnimation) {
+      animation = null
+    }
+    if (gesture === 'orbit') {
+      current.pivot = pivotAt(current.startX, current.startY)
     }
   }
 
@@ -1038,19 +878,19 @@ export function createViewportController(options: {
       released &&
       Math.hypot(point.x - ended.startX, point.y - ended.startY) <= CLICK_DISTANCE &&
       performance.now() - ended.startedAt <= CLICK_MILLISECONDS
-    if (isClick && ended.startButtons === PRIMARY_BUTTON && event.button === 0) {
+    if (isClick && ended.startButtons === LEFT_BUTTON && event.button === 0) {
       click(point.x, point.y, event.shiftKey || event.ctrlKey || event.metaKey).catch(report)
     } else if (
       released &&
       ended.gesture === null &&
-      ended.startButtons === SECONDARY_BUTTONS &&
+      ended.startButtons === RIGHT_BUTTON &&
       event.button === SECONDARY_BUTTON_INDEX
     ) {
       // A right press released before it became an orbit or pan opens the context menu (3.13).
       contextClick(ended.startX, ended.startY).catch(report)
     } else if (
       isClick &&
-      ended.startButtons === MIDDLE_BUTTONS &&
+      ended.startButtons === MIDDLE_BUTTON &&
       event.button === MIDDLE_BUTTON_INDEX
     ) {
       middleClick(point)
@@ -1067,15 +907,7 @@ export function createViewportController(options: {
     if (state.view.filter.body && !state.view.filter.face && result.element === 'face') {
       return state.selection.some((item) => item.kind === 'body' && item.body === result.body)
     }
-    return highlightedReferences(state).references.some((reference) =>
-      (resolved.get(referenceKey(reference.body, reference.reference))?.matches ?? []).some(
-        (match) =>
-          match.body === result.body &&
-          match.mesh_id === result.meshId &&
-          match.kind === result.element &&
-          match.index === result.index,
-      ),
-    )
+    return highlights.isPicked(state, result)
   }
 
   /**
@@ -1157,12 +989,7 @@ export function createViewportController(options: {
     }
     animation = null
     const factor = wheelZoomFactor(event, Math.max(size.height, 1))
-    camera = zoomAt(
-      camera,
-      factor,
-      [(point.x / Math.max(size.width, 1)) * 2 - 1, 1 - (point.y / Math.max(size.height, 1)) * 2],
-      aspect(),
-    )
+    camera = zoomAt(camera, factor, cursorAt(point.x, point.y), aspectOf(size))
     requestRender()
   }
 
@@ -1183,211 +1010,6 @@ export function createViewportController(options: {
     doubleClick(point.x, point.y).catch(report)
   }
 
-  // Highlights through the core.
-
-  const resolutions = createLatestOnly<
-    {
-      readonly documentHandle: DocHandle
-      readonly references: readonly ElementRef[]
-      readonly meshIds: readonly number[]
-    },
-    readonly Resolution[]
-  >(
-    (request) => app.core.resolveReferences(request.documentHandle, request.references),
-    (results, request) => {
-      const lost = new Set<string>()
-      request.references.forEach((reference, index) => {
-        const key = referenceKey(reference.body, reference.reference)
-        const resolution = results[index]
-        const found = resolution?.status === 'resolved'
-        resolved.set(key, {
-          body: reference.body,
-          meshId: request.meshIds[index] ?? 0,
-          matches: found ? resolution.matches : [],
-        })
-        if (!found) {
-          lost.add(key)
-        }
-      })
-      dropLostSelection(lost)
-      updateHighlights()
-    },
-    (error) => {
-      console.warn('Partsmith could not highlight the selection after a rebuild.', error)
-    },
-  )
-
-  /** Selected faces, edges and vertices that no longer resolve leave the selection silently (3.6). */
-  function dropLostSelection(lost: ReadonlySet<string>): void {
-    if (lost.size === 0) {
-      return
-    }
-    const state = store.getState()
-    if (state.command !== null) {
-      return
-    }
-    const { selectionKeys } = highlightedReferences(state)
-    const keys = new Set(
-      Array.from(lost).flatMap((key) => {
-        const selectionKey = selectionKeys.get(key)
-        return selectionKey === undefined ? [] : [selectionKey]
-      }),
-    )
-    if (keys.size > 0) {
-      store.setState((current) => ({
-        selection: current.selection.filter((item) => !keys.has(item.key)),
-      }))
-    }
-  }
-
-  /** Resolves the highlighted references whose body got a new mesh, or that were never resolved during a command. */
-  function resolveStale(state: AppState): void {
-    const document = state.document
-    if (document === null) {
-      return
-    }
-    const { references } = highlightedReferences(state)
-    const stale: ElementRef[] = []
-    const meshIds: number[] = []
-    for (const reference of references) {
-      const meshId = document.meshes[reference.body]?.meshId
-      if (meshId === undefined) {
-        continue
-      }
-      const key = referenceKey(reference.body, reference.reference)
-      const known = resolved.get(key)
-      if (known === undefined && state.command === null) {
-        // Selected before the viewport knew it: highlighted once its body is rebuilt.
-        resolved.set(key, { body: reference.body, meshId, matches: null })
-        continue
-      }
-      if (known === undefined || known.meshId !== meshId) {
-        stale.push(reference)
-        meshIds.push(meshId)
-      }
-    }
-    if (stale.length > 0) {
-      resolutions.submit({ documentHandle: document.documentHandle, references: stale, meshIds })
-    }
-  }
-
-  function faceRequestOf(body: string): LatestOnly<{ documentHandle: DocHandle; meshId: number }> {
-    let request = faceRequests.get(body)
-    if (request === undefined) {
-      request = createLatestOnly<
-        { documentHandle: DocHandle; meshId: number },
-        readonly ElementDescriptor[]
-      >(
-        (input) => app.core.listElements(input.documentHandle, body, 'face'),
-        (faces, input) => {
-          const current = store.getState().document?.meshes[body]?.meshId
-          if (current !== input.meshId) {
-            // The body was rebuilt while the list was on its way: ask again for the new mesh.
-            requestedFaces.delete(body)
-            requestFaces(store.getState())
-            return
-          }
-          faceLists.set(body, { meshId: input.meshId, faces })
-          updateHighlights()
-        },
-        (error) => {
-          console.warn('Partsmith could not list the faces to highlight.', error)
-        },
-      )
-      faceRequests.set(body, request)
-    }
-    return request
-  }
-
-  /** Lists the faces of visible bodies while features are selected (3.6 feature highlighting). */
-  function requestFaces(state: AppState): void {
-    const document = state.document
-    if (document === null || selectedFeatures(state).size === 0) {
-      return
-    }
-    for (const body of document.recipe.bodies ?? []) {
-      const mesh = document.meshes[body.id]
-      if (body.visible === false || mesh === undefined) {
-        continue
-      }
-      const cached = faceLists.get(body.id)
-      if (cached?.meshId === mesh.meshId || requestedFaces.get(body.id) === mesh.meshId) {
-        continue
-      }
-      faceLists.delete(body.id)
-      requestedFaces.set(body.id, mesh.meshId)
-      faceRequestOf(body.id).submit({
-        documentHandle: document.documentHandle,
-        meshId: mesh.meshId,
-      })
-    }
-  }
-
-  /** The display ids the resolved references stand for, per body, at the current meshes. */
-  function resolvedIndices(
-    state: AppState,
-    references: readonly ElementRef[],
-  ): Record<string, { meshId: number; face: number[]; edge: number[]; vertex: number[] }> {
-    const document = state.document
-    const highlights: Record<
-      string,
-      { meshId: number; face: number[]; edge: number[]; vertex: number[] }
-    > = {}
-    if (document === null) {
-      return highlights
-    }
-    for (const reference of references) {
-      const known = resolved.get(referenceKey(reference.body, reference.reference))
-      for (const match of known?.matches ?? []) {
-        if (document.meshes[match.body]?.meshId !== match.mesh_id) {
-          continue
-        }
-        const existing = highlights[match.body]
-        const entry =
-          existing !== undefined && existing.meshId === match.mesh_id
-            ? existing
-            : { meshId: match.mesh_id, face: [], edge: [], vertex: [] }
-        highlights[match.body] = entry
-        entry[match.kind].push(match.index)
-      }
-    }
-    return highlights
-  }
-
-  /** Hands the scene the display ids to draw selected and hovered, and renders. */
-  function updateHighlights(): void {
-    const state = store.getState()
-    const document = state.document
-    const highlights = resolvedIndices(state, highlightedReferences(state).references)
-    const entryOf = (body: string, meshId: number) => {
-      const existing = highlights[body]
-      if (existing !== undefined && existing.meshId === meshId) {
-        return existing
-      }
-      const created = { meshId, face: [], edge: [], vertex: [] }
-      highlights[body] = created
-      return created
-    }
-    if (document !== null) {
-      const features = selectedFeatures(state)
-      if (features.size > 0) {
-        for (const [body, list] of faceLists) {
-          if (document.meshes[body]?.meshId !== list.meshId) {
-            continue
-          }
-          list.faces.forEach((face, index) => {
-            if (features.has(face.feature)) {
-              entryOf(body, list.meshId).face.push(index)
-            }
-          })
-        }
-      }
-    }
-    scene.setElementHighlights(highlights)
-    scene.setFieldHover(resolvedIndices(state, hoveredFieldReferences(state)))
-    requestRender()
-  }
-
   // Store and core subscriptions.
 
   cleanups.push(
@@ -1395,21 +1017,7 @@ export function createViewportController(options: {
       if (disposed || !relevantChange(state, previous)) {
         return
       }
-      if (
-        state.document !== previous.document ||
-        state.selection !== previous.selection ||
-        state.command !== previous.command
-      ) {
-        if (state.document?.documentHandle !== previous.document?.documentHandle) {
-          resolved.clear()
-          faceLists.clear()
-          requestedFaces.clear()
-        }
-        resolveStale(state)
-        requestFaces(state)
-        updateHighlights()
-        return
-      }
+      highlights.storeChanged(state, previous)
       requestRender()
     }),
   )
@@ -1433,24 +1041,38 @@ export function createViewportController(options: {
     }),
   )
 
-  const listeners: readonly [string, EventListener, AddEventListenerOptions?][] = [
-    ['pointerdown', onPointerDown as EventListener],
-    ['pointermove', onPointerMove as EventListener],
-    ['pointerup', onPointerUp as EventListener],
-    ['pointercancel', onPointerCancel as EventListener],
-    ['lostpointercapture', onPointerCancel as EventListener],
-    ['pointerleave', onPointerLeave],
-    ['mousedown', onMouseDown as EventListener],
-    ['wheel', onWheel as EventListener, { passive: false }],
-    ['contextmenu', onContextMenu],
-    ['dblclick', onDoubleClick as EventListener],
-  ]
-  for (const [type, listener, listenerOptions] of listeners) {
-    canvas.addEventListener(type, listener, listenerOptions)
+  /** Adds an event listener that dispose removes. */
+  function listen<Type extends keyof HTMLElementEventMap>(
+    target: HTMLElement,
+    type: Type,
+    handler: (event: HTMLElementEventMap[Type]) => void,
+    listenerOptions?: AddEventListenerOptions,
+  ): void {
+    target.addEventListener(type, handler, listenerOptions)
+    cleanups.push(() => {
+      target.removeEventListener(type, handler)
+    })
   }
+
+  listen(canvas, 'pointerdown', onPointerDown)
+  listen(canvas, 'pointermove', onPointerMove)
+  listen(canvas, 'pointerup', onPointerUp)
+  listen(canvas, 'pointercancel', onPointerCancel)
+  listen(canvas, 'lostpointercapture', onPointerCancel)
+  listen(canvas, 'pointerleave', onPointerLeave)
+  listen(canvas, 'mousedown', onMouseDown)
+  listen(canvas, 'wheel', onWheel, { passive: false })
+  listen(canvas, 'contextmenu', onContextMenu)
+  listen(canvas, 'dblclick', onDoubleClick)
+
   cleanups.push(() => {
-    for (const [type, listener] of listeners) {
-      canvas.removeEventListener(type, listener)
+    if (wheelBurst !== null) {
+      clearTimeout(wheelBurst.timer)
+      wheelBurst = null
+    }
+    if (hoverTimer !== null) {
+      clearTimeout(hoverTimer)
+      hoverTimer = null
     }
   })
 
@@ -1468,9 +1090,8 @@ export function createViewportController(options: {
   }
 
   resize()
-  resolveStale(store.getState())
-  requestFaces(store.getState())
-  updateHighlights()
+  // Highlight what the store already selects.
+  highlights.storeChanged(store.getState(), null)
 
   return {
     getCamera: () => camera,
@@ -1490,7 +1111,7 @@ export function createViewportController(options: {
       moveCamera({ ...goal, target, rotation: rotationLookingAlong(scale(normal, -1), upHint) })
     },
     zoomToBounds(bounds, margin) {
-      moveCamera(fitBounds(goalCamera(), bounds, aspect(), margin))
+      moveCamera(fitBounds(goalCamera(), bounds, aspectOf(size), margin))
     },
     screenRectangle(items) {
       return scene.screenRectangle(items, camera, size)
@@ -1514,7 +1135,7 @@ export function createViewportController(options: {
           return
         }
         case 'zoom':
-          setCamera(zoomAt(goal, navigation.factor, [0, 0], aspect()), { record: true })
+          setCamera(zoomAt(goal, navigation.factor, [0, 0], aspectOf(size)), { record: true })
       }
     },
     onRender(listener) {
@@ -1530,18 +1151,7 @@ export function createViewportController(options: {
       disposed = true
       cancelFrame?.()
       cancelFrame = null
-      if (wheelBurst !== null) {
-        clearTimeout(wheelBurst.timer)
-        wheelBurst = null
-      }
-      if (hoverTimer !== null) {
-        clearTimeout(hoverTimer)
-        hoverTimer = null
-      }
-      resolutions.cancel()
-      for (const request of faceRequests.values()) {
-        request.cancel()
-      }
+      highlights.dispose()
       for (const cleanup of cleanups.splice(0).toReversed()) {
         cleanup()
       }

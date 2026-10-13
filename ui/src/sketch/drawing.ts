@@ -849,8 +849,3 @@ function secondClick(
       return { state: IDLE, commit: null }
   }
 }
-
-/** Whether a shape is rubber-banding, so Esc, Enter and typed values apply to it. */
-export function isDrawing(state: DrawState): boolean {
-  return state.stage !== 'idle'
-}

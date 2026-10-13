@@ -12,6 +12,20 @@ export function orientElement(element: HTMLElement, matrix: Float32Array): void 
   element.setAttribute('data-positioned', '')
 }
 
+/** A canvas position when there is one (null is behind the camera) and it lies on the canvas, else null (3.12). */
+export function visiblePosition(
+  position: { readonly x: number; readonly y: number } | null,
+  size: { readonly width: number; readonly height: number },
+): { readonly x: number; readonly y: number } | null {
+  const inside =
+    position !== null &&
+    position.x >= 0 &&
+    position.y >= 0 &&
+    position.x <= size.width &&
+    position.y <= size.height
+  return inside ? position : null
+}
+
 /**
  * Positions an element at (x, y) CSS pixels, or hides it with the `hidden` attribute when its anchor has no position (behind the camera or outside the canvas, 3.12).
  */

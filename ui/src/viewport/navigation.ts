@@ -76,10 +76,12 @@ export const NAVIGATION_PRESETS: readonly {
   },
 ]
 
-// PointerEvent.buttons bits.
-const LEFT_BUTTON = 1
-const RIGHT_BUTTON = 2
-const MIDDLE_BUTTON = 4
+/** The PointerEvent.buttons bit of the left (primary) button. */
+export const LEFT_BUTTON = 1
+/** The PointerEvent.buttons bit of the right (secondary) button. */
+export const RIGHT_BUTTON = 2
+/** The PointerEvent.buttons bit of the middle button. */
+export const MIDDLE_BUTTON = 4
 
 /** A camera gesture starts after this much pointer motion; below it, a press and release is a click (3.13). */
 export const GESTURE_THRESHOLD_PIXELS = 3

@@ -20,7 +20,7 @@ import {
   pickVerdict,
   type ConstraintType,
 } from '../../sketch/constraints'
-import { pointSelectionItem } from '../../sketch/hit'
+import { drawnPointItems, regionSelectionItem } from '../../sketch/hit'
 import { findingPoints, outlineProblems } from '../../sketch/issues'
 import { worldBounds } from '../../sketch/placement'
 import type { IdSource } from '../../sketch/recipes'
@@ -376,27 +376,6 @@ export type FinishSketchOptions = {
   readonly selectResult?: boolean
 }
 
-/** The selection item of a sketch's region, labeled by its position in the solution. */
-function regionSelectionItem(
-  sketchId: string,
-  solution: SketchSolution,
-  index: number,
-): SelectionItem | null {
-  const region = solution.regions[index]
-  return region === undefined
-    ? null
-    : {
-        key: `region:${sketchId}:${region.reference.key}`,
-        kind: 'sketch_region',
-        label: `Region ${String(index + 1)}`,
-        body: null,
-        feature: sketchId,
-        element: null,
-        sketchItem: { kind: 'region', sketch: sketchId, region },
-        origin: null,
-      }
-}
-
 /**
  * What finishing a sketch selects (3.16.11): its region when it has exactly one; without regions,
  * its non-construction point entities; otherwise, when it has entities, the sketch feature.
@@ -407,15 +386,13 @@ function finishedSketchSelection(
   solution: SketchSolution,
 ): SelectionItem[] {
   if (solution.regions.length === 1) {
-    const region = regionSelectionItem(sketchId, solution, 0)
-    return region === null ? [] : [region]
+    const [region] = solution.regions
+    return region === undefined ? [] : [regionSelectionItem(sketchId, region, 'Region 1')]
   }
   if (solution.regions.length === 0) {
-    const points = solution.entities.filter(
-      (entity) => entity.type === 'point' && entity.construction !== true,
-    )
+    const points = drawnPointItems(sketchId, solution)
     if (points.length > 0) {
-      return points.map((point) => pointSelectionItem(sketchId, point.id))
+      return points
     }
   }
   if (solution.entities.length === 0 || documentOf(app) === null) {

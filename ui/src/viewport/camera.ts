@@ -240,10 +240,28 @@ export function depthRange(
   return { near, far: Math.max(far, near + MINIMUM_DEPTH_SPAN) }
 }
 
-export function visibleHeightAtTarget(camera: Camera): number {
+/** The visible height at a view depth: the frustum's height there in perspective, the fixed height in orthographic. */
+export function visibleHeightAtDepth(camera: Camera, depth: number): number {
   return camera.projection === 'perspective'
-    ? 2 * camera.distance * Math.tan(camera.verticalFieldOfView / 2)
+    ? 2 * depth * Math.tan(camera.verticalFieldOfView / 2)
     : camera.orthographicHeight
+}
+
+export function visibleHeightAtTarget(camera: Camera): number {
+  return visibleHeightAtDepth(camera, camera.distance)
+}
+
+/** The world offset from the view axis of a cursor in normalized device coordinates, where the visible half height is `halfHeight`. */
+function cursorOffset(
+  camera: Camera,
+  cursorNormalized: readonly [number, number],
+  halfHeight: number,
+  aspect: number,
+): Vector3 {
+  return add(
+    scale(right(camera), cursorNormalized[0] * halfHeight * aspect),
+    scale(up(camera), cursorNormalized[1] * halfHeight),
+  )
 }
 
 /** The standard view whose forward and up vectors are both within 1e-6 rad of the camera's, else 'custom'. */
@@ -310,11 +328,7 @@ export function zoomAt(
   cursorNormalized: readonly [number, number],
   aspect: number,
 ): Camera {
-  const halfHeight = visibleHeightAtTarget(camera) / 2
-  const offset = add(
-    scale(right(camera), cursorNormalized[0] * halfHeight * aspect),
-    scale(up(camera), cursorNormalized[1] * halfHeight),
-  )
+  const offset = cursorOffset(camera, cursorNormalized, visibleHeightAtTarget(camera) / 2, aspect)
   if (camera.projection === 'perspective') {
     const distance = clampZoomExtent(camera.distance * factor)
     const target = addScaled(camera.target, offset, 1 - distance / camera.distance)
@@ -396,18 +410,27 @@ export function pointAtDepth(
   aspect: number,
   depth: number,
 ): Vector3 {
-  const halfHeight =
-    camera.projection === 'perspective'
-      ? depth * Math.tan(camera.verticalFieldOfView / 2)
-      : camera.orthographicHeight / 2
   const onAxis = addScaled(eye(camera), forward(camera), depth)
   return add(
     onAxis,
-    add(
-      scale(right(camera), cursorNormalized[0] * halfHeight * aspect),
-      scale(up(camera), cursorNormalized[1] * halfHeight),
-    ),
+    cursorOffset(camera, cursorNormalized, visibleHeightAtDepth(camera, depth) / 2, aspect),
   )
+}
+
+/** The width-to-height ratio of a canvas, or 1 while either side is empty. */
+export function aspectOf(size: { readonly width: number; readonly height: number }): number {
+  return size.width > 0 && size.height > 0 ? size.width / size.height : 1
+}
+
+/** The CSS pixel position in a canvas of a point in normalized device coordinates. */
+export function canvasPosition(
+  position: { readonly x: number; readonly y: number },
+  size: { readonly width: number; readonly height: number },
+): { x: number; y: number } {
+  return {
+    x: ((position.x + 1) / 2) * size.width,
+    y: ((1 - position.y) / 2) * size.height,
+  }
 }
 
 /** A world point in normalized device coordinates with its view depth, or null when it is not in front of a perspective eye. */
@@ -421,10 +444,7 @@ export function normalizedPosition(
   if (camera.projection === 'perspective' && depth <= 0) {
     return null
   }
-  const halfHeight =
-    camera.projection === 'perspective'
-      ? depth * Math.tan(camera.verticalFieldOfView / 2)
-      : camera.orthographicHeight / 2
+  const halfHeight = visibleHeightAtDepth(camera, depth) / 2
   return {
     x: dot(relative, right(camera)) / (halfHeight * aspect),
     y: dot(relative, up(camera)) / halfHeight,

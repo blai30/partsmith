@@ -21,14 +21,9 @@ import { createWebGl2Backend } from './backend'
 import { orbit, type Vector3 } from './camera'
 import { createViewportController, type RenderedFrame, type ViewportController } from './controller'
 import { keyNavigation } from './navigation'
-import { orientElement } from './overlay'
-import {
-  createScene,
-  drawnOriginPlanes,
-  originPlaneLabelAnchor,
-  planeExtent,
-  type Scene,
-} from './scene'
+import { orientElement, visiblePosition } from './overlay'
+import { drawnOriginPlanes, originPlaneLabelAnchor, planeExtent } from './planes'
+import { createScene, type Scene } from './scene'
 import { defaultSectionOffset, type SectionPlane } from './section'
 import { ViewCube } from './ViewCube'
 import { viewCubeRotorMatrix } from './view-cube'
@@ -74,23 +69,20 @@ const AXIS_LABELS = ['X', 'Y', 'Z'] as const
 
 /** The axis labels at the positive ends of the visible origin axes, anchored in the overlay (3.12). */
 function AxisLabels({ scene }: { readonly scene: Scene }) {
-  const labels = useAppState((state) => {
-    if (state.context === 'sketch' && state.sketch?.sketchId !== null) {
-      return ''
-    }
-    const axes = AXIS_LABELS.filter((axis) => isSessionVisible(state, `origin:${axis}`))
-    // The bounds are needed only for shown axes; this selector runs on every store change.
-    if (axes.length === 0) {
-      return ''
-    }
-    const half = planeExtent(scene.visibleBounds(state)).side / 2
-    return axes.map((axis) => `${axis}:${String(half)}`).join(' ')
-  })
-  if (labels === '') {
-    return null
-  }
-  return labels.split(' ').map((entry) => {
-    const [axis = 'X', reach = '0'] = entry.split(':')
+  // Compared by value: the selectors run on every store change.
+  const axes = useAppState(
+    useShallow((state) =>
+      state.context === 'sketch' && state.sketch?.sketchId !== null
+        ? []
+        : AXIS_LABELS.filter((axis) => isSessionVisible(state, `origin:${axis}`)),
+    ),
+  )
+  // The bounds are needed only for shown axes.
+  const half = useAppState((state) =>
+    axes.length === 0 ? 0 : planeExtent(scene.visibleBounds(state)).side / 2,
+  )
+  return axes.map((axis) => {
+    const reach = String(half)
     const anchor = axis === 'X' ? `${reach},0,0` : axis === 'Y' ? `0,${reach},0` : `0,0,${reach}`
     return (
       <span
@@ -289,14 +281,8 @@ function placeFindingMarker(
   if (marker === null) {
     return
   }
-  const position = point === null ? null : frame.project(point)
-  const inside =
-    position !== null &&
-    position.x >= 0 &&
-    position.y >= 0 &&
-    position.x <= frame.size.width &&
-    position.y <= frame.size.height
-  if (!inside) {
+  const position = visiblePosition(point === null ? null : frame.project(point), frame.size)
+  if (position === null) {
     marker.setAttribute('display', 'none')
     return
   }
@@ -320,7 +306,7 @@ export function Viewport({ children }: ViewportProps) {
   const navigation = useAppState((state) => state.settings.navigation)
   const section = useAppState((state) => state.view.section)
   const filter = useAppState((state) => state.view.filter)
-  const sketchMode = useAppState((state) => state.context === 'sketch' && state.sketch !== null)
+  const sketchSession = useAppState((state) => state.context === 'sketch' && state.sketch !== null)
   const hoverKind = useAppState((state) => state.hover?.kind ?? 'none')
   const hoverKey = useAppState((state) => state.hover?.key ?? null)
   const selectionCount = useAppState((state) => state.selection.length)
@@ -523,7 +509,7 @@ export function Viewport({ children }: ViewportProps) {
       <ViewportControls
         orthographic={projection === 'orthographic'}
         section={section === null ? null : { plane: section.plane, flipped: section.flipped }}
-        filter={sketchMode ? null : filter}
+        filter={sketchSession ? null : filter}
         shortcuts={{
           fit: formatShortcut('F6', platform),
           projection: formatShortcut('Shift+P', platform),

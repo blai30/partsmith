@@ -75,47 +75,48 @@ const HISTORY_KINDS: [SubShapeKind; 3] =
     [SubShapeKind::Face, SubShapeKind::Edge, SubShapeKind::Vertex];
 
 impl History {
+    /// Every input element of `kinds` with its fate, in input, kind and index order: the order of
+    /// `Origin` when `kinds` are in sort order, so lists collected from it are sorted.
+    fn fates<'history>(
+        &'history self,
+        kinds: &'history [SubShapeKind],
+    ) -> impl Iterator<Item = (Origin, &'history ElementFate)> {
+        self.inputs
+            .iter()
+            .enumerate()
+            .flat_map(move |(input, history)| {
+                kinds.iter().flat_map(move |&kind| {
+                    history
+                        .fates(kind)
+                        .iter()
+                        .enumerate()
+                        .map(move |(position, fate)| {
+                            let element = SubShape {
+                                kind,
+                                index: element_index(position),
+                            };
+                            (Origin { input, element }, fate)
+                        })
+                })
+            })
+    }
+
     /// Input elements whose `modified` list contains output element `index` of `kind`, sorted.
     pub fn modified_from(&self, kind: SubShapeKind, index: u32) -> Vec<Origin> {
-        let mut origins = Vec::new();
-        for (input, history) in self.inputs.iter().enumerate() {
-            for (position, fate) in history.fates(kind).iter().enumerate() {
-                if fate.modified.binary_search(&index).is_ok() {
-                    origins.push(Origin {
-                        input,
-                        element: SubShape {
-                            kind,
-                            index: element_index(position),
-                        },
-                    });
-                }
-            }
-        }
-        origins
+        self.fates(&[kind])
+            .filter(|(_, fate)| fate.modified.binary_search(&index).is_ok())
+            .map(|(origin, _)| origin)
+            .collect()
     }
 
     /// Input elements (any kind) whose `generated` list contains output element `index` of
     /// `kind`, sorted.
     pub fn generated_from(&self, kind: SubShapeKind, index: u32) -> Vec<Origin> {
         let wanted = SubShape { kind, index };
-        let mut origins = Vec::new();
-        for (input, history) in self.inputs.iter().enumerate() {
-            for source_kind in HISTORY_KINDS {
-                for (position, fate) in history.fates(source_kind).iter().enumerate() {
-                    if fate.generated.binary_search(&wanted).is_ok() {
-                        origins.push(Origin {
-                            input,
-                            element: SubShape {
-                                kind: source_kind,
-                                index: element_index(position),
-                            },
-                        });
-                    }
-                }
-            }
-        }
-        origins.sort_unstable();
-        origins
+        self.fates(&HISTORY_KINDS)
+            .filter(|(_, fate)| fate.generated.binary_search(&wanted).is_ok())
+            .map(|(origin, _)| origin)
+            .collect()
     }
 }
 
@@ -153,7 +154,7 @@ fn fates_from_ffi(
 }
 
 /// Converts the shim's history of every input.
-pub(crate) fn history_from_ffi(
+fn history_from_ffi(
     operation: Operation,
     inputs: Vec<sys::InputHistoryData>,
 ) -> Result<History, KernelError> {

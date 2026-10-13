@@ -1,7 +1,7 @@
 //! Element geometry and topology queries (kernel spec sections 2.10 and 3.6).
 
 use crate::error::{KernelError, Operation};
-use crate::ffi::bridge as sys;
+use crate::ffi::{bridge as sys, split_at_offsets};
 use crate::values::{Point, Vector};
 
 /// The geometric kind of a face, edge or vertex (mirrors `partsmith_naming::GeometryKind`).
@@ -173,9 +173,10 @@ impl GeometryKind {
             sys::GeometryType::OtherCurve => GeometryKind::OtherCurve,
             sys::GeometryType::Point => GeometryKind::Point,
             _ => {
-                return Err(KernelError::internal(
+                return Err(KernelError::unknown_from_shim(
                     Operation::Query,
-                    format!("the shim returned the unknown geometry kind {}", kind.repr),
+                    "geometry kind",
+                    kind.repr,
                 ));
             }
         };
@@ -203,12 +204,10 @@ impl EdgeNormals {
             sys::ContinuityType::G1OrBetter => Some(Continuity::G1OrBetter),
             sys::ContinuityType::Absent => None,
             _ => {
-                return Err(KernelError::internal(
+                return Err(KernelError::unknown_from_shim(
                     Operation::Query,
-                    format!(
-                        "the shim returned the unknown continuity {}",
-                        data.continuity.repr
-                    ),
+                    "continuity",
+                    data.continuity.repr,
                 ));
             }
         };
@@ -230,16 +229,9 @@ impl EdgeNormals {
 
 /// Splits compressed index lists into one `Vec` per element.
 fn split_lists(lists: &sys::IndexLists) -> Result<Vec<Vec<u32>>, KernelError> {
-    lists
-        .offsets
-        .windows(2)
-        .map(|bounds| {
-            let range = bounds[0] as usize..bounds[1] as usize;
-            lists.values.get(range).map(<[u32]>::to_vec).ok_or_else(|| {
-                KernelError::internal(Operation::Query, "the shim returned malformed index lists")
-            })
-        })
-        .collect()
+    split_at_offsets(&lists.offsets, &lists.values).ok_or_else(|| {
+        KernelError::internal(Operation::Query, "the shim returned malformed index lists")
+    })
 }
 
 /// Checks that two per-element lists describe the same number of elements.

@@ -2,7 +2,6 @@
 // 3.4.13).
 #include <algorithm>
 #include <cmath>
-#include <sstream>
 #include <vector>
 
 #include <BRepAlgoAPI_Section.hxx>
@@ -12,15 +11,12 @@
 #include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepBuilderAPI_Transform.hxx>
 #include <BRepGProp.hxx>
-#include <BRep_Builder.hxx>
 #include <Bnd_Box.hxx>
 #include <ElSLib.hxx>
 #include <GProp_GProps.hxx>
 #include <TopExp.hxx>
-#include <TopExp_Explorer.hxx>
 #include <TopLoc_Location.hxx>
 #include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
-#include <TopoDS_Compound.hxx>
 #include <gp_Pln.hxx>
 #include <gp_Trsf.hxx>
 
@@ -37,19 +33,6 @@ namespace {
 constexpr ElementKind kKinds[] = {ElementKind::Solid, ElementKind::Face, ElementKind::Edge,
                                   ElementKind::Vertex};
 
-// True when the shape contains a solid.
-bool has_solid(const TopoDS_Shape &shape) { return TopExp_Explorer(shape, TopAbs_SOLID).More(); }
-
-// The failure message of a Boolean-family algorithm.
-template <class Algorithm>
-void require_no_errors(const Algorithm &algorithm, const char *name) {
-  if (algorithm.HasErrors()) {
-    std::ostringstream alerts;
-    algorithm.DumpErrors(alerts);
-    raise_not_done(std::string(name) + " failed: " + alerts.str());
-  }
-}
-
 // A planar face on `plane` that covers the projection of the shape's bounding box.
 TopoDS_Face covering_face(const TopoDS_Shape &shape, const gp_Pln &plane) {
   Bnd_Box box;
@@ -63,6 +46,84 @@ TopoDS_Face covering_face(const TopoDS_Shape &shape, const gp_Pln &plane) {
   BRepBuilderAPI_MakeFace maker(plane, u_center - half_size, u_center + half_size,
                                 v_center - half_size, v_center + half_size);
   return maker.Face();
+}
+
+// The solids of `split_solids` copied apart, so that the pieces share no sub-shapes, with the
+// copies' history merged into `history`.
+TopoDS_Shape separated_pieces(const TopoDS_Shape &split_solids,
+                              const Handle(BRepTools_History) &history) {
+  TopTools_IndexedMapOfShape pieces;
+  TopExp::MapShapes(split_solids, TopAbs_SOLID, pieces);
+  Handle(BRepTools_History) copies = new BRepTools_History;
+  std::vector<TopoDS_Shape> separated;
+  for (int piece = 1; piece <= pieces.Extent(); ++piece) {
+    BRepBuilderAPI_Copy copier(pieces(piece), Standard_True, Standard_False);
+    separated.push_back(copier.Shape());
+    TopTools_IndexedMapOfShape elements;
+    TopExp::MapShapes(pieces(piece), elements);
+    for (int element = 1; element <= elements.Extent(); ++element) {
+      if (!BRepTools_History::IsSupportedType(elements(element))) {
+        continue;
+      }
+      for (const TopoDS_Shape &image : copier.Modified(elements(element))) {
+        copies->AddModified(elements(element), image);
+      }
+    }
+  }
+  merge_history(history, copies);
+  return solids_only(compound_of(separated));
+}
+
+// For each solid of `pieces`, whether its center of mass lies on the side of `plane` its normal
+// points to.
+rust::Vec<bool> solid_sides(const Shape &pieces, const gp_Pln &plane) {
+  const gp_XYZ origin = plane.Location().XYZ();
+  const gp_XYZ normal = plane.Axis().Direction().XYZ();
+  rust::Vec<bool> positive;
+  for (int solid = 1; solid <= pieces.solids().Extent(); ++solid) {
+    GProp_GProps properties;
+    BRepGProp::VolumeProperties(pieces.solids()(solid), properties);
+    positive.push_back((properties.CentreOfMass().XYZ() - origin).Dot(normal) > 0.0);
+  }
+  return positive;
+}
+
+// The faces of `pieces` created on the split plane, ascending, each with the side of the solid it
+// bounds: the images of the splitting tool, except those that are also images of a face of the
+// input (`input`), since the splitter merges an input face lying on the plane with the tool.
+rust::Vec<SectionFaceData> section_faces(const Shape &pieces,
+                                         const TopTools_ListOfShape &tool_images,
+                                         const InputHistoryData &input,
+                                         const rust::Vec<bool> &solid_positive) {
+  std::vector<bool> input_images(static_cast<std::size_t>(pieces.faces().Extent()) + 1, false);
+  for (const FateData &fate : input.faces) {
+    for (std::uint32_t face : fate.modified) {
+      input_images[static_cast<std::size_t>(face)] = true;
+    }
+  }
+  TopTools_IndexedDataMapOfShapeListOfShape face_solids;
+  TopExp::MapShapesAndUniqueAncestors(pieces.get(), TopAbs_FACE, TopAbs_SOLID, face_solids);
+  std::vector<std::pair<std::uint32_t, bool>> sections;
+  for (const TopoDS_Shape &image : tool_images) {
+    const int face = pieces.faces().FindIndex(image);
+    if (face == 0 || input_images[static_cast<std::size_t>(face)]) {
+      continue;
+    }
+    const TopTools_ListOfShape *solids = face_solids.Seek(image);
+    if (solids == nullptr || solids->IsEmpty()) {
+      continue;
+    }
+    const int solid = pieces.solids().FindIndex(solids->First());
+    sections.emplace_back(static_cast<std::uint32_t>(face),
+                          solid > 0 && solid_positive[static_cast<std::size_t>(solid) - 1]);
+  }
+  std::sort(sections.begin(), sections.end());
+  sections.erase(std::unique(sections.begin(), sections.end()), sections.end());
+  rust::Vec<SectionFaceData> faces;
+  for (const auto &[face, positive] : sections) {
+    faces.push_back(SectionFaceData{face, positive});
+  }
+  return faces;
 }
 
 }  // namespace
@@ -91,9 +152,7 @@ OpResultData transform(const Shape &shape, rust::Slice<const double> matrix) {
     // Mirrors and scales transform a copy of the geometry.
     BRepBuilderAPI_Transform transformer(shape.get(), transformation, Standard_True);
     result = transformer.Shape();
-    TopTools_ListOfShape arguments;
-    arguments.Append(shape.get());
-    merge_history(history, new BRepTools_History(arguments, transformer));
+    merge_history(history, history_of(shape.get(), transformer));
     if (has_solid(shape.get())) {
       require_solid(result, "BRepBuilderAPI_Transform");
       // Every element is a transformed copy, so the whole result is checked.
@@ -116,9 +175,7 @@ SplitData split(const Shape &shape, const Frame &plane_frame) {
   tools.Append(tool);
   splitter.SetArguments(arguments);
   splitter.SetTools(tools);
-  splitter.SetNonDestructive(Standard_True);
-  splitter.SetRunParallel(Standard_False);
-  splitter.SetToFillHistory(Standard_True);
+  set_boolean_options(splitter);
   splitter.Build();
   require_no_errors(splitter, "BRepAlgoAPI_Splitter");
   Handle(BRepTools_History) history = new BRepTools_History;
@@ -129,113 +186,39 @@ SplitData split(const Shape &shape, const Frame &plane_frame) {
   // The pieces are checked as the splitter built them, where the faces the plane does not cut
   // are still the input's own (kernel spec section 3.5); copying keeps them valid.
   const bool valid = changed_part_valid(split_solids, check_inputs);
-  // Copy each piece on its own so the pieces share no sub-shapes.
-  TopTools_IndexedMapOfShape pieces;
-  TopExp::MapShapes(split_solids, TopAbs_SOLID, pieces);
-  Handle(BRepTools_History) copies = new BRepTools_History;
-  BRep_Builder builder;
-  TopoDS_Compound compound;
-  builder.MakeCompound(compound);
-  for (int piece = 1; piece <= pieces.Extent(); ++piece) {
-    BRepBuilderAPI_Copy copier(pieces(piece), Standard_True, Standard_False);
-    builder.Add(compound, copier.Shape());
-    TopTools_IndexedMapOfShape elements;
-    TopExp::MapShapes(pieces(piece), elements);
-    for (int element = 1; element <= elements.Extent(); ++element) {
-      if (!BRepTools_History::IsSupportedType(elements(element))) {
-        continue;
-      }
-      for (const TopoDS_Shape &image : copier.Modified(elements(element))) {
-        copies->AddModified(elements(element), image);
-      }
-    }
-  }
-  merge_history(history, copies);
-  TopoDS_Shape result = solids_only(compound);
+  TopoDS_Shape result = separated_pieces(split_solids, history);
   if (!valid) {
     // Repair the separated pieces: ShapeFix_Shape merges solids that share a face.
     ensure_valid(result, history, CheckInputs(), "BRepAlgoAPI_Splitter");
     result = solids_only(result);
   }
 
-  std::shared_ptr<Shape> pieces_shape = make_shape(result);
-  const Shape &output = *pieces_shape;
-  const gp_XYZ origin = plane.Location().XYZ();
-  const gp_XYZ normal = plane.Axis().Direction().XYZ();
-  rust::Vec<bool> solid_positive;
-  for (int solid = 1; solid <= output.solids().Extent(); ++solid) {
-    GProp_GProps properties;
-    BRepGProp::VolumeProperties(output.solids()(solid), properties);
-    solid_positive.push_back((properties.CentreOfMass().XYZ() - origin).Dot(normal) > 0.0);
-  }
-
-  rust::Vec<InputHistoryData> inputs = history_data(history, {shape.get()}, output);
-  // A face of the input lying on the plane is also an image of the tool, since the splitter
-  // merges coincident faces; it was not created on the plane, so it is no section face.
-  std::vector<bool> input_images(static_cast<std::size_t>(output.faces().Extent()) + 1, false);
-  for (const FateData &fate : inputs[0].faces) {
-    for (std::uint32_t face : fate.modified) {
-      input_images[static_cast<std::size_t>(face)] = true;
-    }
-  }
-
-  TopTools_IndexedDataMapOfShapeListOfShape face_solids;
-  TopExp::MapShapesAndUniqueAncestors(result, TopAbs_FACE, TopAbs_SOLID, face_solids);
-  std::vector<std::pair<std::uint32_t, bool>> sections;
-  for (const TopoDS_Shape &image : history->Modified(tool)) {
-    const int face = output.faces().FindIndex(image);
-    if (face == 0 || input_images[static_cast<std::size_t>(face)]) {
-      continue;
-    }
-    const TopTools_ListOfShape *solids = face_solids.Seek(image);
-    if (solids == nullptr || solids->IsEmpty()) {
-      continue;
-    }
-    const int solid = output.solids().FindIndex(solids->First());
-    sections.emplace_back(static_cast<std::uint32_t>(face),
-                          solid > 0 && solid_positive[static_cast<std::size_t>(solid) - 1]);
-  }
-  std::sort(sections.begin(), sections.end());
-  sections.erase(std::unique(sections.begin(), sections.end()), sections.end());
-  rust::Vec<SectionFaceData> section_faces;
-  for (const auto &[face, positive] : sections) {
-    section_faces.push_back(SectionFaceData{face, positive});
-  }
-
-  return SplitData{OpResultData{std::move(pieces_shape), std::move(inputs)},
-                   std::move(solid_positive), std::move(section_faces)};
+  std::shared_ptr<Shape> pieces = make_shape(result);
+  rust::Vec<bool> solid_positive = solid_sides(*pieces, plane);
+  rust::Vec<InputHistoryData> inputs = history_data(history, {shape.get()}, *pieces);
+  rust::Vec<SectionFaceData> sections =
+      section_faces(*pieces, history->Modified(tool), inputs[0], solid_positive);
+  return SplitData{OpResultData{std::move(pieces), std::move(inputs)}, std::move(solid_positive),
+                   std::move(sections)};
 }
 
 std::shared_ptr<Shape> section(const Shape &shape, const Frame &plane_frame) {
-  BRep_Builder builder;
-  TopoDS_Compound edges;
-  builder.MakeCompound(edges);
   if (shape.faces().Extent() == 0) {
-    return make_shape(edges);
+    return make_shape(compound_of({}));
   }
   BRepAlgoAPI_Section section(shape.get(), gp_Pln(to_ax3(plane_frame)), Standard_False);
   section.Approximation(Standard_True);
-  section.SetNonDestructive(Standard_True);
-  section.SetRunParallel(Standard_False);
+  set_boolean_options(section);
   section.Build();
   require_no_errors(section, "BRepAlgoAPI_Section");
   TopTools_IndexedMapOfShape curves;
   TopExp::MapShapes(section.Shape(), TopAbs_EDGE, curves);
-  for (int index = 1; index <= curves.Extent(); ++index) {
-    builder.Add(edges, curves(index));
-  }
-  return make_shape(edges);
+  return make_shape(compound_of(std::vector<TopoDS_Shape>(curves.cbegin(), curves.cend())));
 }
 
 OpResultData compound(rust::Slice<const ShapeHandle> shapes) {
   const std::vector<TopoDS_Shape> inputs = shapes_of(shapes);
-  BRep_Builder builder;
-  TopoDS_Compound result;
-  builder.MakeCompound(result);
-  for (const TopoDS_Shape &shape : inputs) {
-    builder.Add(result, shape);
-  }
-  return op_result(result, Handle(BRepTools_History)(), inputs);
+  return op_result(compound_of(inputs), Handle(BRepTools_History)(), inputs);
 }
 
 }  // namespace occt

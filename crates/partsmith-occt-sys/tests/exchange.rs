@@ -4,8 +4,8 @@
 mod common;
 
 use common::{
-    assert_argument_error, assert_invalid_input, assert_near, assert_relative, box_primitive,
-    cube_a, cylinder_primitive, face_with_role, volume,
+    assert_argument_error, assert_invalid_input, assert_leaves_unchanged, assert_near,
+    assert_relative, box_primitive, cube_a, cylinder_primitive, face_with_role, volume,
 };
 use partsmith_occt_sys::{
     Color, EdgeRadius, KernelErrorKind, Operation, PrimitiveFace, Shape, StepBody, SubShapeKind,
@@ -334,11 +334,10 @@ fn equal_shapes_give_equal_brep_bytes() {
 #[test]
 fn step_writing_leaves_the_bodies_unchanged() {
     let shape = box_primitive().shape;
-    let before = shape.to_brep().expect("BRep bytes");
 
-    write_step(&[body(shape.clone(), "Bracket")]).expect("written");
-
-    assert!(shape.to_brep().expect("BRep bytes") == before);
+    assert_leaves_unchanged(&shape, || {
+        write_step(&[body(shape.clone(), "Bracket")]).expect("written");
+    });
 }
 
 #[test]

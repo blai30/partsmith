@@ -17,9 +17,11 @@ import { formatNumber } from '../expression/format'
 import type {
   Dimension,
   DocHandle,
+  Placement,
   PointRef,
   SketchConstraint,
   SketchSolution,
+  Units,
 } from '../generated/protocol'
 import { MESSAGES } from '../messages'
 import { editingSession, type EditingSession } from '../state/selectors'
@@ -184,8 +186,6 @@ export function sketchStepHint(step: SketchStep, platform: Platform): string | n
       }
   }
 }
-
-// Profile problems.
 
 // The overlay the controller drives.
 
@@ -471,6 +471,14 @@ function dimensionPicked(
   }
 }
 
+/** A selection box dragged rightward selects what it holds; leftward, what it touches (3.16.9). */
+function boxMode(selecting: {
+  readonly start: Vector2
+  readonly end: Vector2
+}): 'window' | 'crossing' {
+  return selecting.end[0] >= selecting.start[0] ? 'window' : 'crossing'
+}
+
 /** Creates the controller of the sketch being edited; it lives as long as the sketch overlay. */
 export function createSketchController(options: SketchControllerOptions): SketchController {
   const { app, canvas } = options
@@ -526,19 +534,22 @@ export function createSketchController(options: SketchControllerOptions): Sketch
     readonly text: string
   }
 
-  type EditorBase = {
-    readonly key: number
+  /** What an editor opens on: a new dimension's draft or a stored dimension, with its first value. */
+  type EditorOpening = (
+    | { readonly mode: 'new'; readonly draft: DimensionDraft }
+    | { readonly mode: 'edit'; readonly constraint: DimensionConstraint }
+  ) & {
     readonly text: string
     readonly reference: boolean
     readonly labelAt: Vector2
+  }
+
+  type Editor = EditorOpening & {
+    readonly key: number
     readonly problem: 'over_constrained' | 'unsolvable' | null
     readonly message: string | null
     readonly busy: boolean
   }
-
-  type Editor =
-    | (EditorBase & { readonly mode: 'new'; readonly draft: DimensionDraft })
-    | (EditorBase & { readonly mode: 'edit'; readonly constraint: DimensionConstraint })
 
   // Reading the state and the view.
 
@@ -564,41 +575,64 @@ export function createSketchController(options: SketchControllerOptions): Sketch
     return [event.clientX - rectangle.left, event.clientY - rectangle.top]
   }
 
-  /** The sketch point under a canvas pixel, or null when the view cannot reach the sketch plane. */
-  function toSketch(pixel: Vector2): Vector2 | null {
+  /** The camera, canvas size and sketch placement that map between the canvas and the sketch. */
+  function view(): {
+    readonly camera: Camera
+    readonly size: CanvasSize
+    readonly placement: Placement
+  } | null {
     const camera = app.viewport()?.getCamera() ?? null
     const solved = solution()
     return camera === null || solved === null
       ? null
-      : pixelToSketch(camera, canvasSize(), solved.placement, pixel)
+      : { camera, size: canvasSize(), placement: solved.placement }
+  }
+
+  /** The sketch point under a canvas pixel, or null when the view cannot reach the sketch plane. */
+  function toSketch(pixel: Vector2): Vector2 | null {
+    const mapping = view()
+    return mapping === null
+      ? null
+      : pixelToSketch(mapping.camera, mapping.size, mapping.placement, pixel)
   }
 
   function millimetersPerPixel(pixel: Vector2): number | null {
-    const camera = app.viewport()?.getCamera() ?? null
-    const solved = solution()
-    return camera === null || solved === null
+    const mapping = view()
+    return mapping === null
       ? null
-      : millimetersPerPixelAt(camera, canvasSize(), solved.placement, pixel)
+      : millimetersPerPixelAt(mapping.camera, mapping.size, mapping.placement, pixel)
   }
 
   /** Sketch millimeters per CSS pixel at the canvas center, for tessellation and label offsets. */
-  function centerPixelSize(solved: SketchSolution): number {
-    const camera: Camera | null = app.viewport()?.getCamera() ?? null
-    const size = canvasSize()
+  function centerPixelSize(): number {
+    const mapping = view()
+    if (mapping === null) {
+      return 1
+    }
+    const { camera, size, placement } = mapping
     const center: Vector2 = [size.width / 2, size.height / 2]
-    return (
-      (camera === null ? null : millimetersPerPixelAt(camera, size, solved.placement, center)) ?? 1
-    )
+    return millimetersPerPixelAt(camera, size, placement, center) ?? 1
   }
 
   function projector(): Projector | null {
-    const camera = app.viewport()?.getCamera() ?? null
-    const solved = solution()
-    const size = canvasSize()
-    if (camera === null || solved === null || !(size.width > 0) || !(size.height > 0)) {
+    const mapping = view()
+    if (mapping === null || !(mapping.size.width > 0) || !(mapping.size.height > 0)) {
       return null
     }
-    return (point) => sketchToPixel(camera, size, solved.placement, point)
+    const { camera, size, placement } = mapping
+    return (point) => sketchToPixel(camera, size, placement, point)
+  }
+
+  function documentUnits(): Units {
+    return store.getState().document?.recipe.units ?? 'mm'
+  }
+
+  /** The stored constraint with this id of the edited sketch. */
+  function storedConstraint(id: string): SketchConstraint | undefined {
+    const session = current()
+    return session === null
+      ? undefined
+      : storedConstraints(store.getState(), session.sketchId).find((stored) => stored.id === id)
   }
 
   /** What the drawing tools read at a canvas pixel. */
@@ -619,8 +653,11 @@ export function createSketchController(options: SketchControllerOptions): Sketch
     }
   }
 
-  /** The suppression key (Ctrl, or Cmd on macOS) of a pointer or key event (3.16.5). */
-  function suppressing(event: MouseEvent | KeyboardEvent): boolean {
+  /**
+   * Whether an event holds the primary modifier (Ctrl, or Cmd on macOS): it suppresses inference
+   * (3.16.5) and makes the undo chord.
+   */
+  function primaryModifier(event: MouseEvent | KeyboardEvent): boolean {
     return app.platform.operatingSystem === 'mac' ? event.metaKey : event.ctrlKey
   }
 
@@ -695,8 +732,7 @@ export function createSketchController(options: SketchControllerOptions): Sketch
     if (placed === null || !isDimension(placed.constraint)) {
       return null
     }
-    const units = store.getState().document?.recipe.units ?? 'mm'
-    return dimensionLabelText(placed.constraint, placed.value, units)
+    return dimensionLabelText(placed.constraint, placed.value, documentUnits())
   }
 
   function editorModel(): DimensionEditorModel | null {
@@ -751,7 +787,7 @@ export function createSketchController(options: SketchControllerOptions): Sketch
       construction: session.construction,
       placing: placingText(),
       editor: editorModel(),
-      box: box === null ? null : box.end[0] >= box.start[0] ? 'window' : 'crossing',
+      box: box === null ? null : boxMode(box),
       hovered,
     }
   }
@@ -778,8 +814,8 @@ export function createSketchController(options: SketchControllerOptions): Sketch
       return EMPTY_PAINT
     }
     const scale = uiScale()
-    const units = state.document?.recipe.units ?? 'mm'
-    const pixelSize = centerPixelSize(solved)
+    const units = documentUnits()
+    const pixelSize = centerPixelSize()
     const tolerance = TESSELLATION_PIXELS * pixelSize
     const constraints = storedConstraints(state, session.sketchId)
 
@@ -1002,15 +1038,20 @@ export function createSketchController(options: SketchControllerOptions): Sketch
     inputErrors = {}
   }
 
+  /** Cancels the point drag in progress; true when there was one. */
+  function cancelDrag(): boolean {
+    if (drag === null) {
+      return false
+    }
+    const ending = drag
+    drag = null
+    ending.cancel().catch(report)
+    return true
+  }
+
   /** Cancels the operation in progress; true when there was one (the Esc ladder's step 2). */
   function cancelOperation(): boolean {
-    let cancelled = false
-    if (drag !== null) {
-      const ending = drag
-      drag = null
-      ending.cancel().catch(report)
-      cancelled = true
-    }
+    let cancelled = cancelDrag()
     if (box !== null) {
       box = null
       cancelled = true
@@ -1038,11 +1079,7 @@ export function createSketchController(options: SketchControllerOptions): Sketch
 
   /** Activating another tool, or leaving the sketch, cancels the operation in progress (3.16.3). */
   function resetOperation(): void {
-    if (drag !== null) {
-      const ending = drag
-      drag = null
-      ending.cancel().catch(report)
-    }
+    cancelDrag()
     box = null
     press = null
     draw = IDLE
@@ -1155,21 +1192,20 @@ export function createSketchController(options: SketchControllerOptions): Sketch
 
   // The dimension editor.
 
-  function openNewEditor(draft: DimensionDraft, solved: SketchSolution): void {
-    const units = store.getState().document?.recipe.units ?? 'mm'
-    const { value } = draftPreview(draft, solved)
+  function openEditor(opening: EditorOpening): void {
     editorKey += 1
-    editor = {
-      key: editorKey,
+    editor = { ...opening, key: editorKey, problem: null, message: null, busy: false }
+  }
+
+  function openNewEditor(draft: DimensionDraft, solved: SketchSolution): void {
+    const { value } = draftPreview(draft, solved)
+    openEditor({
       mode: 'new',
       draft,
       labelAt: draft.labelAt,
-      text: formatNumber(value, dimensionUnit(draft.type), units),
+      text: formatNumber(value, dimensionUnit(draft.type), documentUnits()),
       reference: false,
-      problem: null,
-      message: null,
-      busy: false,
-    }
+    })
     selectInSketch(app, draft.picks, 'replace')
   }
 
@@ -1238,32 +1274,22 @@ export function createSketchController(options: SketchControllerOptions): Sketch
   }
 
   function editDimension(id: string): void {
-    const state = store.getState()
-    const session = editingSession(state)
     const solved = solution()
-    const constraint =
-      session === null
-        ? undefined
-        : storedConstraints(state, session.sketchId).find((stored) => stored.id === id)
+    const constraint = storedConstraint(id)
     if (solved === null || constraint === undefined || !isDimension(constraint)) {
       return
     }
-    const pixelSize = centerPixelSize(solved)
+    const pixelSize = centerPixelSize()
     draw = IDLE
     clearTyped()
     picking = DIMENSION_START
-    editorKey += 1
-    editor = {
-      key: editorKey,
+    openEditor({
       mode: 'edit',
       constraint,
       labelAt: labelPositions.get(id) ?? defaultLabelPosition(constraint, solved, pixelSize),
       text: constraint.expr,
       reference: constraint.driving === false,
-      problem: null,
-      message: null,
-      busy: false,
-    }
+    })
     refresh()
   }
 
@@ -1278,8 +1304,13 @@ export function createSketchController(options: SketchControllerOptions): Sketch
           if (texts[request.name] !== request.text) {
             return
           }
-          const units = store.getState().document?.recipe.units ?? 'mm'
-          const converted = convertForField(result, request.unit, units, request.name, request.text)
+          const converted = convertForField(
+            result,
+            request.unit,
+            documentUnits(),
+            request.name,
+            request.text,
+          )
           if (converted.ok) {
             typed = { ...typed, [request.name]: { text: request.text, value: converted.value } }
             inputErrors = { ...inputErrors, [request.name]: undefined }
@@ -1379,7 +1410,7 @@ export function createSketchController(options: SketchControllerOptions): Sketch
     }
     const pixel = canvasPixel(event)
     pointer = pixel
-    suppressed = suppressing(event)
+    suppressed = primaryModifier(event)
     press = {
       pointerId: event.pointerId,
       start: pixel,
@@ -1407,7 +1438,7 @@ export function createSketchController(options: SketchControllerOptions): Sketch
     }
     const pixel = canvasPixel(event)
     pointer = pixel
-    suppressed = suppressing(event)
+    suppressed = primaryModifier(event)
     if (press !== null && press.pointerId === event.pointerId) {
       if ((event.buttons & 1) === 0) {
         press = null
@@ -1448,12 +1479,11 @@ export function createSketchController(options: SketchControllerOptions): Sketch
     if (session === null || solved === null || project === null) {
       return
     }
-    const mode = ended.end[0] >= ended.start[0] ? 'window' : 'crossing'
     const taken = entitiesInBox(
       solved,
       project,
       screenBox(ended.start, ended.end),
-      mode,
+      boxMode(ended),
       TESSELLATION_PIXELS * (pixelSize ?? 1),
     )
     selectInSketch(
@@ -1471,7 +1501,7 @@ export function createSketchController(options: SketchControllerOptions): Sketch
     press = null
     const pixel = canvasPixel(event)
     pointer = pixel
-    suppressed = suppressing(event)
+    suppressed = primaryModifier(event)
     if (drag !== null) {
       const finishing = drag
       drag = null
@@ -1497,22 +1527,25 @@ export function createSketchController(options: SketchControllerOptions): Sketch
       return
     }
     press = null
-    if (drag !== null) {
-      const ending = drag
-      drag = null
-      ending.cancel().catch(report)
-    }
+    cancelDrag()
     box = null
     refresh()
   }
 
+  /** Ends the line chain in progress; false when there is none (3.16.4). */
+  function endLineChain(): boolean {
+    if (current()?.tool !== 'line' || draw.stage !== 'line') {
+      return false
+    }
+    draw = IDLE
+    clearTyped()
+    refresh()
+    return true
+  }
+
   function onDoubleClick(): void {
     // A double-click ends the line chain after its clicks committed the segment (3.16.4).
-    if (current()?.tool === 'line' && draw.stage === 'line') {
-      draw = IDLE
-      clearTyped()
-      refresh()
-    }
+    endLineChain()
   }
 
   function onPointerLeave(): void {
@@ -1580,26 +1613,19 @@ export function createSketchController(options: SketchControllerOptions): Sketch
       return
     }
     // Enter on the view ends the line chain; on a button it only activates the button (3.5).
-    if (
-      event.key === 'Enter' &&
-      onView(event.target) &&
-      current()?.tool === 'line' &&
-      draw.stage === 'line'
-    ) {
+    if (event.key === 'Enter' && onView(event.target) && endLineChain()) {
       event.preventDefault()
-      draw = IDLE
-      clearTyped()
-      refresh()
     }
   }
 
   function isUndoChord(event: KeyboardEvent): boolean {
-    const primary = app.platform.operatingSystem === 'mac' ? event.metaKey : event.ctrlKey
-    return primary && !event.shiftKey && !event.altKey && event.key.toLowerCase() === 'z'
+    return (
+      primaryModifier(event) && !event.shiftKey && !event.altKey && event.key.toLowerCase() === 'z'
+    )
   }
 
   function updateSuppressed(event: KeyboardEvent): void {
-    const next = suppressing(event)
+    const next = primaryModifier(event)
     if (next !== suppressed) {
       suppressed = next
       if (isDrawingTool(current()?.tool ?? null)) {
@@ -1680,16 +1706,11 @@ export function createSketchController(options: SketchControllerOptions): Sketch
     },
     selectConstraint(constraint, toggle) {
       const session = current()
-      const state = store.getState()
-      const stored =
-        session === null
-          ? undefined
-          : storedConstraints(state, session.sketchId).find((entry) => entry.id === constraint)
+      const stored = storedConstraint(constraint)
       if (session === null || stored === undefined) {
         return
       }
-      const units = state.document?.recipe.units ?? 'mm'
-      const title = constraintTitle(stored, solution(), units)
+      const title = constraintTitle(stored, solution(), documentUnits())
       selectInSketch(
         app,
         [constraintSelectionItem(session.sketchId, constraint, title)],
@@ -1714,7 +1735,7 @@ export function createSketchController(options: SketchControllerOptions): Sketch
       if (editor?.mode !== 'new' || solved === null || editor.draft.type === round) {
         return
       }
-      const units = store.getState().document?.recipe.units ?? 'mm'
+      const units = documentUnits()
       const before = draftPreview(editor.draft, solved)
       const draft: DimensionDraft = { ...editor.draft, type: round }
       const after = draftPreview(draft, solved)

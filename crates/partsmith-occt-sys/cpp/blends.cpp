@@ -32,7 +32,6 @@
 #include <TopExp_Explorer.hxx>
 #include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
 #include <TopoDS.hxx>
-#include <TopoDS_Compound.hxx>
 #include <TopoDS_Shell.hxx>
 #include <TopoDS_Solid.hxx>
 
@@ -146,14 +145,32 @@ std::string fillet_failure(const BRepFilletAPI_MakeFillet &fillet) {
 template <class Blend>
 OpResultData blend_result(Blend &blend, const Shape &copy, CheckInputs &inputs,
                           const char *algorithm) {
-  TopTools_ListOfShape arguments;
-  arguments.Append(copy.get());
-  const Handle(BRepTools_History) history = new BRepTools_History(arguments, blend);
-  // The result shares edges only with the copy, so the shim may store curves on planes in it.
-  inputs.settle();
-  store_plane_pcurves(blend.Shape());
+  const Handle(BRepTools_History) history = history_of(copy.get(), blend);
+  // The result shares edges only with the copy.
+  store_result_pcurves(inputs, blend.Shape());
   return op_result(finish_solid(blend.Shape(), history, inputs, algorithm), history,
                    {copy.get()});
+}
+
+// Fillets or chamfers edges of a copy of `shape`, so the input is never written to (kernel spec
+// section 3.1): checks the requests, adds each to the blend with `add`, checks the contours and
+// builds, raising StdFail_NotDone with the message `failure` gives when the blend is not done.
+template <class Blend, class Add, class Failure>
+OpResultData run_blend(const Shape &shape, const std::vector<BlendRequest> &requests,
+                       const char *algorithm, Add add, Failure failure) {
+  check_requests(shape, requests);
+  const Shape copy = copy_shape(shape);
+  CheckInputs inputs({copy.get()});
+  Blend blend(copy.get());
+  for (const BlendRequest &request : requests) {
+    add(blend, copy, request);
+  }
+  check_contours(blend, copy, requests, algorithm);
+  blend.Build();
+  if (!blend.IsDone()) {
+    raise_not_done(failure(blend));
+  }
+  return blend_result(blend, copy, inputs, algorithm);
 }
 
 // The name of an offset error.
@@ -212,6 +229,26 @@ void sort_by_rank(std::vector<Ranked<Part>> &parts) {
                    });
 }
 
+// Makes an empty shell or solid.
+void make_empty(const BRep_Builder &builder, TopoDS_Shell &shell) { builder.MakeShell(shell); }
+void make_empty(const BRep_Builder &builder, TopoDS_Solid &solid) { builder.MakeSolid(solid); }
+
+// A new shell or solid holding `parts` sorted by rank, closed like `original`, with the rank of
+// its first part, or `unranked` when it holds none.
+template <class Container, class Part>
+Ranked<Container> ranked_container(std::vector<Ranked<Part>> &parts,
+                                   const TopoDS_Shape &original, int unranked) {
+  sort_by_rank(parts);
+  const BRep_Builder builder;
+  Container container;
+  make_empty(builder, container);
+  for (const Ranked<Part> &part : parts) {
+    builder.Add(container, part.second);
+  }
+  container.Closed(original.Closed());
+  return {parts.empty() ? unranked : parts.front().first, container};
+}
+
 // The shell result rebuilt with its solids, shells and faces in an order that depends only on
 // the input (kernel spec sections 3.4.8 and 3.11). A face's rank is its position among the
 // faces that the faces of `copy` are, were modified into or generated, then those its edges
@@ -246,7 +283,6 @@ TopoDS_Shape ordered_by_input(const Shape &copy, const TopoDS_Shape &result,
     return rank > 0 ? rank : unranked;
   };
 
-  BRep_Builder builder;
   std::vector<Ranked<TopoDS_Solid>> solids;
   for (TopExp_Explorer solid(result, TopAbs_SOLID); solid.More(); solid.Next()) {
     std::vector<Ranked<TopoDS_Shell>> shells;
@@ -256,34 +292,17 @@ TopoDS_Shape ordered_by_input(const Shape &copy, const TopoDS_Shape &result,
       for (TopExp_Explorer face(shell.Current(), TopAbs_FACE); face.More(); face.Next()) {
         faces.emplace_back(rank_of(face.Current()), face.Current());
       }
-      sort_by_rank(faces);
-      TopoDS_Shell ordered;
-      builder.MakeShell(ordered);
-      for (const Ranked<TopoDS_Shape> &face : faces) {
-        builder.Add(ordered, face.second);
-      }
-      ordered.Closed(shell.Current().Closed());
-      shells.emplace_back(faces.empty() ? unranked : faces.front().first, ordered);
+      shells.push_back(ranked_container<TopoDS_Shell>(faces, shell.Current(), unranked));
     }
-    sort_by_rank(shells);
-    TopoDS_Solid ordered;
-    builder.MakeSolid(ordered);
-    for (const Ranked<TopoDS_Shell> &shell : shells) {
-      builder.Add(ordered, shell.second);
-    }
-    ordered.Closed(solid.Current().Closed());
-    solids.emplace_back(shells.empty() ? unranked : shells.front().first, ordered);
+    solids.push_back(ranked_container<TopoDS_Solid>(shells, solid.Current(), unranked));
   }
   sort_by_rank(solids);
-  if (solids.size() == 1) {
-    return solids.front().second;
-  }
-  TopoDS_Compound compound;
-  builder.MakeCompound(compound);
+  std::vector<TopoDS_Shape> ordered;
+  ordered.reserve(solids.size());
   for (const Ranked<TopoDS_Solid> &solid : solids) {
-    builder.Add(compound, solid.second);
+    ordered.push_back(solid.second);
   }
-  return compound;
+  return single_or_compound(ordered);
 }
 
 // One (surface, location) pair an edge's curve representations can refer to, with the index of
@@ -307,22 +326,32 @@ int surface_rank(const std::vector<SurfaceRank> &ranks, const Handle(Geom_Surfac
   return 0;
 }
 
-// The sort key of one curve representation: its class (the 3D curve and polygon first, then the
-// curves on faces, then the continuity records, then anything else) and the ranks of its faces.
-std::array<int, 3> representation_key(const Handle(BRep_CurveRepresentation) &representation,
-                                      const std::vector<SurfaceRank> &ranks) {
+// One curve representation as it is stored, with its sort key: its class (the 3D curve and
+// polygon first, then the curves on faces, then the continuity records, then anything else) and
+// the ranks of its faces. A continuity record is stored naming its lower face first.
+std::pair<std::array<int, 3>, Handle(BRep_CurveRepresentation)> keyed_representation(
+    const Handle(BRep_CurveRepresentation) &representation,
+    const std::vector<SurfaceRank> &ranks) {
   if (representation->IsCurve3D() || representation->IsPolygon3D()) {
-    return {0, 0, 0};
+    return {{0, 0, 0}, representation};
   }
   if (representation->IsCurveOnSurface() || representation->IsPolygonOnSurface()) {
-    return {1, surface_rank(ranks, representation->Surface(), representation->Location()), 0};
+    return {{1, surface_rank(ranks, representation->Surface(), representation->Location()), 0},
+            representation};
   }
   if (representation->IsRegularity()) {
     const int first = surface_rank(ranks, representation->Surface(), representation->Location());
     const int second = surface_rank(ranks, representation->Surface2(), representation->Location2());
-    return {2, std::min(first, second), std::max(first, second)};
+    const std::array<int, 3> key{2, std::min(first, second), std::max(first, second)};
+    if (first > 0 && second > 0 && second < first) {
+      return {key, new BRep_CurveOn2Surfaces(representation->Surface2(), representation->Surface(),
+                                             representation->Location2(),
+                                             representation->Location(),
+                                             representation->Continuity())};
+    }
+    return {key, representation};
   }
-  return {3, 0, 0};
+  return {{3, 0, 0}, representation};
 }
 
 // Stores every edge's curve representations (kernel spec section 3.4.8, item 5) in an order that
@@ -361,22 +390,7 @@ void order_curve_representations(const TopoDS_Shape &shape) {
     const std::vector<SurfaceRank> &ranks = edge_ranks[edge.get()];
     std::vector<std::pair<std::array<int, 3>, Handle(BRep_CurveRepresentation)>> keyed;
     for (const Handle(BRep_CurveRepresentation) &representation : edge->Curves()) {
-      Handle(BRep_CurveRepresentation) stored = representation;
-      const int first =
-          representation->IsRegularity()
-              ? surface_rank(ranks, representation->Surface(), representation->Location())
-              : 0;
-      const int second =
-          representation->IsRegularity()
-              ? surface_rank(ranks, representation->Surface2(), representation->Location2())
-              : 0;
-      if (first > 0 && second > 0 && second < first) {
-        stored = new BRep_CurveOn2Surfaces(representation->Surface2(), representation->Surface(),
-                                           representation->Location2(),
-                                           representation->Location(),
-                                           representation->Continuity());
-      }
-      keyed.emplace_back(representation_key(stored, ranks), stored);
+      keyed.push_back(keyed_representation(representation, ranks));
     }
     std::stable_sort(keyed.begin(), keyed.end(), [](const auto &first, const auto &second) {
       return first.first < second.first;
@@ -458,9 +472,8 @@ struct ShellAttempt {
 // section 3.4.8, item 4), and returns its result.
 OpResultData checked_shell(const Shape &copy, CheckInputs &inputs, const ShellAttempt &attempt,
                            const std::vector<bool> &removed, double thickness) {
-  // The attempt shares edges only with the copy, so the shim may store curves on planes in it.
-  inputs.settle();
-  store_plane_pcurves(attempt.shape);
+  // The attempt shares edges only with the copy.
+  store_result_pcurves(inputs, attempt.shape);
   const TopoDS_Shape result = ordered_by_input(
       copy, finish_solid(attempt.shape, attempt.history, inputs, attempt.algorithm),
       attempt.history);
@@ -483,10 +496,7 @@ ShellAttempt closed_hollow(const Shape &copy, double thickness) {
     raise_not_done(std::string("BRepOffsetAPI_MakeOffsetShape failed: ") +
                    offset_error_name(offset.MakeOffset().Error()));
   }
-  TopTools_ListOfShape arguments;
-  arguments.Append(solid);
-  const Handle(BRepTools_History) history = new BRepTools_History(arguments, offset);
-  return ShellAttempt{hollow_solid(solid, offset.Shape()), history,
+  return ShellAttempt{hollow_solid(solid, offset.Shape()), history_of(solid, offset),
                       "BRepOffsetAPI_MakeOffsetShape"};
 }
 
@@ -506,10 +516,7 @@ ShellAttempt thick_solid(const Shape &copy, const std::vector<bool> &removed, do
     raise_not_done(std::string("BRepOffsetAPI_MakeThickSolid failed: ") +
                    offset_error_name(thick.MakeOffset().Error()));
   }
-  TopTools_ListOfShape arguments;
-  arguments.Append(solid);
-  const Handle(BRepTools_History) history = new BRepTools_History(arguments, thick);
-  return ShellAttempt{thick.Shape(), history, "BRepOffsetAPI_MakeThickSolid"};
+  return ShellAttempt{thick.Shape(), history_of(solid, thick), "BRepOffsetAPI_MakeThickSolid"};
 }
 
 // True when a removed face shares an edge with a kept face along which the solid is concave,
@@ -568,10 +575,8 @@ ShellAttempt cavity_cut(const Shape &copy, const std::vector<bool> &removed, dou
       !(solids_volume(cavities(1)) > 0.0)) {
     raise_not_done("BRepOffset_MakeOffset did not build one valid cavity solid");
   }
-  TopTools_ListOfShape arguments;
-  arguments.Append(solid);
   // The cavity's elements are generated from the input's; the cut maps them into the result.
-  const Handle(BRepTools_History) history = new BRepTools_History(arguments, offset);
+  const Handle(BRepTools_History) history = history_of(solid, offset);
   TopTools_ListOfShape tools;
   tools.Append(cavities(1));
   const TopoDS_Shape result = run_boolean(BOPAlgo_CUT, solid, tools, false, history);
@@ -594,20 +599,13 @@ OpResultData fillet(const Shape &shape, rust::Slice<const FilletEdgeData> edges)
   for (const FilletEdgeData &edge : edges) {
     requests.push_back(BlendRequest{edge.edge, edge.radius, edge.radius, false, 0});
   }
-  check_requests(shape, requests);
-  // The fillet runs on a copy so it never writes to the input (kernel spec section 3.1).
-  const Shape copy = copy_shape(shape);
-  CheckInputs inputs({copy.get()});
-  BRepFilletAPI_MakeFillet fillet(copy.get(), ChFi3d_Rational);
-  for (const BlendRequest &request : requests) {
-    fillet.Add(request.size, request_edge(copy, request));
-  }
-  check_contours(fillet, copy, requests, "BRepFilletAPI_MakeFillet");
-  fillet.Build();
-  if (!fillet.IsDone()) {
-    raise_not_done(fillet_failure(fillet));
-  }
-  return blend_result(fillet, copy, inputs, "BRepFilletAPI_MakeFillet");
+  // BRepFilletAPI_MakeFillet builds rational fillet surfaces (ChFi3d_Rational) by default.
+  return run_blend<BRepFilletAPI_MakeFillet>(
+      shape, requests, "BRepFilletAPI_MakeFillet",
+      [](BRepFilletAPI_MakeFillet &fillet, const Shape &copy, const BlendRequest &request) {
+        fillet.Add(request.size, request_edge(copy, request));
+      },
+      fillet_failure);
 }
 
 OpResultData chamfer(const Shape &shape, rust::Slice<const ChamferEdgeData> edges) {
@@ -616,26 +614,20 @@ OpResultData chamfer(const Shape &shape, rust::Slice<const ChamferEdgeData> edge
     requests.push_back(BlendRequest{edge.edge, edge.distance, edge.other_distance,
                                     edge.two_distances, edge.face});
   }
-  check_requests(shape, requests);
-  // The chamfer runs on a copy so it never writes to the input (kernel spec section 3.1).
-  const Shape copy = copy_shape(shape);
-  CheckInputs inputs({copy.get()});
-  BRepFilletAPI_MakeChamfer chamfer(copy.get());
-  for (const BlendRequest &request : requests) {
-    if (request.on_face) {
-      chamfer.Add(request.size, request.other_size, request_edge(copy, request),
-                  TopoDS::Face(copy.faces()(static_cast<int>(request.face))));
-    } else {
-      chamfer.Add(request.size, request_edge(copy, request));
-    }
-  }
-  check_contours(chamfer, copy, requests, "BRepFilletAPI_MakeChamfer");
-  chamfer.Build();
-  if (!chamfer.IsDone()) {
-    // BRepFilletAPI_MakeChamfer does not expose the status of its contours.
-    raise_not_done("BRepFilletAPI_MakeChamfer could not build the chamfer");
-  }
-  return blend_result(chamfer, copy, inputs, "BRepFilletAPI_MakeChamfer");
+  return run_blend<BRepFilletAPI_MakeChamfer>(
+      shape, requests, "BRepFilletAPI_MakeChamfer",
+      [](BRepFilletAPI_MakeChamfer &chamfer, const Shape &copy, const BlendRequest &request) {
+        if (request.on_face) {
+          chamfer.Add(request.size, request.other_size, request_edge(copy, request),
+                      TopoDS::Face(copy.faces()(static_cast<int>(request.face))));
+        } else {
+          chamfer.Add(request.size, request_edge(copy, request));
+        }
+      },
+      [](const BRepFilletAPI_MakeChamfer &) {
+        // BRepFilletAPI_MakeChamfer does not expose the status of its contours.
+        return std::string("BRepFilletAPI_MakeChamfer could not build the chamfer");
+      });
 }
 
 OpResultData shell(const Shape &shape, rust::Slice<const std::uint32_t> remove_faces,

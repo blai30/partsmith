@@ -1,19 +1,18 @@
+import type { OriginPlane } from '../core/labels'
+import { MILLIMETERS_PER_UNIT } from '../expression/format'
+import type { Units } from '../generated/protocol'
+import type { SectionState } from '../state/store'
 import { boundsCenter, dot, scale, type Bounds, type Vector3 } from './math'
+import { ORIGIN_PLANE_PLACEMENTS, ORIGIN_PLANES } from './planes'
 
 /** The origin plane a section cuts along (3.15). */
-export type SectionPlane = 'XY' | 'XZ' | 'YZ'
+export type SectionPlane = OriginPlane
 
-export const SECTION_PLANES: readonly SectionPlane[] = ['XY', 'XZ', 'YZ']
+export const SECTION_PLANES: readonly SectionPlane[] = ORIGIN_PLANES
 
-const NORMALS: Readonly<Record<SectionPlane, Vector3>> = {
-  XY: [0, 0, 1],
-  XZ: [0, -1, 0],
-  YZ: [1, 0, 0],
-}
-
-/** The unflipped plane normal: XY +Z, XZ -Y, YZ +X (3.15). */
+/** The unflipped plane normal, the origin plane's normal: XY +Z, XZ -Y, YZ +X (3.15). */
 export function sectionNormal(plane: SectionPlane): Vector3 {
-  return NORMALS[plane]
+  return ORIGIN_PLANE_PLACEMENTS[plane].normal
 }
 
 /**
@@ -35,4 +34,33 @@ export function defaultSectionOffset(plane: SectionPlane, bounds: Bounds | null)
   }
   // Adding 0 turns -0 into 0.
   return dot(sectionNormal(plane), boundsCenter(bounds)) + 0
+}
+
+function isUnit(word: string): word is Units {
+  return Object.hasOwn(MILLIMETERS_PER_UNIT, word)
+}
+
+/**
+ * The offset in mm of an offset text that is a plain number with an optional length unit word (in
+ * the document unit without one), or null for any other expression, which is evaluated elsewhere.
+ */
+export function sectionOffsetMillimeters(text: string, units: Units): number | null {
+  const match = /^\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+))\s*(mm|cm|m|in)?\s*$/.exec(text)
+  if (match === null) {
+    return null
+  }
+  const [, number = '', word = ''] = match
+  return Number(number) * MILLIMETERS_PER_UNIT[isUnit(word) ? word : units]
+}
+
+/** The clip of a section at an offset in mm (`sectionClip`) with every -0 written 0, as a frame carries it. */
+export function sectionFrameClip(
+  section: SectionState,
+  millimeters: number,
+): { readonly normal: Vector3; readonly offset: number } {
+  const clip = sectionClip(section.plane, millimeters, section.flipped)
+  return {
+    normal: [clip.normal[0] + 0, clip.normal[1] + 0, clip.normal[2] + 0],
+    offset: clip.offset + 0,
+  }
 }
