@@ -10,7 +10,9 @@ use super::common::{
     body_hint, empty_selection, essential, hint, is_false, manifest, options_hint, positive_length,
     references, selection_hint, solid_body, unit_hint,
 };
-use super::dressup::{SelectedEdge, modified, name_blend, no_effect, run_or_search, select_edges};
+use super::dressup::{
+    SelectedEdge, modified, name_blend, no_effect, run_or_search, select_edges, sorted_by_name,
+};
 use crate::{
     BuildContext, Dependencies, Feature, FeatureError, FeatureOutput, Noun, PythonCall,
     PythonNames, PythonValue,
@@ -250,29 +252,6 @@ impl Feature for Chamfer {
     }
 }
 
-/// The selected `edges` sorted by their element names in byte order, the order the kernel gets
-/// them in (chamfer.md section 3.3 step 4). The kernel takes the side of a whole tangent chain
-/// from the first of its edges it receives, so the chain's edge whose name sorts first sets it and
-/// the order of the `edges` references never changes the result.
-fn sorted_by_name<'a>(
-    naming: &NamingMap,
-    edges: &'a [SelectedEdge],
-) -> Result<Vec<&'a SelectedEdge>, FeatureError> {
-    let mut named = edges
-        .iter()
-        .map(|edge| {
-            naming
-                .name(ElementKind::Edge, edge.index)
-                .map(|name| (name, edge))
-                .ok_or_else(|| {
-                    FeatureError::internal(format!("the selected edge {} has no name", edge.index))
-                })
-        })
-        .collect::<Result<Vec<_>, FeatureError>>()?;
-    named.sort_by_key(|(name, _)| *name);
-    Ok(named.into_iter().map(|(_, edge)| edge).collect())
-}
-
 /// The face next to `edge` whose element name sorts first in byte order: a two-distance chamfer
 /// measures its first distance on it (chamfer.md section 3.3 step 4).
 fn first_face(naming: &NamingMap, edge: &SelectedEdge) -> Result<u32, FeatureError> {
@@ -503,46 +482,6 @@ mod tests {
         };
 
         let error = first_face(&cube.naming, &edge).expect_err("face 99 has no name");
-
-        assert_eq!(error.code(), "internal");
-    }
-
-    #[test]
-    fn edges_are_sorted_by_name_in_byte_order() {
-        let cube = named_box("f-box1", [0.0, 0.0, 0.0], 10.0);
-        let index = |name: &str| {
-            cube.naming
-                .index(&ElementName::parse(name).expect("valid"))
-                .expect("named")
-        };
-        let names = [
-            "edge(f-box1/front|f-box1/top)",
-            "edge(f-box1/back|f-box1/top)",
-            "edge(f-box1/bottom|f-box1/front)",
-        ];
-        let edges: Vec<SelectedEdge> = names
-            .iter()
-            .map(|name| SelectedEdge {
-                index: index(name),
-                faces: Vec::new(),
-            })
-            .collect();
-
-        let sorted = sorted_by_name(&cube.naming, &edges).expect("every edge is named");
-
-        let sorted: Vec<u32> = sorted.iter().map(|edge| edge.index).collect();
-        assert_eq!(sorted, [index(names[1]), index(names[2]), index(names[0])]);
-    }
-
-    #[test]
-    fn an_unnamed_edge_cannot_be_sorted() {
-        let cube = named_box("f-box1", [0.0, 0.0, 0.0], 10.0);
-        let edge = SelectedEdge {
-            index: 99,
-            faces: Vec::new(),
-        };
-
-        let error = sorted_by_name(&cube.naming, &[edge]).expect_err("edge 99 has no name");
 
         assert_eq!(error.code(), "internal");
     }

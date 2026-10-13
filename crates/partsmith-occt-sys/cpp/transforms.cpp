@@ -97,7 +97,7 @@ OpResultData transform(const Shape &shape, rust::Slice<const double> matrix) {
     if (has_solid(shape.get())) {
       require_solid(result, "BRepBuilderAPI_Transform");
       // Every element is a transformed copy, so the whole result is checked.
-      ensure_valid(result, history, {}, "BRepBuilderAPI_Transform");
+      ensure_valid(result, history, CheckInputs(), "BRepBuilderAPI_Transform");
     }
   }
   return op_result(result, history, {shape.get()});
@@ -106,6 +106,9 @@ OpResultData transform(const Shape &shape, rust::Slice<const double> matrix) {
 SplitData split(const Shape &shape, const Frame &plane_frame) {
   const gp_Pln plane(to_ax3(plane_frame));
   const TopoDS_Face tool = covering_face(shape.get(), plane);
+  // The splitter runs non-destructively; recording the input still lets the check see any face
+  // it changed in place (kernel spec section 3.5).
+  const CheckInputs check_inputs({shape.get()});
   BRepAlgoAPI_Splitter splitter;
   TopTools_ListOfShape arguments;
   arguments.Append(shape.get());
@@ -125,7 +128,7 @@ SplitData split(const Shape &shape, const Frame &plane_frame) {
   require_solid(split_solids, "BRepAlgoAPI_Splitter");
   // The pieces are checked as the splitter built them, where the faces the plane does not cut
   // are still the input's own (kernel spec section 3.5); copying keeps them valid.
-  const bool valid = changed_part_valid(split_solids, {shape.get()});
+  const bool valid = changed_part_valid(split_solids, check_inputs);
   // Copy each piece on its own so the pieces share no sub-shapes.
   TopTools_IndexedMapOfShape pieces;
   TopExp::MapShapes(split_solids, TopAbs_SOLID, pieces);
@@ -151,7 +154,7 @@ SplitData split(const Shape &shape, const Frame &plane_frame) {
   TopoDS_Shape result = solids_only(compound);
   if (!valid) {
     // Repair the separated pieces: ShapeFix_Shape merges solids that share a face.
-    ensure_valid(result, history, {}, "BRepAlgoAPI_Splitter");
+    ensure_valid(result, history, CheckInputs(), "BRepAlgoAPI_Splitter");
     result = solids_only(result);
   }
 

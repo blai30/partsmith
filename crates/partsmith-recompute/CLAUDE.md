@@ -22,6 +22,7 @@ Spec (the definition of done): `docs/spec/recompute.md`. Acceptance tests in `te
 - `plan.rs` and `run.rs` walk the steps in order with the same key computation and checks; `cache.rs` holds outcomes (`Built` output with its body states, made with `BodyState::from_update` so they keep the topology and volume the feature measured, or the error) and evicts by last-use run, then key.
 - `test_support.rs` (tests only): small test features (`test_datum`, `test_writer`, `test_reader`, `test_asset`, `test_panic`) and document helpers.
 - `tests/common` holds the `Harness`, the spec's test features and report readers, and re-exports the tolerances and measurement helpers of `tests/feature_support`, so every test measures the same way. `benches/budgets.rs` includes it with `#[path]`.
+- Feature `stability-study`: the reference stability corpus (docs/design/reference-stability-corpus.md) as `tests/reference_stability_{1,2,3}.rs`, with their helpers in `tests/stability_support_{1,2,3}/mod.rs` (directories, so Cargo builds no test target of their own). `Cargo.toml` gives the three tests `required-features`, so default runs build none of them; they record the study's expectations and fail until its plan is implemented, so CI only compiles and lints them.
 
 ## Commands
 
@@ -33,6 +34,9 @@ cargo fmt -p partsmith-recompute
 # timing budgets (recompute.md section 5, test 37), all or by words of their names
 cargo bench -p partsmith-recompute --bench budgets
 cargo bench -p partsmith-recompute --bench budgets -- plan cancel
+# the reference stability corpus (fails by design until the study's plan is implemented)
+cargo clippy -p partsmith-recompute --features stability-study --all-targets -- -D warnings
+cargo test -p partsmith-recompute --features stability-study --test reference_stability_1
 ```
 
 Every test runs by default against `Registry::with_builtins()` (all 20 types are registered). The only ignored tests are the release-only feature budgets in `tests/feature_<type>.rs`.

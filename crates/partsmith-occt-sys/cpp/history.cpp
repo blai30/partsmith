@@ -15,9 +15,16 @@
 #include <BRepCheck_Wire.hxx>
 #include <BRepLib.hxx>
 #include <BRep_Builder.hxx>
+#include <BRep_CurveRepresentation.hxx>
+#include <BRep_GCurve.hxx>
+#include <BRep_PointRepresentation.hxx>
+#include <BRep_TEdge.hxx>
+#include <BRep_TFace.hxx>
+#include <BRep_TVertex.hxx>
 #include <NCollection_Map.hxx>
 #include <ShapeBuild_ReShape.hxx>
 #include <ShapeFix_Shape.hxx>
+#include <ShapeUpgrade_RemoveLocations.hxx>
 #include <StdFail_NotDone.hxx>
 #include <Standard_NullObject.hxx>
 #include <TopExp.hxx>
@@ -123,16 +130,177 @@ TopoDS_Shape solids_only(const TopoDS_Shape &shape) {
   return compound;
 }
 
-Shape copy_shape(const Shape &shape) {
-  BRepBuilderAPI_Copy copier(shape.get(), Standard_True, Standard_False);
-  Shape copy(copier.Shape());
+namespace {
+
+// Raises StdFail_NotDone unless `copy` has as many elements of each kind as `shape`.
+void require_same_counts(const Shape &shape, const Shape &copy, const char *algorithm) {
   for (ElementKind kind :
        {ElementKind::Solid, ElementKind::Face, ElementKind::Edge, ElementKind::Vertex}) {
     if (copy.map(kind).Extent() != shape.map(kind).Extent()) {
-      raise_not_done("BRepBuilderAPI_Copy changed the element counts");
+      raise_not_done(std::string(algorithm) + " changed the element counts");
     }
   }
+}
+
+}  // namespace
+
+Shape copy_shape(const Shape &shape) {
+  BRepBuilderAPI_Copy copier(shape.get(), Standard_True, Standard_False);
+  Shape copy(copier.Shape());
+  require_same_counts(shape, copy, "BRepBuilderAPI_Copy");
   return copy;
+}
+
+Shape copy_elements(const Shape &shape) {
+  BRepBuilderAPI_Copy copier(shape.get(), Standard_False, Standard_False);
+  Shape copy(copier.Shape());
+  require_same_counts(shape, copy, "BRepBuilderAPI_Copy");
+  return copy;
+}
+
+namespace {
+
+// True when `shape` or one of its sub-shapes has a location, or a face of it a located surface.
+bool has_location(const TopoDS_Shape &shape) {
+  if (!shape.Location().IsIdentity()) {
+    return true;
+  }
+  if (const Handle(BRep_TFace) face = Handle(BRep_TFace)::DownCast(shape.TShape());
+      !face.IsNull() && !face->Location().IsIdentity()) {
+    return true;
+  }
+  for (TopoDS_Iterator child(shape, Standard_False, Standard_False); child.More(); child.Next()) {
+    if (has_location(child.Value())) {
+      return true;
+    }
+  }
+  return false;
+}
+
+}  // namespace
+
+Shape copy_unlocated(const Shape &shape) {
+  Shape copy = copy_shape(shape);
+  if (!has_location(copy.get())) {
+    return copy;
+  }
+  // Rebuilds every located element with its location applied to its geometry.
+  ShapeUpgrade_RemoveLocations remover;
+  remover.Remove(copy.get());
+  Shape unlocated(remover.GetResult());
+  require_same_counts(shape, unlocated, "ShapeUpgrade_RemoveLocations");
+  return unlocated;
+}
+
+bool ElementState::operator==(const ElementState &other) const {
+  if (parts != other.parts || values != other.values ||
+      locations.size() != other.locations.size()) {
+    return false;
+  }
+  for (std::size_t position = 0; position < locations.size(); ++position) {
+    if (!locations[position].IsEqual(other.locations[position])) {
+      return false;
+    }
+  }
+  return true;
+}
+
+namespace {
+
+// The state of a face as the validity check reads it (see ElementState): the face's own data,
+// then each of its edges as the face sees it (tolerance, flags, the 3D curve and the curves on
+// this face's surface, each with its range), then each of its vertices (point, tolerance and
+// point representations). A curve an algorithm adds to an edge for another face changes nothing
+// here.
+ElementState face_state(const TopoDS_Face &face) {
+  ElementState state;
+  const Handle(BRep_TFace) own = Handle(BRep_TFace)::DownCast(face.TShape());
+  if (!own.IsNull()) {
+    state.parts = {own->Surface().get(), own->ActiveTriangulation().get()};
+    state.values = {own->Tolerance(), own->NaturalRestriction() ? 1.0 : 0.0};
+    state.locations = {own->Location()};
+  }
+  TopLoc_Location face_location;
+  const Handle(Geom_Surface) &surface = BRep_Tool::Surface(face, face_location);
+  for (TopExp_Explorer edges(face, TopAbs_EDGE); edges.More(); edges.Next()) {
+    const Handle(BRep_TEdge) edge = Handle(BRep_TEdge)::DownCast(edges.Current().TShape());
+    if (edge.IsNull()) {
+      continue;
+    }
+    state.values.insert(state.values.end(),
+                        {edge->Tolerance(), edge->SameParameter() ? 1.0 : 0.0,
+                         edge->SameRange() ? 1.0 : 0.0, edge->Degenerated() ? 1.0 : 0.0});
+    const TopLoc_Location on_face = face_location.Predivided(edges.Current().Location());
+    for (const Handle(BRep_CurveRepresentation) &representation : edge->Curves()) {
+      const bool on_this_face = representation->IsCurveOnSurface(surface, on_face);
+      if (!representation->IsCurve3D() && !on_this_face) {
+        continue;
+      }
+      state.parts.push_back(representation.get());
+      state.locations.push_back(representation->Location());
+      if (representation->IsCurve3D()) {
+        state.parts.push_back(representation->Curve3D().get());
+      } else {
+        state.parts.push_back(representation->PCurve().get());
+        if (representation->IsCurveOnClosedSurface()) {
+          state.parts.push_back(representation->PCurve2().get());
+        }
+      }
+      if (const Handle(BRep_GCurve) curve = Handle(BRep_GCurve)::DownCast(representation);
+          !curve.IsNull()) {
+        state.values.push_back(curve->First());
+        state.values.push_back(curve->Last());
+      }
+    }
+  }
+  for (TopExp_Explorer vertices(face, TopAbs_VERTEX); vertices.More(); vertices.Next()) {
+    const Handle(BRep_TVertex) vertex =
+        Handle(BRep_TVertex)::DownCast(vertices.Current().TShape());
+    if (vertex.IsNull()) {
+      continue;
+    }
+    const gp_Pnt &point = vertex->Pnt();
+    state.values.insert(state.values.end(),
+                        {vertex->Tolerance(), point.X(), point.Y(), point.Z()});
+    for (const Handle(BRep_PointRepresentation) &representation : vertex->Points()) {
+      state.parts.push_back(representation.get());
+      state.locations.push_back(representation->Location());
+      state.values.push_back(representation->Parameter());
+      if (representation->IsPointOnSurface()) {
+        state.values.push_back(representation->Parameter2());
+      }
+    }
+  }
+  return state;
+}
+
+}  // namespace
+
+CheckInputs::CheckInputs(std::vector<TopoDS_Shape> shapes) : shapes_(std::move(shapes)) {
+  TopTools_IndexedMapOfShape faces;
+  for (const TopoDS_Shape &shape : shapes_) {
+    TopExp::MapShapes(shape, TopAbs_FACE, faces);
+  }
+  states_.reserve(static_cast<std::size_t>(faces.Extent()));
+  for (int index = 1; index <= faces.Extent(); ++index) {
+    states_.emplace_back(faces(index), face_state(TopoDS::Face(faces(index))));
+  }
+}
+
+void CheckInputs::settle() { settled_ = compare(); }
+
+TopTools_MapOfShape CheckInputs::altered_faces() const {
+  return settled_.has_value() ? *settled_ : compare();
+}
+
+TopTools_MapOfShape CheckInputs::compare() const {
+  TopTools_MapOfShape faces;
+  for (const auto &[face, state] : states_) {
+    if (!(face_state(TopoDS::Face(face)) == state)) {
+      faces.Add(face);
+    }
+  }
+  return faces;
 }
 
 void store_plane_pcurves(const TopoDS_Shape &shape) {
@@ -154,17 +322,19 @@ void merge_history(const Handle(BRepTools_History) &history,
 namespace {
 
 // The checks of BRepCheck_Analyzer, with its default settings, limited to what an operation
-// produced or changed (kernel spec section 3.5): every face of the result that is not a face of
-// an input (by IsSame), with its wires, edges and vertices, each edge and vertex also in every
-// face and edge of the result that contains it, and every shell and solid that is not a shell
-// or solid of an input. The rest of the result is the inputs' own unchanged elements.
+// produced or changed (kernel spec section 3.5): every face of the result that is not an
+// unchanged face of an input (by IsSame, and not changed in place), with its wires, edges and
+// vertices, each edge and vertex also in every face and edge of the result that contains it, and
+// every shell and solid that is not an unchanged shell or solid of an input. The rest of the
+// result is the inputs' own unchanged elements.
 class ChangeCheck {
  public:
-  ChangeCheck(const TopoDS_Shape &shape, const std::vector<TopoDS_Shape> &inputs) : shape_(shape) {
-    for (const TopoDS_Shape &input : inputs) {
-      TopExp::MapShapes(input, TopAbs_FACE, input_faces_);
-      TopExp::MapShapes(input, TopAbs_SHELL, input_shells_);
-      TopExp::MapShapes(input, TopAbs_SOLID, input_solids_);
+  ChangeCheck(const TopoDS_Shape &shape, const CheckInputs &inputs) : shape_(shape) {
+    const TopTools_MapOfShape altered = inputs.altered_faces();
+    for (const TopoDS_Shape &input : inputs.shapes()) {
+      add_unchanged(input, TopAbs_FACE, altered, input_faces_);
+      add_unchanged(input, TopAbs_SHELL, altered, input_shells_);
+      add_unchanged(input, TopAbs_SOLID, altered, input_solids_);
     }
     for (TopExp_Explorer face(shape, TopAbs_FACE); face.More(); face.Next()) {
       if (input_faces_.Contains(face.Current())) {
@@ -186,6 +356,24 @@ class ChangeCheck {
   }
 
  private:
+  // Adds the sub-shapes of `input` of `type` that hold no face changed in place.
+  static void add_unchanged(const TopoDS_Shape &input, TopAbs_ShapeEnum type,
+                            const TopTools_MapOfShape &altered,
+                            TopTools_IndexedMapOfShape &unchanged) {
+    TopTools_IndexedMapOfShape elements;
+    TopExp::MapShapes(input, type, elements);
+    for (int index = 1; index <= elements.Extent(); ++index) {
+      bool holds_altered = false;
+      for (TopExp_Explorer face(elements(index), TopAbs_FACE); !altered.IsEmpty() && face.More();
+           face.Next()) {
+        holds_altered = holds_altered || altered.Contains(face.Current());
+      }
+      if (!holds_altered) {
+        unchanged.Add(elements(index));
+      }
+    }
+  }
+
   // True when every recorded status is BRepCheck_NoError.
   bool valid() const {
     for (int index = 1; index <= results_.Extent(); ++index) {
@@ -384,7 +572,7 @@ class ChangeCheck {
   }
 
   const TopoDS_Shape shape_;
-  // Faces, shells and solids of the inputs (IsSame semantics).
+  // Unchanged faces, shells and solids of the inputs (IsSame semantics).
   TopTools_IndexedMapOfShape input_faces_;
   TopTools_IndexedMapOfShape input_shells_;
   TopTools_IndexedMapOfShape input_solids_;
@@ -399,8 +587,8 @@ class ChangeCheck {
 
 }  // namespace
 
-bool changed_part_valid(const TopoDS_Shape &shape, const std::vector<TopoDS_Shape> &inputs) {
-  if (inputs.empty()) {
+bool changed_part_valid(const TopoDS_Shape &shape, const CheckInputs &inputs) {
+  if (inputs.shapes().empty()) {
     return BRepCheck_Analyzer(shape).IsValid();
   }
   ChangeCheck check(shape, inputs);
@@ -416,7 +604,7 @@ bool changed_part_valid(const TopoDS_Shape &shape, const std::vector<TopoDS_Shap
 }
 
 void ensure_valid(TopoDS_Shape &shape, const Handle(BRepTools_History) &history,
-                  const std::vector<TopoDS_Shape> &inputs, const char *algorithm) {
+                  const CheckInputs &inputs, const char *algorithm) {
   if (changed_part_valid(shape, inputs)) {
     return;
   }
@@ -442,7 +630,7 @@ void ensure_valid(TopoDS_Shape &shape, const Handle(BRepTools_History) &history,
 }
 
 TopoDS_Shape finish_solid(const TopoDS_Shape &shape, const Handle(BRepTools_History) &history,
-                          const std::vector<TopoDS_Shape> &inputs, const char *algorithm) {
+                          const CheckInputs &inputs, const char *algorithm) {
   TopoDS_Shape result = solids_only(shape);
   require_solid(result, algorithm);
   ensure_valid(result, history, inputs, algorithm);

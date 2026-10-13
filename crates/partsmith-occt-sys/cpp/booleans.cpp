@@ -4,6 +4,7 @@
 
 #include <BRepAlgoAPI_BooleanOperation.hxx>
 #include <Precision.hxx>
+#include <Standard_NullObject.hxx>
 #include <TopExp_Explorer.hxx>
 
 #include "partsmith-occt-sys/cpp/internal.h"
@@ -60,12 +61,24 @@ namespace {
 // tools...].
 OpResultData boolean_result(BOPAlgo_Operation operation, const Shape &target,
                             rust::Slice<const ShapeHandle> tools) {
-  const std::vector<TopoDS_Shape> tool_shapes = shapes_of(tools);
+  // The boolean runs on copies that share the inputs' geometry: unification writes curves on
+  // faces and tolerances to the edges the result shares with its arguments, even when the
+  // boolean then fails, and no facade function may change an input (kernel spec section 3.1).
+  // A copy has the input's indices, so the history of a copy is the input's.
+  std::vector<TopoDS_Shape> inputs{copy_elements(target).get()};
+  for (const ShapeHandle &tool : tools) {
+    if (!tool.shape) {
+      Standard_NullObject::Raise("a shape handle is null");
+    }
+    inputs.push_back(copy_elements(*tool.shape).get());
+  }
+  CheckInputs check_inputs(inputs);
+  const std::vector<TopoDS_Shape> tool_shapes(inputs.begin() + 1, inputs.end());
   Handle(BRepTools_History) history = new BRepTools_History;
   TopoDS_Shape result;
   if (operation == BOPAlgo_COMMON) {
     // The intersection with every tool: one common per tool, unified at the end.
-    result = target.get();
+    result = inputs.front();
     for (std::size_t position = 0; position < tool_shapes.size(); ++position) {
       if (!TopExp_Explorer(result, TopAbs_SOLID).More()) {
         break;
@@ -79,14 +92,16 @@ OpResultData boolean_result(BOPAlgo_Operation operation, const Shape &target,
     for (const TopoDS_Shape &tool : tool_shapes) {
       all_tools.Append(tool);
     }
-    result = run_boolean(operation, target.get(), all_tools, true, history);
+    result = run_boolean(operation, inputs.front(), all_tools, true, history);
   }
-  std::vector<TopoDS_Shape> inputs{target.get()};
-  inputs.insert(inputs.end(), tool_shapes.begin(), tool_shapes.end());
   result = solids_only(result);
   if (TopExp_Explorer(result, TopAbs_SOLID).More()) {
-    // Booleans run non-destructively, so faces of the inputs in the result are unchanged.
-    ensure_valid(result, history, inputs, operation_name(operation));
+    // Faces of the copies the result keeps are trusted unless unification changed them in place.
+    // The result shares edges only with the copies, so the shim may store the curves of its edges
+    // on planar faces, which the check would otherwise project again for every wire.
+    check_inputs.settle();
+    store_plane_pcurves(result);
+    ensure_valid(result, history, check_inputs, operation_name(operation));
     result = solids_only(result);
   }
   return op_result(result, history, inputs);

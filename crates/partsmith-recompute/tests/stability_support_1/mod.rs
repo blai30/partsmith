@@ -7,8 +7,8 @@
 //! each one that is not met and fails the test once with all of them, so a failing scenario shows
 //! everything that is wrong, with the resolver's view of the reference under test.
 //!
-//! The module depends only on the library crates, so it also compiles as its own (empty) test
-//! target, which cargo makes of every file directly under `tests/`.
+//! It lives in its own directory, like `common/` and `feature_support/`, so Cargo does not build
+//! it as a test target of its own.
 
 #![cfg(feature = "stability-study")]
 // Each user of the module needs only some of the helpers.

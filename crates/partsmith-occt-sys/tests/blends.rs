@@ -1,6 +1,6 @@
 //! Acceptance tests for fillet, chamfer and shell (kernel spec sections 2.8, 3.4.6 to 3.4.9, 3.5
-//! and tests 44 to 53, 68, 102, 103 and 110), including the history behavior the spec asks to
-//! verify on the built library (section 7, open issues 3 and 4).
+//! and tests 44 to 53, 68, 102, 103, 110 and 115), including the history behavior the spec asks
+//! to verify on the built library (section 7, open issues 3 and 4).
 
 mod common;
 
@@ -11,12 +11,14 @@ use common::{
     assert_parallel, assert_point_near, assert_relative, assert_vector_near, box_primitive,
     box_with_displaced_corner, cube_a, cube_at, cylinder_primitive, edge_between, face_direction,
     face_groups, face_with_role, faces_of_kind, generated_faces, geometry, index_from_position,
-    l_body, line, rectangle_profile, region, swept_face, top_front_edge, volume,
+    l_body, line, planar_face, rectangle_profile, region, swept_face, top_front_edge, volume,
+    z_axis,
 };
 use partsmith_occt_sys::{
     ChamferEdge, ChamferSize, EdgeRadius, ElementFate, GeometryKind, KernelError, KernelErrorKind,
     OpResult, Operation, Plane, Point, Primitive, PrimitiveFace, Shape, SubShapeKind, SweepFace,
-    Vector, chamfer, extrude, fillet, fuse, make_cylinder, make_profile, shell,
+    Transform, Vector, chamfer, extrude, fillet, fuse, make_cylinder, make_profile, shell,
+    transform,
 };
 
 const FILLET_FAILED: &str = "The fillet failed. The radius is probably too large for the selected edges or the faces next to them. Try a smaller radius.";
@@ -993,4 +995,91 @@ fn t110_fillet_next_to_an_invalid_corner_is_repaired() {
     let result = fillet(&invalid, &[EdgeRadius { edge, radius: 1.0 }]).expect("the edge rounds");
 
     assert!(result.shape.is_valid().expect("validity check"));
+}
+
+#[test]
+fn t115_shell_of_a_moved_body_matches_the_unmoved_one() {
+    // Test 45: every BOX edge rounded at radius 1, so the shell offsets located blend surfaces.
+    let rounded = fillet(&box_primitive().shape, &all_edges(1.0))
+        .expect("every edge rounds")
+        .shape;
+    let top = planar_face(
+        &rounded,
+        Vector::new(0.0, 0.0, 1.0),
+        Point::new(5.0, 10.0, 30.0),
+    );
+    let shift = Vector::new(50.0, 0.0, 0.0);
+    let motions = [
+        Transform::translation(shift),
+        Transform::translation(Vector::new(5.0, 7.0, 3.0))
+            .then(&Transform::rotation(&z_axis(), 0.3)),
+    ];
+
+    for removed in [vec![top], Vec::new()] {
+        let unmoved = shell(&rounded, &removed, 0.5).expect("the rounded box shells");
+        for (position, motion) in motions.iter().enumerate() {
+            let moved = transform(&rounded, motion).expect("the box moves").shape;
+
+            let shelled = shell(&moved, &removed, 0.5).expect("the moved box shells");
+
+            assert!(shelled.shape.is_valid().expect("validity check"));
+            assert_relative(
+                volume(&shelled.shape),
+                volume(&unmoved.shape),
+                1e-9,
+                "volume",
+            );
+            assert_eq!(
+                shelled.shape.count(SubShapeKind::Face),
+                unmoved.shape.count(SubShapeKind::Face)
+            );
+            if position == 0 {
+                let bounds = unmoved.shape.bounding_box().expect("bounds");
+                assert_bounds(
+                    &shelled.shape,
+                    [bounds.min[0] + shift.x, bounds.min[1], bounds.min[2]],
+                    [bounds.max[0] + shift.x, bounds.max[1], bounds.max[2]],
+                    1e-6,
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn t115_shell_of_a_moved_and_fused_body_matches_the_unmoved_one() {
+    let rounded = fillet(&box_primitive().shape, &all_edges(1.0))
+        .expect("every edge rounds")
+        .shape;
+    let moved = transform(
+        &rounded,
+        &Transform::translation(Vector::new(50.0, 0.0, 0.0)),
+    )
+    .expect("the box moves")
+    .shape;
+    // The fuse keeps the moved box's untouched faces, which carry its location.
+    let fused = fuse(&moved, &[cube_at(58.0, 5.0, 5.0).shape])
+        .expect("the moved box fuses")
+        .shape;
+    let unmoved = fuse(&rounded, &[cube_at(8.0, 5.0, 5.0).shape])
+        .expect("the box fuses")
+        .shape;
+    let top_of = |shape: &Shape, x: f64| {
+        planar_face(shape, Vector::new(0.0, 0.0, 1.0), Point::new(x, 10.0, 30.0))
+    };
+
+    let shelled = shell(&fused, &[top_of(&fused, 55.0)], 0.5).expect("the moved body shells");
+
+    let expected = shell(&unmoved, &[top_of(&unmoved, 5.0)], 0.5).expect("the body shells");
+    assert!(shelled.shape.is_valid().expect("validity check"));
+    assert_relative(
+        volume(&shelled.shape),
+        volume(&expected.shape),
+        1e-9,
+        "volume",
+    );
+    assert_eq!(
+        shelled.shape.count(SubShapeKind::Face),
+        expected.shape.count(SubShapeKind::Face)
+    );
 }

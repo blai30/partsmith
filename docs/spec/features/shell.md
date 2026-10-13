@@ -142,6 +142,7 @@ Bodies `[b-1]`.
 11. **Empty body.** `SHELL("2", [])` alone. Expected: error `body_empty`.
 12. **Performance.** Test 1 builds in under 50 ms (desktop, release).
 13. **Thickness below the tolerance.** `BOX805030`, `SHELL("0.0000001", [F-TOP])`. Expected: error `out_of_range`, field `thickness`, rendered `Thickness must be greater than 0 mm, but it is 0 mm. Use a value greater than 0 mm.`; b-1 unchanged.
+14. **Moved body.** The features of `examples/fillet/every-edge` (a 20 mm cube with every edge filleted at radius 2), then `{"id": "f-mv1", "type": "move_body", "body": "b-1", "translation": ["50", "0", "0"]}`, then `SHELL("1", [{"q": "f-box1/top", "fp": "plane|n=0,0,1|c=50,0,20|a=256"}])`. Expected: all ok; the volume of the same document without `f-mv1` and with the top face at x = 0 (relative 1e-9), as many faces, bbox [40,-10,0]-[60,10,20]. (The kernel shells a copy without locations, kernel.md section 3.4.8; with the moved body's location kept, OCCT's offset failed and the shell reported `shell_too_thick`.)
 
 ## Open issues
 

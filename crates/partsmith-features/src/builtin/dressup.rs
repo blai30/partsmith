@@ -317,6 +317,30 @@ pub(super) fn modified(
     bodies(vec![update], warnings)
 }
 
+/// The selected `edges` sorted by their element names in byte order, the order the kernel gets
+/// them in (fillet.md section 3.3 step 5, chamfer.md section 3.3 step 4), so the order of the
+/// `edges` references never changes the result: the kernel's result depends on the order it gets
+/// edges in (in the last bits of its geometry, and for a chamfer the side of a whole tangent
+/// chain comes from the first of its edges it receives).
+pub(super) fn sorted_by_name<'a>(
+    naming: &NamingMap,
+    edges: &'a [SelectedEdge],
+) -> Result<Vec<&'a SelectedEdge>, FeatureError> {
+    let mut named = edges
+        .iter()
+        .map(|edge| {
+            naming
+                .name(ElementKind::Edge, edge.index)
+                .map(|name| (name, edge))
+                .ok_or_else(|| {
+                    FeatureError::internal(format!("the selected edge {} has no name", edge.index))
+                })
+        })
+        .collect::<Result<Vec<_>, FeatureError>>()?;
+    named.sort_by_key(|(name, _)| *name);
+    Ok(named.into_iter().map(|(_, edge)| edge).collect())
+}
+
 /// The output of a fillet or chamfer left with no edge to work on: `body` keeps its `state`, and a
 /// `NoEffect` warning follows the other warnings (fillet.md section 3.3 step 4).
 pub(super) fn no_effect(
@@ -352,6 +376,46 @@ mod tests {
     use super::*;
     use crate::test_support::{Fixture, box_body, face_names as sorted_face_names, id, named_box};
     use crate::topology_info;
+
+    #[test]
+    fn edges_are_sorted_by_name_in_byte_order() {
+        let cube = named_box("f-box1", [0.0, 0.0, 0.0], 10.0);
+        let index = |name: &str| {
+            cube.naming
+                .index(&ElementName::parse(name).expect("valid"))
+                .expect("named")
+        };
+        let names = [
+            "edge(f-box1/front|f-box1/top)",
+            "edge(f-box1/back|f-box1/top)",
+            "edge(f-box1/bottom|f-box1/front)",
+        ];
+        let edges: Vec<SelectedEdge> = names
+            .iter()
+            .map(|name| SelectedEdge {
+                index: index(name),
+                faces: Vec::new(),
+            })
+            .collect();
+
+        let sorted = sorted_by_name(&cube.naming, &edges).expect("every edge is named");
+
+        let sorted: Vec<u32> = sorted.iter().map(|edge| edge.index).collect();
+        assert_eq!(sorted, [index(names[1]), index(names[2]), index(names[0])]);
+    }
+
+    #[test]
+    fn an_unnamed_edge_cannot_be_sorted() {
+        let cube = named_box("f-box1", [0.0, 0.0, 0.0], 10.0);
+        let edge = SelectedEdge {
+            index: 99,
+            faces: Vec::new(),
+        };
+
+        let error = sorted_by_name(&cube.naming, &[edge]).expect_err("edge 99 has no name");
+
+        assert_eq!(error.code(), "internal");
+    }
 
     /// The edges of `shape` whose faces are exactly these two.
     fn edge_between(shape: &Shape, first: u32, second: u32) -> u32 {

@@ -38,6 +38,7 @@ cargo run -p partsmith-cli -- schema --write   # regenerate docs/format/*.schema
 3. Every feature has an example in `examples/` that CI rebuilds.
 4. Correct and idiomatic over clever. Use a battle-tested pattern only when it solves a problem the code actually has.
 5. Less is more: less code, fewer dependencies, fewer options on screen.
+6. Leave code cleaner than you found it. Readable, modular and extensible code that follows the idioms and design patterns of its language beats code that merely works.
 
 ## Invariants (never break)
 
@@ -53,6 +54,7 @@ cargo run -p partsmith-cli -- schema --write   # regenerate docs/format/*.schema
 - Behavior is specified in `docs/spec/<area>.md` before code is written. Acceptance tests in a crate's `tests/` directory come from the spec; implementers do not weaken them.
 - Read the ADRs for an area before changing it. Changing a decision means writing a new ADR.
 - Changes to the file-format schema, protocol schema, naming algorithm, licenses or dependencies need human review at the next gate; record them in the ADR log.
+- Every feature or milestone ends with a cleanup pass: look for code smells (duplication, long functions, modules that do too much, leaky abstractions, dead code, unclear names, needless complexity, non-idiomatic code), then refactor and simplify without changing behavior. Tests, example results and generated schemas stay identical, and benchmarks do not get slower.
 
 ## Code style
 

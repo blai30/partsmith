@@ -1,13 +1,30 @@
+import { existsSync } from 'node:fs'
 import { defineConfig, devices } from '@playwright/test'
 
 const port = 4173
+
+// The tests run against the real WebAssembly core that scripts/build-wasm.sh copies into public/core (ui.md 6).
+const missingCoreFiles = ['partsmith_core.mjs', 'partsmith_core.wasm'].filter(
+  (name) => !existsSync(new URL(`public/core/${name}`, import.meta.url)),
+)
+if (missingCoreFiles.length > 0) {
+  throw new Error(
+    `The end-to-end tests need the web core in ui/public/core, which lacks ${missingCoreFiles.join(' and ')}. Build it with scripts/build-wasm.sh (see ui/e2e/README.md).`,
+  )
+}
 
 export default defineConfig({
   testDir: 'e2e',
   fullyParallel: true,
   forbidOnly: Boolean(process.env.CI),
   retries: 0,
+  // Performance tests run only on the fixed hardware runner, with PARTSMITH_PERF=1 (ui.md 6.7).
+  grepInvert: process.env.PARTSMITH_PERF === '1' ? undefined : /@perf/,
   reporter: process.env.CI ? [['github'], ['html', { open: 'never' }]] : 'list',
+  expect: {
+    // Visual tests (ui.md 6.6).
+    toHaveScreenshot: { animations: 'disabled', maxDiffPixelRatio: 0.002 },
+  },
   use: {
     baseURL: `http://localhost:${String(port)}`,
     trace: 'retain-on-failure',
@@ -16,7 +33,9 @@ export default defineConfig({
       ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE }
       : {},
   },
+  // Desktop Chrome: 1280 by 720 at device scale factor 1 (ui.md 6).
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
+  // The production build, served with the cross-origin isolation headers from vite.config.ts.
   webServer: {
     command: `pnpm build && pnpm preview --port ${String(port)} --strictPort`,
     port,

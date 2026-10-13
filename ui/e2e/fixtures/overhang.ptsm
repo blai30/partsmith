@@ -1,0 +1,21 @@
+{
+  "format": "partsmith",
+  "format_version": 1,
+  "units": "mm",
+  "printer": "generic-fdm",
+  "parameters": [],
+  "bodies": [
+    {"id": "b-mushroom", "name": "Mushroom"}
+  ],
+  "features": [
+    {"id": "f-box1", "type": "box", "body": "b-mushroom", "size": ["10 mm", "10 mm", "20 mm"], "op": "new"},
+    {
+      "id": "f-box2",
+      "type": "box",
+      "body": "b-mushroom",
+      "size": ["30 mm", "30 mm", "5 mm"],
+      "position": ["0 mm", "0 mm", "20 mm"],
+      "op": "join"
+    }
+  ]
+}

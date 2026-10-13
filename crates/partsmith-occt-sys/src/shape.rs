@@ -101,8 +101,10 @@ pub struct Shape {
 }
 
 // SAFETY: the C++ `Shape` is immutable after construction (its `TopoDS_Shape` and index maps are
-// const), OCCT's reference counts are atomic, and no facade function writes to an input shape;
-// operations that would write cached data work on copies (kernel spec sections 3.1 and 3.10).
+// const), OCCT's reference counts are atomic, and no facade function writes to an input shape:
+// operations whose OCCT algorithms write to their arguments (blends, shells, meshing, and
+// booleans, whose unification writes to shared edges) work on copies (kernel spec sections 3.1
+// and 3.10, tests 43 and 114).
 unsafe impl Send for Shape {}
 // SAFETY: see `Send` above; shared references only read the immutable C++ shape.
 unsafe impl Sync for Shape {}

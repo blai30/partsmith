@@ -2,13 +2,17 @@
 #pragma once
 
 #include <memory>
+#include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <BOPAlgo_Operation.hxx>
 #include <BRepTools_History.hxx>
 #include <TopAbs_ShapeEnum.hxx>
+#include <TopLoc_Location.hxx>
 #include <TopTools_ListOfShape.hxx>
+#include <TopTools_MapOfShape.hxx>
 #include <TopoDS_Shape.hxx>
 #include <gp_Ax2.hxx>
 #include <gp_Ax3.hxx>
@@ -59,6 +63,61 @@ TopoDS_Shape solids_only(const TopoDS_Shape &shape);
 // `i` of the input and the copy's history is the input's (kernel spec section 3.1).
 Shape copy_shape(const Shape &shape);
 
+// Copies a shape's solids, shells, faces, edges and vertices, sharing its surfaces and curves,
+// for algorithms that write only to sub-shapes (curves on faces, ranges, tolerances). Same
+// structure and indices as `copy_shape`.
+Shape copy_elements(const Shape &shape);
+
+// Copies a shape like `copy_shape`, with the location of every located element applied to its
+// copied geometry instead of kept, for algorithms that fail on located geometry (kernel spec
+// section 3.4.8). Same structure and indices as `copy_shape`.
+Shape copy_unlocated(const Shape &shape);
+
+// The state of one face, with its edges and vertices as the face sees them, that an algorithm
+// can change in place: the addresses of geometry and curve representations, tolerances, flags,
+// parameter ranges and points.
+struct ElementState {
+  std::vector<const void *> parts;
+  std::vector<double> values;
+  std::vector<TopLoc_Location> locations;
+
+  bool operator==(const ElementState &other) const;
+};
+
+// The shapes an operation runs on, as the validity check of kernel spec section 3.5 sees them.
+// Faces of the inputs that the result keeps are trusted unless the operation changed them in
+// place: some OCCT algorithms write to the sub-shapes their result shares with their arguments
+// (unification adds and removes curves on faces), so the state of every face, edge and vertex
+// is recorded when the inputs are given, before the operation runs.
+class CheckInputs {
+ public:
+  // No inputs: the whole result is checked.
+  CheckInputs() = default;
+  explicit CheckInputs(std::vector<TopoDS_Shape> shapes);
+
+  const std::vector<TopoDS_Shape> &shapes() const { return shapes_; }
+
+  // Fixes the faces the operation changed in place, before the shim writes to the result itself
+  // (curves stored on planes), which then does not count as a change.
+  void settle();
+
+  // The faces of the inputs whose state, or the state of one of their edges or vertices, differs
+  // from the recorded one: the faces fixed by `settle`, or else compared now.
+  TopTools_MapOfShape altered_faces() const;
+
+ private:
+  // The faces whose state differs from the recorded one now.
+  TopTools_MapOfShape compare() const;
+
+  std::vector<TopoDS_Shape> shapes_;
+  std::optional<TopTools_MapOfShape> settled_;
+  // Each face of the inputs (one occurrence of each) with its recorded state.
+  std::vector<std::pair<TopoDS_Shape, ElementState>> states_;
+};
+
+// The volume of the solids of `shape` (kernel spec section 3.6, item 1), each solid once.
+double solids_volume(const TopoDS_Shape &shape);
+
 // Stores the curve of every edge on every planar face of `shape`, which OCCT otherwise projects
 // again on each use; checks and queries of the shape get much cheaper. Only for shapes the
 // operation built itself: it writes to the edges.
@@ -78,23 +137,24 @@ void merge_history(const Handle(BRepTools_History) &history,
 
 // True when the result passes the checks of kernel spec section 3.5 relative to `inputs`, the
 // shapes the operation ran on: the checks of BRepCheck_Analyzer limited to the faces that are
-// not faces of an input, their wires, edges and vertices, and the shells and solids that are
-// not an input's; the whole result when none of its faces is an input's.
-bool changed_part_valid(const TopoDS_Shape &shape, const std::vector<TopoDS_Shape> &inputs);
+// not faces of an input or were changed in place, their wires, edges and vertices, and the
+// shells and solids that are not an input's; the whole result when none of its faces is an
+// unchanged face of an input.
+bool changed_part_valid(const TopoDS_Shape &shape, const CheckInputs &inputs);
 
 // Checks what the operation produced or changed in its result relative to `inputs`, the shapes
-// it ran on, with the checks of BRepCheck_Analyzer (the whole result when no face of an input
-// is in it). An invalid result is repaired with ShapeFix_Shape (on a copy, so shared inputs
-// stay untouched), the repair is merged into the history and the whole repaired result is
-// checked; a result still invalid raises Partsmith_InvalidResult (kernel spec section 3.5).
+// it ran on, with the checks of BRepCheck_Analyzer (the whole result when no unchanged face of
+// an input is in it). An invalid result is repaired with ShapeFix_Shape (on a copy, so shared
+// inputs stay untouched), the repair is merged into the history and the whole repaired result
+// is checked; a result still invalid raises Partsmith_InvalidResult (kernel spec section 3.5).
 void ensure_valid(TopoDS_Shape &shape, const Handle(BRepTools_History) &history,
-                  const std::vector<TopoDS_Shape> &inputs, const char *algorithm);
+                  const CheckInputs &inputs, const char *algorithm);
 
 // Normalizes the result of an operation that must produce a solid: keeps its solids, checks
 // and repairs it relative to `inputs` (see ensure_valid), and raises Partsmith_EmptyResult
 // when no solid is left.
 TopoDS_Shape finish_solid(const TopoDS_Shape &shape, const Handle(BRepTools_History) &history,
-                          const std::vector<TopoDS_Shape> &inputs, const char *algorithm);
+                          const CheckInputs &inputs, const char *algorithm);
 
 // The history of every input relative to the result (kernel spec section 3.3). `history` may
 // be null when the result contains the inputs' sub-shapes unchanged.

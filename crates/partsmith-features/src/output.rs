@@ -4,7 +4,9 @@ use std::sync::Arc;
 
 use partsmith_model::Id;
 use partsmith_naming::{NamingMap, TopologyInfo};
-use partsmith_occt_sys::{KernelError, OpResult, Shape, SubShapeKind, common, cut, fuse};
+use partsmith_occt_sys::{
+    InputHistory, KernelError, OpResult, Shape, SubShapeKind, common, cut, fuse,
+};
 use partsmith_sketch::{ORIGIN, Placement, PointRef, PointRole, Profile, SolveResult};
 
 use crate::context::BuildContext;
@@ -189,7 +191,8 @@ pub fn apply_op(
 /// `common` of the body's shape with the shapes of `tools` in order, exactly as `apply_op` does
 /// after its kernel call. For a feature that reads the kernel result before deciding (hole reads
 /// from the cut's history which tools overlap the body). Op new, an empty body and a result whose
-/// history inputs are not the body and every tool return `Internal`.
+/// history does not have one input per shape, the body's and then each tool's, with that shape's
+/// face, edge and vertex counts return `Internal`.
 pub fn apply_op_result(
     context: &BuildContext<'_>,
     body: &Id,
@@ -219,6 +222,19 @@ pub fn apply_op_result(
             result.history.inputs.len(),
             tools.len()
         )));
+    }
+    let shapes = std::iter::once(target).chain(tools.iter().map(|tool| &tool.shape));
+    for (position, (input, shape)) in result.history.inputs.iter().zip(shapes).enumerate() {
+        if !history_fits(input, shape) {
+            return Err(FeatureError::internal(format!(
+                "history input {position} of the kernel result is not the history of {}",
+                if position == 0 {
+                    "the body".to_owned()
+                } else {
+                    format!("tool {position}")
+                }
+            )));
+        }
     }
     let before = state.volume()?;
     let after = result.shape.volume()?;
@@ -257,6 +273,17 @@ pub fn apply_op_result(
         },
     };
     Ok((update, Vec::new()))
+}
+
+/// True when `input` has one entry per face, edge and vertex of `shape`.
+fn history_fits(input: &InputHistory, shape: &Shape) -> bool {
+    [
+        (input.faces.len(), SubShapeKind::Face),
+        (input.edges.len(), SubShapeKind::Edge),
+        (input.vertices.len(), SubShapeKind::Vertex),
+    ]
+    .into_iter()
+    .all(|(entries, kind)| u32::try_from(entries).is_ok_and(|entries| entries == shape.count(kind)))
 }
 
 /// The shape and names of the tools fused into one: the only tool as it is (its topology unknown

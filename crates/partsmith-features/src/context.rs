@@ -10,7 +10,9 @@ use partsmith_model::{
 use partsmith_naming::{
     ElementInfo, ElementKind, ElementName, NamingMap, Reference, Resolution, TopologyInfo,
 };
-use partsmith_occt_sys::{Axis, ElementGeometry, GeometryKind, Point, Shape, SubShape, Vector};
+use partsmith_occt_sys::{
+    Axis, ElementGeometry, GeometryKind, Point, Shape, SubShape, SubShapeKind, Vector,
+};
 use partsmith_sketch::{Geometry, MatchMethod, OriginPlane, Placement, RegionMatch, match_region};
 
 use crate::deps::ExprUse;
@@ -541,16 +543,20 @@ impl BodyState {
 
     /// The state a body update gives the body: empty without a shape, else the update's shape and
     /// naming map, with the update's measurements as the values `topology` and `volume` would
-    /// compute (features.md section 2.7). Recompute makes every body state after a feature this
-    /// way.
+    /// compute (features.md section 2.7). Measurements whose topology does not list one entry per
+    /// face, edge and vertex of the shape belong to another shape and are measured again instead.
+    /// Recompute makes every body state after a feature this way.
     pub fn from_update(update: &BodyUpdate) -> Self {
         match &update.shape {
             None => BodyState::empty(),
-            Some(shape) => BodyState::with(
-                Some(shape.clone()),
-                Arc::clone(&update.naming),
-                update.measured.clone(),
-            ),
+            Some(shape) => {
+                let measured = if fits(&update.measured, shape) {
+                    update.measured.clone()
+                } else {
+                    Measurements::default()
+                };
+                BodyState::with(Some(shape.clone()), Arc::clone(&update.naming), measured)
+            }
         }
     }
 
@@ -641,6 +647,22 @@ impl BodyState {
             }),
         }
     }
+}
+
+/// True unless `measured` carries a topology whose face, edge or vertex count differs from the
+/// shape's.
+fn fits(measured: &Measurements, shape: &Shape) -> bool {
+    measured.topology.as_ref().is_none_or(|topology| {
+        [
+            (topology.faces.len(), SubShapeKind::Face),
+            (topology.edges.len(), SubShapeKind::Edge),
+            (topology.vertices.len(), SubShapeKind::Vertex),
+        ]
+        .into_iter()
+        .all(|(entries, kind)| {
+            u32::try_from(entries).is_ok_and(|entries| entries == shape.count(kind))
+        })
+    })
 }
 
 /// A cell holding `value` when it is known, else an empty one.
@@ -1943,27 +1965,59 @@ mod tests {
     #[test]
     fn a_state_from_an_update_keeps_its_measurements() {
         let state = box_body("f-box1", [0.0, 0.0, 0.0], 10.0);
-        let topology = Arc::new(empty_topology());
+        let shape = state.shape().cloned().expect("the box is a solid");
+        let topology = Arc::new(crate::topology_info(&shape).expect("a topology"));
+        let volume = shape.volume().expect("a volume");
         let update = BodyUpdate {
             body: id("b-1"),
-            shape: state.shape().cloned(),
+            shape: Some(shape),
             naming: Arc::clone(state.naming()),
             change: crate::output::BodyChange::Modify,
-            // Values a real feature would never carry, so the test sees they are not measured.
             measured: Measurements {
                 topology: Some(Arc::clone(&topology)),
-                volume: Some(123.0),
+                volume: Some(volume),
             },
         };
 
         let next = BodyState::from_update(&update);
 
-        assert_eq!(next.volume().expect("the carried volume"), 123.0);
-        assert!(Arc::ptr_eq(
-            &next.topology().expect("the carried topology"),
-            &topology
-        ));
+        // The carried values are cached before anything asks for them.
+        let cached = next.measurements();
+        assert!(
+            cached
+                .topology
+                .is_some_and(|carried| Arc::ptr_eq(&carried, &topology))
+        );
+        assert_eq!(cached.volume, Some(volume));
         assert!(Arc::ptr_eq(next.naming(), state.naming()));
+    }
+
+    #[test]
+    fn a_state_from_an_update_measures_again_what_another_shape_gave() {
+        let state = box_body("f-box1", [0.0, 0.0, 0.0], 10.0);
+        let cylinder = partsmith_occt_sys::make_cylinder(&partsmith_occt_sys::Plane::XY, 5.0, 10.0)
+            .expect("a cylinder")
+            .shape;
+        let update = BodyUpdate {
+            body: id("b-1"),
+            shape: state.shape().cloned(),
+            naming: Arc::clone(state.naming()),
+            change: crate::output::BodyChange::Modify,
+            // The cylinder's topology, as a plugin copying another state's measurements would.
+            measured: Measurements {
+                topology: Some(Arc::new(
+                    crate::topology_info(&cylinder).expect("a topology"),
+                )),
+                volume: Some(cylinder.volume().expect("a volume")),
+            },
+        };
+
+        let next = BodyState::from_update(&update);
+
+        let cached = next.measurements();
+        assert!(cached.topology.is_none() && cached.volume.is_none());
+        assert_eq!(next.topology().expect("a topology").faces.len(), 6);
+        assert!((next.volume().expect("a volume") - 1000.0).abs() < 1e-9);
     }
 
     #[test]

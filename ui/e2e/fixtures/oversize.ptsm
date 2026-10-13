@@ -1,0 +1,13 @@
+{
+  "format": "partsmith",
+  "format_version": 1,
+  "units": "mm",
+  "printer": "generic-fdm",
+  "parameters": [],
+  "bodies": [
+    {"id": "b-slab", "name": "Slab"}
+  ],
+  "features": [
+    {"id": "f-box1", "type": "box", "body": "b-slab", "size": ["400 mm", "400 mm", "10 mm"], "op": "new"}
+  ]
+}

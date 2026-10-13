@@ -3380,7 +3380,7 @@ Sketching:
 
 Inspector, timeline and browser:
 
-23. E-23. Drop `parametric.ptsm`; click the body row "Cube": `body-size` "20 × 20 × 20 mm". Run "Parameters"; fill "Expression of size" with "30 mm", Enter: `parameter-value` "30 mm" and `body-size` "30 × 30 × 30 mm". ControlOrMeta+Z: "20 × 20 × 20 mm".
+23. E-23. Drop `parametric.ptsm`; click the body row "Cube": `body-size` "20 × 20 × 20 mm". Run "Parameters"; fill "Expression of size" with "30 mm", Enter: `parameter-value` "30 mm" and `body-size` "30 × 30 × 30 mm". Click the panel's title "Parameters" (focus leaves the expression field, where `Mod+Z` is the field's own text undo, 2.10 dispatch rule 2), ControlOrMeta+Z: "20 × 20 × 20 mm".
 24. E-24. Drop `cube-features.ptsm`; drag `timeline-marker` to the gap between the first and second items: items 2 to 4 have `data-rolled-back="true"`, the marker's `aria-valuenow` is 1, the body row reads "Cube (empty)", and hovering `(cx, cy)` does not give `face`. ControlOrMeta+Z: `aria-valuenow` 4 and no rolled-back items.
 25. E-25. Drop `cube-features.ptsm`; focus the marker; ArrowLeft: `aria-valuenow` 3; End: 4 with `aria-valuetext` "At the end"; Home: 0 with `aria-valuetext` "At the start", and every `timeline-item` has `data-rolled-back="true"`.
 26. E-26. Drop `two-bodies.ptsm`; drag "Cylinder 1" to the first gap: item names in order "Cylinder 1", "Sketch 1", "Extrude 1", all ok. Drag "Extrude 1" to the gap between "Cylinder 1" and "Sketch 1": "Extrude 1" has `data-status="error"` and an error notification starts with "Extrude 1 failed."; click its "Undo": the order is "Cylinder 1", "Sketch 1", "Extrude 1" and "Extrude 1" is ok.
@@ -3401,19 +3401,19 @@ Inspector, timeline and browser:
 
 Viewport:
 
-41. E-41. Drop `cube.ptsm`. Click "Top view": `data-view="top"`; "Front view": `front`; "Front right top corner view": `iso`; "Home view": `iso`. Shift+middle-drag 100 pixels on the canvas: `custom`.
+41. E-41. Drop `cube.ptsm`. Click "Top view": `data-view="top"`; "Home view": `iso`; "Front view": `front`; "Front right top corner view": `iso` (each face is clicked while it faces the viewer: seen from the top, the Front face is turned away). Shift+middle-drag 100 pixels on the canvas: `custom`.
 42. E-42. Click "Orthographic": `aria-pressed="true"` and `data-projection="orthographic"`. Press Shift+P: `perspective`.
 43. E-43. Drop `cube.ptsm`, front fit. Middle-drag from `(cx, cy)` to `(cx + 0.6 H, cy)`: `data-camera-target` changed, hover `(cx, cy)` gives `none` and `(cx + 0.6 H, cy)` gives `face`. Press F6, then five wheel events of `deltaY: -100` at `(cx, cy)`: hover `(cx, cy + 0.45 H)` gives `face`.
 44. E-44. Run "Navigation: FreeCAD": `data-nav-preset="freecad"`. Front fit; press the middle button, then the left button, move 100 pixels, release both: `data-view="custom"`. Click "Front view"; middle-drag 100 pixels: `data-view` stays `front` and `data-camera-target` changes.
-45. E-45. Drop `cube.ptsm`, front fit, press Shift+X: `section-popover` visible; fill Offset with "10", Enter: `data-section="on"`; hover `(cx, cy - 0.2 H)` gives `none` and `(cx, cy + 0.2 H)` gives `face`. Shift+X: `data-section="off"` and `(cx, cy - 0.2 H)` gives `face`.
+45. E-45. Drop `cube.ptsm`, front fit, press Shift+X: `section-popover` visible; fill Offset with "10", Enter: `data-section="on"`; hover `(cx, cy - 0.2 H)` gives `none` and `(cx, cy + 0.2 H)` gives `face`. Escape closes the popover (while it is open only `Mod+K` is a shortcut, 2.10). Shift+X: `data-section="off"` and `(cx, cy - 0.2 H)` gives `face`.
 46. E-46. Drop `cube.ptsm`, front fit; ten wheel events of `deltaY: 100`: hover `(cx, cy - 0.39 H)` gives `none`. Press F6: `(cx, cy - 0.38 H)` gives `face` and `(cx, cy - 0.42 H)` gives `none`.
 
 Print and export:
 
 47. E-47. Drop `overhang.ptsm`; click the radio "Print": `data-context="print"`; the toolbar "Print tools" has buttons starting "Printer:", "Overhang map" (`aria-pressed="true"`), "Checks", "Print check", "Lay on face", "Export 3MF", "Export". `health-badge` reaches `data-state` `warning` or `error` with `data-stale="false"`; `overhang-legend` is visible and contains "°". Click the badge: `health-list` has at least one `health-item[data-check=overhangs]`. Clicking it changes `data-camera-target` and shows `finding-marker`.
 48. E-48. Drop `cube.ptsm`, go to Print, click the "Printer:" button: `printer-menu` has at least two `menuitemradio`s. Choose one that is not checked: `status-printer` shows its name. ControlOrMeta+Z: the previous name.
-49. E-49. Drop `oversize.ptsm`, go to Print: `health-badge` `data-state="error"` and a `health-item[data-check=bed_fit][data-severity=error]`.
-50. E-50. Drop `overhang.ptsm`, go to Print, open "Checks", switch "Overhangs" off: no `health-item[data-check=overhangs]`, and `overhang-legend` is still visible. Close the popover and click "Overhang map": no `overhang-legend`. Reload, drop the file, go to Print: the switch is still off.
+49. E-49. Drop `oversize.ptsm`, go to Print: `health-badge` `data-state="error"`; click "Print check": a `health-item[data-check=bed_fit][data-severity=error]`.
+50. E-50. Drop `overhang.ptsm`, go to Print, click "Print check": at least one `health-item[data-check=overhangs]`. Open "Checks", switch "Overhangs" off: no `health-item[data-check=overhangs]`, and `overhang-legend` is still visible. Close the popover and click "Overhang map": no `overhang-legend`. Reload, drop the file, go to Print: the switch is still off.
 51. E-51. Drop `overhang.ptsm`, go to Print and wait for a report; click "Model", rename the body: `health-badge` `data-stale="true"`. Click it: `data-stale="false"` and `health-list` visible.
 52. E-52. Without File System Access, drop `cube.ptsm`, go to Print, click "Export 3MF": a download `cube.3mf` starting with bytes `50 4b 03 04`, and a notification "Exported cube.3mf."
 53. E-53. Open the export popover, choose STL, click "Export": a download `cube.stl` whose length is 84 plus 50 times the little-endian `u32` at offset 80, which is at least 12.
@@ -3424,7 +3424,7 @@ Themes:
 
 56. E-56. Run "Theme: Dark": `html` has the class `dark`; reload: still dark. Run "Theme: Light": `html` has no `dark` class. With `page.emulateMedia({ colorScheme: 'dark' })`, run "Theme: System": `html` has the class `dark`.
 
-Feature coverage (E-57, one test per row, parametrized). Fields are found by the labels in each feature's manifest table (`docs/spec/features/<type>.md`); selection fields are filled by the clicks listed, and a field that already holds the listed item (a starting value, 2.12) is left as is. Each test ends with Enter and expects a new timeline item with the feature's default label and `data-status="ok"`, plus the listed result.
+Feature coverage (E-57, one test per row, parametrized). Fields are found by the labels in each feature's manifest table (`docs/spec/features/<type>.md`); selection fields are filled by the clicks listed, and a field that already holds the listed item (a starting value, 2.12) is left as is. Each test ends with Enter where the Enter ladder confirms a command (3.5: in the inspector, not on a button, or on the viewport; a row whose last step clicks a browser row gives the viewport focus first, since Enter on a focused browser row activates that row, 3.10) and expects a new timeline item with the feature's default label and `data-status="ok"`, plus the listed result.
 
 | Type | Fixture and view | Steps | Result |
 | --- | --- | --- | --- |
@@ -3451,7 +3451,7 @@ Feature coverage (E-57, one test per row, parametrized). Fields are found by the
 Fixes and renames:
 
 58. E-58. Drop `fillet-error.ptsm`; open the problems panel and click "Edit" on "Fillet 1": `inspector-error` has a button whose name starts with "Use "; click it, wait for `data-preview="shown"`, press Enter: "Fillet 1" has `data-status="ok"`.
-59. E-59. Drop `parametric.ptsm`; run "Parameters"; set "Name of size" to "side", Enter: every `timeline-item` has `data-status="ok"`; ControlOrMeta+Z restores the name "size".
+59. E-59. Drop `parametric.ptsm`; run "Parameters"; set "Name of size" to "side", Enter: every `timeline-item` has `data-status="ok"`; click the panel's title "Parameters" (as in E-23), then ControlOrMeta+Z restores the name "size".
 
 Theme, styles and fonts:
 
@@ -3495,7 +3495,7 @@ One interface for everyone (open issue 15):
 94. E-94. Drop `parametric.ptsm`, double-click "Extrude 1", fill Distance with "si": an `expression-suggestions` option reads "size = 20 mm". Press Tab: the input value is "size" and `expression-result` reads "= 20 mm". Fill "width": `field-error` contains "width" and a button "Add parameter width" is shown. Click it: `parameters-panel` has a draft row named "width" with the expression "20 mm", focused. Press Enter: a `parameter-row` for width exists, and the Distance input reads "width" with `expression-result` "= 20 mm".
 95. E-95. Without File System Access, drop `fillet-error.ptsm`, click "Export" in the top bar: `export-status` contains "Fillet 1 failed, so it is not in the export." and "Print check: Not checked", with buttons "Show problems" and "Check print". Escape, choose the radio "Print", wait for `health-badge` `data-stale="false"`, click "Export 3MF": a `notification[data-severity=warning]` reads "Exported fillet-error.3mf. Fillet 1 failed, so it is not in the export." with a button "Show problems".
 96. E-96. Cold start: `viewport` has a numeric `data-grid-spacing` and `status-grid` reads "Grid {that value} mm". Twenty wheel events of `deltaY: 100` at `(cx, cy)`: `data-grid-spacing` is larger. Click the radio "Print": `data-grid-spacing` is empty and `status-grid` is hidden.
-97. E-97. Drop `cube.ptsm`, choose the radio "Print": the toolbar button reads "Printer: Generic FDM 0.4 mm (default)" and `status-printer` "Generic FDM 0.4 mm (default)"; open it: the item "Generic FDM 0.4 mm" contains "256 × 256 × 256 mm bed · 0.4 mm nozzle".
+97. E-97. Drop `cube.ptsm`, choose the radio "Print": the toolbar button is named "Printer: Generic FDM 0.4 mm (default)" (its label is its accessible name, shown as text only when the labels fit, 3.2) and `status-printer` "Generic FDM 0.4 mm (default)"; open it: the item "Generic FDM 0.4 mm" contains "256 × 256 × 256 mm bed · 0.4 mm nozzle".
 98. E-98. Drop `cube.ptsm`, front fit. Right-click the top front edge `(cx, cy - 0.4 H)`: `viewport-menu` has items "Fillet", "Chamfer" and "Edit Extrude 1". Choose "Chamfer", press Enter: "Chamfer 1" has `data-status="ok"`. Click the right front edge `(cx + 0.4 H, cy)` and press Enter: the inspector "Chamfer" whose edges field has `data-count="1"` and whose Distance input has the value "1 mm"; Enter: "Chamfer 2" has `data-status="ok"`.
 99. E-99. Drop `cube.ptsm`, top fit, press F: the edges field reads "Select edges or a face". Click `(cx, cy)`: `data-count="4"`. Click again: `data-count="0"`. Click again and press Enter: "Fillet 1" has `data-status="ok"`.
 100. E-100. Drop `cube.ptsm`, choose "Print" and wait for `health-badge` `data-stale="false"`. Click "Lay on face": `print-hint` reads "Pick the face that should touch the bed.". `fitView(page, 'Front')`, click `(cx, cy)`: "Lay on face" has `aria-pressed="true"` and `health-badge` reaches `data-stale="false"` again. Click "Export" in the top bar: `export-status` contains "Printing with the picked face of Cube on the bed.". Escape, click "Lay on face": `aria-pressed="false"`.

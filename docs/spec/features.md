@@ -59,7 +59,7 @@ partsmith_features
   builtin      one module per built-in feature type (sketch, extrude, ...)
 ```
 
-The crate root re-exports every item listed above, the manifest types of `partsmith_model::manifest` (section 2.3) and `partsmith_occt_sys::OCCT_VERSION`, and defines the crate version:
+The crate root re-exports every item listed above, the naming bridge (section 2.11: `topology_info`, `name_shape`, `name_by_history`, `modified_sources` and `Named`, from a private module), the manifest types of `partsmith_model::manifest` (section 2.3) and `partsmith_occt_sys::OCCT_VERSION`, and defines the crate version:
 
 ```rust
 /// Version of this crate. Recompute puts it and `OCCT_VERSION` into every cache key (recompute.md section 3.4).
@@ -384,8 +384,10 @@ impl BodyState {
     /// A body holding `shape` named by `naming`.
     pub fn new(shape: Shape, naming: Arc<NamingMap>) -> Self;
     /// The state a body update gives the body: empty without a shape, else the update's shape and naming map, with the
-    /// update's measurements (section 2.7) as the values `topology` and `volume` would compute. Recompute makes every
-    /// body state after a feature this way (recompute.md section 3.5).
+    /// update's measurements (section 2.7) as the values `topology` and `volume` would compute. Measurements whose
+    /// topology does not list one entry per face, edge and vertex of the shape belong to another shape: both values
+    /// are dropped and measured again from the shape when first needed. Recompute makes every body state after a
+    /// feature this way (recompute.md section 3.5).
     pub fn from_update(update: &BodyUpdate) -> Self;
     /// The shape, or None when the body is empty.
     pub fn shape(&self) -> Option<&Shape>;
@@ -548,7 +550,8 @@ pub fn apply_op(ctx: &BuildContext<'_>, body: &Id, op: BodyOp, tools: Vec<Tool>)
 /// Applies the body semantics of `op` (section 3.5) to `result`, the kernel `fuse`, `cut` or `common` of the body's
 /// shape with the shapes of `tools` in order, exactly as `apply_op` does after its kernel call. For a feature that
 /// reads the kernel result before deciding (hole reads from the cut's history which tools overlap the body). Op new, an
-/// empty body and a result whose history inputs are not the body and every tool return `Internal`.
+/// empty body, and a result whose history does not have one input per shape (the body's, then each tool's in order)
+/// with that shape's face, edge and vertex counts, return `Internal`.
 pub fn apply_op_result(ctx: &BuildContext<'_>, body: &Id, op: BodyOp, tools: &[Tool], result: OpResult) -> Result<(BodyUpdate, Vec<FeatureWarning>), FeatureError>;
 ```
 
@@ -843,6 +846,34 @@ Built-in features use only the public API, like a plugin would: they are registe
 - `VOLUME_TOLERANCE` (section 2.7), for features that apply the volume rules of section 3.5 to results of their own (hole's overlap test, split_body's sides).
 - `apply_op_result` (section 2.7), the body rules applied to a kernel boolean the feature made and read itself.
 - `Measurements` and `BodyState::measurements` (sections 2.6 and 2.7), so an update can pass on what its feature measured.
+- The naming bridge, re-exported from the crate root, so a feature names the shapes it makes as the built-ins do (naming.md sections 3.3 and 3.6):
+
+```rust
+/// Topology and fingerprints of every face, edge and vertex of `shape`, in the form `NamingMap::build` and
+/// `NamingMap::element_infos` take (naming.md section 3.7).
+pub fn topology_info(shape: &Shape) -> Result<TopologyInfo, FeatureError>;
+
+/// A naming map with the topology it was built from, which a feature passes on in `Measurements::topology`.
+pub struct Named {
+    /// Names of every face, edge and vertex of the shape.
+    pub naming: NamingMap,
+    /// Topology and fingerprints of the shape (`topology_info`).
+    pub topology: Arc<TopologyInfo>,
+}
+
+/// Names every element of `shape` from one source per face, in face index order (naming.md section 3.3).
+/// `inherited_aliases` are the aliases of every input naming map.
+pub fn name_shape(shape: &Shape, faces: Vec<FaceSource>, inherited_aliases: &[&Aliases]) -> Result<Named, FeatureError>;
+
+/// For each face of `result.shape`, in index order, the names of the input faces whose `modified` list contains it,
+/// in input order. `inputs` names the operation's history inputs in order; a different count is `Internal`.
+pub fn modified_sources(result: &OpResult, inputs: &[&NamingMap]) -> Result<Vec<Vec<ElementName>>, FeatureError>;
+
+/// Names a kernel result by the boolean rule (naming.md section 3.6): each face descends from the input faces whose
+/// `modified` lists contain it, and a face without one gets the fallback name `<feature>/face`. The inputs' aliases
+/// are inherited.
+pub fn name_by_history(feature: &Id, result: &OpResult, inputs: &[&NamingMap]) -> Result<Named, FeatureError>;
+```
 
 ## 3. Behavior
 
@@ -1336,6 +1367,8 @@ These construct a `BuildContext` directly with `BuildInputs` and a test feature 
 20. `apply_op` with several intersect tools. Body b-1 holds the box [-10,-10,0]-[10,10,20]; the tools are the boxes [0,-10,0]-[20,10,20] and [-5,-5,15]-[5,5,25] (the bodies of [features/boolean.md](features/boolean.md) test 6). `apply_op(ctx, "b-1", Intersect, tools)` returns an update with change `Intersect`, volume 250, 6 faces and bbox [0,-5,15]-[5,5,20], and no warning. With the second tool moved to [95,-5,15]-[105,5,25] (it misses the body) it returns `EmptyResult { op: Intersect }`. With no tools it returns `Internal` for every op.
 21. Public helpers (section 2.11). For a `KernelError` `error`, `FeatureError::from(error.clone()) == FeatureError::Kernel { error }`, and `?` on a kernel call converts the same way. `FeatureError::internal("x")` is `Internal { message: "x" }` with code `internal`. `point([1.0, 2.0, 3.0])` is the kernel `Point { x: 1.0, y: 2.0, z: 3.0 }`; `vector([0.0, 0.0, 1.0])` is `Vector { x: 0.0, y: 0.0, z: 1.0 }`. `VOLUME_TOLERANCE == 1e-9`.
 22. Face placement (section 3.6). Body b-1 holds the box of [features/box.md](features/box.md) test 1 and the hint is `{origin [1, 2, 3], x_axis [0.6, 0, 0.8], normal [-0.8, 0, 0.6]}`. `face_placement("b-1", {q: "f-box1/top", fp: "plane|n=0,0,1|c=0,0,30|a=200"}, &hint)` is `Ok(Ok({origin [1, 2, 30], x_axis [1, 0, 0], normal [0, 0, 1]}))`. The reference `{q: "f-box9/top", fp: "plane|n=0,0,1|c=500,500,500|a=1"}` gives `Ok(Err(Missing))`, and so does any reference when b-1 is empty. With b-1 holding the cylinder of [features/cylinder.md](features/cylinder.md) test 1, `{q: "f-cyl1/side", fp: "cylinder|n=0,0,1|c=0,0,5|a=314.159265|r=5"}` gives `Ok(Err(NotPlanar))`. An undeclared body `b-9` gives `Err(UndeclaredDependency)`.
+23. States from updates (section 2.6). With `S` the state that `f-box1` of [features/box.md](features/box.md) test 1 gives `b-1`, an update holding `S`'s shape and naming map with `measured` set to `topology_info` of the shape (in an `Arc`) and the shape's volume gives, through `BodyState::from_update`, a state whose `measurements()`, before anything asks for a value, holds that same `Arc` (`Arc::ptr_eq`) and that volume, and whose naming map is `S`'s `Arc`. The same update with the topology and volume of a cylinder of radius 5 and height 10 gives a state whose `measurements()` hold neither, whose topology lists 6 faces and whose volume is 6000 (relative 1e-9). An update without a shape gives an empty state, whatever it carries (volume 0, no faces).
+24. Body rules on a kernel result (section 2.7). With b-1 holding the box of [features/boolean.md](features/boolean.md) test 6 and the first tool of test 20, `apply_op_result(ctx, "b-1", Cut, &tools, cut(<b-1's shape>, &[<the tool's shape>]))` returns the update `apply_op(ctx, "b-1", Cut, tools)` returns: equal `to_brep` bytes, element names, change and warnings, and `measured` holding a topology equal to `topology_info` of the result and the result's volume. It returns `Internal` with op `New`, with an empty b-1, with a result of the body and no tool or of the body and two tools, and with the cut of a cylinder of radius 5 and height 10 by the same tool, whose history input 0 lists the cylinder's 3 faces, not the box's 6.
 
 ### 6.4 Body semantics tests
 
@@ -1351,6 +1384,7 @@ Run as documents (section 6.1).
 8. Bodies b-1, b-2; `f-box1` in b-1 size 20,20,20 op new; `{"id": "f-box2", "type": "box", "body": "b-2", "size": ["20", "20", "20"], "position": ["10", "0", "0"], "op": "new"}`; `{"id": "f-bool1", "type": "boolean", "target": "b-1", "tools": ["b-2"], "op": "join"}`; `{"id": "f-box3", "type": "box", "body": "b-2", "size": ["5", "5", "5"], "op": "new"}`. Expected: all ok; b-1 volume 12000; b-2 volume 125 (a consumed body can be started again with op new).
 9. Bodies b-1; `f-box1` size 10,10,10 op new; `{"id": "f-fil1", "type": "fillet", "body": "b-2", "edges": [{"q": "edge(f-box1/front|f-box1/top)", "fp": "line|n=1,0,0|c=0,-5,10|l=10"}], "radius": "1"}`. Expected: f-fil1 error `unknown_body` with field `body`.
 10. Bodies b-1; `{"id": "f-box1", "type": "box", "body": "b-1", "size": ["0", "10", "10"], "op": "new"}`, `{"id": "f-box2", "type": "box", "suppressed": true, "body": "b-1", "size": ["10", "10", "10"], "op": "new"}`, `{"id": "f-box3", "type": "box", "body": "b-1", "size": ["10", "10", "10"], "op": "new"}`. Expected: f-box1 error `out_of_range`; f-box2 suppressed; f-box3 ok (b-1 is still empty at that point); b-1 volume 1000.
+11. Carried measurements (section 2.7). In the examples `fillet/every-edge`, `chamfer/equal-distance`, `shell/open-top`, `hole/simple-through`, `boolean/cut` and `boolean/cut-misses` (section 6.1), the update of `b-1` by `f-fil1`, `f-cha1`, `f-sh1`, `f-hole1` and `f-bool1` carries in `measured` a topology equal to `topology_info` of the update's shape. Those of `f-hole1` and of `f-bool1` in `boolean/cut` carry the shape's volume (bit-equal to `Shape::volume`), those of the fillet, chamfer and shell none. The `NoEffect` update of `f-bool1` in `boolean/cut-misses` keeps b-1's shape and carries its volume, and a topology only when it equals `topology_info` of the shape.
 
 ## Open issues
 
@@ -1358,5 +1392,5 @@ Run as documents (section 6.1).
 2. **Expression conversion.** Count fields evaluate with expected dimension `NONE` and then require a whole number; this spec adds the 1e-9 integer tolerance, the `u32` range and the per-feature minimum (section 3.4), which expressions.md does not define.
 3. **Examples layout.** Resolved by [delivery.md](delivery.md) section 2.8: every `.ptsm` under `examples/` is an example, with `<stem>.expected.json` and `<stem>.py` next to it.
 4. **Region union.** The union of selected regions (section 3.7) is computed by `partsmith-features` from sketch.md's `ProfileLoop`s because sketch.md lists a region-union helper as later. Moving it into the sketch crate later would not change behavior.
-5. **Hole budget over on a 200-face body.** Measured in release builds on the 4-core reference container (load average 4 to 12), October 12 2026: features/hole.md test 33, a hole feature with ten holes in a 200 x 200 x 10 plate with 194 holes (section 5, 80 ms), builds in 496 ms (median of three sessions of 7 runs, 458 to 500 ms; release test 33 measured 475 ms). The kernel `cut` of the plate with the ten tools alone takes 467 ms (439 to 483 ms), about 94% of the build. Before October 12 the build took 651 ms: it also intersected the plate with the tools (the overlap `common`, now 150 to 166 ms, replaced by reading the cut's history, features/hole.md section 3.3 step 5) and measured the plate's volume (20 ms, now carried from the feature that made the plate, open issue 6). The rest of the build (tools, naming, volume of the result, element infos of 4 ms) is under 30 ms, so the budget needs a faster OCCT boolean on large bodies, or a new budget decided against this measurement; release test 33 fails until then. Every other budget of this section holds (same session, medians of three): primitives 0.08 to 0.39 ms (2 ms), extrude of test 1 1.1 ms (3 ms) and its through-all cut 5.6 ms (30 ms), revolve 1.0 ms (5 ms), move body 0.06 ms (5 ms), boolean join 8.0 ms (15 ms), mirror 3.4 ms (15 ms), circular pattern of six 3.3 ms (40 ms), linear pattern of 100 115 ms (500 ms), split body 5.2 ms (15 ms), fillet of 12 edges 14 ms (100 ms), chamfer of the top loop 4.1 ms (60 ms), shell 6.2 ms (50 ms), hole with two points 8.3 ms (25 ms), failing fillet, chamfer and shell with their searches 72, 53 and 65 ms (1.2 s), datum plane 0.001 ms (1 ms), sketch 0.03 ms (2 ms), `BodyState::elements` of a 200-face body 4 ms (10 ms), and the framework budgets of `tests/budgets.rs`.
-6. **Carried measurements and the boolean result API (needs human review).** Section 2.7 adds `Measurements` and the field `BodyUpdate::measured`, section 2.6 adds `BodyState::from_update`, `topology` and `measurements`, and section 2.7 adds `apply_op_result`, for open issue 5 and recompute.md open issue 4 (ADR 0018). Naming a result reads its topology and fingerprints from the kernel, and the body rules read its volume; the next feature on the body read both again (its references need the element infos, its body rules the volume), and so did hosts that list elements. The updates now carry them to the body's next state. `apply_op_result` lets hole read the cut's history before applying the body rules, instead of computing each tool's shared volume with a separate `common` (features/hole.md section 3.3 step 5). Adding a public field to `BodyUpdate` changes how plugins construct it (they add `measured: Measurements::default()`), which ADR 0018 records for review at the next gate.
+5. **Hole budget over on a 200-face body (needs a budget decision).** features/hole.md test 33, a hole feature with ten holes in a 200 x 200 x 10 plate with 194 holes (section 5, 80 ms), builds in 273 ms, against 463 ms before October 13 (release builds on the 4-core reference container at load 1 to 5, medians of five alternating runs of the release test before and after). Before, about half of the kernel `cut` was the kernel's own validity check rather than OCCT's boolean (a profile put the cut at 87.5% of the build: 48.9% the check, 41.0% the boolean), and most of the check was the orientation of the wires of the plate's two faces with 204 holes each, with OCCT projecting the curves of their edges on the plane again for every wire (21.4% of the build). The kernel now stores those curves on the result before checking it (kernel.md section 3.5 item 5), and the hole decides its tools before naming the cut (features/hole.md open issue 6). The boolean alone stays near 200 ms on this plate, so the budget needs a decision: a faster boolean on large bodies, or a budget set against this measurement; release test 33 fails until then. Every other budget of this section held on October 12 (medians of three): primitives 0.08 to 0.39 ms (2 ms), extrude of test 1 1.1 ms (3 ms) and its through-all cut 5.6 ms (30 ms), revolve 1.0 ms (5 ms), move body 0.06 ms (5 ms), boolean join 8.0 ms (15 ms), mirror 3.4 ms (15 ms), circular pattern of six 3.3 ms (40 ms), linear pattern of 100 115 ms (500 ms), split body 5.2 ms (15 ms), fillet of 12 edges 14 ms (100 ms), chamfer of the top loop 4.1 ms (60 ms), shell 6.2 ms (50 ms), hole with two points 8.3 ms (25 ms), failing fillet, chamfer and shell with their searches 72, 53 and 65 ms (1.2 s), datum plane 0.001 ms (1 ms), sketch 0.03 ms (2 ms), `BodyState::elements` of a 200-face body 4 ms (10 ms), and the framework budgets of `tests/budgets.rs`.
+6. **Carried measurements and the boolean result API (needs human review).** Section 2.7 adds `Measurements` and the field `BodyUpdate::measured`, section 2.6 adds `BodyState::from_update`, `topology` and `measurements`, and section 2.7 adds `apply_op_result`, for open issue 5 and recompute.md open issue 4 (ADR 0018). Naming a result reads its topology and fingerprints from the kernel, and the body rules read its volume; the next feature on the body read both again (its references need the element infos, its body rules the volume), and so did hosts that list elements. The updates now carry them to the body's next state. `apply_op_result` lets hole read the cut's history before applying the body rules, instead of computing each tool's shared volume with a separate `common` (features/hole.md section 3.3 step 5). Adding a public field to `BodyUpdate` changes how plugins construct it (they add `measured: Measurements::default()`), which ADR 0018 records for review at the next gate. `BodyState::from_update` drops measurements whose topology does not have the shape's element counts, which another shape's measurements copied by mistake usually have (test 23); measurements of another shape with the same counts cannot be told apart cheaply.

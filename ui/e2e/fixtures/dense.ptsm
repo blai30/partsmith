@@ -1,0 +1,19 @@
+{
+  "format": "partsmith",
+  "format_version": 1,
+  "units": "mm",
+  "parameters": [],
+  "bodies": [
+    {"id": "b-1", "name": "Spheres"}
+  ],
+  "features": [
+    {"id": "f-sph1", "type": "sphere", "body": "b-1", "radius": "6 mm", "op": "new"},
+    {
+      "id": "f-lp1",
+      "type": "linear_pattern",
+      "body": "b-1",
+      "direction": {"axis": {"kind": "origin", "axis": "X"}, "count": "15", "spacing": "15 mm"},
+      "second_direction": {"axis": {"kind": "origin", "axis": "Y"}, "count": "15", "spacing": "15 mm"}
+    }
+  ]
+}

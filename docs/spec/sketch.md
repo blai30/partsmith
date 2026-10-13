@@ -1,6 +1,6 @@
 # Sketch (`partsmith-sketch`)
 
-Behavior spec for the M1 sketcher: the typed params of the `sketch` feature, the native constraint solver (ADR 0004), degrees-of-freedom diagnosis, drag solving, and profile regions. This file is the definition of done for `crates/partsmith-sketch`. Read `docs/design/architecture.md` (section "Sketches") and ADR 0004 first.
+Behavior spec for the M1 sketcher: the typed params of the `sketch` feature, the native constraint solver (ADR 0004), degrees-of-freedom diagnosis, drag solving, profile regions and region matching, and the sketch's messages. This file is the definition of done for `crates/partsmith-sketch`. Read `docs/design/architecture.md` (section "Sketches") and ADR 0004 first. Region matching by boundary, with coverage of split regions and successions, is decided in [ADR 0022](../adr/0022-split-regions-keep-their-area.md); the frame marker of face sketch fallbacks in [ADR 0023](../adr/0023-frames-live-on-the-model.md); both fields this adds to documents (`outline`, `fallback_frame`) are part of file format version 2 ([ADR 0025](../adr/0025-file-format-version-2.md)). Messages follow [the error guidelines](../guidelines/errors.md).
 
 Conventions in this document:
 
@@ -16,7 +16,7 @@ Conventions in this document:
 ### 1.1 In M1
 
 - `SketchParams` (plane, entities, constraints) with its exact JSON form, JSON Schema derive and validation.
-- Sketch planes: origin plane, datum feature, a body's face reference (naming's `Reference`) with fallback placement; the `Placement` frame and the rule that places a sketch on a resolved face.
+- Sketch planes: origin plane, datum feature, a body's face reference (naming's `Reference`) with a fallback placement and the frame it is in (`fallback_frame`); the `Placement` frame and the rule that places a sketch on a resolved face.
 - Entities: point, line, circle, arc, each with a construction flag.
 - `PointRef` strings and point roles.
 - Reserved references `origin`, `x_axis` and `y_axis` for the sketch's own origin and axes, usable in constraints as fixed constants.
@@ -25,7 +25,8 @@ Conventions in this document:
 - Diagnosis by rank-revealing QR: degrees of freedom, redundant and conflicting constraint ids, per-entity constraint state.
 - Drag solving with a weakly pinned target.
 - Measured values of all dimensions (driving and reference).
-- Profiles: planar arrangement of the non-construction curves, closed regions with holes, `RegionKey` and region fingerprint, region matching, profile check findings, and the oriented exact-curve loops that features turn into kernel profiles.
+- Profiles: planar arrangement of the non-construction curves, closed regions with holes, `RegionKey`, region outline and region fingerprint, region matching by boundary with coverage of split regions, successions and loss reasons, profile check findings with the connect-ends fix, and the oriented exact-curve loops that features turn into kernel profiles.
+- Messages that name entities and constraints by kind, position and value instead of ids, with one-click fixes and a technical detail (section 4).
 - Performance budgets with a defined benchmark, and property tests.
 
 ### 1.2 Later (explicitly not in M1)
@@ -47,7 +48,7 @@ Conventions in this document:
 
 ## 2. Public API
 
-Everything below is public in `partsmith_sketch`. Types that appear in documents or protocol messages derive `Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize, schemars::JsonSchema`; enums with only unit variants also derive `Copy, Eq, Hash`. Every public item has a doc comment; the one-line comments below are those doc comments. Tags follow architecture.md "Serialization": records (sketch entities, sketch constraints, profile findings) are tagged with `type`; value enums nested in records or messages (`SketchPlane`, `DragTarget`, `ProfileCurve`, `RegionMatch`) are tagged with `kind`.
+Everything below is public in `partsmith_sketch`. Types that appear in documents or protocol messages derive `Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize, schemars::JsonSchema`; enums with only unit variants also derive `Copy, Eq, Hash`. Every public item has a doc comment; the one-line comments below are those doc comments. Tags follow architecture.md "Serialization": records (sketch entities, sketch constraints, profile findings) are tagged with `type`; value enums nested in records or messages (`SketchPlane`, `DragTarget`, `ProfileCurve`, `RegionMatch`, `RegionLoss`) are tagged with `kind`.
 
 ### 2.1 Constants and re-exports
 
@@ -66,6 +67,8 @@ pub const CONFLICT_TOLERANCE: f64 = 1e-9;
 pub const DRAG_WEIGHT: f64 = 100.0;
 /// Distance (mm) within which profile vertices merge; equals `partsmith_model::LINEAR_TOLERANCE`.
 pub const PROFILE_TOLERANCE: f64 = partsmith_model::LINEAR_TOLERANCE;
+/// Largest gap (mm) between two open ends of different curves that a profile finding offers to connect (section 3.13.3).
+pub const CONNECT_DISTANCE: f64 = 2.0;
 /// Reserved point reference to the sketch origin, the point (0, 0) (section 3.16).
 pub const ORIGIN: &str = "origin";
 /// Reserved line reference to the sketch x axis, the infinite line through the origin along +u (section 3.16).
@@ -132,8 +135,30 @@ pub enum SketchPlane {
     Origin { plane: OriginPlane },
     /// The plane produced by a datum feature, for example a `datum_plane`.
     Datum { feature: Id },
-    /// A planar face of `body`, plus the placement used when the face cannot be resolved.
-    Face { body: Id, face: partsmith_naming::Reference, fallback: Placement },
+    /// A planar face of `body`, plus the placement used when the face cannot be resolved and the coordinates it is in.
+    Face {
+        body: Id,
+        face: partsmith_naming::Reference,
+        fallback: Placement,
+        /// Omitted from JSON when `World`.
+        #[serde(default, skip_serializing_if = "HintFrame::is_world")]
+        fallback_frame: HintFrame,
+    },
+}
+
+/// Which coordinates a face sketch's `fallback` is in (section 3.1, features.md section 3.6).
+#[serde(rename_all = "snake_case")]
+pub enum HintFrame {
+    /// World coordinates: the default, and the meaning of every fallback written before file format version 2.
+    #[default]
+    World,
+    /// The coordinates of the face's own feature, before any later Move body or copy transform.
+    Body,
+}
+
+impl HintFrame {
+    /// True for `World`; used to omit the default when saving.
+    pub fn is_world(&self) -> bool;
 }
 
 /// An origin plane, serialized as "XY", "XZ" or "YZ".
@@ -190,7 +215,13 @@ JSON examples:
 {"kind": "face", "body": "b-1", "face": {"q": "f-ext1/end-cap", "fp": "plane|n=0,0,1|c=40,25,30|a=4000|adj=4,4"}, "fallback": {"origin": [0, 0, 30], "x_axis": [1, 0, 0], "normal": [0, 0, 1]}}
 ```
 
-A `Placement` alone: `{"origin": [0, 0, 30], "x_axis": [1, 0, 0], "normal": [0, 0, 1]}`. The `face` field is a `partsmith_naming::Reference`, and `body` names the body it is resolved in, as for every stored reference (naming.md section 2.4).
+The same plane attached since file format version 2, with its fallback in body coordinates:
+
+```json
+{"kind": "face", "body": "b-1", "face": {"q": "f-ext1/end-cap", "fp": "plane|n=0,0,1|c=40,25,30|a=4000|adj=4,4"}, "fallback": {"origin": [0, 0, 30], "x_axis": [1, 0, 0], "normal": [0, 0, 1]}, "fallback_frame": "body"}
+```
+
+A `Placement` alone: `{"origin": [0, 0, 30], "x_axis": [1, 0, 0], "normal": [0, 0, 1]}`. The `face` field is a `partsmith_naming::Reference` (with `nb` and `merged` when the pick stored them), and `body` names the body it is resolved in, as for every stored reference (naming.md section 2.4). `HintFrame` serializes as `"world"` or `"body"`; `partsmith-features` uses the same type for its placement helpers (features.md section 3.6).
 
 ### 2.3 Entities
 
@@ -516,7 +547,7 @@ pub enum SketchStatus { UnderConstrained, FullyConstrained, Redundant, Conflicti
 #[serde(rename_all = "snake_case")]
 pub enum EntityState { UnderConstrained, FullyConstrained, Conflicting }
 
-/// A user-facing solver finding. `Display` gives the message of section 4.2.
+/// A user-facing solver finding. `render` gives the message of section 4.2 and `Display` the detail of section 4.4.
 pub enum SolveIssue {
     /// These constraints cannot all hold.
     Conflicting { constraints: Vec<Id> },
@@ -582,7 +613,9 @@ pub struct Region {
 impl Region {
     /// The fingerprint of this region (area and centroid).
     pub fn fingerprint(&self) -> RegionFingerprint;
-    /// A stored reference to this region: its key plus its fingerprint.
+    /// The outer loop's entries in traversal order (section 3.13.8).
+    pub fn outline(&self) -> RegionLoop;
+    /// A stored reference to this region: its key, its fingerprint and its outline.
     pub fn reference(&self) -> RegionRef;
 }
 
@@ -618,17 +651,28 @@ pub enum ProfileCurve {
     Circle { center: [f64; 2], radius: f64, ccw: bool },
 }
 
-/// A profile check finding. `Display` gives the message of section 4.3.
+/// A profile check finding. `render` gives the message of section 4.3 and `Display` the detail of section 4.4.
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ProfileFinding {
-    /// A curve end that touches no other non-construction curve.
-    OpenEndpoint { entity: Id, point: [f64; 2] },
+    /// A curve end that touches no other non-construction curve. With `connect`, the finding stands for two open ends
+    /// that one coincident constraint would join (section 3.13.3); `connect` is omitted from JSON when `None`.
+    OpenEndpoint { entity: Id, point: [f64; 2], connect: Option<Connection> },
     /// Two curves share a stretch of positive length.
     Overlap { entities: [Id; 2], start: [f64; 2], end: [f64; 2] },
     /// Two curves of one connected chain cross at a point inside both.
     SelfIntersection { entities: [Id; 2], point: [f64; 2] },
     /// A curve too short to use; it is ignored.
     ZeroLength { entity: Id },
+}
+
+/// Two open curve ends within `CONNECT_DISTANCE` of each other.
+pub struct Connection {
+    /// The open end the finding names.
+    pub first: PointRef,
+    /// The open end it would be joined to.
+    pub second: PointRef,
+    /// Distance between the two ends in mm.
+    pub gap: f64,
 }
 
 /// Canonical region key, written like "e-1,e-2,~e-5;~e-9" (section 3.13.5).
@@ -671,35 +715,95 @@ pub struct RegionRef {
     pub key: RegionKey,
     /// The region's fingerprint when the reference was made.
     pub fp: RegionFingerprint,
+    /// The region's outer loop in traversal order when the reference was made (section 3.13.8); `None` in references
+    /// written before file format version 2. Omitted from JSON when `None`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outline: Option<RegionLoop>,
 }
 
-/// Finds the region a stored reference means today (section 3.14).
-pub fn match_region(regions: &[Region], reference: &RegionRef) -> RegionMatch;
+/// An outer loop as a cyclic sequence of key entries in traversal order, written like "e-1,e-2,~e-5,e-3" (section 3.13.8).
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct RegionLoop { /* private: entries */ }
+
+impl RegionLoop {
+    /// Builds a canonical loop (section 3.13.8); fails with `InvalidRegionKey { text: "" }` when `entries` is empty.
+    pub fn new(entries: Vec<KeyEdge>) -> Result<RegionLoop, SketchError>;
+    /// The entries in traversal order, starting where the canonical text starts.
+    pub fn entries(&self) -> &[KeyEdge];
+}
+impl std::str::FromStr for RegionLoop { type Err = SketchError; }
+impl std::fmt::Display for RegionLoop {}
+
+/// Finds the regions a stored reference means today (section 3.14). `entities` are the ids of every entity of the
+/// sketch, construction entities included; their order does not matter.
+pub fn match_region(regions: &[Region], entities: &[Id], reference: &RegionRef) -> RegionMatch;
 
 /// Result of region matching.
 pub enum RegionMatch {
-    /// One region matched; `index` is into the `regions` slice.
-    Resolved { index: usize, method: MatchMethod },
-    /// Several regions match equally well; indices ascending.
-    Ambiguous { candidates: Vec<usize> },
+    /// One or more regions matched; indices into the `regions` slice, ascending.
+    Resolved { indices: Vec<usize>, method: MatchMethod, successions: Vec<Succession> },
+    /// Several separate sets of regions fit; each candidate is one set with indices ascending, candidates ordered by their first index.
+    Ambiguous { candidates: Vec<Vec<usize>> },
     /// No region matches.
-    Missing,
+    Missing { loss: RegionLoss },
 }
 
-/// How a region was matched.
+/// How regions were matched.
 #[serde(rename_all = "snake_case")]
-pub enum MatchMethod { Key, OuterBoundary, Fingerprint }
+pub enum MatchMethod {
+    /// The stored key, unchanged.
+    Key,
+    /// One region that keeps stored boundary entities on the same side.
+    Boundary,
+    /// Every piece of a region that new geometry split, connected through that geometry.
+    Coverage,
+    /// The stored size and place, because no stored boundary entity is left; features report it as a guess.
+    Fingerprint,
+}
+
+/// A boundary entity of the stored region whose place other entities now carry (section 3.14).
+pub struct Succession {
+    /// The stored entity.
+    pub entity: Id,
+    /// The entities that carry its place now: the new entities for a replacement, the entity itself and then the new
+    /// ones for an extension, in the order of section 3.14.
+    pub now: Vec<Id>,
+}
+
+/// Why no region matched.
+pub enum RegionLoss {
+    /// These entities of the stored outer boundary are no longer in the sketch, sorted by id.
+    Deleted { entities: Vec<Id> },
+    /// No entity of the stored outer boundary is in the sketch, and no region has the stored size and place: the outline was drawn again.
+    Redrawn,
+    /// Every entity of the stored outer boundary is still in the sketch, but no closed region lies on its inner side: the outline is open.
+    Open,
+}
 ```
 
-`RegionKey` and `RegionFingerprint` serialize as their text forms. `RegionMatch` (with `#[serde(tag = "kind", rename_all = "snake_case")]`) and `MatchMethod` are not stored by this crate but derive the serde traits for the protocol's use: `{"kind": "resolved", "index": 0, "method": "outer_boundary"}`, `{"kind": "ambiguous", "candidates": [0, 1]}`, `{"kind": "missing"}`. `ValueKind` serializes as `"length"` or `"angle"` and `EntityKind` as `"point"`, `"line"`, `"circle"` or `"arc"`.
-
-JSON examples:
+`RegionKey`, `RegionLoop` and `RegionFingerprint` serialize as their text forms. `RegionMatch` and `RegionLoss` (each with `#[serde(tag = "kind", rename_all = "snake_case")]`), `MatchMethod` and `Succession` are not stored by this crate but derive the serde traits for the protocol's use; every field is always present:
 
 ```json
+{"kind": "resolved", "indices": [0], "method": "boundary", "successions": [{"entity": "e-2", "now": ["e-9"]}]}
+{"kind": "resolved", "indices": [0, 1], "method": "coverage", "successions": []}
+{"kind": "ambiguous", "candidates": [[0], [1]]}
+{"kind": "missing", "loss": {"kind": "deleted", "entities": ["e-2"]}}
+{"kind": "missing", "loss": {"kind": "redrawn"}}
+```
+
+`ValueKind` serializes as `"length"` or `"angle"` and `EntityKind` as `"point"`, `"line"`, `"circle"` or `"arc"`.
+
+JSON examples. A region reference as `Region::reference()` writes it, then one written before file format version 2:
+
+```json
+{"key": "e-1,e-2,e-3,e-4;~e-5", "fp": "c=40,25|a=3921.460184", "outline": "e-1,e-2,e-3,e-4"}
 {"key": "e-1,e-2,e-3,e-4;~e-5", "fp": "c=40,25|a=3921.460184"}
 ```
 
+Profile findings, the first standing for two open ends 0.3 mm apart:
+
 ```json
+{"type": "open_endpoint", "entity": "e-4", "point": [0, 0.3], "connect": {"first": "e-4.end", "second": "e-1.start", "gap": 0.3}}
 {"type": "open_endpoint", "entity": "e-3", "point": [80, 50]}
 {"type": "overlap", "entities": ["e-1", "e-5"], "start": [20, 0], "end": [60, 0]}
 {"type": "self_intersection", "entities": ["e-1", "e-3"], "point": [5, 5]}
@@ -740,12 +844,12 @@ A `Profile` for the plate sketch of section 2.9 (the first region's outer loop s
 }
 ```
 
-All `Profile`, `Region`, `ProfileLoop` and `ProfileEdge` fields are always present in JSON.
+All `Profile`, `Region`, `ProfileLoop` and `ProfileEdge` fields are always present in JSON; of the findings' fields, only `connect` is omitted when absent.
 
 ### 2.8 Errors
 
 ```rust
-/// Every error of this crate; messages are in section 4.1.
+/// Every error of this crate. `render` gives the message of section 4.1 and `Display` the detail of section 4.4.
 #[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum SketchError {
     InvalidPointRef { text: String },
@@ -773,6 +877,64 @@ pub enum SketchError {
 
 /// Why a placement is invalid.
 pub enum PlacementProblem { NonFinite, NormalNotUnit, XAxisNotUnit, NotPerpendicular, ZeroNormal }
+
+/// What a message needs to name entities and constraints the way the user sees them (section 4).
+#[derive(Clone, Copy)]
+pub struct MessageContext<'a> {
+    /// The sketch's label, for example "Sketch 1" (features.md section 3.12).
+    pub label: &'a str,
+    /// The sketch as stored.
+    pub sketch: &'a SketchParams,
+    /// The solved entities (`SolveResult::entities`) when a solve ran; entities are described from them when they
+    /// have the entity, otherwise from `sketch`.
+    pub solved: Option<&'a [SketchEntity]>,
+    /// Driving dimension values in internal units, as passed to `solve`; empty when they are not known.
+    pub values: &'a DimensionValues,
+    /// Measured dimension values (`SolveResult::measured`) when a solve ran; titles of reference dimensions use them.
+    pub measured: Option<&'a std::collections::BTreeMap<Id, f64>>,
+    /// Document units: coordinates and lengths are written in them.
+    pub units: partsmith_model::Units,
+}
+
+impl MessageContext<'_> {
+    /// The words for an entity or a reserved reference (section 4), or `None` when the sketch has no such entity.
+    pub fn entity(&self, id: &Id) -> Option<String>;
+    /// The title of a constraint (section 4), or `None` when the sketch has no constraint with this id.
+    pub fn title(&self, constraint: &Id) -> Option<String>;
+}
+
+impl SketchError {
+    /// The message (section 4.1).
+    pub fn render(&self, context: &MessageContext<'_>) -> String;
+    /// One-click fixes in the order hosts offer them (section 4.1).
+    pub fn fixes(&self) -> Vec<SketchFix>;
+}
+
+impl SolveIssue {
+    /// The message (section 4.2).
+    pub fn render(&self, context: &MessageContext<'_>) -> String;
+    /// One-click fixes in the order hosts offer them (section 4.2); `sketch` must be the sketch that was solved.
+    pub fn fixes(&self, sketch: &SketchParams) -> Vec<SketchFix>;
+}
+
+impl ProfileFinding {
+    /// The message (section 4.3).
+    pub fn render(&self, context: &MessageContext<'_>) -> String;
+    /// One-click fixes (section 4.3).
+    pub fn fixes(&self) -> Vec<SketchFix>;
+}
+
+/// A one-click fix for a sketch message. Features turn it into a feature `Fix` (features.md section 2.8), and the
+/// engine labels it (engine.md section 3.22). Not serialized.
+#[derive(Clone, Debug, PartialEq)]
+pub enum SketchFix {
+    /// Delete this constraint.
+    DeleteConstraint { constraint: Id },
+    /// Make this driving dimension a reference dimension.
+    MakeReference { constraint: Id },
+    /// Add a coincident constraint joining these two points.
+    ConnectEnds { first: PointRef, second: PointRef },
+}
 ```
 
 `ValueNotPositive::points` is true for a point-to-point `distance`, which adds a hint to the message. `ReservedMisuse::reference` is the reference text as written, for example `origin.center` or `x_axis`.
@@ -836,7 +998,7 @@ The three `SketchPlane` variants:
 
 - `origin`: the placement is `OriginPlane::placement()`.
 - `datum`: the placement is the plane produced by the named datum feature. `partsmith-features` reads it from the build context; this crate only stores the id.
-- `face`: `partsmith-features` resolves `face` in the state of `body` just before the sketch (features/sketch.md section 3.3). When it resolves and the first resolved face is planar, with a point `p` on it and outward unit normal `n`, the placement is `Placement::on_plane(p, n, &fallback)`. When the body is empty, the reference is missing or ambiguous, or the face is not planar, the placement is `fallback` itself and the feature reports a warning. The fallback is recorded when the sketch is attached, so the sketch keeps its position if the face disappears.
+- `face`: `partsmith-features` resolves `face` in the state of `body` just before the sketch and places the sketch by the face placement rule of features.md section 3.6, in the order features/sketch.md section 3.3 states ([ADR 0023](../adr/0023-frames-live-on-the-model.md)). On resolved faces, which must be planar and coplanar, with a point `p` on them and outward unit normal `n`, the placement is `Placement::on_plane(p, n, &h)`, where the hint `h` is `fallback` as stored when `fallback_frame` is `world`, and `fallback` moved by the face's motion since it was built when `fallback_frame` is `body`. The placement is always right-handed: on a face that turned over (its normal points against the hint's), the drawing lies mirrored on the face and the feature warns `sketch_turned_over`. When the face is gone, the sketch is placed where that face was just before the feature that removed it, read from the same run; otherwise at `fallback` (moved by the face's motion for `body`), and the feature reports a warning that says so. Hosts write `fallback` with every attach and committed drag, in body coordinates with `fallback_frame: body` since file format version 2; nothing rewrites a fallback on its own, so a document opened, rebuilt and saved without edits is unchanged.
 
 `Placement::on_plane(plane_point, plane_normal, hint)`:
 
@@ -866,12 +1028,12 @@ The three `SketchPlane` variants:
 ### 3.3 JSON form
 
 - Record field order is the struct and variant declaration order: `id`, `type`, then the geometry or reference fields in the order of section 2, then `expr`, `driving` for dimensions, and `construction` last on entities. `SketchParams` fields follow the feature record's own fields in the order `plane`, `entities`, `constraints`.
-- Defaults are omitted: `construction: false` and `driving: true`. Inputs that spell out a default are accepted. `entities` and `constraints` are always written, even when empty (as file-format.md does for the top-level arrays), and a missing key loads as an empty list.
-- Unknown fields inside a plane, placement, face reference, entity or constraint record are a deserialization error that names the field. Unknown `type` values are a deserialization error. A constraint record whose reference fields match none of the shapes of its type (for example a `distance` with both `points` and `line`, or a `horizontal` with neither `line` nor `points`) is a deserialization error.
+- Defaults are omitted: `construction: false`, `driving: true` and `fallback_frame: "world"`. Inputs that spell out a default are accepted. `entities` and `constraints` are always written, even when empty (as file-format.md does for the top-level arrays), and a missing key loads as an empty list.
+- Unknown fields inside a plane, placement, face reference, entity or constraint record are a deserialization error that names the field. The face reference's own fields (`q`, `fp`, `nb`, `merged`) and their checks are naming.md's (section 2.4). Unknown `type` values are a deserialization error. A constraint record whose reference fields match none of the shapes of its type (for example a `distance` with both `points` and `line`, or a `horizontal` with neither `line` nor `points`) is a deserialization error.
 - `PointRef` grammar: `<id>` or `<id>.<role>` where `<id>` matches `[A-Za-z0-9_-]{1,64}` and `<role>` is `start`, `end` or `center`. Anything else fails with `InvalidPointRef { text }`. `Display` writes the same form; `PointRole::Point` is the bare id.
 - Numbers are stored at full `f64` precision; this crate never rounds stored geometry. The model crate's canonical serializer decides how numbers print.
 - Each entity and constraint is a leaf record (no nested arrays of objects), so the canonical layout prints it on one line when it fits.
-- `SketchParams` derives `JsonSchema`. The generated schema contains: the `PointRef` pattern of section 2.4; for entities, a `oneOf` whose `type` constants are exactly `point`, `line`, `circle`, `arc`; for constraints, `type` constants for exactly the 19 names of section 2.5; for planes, a `oneOf` whose `kind` constants are exactly `origin`, `datum`, `face`; `OriginPlane` as the enum `["XY", "XZ", "YZ"]`; `expr` as a string; numeric arrays as `minItems`/`maxItems` 2 (or 3 in `Placement`).
+- `SketchParams` derives `JsonSchema`. The generated schema contains: the `PointRef` pattern of section 2.4; for entities, a `oneOf` whose `type` constants are exactly `point`, `line`, `circle`, `arc`; for constraints, `type` constants for exactly the 19 names of section 2.5; for planes, a `oneOf` whose `kind` constants are exactly `origin`, `datum`, `face`, the `face` variant with the optional `fallback_frame` as the enum `["world", "body"]`; `OriginPlane` as the enum `["XY", "XZ", "YZ"]`; `expr` as a string; numeric arrays as `minItems`/`maxItems` 2 (or 3 in `Placement`).
 
 ### 3.4 Validation
 
@@ -1158,7 +1320,7 @@ Each loop starts with the edge whose entity id is smallest (byte order); if that
 #### 3.13.3 Findings
 
 - `zero_length { entity }`: section 3.13.1.
-- `open_endpoint { entity, point }`: a vertex of degree 1 (before bridge removal); `entity` is the curve that ends there, `point` the vertex. A curve end that lies on another curve's interior (a T-junction) is not open.
+- `open_endpoint { entity, point, connect }`: a vertex of degree 1 (before bridge removal) is an *open end*: the start or the end of the one curve that ends there, at the vertex. A curve end that lies on another curve's interior (a T-junction) is not open. Open ends are paired: take every pair of open ends of different curves whose distance is at most `CONNECT_DISTANCE`, in order of increasing distance (ties by the lower entity id of the pair in byte order, then that end's point u, then v, then the same for the other end), and use a pair when neither of its ends is used yet. A used pair is one finding: `entity` and `point` are the end of the curve whose id is greater in byte order, and `connect` is `Connection { first: that end, second: the other end, gap: their distance }`, with each end as the `PointRef` `<entity>.start` or `<entity>.end`. Like every result of `build_profile`, this does not depend on the order of `entities`. Every open end not in a used pair is a finding of its own with `connect: None`. So a finding with `connect` stands for two open ends, and one coincident constraint joins them (section 4.3).
 - `overlap { entities, start, end }`: each pair of curves with a shared stretch; `entities` sorted by id; `start` and `end` are the stretch's end points in the direction of the first entity (counterclockwise for arcs); for two identical circles both are the point at angle 0 of the circle.
 - `self_intersection { entities, point }`: chains are the connected groups of curves that share endpoint vertices (an endpoint vertex of both curves; T-junctions and crossings do not link chains; a circle is a chain of its own). A self-intersection is an intersection vertex of two curves of the same chain that is not an endpoint vertex of either curve. Crossings between different chains (a line drawn across a closed shape, two overlapping rectangles) are intentional ways to split regions and are not reported. Overlap stretches are reported as overlaps, not here.
 
@@ -1187,27 +1349,44 @@ entry = [ "~" ] id                id matches [A-Za-z0-9_-]{1,64}
 
 #### 3.13.6 Fingerprint
 
-`RegionFingerprint` is `{area, centroid}`. Its text is `c=<x>,<y>|a=<area>` where each number is the value rounded to 6 decimal places (`(value * 1e6).round() / 1e6`) and written with Rust's `Display` for `f64` (shortest round-trip form, no exponent, no trailing `.0`), with a rounded zero written `0`. Examples: area 4000 and centroid (40, 25) give `c=40,25|a=4000`; area `pi` gives `a=3.141593`; centroid `(-0.0, 1e-7)` gives `c=0,0`. `from_str` accepts exactly this shape with any finite numbers and `area >= 0`; otherwise `InvalidFingerprint { text }`. A `RegionRef` serializes as `{"key": "<key text>", "fp": "<fingerprint text>"}`.
+`RegionFingerprint` is `{area, centroid}`. Its text is `c=<x>,<y>|a=<area>` where each number is the value rounded to 6 decimal places (`(value * 1e6).round() / 1e6`) and written with Rust's `Display` for `f64` (shortest round-trip form, no exponent, no trailing `.0`), with a rounded zero written `0`. Examples: area 4000 and centroid (40, 25) give `c=40,25|a=4000`; area `pi` gives `a=3.141593`; centroid `(-0.0, 1e-7)` gives `c=0,0`. `from_str` accepts exactly this shape with any finite numbers and `area >= 0`; otherwise `InvalidFingerprint { text }`. A `RegionRef` serializes as `{"key": "<key text>", "fp": "<fingerprint text>", "outline": "<loop text>"}`, with `outline` omitted when absent; `Region::reference()` always writes it.
 
 #### 3.13.7 Ordering
 
 Regions are sorted by key text (byte order), then centroid u, then centroid v. Findings are sorted by type in the order `zero_length`, `open_endpoint`, `overlap`, `self_intersection`, then by entity ids (byte order), then point u, then point v (for overlaps, `start`).
 
+#### 3.13.8 Region loop
+
+A region's loop text (`Region::outline()`) lists the entries of its outer loop (`[~]id`, as in the key, section 3.13.5) in traversal order, counterclockwise, with consecutive entries of the same entity and the same flag written once (cyclically, so the last and the first are merged too), as a cyclic sequence rotated so that the text is the smallest of all its rotations in byte order. Examples: the counterclockwise rectangle `e-1,e-2,e-3,e-4`; the same rectangle drawn clockwise `~e-1,~e-4,~e-3,~e-2` (its key is `~e-1,~e-2,~e-3,~e-4`); the rectangle with a corner chamfer line `e-6` between `e-1` and `e-2`, `e-1,e-6,e-2,e-3,e-4`; a rectangle whose top line `e-3` is interrupted by an arc `e-5`, `e-1,e-2,e-3,~e-5,e-3,e-4`.
+
+`RegionLoop::new(entries)` and `RegionLoop::from_str` canonicalize: they merge consecutive equal entries cyclically, then rotate. `from_str` accepts any non-empty comma-separated entries with the entry grammar of section 3.13.5; anything else (an empty text or entry, an invalid id, two `~`, a `;`) fails with `InvalidRegionKey { text }`. `Display` writes the canonical text. Like keys, loops survive unrelated edits: moving geometry and editing dimensions keep them.
+
 ### 3.14 Region matching
 
-`match_region(regions, reference)` finds the region a stored `RegionRef` means in a rebuilt profile. With the stored fingerprint `(A0, c0)`, the score of a region `(A, c)` is `norm(c - c0) / sqrt(A0) + abs(A - A0) / A0` (when `A0 = 0`, `norm(c - c0) + abs(A - A0)`).
+`match_region(regions, entities, reference)` finds the regions a stored `RegionRef` means in a rebuilt profile ([ADR 0022](../adr/0022-split-regions-keep-their-area.md)). It follows the entities that bounded the region; the area is used only when none of them is left, and to break ties. With the stored fingerprint `(A0, c0)`, the score of a region `(A, c)` is `norm(c - c0) / sqrt(A0) + abs(A - A0) / A0` (when `A0 = 0`, `norm(c - c0) + abs(A - A0)`). An entity is *added* when it is in neither the stored key (outer loop and holes) nor the stored `outline`. The steps run in order; the first that produces a result wins.
 
-1. Key: the regions whose key equals the stored key. One: `Resolved { method: Key }`. Several: the one with the lowest score; if the lowest two scores differ by at most `1e-12`, `Ambiguous` with all regions tied at the lowest score.
-2. Outer boundary: if no key matched, the regions whose outer loop entries equal the stored key's outer loop entries (holes ignored). One: `Resolved { method: OuterBoundary }`. Several: lowest score as in step 1, with the same tie rule.
-3. Fingerprint: if neither matched, the regions with `abs(A - A0) <= 1e-3 * A0` and `norm(c - c0) <= 1e-3 * sqrt(A0)`. One: `Resolved { method: Fingerprint }`. Several: lowest score with the same tie rule.
-4. Otherwise `Missing`.
+1. **Key.** The regions whose key equals the stored key. One: `Resolved { indices: [i], method: Key, successions: [] }`. Several: the one with the lowest score; if the lowest two scores differ by at most `1e-12`, `Ambiguous` with each region tied at the lowest score as its own candidate (`[[i], [j]]`).
+2. **Boundary.** An entry `(entity, reversed)` of the stored key's outer loop *survives* when it appears with the same `reversed` flag in the outer loop of some region: that region lies on the same side of the entity as the stored one. The *seeds* are the regions whose outer loop has a surviving entry. When there is at least one seed, the *set* starts with the seeds and grows by *filling*: repeatedly add every region whose outer loop runs, reversed, along a hole of a region in the set (its entries are the hole's entries with every `reversed` flag flipped), when every entity of that hole is added (new geometry drawn inside the region). Holes of the stored key stay holes: their entities are not added, so their regions are never filled in. Two regions of the set are *connected* when one fills a hole of the other, or when they share a boundary piece of an added entity: a loop of one has an edge of that entity whose curve is the curve of an edge of a loop of the other traversed the other way (start and end swapped bitwise; for a `Circle` edge, equal center and radius with `ccw` flipped). The set splits into connected components.
+   - One component of one region: `Resolved { indices: [i], method: Boundary, successions }`, with the successions below.
+   - One component of several regions: `Resolved { indices, method: Coverage, successions: [] }`: the region was split by new geometry, and every piece is used, as a split face resolves to all its pieces (naming.md section 3.9).
+   - Several components: `Ambiguous` with each component as a candidate. A region that keeps a stored entity but is not joined to the others through new geometry (a second rectangle drawn on an extended line) is never added silently.
+3. **Fingerprint.** When no stored outer entry survives: the regions with `abs(A - A0) <= 1e-3 * A0` and `norm(c - c0) <= 1e-3 * sqrt(A0)`. One: `Resolved { indices: [i], method: Fingerprint, successions: [] }`. Several: the lowest score with the tie rule of step 1. Features report this match as a guess (features.md section 3.7).
+4. **Missing**, with the loss, from the distinct entities of the stored key's outer loop and `entities`: `Deleted` with those that are not in `entities`, sorted by id, when some but not all of them are missing; `Redrawn` when none of them is in `entities`; `Open` when all of them are.
 
-Matching uses only the arguments. Indices refer to the `regions` slice.
+**Successions** (step 2 with one region). Let `C` be the matched region's loop (section 3.13.8) and `O` the stored `outline`, each a cyclic sequence of entries compared by entity id. An entity of `O` that is absent from `C` is *removed*; an entity of `C` that is added is *new*; the others *survive*. Replacements are found first, then extensions among the new entities no replacement uses.
+
+- *Replacement.* For two surviving entities `a` and `b` that follow each other among the surviving entities of `C` (`b` the next survivor after `a` in traversal order, cyclically), compare the run of `O` strictly between `a` and `b` with the run of `C` strictly between them. When the old run is exactly one removed entity `m`, and the new run is not empty and made only of new entities, `m` was replaced: `Succession { entity: m, now: the new run in traversal order }`. When `a` or `b` occurs more than once in `O` or in `C` (a line interrupted by another curve), no replacement is inferred between them, because the runs are not determined.
+- *Extension.* A new entity `n` next to a surviving entity `s` in `C` continues `s` when both are lines and both end points of every edge of `n` in the matched region's outer loop lie within `PROFILE_TOLERANCE` of the infinite line through an edge of `s` in that loop, or when both are arcs whose edges' centers and radii agree within `PROFILE_TOLERANCE`. Further new entities chain the same way: next to the last one in the chain, on the same line or circle as `s`. `Succession { entity: s, now: [s, then the chained entities in traversal order of C starting after s] }`; one succession per `s`, with the chains on both of its sides.
+- Without a stored `outline` (a reference written before file format version 2), the replacement rule applies only when exactly one entity of the stored outer loop is removed and the new entities of `C` form one consecutive run whose two neighbors in `C` survive; that run replaces it. Extensions apply as above. The stored key does not say where the removed entity was, so this rule cannot tell a replacement from a deletion plus an unrelated addition (open issue 13).
+
+Successions are sorted by `entity`. They exist only while the stored reference is older than the sketch edit: a reference written by `Region::reference()` after the edit matches by key.
+
+Matching uses only the arguments, and treats `entities` as a set. Indices refer to the `regions` slice.
 
 ### 3.15 Contracts with other crates (informative)
 
-- `partsmith-features` (sketch feature): computes the placement (section 3.1), evaluates `driving_dimensions()`, calls `NativeSolver.solve`, then `build_profile(&result.entities)`. Its sketch output carries the placement, the `SolveResult` and the `Profile`. Feature build is pure, so solved geometry is not written back into the document by recompute.
-- `partsmith-features` (profile consumers such as extrude and revolve): store `RegionRef`s, resolve them with `match_region`, and pass each `ProfileLoop`'s curves to kernel `make_profile` (kernel.md section 3.4.2) in sketch coordinates, on the kernel `Plane` with the placement's `origin`, `normal` and `x_axis` (kernel plane coordinates `(x, y)` are sketch `(u, v)`). A `ProfileCurve::Line` becomes `PlanarCurve::Line`, a `Circle` becomes `PlanarCurve::Circle`, and an `Arc` becomes `PlanarCurve::Arc` with its `center` and `radius`, passed with `start` and `end` swapped when `ccw` is false (kernel arcs always run counterclockwise). Lines and arcs are exact curves; `ccw` is relative to the sketch normal.
+- `partsmith-features` (sketch feature): computes the placement (section 3.1), evaluates `driving_dimensions()`, calls `NativeSolver.solve`, then `build_profile(&result.entities)`. Its sketch output carries the placement, the `SolveResult` and the `Profile`. Feature build is pure, so solved geometry is not written back into the document by recompute. It reports `SketchError`, `SolveIssue` and `ProfileFinding` with `render`, `fixes` and the detail of section 4, with a `MessageContext` made of the sketch's label, the sketch, the solve result, the evaluated dimension values and the document units.
+- `partsmith-features` (profile consumers such as extrude and revolve): store the `RegionRef`s that `Region::reference()` writes, resolve them with `match_region(regions, entity ids, reference)` (features.md section 3.7), pass the successions of a `Boundary` match to naming as aliases of their lateral faces (naming.md section 3.6.2), and pass each `ProfileLoop`'s curves to kernel `make_profile` (kernel.md section 3.4.2) in sketch coordinates, on the kernel `Plane` with the placement's `origin`, `normal` and `x_axis` (kernel plane coordinates `(x, y)` are sketch `(u, v)`). A `ProfileCurve::Line` becomes `PlanarCurve::Line`, a `Circle` becomes `PlanarCurve::Circle`, and an `Arc` becomes `PlanarCurve::Arc` with its `center` and `radius`, passed with `start` and `end` swapped when `ccw` is false (kernel arcs always run counterclockwise). Lines and arcs are exact curves; `ccw` is relative to the sketch normal.
 - `partsmith-engine`: owns `NativeDragSession`s per open sketch drag, sends each frame result as an event, and commits the last frame's entities as one edit when the drag ends.
 - `partsmith-protocol`: embeds `SketchParams`, `SolveResult`, `DragTarget`, `Profile` and their parts, and inherits their JSON Schema.
 
@@ -1233,64 +1412,85 @@ Three names refer to the sketch's own origin and axes. They are fixed constants,
 
 ## 4. Errors and messages
 
-Messages are plain sentences that name the fix. Placeholders: `{label}` is the constraint's `type_name` with underscores replaced by spaces (`point on object`, `horizontal distance`); `{article kind}` is `a point`, `a line`, `a circle` or `an arc`; `{Kind}` is `Point`, `Line`, `Circle` or `Arc`; numbers are written in message form: rounded to 6 decimal places, written with Rust's `Display` for `f64`, a rounded zero written `0` (so `-1.0` prints `-1`, `2.5` prints `2.5`, `1e-9` prints `0`).
+Messages follow [the error guidelines](../guidelines/errors.md): they name entities and constraints the way the user sees them, by kind, position and value, never by id; they say what happened and why, and the fix is an action where one exists. Each error, solver issue and profile finding has three forms:
+
+- `render(context)`: the message, built from a `MessageContext` (section 2.8). Rows below give it exactly.
+- `fixes()`: the one-click fixes as `SketchFix` values, in the order hosts offer them. Features turn them into their `Fix` (features.md section 2.8), and the engine labels them: `Delete {title}`, `Make {title} a reference`, `Connect the ends ({gap} apart)` with the gap written like a length below (engine.md section 3.22).
+- `Display`: the detail for reports, with ids and raw values (section 4.4). It is never shown as the message.
+
+**Numbers.** Coordinates are written in the document units (`context.units`) without a unit: the value in mm divided by `Units::millimeters()`, in message form (rounded to 6 decimal places, written with Rust's `Display` for `f64`, a rounded zero written `0`, so `80` in inches is `3.149606`). Lengths and angles that carry a unit are written with `Quantity::display(units)` (expressions.md section 3.16): `5 mm`, `90 deg`, `0.19685 in`.
+
+**Geometry.** An entity is described from `context.solved` when that holds the entity, otherwise from `context.sketch`.
+
+**Placeholders.**
+
+- `{entity}`: `the point at ({u}, {v})`; `the line from ({u1}, {v1}) to ({u2}, {v2})` (start, then end); `the circle at ({u}, {v}) with radius {r}`; `the arc from ({u1}, {v1}) to ({u2}, {v2}) around ({u}, {v})` (start point, end point, center); for an entity with a coordinate, radius or angle that is not finite, `a point of this sketch`, `a line of this sketch`, `a circle of this sketch` or `an arc of this sketch`; for the reserved references of section 3.16, `the origin`, `the x axis` and `the y axis`. `{Entity}` is the same with its first letter capitalized. `MessageContext::entity` returns these words.
+- `{point}` for a point reference: `{entity}` for a point entity named by its id alone; `the start of {entity}`, `the end of {entity}` or `the center of {entity}` for a role; `the origin`.
+- `{Type}` of a constraint: its `type_name` with underscores replaced by spaces and the first letter capitalized: `Coincident`, `Point on object`, `Horizontal distance`.
+- `{title}` of a constraint, which `MessageContext::title` returns and which starts with a capital letter:
+  - A dimension: `{Type} {value}`, with `{value}` its driving value from `context.values`, or for a reference dimension its measured value from `context.measured`, written with its unit (`Distance 40 mm`, `Angle 90 deg`), followed by ` ({expression})`, the expression text trimmed, when the expression names a parameter or a printer value (`Distance 80 mm (width)`). When no value is known: `{Type} {expression}` with the expression text trimmed (`Distance width`).
+  - Any other constraint: `{Type}` followed by its entities: ` on {entity}` for one, ` between {entity} and {entity}` for two, ` between {entity}, {entity} and {entity}` for three. Its entities are the entities its fields reference, in field order without repeats, the reserved references included; ids the sketch does not have are left out, and when none is left the title is `{Type}` alone.
+  - When two titles in one message would read the same, each dimension title among them adds its entities the same way: `Distance 40 mm on the line from (0, 0) to (40, 0)`.
+- `{titles}`: titles joined with `, ` and ` and ` before the last: `A`, `A and B`, `A, B and C`.
+- `{sketch}`: `context.label`.
 
 ### 4.1 `SketchError`
 
-| Variant | Message |
-| --- | --- |
-| `InvalidPointRef { text }` | `"{text}" is not a point reference. Use an entity id, optionally followed by .start, .end or .center, for example e-1.start.` |
-| `DuplicateId { id }` | `The id {id} is used more than once in this sketch. Give each entity and constraint its own id.` |
-| `ReservedId { id }` | `The id {id} is reserved for the sketch origin and axes. Give the entity or constraint another id.` |
-| `InvalidPlacement { reason }` | `The sketch placement is invalid: {reason}. Attach the sketch to a plane or face again.` with `{reason}`: `NonFinite` "a value is not a finite number", `NormalNotUnit` "its normal is not a unit vector", `XAxisNotUnit` "its x axis is not a unit vector", `NotPerpendicular` "its x axis is not perpendicular to its normal", `ZeroNormal` "the plane normal has zero length" |
-| `NonFiniteGeometry { entity }` | `Entity {entity} has a coordinate, radius or angle that is not a finite number. Delete it and draw it again.` |
-| `NegativeRadius { entity, kind, radius }` | `{Kind} {entity} has a negative radius ({radius} mm). Use a radius of 0 mm or more.` |
-| `UnknownEntity { constraint, entity }` | `Constraint {constraint} refers to {entity}, which is not in this sketch. Delete the constraint or point it at an existing entity.` |
-| `ReservedMisuse { constraint, type_name, reference }` | `Constraint {constraint} ({label}) cannot use {reference}: origin is a single point, and x_axis and y_axis are endless lines. Pick a point or line of the sketch instead.` |
-| `InvalidPointRole { constraint, point, kind }`, kind point | `Constraint {constraint} uses {point}, but {entity} is a point. Refer to it by its id alone: {entity}.` |
-| same, kind line | `Constraint {constraint} uses {point}, but {entity} is a line, which has only {entity}.start and {entity}.end.` |
-| same, kind circle | `Constraint {constraint} uses {point}, but {entity} is a circle, which has only {entity}.center.` |
-| same, kind arc | `Constraint {constraint} uses {point}, but {entity} is an arc, which has only {entity}.start, {entity}.end and {entity}.center.` |
-| `WrongEntityKind { constraint, type_name, entity, found, expected }` | `Constraint {constraint} ({label}) cannot use {entity}, which is {article found}. It needs {expected}.` |
-| `SameEntity { constraint, type_name, entity }` | `Constraint {constraint} ({label}) uses {entity} twice. It needs two different entities.` |
-| `SamePoint { constraint, type_name, point }` | `Constraint {constraint} ({label}) uses the point {point} twice. It needs two different points.` |
-| `PointOnOwnEntity { constraint, type_name, point, entity }` | `Constraint {constraint} ({label}) uses {point}, which belongs to {entity} itself. Pick a point of another entity.` |
-| `MissingValue { constraint, type_name }` | `Dimension {constraint} ({label}) has no value. Check that its expression can be evaluated.` |
-| `NonFiniteValue { constraint, type_name }` | `Dimension {constraint} ({label}) does not evaluate to a finite number. Check its expression.` |
-| `ValueNotPositive { constraint, type_name, value, points: false }` | `Dimension {constraint} ({label}) evaluates to {value} mm, but it must be greater than 0 mm. Change its expression.` |
-| same with `points: true` | the message above followed by ` To make two points meet, use a coincident constraint instead.` |
-| `ValueNegative { constraint, value }` | `Dimension {constraint} (distance) evaluates to {value} mm, but the distance from a point to a line must be 0 mm or more. Change its expression.` |
-| `UnknownDragTarget { target }` | `The dragged item {target} is not in this sketch. Refresh the sketch and drag again.` |
-| `NonFiniteCursor` | `The drag position is not a finite number. Move the pointer over the sketch and drag again.` |
-| `InvalidRegionKey { text }` | `"{text}" is not a region key. A region key lists entity ids such as e-1,e-2,~e-3 in sorted order, with ; before each hole.` |
-| `InvalidFingerprint { text }` | `"{text}" is not a region fingerprint. Use the form c=<x>,<y>\|a=<area>.` |
+| Variant | Message | Fixes |
+| --- | --- | --- |
+| `InvalidPointRef { text }` | `This sketch names a point in a form Partsmith cannot read. Pick a point, or a line's start or end, or a circle's center.` | |
+| `DuplicateId { id }` | `This sketch has two items with the same id, so it cannot be read. Delete and redraw the later one, or report it if you did not edit the file by hand.` | |
+| `ReservedId { id }` | `An item of this sketch uses a name reserved for the sketch's origin and axes, so the sketch cannot be read. Delete and redraw it, or report it if you did not edit the file by hand.` | |
+| `InvalidPlacement { reason }` | `The position of this sketch cannot be used: {reason}. Attach the sketch to a plane or face again.` with `{reason}`: `NonFinite` "a value is not a finite number", `NormalNotUnit` "its normal is not a unit vector", `XAxisNotUnit` "its x axis is not a unit vector", `NotPerpendicular` "its x axis is not perpendicular to its normal", `ZeroNormal` "the plane normal has zero length" | |
+| `NonFiniteGeometry { entity }` | `{Entity} has a coordinate, radius or angle that is not a number. Delete it and draw it again.` | |
+| `NegativeRadius { entity, kind, radius }` | `{Entity} has a negative radius. Use a radius of 0 or more.` | |
+| `UnknownEntity { constraint, entity }` | `{title} refers to geometry that is not in this sketch. Delete the constraint.` | `DeleteConstraint` |
+| `ReservedMisuse { constraint, type_name, reference }` | `{title} cannot use {reserved}: the origin is a single point, and the axes are endless lines. Pick a point or line of the sketch instead.` with `{reserved}` `the origin` (with or without a role), `the x axis` or `the y axis`; here the title leaves out the misused reference | `DeleteConstraint` |
+| `InvalidPointRole { constraint, point, kind }` | `{title} uses a point that {entity} does not have: {explanation}.` with `{explanation}` by kind: point `a point has no start, end or center`, line `a line has only a start and an end`, circle `a circle has only a center`, arc `an arc has only a start, an end and a center` | `DeleteConstraint` |
+| `WrongEntityKind { constraint, type_name, entity, found, expected }` | `{title} cannot use {entity}: it needs {expected}.` | `DeleteConstraint` |
+| `SameEntity { constraint, type_name, entity }` | `{title} uses {entity} twice. Pick two different ones.` | `DeleteConstraint` |
+| `SamePoint { constraint, type_name, point }` | `{title} uses {point} twice. Pick two different ones.` | `DeleteConstraint` |
+| `PointOnOwnEntity { constraint, type_name, point, entity }` | `{title} uses a point of {entity} itself. Pick a point of another entity.` | `DeleteConstraint` |
+| `MissingValue { constraint, type_name }`, `NonFiniteValue { constraint, type_name }` | `{title} has no value it can use. Check its expression.` | |
+| `ValueNotPositive { constraint, type_name, value, points: false }` | `{Type} {value} must be greater than 0.` with `{value}` the variant's value written with its unit | |
+| same with `points: true` | the message above followed by ` To make two points meet, use Coincident instead.` | |
+| `ValueNegative { constraint, value }` | `Distance {value} from a point to a line must be 0 or more.` | |
+| `UnknownDragTarget { target }` | `The dragged geometry is no longer in this sketch. Drag it again.` | |
+| `NonFiniteCursor` | `The pointer position cannot be used. Move the pointer over the sketch and drag again.` | |
+| `InvalidRegionKey { text }`, `InvalidFingerprint { text }` | `A region stored in this document cannot be read. Pick the profile again.` | |
 
-In the `InvalidFingerprint` row, `\|` is the table escape for a plain `|`; the message itself has no backslash.
-
-Deserialization errors (unknown `type`, unknown field, wrong shape) are `serde` errors raised by the caller's JSON layer; their text comes from `serde_json` and names the field or variant.
+Deserialization errors (unknown `type`, unknown field, wrong shape) are `serde` errors raised by the caller's JSON layer; their text comes from `serde_json`, which includes the detail of a `SketchError` raised while parsing (`PointRef`, `RegionKey`, `RegionLoop`, `RegionFingerprint`). Features report them as invalid params with that text in the detail (features.md section 4.1).
 
 ### 4.2 `SolveIssue`
 
-| Issue | Message |
-| --- | --- |
-| `Conflicting` with two or more ids | `Constraints {ids} conflict: they cannot all be satisfied at once. Delete one of them or change a dimension.` (`{ids}` joined with ", ") |
-| `Conflicting` with one id | `Constraint {id} cannot be satisfied. Delete it or change a dimension.` (the variant carries no type name, so there is no label) |
-| `Redundant`, `dimension: false` | `Constraint {constraint} ({label}) is redundant: the other constraints already determine what it sets. Delete it.` |
-| `Redundant`, `dimension: true` | `Dimension {constraint} ({label}) is redundant: the other constraints already determine what it sets. Delete it or make it a reference dimension.` |
-| `NotConverged` | `The sketch could not be solved from its current shape. Undo the last change, or drag the geometry closer to the intended shape and try again.` |
+In a conflict, the constraints are listed newest first: in reverse document order, so `{title 1}` is the constraint added last.
 
-`SolveResult::issues(sketch)` returns one `Conflicting` (all conflicting ids) when `conflicting` is non-empty; then one `Redundant` per redundant id in document order (`dimension` is true for driving dimensional constraints); then `NotConverged` when `failed` is true and `conflicting` is empty. The `sketch` argument supplies type names and must be the sketch that was solved.
+| Issue | Message | Fixes |
+| --- | --- | --- |
+| `Conflicting` with two or more constraints | `In '{sketch}', {title 1} cannot hold together with {titles of the others}.` | for each constraint, newest first: `DeleteConstraint`, then `MakeReference` when it is a driving dimension |
+| `Conflicting` with one constraint | `In '{sketch}', {title} cannot hold.` | `DeleteConstraint`, then `MakeReference` when it is a driving dimension |
+| `Redundant`, `dimension: false` | `In '{sketch}', {title} is not needed: the other constraints already hold it.` | `DeleteConstraint` |
+| `Redundant`, `dimension: true` | `In '{sketch}', {title} is not needed: the other constraints already set it.` | `MakeReference`, `DeleteConstraint` |
+| `NotConverged` | `'{sketch}' could not be solved from its current shape. Undo the last change, or drag the geometry closer to the intended shape.` | none (hosts offer Undo) |
 
-Feature status is defined by features/sketch.md section 3.3 (informative here): `Redundant` gives a warning; `Conflicting` and `NotConverged` are errors without output, so features that use the sketch report `upstream_failed`.
+`SolveResult::issues(sketch)` returns one `Conflicting` (all conflicting ids, in document order) when `conflicting` is non-empty; then one `Redundant` per redundant id in document order (`dimension` is true for driving dimensional constraints); then `NotConverged` when `failed` is true and `conflicting` is empty. The `sketch` argument supplies type names and must be the sketch that was solved.
+
+Feature status is defined by features/sketch.md section 3.3 (informative here): `Redundant` gives a warning, whose message joins the redundant messages with a space; `Conflicting` and `NotConverged` are errors without output, so features that use the sketch report `upstream_failed` with the sketch as the root. When a conflict or a failure follows a change of a dimension's value, the engine's cause line names the change ("This started after you changed Distance of 'Sketch 1' from 50 mm to 80 mm.") with its revert (engine.md section 3.21); the dimension editor (ui.md section 3.16.7) shows the same conflict sentence for a value it cannot apply.
 
 ### 4.3 `ProfileFinding`
 
-| Finding | Message |
-| --- | --- |
-| `OpenEndpoint { entity, point }` | `The end of {entity} at ({u}, {v}) is not connected to other geometry. Connect it with a coincident constraint, or delete the curve if it is not needed.` |
-| `Overlap { entities: [a, b], start, end }` | `{a} and {b} overlap between ({u1}, {v1}) and ({u2}, {v2}). Delete one of them, or move it so they meet only at their ends.` |
-| `SelfIntersection { entities: [a, b], point }` | `{a} and {b} cross at ({u}, {v}). A closed outline that crosses itself splits into several regions; check that this is intended.` |
-| `ZeroLength { entity }` | `{entity} has no length and is ignored for profiles. Delete it.` |
+| Finding | Message | Fixes |
+| --- | --- | --- |
+| `OpenEndpoint { entity, point, connect }` | `The end of {entity} at ({u}, {v}) is not connected to other geometry.` | `ConnectEnds { first, second }` from `connect`, when present |
+| `Overlap { entities: [a, b], start, end }` | `{Entity a} and {entity b} overlap between ({u1}, {v1}) and ({u2}, {v2}). Delete one of them, or move it so they meet only at their ends.` | |
+| `SelfIntersection { entities: [a, b], point }` | `{Entity a} and {entity b} cross at ({u}, {v}), which splits the outline into several regions.` | |
+| `ZeroLength { entity }` | line: `The line at ({u}, {v}) has no length and is ignored for profiles. Delete it.` at its start; circle: `The circle at ({u}, {v}) has no size and is ignored for profiles. Delete it.` at its center; arc: `The arc at ({u}, {v}) has no length and is ignored for profiles. Delete it.` at its start point | |
+
+A finding with `connect` stands for two open ends: a host that counts open ends ("2 ends are not connected", ui.md section 2.10) counts it twice.
+
+### 4.4 Detail
+
+`Display` of `SketchError`, `SolveIssue` and `ProfileFinding` writes the variant name in snake_case, then, for each field in declaration order, a space, the field name, `=` and the value: ids and point references as written; strings (`text`, `target`, `reference`, `type_name`, `expected`) in double quotes, escaped as Rust's `{:?}` does; numbers in message form; booleans as `true` or `false`; unit-only enums in snake_case (`circle`, `normal_not_unit`); lists joined by `,`; points as `u,v`; a `Connection` as `first,second,gap`; a field that is `None` is left out. Examples: `unknown_entity constraint=c-9 entity=e-9`; `wrong_entity_kind constraint=c-9 type_name="parallel" entity=e-5 found=circle expected="a line"`; `conflicting constraints=c-1,c-2`; `open_endpoint entity=e-4 point=0,0.3 connect=e-4.end,e-1.start,0.3`; `non_finite_cursor`.
 
 ## 5. Performance
 
@@ -1553,19 +1753,26 @@ Expected values below were checked against a reference implementation of section
 
 ### 6.10 Messages
 
-144. `Display` of these errors is exactly:
-    - `InvalidPointRef { text: "e-1.mid" }`: `"e-1.mid" is not a point reference. Use an entity id, optionally followed by .start, .end or .center, for example e-1.start.`
-    - test 19: `The id e-1 is used more than once in this sketch. Give each entity and constraint its own id.`
-    - test 22: `Constraint c-9 uses e-1.center, but e-1 is a line, which has only e-1.start and e-1.end.`
-    - test 27, first case: `Constraint c-9 (parallel) cannot use e-5, which is a circle. It needs a line.`
-    - test 31, first case: `Constraint c-9 (point on object) uses e-1.start, which belongs to e-1 itself. Pick a point of another entity.`
-    - test 32, first case: `Circle e-5 has a negative radius (-1 mm). Use a radius of 0 mm or more.`
-    - test 34, first case: `The sketch placement is invalid: its normal is not a unit vector. Attach the sketch to a plane or face again.`
-    - test 39 with -1: `Dimension c-1 (radius) evaluates to -1 mm, but it must be greater than 0 mm. Change its expression.`
-    - test 40: `Dimension c-1 (distance) evaluates to 0 mm, but it must be greater than 0 mm. Change its expression. To make two points meet, use a coincident constraint instead.`
-    - test 42 with -1: `Dimension c-1 (distance) evaluates to -1 mm, but the distance from a point to a line must be 0 mm or more. Change its expression.`
-145. `Display` of solve issues: test 108: `Constraint c-9 (parallel) is redundant: the other constraints already determine what it sets. Delete it.`; test 110: `Dimension c-2 (distance) is redundant: the other constraints already determine what it sets. Delete it or make it a reference dimension.`; test 111: `Constraints c-1, c-2 conflict: they cannot all be satisfied at once. Delete one of them or change a dimension.`; `NotConverged`: `The sketch could not be solved from its current shape. Undo the last change, or drag the geometry closer to the intended shape and try again.`
-146. `Display` of findings: `OpenEndpoint { entity: e-3, point: [80, 50] }`: `The end of e-3 at (80, 50) is not connected to other geometry. Connect it with a coincident constraint, or delete the curve if it is not needed.`; the overlap of test 158: `e-1 and e-5 overlap between (20, 0) and (60, 0). Delete one of them, or move it so they meet only at their ends.`; the crossing of test 160: `e-1 and e-3 cross at (5, 5). A closed outline that crosses itself splits into several regions; check that this is intended.`; `ZeroLength { entity: e-7 }`: `e-7 has no length and is ignored for profiles. Delete it.`; a point `[1.0000004, -0.0]` prints as `(1, 0)`.
+In tests 144 to 146, `render` uses `MessageContext { label: "Sketch 1", sketch: <the test's sketch>, solved: None, values: <the test's values>, measured: None, units: Mm }` unless stated.
+
+144. `render` of these errors is exactly:
+    - `InvalidPointRef { text: "e-1.mid" }`: `This sketch names a point in a form Partsmith cannot read. Pick a point, or a line's start or end, or a circle's center.`
+    - test 19: `This sketch has two items with the same id, so it cannot be read. Delete and redraw the later one, or report it if you did not edit the file by hand.`
+    - test 21: `Coincident on the line from (0, 0) to (80, 0) refers to geometry that is not in this sketch. Delete the constraint.`
+    - test 22: `Coincident between the line from (0, 0) to (80, 0) and the line from (80, 0) to (80, 50) uses a point that the line from (0, 0) to (80, 0) does not have: a line has only a start and an end.`
+    - test 27, first case: `Parallel between the line from (0, 0) to (80, 0) and the circle at (40, 25) with radius 5 mm cannot use the circle at (40, 25) with radius 5 mm: it needs a line.`
+    - test 31, first case: `Point on object on the line from (0, 0) to (80, 0) uses a point of the line from (0, 0) to (80, 0) itself. Pick a point of another entity.`
+    - test 32, first case: `The circle at (0, 0) with radius -1 mm has a negative radius. Use a radius of 0 or more.`
+    - test 33, first case: `A line of this sketch has a coordinate, radius or angle that is not a number. Delete it and draw it again.`
+    - test 34, first case: `The position of this sketch cannot be used: its normal is not a unit vector. Attach the sketch to a plane or face again.`
+    - test 38, with the expression `10 mm`: `Distance 10 mm has no value it can use. Check its expression.`
+    - test 39 with -1: `Radius -1 mm must be greater than 0.`
+    - test 40: `Distance 0 mm must be greater than 0. To make two points meet, use Coincident instead.`
+    - test 42 with -1: `Distance -1 mm from a point to a line must be 0 or more.`
+    - test 141, first case: `The dragged geometry is no longer in this sketch. Drag it again.`; `NonFiniteCursor`: `The pointer position cannot be used. Move the pointer over the sketch and drag again.`
+    - test 176, first case: `A region stored in this document cannot be read. Pick the profile again.`
+145. `render` of solve issues, with `solved` the result's entities and `values` those of the test: test 108: `In 'Sketch 1', Parallel between the line from (0, 0) to (80, 0) and the line from (80, 50) to (0, 50) is not needed: the other constraints already hold it.`; test 110: `In 'Sketch 1', Distance 5 mm is not needed: the other constraints already set it.`; test 111: `In 'Sketch 1', Distance 12 mm cannot hold together with Distance 10 mm.`; test 112 with value 4: `In 'Sketch 1', Distance 4 mm cannot hold together with Fix on the point at (3, 0) and Fix on the point at (0, 0).`; test 214 with `parallel`: `In 'Sketch 1', Parallel between the x axis and the y axis cannot hold.`; `NotConverged`: `'Sketch 1' could not be solved from its current shape. Undo the last change, or drag the geometry closer to the intended shape.`
+146. `render` of findings: the open end of test 154 at (0, 10): `The end of the line from (10, 10) to (0, 10) at (0, 10) is not connected to other geometry.`; the overlap of test 158: `The line from (0, 0) to (60, 0) and the line from (20, 0) to (80, 0) overlap between (20, 0) and (60, 0). Delete one of them, or move it so they meet only at their ends.`; the crossing of test 160: `The line from (0, 0) to (10, 10) and the line from (10, 0) to (0, 10) cross at (5, 5), which splits the outline into several regions.`; the findings of test 159: `The line at (5, 5) has no length and is ignored for profiles. Delete it.` and `The circle at (1, 1) has no size and is ignored for profiles. Delete it.`; `OpenEndpoint { entity: e-1, point: [1.0000004, -0.0], connect: None }` with `line e-1 (1.0000004,-0.0)->(10,0)` renders `The end of the line from (1, 0) to (10, 0) at (1, 0) is not connected to other geometry.`
 
 ### 6.11 Profiles
 
@@ -1592,14 +1799,16 @@ Areas and centroids hold within 1e-9 relative; coordinates within 1e-9 unless "b
 165. Loop invariants, for every region of tests 150, 157, 163 and 166: each edge ends bitwise where the next starts, the last ends where the first starts (a lone `Circle` edge closes on itself); `outer.signed_area() > 0`; every hole's `signed_area() < 0`; `area` equals `outer.signed_area()` plus the holes' signed areas within 1e-9 relative.
 166. Slot: `line e-1 (0,-5)->(20,-5)`, `arc e-2 c(20,0) r5 from -pi/2 to pi/2`, `line e-3 (20,5)->(0,5)`, `arc e-4 c(0,0) r5 from pi/2 to 3*pi/2`: one region `e-1,e-2,e-3,e-4`, area 278.53981633974485 (200 + 25 pi), centroid (10, 0); the edge of e-2 is `Arc { center: [20, 0], radius: 5, start: [20, -5], end: [20, 5], ccw: true }` and its `start` is bitwise equal to the `end` of e-1's edge.
 167. Reversed arc: `line e-1 (0,0)->(20,0)`, `line e-2 (20,0)->(20,20)`, `arc e-3 c(10,20) r10 from pi to 2*pi`, `line e-4 (0,20)->(0,0)`: one region `e-1,e-2,~e-3,e-4`, area 400 - 50 pi; e-3's edge is an `Arc` with center (10, 20), radius 10, start (20, 20), end (0, 20), `ccw` false, `reversed` true.
-168. A gap wider than the tolerance: `RECT` with `e-4` ending at (0, 0.001): no regions; findings `[open_endpoint e-1 at (0,0), open_endpoint e-4 at (0,0.001)]`.
+168. A gap wider than the tolerance: `RECT` with `e-4` ending at (0, 0.001): no regions; the two open ends are one finding, `[open_endpoint e-4 at (0,0.001) with connect { first: e-4.end, second: e-1.start, gap: 0.001 }]` (section 3.13.3).
 169. A gap within the tolerance: `RECT` with `e-4` ending at (0, 5e-7): one region `e-1,e-2,e-3,e-4` with area 4000 within 1e-9; no findings.
 170. Touching circles `circle e-1 c(0,0) r5`, `circle e-2 c(10,0) r5`: regions `e-1` and `e-2`, each area 25 pi with one `Circle` edge; no findings.
 171. Input order does not matter: 200 permutations of test 161's entities, drawn from a generator with a fixed seed, each give the same keys, the same findings, and areas and centroids equal within 1e-12.
-172. Grid of lines: `line e-1..e-4` horizontal at v = 0, 10, 20, 30 from u = -1 to 31 and `line e-5..e-8` vertical at u = 0, 10, 20, 30 from v = -1 to 31: 9 regions of area 100; the one with centroid (5, 5) has key `e-1,~e-2,~e-5,e-6`; 16 `open_endpoint` findings and no `self_intersection`.
+172. Grid of lines: `line e-1..e-4` horizontal at v = 0, 10, 20, 30 from u = -1 to 31 and `line e-5..e-8` vertical at u = 0, 10, 20, 30 from v = -1 to 31: 9 regions of area 100; the one with centroid (5, 5) has key `e-1,~e-2,~e-5,e-6`; 12 `open_endpoint` findings and no `self_intersection`: the 4 corner pairs 1.414214 mm apart are one finding each, on `e-5` at (0, -1) and (0, 31) and on `e-8` at (30, -1) and (30, 31), with `connect` to `e-1.start`, `e-4.start`, `e-1.end` and `e-4.end` in that order and `gap` `sqrt(2)`; the 8 other open ends have no `connect`.
 173. Determinism: `build_profile` of test 157 twice gives bitwise-equal results.
 
 ### 6.12 Region keys, fingerprints and matching
+
+In the matching tests 180 to 188, the `entities` argument of `match_region` is the ids of the entities whose profile is used, unless a test says otherwise.
 
 174. `RegionKey::new(vec![(e-3, false), (e-1, true), (e-1, false), (e-3, false)], vec![vec![(e-9, true)], vec![(e-5, true)]]).to_string()` is `e-1,~e-1,e-3;~e-5;~e-9`.
 175. `"e-1,e-2;~e-5".parse::<RegionKey>()` has outer `[(e-1, false), (e-2, false)]` and holes `[[(e-5, true)]]`, and `to_string()` returns the input.
@@ -1607,15 +1816,15 @@ Areas and centroids hold within 1e-9 relative; coordinates within 1e-9 unless "b
 177. Fingerprint text: `{area: 4000, centroid: [40, 25]}` is `c=40,25|a=4000`; `{area: pi, centroid: [1/3, -2/3]}` is `c=0.333333,-0.666667|a=3.141593`; `{area: 0.5, centroid: [-0.0, 1e-7]}` is `c=0,0|a=0.5`.
 178. `"c=40,25|a=4000".parse::<RegionFingerprint>()` is `{area: 4000, centroid: [40, 25]}`; each of `"c=1,2"`, `"a=1|c=1,2"`, `"c=x,2|a=1"`, `"c=1,2|a=-1"`, `"c=1,2|a=inf"` fails with `InvalidFingerprint { text }`.
 179. `{"key": "e-1,e-2,e-3,e-4", "fp": "c=40,25|a=4000"}` deserializes as `RegionRef` and re-serializes to `{"key":"e-1,e-2,e-3,e-4","fp":"c=40,25|a=4000"}`; the same with key `"e-2,e-1"` fails to deserialize.
-180. Key match: against the profile of test 147, `{key: e-1,e-2,e-3,e-4, fp: c=40,25|a=4000}` gives `Resolved { index: 0, method: Key }`.
-181. Orientation markers decide: against test 157, key `e-1,~e-2` with fingerprint `c=0,0|a=1` gives `Resolved { index: 1, method: Key }`.
-182. Hole added: against test 150 (`PLATE`), `{key: e-1,e-2,e-3,e-4, fp: c=40,25|a=4000}` gives `Resolved { index: 0, method: OuterBoundary }`.
-183. Hole removed: against test 147, `{key: e-1,e-2,e-3,e-4;~e-5, fp: c=40,25|a=3921.460184}` gives `Resolved { index: 0, method: OuterBoundary }`.
-184. Redrawn shape: against a rectangle with the coordinates of `RECT` and ids e-11 to e-14, `{key: e-1,e-2,e-3,e-4, fp: c=40,25|a=4000}` gives `Resolved { index: 0, method: Fingerprint }`; against an 88 x 50 rectangle with ids e-11 to e-14 (area 4400) it gives `Missing`.
-185. Score breaks key ties: two hand-built regions with key `e-1,e-2`, area 100 each, empty loops, centroids (0, 0) and (10, 0); reference fingerprint `c=9,0|a=100` gives `Resolved { index: 1, method: Key }`.
-186. Equal scores are ambiguous: as test 185 with both centroids (0, 0) gives `Ambiguous { candidates: [0, 1] }`.
-187. Against test 147, `{key: e-77, fp: c=1000,1000|a=1}` gives `Missing`.
-188. Every region finds itself: for each region `i` of tests 150, 157, 161 and 163, `match_region(&regions, &regions[i].reference())` is `Resolved { index: i, method: Key }`.
+180. Key match: against the profile of test 147, `{key: e-1,e-2,e-3,e-4, fp: c=40,25|a=4000}` gives `Resolved { indices: [0], method: Key, successions: [] }`.
+181. Orientation markers decide: against test 157, key `e-1,~e-2` with fingerprint `c=0,0|a=1` gives `Resolved { indices: [1], method: Key, successions: [] }`.
+182. Hole added: against test 150 (`PLATE`), `{key: e-1,e-2,e-3,e-4, fp: c=40,25|a=4000}` gives `Resolved { indices: [0, 1], method: Coverage, successions: [] }`: the circle `e-5` is added geometry, so its disc fills the ring's hole and the reference keeps covering the same area (decision D2).
+183. Hole removed: against test 147, `{key: e-1,e-2,e-3,e-4;~e-5, fp: c=40,25|a=3921.460184}` gives `Resolved { indices: [0], method: Boundary, successions: [] }`.
+184. Redrawn shape: against a rectangle with the coordinates of `RECT` and ids e-11 to e-14, `{key: e-1,e-2,e-3,e-4, fp: c=40,25|a=4000}` gives `Resolved { indices: [0], method: Fingerprint, successions: [] }`; against an 88 x 50 rectangle with ids e-11 to e-14 (area 4400) it gives `Missing { loss: Redrawn }`. `entities` is `[e-11, e-12, e-13, e-14]` in both.
+185. Score breaks key ties: two hand-built regions with key `e-1,e-2`, area 100 each, empty loops, centroids (0, 0) and (10, 0); reference fingerprint `c=9,0|a=100` and `entities` `[e-1, e-2]` give `Resolved { indices: [1], method: Key, successions: [] }`.
+186. Equal scores are ambiguous: as test 185 with both centroids (0, 0) gives `Ambiguous { candidates: [[0], [1]] }`.
+187. Against test 147, `{key: e-77, fp: c=1000,1000|a=1}` gives `Missing { loss: Redrawn }`.
+188. Every region finds itself: for each region `i` of tests 150, 157, 161 and 163, `match_region(&regions, &ids, &regions[i].reference())`, with `ids` the test's entity ids, is `Resolved { indices: [i], method: Key, successions: [] }`.
 
 ### 6.13 Property tests
 
@@ -1656,7 +1865,58 @@ Known-solution generator (`tests/common/generator.rs`): builds entities one at a
 213. A fixed point cannot move to the origin: `point e-1 (1,1)`, `c-1 fix e-1`, `c-2 coincident [e-1, origin]` gives `conflicting` [c-1, c-2], `failed` true, e-1 unchanged.
 214. Constraints between reserved names only: a sketch with no entities and `c-1 perpendicular [x_axis, y_axis]` gives `redundant` [c-1], status `redundant`, `dof` 0, `failed` false; with `c-1 parallel [x_axis, y_axis]` instead, `conflicting` [c-1], status `conflicting`, `failed` false, and `issues()` is `[Conflicting { constraints: [c-1] }]`. `point e-1 (1,2)` with `c-1 fix origin` gives `redundant` [c-1], e-1 unchanged, `dof` 2.
 215. Drag: on `RECT`, `begin_drag(Point { point: origin })` fails with `UnknownDragTarget { target: "origin" }` and `begin_drag(Entity { entity: x_axis, grab: [0, 0] })` fails with `UnknownDragTarget { target: "x_axis" }`.
-216. `Display` of the errors of tests 202 and 204, first cases: `The id origin is reserved for the sketch origin and axes. Give the entity or constraint another id.` and `Constraint c-9 (coincident) cannot use origin.center: origin is a single point, and x_axis and y_axis are endless lines. Pick a point or line of the sketch instead.`
+216. `render` of the errors of tests 202 and 204, first cases, with the context of section 6.10: `An item of this sketch uses a name reserved for the sketch's origin and axes, so the sketch cannot be read. Delete and redraw it, or report it if you did not edit the file by hand.` and `Coincident on the line from (0, 0) to (80, 0) cannot use the origin: the origin is a single point, and the axes are endless lines. Pick a point or line of the sketch instead.` (the title leaves out the misused `origin`); their details are `reserved_id id=origin` and `reserved_misuse constraint=c-9 type_name="coincident" reference="origin.center"`.
+
+
+### 6.16 Face sketch fallback frame
+
+217. The second face example of section 2.2 deserializes with `fallback_frame: Body` and re-serializes to `{"kind":"face","body":"b-1","face":{"q":"f-ext1/end-cap","fp":"plane|n=0,0,1|c=40,25,30|a=4000|adj=4,4"},"fallback":{"origin":[0.0,0.0,30.0],"x_axis":[1.0,0.0,0.0],"normal":[0.0,0.0,1.0]},"fallback_frame":"body"}`; with `"fallback_frame": "world"` it deserializes with `World` and re-serializes exactly as in test 12, without the key; with `"fallback_frame": "local"` it fails to deserialize. In the schema of test 15, the `face` variant has the property `fallback_frame` with the enum `["world", "body"]`, and `fallback_frame` is not in its `required` list.
+
+### 6.17 Region loops and references
+
+218. `Region::outline()`: test 147 gives `e-1,e-2,e-3,e-4`; test 148 gives `~e-1,~e-4,~e-3,~e-2` (traversal order, while its key is `~e-1,~e-2,~e-3,~e-4`); test 155 gives `e-1,e-2,e-3,e-4` (the two edges of `e-1` written once); test 151 gives `e-1,e-2,~e-5` and `e-3,e-4,e-5`; test 167 gives `e-1,e-2,~e-3,e-4`; the first region of test 228 gives `e-1,e-2,e-3,~e-5,e-3,e-4`.
+219. `RegionLoop` text: `"e-2,e-3,e-1"` parses and displays as `e-1,e-2,e-3`; `"e-3,~e-5,e-3,e-4,e-1,e-2"` as `e-1,e-2,e-3,~e-5,e-3,e-4`; `"e-1,e-1,e-2,e-1"` as `e-1,e-2`; `"e-1,~e-1"` stays `e-1,~e-1`; `"e-10,e-9"` as `e-10,e-9` and `"e-9,e-10"` as `e-10,e-9` (byte order). Each of `""`, `"e-1,,e-2"`, `"~~e-1"`, `"e 1"`, `"e-1;e-2"`, `"e-1,"` fails with `InvalidRegionKey { text }` with the input as `text`. `RegionLoop::new(vec![])` fails with `InvalidRegionKey { text: "" }`, and `RegionLoop::new` of the entries of `"e-2,e-3,e-1"` displays as `e-1,e-2,e-3`.
+220. `{"key": "e-1,e-2,e-3,e-4", "fp": "c=40,25|a=4000", "outline": "e-2,e-3,e-4,e-1"}` deserializes as `RegionRef` and re-serializes to `{"key":"e-1,e-2,e-3,e-4","fp":"c=40,25|a=4000","outline":"e-1,e-2,e-3,e-4"}`; with `"outline": ""` it fails to deserialize. `serde_json::to_string(&regions[0].reference())` for test 147 is exactly `{"key":"e-1,e-2,e-3,e-4","fp":"c=40,25|a=4000","outline":"e-1,e-2,e-3,e-4"}`.
+
+### 6.18 Matching by boundary
+
+In tests 221 to 236, `R0` is the reference test 220 serializes, `R0'` the same without `outline` (as written before file format version 2), and `match(E, R)` is `match_region(&build_profile(&E).regions, &<the ids of E>, &R)`. `RECT'` is `RECT` without its constraints; entity lists name the lines of `RECT'` that change and the ones added. Region indices follow section 3.13.7.
+
+221. Corner chamfer line (corpus R01): for `s` in 0.5, 5 and 10, `RECT'` with `e-1` ending at (80 - s, 0), `e-2` starting at (80, s) and `line e-6 (80-s,0)->(80,s)` has one region with key `e-1,e-2,e-3,e-4,e-6`, outline `e-1,e-6,e-2,e-3,e-4` and area `4000 - s^2 / 2`; `match(E, R0)` is `Resolved { indices: [0], method: Boundary, successions: [] }` for every size.
+222. Line deleted and redrawn in place (corpus R06a): `RECT'` without `e-2`, plus `line e-9 (80,0)->(80,50)`: `match(E, R0)` and `match(E, R0')` are both `Resolved { indices: [0], method: Boundary, successions: [Succession { entity: e-2, now: [e-9] }] }`. With `e-4` also replaced by `line e-10 (0,50)->(0,0)`: `match(E, R0)` gives the successions `[e-2 -> [e-9], e-4 -> [e-10]]` in that order, and `match(E, R0')` none (two stored entities are removed).
+223. Line redrawn 10 mm further out (corpus R06b): `RECT'` with `e-1` ending at (90, 0), `e-3` starting at (90, 50), `e-2` deleted and `line e-9 (90,0)->(90,50)`: the result of test 222.
+224. Side line split in two (corpus R49): `RECT'` with `e-2` ending at (80, 25), plus `line e-6 (80,25)->(80,50)`: `match(E, R0)` and `match(E, R0')` are `Resolved { indices: [0], method: Boundary, successions: [Succession { entity: e-2, now: [e-2, e-6] }] }`.
+225. Side line replaced by a notch (corpus R66): `RECT'` without `e-3`, plus `line e-9 (80,50)->(50,50)`, `line e-10 (50,50)->(50,40)`, `line e-11 (50,40)->(30,40)`, `line e-12 (30,40)->(30,50)`, `line e-13 (30,50)->(0,50)`: one region of area 3800; `match(E, R0)` and `match(E, R0')` are `Resolved { indices: [0], method: Boundary, successions: [Succession { entity: e-3, now: [e-9, e-10, e-11, e-12, e-13] }] }` (traversal order).
+226. Two neighboring lines replaced: `RECT'` without `e-2` and `e-3`, plus `line e-9 (80,0)->(80,50)` and `line e-10 (80,50)->(0,50)`: the region's key is `e-1,e-10,e-4,e-9` and its outline `e-1,e-9,e-10,e-4`; `match(E, R0)` and `match(E, R0')` are `Resolved { indices: [0], method: Boundary, successions: [] }` (the old run between `e-1` and `e-4` holds two removed entities, so no replacement is inferred, and neither new line lies on a surviving line).
+227. Arc continued on its circle: the slot of test 166 with `e-2` ending at angle 0 and `arc e-9 c(20,0) r5 from 0 to pi/2` added; the stored reference is `Region::reference()` of test 166's region (`{key: e-1,e-2,e-3,e-4, fp: c=10,0|a=278.539816, outline: e-1,e-2,e-3,e-4}`): `Resolved { indices: [0], method: Boundary, successions: [Succession { entity: e-2, now: [e-2, e-9] }] }`.
+228. Circle across a side (corpus R04): `RECT'` plus `circle e-5 c(40,50) r10`: regions `e-1,e-2,e-3,e-4,~e-5` (area 4000 - 50 pi), `e-3,e-5` (the lower half disc, area 50 pi) and `~e-3,e-5` (the upper half disc, outside the rectangle); `match(E, R0)` is `Resolved { indices: [0, 1], method: Coverage, successions: [] }`: the upper half disc lies on the other side of `e-3` and is never used.
+229. Circle inside (corpus R50, decision D2): `RECT'` plus `circle e-5 c(40,25) r10`: regions `e-1,e-2,e-3,e-4;~e-5` and `e-5`; `match(E, R0)` is `Resolved { indices: [0, 1], method: Coverage, successions: [] }`. A stored hole stays a hole: the reference `{key: e-1,e-2,e-3,e-4;~e-5, fp: c=40,25|a=3921.460184, outline: e-1,e-2,e-3,e-4}` against the entities of `PLATE` with `e-2` deleted and `line e-9 (80,0)->(80,50)` added (regions `e-1,e-3,e-4,e-9;~e-5` and `e-5`) gives `Resolved { indices: [0], method: Boundary, successions: [Succession { entity: e-2, now: [e-9] }] }`.
+230. Overlapping rectangles (corpus R05): `line e-1 (0,0)->(30,0)`, `line e-2 (30,0)->(30,50)`, `line e-3 (30,50)->(0,50)`, `line e-4 (0,50)->(0,0)`, `line e-5 (20,0)->(70,0)`, `line e-6 (70,0)->(70,50)`, `line e-7 (70,50)->(20,50)`, `line e-8 (20,50)->(20,0)`: regions `e-1,e-2,e-3,e-8` (the overlap, area 500), `e-1,e-3,e-4,~e-8` (area 1000) and `~e-2,e-5,e-6,e-7` (area 2000). `{key: e-1,e-2,e-3,e-4, fp: c=15,25|a=1500, outline: e-1,e-2,e-3,e-4}` gives `Resolved { indices: [0, 1], method: Coverage, successions: [] }` and `{key: e-5,e-6,e-7,e-8, fp: c=65,25|a=1500, outline: e-5,e-6,e-7,e-8}` gives `Resolved { indices: [0, 2], method: Coverage, successions: [] }`.
+231. A second rectangle on an extended line is never added silently: `RECT'` without `e-2`, with `e-1` ending at (200, 0), plus `line e-9 (80,0)->(80,50)`, `line e-5 (200,0)->(200,20)`, `line e-6 (200,20)->(150,20)`, `line e-7 (150,20)->(150,0)`: regions `e-1,e-3,e-4,e-9` and `e-1,e-5,e-6,e-7`, no findings; `match(E, R0)` is `Ambiguous { candidates: [[0], [1]] }`.
+232. A deleted bevel with a chamfer added elsewhere in the same edit: the stored reference is `{key: e-1,e-2,e-3,e-4,e-5, fp: c=39.535865,24.725738|a=3950, outline: e-1,e-2,e-5,e-3,e-4}` (corpus R03's outline with the bevel `e-5` from (80, 40) to (70, 50)); the edit leaves `line e-1 (5,0)->(80,0)`, `line e-2 (80,0)->(80,50)`, `line e-3 (80,50)->(0,50)`, `line e-4 (0,50)->(0,5)` and adds `line e-6 (0,5)->(5,0)`. With `outline`: `Resolved { indices: [0], method: Boundary, successions: [] }` (the bevel's old run is not replaced by anything, and the chamfer's old run was empty). Without `outline`: `Resolved { indices: [0], method: Boundary, successions: [Succession { entity: e-5, now: [e-6] }] }`, because the stored key cannot tell where `e-5` was (open issue 13).
+233. A fully redrawn outline: lines `e-11` to `e-14` with the coordinates of `RECT`: `match(E, R0)` is `Resolved { indices: [0], method: Fingerprint, successions: [] }`; with the outline 1 percent larger (`e-11` to `e-14` around (0, 0) to (80.8, 50), area 4040) it is `Missing { loss: Redrawn }`.
+234. A deleted side line opens the outline (newcomer error corpus NC11): `RECT'` without `e-2` has no region; `match(E, R0)` and `match(E, R0')` are `Missing { loss: Deleted { entities: [e-2] } }`.
+235. The stored entities remain but no longer close: `RECT'` with `e-2` starting at (80, 1) gives `Missing { loss: Open }`; so does `RECT'` with `e-2` marked construction.
+236. Order does not matter: 50 permutations of the entities of test 230, drawn with a fixed seed, each with `entities` passed in reversed order, give the results of test 230.
+
+### 6.19 Open ends
+
+237. A small gap (newcomer corpus NC01): the lines of `RECT'` with `e-4` ending at (0, 0.3) have no region and exactly the findings `[OpenEndpoint { entity: e-4, point: [0, 0.3], connect: Some(Connection { first: e-4.end, second: e-1.start, gap: 0.3 }) }]`, rendered (context of section 6.10) as `The end of the line from (0, 50) to (0, 0.3) at (0, 0.3) is not connected to other geometry.`, with `fixes()` `[ConnectEnds { first: e-4.end, second: e-1.start }]`. Adding `c-1 coincident [e-4.end, e-1.start]` and solving moves both points to (0, 0.15) bitwise equal, and `build_profile` of the result has one region with key `e-1,e-2,e-3,e-4` and no findings.
+238. A gap over `CONNECT_DISTANCE`: with `e-4` ending at (0, 3) instead, the findings are `[open_endpoint e-1 at (0,0), open_endpoint e-4 at (0,3)]`, both without `connect`, and their `fixes()` are empty.
+239. Closest pairs first: `line e-1 (0,0)->(10,0)`, `line e-2 (10.5,0)->(20,0)`, `line e-3 (10,1)->(10,10)`: the end of `e-1` at (10, 0) is within 2 mm of both `e-2`'s start (0.5) and `e-3`'s start (1); the closest pair is used, and the findings are, in order, `e-1` at (0, 0); `e-2` at (10.5, 0) with `connect { first: e-2.start, second: e-1.end, gap: 0.5 }`; `e-2` at (20, 0); `e-3` at (10, 1); `e-3` at (10, 10), all but the second without `connect`.
+
+### 6.20 Message words, details and fixes
+
+Unless stated, the context is that of section 6.10.
+
+240. Titles on `PLATE` with its values: `title(c-10)` is `Distance 80 mm (width)`; `title(c-16)` is `Diameter 10 mm (hole_d)`; `title(c-15)` is `Vertical distance 25 mm`; `title(c-5)` is `Horizontal on the line from (0, 0) to (80, 0)`; `title(c-1)` is `Coincident between the line from (0, 0) to (80, 0) and the line from (80, 0) to (80, 50)`; `title(c-14)` is `Point on object between the circle at (40, 25) with radius 5 mm and the line from (40, 0) to (40, 50)`; `title(c-99)` is `None`. Without values (`values` empty), `title(c-10)` is `Distance width`. For test 118, `title(c-1)` is `Distance 5 mm` with `measured` `{c-1: 5}` and `Distance 7 mm` without it.
+241. Entity words: `entity(e-5)` on `PLATE` is `the circle at (40, 25) with radius 5 mm`, `entity(x_axis)` is `the x axis`, `entity(origin)` is `the origin`, `entity(e-9)` is `None`; on test 166, `entity(e-2)` is `the arc from (20, -5) to (20, 5) around (20, 0)` and `entity(e-4)` is `the arc from (0, 5) to (0, -5) around (0, 0)`; on test 56, `entity(e-1)` is `the line from (0, 0.5) to (10, 0.5)` with `solved` the result's entities and `the line from (0, 0) to (10, 1)` without; on the first sketch of test 33, with the line's id `e-1`, `entity(e-1)` is `a line of this sketch`.
+242. Document units: with `units: In`, test 108 renders `In 'Sketch 1', Parallel between the line from (0, 0) to (3.149606, 0) and the line from (3.149606, 1.968504) to (0, 1.968504) is not needed: the other constraints already hold it.` and test 110 renders `In 'Sketch 1', Distance 0.19685 in is not needed: the other constraints already set it.`
+243. A conflict after adding a dimension (newcomer corpus NC07): `line e-1 (0,0)->(40,0)`, `line e-2 (40,0)->(40,20)`, `line e-3 (40,20)->(0,20)`, `line e-4 (0,20)->(0,0)`, `c-1 distance e-1 = 40`, `c-2 distance e-1 = 30`: `issues()` is `[Conflicting { constraints: [c-1, c-2] }]`, rendered `In 'Sketch 1', Distance 30 mm cannot hold together with Distance 40 mm.`, with `fixes` `[DeleteConstraint { c-2 }, MakeReference { c-2 }, DeleteConstraint { c-1 }, MakeReference { c-1 }]`.
+244. Titles that would read the same: on `line e-1 (0,0)->(40,0)`, `line e-2 (0,10)->(40,10)`, `c-1 distance e-1 = 40`, `c-2 distance e-2 = 40`, `SolveIssue::Conflicting { constraints: [c-1, c-2] }` renders `In 'Sketch 1', Distance 40 mm on the line from (0, 10) to (40, 10) cannot hold together with Distance 40 mm on the line from (0, 0) to (40, 0).`
+245. Fixes: test 21's error gives `[DeleteConstraint { c-9 }]`, test 39's `[]`; test 108's issue gives `[DeleteConstraint { c-9 }]`, test 110's `[MakeReference { c-2 }, DeleteConstraint { c-2 }]`, test 112's with value 4 `[DeleteConstraint { c-3 }, MakeReference { c-3 }, DeleteConstraint { c-2 }, DeleteConstraint { c-1 }]`, and `NotConverged` `[]`; the finding of test 168 gives `[ConnectEnds { first: e-4.end, second: e-1.start }]` and those of test 154 `[]`.
+246. Details (`Display`): test 21's error is `unknown_entity constraint=c-9 entity=e-9`; test 27's first case `wrong_entity_kind constraint=c-9 type_name="parallel" entity=e-5 found=circle expected="a line"`; `InvalidPointRef { text: "e-1.mid" }` is `invalid_point_ref text="e-1.mid"`; test 32's first case `negative_radius entity=e-5 kind=circle radius=-1`; test 34's first case `invalid_placement reason=normal_not_unit`; `NonFiniteCursor` is `non_finite_cursor`; test 111's issue `conflicting constraints=c-1,c-2`; test 110's `redundant constraint=c-2 type_name="distance" dimension=true`; `NotConverged` is `not_converged`; the finding of test 237 `open_endpoint entity=e-4 point=0,0.3 connect=e-4.end,e-1.start,0.3`; the overlap of test 158 `overlap entities=e-1,e-5 start=20,0 end=60,0`.
+247. Message lint: every message rendered in tests 144 to 146, 216 and 237 to 244, and every row of section 4 rendered on the sketches of tests 21 to 42, 108 to 112 and 154 to 168, passes the lint of the error guidelines: none matches `repair panel`, `\b[fbec]-[0-9a-z]+\b`, `(Edge|Face|Vertex|Curve) [0-9]`, `[0-9]+% match`, a backtick or `os error`, and none contains an entity or constraint id.
 
 ## Open issues
 
@@ -1670,5 +1930,10 @@ Known-solution generator (`tests/common/generator.rs`): builds entities one at a
 8. Conflict test. ADR 0004 calls a dependent row conflicting when its residual is nonzero. This spec tests the inconsistency of the dependency (`delta`, section 3.8) instead, which is the same at a converged point and avoids misreporting rows that merely share a least-squares residual.
 9. Fix semantics. `fix` stores no coordinates and freezes the stored geometry, as in Fusion (FreeCAD stores values). Moving a fixed entity therefore means editing its coordinates directly; the engine and UI specs need such an edit, since dragging cannot move it.
 10. Drag lag. With `DRAG_WEIGHT = 100`, a dragged point that other geometry can follow lands about `d / 10^4` from the cursor (0.001 mm for a 10 mm move). Each frame starts again from the cursor, so the lag does not accumulate. The UI may draw the dragged point at the cursor during a drag.
-11. Protocol JSON of results. `SolveResult`, `Profile` and their parts always serialize every field (no omission of empty lists). The protocol spec should confirm. Per-point constraint states (for coloring endpoints) are not in M1; only per-entity states are.
+11. Protocol JSON of results. `SolveResult`, `Profile` and their parts always serialize every field (no omission of empty lists), except an open-end finding's `connect`, which is omitted when absent like other optional fields. The protocol spec should confirm. Per-point constraint states (for coloring endpoints) are not in M1; only per-entity states are.
 12. Full-circle arcs. An arc whose sweep is 0 (for example from 0 to 2 pi) is zero-length, not a full circle; the UI must create full circles as `circle` entities.
+13. Replacements without an outline. A region reference written before file format version 2 has only the sorted key, which does not say where a removed entity was. The rule of section 3.14 that [ADR 0022](../adr/0022-split-regions-keep-their-area.md) records (exactly one removed entity and one run of new entities between survivors) therefore cannot tell a replacement from a deletion plus an unrelated addition: in test 232 it reads a deleted bevel and a chamfer drawn at another corner as a replacement, so a reference to the bevel's face would follow to the chamfer's face with only an info notice. The study (section 3.3, change S4) expected no succession there, which no rule over the key alone can give. The safer alternative is to infer no replacement without an outline (extensions, which geometry confirms, stay): such a reference is then reported lost, with the new face offered as a candidate that keeps a face of the lost element, and Keep these regions stores the outline. Choosing it changes the consequences of ADR 0022, so it is left for the reviewer at the next gate.
+14. Where `HintFrame` lives. The study puts `fallback_frame` in features/sketch.md section 2, but `SketchPlane` is this crate's type, so `HintFrame` is defined here (section 2.2) and `partsmith-features` uses `partsmith_sketch::HintFrame` for `face_placement` and its helpers (features.md section 3.6).
+15. Message texts that differ from the study (section 7.4) to follow the error guidelines: `InvalidPointRef` no longer quotes the text, which holds an id (the detail keeps it); `ReservedId` has its own message, because "two items with the same id" is not true of a reserved name; `NegativeRadius` does not repeat the radius that the circle's words already state; `WrongEntityKind` drops "which is a circle", which the entity's words already say; `InvalidPointRole` explains the roles of the entity's own kind, including a point; `MissingValue` and `NonFiniteValue` name the dimension by its title, so the user can tell which one; `ZeroLength` names circles and arcs by their kind.
+16. The same entity in other specs' words. The engine's cause lines (engine.md section 3.21) and features' element descriptions (features.md section 3.12) describe a circle as `the circle at (u, v)` and an arc without its center, while section 4 adds the radius and the center. `MessageContext::entity` could give all of them one wording.
+17. Titles name entities, not points. A `fix` of a line's start reads `Fix on the line from (0, 0) to (80, 0)`, and a `coincident` names both lines rather than the two ends that meet. Naming the points (`Fix on the start of the line ...`) would be more precise and longer; titles follow the study's rule until users say otherwise.

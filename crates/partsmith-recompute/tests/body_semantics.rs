@@ -1,14 +1,16 @@
 //! Body semantics shared by all solid features (features.md section 6.4), run as documents
 //! (features.md section 6.1): op new, join, cut and intersect, empty bodies and empty results,
-//! consumed boolean tools, unknown bodies and inactive writers.
+//! consumed boolean tools, unknown bodies, inactive writers and the measurements updates carry.
 
 mod common;
 
+use common::feature_support::{Run, body_update};
 use common::{
     Harness, all_element_names, assert_bounding_box, assert_solid_count, assert_volume, bodies,
     document, error_code, face_count, feature, final_state, first_message, message_texts, owned,
     shape, state_before, status, suppressed, warning_codes,
 };
+use partsmith_features::topology_info;
 use partsmith_model::Document;
 use serde_json::{Value, json};
 
@@ -239,4 +241,56 @@ fn t010_a_body_whose_writers_failed_or_are_suppressed_is_still_empty() {
     assert_eq!(status(&report, "f-box2"), "suppressed");
     assert_eq!(status(&report, "f-box3"), "ok");
     assert_volume(shape(final_state(&report, "b-1")), 1000.0);
+}
+
+#[test]
+fn t011_updates_carry_what_their_features_measured() {
+    // (example, feature, whether the update carries the shape's volume)
+    let cases = [
+        ("fillet/every-edge.ptsm", "f-fil1", false),
+        ("chamfer/equal-distance.ptsm", "f-cha1", false),
+        ("shell/open-top.ptsm", "f-sh1", false),
+        ("hole/simple-through.ptsm", "f-hole1", true),
+        ("boolean/cut.ptsm", "f-bool1", true),
+    ];
+
+    for (example, feature, carries_volume) in cases {
+        let run = Run::example(example);
+
+        run.assert_all_ok();
+        let update = body_update(&run, feature, "b-1");
+        let shape = update.shape.as_ref().expect("the body holds a solid");
+        let topology = update.measured.topology.as_deref();
+        assert_eq!(
+            topology,
+            Some(&topology_info(shape).expect("a topology")),
+            "{example}"
+        );
+        let volume = shape.volume().expect("a volume");
+        let expected = carries_volume.then_some(volume.to_bits());
+        assert_eq!(
+            update.measured.volume.map(f64::to_bits),
+            expected,
+            "{example}"
+        );
+    }
+}
+
+#[test]
+fn t011_a_no_effect_update_carries_the_body_measurements() {
+    let run = Run::example("boolean/cut-misses.ptsm");
+
+    let update = body_update(&run, "f-bool1", "b-1");
+    let shape = update.shape.as_ref().expect("the body keeps its solid");
+    assert!(
+        update
+            .measured
+            .topology
+            .as_deref()
+            .is_none_or(|topology| *topology == topology_info(shape).expect("a topology"))
+    );
+    assert_eq!(
+        update.measured.volume.map(f64::to_bits),
+        Some(shape.volume().expect("a volume").to_bits())
+    );
 }

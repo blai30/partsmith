@@ -148,8 +148,13 @@ impl Session {
                 let table = self.table_of(&view)?;
                 let shape = shape_of(&view)?;
                 let center = shape.center_of_mass().map_err(kernel_failure)?;
+                // The body state's volume, which the feature that made it usually carries.
+                let volume = view
+                    .state
+                    .volume()
+                    .map_err(|error| EngineError::internal(error.to_string()))?;
                 Ok(Measurement {
-                    volume: Some(shape.volume().map_err(kernel_failure)?),
+                    volume: Some(volume),
                     area: Some(shape.area().map_err(kernel_failure)?),
                     center_of_mass: Some([center.x, center.y, center.z]),
                     bounding_box: Some(shape.bounding_box().map_err(kernel_failure)?),

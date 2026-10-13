@@ -457,3 +457,30 @@ fn t017_radius_below_the_tolerance() {
     );
     assert_unchanged(&run, "f-fil1", "b-1");
 }
+
+#[test]
+fn t018_edge_order_does_not_matter() {
+    // `E-FT`, `E-BT` and `E-LT` of `CUBE20`.
+    let edges = [
+        FRONT_TOP_EDGE,
+        r#"{"q": "edge(f-box1/back|f-box1/top)", "fp": "line|n=1,0,0|c=0,10,20|l=20"}"#,
+        r#"{"q": "edge(f-box1/left|f-box1/top)", "fp": "line|n=0,1,0|c=-10,0,20|l=20"}"#,
+    ];
+    let reversed = [edges[2], edges[1], edges[0]];
+
+    let listed = Run::records(&["b-1"], &[CUBE20, &fillet_record(&edges, "1")]);
+    let reversed = Run::records(&["b-1"], &[CUBE20, &fillet_record(&reversed, "1")]);
+
+    listed.assert_all_ok();
+    reversed.assert_all_ok();
+    let (first, second) = (listed.shape("b-1"), reversed.shape("b-1"));
+    assert!(
+        first.to_brep().expect("BRep bytes") == second.to_brep().expect("BRep bytes"),
+        "the results differ"
+    );
+    assert_eq!(
+        first.volume().expect("a volume").to_bits(),
+        second.volume().expect("a volume").to_bits()
+    );
+    assert_eq!(listed.body("b-1").naming(), reversed.body("b-1").naming());
+}

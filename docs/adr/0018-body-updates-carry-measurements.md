@@ -1,6 +1,6 @@
 # 0018: Body updates carry the measurements of their shape
 
-Status: Proposed, needs human review
+Status: Accepted, needs human review
 
 ## Context
 
@@ -15,4 +15,4 @@ A body update is a body id, its new `Shape` and `NamingMap`, and the change appl
 
 ## Consequences
 
-A plugin that constructs `BodyUpdate` adds `measured: Measurements::default()`, or passes on what it measured. A feature that carried a wrong value would make later features and hosts see a wrong volume or topology, so the contract requires exact values, and the built-in features carry only values they computed for that very shape. Measurements are derived data: the result cache, the cache keys and saved documents do not change.
+A plugin that constructs `BodyUpdate` adds `measured: Measurements::default()`, or passes on what it measured. A feature that carried a wrong value would make later features and hosts see a wrong volume or topology, so the contract requires exact values, and the built-in features carry only values they computed for that very shape. `BodyState::from_update` checks what it can cheaply: measurements whose topology does not have one entry per face, edge and vertex of the shape (another shape's) are dropped and measured again (features.md section 2.6, test 23). Measurements are derived data: the result cache, the cache keys and saved documents do not change.

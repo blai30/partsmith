@@ -13,7 +13,7 @@ pnpm lint                # oxlint, then oxfmt --check
 pnpm format              # oxfmt
 pnpm typecheck
 pnpm test                # Vitest
-pnpm e2e                 # Playwright; locally set PLAYWRIGHT_CHROMIUM_EXECUTABLE=/opt/pw-browsers/chromium
+pnpm e2e                 # Playwright against the production build and the core in public/core (e2e/README.md); locally set PLAYWRIGHT_CHROMIUM_EXECUTABLE=/opt/pw-browsers/chromium
 ```
 
 ## Rules

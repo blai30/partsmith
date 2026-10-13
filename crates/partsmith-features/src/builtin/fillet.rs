@@ -10,7 +10,9 @@ use super::common::{
     body_hint, empty_selection, essential, manifest, positive_length, references, selection_hint,
     solid_body, unit_hint,
 };
-use super::dressup::{modified, name_blend, no_effect, run_or_search, select_edges};
+use super::dressup::{
+    modified, name_blend, no_effect, run_or_search, select_edges, sorted_by_name,
+};
 use crate::{
     BuildContext, Dependencies, Feature, FeatureError, FeatureOutput, Noun, PythonCall,
     PythonNames, PythonValue,
@@ -72,12 +74,12 @@ impl Feature for Fillet {
         if selection.edges.is_empty() {
             return Ok(no_effect(&params.body, state, selection.warnings));
         }
+        let edges = sorted_by_name(state.naming(), &selection.edges)?;
         let result = run_or_search(
             context,
             radius,
             |radius| {
-                let edges: Vec<EdgeRadius> = selection
-                    .edges
+                let edges: Vec<EdgeRadius> = edges
                     .iter()
                     .map(|edge| EdgeRadius {
                         edge: edge.index,

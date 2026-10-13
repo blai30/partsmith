@@ -24,7 +24,21 @@ schemars.workspace = true
 serde.workspace = true
 
 [features]
+# Builds the reference stability corpus tests (docs/design/reference-stability-corpus.md), which
+# record the study's scenarios and fail until the study's plan is implemented.
 stability-study = []
+
+[[test]]
+name = "reference_stability_1"
+required-features = ["stability-study"]
+
+[[test]]
+name = "reference_stability_2"
+required-features = ["stability-study"]
+
+[[test]]
+name = "reference_stability_3"
+required-features = ["stability-study"]
 
 [[bench]]
 name = "budgets"

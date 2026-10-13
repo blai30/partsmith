@@ -103,7 +103,7 @@ Triggers `push` to `main` and `pull_request`; `concurrency` `ci-${{ github.ref }
 | `occt-native` | | Restores or builds OCCT native into `.occt/native` (unchanged). |
 | `occt-wasm` | | Restores or builds OCCT for WebAssembly into `.occt/wasm` (unchanged). |
 | `kernel-wasm` | `occt-wasm` | `cargo test -p partsmith-occt-sys --target wasm32-unknown-emscripten` (unchanged). |
-| `rust` | `occt-native` | Installs the Tauri Linux packages (3.2), then `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`. The workspace includes `partsmith-desktop` and the examples runner. |
+| `rust` | `occt-native` | Installs the Tauri Linux packages (3.2), then `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo clippy -p partsmith-recompute --features stability-study --all-targets -- -D warnings` (the reference stability corpus, which fails by design until its study's plan is implemented, is compiled and linted but not run), `cargo test --workspace`. The workspace includes `partsmith-desktop` and the examples runner. |
 | `deny` | | `cargo-deny` with `deny.toml` (unchanged action; the policy now covers the Tauri tree, 3.2). |
 | `ui` | | In `ui/`: `pnpm install --frozen-lockfile`, `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm test:scripts`. |
 | `schema` | `occt-native` | `cargo run -p partsmith-cli -- schema --write`, `pnpm -C ui install --frozen-lockfile`, `pnpm -C ui generate:protocol`, then the drift check of 3.4. |
@@ -373,7 +373,7 @@ Each job's checks are its acceptance tests; they pass on every pull request and 
 
 1. `occt-native`, `occt-wasm`: the install exists at `.occt/native` or `.occt/wasm` (cache hit or built) and contains `lib/libTKernel.a`.
 2. `kernel-wasm`: `cargo test -p partsmith-occt-sys --target wasm32-unknown-emscripten` passes.
-3. `rust`: `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings` and `cargo test --workspace` pass, the latter including `partsmith-desktop` (desktop.md section 6) and the examples runner (2.8).
+3. `rust`: `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, the same clippy run of `partsmith-recompute` with the feature `stability-study`, and `cargo test --workspace` pass, the latter including `partsmith-desktop` (desktop.md section 6) and the examples runner (2.8).
 4. `deny`: `cargo deny check` passes with `deny.toml`.
 5. `ui`: `pnpm lint`, `pnpm typecheck`, `pnpm test` and `pnpm test:scripts` pass.
 6. `schema`: after regeneration, `git status --porcelain -- docs/format ui/src/generated` prints nothing.

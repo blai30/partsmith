@@ -19,6 +19,8 @@ In this milestone (M1):
 - Parameter graph evaluation with cycle detection and error propagation.
 - A public parse tree (`ParsedExpr`) for the Python code generator and other tools.
 - Display text for quantities.
+- A suggestion for an unknown parameter name that is close to exactly one parameter ("Did you mean 'height'?"), with the corrected expression as the fix (section 3.18).
+- Bare numbers: `Expr::is_bare_number` and `Expr::with_unit`, which the document units change that keeps sizes (model.md section 3.12) and the features' bare-number sentence use (section 3.17).
 
 Explicitly later (not in M1):
 
@@ -27,8 +29,8 @@ Explicitly later (not in M1):
 - Mass, time and other dimensions (mass properties use their own types).
 - Values measured from geometry (`f-ext1.height`, distances between elements).
 - Cross-file references to parameters of linked components.
-- Unit conversion of whole documents ("keep sizes" when changing document units; engine and UI).
-- Name suggestions in errors ("Did you mean wall?").
+- Keeping sizes for numbers inside larger expressions when the document units change (model.md section 3.12 rewrites bare numbers only).
+- Suggestions for unknown dotted names, units and functions.
 - Localized decimal commas (the comma is reserved for argument lists; see `DecimalComma`).
 
 ## 2. Public API
@@ -40,6 +42,11 @@ All items are re-exported from the crate root.
 pub const MAX_EXPRESSION_LENGTH: usize = 1000;
 /// Deepest parse tree and deepest parenthesis nesting allowed.
 pub const MAX_EXPRESSION_DEPTH: usize = 64;
+/// Largest edit distance at which an unknown name is close to a parameter name (section 3.18).
+pub const SUGGESTION_DISTANCE: usize = 2;
+
+/// Levenshtein distance between two texts, counted in Unicode scalar values, case-sensitive (section 3.18).
+pub fn edit_distance(a: &str, b: &str) -> usize;
 
 /// An expression, stored as its source text exactly as written.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
@@ -59,6 +66,10 @@ impl Expr {
     pub fn references(&self) -> Result<References, ExprError>;
     /// Replaces every reference to parameter `from` with `to`, keeping all other text byte for byte.
     pub fn rename_parameter(&self, from: &str, to: &str) -> Result<Expr, RenameError>;
+    /// True when the expression is a number without a unit, optionally negated (section 3.17).
+    pub fn is_bare_number(&self) -> bool;
+    /// For a bare number, the same text with `unit` written after the number; `None` otherwise (section 3.17).
+    pub fn with_unit(&self, unit: Unit) -> Option<Expr>;
 }
 // Also implemented: From<&str>, From<String>, Display (the source text), and JsonSchema as
 // {"type": "string"} under the definition name "Expr".
@@ -341,6 +352,12 @@ pub struct ExprError {
     pub span: Span,
 }
 
+impl ExprError {
+    /// For `UnknownName` with a suggestion, `source` with every reference to the unknown name replaced by the
+    /// suggested one (section 3.18); `None` for every other error. `source` is the expression that gave the error.
+    pub fn corrected(&self, source: &Expr) -> Option<Expr>;
+}
+
 /// Operation named in a dimension mismatch.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum MismatchOperation {
@@ -567,7 +584,7 @@ Evaluation is post-order, left to right: a `Binary` node evaluates its left oper
 
 Name resolution:
 
-- `Parameter(name)`: `scope.parameters.get(name)`. Missing gives `UnknownName`; `Some(Err(_))` gives `DependsOnFailed { name }`; `Some(Ok(q))` gives `q`. Both errors use the name's span.
+- `Parameter(name)`: `scope.parameters.get(name)`. Missing gives `UnknownName { name, suggestion }`, with the suggestion of section 3.18 among the names in `scope.parameters`; `Some(Err(_))` gives `DependsOnFailed { name }`; `Some(Ok(q))` gives `q`. Both errors use the name's span.
 - `Value(name)`: `scope.context.resolve(name)`. `None` gives `UnknownValue` with the name's span.
 
 ### 3.13 Parameter evaluation
@@ -577,7 +594,7 @@ Name resolution:
 1. Parse every parameter's expression. A parameter that fails to parse gets that error.
 2. Build the dependency graph over the parameters that parsed: an edge from parameter P to parameter Q when Q's name is in `P.expr.references().parameters`. Names that are not parameters add no edge.
 3. Every parameter in a strongly connected component with two or more members, or with an edge to itself, gets `Cycle { names }` with the component's names in document order, and the span of its whole source text (`0..source.len()`).
-4. Evaluate the remaining parameters in dependency order (each after every parameter it references), breaking ties by document order, each with `expected = None` and a scope made of the document's units, `context`, and every result known so far (the parse errors from step 1, the cycle errors from step 3 and the values and errors already produced in this step). A reference to a failed parameter gives `DependsOnFailed`; a reference to a name that is not a parameter gives `UnknownName`; the first error in evaluation order wins (section 3.12).
+4. Evaluate the remaining parameters in dependency order (each after every parameter it references), breaking ties by document order, each with `expected = None` and a scope made of the document's units, `context`, and every result known so far (the parse errors from step 1, the cycle errors from step 3 and the values and errors already produced in this step). A reference to a failed parameter gives `DependsOnFailed`; a reference to a name that is not a parameter gives `UnknownName`, whose suggestion (section 3.18) is chosen among the names of every parameter of the document except the one being evaluated, so it does not depend on the evaluation order; the first error in evaluation order wins (section 3.12).
 
 Results do not depend on the order of parameters in the document. A parameter whose expression has no units is plain and is promoted wherever it is used: `wall = "2"` is 2 mm in a length field under `mm` and 2 in under `in`.
 
@@ -611,6 +628,20 @@ When the document has two parameters with the same name (impossible for structur
 
 The text always parses back to the same dimension and, within the rounding of step 2, the same value.
 
+### 3.17 Bare numbers
+
+An expression is a *bare number* when it parses to a `Number` node without a unit, or to one or more `Negate` nodes around one, with no parentheses anywhere: `2`, ` 2 `, `-2`, `- 2`, `.5`, `1e3`. Not bare: `2 mm`, `(2)`, `wall`, `pi`, `2 * 3`, and any text that does not parse. A bare number is the one kind of expression whose value the document units decide by themselves when it stands in a length field (section 3.10), so it is what changes when the units change.
+
+`is_bare_number()` tells whether the expression is one. `with_unit(unit)` returns, for a bare number, the source text with a space and `unit.symbol()` inserted right after the number literal (the end of the `Number` node's span), everything else kept byte for byte: `40` gives `40 mm`, ` 20 ` gives ` 20 mm `, `-2` with `Unit::Inch` gives `-2 in`; for anything else it returns `None`. The result evaluates to the value the bare number has when `unit` is the document unit: `2` under `in` and `2 in` under any units are both 50.8 mm in a length field. model.md section 3.12 uses both to keep sizes when the units change, and features use `is_bare_number` for their sentence that a number without a unit means the document units (features.md section 4.3).
+
+### 3.18 Suggestions for unknown names
+
+`edit_distance(a, b)` is the Levenshtein distance between `a` and `b`: the least number of single-character insertions, deletions and substitutions that turn one into the other, counted in Unicode scalar values and case-sensitive (`hieght` to `height` is 2, `Wall` to `wall` is 1).
+
+An `UnknownName { name }` gets a suggestion when exactly one candidate name other than `name` has `edit_distance(name, candidate) <= SUGGESTION_DISTANCE`; that candidate is the suggestion. With none or several such candidates there is no suggestion, so a suggestion is never a choice between lookalikes. The candidates are the parameter names in the scope (section 3.12), or, inside `Document::evaluate_parameters`, every parameter of the document except the one being evaluated (section 3.13). Dotted names, units and functions get no suggestion.
+
+The suggestion changes the message (section 4) and gives a fix: `ExprError::corrected(source)` is `source.rename_parameter(name, suggestion)` (section 3.15), which replaces every reference to the unknown name and nothing else. Features offer it as a one-click fix of their `expression` error (features.md section 4.1), which hosts label `Replace {name} with {suggestion}` (newcomer error corpus NC10: `Distance: 'hieght' is not a parameter. Did you mean 'height'?` with [Replace hieght with height]).
+
 ## 4. Errors
 
 Every `ExprError` has a `kind` and a `span`. The message is the kind's `Display`. `{describe(x)}` is `Dimension::describe`; `{list}` joins names with `, ` and puts ` and ` before the last (`a and b`, `a, b and c`).
@@ -631,7 +662,8 @@ Every `ExprError` has a `kind` and a `span`. The message is the kind's `Display`
 | `UnknownFunction { name: String }` | the name | `Unknown function '{name}'. Available functions: abs, sqrt, sin, cos, tan, asin, acos, atan, atan2, min, max, floor, ceil, round.` |
 | `MissingCall { function: Function }` | the name | `{function} is a function. Write {function}(...) with its argument in parentheses.` |
 | `ArgumentCount { function: Function, arity: Arity, found: usize }` | the call | `{function}() takes {arity}, but got {found}.` |
-| `UnknownName { name: String }` | the name | `Unknown name '{name}'. Check the spelling, or add a parameter named {name}.` |
+| `UnknownName { name: String, suggestion: None }` | the name | `Unknown name '{name}'. Check the spelling, or add a parameter named {name}.` |
+| `UnknownName { name, suggestion: Some(suggestion) }` | the name | `'{name}' is not a parameter. Did you mean '{suggestion}'?` |
 | `UnknownValue { name: String }` | the name | `Unknown value '{name}'. Check the spelling; printer values look like printer.fit.slip.` |
 | `DependsOnFailed { name: String }` | the name | `This uses {name}, which has an error. Fix {name} first.` |
 | `Cycle { names: Vec<String> }`, one name | `0..len` | `{name} depends on itself. Change its expression so it does not use {name}.` |
@@ -670,7 +702,7 @@ Release build on the reference desktop (2022 mid-range laptop); web budgets are 
 
 **Scope S(units)**: parameters from `evaluate_parameters` on a document with these parameters, in order: `wall` = `2 mm`, `ratio` = `0.5`, `angle` = `30 deg`, `bad` = `1 / 0`; context: a `BTreeMap` with `printer.fit.slip` mapped to `Quantity::length(0.2)` and `printer.nozzle` to `Quantity::length(0.4)`; `units` as given (default `Mm`).
 
-`eval(src)` means `Expr::new(src).evaluate(&S(Mm), None)`; `eval_in(units, src, expected)` uses `S(units)` and `expected`. "length 2" means `Ok(Quantity::length(2.0))`, "plain 2" means `Ok(Quantity::plain(2.0))`, "area 4" means `Ok(Quantity::new(4.0, Dimension::AREA))`, "angle x" means `Ok(Quantity::angle(x))`. Errors are written as kind plus span, such as `UnexpectedEnd @ 3..3`. Values compare within `1e-12` relative or absolute unless stated.
+`eval(src)` means `Expr::new(src).evaluate(&S(Mm), None)`; `eval_in(units, src, expected)` uses `S(units)` and `expected`. "length 2" means `Ok(Quantity::length(2.0))`, "plain 2" means `Ok(Quantity::plain(2.0))`, "area 4" means `Ok(Quantity::new(4.0, Dimension::AREA))`, "angle x" means `Ok(Quantity::angle(x))`. Errors are written as kind plus span, such as `UnexpectedEnd @ 3..3`; `UnknownName { "wal" }` means `UnknownName { name: "wal", suggestion: None }`. Values compare within `1e-12` relative or absolute unless stated.
 
 ### Literals and syntax
 
@@ -717,7 +749,7 @@ Release build on the reference desktop (2022 mid-range laptop); web budgets are 
 
 ### Evaluation errors
 
-35. `eval("wal")` is `UnknownName { "wal" } @ 0..3` with message `Unknown name 'wal'. Check the spelling, or add a parameter named wal.`
+35. `eval("wal")` is `UnknownName { "wal" } @ 0..3` with message `Unknown name 'wal'. Check the spelling, or add a parameter named wal.` (both `wall` and `bad` are within edit distance 2 of `wal`, so there is no suggestion, section 3.18).
 36. `eval("printer.fit.slipp")` is `UnknownValue { "printer.fit.slipp" } @ 0..17`.
 37. `eval("bad * 2")` is `DependsOnFailed { "bad" } @ 0..3`.
 38. `eval("1/0")` is `DivisionByZero @ 0..3`; `eval("1 mm / (2 mm - 2 mm)")` is `DivisionByZero @ 0..20`; `eval("0/0")` is `DivisionByZero @ 0..3`.
@@ -790,6 +822,15 @@ Release build on the reference desktop (2022 mid-range laptop); web budgets are 
 90. `serde_json::to_string(&Expr::new(" 2 mm"))` is `"\" 2 mm\""`; `serde_json::from_str::<Expr>("2")` fails.
 91. `EmptyContext.resolve("printer.fit.slip")` is `None`; the S context's `names()` is `["printer.fit.slip", "printer.nozzle"]`.
 
+### Bare numbers and suggestions
+
+92. In a document with units `Mm` and parameters `height` = `30 mm` and `width` = `80 mm`, `Expr::new("hieght").evaluate(&scope, Some(LENGTH))` is `UnknownName { name: "hieght", suggestion: Some("height") } @ 0..6` with message `'hieght' is not a parameter. Did you mean 'height'?`, and `corrected(&Expr::new("hieght"))` is `Some("height")`. In the same scope, `Expr::new("2 * hieght + hieght")` gives `UnknownName { name: "hieght", suggestion: Some("height") } @ 4..10`, whose `corrected` of that source is `Some("2 * height + height")`; an error without a suggestion (test 35) gives `None`.
+93. Exactly one close name: in `S(Mm)`, `eval("rati")` is `UnknownName { name: "rati", suggestion: Some("ratio") } @ 0..4` with message `'rati' is not a parameter. Did you mean 'ratio'?`; `eval("xyz")` has no suggestion; `eval("wal")` has none either (test 35); `eval("printer.fit.slipp")` stays `UnknownValue` (test 36).
+94. `edit_distance` is 2 for `hieght` and `height`, 2 for `wal` and `bad`, 3 for the empty text and `abc`, 0 for `wall` and `wall`, 1 for `Wall` and `wall`, 1 for `é` and `e`, and 3 for `kitten` and `sitting`.
+95. Parameters `a` = `heigth + 1` and `height` = `30 mm`, in this order and in the reverse order, give `a` the error `UnknownName { name: "heigth", suggestion: Some("height") } @ 0..6`. A document whose only parameter is `height` = `heigth + 1` gives `UnknownName { name: "heigth", suggestion: None }`: a parameter is never suggested inside its own expression.
+96. `is_bare_number` is true for `2`, ` 2 `, `-2`, `- 2`, `--2`, `.5` and `1e3`, and false for `2 mm`, `(2)`, `-(2)`, `wall`, `pi`, `2 * 3`, `2,5` and the empty text.
+97. `with_unit`: `Expr::new("40").with_unit(Unit::Millimeter)` is `Some("40 mm")`; `" 20 "` gives `Some(" 20 mm ")`; `"-2"` with `Unit::Inch` gives `Some("-2 in")`; `"- 2"` gives `Some("- 2 mm")`; `"1e3"` gives `Some("1e3 mm")`; `"(2)"`, `"2 mm"` and `"wall"` give `None`. `eval_in(In, "2", Some(LENGTH))` and `eval_in(Mm, "2 in", Some(LENGTH))` are both length 50.8.
+
 ## 7. Open issues
 
 1. **Plain-number promotion in sums.** Architecture says evaluation is dimension-checked and bare numbers take document units or degrees by context, but not how `10 + wall` behaves. This spec promotes plain numbers in `+`, `-`, `min`, `max`, `atan2`, trig arguments and against the field's expected dimension (as Fusion does), and treats every dimensionless value as plain, including ratios. The stricter alternative (bare numbers only at the top level) is simpler but rejects common input such as `wall + 0.2`.
@@ -801,5 +842,5 @@ Release build on the reference desktop (2022 mid-range laptop); web budgets are 
 7. **Limits.** 1000 characters and depth 64 are this spec's choices, sized so the parser and evaluator stay well inside the small WebAssembly stack.
 8. **Spans are UTF-8 byte offsets.** The UI works in UTF-16 code units; the protocol spec must say who converts.
 9. **Unknown functions and units are parse errors; unknown names are evaluation errors.** So `Document::validate` reports `wall(2)` as an invalid expression but `wal` as an unknown parameter.
-10. **No suggestions in messages.** "Did you mean" hints are left for later so that messages stay exact and testable now.
+10. **Suggestions for unknown names.** Resolved for parameter names by section 3.18, which keeps messages exact and testable: a suggestion is made only when exactly one parameter is within edit distance 2, so `wal` gets none in a scope with both `wall` and `bad`. A relative limit (distance at most a third of the name's length, as some compilers use) would suggest `wall` there; the fixed limit follows the newcomer error corpus (NC10) and features' `unknown_params` rule. Levenshtein distance counts a swap of two letters as 2, which the limit still allows (`hieght`).
 11. **Number text for the Python API.** The features spec says Python records an `int` or `float` as "the canonical number text". The function for that is `canonical::format_number` (file-format.md), applied to `serde_json::Number::from_f64(value)`.

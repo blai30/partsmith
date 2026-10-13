@@ -346,3 +346,37 @@ fn t013_thickness_below_the_tolerance() {
     );
     assert_unchanged(&run, "f-sh1", "b-1");
 }
+
+#[test]
+fn t014_moved_body() {
+    let every_edge = load_example("fillet/every-edge.ptsm");
+    let records: Vec<String> = every_edge
+        .features
+        .iter()
+        .map(|record| serde_json::to_string(record).expect("records serialize"))
+        .collect();
+    let records: Vec<&str> = records.iter().map(String::as_str).collect();
+    let moved_top = r#"{"q": "f-box1/top", "fp": "plane|n=0,0,1|c=50,0,20|a=256"}"#;
+    let top = r#"{"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,20|a=256"}"#;
+    let move_record =
+        r#"{"id": "f-mv1", "type": "move_body", "body": "b-1", "translation": ["50", "0", "0"]}"#;
+    let moved_shell = shell_record("1", &[moved_top]);
+    let shell = shell_record("1", &[top]);
+
+    let moved = Run::new(document(
+        &["b-1"],
+        &[records[0], records[1], move_record, &moved_shell],
+    ));
+    let unmoved = Run::new(document(&["b-1"], &[records[0], records[1], &shell]));
+
+    moved.assert_all_ok();
+    unmoved.assert_all_ok();
+    let shape = moved.shape("b-1");
+    let expected = unmoved.shape("b-1");
+    assert_volume(shape, expected.volume().expect("a volume"));
+    assert_eq!(
+        shape.count(partsmith_occt_sys::SubShapeKind::Face),
+        expected.count(partsmith_occt_sys::SubShapeKind::Face)
+    );
+    assert_bounding_box(shape, [40.0, -10.0, 0.0], [60.0, 10.0, 20.0]);
+}

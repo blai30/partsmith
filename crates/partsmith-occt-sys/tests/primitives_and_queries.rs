@@ -1,5 +1,5 @@
 //! Acceptance tests for primitives, element geometry and topology (kernel spec sections 2.2,
-//! 2.4, 2.10, 3.4.1, 3.6 and tests 5 to 14, 64 to 67, 69, 70, 95 to 101, 108, 109 and 112).
+//! 2.4, 2.10, 3.4.1, 3.6 and tests 5 to 14, 64 to 67, 69, 70, 95 to 101, 108, 109, 112 and 116).
 
 mod common;
 
@@ -16,8 +16,8 @@ use common::{
 };
 use partsmith_occt_sys::{
     Continuity, EdgeNormals, EdgeRadius, GeometryKind, Operation, Plane, Point, PrimitiveFace,
-    Shape, ShapeKind, SubShapeKind, Topology, Vector, compound, cut, fillet, fuse, make_box,
-    make_cone, make_cylinder, make_profile, make_torus, section, shell,
+    Shape, ShapeKind, SubShapeKind, Topology, Transform, Vector, compound, cut, fillet, fuse,
+    make_box, make_cone, make_cylinder, make_profile, make_torus, section, shell, transform,
 };
 
 const BOX_MESSAGE: &str = "A box needs a length, width and height greater than 0 mm.";
@@ -1595,4 +1595,52 @@ fn t112_topology_relations_are_inverse_of_each_other() {
         );
         assert_consistent(&topology);
     }
+}
+
+#[test]
+fn t116_volume_is_exact_on_planes_and_cylinders() {
+    // Test 37: BOX minus a cylinder of radius 2 through it.
+    let hole = make_cylinder(&xy_plane_at(5.0, 10.0, -1.0), 2.0, 32.0)
+        .expect("the cylinder builds")
+        .shape;
+    let holed = cut(&box_primitive().shape, &[hole])
+        .expect("the hole is cut")
+        .shape;
+    let mirrored = transform(&holed, &Transform::mirror(&Plane::YZ))
+        .expect("mirrored")
+        .shape;
+    let moved = transform(
+        &holed,
+        &Transform::translation(Vector::new(50.0, 7.0, -3.0)),
+    )
+    .expect("moved")
+    .shape;
+    let expected = 6000.0 - 120.0 * PI;
+
+    for shape in [&holed, &mirrored, &moved] {
+        assert_relative(volume(shape), expected, 1e-12, "volume of the holed box");
+    }
+}
+
+#[test]
+fn t116_volume_adds_numeric_faces_to_exact_ones() {
+    // Test 45: every BOX edge rounded at radius 1. With the inner box (8, 18, 28), its volume is
+    // the inner box, a slab on each face, a quarter cylinder along each edge and the corners.
+    let edges: Vec<EdgeRadius> = (1..=12)
+        .map(|edge| EdgeRadius { edge, radius: 1.0 })
+        .collect();
+    let rounded = fillet(&box_primitive().shape, &edges)
+        .expect("every edge rounds")
+        .shape;
+    let expected = 8.0 * 18.0 * 28.0
+        + 2.0 * (8.0 * 18.0 + 18.0 * 28.0 + 8.0 * 28.0)
+        + PI * (8.0 + 18.0 + 28.0)
+        + 4.0 / 3.0 * PI;
+
+    assert_relative(
+        volume(&rounded),
+        expected,
+        1e-9,
+        "volume of the rounded box",
+    );
 }

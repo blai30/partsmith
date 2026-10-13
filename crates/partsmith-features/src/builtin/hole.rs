@@ -755,40 +755,52 @@ fn cut_candidates(
     let shapes: Vec<Shape> = tools.iter().map(|tool| tool.shape.clone()).collect();
     let result = cut(shape, &shapes)?;
     let mut overlaps = tools_with_own_faces(&result);
-    let outcome = match apply_op_result(context, body, BodyOp::Cut, &tools, result) {
-        Err(error) if !matches!(error, FeatureError::EmptyResult { .. }) => return Err(error),
-        outcome => outcome,
+    let nothing_overlaps = Decision {
+        overlaps: vec![false; candidates.len()],
+        result: None,
     };
-    let unchanged = outcome.as_ref().is_ok_and(|(_, warnings)| {
-        warnings
-            .iter()
-            .any(|warning| matches!(warning, FeatureWarning::NoEffect { .. }))
-    });
-    if unchanged {
+    if overlaps.iter().all(|overlaps| *overlaps) {
+        // The usual case: the body rules name the cut once, and their `NoEffect` is step 5's
+        // unchanged volume.
+        let outcome = apply_op_result(context, body, BodyOp::Cut, &tools, result);
+        if outcome
+            .as_ref()
+            .is_ok_and(|(_, warnings)| has_no_effect(warnings))
+        {
+            return Ok(nothing_overlaps);
+        }
         return Ok(Decision {
-            overlaps: vec![false; candidates.len()],
-            result: None,
+            overlaps,
+            result: Some(outcome),
         });
+    }
+    // Some tool left no face of its own: decide it before naming anything, since the cut is the
+    // result only when every tool overlaps.
+    let before = state.volume()?;
+    if (result.shape.volume()? - before).abs() <= VOLUME_TOLERANCE * before {
+        return Ok(nothing_overlaps);
     }
     let undecided: Vec<usize> = (0..candidates.len())
         .filter(|&position| !overlaps[position])
         .collect();
-    if !undecided.is_empty() {
-        let undecided_candidates: Vec<&Candidate> = undecided
-            .iter()
-            .map(|&position| &candidates[position])
-            .collect();
-        let shared = shared_volumes(shape, &undecided_candidates)?;
-        let threshold = VOLUME_TOLERANCE * state.volume()?;
-        for (&position, volume) in undecided.iter().zip(shared) {
-            overlaps[position] = volume > threshold;
-        }
+    let undecided_candidates: Vec<&Candidate> = undecided
+        .iter()
+        .map(|&position| &candidates[position])
+        .collect();
+    let shared = shared_volumes(shape, &undecided_candidates)?;
+    for (&position, volume) in undecided.iter().zip(shared) {
+        overlaps[position] = volume > VOLUME_TOLERANCE * before;
     }
     let every_one = overlaps.iter().all(|overlaps| *overlaps);
-    Ok(Decision {
-        overlaps,
-        result: every_one.then_some(outcome),
-    })
+    let result = every_one.then(|| apply_op_result(context, body, BodyOp::Cut, &tools, result));
+    Ok(Decision { overlaps, result })
+}
+
+/// True when the body rules found that an operation left the body unchanged.
+fn has_no_effect(warnings: &[FeatureWarning]) -> bool {
+    warnings
+        .iter()
+        .any(|warning| matches!(warning, FeatureWarning::NoEffect { .. }))
 }
 
 /// For each tool of a kernel cut, in order, whether a face of the result descends from one of the

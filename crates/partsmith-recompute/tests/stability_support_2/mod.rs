@@ -6,14 +6,14 @@
 //! failing scenario reports every way its result differs from the corpus, together with what the
 //! resolver did with the reference under test.
 //!
-//! The module depends only on the library crates and the shared feature helpers, so it also
-//! compiles as its own (empty) test target, which Cargo makes of every file directly in `tests/`.
+//! It lives in its own directory, like `common/` and `feature_support/`, so Cargo does not build
+//! it as a test target of its own.
 
 #![cfg(feature = "stability-study")]
-// The corpus test binary uses only some of these helpers, and Cargo also builds this file alone.
+// The corpus test binary uses only some of these helpers.
 #![allow(dead_code)]
 
-#[path = "feature_support/mod.rs"]
+#[path = "../feature_support/mod.rs"]
 pub mod feature_support;
 
 use feature_support::{Assets, Run, body_before, element_names, face_names, sketch_result};

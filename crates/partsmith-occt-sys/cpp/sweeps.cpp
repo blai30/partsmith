@@ -3,9 +3,11 @@
 #include <vector>
 
 #include <BRepPrimAPI_MakePrism.hxx>
+#include <BRep_Builder.hxx>
 #include <BRepPrimAPI_MakeRevol.hxx>
 #include <TopExp.hxx>
 #include <TopExp_Explorer.hxx>
+#include <TopoDS_Compound.hxx>
 #include <gp_Ax1.hxx>
 #include <gp_Trsf.hxx>
 #include <gp_Vec.hxx>
@@ -47,12 +49,31 @@ void add_lateral_faces(Roles &roles, Sweep &sweep, const TopoDS_Shape &profile) 
   }
 }
 
-// Normalizes, checks and repairs a swept shape, then gives every face exactly one role.
-SweepData sweep_data(const TopoDS_Shape &swept, const Roles &roles, const char *algorithm) {
+// The caps of a sweep: the copied profile it started from and the profile moved to its end.
+TopoDS_Shape caps_of(const TopoDS_Shape &first, const TopoDS_Shape &last) {
+  BRep_Builder builder;
+  TopoDS_Compound caps;
+  builder.MakeCompound(caps);
+  for (const TopoDS_Shape &cap : {first, last}) {
+    if (!cap.IsNull()) {
+      builder.Add(caps, cap);
+    }
+  }
+  return caps;
+}
+
+// Normalizes, checks and repairs a swept shape, then gives every face exactly one role. The caps
+// are copies of the profile, which `make_profile` checked, moved rigidly, so the check trusts
+// them like the unchanged faces of an input (kernel spec section 3.5, item 4); without caps the
+// whole result is checked.
+SweepData sweep_data(const TopoDS_Shape &swept, const TopoDS_Shape &caps, const Roles &roles,
+                     const char *algorithm) {
+  CheckInputs inputs = caps.IsNull() ? CheckInputs() : CheckInputs({caps});
+  inputs.settle();
   // The sweep copied the profile, so every sub-shape of the swept shape is new.
   store_plane_pcurves(swept);
   Handle(BRepTools_History) history = new BRepTools_History;
-  std::shared_ptr<Shape> shape = make_shape(finish_solid(swept, history, {}, algorithm));
+  std::shared_ptr<Shape> shape = make_shape(finish_solid(swept, history, inputs, algorithm));
 
   const int face_count = shape->faces().Extent();
   std::vector<bool> assigned(static_cast<std::size_t>(face_count) + 1, false);
@@ -103,7 +124,8 @@ SweepData extrude(const Shape &profile, const Vec3 &direction, double start, dou
   add_lateral_faces(roles, prism, moved);
   add_faces(roles, prism.FirstShape(), SweepFaceData{SweepRole::StartCap, 0});
   add_faces(roles, prism.LastShape(), SweepFaceData{SweepRole::EndCap, 0});
-  return sweep_data(prism.Shape(), roles, "BRepPrimAPI_MakePrism");
+  return sweep_data(prism.Shape(), caps_of(prism.FirstShape(), prism.LastShape()), roles,
+                    "BRepPrimAPI_MakePrism");
 }
 
 SweepData revolve(const Shape &profile, const Vec3 &origin, const Vec3 &direction, double angle,
@@ -120,7 +142,9 @@ SweepData revolve(const Shape &profile, const Vec3 &origin, const Vec3 &directio
     add_faces(roles, revolution.FirstShape(), SweepFaceData{SweepRole::StartCap, 0});
     add_faces(roles, revolution.LastShape(), SweepFaceData{SweepRole::EndCap, 0});
   }
-  return sweep_data(revolution.Shape(), roles, "BRepPrimAPI_MakeRevol");
+  const TopoDS_Shape caps =
+      full ? TopoDS_Shape() : caps_of(revolution.FirstShape(), revolution.LastShape());
+  return sweep_data(revolution.Shape(), caps, roles, "BRepPrimAPI_MakeRevol");
 }
 
 }  // namespace occt

@@ -18,10 +18,10 @@ In this milestone (M1):
 - `Document`, `Parameter`, `Body`, `FeatureRecord` (params as a generic JSON map flattened into the record).
 - Parameter name rules, label rules, feature type rules.
 - Structural rules that every document in memory satisfies (`check_structure`), and full validation with references, expressions and the parameter graph (`validate`).
-- `Edit` with all 15 variants and exact inverses, atomic multi-edit application (`apply_all`), and the edit set that renames a parameter everywhere (`rename_parameter_edits`).
+- `Edit` with all 15 variants and exact inverses, atomic multi-edit application (`apply_all`), the edit set that renames a parameter everywhere (`rename_parameter_edits`), and the edit set that changes the document units while keeping sizes (`units_edits`, with `bare_numbers` to count what it rewrites).
 - `UndoLog`: labeled transactions, undo, redo, redo cleared by a new commit, maximum depth.
 - Feature manifests (`FeatureManifest` and its parts): pure data the feature registry defines and the protocol carries.
-- Expressions and parameter evaluation (expressions.md), canonical JSON, load and save, `format_version` 1, the migration hook and JSON Schema generation (file-format.md).
+- Expressions and parameter evaluation (expressions.md), canonical JSON, load and save, `format_version` 2 with the migration from version 1, and JSON Schema generation (file-format.md).
 
 Explicitly later (not in M1):
 
@@ -267,6 +267,11 @@ impl Document {
     pub fn apply_all(&mut self, edits: Vec<Edit>) -> Result<Vec<Step>, TransactionError>;
     /// The edits that rename parameter `id` to `new_name` and rewrite every expression that uses it (section 3.13).
     pub fn rename_parameter_edits(&self, id: &Id, new_name: &str, inspector: &dyn FeatureInspector) -> Result<Vec<Edit>, EditError>;
+    /// The edits that set the document units to `units`; with `keep_sizes`, also the edits that add the current unit to
+    /// every unit-dependent bare number, so those sizes do not change (section 3.12).
+    pub fn units_edits(&self, units: Units, keep_sizes: bool, inspector: &dyn FeatureInspector) -> Vec<Edit>;
+    /// How many unit-dependent bare numbers the document has: the expressions `units_edits` with `keep_sizes` rewrites (section 3.12).
+    pub fn bare_numbers(&self, inspector: &dyn FeatureInspector) -> usize;
     /// Evaluates every parameter (expressions.md section 3.13).
     pub fn evaluate_parameters(&self, context: &dyn EvaluationContext) -> ParameterValues;
     /// Rewrites every number inside feature params to its normalized form (file-format.md section 3.3).
@@ -405,13 +410,16 @@ pub struct FeatureLinks {
     pub expressions: Vec<ExprLink>,
 }
 
-/// One expression stored in feature params, with its location.
+/// One expression stored in feature params, with its location and value kind.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ExprLink {
     /// JSON Pointer (RFC 6901) of the expression string within the params, for example "/extent/expr".
     pub pointer: String,
     /// The expression.
     pub expr: Expr,
+    /// The value kind the feature evaluates it as (section 2.12), which says whether its bare numbers take the
+    /// document units (`Length`).
+    pub unit: FieldUnit,
 }
 
 /// Reports the links of a feature record; implemented by the feature registry.
@@ -868,7 +876,7 @@ Leading and trailing spaces are allowed and preserved. Labels need not be unique
 A document is structurally valid when `check_structure()` is empty. `load` returns only structurally valid documents (or fails), `Document::new` returns one, and `apply` keeps a structurally valid document structurally valid. The rules:
 
 1. `format == "partsmith"`.
-2. `format_version == FORMAT_VERSION` (1).
+2. `format_version == FORMAT_VERSION` (2).
 3. `printer`, when present, is a valid label.
 4. Parameter, body and feature ids are pairwise distinct.
 5. Every parameter name is valid (section 3.3) and no two parameters share a name.
@@ -971,7 +979,22 @@ Rules that apply to every edit:
 
 ### 3.12 Changing units
 
-`SetUnits` changes only the `units` field. Because bare numbers in length expressions take the document units (expressions.md section 3.10), changing units changes the geometry of every expression that relies on them: `"30"` in a length field is 30 mm under `mm` and 762 mm under `in`. JSON numbers stored directly in params (such as sketch coordinates) are internal millimeters and radians and do not change. Offering a "keep sizes" conversion is the engine's and UI's job: they can commit `SetUnits` together with updates that rewrite expressions, in one transaction.
+`SetUnits` changes only the `units` field. Because bare numbers in length expressions take the document units (expressions.md section 3.10), changing units changes the geometry of every expression that relies on them: `"30"` in a length field is 30 mm under `mm` and 762 mm under `in`. JSON numbers stored directly in params (such as sketch coordinates) are internal millimeters and radians and do not change.
+
+`units_edits(units, keep_sizes, inspector)` returns the edits that change the units, as one transaction for `UndoLog::commit`; the engine's `set_document_units` commits it labeled `Change units to {units}` (engine.md section 3.25). It does not change the document.
+
+1. When `units` equals the current units, it returns no edits, whatever `keep_sizes` is.
+2. Otherwise the first edit is `SetUnits { units }`. Without `keep_sizes`, that is the only edit.
+3. With `keep_sizes`, it continues with the edits that rewrite every unit-dependent bare number (below) to `Expr::with_unit(self.units.unit())` (expressions.md section 3.17), so it carries the current, old unit: `40` becomes `40 mm`, ` 20 ` becomes ` 20 mm `, `-2` becomes `-2 mm`. First one `UpdateParameter` per such parameter, in document order; then, in timeline order, one `UpdateFeature` per feature record with at least one such expression, a copy of the record with each such expression string replaced at its link's `pointer` (a link whose pointer does not lead to a JSON string equal to its `expr` is left alone, as in section 3.13).
+
+**Unit-dependent bare numbers**, which `bare_numbers(inspector)` counts, are the expressions that are bare numbers (`Expr::is_bare_number`: a number without a unit, optionally negated, without parentheses) and whose value the document units decide:
+
+- a feature expression whose link has `unit: FieldUnit::Length`;
+- a parameter used in lengths only. A link *reaches* every parameter its expression names, and, recursively, every parameter named by the expression of a parameter it reaches. A parameter counts when at least one `Length` link reaches it and no link with another unit (`Angle`, `Scalar`, `Count`) does: a parameter that a count or an angle also uses has no single unit that keeps all its uses, and a parameter nothing uses has no size to keep, so both are left alone.
+
+Only links of feature records whose inspection succeeds take part, in every record (suppressed and rolled-back ones included). Expressions that do not parse and dotted names are never rewritten or followed. Applying the edits and undoing them restores the document exactly (section 3.11).
+
+Keep sizes rewrites bare numbers only, which is what hosts announce with the count ("add mm to the 4 numbers without a unit", ui.md). A number inside a larger expression (the `0.5` of `wall + 0.5`) or a plain ratio still takes the new units, and a converted parameter that an expression squares (`wall * wall` in a length field) gives an area instead of a promoted plain number, which recompute reports as that field's expression error (open issue 8).
 
 ### 3.13 Renaming a parameter
 
@@ -1029,7 +1052,7 @@ Each message is the error's `Display`. Placeholders in braces are filled from th
 | Variant | Message |
 | --- | --- |
 | `WrongFormat { found }` | `The format field is '{found}', but a Partsmith document needs 'partsmith'.` |
-| `WrongFormatVersion { found }` | `The document is at format version {found}, but documents in memory must be at version 1. Load it from text so it is migrated.` |
+| `WrongFormatVersion { found }` | `The document is at format version {found}, but documents in memory must be at version 2. Load it from text so it is migrated.` (the number is `FORMAT_VERSION`) |
 | `DuplicateId { id }` | `The id {id} is used by more than one record. Give the later record a new id.` |
 | `InvalidParameterName { id, error }` | `Parameter {id}: {error}` |
 | `DuplicateParameterName { id, name }` | `Parameter {id} is named {name}, but an earlier parameter already uses that name. Rename one of them.` |
@@ -1094,6 +1117,7 @@ Measured as `cargo bench` style benchmarks on the reference desktop (2022 mid-ra
 | `validate` with `OpaqueFeatures` on the same document | 10 ms |
 | `used_ids` on the same document with `OpaqueFeatures` | 1 ms |
 | `SequentialIds::generate` with a `BTreeSet` predicate of 10,000 ids | 2 microseconds |
+| `units_edits(In, true, &TestInspector)` and `bare_numbers` on a document with 1,000 parameters and 1,000 features of 10 `lengths` each (section 6) | 10 ms each |
 
 ## 6. Acceptance tests
 
@@ -1106,7 +1130,7 @@ Conventions: `id("x")` means `Id::new("x").unwrap()`. Unless a test says otherwi
 - features, in order: `f-sk1` of type `sketch` with params `{}`; `f-ext1` of type `extrude` with params `{"body": "b-1"}`; `f-fil1` of type `fillet` with params `{"body": "b-1"}`.
 - `rollback`: `None`.
 
-**TestInspector** (written in the test crate, implementing `FeatureInspector`): if params contains the key `invalid`, returns `Err("Bad params.")`. Otherwise returns `FeatureLinks` with `bodies` from the string param `body` (if present), `features` from the string array `uses`, `declared_ids` from the string array `declares`, and `expressions` from the string array `exprs`, each with pointer `/exprs/<index>` (each absent key gives an empty list).
+**TestInspector** (written in the test crate, implementing `FeatureInspector`): if params contains the key `invalid`, returns `Err("Bad params.")`. Otherwise returns `FeatureLinks` with `bodies` from the string param `body` (if present), `features` from the string array `uses`, `declared_ids` from the string array `declares`, and `expressions` from the string array `exprs` (unit `Scalar`), then from the string arrays `lengths`, `angles` and `counts` (units `Length`, `Angle` and `Count`), each with pointer `/<key>/<index>`, such as `/exprs/0` or `/lengths/2` (each absent key gives an empty list).
 
 ### Ids
 
@@ -1148,7 +1172,7 @@ Conventions: `id("x")` means `Id::new("x").unwrap()`. Unless a test says otherwi
 
 ### Document basics
 
-30. `Document::new(Units::In)` has `format == "partsmith"`, `format_version == 1`, `units == In`, empty lists, `printer == None`, `rollback == None`, and `check_structure()` is empty. `Document::default().units == Units::Mm`.
+30. `Document::new(Units::In)` has `format == "partsmith"`, `format_version == 2`, `units == In`, empty lists, `printer == None`, `rollback == None`, and `check_structure()` is empty. `Document::default().units == Units::Mm`.
 31. On D1: `parameter(&id("p-h"))` has name `height`; `parameter_by_name("wall")` has id `p-wall`; `parameter_by_name("Wall")` is `None`; `body(&id("b-1"))` is `Some`; `feature_index(&id("f-fil1"))` is `Some(2)`; `feature(&id("f-x"))` is `None`; `contains_id(&id("b-1"))` is true.
 32. D1 with `rollback = Some(f-ext1)`: `active_features()` has ids `[f-sk1]`; with `Some(f-sk1)` it is empty; with `None` it has all three; with `Some(f-missing)` (built directly) it has all three.
 33. `used_ids(&TestInspector)` on D1 where `f-sk1` params are `{"declares": ["e-1", "c-1"]}` is `{b-1, c-1, e-1, f-ext1, f-fil1, f-sk1, p-h, p-wall}`.
@@ -1162,7 +1186,7 @@ Conventions: `id("x")` means `Id::new("x").unwrap()`. Unless a test says otherwi
 38. D1 with `f-ext1.kind = "Extrude"`: `[InvalidFeatureType { id: f-ext1, kind: "Extrude" }]`.
 39. D1 with `f-ext1.params` containing `"suppressed": true` then `"name": "x"` (in that order, built in code): `[ReservedParamKey { id: f-ext1, key: "suppressed" }, ReservedParamKey { id: f-ext1, key: "name" }]`.
 40. D1 with `rollback = Some(f-x)`: `[UnknownRollback { id: f-x }]`.
-41. D1 with `format = "other"`, `format_version = 2`, `printer = Some("")`, `p-h` named `wall`, body named `""`, and `rollback = Some(f-x)`: `check_structure()` is exactly `[WrongFormat { found: "other" }, WrongFormatVersion { found: 2 }, InvalidLabel { id: None, error: Empty { field: Printer } }, DuplicateParameterName { id: p-h, name: "wall" }, InvalidLabel { id: Some(b-1), error: Empty { field: BodyName } }, UnknownRollback { id: f-x }]`.
+41. D1 with `format = "other"`, `format_version = 3`, `printer = Some("")`, `p-h` named `wall`, body named `""`, and `rollback = Some(f-x)`: `check_structure()` is exactly `[WrongFormat { found: "other" }, WrongFormatVersion { found: 3 }, InvalidLabel { id: None, error: Empty { field: Printer } }, DuplicateParameterName { id: p-h, name: "wall" }, InvalidLabel { id: Some(b-1), error: Empty { field: BodyName } }, UnknownRollback { id: f-x }]`.
 
 ### Validation
 
@@ -1229,6 +1253,16 @@ Conventions: `id("x")` means `Id::new("x").unwrap()`. Unless a test says otherwi
 90. On D1 with `p-h` expr `10 * wall +` (does not parse) and `f-ext1` params `{"invalid": true, "exprs": ["wall"]}`, renaming `p-wall` to `t` returns only the `UpdateParameter` of `p-wall`.
 91. The extrude manifest JSON of section 2.12 deserializes as `FeatureManifest`, and serializing it with `serde_json::to_string` gives the same text as `serde_json::to_string(&serde_json::from_str::<Value>(example))`. `FieldHint { path: "body", label: "Body", essential: false, unit: None, selection: Some(SelectionKind::Body), options: vec![] }` serializes to exactly `{"path":"body","label":"Body","selection":"body"}`.
 
+### Document units
+
+**Fixture D3** (bare numbers): units `Mm`; parameters, in order: `p-wall` named `wall` with expr `2`; `p-n` named `n` with expr `4`; `p-gap` named `gap` with expr `wall / 4`; `p-both` named `both` with expr `3`; `p-free` named `free` with expr `7`; `p-h` named `height` with expr `30 mm`. Bodies: `b-1` named `Base`. Features, in order: `f-box1` of type `box` with params `{"body": "b-1", "lengths": ["40", " 20 ", "10 mm", "gap", "both"], "counts": ["n", "both"], "angles": ["45"]}`; `f-fil1` of type `fillet` with params `{"body": "b-1", "lengths": ["-2", "wall + 0.5"]}`; `f-bad` of type `box` with params `{"invalid": true, "lengths": ["5"]}`.
+
+92. `D3.bare_numbers(&TestInspector)` is 4: `40` and ` 20 ` of `f-box1`, `-2` of `f-fil1`, and parameter `wall` (reached by `Length` links through `gap` and through `wall + 0.5`, and by no other). Not counted: `10 mm` and `30 mm` (they have a unit), `45` (an angle), `n` (reached by a count), `both` (reached by a length and a count), `free` (reached by nothing), `gap` and `wall + 0.5` (not bare numbers), and `5` of `f-bad` (its inspection fails).
+93. `D3.units_edits(Units::In, true, &TestInspector)` is exactly `[SetUnits { units: In }, UpdateParameter { p-wall named wall with expr "2 mm" }, UpdateFeature { f-box1 with lengths ["40 mm", " 20 mm ", "10 mm", "gap", "both"] and its other params unchanged }, UpdateFeature { f-fil1 with lengths ["-2 mm", "wall + 0.5"] }]`. After `UndoLog::commit` of it: `units == In`, `bare_numbers` is 0, `40 mm` and `-2 mm` evaluate (expected `LENGTH`, units `In`) to the lengths 40 and -2 that `40` and `-2` gave under `Mm`, and `gap` to 0.5 mm as before; `wall + 0.5` now gives 14.7 mm instead of 2.5 mm (the limit of section 3.12). `undo` restores D3 exactly.
+94. `D3.units_edits(Units::In, false, &TestInspector)` is exactly `[SetUnits { units: In }]`; `D3.units_edits(Units::Mm, true, &TestInspector)` and `D3.units_edits(Units::Mm, false, &TestInspector)` are empty; `units_edits` does not change D3.
+95. Newcomer corpus NC09: a document in `Mm` with `f-box1` of type `box` with params `{"body": "b-1", "lengths": ["40", "20", "10"]}` and `f-fil1` of type `fillet` with params `{"body": "b-1", "lengths": ["2"]}` has `bare_numbers` 4, and `units_edits(Units::In, true, &TestInspector)` writes `"40 mm"`, `"20 mm"`, `"10 mm"` and `"2 mm"`; from `Cm` it writes `"40 cm"` and so on.
+96. With `OpaqueFeatures`, `bare_numbers` counts no feature expression and no parameter, and `units_edits(units, true, &OpaqueFeatures)` is `[SetUnits { units }]` for any other units.
+
 ## 7. Open issues
 
 1. **Structural rules are enforced at load.** Architecture lists the validation rules but not which are hard. This spec makes the rules in section 3.6 hard (load fails, `apply` refuses edits that would break them) so that every inverse edit is guaranteed to apply. References, declared ids, expressions and cycles stay soft (reported, tolerated). A file with, for example, a duplicate id after a bad merge will not open in the app until fixed by hand; `partsmith validate` still lists every problem.
@@ -1238,3 +1272,4 @@ Conventions: `id("x")` means `Id::new("x").unwrap()`. Unless a test says otherwi
 5. **Normalization of params numbers.** `FeatureRecord::params` stays a public `serde_json::Map` as in architecture, so a record built in code may hold `80.0` as a float while a loaded one holds the integer `80`. `apply` and `load` normalize, `Document::normalize` is public, and the round-trip equality `load(save(doc)) == doc` is stated for normalized documents (file-format.md section 3.8).
 6. **Default undo depth and open transactions.** The default of 1000 matches the engine spec's `undo_limit`. Update edits hold full copies of records, so a long history of large sketch edits costs memory; the engine may lower the limit through `with_max_depth`. The engine's open transactions (edits applied over several commands, then committed) use `UndoLog::record`; coalescing of repeated updates is engine behavior, not part of this crate in M1.
 7. **No reference checks in `apply`.** Removing a body that features use, or a parameter that expressions use, succeeds. The engine and UI decide whether to warn or to offer a cascading change.
+8. **Keep sizes rewrites bare numbers only.** `units_edits` adds the old unit to expressions that are a number and nothing else, and to parameters used in lengths only (section 3.12). Numbers inside larger expressions still change meaning, and a converted parameter used non-linearly (`wall * wall` or `sqrt(wall)` in a length field) changes dimension. Rewriting every promoted literal would need the evaluator to report which nodes it promoted; the count hosts show (`bare_numbers`) keeps the promise exact meanwhile. `ExprLink` gained `unit` for this: the feature registry fills it from each `ExprUse::kind` (features.md section 2.4), so `FeatureInspector::inspect` in features.md must set it.

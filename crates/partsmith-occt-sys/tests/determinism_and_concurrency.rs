@@ -343,16 +343,47 @@ fn closed_rounded_box_shell() -> Outcome {
     Outcome::of_result(&shell(&rounded_box(), &[], 0.5).expect("the rounded box shells"))
 }
 
+/// `L` of test 102 moved by a rigid transform, which gives it a location (section 3.4.10).
+fn moved_l() -> Shape {
+    let motion = Transform::translation(Vector::new(5.0, 7.0, 3.0))
+        .then(&Transform::rotation(&z_axis(), 0.3));
+    transform(&l_body().0, &motion).expect("L moves").shape
+}
+
+/// The bottom face of `L` (and of `moved_l`, which keeps every index).
+fn l_bottom() -> u32 {
+    planar_face(
+        &l_body().0,
+        Vector::new(0.0, 0.0, -1.0),
+        Point::new(0.0, 0.0, 0.0),
+    )
+}
+
+fn closed_moved_l_shell() -> Outcome {
+    Outcome::of_result(&shell(&moved_l(), &[], 2.0).expect("the moved L shells"))
+}
+
 // Test 105: an open shell with an arc join, and the fallback of test 102.
 
 fn l_shell_with_arc_join() -> Outcome {
     let (body, _) = l_body();
+    Outcome::of_result(&shell(&body, &[l_bottom()], 2.0).expect("L shells without its bottom"))
+}
+
+fn moved_l_shell_with_arc_join() -> Outcome {
+    Outcome::of_result(
+        &shell(&moved_l(), &[l_bottom()], 2.0).expect("the moved L shells without its bottom"),
+    )
+}
+
+fn open_rounded_box_shell() -> Outcome {
+    let body = rounded_box();
     let bottom = planar_face(
         &body,
         Vector::new(0.0, 0.0, -1.0),
-        Point::new(0.0, 0.0, 0.0),
+        Point::new(5.0, 10.0, 0.0),
     );
-    Outcome::of_result(&shell(&body, &[bottom], 2.0).expect("L shells without its bottom"))
+    Outcome::of_result(&shell(&body, &[bottom], 0.5).expect("the rounded box shells open"))
 }
 
 fn l_shell_fallback() -> Outcome {
@@ -586,7 +617,10 @@ repeatable! {
     t104_closed_shell_of_box_is_repeatable => closed_box_shell,
     t104_closed_shell_of_l_is_repeatable => closed_l_shell,
     t104_closed_shell_of_rounded_box_is_repeatable => closed_rounded_box_shell,
+    t104_closed_shell_of_moved_l_is_repeatable => closed_moved_l_shell,
     t105_open_shell_with_arc_join_is_repeatable => l_shell_with_arc_join,
+    t105_open_shell_of_moved_l_is_repeatable => moved_l_shell_with_arc_join,
+    t105_open_shell_of_rounded_box_is_repeatable => open_rounded_box_shell,
     t105_shell_fallback_is_repeatable => l_shell_fallback,
     t106_box_is_repeatable => box_primitive_case,
     t106_cylinder_is_repeatable => cylinder_primitive_case,
@@ -635,7 +669,13 @@ mod other_processes {
         ("closed_box_shell", super::closed_box_shell),
         ("closed_l_shell", super::closed_l_shell),
         ("closed_rounded_box_shell", super::closed_rounded_box_shell),
+        ("closed_moved_l_shell", super::closed_moved_l_shell),
         ("l_shell_with_arc_join", super::l_shell_with_arc_join),
+        (
+            "moved_l_shell_with_arc_join",
+            super::moved_l_shell_with_arc_join,
+        ),
+        ("open_rounded_box_shell", super::open_rounded_box_shell),
         ("l_shell_fallback", super::l_shell_fallback),
         ("box", super::box_primitive_case),
         ("cylinder", super::cylinder_primitive_case),

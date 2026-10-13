@@ -469,18 +469,20 @@ fn t113_the_resolved_printer_profile_is_reported_without_side_effects() {
     let resin = resolved(&session);
     set_printer(&mut session, "nope");
     let unknown = resolved(&session);
-    let before = revision(&mut session, doc);
     let input: ProfileInput =
         serde_json::from_value(json!({"id": "nope", "name": "Nope", "technology": "fdm"}))
             .expect("the profile input is valid");
     session
         .put_printer_profile(input)
         .expect("a new session profile is accepted");
+    // Only the query runs between the two revisions.
+    let before = revision(&mut session, doc);
     let installed = resolved(&session);
+    let after = revision(&mut session, doc);
 
     assert_eq!(unset, "generic-fdm");
     assert_eq!(resin, "generic-resin");
     assert_eq!(unknown, "generic-fdm");
     assert_eq!(installed, "nope");
-    assert_eq!(revision(&mut session, doc), before);
+    assert_eq!(after, before);
 }

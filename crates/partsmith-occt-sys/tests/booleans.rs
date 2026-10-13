@@ -1,5 +1,5 @@
 //! Acceptance tests for fuse, cut and common (kernel spec sections 2.7, 3.3, 3.4.5, 3.5 and
-//! tests 34 to 43, 110 and 111).
+//! tests 34 to 43, 110, 111 and 114).
 
 mod common;
 
@@ -10,7 +10,7 @@ use common::{
 };
 use partsmith_occt_sys::{
     OpResult, Operation, Origin, Point, Primitive, PrimitiveFace, Shape, ShapeKind, SubShape,
-    SubShapeKind, common, cut, fuse, make_box, make_cylinder,
+    SubShapeKind, common, cut, fuse, make_box, make_cylinder, make_sphere,
 };
 
 /// A cylinder placed with its axis origin at `(x, y, -1)` and height 32, piercing BOX.
@@ -352,4 +352,59 @@ fn t111_faces_a_cut_keeps_unchanged_are_not_checked_again() {
     // displaced corner, are the input's own faces, so they are not checked again (section 3.5).
     assert_eq!(result.shape.count(SubShapeKind::Face), 9);
     assert!(!result.shape.is_valid().expect("validity check"));
+}
+
+/// A sphere of `radius` centered at `(x, y, z)`.
+fn sphere_at(x: f64, y: f64, z: f64, radius: f64) -> Shape {
+    make_sphere(&xy_plane_at(x, y, z), radius)
+        .expect("the sphere builds")
+        .shape
+}
+
+/// The spheres of test 114.
+fn spheres_of_test_114() -> (Shape, Shape, Shape) {
+    (
+        sphere_at(
+            -2.7409386317562845,
+            1.7856424849312713,
+            0.944689821532517,
+            9.38822241592047,
+        ),
+        sphere_at(
+            7.732585300098261,
+            6.541879238740481,
+            -5.6775036138421004,
+            4.72649731913779,
+        ),
+        sphere_at(
+            -8.440318224611678,
+            -3.2397333526829915,
+            0.23349812876874942,
+            11.400740433030013,
+        ),
+    )
+}
+
+#[test]
+fn t114_a_boolean_never_writes_to_its_inputs() {
+    let (first, second, third) = spheres_of_test_114();
+    let fused = fuse(&first, std::slice::from_ref(&second)).expect("the spheres fuse");
+    assert!(fused.shape.is_valid().expect("validity check"));
+    let fused_bytes = fused.shape.to_brep().expect("BRep bytes");
+    let first_bytes = first.to_brep().expect("BRep bytes");
+    let fused_volume = volume(&fused.shape);
+
+    let outcome = cut(&fused.shape, std::slice::from_ref(&third));
+
+    // Unification writes curves on faces to the edges the result shares with its arguments,
+    // also when the cut then fails, so the cut runs on copies (kernel spec section 3.1).
+    assert!(fused.shape.to_brep().expect("BRep bytes") == fused_bytes);
+    assert!(first.to_brep().expect("BRep bytes") == first_bytes);
+    assert!(fused.shape.is_valid().expect("validity check"));
+    assert_relative(volume(&fused.shape), fused_volume, 1e-12, "fused volume");
+    if let Ok(result) = outcome {
+        assert!(result.shape.is_valid().expect("validity check"));
+    }
+    let again = fuse(&first, std::slice::from_ref(&second)).expect("the spheres fuse again");
+    assert!(again.shape.to_brep().expect("BRep bytes") == fused_bytes);
 }
