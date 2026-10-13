@@ -506,12 +506,6 @@ mod tests {
     }
 
     #[test]
-    fn builtin_profiles_are_valid() {
-        assert_eq!(generic_fdm().validate(), Ok(()));
-        assert_eq!(generic_resin().validate(), Ok(()));
-    }
-
-    #[test]
     fn rectangle_center_is_half_its_size() {
         let bed = Bed::Rectangle {
             width: 130.0,

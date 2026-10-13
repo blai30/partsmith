@@ -19,12 +19,13 @@ Spec: `docs/spec/engine.md`.
 
 ## Internals
 
-- `session.rs` owns `OpenDocument`s (`document.rs`); `editing.rs`, `sketching.rs`, `inspect.rs`, `analysis.rs`, `exchange.rs`, `python.rs` add `Session` methods per area; `dispatch.rs` maps protocol commands to them.
-- `state.rs` reads model, display and preview body states from the recompute report; a state is identified by (feature cache key, body id).
+- `session.rs` owns `OpenDocument`s (`document.rs`, which also turns a loaded text into a recipe: its load errors and canonical params); `editing.rs`, `sketching.rs`, `inspect.rs`, `analysis.rs`, `exchange.rs`, `python.rs` add `Session` methods per area; `dispatch.rs` maps protocol commands to them. `assets.rs` names assets by content hash and checks and stores the ones a document references.
+- `state.rs` reads model, display and preview body states from the recompute report; a state is identified by (feature cache key, body id). It also selects the bodies an analysis or export works on (`select_bodies`).
 - `display.rs` builds element tables (which share the body state's topology, `BodyState::topology`, carried from the feature that built the state, so no kernel topology query) and display meshes and keeps them in an LRU cache under the byte budget; `events.rs` diffs what a document last emitted against its current state to produce events.
 - `elements.rs` builds descriptors: `describe` for a whole table (`list_elements`, computed once per table, one kernel geometry query per kind), `describe_element` for one element (`pick_reference`, one kernel query), both through the same `Describer` so a pick equals its listed entry. Names, adjacency, features and references come from the table and its topology, never from `BodyState::elements`.
-- `sketch.rs` and `triangulate.rs` turn solved sketches into `sketch_solved` displays with region fills.
-- `status.rs` derives feature statuses, diagnostics and repairs; `validate.rs` implements `validate` and `format`.
+- `sketch.rs` and `triangulate.rs` turn solved sketches into `sketch_solved` displays with region fills; `sketching.rs` holds the sketch commands and the context a stored sketch is solved in (its dimension values and placement).
+- `status.rs` derives feature statuses, diagnostics and repairs; `validate.rs` implements `validate` and `format`, validating each record once.
+- `test_support.rs` (tests only): `box_session` and `id` for the unit tests. `tests/common` holds the acceptance tests' fixtures and request helpers; `benches/budgets.rs` includes it with `#[path]` and times only `Session::call`.
 
 ## Commands
 

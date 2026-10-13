@@ -7,7 +7,7 @@ use partsmith_engine::Session;
 use super::usage_error;
 use crate::arguments::FmtArguments;
 use crate::error::CliError;
-use crate::files::{Input, write_atomically};
+use crate::files::{self, Input};
 use crate::output::Output;
 use crate::status::Status;
 
@@ -75,10 +75,7 @@ fn format_input(session: &mut Session, input: &Input, check: bool) -> Result<Out
         (Input::StandardInput, false, _) => Outcome::Text(canonical),
         (_, _, false) => Outcome::Unchanged,
         (Input::File(path), false, true) => {
-            write_atomically(path, canonical.as_bytes()).map_err(|source| CliError::Write {
-                path: input.name(),
-                source,
-            })?;
+            files::write(path, canonical.as_bytes())?;
             Outcome::Rewritten
         }
     })

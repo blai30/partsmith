@@ -35,6 +35,46 @@ enum LoopKind {
     Hole,
 }
 
+impl LoopKind {
+    /// A detail for a counter-clockwise loop (positive signed area), else a hole.
+    fn of_area(signed_area: f64) -> LoopKind {
+        if signed_area > 0.0 {
+            LoopKind::Detail
+        } else {
+            LoopKind::Hole
+        }
+    }
+
+    /// The narrowest a loop of this kind may be, in mm.
+    fn limit(self, thresholds: &CheckThresholds) -> f64 {
+        match self {
+            LoopKind::Detail => thresholds.min_feature,
+            LoopKind::Hole => thresholds.min_hole,
+        }
+    }
+
+    /// The code of a finding about loops of this kind.
+    fn code(self) -> FindingCode {
+        match self {
+            LoopKind::Detail => FindingCode::SmallDetail,
+            LoopKind::Hole => FindingCode::SmallHole,
+        }
+    }
+
+    /// The message of a finding about loops of this kind `width` mm wide, below `limit` mm.
+    fn message(self, width: f64, limit: f64) -> String {
+        let (width, limit) = (format_length(width), format_length(limit));
+        match self {
+            LoopKind::Detail => format!(
+                "A detail {width} mm wide is narrower than {limit} mm and may not print. Make it at least {limit} mm wide."
+            ),
+            LoopKind::Hole => format!(
+                "A hole {width} mm across is smaller than {limit} mm and may close up. Make it at least {limit} mm, or drill it out after printing."
+            ),
+        }
+    }
+}
+
 /// A slice loop narrower than its limit.
 struct SmallLoop {
     /// The layer it was sliced at.
@@ -74,37 +114,16 @@ pub(crate) fn check(body: &Body, layer_height: f64, thresholds: &CheckThresholds
             .iter()
             .map(|&member| loops[member].width)
             .fold(f64::INFINITY, f64::min);
-        let (code, message, limit) = match kind {
-            LoopKind::Detail => {
-                let limit = thresholds.min_feature;
-                let message = format!(
-                    "A detail {} mm wide is narrower than {} mm and may not print. Make it at least {} mm wide.",
-                    format_length(width),
-                    format_length(limit),
-                    format_length(limit)
-                );
-                (FindingCode::SmallDetail, message, limit)
-            }
-            LoopKind::Hole => {
-                let limit = thresholds.min_hole;
-                let message = format!(
-                    "A hole {} mm across is smaller than {} mm and may close up. Make it at least {} mm, or drill it out after printing.",
-                    format_length(width),
-                    format_length(limit),
-                    format_length(limit)
-                );
-                (FindingCode::SmallHole, message, limit)
-            }
-        };
+        let limit = kind.limit(thresholds);
         let triangles: Vec<u32> = group
             .iter()
             .flat_map(|&member| loops[member].triangles.iter().copied())
             .collect();
         Finding::new(
             CheckKind::SmallFeatures,
-            code,
+            kind.code(),
             Severity::Warning,
-            message,
+            kind.message(width, limit),
             body.triangles_location(&triangles),
         )
         .with_value(width)
@@ -134,11 +153,8 @@ fn small_loops(body: &Body, layer_height: f64, thresholds: &CheckThresholds) -> 
                 if area.abs() <= MIN_LOOP_AREA {
                     continue;
                 }
-                let (kind, limit) = if area > 0.0 {
-                    (LoopKind::Detail, thresholds.min_feature)
-                } else {
-                    (LoopKind::Hole, thresholds.min_hole)
-                };
+                let kind = LoopKind::of_area(area);
+                let limit = kind.limit(thresholds);
                 // Most loops are far wider than the limit; the bound shows that without a hull.
                 if minimum_width_bound(&slice_loop.points) >= limit + WIDTH_TOLERANCE {
                     continue;
@@ -217,6 +233,7 @@ fn bounds_2d(points: &[Point2]) -> (Point2, Point2) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::profile::generic_fdm;
 
     /// A small loop on a layer with a box.
     fn small_loop(layer: usize, kind: LoopKind, min: Point2, max: Point2) -> SmallLoop {
@@ -228,6 +245,33 @@ mod tests {
             max,
             triangles: Vec::new(),
         }
+    }
+
+    #[test]
+    fn positive_area_is_a_detail_and_any_other_a_hole() {
+        assert_eq!(LoopKind::of_area(0.5), LoopKind::Detail);
+        assert_eq!(LoopKind::of_area(-0.5), LoopKind::Hole);
+    }
+
+    #[test]
+    fn each_kind_has_its_own_limit_and_code() {
+        let thresholds = generic_fdm().thresholds();
+        assert_eq!(LoopKind::Detail.limit(&thresholds), thresholds.min_feature);
+        assert_eq!(LoopKind::Hole.limit(&thresholds), thresholds.min_hole);
+        assert_eq!(LoopKind::Detail.code(), FindingCode::SmallDetail);
+        assert_eq!(LoopKind::Hole.code(), FindingCode::SmallHole);
+    }
+
+    #[test]
+    fn messages_name_the_width_and_the_limit() {
+        assert_eq!(
+            LoopKind::Detail.message(0.25, 0.4),
+            "A detail 0.25 mm wide is narrower than 0.4 mm and may not print. Make it at least 0.4 mm wide."
+        );
+        assert_eq!(
+            LoopKind::Hole.message(1.5, 2.0),
+            "A hole 1.5 mm across is smaller than 2 mm and may close up. Make it at least 2 mm, or drill it out after printing."
+        );
     }
 
     #[test]

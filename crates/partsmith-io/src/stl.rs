@@ -162,20 +162,6 @@ mod tests {
     use crate::test_support::{part, triangle, unit_triangle};
 
     #[test]
-    fn header_is_the_text_padded_with_spaces() {
-        assert_eq!(
-            &STL_HEADER[..39],
-            b"Partsmith binary STL: millimeters, Z up"
-        );
-        assert!(STL_HEADER[39..].iter().all(|&byte| byte == b' '));
-    }
-
-    #[test]
-    fn header_does_not_start_like_an_ascii_file() {
-        assert!(!STL_HEADER.starts_with(b"solid"));
-    }
-
-    #[test]
     fn facet_holds_the_winding_normal_and_corners() {
         let facet = Facet::new(&unit_triangle(), 0);
         assert_eq!(

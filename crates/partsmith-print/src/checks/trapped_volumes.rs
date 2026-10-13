@@ -45,7 +45,7 @@ pub(crate) fn check(body: &Body, technology: Technology) -> CheckResult {
                 location,
             )
             .with_suggestion(Some(Suggestion::DrainHole {
-                at: body.model_position(lowest_vertex(body, &shell.triangles)),
+                at: body.model_position(lowest_corner(body, &shell.triangles)),
             })),
         };
         finding
@@ -54,17 +54,13 @@ pub(crate) fn check(body: &Body, technology: Technology) -> CheckResult {
     })
 }
 
-/// The lowest vertex of the triangles: smallest print z, then smallest index.
-fn lowest_vertex(body: &Body, triangles: &[u32]) -> usize {
-    triangles
+/// The lowest corner of the triangles: smallest print z, then smallest index.
+fn lowest_corner(body: &Body, triangles: &[u32]) -> usize {
+    let corners = triangles
         .iter()
         .flat_map(|&triangle| body.corners(triangle as usize))
-        .map(|vertex| vertex as usize)
-        .min_by(|&first, &second| {
-            body.print_z(first)
-                .total_cmp(&body.print_z(second))
-                .then(first.cmp(&second))
-        })
+        .map(|vertex| vertex as usize);
+    body.lowest_vertex(corners)
         .expect("a shell has at least one triangle")
 }
 
@@ -85,10 +81,10 @@ mod tests {
     }
 
     #[test]
-    fn lowest_vertex_prefers_the_smallest_index_on_ties() {
+    fn lowest_corner_prefers_the_smallest_index_on_ties() {
         let mesh = box_mesh([0.0; 3], [1.0; 3]);
         let body = Body::prepare(&mesh, Rotation::identity()).expect("prepares");
         let triangles: Vec<u32> = (0..12).collect();
-        assert_eq!(lowest_vertex(&body, &triangles), 0);
+        assert_eq!(lowest_corner(&body, &triangles), 0);
     }
 }

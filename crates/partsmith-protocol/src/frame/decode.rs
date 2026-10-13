@@ -108,11 +108,7 @@ pub fn decode_frame(bytes: &[u8]) -> Result<Frame, FrameError> {
 /// Decodes a frame that must contain exactly one request message.
 pub fn decode_request_frame(bytes: &[u8]) -> Result<(Request, Vec<Buffer>), FrameError> {
     let frame = decode_frame(bytes)?;
-    let request_id = frame
-        .messages
-        .first()
-        .and_then(Message::id)
-        .and_then(echoable);
+    let request_id = first_request_id(&frame.messages);
     let message = match <[Message; 1]>::try_from(frame.messages) {
         Ok([Message::Request(request)]) => return Ok((request, frame.buffers)),
         Ok([other]) => format!(
@@ -133,11 +129,7 @@ pub fn decode_request_frame(bytes: &[u8]) -> Result<(Request, Vec<Buffer>), Fram
 /// Decodes a frame that must contain zero or more events followed by exactly one response.
 pub fn decode_response_frame(bytes: &[u8]) -> Result<ResponseFrame, FrameError> {
     let frame = decode_frame(bytes)?;
-    let request_id = frame
-        .messages
-        .first()
-        .and_then(Message::id)
-        .and_then(echoable);
+    let request_id = first_request_id(&frame.messages);
     let invalid = |message: String| FrameError::InvalidMessage {
         message,
         request_id,
@@ -298,6 +290,11 @@ impl<'de> Visitor<'de> for UniqueKeys<'_> {
 /// answers with id 0 (section 3.5) and never writes a `Response.id` JavaScript cannot hold.
 fn echoable(id: u64) -> Option<u64> {
     (id <= MAX_SAFE_INTEGER).then_some(id)
+}
+
+/// The id of the first message, if it has one a host can echo.
+fn first_request_id(messages: &[Message]) -> Option<u64> {
+    messages.first().and_then(Message::id).and_then(echoable)
 }
 
 /// The header field `name`, or the reason it is missing.

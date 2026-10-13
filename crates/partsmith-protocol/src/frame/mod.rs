@@ -124,7 +124,13 @@ impl FrameError {
         match self {
             FrameError::VersionMismatch { .. } => ErrorCode::ProtocolVersionMismatch,
             FrameError::InvalidMessage { .. } => ErrorCode::MalformedRequest,
-            _ => ErrorCode::MalformedFrame,
+            FrameError::Truncated { .. }
+            | FrameError::BadMagic
+            | FrameError::HeaderTooLarge { .. }
+            | FrameError::InvalidHeader { .. }
+            | FrameError::NonZeroPadding
+            | FrameError::BadBufferLayout { .. }
+            | FrameError::TrailingBytes { .. } => ErrorCode::MalformedFrame,
         }
     }
 
@@ -133,7 +139,13 @@ impl FrameError {
         match self {
             FrameError::VersionMismatch { request_id, .. }
             | FrameError::InvalidMessage { request_id, .. } => *request_id,
-            _ => None,
+            FrameError::Truncated { .. }
+            | FrameError::BadMagic
+            | FrameError::HeaderTooLarge { .. }
+            | FrameError::InvalidHeader { .. }
+            | FrameError::NonZeroPadding
+            | FrameError::BadBufferLayout { .. }
+            | FrameError::TrailingBytes { .. } => None,
         }
     }
 }

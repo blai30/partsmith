@@ -1,14 +1,14 @@
 //! A body prepared for checking: welded, placed in the print frame, with the per-triangle
 //! geometry, regions, affected triangles and locations every check shares (spec section 3.7).
 
-use partsmith_mesh::{BoundingBox, Mesh, Point3, Vector3, WELD_TOLERANCE};
+use partsmith_mesh::{BoundingBox, Mesh, Point2, Point3, Vector3, WELD_TOLERANCE};
 
-use crate::BED_CONTACT_TOLERANCE;
 use crate::disjoint_sets::DisjointSets;
 use crate::error::AnalysisError;
 use crate::geometry::{cross, subtract};
-use crate::report::{Location, TriangleRange};
+use crate::report::{CheckKind, Finding, FindingCode, Location, Severity, TriangleRange};
 use crate::rotation::Rotation;
+use crate::{BED_CONTACT_TOLERANCE, MIN_REPORTED_AREA};
 
 /// Coordinates beyond this many millimeters from the origin are rejected, so that every area,
 /// volume and print-frame position the checks compute stays finite.
@@ -57,27 +57,7 @@ impl<'input> Body<'input> {
         let welded = input
             .weld(WELD_TOLERANCE)
             .expect("WELD_TOLERANCE is finite and not negative");
-
-        // Keep only the vertices the welded triangles use, in welded order.
-        let mut used = vec![false; welded.mesh.vertex_count()];
-        for &vertex in welded.mesh.triangles().iter().flatten() {
-            used[vertex as usize] = true;
-        }
-        let mut kept_index = vec![0_u32; welded.mesh.vertex_count()];
-        let mut model_positions: Vec<Point3> = Vec::new();
-        for (vertex, &position) in welded.mesh.positions().iter().enumerate() {
-            if used[vertex] {
-                kept_index[vertex] = index_u32(model_positions.len());
-                model_positions.push(position);
-            }
-        }
-        let triangles: Vec<[u32; 3]> = welded
-            .mesh
-            .triangles()
-            .iter()
-            .map(|corners| corners.map(|vertex| kept_index[vertex as usize]))
-            .collect();
-
+        let (model_positions, triangles) = compact(&welded.mesh);
         let too_large = model_positions
             .iter()
             .flatten()
@@ -108,14 +88,7 @@ impl<'input> Body<'input> {
         )
         .expect("bounded coordinates stay finite in the print frame, and indices are in range");
 
-        let mut kept_input = vec![false; input.triangle_count()];
-        for &triangle in &welded.triangle_map {
-            kept_input[triangle as usize] = true;
-        }
-        let collapsed = (0..input.triangle_count())
-            .filter(|&triangle| !kept_input[triangle])
-            .map(index_u32)
-            .collect();
+        let collapsed = collapsed_triangles(input.triangle_count(), &welded.triangle_map);
         let normals = (0..print.triangle_count())
             .map(|triangle| print.triangle_normal(triangle))
             .collect();
@@ -171,11 +144,6 @@ impl<'input> Body<'input> {
         self.print.triangles()[triangle]
     }
 
-    /// The print-frame position of a welded vertex.
-    pub(crate) fn print_position(&self, vertex: usize) -> Point3 {
-        self.print.positions()[vertex]
-    }
-
     /// The print-frame height of a welded vertex.
     pub(crate) fn print_z(&self, vertex: usize) -> f64 {
         self.print.positions()[vertex][2]
@@ -213,6 +181,25 @@ impl<'input> Body<'input> {
         self.corners(triangle)
             .iter()
             .all(|&vertex| self.print_z(vertex as usize) <= BED_CONTACT_TOLERANCE)
+    }
+
+    /// The print-frame `(x, y)` of every welded vertex, in vertex order.
+    pub(crate) fn footprint(&self) -> Vec<Point2> {
+        self.print
+            .positions()
+            .iter()
+            .map(|&[x, y, _]| [x, y])
+            .collect()
+    }
+
+    /// The lowest of the welded vertices: smallest print z, then smallest index; `None` when
+    /// there are none.
+    pub(crate) fn lowest_vertex(&self, vertices: impl IntoIterator<Item = usize>) -> Option<usize> {
+        vertices.into_iter().min_by(|&first, &second| {
+            self.print_z(first)
+                .total_cmp(&self.print_z(second))
+                .then(first.cmp(&second))
+        })
     }
 
     /// The print-frame bounding box of the used vertices, `None` when nothing survived welding.
@@ -265,6 +252,32 @@ impl<'input> Body<'input> {
         // A stable sort keeps the smallest-triangle order among equal areas.
         regions.sort_by(|first, second| second.area.total_cmp(&first.area));
         regions
+    }
+
+    /// The regions of flagged triangles large enough to report (at least `MIN_REPORTED_AREA`),
+    /// in region order.
+    pub(crate) fn reported_regions(&self, flagged: &[bool]) -> Vec<Region> {
+        let mut regions = self.regions(flagged);
+        regions.retain(|region| region.area >= MIN_REPORTED_AREA);
+        regions
+    }
+
+    /// A warning about a region, located around its triangles and affecting them.
+    pub(crate) fn region_finding(
+        &self,
+        check: CheckKind,
+        code: FindingCode,
+        message: String,
+        region: Region,
+    ) -> Finding {
+        Finding::new(
+            check,
+            code,
+            Severity::Warning,
+            message,
+            self.triangles_location(&region.triangles),
+        )
+        .with_affected(self.affected(region.triangles))
     }
 
     /// Input triangle ranges and face ids of welded triangles.
@@ -328,6 +341,42 @@ impl<'input> Body<'input> {
     pub(crate) fn body_location(&self) -> Location {
         location_around(self.model_positions.iter().copied())
     }
+}
+
+/// The vertices of a welded mesh that its triangles use, in welded order, and its triangles
+/// numbered by those vertices.
+fn compact(welded: &Mesh) -> (Vec<Point3>, Vec<[u32; 3]>) {
+    let mut used = vec![false; welded.vertex_count()];
+    for &vertex in welded.triangles().iter().flatten() {
+        used[vertex as usize] = true;
+    }
+    // The index of each used vertex among the used vertices; unused vertices are never read.
+    let mut kept_index = vec![0_u32; welded.vertex_count()];
+    let mut positions: Vec<Point3> = Vec::new();
+    for (vertex, &position) in welded.positions().iter().enumerate() {
+        if used[vertex] {
+            kept_index[vertex] = index_u32(positions.len());
+            positions.push(position);
+        }
+    }
+    let triangles = welded
+        .triangles()
+        .iter()
+        .map(|corners| corners.map(|vertex| kept_index[vertex as usize]))
+        .collect();
+    (positions, triangles)
+}
+
+/// The input triangles that no welded triangle stands for (welding collapsed them), ascending.
+fn collapsed_triangles(input_count: usize, triangle_map: &[u32]) -> Vec<u32> {
+    let mut kept = vec![false; input_count];
+    for &triangle in triangle_map {
+        kept[triangle as usize] = true;
+    }
+    (0..input_count)
+        .filter(|&triangle| !kept[triangle])
+        .map(index_u32)
+        .collect()
 }
 
 /// The location around points, which must not be empty: their box, or the point itself when
@@ -447,6 +496,12 @@ mod tests {
     }
 
     #[test]
+    fn collapsed_triangles_are_those_without_a_welded_triangle() {
+        assert_eq!(collapsed_triangles(5, &[3, 0, 2]), vec![1, 4]);
+        assert!(collapsed_triangles(2, &[0, 1]).is_empty());
+    }
+
+    #[test]
     fn body_is_lowered_onto_the_bed() {
         let mesh = faceted_cube()
             .transformed(&partsmith_mesh::Transform::translation([0.0, 0.0, 5.0]))
@@ -464,7 +519,7 @@ mod tests {
         let rotation = Rotation::about_axis([1.0, 0.0, 0.0], FRAC_PI_2).expect("valid axis");
         let body = Body::prepare(&mesh, rotation).expect("prepares");
         for vertex in 0..body.vertex_count() {
-            let back = body.to_model_point(body.print_position(vertex));
+            let back = body.to_model_point(body.print().positions()[vertex]);
             let model = body.model_position(vertex);
             for axis in 0..3 {
                 assert!((back[axis] - model[axis]).abs() < 1e-12);
@@ -514,6 +569,20 @@ mod tests {
     }
 
     #[test]
+    fn reported_regions_leave_out_regions_below_the_minimum_area() {
+        let mesh = faceted_cube();
+        let body = Body::prepare(&mesh, Rotation::identity()).expect("prepares");
+        // The bottom (0, 1) covers 1 mm², the top half triangle 2 only 0.5 mm².
+        let mut flagged = vec![false; 12];
+        flagged[0] = true;
+        flagged[1] = true;
+        flagged[2] = true;
+        let regions = body.reported_regions(&flagged);
+        assert_eq!(regions.len(), 1);
+        assert_eq!(regions[0].triangles, vec![0, 1]);
+    }
+
+    #[test]
     fn equal_regions_keep_the_smallest_triangle_first() {
         let mesh = faceted_cube();
         let body = Body::prepare(&mesh, Rotation::identity()).expect("prepares");
@@ -523,6 +592,24 @@ mod tests {
         let regions = body.regions(&flagged);
         assert_eq!(regions[0].triangles, vec![0]);
         assert_eq!(regions[1].triangles, vec![3]);
+    }
+
+    #[test]
+    fn footprint_drops_the_height_of_every_vertex() {
+        let positions = vec![[0.0, 0.0, 0.0], [2.0, 0.0, 1.0], [0.0, 3.0, 2.0]];
+        let mesh = Mesh::from_triangles(positions, vec![[0, 1, 2]]).expect("valid mesh");
+        let body = Body::prepare(&mesh, Rotation::identity()).expect("prepares");
+        assert_eq!(body.footprint(), vec![[0.0, 0.0], [2.0, 0.0], [0.0, 3.0]]);
+    }
+
+    #[test]
+    fn lowest_vertex_prefers_the_smallest_index_on_ties() {
+        let mesh = faceted_cube();
+        let body = Body::prepare(&mesh, Rotation::identity()).expect("prepares");
+        // Welded vertices 0, 1, 2 and 3 are the bottom corners, all at z = 0.
+        assert_eq!(body.lowest_vertex([5, 3, 1, 2]), Some(1));
+        assert_eq!(body.lowest_vertex([7, 6]), Some(6));
+        assert_eq!(body.lowest_vertex([]), None);
     }
 
     #[test]

@@ -7,9 +7,9 @@ use crate::body::Body;
 use crate::checks::EPSILON;
 use crate::format::format_length;
 use crate::overlay::{Overlay, OverlayInfo, OverlayQuantity, Worse};
-use crate::report::{CheckKind, CheckResult, Finding, FindingCode, Severity};
+use crate::report::{CheckKind, CheckResult, FindingCode};
 use crate::thresholds::CheckThresholds;
-use crate::{MIN_REPORTED_AREA, OVERLAY_NO_VALUE, THICKNESS_RAY_START};
+use crate::{OVERLAY_NO_VALUE, THICKNESS_RAY_START};
 
 /// Runs the check and builds its overlay. Findings are regions in region order.
 pub(crate) fn run(body: &Body, thresholds: &CheckThresholds) -> (CheckResult, Overlay) {
@@ -22,11 +22,7 @@ pub(crate) fn run(body: &Body, thresholds: &CheckThresholds) -> (CheckResult, Ov
         .iter()
         .map(|thickness| thickness.is_some_and(|thickness| thickness < limit - EPSILON))
         .collect();
-    let regions: Vec<_> = body
-        .regions(&flagged)
-        .into_iter()
-        .filter(|region| region.area >= MIN_REPORTED_AREA)
-        .collect();
+    let regions = body.reported_regions(&flagged);
     let result = CheckResult::capped(CheckKind::ThinWalls, regions, |region| {
         let thinnest = region
             .triangles
@@ -39,16 +35,9 @@ pub(crate) fn run(body: &Body, thresholds: &CheckThresholds) -> (CheckResult, Ov
             format_length(limit),
             format_length(limit)
         );
-        Finding::new(
-            CheckKind::ThinWalls,
-            FindingCode::ThinWall,
-            Severity::Warning,
-            message,
-            body.triangles_location(&region.triangles),
-        )
-        .with_value(thinnest)
-        .with_limit(limit)
-        .with_affected(body.affected(region.triangles))
+        body.region_finding(CheckKind::ThinWalls, FindingCode::ThinWall, message, region)
+            .with_value(thinnest)
+            .with_limit(limit)
     });
     let values = thicknesses
         .iter()

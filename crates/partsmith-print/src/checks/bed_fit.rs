@@ -1,7 +1,7 @@
 //! Bed fit: footprint and height against the build volume, with split suggestions (spec
 //! section 3.9.2).
 
-use partsmith_mesh::{BoundingBox, Point2};
+use partsmith_mesh::BoundingBox;
 
 use crate::body::Body;
 use crate::checks::EPSILON;
@@ -26,90 +26,99 @@ pub(crate) fn check(body: &Body, bed: &Bed) -> CheckResult {
     let Some(bounds) = body.print_bounds() else {
         return CheckResult::new(CheckKind::BedFit, Vec::new(), 0);
     };
-    let [extent_x, extent_y, extent_z] = bounds.size();
-    let mut findings = Vec::new();
-    match *bed {
-        Bed::Rectangle { width, depth, .. } => {
-            let fits = extent_x <= width + EPSILON && extent_y <= depth + EPSILON;
-            let fits_turned = extent_y <= width + EPSILON && extent_x <= depth + EPSILON;
-            if fits_turned && !fits {
-                findings.push(Finding::new(
-                    CheckKind::BedFit,
-                    FindingCode::FitsRotated,
-                    Severity::Info,
-                    "The part fits the bed only when turned 90 degrees about Z. Turn it in the slicer."
-                        .to_string(),
-                    body.body_location(),
-                ));
-            } else if !fits {
-                let too_wide = extent_x > width + EPSILON;
-                let too_deep = extent_y > depth + EPSILON;
-                let (value, limit) = if too_wide {
-                    (extent_x, width)
-                } else {
-                    (extent_y, depth)
-                };
-                let message = format!(
-                    "The part footprint is {} x {} mm, larger than the {} x {} mm bed. Split the part or scale it down.",
-                    format_length(extent_x),
-                    format_length(extent_y),
-                    format_length(width),
-                    format_length(depth)
-                );
-                // When one axis needs too many pieces, the whole suggestion is left out: the other
-                // axis's planes alone would leave pieces that still do not fit.
-                let planes: Option<Vec<Plane>> = [(too_wide, X, width), (too_deep, Y, depth)]
-                    .into_iter()
-                    .filter(|&(exceeds, _, _)| exceeds)
-                    .map(|(_, axis, limit)| split_planes(body, &bounds, axis, limit))
-                    .collect::<Option<Vec<Vec<Plane>>>>()
-                    .map(|per_axis| per_axis.concat());
-                findings.push(
-                    too_large(body, message, value, limit)
-                        .with_suggestion(planes.map(|planes| Suggestion::Split { planes })),
-                );
-            }
-        }
-        Bed::Circle { diameter, .. } => {
-            let footprint: Vec<Point2> = (0..body.vertex_count())
-                .map(|vertex| {
-                    let [x, y, _] = body.print_position(vertex);
-                    [x, y]
-                })
-                .collect();
-            let needed = enclosing_circle_diameter(&footprint);
-            if needed > diameter + EPSILON {
-                let message = format!(
-                    "The part footprint needs a {} mm circle, larger than the {} mm round bed. Split the part or scale it down.",
-                    format_length(needed),
-                    format_length(diameter)
-                );
-                findings.push(too_large(body, message, needed, diameter));
-            }
-        }
+    let footprint = match *bed {
+        Bed::Rectangle { width, depth, .. } => rectangle_finding(body, &bounds, width, depth),
+        Bed::Circle { diameter, .. } => circle_finding(body, diameter),
+    };
+    let findings = footprint
+        .into_iter()
+        .chain(too_tall_finding(body, &bounds, bed.height()))
+        .collect();
+    CheckResult::new(CheckKind::BedFit, findings, 0)
+}
+
+/// The footprint finding on a rectangular bed: `fits_rotated` when the part fits only when turned
+/// 90 degrees about Z, `footprint_too_large` with split planes when it fits neither way.
+fn rectangle_finding(body: &Body, bounds: &BoundingBox, width: f64, depth: f64) -> Option<Finding> {
+    let [extent_x, extent_y, _] = bounds.size();
+    let fits = extent_x <= width + EPSILON && extent_y <= depth + EPSILON;
+    let fits_turned = extent_y <= width + EPSILON && extent_x <= depth + EPSILON;
+    if fits {
+        return None;
     }
-    let height = bed.height();
-    if extent_z > height + EPSILON {
+    if fits_turned {
+        return Some(Finding::new(
+            CheckKind::BedFit,
+            FindingCode::FitsRotated,
+            Severity::Info,
+            "The part fits the bed only when turned 90 degrees about Z. Turn it in the slicer."
+                .to_string(),
+            body.body_location(),
+        ));
+    }
+    let too_wide = extent_x > width + EPSILON;
+    let too_deep = extent_y > depth + EPSILON;
+    let (value, limit) = if too_wide {
+        (extent_x, width)
+    } else {
+        (extent_y, depth)
+    };
+    let message = format!(
+        "The part footprint is {} x {} mm, larger than the {} x {} mm bed. Split the part or scale it down.",
+        format_length(extent_x),
+        format_length(extent_y),
+        format_length(width),
+        format_length(depth)
+    );
+    // When one axis needs too many pieces, the whole suggestion is left out: the other axis's
+    // planes alone would leave pieces that still do not fit.
+    let planes: Option<Vec<Plane>> = [(too_wide, X, width), (too_deep, Y, depth)]
+        .into_iter()
+        .filter(|&(exceeds, _, _)| exceeds)
+        .map(|(_, axis, limit)| split_planes(body, bounds, axis, limit))
+        .collect::<Option<Vec<Vec<Plane>>>>()
+        .map(|per_axis| per_axis.concat());
+    Some(
+        too_large(body, message, value, limit)
+            .with_suggestion(planes.map(|planes| Suggestion::Split { planes })),
+    )
+}
+
+/// The `footprint_too_large` finding on a round bed, when the smallest circle around the
+/// footprint is wider than the bed.
+fn circle_finding(body: &Body, diameter: f64) -> Option<Finding> {
+    let needed = enclosing_circle_diameter(&body.footprint());
+    (needed > diameter + EPSILON).then(|| {
+        let message = format!(
+            "The part footprint needs a {} mm circle, larger than the {} mm round bed. Split the part or scale it down.",
+            format_length(needed),
+            format_length(diameter)
+        );
+        too_large(body, message, needed, diameter)
+    })
+}
+
+/// The `too_tall` finding with split planes, when the part is taller than the build height.
+fn too_tall_finding(body: &Body, bounds: &BoundingBox, height: f64) -> Option<Finding> {
+    let extent_z = bounds.size()[Z];
+    (extent_z > height + EPSILON).then(|| {
         let message = format!(
             "The part is {} mm tall, taller than the {} mm build height. Split the part or lay it on its side.",
             format_length(extent_z),
             format_length(height)
         );
-        let planes = split_planes(body, &bounds, Z, height);
-        findings.push(
-            Finding::new(
-                CheckKind::BedFit,
-                FindingCode::TooTall,
-                Severity::Error,
-                message,
-                body.body_location(),
-            )
-            .with_value(extent_z)
-            .with_limit(height)
-            .with_suggestion(planes.map(|planes| Suggestion::Split { planes })),
-        );
-    }
-    CheckResult::new(CheckKind::BedFit, findings, 0)
+        let planes = split_planes(body, bounds, Z, height);
+        Finding::new(
+            CheckKind::BedFit,
+            FindingCode::TooTall,
+            Severity::Error,
+            message,
+            body.body_location(),
+        )
+        .with_value(extent_z)
+        .with_limit(height)
+        .with_suggestion(planes.map(|planes| Suggestion::Split { planes }))
+    })
 }
 
 /// A `footprint_too_large` finding at the whole body.

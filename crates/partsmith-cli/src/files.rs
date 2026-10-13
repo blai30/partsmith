@@ -138,6 +138,12 @@ fn read_error(path: &Path) -> impl FnOnce(io::Error) -> CliError {
     move |source| CliError::Read { path, source }
 }
 
+/// Turns an error writing `path` into a `CliError`.
+fn write_error(path: &Path) -> impl FnOnce(io::Error) -> CliError {
+    let path = path.display().to_string();
+    move |source| CliError::Write { path, source }
+}
+
 /// Whether a file name matches `^[0-9a-f]{64}\.[a-z0-9]+$`, the content-hash name of an asset.
 fn is_asset_name(name: &str) -> bool {
     let Some((hash, extension)) = name.split_once('.') else {
@@ -151,10 +157,20 @@ fn is_asset_name(name: &str) -> bool {
         && extension.bytes().all(is_lower_alphanumeric)
 }
 
+/// Writes `contents` to `path` atomically (`write_atomically`); a failure names the path.
+pub fn write(path: &Path, contents: &[u8]) -> Result<(), CliError> {
+    write_atomically(path, contents).map_err(write_error(path))
+}
+
+/// Creates the directory at `path` and its missing parents; a failure names the path.
+pub fn create_directory(path: &Path) -> Result<(), CliError> {
+    fs::create_dir_all(path).map_err(write_error(path))
+}
+
 /// Writes `contents` to `path` atomically: a temporary file in the target's directory, then a
 /// rename over the target. A symbolic link is followed, so the file it names is replaced. An
 /// existing file keeps its permissions; a new one gets the permissions `File::create` gives.
-pub fn write_atomically(path: &Path, contents: &[u8]) -> io::Result<()> {
+fn write_atomically(path: &Path, contents: &[u8]) -> io::Result<()> {
     let target = match fs::canonicalize(path) {
         Ok(resolved) => resolved,
         Err(error) if error.kind() == io::ErrorKind::NotFound => path.to_path_buf(),

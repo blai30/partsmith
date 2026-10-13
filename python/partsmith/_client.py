@@ -64,35 +64,44 @@ class Client:
     def __init__(self) -> None:
         self._session = _core.Session(display=False, deterministic_ids=True)
         self._next_request_id = 1
+        self._state = State()
         self.handle: int | None = None
         self.closed = False
-        self.state = State()
+
+    @property
+    def state(self) -> State:
+        """What the events reported last about the document; PartsmithError once it is closed."""
+        if self.closed:
+            raise PartsmithError(CLOSED_MESSAGE)
+        return self._state
 
     def command(self, command_type: str, buffers: Sequence[bytes] = (), **fields: object) -> Reply:
-        """Sends one command about the client's document; fields that are None are left out."""
+        """Sends one command about the client's document, records its events and returns its result.
+
+        Fields that are None are left out. Raises ExpressionError for an `expression_error`
+        response, EngineError for any other error response, and PartsmithError once the document
+        is closed.
+        """
+        if self.closed:
+            raise PartsmithError(CLOSED_MESSAGE)
         command: dict[str, object] = {"type": command_type}
         if self.handle is not None:
             command["doc"] = self.handle
         command.update((name, value) for name, value in fields.items() if value is not None)
-        return self.send(command, buffers)
-
-    def send(self, command: dict, buffers: Sequence[bytes] = ()) -> Reply:
-        """Sends one command, records its events and returns its result.
-
-        Raises ExpressionError for an `expression_error` response, EngineError for any other
-        error response, and PartsmithError once the document is closed.
-        """
-        if self.closed:
-            raise PartsmithError(CLOSED_MESSAGE)
         request_id = self._next_request_id
         self._next_request_id += 1
         frame = decode_response(self._session.call(encode_request(request_id, command, buffers)))
         for event in frame.events:
-            self.state.apply(event)
+            self._state.apply(event)
         result = frame.response["result"]
         if result["kind"] == "error":
             raise engine_error(result)
         return Reply(result=result, events=frame.events, buffers=frame.buffers)
+
+    def close(self) -> None:
+        """Closes the document; later commands and state reads raise PartsmithError."""
+        self.command("close_document")
+        self.closed = True
 
 
 def engine_error(result: dict) -> PartsmithError:

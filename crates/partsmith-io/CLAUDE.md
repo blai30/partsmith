@@ -15,7 +15,7 @@ Spec: `docs/spec/io.md` (the definition of done). Acceptance tests in `tests/` c
 ## Internals
 
 - `src/text.rs`: `clean`, display names (`Body {n}` for blank names), non-blank materials and titles, and the written `f32` of every coordinate (`-0.0` as `0`); text formats print it with `Display`, the shortest round-trip decimal.
-- `src/checks.rs`: the check order of spec 3.1.1, `weld`, validity warnings, and `WeldedBody` (welded mesh, the output position of each used vertex, and the output vertex count) shared by 3MF and OBJ.
+- `src/checks.rs`: the check order of spec 3.1.1 (its `NoBodies` check is shared with STEP), `weld`, validity warnings, and `WeldedBody` (welded mesh, the output position of each used vertex, and the output vertex count) shared by 3MF and OBJ.
 - `src/output.rs`: `reserve`, the one helper through which growing output buffers reserve (at least 64 KiB at a time, `try_reserve` doubling beyond that), `exact_buffer` for binary STL, and `TextOutput`, the `fmt::Write` buffer of the text formats. The 3MF package's buffer (`PackageBytes` in `three_mf.rs`) also grows through `reserve`.
 - `src/stl.rs`, `src/obj.rs`, `src/three_mf.rs` (base materials, XML escaping, zip package with fixed options), `src/step.rs` (color conversion both ways), `src/export.rs`, `src/error.rs`.
 - 3MF and OBJ weld, check and write one body at a time, so a writer holds at most one welded copy besides the output. XML is built as plain strings (no XML crate, decision 6).

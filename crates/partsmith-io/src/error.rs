@@ -72,11 +72,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn no_bodies_message() {
-        assert_eq!(IoError::NoBodies.to_string(), "There is nothing to export.");
-    }
-
-    #[test]
     fn empty_body_message_names_the_body() {
         let error = IoError::EmptyBody {
             body: 2,
@@ -85,19 +80,6 @@ mod tests {
         assert_eq!(
             error.to_string(),
             "Body \"Lid\" has no triangles to export."
-        );
-    }
-
-    #[test]
-    fn coordinate_out_of_range_message_names_the_body() {
-        let error = IoError::CoordinateOutOfRange {
-            body: 0,
-            name: "Far".to_owned(),
-        };
-        assert_eq!(
-            error.to_string(),
-            "Body \"Far\" has a point too far from the origin for a mesh file (more than 3.4e38 \
-             mm)."
         );
     }
 

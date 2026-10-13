@@ -1,13 +1,13 @@
-//! Input checks, welding and export warnings shared by the mesh writers (spec sections 3.1.1,
-//! 3.1.4 and 3.2).
+//! Input checks, welding and export warnings shared by the writers (spec sections 3.1.1, 3.1.4,
+//! 3.2 and 3.8).
 
 use partsmith_mesh::{Mesh, WELD_TOLERANCE};
 
 use crate::text::{display_name, is_out_of_range, written_point};
 use crate::{ExportBody, ExportWarning, IoError, WarningCode};
 
-/// `NoBodies` when there is nothing to write.
-pub(crate) fn check_not_empty(bodies: &[ExportBody<'_>]) -> Result<(), IoError> {
+/// `NoBodies` when there is nothing to write, in any format.
+pub(crate) fn check_not_empty<Body>(bodies: &[Body]) -> Result<(), IoError> {
     if bodies.is_empty() {
         Err(IoError::NoBodies)
     } else {
@@ -229,7 +229,10 @@ mod tests {
 
     #[test]
     fn empty_slice_is_rejected() {
-        assert_eq!(check_not_empty(&[]), Err(IoError::NoBodies));
+        assert_eq!(
+            check_not_empty::<ExportBody<'_>>(&[]),
+            Err(IoError::NoBodies)
+        );
     }
 
     #[test]

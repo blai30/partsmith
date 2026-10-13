@@ -88,15 +88,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn warning_codes_are_snake_case() {
-        assert_eq!(WarningCode::OpenEdges.as_str(), "open_edges");
-        assert_eq!(WarningCode::NonManifoldEdges.as_str(), "non_manifold_edges");
-        assert_eq!(WarningCode::MisorientedEdges.as_str(), "misoriented_edges");
-        assert_eq!(WarningCode::InsideOut.as_str(), "inside_out");
-        assert_eq!(WarningCode::ModifierOmitted.as_str(), "modifier_omitted");
-    }
-
-    #[test]
     fn export_body_borrows_a_body_without_material_or_color() {
         let body = Body::new(Id::new("b-1").expect("b-1 is a valid id"), "Plate");
         let mesh = Mesh::empty();

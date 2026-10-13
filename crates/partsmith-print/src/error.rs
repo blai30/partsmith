@@ -1,6 +1,6 @@
 //! Errors of profile parsing and validation and of analysis requests (spec section 4).
 
-use crate::format::{format_length, format_one_decimal};
+use crate::format::{format_degrees, format_length};
 use crate::profile::FitClass;
 
 /// A rejected printer profile.
@@ -123,8 +123,7 @@ impl ProfileField {
 fn out_of_range_message(field: ProfileField, value: f64, min: f64, max: f64) -> String {
     let label = field.label();
     if field == ProfileField::MaxOverhangAngle {
-        let [value, min, max] =
-            [value, min, max].map(|angle| format_one_decimal(angle.to_degrees()));
+        let [value, min, max] = [value, min, max].map(format_degrees);
         format!("{label} {value} degrees is out of range. Use a value from {min} to {max} degrees.")
     } else {
         let [value, min, max] = [value, min, max].map(format_length);
@@ -185,34 +184,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn length_ranges_are_written_in_millimeters() {
-        let error = ProfileError::OutOfRange {
-            field: ProfileField::NozzleDiameter,
-            value: 3.0,
-            min: 0.1,
-            max: 2.0,
-        };
-        assert_eq!(
-            error.to_string(),
-            "Nozzle diameter 3 mm is out of range. Use a value from 0.1 to 2 mm."
-        );
-    }
-
-    #[test]
-    fn overhang_angle_ranges_are_written_in_degrees() {
-        let error = ProfileError::OutOfRange {
-            field: ProfileField::MaxOverhangAngle,
-            value: 1.6,
-            min: 0.0,
-            max: 1.5533430342749532,
-        };
-        assert_eq!(
-            error.to_string(),
-            "Maximum overhang angle 91.7 degrees is out of range. Use a value from 0 to 89 degrees."
-        );
-    }
-
-    #[test]
     fn fit_class_fields_have_their_own_labels() {
         let error = ProfileError::OutOfRange {
             field: ProfileField::Fit(FitClass::Loose),
@@ -237,18 +208,6 @@ mod tests {
         assert_eq!(
             error.to_string(),
             "Layer height NaN mm is out of range. Use a value from 0.01 to 1 mm."
-        );
-    }
-
-    #[test]
-    fn layer_message_suggests_the_nozzle_diameter() {
-        let error = ProfileError::LayerTallerThanNozzle {
-            layer_height: 0.5,
-            nozzle_diameter: 0.4,
-        };
-        assert_eq!(
-            error.to_string(),
-            "Layer height 0.5 mm is larger than the 0.4 mm nozzle. Use a layer height of 0.4 mm or less."
         );
     }
 

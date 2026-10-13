@@ -4,6 +4,16 @@ use partsmith_model::{EvaluationContext, Quantity};
 
 use crate::profile::{FitClasses, PrinterProfile};
 
+/// Every name a profile can supply, sorted by byte order.
+const NAMES: [&str; 6] = [
+    "printer.fit.loose",
+    "printer.fit.press",
+    "printer.fit.slip",
+    "printer.fit.snug",
+    "printer.layer_height",
+    "printer.nozzle",
+];
+
 /// The `printer.*` values of one profile, as an expression evaluation context.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PrinterValues {
@@ -47,19 +57,11 @@ impl EvaluationContext for PrinterValues {
 
     /// The supported names, sorted by byte order.
     fn names(&self) -> Vec<String> {
-        let mut names: Vec<String> = [
-            "printer.fit.loose",
-            "printer.fit.press",
-            "printer.fit.slip",
-            "printer.fit.snug",
-            "printer.layer_height",
-        ]
-        .map(String::from)
-        .to_vec();
-        if self.nozzle_diameter.is_some() {
-            names.push("printer.nozzle".to_string());
-        }
-        names
+        NAMES
+            .into_iter()
+            .filter(|name| self.millimeters(name).is_some())
+            .map(String::from)
+            .collect()
     }
 }
 
@@ -69,11 +71,10 @@ mod tests {
     use crate::profile::{generic_fdm, generic_resin};
 
     #[test]
-    fn names_are_sorted_by_bytes() {
-        let names = PrinterValues::new(&generic_fdm()).names();
-        let mut sorted = names.clone();
-        sorted.sort();
-        assert_eq!(names, sorted);
+    fn the_name_list_is_sorted_by_bytes() {
+        let mut sorted = NAMES;
+        sorted.sort_unstable();
+        assert_eq!(NAMES, sorted);
     }
 
     #[test]

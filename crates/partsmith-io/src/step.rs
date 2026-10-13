@@ -4,6 +4,7 @@ use partsmith_model::Color;
 use partsmith_occt_sys::{self as kernel, Shape, StepBody};
 
 use crate::IoError;
+use crate::checks::check_not_empty;
 use crate::text::display_name;
 
 /// One body to write to STEP.
@@ -42,9 +43,7 @@ pub struct ImportedStep {
 /// The kernel writes AP214 in millimeters with one product per body, named with the body's
 /// display name and colored with its color, deterministically.
 pub fn write_step(bodies: &[StepExportBody<'_>]) -> Result<Vec<u8>, IoError> {
-    if bodies.is_empty() {
-        return Err(IoError::NoBodies);
-    }
+    check_not_empty(bodies)?;
     let kernel_bodies: Vec<StepBody> = bodies
         .iter()
         .enumerate()
@@ -156,10 +155,5 @@ mod tests {
             blue: f64::NAN,
         };
         assert_eq!(from_kernel_color(color), Color::new(0, 255, 0));
-    }
-
-    #[test]
-    fn empty_slice_is_nothing_to_export() {
-        assert_eq!(write_step(&[]), Err(IoError::NoBodies));
     }
 }

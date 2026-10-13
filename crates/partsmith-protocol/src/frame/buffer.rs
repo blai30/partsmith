@@ -114,16 +114,8 @@ impl Buffer {
     pub(crate) fn write_to(&self, target: &mut [u8]) {
         match self {
             Buffer::U8(values) => target.copy_from_slice(values),
-            Buffer::U32(values) => {
-                for (chunk, value) in target.as_chunks_mut::<4>().0.iter_mut().zip(values) {
-                    *chunk = value.to_le_bytes();
-                }
-            }
-            Buffer::F32(values) => {
-                for (chunk, value) in target.as_chunks_mut::<4>().0.iter_mut().zip(values) {
-                    *chunk = value.to_le_bytes();
-                }
-            }
+            Buffer::U32(values) => write_le(target, values, u32::to_le_bytes),
+            Buffer::F32(values) => write_le(target, values, f32::to_le_bytes),
         }
     }
 
@@ -131,24 +123,31 @@ impl Buffer {
     pub(crate) fn read(element_type: ElementType, bytes: &[u8]) -> Buffer {
         match element_type {
             ElementType::U8 => Buffer::U8(bytes.to_vec()),
-            ElementType::U32 => Buffer::U32(
-                bytes
-                    .as_chunks::<4>()
-                    .0
-                    .iter()
-                    .map(|chunk| u32::from_le_bytes(*chunk))
-                    .collect(),
-            ),
-            ElementType::F32 => Buffer::F32(
-                bytes
-                    .as_chunks::<4>()
-                    .0
-                    .iter()
-                    .map(|chunk| f32::from_le_bytes(*chunk))
-                    .collect(),
-            ),
+            ElementType::U32 => Buffer::U32(read_le(bytes, u32::from_le_bytes)),
+            ElementType::F32 => Buffer::F32(read_le(bytes, f32::from_le_bytes)),
         }
     }
+}
+
+/// Writes 4-byte elements into consecutive 4-byte chunks of `target` with `to_le_bytes`.
+fn write_le<Element: Copy>(
+    target: &mut [u8],
+    values: &[Element],
+    to_le_bytes: impl Fn(Element) -> [u8; 4],
+) {
+    for (chunk, &value) in target.as_chunks_mut::<4>().0.iter_mut().zip(values) {
+        *chunk = to_le_bytes(value);
+    }
+}
+
+/// Reads one 4-byte element from each whole 4-byte chunk of `bytes` with `from_le_bytes`.
+fn read_le<Element>(bytes: &[u8], from_le_bytes: impl Fn([u8; 4]) -> Element) -> Vec<Element> {
+    bytes
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|&chunk| from_le_bytes(chunk))
+        .collect()
 }
 
 /// Index of a buffer in the enclosing frame; serialized as a bare integer.

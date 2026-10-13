@@ -16,7 +16,7 @@ from contextvars import ContextVar, Token
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from ._client import CLOSED_MESSAGE, Client, Reply
+from ._client import Client, Reply
 from ._files import write_atomic
 from .errors import EngineError, ExpressionError, FeatureError, PartsmithError, PartsmithWarning
 from .expressions import ATOM, Expr, render_value
@@ -218,14 +218,11 @@ class Document:
 
     def close(self) -> None:
         """Discards the document; later use of it or its parts raises PartsmithError."""
-        self._client.command("close_document")
-        self._client.closed = True
+        self._client.close()
 
     @property
     def _recipe(self) -> dict:
         """The latest recipe the engine reported."""
-        if self._client.closed:
-            raise PartsmithError(CLOSED_MESSAGE)
         return self._client.state.document
 
     def _apply(self, label: str, edits: list[dict]) -> Reply:
@@ -319,8 +316,6 @@ class Document:
 
     def _status(self, feature_id: str) -> dict:
         """The latest status of a feature."""
-        if self._client.closed:
-            raise PartsmithError(CLOSED_MESSAGE)
         status = self._client.state.features.get(feature_id)
         if status is None:
             raise PartsmithError(f"The document has no feature {feature_id}.")
@@ -328,8 +323,6 @@ class Document:
 
     def _parameter_value(self, parameter_id: str) -> dict:
         """The latest evaluation of a parameter: its value, or its error."""
-        if self._client.closed:
-            raise PartsmithError(CLOSED_MESSAGE)
         evaluated = self._client.state.parameters.get(parameter_id)
         if evaluated is None:
             raise PartsmithError(f"The document has no parameter {parameter_id}.")
@@ -337,14 +330,10 @@ class Document:
 
     def _sketch_solution(self, feature_id: str) -> dict | None:
         """The latest solution of a sketch, None when the engine reported none."""
-        if self._client.closed:
-            raise PartsmithError(CLOSED_MESSAGE)
         return self._client.state.sketches.get(feature_id)
 
     def _datum_placement(self, feature_id: str) -> dict | None:
         """The latest placement of a datum plane, None when it failed or was never reported."""
-        if self._client.closed:
-            raise PartsmithError(CLOSED_MESSAGE)
         return self._client.state.datums.get(feature_id)
 
     def _default_op(self, body_id: str) -> str:

@@ -87,11 +87,6 @@ mod tests {
     }
 
     #[test]
-    fn empty_slice_is_nothing_to_export() {
-        assert_eq!(write_obj(&[]), Err(IoError::NoBodies));
-    }
-
-    #[test]
     fn warnings_keep_body_order() {
         let open = unit_triangle();
         let output = write_obj(&[part("A", &open), part("B", &open)]).expect("written");

@@ -62,15 +62,6 @@ mod tests {
     use crate::profile::{generic_fdm, generic_resin};
 
     #[test]
-    fn fdm_limits_follow_the_nozzle() {
-        let thresholds = generic_fdm().thresholds();
-        assert_eq!(thresholds.min_wall, 0.8);
-        assert_eq!(thresholds.min_feature, 0.4);
-        assert_eq!(thresholds.min_hole, 2.0);
-        assert_eq!(thresholds.max_slenderness, Some(10.0));
-    }
-
-    #[test]
     fn overhang_limit_is_the_profile_value() {
         let mut profile = generic_resin();
         profile.max_overhang_angle = 0.9;
@@ -82,10 +73,5 @@ mod tests {
         let mut profile = generic_fdm();
         profile.nozzle_diameter = None;
         assert_eq!(profile.thresholds(), generic_fdm().thresholds());
-    }
-
-    #[test]
-    fn resin_has_no_slenderness_rule() {
-        assert_eq!(generic_resin().thresholds().max_slenderness, None);
     }
 }

@@ -1,6 +1,5 @@
 //! `partsmith export` (cli.md section 3.4).
 
-use std::fs;
 use std::io;
 use std::path::Path;
 
@@ -15,7 +14,7 @@ use serde::Serialize;
 use super::{open, usage_error};
 use crate::arguments::{ExportArguments, Format};
 use crate::error::{CliError, UsageError};
-use crate::files::write_atomically;
+use crate::files;
 use crate::output::{JsonDiagnostic, Output};
 use crate::rotation;
 use crate::status::Status;
@@ -277,10 +276,7 @@ fn write_into(
     files: Vec<ExportedFile>,
     report: &mut Report,
 ) -> Result<(), CliError> {
-    fs::create_dir_all(directory).map_err(|source| CliError::Write {
-        path: directory.display().to_string(),
-        source,
-    })?;
+    files::create_directory(directory)?;
     for file in files {
         let path = directory.join(&file.name);
         write_file(&path, file.media_type, &file.bytes, report)?;
@@ -295,13 +291,9 @@ fn write_file(
     bytes: &[u8],
     report: &mut Report,
 ) -> Result<(), CliError> {
-    let shown = path.display().to_string();
-    write_atomically(path, bytes).map_err(|source| CliError::Write {
-        path: shown.clone(),
-        source,
-    })?;
+    files::write(path, bytes)?;
     report.files.push(WrittenFile {
-        path: shown,
+        path: path.display().to_string(),
         media_type,
         bytes: bytes.len(),
     });
@@ -310,6 +302,7 @@ fn write_file(
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
     use std::path::PathBuf;
 
     use clap::ValueEnum;

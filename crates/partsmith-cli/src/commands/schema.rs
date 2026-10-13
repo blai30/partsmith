@@ -8,7 +8,7 @@ use partsmith_engine::{protocol_schema, ptsm_schema};
 
 use crate::arguments::{SchemaAction, SchemaArguments, SchemaName};
 use crate::error::CliError;
-use crate::files::write_atomically;
+use crate::files;
 use crate::output::Output;
 use crate::status::Status;
 
@@ -52,11 +52,7 @@ fn write(
     files: &[(&str, String)],
     output: &mut Output<'_>,
 ) -> io::Result<Status> {
-    if let Err(source) = fs::create_dir_all(directory) {
-        let error = CliError::Write {
-            path: directory.display().to_string(),
-            source,
-        };
+    if let Err(error) = files::create_directory(directory) {
         output.error(&error);
         return Ok(error.status());
     }
@@ -66,12 +62,7 @@ fn write(
         let shown = path.display().to_string();
         let written = file_state(&path, text).and_then(|state| match state {
             FileState::Current => Ok(false),
-            FileState::Stale => write_atomically(&path, text.as_bytes())
-                .map(|()| true)
-                .map_err(|source| CliError::Write {
-                    path: shown.clone(),
-                    source,
-                }),
+            FileState::Stale => files::write(&path, text.as_bytes()).map(|()| true),
         });
         match written {
             Ok(true) => output.line(format_args!("wrote {shown}"))?,
