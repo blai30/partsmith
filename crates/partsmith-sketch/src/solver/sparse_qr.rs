@@ -75,6 +75,7 @@ impl Reflectors {
     }
 
     /// Where a reflector's entries sit in `vector_rows` and `vector_values`.
+    #[inline]
     fn range(&self, reflector: usize) -> Range<usize> {
         self.vector_starts[reflector]..self.vector_starts[reflector + 1]
     }
@@ -84,23 +85,21 @@ impl Reflectors {
         &self.vector_rows[self.range(reflector)]
     }
 
+    /// The rows and entries of a reflector's vector `v`, and its `beta`.
+    #[inline]
+    fn reflector(&self, reflector: usize) -> (&[usize], &[f64], f64) {
+        let range = self.range(reflector);
+        (
+            &self.vector_rows[range.clone()],
+            &self.vector_values[range],
+            self.betas[reflector],
+        )
+    }
+
     /// Applies a reflector to a dense vector.
     fn apply(&self, reflector: usize, values: &mut [f64]) {
-        let range = self.range(reflector);
-        let rows = &self.vector_rows[range.clone()];
-        let vector = &self.vector_values[range];
-        let product: f64 = rows
-            .iter()
-            .zip(vector)
-            .map(|(&row, &value)| value * values[row])
-            .sum();
-        if product == 0.0 {
-            return;
-        }
-        let factor = self.betas[reflector] * product;
-        for (&row, &value) in rows.iter().zip(vector) {
-            values[row] -= factor * value;
-        }
+        let (rows, vector, beta) = self.reflector(reflector);
+        reflect(rows, vector, beta, values);
     }
 
     /// Where the vector being built starts in `vector_rows` and `vector_values`.
@@ -255,7 +254,9 @@ impl SparseQr {
         let original_norm = norm(self.pattern.iter().map(|&row| self.values[row]));
         let plan = &self.plans[index];
         for &reflector in &plan.schedule {
-            self.reflectors.apply(reflector, &mut self.values);
+            // `reflect` itself, not `apply`, so the hot loop of the solver keeps it inlined.
+            let (rows, vector, beta) = self.reflectors.reflector(reflector);
+            reflect(rows, vector, beta, &mut self.values);
         }
         // The projection becomes the column of R and the residual the reflector's vector; both are
         // written in place and taken back out when the column turns out dependent.
@@ -429,6 +430,23 @@ fn enqueue(queue: &mut Vec<usize>, queued: &mut [bool], reflector: usize, order:
         Order::Descending => queue.partition_point(|&other| other < reflector),
     };
     queue.insert(position, reflector);
+}
+
+/// Applies the reflector `I - beta v v^T`, with `v` given by its rows and entries, to a dense vector.
+#[inline]
+fn reflect(rows: &[usize], vector: &[f64], beta: f64, values: &mut [f64]) {
+    let product: f64 = rows
+        .iter()
+        .zip(vector)
+        .map(|(&row, &value)| value * values[row])
+        .sum();
+    if product == 0.0 {
+        return;
+    }
+    let factor = beta * product;
+    for (&row, &value) in rows.iter().zip(vector) {
+        values[row] -= factor * value;
+    }
 }
 
 fn norm(values: impl Iterator<Item = f64>) -> f64 {
