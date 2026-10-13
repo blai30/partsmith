@@ -4,14 +4,16 @@
 
 mod feature_support;
 
+use std::f64::consts::PI;
 use std::time::Duration;
 
 use feature_support::{
-    Run, assert_bounding_box, assert_element_repair, assert_error_field, assert_examples_canonical,
-    assert_face_area, assert_face_count, assert_face_kind, assert_face_normal,
-    assert_face_position, assert_has_face, assert_list_field, assert_median_build_within,
-    assert_solid_count, assert_unchanged, assert_volume, body_update, document, face, face_index,
-    face_names_with_prefix, load_example, suggested_limit,
+    CUBE20, Run, assert_bounding_box, assert_element_repair, assert_error_field,
+    assert_examples_canonical, assert_face_area, assert_face_count, assert_face_kind,
+    assert_face_normal, assert_face_position, assert_face_radius, assert_has_face,
+    assert_list_field, assert_median_build_within, assert_solid_count, assert_unchanged,
+    assert_volume, body_update, document, face, face_index, face_names_with_prefix, load_example,
+    suggested_limit,
 };
 use partsmith_features::{BodyChange, FeatureError};
 use partsmith_model::{Document, Units};
@@ -38,6 +40,14 @@ const L_BODY: [&str; 2] = [
 /// a concave edge.
 const STEP_FACE: &str = r#"{"q": "f-box1/top", "fp": "plane|n=0,0,1|c=-10,0,10|a=400"}"#;
 
+/// `F-ROUND`: `CUBE20`'s four edges parallel to Z rounded at radius 2 by `f-fil1`, which gives the
+/// body of ui.md's `cube-features.ptsm` (volume 7680 + 80 pi, 10 faces).
+const VERTICAL_ROUNDS: &str = r#"{"id": "f-fil1", "type": "fillet", "body": "b-1", "edges": [{"q": "edge(f-box1/front|f-box1/left)", "fp": "line|n=0,0,1|c=-10,-10,10|l=20"}, {"q": "edge(f-box1/front|f-box1/right)", "fp": "line|n=0,0,1|c=10,-10,10|l=20"}, {"q": "edge(f-box1/back|f-box1/left)", "fp": "line|n=0,0,1|c=-10,10,10|l=20"}, {"q": "edge(f-box1/back|f-box1/right)", "fp": "line|n=0,0,1|c=10,10,10|l=20"}], "radius": "2"}"#;
+
+/// The top face of `CUBE20` after `VERTICAL_ROUNDS`: a 20 mm square with corners of radius 2.
+const ROUNDED_TOP_FACE: &str =
+    r#"{"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,20|a=396.566371"}"#;
+
 /// `SHELL(thickness, faces)`: the shell `f-sh1` of `b-1`, without `remove_faces` when `faces` is
 /// empty.
 fn shell_record(thickness: &str, faces: &[&str]) -> String {
@@ -57,6 +67,56 @@ fn open_top_document(thickness: &str) -> Document {
         &["b-1"],
         &[BOX805030, &shell_record(thickness, &[TOP_FACE])],
     )
+}
+
+/// Tests 19 and 20: `CUBE20` with `VERTICAL_ROUNDS`, shelled with its top removed and a wall of
+/// `thickness`.
+fn rounded_cube_run(thickness: &str) -> Run {
+    Run::records(
+        &["b-1"],
+        &[
+            CUBE20,
+            VERTICAL_ROUNDS,
+            &shell_record(thickness, &[ROUNDED_TOP_FACE]),
+        ],
+    )
+}
+
+/// The checks of test 19 for every thickness: all ok, one solid, the volume, the face count and
+/// the bounding box of the cube; the inner wall of the front face planar at y = -10 + t with the
+/// area `front_area`; every face named from its origin.
+fn assert_rounded_cube_shell(run: &Run, thickness: f64, volume: f64, faces: u32, front_area: f64) {
+    run.assert_all_ok();
+    let body = run.body("b-1");
+    let shape = run.shape("b-1");
+    assert_volume(shape, volume);
+    assert_face_count(shape, faces);
+    assert_solid_count(shape, 1);
+    assert_bounding_box(shape, [-10.0, -10.0, 0.0], [10.0, 10.0, 20.0]);
+    let inner_front = face(body, "f-sh1/inner/f-box1/front");
+    assert_face_kind(&inner_front, GeometryKind::Plane);
+    assert_face_position(&inner_front, 1, -10.0 + thickness);
+    assert_face_area(&inner_front, front_area);
+    assert_eq!(
+        face_names_with_prefix(body, "f-fil1/fillet/").len(),
+        4,
+        "the outer rounds keep their names"
+    );
+    assert_eq!(
+        face_names_with_prefix(body, "f-sh1/face"),
+        Vec::<String>::new(),
+        "every face has a name from its origin"
+    );
+}
+
+/// Asserts that no inner face comes from a round: walls at least as thick as the radius close
+/// into sharp inner corners.
+fn assert_no_inner_rounds(run: &Run) {
+    assert_eq!(
+        face_names_with_prefix(run.body("b-1"), "f-sh1/inner/f-fil1/"),
+        Vec::<String>::new(),
+        "the rounds' inner offsets vanish"
+    );
 }
 
 /// The geometry and names of test 1: `BOX805030` shelled 2 mm with the top removed.
@@ -373,4 +433,64 @@ fn t014_moved_body() {
         expected.count(partsmith_occt_sys::SubShapeKind::Face)
     );
     assert_bounding_box(shape, [40.0, -10.0, 0.0], [60.0, 10.0, 20.0]);
+}
+
+#[test]
+fn t019_wall_thinner_than_the_rounds() {
+    let run = rounded_cube_run("1");
+
+    // The 20 mm prism minus a 19 mm deep cavity: an 18 mm square with corners of radius 1.
+    assert_rounded_cube_shell(&run, 1.0, 1600.0 + 61.0 * PI, 19, 304.0);
+    let inner_round = face(
+        run.body("b-1"),
+        "f-sh1/inner/f-fil1/fillet/edge(f-box1/front|f-box1/right)",
+    );
+    assert_face_kind(&inner_round, GeometryKind::Cylinder);
+    assert_face_radius(&inner_round, 1.0);
+}
+
+#[test]
+fn t019_wall_as_thick_as_the_rounds() {
+    let run = rounded_cube_run("2");
+
+    // The 20 mm prism minus a 18 mm deep cavity with a sharp 16 mm square section.
+    assert_rounded_cube_shell(&run, 2.0, 3072.0 + 80.0 * PI, 15, 288.0);
+    assert_no_inner_rounds(&run);
+    let rim = face(run.body("b-1"), "f-sh1/rim/f-box1/top");
+    assert_face_kind(&rim, GeometryKind::Plane);
+    assert_face_position(&rim, 2, 20.0);
+    assert_face_area(&rim, 128.0 + 4.0 * PI);
+}
+
+#[test]
+fn t019_wall_thicker_than_the_rounds() {
+    let run = rounded_cube_run("3");
+
+    // The 20 mm prism minus a 17 mm deep cavity with a sharp 14 mm square section.
+    assert_rounded_cube_shell(&run, 3.0, 4348.0 + 80.0 * PI, 15, 238.0);
+    assert_no_inner_rounds(&run);
+}
+
+#[test]
+fn t020_too_thick_past_the_rounds() {
+    let run = rounded_cube_run("12");
+
+    run.assert_ok("f-fil1");
+    let error = run.assert_error("f-sh1", "shell_too_thick");
+    assert_error_field(error, "thickness");
+    let FeatureError::ShellTooThick { thickness, max, .. } = error else {
+        panic!("expected ShellTooThick, got {error:?}");
+    };
+    assert_eq!(*thickness, 12.0, "the requested thickness");
+    let max = max.unwrap_or_else(|| panic!("the search finds a working thickness: {error:?}"));
+    assert!(
+        (9.0..10.0).contains(&max),
+        "the thickest working wall {max} lies in [9, 10), where the walls meet in the middle"
+    );
+    let limit = suggested_limit(max);
+    assert_eq!(error.suggestion(Units::Mm), Some(format!("{limit} mm")));
+    assert_unchanged(&run, "f-sh1", "b-1");
+
+    let rebuilt = rounded_cube_run(&limit);
+    rebuilt.assert_all_ok();
 }

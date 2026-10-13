@@ -6,9 +6,9 @@ mod common;
 use common::{
     BOX_EDGE_NAMES, BOX_FACE_NAMES, BOX_VERTEX_NAMES, aliases, box_map, box_sources, box_topology,
     build, build_on, build_with, cylinder_map, degenerate_edge_info, edge_info, face_info,
-    face_row_topology, faces_only_topology, from_indexed_sources, from_sources, id,
-    map_from_json, map_with_faces, name, names, names_of, new_source, sphere_map, successions,
-    translation, vertex_info,
+    face_row_topology, faces_only_topology, from_indexed_sources, from_sources, id, map_from_json,
+    map_with_faces, name, names, names_of, new_source, sphere_map, successions, translation,
+    vertex_info,
 };
 use partsmith_naming::{
     Aliases, ElementKind, FaceInfo, FaceSource, Fingerprint, GeometryKind, Instance, Motion,
@@ -190,7 +190,10 @@ fn alias_carry_map() -> NamingMap {
 fn pruning_map(alias: (&str, &[&str]), outputs: &[&str]) -> NamingMap {
     build_from(
         &inherited_with_aliases(outputs, &[alias]),
-        outputs.iter().map(|output| from_sources(&[output])).collect(),
+        outputs
+            .iter()
+            .map(|output| from_sources(&[output]))
+            .collect(),
     )
 }
 
@@ -282,11 +285,7 @@ fn order_test_sources(order: &[u32]) -> Vec<FaceSource> {
 /// Builds the order test faces over `maps` taken in `order` (original indices).
 fn build_in_order(maps: &[NamingMap], order: &[u32]) -> NamingMap {
     let inherited: Vec<&NamingMap> = order.iter().map(|map| &maps[*map as usize]).collect();
-    build_on(
-        order_test_sources(order),
-        &face_row_topology(4),
-        &inherited,
-    )
+    build_on(order_test_sources(order), &face_row_topology(4), &inherited)
 }
 
 /// The 12 numbers of a JSON motion, or a panic.
@@ -1075,7 +1074,10 @@ fn moved_tools_joined(order: &[u32]) -> NamingMap {
 
 #[test]
 fn t115_moved_tool_maps_in_either_order_give_equal_maps() {
-    assert_eq!(moved_tools_joined(&[0, 1, 2]), moved_tools_joined(&[0, 2, 1]));
+    assert_eq!(
+        moved_tools_joined(&[0, 1, 2]),
+        moved_tools_joined(&[0, 2, 1])
+    );
 }
 
 #[test]
@@ -1116,10 +1118,7 @@ fn t115_same_name_with_different_motions_has_the_base() {
         &[&target, &first, &second],
     );
 
-    assert_eq!(
-        joined.motion(&name("f-k/top")),
-        translation(0.0, 0.0, 5.0)
-    );
+    assert_eq!(joined.motion(&name("f-k/top")), translation(0.0, 0.0, 5.0));
 }
 
 #[test]
@@ -1163,7 +1162,8 @@ fn t123_own_motions_serialize_under_face_names() {
     let own = value["motions"]["own"]
         .as_object()
         .unwrap_or_else(|| panic!("own motions are an object, got {value}"));
-    let keys: Vec<&str> = own.keys().map(String::as_str).collect();
+    let mut keys: Vec<&str> = own.keys().map(String::as_str).collect();
+    keys.sort_unstable();
     assert_eq!(keys, ["f-x/top#2", "f-x/top#3"]);
     assert_eq!(
         motion_numbers(&own["f-x/top#2"]),
@@ -1268,7 +1268,9 @@ fn t131_successions_serialize_in_order() {
 
     assert_eq!(
         value.get("successions"),
-        Some(&json!({"f-ext1/lateral/e-3": ["f-ext1/lateral/e-9", "f-ext1/lateral/e-10", "f-ext1/lateral/e-11"]}))
+        Some(
+            &json!({"f-ext1/lateral/e-3": ["f-ext1/lateral/e-9", "f-ext1/lateral/e-10", "f-ext1/lateral/e-11"]})
+        )
     );
 }
 
@@ -1357,14 +1359,20 @@ fn t131_succession_listing_a_target_twice_fails() {
 
     let result = serde_json::from_value::<NamingMap>(value);
 
-    assert!(result.is_err(), "a succession target listed twice must be rejected");
+    assert!(
+        result.is_err(),
+        "a succession target listed twice must be rejected"
+    );
 }
 
 #[test]
 fn t131_succession_targets_in_any_order_are_read_as_written() {
     let map = inherited_with_successions(
         &["f-a/x"],
-        &[("f-ext1/lateral/e-2", &["f-ext1/lateral/e-2", "f-ext1/lateral/e-10"])],
+        &[(
+            "f-ext1/lateral/e-2",
+            &["f-ext1/lateral/e-2", "f-ext1/lateral/e-10"],
+        )],
     );
 
     assert_eq!(
@@ -1447,7 +1455,8 @@ impl RandomMap {
                 continue;
             }
             // Indices ascend, so the targets are in byte order.
-            let target_names: Vec<&str> = targets.iter().map(|target| VOCABULARY[*target]).collect();
+            let target_names: Vec<&str> =
+                targets.iter().map(|target| VOCABULARY[*target]).collect();
             alias_entries.insert(VOCABULARY[*key].to_owned(), json!(target_names));
         }
         let mut succession_entries = serde_json::Map::new();

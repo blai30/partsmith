@@ -1,5 +1,5 @@
 //! Acceptance tests for fillet, chamfer and shell (kernel spec sections 2.8, 3.4.6 to 3.4.9, 3.5
-//! and tests 44 to 53, 68, 102, 103, 110 and 115), including the history behavior the spec asks
+//! and tests 44 to 53, 68, 102, 103, 110, 115 and 131), including the history behavior the spec asks
 //! to verify on the built library (section 7, open issues 3 and 4).
 
 mod common;
@@ -12,13 +12,13 @@ use common::{
     assert_vector_near, box_primitive, box_with_displaced_corner, cube_a, cube_at,
     cylinder_primitive, edge_between, face_direction, face_groups, face_with_role, faces_of_kind,
     generated_faces, geometry, index_from_position, l_body, line, planar_face, rectangle_profile,
-    region, swept_face, top_front_edge, volume, z_axis,
+    region, swept_face, top_front_edge, volume, xy_plane_at, z_axis,
 };
 use partsmith_occt_sys::{
     ChamferEdge, ChamferSize, EdgeRadius, ElementFate, GeometryKind, KernelError, KernelErrorKind,
     OpResult, Operation, Plane, Point, Primitive, PrimitiveFace, Shape, SubShapeKind, SweepFace,
-    Transform, Vector, chamfer, extrude, fillet, fuse, make_cylinder, make_profile, shell,
-    transform,
+    Transform, Vector, chamfer, extrude, fillet, fuse, make_box, make_cylinder, make_profile,
+    shell, transform,
 };
 
 const FILLET_FAILED: &str = "The fillet failed. The radius is probably too large for the selected edges or the faces next to them. Try a smaller radius.";
@@ -862,6 +862,391 @@ fn t103_wall_thicker_than_a_cylinder_radius_fails() {
     let error = shell(&cylinder.shape, &[top], 25.0).expect_err("a 25 mm wall does not fit");
 
     assert_shell_failed(&error);
+}
+
+// Test 131: walls at least as thick as the radius of a convex round.
+
+/// The radius of the rounds of `RC`.
+const ROUND_RADIUS: f64 = 2.0;
+
+/// The 20 mm cube of test 131, from (-10,-10,0) to (10,10,20).
+fn cube_20() -> Primitive {
+    make_box(&xy_plane_at(-10.0, -10.0, 0.0), 20.0, 20.0, 20.0).expect("the 20 mm cube builds")
+}
+
+/// The edge of the 20 mm cube between the faces with roles `first` and `second`.
+fn cube_edge(cube: &Primitive, first: PrimitiveFace, second: PrimitiveFace) -> u32 {
+    edge_between(
+        &cube.shape,
+        face_with_role(cube, first),
+        face_with_role(cube, second),
+    )
+}
+
+/// The 20 mm cube with its front edges parallel to Z rounded at `front` and its back ones at
+/// `back`.
+fn cube_with_vertical_rounds(front: f64, back: f64) -> Shape {
+    let cube = cube_20();
+    let edges = [
+        (PrimitiveFace::Front, PrimitiveFace::Left, front),
+        (PrimitiveFace::Front, PrimitiveFace::Right, front),
+        (PrimitiveFace::Back, PrimitiveFace::Left, back),
+        (PrimitiveFace::Back, PrimitiveFace::Right, back),
+    ]
+    .map(|(first, second, radius)| EdgeRadius {
+        edge: cube_edge(&cube, first, second),
+        radius,
+    });
+    fillet(&cube.shape, &edges)
+        .expect("the vertical edges round")
+        .shape
+}
+
+/// `RC` of test 131: the 20 mm cube with its 4 edges parallel to Z rounded at radius 2 (volume
+/// 7680 + 80 pi, 10 faces), and the index of its top face `RT`.
+fn rounded_cube() -> (Shape, u32) {
+    let rounded = cube_with_vertical_rounds(ROUND_RADIUS, ROUND_RADIUS);
+    assert_relative(volume(&rounded), 7680.0 + 80.0 * PI, 1e-9, "RC volume");
+    assert_eq!(rounded.count(SubShapeKind::Face), 10);
+    let top = top_face(&rounded);
+    (rounded, top)
+}
+
+/// The planar face of a cube with vertical rounds that faces up at z = 20.
+fn top_face(shape: &Shape) -> u32 {
+    let tops: Vec<u32> = faces_of_kind(shape, GeometryKind::Plane)
+        .into_iter()
+        .filter(|face| {
+            let element = geometry(shape, SubShapeKind::Face, *face);
+            element
+                .direction
+                .is_some_and(|direction| (direction.z - 1.0).abs() <= POINT_TOLERANCE)
+                && (element.centroid.z - 20.0).abs() <= POINT_TOLERANCE
+        })
+        .collect();
+    assert_eq!(tops.len(), 1, "one top face: {tops:?}");
+    tops[0]
+}
+
+/// `RC` shelled with `RT` removed and a wall of `thickness`.
+fn open_rounded_cube_shell(thickness: f64) -> (Shape, u32, OpResult) {
+    let (rounded, top) = rounded_cube();
+    let result = shell(&rounded, &[top], thickness)
+        .unwrap_or_else(|error| panic!("RC shells open at {thickness} mm: {error:?}"));
+    (rounded, top, result)
+}
+
+/// The planar face of `shape` with `direction` and `centroid`.
+fn side(shape: &Shape, direction: (f64, f64, f64), centroid: (f64, f64, f64)) -> u32 {
+    planar_face(
+        shape,
+        Vector::new(direction.0, direction.1, direction.2),
+        Point::new(centroid.0, centroid.1, centroid.2),
+    )
+}
+
+/// The planar faces of `RC` other than `RT`: bottom, front, right, back and left.
+fn rounded_cube_kept_planes(rounded: &Shape) -> [u32; 5] {
+    [
+        side(rounded, (0.0, 0.0, -1.0), (0.0, 0.0, 0.0)),
+        side(rounded, (0.0, -1.0, 0.0), (0.0, -10.0, 10.0)),
+        side(rounded, (1.0, 0.0, 0.0), (10.0, 0.0, 10.0)),
+        side(rounded, (0.0, 1.0, 0.0), (0.0, 10.0, 10.0)),
+        side(rounded, (-1.0, 0.0, 0.0), (-10.0, 0.0, 10.0)),
+    ]
+}
+
+/// The single face that input face `face` generates.
+fn single_inner_face(result: &OpResult, face: u32) -> u32 {
+    let fate = face_fate(result, face);
+    let inner_faces = generated_faces(fate);
+    assert_eq!(inner_faces.len(), 1, "face {face}: {fate:?}");
+    inner_faces[0]
+}
+
+/// Asserts the checks every shell of test 131 shares: valid, one solid, the volume and face
+/// count, the bounding box of `RC`, and every output face from an input face.
+fn assert_shelled(result: &OpResult, expected_volume: f64, faces: u32) {
+    assert!(result.shape.is_valid().expect("validity check"));
+    assert_eq!(result.shape.count(SubShapeKind::Solid), 1);
+    assert_relative(volume(&result.shape), expected_volume, 1e-9, "volume");
+    assert_eq!(result.shape.count(SubShapeKind::Face), faces);
+    assert_bounds(&result.shape, [-10.0, -10.0, 0.0], [10.0, 10.0, 20.0], 1e-6);
+    assert_every_face_comes_from_an_input_face(result);
+}
+
+/// Asserts that each planar face of `RC` other than `RT` keeps one image and generates one inner
+/// face, a plane parallel to it at distance `thickness` facing the other way.
+fn assert_planar_walls(rounded: &Shape, result: &OpResult, thickness: f64) {
+    for face in rounded_cube_kept_planes(rounded) {
+        let original = geometry(rounded, SubShapeKind::Face, face);
+        let normal = original.direction.expect("a plane has a direction");
+        let fate = face_fate(result, face);
+        assert_eq!(fate.modified.len(), 1, "face {face}: {fate:?}");
+        let inner = geometry(
+            &result.shape,
+            SubShapeKind::Face,
+            single_inner_face(result, face),
+        );
+        assert_eq!(inner.kind, GeometryKind::Plane, "face {face} inner face");
+        assert_vector_near(
+            inner.direction.expect("a plane has a direction"),
+            Vector::new(-normal.x, -normal.y, -normal.z),
+            POINT_TOLERANCE,
+            &format!("face {face} inner direction"),
+        );
+        let distance = (inner.centroid.x - original.centroid.x) * normal.x
+            + (inner.centroid.y - original.centroid.y) * normal.y
+            + (inner.centroid.z - original.centroid.z) * normal.z;
+        assert_near(
+            distance,
+            -thickness,
+            1e-6,
+            &format!("face {face} wall thickness"),
+        );
+    }
+}
+
+/// Asserts that `RT` lists one face in `modified`, the rim: a plane at z = 20 facing up with
+/// area `area`.
+fn assert_rim(result: &OpResult, top: u32, area: f64) {
+    let fate = face_fate(result, top);
+    assert_eq!(fate.modified.len(), 1, "{fate:?}");
+    let rim = geometry(&result.shape, SubShapeKind::Face, fate.modified[0]);
+    assert_eq!(rim.kind, GeometryKind::Plane);
+    assert_vector_near(
+        rim.direction.expect("a plane has a direction"),
+        UP,
+        POINT_TOLERANCE,
+        "rim direction",
+    );
+    assert_near(rim.centroid.z, 20.0, 1e-6, "rim height");
+    assert_relative(rim.measure, area, 1e-9, "rim area");
+}
+
+/// Asserts that each round of `RC` keeps its image and generates no face: its inner offset
+/// vanishes, so the walls beside it meet at a sharp corner.
+fn assert_rounds_vanish(rounded: &Shape, result: &OpResult) {
+    let rounds = faces_of_kind(rounded, GeometryKind::Cylinder);
+    assert_eq!(rounds.len(), 4);
+    for round in rounds {
+        let fate = face_fate(result, round);
+        assert_eq!(fate.modified.len(), 1, "round {round}: {fate:?}");
+        let image = geometry(&result.shape, SubShapeKind::Face, fate.modified[0]);
+        assert_eq!(image.kind, GeometryKind::Cylinder, "round {round} image");
+        assert_relative(
+            image.radius.expect("a cylinder has a radius"),
+            ROUND_RADIUS,
+            1e-9,
+            "round image radius",
+        );
+        assert!(
+            generated_faces(fate).is_empty(),
+            "round {round} generates no face: {fate:?}"
+        );
+    }
+}
+
+/// Asserts that the inner faces generated by the front and right faces of `RC` meet at a sharp
+/// corner: they share exactly one edge, a line parallel to Z at x = 10 - t, y = -10 + t that runs
+/// from the floor of the cavity at z = t to the opening at z = 20.
+fn assert_sharp_inner_corner(rounded: &Shape, result: &OpResult, thickness: f64) {
+    let front = side(rounded, (0.0, -1.0, 0.0), (0.0, -10.0, 10.0));
+    let right = side(rounded, (1.0, 0.0, 0.0), (10.0, 0.0, 10.0));
+    let corner = shared_edges(
+        &result.shape,
+        single_inner_face(result, front),
+        single_inner_face(result, right),
+    );
+    assert_eq!(corner.len(), 1, "inner front and right share one edge");
+    let edge = geometry(&result.shape, SubShapeKind::Edge, corner[0]);
+    assert_eq!(edge.kind, GeometryKind::Line);
+    assert_parallel(
+        edge.direction.expect("a line has a direction"),
+        UP,
+        "corner direction",
+    );
+    assert_point_near(
+        edge.centroid,
+        Point::new(
+            10.0 - thickness,
+            -10.0 + thickness,
+            (thickness + 20.0) / 2.0,
+        ),
+        1e-6,
+        "corner centroid",
+    );
+    assert_relative(edge.measure, 20.0 - thickness, 1e-9, "corner length");
+}
+
+#[test]
+fn t131_wall_thinner_than_the_rounds_keeps_rounded_inner_corners() {
+    let (rounded, top, result) = open_rounded_cube_shell(1.0);
+
+    // The 20 mm prism minus a 19 mm deep cavity: an 18 mm square with corners of radius 1.
+    assert_shelled(&result, 1600.0 + 61.0 * PI, 19);
+    assert_planar_walls(&rounded, &result, 1.0);
+    assert_rim(&result, top, 64.0 + 3.0 * PI);
+    for round in faces_of_kind(&rounded, GeometryKind::Cylinder) {
+        let inner = geometry(
+            &result.shape,
+            SubShapeKind::Face,
+            single_inner_face(&result, round),
+        );
+        assert_eq!(
+            inner.kind,
+            GeometryKind::Cylinder,
+            "round {round} inner face"
+        );
+        assert_relative(
+            inner.radius.expect("a cylinder has a radius"),
+            1.0,
+            1e-9,
+            "inner round radius",
+        );
+    }
+}
+
+#[test]
+fn t131_wall_as_thick_as_the_rounds_closes_into_sharp_inner_corners() {
+    let (rounded, top, result) = open_rounded_cube_shell(ROUND_RADIUS);
+
+    // The 20 mm prism minus a 18 mm deep cavity with a sharp 16 mm square section.
+    assert_shelled(&result, 3072.0 + 80.0 * PI, 15);
+    assert_planar_walls(&rounded, &result, ROUND_RADIUS);
+    assert_rim(&result, top, 128.0 + 4.0 * PI);
+    assert_rounds_vanish(&rounded, &result);
+    assert_sharp_inner_corner(&rounded, &result, ROUND_RADIUS);
+}
+
+#[test]
+fn t131_wall_thicker_than_the_rounds_closes_into_sharp_inner_corners() {
+    let (rounded, top, result) = open_rounded_cube_shell(3.0);
+
+    // The 20 mm prism minus a 17 mm deep cavity with a sharp 14 mm square section.
+    assert_shelled(&result, 4348.0 + 80.0 * PI, 15);
+    assert_planar_walls(&rounded, &result, 3.0);
+    assert_rim(&result, top, 188.0 + 4.0 * PI);
+    assert_rounds_vanish(&rounded, &result);
+    assert_sharp_inner_corner(&rounded, &result, 3.0);
+}
+
+#[test]
+fn t131_walls_up_to_the_middle_of_the_rounded_cube_fit() {
+    let (rounded, top, result) = open_rounded_cube_shell(9.0);
+
+    // A cavity 2 mm square and 11 mm deep.
+    assert_shelled(&result, 7636.0 + 80.0 * PI, 15);
+    assert_planar_walls(&rounded, &result, 9.0);
+    assert_rim(&result, top, 380.0 + 4.0 * PI);
+    assert_rounds_vanish(&rounded, &result);
+}
+
+#[test]
+fn t131_walls_that_meet_in_the_middle_of_the_rounded_cube_fail() {
+    let (rounded, top) = rounded_cube();
+
+    let error = shell(&rounded, &[top], 10.0).expect_err("10 mm walls leave no cavity");
+
+    assert_shell_failed(&error);
+}
+
+#[test]
+fn t131_closed_hollow_thicker_than_the_rounds_has_a_sharp_cavity() {
+    let (rounded, _) = rounded_cube();
+
+    let result = shell(&rounded, &[], 3.0).expect("RC is hollowed with a 3 mm wall");
+
+    // A 14 mm cube cavity.
+    assert!(result.shape.is_valid().expect("validity check"));
+    assert_eq!(result.shape.count(SubShapeKind::Solid), 1);
+    assert_relative(volume(&result.shape), 4936.0 + 80.0 * PI, 1e-9, "volume");
+    assert_eq!(result.shape.count(SubShapeKind::Face), 16);
+    assert_eq!(face_groups(&result.shape), 2);
+    assert_every_face_comes_from_an_input_face(&result);
+    assert_rounds_vanish(&rounded, &result);
+}
+
+#[test]
+fn t131_closed_hollow_of_a_box_with_every_edge_rounded() {
+    // Test 45: every BOX edge rounded at radius 1, with spherical corners.
+    let rounded = fillet(&box_primitive().shape, &all_edges(1.0))
+        .expect("every edge rounds")
+        .shape;
+
+    let result = shell(&rounded, &[], 2.0).expect("the rounded BOX is hollowed with a 2 mm wall");
+
+    // The volume of test 116 minus a 6 x 16 x 26 mm box cavity with sharp edges and corners.
+    assert!(result.shape.is_valid().expect("validity check"));
+    assert_eq!(result.shape.count(SubShapeKind::Solid), 1);
+    assert_relative(
+        volume(&result.shape),
+        3280.0 + 54.0 * PI + 4.0 * PI / 3.0,
+        1e-9,
+        "volume",
+    );
+    assert_eq!(result.shape.count(SubShapeKind::Face), 32);
+    assert_eq!(face_groups(&result.shape), 2);
+    assert_every_face_comes_from_an_input_face(&result);
+    let inner_planes = faces_of_kind(&result.shape, GeometryKind::Plane)
+        .into_iter()
+        .filter(|face| {
+            let centroid = geometry(&result.shape, SubShapeKind::Face, *face).centroid;
+            (2.0 - 1e-6..=8.0 + 1e-6).contains(&centroid.x)
+                && (2.0 - 1e-6..=18.0 + 1e-6).contains(&centroid.y)
+                && (2.0 - 1e-6..=28.0 + 1e-6).contains(&centroid.z)
+        })
+        .count();
+    assert_eq!(inner_planes, 6, "the cavity is bounded by 6 planes");
+}
+
+#[test]
+fn t131_rounds_thinner_and_thicker_than_the_wall() {
+    // The front rounds (radius 1) are thinner than the 2 mm wall, the back ones (radius 3)
+    // thicker.
+    let mixed = cube_with_vertical_rounds(1.0, 3.0);
+    let top = top_face(&mixed);
+    let back_rounds: Vec<u32> = faces_of_kind(&mixed, GeometryKind::Cylinder)
+        .into_iter()
+        .filter(|face| {
+            geometry(&mixed, SubShapeKind::Face, *face)
+                .radius
+                .is_some_and(|radius| (radius - 3.0).abs() <= 1e-9)
+        })
+        .collect();
+
+    let result = shell(&mixed, &[top], 2.0).expect("the mixed cube shells open");
+
+    // Sections: outer 400 - 20 (1 - pi/4), inner 16 mm square with its back corners rounded at
+    // radius 1; heights 20 and 18.
+    assert!(result.shape.is_valid().expect("validity check"));
+    assert_relative(volume(&result.shape), 3028.0 + 91.0 * PI, 1e-9, "volume");
+    assert_eq!(result.shape.count(SubShapeKind::Face), 17);
+    assert_every_face_comes_from_an_input_face(&result);
+    assert_eq!(back_rounds.len(), 2);
+    for round in back_rounds {
+        let inner = geometry(
+            &result.shape,
+            SubShapeKind::Face,
+            single_inner_face(&result, round),
+        );
+        assert_eq!(inner.kind, GeometryKind::Cylinder);
+        assert_relative(
+            inner.radius.expect("a cylinder has a radius"),
+            1.0,
+            1e-9,
+            "inner back round radius",
+        );
+    }
+}
+
+#[test]
+fn t131_shell_thicker_than_the_rounds_leaves_its_input_unchanged() {
+    let (rounded, top) = rounded_cube();
+
+    assert_leaves_unchanged(&rounded, || {
+        shell(&rounded, &[top], 3.0).expect("RC shells open at 3 mm");
+    });
 }
 
 #[test]

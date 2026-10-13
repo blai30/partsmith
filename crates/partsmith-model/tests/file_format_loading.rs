@@ -66,11 +66,6 @@ fn e1_with_list(name: &str, json: &str) -> String {
     E1.replace(&empty, &format!("\"{name}\": {json}"))
 }
 
-/// E1 with its `format_version` line replaced, or removed when `value` is `None`.
-fn e1_with_format_version(value: Option<&str>) -> String {
-    with_format_version(E1, value)
-}
-
 /// E1 with one feature whose params are `params_json` (a JSON object body without braces).
 fn e1_with_feature_params(params_json: &str) -> String {
     e1_with_list(
@@ -199,36 +194,36 @@ fn t021_not_a_partsmith_document() {
 #[test]
 fn t022_format_version_must_be_a_whole_number() {
     assert_eq!(
-        load(&e1_with_format_version(None)),
+        load(&with_format_version(E1, None)),
         Err(LoadError::MissingFormatVersion)
     );
     assert_eq!(
-        load(&e1_with_format_version(Some("\"1\""))),
+        load(&with_format_version(E1, Some("\"1\""))),
         Err(LoadError::InvalidFormatVersion {
             found: "\"1\"".to_string()
         })
     );
     assert_eq!(
-        load(&e1_with_format_version(Some("1.5"))),
+        load(&with_format_version(E1, Some("1.5"))),
         Err(LoadError::InvalidFormatVersion {
             found: "1.5".to_string()
         })
     );
     assert_eq!(
-        load(&e1_with_format_version(Some("-1"))),
+        load(&with_format_version(E1, Some("-1"))),
         Err(LoadError::InvalidFormatVersion {
             found: "-1".to_string()
         })
     );
-    let whole_float = load(&e1_with_format_version(Some("1.0")));
+    let whole_float = load(&with_format_version(E1, Some("1.0")));
     let migrated_from = whole_float.map(|loaded| loaded.migrated_from);
     assert_eq!(migrated_from, Ok(Some(1)));
 }
 
 #[test]
 fn t023_newer_and_older_format_versions() {
-    let newer = load(&e1_with_format_version(Some("3")));
-    let older = load(&e1_with_format_version(Some("0")));
+    let newer = load(&with_format_version(E1, Some("3")));
+    let older = load(&with_format_version(E1, Some("0")));
 
     assert_eq!(
         newer,

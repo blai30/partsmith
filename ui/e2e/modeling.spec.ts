@@ -588,8 +588,6 @@ type FeatureRow = {
   readonly label: string
   readonly steps: (page: Page) => Promise<void>
   readonly result: (page: Page) => Promise<void>
-  /** Set when a core defect blocks the row: the test is marked fixme. */
-  readonly blocked?: true
 }
 
 const FEATURE_ROWS: readonly FeatureRow[] = [
@@ -750,13 +748,8 @@ const FEATURE_ROWS: readonly FeatureRow[] = [
     },
   },
   {
-    // Core defect, ui.md open issue 17: the catalog's move_body params schema has no `default`
-    // for `translation`, so Move X, Y and Z start empty and Move X alone sends a translation of
-    // length 1, which the core refuses as invalid params ("invalid length 1, expected an array of
-    // length 3").
     type: 'move_body',
     label: 'Move body 1',
-    blocked: true,
     steps: async (page) => {
       await dropFile(page, 'cube.ptsm')
       await runCommand(page, 'Move body')
@@ -856,8 +849,7 @@ const FEATURE_ROWS: readonly FeatureRow[] = [
 
 test.describe('E-57 feature coverage', () => {
   for (const row of FEATURE_ROWS) {
-    const define = row.blocked === true ? test.fixme : test
-    define(`E-57 ${row.type}`, async ({ page }) => {
+    test(`E-57 ${row.type}`, async ({ page }) => {
       await openApp(page)
       await row.steps(page)
       await expect(inspector(page)).toHaveAttribute('data-mode', 'command')
@@ -1278,10 +1270,7 @@ test.describe('one interface for everyone', () => {
     await expect(volume).toContainText('8000 mm³')
   })
 
-  // Core defect, ui.md open issue 17: the catalog's box params schema has no `default` for
-  // `position`, so Position X alone sends a position of length 1, which the core refuses as
-  // invalid params ("invalid length 1, expected an array of length 3").
-  test.fixme('E-93 More options names the values changed out of sight', async ({ page }) => {
+  test('E-93 More options names the values changed out of sight', async ({ page }) => {
     await openApp(page)
     await dropFile(page, 'cube.ptsm')
     await runFromGroup(page, 'Shapes', 'Box')

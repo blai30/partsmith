@@ -44,8 +44,8 @@ fn assert_invalid_reference(text: &str, query: &str, reason: &str) {
         reason: reason.to_owned(),
     };
 
-    let error = serde_json::from_str::<Reference>(text)
-        .expect_err("the reference must be rejected");
+    let error =
+        serde_json::from_str::<Reference>(text).expect_err("the reference must be rejected");
 
     assert!(
         error.to_string().contains(&expected.to_string()),
@@ -300,9 +300,7 @@ fn t113_from_element_keeps_six_names_touched_by_the_fewest_siblings() {
         Anchors(
             [(
                 name("f-b/top#2"),
-                names(&[
-                    "f-h/w10", "f-h/w11", "f-h/w2", "f-h/w3", "f-h/w8", "f-h/w9"
-                ])
+                names(&["f-h/w10", "f-h/w11", "f-h/w2", "f-h/w3", "f-h/w8", "f-h/w9"])
             )]
             .into()
         )
@@ -736,7 +734,12 @@ fn t129_from_element_after_an_extension_has_no_merged_names() {
     let resolution = resolve(&made, &scope);
 
     assert!(made.merged.is_empty(), "{made:?}");
-    assert_resolved(&resolution, &["f-ext1/lateral/e-6"], MatchMethod::Exact, 1.0);
+    assert_resolved(
+        &resolution,
+        &["f-ext1/lateral/e-6"],
+        MatchMethod::Exact,
+        1.0,
+    );
 }
 
 #[test]

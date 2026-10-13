@@ -322,11 +322,11 @@ mod tests {
 
     #[test]
     fn missing_format_version_suggests_the_current_version() {
-        let message = LoadError::MissingFormatVersion.to_string();
-
-        assert!(
-            message.contains(&format!("\"format_version\": {FORMAT_VERSION} after")),
-            "{message}"
+        assert_eq!(
+            LoadError::MissingFormatVersion.to_string(),
+            format!(
+                "The document has no \"format_version\". Add \"format_version\": {FORMAT_VERSION} after \"format\"."
+            )
         );
     }
 
@@ -336,11 +336,11 @@ mod tests {
             found: "\"1\"".to_string(),
         };
 
-        assert!(
-            error
-                .to_string()
-                .contains(&format!("such as {FORMAT_VERSION}, not")),
-            "{error}"
+        assert_eq!(
+            error.to_string(),
+            format!(
+                "\"format_version\" must be a whole number such as {FORMAT_VERSION}, not \"1\"."
+            )
         );
     }
 }

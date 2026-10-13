@@ -108,7 +108,11 @@ fn t116_moved_keeps_names_and_indices() {
     let moved = original.moved(&move_by_100());
 
     for kind in [ElementKind::Face, ElementKind::Edge, ElementKind::Vertex] {
-        assert_eq!(names_of(&moved, kind), names_of(&original, kind), "{kind:?}");
+        assert_eq!(
+            names_of(&moved, kind),
+            names_of(&original, kind),
+            "{kind:?}"
+        );
     }
     assert_eq!(moved.index(&name("f-box1/top")), Some(6));
 }
@@ -346,8 +350,14 @@ fn t139_then_applies_self_first() {
     let turn = quarter_turn();
     let shift = translation(10.0, 0.0, 0.0);
 
-    assert_point_close(turn.then(&shift).apply_point([1.0, 0.0, 0.0]), [10.0, 1.0, 0.0]);
-    assert_point_close(shift.then(&turn).apply_point([1.0, 0.0, 0.0]), [0.0, 11.0, 0.0]);
+    assert_point_close(
+        turn.then(&shift).apply_point([1.0, 0.0, 0.0]),
+        [10.0, 1.0, 0.0],
+    );
+    assert_point_close(
+        shift.then(&turn).apply_point([1.0, 0.0, 0.0]),
+        [0.0, 11.0, 0.0],
+    );
 }
 
 #[test]
@@ -359,7 +369,10 @@ fn t139_inverse_then_self_is_the_identity() {
 
 #[test]
 fn identity_moves_nothing() {
-    assert_point_close(Motion::IDENTITY.apply_point([1.0, 2.0, 3.0]), [1.0, 2.0, 3.0]);
+    assert_point_close(
+        Motion::IDENTITY.apply_point([1.0, 2.0, 3.0]),
+        [1.0, 2.0, 3.0],
+    );
     assert_point_close(
         Motion::IDENTITY.apply_direction([0.0, 0.6, 0.8]),
         [0.0, 0.6, 0.8],
@@ -391,7 +404,10 @@ fn inverse_undoes_a_turn_and_a_translation() {
     let motion = quarter_turn().then(&translation(5.0, 6.0, 7.0));
     let point = [1.0, -2.0, 3.0];
 
-    assert_point_close(motion.inverse().apply_point(motion.apply_point(point)), point);
+    assert_point_close(
+        motion.inverse().apply_point(motion.apply_point(point)),
+        point,
+    );
     assert_motion_close(&motion.then(&motion.inverse()), &Motion::IDENTITY);
 }
 

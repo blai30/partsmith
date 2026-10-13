@@ -329,6 +329,8 @@ fn t027_error_response_frame_has_the_exact_header() {
                 message: message.to_string(),
                 edit_index: None,
                 span: None,
+                detail: None,
+                actions: Vec::new(),
             }),
         },
         buffers: Vec::new(),

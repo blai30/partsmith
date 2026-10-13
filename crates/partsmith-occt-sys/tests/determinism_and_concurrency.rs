@@ -1,5 +1,5 @@
 //! Acceptance tests for thread safety and determinism (kernel spec sections 3.10, 3.11 and tests
-//! 90 to 92 and 104 to 107). The WebAssembly build has no threads and cannot start processes,
+//! 90 to 92, 104 to 107 and 131). The WebAssembly build has no threads and cannot start processes,
 //! so the threaded tests and test 107 are ignored or left out there.
 
 mod common;
@@ -8,9 +8,9 @@ use std::f64::consts::{FRAC_PI_2, TAU};
 use std::thread;
 
 use common::{
-    OPT, UP, box_primitive, box_with_displaced_corner, cube_a, cube_b, cube_c, face_with_role,
-    l_body, planar_face, rectangle_profile, rectangle_with_hole_profile, ring_profile,
-    top_front_edge, xy_plane_at, z_axis,
+    OPT, UP, box_primitive, box_with_displaced_corner, cube_a, cube_b, cube_c, edge_between,
+    face_with_role, l_body, planar_face, rectangle_profile, rectangle_with_hole_profile,
+    ring_profile, top_front_edge, xy_plane_at, z_axis,
 };
 use partsmith_mesh::Mesh;
 use partsmith_occt_sys::{
@@ -391,6 +391,42 @@ fn l_shell_fallback() -> Outcome {
     Outcome::of_result(&shell(&body, &[step], 2.0).expect("the fallback shells L"))
 }
 
+// Test 131: walls thicker than the rounds, whose inner offsets vanish.
+
+/// `RC` of test 131: a 20 mm cube from (-10,-10,0) with its 4 edges parallel to Z rounded at
+/// radius 2, and the index of its top face.
+fn rounded_cube() -> (Shape, u32) {
+    let cube =
+        make_box(&xy_plane_at(-10.0, -10.0, 0.0), 20.0, 20.0, 20.0).expect("the 20 mm cube builds");
+    let face = |role| face_with_role(&cube, role);
+    let edges = [
+        (PrimitiveFace::Front, PrimitiveFace::Left),
+        (PrimitiveFace::Front, PrimitiveFace::Right),
+        (PrimitiveFace::Back, PrimitiveFace::Left),
+        (PrimitiveFace::Back, PrimitiveFace::Right),
+    ]
+    .map(|(first, second)| EdgeRadius {
+        edge: edge_between(&cube.shape, face(first), face(second)),
+        radius: 2.0,
+    });
+    let rounded = fillet(&cube.shape, &edges)
+        .expect("the vertical edges round")
+        .shape;
+    let top = planar_face(&rounded, UP, Point::new(0.0, 0.0, 20.0));
+    (rounded, top)
+}
+
+fn open_rounded_cube_shell_past_its_rounds() -> Outcome {
+    let (rounded, top) = rounded_cube();
+    Outcome::of_result(&shell(&rounded, &[top], 3.0).expect("RC shells open at 3 mm"))
+}
+
+fn closed_rounded_box_shell_past_its_rounds() -> Outcome {
+    Outcome::of_result(
+        &shell(&fully_rounded_box(), &[], 2.0).expect("the rounded box is hollowed at 2 mm"),
+    )
+}
+
 // Test 106: every other operation.
 
 fn box_primitive_case() -> Outcome {
@@ -622,6 +658,8 @@ repeatable! {
     t105_open_shell_of_moved_l_is_repeatable => moved_l_shell_with_arc_join,
     t105_open_shell_of_rounded_box_is_repeatable => open_rounded_box_shell,
     t105_shell_fallback_is_repeatable => l_shell_fallback,
+    t131_open_shell_past_the_rounds_is_repeatable => open_rounded_cube_shell_past_its_rounds,
+    t131_closed_shell_past_the_rounds_is_repeatable => closed_rounded_box_shell_past_its_rounds,
     t106_box_is_repeatable => box_primitive_case,
     t106_cylinder_is_repeatable => cylinder_primitive_case,
     t106_sphere_is_repeatable => sphere_primitive_case,
@@ -664,7 +702,7 @@ mod other_processes {
     /// One operation of tests 104 to 106: its name and a run of it.
     type Case = (&'static str, fn() -> Outcome);
 
-    /// Every case of tests 104 to 106.
+    /// Every case of tests 104 to 106 and 131.
     const CASES: &[Case] = &[
         ("closed_box_shell", super::closed_box_shell),
         ("closed_l_shell", super::closed_l_shell),
@@ -677,6 +715,14 @@ mod other_processes {
         ),
         ("open_rounded_box_shell", super::open_rounded_box_shell),
         ("l_shell_fallback", super::l_shell_fallback),
+        (
+            "open_rounded_cube_shell_past_its_rounds",
+            super::open_rounded_cube_shell_past_its_rounds,
+        ),
+        (
+            "closed_rounded_box_shell_past_its_rounds",
+            super::closed_rounded_box_shell_past_its_rounds,
+        ),
         ("box", super::box_primitive_case),
         ("cylinder", super::cylinder_primitive_case),
         ("sphere", super::sphere_primitive_case),

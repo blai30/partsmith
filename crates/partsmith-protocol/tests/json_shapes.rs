@@ -9,20 +9,20 @@ use common::examples::{
     FILLET_DIAGNOSTIC, MESSAGE_EXAMPLES, REGION_REPAIR, all_commands, all_results,
 };
 use common::{
-    compact, header_json, id, message, parse_json, schema_json, string_set, string_values, type_of,
-    variant_tags,
+    compact, header_json, id, message, object_keys, parse_json, schema_json, string_set,
+    string_values, type_of, variant_tags,
 };
 use partsmith_naming::Reference;
 use partsmith_protocol::{
     BoundingBox, Buffer, BufferIndex, Command, CommandResult, Diagnostic, DocHandle, ErrorCode,
-    ErrorInfo, Event, ExportFormat, FeatureState, FeatureStatus, Frame, Layer, MAGIC,
-    MeasureTarget, MeshBuffers, Message, Orientation, Outcome, PROTOCOL_VERSION, Repair, Response,
-    Severity, SketchSolution, encode_frame,
+    ErrorInfo, Event, ExportFormat, FeatureState, FeatureStatus, Frame, Ghost, GhostFrame,
+    GhostKind, Layer, MAGIC, MeasureTarget, MeshBuffers, Message, Orientation, Outcome,
+    PROTOCOL_VERSION, Repair, Response, Severity, SketchSolution, encode_frame,
 };
 use serde_json::{Value, json};
 
 /// The `fillet_too_large` message of section 2.4.
-const FILLET_MESSAGE: &str = "Fillet radius 3 mm is too large for the selected edges. The largest radius that works is about 2.3 mm. Try 2.3 mm or less.";
+const FILLET_MESSAGE: &str = "Fillet radius 3 mm is too large for the selected edges: the largest that works is about 2.3 mm.";
 
 /// The mesh buffer indices and counts of the first `body_mesh` example of section 2.7.
 fn box_mesh_buffers() -> MeshBuffers {
@@ -123,6 +123,8 @@ fn t032_edit_index_is_written_only_when_present() {
         message: "There is no feature with id f-x.".to_string(),
         edit_index: Some(1),
         span: None,
+        detail: None,
+        actions: Vec::new(),
     });
     assert_eq!(
         serde_json::to_string(&with_index).expect("an error serializes"),
@@ -134,6 +136,8 @@ fn t032_edit_index_is_written_only_when_present() {
         message: "There is no feature with id f-x.".to_string(),
         edit_index: None,
         span: None,
+        detail: None,
+        actions: Vec::new(),
     });
     assert_eq!(
         serde_json::to_string(&without_index).expect("an error serializes"),
@@ -339,6 +343,11 @@ fn t067_diagnostic_writes_field_and_suggestion_only_when_present() {
         message: FILLET_MESSAGE.to_string(),
         field: Some("/radius".to_string()),
         suggestion: Some("2.3 mm".to_string()),
+        actions: Vec::new(),
+        cause: None,
+        detail: None,
+        root: None,
+        reason: None,
     };
     assert_eq!(
         serde_json::to_string(&with_fix).expect("a diagnostic serializes"),
@@ -361,22 +370,116 @@ fn t067_diagnostic_writes_field_and_suggestion_only_when_present() {
 }
 
 #[test]
-fn t068_both_repair_variants_round_trip() {
+fn t068_both_repair_variants_round_trip_with_every_field() {
+    // The element repair of corpus R03: description, two candidates with their mesh element, and a ghost.
     let element: Repair =
         serde_json::from_str(ELEMENT_REPAIR).expect("the element repair deserializes");
-    assert!(matches!(element, Repair::Element { .. }), "got {element:?}");
+    let Repair::Element {
+        description,
+        candidates,
+        ghost,
+        ..
+    } = &element
+    else {
+        panic!("the R03 repair is an element repair, got {element:?}");
+    };
     assert_eq!(
-        serde_json::to_string(&element).expect("a repair serializes"),
-        compact(ELEMENT_REPAIR)
+        description,
+        "the top edge of 'Extrude 1' along a line of 'Sketch 1'"
+    );
+    assert_eq!(candidates.len(), 2);
+    assert!(
+        candidates
+            .iter()
+            .all(|candidate| candidate.element.is_some()),
+        "{candidates:?}"
+    );
+    assert_eq!(
+        ghost,
+        &Some(Ghost {
+            positions: BufferIndex(0),
+            kind: GhostKind::Lines,
+            frame: GhostFrame::World,
+        })
+    );
+    let written = serde_json::to_string(&element).expect("a repair serializes");
+    assert_eq!(written, compact(ELEMENT_REPAIR));
+    let written = parse_json(&written);
+    assert_eq!(
+        object_keys(&written),
+        [
+            "kind",
+            "path",
+            "body",
+            "reference",
+            "resolution",
+            "centroid",
+            "description",
+            "candidates",
+            "ghost"
+        ]
+    );
+    assert_eq!(
+        object_keys(&written["candidates"][0]),
+        [
+            "reference",
+            "description",
+            "relation",
+            "meaning",
+            "distance",
+            "score",
+            "element"
+        ]
     );
 
+    // The region repair of this test: two candidate sets and a ghost.
     let region: Repair =
         serde_json::from_str(REGION_REPAIR).expect("the region repair deserializes");
-    assert!(matches!(region, Repair::Region { .. }), "got {region:?}");
+    let written = serde_json::to_string(&region).expect("a repair serializes");
+    assert_eq!(written, compact(REGION_REPAIR));
+    let written = parse_json(&written);
     assert_eq!(
-        serde_json::to_string(&region).expect("a repair serializes"),
-        compact(REGION_REPAIR)
+        object_keys(&written),
+        [
+            "kind",
+            "path",
+            "sketch",
+            "region",
+            "resolution",
+            "description",
+            "candidates",
+            "ghost"
+        ]
     );
+    assert_eq!(
+        object_keys(&written["candidates"][0]),
+        ["regions", "description"]
+    );
+
+    // Without a ghost the key is absent; empty candidates are still written.
+    let Repair::Region {
+        path,
+        sketch,
+        region: stored,
+        resolution,
+        description,
+        ..
+    } = region
+    else {
+        panic!("the repair of this test is a region repair");
+    };
+    let bare = Repair::Region {
+        path,
+        sketch,
+        region: stored,
+        resolution,
+        description,
+        candidates: Vec::new(),
+        ghost: None,
+    };
+    let written = serde_json::to_value(&bare).expect("a repair serializes");
+    assert!(written.get("ghost").is_none(), "{written}");
+    assert_eq!(written["candidates"], json!([]));
 }
 
 #[test]

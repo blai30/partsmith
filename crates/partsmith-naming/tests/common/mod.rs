@@ -8,8 +8,8 @@ use std::sync::Arc;
 use partsmith_model::Id;
 use partsmith_naming::{
     Aliases, Anchors, Candidate, EdgeInfo, ElementInfo, ElementKind, ElementName, ElementSet,
-    FaceInfo, FaceSource, Fingerprint, Follow, GeometryKind, Lost, MatchMethod, Merged,
-    MergedName, Motion, NamingMap, Reference, Resolution, Successions, TopologyInfo, VertexInfo,
+    FaceInfo, FaceSource, Fingerprint, Follow, GeometryKind, Lost, MatchMethod, Merged, MergedName,
+    Motion, NamingMap, Reference, Resolution, Successions, TopologyInfo, VertexInfo,
 };
 use proptest::prelude::*;
 use serde_json::Value;
@@ -210,7 +210,10 @@ pub fn successions(entries: &[(&str, &[&str])]) -> Successions {
 
 /// The motion that translates by `(x, y, z)` without turning.
 pub fn translation(x: f64, y: f64, z: f64) -> Motion {
-    Motion::new([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]], [x, y, z])
+    Motion::new(
+        [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+        [x, y, z],
+    )
 }
 
 /// The 12 components of a motion read through its public API: the matrix rows, then the
@@ -767,9 +770,7 @@ pub fn candidate_names(candidates: &[Candidate]) -> Vec<&str> {
 pub fn renumbered_pieces_infos() -> Vec<ElementInfo> {
     vec![
         scope_element("f-b/top#1").with_adjacency(&["f-b/back", "f-b/front", "f-b/left", "f-n/w"]),
-        scope_element("f-b/top#2#1").with_adjacency(&[
-            "f-b/back", "f-b/front", "f-c/w1", "f-n/w2",
-        ]),
+        scope_element("f-b/top#2#1").with_adjacency(&["f-b/back", "f-b/front", "f-c/w1", "f-n/w2"]),
         scope_element("f-b/top#2#2").with_adjacency(&[
             "f-b/back",
             "f-b/front",

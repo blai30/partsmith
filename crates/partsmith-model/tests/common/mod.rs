@@ -6,8 +6,8 @@
 use std::collections::BTreeMap;
 
 use partsmith_model::{
-    Body, Document, Expr, ExprError, ExprErrorKind, ExprLink, FeatureInspector, FeatureLinks,
-    FeatureRecord, Id, Parameter, ParameterValues, Quantity, Scope, Span, Units,
+    Body, Document, Expr, ExprError, ExprErrorKind, ExprLink, FORMAT_VERSION, FeatureInspector,
+    FeatureLinks, FeatureRecord, Id, Parameter, ParameterValues, Quantity, Scope, Span, Units,
 };
 use serde_json::{Map, Value};
 
@@ -33,19 +33,15 @@ pub const E8_OUTPUT: &str = include_str!("../fixtures/e8_normalized.ptsm");
 /// File-format example E10: every field format version 2 adds (3081 bytes).
 pub const E10: &str = include_str!("../fixtures/e10_version_2.ptsm");
 
-/// The `format_version` line of every canonical example.
-pub const FORMAT_VERSION_LINE: &str = "  \"format_version\": 2,\n";
-
 /// A canonical example with its `format_version` line set to `value`, or removed when `value` is `None`.
 pub fn with_format_version(text: &str, value: Option<&str>) -> String {
+    let line = |value: &str| format!("  \"format_version\": {value},\n");
+    let current = line(&FORMAT_VERSION.to_string());
     assert!(
-        text.contains(FORMAT_VERSION_LINE),
+        text.contains(&current),
         "the text has no canonical format_version line"
     );
-    let replacement = value.map_or(String::new(), |value| {
-        format!("  \"format_version\": {value},\n")
-    });
-    text.replacen(FORMAT_VERSION_LINE, &replacement, 1)
+    text.replacen(&current, &value.map_or(String::new(), line), 1)
 }
 
 /// Lines of the non-canonical E8 input; the file ends every line with CR LF.

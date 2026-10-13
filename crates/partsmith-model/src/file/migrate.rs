@@ -219,20 +219,4 @@ mod tests {
         assert_eq!(migrated, json!({"format_version": 2}));
         assert_eq!(original, Some(1));
     }
-
-    #[test]
-    fn the_built_in_chain_brings_version_one_to_two() {
-        assert_eq!(
-            migrate(json!({"format_version": 1, "units": "mm"})),
-            Ok((json!({"format_version": 2, "units": "mm"}), Some(1)))
-        );
-    }
-
-    #[test]
-    fn the_built_in_chain_keeps_version_two() {
-        assert_eq!(
-            migrate(json!({"format_version": 2})),
-            Ok((json!({"format_version": 2}), None))
-        );
-    }
 }

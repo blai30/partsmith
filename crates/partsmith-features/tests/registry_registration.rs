@@ -1,11 +1,12 @@
-//! Acceptance tests for feature registration, built-in manifests and params schemas (features.md section 6.2, tests 1 to 7 and 15).
+//! Acceptance tests for feature registration, built-in manifests and params schemas, with the
+//! defaults the feature catalog carries (features.md section 6.2, tests 1 to 7 and 15).
 //!
 //! Tests of the 20 built-in feature types that check framework behavior each have a companion with
 //! the same number that uses test features instead.
 
 mod common;
 
-use common::{Probe, Slab, hint, manifest, no_dependencies, nothing};
+use common::{Probe, Slab, hint, manifest, no_dependencies, nothing, record};
 use partsmith_features::{
     BuildContext, Category, Dependencies, Feature, FeatureError, FeatureManifest, FeatureOutput,
     Registry, RegistryError,
@@ -625,4 +626,148 @@ fn t015_params_schemas_compose_into_the_ptsm_schema() {
         keys(properties),
         ["body", "profile", "extent", "reverse", "op"]
     );
+}
+
+/// The fixed-length arrays of three lengths whose default is `["0", "0", "0"]`, by feature type
+/// and property (move_body.md section 2, features.md section 3.14), with a minimal valid record
+/// of each type that sets the property to its default.
+fn zero_triples() -> [(&'static str, &'static str, Value); 6] {
+    let zero = json!(["0", "0", "0"]);
+    [
+        (
+            "move_body",
+            "translation",
+            json!({"id": "f-mv1", "type": "move_body", "body": "b-1", "translation": zero}),
+        ),
+        (
+            "box",
+            "position",
+            json!({"id": "f-box1", "type": "box", "body": "b-1", "size": ["10", "10", "10"], "position": zero, "op": "new"}),
+        ),
+        (
+            "cylinder",
+            "position",
+            json!({"id": "f-cyl1", "type": "cylinder", "body": "b-1", "radius": "5", "height": "10", "position": zero, "op": "new"}),
+        ),
+        (
+            "sphere",
+            "position",
+            json!({"id": "f-sph1", "type": "sphere", "body": "b-1", "radius": "5", "position": zero, "op": "new"}),
+        ),
+        (
+            "cone",
+            "position",
+            json!({"id": "f-con1", "type": "cone", "body": "b-1", "bottom_radius": "5", "top_radius": "2", "height": "10", "position": zero, "op": "new"}),
+        ),
+        (
+            "torus",
+            "position",
+            json!({"id": "f-tor1", "type": "torus", "body": "b-1", "major_radius": "10", "minor_radius": "2", "position": zero, "op": "new"}),
+        ),
+    ]
+}
+
+/// The root params schema of built-in type `kind`, as the feature catalog carries it.
+fn builtin_params_schema(kind: &str) -> Value {
+    Registry::with_builtins()
+        .params_schemas()
+        .into_iter()
+        .find(|schema| schema.kind == kind)
+        .unwrap_or_else(|| panic!("{kind} has a params schema"))
+        .schema
+        .as_value()
+        .clone()
+}
+
+/// Asserts that property `property` of the params schema of `kind` is an optional array of
+/// exactly three items whose `default` is `["0", "0", "0"]`, so a host starts each item at 0 and
+/// never sends a shorter array (ui.md section 2.12, open issue 17).
+fn assert_zero_triple_default(kind: &str, property: &str) {
+    let root = builtin_params_schema(kind);
+
+    let schema = &root["properties"][property];
+
+    assert_eq!(
+        schema["default"],
+        json!(["0", "0", "0"]),
+        "default of {kind} {property}: {schema}"
+    );
+    assert_eq!(
+        schema["type"],
+        json!("array"),
+        "{kind} {property}: {schema}"
+    );
+    assert_eq!(schema["minItems"], json!(3), "{kind} {property}: {schema}");
+    assert_eq!(schema["maxItems"], json!(3), "{kind} {property}: {schema}");
+    let required = root["required"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{kind} lists its required properties: {root}"));
+    assert!(
+        !required.contains(&json!(property)),
+        "{kind} {property} stays optional: {required:?}"
+    );
+}
+
+#[test]
+fn t015_move_body_translation_defaults_to_zero() {
+    assert_zero_triple_default("move_body", "translation");
+}
+
+#[test]
+fn t015_box_position_defaults_to_zero() {
+    assert_zero_triple_default("box", "position");
+}
+
+#[test]
+fn t015_cylinder_position_defaults_to_zero() {
+    assert_zero_triple_default("cylinder", "position");
+}
+
+#[test]
+fn t015_sphere_position_defaults_to_zero() {
+    assert_zero_triple_default("sphere", "position");
+}
+
+#[test]
+fn t015_cone_position_defaults_to_zero() {
+    assert_zero_triple_default("cone", "position");
+}
+
+#[test]
+fn t015_torus_position_defaults_to_zero() {
+    assert_zero_triple_default("torus", "position");
+}
+
+#[test]
+fn t015_zero_triples_stay_omitted_from_canonical_records() {
+    let registry = Registry::with_builtins();
+
+    for (kind, property, json) in zero_triples() {
+        let validated = registry
+            .validate_and_canonicalize(&record(json))
+            .unwrap_or_else(|error| panic!("the {kind} record is valid: {error:?}"));
+
+        assert!(
+            !validated.record.params.contains_key(property),
+            "a default {kind} {property} is omitted: {:?}",
+            validated.record.params
+        );
+    }
+}
+
+#[test]
+fn t015_zero_triple_defaults_compose_into_the_ptsm_schema() {
+    let registry = Registry::with_builtins();
+
+    let schema = partsmith_model::ptsm_schema(&registry.params_schemas())
+        .expect("the built-in params schemas compose");
+
+    for (kind, property, _) in zero_triples() {
+        let pointer = format!("/$defs/feature.{kind}/properties/{property}/default");
+        assert_eq!(
+            schema.as_value().pointer(&pointer),
+            Some(&json!(["0", "0", "0"])),
+            "{pointer}"
+        );
+    }
 }

@@ -21,8 +21,6 @@ import { chooseContext, expectCurrentReport, healthItems, openPrintCheck } from 
 type FixtureCheck = {
   readonly file: string
   readonly check: (page: Page) => Promise<void>
-  /** Set when a core defect keeps the fixture from its result: the test is marked fixme. */
-  readonly blocked?: true
 }
 
 /** Selects a body by its browser row and expects its size and center. */
@@ -100,11 +98,7 @@ const FIXTURES: readonly FixtureCheck[] = [
     },
   },
   {
-    // Core defect, ui.md open issue 17: the shell of 2 mm fails with `shell_too_thick` ("The
-    // thickest wall that works is about 1.9 mm") on the cube whose vertical edges have a 2 mm
-    // fillet, though the inner offset only closes into a sharp corner.
     file: 'cube-features.ptsm',
-    blocked: true,
     check: async (page) => {
       await expectTimeline(page, ['Sketch 1', 'Extrude 1', 'Fillet 1', 'Shell 1'])
     },
@@ -182,8 +176,7 @@ const FIXTURES: readonly FixtureCheck[] = [
 
 test.describe('E-108 fixtures', () => {
   for (const fixture of FIXTURES) {
-    const define = fixture.blocked === true ? test.fixme : test
-    define(`E-108 ${fixture.file} opens with its stated result`, async ({ page }) => {
+    test(`E-108 ${fixture.file} opens with its stated result`, async ({ page }) => {
       await openApp(page)
       await dropFile(page, fixture.file)
       await fixture.check(page)

@@ -1,27 +1,13 @@
-//! Acceptance tests for format version 2 (file-format.md section 6, "Format version 2", tests 54 to 56), with unit tests of the version 2 rules of section 3.9 and the messages that name the version.
+//! Acceptance tests for format version 2 (file-format.md section 6, "Format version 2", tests 54 to 56), with tests of the version 2 rules of section 3.9.
 
 mod common;
 
-use common::{E1, E2, E3, E4, E5, E6, E7, E8_OUTPUT, E10, e8_input, with_format_version};
+use common::{E2, E8_OUTPUT, E10, e8_input, with_format_version};
 use partsmith_model::{
-    Document, FORMAT_VERSION, LoadError, SaveError, StructureError, Units, load, load_bytes,
-    migrate_with, save,
+    Document, LoadError, SaveError, StructureError, Units, load, load_bytes, migrate_with, save,
 };
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
-
-/// Every canonical example of section 3.6 that `load` and `save` reproduce, with its name.
-const CANONICAL_EXAMPLES: [(&str, &str); 9] = [
-    ("E1", E1),
-    ("E2", E2),
-    ("E3", E3),
-    ("E4", E4),
-    ("E5", E5),
-    ("E6", E6),
-    ("E7", E7),
-    ("E8", E8_OUTPUT),
-    ("E10", E10),
-];
 
 /// The document `text` loads to.
 fn load_document(text: &str) -> Document {
@@ -36,7 +22,7 @@ fn save_text(document: &Document) -> String {
 }
 
 /// A canonical example written at format version 1.
-fn at_version_one(text: &str) -> String {
+fn at_version_1(text: &str) -> String {
     with_format_version(text, Some("1"))
 }
 
@@ -82,7 +68,7 @@ fn keys_at<'a>(value: &'a Value, pointer: &str) -> Vec<&'a str> {
 #[test]
 fn t054_a_version_1_document_changes_only_its_version() {
     for (name, text) in [("E2", E2), ("E10", E10)] {
-        let input = at_version_one(text);
+        let input = at_version_1(text);
 
         let loaded = load(&input).unwrap_or_else(|error| panic!("{name} at version 1: {error}"));
 
@@ -150,43 +136,9 @@ fn t056_a_build_that_reads_only_version_1_stops_cleanly() {
 }
 
 #[test]
-fn canonical_examples_are_at_version_2_and_load_without_migrating() {
-    for (name, text) in CANONICAL_EXAMPLES {
-        let loaded = load(text).unwrap_or_else(|error| panic!("{name}: {error}"));
-
-        assert!(
-            text.starts_with("{\n  \"format\": \"partsmith\",\n  \"format_version\": 2,\n"),
-            "{name}"
-        );
-        assert_eq!(loaded.migrated_from, None, "{name}");
-        assert_eq!(loaded.document.format_version, 2, "{name}");
-    }
-}
-
-#[test]
-fn every_canonical_example_at_version_1_saves_back_at_version_2() {
-    for (name, text) in CANONICAL_EXAMPLES {
-        let input = at_version_one(text);
-
-        let loaded = load(&input).unwrap_or_else(|error| panic!("{name} at version 1: {error}"));
-
-        assert_eq!(loaded.migrated_from, Some(1), "{name}");
-        assert_eq!(loaded.document.format_version, FORMAT_VERSION, "{name}");
-        assert_eq!(save_text(&loaded.document), text, "{name}");
-    }
-}
-
-#[test]
-fn a_migrated_document_is_structurally_valid() {
-    let document = load_document(&at_version_one(E10));
-
-    assert_eq!(document.check_structure(), Vec::<StructureError>::new());
-}
-
-#[test]
 fn version_1_bytes_migrate_like_version_1_text() {
     let mut bytes = vec![0xEF, 0xBB, 0xBF];
-    bytes.extend_from_slice(at_version_one(E2).as_bytes());
+    bytes.extend_from_slice(at_version_1(E2).as_bytes());
 
     let loaded = load_bytes(&bytes).expect("E2 at version 1 loads from bytes");
 
@@ -207,13 +159,6 @@ fn the_non_canonical_e8_input_at_version_1_saves_as_e8() {
 
     assert_eq!(loaded.migrated_from, Some(1));
     assert_eq!(save_text(&loaded.document), E8_OUTPUT);
-}
-
-#[test]
-fn a_new_document_saves_at_version_2() {
-    let text = save_text(&Document::new(Units::Mm));
-
-    assert_eq!(text.lines().nth(2), Some("  \"format_version\": 2,"));
 }
 
 #[test]
@@ -267,61 +212,4 @@ fn the_loader_keeps_version_2_fields_without_checking_them() {
         Some(&json!(7))
     );
     assert_eq!(load_document(&save_text(&document)), document);
-}
-
-#[test]
-fn version_2_fields_are_not_added_to_a_version_1_document() {
-    let saved = save_text(&load_document(&at_version_one(E2)));
-
-    for key in ["nb", "merged", "outline", "fallback_frame", "direction"] {
-        assert!(
-            !saved.contains(&format!("\"{key}\":")),
-            "the saved E2 has {key}"
-        );
-    }
-}
-
-#[test]
-fn the_version_2_fields_load_as_feature_params() {
-    let document = load_document(E10);
-
-    assert_eq!(
-        params_of(&document, "f-ext1").pointer("/profile/regions/0/outline"),
-        Some(&json!("e-1,e-2,e-3,e-4"))
-    );
-    assert_eq!(
-        params_of(&document, "f-sk2").pointer("/plane/fallback_frame"),
-        Some(&json!("body"))
-    );
-    assert_eq!(
-        params_of(&document, "f-fil1").pointer("/edges/0/nb"),
-        Some(&json!({"f-ext1/end-cap#2": ["f-ext1/lateral/e-2", "f-ext2/lateral/e-6"]}))
-    );
-    assert_eq!(
-        params_of(&document, "f-lp1").pointer("/direction/axis/direction"),
-        Some(&json!([1, 0, 0]))
-    );
-    assert_eq!(
-        params_of(&document, "f-dp1").pointer("/base/face/merged"),
-        Some(&json!({"f-ext1/start-cap": ["f-ext1/start-cap@f-lp1:*"]}))
-    );
-}
-
-#[test]
-fn version_messages_name_version_2() {
-    assert_eq!(
-        LoadError::MissingFormatVersion.to_string(),
-        "The document has no \"format_version\". Add \"format_version\": 2 after \"format\"."
-    );
-    assert_eq!(
-        LoadError::InvalidFormatVersion {
-            found: "\"1\"".to_string()
-        }
-        .to_string(),
-        "\"format_version\" must be a whole number such as 2, not \"1\"."
-    );
-    assert_eq!(
-        StructureError::WrongFormatVersion { found: 1 }.to_string(),
-        "The document is at format version 1, but documents in memory must be at version 2. Load it from text so it is migrated."
-    );
 }

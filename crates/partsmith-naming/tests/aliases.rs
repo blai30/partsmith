@@ -9,20 +9,14 @@ use serde_json::json;
 
 #[test]
 fn t122_chase_unions_the_ends_of_every_target() {
-    let merged = aliases(&[
-        ("f-a/x", &["f-b/y", "f-c/z"]),
-        ("f-b/y", &["f-d/w"]),
-    ]);
+    let merged = aliases(&[("f-a/x", &["f-b/y", "f-c/z"]), ("f-b/y", &["f-d/w"])]);
 
     assert_eq!(merged.chase(&name("f-a/x")), names(&["f-c/z", "f-d/w"]));
 }
 
 #[test]
 fn t122_chase_of_a_name_that_is_no_key_is_the_name() {
-    let merged = aliases(&[
-        ("f-a/x", &["f-b/y", "f-c/z"]),
-        ("f-b/y", &["f-d/w"]),
-    ]);
+    let merged = aliases(&[("f-a/x", &["f-b/y", "f-c/z"]), ("f-b/y", &["f-d/w"])]);
 
     assert_eq!(merged.chase(&name("f-e/v")), names(&["f-e/v"]));
 }

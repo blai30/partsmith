@@ -134,6 +134,16 @@ pub fn parse_json(text: &str) -> Value {
         .unwrap_or_else(|error| panic!("the example is JSON ({error}): {text}"))
 }
 
+/// The member names of a JSON object, in the order they were written.
+pub fn object_keys(value: &Value) -> Vec<&str> {
+    value
+        .as_object()
+        .unwrap_or_else(|| panic!("{value} is a JSON object"))
+        .keys()
+        .map(String::as_str)
+        .collect()
+}
+
 /// A valid id.
 pub fn id(text: &str) -> Id {
     Id::new(text).unwrap_or_else(|_| panic!("{text:?} is a valid id"))

@@ -24,7 +24,7 @@ Setups use BLOCK unless they say otherwise.
 
 1. Every message says what happened, why, and what to do, in at most two sentences, naming features, bodies, fields, values, sketch entities and constraints the way the user sees them. No ids, codes, element names, scores or kernel text appear in the sentence, and the message lint of the error guidelines passes.
 2. A fix is offered only when it works or is exact. "Turn on Reverse" appears only when the reversed shape reaches the body (NC03 at distance 5 and NC12 offer none), and a limit only when it is a useful value. Applying an offered fix gives the stated result in one undo entry.
-3. A cause is stated only when the code established it: the limiting face is named because it was measured (NC05), and round faces smaller than the wall are stated as a fact, not blamed (NC06).
+3. A cause is stated only when the code established it: the limiting face is named because it was measured (NC05), and round faces smaller than the wall are stated as a fact, not blamed (features/shell.md test 16).
 4. One root cause gives one problem: downstream features name the root and offer Show, never Pick (NC07, NC11).
 5. The message and its actions are the same in every host and in a document opened fresh. The cause line is the only part that depends on the session.
 
@@ -45,7 +45,7 @@ All twelve pass in phase 3 of the study's plan except the cause lines of NC08 an
 | 2. Sketch on the wrong plane: a join buried inside the body, a cut that misses, a join that floats | NC02, NC03, NC04, NC12 | "This feature does not change body 'Body 1'." or nothing; "turn on Reverse" also when reversing misses too | `no_effect` says where the tool is and by how much; Turn on Reverse only when it works; "Attach 'Sketch 2' to the top of 'Extrude 1'"; a floating join warns that the body now has 2 pieces |
 | 3. Fillet or chamfer too large | NC05 | The limit and "Try 2.3 mm or less.", but not which edge or face limits it | The limiting face is named with its measured width; a limit too small to be useful is not suggested; "Remove that edge from Edges" when the other edges work |
 | 4. Constraint conflict, or a dimension value the sketch cannot take | NC07, NC08 | Constraints named by id; nothing names the change of a value | The conflicting constraints are named by title and value with Delete and Make a reference actions; a value the sketch cannot take names the change and offers its revert and Undo |
-| 5. Shell too thick for the wall the print needs | NC06 | "Try 0.99 mm or less." only | The rounded faces smaller than the wall are named with the feature that made them; "Set Radius of 'Fillet 1' to 3 mm" and "Move 'Shell 1' above 'Fillet 1'" come before the thinner wall |
+| 5. Shell too thick for the wall the print needs | NC06 | "Try 0.99 mm or less." only | Prevented: the shell builds, the rounds of a fillet thinner than the wall closing into sharp inner corners as in other CAD tools (kernel.md section 3.4.8 item 6). A wall truly too thick names the round faces only when they may be what stops it (features.md section 4.3) |
 
 ## Index
 
@@ -56,7 +56,7 @@ All twelve pass in phase 3 of the study's plan except the cause lines of NC08 an
 | NC03 | 2 | `no_effect` | Cut that points away | E-112 |
 | NC04 | 2 | `separate_solid` | Floating join | E-113 |
 | NC05 | 3 | `fillet_too_large` | Fillet too large | E-114 |
-| NC06 | 5 | `shell_too_thick` | Shell too thick for 2 mm walls | E-115 |
+| NC06 | 5 | none (ok) | 2 mm walls after a 1 mm fillet | E-115 |
 | NC07 | 4 | `sketch_conflict` | Constraint conflict | E-116 |
 | NC08 | 4 | `sketch_not_solved` | A dimension value the sketch cannot take | E-117 |
 | NC09 | | units control | Units switch with bare numbers | E-118 |
@@ -101,12 +101,11 @@ All twelve pass in phase 3 of the study's plan except the cause lines of NC08 an
 - **Then:** ok.
 - **Today:** `Fillet radius 3 mm is too large for the selected edges. The largest radius that works is about 2.3 mm. Try 2.3 mm or less.`, which does not say which face limits the radius.
 
-### NC06 Shell too thick for 2 mm walls
+### NC06 2 mm walls after a 1 mm fillet
 
 - **Setup:** bodies `[b-1]`. `f-box1` box 40 x 40 x 20. `f-fil1` fillet radius 1 on the four vertical edges `edge(f-box1/front|f-box1/left)`, `edge(f-box1/front|f-box1/right)`, `edge(f-box1/back|f-box1/left)`, `edge(f-box1/back|f-box1/right)`. `f-sh1` shell thickness 2 removing `f-box1/top`.
-- **Expect:** `f-sh1` error `shell_too_thick`: `Shell thickness 2 mm is too thick for body 'Body 1': the largest that works is about 0.99 mm. Its rounded faces made by 'Fillet 1' have radius 1 mm, smaller than the wall.` [Set Radius of 'Fillet 1' to 3 mm] [Move 'Shell 1' above 'Fillet 1'] [Use 0.99 mm].
-- **Then:** ok, with 2 mm walls.
-- **Today:** `Shell thickness 2 mm is too thick for body 'Body 1'. The thickest wall that works is about 0.99 mm. Try 0.99 mm or less.`, whose only way out is a wall too thin to print.
+- **Expect:** every feature ok. The rounds' inner offsets vanish and the 2 mm walls meet in sharp inner corners (kernel.md section 3.4.8 item 6, ui.md open issue 17); volume 8592 + 20π = 8654.831853, 15 faces, no face named `f-sh1/inner/f-fil1/...`.
+- **Today:** `Shell thickness 2 mm is too thick for body 'Body 1'. The thickest wall that works is about 0.99 mm. Try 0.99 mm or less.`, whose only way out is a wall too thin to print: OCCT's offset could not take a convex round past its radius, so any wall at least as thick as the fillet failed. The study's first answer named the rounds and offered "Set Radius of 'Fillet 1' to 3 mm" and "Move 'Shell 1' above 'Fillet 1'"; the kernel fix makes the error itself go away (features.md open issue 17).
 
 ### NC07 Constraint conflict
 

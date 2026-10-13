@@ -183,6 +183,31 @@ fn part() -> Shape {
     shell(&drilled, &[top], 2.0).expect("the part shells").shape
 }
 
+/// `RC` of spec test 131: a 20 mm cube from (-10,-10,0) with its four vertical edges rounded at
+/// radius 2.
+fn rounded_cube() -> Shape {
+    let block = make_box(&placed(-10.0, -10.0, 0.0), 20.0, 20.0, 20.0)
+        .expect("the cube builds")
+        .shape;
+    let vertical: Vec<EdgeRadius> = block
+        .elements(SubShapeKind::Edge)
+        .expect("edges can be queried")
+        .iter()
+        .enumerate()
+        .filter(|(_, edge)| {
+            edge.direction
+                .is_some_and(|direction| direction.z.abs() > 0.5)
+        })
+        .map(|(position, _)| EdgeRadius {
+            edge: u32::try_from(position + 1).expect("a cube has 12 edges"),
+            radius: 2.0,
+        })
+        .collect();
+    fillet(&block, &vertical)
+        .expect("the vertical edges round")
+        .shape
+}
+
 /// `PLATE` of spec section 5: a 200 x 200 x 10 box with 194 through holes of radius 4 cut in one
 /// call (200 faces, 594 edges, 396 vertices).
 fn plate() -> Shape {
@@ -363,6 +388,17 @@ fn main() -> ExitCode {
             // A failed shell returns early, so its time would say nothing about the budget.
             shell(&body, &[step], 2.0).expect("the fallback shells L");
             median_time_of(RUNS, || shell(&body, &[step], 2.0))
+        },
+    );
+    report.measure(
+        "shell, rounded cube with walls thicker than its rounds",
+        milliseconds(40),
+        || {
+            let rounded = rounded_cube();
+            let top = planar_face(&rounded, UP, 20.0);
+            // A failed shell returns early, so its time would say nothing about the budget.
+            shell(&rounded, &[top], 3.0).expect("the rounded cube shells past its rounds");
+            median_time_of(RUNS, || shell(&rounded, &[top], 3.0))
         },
     );
 
