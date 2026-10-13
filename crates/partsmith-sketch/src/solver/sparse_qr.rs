@@ -126,9 +126,8 @@ impl Reflectors {
     }
 
     /// Turns the vector being built, whose norm is `norm`, into the reflector that maps it onto its
-    /// first row, and returns that pivot row, the diagonal entry of `R` the reflector leaves there
-    /// and the rows of the reflector's vector.
-    fn finish(&mut self, norm: f64) -> (usize, f64, &[usize]) {
+    /// first row, and returns that pivot row with the diagonal entry of `R` the reflector leaves there.
+    fn finish(&mut self, norm: f64) -> (usize, f64) {
         let start = self.building_start();
         let pivot = self.vector_rows[start];
         let pivot_value = self.vector_values[start];
@@ -136,7 +135,7 @@ impl Reflectors {
         self.vector_values[start] -= diagonal;
         self.betas.push(1.0 / (norm * (norm + pivot_value.abs())));
         self.vector_starts.push(self.vector_rows.len());
-        (pivot, diagonal, &self.vector_rows[start..])
+        (pivot, diagonal)
     }
 }
 
@@ -283,8 +282,8 @@ impl SparseQr {
             return Added::Dependent { projection };
         }
         let reflector = self.pivots.len();
-        let (pivot, diagonal, rows) = self.reflectors.finish(residual_norm);
-        for &row in rows {
+        let (pivot, diagonal) = self.reflectors.finish(residual_norm);
+        for &row in self.reflectors.rows(reflector) {
             self.touching[row].push(reflector);
         }
         self.pivot_of[pivot] = Some(reflector);
