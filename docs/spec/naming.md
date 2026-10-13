@@ -833,9 +833,9 @@ The `inherited` maps passed to `build` are every input naming map of the operati
 
 `new_motion` is the motion of the geometry the feature builds its new faces on (section 3.3 step 8), so that a face made on a moved body moves with it when the move changes:
 
-- for an extrude, a revolve or a hole whose sketch is placed on a face with `fallback_frame: body`, the motion of that face (`BodyState::motion` of the sketch plane's stored query); for a sketch on a datum plane, the motion of the face that plane is placed on, followed through datum planes placed on other datum planes;
+- for an extrude, a revolve or a hole whose sketch is placed on a face with `fallback_frame: body`, the motion of that face (`BodyState::motion` of the sketch plane's stored query); for a sketch on a datum plane, the motion the datum passes on (`DatumResult::Plane::motion`, features/datum_plane.md section 3.2 step 4): the part of its base face's motion that the datum's frame follows, the identity when the frame does not follow the face, and the base datum's motion for a datum placed on another datum;
 - for fillet, chamfer, shell and split body, the base motion of the body's map (their faces are made on the body where it is);
-- otherwise the identity: a sketch on an origin plane, on a datum plane not placed on a face, or on a face with `fallback_frame: world` (whose placement does not follow the face's motion); primitives and imports, which are placed in world coordinates; and boolean, mirror, pattern and move body, which name every face `From` except by the fallback rule.
+- otherwise the identity: a sketch on an origin plane, on a datum plane whose motion is the identity (one on an origin plane, or one whose frame does not follow its face), or on a face with `fallback_frame: world` (whose placement does not follow the face's motion); primitives and imports, which are placed in world coordinates; and boolean, mirror, pattern and move body, which name every face `From` except by the fallback rule.
 
 A feature that runs several kernel operations builds an intermediate map after each one (for example the tool map of an extrude, then the map of the boolean with the target body). Only the final map is stored.
 

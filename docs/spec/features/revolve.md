@@ -138,7 +138,7 @@ Boundary pieces that lie on the axis generate no face (the solid closes on the a
 | `<id>/start-cap` | The profile face at angle 0. Partial revolves only. |
 | `<id>/end-cap` | The profile face at angle θ. Partial revolves only. |
 
-Successions of the profile match become aliases of the lateral faces (naming.md section 3.6.2), as for extrude ([extrude.md](extrude.md) section 3.4).
+Successions of the profile match are passed to `NamingMap::build` as `added_successions` of the lateral faces, kept apart from merge aliases (naming.md section 3.6.2), as for extrude ([extrude.md](extrude.md) section 3.4).
 
 ## 4. Errors and warnings
 

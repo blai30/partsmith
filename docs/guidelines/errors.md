@@ -40,7 +40,7 @@ At most two sentences plus the cause line. If it needs more, it is two problems,
 | --- | --- | --- |
 | Feature | its label in single quotes: 'Extrude 2', 'Bracket base' | `f-ext2`, `extrude f-000000000003` |
 | The feature the message is on | "this fillet" (its type in lowercase) | "this feature" when the type is known |
-| A feature that is no longer in the document | "a feature that is not in this document"; the cause line, which knows the history, says "after you deleted 'Extrude 1'" | its id, or "deleted" when the code cannot know it was deleted |
+| A feature that is no longer in the document | "a feature that is not in this document"; the cause line, which knows the history, says "after you deleted 'Extrude 1'", or "after you deleted the former 'Extrude 1'" when another feature now has that label | its id, or "deleted" when the code cannot know it was deleted |
 | Body | its name in single quotes: body 'Bracket' | `b-1` |
 | Field | its inspector label: Distance, Edges, Operation | `extent.expr`, `size[0]`, `op` |
 | Value | value with unit, as typed or in document units: 2.4 mm, 90 deg, 0.094 in | 2.4, 2.39999999 |
@@ -117,16 +117,16 @@ Ids, element names and hashes may appear in the detail and, for script and file 
 The same problem reads the same everywhere; only the way to act differs.
 
 - **UI:** buttons for actions; the cause line and its actions under the message; a notification for every new lost reference, region or sketch face; the lost element's ghost and the numbered candidates in the viewport.
-- **CLI:** the message, then the location (`model.ptsm:17: /features/1/edges/0`), then the actions as instructions ("suggested: radius = 2.3 mm", "candidate: edge(f-box1/top|f-ext2/lateral/e-3), on the top of 'Box 1', 5 mm from where it was"); `--json` carries codes, pointers, actions, candidates with their scores, reasons and details. Exit codes, not words, tell scripts what failed.
+- **CLI:** the message with its location, the JSON Pointer of the field in the document (`model.ptsm: error[fillet_too_large] at /features/1/radius: ...`), then one line per action with its label ("suggested: Use 2.3 mm") and per candidate ("candidate: edge(f-box1/top|f-ext2/lateral/e-3), on the top of 'Box 1', 5 mm from where it was") ([cli.md](../spec/cli.md) section 2.2); `--json` carries codes, pointers, actions, candidates with their scores, reasons and details. Exit codes, not words, tell scripts what failed.
 - **Python:** exceptions and warnings carry `code`, `field`, `suggestion`, `actions`, `candidates`, `cause` and `detail` as attributes; the message starts with the call that failed (`fillet(): ...`) and points at the user's line, not Partsmith's internals; advice uses Python terms ("pass a new edge, for example block.edges().parallel_to(Axis.Z)"). Indexing a selection by number (`edges()[3]`) warns, because a position is the numbered naming the project avoids.
 
 ## Examples from the inventory
 
 | Before | After |
 | --- | --- |
-| The edge selected for Edges can no longer be found. Re-pick it in the repair panel. | The front top edge of 'Box 1' selected for Edges was cut away by 'Extrude 1', which comes before this fillet. [Use the top edge of the cut made by 'Extrude 1'] [Use the front edge of the cut made by 'Extrude 1'] [Pick an edge again] *This started after you added 'Extrude 1' before this fillet.* [Suppress 'Extrude 1'] [Undo] |
+| The edge selected for Edges can no longer be found. Re-pick it in the repair panel. | The front top edge of 'Box 1' selected for Edges was cut away by 'Extrude 1', which comes before this fillet. [Use the front edge of the cut made by 'Extrude 1'] [Use the top edge of the cut made by 'Extrude 1'] [Use the front left edge of 'Box 1'] [Use the front right edge of 'Box 1'] [Use the left top edge of 'Box 1'] [Pick an edge again] *This started after you added 'Extrude 1' before this fillet.* [Suppress 'Extrude 1'] [Undo] |
 | One of the edges selected for Edges now matches 2 edges, so it was skipped. Pick the one you mean in the repair panel. | The front top edge of 'Box 1' selected for Edges now matches 2 edges after 'Box 1' changed, so it was skipped. Pick the one you mean. [Use the front top edge of 'Box 1'] [Use the back top edge of 'Box 1'] |
-| The face this sketch is on can no longer be found, so the sketch stays at its last position. Re-attach it in the repair panel. | The face this sketch is on, the top of 'Box 1', was cut away by 'Extrude 1', which comes before this sketch, so the sketch stays where that face was. [Attach to the floor of the cut made by 'Extrude 1'] [Pick a face] |
+| The face this sketch is on can no longer be found, so the sketch stays at its last position. Re-attach it in the repair panel. | The face this sketch is on, the top of 'Box 1', was cut away by 'Extrude 1', which comes before this sketch, so the sketch stays where that face was. [Attach to the floor of the cut made by 'Extrude 1'] [Pick a face again] |
 | Body 'Body 1' is empty at this point. Use op new to start it. | Body 'Body 1' is empty here because 'Extrude 1', which makes it, is suppressed. [Unsuppress 'Extrude 1'] |
 | 'Sketch 1' has an error, so this feature cannot use it. Fix 'Sketch 1' first. | 'Sketch 1' cannot be built because 'Datum plane 1' has an error, so this extrude cannot use it either. Fix 'Datum plane 1' first. [Show 'Datum plane 1'] |
 | Fillet radius 2 in is too large for the selected edges. The largest radius that works is about 1.9 in. Try 1.9 in or less. | Fillet radius 2 in is too large for the selected edges: the largest that works is about 1.9 in. '2' has no unit, so it means 2 in in this document. [Use 2 mm] [Use 1.9 in] *This started after you changed the document units from mm to in.* |
@@ -135,7 +135,7 @@ The same problem reads the same everywhere; only the way to act differs.
 | This feature does not change body 'Body 1'. Check its position, size and direction. | This extrude adds nothing to body 'Body 1': it lies entirely inside the body. [Attach 'Sketch 2' to the top of 'Extrude 1'] |
 | (Extrude disabled) Draw a closed shape in a sketch first. | 'Sketch 1' has no closed shape: 2 ends are not connected. [Show 'Sketch 1'] (in the sketch: [Connect the ends (0.3 mm apart)]) |
 | Constraints c-2, c-4 conflict: they cannot all be satisfied at once. Delete one of them or change a dimension. | In 'Sketch 1', Distance 30 mm cannot hold together with Distance 40 mm. [Delete Distance 30 mm] [Make Distance 30 mm a reference] [Delete Distance 40 mm] |
-| The geometry kernel failed unexpectedly (StdFail_NotDone: BRep_API: command not done). Please report this with the model file. | Partsmith's geometry kernel could not build this fillet. Fillets fail like this when the edges meet other rounded edges at a corner; try a slightly different radius, or fillet those edges in two steps. [Suppress 'Fillet 1'] [Copy details] |
+| The geometry kernel failed unexpectedly (StdFail_NotDone: BRep_API: command not done). Please report this with the model file. | Fillet radius 3 mm does not work on the selected edges, even when smaller, and Partsmith could not tell why. [Suppress 'Fillet 1'] [Copy details] |
 | The extrusion failed. Check that the profile is a closed region that does not cross itself. | Distance must be at most 1000000 mm, but it is 1e200 mm. [Use 1000000 mm] |
 | The box could not be built. | Length must be at most 1000000 mm, but it is 1e200 mm. [Use 1000000 mm] |
 | This feature's settings are invalid: 'size[0]' has the wrong form (invalid type: integer `20`, expected a string). Fix the setting, or delete and recreate the feature. | Length of 'Box 1' must be written in quotes, such as "20" or "20 mm" (line 12). (Better still: accept the number.) |
@@ -143,7 +143,7 @@ The same problem reads the same everywhere; only the way to act differs.
 | Something went wrong inside Partsmith (called `Option::unwrap()` on a `None` value). Save your work and reload. Please report this. | Partsmith hit a bug while rebuilding 'Shell 1'. Your document is unchanged. Suppress 'Shell 1' to keep working, and report it with the details. [Suppress 'Shell 1'] [Copy details] |
 | error: cannot write "nodir/a.stl": No such file or directory (os error 2) at path ".../.partsmith-nQaQjQ" | error: cannot write "nodir/a.stl": the folder "nodir" does not exist. Create it first, or choose another --output. |
 | The imported file assets/0000...0000.step is missing. Put it next to the document in the assets folder. | The STEP file of this import is not in this document's assets folder. Copy the assets folder that came with the document next to it, or import the file again. [Import again] |
-| (no message: the fillet silently rounds another edge) | The top rim of 'Extrude 1' selected for Edges belongs to 'Extrude 1', which is suppressed. [Unsuppress 'Extrude 1'] [Pick an edge again] |
+| (no message: the fillet silently rounds another edge) | The top rim of 'Extrude 1' selected for Edges belongs to 'Extrude 1', which is suppressed. [Unsuppress 'Extrude 1'] [Use the top rim of 'Extrude 2' near (5, 0, 30)] [Use the top rim of 'Extrude 2' near (5, 0, 10)] [Use the front top edge of 'Box 1'] [Use the back top edge of 'Box 1'] [Use the left top edge of 'Box 1'] [Pick an edge again] |
 
 ## Checklist
 

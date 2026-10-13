@@ -120,7 +120,7 @@ All twelve pass in phase 3 of the study's plan except the cause lines of NC08 an
 
 - **Setup:** bodies `[b-1]`. `f-sk1` on XY with the triangle `e-1` (0,0)-(30,0), `e-2` (30,0)-(30,40), `e-3` (30,40)-(0,0), coincident constraints joining its three corners, and dimensions `c-1` Distance "30 mm" on `e-1`, `c-2` Distance "40 mm" on `e-2` and `c-3` Distance "50 mm" on `e-3`.
 - **Edit:** set `c-3` to "80 mm" (no triangle has sides 30, 40 and 80).
-- **Expect:** `f-sk1` error `sketch_not_solved`: `'Sketch 1' could not be solved from its current shape. Undo the last change, or drag the geometry closer to the intended shape.` Cause line: `This started after you changed Distance of 'Sketch 1' from 50 mm to 80 mm.` [Set Distance of 'Sketch 1' back to 50 mm] [Undo]. The dimension editor shows the same sentence when 80 mm is typed and offers "Add as reference".
+- **Expect:** `f-sk1` error `sketch_not_solved`: `'Sketch 1' could not be solved from its current shape. Undo the last change, or drag the geometry closer to the intended shape.` Cause line: `This started after you changed Distance of 'Sketch 1' from 50 mm to 80 mm.` [Set Distance of 'Sketch 1' back to 50 mm] [Undo]. The dimension editor shows the same sentence when 80 mm is typed and offers "Add reference" (ui.md section 3.16.7). Since the editor refuses a value the sketch cannot take before anything is stored, the Playwright test E-117 opens a document that already holds 80 mm (ui.md open issue 24).
 - **Then (the revert):** ok.
 - **Today:** `The sketch could not be solved from its current shape. Undo the last change, or drag the geometry closer to the intended shape and try again.`, and nothing names the change that caused it.
 
@@ -142,7 +142,7 @@ All twelve pass in phase 3 of the study's plan except the cause lines of NC08 an
 
 - **Setup:** BLOCK. `f-fil1` fillet radius 2 on `[{q: edge(f-ext1/end-cap|f-ext1/lateral/e-3), fp: line|n=1,0,0|c=40,50,30|l=80|adj=2,2}]` (the back top edge).
 - **Edit:** delete `e-3` (the back line) from `f-sk1`.
-- **Expect:** `f-ext1` error `profile_not_found`: `The region of 'Sketch 1' selected for Profile is gone because part of its outline was deleted.` [Show 'Sketch 1'] [Pick a region again]. `f-fil1` error `body_empty`: `Body 'Body 1' is empty here because 'Extrude 1', which makes it, failed. Fix 'Extrude 1' first.` [Show 'Extrude 1']. One notification names 'Extrude 1', with the cause line `This started after you deleted the line from (80, 50) to (0, 50) in 'Sketch 1'.` [Undo].
+- **Expect:** `f-ext1` error `profile_not_found`: `The region of 'Sketch 1' selected for Profile is gone because part of its outline was deleted.` [Show 'Sketch 1'] [Pick a region again]. `f-fil1` error `body_empty`: `Body 'Body 1' is empty here because 'Extrude 1', which makes it, failed. Fix 'Extrude 1' first.` [Show 'Extrude 1']. One notification names 'Extrude 1', with the cause line `This started after you deleted the line from (80, 50) to (0, 50) in 'Sketch 1'.` [Undo] [Show the line] (engine.md section 3.21: a sketch entity change has no revert, so Show follows Undo).
 - **Today:** `None of the selected regions of 'Sketch 1' can be found anymore. Re-pick the profile.`, and the fillet says `Body 'Body 1' is empty at this point, so this feature has nothing to work on. Pick a body that has a solid.`, which names no cause and sends the user to the wrong feature.
 
 ### NC12 Hole beside the body

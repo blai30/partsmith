@@ -1492,7 +1492,7 @@ Candidates come from the resolver (section 3.2, N11 step 5): those that keep a f
 - U-142 attaching a sketch to a face stores the descriptor's `fallback` with `fallback_frame: body`.
 - U-143 picking an edge or a round face for an axis stores the descriptor's `axis_direction` as `direction`.
 
-And E-105 to E-122 with the real core: E-105 R16 raises one notification naming 'Fillet 1' and the lost edge, repair mode shows two candidates, and applying the first gives status ok; E-106 R41 notifies with "Set Count of 'Linear pattern 1' back to 3", and applying it restores the fillet; E-107 R28 "Move 'Fillet 1' below 'Extrude 2'" restores the document byte for byte; E-108 R06a shows a note and Keep this match removes it; E-109 R03 deleting the line in a sketch session raises one notification at the end of the session naming 'Fillet 1' and the cause line, and Show draws the deleted line's ghost; E-110 to E-121 the newcomer error corpus NC01 to NC12 (section 7.6); E-122 a fix offered before an unrelated edit reports that it no longer applies.
+And E-109 to E-126 with the real core (ui.md had already used E-105 to E-108, so the four tests first numbered so are E-123 to E-126, ui.md open issue 22): E-123 R16 raises one notification naming 'Fillet 1' and the lost edge, repair mode shows two candidates, and applying the first gives status ok; E-124 R41 notifies with "Set Count of 'Linear pattern 1' back to 3", and applying it restores the fillet; E-125 R28 "Move 'Fillet 1' below 'Extrude 2'" restores the document byte for byte; E-126 R06a shows a note and Keep this match removes it; E-109 R03 deleting the line in a sketch session raises one notification at the end of the session naming 'Fillet 1' and the cause line, and Show draws the deleted line's ghost; E-110 to E-121 the newcomer error corpus NC01 to NC12 (section 7.6); E-122 a fix offered before an unrelated edit reports that it no longer applies.
 
 ## 7. Newcomer errors
 
@@ -1778,7 +1778,7 @@ No new dependency is needed; the dependency log (ADR 0020) is unchanged.
 
 ## 10. Implementation plan
 
-This plan is the order of work for a later pipeline; it can be followed from this section and the spec text items it names (N, S, F, RC, FF, PY, CLI, E, PR, U and K items, sections 3.5, 7.2 to 7.6). Each step names the spec text, the crate, and the tests that prove it. A step is done when its tests pass, `cargo fmt --all --check` and `cargo clippy --workspace --all-targets -- -D warnings` are clean, the crate's `CLAUDE.md` lists the new public interface, the message lint passes over every rendered template the step touches, and its budgets hold. Steps within a phase are ordered by dependency; steps in different crates can run in parallel once the spec text they implement is merged. A phase ships only when its exit criteria hold, and each phase keeps every earlier phase's tests green.
+This plan is the order of work for a later pipeline; it can be followed from this section and the spec text items it names (N, S, F, RC, FF, PY, CLI, E, PR, U and K items, sections 3.5, 7.2 to 7.6). Where merged spec text differs from sections 3 to 7 (each spec's open issues list the differences), the spec wins. Each step names the spec text, the crate, and the tests that prove it. A step is done when its tests pass, `cargo fmt --all --check` and `cargo clippy --workspace --all-targets -- -D warnings` are clean, the crate's `CLAUDE.md` lists the new public interface, the message lint passes over every rendered template the step touches, and its budgets hold. Steps within a phase are ordered by dependency; steps in different crates can run in parallel once the spec text they implement is merged. A phase ships only when its exit criteria hold, and each phase keeps every earlier phase's tests green.
 
 ### 10.1 Step 0: decisions before anything else
 
@@ -1799,6 +1799,19 @@ Each is one change to one spec (or a small group), merged before any code that i
 8. **protocol.md:** PR1 to PR6. **engine.md:** E1 to E10.
 9. **ui.md:** U1 to U14.
 10. **Design and architecture text:** architecture.md (the "Topological naming" bullet per D1; recompute's diagnosis reads names; the protocol additions), technical-design.md section 5 (items 4 and 5, and "Sketch-on-face also records a fallback placement" reworded to the placement-before-removal rule), reference-stability-corpus.md (D6 amendments and R66), and the new `docs/design/newcomer-error-corpus.md` from section 7.6.
+
+**Status: step 1 is written.** Every spec change of this step is merged, after two reviews of the spec text, and the code steps below implement the specs, not sections 3 to 7. Where each lives:
+
+1. naming.md: sections 2.4 to 2.8 (references with anchors and merged names, aliases and successions, motions, `ElementSet` and `NameSet`, resolutions), 3.1, 3.3, 3.5.1, 3.6 (with `new_motion`), 3.9 to 3.11, 5 and 6; [ADR 0021](../adr/0021-resolve-references-by-meaning.md).
+2. sketch.md: sections 2.2 (`HintFrame`, `fallback_frame`), 2.7 (`RegionRef::outline`, `RegionMatch`, successions, `RegionLoss`, `Connection`), 3.13.8, 3.14, 3.15, 4 (messages by title and coordinates, fixes) and 6.12; [ADR 0022](../adr/0022-split-regions-keep-their-area.md).
+3. file-format.md sections 3.9 and 3.10 and their tests ([ADR 0025](../adr/0025-file-format-version-2.md)); model.md sections 2.7 (`ExprLink::unit`) and 3.12 (`units_edits`, `bare_numbers`); expressions.md section 3.18 (the near match and its fix).
+4. kernel.md: K1 to K4 in sections 2.2, 2.13, 3.6, 3.7 and 4.3, with tests 117 to 126 and budget rows ([ADR 0026](../adr/0026-kernel-facade-additions-for-errors.md)).
+5. features.md: sections 2.4 to 2.8, 3.4 to 3.15, 4.1 to 4.4 and 6.3 to 6.5; the per-feature specs features/sketch.md, chamfer.md, hole.md, extrude.md, revolve.md, fillet.md, shell.md, linear_pattern.md, circular_pattern.md, mirror.md, datum_plane.md, move_body.md and split_body.md, each with its tests ([ADR 0023](../adr/0023-frames-live-on-the-model.md) for the frames).
+6. recompute.md: sections 1, 2 (`Message`), 3.3 to 3.6, 3.10 (the loss diagnosis), 5, and tests 41 to 73.
+7. python-api.md: sections 2.4, 2.8, 3.6, 3.8 to 3.10, 4 and 5; cli.md: sections 2.2, 3.1 and 3.3 and tests 55 to 62.
+8. protocol.md: sections 2.3 to 2.9 and tests 68 and 72 to 83; engine.md: sections 3.4, 3.6, 3.9, 3.19 and 3.21 to 3.25, 4 and 5, and tests 115 to 152 ([ADR 0024](../adr/0024-diagnostics-with-actions-causes-and-ghosts.md)); the planned schema check-ins of `protocol.schema.json` and `ptsm.schema.json` are logged in [ADR 0016](../adr/0016-generated-schema-check-ins.md).
+9. ui.md: sections 1.1, 2.10, 3.7 (repair mode, limits under fields), 3.9 (Problems grouped by root, the drop warning, Used by), 3.16 (used marks, re-attaching), 3.22 (notifications for losses), 4.1 to 4.3 and 5, with U-127 to U-149, E-109 to E-126 and P-9.
+10. architecture.md (the "Topological naming" bullet, the loss diagnosis, the protocol additions and the `partsmith-recompute -> partsmith-naming` edge), technical-design.md section 5 and its risk table, [the reference stability corpus](reference-stability-corpus.md) (amendments 1 to 8 and R66) and [the newcomer error corpus](newcomer-error-corpus.md); [the error guidelines](../guidelines/errors.md) quote the texts the specs render.
 
 ### 10.3 Phase 1: resolve by meaning and explain every loss
 
@@ -1829,7 +1842,7 @@ Each is one change to one spec (or a small group), merged before any code that i
 9. **partsmith-wasm:** rebuild; the protocol passes through `ps_call` unchanged; the wasm smoke tests.
 10. **ui.**
     - Code: regenerate the protocol types (`pnpm -C ui generate:protocol`); U1 to U6: actions through `apply_fix`, notifications for new losses, repair mode with the centroid ring (ghosts come in phase 4), Problems grouped by root with Notes, Copy details; remove the UI's own Reverse offer.
-    - Tests: U-127 to U-130, U-132 to U-134, U-141; E-105, E-107 and E-108, and E-106 and E-109 for their message and actions (their cause lines are checked in phase 4).
+    - Tests: U-127 to U-130, U-132 to U-134, U-141; E-123, E-125 and E-126, and E-124 and E-109 for their message and actions (their cause lines are checked in phase 4).
 11. **examples.** Add `examples/references/line-redrawn` (R06a), `examples/references/slot-inserted` (R17) and `examples/references/notch-replaces-line` (R66), each with its Python twin and expected results; re-bless the examples whose expected messages changed, with the sign-off of technical design section 16.
 
 Exit: corpus 112 of 123 with the amended setups; silent wrong results 4 (R22 a and b, R38, R32a rotated); built correctly before, fails after: 0 over the at-risk list of section 3.9; every budget, old and new, of naming, sketch, recompute and engine; `pnpm -C ui lint && pnpm -C ui typecheck && pnpm -C ui test` and `pnpm -C ui e2e` green.
@@ -1868,7 +1881,7 @@ Exit: corpus 122; the newcomer corpus passes in recompute and engine tests and i
 
 1. **partsmith-engine.** E3 (baselines per feature and message key, attribution, cause actions: reverts, Undo, Keep the sketch where it was, Show with the entity ghost), E5 (ghosts captured at the resolved-to-lost transition with `element_display`), E6 (`list_uses`), E9 budgets. Tests: the remaining E10 list, including the corpus twins of section 3.10 item 2 and R26's Keep the sketch where it was.
 2. **partsmith-protocol.** `Cause` and `Ghost` filled, `list_uses`. Tests: the remaining PR6 list.
-3. **ui.** U7 to U9 and U13. Tests: U-131, U-135 to U-137; E-106 and E-109 complete with their cause lines; E-122; the cause lines of NC08 and NC11.
+3. **ui.** U7 to U9 and U13. Tests: U-131, U-135 to U-137; E-124 and E-109 complete with their cause lines; E-122; the cause lines of NC08 and NC11.
 4. **partsmith-recompute.** Move the reference stability corpus out of the `stability-study` feature into the normal test suite, now that all 123 pass.
 
 Exit: corpus 123 of 123 with the D6 amendments; every engine twin; every budget; the full UI and e2e suites.
