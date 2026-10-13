@@ -28,10 +28,11 @@ import { commandMenuItem, runCommand, useCommandViews, type CommandView } from '
 
 // The context toolbar of the top bar (ui.md 3.2, 3.3): one short toolbar per context, built from
 // TOOLBARS. It measures the room the top bar leaves it: buttons show icon and label when all of
-// them fit, else the primary buttons keep their label, else every button shows its icon only (the
-// label stays the accessible name and is in the tooltip); when even the icons do not fit, the last
-// buttons that are not primary move into a More tools menu, so no command is out of sight. Arrow
-// keys, Home and End move focus (roving tab index, 3.24).
+// them fit, else the primary buttons keep their label and the others show their icon only (the
+// label stays the accessible name and is in the tooltip); when those do not fit, the last buttons
+// that are not primary move into a More tools menu, so no command is out of sight, and only when a
+// labeled primary button does not fit beside More tools does every button show its icon only.
+// Arrow keys, Home and End move focus (roving tab index, 3.24).
 
 const TOOLBAR_NAMES: Readonly<Record<AppContext, string>> = {
   model: 'Model tools',
@@ -636,7 +637,7 @@ function useToolbarFit(toolbar: RefObject<HTMLDivElement | null>, content: strin
     const measured = measureToolbar(element)
     const next = nextFit(current.fit, memory.current.memory, {
       ...measured,
-      movable: current.fit.labels === 'none' && current.fit.kept === null ? measured.movable : null,
+      movable: current.fit.labels !== 'all' && current.fit.kept === null ? measured.movable : null,
     })
     memory.current = { content: current.content, memory: next.memory }
     if (next.fit !== current.fit) {
