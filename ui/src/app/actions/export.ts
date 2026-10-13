@@ -170,12 +170,14 @@ export async function exportModel(app: App, request: ExportRequest): Promise<voi
   try {
     // Through the mutation queue, so the export sees every edit sent before it.
     exported = await app.mutations.run(() =>
-      app.core.exportBodies(
-        document.documentHandle,
-        FORMATS[request.format],
-        bodies,
-        orientation ?? undefined,
-      ),
+      orientation === null
+        ? app.core.exportBodies(document.documentHandle, FORMATS[request.format], bodies)
+        : app.core.exportBodies(
+            document.documentHandle,
+            FORMATS[request.format],
+            bodies,
+            orientation,
+          ),
     )
   } catch (error) {
     if (!showOrientationError(app, error, orientation)) {
