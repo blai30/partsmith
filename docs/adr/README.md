@@ -33,3 +33,5 @@ Format: title, status (proposed, accepted, superseded by NNNN), context, decisio
 | [0025](0025-file-format-version-2.md) | File format version 2 for anchors, merged names, region outlines and model frames, migrated from 1 without change | Accepted, needs human review |
 | [0026](0026-kernel-facade-additions-for-errors.md) | Kernel facade additions for ghosts, limits, void checks and true hints | Accepted, needs human review |
 | [0027](0027-dev-only-workspace-crates.md) | Dev-only workspace crates: `partsmith-budgets` for the budget benchmarks and `partsmith-mesh-fixtures` for the mesh.md section 6.1 test fixtures | Accepted, needs human review |
+| [0028](0028-single-license-apache-2.md) | One license, Apache-2.0, for code, specifications, examples and test corpus | Accepted |
+| [0029](0029-z-up-right-handed.md) | Right-handed Z-up coordinates everywhere, with no up-axis option | Accepted |

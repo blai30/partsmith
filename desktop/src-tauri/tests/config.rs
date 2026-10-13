@@ -106,7 +106,7 @@ fn expected_configuration() -> Value {
             "longDescription": "Partsmith is an open-source parametric CAD application for designing parts for 3D printing.",
             "publisher": "The Partsmith Contributors",
             "copyright": "Copyright the Partsmith contributors",
-            "license": "MIT OR Apache-2.0",
+            "license": "Apache-2.0",
             "homepage": "https://github.com/blai30/partsmith",
             "macOS": {
                 "minimumSystemVersion": "13.0"

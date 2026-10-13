@@ -66,7 +66,7 @@ These decisions come from the kickoff interview. Items marked *proposed* are eng
 | Area | Decision | Why |
 | --- | --- | --- |
 | Name | **Partsmith**. Text source files are `.ptsm`; the zipped sharing bundle is `.ptsz`. | A smith of parts: maker craft plus precision. We found no CAD tool, app or file type using the name. Short three-letter options (.psm, .pts, .prt) are taken by other CAD and point-cloud formats; we found no registered use of .ptsm or .ptsz. A trademark check is still needed before public launch. |
-| License | MIT OR Apache-2.0 (dual license, the Rust ecosystem standard). File-format spec and test corpus under CC0. | The most permissive widely used open licenses: anyone may use, modify, sell or embed Partsmith, personally or commercially. Models made with Partsmith belong to their authors. OCCT and PlaneGCS stay LGPL as separate libraries; publishing their source and allowing relinking, which an open project does anyway, meets the LGPL. GPL code (SolveSpace solver, OpenSCAD) stays out. |
+| License | Apache-2.0, one license for the code, the file-format spec, the examples and the test corpus ([ADR 0028](../adr/0028-single-license-apache-2.md)). | A permissive, widely used open license with an explicit patent grant from every contributor, which matters in a patent-heavy field like CAD: anyone may use, modify, sell or embed Partsmith, personally or commercially. Models made with Partsmith belong to their authors. OCCT and PlaneGCS stay LGPL as separate libraries; publishing their source and allowing relinking, which an open project does anyway, meets the LGPL. GPL code (SolveSpace solver, OpenSCAD) stays out. |
 | Development | All code is written by AI agents (Claude Code), with human approval at gates. | Shapes the repo layout, specs, testing and review process (section 17). |
 | Platforms | Desktop (Windows, macOS, Linux) and web, from one shared core. The web build is deployed by CI to Cloudflare Pages. | Desktop runs the core natively and multithreaded; web runs the same core as WASM in a worker. |
 | Print technologies | FDM and resin (MSLA/SLA) in v1 | Resin adds hollowing, drain holes and suction-cup checks, roughly 15–20% more print-module work (section 11). |
@@ -639,7 +639,7 @@ The biggest risks are the OCCT-to-WASM build from Rust, topological naming robus
 **Open questions for you**
 
 - [x] Name and extension: Partsmith, `.ptsm` and `.ptsz`. Run a trademark check before public launch.
-- [x] License: MIT OR Apache-2.0.
+- [x] License: Apache-2.0 (ADR 0028).
 - [x] Resin in v1: yes.
 - [x] Web hosting: Cloudflare Pages, deployed by CI.
 - [ ] UI framework: SolidJS (proposed earlier) or React. Agents write React more reliably because far more React code exists to learn from, so React is now the leaning choice.

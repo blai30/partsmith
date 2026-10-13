@@ -23,6 +23,6 @@ pnpm -C ui dev
 
 ## License
 
-Partsmith is dual-licensed under [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE), at your option. The file-format specification and test corpus are CC0. Models you make with Partsmith belong to you.
+Partsmith is licensed under the [Apache License 2.0](LICENSE), which covers the code, the file-format specification, the examples and the test corpus. Models you make with Partsmith belong to you.
 
 OCCT is used under the LGPL 2.1 with the OCCT exception, as a separately buildable library.

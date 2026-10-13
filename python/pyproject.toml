@@ -7,7 +7,7 @@ name = "partsmith"
 version = "0.1.0"
 description = "Parametric CAD for 3D printing, from Python."
 requires-python = ">=3.12"
-license = "MIT OR Apache-2.0"
+license = "Apache-2.0"
 dependencies = []
 
 [tool.maturin]

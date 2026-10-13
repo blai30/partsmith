@@ -602,7 +602,7 @@ ENG-1, ENG-4 and SK-1 can share one wasm-target CI job.
 
 ### Delivery and licensing (outside the blockers)
 
-**DEL-1. The CC0 grant has no license text**
+**DEL-1. The CC0 grant has no license text** (resolved: ADR 0028 puts everything under Apache-2.0)
 - **Spec:** technical design 3.
 - **Spec first:** an ADR that records the grant and its scope.
 - **Human gate:** license.
