@@ -288,6 +288,13 @@ export async function runCommand(page: Page, title: string): Promise<void> {
   await expect(page.getByTestId('palette')).toBeHidden()
 }
 
+/** The notification of a severity whose message is exactly `message` (ui.md 3.22). */
+export function notification(page: Page, severity: string, message: string): Locator {
+  return page
+    .locator(`[data-testid=notification][data-severity=${severity}]`)
+    .filter({ has: page.getByText(message, { exact: true }) })
+}
+
 /** The inspector panel. */
 export function inspector(page: Page): Locator {
   return page.getByTestId('inspector')

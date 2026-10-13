@@ -11,6 +11,7 @@ import {
   inspector,
   inspectorField,
   inspectorInput,
+  notification,
   openApp,
   originRow,
   runCommand,
@@ -29,13 +30,6 @@ import {
 
 // Feature commands, the inspector, previews, the timeline, the browser, the palette and the
 // parameters panel against the production build and the real core (ui.md 3.3 to 3.11, 6.5).
-
-/** The notification of a severity whose text contains `text`. */
-function notification(page: Page, severity: string, text: string | RegExp): Locator {
-  return page
-    .locator(`[data-testid=notification][data-severity=${severity}]`)
-    .filter({ hasText: text })
-}
 
 /** The page position of the canvas center plus an offset in pixels. */
 async function at(page: Page, dx: number, dy: number): Promise<{ x: number; y: number }> {

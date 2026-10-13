@@ -52,7 +52,12 @@ export async function dragOnCanvas(
 }
 
 /** Sends `count` wheel events of `deltaY` at a page position, one after another. */
-export async function wheelAt(page: Page, at: PagePoint, deltaY: number, count: number): Promise<void> {
+export async function wheelAt(
+  page: Page,
+  at: PagePoint,
+  deltaY: number,
+  count: number,
+): Promise<void> {
   await page.mouse.move(at.x, at.y)
   for (let i = 0; i < count; i++) {
     // The wheel events are separate events, sent one after another.
@@ -104,6 +109,38 @@ export async function expectCurrentReport(page: Page): Promise<void> {
   })
 }
 
+/**
+ * Starts recording whether the print check badge leaves its report: it goes out of date or starts
+ * a check (ui.md 3.17). The returned function waits until it has, so a test can tell the next
+ * report from the one shown before an action, however fast the check runs.
+ */
+export async function watchReportLeft(page: Page): Promise<() => Promise<void>> {
+  const flag = 'partsmithReportLeft'
+  await page.evaluate((name) => {
+    Reflect.set(window, name, false)
+    const observer = new MutationObserver(() => {
+      const left = document.querySelector(
+        '[data-testid=health-badge][data-stale=true], [data-testid=health-badge][data-state=running]',
+      )
+      if (left !== null) {
+        Reflect.set(window, name, true)
+        observer.disconnect()
+      }
+    })
+    observer.observe(document.body, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      attributeFilter: ['data-stale', 'data-state'],
+    })
+  }, flag)
+  return async () => {
+    await expect
+      .poll(() => page.evaluate((name) => Reflect.get(window, name) === true, flag))
+      .toBe(true)
+  }
+}
+
 /** The rows of the print check panel, optionally only those of one check (ui.md 3.17). */
 export function healthItems(page: Page, check?: string): Locator {
   const items = page.getByTestId('health-list').getByTestId('health-item')
@@ -116,13 +153,6 @@ export async function openPrintCheck(page: Page): Promise<void> {
     .getByRole('button', { name: /^Print check/ })
     .click()
   await expect(page.getByTestId('health-list')).toBeVisible()
-}
-
-/** The notification of a severity whose message is exactly `message` (ui.md 3.22). */
-export function notification(page: Page, severity: string, message: string): Locator {
-  return page
-    .locator(`[data-testid=notification][data-severity=${severity}]`)
-    .filter({ has: page.getByText(message, { exact: true }) })
 }
 
 /** Opens the export popover with the top bar's Export button (ui.md 3.18). */

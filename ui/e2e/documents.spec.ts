@@ -11,18 +11,13 @@ import {
   fixturePath,
   inspector,
   inspectorInput,
+  notification,
   openApp,
   renameBody,
   runCommand,
   timelineItem,
 } from './helpers'
-import {
-  expectTimeline,
-  notification,
-  recentFileNames,
-  storedRecovery,
-  timelineItems,
-} from './support/documents'
+import { expectTimeline, recentFileNames, storedRecovery, timelineItems } from './support/documents'
 
 // Documents, files, recovery, undo and redo, notifications and the status bar (ui.md 3.1,
 // 3.19 to 3.22): the E-tests of ui.md 6.5 that exercise them, against the real core.
@@ -119,12 +114,13 @@ test.describe('Startup and files', () => {
   }) => {
     await openApp(page)
     await dropFile(page, 'notes.txt')
-    const error = notification(
-      page,
-      'notes.txt is not a Partsmith model. Partsmith opens .ptsm files.',
-    )
-    await expect(error).toBeVisible()
-    await expect(error).toHaveAttribute('data-severity', 'error')
+    await expect(
+      notification(
+        page,
+        'error',
+        'notes.txt is not a Partsmith model. Partsmith opens .ptsm files.',
+      ),
+    ).toBeVisible()
     await expect(page.getByTestId('document-name')).toHaveText('Untitled')
   })
 
@@ -138,12 +134,13 @@ test.describe('Startup and files', () => {
     const fixture = await fixtureBytes('cube.ptsm')
     expect(saved.bytes.toString('utf8')).toBe(fixture.toString('utf8'))
     expect(saved.bytes.equals(fixture)).toBe(true)
-    const hint = notification(
-      page,
-      'This browser saves by downloading. cube.ptsm is in your downloads folder.',
-    )
-    await expect(hint).toBeVisible()
-    await expect(hint).toHaveAttribute('data-severity', 'info')
+    await expect(
+      notification(
+        page,
+        'info',
+        'This browser saves by downloading. cube.ptsm is in your downloads folder.',
+      ),
+    ).toBeVisible()
   })
 
   test('E-7 an edit marks the document edited and saving it clears the mark', async ({ page }) => {

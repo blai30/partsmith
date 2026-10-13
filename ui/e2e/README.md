@@ -31,12 +31,16 @@ The Playwright tests in this folder run against the production build of the app 
 
 ## Tags
 
-- `@visual` (ui.md 6.6): screenshot tests in `visual.spec.ts`, with their baselines in `visual.spec.ts-snapshots/`. The configuration sets `animations: 'disabled'`, `maxDiffPixelRatio: 0.002` and `threshold: 0.05` for `toHaveScreenshot`, and `visual.css` hides the rebuild time while a screenshot is taken. They need Google Fonts to be reachable. Baselines change only with reviewer approval; regenerate them with `--update-snapshots=all`, since the default mode keeps every baseline that still passes the comparison.
+- `@visual` (ui.md 6.6): screenshot tests in `visual.spec.ts`, with their baselines in `visual.spec.ts-snapshots/`, left out unless `PARTSMITH_VISUAL=1`. A baseline matches only screenshots from the machine and Chromium build that took it, so they run on the fixed hardware runner (delivery.md 1.2), not in CI's `e2e` job. The baselines here were taken with `/opt/pw-browsers/chromium` (Chromium 141) in the development container and are not approved yet; run them there with `PARTSMITH_VISUAL=1 PLAYWRIGHT_CHROMIUM_EXECUTABLE=/opt/pw-browsers/chromium pnpm -C ui e2e visual.spec.ts`. The configuration sets `animations: 'disabled'`, `maxDiffPixelRatio: 0.002` and `threshold: 0.05` for `toHaveScreenshot`, and `visual.css` hides the rebuild time while a screenshot is taken. They need Google Fonts to be reachable. Baselines change only with reviewer approval; regenerate them with `--update-snapshots=all`, since the default mode keeps every baseline that still passes the comparison.
 - `@perf` (ui.md 6.7): left out unless `PARTSMITH_PERF=1`.
+
+## Helpers
+
+`helpers.ts` holds the shared helpers of ui.md 6.3 (opening the app and fixtures, the canvas geometry, the mapping from millimeters to page pixels, hover polling, downloads, performance measures) and the locators every area uses. `support/` holds the helpers of one area each: documents, modeling, print and export, and sketch.
 
 ## Fixtures
 
-`fixtures/` holds the documents of ui.md 6.2. Each `.ptsm` is canonical and valid: `partsmith fmt --check` leaves it unchanged, `partsmith validate` is clean, and the core saves it byte for byte. Check a changed fixture with the CLI:
+`fixtures/` holds the documents of ui.md 6.2, and `fixtures.spec.ts` (E-108) checks that each opens with its stated result (`cube-features.ptsm` does not yet, a core defect: ui.md open issue 17). Each `.ptsm` is canonical and valid: `partsmith fmt --check` leaves it unchanged, `partsmith validate` is clean, and the core saves it byte for byte. Check a changed fixture with the CLI:
 
 ```sh
 cargo run -p partsmith-cli -- fmt --check ui/e2e/fixtures/*.ptsm

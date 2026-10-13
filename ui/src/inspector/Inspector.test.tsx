@@ -451,13 +451,14 @@ describe('feature status in the inspector (3.7, 4.2)', () => {
     })
   })
 
-  it('U-87 its action "Use 2.3 mm" sets radius to 2.3 mm', async () => {
+  it('U-87 its action "Use 2.3 mm" sets radius to 2.3 mm and focuses the radius input', async () => {
     const { app, user } = renderInspector(filletDocument(status([TOO_LARGE])), {
       command: { ...EDIT_FILLET, preview: 'failed' },
     })
     const [use] = within(inspector()).getAllByRole('button', { name: 'Use 2.3 mm' })
     await user.click(use ?? inspector())
     expect(app.store.getState().command?.params.radius).toBe('2.3 mm')
+    expect(within(field('radius')).getByRole('combobox')).toHaveFocus()
   })
 
   it('U-87 maps a message with field /edges/1 to the edges field', () => {

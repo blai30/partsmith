@@ -18,8 +18,12 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: Boolean(process.env.CI),
   retries: 0,
-  // Performance tests run only on the fixed hardware runner, with PARTSMITH_PERF=1 (ui.md 6.7).
-  grepInvert: process.env.PARTSMITH_PERF === '1' ? undefined : /@perf/,
+  // Performance tests (ui.md 6.7, PARTSMITH_PERF=1) and visual tests (6.6, PARTSMITH_VISUAL=1) run
+  // only where they are turned on: on the fixed hardware runner (delivery.md 1.2).
+  grepInvert: [
+    ...(process.env.PARTSMITH_PERF === '1' ? [] : [/@perf/]),
+    ...(process.env.PARTSMITH_VISUAL === '1' ? [] : [/@visual/]),
+  ],
   reporter: process.env.CI ? [['github'], ['html', { open: 'never' }]] : 'list',
   expect: {
     // Visual tests (ui.md 6.6). The per-pixel color threshold is stricter than Playwright's 0.2, which

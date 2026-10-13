@@ -30,11 +30,6 @@ export async function expectTimeline(page: Page, labels: readonly string[]): Pro
   )
 }
 
-/** The notification whose message is exactly `message` (ui.md 3.22). */
-export function notification(page: Page, message: string): Locator {
-  return page.getByTestId('notification').filter({ has: page.getByText(message, { exact: true }) })
-}
-
 /**
  * Runs a read-only IndexedDB request on one object store of the app's database (ui.md 2.15) and
  * returns its result, or null while the database or the record does not exist. The database is

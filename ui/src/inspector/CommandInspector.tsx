@@ -124,8 +124,8 @@ function FieldControl({
   }
 }
 
-/** A fix action of a status message (4.2). */
-type Fix = { readonly label: string; readonly run: () => void }
+/** A fix action of a status message (4.2), and the field whose input gets focus after it (3.7). */
+type Fix = { readonly label: string; readonly focusPath: string; readonly run: () => void }
 
 /**
  * The Reverse fixes of a feature with an inline Reverse (4.2): a negative plain number out of range
@@ -144,6 +144,8 @@ function reverseFixes(
   }
   const reverse: Fix = {
     label: 'Reverse',
+    // Focus on the Reverse button itself would make the next Enter toggle it back (3.5).
+    focusPath: toggle.attachedTo ?? toggle.path,
     run: () => {
       setCommandField(app, toggle.path, toggle.value !== true)
     },
@@ -160,6 +162,7 @@ function reverseFixes(
     return [
       {
         label: `Reverse and use ${positive}`,
+        focusPath: field.path,
         run: () => {
           reverseAndUse(app, field.path, positive)
         },
@@ -210,7 +213,20 @@ function StatusBanner({
       {shown.map((message, index) => {
         const field = fieldOf(message)
         const suggestion = message.suggestion ?? null
-        const fixes = reverseFixes(app, message, field, toggle, params)
+        const fixes: readonly Fix[] = [
+          ...(field === null || suggestion === null
+            ? []
+            : [
+                {
+                  label: `Use ${suggestion}`,
+                  focusPath: field.path,
+                  run: () => {
+                    setCommandField(app, field.path, suggestion)
+                  },
+                },
+              ]),
+          ...reverseFixes(app, message, field, toggle, params),
+        ]
         return (
           // Messages carry no id; their order is the core's.
           // oxlint-disable-next-line react/no-array-index-key
@@ -254,18 +270,17 @@ function StatusBanner({
                   {message.message}
                 </button>
               )}
-              {field === null || suggestion === null ? null : (
+              {fixes.map((fix) => (
                 <Button
+                  key={fix.label}
                   className="self-start"
                   onClick={() => {
-                    setCommandField(app, field.path, suggestion)
+                    fix.run()
+                    // The banner goes when the fix clears its message, so focus stays in the
+                    // inspector, where Enter confirms (3.5, 3.7).
+                    document.getElementById(fieldInputId(fix.focusPath))?.focus()
                   }}
                 >
-                  Use {suggestion}
-                </Button>
-              )}
-              {fixes.map((fix) => (
-                <Button key={fix.label} className="self-start" onClick={fix.run}>
                   {fix.label}
                 </Button>
               ))}

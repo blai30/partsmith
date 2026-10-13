@@ -132,6 +132,7 @@ describe('Reverse fixes (4.2, U-107)', () => {
       extent: { kind: 'distance', expr: '5 mm' },
     })
     expect(app.store.getState().command?.changedPaths).toContain('reverse')
+    expect(within(field('extent.expr')).getByRole('combobox')).toHaveFocus()
   })
 
   it('U-107 offers no such fix for an expression that is not a plain number', () => {
@@ -188,6 +189,8 @@ describe('Reverse fixes (4.2, U-107)', () => {
     const banner = within(inspector()).getByTestId('inspector-error')
     await user.click(within(banner).getByRole('button', { name: 'Reverse' }))
     expect(app.store.getState().command?.params['reverse']).toBe(true)
+    // Focus on the Distance input, not on Reverse, so the next Enter confirms (3.5).
+    expect(within(field('extent.expr')).getByRole('combobox')).toHaveFocus()
   })
 })
 

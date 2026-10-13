@@ -137,10 +137,3 @@ export function sketchDimensions(page: Page): Locator {
 export function dimensionLabel(page: Page, text: string): Locator {
   return sketchDimensions(page).filter({ has: page.getByText(text, { exact: true }) })
 }
-
-/** The notification of a severity whose message contains `text`. */
-export function notification(page: Page, severity: string, text: string): Locator {
-  return page
-    .locator(`[data-testid=notification][data-severity=${severity}]`)
-    .filter({ hasText: text })
-}
