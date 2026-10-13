@@ -1821,6 +1821,7 @@ Each is one change to one spec (or a small group), merged before any code that i
 2. **partsmith-sketch.**
    - Code: `RegionRef.outline`, `RegionLoop` with canonical rotation, `Region::reference()` writing the outline, `match_region(regions, entities, reference)` with connected components, successions and `RegionLoss` (S1 to S3).
    - Tests: the S4 list; `RegionRef` round trips with and without `outline`; existing section 6.12 tests updated.
+   - Also: the mirrored drawing of sketch.md section 3.17 (`SketchParams::mirrored`, `mirrored_point`, `mirrored_region`), which phase 2's `TurnDrawingBack` (features/sketch.md test 24, engine.md test 135) needs; tests 248 to 250, 252 and 253 in `tests/mirrored.rs`. Test 251 (NC08 `NotConverged`) belongs to phase 3 step 3.
 3. **partsmith-model.**
    - Code: `FORMAT_VERSION` 2 and the identity migration from 1 (FF1).
    - Tests: file-format tests 23, 39 and E1 to E3 at version 2; a version 1 document saves differing only in its `format_version` line; a version 2 document with every new field round-trips byte for byte.
@@ -1881,7 +1882,7 @@ Exit: corpus 122; the newcomer corpus passes in recompute and engine tests and i
 
 1. **partsmith-engine.** E3 (baselines per feature and message key, attribution, cause actions: reverts, Undo, Keep the sketch where it was, Show with the entity ghost), E5 (ghosts captured at the resolved-to-lost transition with `element_display`), E6 (`list_uses`), E9 budgets. Tests: the remaining E10 list, including the corpus twins of section 3.10 item 2 and R26's Keep the sketch where it was.
 2. **partsmith-protocol.** `Cause` and `Ghost` filled, `list_uses`. Tests: the remaining PR6 list.
-3. **ui.** U7 to U9 and U13. Tests: U-131, U-135 to U-137; E-124 and E-109 complete with their cause lines; E-122; the cause lines of NC08 and NC11.
+3. **ui.** U7 to U9 and U13. Tests: U-131, U-135 to U-137; E-124 and E-109 complete with their cause lines; E-122; the cause lines of NC08 and NC11. Also the drop check's performance test P-9 (ui.md 6.7): the `part-300.ptsm` fixture of ui.md 6.2 and the `ps:drop-check` mark of ui.md 2.18.
 4. **partsmith-recompute.** Move the reference stability corpus out of the `stability-study` feature into the normal test suite, now that all 123 pass.
 
 Exit: corpus 123 of 123 with the D6 amendments; every engine twin; every budget; the full UI and e2e suites.
