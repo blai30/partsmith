@@ -1,6 +1,7 @@
 //! Element names and the operations on them (naming.md sections 2.2, 3.1, 3.2 and 3.5.1).
 
 use std::borrow::Cow;
+use std::collections::BTreeSet;
 use std::fmt;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -12,6 +13,7 @@ use serde::{Deserialize, Serialize, Serializer};
 use crate::error::NamingError;
 use crate::grammar::{self, NameDefect};
 use crate::kind::ElementKind;
+use crate::shape::Shape;
 
 /// A validated element name such as `f-ext1/end-cap#2` or `edge(f-ext1/end-cap|f-ext1/lateral/e-9e12)`.
 /// Ordering, equality and hashing are those of the underlying string (byte order).
@@ -29,6 +31,15 @@ pub enum Generator<'a> {
     Sketch(&'a str),
     /// An element of an input shape, such as the edge a fillet face rounds.
     Element(&'a ElementName),
+}
+
+/// A feature, and the sketch generator when the name has one, that a name depends on.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct GeneratorUse {
+    /// The feature id.
+    pub feature: Id,
+    /// The sketch entity id or point reference text, for example `e-3` or `e-p1`.
+    pub generator: Option<String>,
 }
 
 /// An instance number of a pattern or mirror copy. `(0, 0)` is the original and is never written.
@@ -147,6 +158,45 @@ impl ElementName {
     /// The vertex name for the given adjacent face names (sorted and deduplicated here).
     pub fn vertex(faces: &[ElementName]) -> Result<ElementName, NamingError> {
         ElementName::from_faces(ElementKind::Vertex, faces.iter().collect())
+    }
+
+    /// Every feature and sketch generator the name depends on: those of each face term, of every
+    /// nested name and of every instance group, sorted and distinct. Engine queries use it to say
+    /// what uses a feature (engine.md section 3.24).
+    pub fn generators(&self) -> Vec<GeneratorUse> {
+        let mut uses = BTreeSet::new();
+        for face in self.face_shapes() {
+            for (feature, generator) in face.generators() {
+                uses.insert(GeneratorUse {
+                    feature: Id::new(feature).expect("a valid name holds valid feature ids"),
+                    generator: generator.map(str::to_owned),
+                });
+            }
+        }
+        uses.into_iter().collect()
+    }
+
+    /// The text of the name, shared.
+    pub(crate) fn shared_text(&self) -> &Arc<str> {
+        &self.0
+    }
+
+    /// For an edge or vertex name, the text of its face terms in written order; empty for a face
+    /// name.
+    pub(crate) fn face_term_texts(&self) -> Vec<&str> {
+        list_parts(&self.0).map_or_else(Vec::new, |parts| parts.terms)
+    }
+
+    /// The name of a face taken apart, or the face terms of an edge or vertex name taken apart.
+    pub(crate) fn face_shapes(&self) -> Vec<Shape> {
+        match list_parts(&self.0) {
+            None => vec![Shape::of(Arc::clone(&self.0))],
+            Some(parts) => parts
+                .terms
+                .into_iter()
+                .map(|term| Shape::of(Arc::from(term)))
+                .collect(),
+        }
     }
 
     /// The edge or vertex name, as `kind` says, of these face names, sorted and deduplicated here.

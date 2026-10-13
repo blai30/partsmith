@@ -12,8 +12,9 @@ use crate::name::ElementName;
 pub enum FaceSource {
     /// A face the current feature created, named with `ElementName::generated`.
     New(ElementName),
-    /// A face descending (kept, modified, split or merged) from these input face names. Never empty.
-    From(Vec<ElementName>),
+    /// A face descending (kept, modified, split or merged) from these input faces, each given by the
+    /// index of its map in `inherited` (section 3.3) and its name there. Never empty.
+    From(Vec<(u32, ElementName)>),
 }
 
 /// Topology and geometry of one output shape, indexed like the kernel: entry `i` is element `i + 1`.

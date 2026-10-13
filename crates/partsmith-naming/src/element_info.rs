@@ -18,6 +18,10 @@ pub struct ElementInfo {
     pub fingerprint: Fingerprint,
     /// Names of adjacent faces, sorted and distinct: faces sharing an edge (for a face), faces containing it (for an edge or vertex).
     pub adjacency: Vec<ElementName>,
+    /// For an edge, the names of its named vertices, sorted and distinct; empty for faces and
+    /// vertices. The anchor test of an edge with its own `#n` reads it (section 3.9).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub vertices: Vec<ElementName>,
 }
 
 #[cfg(test)]
@@ -35,6 +39,7 @@ mod tests {
                 ElementName::parse("f-a/x").expect("valid name"),
                 ElementName::parse("f-b/y").expect("valid name"),
             ],
+            vertices: Vec::new(),
         };
 
         let json = serde_json::to_string(&info).expect("an element info serializes");
