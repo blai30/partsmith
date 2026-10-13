@@ -97,14 +97,14 @@ No other secret exists in this milestone. Signing and updater secrets are later 
 
 ### 2.4 CI workflow (`ci.yml`)
 
-Triggers `push` to `main` and `pull_request`; `concurrency` `ci-${{ github.ref }}` with `cancel-in-progress: true`; workflow `permissions: contents: read`; `env` `CARGO_TERM_COLOR: always` and `OCCT_ROOT: ${{ github.workspace }}/.occt/native` (all as today). Jobs:
+Triggers `push` to `main` and `pull_request`; `concurrency` `ci-${{ github.ref }}` with `cancel-in-progress: true`; workflow `permissions: contents: read`; `env` `CARGO_TERM_COLOR: always`, `OCCT_ROOT: ${{ github.workspace }}/.occt/native` and `CARGO_PROFILE_DEV_DEBUG: "0"` (debug builds and tests without debug info, 3.2). Jobs:
 
 | Job | Needs | What it runs |
 | --- | --- | --- |
 | `occt-native` | | Restores or builds OCCT native into `.occt/native` (unchanged). |
 | `occt-wasm` | | Restores or builds OCCT for WebAssembly into `.occt/wasm` (unchanged). |
 | `kernel-wasm` | `occt-wasm` | `cargo test -p partsmith-occt-sys --target wasm32-unknown-emscripten` (unchanged). |
-| `rust` | `occt-native` | Installs the Tauri Linux packages (3.2), then `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo clippy -p partsmith-recompute --features stability-study --all-targets -- -D warnings` (the reference stability corpus, which fails by design until its study's plan is implemented, is compiled and linted but not run), `cargo test --workspace`. The workspace includes `partsmith-desktop` and the examples runner. |
+| `rust` | `occt-native` | Frees disk space and installs the Tauri Linux packages (3.2), then `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo clippy -p partsmith-recompute --features stability-study --all-targets -- -D warnings` (the reference stability corpus, which fails by design until its study's plan is implemented, is compiled and linted but not run), `cargo test --workspace`, and prints the free disk space after the tests, also when they fail. The workspace includes `partsmith-desktop` and the examples runner. |
 | `deny` | | `cargo-deny` with `deny.toml` (unchanged action; the policy now covers the Tauri tree, 3.2). |
 | `ui` | | In `ui/`: `pnpm install --frozen-lockfile`, `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm test:scripts`. |
 | `schema` | `occt-native` | `cargo run -p partsmith-cli -- schema --write`, `pnpm -C ui install --frozen-lockfile`, `pnpm -C ui generate:protocol`, then the drift check of 3.4. |
@@ -301,6 +301,8 @@ A twin may be the generated script or a hand-edited, more readable one, as long 
 
 Tag-triggered release runs restore caches saved on `main`; a run's own caches are scoped to its ref, so no later tag restores what a tag run saves, and GitHub drops caches unused for 7 days. CI runs only on Linux, so it saves only the Linux caches on `main`. The Windows and macOS caches reach `main` through a release dry run (`workflow_dispatch`) started from `main` before each tag. The `bundle` job's `Swatinem/rust-cache` uses `save-if: ${{ github.ref == 'refs/heads/main' }}`, so only that dry run saves its Rust cache. The Tauri Linux packages, installed with `sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libxdo-dev libssl-dev librsvg2-dev` in `rust`, `desktop` and the Linux `bundle` job, are Tauri's documented prerequisites without the tray library (the app has no tray icon). The `rust` job needs them because `partsmith-desktop` is a workspace member.
 
+**Disk space.** About 170 test binaries each link OCCT statically. Without debug info they are 55 to 80 MB each; with Cargo's default debug info they outgrow the free space of an `ubuntu-24.04` runner, and the linker dies with a bus error while writing its output (the first CI run, 2026-10-13). So the workflow sets `CARGO_PROFILE_DEV_DEBUG: "0"` for every job (panic messages keep their file and line; a developer who needs a debugger builds locally with debug info), and the `rust` job first removes the preinstalled SDKs it does not use (`sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL`) and prints `df -h /`. Fewer, larger integration test binaries per crate would cut the space and link time at the root (open issue 9).
+
 `deny.toml` keeps its license allow list: every license in the Tauri dependency tree is already allowed (ADR 0014). Two RustSec advisories apply to the Linux GTK3 stack Tauri uses, RUSTSEC-2024-0429 (`glib` 0.18, unsound `VariantStrIter`) and RUSTSEC-2024-0370 (`proc-macro-error`, unmaintained, a build-time dependency of the gtk-rs 0.18 macros); `deny.toml` lists both in `[advisories] ignore` with that reason and a note to remove them when Tauri moves past gtk-rs 0.18 (section 8).
 
 ### 3.3 Cloudflare Pages deploy
@@ -420,7 +422,7 @@ Each job's checks are its acceptance tests; they pass on every pull request and 
 9. `e2e`: `pnpm e2e` passes against the real core (ui.md 6.5).
 10. `python`: `maturin develop --release` succeeds and `pytest python/tests` passes, including `test_examples.py`.
 11. `deploy`: with secrets, the Wrangler step succeeds and the job summary contains a `pages.dev` URL; on a fork pull request, the job succeeds and its log contains the "Deploy skipped" notice.
-12. `desktop`: `cargo tauri build --bundles deb` exits 0, exactly one `.deb` exists under `target/release/bundle/deb/`, and `dpkg-deb --contents` of it lists `./usr/bin/partsmith-desktop` (desktop.md test 49).
+12. `desktop`: `cargo tauri build --bundles deb` exits 0, exactly one `.deb` exists under `target/release/bundle/deb/`, and its file list holds `usr/bin/partsmith-desktop` and exactly one `.desktop` file under `usr/share/applications/` (desktop.md test 49). The file list is `dpkg-deb --fsys-tarfile` piped to `tar -t` with a leading `./` removed from each entry: Tauri's bundler writes entries without the `./` that `dpkg-deb --build` writes, so the check accepts both forms.
 13. `release.yml` dry run (`workflow_dispatch`): the three `bundle` jobs upload `bundle-Linux` (a `.deb`, an `.rpm` and an `.AppImage`), `bundle-Windows` (one `-setup.exe`) and `bundle-macOS` (one `.dmg`); `verify` and `draft` are skipped. On a tag, `draft` creates a draft release holding those files and `SHA256SUMS`, whose lines verify with `sha256sum -c`.
 
 **Distribution check (`ui/scripts/check-dist.test.mjs`, `node:test`, temporary directories)**
@@ -464,6 +466,7 @@ Run by `pnpm test:scripts` in `ui/`. `node --test` takes files or glob patterns,
 6. **Source maps.** `vite.config.ts` emits source maps, which deploy with the app (about 1 MB today). That is fine for an open-source app and helps bug reports; dropping them from production is a one-line change if wanted.
 7. **features.md and cli.md open issues 3.** Both point at the examples layout, which section 2.8 now defines; their text can be updated to point here when those specs are next edited.
 8. **Initial JavaScript headroom.** The app is one chunk, and its initial JavaScript is 94.1 percent of the 250 KB limit (2.6), so a few more features will fail the `web` job. The first response is moving code that startup does not need into chunks loaded with a dynamic `import()` (candidates: the Print context, sketch mode, export), with the loading state each needs specified in ui.md. Raising the limit changes the budget of ui.md 5 and needs human review.
+9. **One integration test binary per crate.** Each file in a crate's `tests/` is its own binary, and each links OCCT: about 170 binaries of 55 to 80 MB. Gathering a crate's integration tests into one binary (`tests/main.rs` with a module per file) would cut disk use and link time several times over, locally and in CI. It moves no test and changes no assertion, but touches every crate, so it waits until no other change is in flight there.
 
 ## 8. Needs human review
 

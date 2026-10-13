@@ -724,7 +724,7 @@ Rust tests live in `desktop/src-tauri/tests/` and run with `cargo test -p partsm
 
 **Build check (CI, delivery.md 2.4 job `desktop`)**
 
-49. On `ubuntu-24.04`, after `pnpm -C ui build`, `cargo tauri build --bundles deb` in `desktop/src-tauri` exits 0 and produces exactly one `.deb` under `target/release/bundle/deb/`, whose `dpkg-deb --contents` lists `./usr/bin/partsmith-desktop` and exactly one `.desktop` file under `./usr/share/applications/`.
+49. On `ubuntu-24.04`, after `pnpm -C ui build`, `cargo tauri build --bundles deb` in `desktop/src-tauri` exits 0 and produces exactly one `.deb` under `target/release/bundle/deb/`, whose file list (`dpkg-deb --fsys-tarfile` piped to `tar -t`, a leading `./` removed from each entry, since Tauri's bundler writes none) holds `usr/bin/partsmith-desktop` and exactly one `.desktop` file under `usr/share/applications/`.
 50. `cargo clippy -p partsmith-desktop --all-targets -- -D warnings` passes (part of the workspace clippy run).
 
 **Added file tests (`tests/files.rs`)**

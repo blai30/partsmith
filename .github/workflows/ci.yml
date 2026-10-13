@@ -15,6 +15,8 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   OCCT_ROOT: ${{ github.workspace }}/.occt/native
+  # Every test binary links OCCT statically; with debug info they outgrow the runner's disk (delivery.md 3.2).
+  CARGO_PROFILE_DEV_DEBUG: "0"
 
 jobs:
   occt-native:
@@ -82,6 +84,11 @@ jobs:
           path: .occt/native
           key: occt-native-${{ runner.os }}-${{ hashFiles('scripts/build-occt.sh', 'scripts/occt-version.sh') }}
           fail-on-cache-miss: true
+      # About 170 OCCT-linked test binaries need more space than the runner leaves next to SDKs this job does not use.
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
       # partsmith-desktop is a workspace member, so the workspace builds need Tauri's Linux packages.
       - name: Install the Tauri Linux packages
         run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libxdo-dev libssl-dev librsvg2-dev
@@ -93,6 +100,9 @@ jobs:
       # CI only compiles and lints it.
       - run: cargo clippy -p partsmith-recompute --features stability-study --all-targets -- -D warnings
       - run: cargo test --workspace
+      - name: Disk space after the tests
+        if: always()
+        run: df -h /
 
   deny:
     name: License and advisory policy
@@ -331,18 +341,18 @@ jobs:
             echo "::error::Expected exactly one .deb under target/release/bundle/deb/, found ${#packages[@]}."
             exit 1
           fi
-          # The sixth column of dpkg-deb --contents is the path.
-          paths="$(dpkg-deb --contents "${packages[0]}" | awk '{ print $6 }')"
-          if ! grep -qx './usr/bin/partsmith-desktop' <<<"$paths"; then
-            echo "::error::${packages[0]} does not contain ./usr/bin/partsmith-desktop."
+          # Tauri's bundler writes entries without the leading ./ that dpkg-deb --build writes; accept both.
+          paths="$(dpkg-deb --fsys-tarfile "${packages[0]}" | tar -t | sed 's|^\./||')"
+          if ! grep -qx 'usr/bin/partsmith-desktop' <<<"$paths"; then
+            echo "::error::${packages[0]} does not contain usr/bin/partsmith-desktop."
             exit 1
           fi
-          launchers="$(grep -c '^\./usr/share/applications/[^/]*\.desktop$' <<<"$paths" || true)"
+          launchers="$(grep -c '^usr/share/applications/[^/]*\.desktop$' <<<"$paths" || true)"
           if [ "$launchers" -ne 1 ]; then
-            echo "::error::${packages[0]} has $launchers .desktop files under ./usr/share/applications/, expected exactly one."
+            echo "::error::${packages[0]} has $launchers .desktop files under usr/share/applications/, expected exactly one."
             exit 1
           fi
-          echo "${packages[0]} contains ./usr/bin/partsmith-desktop and one .desktop file."
+          echo "${packages[0]} contains usr/bin/partsmith-desktop and one .desktop file."
 
   deploy:
     name: Deploy to Cloudflare Pages
