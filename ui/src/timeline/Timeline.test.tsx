@@ -8,7 +8,6 @@ import type { Document, FeatureStatus } from '../generated/protocol'
 import {
   cubeDocumentState,
   documentState,
-  featureItem,
   FOUR_BOXES_DOCUMENT,
   IMPORT_DOCUMENT,
   readyState,
@@ -25,6 +24,7 @@ import {
   emptyDocument,
   featuresOf,
 } from '../test/fakes/documents'
+import { featureItem } from '../test/fakes/selection'
 import { settle } from '../test/fakes/settle'
 import { COLOR_CLASSES } from '../theme/roles'
 

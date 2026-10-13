@@ -6,11 +6,8 @@ import { editFeature } from '../app/actions/command'
 import { installPopoverPolyfill } from '../components/popover-polyfill.testing'
 import {
   CATALOG_TYPES,
-  CUBE_BOUNDS,
   cubeDocumentState,
   documentState,
-  meshSummary,
-  PEG_BOUNDS,
   readyState,
   rectSketchDocumentState,
 } from '../layout/fixtures.testing'
@@ -26,6 +23,7 @@ import {
   withFeatureChanges,
 } from '../test/fakes/documents'
 import { settle } from '../test/fakes/settle'
+import { CUBE_BOUNDS, meshSummary, PEG_BOUNDS } from '../test/fakes/state'
 import { FEATURE_DESCRIPTIONS } from './descriptions'
 import { featureCommands } from './features'
 import { COMMAND_KEYWORDS } from './keywords'

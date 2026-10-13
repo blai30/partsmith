@@ -1,14 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Platform } from '../app/createApp'
 import {
-  bodyItem,
   cubeDocumentState,
   CYLINDRICAL_FACE,
   documentState,
-  elementItem,
-  featureItem,
   IMPORT_DOCUMENT,
-  originItem,
   readyState,
   rectSketchDocumentState,
 } from '../layout/fixtures.testing'
@@ -21,6 +17,7 @@ import type { ActiveCommand, AppContext, AppState } from '../state/store'
 import { LINUX_WEB, MAC_WEB } from '../test/fakes/app'
 import { TEST_CATALOG } from '../test/fakes/catalog'
 import { CUBE_TOP_FACE, RECT_REGION } from '../test/fakes/documents'
+import { bodyItem, elementItem, featureItem, originItem } from '../test/fakes/selection'
 import { settle } from '../test/fakes/settle'
 import { builtinCommands } from './builtin'
 import { featureCommands } from './features'

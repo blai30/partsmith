@@ -98,9 +98,10 @@ import { BROWSER_PANEL_ID } from '../layout/panel-ids'
 import { requestUi } from '../layout/requests'
 import { MESSAGES } from '../messages'
 import {
+  NAVIGATION_LABELS,
   NAVIGATIONS,
   scalePercent,
-  SETTING_LABELS,
+  THEME_LABELS,
   THEMES,
   UI_SCALES,
   type Settings,
@@ -1295,7 +1296,7 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
     ...THEMES.map((theme) =>
       command({
         id: `settings.theme.${theme}`,
-        title: `Theme: ${SETTING_LABELS[theme]}`,
+        title: `Theme: ${THEME_LABELS[theme]}`,
         category: 'Settings',
         icon: THEME_ICONS[theme],
         contexts: ALL,
@@ -1319,7 +1320,7 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
     ...NAVIGATIONS.map((navigation) =>
       command({
         id: `settings.navigation.${navigation}`,
-        title: `Navigation: ${SETTING_LABELS[navigation]}`,
+        title: `Navigation: ${NAVIGATION_LABELS[navigation]}`,
         category: 'Settings',
         icon: MousePointer2,
         contexts: ALL,

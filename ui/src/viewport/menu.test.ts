@@ -1,16 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import {
-  bodyItem,
-  cubeDocumentState,
-  elementItem,
-  readyState,
-  rectSketchDocumentState,
-  sketchLineItem,
-} from '../layout/fixtures.testing'
+import { cubeDocumentState, readyState, rectSketchDocumentState } from '../layout/fixtures.testing'
 import { createModelApp } from '../layout/test-app.testing'
 import { MESSAGES } from '../messages'
 import { INITIAL_STATE, type ActiveCommand, type AppState } from '../state/store'
 import { CUBE_TOP_FRONT_EDGE, RECT_REGION } from '../test/fakes/documents'
+import { bodyItem, elementItem, sketchLineItem } from '../test/fakes/selection'
 import { viewportMenuItems, type ViewportMenuItem } from './menu'
 
 // The viewport context menu (ui.md 3.13).

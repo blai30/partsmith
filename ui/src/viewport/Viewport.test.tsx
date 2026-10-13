@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cancelCommand, editFeature } from '../app/actions/command'
 import type { App } from '../app/createApp'
 import { installPopoverPolyfill } from '../components/popover-polyfill.testing'
-import { bodyItem, cubeDocumentState, readyState } from '../layout/fixtures.testing'
+import { cubeDocumentState, readyState } from '../layout/fixtures.testing'
 import {
   createModelApp,
   renderWithApp,
@@ -18,6 +18,7 @@ import { MESSAGES } from '../messages'
 import { DEFAULT_SETTINGS } from '../settings/settings'
 import { INITIAL_STATE, type AppState } from '../state/store'
 import type { FakeBackend } from '../test/fakes/backend'
+import { bodyItem } from '../test/fakes/selection'
 import { settle } from '../test/fakes/settle'
 import { CUBE_FEATURES_DOCUMENT } from '../test/fakes/documents'
 import { checkResult, finding, printReport } from '../test/fakes/state'

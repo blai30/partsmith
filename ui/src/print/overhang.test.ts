@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { AppState } from '../state/store'
 import { DEFAULT_SETTINGS } from '../settings/settings'
+import { CUBE_BOUNDS, meshSummary, PEG_BOUNDS } from '../test/fakes/state'
 import { encodedFromHex, type ThemeName } from '../theme/roles'
 import {
   overhangAnalysis,
@@ -11,14 +12,11 @@ import {
 } from './overhang'
 import {
   CUBE,
-  CUBE_BOUNDS,
   PEG,
-  PEG_BOUNDS,
   PRINTERS,
   bodyPrint,
   documentState,
   finding,
-  meshSummary,
   printReport,
   printState,
   stateWith,

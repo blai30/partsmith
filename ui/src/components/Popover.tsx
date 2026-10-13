@@ -32,7 +32,7 @@ export type PopoverProps = {
 export function Popover({ label, open, anchor, onOpenChange, children, className }: PopoverProps) {
   const element = useRef<HTMLDialogElement>(null)
   // The browser closed the popover; the owner learns it unless it closed it itself.
-  const closed = useEffectEvent(() => {
+  const notifyClosed = useEffectEvent(() => {
     if (open) {
       onOpenChange(false)
     }
@@ -59,7 +59,7 @@ export function Popover({ label, open, anchor, onOpenChange, children, className
       if (focusWasInside && (active === null || active === popover.ownerDocument.body)) {
         anchor.current?.focus()
       }
-      closed()
+      notifyClosed()
     }
     popover.addEventListener('beforetoggle', onBeforeToggle)
     popover.addEventListener('toggle', onToggle)

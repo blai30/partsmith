@@ -5,15 +5,9 @@ import { installPopoverPolyfill } from '../components/popover-polyfill.testing'
 import type { ActiveCommand, AppState, SketchSession } from '../state/store'
 import { deferred } from '../test/fakes/deferred'
 import { CUBE_TOP_FRONT_EDGE, RECT_REGION } from '../test/fakes/documents'
+import { bodyItem, elementItem, sketchLineItem } from '../test/fakes/selection'
 import { settle } from '../test/fakes/settle'
-import {
-  bodyItem,
-  cubeDocumentState,
-  elementItem,
-  readyState,
-  rectSketchDocumentState,
-  sketchLineItem,
-} from './fixtures.testing'
+import { cubeDocumentState, readyState, rectSketchDocumentState } from './fixtures.testing'
 import { escapeStep } from './ladders'
 import { createModelApp, renderModelApp, renderWithApp, stubMatchMedia } from './test-app.testing'
 

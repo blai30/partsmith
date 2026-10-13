@@ -1,17 +1,16 @@
 import { describe, expect, it } from 'vitest'
 import type { ElementDescriptor } from '../generated/protocol'
 import {
-  bodyItem,
   CIRCULAR_EDGE,
   CORNER_VERTEX,
   cubeDocumentState,
   CYLINDRICAL_FACE,
-  elementItem,
   readyState,
 } from '../layout/fixtures.testing'
 import { createModelApp } from '../layout/test-app.testing'
 import type { DocumentState, SelectionItem } from '../state/store'
 import { CUBE_DOCUMENT } from '../test/fakes/documents'
+import { bodyItem, elementItem } from '../test/fakes/selection'
 import { formatVolume, measureSelection, selectionMeasurements } from './measurements'
 
 // Measurements of the selection (ui.md 3.8).

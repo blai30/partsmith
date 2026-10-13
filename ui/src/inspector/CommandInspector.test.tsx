@@ -3,15 +3,11 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { installPopoverPolyfill } from '../components/popover-polyfill.testing'
 import type { Diagnostic, FeatureStatus } from '../generated/protocol'
-import {
-  cubeDocumentState,
-  documentState,
-  elementItem,
-  readyState,
-} from '../layout/fixtures.testing'
+import { cubeDocumentState, documentState, readyState } from '../layout/fixtures.testing'
 import { createModelApp, renderWithApp, stubMatchMedia } from '../layout/test-app.testing'
 import type { ActiveCommand, AppState, DocumentState } from '../state/store'
 import { CUBE_REGION, CUBE_TOP_FRONT_EDGE, emptyDocument } from '../test/fakes/documents'
+import { elementItem } from '../test/fakes/selection'
 import { settle } from '../test/fakes/settle'
 import { startFeatureCommand } from '../app/actions/command'
 

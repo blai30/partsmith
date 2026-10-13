@@ -43,8 +43,8 @@ export function hidePopover(element: HTMLElement): void {
 
 /**
  * Shows a popover element while `open` and hides it once closed, never touching one that was never
- * shown. `source` is the invoker `showPopover` names; `onShow` runs after each showing, which a new
- * source repeats while open.
+ * shown. `source` is the invoker `showPopover` names; `onShow` runs after each showing and again
+ * whenever `source` changes while open.
  */
 export function usePopoverVisibility(
   element: RefObject<HTMLElement | null>,

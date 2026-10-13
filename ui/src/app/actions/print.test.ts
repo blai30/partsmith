@@ -7,7 +7,6 @@ import {
   createPrintApp,
   documentState,
   finding,
-  meshSummary,
   printReport,
   printState,
   setRevision,
@@ -24,6 +23,7 @@ import {
 import { coreErrorFor } from '../../test/fakes/core-api'
 import { deferred } from '../../test/fakes/deferred'
 import { settle } from '../../test/fakes/settle'
+import { meshSummary } from '../../test/fakes/state'
 import {
   focusFinding,
   installPrintAnalysis,

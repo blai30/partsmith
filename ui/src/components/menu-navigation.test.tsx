@@ -47,15 +47,10 @@ describe('typeaheadIndex', () => {
   })
 })
 
-// An item that reports what each pointer move returned.
-function Item({ onMove }: { readonly onMove: (hovers: boolean) => void }) {
+// A menu item that takes focus as the pointer moves over it.
+function Item() {
   return (
-    <button
-      type="button"
-      onPointerMove={(event) => {
-        onMove(focusOnPointerMove(event))
-      }}
-    >
+    <button type="button" onPointerMove={focusOnPointerMove}>
       Item
     </button>
   )
@@ -63,18 +58,14 @@ function Item({ onMove }: { readonly onMove: (hovers: boolean) => void }) {
 
 describe('focusOnPointerMove', () => {
   it('focuses the item under a mouse', () => {
-    const moves: boolean[] = []
-    render(<Item onMove={(hovers) => moves.push(hovers)} />)
+    render(<Item />)
     fireEvent.pointerMove(screen.getByRole('button'), { pointerType: 'mouse' })
-    expect(moves).toEqual([true])
     expect(screen.getByRole('button')).toHaveFocus()
   })
 
   it('leaves focus where it is for touch', () => {
-    const moves: boolean[] = []
-    render(<Item onMove={(hovers) => moves.push(hovers)} />)
+    render(<Item />)
     fireEvent.pointerMove(screen.getByRole('button'), { pointerType: 'touch' })
-    expect(moves).toEqual([false])
     expect(screen.getByRole('button')).not.toHaveFocus()
   })
 })

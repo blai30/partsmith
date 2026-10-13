@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { installPopoverPolyfill } from './components/popover-polyfill.testing'
 import type { App as AppInstance } from './app/createApp'
 import type { Edit, SketchEntity } from './generated/protocol'
-import { bodyItem, cubeDocumentState, documentState, readyState } from './layout/fixtures.testing'
+import { cubeDocumentState, documentState, readyState } from './layout/fixtures.testing'
 import {
   createModelApp,
   renderModelApp,
@@ -23,6 +23,7 @@ import {
   VIEW_PIXELS,
 } from './sketch/view.testing'
 import { emptyDocument } from './test/fakes/documents'
+import { bodyItem } from './test/fakes/selection'
 import { settle } from './test/fakes/settle'
 import { checkResult, finding, printReport } from './test/fakes/state'
 import { COLOR_CLASSES, FONT_CLASSES } from './theme/roles'

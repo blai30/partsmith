@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import type { FeatureStatus, PrintReport } from '../generated/protocol'
-import { documentState, meshSummary, readyState, CUBE_BOUNDS } from '../layout/fixtures.testing'
+import { documentState, readyState } from '../layout/fixtures.testing'
 import { createAppStore, INITIAL_STATE, type AppState } from '../state/store'
 import { CUBE_FEATURES_DOCUMENT, CUBE_TOP_FACE } from '../test/fakes/documents'
+import { CUBE_BOUNDS, meshSummary } from '../test/fakes/state'
 import { exportFailedText, exportStatus, statusLines, type ExportStatusLine } from './status'
 
 // What an export is about to write (ui.md 3.18).

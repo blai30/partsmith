@@ -2,20 +2,14 @@ import { cleanup, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { installPopoverPolyfill } from '../components/popover-polyfill.testing'
-import {
-  bodyItem,
-  CUBE_BOUNDS,
-  cubeDocumentState,
-  documentState,
-  meshSummary,
-  PEG_BOUNDS,
-  readyState,
-} from '../layout/fixtures.testing'
+import { cubeDocumentState, documentState, readyState } from '../layout/fixtures.testing'
 import { createModelApp, renderWithApp, stubMatchMedia } from '../layout/test-app.testing'
 import { MESSAGES } from '../messages'
 import { INITIAL_STATE, type AppState, type DocumentState } from '../state/store'
 import { CUBE_FEATURES_DOCUMENT, CUBE_TOP_FACE, TWO_BODIES_DOCUMENT } from '../test/fakes/documents'
 import type { FakeFileService } from '../test/fakes/files'
+import { bodyItem } from '../test/fakes/selection'
+import { CUBE_BOUNDS, meshSummary, PEG_BOUNDS } from '../test/fakes/state'
 
 beforeEach(installPopoverPolyfill)
 

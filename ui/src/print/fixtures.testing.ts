@@ -31,8 +31,6 @@ import { TEST_PRINTERS } from '../test/fakes/printers'
 import { CUBE_BOUNDS, documentStateFor, meshSummary, READY_CORE } from '../test/fakes/state'
 import { createFakeViewport, type FakeViewport } from '../test/fakes/viewport'
 
-export { CUBE_BOUNDS, meshSummary, PEG_BOUNDS } from '../test/fakes/state'
-
 export const DOCUMENT_HANDLE = 7
 
 /** A session profile, listed after the built-in ones (protocol.md list_printer_profiles). */

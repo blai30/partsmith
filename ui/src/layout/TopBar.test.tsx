@@ -6,14 +6,13 @@ import { DEFAULT_SETTINGS, SETTINGS_KEY } from '../settings/settings'
 import { INITIAL_STATE, type AppState, type SketchSession } from '../state/store'
 import { catalogOf, TEST_CATALOG_ENTRIES } from '../test/fakes/catalog'
 import { CUBE_TOP_FACE, RECT_REGION } from '../test/fakes/documents'
+import { featureItem, regionItem } from '../test/fakes/selection'
 import { settle } from '../test/fakes/settle'
 import { checkResult, finding, printReport } from '../test/fakes/state'
 import {
   cubeDocumentState,
   documentState,
-  featureItem,
   rectSketchDocumentState,
-  regionItem,
   THREE_BOXES_DOCUMENT,
 } from './fixtures.testing'
 import { renderModelApp, stubMatchMedia } from './test-app.testing'

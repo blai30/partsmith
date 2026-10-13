@@ -1,12 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Document } from '../../generated/protocol'
-import {
-  CUBE_BOUNDS,
-  documentState,
-  meshSummary,
-  readyState,
-  regionItem,
-} from '../../layout/fixtures.testing'
+import { documentState, readyState } from '../../layout/fixtures.testing'
 import { createModelApp } from '../../layout/test-app.testing'
 import { activeCommand, appliedEdits, startWithDocument } from '../../test/fakes/app'
 import {
@@ -16,8 +10,9 @@ import {
   CUBE_TOP_FACE,
   featuresOf,
 } from '../../test/fakes/documents'
-import { bodyItem, originItem } from '../../test/fakes/selection'
+import { bodyItem, originItem, regionItem } from '../../test/fakes/selection'
 import { settle } from '../../test/fakes/settle'
+import { CUBE_BOUNDS, meshSummary } from '../../test/fakes/state'
 import { capturePick, setCommandField, startFeatureCommand } from './command'
 import { select } from './selection'
 

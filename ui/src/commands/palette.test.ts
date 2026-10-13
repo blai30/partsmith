@@ -1,15 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import type { RecentFile } from '../files/recent'
-import {
-  CUBE_BOUNDS,
-  cubeDocumentState,
-  documentState,
-  readyState,
-} from '../layout/fixtures.testing'
+import { cubeDocumentState, documentState, readyState } from '../layout/fixtures.testing'
 import { createModelApp } from '../layout/test-app.testing'
 import { MESSAGES } from '../messages'
 import type { AppContext, SketchSession } from '../state/store'
 import { PARAMETRIC_DOCUMENT } from '../test/fakes/documents'
+import { CUBE_BOUNDS } from '../test/fakes/state'
 import { rankPaletteItems, type PaletteItem } from './fuzzy'
 import { paletteItems } from './palette'
 import { createFakeViewport } from '../test/fakes/viewport'

@@ -5,8 +5,9 @@ import { select } from '../app/actions/selection'
 import { installPopoverPolyfill } from '../components/popover-polyfill.testing'
 import { MESSAGES } from '../messages'
 import { CUBE_DOCUMENT } from '../test/fakes/documents'
+import { bodyItem } from '../test/fakes/selection'
 import { settle } from '../test/fakes/settle'
-import { bodyItem, cubeDocumentState, readyState } from './fixtures.testing'
+import { cubeDocumentState, readyState } from './fixtures.testing'
 import { createModelApp, renderWithApp, stubMatchMedia } from './test-app.testing'
 
 // The shell's live regions (3.6) and file drops (3.19).

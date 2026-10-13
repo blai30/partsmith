@@ -17,7 +17,7 @@ export function useMenuPopover(
   onDismiss: () => void,
   onShow?: () => void,
 ): void {
-  const dismissed = useEffectEvent(onDismiss)
+  const notifyDismissed = useEffectEvent(onDismiss)
   useEffect(() => {
     const menu = element.current
     if (menu === null) {
@@ -25,7 +25,7 @@ export function useMenuPopover(
     }
     const onToggle = (event: ToggleEvent): void => {
       if (event.newState === 'closed') {
-        dismissed()
+        notifyDismissed()
       }
     }
     menu.addEventListener('toggle', onToggle)
@@ -78,16 +78,15 @@ export function typeaheadIndex(
 }
 
 /**
- * Focuses the item under a moving mouse or pen, as hovering does in a menu. Returns false for
- * touch, which never hovers and leaves focus where it is.
+ * Focuses the item under a moving mouse or pen, as hovering does in a menu. Touch never hovers, so
+ * it leaves focus where it is.
  */
-export function focusOnPointerMove(event: PointerEvent<HTMLElement>): boolean {
+export function focusOnPointerMove(event: PointerEvent<HTMLElement>): void {
   if (event.pointerType === 'touch') {
-    return false
+    return
   }
   const item = event.currentTarget
   if (item.ownerDocument.activeElement !== item) {
     item.focus({ preventScroll: true })
   }
-  return true
 }

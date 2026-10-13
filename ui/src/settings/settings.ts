@@ -32,15 +32,18 @@ export const DEFAULT_SETTINGS: Settings = {
   moreExpanded: {},
 }
 
-/** How menus and command titles name each theme and navigation choice. */
-export const SETTING_LABELS: Readonly<Record<Settings['theme'] | Settings['navigation'], string>> =
-  {
-    system: 'System',
-    light: 'Light',
-    dark: 'Dark',
-    fusion: 'Fusion',
-    freecad: 'FreeCAD',
-  }
+/** How menus and command titles name each theme. */
+export const THEME_LABELS: Readonly<Record<Settings['theme'], string>> = {
+  system: 'System',
+  light: 'Light',
+  dark: 'Dark',
+}
+
+/** How menus and command titles name each navigation scheme. */
+export const NAVIGATION_LABELS: Readonly<Record<Settings['navigation'], string>> = {
+  fusion: 'Fusion',
+  freecad: 'FreeCAD',
+}
 
 /** A UI scale in percent, as its command id and menu item show it: "125" for 1.25. */
 export function scalePercent(scale: Settings['uiScale']): string {

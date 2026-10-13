@@ -1,25 +1,27 @@
 import { describe, expect, it } from 'vitest'
 import {
-  bodyItem,
   CIRCULAR_EDGE,
   CORNER_VERTEX,
   cubeDocumentState,
   CYLINDRICAL_FACE,
-  datumItem,
-  elementItem,
-  featureItem,
-  originItem,
-  parameterItem,
   readyState,
-  regionItem,
-  sketchLineItem,
-  sketchPointItem,
 } from '../layout/fixtures.testing'
 import { createAppStore } from '../state/store'
 import { CUBE_REGION, CUBE_TOP_FACE, CUBE_TOP_FRONT_EDGE } from '../test/fakes/documents'
 
 const TOP_FACE = CUBE_TOP_FACE
 const LINE_EDGE = CUBE_TOP_FRONT_EDGE
+import {
+  bodyItem,
+  datumItem,
+  elementItem,
+  featureItem,
+  originItem,
+  parameterItem,
+  regionItem,
+  sketchLineItem,
+  sketchPointItem,
+} from '../test/fakes/selection'
 import {
   acceptsTarget,
   bodyKey,

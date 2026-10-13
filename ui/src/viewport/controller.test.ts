@@ -7,18 +7,13 @@ import type { App } from '../app/createApp'
 import type { BodyMeshData } from '../core/events'
 import type { BoundingBox, ElementDescriptor, ElementRef, Resolution } from '../generated/protocol'
 import {
-  bodyItem,
   bodyMeshEvent,
   boxMesh,
-  CUBE_BOUNDS,
   CUBE_FACES,
   cubeDocumentState,
   documentState,
-  elementItem,
-  featureItem,
   FILLET_EDGES_COMMAND,
   FILLETED_CUBE_FACES,
-  meshSummary,
   readyState,
 } from '../layout/fixtures.testing'
 import {
@@ -41,7 +36,9 @@ import {
   CUBE_TOP_FACE,
   CUBE_TOP_FRONT_EDGE,
 } from '../test/fakes/documents'
+import { bodyItem, elementItem, featureItem } from '../test/fakes/selection'
 import { settle } from '../test/fakes/settle'
+import { CUBE_BOUNDS, meshSummary } from '../test/fakes/state'
 import { ELEMENT_STATE } from './backend'
 import {
   DEFAULT_CAMERA,

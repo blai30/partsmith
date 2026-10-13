@@ -36,14 +36,6 @@ const CURVE_NAMES: Readonly<Record<CurveKind, string>> = {
   other: 'Edge',
 }
 
-const ELEMENT_NOUNS: Readonly<
-  Record<'face' | 'edge' | 'vertex', readonly [singular: string, plural: string]>
-> = {
-  face: ['face', 'faces'],
-  edge: ['edge', 'edges'],
-  vertex: ['vertex', 'vertices'],
-}
-
 /**
  * "Made by {label}" for one face, edge or vertex (3.8): "Edit {label}" opens the feature that made
  * it, and hovering the row lights up that feature's timeline item.
@@ -127,9 +119,9 @@ export function ElementsSection({
   const element = first?.element ?? null
   const kind = first?.kind
   const single = kinds.size === 1 && (kind === 'face' || kind === 'edge' || kind === 'vertex')
-  const title = single
-    ? counted(items.length, ...ELEMENT_NOUNS[kind])
-    : counted(items.length, 'item')
+  const noun = single ? kind : 'item'
+  const title =
+    noun === 'vertex' ? counted(items.length, noun, 'vertices') : counted(items.length, noun)
   const bodies = [...new Set(items.flatMap((item) => (item.body === null ? [] : [item.body])))]
     .map((id) => document.recipe.bodies?.find((candidate) => candidate.id === id))
     .filter((body) => body !== undefined)

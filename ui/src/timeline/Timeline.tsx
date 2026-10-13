@@ -309,17 +309,22 @@ function Marker({ position, count, valueText, onPress }: MarkerProps) {
   )
 }
 
-/** A timeline item's context menu (3.9); Suppress and Delete cover `targets`. */
+type FeatureMenuOptions = {
+  /** The features Suppress and Delete cover. */
+  readonly targets: readonly string[]
+  /** An open feature command blocks every timeline edit (3.7). */
+  readonly blocked: boolean
+  readonly onRename: (id: string) => void
+}
+
+/** The context menu (3.9) of the timeline item of `record`, at `index` in the timeline. */
 function featureMenuEntries(
   app: App,
   record: FeatureRecord,
-  records: readonly FeatureRecord[],
-  targets: readonly string[],
-  blocked: boolean,
-  setRenaming: (id: string) => void,
+  index: number,
+  { targets, blocked, onRename }: FeatureMenuOptions,
 ): MenuEntry[] {
   const suppressed = record.suppressed === true
-  const index = records.indexOf(record)
   return [
     {
       kind: 'item',
@@ -334,7 +339,7 @@ function featureMenuEntries(
       label: 'Rename',
       disabled: blocked,
       onSelect: () => {
-        setRenaming(record.id)
+        onRename(record.id)
       },
     },
     {
@@ -476,11 +481,16 @@ function Strip() {
     items[target]?.focus()
   }
 
-  const menuRecord = menuFor === null ? undefined : records.find((record) => record.id === menuFor)
+  const menuIndex = records.findIndex((record) => record.id === menuFor)
+  const menuRecord = records[menuIndex]
   const menuEntries: MenuEntry[] =
     menuRecord === undefined
       ? []
-      : featureMenuEntries(app, menuRecord, records, targetsOf(menuRecord.id), blocked, setRenaming)
+      : featureMenuEntries(app, menuRecord, menuIndex, {
+          targets: targetsOf(menuRecord.id),
+          blocked,
+          onRename: setRenaming,
+        })
 
   const markerElement = (
     <Marker

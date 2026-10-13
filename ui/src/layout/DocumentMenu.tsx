@@ -5,7 +5,14 @@ import type { App } from '../app/createApp'
 import { reportFailure } from '../app/report'
 import { runCommand } from '../commands/registry'
 import { Menu, type MenuEntry } from '../components/Menu'
-import { NAVIGATIONS, scalePercent, SETTING_LABELS, THEMES, UI_SCALES } from '../settings/settings'
+import {
+  NAVIGATION_LABELS,
+  NAVIGATIONS,
+  scalePercent,
+  THEME_LABELS,
+  THEMES,
+  UI_SCALES,
+} from '../settings/settings'
 import { commandMenuItem, useCommandViews, type CommandView } from './use-commands'
 import { useRecentFiles } from './use-recent-files'
 
@@ -66,7 +73,7 @@ export function DocumentMenu({ open, anchor, onOpenChange }: DocumentMenuProps) 
       label: 'Theme',
       entries: THEMES.map((theme) => ({
         kind: 'radio',
-        label: SETTING_LABELS[theme],
+        label: THEME_LABELS[theme],
         checked: settings.theme === theme,
         onSelect: () => {
           runCommand(app, `settings.theme.${theme}`, 'menu')
@@ -78,7 +85,7 @@ export function DocumentMenu({ open, anchor, onOpenChange }: DocumentMenuProps) 
       label: 'Navigation',
       entries: NAVIGATIONS.map((navigation) => ({
         kind: 'radio',
-        label: SETTING_LABELS[navigation],
+        label: NAVIGATION_LABELS[navigation],
         checked: settings.navigation === navigation,
         onSelect: () => {
           runCommand(app, `settings.navigation.${navigation}`, 'menu')

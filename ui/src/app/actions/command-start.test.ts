@@ -2,11 +2,8 @@ import { describe, expect, it } from 'vitest'
 import type { RegionInfo, SketchEntity } from '../../generated/protocol'
 import {
   cubeDocumentState,
-  elementItem,
-  featureItem,
   readyState,
   rectSketchDocumentState,
-  regionItem,
 } from '../../layout/fixtures.testing'
 import { createModelApp } from '../../layout/test-app.testing'
 import { MESSAGES } from '../../messages'
@@ -21,6 +18,7 @@ import {
 } from '../../sketch/fixtures.testing'
 import type { AppState } from '../../state/store'
 import { CUBE_TOP_FRONT_EDGE, RECT_REGION, RECT_SKETCH_SOLUTION } from '../../test/fakes/documents'
+import { elementItem, featureItem, regionItem } from '../../test/fakes/selection'
 import { settle } from '../../test/fakes/settle'
 import { capturePick, setCommandField, startFeatureCommand } from './command'
 

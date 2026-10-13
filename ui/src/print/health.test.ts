@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { BodyPrint, Finding, PrintReport } from '../generated/protocol'
 import { DEFAULT_SETTINGS } from '../settings/settings'
 import type { AppState } from '../state/store'
+import { CUBE_BOUNDS, meshSummary, PEG_BOUNDS } from '../test/fakes/state'
 import {
   findingAt,
   focusedFindingPoint,
@@ -13,13 +14,10 @@ import {
 } from './health'
 import {
   CUBE,
-  CUBE_BOUNDS,
   PEG,
-  PEG_BOUNDS,
   bodyPrint,
   documentState,
   finding,
-  meshSummary,
   printReport,
   printState,
   stateWith,

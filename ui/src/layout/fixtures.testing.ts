@@ -1,7 +1,6 @@
 // Test support for the ui-model slice, on top of the shared fakes in src/test/fakes: store states
-// of the e2e fixture documents, the cube's element descriptors in list_elements order, mesh buffers
-// and body_mesh events for the scene, and the shared selection items and mesh summaries, which it
-// re-exports. Nothing here is part of the app.
+// of the e2e fixture documents, the cube's element descriptors in list_elements order, and mesh
+// buffers and body_mesh events for the scene. Nothing here is part of the app.
 
 import type { BodyMeshData, CoreEvent } from '../core/events'
 import type { Document, ElementDescriptor } from '../generated/protocol'
@@ -19,19 +18,6 @@ import {
 } from '../test/fakes/documents'
 import { TEST_PRINTERS } from '../test/fakes/printers'
 import { CUBE_BOUNDS, documentStateFor, meshSummary, READY_CORE } from '../test/fakes/state'
-
-export {
-  bodyItem,
-  datumItem,
-  elementItem,
-  featureItem,
-  originItem,
-  parameterItem,
-  regionItem,
-  sketchLineItem,
-  sketchPointItem,
-} from '../test/fakes/selection'
-export { CUBE_BOUNDS, meshSummary, PEG_BOUNDS } from '../test/fakes/state'
 
 /** Every type of the test catalog, sorted. */
 export const CATALOG_TYPES: readonly string[] = TEST_CATALOG_ENTRIES.map(

@@ -97,7 +97,7 @@ export function Tooltip({ label, shortcut = null, description = null, children }
     }
   }, [clearTimer, hideNow])
 
-  // The tooltip is placed under the trigger it describes now.
+  // Showing records the trigger, so the tooltip is placed under it.
   usePopoverVisibility(tooltip, visible, null, () => {
     trigger.current = wrapper.current?.firstElementChild ?? null
   })

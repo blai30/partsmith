@@ -27,7 +27,6 @@ import {
   selectionField,
   timelineLabels,
 } from './support/modeling'
-import { offset } from './support/sketch'
 
 // Feature commands, the inspector, previews, the timeline, the browser, the palette and the
 // parameters panel against the production build and the real core (ui.md 3.3 to 3.11, 6.5).
@@ -259,8 +258,8 @@ test.describe('palette and shortcuts', () => {
       .toBe('e')
     await expect(inspector(page)).toHaveCount(0)
     await page.keyboard.press('Escape')
-    const center = offset(await canvas(page), 0, 0)
-    await page.mouse.click(center.x, center.y)
+    const { cx, cy } = await canvas(page)
+    await page.mouse.click(cx, cy)
     await page.keyboard.press('e')
     await expect(inspector(page)).toHaveAttribute('data-mode', 'command')
     await expect(inspector(page)).toHaveAccessibleName('Extrude')
@@ -301,11 +300,11 @@ test.describe('inspector, timeline and browser', () => {
       'Cube (empty)',
       { useInnerText: true },
     )
-    const center = offset(await canvas(page), 0, 0)
+    const { cx, cy } = await canvas(page)
     await expect
       .poll(async () => {
-        await page.mouse.move(center.x + 1, center.y)
-        await page.mouse.move(center.x, center.y)
+        await page.mouse.move(cx + 1, cy)
+        await page.mouse.move(cx, cy)
         return page.getByTestId('viewport').getAttribute('data-hover-kind')
       })
       .not.toBe('face')
@@ -497,8 +496,8 @@ test.describe('inspector, timeline and browser', () => {
     await openApp(page)
     await dropFile(page, 'cube.ptsm')
     await fitView(page, 'Front')
-    const center = offset(await canvas(page), 0, 0)
-    await page.mouse.dblclick(center.x, center.y)
+    const { cx, cy } = await canvas(page)
+    await page.mouse.dblclick(cx, cy)
     await expect(inspector(page)).toHaveAccessibleName('Extrude 1')
   })
 
@@ -1356,9 +1355,8 @@ test.describe('one interface for everyone', () => {
     await openApp(page)
     await dropFile(page, 'cube.ptsm')
     await fitView(page, 'Front')
-    const top = offset(await canvas(page), 0, 0)
-    const box = await canvas(page)
-    await page.mouse.click(top.x, top.y - 0.4 * box.H, { button: 'right' })
+    const { cx, cy, H } = await canvas(page)
+    await page.mouse.click(cx, cy - 0.4 * H, { button: 'right' })
     const menu = page.getByTestId('viewport-menu')
     await expect(menu).toBeVisible()
     await expect(menuItem(menu, 'Fillet')).toBeVisible()

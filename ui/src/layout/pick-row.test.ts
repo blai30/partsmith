@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import type { ActiveCommand, SketchSession } from '../state/store'
 import { MAC_WEB } from '../test/fakes/app'
+import { bodyItem, datumItem, originItem } from '../test/fakes/selection'
 import { settle } from '../test/fakes/settle'
-import { bodyItem, cubeDocumentState, datumItem, originItem, readyState } from './fixtures.testing'
+import { cubeDocumentState, readyState } from './fixtures.testing'
 import { activeFieldAccepts, pickRow, togglesSelection } from './pick-row'
 import { createModelApp } from './test-app.testing'
 

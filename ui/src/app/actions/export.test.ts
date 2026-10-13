@@ -4,17 +4,14 @@ import type { Body, Diagnostic, ExportFormat } from '../../generated/protocol'
 import { MESSAGES } from '../../messages'
 import {
   CUBE,
-  CUBE_BOUNDS,
   DOCUMENT_HANDLE,
   EMPTY,
   GHOST,
   PEG,
-  PEG_BOUNDS,
   THREE_MF_BYTES,
   createPrintApp,
   documentState,
   exportedFile,
-  meshSummary,
   type PrintApp,
 } from '../../print/fixtures.testing'
 import type { AppState, SelectionItem } from '../../state/store'
@@ -22,6 +19,7 @@ import { TEST_CATALOG } from '../../test/fakes/catalog'
 import { coreErrorFor } from '../../test/fakes/core-api'
 import { createFakeFileHandle } from '../../test/fakes/files'
 import { bodyItem } from '../../test/fakes/selection'
+import { CUBE_BOUNDS, meshSummary, PEG_BOUNDS } from '../../test/fakes/state'
 import { exportModel, type ExportRequest } from './export'
 
 const NOTHING_TO_EXPORT = 'There is no visible body with geometry to export.'

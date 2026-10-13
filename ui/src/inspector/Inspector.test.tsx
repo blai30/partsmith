@@ -5,20 +5,11 @@ import { showPickHint } from '../app/actions/notifications'
 import { installPopoverPolyfill } from '../components/popover-polyfill.testing'
 import type { Diagnostic, FeatureStatus } from '../generated/protocol'
 import {
-  bodyItem,
   CYLINDRICAL_FACE,
   cubeDocumentState,
   documentState,
-  elementItem,
-  featureItem,
-  meshSummary,
-  CUBE_BOUNDS,
-  originItem,
-  parameterItem,
   readyState,
   rectSketchDocumentState,
-  regionItem,
-  sketchPointItem,
 } from '../layout/fixtures.testing'
 import { createModelApp, renderWithApp, stubMatchMedia } from '../layout/test-app.testing'
 import { MESSAGES } from '../messages'
@@ -38,7 +29,17 @@ import {
   RECT_SKETCH_SOLUTION,
   TWO_BODIES_DOCUMENT,
 } from '../test/fakes/documents'
+import {
+  bodyItem,
+  elementItem,
+  featureItem,
+  originItem,
+  parameterItem,
+  regionItem,
+  sketchPointItem,
+} from '../test/fakes/selection'
 import { settle } from '../test/fakes/settle'
+import { CUBE_BOUNDS, meshSummary } from '../test/fakes/state'
 import { COLOR_CLASSES, FONT_CLASSES } from '../theme/roles'
 
 beforeEach(installPopoverPolyfill)

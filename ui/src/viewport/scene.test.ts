@@ -4,12 +4,9 @@ import type { Document, SketchSolution } from '../generated/protocol'
 import {
   bodyMeshEvent,
   boxMesh,
-  CUBE_BOUNDS,
   cubeDocumentState,
   documentState,
   FILLET_EDGES_COMMAND,
-  meshSummary,
-  PEG_BOUNDS,
   readyState,
   rectSketchDocumentState,
 } from '../layout/fixtures.testing'
@@ -25,6 +22,7 @@ import {
 import { createFakeBackend, type FakeBackend } from '../test/fakes/backend'
 import { CUBE_DOCUMENT, RECT_SKETCH_SOLUTION, TWO_BODIES_DOCUMENT } from '../test/fakes/documents'
 import { acceptsTarget } from '../inspector/selection-values'
+import { CUBE_BOUNDS, meshSummary, PEG_BOUNDS } from '../test/fakes/state'
 import { linearFromHex, VIEWPORT_COLORS, viewportTheme } from '../theme/roles'
 import type { DrawCall, Geometry, RenderFrame } from './backend'
 import {

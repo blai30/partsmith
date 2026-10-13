@@ -1,16 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
-  bodyItem,
   cubeDocumentState,
-  datumItem,
   documentState,
-  elementItem,
-  featureItem,
-  originItem,
   readyState,
   rectSketchDocumentState,
-  regionItem,
-  sketchPointItem,
   CYLINDRICAL_FACE,
 } from '../layout/fixtures.testing'
 import {
@@ -27,6 +20,15 @@ import {
   RECT_SKETCH_SOLUTION,
   TWO_BODIES_DOCUMENT,
 } from '../test/fakes/documents'
+import {
+  bodyItem,
+  datumItem,
+  elementItem,
+  featureItem,
+  originItem,
+  regionItem,
+  sketchPointItem,
+} from '../test/fakes/selection'
 import { suggestedCommands } from './suggestions'
 
 // The next steps of the selection inspector (ui.md 3.8).

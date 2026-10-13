@@ -339,9 +339,11 @@ function MenuList({
               setActive((previous) => (previous === index ? null : previous))
             }}
             onPointerMove={(event) => {
-              if (!focusOnPointerMove(event)) {
+              // Touch never hovers, so it neither moves focus nor opens a submenu.
+              if (event.pointerType === 'touch') {
                 return
               }
+              focusOnPointerMove(event)
               if (entry.kind === 'submenu' && entry.disabled !== true && !expanded) {
                 openSubmenu(index, false)
               } else if (entry.kind !== 'submenu' && submenu !== null) {
