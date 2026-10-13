@@ -12,13 +12,13 @@
 #[path = "../tests/common/mod.rs"]
 mod common;
 
-use std::hint::black_box;
 use std::path::Path;
 use std::process::ExitCode;
 use std::thread;
 use std::time::{Duration, Instant};
 
 use common::{Harness, bodies, document, statuses, test_datum, test_datum_on};
+use partsmith_budgets::{median, median_time};
 use partsmith_features::{CancelToken, FieldRef};
 use partsmith_model::{Document, FieldUnit, Id, Parameter};
 use partsmith_recompute::{Change, NodeState, Report, Status};
@@ -51,67 +51,6 @@ const CANCEL_DELAY: Duration = Duration::from_millis(50);
 /// Allowance between `cancel()` and the end of `run` when the feature being built is `test_wait`,
 /// whose remaining time after a cancel is one 1 ms poll.
 const CANCEL_LATENCY: Duration = Duration::from_millis(5);
-
-/// One timed operation and its budget.
-struct Measurement {
-    /// What was timed, as recompute.md section 5 names it.
-    operation: String,
-    /// The median time.
-    time: Duration,
-    /// The budget from recompute.md section 5.
-    budget: Duration,
-}
-
-/// The operations selected on the command line, or all of them when none is named.
-struct Selection {
-    /// Words that select operations by their name.
-    words: Vec<String>,
-}
-
-impl Selection {
-    /// Reads the words from the command line, skipping the flags cargo passes.
-    fn from_arguments() -> Selection {
-        Selection {
-            words: std::env::args()
-                .skip(1)
-                .filter(|argument| !argument.starts_with("--"))
-                .collect(),
-        }
-    }
-
-    /// True when the operation runs.
-    fn includes(&self, operation: &str) -> bool {
-        self.words.is_empty()
-            || self
-                .words
-                .iter()
-                .any(|word| operation.contains(word.as_str()))
-    }
-}
-
-/// The median of `RUNS` samples, each taken by `sample`.
-fn median(mut sample: impl FnMut() -> Duration) -> Duration {
-    let mut times: Vec<Duration> = (0..RUNS).map(|_| sample()).collect();
-    times.sort_unstable();
-    times[RUNS / 2]
-}
-
-/// The median of `RUNS` timings of `operation`, with a fresh input from `setup` for each run.
-/// Neither the setup nor dropping the input and the result is timed.
-fn median_time<Input, Output>(
-    mut setup: impl FnMut() -> Input,
-    mut operation: impl FnMut(&mut Input) -> Output,
-) -> Duration {
-    median(|| {
-        let mut input = setup();
-        let start = Instant::now();
-        let output = black_box(operation(black_box(&mut input)));
-        let time = start.elapsed();
-        drop(output);
-        drop(input);
-        time
-    })
-}
 
 /// `time` divided by the number of features it was spent on.
 fn per_feature(time: Duration) -> Duration {
@@ -311,7 +250,7 @@ fn edit_run_time(harness: &mut Harness, bench: &Document) -> Duration {
     let (prepared, edited_ids) = with_edit_parameter(harness, bench);
     harness.run(&prepared);
     let mut sample = 0;
-    median(|| {
+    median(RUNS, |_| {
         sample += 1;
         let edited = with_edit_value(&prepared, &format!("1 - {sample} / 1000"));
         let start = Instant::now();
@@ -330,60 +269,48 @@ fn edit_run_time(harness: &mut Harness, bench: &Document) -> Duration {
 }
 
 fn main() -> ExitCode {
-    let selection = Selection::from_arguments();
-    let mut measurements: Vec<Measurement> = Vec::new();
-    let mut unmeasured: Vec<String> = Vec::new();
-    let mut measure = |operation: &str, budget: Duration, time: &mut dyn FnMut() -> Duration| {
-        if selection.includes(operation) {
-            let time = time();
-            println!(
-                "{operation:<76} {:>10.4} ms   budget {:>8.4} ms",
-                time.as_secs_f64() * 1e3,
-                budget.as_secs_f64() * 1e3
-            );
-            measurements.push(Measurement {
-                operation: operation.to_string(),
-                time,
-                budget,
-            });
-        }
-    };
+    let mut budgets = partsmith_budgets::Report::from_arguments();
 
     let boxes = boxes();
-    measure(
+    budgets.measure(
         "plan of a 300-feature document on a fresh recompute (validation, dependencies, parameters, keys)",
         Duration::from_millis(10),
-        &mut || median_time(Harness::builtins, |harness| harness.plan(&boxes)),
+        || {
+            median_time(RUNS, Harness::builtins, |harness| {
+                let plan = harness.plan(&boxes);
+                (harness, plan)
+            })
+        },
     );
     let chain = datum_chain();
-    measure(
+    budgets.measure(
         "overhead per feature of a cold run, excluding builds (300 features)",
         Duration::from_micros(100),
-        &mut || {
-            median(|| {
+        || {
+            median(RUNS, |_| {
                 let mut harness = Harness::test_features();
                 per_feature(overhead(&harness.run(&chain)))
             })
         },
     );
-    measure(
+    budgets.measure(
         "overhead per feature of a run with every result cached (300 features)",
         Duration::from_micros(100),
-        &mut || {
+        || {
             let mut harness = Harness::test_features();
             harness.run(&chain);
-            median(|| per_feature(harness.run(&chain).elapsed))
+            median(RUNS, |_| per_feature(harness.run(&chain).elapsed))
         },
     );
     let mut waiting = vec![json!({"id": "f-w1", "type": "test_wait"})];
     waiting.extend(datum_chain_records());
     let waiting = document(json!({"features": waiting}));
-    measure(
+    budgets.measure(
         "latency from cancel() to the end of run, between features",
         CANCEL_LATENCY,
-        &mut || {
+        || {
             let mut harness = Harness::test_features();
-            median(|| cancel_latency(&mut harness, &waiting))
+            median(RUNS, |_| cancel_latency(&mut harness, &waiting))
         },
     );
 
@@ -394,14 +321,14 @@ fn main() -> ExitCode {
     ];
     let selected: Vec<&str> = bench50_operations
         .into_iter()
-        .filter(|operation| selection.includes(operation))
+        .filter(|operation| budgets.includes(operation))
         .collect();
     if !selected.is_empty() {
         match load_bench50() {
             Some(bench) => {
                 let mut harness = warm_harness(&bench);
-                measure(bench50_operations[0], Duration::from_millis(5), &mut || {
-                    median(|| {
+                budgets.measure(bench50_operations[0], Duration::from_millis(5), || {
+                    median(RUNS, |_| {
                         let start = Instant::now();
                         let report = harness.run(&bench);
                         let time = start.elapsed();
@@ -409,36 +336,24 @@ fn main() -> ExitCode {
                         time
                     })
                 });
-                measure(bench50_operations[1], Duration::from_secs(1), &mut || {
-                    median_time(Harness::builtins, |fresh| fresh.run(&bench))
+                budgets.measure(bench50_operations[1], Duration::from_secs(1), || {
+                    median_time(RUNS, Harness::builtins, |mut fresh| {
+                        let run = fresh.run(&bench);
+                        (fresh, run)
+                    })
                 });
-                measure(
-                    bench50_operations[2],
-                    Duration::from_millis(60),
-                    &mut || edit_run_time(&mut harness, &bench),
-                );
+                budgets.measure(bench50_operations[2], Duration::from_millis(60), || {
+                    edit_run_time(&mut harness, &bench)
+                });
             }
             None => {
                 println!("{BENCH50} does not exist yet (engine.md open issue 4).");
-                unmeasured.extend(selected.into_iter().map(str::to_string));
+                for operation in selected {
+                    budgets.record_unmeasured(operation);
+                }
             }
         }
     }
 
-    let over_budget: Vec<&Measurement> = measurements
-        .iter()
-        .filter(|measurement| measurement.time > measurement.budget)
-        .collect();
-    for measurement in &over_budget {
-        println!("Over budget: {}", measurement.operation);
-    }
-    for operation in &unmeasured {
-        println!("Not measured: {operation}");
-    }
-    if over_budget.is_empty() && unmeasured.is_empty() {
-        println!("Every measured operation is within its budget.");
-        ExitCode::SUCCESS
-    } else {
-        ExitCode::FAILURE
-    }
+    budgets.finish()
 }

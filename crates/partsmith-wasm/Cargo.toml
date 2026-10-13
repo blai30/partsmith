@@ -27,6 +27,7 @@ harness = false
 partsmith-engine.workspace = true
 
 [dev-dependencies]
+partsmith-budgets.workspace = true
 partsmith-model.workspace = true
 partsmith-protocol.workspace = true
 proptest.workspace = true

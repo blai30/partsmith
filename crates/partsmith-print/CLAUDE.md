@@ -28,6 +28,7 @@ Spec: `docs/spec/print.md` (the definition of done). Acceptance tests in `tests/
 - Convex hulls turn `-0.0` into `0.0` before sorting, so a point written with either zero is one point.
 - Known budget gap: spec section 5's 120 ms for `thin_walls` on 200k triangles is not reachable through `partsmith-mesh` within its own budgets (about 90 ms to build the hierarchy plus about 2 µs per `first_hit`, measured); `analyze` with all checks misses 250 ms for the same reason. On machined parts such as bench50 rays cost about 16 µs, because the hierarchy's wide padding applies to almost every node (spec open issue 9 has the profile). Needs a faster mesh traversal or a revised budget.
 - No hash-map iteration; every order is stated in the spec and every result is deterministic.
+- Test meshes: the unit tests and `tests/common` (which re-exports it) take the mesh.md section 6.1 fixtures from `partsmith-mesh-fixtures`, a dev-dependency (ADR 0027); `tests/common` adds the print.md section 6.1 shapes.
 
 ## Commands
 

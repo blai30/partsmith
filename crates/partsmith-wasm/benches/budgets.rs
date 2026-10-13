@@ -7,10 +7,11 @@ mod common;
 
 use std::hint::black_box;
 use std::process::ExitCode;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use common::block::Block;
 use common::{example_a, ok_result, response_frame};
+use partsmith_budgets::{Report, median_time_of};
 
 /// Round trips timed; the median counts.
 const RUNS: usize = 1001;
@@ -30,27 +31,8 @@ fn round_trip(request: &[u8]) -> Vec<u8> {
     response_block.bytes()
 }
 
-/// The median time of `RUNS` runs of `operation`.
-fn median_time<Output>(mut operation: impl FnMut() -> Output) -> Duration {
-    let mut times: Vec<Duration> = (0..RUNS)
-        .map(|_| {
-            let start = Instant::now();
-            let output = black_box(operation());
-            let time = start.elapsed();
-            drop(output);
-            time
-        })
-        .collect();
-    times.sort_unstable();
-    times[RUNS / 2]
-}
-
-/// A duration in milliseconds.
-fn readable(duration: Duration) -> String {
-    format!("{:.4} ms", duration.as_secs_f64() * 1e3)
-}
-
 fn main() -> ExitCode {
+    let mut report = Report::from_arguments();
     let request = example_a();
     partsmith_wasm::initialize_session();
     ok_result(&response_frame(&round_trip(&request)), "engine_info");
@@ -58,19 +40,8 @@ fn main() -> ExitCode {
         black_box(round_trip(black_box(&request)));
     }
 
-    let time = median_time(|| round_trip(black_box(&request)));
-
-    println!(
-        "{:<26} {:>12}   budget {:>12}",
-        "ps_call engine_info",
-        readable(time),
-        readable(BUDGET)
-    );
-    if time > BUDGET {
-        println!("Over budget: ps_call engine_info");
-        ExitCode::FAILURE
-    } else {
-        println!("Every measured operation is within its budget.");
-        ExitCode::SUCCESS
-    }
+    report.measure("ps_call engine_info", BUDGET, || {
+        median_time_of(RUNS, || round_trip(black_box(&request)))
+    });
+    report.finish()
 }

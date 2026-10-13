@@ -134,15 +134,18 @@ impl Fingerprint {
             radius: radius.filter(|_| kind.has_radius()),
             adjacency: None,
         };
-        let invalid = |reason: String| NamingError::InvalidFingerprint {
+        let invalid = |defect: FingerprintDefect| NamingError::InvalidFingerprint {
             text: given.to_string(),
-            reason,
+            reason: defect.to_string(),
         };
         if kind.requires_direction() && given.direction.is_none() {
-            return Err(invalid(required(Field::Direction, kind)));
+            return Err(invalid(FingerprintDefect::Required(Field::Direction, kind)));
         }
         if kind.has_size() && given.size.is_none() {
-            return Err(invalid(required(Field::size_of(kind), kind)));
+            return Err(invalid(FingerprintDefect::Required(
+                Field::size_of(kind),
+                kind,
+            )));
         }
         let values = given
             .direction
@@ -153,15 +156,16 @@ impl Fingerprint {
             .chain(given.radius);
         for value in values {
             if !value.is_finite() {
-                return Err(invalid(not_a_number(&value.to_string())));
+                return Err(invalid(FingerprintDefect::NotANumber(value.to_string())));
             }
         }
         if given.size.is_some_and(is_negative) || given.radius.is_some_and(is_negative) {
-            return Err(invalid(NEGATIVE.to_owned()));
+            return Err(invalid(FingerprintDefect::Negative));
         }
         let direction = match given.direction {
             Some(direction) => {
-                Some(unit_direction(direction, kind).ok_or_else(|| invalid(NOT_UNIT.to_owned()))?)
+                let unit = unit_direction(direction, kind);
+                Some(unit.ok_or_else(|| invalid(FingerprintDefect::NotUnit))?)
             }
             None => None,
         };
@@ -184,20 +188,64 @@ impl Fingerprint {
     }
 }
 
-/// Reason for a direction that cannot be or is not a unit vector.
-const NOT_UNIT: &str = "the direction is not a unit vector";
-
-/// Reason for a negative size or radius.
-const NEGATIVE: &str = "a size or radius cannot be negative";
-
-/// Reason for a value that is not a number.
-fn not_a_number(value: &str) -> String {
-    format!("\"{value}\" is not a number")
+/// Why values or a text do not make a valid fingerprint. Displays as the `reason` of
+/// `NamingError::InvalidFingerprint`.
+#[derive(Debug, Clone, PartialEq)]
+enum FingerprintDefect {
+    /// The text does not start with a geometry kind.
+    UnknownKind(String),
+    /// A field name of the text is not one of the text form's.
+    UnknownField(String),
+    /// A field of the text repeats or comes after a field it should precede.
+    OutOfOrder(Field),
+    /// A field of the text that the geometry kind does not have.
+    DoesNotApply(Field, GeometryKind),
+    /// A field `Fingerprint::new` needs for the geometry kind but was not given.
+    Required(Field, GeometryKind),
+    /// A field with the wrong number of values; it needs `count`.
+    ValueCount(Field, usize),
+    /// A value that is not a finite number in the text's number format.
+    NotANumber(String),
+    /// A size or radius below zero.
+    Negative,
+    /// A direction that cannot be or is not a unit vector.
+    NotUnit,
 }
 
-/// Reason for a field `Fingerprint::new` needs but was not given.
-fn required(field: Field, kind: GeometryKind) -> String {
-    format!("field \"{}\" is required for {kind}", field.token())
+impl fmt::Display for FingerprintDefect {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            FingerprintDefect::UnknownKind(token) => write!(formatter, "unknown kind \"{token}\""),
+            FingerprintDefect::UnknownField(name) => write!(formatter, "unknown field \"{name}\""),
+            FingerprintDefect::OutOfOrder(field) => write!(
+                formatter,
+                "field \"{}\" is repeated or out of order",
+                field.token()
+            ),
+            FingerprintDefect::DoesNotApply(field, kind) => write!(
+                formatter,
+                "field \"{}\" does not apply to {kind}",
+                field.token()
+            ),
+            FingerprintDefect::Required(field, kind) => write!(
+                formatter,
+                "field \"{}\" is required for {kind}",
+                field.token()
+            ),
+            FingerprintDefect::ValueCount(field, count) => write!(
+                formatter,
+                "field \"{}\" needs {count} values",
+                field.token()
+            ),
+            FingerprintDefect::NotANumber(value) => {
+                write!(formatter, "\"{value}\" is not a number")
+            }
+            FingerprintDefect::Negative => {
+                formatter.write_str("a size or radius cannot be negative")
+            }
+            FingerprintDefect::NotUnit => formatter.write_str("the direction is not a unit vector"),
+        }
+    }
 }
 
 /// True for values below zero (negative zero is not negative).
@@ -470,7 +518,7 @@ mod tests {
     fn new_rejects_negative_radius() {
         let result = Fingerprint::new(GeometryKind::Sphere, None, [0.0; 3], Some(1.0), Some(-1.0));
 
-        assert_eq!(reason(result), NEGATIVE);
+        assert_eq!(reason(result), "a size or radius cannot be negative");
     }
 
     #[test]
@@ -487,7 +535,7 @@ mod tests {
             result,
             Err(NamingError::InvalidFingerprint {
                 text: "plane|n=0,0,0|c=1,2,3|a=4".to_owned(),
-                reason: NOT_UNIT.to_owned()
+                reason: "the direction is not a unit vector".to_owned()
             })
         );
     }

@@ -2,6 +2,8 @@
 
 Crates: `partsmith-protocol` (types, framing, schema), `partsmith-wasm` (WebAssembly bridge). Also covers the web worker bridge in `ui/src/core/` and the desktop `call` contract. Command semantics live in [engine.md](engine.md); this document defines the wire.
 
+Diagnostics with actions, causes, details, roots and loss reasons, repair data with descriptions, candidates and ghosts, and the commands `apply_fix`, `list_uses` and `set_document_units` follow [ADR 0024](../adr/0024-diagnostics-with-actions-causes-and-ghosts.md); full references in picks follow [ADR 0021](../adr/0021-resolve-references-by-meaning.md), and body-coordinate fallbacks and axis directions [ADR 0023](../adr/0023-frames-live-on-the-model.md). They change `docs/format/protocol.schema.json`, so they need human review at the next gate (section 2.9, ADR 0016). Every message on the wire follows [the error guidelines](../guidelines/errors.md).
+
 ## 1. Purpose and scope
 
 The protocol is the only boundary between the UI (and any other host) and the core. Every command is a typed, serializable request; every result, state change and mesh comes back as typed messages plus raw buffers. The same bytes flow through the web worker (`ps_call`), the desktop host (Tauri `call`) and, for tests and Python, `Session::call`.
@@ -10,9 +12,10 @@ The protocol is the only boundary between the UI (and any other host) and the co
 
 - Binary frame `PSM1` with a JSON header and little-endian raw buffers (`u8`, `u32`, `f32`), byte-exact layout, strict decoder.
 - Message envelope: `request`, `response`, `event`; request frames carry one request, response frames carry the events caused by that request followed by its response.
-- Commands for the M1 UI: engine info; document new, open, save, mark saved, close, get; labeled edit batches; parameter rename with expression rewrite; transactions with an optional focus feature (live preview of the feature being edited); undo and redo; rollback (through the `set_rollback` edit); sketch solve, drag and drag commit; tessellation quality; feature catalog with manifests and params schemas; expression evaluation; element listing; pick to reference conversion; reference resolution for highlighting; measure of one body or element; printer profile list and registration; print analysis with profile and orientation; export to STL, 3MF, OBJ and STEP returning bytes; STEP import as one body; Python export.
+- Commands for the M1 UI: engine info; document new, open, save, mark saved, close, get; labeled edit batches; parameter rename with expression rewrite; transactions with an optional focus feature (live preview of the feature being edited); undo and redo; rollback (through the `set_rollback` edit); sketch solve, drag and drag commit; tessellation quality; feature catalog with manifests and params schemas; expression evaluation; element listing with short references; pick to reference conversion with full references; reference resolution for highlighting; measure of one body or element; printer profile list and registration; print analysis with profile and orientation; export to STL, 3MF, OBJ and STEP returning bytes; STEP import as one body; Python export; one-click fixes (`apply_fix`); what every feature uses (`list_uses`); document units with Keep sizes (`set_document_units`).
 - Events: `document_changed`, `recomputed`, `sketch_solved`, `datum_plane`, `body_mesh`, `print_health`.
-- Error responses with stable snake_case codes and plain-sentence messages.
+- Diagnostics with one-click actions, a cause line with its own actions, a technical detail, a root and a loss reason; repair data with the lost element in words, candidates described by what they keep and how far they are, and the lost element's ghost; sketch outline findings with their fixes.
+- Error responses with stable snake_case codes, plain-sentence messages, a technical detail and actions.
 - `PROTOCOL_VERSION = 1`, version check on every frame, generated JSON Schema at `docs/format/protocol.schema.json`, generated TypeScript types.
 - WebAssembly C ABI `ps_alloc`, `ps_free`, `ps_call` (ADR 0009), the Emscripten module contract, and the worker message shapes with request superseding.
 - The desktop `call` command contract (the host itself ships later, but its wire contract is fixed now).
@@ -232,7 +235,7 @@ impl FrameError {
 
 `FrameError::code` maps `VersionMismatch` to `protocol_version_mismatch`, `InvalidMessage` to `malformed_request`, and every other variant to `malformed_frame`.
 
-The protocol crate reuses these types from other crates without redefining them: `partsmith_model::{Id, Units, Expr, Document, Edit, Dimension, FeatureManifest}`, `partsmith_mesh::{BoundingBox, TessellationTolerance}`, `partsmith_sketch::{SketchParams, SketchEntity, PointRef, RegionRef, ProfileFinding, Placement, SketchStatus, EntityState}`, `partsmith_naming::Reference`, `partsmith_print::{PrinterProfile, ProfileInput, Severity, Health, HealthSummary, BodyReport}` (and the types they contain). `partsmith-protocol` therefore depends on `partsmith-mesh` directly (pure Rust, already below `partsmith-print`). Their JSON forms are defined by their own specs (model.md, expressions.md, mesh.md, sketch.md, naming.md, print.md); examples below follow those specs. The protocol carries no untyped JSON for core data; the only `serde_json::Value` is a feature's params JSON Schema in the catalog (2.5 command 2).
+The protocol crate reuses these types from other crates without redefining them: `partsmith_model::{Id, Units, Expr, Document, Edit, Dimension, FeatureManifest}`, `partsmith_mesh::{BoundingBox, TessellationTolerance}`, `partsmith_sketch::{SketchParams, SketchEntity, PointRef, RegionRef, ProfileFinding, Placement, SketchStatus, EntityState}`, `partsmith_naming::Reference`, `partsmith_print::{PrinterProfile, ProfileInput, Severity, Health, HealthSummary, BodyReport}` (and the types they contain). `partsmith-protocol` therefore depends on `partsmith-mesh` directly (pure Rust, already below `partsmith-print`). Their JSON forms are defined by their own specs (model.md, expressions.md, mesh.md, sketch.md, naming.md, print.md); examples below follow those specs. The protocol carries no untyped JSON for core data; the only `serde_json::Value` is a feature's params JSON Schema in the catalog (2.5 command 2). Features' fixes and recompute's loss reasons are not serialized by their crates (features.md section 2.8, recompute.md section 2), and the protocol does not depend on those crates: it defines their wire forms itself (`FixAction`, `LossReason` and the types they hold, section 2.4), and the engine projects into them (engine.md sections 3.4 and 3.22).
 
 ### 2.2 Frame layout
 
@@ -317,14 +320,14 @@ A request frame contains exactly one `request` message. A response frame contain
 {"kind": "request", "id": 7, "command": {"type": "undo", "doc": 1}}
 {"kind": "response", "id": 7, "result": {"kind": "ok", "type": "undo", "revision": 6, "label": "Change height"}}
 {"kind": "response", "id": 8, "result": {"kind": "error", "code": "nothing_to_undo", "message": "There is nothing to undo."}}
-{"kind": "event", "type": "document_changed", "doc": 1, "revision": 6, "document": {"format": "partsmith", "format_version": 1, "units": "mm", "parameters": [], "bodies": [], "features": []}, "dirty": false, "transaction_open": false}
+{"kind": "event", "type": "document_changed", "doc": 1, "revision": 6, "document": {"format": "partsmith", "format_version": 2, "units": "mm", "parameters": [], "bodies": [], "features": []}, "dirty": false, "transaction_open": false, "bare_numbers": 0}
 ```
 
 JSON conventions for every message:
 
 - Field names are `snake_case`. Records (commands, results, events) are tagged with `type`; the message envelope and every value enum (outcome, orientation, measure target, export format, repair) with `kind`. Values are snake_case.
 - `Option` fields are omitted when `None`. Decoders treat a missing field and `null` identically.
-- `Vec` fields are always written, possibly empty. In requests, a missing `Vec` field means empty.
+- `Vec` fields are always written, possibly empty. In requests, a missing `Vec` field means empty. Two `Vec` fields are the exception: `Diagnostic::actions` and `ErrorInfo::actions` are omitted when empty, and decoders read a missing one as empty, so a diagnostic or an error without actions serializes exactly as it did before these fields existed.
 - Integers are JSON integers. `f64` fields are finite JSON numbers; a non-finite value is never produced, and `null` is rejected where an `f64` is required.
 - Requests are decoded strictly: unknown fields and unknown command types are `malformed_request`. Clients ignore unknown fields in responses and events, and ignore events with an unknown `type`, so additive changes stay compatible (section 3.6).
 - Lengths are millimeters and angles are radians, in model coordinates (right-handed, Z up), regardless of document units.
@@ -359,8 +362,10 @@ pub struct Axis { pub origin: Vec3, pub direction: Vec3 }
     Preview,
 }
 
-/// A pixel pick in a displayed mesh.
-pub struct Pick { pub mesh_id: u64, pub kind: ElementKind, pub index: u32 }
+/// A pixel pick in a displayed mesh. In a headless session, which has no meshes, `mesh_id` is 0, `body` names the
+/// body and `index` is the element's position among the elements of its kind in `list_elements` order (engine.md
+/// section 3.9); in a display session `body` is absent or the mesh's body.
+pub struct Pick { pub mesh_id: u64, pub kind: ElementKind, pub index: u32, pub body: Option<Id> }
 
 /// An element of a displayed mesh.
 pub struct MeshElement { pub body: Id, pub mesh_id: u64, pub kind: ElementKind, pub index: u32 }
@@ -383,7 +388,8 @@ pub struct ElementDescriptor {
     pub body: Id,
     /// Feature whose output created the element (engine.md 3.9).
     pub feature: Id,
-    /// The stored reference a feature param uses for this element.
+    /// The reference a feature param stores for this element: the short form (query and fingerprint) in
+    /// `list_elements`, the full form with anchors and merged names in `pick_reference` (engine.md section 3.9).
     pub reference: Reference,
     /// Surface type (faces only).
     pub surface: Option<SurfaceKind>,
@@ -405,6 +411,12 @@ pub struct ElementDescriptor {
     pub radius: Option<f64>,
     /// Sketch placement a sketch on this face receives (planar faces only).
     pub placement: Option<Placement>,
+    /// `placement` in body coordinates, which hosts store as a face sketch's fallback with `fallback_frame: body`
+    /// (planar faces only, engine.md section 3.9).
+    pub fallback: Option<Placement>,
+    /// Unit axis direction in body coordinates, which hosts store as `direction` when the element is picked for an
+    /// axis (line edges; cylinder, cone and torus faces; engine.md section 3.9).
+    pub axis_direction: Option<Vec3>,
     /// Names of adjacent elements: a face's edges; an edge's faces then vertices; a vertex's edges. Each group sorted by name.
     pub adjacent: Vec<String>,
 }
@@ -429,18 +441,191 @@ pub use partsmith_mesh::TessellationTolerance;
 /// Severity of a diagnostic or finding: `info`, `warning` or `error` (print.md).
 pub use partsmith_print::Severity;
 
-/// A message about a document, feature or export.
+/// A message about a document, feature, sketch or export.
 pub struct Diagnostic {
-    /// Info, warning or error.
+    /// Info, warning or error. A feature message of severity info is a notice: its feature's status stays `ok`.
     pub severity: Severity,
     /// Stable snake_case code from the crate that produced it.
     pub code: String,
-    /// Plain-sentence message for the user.
+    /// Plain-sentence message for the user (docs/guidelines/errors.md).
     pub message: String,
-    /// JSON Pointer of the feature param the message is about, relative to the feature record (for example `/radius`). Feature messages only.
+    /// JSON Pointer of the feature param the message is about, relative to the feature record (for example `/radius`).
+    /// Feature messages, and sketch profile findings, whose field is their position in `SketchSolution::profile_findings`
+    /// (`/profile_findings/0`, section 2.6).
     pub field: Option<String>,
     /// Replacement expression for `field` that fixes the problem, in document units (for example `2.3 mm`). Feature messages only.
     pub suggestion: Option<String>,
+    /// One-click fixes computed from the document alone, in the order to offer them (engine.md section 3.22). Omitted
+    /// when empty (section 2.3).
+    pub actions: Vec<FixAction>,
+    /// The edit that started the problem, with its own actions (engine.md section 3.21). Session data: absent when the
+    /// session never saw the feature build without this message, for example in a document opened fresh.
+    pub cause: Option<Cause>,
+    /// Technical text for reports (the kernel's text, the stored reference and the resolver result, a parser's or a
+    /// panic's text), never shown as the message.
+    pub detail: Option<String>,
+    /// The root cause a host groups this message under: the first failing feature of an `upstream_failed` chain, or the
+    /// sketch that lost its face under a `no_effect`, `hole_misses_body` or `separate_solid` (recompute.md section 3.10,
+    /// `Message::root`).
+    pub root: Option<Id>,
+    /// Why the reference the message names was lost, or which feature a followed or widened reference followed
+    /// (recompute.md section 3.10, `Message::reason`).
+    pub reason: Option<LossReason>,
+}
+
+/// The edit that started a problem (engine.md section 3.21).
+pub struct Cause {
+    /// Plain sentence, for example "This started after you changed Distance of 'Extrude 2' from 5 mm to 30 mm."
+    pub text: String,
+    /// The feature the edit changed, when it changed one (deleted features included).
+    pub feature: Option<Id>,
+    /// Actions that depend on the session, in order: reverts, Keep the sketch where it was, Undo, Show.
+    pub actions: Vec<FixAction>,
+    /// For a sketch entity edit in a display session: the entity as it was before the edit, in the sketch's
+    /// coordinates. Absent for an added entity, which the sketch itself shows.
+    pub ghost: Option<Ghost>,
+}
+
+/// A fix a host offers as one button.
+pub struct FixAction {
+    /// Button label starting with a verb, for example "Set Count of 'Linear pattern 1' back to 3".
+    pub label: String,
+    /// What the button does.
+    pub run: FixKind,
+}
+
+/// What a fix button does. A value enum, so it is tagged `kind`.
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum FixKind {
+    /// Run `apply_fix` with this reference.
+    Apply { fix: FixRef },
+    /// Edit the feature with the field at `path` active, so the next pick replaces the reference.
+    Pick { feature: Id, path: String },
+    /// Select and frame the feature, and highlight one of its sketch entities when `entity` is set.
+    Show { feature: Id, entity: Option<Id> },
+    /// Undo the newest undo entry.
+    Undo,
+    /// Commit the open transaction with `commit_transaction`, then do again what the failed request did (an action of
+    /// a `transaction_open` error, section 4).
+    FinishTransaction,
+}
+
+/// Names one fix of one message at one revision; the engine builds the edits when it is applied (engine.md section 3.22).
+#[serde(deny_unknown_fields)]
+pub struct FixRef {
+    /// The feature whose message offers the fix (the sketch, for a profile finding).
+    pub feature: Id,
+    /// The message's code.
+    pub code: String,
+    /// The message's field; absent when the message has none.
+    pub field: Option<String>,
+    /// True for an action of the message's cause line.
+    pub cause: bool,
+    /// Position of the action in the message's `actions`, or in its cause's `actions` when `cause` is true.
+    pub index: u32,
+    /// The document revision the fix was offered at.
+    pub revision: u64,
+}
+
+/// Why a reference was lost, or which feature a followed or widened reference followed: the wire form of
+/// recompute.md's `LossReason` (section 3.10), with ids as strings. A value enum, so it is tagged `kind`.
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum LossReason {
+    /// Not diagnosed.
+    Unknown,
+    /// The feature that made it is not in the document.
+    NotInDocument { feature: Id },
+    /// The feature that made it is suppressed.
+    Suppressed { feature: Id },
+    /// The feature that made it comes after this one in the timeline.
+    ComesLater { feature: Id },
+    /// The feature that made it is at or after the rollback marker.
+    RolledBack { feature: Id },
+    /// The feature that made it failed; `root` is the first feature of the chain whose error is its own.
+    UpstreamFailed { feature: Id, root: Id },
+    /// It is now in another body, put there by `by` when known.
+    OtherBody { body: Id, by: Option<Id>, by_suppressed: bool },
+    /// A feature between the one that made it and this one removed it.
+    Removed { by: Id, how: Removal },
+    /// The sketch entity that made its face was deleted.
+    EntityDeleted { feature: Id, sketch: Id, entity: Id },
+    /// A hole no longer uses the point that made it; `deleted` when the sketch no longer has the point.
+    PointGone { feature: Id, sketch: Id, point: String, deleted: bool },
+    /// A pattern or mirror no longer makes the copy it was on.
+    CopyGone { feature: Id, instance: InstanceIndex },
+    /// An imported file no longer has it.
+    NotInFile { feature: Id },
+    /// For a followed or widened reference: the feature whose change it followed.
+    Followed { by: Id },
+}
+
+/// How a feature removed an element (recompute.md `Removal`). A value enum, so it is tagged `kind`.
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum Removal {
+    /// A cut, an intersect or a split took it away.
+    CutAway,
+    /// A join covered it, so it is inside the part.
+    Covered,
+    /// A fillet rounded it.
+    Rounded,
+    /// A chamfer beveled it.
+    Beveled,
+    /// A shell removed it.
+    Hollowed,
+    /// The piece of a split face it was on is gone.
+    PieceGone,
+    /// The feature that made it no longer makes it, and why when the feature recorded it.
+    NoLongerMade { absence: Option<Absence> },
+    /// Its faces no longer meet; `between` is the name of a face that now lies between them.
+    NoLongerMeet { between: Option<String> },
+}
+
+/// Why a feature does not make a face its naming rule would make (features.md `FeatureOutput::absent`).
+#[serde(rename_all = "snake_case")]
+pub enum Absence {
+    /// A cut or hole whose end lies outside the body.
+    Through,
+    /// A revolve of a full turn has no caps.
+    FullTurn,
+}
+
+/// The instance of a pattern or mirror copy (naming.md `Instance`).
+pub struct InstanceIndex {
+    /// Index along the first pattern direction, or the only one.
+    pub first: u32,
+    /// Index along the second direction; 0 for one-direction patterns, circular patterns and mirrors.
+    pub second: u32,
+}
+
+/// Geometry drawn where something was: a lost element in its last build, a lost region's outline, or a sketch entity
+/// before an edit. Positions travel as a binary buffer (section 3.4).
+pub struct Ghost {
+    /// `f32` positions in mm: 3 per point in `world`, 2 per point (u, v) in `sketch`.
+    pub positions: BufferIndex,
+    /// How the points are joined.
+    pub kind: GhostKind,
+    /// The coordinates of `positions`.
+    pub frame: GhostFrame,
+}
+
+/// How the points of a ghost are joined.
+#[serde(rename_all = "snake_case")]
+pub enum GhostKind {
+    /// Line segments, 2 points each (an edge, a region outline, a sketch curve).
+    Lines,
+    /// Triangles, 3 points each, counterclockwise seen from outside (a face).
+    Triangles,
+    /// Separate points (a vertex, a sketch point).
+    Points,
+}
+
+/// The coordinates of a ghost.
+#[serde(rename_all = "snake_case")]
+pub enum GhostFrame {
+    /// Model coordinates.
+    World,
+    /// The coordinates of the sketch the ghost belongs to: a region repair's `sketch`, or a cause's `feature`.
+    Sketch,
 }
 
 /// A file passed into or out of the engine.
@@ -472,16 +657,45 @@ JSON examples:
 "standard"
 {"chord_deviation": 0.05, "angular_deviation": 0.08726646259971647}
 {"severity": "warning", "code": "unknown_printer_profile", "message": "Printer profile \"my-printer\" is not installed, so the default FDM profile is used. Install it or pick another printer."}
-{"severity": "error", "code": "fillet_too_large", "message": "Fillet radius 3 mm is too large for the selected edges. The largest radius that works is about 2.3 mm. Try 2.3 mm or less.", "field": "/radius", "suggestion": "2.3 mm"}
+{"severity": "error", "code": "fillet_too_large", "message": "Fillet radius 3 mm is too large for the selected edges: the largest that works is about 2.3 mm.", "field": "/radius", "suggestion": "2.3 mm"}
 {"name": "9f2c0e5b7a1d4e3f8a6b2c1d0e9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f.step", "data": 0}
 {"name": "model.stl", "media_type": "model/stl", "data": 0}
 ```
 
-An `ElementDescriptor` for the top face of the box fixture and for one of its top edges (element names and fingerprint text are produced by partsmith-naming and are shown for orientation only):
+A feature diagnostic with actions, a cause, a detail and a reason: the error of reference stability corpus scenario R16, shortened to its first and last action and its first candidate in `detail` (the full list has a `Use` action per candidate, engine.md section 3.4). The `fillet_too_large` example above has the shape a feature message had before these fields existed, and still serializes that way.
 
 ```json
-{"name": "f-box1/top", "kind": "face", "body": "b-1", "feature": "f-box1", "reference": {"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,40|a=600|adj=4,4"}, "surface": "plane", "centroid": [0.0, 0.0, 40.0], "area": 600.0, "normal": [0.0, 0.0, 1.0], "placement": {"origin": [0.0, 0.0, 40.0], "x_axis": [1.0, 0.0, 0.0], "normal": [0.0, 0.0, 1.0]}, "adjacent": ["edge(f-box1/back|f-box1/top)", "edge(f-box1/front|f-box1/top)", "edge(f-box1/left|f-box1/top)", "edge(f-box1/right|f-box1/top)"]}
-{"name": "edge(f-box1/front|f-box1/top)", "kind": "edge", "body": "b-1", "feature": "f-box1", "reference": {"q": "edge(f-box1/front|f-box1/top)", "fp": "line|n=1,0,0|c=0,-15,40|l=20|adj=2,2"}, "curve": "line", "centroid": [0.0, -15.0, 40.0], "length": 20.0, "direction": [1.0, 0.0, 0.0], "adjacent": ["f-box1/front", "f-box1/top", "vertex(f-box1/front|f-box1/left|f-box1/top)", "vertex(f-box1/front|f-box1/right|f-box1/top)"]}
+{"severity": "error", "code": "references_not_found", "message": "The front top edge of 'Box 1' selected for Edges was cut away by 'Extrude 1', which comes before this fillet.", "field": "/edges", "actions": [{"label": "Use the front edge of the cut made by 'Extrude 1'", "run": {"kind": "apply", "fix": {"feature": "f-fil1", "code": "references_not_found", "field": "/edges", "cause": false, "index": 0, "revision": 7}}}, {"label": "Pick an edge again", "run": {"kind": "pick", "feature": "f-fil1", "path": "/edges/0"}}], "cause": {"text": "This started after you added 'Extrude 1' before this fillet.", "feature": "f-ext2", "actions": [{"label": "Suppress 'Extrude 1'", "run": {"kind": "apply", "fix": {"feature": "f-fil1", "code": "references_not_found", "field": "/edges", "cause": true, "index": 0, "revision": 7}}}, {"label": "Undo", "run": {"kind": "undo"}}]}, "detail": "edges[0] q=edge(f-box1/front|f-box1/top) resolution=missing lost.unmet=true candidates=edge(f-box1/front|f-ext2/lateral/e-1):0.913978", "reason": {"kind": "removed", "by": "f-ext2", "how": {"kind": "cut_away"}}}
+```
+
+Actions of every kind, loss reasons, and ghosts:
+
+```json
+{"label": "Use 2.3 mm", "run": {"kind": "apply", "fix": {"feature": "f-fil1", "code": "fillet_too_large", "field": "/radius", "cause": false, "index": 0, "revision": 3}}}
+{"label": "Show 'Datum plane 1'", "run": {"kind": "show", "feature": "f-dp1"}}
+{"label": "Show the line", "run": {"kind": "show", "feature": "f-sk1", "entity": "e-5"}}
+{"label": "Undo", "run": {"kind": "undo"}}
+{"label": "Finish \"Fillet\" and save", "run": {"kind": "finish_transaction"}}
+{"kind": "removed", "by": "f-ext2", "how": {"kind": "no_longer_made", "absence": "through"}}
+{"kind": "other_body", "body": "b-2", "by": "f-split1", "by_suppressed": false}
+{"kind": "copy_gone", "feature": "f-lp1", "instance": {"first": 2, "second": 0}}
+{"kind": "entity_deleted", "feature": "f-ext1", "sketch": "f-sk1", "entity": "e-5"}
+{"kind": "followed", "by": "f-sk1"}
+{"positions": 3, "kind": "lines", "frame": "world"}
+{"positions": 4, "kind": "lines", "frame": "sketch"}
+```
+
+An `ElementDescriptor` for the top face of the box fixture and for one of its top edges (element names and fingerprint text are produced by partsmith-naming and are shown for orientation only). Nothing moved the box, so body and model coordinates coincide and `fallback` equals `placement`:
+
+```json
+{"name": "f-box1/top", "kind": "face", "body": "b-1", "feature": "f-box1", "reference": {"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,40|a=600|adj=4,4"}, "surface": "plane", "centroid": [0.0, 0.0, 40.0], "area": 600.0, "normal": [0.0, 0.0, 1.0], "placement": {"origin": [0.0, 0.0, 40.0], "x_axis": [1.0, 0.0, 0.0], "normal": [0.0, 0.0, 1.0]}, "fallback": {"origin": [0.0, 0.0, 40.0], "x_axis": [1.0, 0.0, 0.0], "normal": [0.0, 0.0, 1.0]}, "adjacent": ["edge(f-box1/back|f-box1/top)", "edge(f-box1/front|f-box1/top)", "edge(f-box1/left|f-box1/top)", "edge(f-box1/right|f-box1/top)"]}
+{"name": "edge(f-box1/front|f-box1/top)", "kind": "edge", "body": "b-1", "feature": "f-box1", "reference": {"q": "edge(f-box1/front|f-box1/top)", "fp": "line|n=1,0,0|c=0,-15,40|l=20|adj=2,2"}, "curve": "line", "centroid": [0.0, -15.0, 40.0], "length": 20.0, "direction": [1.0, 0.0, 0.0], "axis_direction": [1.0, 0.0, 0.0], "adjacent": ["f-box1/front", "f-box1/top", "vertex(f-box1/front|f-box1/left|f-box1/top)", "vertex(f-box1/front|f-box1/right|f-box1/top)"]}
+```
+
+A `pick_reference` of the front top edge of the right piece of a top split by a slot (corpus setup BLOCK with SLOT(30,50)) carries the full reference, which `list_elements` gives without `nb`:
+
+```json
+{"q": "edge(f-ext1/end-cap#2|f-ext1/lateral/e-1)", "fp": "line|n=1,0,0|c=65,0,30|l=30|adj=2,2", "nb": {"f-ext1/end-cap#2": ["f-ext1/lateral/e-2", "f-ext2/lateral/e-6"]}}
 ```
 
 ### 2.5 Commands
@@ -504,7 +718,7 @@ Each command below lists its fields (Rust types), a request example, and the res
 
 ```json
 {"type": "engine_info"}
-{"type": "engine_info", "protocol_version": 1, "engine_version": "0.1.0", "format_version": 1, "kernel": "OCCT 7.9.3"}
+{"type": "engine_info", "protocol_version": 1, "engine_version": "0.1.0", "format_version": 2, "kernel": "OCCT 7.9.3"}
 ```
 
 2. `feature_catalog {}`: every registered feature type with its manifest and params JSON Schema, sorted by `type`. Result `{features: Vec<CatalogEntry>}` where `CatalogEntry { type: String, manifest: FeatureManifest, params_schema: serde_json::Value }`. `FeatureManifest` is defined in model.md (moved from features.md, D14), so the schema and the generated TypeScript types carry it typed.
@@ -548,7 +762,7 @@ Each command below lists its fields (Rust types), a request example, and the res
 
 ```json
 {"type": "save_document", "doc": 1}
-{"type": "save_document", "text": "{\n  \"format\": \"partsmith\",\n  \"format_version\": 1,\n  \"units\": \"mm\"\n}\n", "assets": [], "revision": 0}
+{"type": "save_document", "text": "{\n  \"format\": \"partsmith\",\n  \"format_version\": 2,\n  \"units\": \"mm\"\n}\n", "assets": [], "revision": 0}
 ```
 
 8. `close_document {doc}`: discards the document, its undo log and its display state. Result `{}`. Emits nothing.
@@ -557,7 +771,7 @@ Each command below lists its fields (Rust types), a request example, and the res
 
 ```json
 {"type": "get_document", "doc": 1}
-{"type": "get_document", "revision": 3, "document": {"format": "partsmith", "format_version": 1, "units": "mm", "parameters": [{"id": "p-h", "name": "height", "expr": "40 mm"}], "bodies": [{"id": "b-1", "name": "Block"}], "features": [{"id": "f-box1", "type": "box", "body": "b-1", "size": ["20 mm", "30 mm", "height"], "op": "new"}]}}
+{"type": "get_document", "revision": 3, "document": {"format": "partsmith", "format_version": 2, "units": "mm", "parameters": [{"id": "p-h", "name": "height", "expr": "40 mm"}], "bodies": [{"id": "b-1", "name": "Block"}], "features": [{"id": "f-box1", "type": "box", "body": "b-1", "size": ["20 mm", "30 mm", "height"], "op": "new"}]}}
 ```
 
 30. `mark_saved {doc, revision: u64}`: the host wrote the text that `save_document` returned for `revision`. When `revision` is that of the document's latest `save_document`, the dirty baseline becomes that text; otherwise nothing changes. Result `{}`. Emits `document_changed` when `dirty` changes.
@@ -582,6 +796,20 @@ Each command below lists its fields (Rust types), a request example, and the res
 ```json
 {"type": "rename_parameter", "doc": 1, "parameter": "p-h", "name": "h"}
 {"type": "rename_parameter", "revision": 5}
+```
+
+32. `apply_fix {doc, fix: FixRef}`: applies one `apply` action of a diagnostic, with its edits built by the engine from the current records (engine.md section 3.22); recorded in the open transaction, else as one undo entry labeled with the action's label. Result `{revision: u64}`. Emits like `apply_edits`. A `FixRef` whose revision is not the document's, or whose feature no longer has that message or action, fails with `stale_fix` and changes nothing.
+
+```json
+{"type": "apply_fix", "doc": 1, "fix": {"feature": "f-fil1", "code": "references_not_found", "field": "/edges", "cause": false, "index": 0, "revision": 7}}
+{"type": "apply_fix", "revision": 8}
+```
+
+33. `set_document_units {doc, units: Units, keep_sizes: bool}`: changes the document units (engine.md section 3.25); with `keep_sizes`, every number without a unit whose meaning the units decide gets the old unit, so no size changes. Recorded in the open transaction, else as one undo entry labeled `Change units to {units}`. `keep_sizes` is false when absent. Result `{revision: u64, kept: u32}`, with `kept` the number of expressions and parameters that got the old unit. Emits like `apply_edits` when the units changed, nothing otherwise.
+
+```json
+{"type": "set_document_units", "doc": 1, "units": "in", "keep_sizes": true}
+{"type": "set_document_units", "revision": 5, "kept": 4}
 ```
 
 11. `begin_transaction {doc, label: String}`: opens a transaction; later `apply_edits` join it and are previewed. Result `{}`. Emits `document_changed`.
@@ -620,7 +848,7 @@ Each command below lists its fields (Rust types), a request example, and the res
 
 ```json
 {"type": "drag_sketch", "doc": 1, "feature": "f-sk1", "point": "e-1.end", "to": [20.0, 5.0]}
-{"type": "drag_sketch", "solution": {"feature": "f-sk1", "status": "under_constrained", "failed": false, "dof": 1, "redundant": [], "conflicting": [], "placement": {"origin": [0.0, 0.0, 0.0], "x_axis": [1.0, 0.0, 0.0], "normal": [0.0, 0.0, 1.0]}, "entities": [{"id": "e-1", "type": "line", "start": [0.0, 0.0], "end": [20.0, 0.0], "constrained": "under_constrained"}], "points": [{"point": "e-1.start", "at": [0.0, 0.0]}, {"point": "e-1.end", "at": [20.0, 0.0]}], "constraints": [{"id": "c-1", "state": "satisfied"}, {"id": "c-2", "state": "satisfied"}], "regions": [], "profile_findings": [{"type": "open_endpoint", "entity": "e-1", "point": [0.0, 0.0]}, {"type": "open_endpoint", "entity": "e-1", "point": [20.0, 0.0]}], "display": {"region_positions": 0, "region_indices": 1, "region_ids": 2}}}
+{"type": "drag_sketch", "solution": {"feature": "f-sk1", "status": "under_constrained", "failed": false, "dof": 1, "redundant": [], "conflicting": [], "placement": {"origin": [0.0, 0.0, 0.0], "x_axis": [1.0, 0.0, 0.0], "normal": [0.0, 0.0, 1.0]}, "entities": [{"id": "e-1", "type": "line", "start": [0.0, 0.0], "end": [20.0, 0.0], "constrained": "under_constrained"}], "points": [{"point": "e-1.start", "at": [0.0, 0.0]}, {"point": "e-1.end", "at": [20.0, 0.0]}], "constraints": [{"id": "c-1", "state": "satisfied"}, {"id": "c-2", "state": "satisfied"}], "regions": [], "profile_findings": [{"type": "open_endpoint", "entity": "e-1", "point": [0.0, 0.0]}, {"type": "open_endpoint", "entity": "e-1", "point": [20.0, 0.0]}], "messages": [{"severity": "warning", "code": "open_endpoint", "message": "The end of the line from (0, 0) to (20, 0) at (0, 0) is not connected to other geometry.", "field": "/profile_findings/0", "detail": "open_endpoint entity=e-1 point=0,0"}, {"severity": "warning", "code": "open_endpoint", "message": "The end of the line from (0, 0) to (20, 0) at (20, 0) is not connected to other geometry.", "field": "/profile_findings/1", "detail": "open_endpoint entity=e-1 point=20,0"}], "display": {"region_positions": 0, "region_indices": 1, "region_ids": 2}}}
 ```
 
 19. `end_sketch_drag {doc, feature: Id, commit: bool}`: ends the drag; with `commit`, writes the last drag solution into the sketch as one `update_feature` edit. Result `{revision: u64}`. Emits like `apply_edits` when committed, nothing otherwise.
@@ -641,17 +869,17 @@ Each command below lists its fields (Rust types), a request example, and the res
 {"type": "evaluate", "value": 80.0, "dimension": {"length": 1, "angle": 0}}
 ```
 
-22. `list_elements {doc, body: Id, kind: Option<ElementKind>}`: every displayable element of the body at the display state, sorted by name within each kind, faces then edges then vertices. Result `{elements: Vec<ElementDescriptor>}`.
+22. `list_elements {doc, body: Id, kind: Option<ElementKind>}`: every displayable element of the body at the display state, sorted by name within each kind, faces then edges then vertices, each with the short form of its reference (query and fingerprint, engine.md section 3.9). Result `{elements: Vec<ElementDescriptor>}`.
 
 ```json
 {"type": "list_elements", "doc": 1, "body": "b-1", "kind": "face"}
 ```
 
-23. `pick_reference {doc, pick: Pick}`: converts a pick in a current model-layer mesh into the element and its reference. Result `{element: ElementDescriptor}`.
+23. `pick_reference {doc, pick: Pick}`: converts a pick in a current model-layer mesh into the element and its full reference, with anchors and merged names (engine.md section 3.9): the descriptor `list_elements` gives for that element, with the full reference. In a headless session, which has no meshes, `mesh_id` 0, the `body` and the element's position among the elements of its kind in `list_elements` order name the element. Result `{element: ElementDescriptor}`.
 
 ```json
 {"type": "pick_reference", "doc": 1, "pick": {"mesh_id": 12, "kind": "face", "index": 3}}
-{"type": "pick_reference", "element": {"name": "f-box1/top", "kind": "face", "body": "b-1", "feature": "f-box1", "reference": {"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,40|a=600|adj=4,4"}, "surface": "plane", "centroid": [0.0, 0.0, 40.0], "area": 600.0, "normal": [0.0, 0.0, 1.0], "placement": {"origin": [0.0, 0.0, 40.0], "x_axis": [1.0, 0.0, 0.0], "normal": [0.0, 0.0, 1.0]}, "adjacent": ["edge(f-box1/back|f-box1/top)", "edge(f-box1/front|f-box1/top)", "edge(f-box1/left|f-box1/top)", "edge(f-box1/right|f-box1/top)"]}}
+{"type": "pick_reference", "element": {"name": "f-box1/top", "kind": "face", "body": "b-1", "feature": "f-box1", "reference": {"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,40|a=600|adj=4,4"}, "surface": "plane", "centroid": [0.0, 0.0, 40.0], "area": 600.0, "normal": [0.0, 0.0, 1.0], "placement": {"origin": [0.0, 0.0, 40.0], "x_axis": [1.0, 0.0, 0.0], "normal": [0.0, 0.0, 1.0]}, "fallback": {"origin": [0.0, 0.0, 40.0], "x_axis": [1.0, 0.0, 0.0], "normal": [0.0, 0.0, 1.0]}, "adjacent": ["edge(f-box1/back|f-box1/top)", "edge(f-box1/front|f-box1/top)", "edge(f-box1/left|f-box1/top)", "edge(f-box1/right|f-box1/top)"]}}
 ```
 
 24. `resolve_references {doc, references: Vec<ElementRef>}`: resolves each reference within its body at the display state and returns the matching mesh elements for highlighting. Result `{results: Vec<Resolution>}` with `Resolution { status: ResolutionStatus, matches: Vec<MeshElement> }` and `ResolutionStatus` one of `resolved`, `ambiguous`, `missing`.
@@ -687,6 +915,27 @@ pub struct Measurement {
 {"type": "measure", "volume": 24000.0, "area": 5200.0, "center_of_mass": [0.0, 0.0, 20.0], "bounding_box": {"min": [-10.0, -15.0, 0.0], "max": [10.0, 15.0, 40.0]}, "face_count": 6, "edge_count": 12, "vertex_count": 8}
 {"type": "measure", "doc": 1, "targets": [{"kind": "element", "body": "b-1", "reference": {"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,40|a=600|adj=4,4"}}]}
 {"type": "measure", "area": 600.0, "centroid": [0.0, 0.0, 40.0], "surface": "plane", "normal": [0.0, 0.0, 1.0]}
+```
+
+34. `list_uses {doc}`: what every feature uses, from the document alone, without recomputing (engine.md section 3.24): its feature links, and the features and sketch entities that the element names in its stored references depend on. Result `{uses: Vec<Use>}`, sorted by the user's timeline position, then `field`, then `feature`, then `entity` (absent first). Emits nothing.
+
+```rust
+/// One thing a feature uses.
+pub struct Use {
+    /// The feature that uses it.
+    pub user: Id,
+    /// JSON Pointer of the field of `user` that names it, relative to the feature record, for example `/edges/0`.
+    pub field: String,
+    /// The feature it uses, or whose element it uses.
+    pub feature: Id,
+    /// The sketch entity of `feature`'s sketch that made the element used (a lateral face's line, a hole's point).
+    pub entity: Option<Id>,
+}
+```
+
+```json
+{"type": "list_uses", "doc": 1}
+{"type": "list_uses", "uses": [{"user": "f-ext1", "field": "/profile/sketch", "feature": "f-sk1"}, {"user": "f-fil1", "field": "/edges/0", "feature": "f-ext1"}, {"user": "f-fil1", "field": "/edges/0", "feature": "f-ext1", "entity": "e-3"}]}
 ```
 
 **Print**
@@ -767,6 +1016,9 @@ pub struct SketchSolution {
     pub regions: Vec<RegionInfo>,
     /// Open endpoints, overlaps, self-intersections and zero-length curves (`partsmith_sketch::ProfileFinding`).
     pub profile_findings: Vec<ProfileFinding>,
+    /// The solve issues, then one message per entry of `profile_findings` in its order, rendered by the sketch crate
+    /// in the document units; findings of the stored sketch carry their fixes as actions (engine.md section 3.6).
+    pub messages: Vec<Diagnostic>,
     /// Display buffers; absent when the session has display off.
     pub display: Option<SketchDisplay>,
 }
@@ -871,11 +1123,14 @@ DocumentChanged {
     transaction: Option<String>,
     /// The focused feature.
     focus: Option<Id>,
+    /// How many expressions and parameters are numbers without a unit whose meaning the document units decide
+    /// (model.md `bare_numbers`), so hosts can offer Keep sizes with its count (engine.md section 3.25).
+    bare_numbers: u32,
 }
 ```
 
 ```json
-{"kind": "event", "type": "document_changed", "doc": 1, "revision": 4, "document": {"format": "partsmith", "format_version": 1, "units": "mm", "parameters": [{"id": "p-h", "name": "height", "expr": "50 mm"}], "bodies": [{"id": "b-1", "name": "Block"}], "features": [{"id": "f-box1", "type": "box", "body": "b-1", "size": ["20 mm", "30 mm", "height"], "op": "new"}]}, "dirty": true, "undo": "Change height", "transaction_open": false}
+{"kind": "event", "type": "document_changed", "doc": 1, "revision": 4, "document": {"format": "partsmith", "format_version": 2, "units": "mm", "parameters": [{"id": "p-h", "name": "height", "expr": "50 mm"}], "bodies": [{"id": "b-1", "name": "Block"}], "features": [{"id": "f-box1", "type": "box", "body": "b-1", "size": ["20 mm", "30 mm", "height"], "op": "new"}]}, "dirty": true, "undo": "Change height", "transaction_open": false, "bare_numbers": 0}
 ```
 
 2. `recomputed`: status of every feature in timeline order, every parameter value, and document diagnostics.
@@ -885,15 +1140,16 @@ Recomputed { doc: DocHandle, revision: u64, features: Vec<FeatureStatus>, parame
 
 pub struct FeatureStatus {
     pub id: Id,
-    /// `ok`, `warning`, `error`, `suppressed` or `rolled_back`.
+    /// `ok`, `warning`, `error`, `suppressed` or `rolled_back`. A feature with info notices only is `ok`.
     pub status: FeatureState,
-    /// The error first, then warnings, each with `field` and `suggestion` when the feature reported them.
+    /// The error first, then warnings, then info notices, as engine.md section 3.4 projects them.
     pub messages: Vec<Diagnostic>,
-    /// Lost references and profile regions the repair panel offers to re-pick.
+    /// Repair data of lost, ambiguous, guessed and widened references and regions, one per repair of each message, in
+    /// message order: what repair mode shows and replaces (ui.md section 3.7).
     pub repairs: Vec<Repair>,
 }
 
-/// A reference or region that did not resolve uniquely: the engine's projection of features.md `Repair` (engine.md 3.4).
+/// A reference or region that did not resolve to what it meant: the engine's projection of features.md `Repair` (engine.md 3.4).
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Repair {
     /// A face, edge or vertex reference.
@@ -906,8 +1162,14 @@ pub enum Repair {
         reference: Reference,
         /// `missing` or `ambiguous`.
         resolution: ResolutionStatus,
-        /// Centroid from the stored fingerprint, for drawing a ghost marker.
+        /// Centroid from the stored fingerprint, for a marker where the element was when there is no ghost.
         centroid: Option<Vec3>,
+        /// The element in words, for example "the front top edge of 'Box 1'".
+        description: String,
+        /// Possible replacements in candidate order; each is also an action of the message.
+        candidates: Vec<RepairCandidate>,
+        /// Where the element was in its last build, for a dashed outline in the viewport (engine.md section 3.23).
+        ghost: Option<Ghost>,
     },
     /// A profile region.
     Region {
@@ -919,7 +1181,40 @@ pub enum Repair {
         region: RegionRef,
         /// `missing` or `ambiguous`.
         resolution: ResolutionStatus,
+        /// The region in words, for example "the region of 'Sketch 1' around (40, 25)".
+        description: String,
+        /// Sets of regions that could be meant; each is also an action of the message.
+        candidates: Vec<RegionCandidate>,
+        /// The stored outline as it was, in sketch coordinates, for the sketch overlay (engine.md section 3.23).
+        ghost: Option<Ghost>,
     },
+}
+
+/// A possible replacement for a lost, ambiguous, guessed or widened reference.
+pub struct RepairCandidate {
+    /// The reference the "Use" action stores (the full form, with anchors and merged names).
+    pub reference: Reference,
+    /// The candidate in words, for example "the top edge of the cut made by 'Extrude 1'".
+    pub description: String,
+    /// What it keeps and how far it is, for example "on the top of 'Box 1', 5 mm from where it was".
+    pub relation: String,
+    /// True when it keeps a face the lost element touched.
+    pub meaning: bool,
+    /// Distance in mm from where the lost element was.
+    pub distance: f64,
+    /// Fingerprint score in [0, 1], for reports; hosts never show it.
+    pub score: f64,
+    /// The candidate in the body's current model-layer mesh, for highlighting; absent in headless sessions and when
+    /// that mesh does not have it.
+    pub element: Option<MeshElement>,
+}
+
+/// A set of regions that a lost or ambiguous region reference could mean.
+pub struct RegionCandidate {
+    /// The references the "Use" action stores, in the sketch's region order.
+    pub regions: Vec<RegionRef>,
+    /// The regions in words, for example "the region of 'Sketch 1' around (175, 10)".
+    pub description: String,
 }
 
 pub struct ParameterValue {
@@ -934,13 +1229,19 @@ pub struct ParameterValue {
 ```
 
 ```json
-{"kind": "event", "type": "recomputed", "doc": 1, "revision": 4, "features": [{"id": "f-box1", "status": "ok", "messages": [], "repairs": []}, {"id": "f-fil1", "status": "warning", "messages": [{"severity": "warning", "code": "reference_ambiguous", "message": "One of the edges selected for Edges now matches 2 edges, so it was skipped. Pick the one you mean in the repair panel.", "field": "/edges/1"}], "repairs": [{"kind": "element", "path": "/edges/1", "body": "b-1", "reference": {"q": "edge(f-box1/front|f-box1/left)", "fp": "line|n=0,0,1|c=-10,-15,20|l=40|adj=2,2"}, "resolution": "ambiguous", "centroid": [-10.0, -15.0, 20.0]}]}], "parameters": [{"id": "p-h", "value": 50.0, "dimension": {"length": 1, "angle": 0}}], "diagnostics": []}
+{"kind": "event", "type": "recomputed", "doc": 1, "revision": 4, "features": [{"id": "f-box1", "status": "ok", "messages": [], "repairs": []}], "parameters": [{"id": "p-h", "value": 50.0, "dimension": {"length": 1, "angle": 0}}], "diagnostics": []}
+```
+
+The fillet of corpus scenario R03 after its edit, in a display session that saw the edge before it was lost, shortened to two of its four candidates (scores and mesh ids are for orientation):
+
+```json
+{"id": "f-fil1", "status": "warning", "messages": [{"severity": "warning", "code": "reference_missing", "message": "The top edge of 'Extrude 1' along a line of 'Sketch 1' selected for Edges is gone because that line was deleted from 'Sketch 1', so it was skipped.", "field": "/edges/0", "actions": [{"label": "Use the right top edge of 'Extrude 1'", "run": {"kind": "apply", "fix": {"feature": "f-fil1", "code": "reference_missing", "field": "/edges/0", "cause": false, "index": 0, "revision": 2}}}, {"label": "Use the back top edge of 'Extrude 1'", "run": {"kind": "apply", "fix": {"feature": "f-fil1", "code": "reference_missing", "field": "/edges/0", "cause": false, "index": 1, "revision": 2}}}, {"label": "Remove from Edges", "run": {"kind": "apply", "fix": {"feature": "f-fil1", "code": "reference_missing", "field": "/edges/0", "cause": false, "index": 2, "revision": 2}}}, {"label": "Pick an edge again", "run": {"kind": "pick", "feature": "f-fil1", "path": "/edges/0"}}], "cause": {"text": "This started after you deleted the line from (80, 40) to (70, 50) in 'Sketch 1'.", "feature": "f-sk1", "actions": [{"label": "Undo", "run": {"kind": "undo"}}, {"label": "Show the line", "run": {"kind": "show", "feature": "f-sk1", "entity": "e-5"}}], "ghost": {"positions": 1, "kind": "lines", "frame": "sketch"}}, "detail": "edges[0] q=edge(f-ext1/end-cap|f-ext1/lateral/e-5) resolution=missing lost.parts=f-ext1/lateral/e-5 candidates=edge(f-ext1/end-cap|f-ext1/lateral/e-2):0.701904,edge(f-ext1/end-cap|f-ext1/lateral/e-3):0.652130", "reason": {"kind": "entity_deleted", "feature": "f-ext1", "sketch": "f-sk1", "entity": "e-5"}}], "repairs": [{"kind": "element", "path": "/edges/0", "body": "b-1", "reference": {"q": "edge(f-ext1/end-cap|f-ext1/lateral/e-5)", "fp": "line|n=0.707107,-0.707107,0|c=75,45,30|l=14.142136|adj=2,2"}, "resolution": "missing", "centroid": [75.0, 45.0, 30.0], "description": "the top edge of 'Extrude 1' along a line of 'Sketch 1'", "candidates": [{"reference": {"q": "edge(f-ext1/end-cap|f-ext1/lateral/e-2)", "fp": "line|n=0,1,0|c=80,25,30|l=50|adj=2,2"}, "description": "the right top edge of 'Extrude 1'", "relation": "on the top of 'Extrude 1', 20.615528 mm from where it was", "meaning": true, "distance": 20.615528, "score": 0.701904, "element": {"body": "b-1", "mesh_id": 5, "kind": "edge", "index": 7}}, {"reference": {"q": "edge(f-ext1/end-cap|f-ext1/lateral/e-3)", "fp": "line|n=1,0,0|c=40,50,30|l=80|adj=2,2"}, "description": "the back top edge of 'Extrude 1'", "relation": "on the top of 'Extrude 1', 35.355339 mm from where it was", "meaning": true, "distance": 35.355339, "score": 0.65213, "element": {"body": "b-1", "mesh_id": 5, "kind": "edge", "index": 8}}], "ghost": {"positions": 0, "kind": "lines", "frame": "world"}}]}
 ```
 
 3. `sketch_solved`: `{doc, revision, solution: SketchSolution}` for a sketch whose solution changed. Example for the `drag.ptsm` fixture of engine.md:
 
 ```json
-{"kind": "event", "type": "sketch_solved", "doc": 1, "revision": 0, "solution": {"feature": "f-sk1", "status": "under_constrained", "failed": false, "dof": 1, "redundant": [], "conflicting": [], "placement": {"origin": [0.0, 0.0, 0.0], "x_axis": [1.0, 0.0, 0.0], "normal": [0.0, 0.0, 1.0]}, "entities": [{"id": "e-1", "type": "line", "start": [0.0, 0.0], "end": [10.0, 0.0], "constrained": "under_constrained"}], "points": [{"point": "e-1.start", "at": [0.0, 0.0]}, {"point": "e-1.end", "at": [10.0, 0.0]}], "constraints": [{"id": "c-1", "state": "satisfied"}, {"id": "c-2", "state": "satisfied"}], "regions": [], "profile_findings": [{"type": "open_endpoint", "entity": "e-1", "point": [0.0, 0.0]}, {"type": "open_endpoint", "entity": "e-1", "point": [10.0, 0.0]}], "display": {"region_positions": 0, "region_indices": 1, "region_ids": 2}}}
+{"kind": "event", "type": "sketch_solved", "doc": 1, "revision": 0, "solution": {"feature": "f-sk1", "status": "under_constrained", "failed": false, "dof": 1, "redundant": [], "conflicting": [], "placement": {"origin": [0.0, 0.0, 0.0], "x_axis": [1.0, 0.0, 0.0], "normal": [0.0, 0.0, 1.0]}, "entities": [{"id": "e-1", "type": "line", "start": [0.0, 0.0], "end": [10.0, 0.0], "constrained": "under_constrained"}], "points": [{"point": "e-1.start", "at": [0.0, 0.0]}, {"point": "e-1.end", "at": [10.0, 0.0]}], "constraints": [{"id": "c-1", "state": "satisfied"}, {"id": "c-2", "state": "satisfied"}], "regions": [], "profile_findings": [{"type": "open_endpoint", "entity": "e-1", "point": [0.0, 0.0]}, {"type": "open_endpoint", "entity": "e-1", "point": [10.0, 0.0]}], "messages": [{"severity": "warning", "code": "open_endpoint", "message": "The end of the line from (0, 0) to (10, 0) at (0, 0) is not connected to other geometry.", "field": "/profile_findings/0", "detail": "open_endpoint entity=e-1 point=0,0"}, {"severity": "warning", "code": "open_endpoint", "message": "The end of the line from (0, 0) to (10, 0) at (10, 0) is not connected to other geometry.", "field": "/profile_findings/1", "detail": "open_endpoint entity=e-1 point=10,0"}], "display": {"region_positions": 0, "region_indices": 1, "region_ids": 2}}}
 ```
 
 4. `datum_plane`: `{doc, revision, feature: Id, placement: Option<Placement>}` for a datum plane whose result changed; `placement` is absent when it failed.
@@ -1033,13 +1334,18 @@ pub struct ErrorInfo {
     pub edit_index: Option<u32>,
     /// For `expression_error`: the UTF-8 byte range of the problem in the expression text (expressions.md spans). The UI converts it to string indices.
     pub span: Option<Span>,
+    /// Technical text for reports (a panic message, a parser's text), never shown as the message.
+    pub detail: Option<String>,
+    /// One-click ways out, in the order to offer them (section 4, for example "Finish \"Fillet\" and save" for
+    /// `transaction_open`). Omitted when empty (section 2.3).
+    pub actions: Vec<FixAction>,
 }
 
 /// A half-open UTF-8 byte range `[start, end)` into an expression's source text.
 pub struct Span { pub start: u32, pub end: u32 }
 ```
 
-`ErrorCode` is a `snake_case` enum with the codes in section 4. Absent optional fields are omitted. Examples: `{"kind": "error", "code": "edit_rejected", "message": "There is no feature with id f-x.", "edit_index": 1}` and `{"kind": "error", "code": "expression_error", "message": "Unknown name 'wal'.", "span": {"start": 4, "end": 7}}`.
+`ErrorCode` is a `snake_case` enum with the codes in section 4. Absent optional fields and empty `actions` are omitted. Examples: `{"kind": "error", "code": "edit_rejected", "message": "There is no feature with id f-x.", "edit_index": 1}`, `{"kind": "error", "code": "expression_error", "message": "Unknown name 'wal'.", "span": {"start": 4, "end": 7}}`, `{"kind": "error", "code": "internal_error", "message": "Partsmith hit a bug while running apply edits. Your document is unchanged. Save a copy, and report this with the details.", "detail": "called `Option::unwrap()` on a `None` value"}` and `{"kind": "error", "code": "transaction_open", "message": "Finish or cancel \"Fillet\" first.", "actions": [{"label": "Finish \"Fillet\" and save", "run": {"kind": "finish_transaction"}}]}`.
 
 ### 2.9 Schema, TypeScript types and versioning
 
@@ -1047,6 +1353,7 @@ pub struct Span { pub start: u32, pub end: u32 }
 - Integer fields `id` (request, response) and `mesh_id` declare `"maximum": 9007199254740991`.
 - The UI generates TypeScript types from that file with `json-schema-to-typescript` (`pnpm -C ui generate:protocol`); the generated file is checked in and CI fails on drift.
 - `PROTOCOL_VERSION` is 1. It is bumped for any breaking change: removing or renaming a command, event, field or enum value; changing a field's type or meaning; making a request field required; changing the frame layout. Adding a command, an event type, an optional request field or a result or event field does not bump it, because clients ignore unknown response fields and event types. Any schema change needs human review (CLAUDE.md).
+- The additions of [ADR 0024](../adr/0024-diagnostics-with-actions-causes-and-ghosts.md) are of the kinds that do not bump it: result and event fields (`Diagnostic::actions`, `cause`, `detail`, `root` and `reason`; `Repair` descriptions, candidates and ghosts; `ElementDescriptor::fallback` and `axis_direction`; `ErrorInfo::detail` and `actions`; `DocumentChanged::bare_numbers`; `SketchSolution::messages`), an optional request field (`Pick::body`, for headless picks), new types, the commands `apply_fix`, `list_uses` and `set_document_units`, and the error code `stale_fix`. So does the full reference in `pick_reference` and the fields format version 2 adds to the shared `Reference`, `RegionRef`, face sketch plane and axis types (`nb`, `merged`, `outline`, `fallback_frame`, `direction`; file-format.md section 3.9, [ADR 0025](../adr/0025-file-format-version-2.md)), which are optional; decision D3 took the rule that keeps placements right-handed (ADR 0023), so `Placement` gains nothing. They change `docs/format/protocol.schema.json` and wait for human review at the next gate; the check-in is planned in ADR 0016's log and logged there when the schema is regenerated.
 
 ### 2.10 WebAssembly bridge (`partsmith-wasm`)
 
@@ -1203,7 +1510,7 @@ Buffer contents are copied into owned `Buffer`s; `f32` values are not inspected.
 - Every event in a response frame was caused by that frame's request and precedes its response. Event order is defined in engine.md 3.4.
 - M1 never produces a frame without a response.
 
-### 3.4 Mesh buffer invariants
+### 3.4 Mesh and ghost buffer invariants
 
 For every `body_mesh` with a mesh:
 
@@ -1214,6 +1521,12 @@ For every `body_mesh` with a mesh:
 - `edge_positions` has `6 × segments` elements and `edge_ids` has `segments` elements.
 - `vertex_positions` has `3 × markers` elements and `vertex_ids` has `markers` elements, in ascending display vertex id order; every vertex id in `0..vertex_count` occurs exactly once.
 - Display ids are positions in the element order of `list_elements` for that body (faces, edges and vertices each sorted by element name). They are valid only together with their `mesh_id`, are never stored, and are not references (CLAUDE.md invariant).
+
+For every `Ghost` (repairs of `recomputed`, causes of diagnostics), whose buffer travels in the same response frame:
+
+- `positions` names an `f32` buffer of finite values whose length is a multiple of 3 in frame `world` and of 2 in frame `sketch` (points as (x, y, z) or (u, v), in mm).
+- `lines` has an even number of points, at least 2 (each segment's two ends; a polyline of n points gives n - 1 segments, 2(n - 1) points); `triangles` a multiple of 3 points, at least 3, each triangle counterclockwise seen from outside; `points` at least 1 point.
+- Element repairs have frame `world`; region repairs and causes have frame `sketch`, in the sketch the repair or cause names. Ghosts never appear in headless sessions (engine.md section 3.23).
 
 ### 3.5 Request ids
 
@@ -1233,18 +1546,18 @@ Clients choose request ids from 1 to `MAX_SAFE_INTEGER` and may reuse them; the 
 | `malformed_request` | `InvalidMessage`; a buffer index out of range or of the wrong element type; an id above `MAX_SAFE_INTEGER` | "The request is not valid: {detail}" |
 | `protocol_version_mismatch` | `VersionMismatch` | "The frame uses protocol version {found}, but this engine speaks version 1. Reload the app." |
 | `superseded` | The worker dropped a queued request (2.11) | "A newer request replaced this one." |
-| `internal_error` | A panic or an engine invariant failure | "Something went wrong inside Partsmith ({detail}). Save your work and reload. Please report this." |
+| `internal_error` | A panic or an engine invariant failure | "Partsmith hit a bug while running {command}. Your document is unchanged. Save a copy, and report this with the details." (`{command}` is the command's type in words, such as `apply edits`); the panic message is in `detail` |
 | `unknown_document` | `doc` is not open | "Document {doc} is not open." |
 | `document_poisoned` | The document had an internal error earlier | "This document hit an internal error. Save it and reopen it to continue." |
-| `parse_error` | `open_document` text is not a valid document | "The file is not a valid Partsmith document: {detail}" (with line and column for JSON errors) |
-| `unsupported_format_version` | `format_version` newer than supported | "This file needs a newer Partsmith (format version {found}; this version reads up to 1)." |
+| `parse_error` | `open_document` text is not a valid document | The model's load message (file-format.md section 4.1) without a parser's own text, for example "The file is not valid JSON at line 1, column 23." (engine.md section 4); the full load message is in `detail` |
+| `unsupported_format_version` | `format_version` newer than supported, or older than the oldest this build migrates | The model's message (file-format.md section 4.1), for example "This file uses format version 3, which is newer than this version of Partsmith supports (up to 2). Update Partsmith to open it." |
 | `asset_mismatch` | A referenced asset's bytes do not hash to its name | "Asset {name} does not match its content hash." |
-| `transaction_open` | `begin_transaction`, `undo`, `redo` or `save_document` during a transaction | "Finish or cancel \"{label}\" first." |
+| `transaction_open` | `begin_transaction`, `undo`, `redo` or `save_document` during a transaction | "Finish or cancel \"{label}\" first.", with the action `Finish "{label}" and {what}` (`finish_transaction`), `{what}` being `save`, `undo`, `redo` or `start "{new label}"` for the request that failed |
 | `no_transaction` | `commit_transaction`, `cancel_transaction` or `set_focus` without a transaction | "There is no edit in progress." |
 | `label_required` | `apply_edits` outside a transaction without `label` | "Edits outside a transaction need a label for the undo history." |
 | `label_not_allowed` | `apply_edits` inside a transaction with `label` | "Edits inside the transaction \"{label}\" take the transaction's label." |
 | `edit_rejected` | `Document::apply` refused edit `edit_index`; or `rename_parameter` names an unknown parameter or an invalid or taken name (no `edit_index`) | The model's `EditError` message |
-| `invalid_params` | The registry rejected feature params in edit `edit_index`; or `solve_sketch`/`drag_sketch` params fail sketch validation or the solver rejects them | "{feature type} {feature id}: {registry message}"; for sketch commands, the sketch crate's message |
+| `invalid_params` | The registry rejected feature params in edit `edit_index`; or `solve_sketch`/`drag_sketch` params fail sketch validation or the solver rejects them | The registry's message for the edited feature, named by its label (engine.md section 4), for example "Radius of 'Fillet 1' cannot be read, so this change was not applied. Set Radius again."; for sketch commands, the sketch crate's message in the document units. The feature type and id and the parser's text are in `detail` |
 | `nothing_to_undo` | Empty undo stack | "There is nothing to undo." |
 | `nothing_to_redo` | Empty redo stack | "There is nothing to redo." |
 | `unknown_feature` | A command names a feature that does not exist | "There is no feature with id {id}." |
@@ -1268,6 +1581,7 @@ Clients choose request ids from 1 to `MAX_SAFE_INTEGER` and may reuse them; the 
 | `export_failed` | The writer or kernel failed | "Export failed. {detail}" (`detail` is the io error's complete sentence, engine.md section 4) |
 | `import_failed` | The STEP file could not be read or has no solids | "Import failed. {detail}" (for example "Import failed. The STEP file contains no solid bodies.") |
 | `invalid_tolerance` | A `TessellationTolerance` value is not finite and positive, or `angular_deviation` exceeds π/2 | "Tessellation tolerances must be positive (angle at most 90 degrees)." |
+| `stale_fix` | `apply_fix` names a revision other than the document's, or a message or action the feature no longer has, or an action that is not `apply` | "This fix no longer applies because the document changed after it was offered. Look at the problem again." |
 
 The full Rust-side variants and the mapping from engine errors are in engine.md section 4.
 
@@ -1327,7 +1641,7 @@ Rust tests live in `crates/partsmith-protocol/tests/` and `crates/partsmith-wasm
 31. A `Response { id: 7, result: Outcome::Ok(CommandResult::CloseDocument) }` serializes exactly as `{"kind":"response","id":7,"result":{"kind":"ok","type":"close_document"}}`.
 32. An `apply_edits` error with `edit_index: Some(1)` serializes with `"edit_index":1`; with `None` the field is absent.
 33. A `body_mesh` event with `mesh: None` serializes without a `mesh` key; a `FeatureStatus` with no messages serializes `"messages":[]`.
-34. The set of `Command` type strings equals exactly: `engine_info`, `feature_catalog`, `list_printer_profiles`, `put_printer_profile`, `new_document`, `open_document`, `save_document`, `close_document`, `get_document`, `apply_edits`, `begin_transaction`, `set_focus`, `commit_transaction`, `cancel_transaction`, `undo`, `redo`, `solve_sketch`, `drag_sketch`, `end_sketch_drag`, `set_tessellation`, `evaluate`, `list_elements`, `pick_reference`, `resolve_references`, `measure`, `analyze_print`, `export`, `import_step`, `export_python`, `mark_saved`, `rename_parameter`.
+34. The set of `Command` type strings equals exactly: `engine_info`, `feature_catalog`, `list_printer_profiles`, `put_printer_profile`, `new_document`, `open_document`, `save_document`, `close_document`, `get_document`, `apply_edits`, `begin_transaction`, `set_focus`, `commit_transaction`, `cancel_transaction`, `undo`, `redo`, `solve_sketch`, `drag_sketch`, `end_sketch_drag`, `set_tessellation`, `evaluate`, `list_elements`, `pick_reference`, `resolve_references`, `measure`, `analyze_print`, `export`, `import_step`, `export_python`, `mark_saved`, `rename_parameter`, `apply_fix`, `set_document_units`, `list_uses`.
 35. For every command, the `CommandResult` variant with the same `type` string exists, and no other result variants exist.
 36. The set of `Event` type strings equals exactly: `document_changed`, `recomputed`, `sketch_solved`, `datum_plane`, `body_mesh`, `print_health`.
 37. The set of `ErrorCode` strings equals exactly the codes in section 4.
@@ -1347,7 +1661,7 @@ Rust tests live in `crates/partsmith-protocol/tests/` and `crates/partsmith-wasm
 **WebAssembly bridge (native tests of `partsmith-wasm`)**
 
 47. `ps_alloc(16)` returns a non-null pointer whose address is a multiple of 8; `ps_free` of it with length 16 succeeds; `ps_alloc(0)` returns null and `ps_free(null, 0)` does nothing.
-48. `call(example A)` returns a response frame that `decode_response_frame` accepts, with no events, response id 1, and result `engine_info` with `protocol_version` 1, `engine_version` equal to `CARGO_PKG_VERSION`, `format_version` 1.
+48. `call(example A)` returns a response frame that `decode_response_frame` accepts, with no events, response id 1, and result `engine_info` with `protocol_version` 1, `engine_version` equal to `CARGO_PKG_VERSION`, `format_version` 2 (`FORMAT_VERSION`, file-format.md section 3.9).
 49. `ps_call` on example A writes the same length that `call` returns into `*response_length` and returns bytes equal to `call(example A)`.
 50. `call(b"hello")` returns an error response with id 0 and code `malformed_frame`.
 51. `call` of example A re-encoded with `protocol_version` 2 returns an error response with id 1 and code `protocol_version_mismatch`.
@@ -1373,12 +1687,32 @@ Rust tests live in `crates/partsmith-protocol/tests/` and `crates/partsmith-wasm
 **Added shapes and shared superseding**
 
 67. A `Diagnostic` with `field` and `suggestion` serializes as the `fillet_too_large` example of 2.4 (compact form); without them both keys are absent.
-68. Both `Repair` variants round-trip: the element repair of the 2.7 `recomputed` example, and `{"kind":"region","path":"/profile/regions/0","sketch":"f-sk1","region":{"key":"e-1,e-2,e-3,e-4","fp":"c=40,25|a=4000"},"resolution":"missing"}`.
+68. Both `Repair` variants round-trip, with every field: the element repair of the corpus R03 example of 2.7 (description, two candidates with their `element`, and a ghost), and `{"kind":"region","path":"/profile/regions/0","sketch":"f-sk1","region":{"key":"e-1,e-2,e-3,e-4","fp":"c=40,25|a=4000","outline":"e-1,e-2,e-3,e-4"},"resolution":"ambiguous","description":"the region of 'Sketch 1' around (40, 25)","candidates":[{"regions":[{"key":"e-1,e-3,e-4,e-9","fp":"c=40,25|a=4000","outline":"e-1,e-9,e-3,e-4"}],"description":"the region of 'Sketch 1' around (40, 25)"},{"regions":[{"key":"e-1,e-5,e-6,e-7","fp":"c=175,10|a=1000","outline":"e-1,e-5,e-6,e-7"}],"description":"the region of 'Sketch 1' around (175, 10)"}],"ghost":{"positions":2,"kind":"lines","frame":"sketch"}}`. Each serializes with its keys in declaration order; a region repair without `ghost` has no `ghost` key, and one with empty `candidates` writes `"candidates":[]`.
 69. (Vitest) `isSuperseded` on the queues of tests 58 to 61: for [`drag_sketch` 10, `drag_sketch` 11] index 0 is true and index 1 false; for [`drag_sketch` `f-sk1`, `drag_sketch` `f-sk2`] both are false; for [`drag_sketch` 10, `apply_edits` 11, `drag_sketch` 12] all are false; for [`analyze_print` 20, `apply_edits` 21, `analyze_print` 22] index 0 is true and the others false.
 70. A `MeshBuffers` value serializes with keys in field order, `vertex_ids` directly after `vertex_positions`, as in the `body_mesh` example of 2.7; the buffer table of a box mesh equals example C.
 71. A `SketchSolution` serializes `status` and each entity's `constrained` with sketch.md's values (`under_constrained`, `fully_constrained`, `redundant`, `conflicting`), always writes `failed`, and its `display` has exactly the keys `region_positions`, `region_indices` and `region_ids`.
+
+**Diagnostics, fixes, repairs and the commands of ADR 0024**
+
+72. The corpus R16 diagnostic of 2.4 round-trips through serde unchanged and serializes compactly with its keys in declaration order: `severity`, `code`, `message`, `field`, `actions`, `cause`, `detail`, `reason`; inside an action `label` then `run`, inside a `FixRef` `feature`, `code`, `field`, `cause`, `index`, `revision`, and inside the cause `text`, `feature`, `actions`.
+73. A diagnostic without the new fields serializes exactly as before them: `Diagnostic { severity: Warning, code: "unknown_printer_profile", message, field: None, suggestion: None, actions: vec![], cause: None, detail: None, root: None, reason: None }` gives the `unknown_printer_profile` example of 2.4 byte for byte, with no `actions` key; `{"severity":"warning","code":"x","message":"y"}` and `{"severity":"warning","code":"x","message":"y","actions":[]}` deserialize to equal values.
+74. Each `FixKind` round-trips in the form of the 2.4 examples: `apply` with a `FixRef` with and without `field`, `pick`, `show` with and without `entity`, `undo` and `finish_transaction`. A `FixRef` that is `null` in `apply`, and `{"kind":"apply"}` without `fix`, fail to deserialize.
+75. Each `LossReason` variant round-trips; the five reason examples of 2.4 deserialize to `Removed { by: f-ext2, how: NoLongerMade { absence: Some(Through) } }`, `OtherBody { body: b-2, by: Some(f-split1), by_suppressed: false }`, `CopyGone { feature: f-lp1, instance: InstanceIndex { first: 2, second: 0 } }`, `EntityDeleted { feature: f-ext1, sketch: f-sk1, entity: e-5 }` and `Followed { by: f-sk1 }`; `Removed { by, how: NoLongerMade { absence: None } }` serializes as `{"kind":"removed","by":"f-ext2","how":{"kind":"no_longer_made"}}`, and `NoLongerMeet { between: Some("f-ext1/lateral/e-5") }` as `{"kind":"no_longer_meet","between":"f-ext1/lateral/e-5"}`.
+76. Requests and results of the new commands round-trip: the `apply_fix`, `set_document_units` and `list_uses` examples of 2.5. `{"type":"set_document_units","doc":1,"units":"in"}` deserializes with `keep_sizes` false. `apply_fix` requests are strict: an unknown field inside `fix` (`{"type":"apply_fix","doc":1,"fix":{"feature":"f-fil1","code":"x","cause":false,"index":0,"revision":1,"extra":1}}`) and a missing `revision` are `InvalidMessage` (`malformed_request`).
+77. `ErrorInfo` serializes `detail` and `actions` after `span`, omitting them when absent or empty: the `internal_error` and `transaction_open` examples of 2.8 round-trip, and `error_response_frame` still produces exactly the header of test 27. The set of `ErrorCode` strings (test 37) contains `stale_fix`, whose message is the one of section 4.
+78. Ghosts in frames: a response frame with a `recomputed` event whose `f-fil1` status has the R03 element repair of 2.7 (`ghost` buffer 0: `f32` [80, 40, 30, 70, 50, 30], one segment in `world`) and a cause ghost (buffer 1: `f32` [80, 40, 70, 50], one segment in `sketch`), plus a region repair with buffer 2 (`f32`, 4 segments in `sketch`, 16 values), encodes and decodes to an equal frame, and each decoded ghost buffer is an `F32` buffer whose length meets the invariants of section 3.4 for its kind and frame (6, 4 and 16 values).
+79. `ElementDescriptor` serializes `fallback` after `placement` and `axis_direction` after it, before `adjacent`; the two descriptor examples of 2.4 round-trip, and a descriptor without both has neither key. The full-reference example of 2.4 deserializes as a `Reference` with one anchor list. `{"mesh_id": 0, "kind": "edge", "index": 4, "body": "b-1"}` deserializes as a `Pick` with `body` set, and the `Pick` example of 2.4 with `body` None, serializing back without the key.
+80. `DocumentChanged` writes `bare_numbers` last; `SketchSolution` writes `messages` after `profile_findings`; the `sketch_solved` example of 2.7 round-trips with its two finding messages.
+81. `protocol_schema()` has `$defs` entries named `Diagnostic`, `Cause`, `FixAction`, `FixKind`, `FixRef`, `LossReason`, `Removal`, `Absence`, `InstanceIndex`, `Ghost`, `GhostKind`, `GhostFrame`, `RepairCandidate`, `RegionCandidate` and `Use`; `Diagnostic.required` and `ErrorInfo.required` do not list `actions`; `FixRef`, which requests carry, rejects unknown properties.
+82. (Vitest) The generated TypeScript types (`pnpm -C ui generate:protocol`) export `Diagnostic`, `FixAction`, `FixRef`, `Cause`, `Ghost`, `RepairCandidate`, `RegionCandidate` and `Use`, and `FixKind` is a union discriminated by `kind` with the five members of 2.4.
 
 ## 7. Open issues
 
 1. **Print health as an event.** Architecture lists print health among events. This spec keeps it an event (`print_health`), emitted only by `analyze_print`, and does not run analysis automatically after edits, so a slow analysis can be superseded in the worker queue instead of blocking modeling. Background analysis with unsolicited events is later.
 2. **Entity drags.** sketch.md's `DragTarget` also allows dragging a whole entity; M1's `drag_sketch` exposes point drags only (what ui.md uses). Entity drags can be added later as an optional field without a version bump.
+3. **An action kind beyond the study's four (needs human review with ADR 0024).** The study's `FixKind` has `apply`, `pick`, `show` and `undo`, and its example action of an `ErrorInfo` ("Finish and save" for `transaction_open`) is none of them: it commits the open transaction and repeats what the failed request did. Section 2.4 adds `finish_transaction` for it, the only action an engine error offers in M1.
+4. **Loss reasons on the wire (needs human review with ADR 0024).** The study's PR1 gives `Diagnostic` no loss reason, but cli.md section 3.3 prints `reason` in `--json` (cli.md open issue 6, recompute.md open issue 11). `Diagnostic::reason` carries it in a wire form the protocol defines itself (section 2.4), since the protocol does not depend on partsmith-recompute. Hosts other than the CLI need not show it: its words are already in the message.
+5. **Sketch messages on the wire (needs human review with ADR 0024).** The newcomer error corpus (NC01, through `apply_fix`) and ui.md's sketch outline findings need the findings' sentences and their `Connect the ends` action from the core, and the dimension editor needs the conflict sentence for a value it probes with `solve_sketch`. `SketchSolution::messages` carries both. A finding's `FixRef` names the sketch, the finding's code and its position as `field` (`/profile_findings/0`), a pointer into the solution rather than into the record; a separate `finding: Option<u32>` in `FixRef` would say so explicitly, at the cost of one more field in every action.
+6. **Region descriptions.** The study's example "the region inside the rectangle from (0, 0) to (80, 50)" names a region by the shape of its outline, which needs shape recognition no spec defines. engine.md section 3.4 describes a region by its sketch and centroid ("the region of 'Sketch 1' around (40, 25)"), which is true for every region; naming rectangles and circles can come later without a schema change.
+7. **A cause's ghost is the entity before the edit.** The study's `Cause::ghost` is "the changed entity before and after". The sketch on screen already shows the entity as it is now, so the ghost holds only its geometry before the edit, and nothing for an added entity; `show` with the `entity` highlights the current one.
+8. **Actions omitted when empty.** `Diagnostic::actions` and `ErrorInfo::actions` are the only `Vec` fields omitted when empty (section 2.3), so that every existing message and error keeps its exact JSON (tests 27, 67 and 73). Every other new `Vec` follows the general rule and is always written.

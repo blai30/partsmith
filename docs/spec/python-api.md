@@ -875,7 +875,7 @@ with Sketch(
 41. `edges().parallel_to(Axis.Z)` has 4 elements, each of length 40; `edges().longest()` is the same 4.
 42. `faces().largest()` has 2 elements of area 1200 (normals ±X); `faces().smallest()` has 2 of area 600.
 43. `faces().perpendicular_to(Axis.Z)` has 4; `faces().parallel_to(Axis.Z)` has 2; `faces().planar()` has 6; `faces().cylindrical()` has 0.
-44. `faces().max(Axis.X)` has 1 element with normal (1, 0, 0); `faces().sort_by(Axis.Z)[0]` is the bottom face.
+44. `faces().max(Axis.X)` has 1 element with normal (1, 0, 0); `faces().sort_by(Axis.Z)[0]` is the bottom face (and, as an index into six faces, emits the `selection_index` warning of 3.6).
 45. `faces().top().edges()` has 4 edges; `faces().top().vertices()` has 4 vertices; `edges().top().faces()` has 5 faces.
 46. On `cylinder(5, 10)`: `edges().circles()` has 2; `faces().cylindrical()` has 1 with `radius` 5; `edges().lines()` has 0.
 47. `edges().planar()` raises `SelectionError` with message `planar() applies to faces; this selection has edges.`
@@ -889,7 +889,7 @@ with Sketch(
 52. `fillet(edges().top(), 30)` on `box(20, 30, 40)` raises `FeatureError` with `feature_type` `fillet`; afterwards `len(doc.features)` is 1 and `p.volume()` is 24000.
 53. `fillet(faces().top(), 1)` raises `SelectionError` with message `fillet() takes edges, got faces.`
 54. `fillet(edges().top().filter(lambda element: False), 1)` raises `SelectionError` with message `fillet() needs at least one edge; the selection is empty.`
-55. `fillet([edges().top()[0], Ref("edge(f-nope/x|f-nope/y)", "line|n=1,0,0|c=999,0,0|l=1")], 1)` emits a `PartsmithWarning` and keeps the feature with status `warning`.
+55. `fillet([edges().top()[0], Ref("edge(f-nope/x|f-nope/y)", "line|n=1,0,0|c=999,0,0|l=1")], 1)` emits a `PartsmithWarning` with `code` `reference_missing` and `field` `/edges/1` (after the `selection_index` warning that `edges().top()[0]` emits, 3.6) and keeps the feature with status `warning`.
 56. `param("h", "nope * 2")` (an unknown name) raises `ExpressionError` whose message names `nope`, and the document has no parameter afterwards.
 57. `box(20, 30, 40, id="f-x")` twice raises `EngineError` with code `edit_rejected` on the second call.
 58. `Document.open("missing.ptsm")` raises `FileNotFoundError`; opening a file containing `{` raises `EngineError` with code `parse_error`.

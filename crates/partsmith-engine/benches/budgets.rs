@@ -16,6 +16,7 @@ use std::path::Path;
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
+use partsmith_budgets::{Report, median};
 use partsmith_engine::{SequentialIds, Session, SessionOptions};
 use partsmith_protocol::{Request, decode_response_frame, encode_request_frame};
 use serde_json::{Value, json};
@@ -44,45 +45,6 @@ const MEMORY_FEATURES: usize = 300;
 /// Radius of the sphere whose `standard` display mesh with the `generic-resin` profile has about
 /// 200 000 triangles.
 const SPHERE_RADIUS: &str = "250 mm";
-
-/// One measured operation and its budget.
-struct Measurement {
-    /// What was measured, as engine.md section 5 names it.
-    operation: String,
-    /// The median value.
-    value: f64,
-    /// The budget.
-    budget: f64,
-    /// The unit of both.
-    unit: &'static str,
-}
-
-/// The operations selected on the command line, or all of them when none is named.
-struct Selection {
-    /// Words that select operations by their name.
-    words: Vec<String>,
-}
-
-impl Selection {
-    /// Reads the words from the command line, skipping the flags cargo passes.
-    fn from_arguments() -> Selection {
-        Selection {
-            words: std::env::args()
-                .skip(1)
-                .filter(|argument| !argument.starts_with("--"))
-                .collect(),
-        }
-    }
-
-    /// True when the operation runs.
-    fn includes(&self, operation: &str) -> bool {
-        self.words.is_empty()
-            || self
-                .words
-                .iter()
-                .any(|word| operation.contains(word.as_str()))
-    }
-}
 
 /// A decoded response frame as JSON.
 struct Answer {
@@ -176,13 +138,6 @@ impl Driver {
     fn open(&mut self, text: &str) -> Answer {
         self.send(json!({"type": "open_document", "text": text, "assets": []}))
     }
-}
-
-/// The median of `RUNS` samples, each taken by `sample`.
-fn median(mut sample: impl FnMut(usize) -> Duration) -> Duration {
-    let mut times: Vec<Duration> = (0..RUNS).map(&mut sample).collect();
-    times.sort_unstable();
-    times[RUNS / 2]
 }
 
 /// The reference part's text, or None when it does not exist.
@@ -329,50 +284,26 @@ fn many_bodies() -> String {
 }
 
 /// The resident memory of this process in bytes, on Linux.
-fn resident_bytes() -> Option<f64> {
+fn resident_bytes() -> Option<u64> {
     let status = std::fs::read_to_string("/proc/self/status").ok()?;
     let line = status.lines().find(|line| line.starts_with("VmRSS:"))?;
-    let kilobytes: f64 = line.split_whitespace().nth(1)?.parse().ok()?;
-    Some(kilobytes * 1024.0)
-}
-
-/// Milliseconds of a duration.
-fn milliseconds(time: Duration) -> f64 {
-    time.as_secs_f64() * 1e3
+    let kilobytes: u64 = line.split_whitespace().nth(1)?.parse().ok()?;
+    Some(kilobytes * 1024)
 }
 
 fn main() -> ExitCode {
-    let selection = Selection::from_arguments();
-    let mut measurements: Vec<Measurement> = Vec::new();
-    let mut unmeasured: Vec<String> = Vec::new();
+    let mut report = Report::from_arguments();
 
     let memory = "resident memory with a 300-feature document open";
-    if selection.includes(memory) {
+    if report.includes(memory) {
         let mut driver = Driver::new();
         driver.open(&many_bodies()).ok();
         match resident_bytes() {
-            Some(bytes) => measurements.push(Measurement {
-                operation: memory.to_string(),
-                value: bytes / 1e9,
-                budget: 1.5,
-                unit: "GB",
-            }),
-            None => unmeasured.push(memory.to_string()),
+            Some(bytes) => report.record_bytes(memory, bytes, 1_500_000_000),
+            None => report.record_unmeasured(memory),
         }
         drop(driver);
     }
-
-    let mut time = |operation: &str, budget: Duration, measure: &mut dyn FnMut() -> Duration| {
-        if selection.includes(operation) {
-            let median = measure();
-            measurements.push(Measurement {
-                operation: operation.to_string(),
-                value: milliseconds(median),
-                budget: milliseconds(budget),
-                unit: "ms",
-            });
-        }
-    };
 
     let reference_operations = [
         "apply_edits inside a transaction changing one parameter that affects the last 5 features of the reference part",
@@ -383,36 +314,34 @@ fn main() -> ExitCode {
     ];
     let selected: Vec<&str> = reference_operations
         .into_iter()
-        .filter(|operation| selection.includes(operation))
+        .filter(|operation| report.includes(operation))
         .collect();
     match (selected.is_empty(), reference_part()) {
         (true, _) => {}
         (false, None) => {
             println!("{REFERENCE_PART} does not exist yet (engine.md open issue 4).");
-            unmeasured.extend(selected.into_iter().map(str::to_string));
+            for operation in selected {
+                report.record_unmeasured(operation);
+            }
         }
         (false, Some(text)) => {
-            time(
-                reference_operations[0],
-                Duration::from_millis(100),
-                &mut || {
-                    let mut driver = Driver::new();
-                    let doc = driver.open(&text).doc();
-                    driver
-                        .send(json!({"type": "begin_transaction", "doc": doc, "label": "Lid"}))
-                        .ok();
-                    median(|sample| {
-                        let expr = format!("{} mm", 24.5 + 0.5 * sample as f64);
-                        let (time, answer) = driver.timed(json!({
-                            "type": "apply_edits", "doc": doc, "edits": [last_five_edit(&text, &expr)]
-                        }));
-                        answer.ok();
-                        time
-                    })
-                },
-            );
-            time(reference_operations[1], Duration::from_secs(1), &mut || {
-                median(|_| {
+            report.measure(reference_operations[0], Duration::from_millis(100), || {
+                let mut driver = Driver::new();
+                let doc = driver.open(&text).doc();
+                driver
+                    .send(json!({"type": "begin_transaction", "doc": doc, "label": "Lid"}))
+                    .ok();
+                median(RUNS, |sample| {
+                    let expr = format!("{} mm", 24.5 + 0.5 * sample as f64);
+                    let (time, answer) = driver.timed(json!({
+                        "type": "apply_edits", "doc": doc, "edits": [last_five_edit(&text, &expr)]
+                    }));
+                    answer.ok();
+                    time
+                })
+            });
+            report.measure(reference_operations[1], Duration::from_secs(1), || {
+                median(RUNS, |_| {
                     let mut driver = Driver::new();
                     let (time, answer) =
                         driver.timed(json!({"type": "open_document", "text": text, "assets": []}));
@@ -420,60 +349,47 @@ fn main() -> ExitCode {
                     time
                 })
             });
-            time(
-                reference_operations[2],
-                Duration::from_millis(300),
-                &mut || {
-                    let mut driver = Driver::new();
-                    let mut doc = driver.open(&text).doc();
-                    median(|_| {
-                        let (close, closed) =
-                            driver.timed(json!({"type": "close_document", "doc": doc}));
-                        closed.ok();
-                        let (open, opened) = driver
-                            .timed(json!({"type": "open_document", "text": text, "assets": []}));
-                        doc = opened.doc();
-                        close + open
-                    })
-                },
-            );
-            time(
-                reference_operations[3],
-                Duration::from_millis(300),
-                &mut || {
-                    let mut driver = Driver::new();
-                    let doc = driver.open(&text).doc();
-                    median(|_| {
-                        let (time, answer) = driver.timed(json!({
-                            "type": "export", "doc": doc,
-                            "format": {"kind": "stl", "binary": true, "per_body": false}
-                        }));
-                        answer.ok();
-                        time
-                    })
-                },
-            );
-            time(
-                reference_operations[4],
-                Duration::from_millis(20),
-                &mut || {
-                    let mut driver = Driver::new();
-                    let doc = driver.open(&text).doc();
-                    median(|_| {
-                        let (time, answer) =
-                            driver.timed(json!({"type": "export_python", "doc": doc}));
-                        answer.ok();
-                        time
-                    })
-                },
-            );
+            report.measure(reference_operations[2], Duration::from_millis(300), || {
+                let mut driver = Driver::new();
+                let mut doc = driver.open(&text).doc();
+                median(RUNS, |_| {
+                    let (close, closed) =
+                        driver.timed(json!({"type": "close_document", "doc": doc}));
+                    closed.ok();
+                    let (open, opened) =
+                        driver.timed(json!({"type": "open_document", "text": text, "assets": []}));
+                    doc = opened.doc();
+                    close + open
+                })
+            });
+            report.measure(reference_operations[3], Duration::from_millis(300), || {
+                let mut driver = Driver::new();
+                let doc = driver.open(&text).doc();
+                median(RUNS, |_| {
+                    let (time, answer) = driver.timed(json!({
+                        "type": "export", "doc": doc,
+                        "format": {"kind": "stl", "binary": true, "per_body": false}
+                    }));
+                    answer.ok();
+                    time
+                })
+            });
+            report.measure(reference_operations[4], Duration::from_millis(20), || {
+                let mut driver = Driver::new();
+                let doc = driver.open(&text).doc();
+                median(RUNS, |_| {
+                    let (time, answer) = driver.timed(json!({"type": "export_python", "doc": doc}));
+                    answer.ok();
+                    time
+                })
+            });
         }
     }
 
-    time(
+    report.measure(
         "drag_sketch frame on a 500-constraint sketch, including frame encoding",
         Duration::from_millis(8),
-        &mut || {
+        || {
             let mut driver = Driver::new();
             let doc = driver.open(&drag_sketch()).doc();
             let mut frame = |to: f64| {
@@ -483,7 +399,7 @@ fn main() -> ExitCode {
                 }))
             };
             frame(20.0).1.ok();
-            median(|sample| {
+            median(RUNS, |sample| {
                 let (time, answer) = frame(20.5 + 0.5 * sample as f64);
                 answer.ok();
                 time
@@ -499,7 +415,7 @@ fn main() -> ExitCode {
     ];
     if grid_operations
         .iter()
-        .any(|operation| selection.includes(operation))
+        .any(|operation| report.includes(operation))
     {
         let mut driver = Driver::new();
         let opened = driver.open(&grid());
@@ -512,36 +428,36 @@ fn main() -> ExitCode {
         };
         let list = json!({"type": "list_elements", "doc": doc, "body": "b-1"});
         let mut sample_offset = 0;
-        time(grid_operations[0], Duration::from_millis(1), &mut || {
+        report.measure(grid_operations[0], Duration::from_millis(1), || {
             sample_offset += RUNS;
-            median(|sample| {
+            median(RUNS, |sample| {
                 let mesh_id = regrow(&mut driver, doc, sample);
                 let (time, answer) = driver.timed(pick(&mesh_id, 500));
                 answer.ok();
                 time
             })
         });
-        time(grid_operations[1], Duration::from_millis(1), &mut || {
+        report.measure(grid_operations[1], Duration::from_millis(1), || {
             let mesh_id = regrow(&mut driver, doc, sample_offset);
             sample_offset += 1;
             driver.send(pick(&mesh_id, 0)).ok();
-            median(|sample| {
+            median(RUNS, |sample| {
                 let (time, answer) = driver.timed(pick(&mesh_id, 500 + sample));
                 answer.ok();
                 time
             })
         });
-        time(grid_operations[2], Duration::from_millis(10), &mut || {
-            median(|sample| {
+        report.measure(grid_operations[2], Duration::from_millis(10), || {
+            median(RUNS, |sample| {
                 regrow(&mut driver, doc, sample_offset + sample);
                 let (time, answer) = driver.timed(list.clone());
                 answer.ok();
                 time
             })
         });
-        time(grid_operations[3], Duration::from_millis(10), &mut || {
+        report.measure(grid_operations[3], Duration::from_millis(10), || {
             driver.send(list.clone()).ok();
-            median(|_| {
+            median(RUNS, |_| {
                 let (time, answer) = driver.timed(list.clone());
                 answer.ok();
                 time
@@ -549,13 +465,13 @@ fn main() -> ExitCode {
         });
     }
 
-    time(
+    report.measure(
         "analyze_print of one 200 000-triangle body",
         Duration::from_millis(300),
-        &mut || {
+        || {
             let mut driver = Driver::new();
             let doc = driver.open(&sphere()).doc();
-            median(|_| {
+            median(RUNS, |_| {
                 let (time, answer) = driver.timed(json!({
                     "type": "analyze_print", "doc": doc, "orientation": {"kind": "as_modeled"}
                 }));
@@ -565,37 +481,5 @@ fn main() -> ExitCode {
         },
     );
 
-    for measurement in &measurements {
-        println!(
-            "{:<100} {:>12.3} {}   budget {:>10.3} {}",
-            measurement.operation,
-            measurement.value,
-            measurement.unit,
-            measurement.budget,
-            measurement.unit
-        );
-    }
-    let over_budget: Vec<&Measurement> = measurements
-        .iter()
-        .filter(|measurement| measurement.value > measurement.budget)
-        .collect();
-    for measurement in &over_budget {
-        println!(
-            "Over budget: {} ({:.3} {} > {:.3} {})",
-            measurement.operation,
-            measurement.value,
-            measurement.unit,
-            measurement.budget,
-            measurement.unit
-        );
-    }
-    for operation in &unmeasured {
-        println!("Not measured: {operation}");
-    }
-    if over_budget.is_empty() && unmeasured.is_empty() {
-        println!("Every measured operation is within its budget.");
-        ExitCode::SUCCESS
-    } else {
-        ExitCode::FAILURE
-    }
+    report.finish()
 }

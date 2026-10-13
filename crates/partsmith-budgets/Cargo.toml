@@ -1,0 +1,13 @@
+[package]
+name = "partsmith-budgets"
+description = "The harness of the Partsmith performance budget benchmarks: operation selection, median timing and the budget report."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[lints]
+workspace = true

@@ -9,10 +9,10 @@
 //! three times these and are not measured here.
 
 use std::f64::consts::TAU;
-use std::hint::black_box;
 use std::process::ExitCode;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
+use partsmith_budgets::{Report, median_time_of};
 use partsmith_mesh::TessellationTolerance;
 use partsmith_occt_sys::{
     Axis, EdgeRadius, GeometryKind, PlanarCurve, PlanarLoop, PlanarProfile, PlanarRegion, Plane,
@@ -26,66 +26,9 @@ const RUNS: usize = 7;
 /// The sweep direction of every extrusion.
 const UP: Vector = Vector::new(0.0, 0.0, 1.0);
 
-/// One timed operation and its budget.
-struct Measurement {
-    /// What was timed, as spec section 5 names it.
-    operation: &'static str,
-    /// The median time.
-    time: Duration,
-    /// The budget from spec section 5.
-    budget: Duration,
-}
-
-/// The operations selected on the command line, or all of them when none is named.
-struct Selection {
-    /// Words that select operations by their name.
-    words: Vec<String>,
-}
-
-impl Selection {
-    /// Reads the words from the command line, skipping the flags cargo passes.
-    fn from_arguments() -> Selection {
-        Selection {
-            words: std::env::args()
-                .skip(1)
-                .filter(|argument| !argument.starts_with("--"))
-                .collect(),
-        }
-    }
-
-    /// True when the operation runs.
-    fn includes(&self, operation: &str) -> bool {
-        self.words.is_empty()
-            || self
-                .words
-                .iter()
-                .any(|word| operation.contains(word.as_str()))
-    }
-}
-
-/// The median of `RUNS` timings of `operation`. Dropping the result is not timed.
-fn median_time<Output>(mut operation: impl FnMut() -> Output) -> Duration {
-    let mut times: Vec<Duration> = (0..RUNS)
-        .map(|_| {
-            let start = Instant::now();
-            let output = black_box(operation());
-            let time = start.elapsed();
-            drop(output);
-            time
-        })
-        .collect();
-    times.sort_unstable();
-    times[RUNS / 2]
-}
-
 /// A duration of whole milliseconds.
 fn milliseconds(count: u64) -> Duration {
     Duration::from_millis(count)
-}
-
-/// A duration as milliseconds with three decimals.
-fn readable(time: Duration) -> String {
-    format!("{:.3} ms", time.as_secs_f64() * 1e3)
 }
 
 /// A point in plane coordinates.
@@ -279,48 +222,32 @@ fn l_body() -> (Shape, u32) {
 }
 
 fn main() -> ExitCode {
-    let selection = Selection::from_arguments();
-    let mut measurements: Vec<Measurement> = Vec::new();
-    let mut measure = |operation: &'static str, budget: Duration, time: &dyn Fn() -> Duration| {
-        if selection.includes(operation) {
-            let time = time();
-            println!(
-                "{operation:<48} {:>12}   budget {:>12}",
-                readable(time),
-                readable(budget)
-            );
-            measurements.push(Measurement {
-                operation,
-                time,
-                budget,
-            });
-        }
-    };
+    let mut report = Report::from_arguments();
 
-    measure("make_box", milliseconds(1), &|| {
-        median_time(|| make_box(&Plane::XY, 10.0, 20.0, 30.0))
+    report.measure("make_box", milliseconds(1), || {
+        median_time_of(RUNS, || make_box(&Plane::XY, 10.0, 20.0, 30.0))
     });
-    measure("make_cylinder", milliseconds(1), &|| {
-        median_time(|| make_cylinder(&Plane::XY, 5.0, 10.0))
+    report.measure("make_cylinder", milliseconds(1), || {
+        median_time_of(RUNS, || make_cylinder(&Plane::XY, 5.0, 10.0))
     });
-    measure("make_sphere", milliseconds(1), &|| {
-        median_time(|| make_sphere(&Plane::XY, 10.0))
+    report.measure("make_sphere", milliseconds(1), || {
+        median_time_of(RUNS, || make_sphere(&Plane::XY, 10.0))
     });
-    measure("make_cone", milliseconds(1), &|| {
-        median_time(|| make_cone(&Plane::XY, 5.0, 2.0, 10.0))
+    report.measure("make_cone", milliseconds(1), || {
+        median_time_of(RUNS, || make_cone(&Plane::XY, 5.0, 2.0, 10.0))
     });
-    measure("make_torus", milliseconds(1), &|| {
-        median_time(|| make_torus(&Plane::XY, 10.0, 2.0))
+    report.measure("make_torus", milliseconds(1), || {
+        median_time_of(RUNS, || make_torus(&Plane::XY, 10.0, 2.0))
     });
 
     let hundred_gon = polygon(&regular_polygon(100));
-    measure("make_profile, 100 curves", milliseconds(5), &|| {
+    report.measure("make_profile, 100 curves", milliseconds(5), || {
         let regions = outline_regions(hundred_gon.clone());
-        median_time(|| make_profile(&Plane::XY, &regions))
+        median_time_of(RUNS, || make_profile(&Plane::XY, &regions))
     });
-    measure("extrude, 100-edge profile", milliseconds(15), &|| {
+    report.measure("extrude, 100-edge profile", milliseconds(15), || {
         let outline = profile(hundred_gon.clone());
-        median_time(|| extrude(&outline, UP, 0.0, 10.0))
+        median_time_of(RUNS, || extrude(&outline, UP, 0.0, 10.0))
     });
 
     let cube = |x: f64, y: f64, z: f64| {
@@ -329,13 +256,13 @@ fn main() -> ExitCode {
             .shape
     };
     let (first, second) = (cube(0.0, 0.0, 0.0), cube(5.0, 5.0, 5.0));
-    measure("fuse, two primitives", milliseconds(10), &|| {
-        median_time(|| fuse(&first, std::slice::from_ref(&second)))
+    report.measure("fuse, two primitives", milliseconds(10), || {
+        median_time_of(RUNS, || fuse(&first, std::slice::from_ref(&second)))
     });
-    measure("cut, two primitives", milliseconds(10), &|| {
-        median_time(|| cut(&first, std::slice::from_ref(&second)))
+    report.measure("cut, two primitives", milliseconds(10), || {
+        median_time_of(RUNS, || cut(&first, std::slice::from_ref(&second)))
     });
-    measure("cut, 20 cylinders from a box", milliseconds(60), &|| {
+    report.measure("cut, 20 cylinders from a box", milliseconds(60), || {
         let block = make_box(&Plane::XY, 80.0, 50.0, 30.0)
             .expect("the block builds")
             .shape;
@@ -352,48 +279,50 @@ fn main() -> ExitCode {
                 .shape
             })
             .collect();
-        median_time(|| cut(&block, &cylinders))
+        median_time_of(RUNS, || cut(&block, &cylinders))
     });
 
     let block = make_box(&Plane::XY, 10.0, 20.0, 30.0)
         .expect("the box builds")
         .shape;
-    measure("fillet, 12 edges of a box", milliseconds(40), &|| {
+    report.measure("fillet, 12 edges of a box", milliseconds(40), || {
         let edges: Vec<EdgeRadius> = (1..=12)
             .map(|edge| EdgeRadius { edge, radius: 1.0 })
             .collect();
-        median_time(|| fillet(&block, &edges))
+        median_time_of(RUNS, || fillet(&block, &edges))
     });
-    measure("shell, box", milliseconds(20), &|| {
+    report.measure("shell, box", milliseconds(20), || {
         let top = planar_face(&block, UP, 30.0);
-        median_time(|| shell(&block, &[top], 1.0))
+        median_time_of(RUNS, || shell(&block, &[top], 1.0))
     });
-    measure("transform, rigid", Duration::from_micros(100), &|| {
+    report.measure("transform, rigid", Duration::from_micros(100), || {
         let axis = Axis {
             origin: Point::new(0.0, 0.0, 0.0),
             direction: UP,
         };
         let motion = Transform::translation(Vector::new(1.0, 2.0, 3.0))
             .then(&Transform::rotation(&axis, 0.5));
-        median_time(|| transform(&block, &motion))
+        median_time_of(RUNS, || transform(&block, &motion))
     });
-    measure(
+    report.measure(
         "elements(Face) and topology(), 200 faces",
         milliseconds(10),
-        &|| {
+        || {
             let prism = extrude(&profile(polygon(&regular_polygon(198))), UP, 0.0, 10.0)
                 .expect("the prism extrudes")
                 .shape;
             assert_eq!(prism.count(SubShapeKind::Face), 200);
-            median_time(|| (prism.elements(SubShapeKind::Face), prism.topology()))
+            median_time_of(RUNS, || {
+                (prism.elements(SubShapeKind::Face), prism.topology())
+            })
         },
     );
-    measure(
+    report.measure(
         "elements of every kind and topology(), PLATE",
         milliseconds(8),
-        &|| {
+        || {
             let plate = plate();
-            median_time(|| {
+            median_time_of(RUNS, || {
                 (
                     plate.elements(SubShapeKind::Face),
                     plate.elements(SubShapeKind::Edge),
@@ -408,32 +337,32 @@ fn main() -> ExitCode {
         // The engine's 5 degrees (engine.md section 3.7).
         angular_deviation: 5.0_f64.to_radians(),
     };
-    measure(
+    report.measure(
         "tessellate, sphere of radius 250 at 0.0125 mm and 5 degrees",
         milliseconds(1500),
-        &|| {
+        || {
             let sphere = make_sphere(&Plane::XY, 250.0)
                 .expect("the sphere builds")
                 .shape;
-            median_time(|| sphere.tessellate(&engine_tolerance(0.0125)))
+            median_time_of(RUNS, || sphere.tessellate(&engine_tolerance(0.0125)))
         },
     );
-    measure(
+    report.measure(
         "tessellate, PLATE at 0.05 mm and 5 degrees",
         milliseconds(1500),
-        &|| {
+        || {
             let plate = plate();
-            median_time(|| plate.tessellate(&engine_tolerance(0.05)))
+            median_time_of(RUNS, || plate.tessellate(&engine_tolerance(0.05)))
         },
     );
-    measure(
+    report.measure(
         "shell, L with its step face removed",
         milliseconds(40),
-        &|| {
+        || {
             let (body, step) = l_body();
             // A failed shell returns early, so its time would say nothing about the budget.
             shell(&body, &[step], 2.0).expect("the fallback shells L");
-            median_time(|| shell(&body, &[step], 2.0))
+            median_time_of(RUNS, || shell(&body, &[step], 2.0))
         },
     );
 
@@ -444,22 +373,22 @@ fn main() -> ExitCode {
         part.count(SubShapeKind::Edge),
         part.count(SubShapeKind::Vertex)
     );
-    measure("volume, part", milliseconds(2), &|| {
-        median_time(|| part.volume())
+    report.measure("volume, part", milliseconds(2), || {
+        median_time_of(RUNS, || part.volume())
     });
-    measure(
+    report.measure(
         "tessellate, part at 0.05 mm and 0.1 rad",
         milliseconds(30),
-        &|| {
+        || {
             let tolerance = TessellationTolerance {
                 chord_deviation: 0.05,
                 angular_deviation: 0.1,
             };
-            median_time(|| part.tessellate(&tolerance))
+            median_time_of(RUNS, || part.tessellate(&tolerance))
         },
     );
-    measure("to_brep and from_brep, part", milliseconds(5), &|| {
-        median_time(|| {
+    report.measure("to_brep and from_brep, part", milliseconds(5), || {
+        median_time_of(RUNS, || {
             let bytes = part.to_brep().expect("the part serializes");
             Shape::from_brep(&bytes)
         })
@@ -469,30 +398,13 @@ fn main() -> ExitCode {
         name: "Part".to_owned(),
         color: None,
     }];
-    measure("write_step, part", milliseconds(100), &|| {
-        median_time(|| write_step(&bodies))
+    report.measure("write_step, part", milliseconds(100), || {
+        median_time_of(RUNS, || write_step(&bodies))
     });
-    measure("read_step, part", milliseconds(150), &|| {
+    report.measure("read_step, part", milliseconds(150), || {
         let bytes = write_step(&bodies).expect("the part exports");
-        median_time(|| read_step(&bytes))
+        median_time_of(RUNS, || read_step(&bytes))
     });
 
-    let over: Vec<&Measurement> = measurements
-        .iter()
-        .filter(|measurement| measurement.time > measurement.budget)
-        .collect();
-    if over.is_empty() {
-        println!("Every measured operation is within its budget.");
-        ExitCode::SUCCESS
-    } else {
-        for measurement in over {
-            eprintln!(
-                "{} took {}, over its budget of {}.",
-                measurement.operation,
-                readable(measurement.time),
-                readable(measurement.budget)
-            );
-        }
-        ExitCode::FAILURE
-    }
+    report.finish()
 }

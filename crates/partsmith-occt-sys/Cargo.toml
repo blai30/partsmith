@@ -20,6 +20,9 @@ thiserror.workspace = true
 [build-dependencies]
 cxx-build.workspace = true
 
+[dev-dependencies]
+partsmith-budgets.workspace = true
+
 [[bench]]
 name = "budgets"
 harness = false

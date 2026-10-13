@@ -122,7 +122,7 @@ fn find_plateaus(body: &Body) -> Vec<Plateau> {
 mod tests {
     use super::*;
     use crate::rotation::Rotation;
-    use crate::test_meshes::boxes;
+    use partsmith_mesh_fixtures::boxes;
 
     /// The island heights of a base box with a second box hovering at `height`.
     fn island_heights(height: f64) -> Vec<f64> {

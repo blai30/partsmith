@@ -167,7 +167,7 @@ fn t005_length_is_84_plus_50_per_triangle() {
 
 #[test]
 fn t005_degenerate_triangle_is_kept_with_zero_normal() {
-    let mesh = cube_with(&[], &[[0, 0, 1]]);
+    let mesh = cube_with(&[], &[([0, 0, 1], 0)]);
     let output = binary(&[part("Cube", &mesh)]);
     assert_eq!(output.bytes.len(), 734);
     let record_start = 84 + 50 * 12;

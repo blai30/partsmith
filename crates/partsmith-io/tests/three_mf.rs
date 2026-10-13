@@ -722,7 +722,7 @@ fn t036_omitted_body_with_empty_mesh_is_not_checked() {
 
 #[test]
 fn t037_collapsed_triangle_is_dropped_by_welding() {
-    let mesh = cube_with(&[], &[[0, 0, 1]]);
+    let mesh = cube_with(&[], &[([0, 0, 1], 0)]);
     let objects = read_model(&untitled_model(&[part("Cube", &mesh)]));
     assert_eq!(objects.len(), 1);
     assert_eq!(objects[0].vertices.len(), 8);

@@ -28,7 +28,8 @@ Everything is re-exported at the crate root.
 cargo test -p partsmith-naming
 cargo clippy -p partsmith-naming --all-targets -- -D warnings
 cargo fmt -p partsmith-naming
-cargo bench -p partsmith-naming --bench budgets   # spec section 5 budgets, fails when one is over
+cargo bench -p partsmith-naming --bench budgets          # spec section 5 budgets, fails when one is over
+cargo bench -p partsmith-naming --bench budgets -- parse # only the operations whose names contain a word
 ```
 
 ## Rules

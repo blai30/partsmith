@@ -128,7 +128,7 @@ mod tests {
     use super::*;
     use crate::report::{Location, TriangleRange};
     use crate::rotation::Rotation;
-    use crate::test_meshes::box_mesh;
+    use partsmith_mesh_fixtures::box_mesh;
 
     /// The mesh validity findings of a mesh built from positions and triangles.
     fn findings_of(positions: Vec<Point3>, triangles: Vec<[u32; 3]>) -> Vec<Finding> {

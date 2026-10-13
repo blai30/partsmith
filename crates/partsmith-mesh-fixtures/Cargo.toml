@@ -1,0 +1,16 @@
+[package]
+name = "partsmith-mesh-fixtures"
+description = "The mesh fixtures of mesh.md section 6.1, shared by the tests of the Partsmith mesh, io and print crates."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[dependencies]
+partsmith-mesh.workspace = true
+
+[lints]
+workspace = true

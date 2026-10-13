@@ -75,9 +75,9 @@ mod tests {
     use crate::BED_CONTACT_TOLERANCE;
     use crate::profile::generic_fdm;
     use crate::rotation::Rotation;
-    use crate::test_meshes::{box_mesh, boxes};
+    use partsmith_mesh_fixtures::{box_mesh, boxes};
 
-    /// Triangles of each box in `test_meshes::box_mesh` order: bottom, top, then the sides
+    /// Triangles of each box in `box_mesh` order: bottom, top, then the sides
     /// facing -y, +y, -x and +x.
     const BOTTOM: usize = 0;
     /// See [`BOTTOM`].

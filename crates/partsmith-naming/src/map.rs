@@ -11,8 +11,9 @@ use crate::aliases::Aliases;
 use crate::element_info::ElementInfo;
 use crate::error::NamingError;
 use crate::fingerprint::Fingerprint;
+use crate::grammar::NameDefect;
 use crate::kind::ElementKind;
-use crate::name::{ElementName, Instance};
+use crate::name::{ElementName, Instance, invalid_name};
 use crate::topology::{FaceSource, TopologyInfo, element_count, index_of, indices};
 
 /// Names of every face, edge and vertex of one output shape, indexed like the kernel.
@@ -308,15 +309,7 @@ fn check_kind(name: &ElementName, kind: ElementKind) -> Result<(), NamingError> 
     if name.kind() == kind {
         return Ok(());
     }
-    let reason = match kind {
-        ElementKind::Face => "it is not a face name",
-        ElementKind::Edge => "it is not an edge name",
-        ElementKind::Vertex => "it is not a vertex name",
-    };
-    Err(NamingError::InvalidName {
-        text: name.to_string(),
-        reason: reason.to_owned(),
-    })
+    Err(invalid_name(name.as_str(), &NameDefect::WrongKind(kind)))
 }
 
 /// Indices of the named elements, sorted by name, after checking their kind and uniqueness.

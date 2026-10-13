@@ -17,6 +17,8 @@ thiserror.workspace = true
 zip.workspace = true
 
 [dev-dependencies]
+partsmith-budgets.workspace = true
+partsmith-mesh-fixtures.workspace = true
 pretty_assertions.workspace = true
 
 [lints]

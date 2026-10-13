@@ -72,7 +72,7 @@ fn lowest_vertex(body: &Body, triangles: &[u32]) -> usize {
 mod tests {
     use super::*;
     use crate::rotation::Rotation;
-    use crate::test_meshes::{box_mesh, boxes};
+    use partsmith_mesh_fixtures::{box_mesh, boxes};
 
     #[test]
     fn separate_solids_are_not_hollows() {

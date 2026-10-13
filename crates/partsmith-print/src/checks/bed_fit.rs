@@ -173,7 +173,7 @@ mod tests {
     use super::*;
     use crate::profile::generic_fdm;
     use crate::rotation::Rotation;
-    use crate::test_meshes::box_mesh;
+    use partsmith_mesh_fixtures::box_mesh;
 
     /// The bed fit findings of a box on the generic FDM bed.
     fn box_findings(max: [f64; 3]) -> Vec<Finding> {

@@ -15,11 +15,11 @@
 #[path = "../tests/common/mod.rs"]
 mod common;
 
-use std::hint::black_box;
 use std::process::ExitCode;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use common::{Writer, sphere, write_3mf_untitled};
+use partsmith_budgets::{Report, median_time_of};
 use partsmith_io::{
     ExportBody, StepExportBody, read_step, write_obj, write_step, write_stl_ascii, write_stl_binary,
 };
@@ -34,63 +34,6 @@ const SEGMENTS: u32 = 1_000;
 const RINGS: u32 = 501;
 /// Time the STEP wrappers may add to the kernel calls.
 const STEP_OVERHEAD: Duration = Duration::from_millis(5);
-
-/// One timed operation and its budget.
-struct Measurement {
-    /// What was timed, as spec section 5 names it.
-    operation: &'static str,
-    /// The median time.
-    time: Duration,
-    /// The budget from spec section 5.
-    budget: Duration,
-}
-
-/// The operations selected on the command line, or all of them when none is named.
-struct Selection {
-    /// Words that select operations by their name.
-    words: Vec<String>,
-}
-
-impl Selection {
-    /// Reads the words from the command line, skipping the flags cargo passes.
-    fn from_arguments() -> Selection {
-        Selection {
-            words: std::env::args()
-                .skip(1)
-                .filter(|argument| !argument.starts_with("--"))
-                .collect(),
-        }
-    }
-
-    /// True when the operation runs.
-    fn includes(&self, operation: &str) -> bool {
-        self.words.is_empty()
-            || self
-                .words
-                .iter()
-                .any(|word| operation.contains(word.as_str()))
-    }
-}
-
-/// The median of `RUNS` timings of `operation`. Dropping the result is not timed.
-fn median_time<Output>(mut operation: impl FnMut() -> Output) -> Duration {
-    let mut times: Vec<Duration> = (0..RUNS)
-        .map(|_| {
-            let start = Instant::now();
-            let output = black_box(operation());
-            let time = start.elapsed();
-            drop(output);
-            time
-        })
-        .collect();
-    times.sort_unstable();
-    times[RUNS / 2]
-}
-
-/// A duration as milliseconds with three decimals.
-fn readable(time: Duration) -> String {
-    format!("{:.3} ms", time.as_secs_f64() * 1e3)
-}
 
 /// The STEP body: a 40 x 30 x 20 block with a vertical hole through its middle.
 fn drilled_block() -> Shape {
@@ -108,20 +51,7 @@ fn drilled_block() -> Shape {
 }
 
 fn main() -> ExitCode {
-    let selection = Selection::from_arguments();
-    let mut measurements: Vec<Measurement> = Vec::new();
-    let mut record = |operation: &'static str, time: Duration, budget: Duration| {
-        println!(
-            "{operation:<40} {:>12}   budget {:>12}",
-            readable(time),
-            readable(budget)
-        );
-        measurements.push(Measurement {
-            operation,
-            time,
-            budget,
-        });
-    };
+    let mut report = Report::from_arguments();
 
     let mesh = sphere(100.0, SEGMENTS, RINGS);
     assert_eq!(
@@ -142,17 +72,13 @@ fn main() -> ExitCode {
         ("write_3mf, 1M triangles", 2_500, write_3mf_untitled),
     ];
     for (operation, budget, writer) in mesh_writers {
-        if selection.includes(operation) {
+        report.measure(operation, Duration::from_millis(budget), || {
             assert!(
                 writer(&bodies).is_ok(),
                 "{operation} fails on the benchmark sphere"
             );
-            record(
-                operation,
-                median_time(|| writer(&bodies)),
-                Duration::from_millis(budget),
-            );
-        }
+            median_time_of(RUNS, || writer(&bodies))
+        });
     }
 
     let shape = drilled_block();
@@ -170,34 +96,16 @@ fn main() -> ExitCode {
             blue: f64::from(0xf6_u8) / 255.0,
         }),
     }];
-    if selection.includes("write_step") {
-        let kernel = median_time(|| partsmith_occt_sys::write_step(&kernel_bodies));
-        let wrapped = median_time(|| write_step(&io_bodies));
-        record("write_step", wrapped, kernel + STEP_OVERHEAD);
+    if report.includes("write_step") {
+        let kernel = median_time_of(RUNS, || partsmith_occt_sys::write_step(&kernel_bodies));
+        let wrapped = median_time_of(RUNS, || write_step(&io_bodies));
+        report.record_time("write_step", wrapped, kernel + STEP_OVERHEAD);
     }
-    if selection.includes("read_step") {
+    if report.includes("read_step") {
         let bytes = write_step(&io_bodies).expect("the block exports");
-        let kernel = median_time(|| partsmith_occt_sys::read_step(&bytes));
-        let wrapped = median_time(|| read_step(&bytes));
-        record("read_step", wrapped, kernel + STEP_OVERHEAD);
+        let kernel = median_time_of(RUNS, || partsmith_occt_sys::read_step(&bytes));
+        let wrapped = median_time_of(RUNS, || read_step(&bytes));
+        report.record_time("read_step", wrapped, kernel + STEP_OVERHEAD);
     }
-
-    let over: Vec<&Measurement> = measurements
-        .iter()
-        .filter(|measurement| measurement.time > measurement.budget)
-        .collect();
-    if over.is_empty() {
-        println!("Every measured operation is within its budget.");
-        ExitCode::SUCCESS
-    } else {
-        for measurement in over {
-            eprintln!(
-                "{} took {}, over its budget of {}.",
-                measurement.operation,
-                readable(measurement.time),
-                readable(measurement.budget)
-            );
-        }
-        ExitCode::FAILURE
-    }
+    report.finish()
 }

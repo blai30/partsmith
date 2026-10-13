@@ -129,7 +129,10 @@ fn t016_faceted_box_is_welded_into_shared_vertices() {
 
 #[test]
 fn t017_collapsed_triangles_and_unused_vertices_are_not_written() {
-    let mesh = cube_with(&[[5e-7, 0.0, 0.0], [100.0, 100.0, 100.0]], &[[0, 8, 1]]);
+    let mesh = cube_with(
+        &[[5e-7, 0.0, 0.0], [100.0, 100.0, 100.0]],
+        &[([0, 8, 1], 0)],
+    );
     let output = obj(&[part("Cube", &mesh)]);
     assert_eq!(utf8(&output.bytes), CUBE_OBJ);
     assert_no_warnings(&output);

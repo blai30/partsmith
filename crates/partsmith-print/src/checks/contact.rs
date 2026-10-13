@@ -120,7 +120,7 @@ mod tests {
     use super::*;
     use crate::profile::generic_fdm;
     use crate::rotation::Rotation;
-    use crate::test_meshes::boxes;
+    use partsmith_mesh_fixtures::boxes;
 
     #[test]
     fn low_contact_comes_before_tall_and_thin() {

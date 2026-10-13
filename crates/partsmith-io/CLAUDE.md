@@ -20,6 +20,7 @@ Spec: `docs/spec/io.md` (the definition of done). Acceptance tests in `tests/` c
 - `src/stl.rs`, `src/obj.rs`, `src/three_mf.rs` (base materials, XML escaping, zip package with fixed options), `src/step.rs` (color conversion both ways), `src/export.rs`, `src/error.rs`.
 - 3MF and OBJ weld, check and write one body at a time, so a writer holds at most one welded copy besides the output. XML is built as plain strings (no XML crate, decision 6).
 - `src/test_support.rs` (tests only): the `part`, `mesh`, `triangle` and `unit_triangle` fixtures of the unit tests.
+- `tests/common` re-exports the mesh.md section 6.1 fixtures of `partsmith-mesh-fixtures` (a dev-dependency, ADR 0027) and adds this crate's own meshes, export helpers and readers.
 
 ## Commands
 

@@ -9,10 +9,10 @@
 //! stands in for.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::hint::black_box;
 use std::process::ExitCode;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
+use partsmith_budgets::{Report, median_mean_time, median_time, median_time_of};
 use partsmith_model::{
     Body, Dimension, Document, Edit, EmptyContext, Expr, ExprLink, FeatureInspector, FeatureLinks,
     FeatureParamsSchema, FeatureRecord, Id, IdGenerator, IdKind, OpaqueFeatures, Parameter,
@@ -47,84 +47,6 @@ const SCHEMA_COUNT: usize = 30;
 const EXPRESSION: &str = "(wall + clearance) * 2 + max(inner_width, 40 mm) - sqrt(hole ^ 2 + 9 mm ^ 2) / 2 + depth * 0.5 + 1mm";
 /// File-format example E2.
 const E2: &str = include_str!("../tests/fixtures/e2_full.ptsm");
-
-/// One timed operation and its budget.
-struct Measurement {
-    /// What was timed, as spec section 5 names it.
-    operation: String,
-    /// The median time.
-    time: Duration,
-    /// The budget from spec section 5.
-    budget: Duration,
-}
-
-/// The operations selected on the command line, or all of them when none is named.
-struct Selection {
-    /// Words that select operations by their name.
-    words: Vec<String>,
-}
-
-impl Selection {
-    /// Reads the words from the command line, skipping the flags cargo passes.
-    fn from_arguments() -> Selection {
-        Selection {
-            words: std::env::args()
-                .skip(1)
-                .filter(|argument| !argument.starts_with("--"))
-                .collect(),
-        }
-    }
-
-    /// True when the operation runs.
-    fn includes(&self, operation: &str) -> bool {
-        self.words.is_empty()
-            || self
-                .words
-                .iter()
-                .any(|word| operation.contains(word.as_str()))
-    }
-}
-
-/// The median of `RUNS` timings of `operation`, with a fresh input from `setup` for each run.
-/// Neither the setup nor dropping the result is timed.
-fn median_time<Input, Output>(
-    mut setup: impl FnMut() -> Input,
-    mut operation: impl FnMut(Input) -> Output,
-) -> Duration {
-    let mut times: Vec<Duration> = (0..RUNS)
-        .map(|_| {
-            let input = setup();
-            let start = Instant::now();
-            let output = black_box(operation(black_box(input)));
-            let time = start.elapsed();
-            drop(output);
-            time
-        })
-        .collect();
-    times.sort_unstable();
-    times[RUNS / 2]
-}
-
-/// The median time of an operation that needs no fresh input.
-fn median_time_of<Output>(mut operation: impl FnMut() -> Output) -> Duration {
-    median_time(|| (), |()| operation())
-}
-
-/// The median over `RUNS` runs of the mean time of one call, each run making `REPEATS` calls.
-/// For operations that take microseconds, where one call is too short to time on its own.
-fn median_mean_time<Output>(mut operation: impl FnMut() -> Output) -> Duration {
-    let mut times: Vec<Duration> = (0..RUNS)
-        .map(|_| {
-            let start = Instant::now();
-            for _ in 0..REPEATS {
-                black_box(operation());
-            }
-            start.elapsed() / REPEATS
-        })
-        .collect();
-    times.sort_unstable();
-    times[RUNS / 2]
-}
 
 /// A deterministic 64-bit mix of `value` (SplitMix64), for ids spread over the whole id space.
 fn scramble(value: u64) -> u64 {
@@ -378,23 +300,7 @@ fn microseconds(count: u64) -> Duration {
 }
 
 fn main() -> ExitCode {
-    let selection = Selection::from_arguments();
-    let mut measurements: Vec<Measurement> = Vec::new();
-    let mut measure = |operation: &str, budget: Duration, time: &dyn Fn() -> Duration| {
-        if selection.includes(operation) {
-            let time = time();
-            println!(
-                "{operation:<64} {:>10.4} ms   budget {:>8.4} ms",
-                time.as_secs_f64() * 1e3,
-                budget.as_secs_f64() * 1e3
-            );
-            measurements.push(Measurement {
-                operation: operation.to_string(),
-                time,
-                budget,
-            });
-        }
-    };
+    let mut report = Report::from_arguments();
 
     // model.md section 5.
     let document = model_document();
@@ -408,6 +314,7 @@ fn main() -> ExitCode {
             .apply(edit.clone())
             .expect("the benchmark edit applies");
         median_time(
+            RUNS,
             || (document.clone(), edit.clone()),
             |(mut document, edit)| {
                 let inverse = document.apply(edit);
@@ -416,10 +323,10 @@ fn main() -> ExitCode {
         )
     };
     let first_feature = document.features[0].id.clone();
-    measure(
+    report.measure(
         "apply AddFeature at the start, 1,000 features",
         microseconds(50),
-        &|| {
+        || {
             let body = numbered_id(IdKind::Body, 1);
             apply_once(Edit::AddFeature {
                 index: 0,
@@ -427,38 +334,38 @@ fn main() -> ExitCode {
             })
         },
     );
-    measure(
+    report.measure(
         "apply UpdateFeature of the last feature, 1,000 features",
         microseconds(50),
-        &|| {
+        || {
             let mut feature = document.features[FEATURE_COUNT - 1].clone();
             feature.params.insert("offset".to_string(), json!(3.25));
             apply_once(Edit::UpdateFeature { feature })
         },
     );
-    measure(
+    report.measure(
         "apply RemoveFeature of the first feature, 1,000 features",
         microseconds(50),
-        &|| {
+        || {
             apply_once(Edit::RemoveFeature {
                 id: first_feature.clone(),
             })
         },
     );
-    measure(
+    report.measure(
         "apply MoveFeature from first to last, 1,000 features",
         microseconds(50),
-        &|| {
+        || {
             apply_once(Edit::MoveFeature {
                 id: first_feature.clone(),
                 index: FEATURE_COUNT - 1,
             })
         },
     );
-    measure(
+    report.measure(
         "apply AddParameter at the start, 1,000 features",
         microseconds(50),
-        &|| {
+        || {
             apply_once(Edit::AddParameter {
                 index: 0,
                 parameter: Parameter::new(
@@ -476,11 +383,12 @@ fn main() -> ExitCode {
     committed_log
         .commit(&mut committed, "Batch", edits.clone())
         .expect("the benchmark edits apply");
-    measure(
+    report.measure(
         "apply_all of 100 edits (UndoLog::commit)",
         milliseconds(2),
-        &|| {
+        || {
             median_time(
+                RUNS,
                 || (document.clone(), UndoLog::new(), edits.clone()),
                 |(mut document, mut log, edits)| {
                     let result = log.commit(&mut document, "Batch", edits);
@@ -489,8 +397,9 @@ fn main() -> ExitCode {
             )
         },
     );
-    measure("undo of the 100-edit transaction", milliseconds(2), &|| {
+    report.measure("undo of the 100-edit transaction", milliseconds(2), || {
         median_time(
+            RUNS,
             || (committed.clone(), committed_log.clone()),
             |(mut document, mut log)| {
                 let undone = log
@@ -505,8 +414,9 @@ fn main() -> ExitCode {
     undone_log
         .undo(&mut undone)
         .expect("the benchmark transaction undoes");
-    measure("redo of the 100-edit transaction", milliseconds(2), &|| {
+    report.measure("redo of the 100-edit transaction", milliseconds(2), || {
         median_time(
+            RUNS,
             || (undone.clone(), undone_log.clone()),
             |(mut document, mut log)| {
                 let redone = log
@@ -517,29 +427,29 @@ fn main() -> ExitCode {
         )
     });
 
-    measure(
+    report.measure(
         "check_structure, 1,000 parameters, 100 bodies, 1,000 features",
         milliseconds(2),
-        &|| median_time_of(|| document.check_structure()),
+        || median_time_of(RUNS, || document.check_structure()),
     );
-    measure(
+    report.measure(
         "validate with OpaqueFeatures, same document",
         milliseconds(10),
-        &|| median_time_of(|| document.validate(&OpaqueFeatures)),
+        || median_time_of(RUNS, || document.validate(&OpaqueFeatures)),
     );
     // Not a spec row: the validate budget with links reported. It guards against looking ids up
     // by scanning the record lists once per link, which takes several times the budget on this
     // document.
     let linked = LinkedFeatures::new(&document);
-    measure(
+    report.measure(
         "validate with 10 declared ids and 3 links per feature, same document",
         milliseconds(10),
-        &|| median_time_of(|| document.validate(&linked)),
+        || median_time_of(RUNS, || document.validate(&linked)),
     );
-    measure(
+    report.measure(
         "used_ids with OpaqueFeatures, same document",
         milliseconds(1),
-        &|| median_time_of(|| document.used_ids(&OpaqueFeatures)),
+        || median_time_of(RUNS, || document.used_ids(&OpaqueFeatures)),
     );
 
     let taken: BTreeSet<Id> = (0..TAKEN_ID_COUNT)
@@ -548,13 +458,15 @@ fn main() -> ExitCode {
             Id::generated(kind, scramble(i))
         })
         .collect();
-    measure(
+    report.measure(
         "SequentialIds::generate, BTreeSet predicate of 10,000 ids",
         microseconds(2),
-        &|| {
+        || {
             let mut generator = SequentialIds::new();
             let is_taken = |id: &Id| taken.contains(id);
-            median_mean_time(|| generator.generate(IdKind::Feature, &is_taken))
+            median_mean_time(RUNS, REPEATS, || {
+                generator.generate(IdKind::Feature, &is_taken)
+            })
         },
     );
 
@@ -590,30 +502,36 @@ fn main() -> ExitCode {
     expression
         .evaluate(&scope, Some(Dimension::LENGTH))
         .expect("the benchmark expression evaluates");
-    measure(
+    report.measure(
         "parse of a 100-character expression",
         microseconds(5),
-        &|| median_mean_time(|| expression.parse()),
+        || median_mean_time(RUNS, REPEATS, || expression.parse()),
     );
-    measure(
+    report.measure(
         "evaluate of it, 5 parameter references",
         microseconds(10),
-        &|| median_mean_time(|| expression.evaluate(&scope, Some(Dimension::LENGTH))),
+        || {
+            median_mean_time(RUNS, REPEATS, || {
+                expression.evaluate(&scope, Some(Dimension::LENGTH))
+            })
+        },
     );
-    measure("rename_parameter on it", microseconds(10), &|| {
-        median_mean_time(|| expression.rename_parameter("inner_width", "inside_width"))
+    report.measure("rename_parameter on it", microseconds(10), || {
+        median_mean_time(RUNS, REPEATS, || {
+            expression.rename_parameter("inner_width", "inside_width")
+        })
     });
     let chain = parameter_document(true);
-    measure(
+    report.measure(
         "evaluate_parameters, 1,000 parameters in one chain",
         milliseconds(5),
-        &|| median_time_of(|| chain.evaluate_parameters(&EmptyContext)),
+        || median_time_of(RUNS, || chain.evaluate_parameters(&EmptyContext)),
     );
     let independent = parameter_document(false);
-    measure(
+    report.measure(
         "evaluate_parameters, 1,000 independent parameters",
         milliseconds(5),
-        &|| median_time_of(|| independent.evaluate_parameters(&EmptyContext)),
+        || median_time_of(RUNS, || independent.evaluate_parameters(&EmptyContext)),
     );
 
     // file-format.md section 5. The spec's document shape (2,000 sketch features with 20 one-line
@@ -627,40 +545,28 @@ fn main() -> ExitCode {
     );
     let size_budget = milliseconds(30).mul_f64(text.len() as f64 / BUDGET_DOCUMENT_SIZE as f64);
     let megabytes = text.len() as f64 / BUDGET_DOCUMENT_SIZE as f64;
-    measure(
+    report.measure(
         &format!("load of the {megabytes:.2} MB sketch document (30 ms per MB)"),
         size_budget,
-        &|| median_time_of(|| load(&text)),
+        || median_time_of(RUNS, || load(&text)),
     );
-    measure(
+    report.measure(
         &format!("save of the {megabytes:.2} MB sketch document (30 ms per MB)"),
         size_budget,
-        &|| median_time_of(|| save(&sketches)),
+        || median_time_of(RUNS, || save(&sketches)),
     );
-    measure("load then save of E2", microseconds(200), &|| {
-        median_time_of(|| load(E2).map(|loaded| save(&loaded.document)))
+    report.measure("load then save of E2", microseconds(200), || {
+        median_time_of(RUNS, || load(E2).map(|loaded| save(&loaded.document)))
     });
     let schemas: Vec<FeatureParamsSchema> = (0..SCHEMA_COUNT)
         .map(|i| params_schema(&format!("feature_{i:02}")))
         .collect();
     ptsm_schema_text(&schemas).expect("the benchmark schemas compose");
-    measure(
+    report.measure(
         "ptsm_schema_text with 30 feature schemas",
         milliseconds(20),
-        &|| median_time_of(|| ptsm_schema_text(&schemas)),
+        || median_time_of(RUNS, || ptsm_schema_text(&schemas)),
     );
 
-    let over_budget: Vec<&Measurement> = measurements
-        .iter()
-        .filter(|measurement| measurement.time > measurement.budget)
-        .collect();
-    if over_budget.is_empty() {
-        println!("Every measured operation is within its budget.");
-        ExitCode::SUCCESS
-    } else {
-        for measurement in over_budget {
-            println!("Over budget: {}", measurement.operation);
-        }
-        ExitCode::FAILURE
-    }
+    report.finish()
 }

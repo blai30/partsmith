@@ -22,6 +22,9 @@ partsmith-print = { path = "crates/partsmith-print" }
 partsmith-io = { path = "crates/partsmith-io" }
 partsmith-protocol = { path = "crates/partsmith-protocol" }
 partsmith-engine = { path = "crates/partsmith-engine" }
+# Dev-only crates (ADR 0027).
+partsmith-budgets = { path = "crates/partsmith-budgets" }
+partsmith-mesh-fixtures = { path = "crates/partsmith-mesh-fixtures" }
 
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }

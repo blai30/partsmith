@@ -8,11 +8,12 @@ The CLI serves makers who script batch exports, CI jobs that validate models and
 
 **In M1**
 
-- `partsmith validate`: load, check expressions, references, sketches, assets, optionally rebuild and canonical form.
+- `partsmith validate`: load, check expressions, references, sketches, assets, optionally rebuild and canonical form; a rebuild with a lost, ambiguous or guessed reference fails the file.
 - `partsmith fmt`: rewrite files in canonical form, or check that they are.
 - `partsmith rebuild`: full rebuild with per-feature status, per-body metrics and optional print checks.
 - `partsmith export`: STL, 3MF, OBJ, STEP and Python output.
 - `partsmith schema`: print, write or check `ptsm.schema.json` and `protocol.schema.json`.
+- Feature messages with their location, then the actions that fix them and the candidates that could replace a lost reference; in JSON with codes, fields, actions, candidates, loss reasons, roots and details ([the error guidelines](../guidelines/errors.md), "Hosts").
 - `--version`, `--help`, human and JSON output, fixed exit codes.
 
 **Later (not in M1)**
@@ -44,9 +45,9 @@ partsmith schema [--write | --check] [--out-dir <DIR>] [<NAME>]
 | Option | Applies to | Meaning |
 | --- | --- | --- |
 | `<FILE>` | all but `schema` | A `.ptsm` path. `-` means standard input for `validate` and `fmt` (at most once). |
-| `--rebuild` | `validate` | Also rebuild geometry and report feature errors and warnings. |
+| `--rebuild` | `validate` | Also rebuild geometry and report every feature message, with its actions and candidates (3.1). |
 | `--canonical` | `validate` | Report `not_canonical` when the file is not in canonical form. |
-| `--deny-warnings` | `validate`, `rebuild` | Treat warnings as failures for the exit code. |
+| `--deny-warnings` | `validate`, `rebuild` | Treat every warning as a failure for the exit code. `validate` fails on a lost, ambiguous or guessed reference without it (3.1). |
 | `--json` | `validate`, `rebuild`, `export` | Print one JSON document on standard output instead of text. |
 | `--check` | `fmt`, `schema` | Do not write; fail when a file would change. |
 | `--checks` | `rebuild` | Also run print analysis and report findings. |
@@ -64,14 +65,14 @@ partsmith schema [--write | --check] [--out-dir <DIR>] [<NAME>]
 | `--out-dir <DIR>` | `schema` | Directory for `--write` and `--check`. Default `docs/format`, relative to the current directory. |
 | `<NAME>` | `schema` | `ptsm` or `protocol`: print that schema to standard output. |
 
-`partsmith --version` prints exactly `partsmith 0.1.0 (protocol 1, format 1, OCCT 7.9.3)` followed by a newline, with the engine version, `PROTOCOL_VERSION`, the format version and the kernel string from `engine_info`.
+`partsmith --version` prints exactly `partsmith 0.1.0 (protocol 1, format 2, OCCT 7.9.3)` followed by a newline, with the engine version, `PROTOCOL_VERSION`, the format version and the kernel string from `engine_info`.
 
 ### 2.1 Exit codes
 
 | Code | Meaning |
 | --- | --- |
 | 0 | Success. |
-| 1 | The model has problems: validation errors (or warnings with `--deny-warnings`), a file that is not canonical (`fmt --check`, `validate --canonical`), failed features in `rebuild` or `export` (without `--allow-errors`), an unknown or ambiguous `--body`, an unknown `--printer`, an engine error while exporting, or schema drift (`schema --check`). |
+| 1 | The model has problems: validation errors, warnings of a lost, ambiguous or guessed reference (3.1), other warnings with `--deny-warnings`, a file that is not canonical (`fmt --check`, `validate --canonical`), failed features in `rebuild` or `export` (without `--allow-errors`), an unknown or ambiguous `--body`, an unknown `--printer`, an engine error while exporting, or schema drift (`schema --check`). |
 | 2 | Usage error: unknown command or option, missing or invalid value, or an option that does not apply to the chosen format. Printed by clap or in the same style. |
 | 3 | Input or output error: a file or directory cannot be read or written. |
 | 4 | Internal error: a panic. `main` installs `std::panic::catch_unwind` around the run and prints `internal error: <message>` to standard error. |
@@ -90,6 +91,8 @@ With several files, each file is processed independently and the exit code is th
   - `<path>: <severity>[<code>] at <pointer>: <message>` when only the JSON Pointer is known.
   - `<path>: <severity>[<code>]: <message>` otherwise.
   - `<severity>` is `error`, `warning` or `info`.
+- **Feature messages.** A feature message is one of the error, warnings and info notices that recompute rendered for a feature (engine.md section 3.4, `FeatureStatus`), with the same text in every host. Its *location* is the JSON Pointer of the field it is about in the document: `/features/<index>` (the feature's position in the timeline) followed by the message's `field`, for example `/features/3/edges/0`, or `/features/<index>` alone when it has no field. Its *candidates* are those of the feature's element repairs (protocol.md 2.7, `Repair::Element`) whose `path` is the message's `field` or lies under it (`/edges/0` under `/edges`), in repair order, then candidate order: the possible replacements of a lost, ambiguous, guessed or widened reference. Region candidates reach the user only as actions.
+- **Actions and candidates.** Under the line of a feature message, indented two spaces more, come one line `suggested: <label>` per action of the message, in the order offered, then one line `candidate: <q>, <relation>` per candidate, where `<q>` is the candidate reference's query (the element name a reference to it stores) and `<relation>` says what it keeps and how far it is, for example `candidate: edge(f-box1/front|f-ext2/lateral/e-1), on the front of 'Box 1', 5 mm from where it was`. Labels and relations are the protocol's (engine.md sections 3.4 and 3.22). The CLI opens every document fresh, so no message has a cause line (engine.md section 3.21); a message's `detail` appears only in JSON.
 
 ### 2.3 Assets
 
@@ -99,9 +102,9 @@ For a document at path `P`, the CLI reads every regular file in `P`'s directory 
 
 ### 3.1 `validate`
 
-1. Reads each file (exit 3 on failure, reported as `error: cannot read "<path>": <os message>`), then calls `Session::validate` with `rebuild` and `canonical` from the flags.
-2. Human output: every diagnostic of the file in report order, in the formats of 2.2; a file without diagnostics prints `<path>: ok`.
-3. A file fails when it has an error diagnostic, or a warning with `--deny-warnings`.
+1. Reads each file (exit 3 on failure, reported as `error: cannot read "<path>": <os message>`), then calls `Session::validate` with `rebuild` and `canonical` from the flags. With `--rebuild`, its rebuild step reports every feature message (2.2) as one diagnostic, features in timeline order and each feature's messages in their order (error, warnings, then info notices): the message's own `code`, `severity` and text, its location as `path`, and the members of a message in `rebuild` (3.3). Element references resolve only against built geometry, so lost references are reported only with `--rebuild`.
+2. Human output: every diagnostic of the file in report order, in the formats of 2.2, each feature message followed by its actions and candidates (2.2); a file without diagnostics prints `<path>: ok`.
+3. A file fails when it has an error diagnostic, a warning of a lost, ambiguous or guessed reference, or, with `--deny-warnings`, any warning. The warnings of a lost, ambiguous or guessed reference are those with the codes `reference_missing`, `reference_ambiguous`, `reference_guessed`, `region_missing`, `region_ambiguous`, `region_remapped` and `plane_fallback`: the document rebuilds, but a stored reference no longer means what it meant, so the file is not ok. Other warnings (a widened reference, a resized region, a feature that changes nothing) fail only with `--deny-warnings`, and info notices never fail.
 4. JSON output:
 
 ```json
@@ -129,7 +132,7 @@ For a document at path `P`, the CLI reads every regular file in `P`'s directory 
 }
 ```
 
-Diagnostic objects have `severity`, `code`, `message`, then `line`, `column` and `path` (JSON Pointer) when known; absent fields are omitted.
+Diagnostic objects have `severity`, `code`, `message`, then `line`, `column` and `path` (JSON Pointer) when known. A feature message then has `feature` (its id), `field`, `suggestion`, `actions`, `candidates`, `reason`, `root` and `detail`, as a message of `rebuild` has them (3.3). Absent fields and empty lists are omitted. `ok` is false exactly when the file fails (step 3).
 
 ### 3.2 `fmt`
 
@@ -152,7 +155,21 @@ box.ptsm
   b-1 "Block": volume 24000 mm^3, area 5200 mm^2, bounding box (-10, -15, 0) to (10, 15, 40) mm, 6 faces, 12 edges, 8 vertices
 ```
 
-One line per feature in timeline order: `  <id> <type> <status>`, followed by one line per message `    <severity>[<code>]: <message>`. Then one line per body in document order; a body without geometry prints `  <id> "<name>": no geometry`. With `--checks`, then `  print health: <summary label> (<profile id>)` and one line per finding `    <severity>[<check>] <body id>: <message>`, in body order, then check order, then the check's own order.
+One line per feature in timeline order: `  <id> <type> <status>`, followed by one line per message `    <severity>[<code>] at <location>: <message>`, with the message's location (2.2), each message followed by its actions and candidates indented 6 spaces (2.2). For example, the lines of the fillet of corpus R16 (test 55), with the lines left out here marked `...`:
+
+```text
+  f-fil1 fillet error
+    error[references_not_found] at /features/3/edges: The front top edge of 'Box 1' selected for Edges was cut away by 'Extrude 1', which comes before this fillet.
+      suggested: Use the front edge of the cut made by 'Extrude 1'
+      suggested: Use the top edge of the cut made by 'Extrude 1'
+      ...
+      suggested: Pick an edge again
+      candidate: edge(f-box1/front|f-ext2/lateral/e-1), on the front of 'Box 1', 5 mm from where it was
+      candidate: edge(f-box1/top|f-ext2/lateral/e-2), on the top of 'Box 1', 5 mm from where it was
+      ...
+```
+
+Then one line per body in document order; a body without geometry prints `  <id> "<name>": no geometry`. With `--checks`, then `  print health: <summary label> (<profile id>)` and one line per finding `    <severity>[<check>] <body id>: <message>`, in body order, then check order, then the check's own order.
 
 5. JSON output:
 
@@ -210,7 +227,22 @@ One line per feature in timeline order: `  <id> <type> <status>`, followed by on
 }
 ```
 
-`printer` is the effective profile id, the document's resolved profile after `--printer` (engine `printer_profile`, engine.md 3.7): the `--printer` value, else the document's `printer` when it is installed, else the default profile. `messages` entries are `Diagnostic`s (protocol.md 2.4). A parameter that failed to evaluate has `error` instead of `value` and `dimension`. A body without geometry has only `id`, `name` and `"empty": true`. With `--checks` a final key `checks` holds the protocol `PrintReport` (protocol.md 2.7: `profile`, `orientation`, `summary`, `bodies` with each body's `transform` and print.md `report`), without `mesh_id` and `overhang`.
+`printer` is the effective profile id, the document's resolved profile after `--printer` (engine `printer_profile`, engine.md 3.7): the `--printer` value, else the document's `printer` when it is installed, else the default profile. `messages` holds the feature's messages (2.2), each an object with these members in this order, each omitted when absent or empty:
+
+- `severity`, `code`, `message`, `field` and `suggestion`: those of the protocol's `Diagnostic` (protocol.md 2.4).
+- `actions`: the message's actions in the order offered, each `{"label": <label>, "kind": <kind>}` with the `FixAction`'s label and the `kind` of its `run` (`apply`, `pick` or `show`; engine.md section 3.22), for example `{"label": "Pick an edge again", "kind": "pick"}`.
+- `candidates`: the message's candidates (2.2), each with the members `reference`, `description`, `relation`, `meaning`, `distance` and `score` of the protocol's `RepairCandidate` (protocol.md 2.7, filled by engine.md section 3.4), in that order; the score is for reports and is never printed in the text output. For example `{"reference": {"q": "edge(f-box1/front|f-ext2/lateral/e-1)", "fp": "line|n=1,0,0|c=0,-10,15|l=20|adj=2,2"}, "description": "the front edge of the cut made by 'Extrude 1'", "relation": "on the front of 'Box 1', 5 mm from where it was", "meaning": true, "distance": 5.0, "score": 0.9139780823055461}`.
+- `reason`: why the reference the message names was lost, or which feature a followed or widened reference followed (recompute.md section 3.10, `Message::reason`): an object whose `kind` is the `LossReason` variant's name in snake case, followed by the variant's fields in declaration order, ids and element names as strings, `how` as an object of the same form for the `Removal` (`absence` `through` or `full_turn`), `instance` as `{"first": <n>, "second": <n>}`, and a field that is None omitted. For example `{"kind": "removed", "by": "f-ext2", "how": {"kind": "cut_away"}}`, `{"kind": "removed", "by": "f-ext2", "how": {"kind": "no_longer_made", "absence": "through"}}`, `{"kind": "other_body", "body": "b-2", "by": "f-split1", "by_suppressed": false}` or `{"kind": "followed", "by": "f-sk1"}`.
+- `root`: the first failing feature of a chain, or the sketch that lost its face (recompute.md `Message::root`).
+- `detail`: the technical text for reports (features.md section 2.8, `detail`), never printed in the text output.
+
+A message never has a `cause` here: the CLI opens the document fresh, so no edit of the session started it (engine.md section 3.21). For example, the extrude that depends on a failed datum plane in corpus R54 (test 61), shown compactly:
+
+```json
+{"severity": "error", "code": "upstream_failed", "message": "'Sketch 2' cannot be built because 'Datum plane 1' has an error, so this extrude cannot use it either. Fix 'Datum plane 1' first.", "actions": [{"label": "Show 'Datum plane 1'", "kind": "show"}], "root": "f-dp1"}
+```
+
+A parameter that failed to evaluate has `error` instead of `value` and `dimension`. A body without geometry has only `id`, `name` and `"empty": true`. With `--checks` a final key `checks` holds the protocol `PrintReport` (protocol.md 2.7: `profile`, `orientation`, `summary`, `bodies` with each body's `transform` and print.md `report`), without `mesh_id` and `overhang`.
 
 6. Exit 1 when any feature has status `error`, or `warning` with `--deny-warnings`. Print findings never change the exit code.
 
@@ -290,7 +322,7 @@ Tests live in `crates/partsmith-cli/tests/` and run the built binary (`env!("CAR
 
 **General**
 
-1. `partsmith --version` prints `partsmith 0.1.0 (protocol 1, format 1, OCCT 7.9.3)\n` and exits 0.
+1. `partsmith --version` prints `partsmith 0.1.0 (protocol 1, format 2, OCCT 7.9.3)\n` and exits 0.
 2. `partsmith` with no arguments exits 2.
 3. `partsmith frobnicate` exits 2.
 
@@ -310,7 +342,7 @@ Tests live in `crates/partsmith-cli/tests/` and run the built binary (`env!("CAR
 15. `partsmith validate - < box.ptsm` prints `<stdin>: ok\n`.
 16. `partsmith validate - -` exits 2.
 17. A document with an `import` feature whose asset is in `assets/` validates with exit 0; after deleting the asset, it exits 1 with a line containing `error[asset_missing]`.
-18. `partsmith validate --rebuild` of `box.ptsm` with the box length set to `-5 mm` exits 1 with a line containing `error[feature_error]` and `f-box1`; without `--rebuild` it exits 0.
+18. `partsmith validate --rebuild` of `box.ptsm` with the box length set to `-5 mm` exits 1 with a line starting `box.ptsm: error[out_of_range] at /features/0/size/0: Length must be greater than 0 mm` (the box's own message and code, 3.1); without `--rebuild` it exits 0.
 
 **fmt**
 
@@ -360,9 +392,28 @@ Tests live in `crates/partsmith-cli/tests/` and run the built binary (`env!("CAR
 53. `partsmith schema --check` in the repository root exits 0 (the checked-in files match).
 54. `partsmith schema` without arguments exits 2; `partsmith schema ptsm --write` exits 2.
 
+**Feature messages, actions and candidates**
+
+Tests 55 to 62 write the documents of scenarios of the reference stability corpus ([reference-stability-corpus.md](../design/reference-stability-corpus.md)) after their edits as `.ptsm` files named after the scenario (`r16.ptsm`), with references picked as the corpus's "Picked references" rule says. Each is the document of the recompute.md test named, which states its message texts, fixes and reasons; these tests check how the CLI prints them.
+
+55. `rebuild` prints actions and candidates (corpus R16, recompute.md test 52, with the rabbet drawn as `e-1` (-11, 15)-(-5, 15), `e-2` (-5, 15)-(-5, 21), `e-3` (-5, 21)-(-11, 21) and `e-4` (-11, 21)-(-11, 15)). `partsmith rebuild r16.ptsm` exits 1 and prints, right after `  f-fil1 fillet error`: the line `    error[references_not_found] at /features/3/edges: The front top edge of 'Box 1' selected for Edges was cut away by 'Extrude 1', which comes before this fillet.`; six action lines indented 6 spaces, the first two `      suggested: Use the front edge of the cut made by 'Extrude 1'` and `      suggested: Use the top edge of the cut made by 'Extrude 1'` (the two candidates 5 mm from where the edge was, in candidate order: their distances are equal, so their names decide), then one `Use` line for each of the other three candidates, and the last `      suggested: Pick an edge again`; then five candidate lines, the first two `      candidate: edge(f-box1/front|f-ext2/lateral/e-1), on the front of 'Box 1', 5 mm from where it was` and `      candidate: edge(f-box1/top|f-ext2/lateral/e-2), on the top of 'Box 1', 5 mm from where it was`. No line contains `This started after`, `resolution=` or a score.
+56. `rebuild --json` carries the message's members (corpus R16). `features[3].messages[0]` has exactly the members `severity`, `code`, `message`, `field`, `actions`, `candidates`, `reason` and `detail`, in this order: `code` `references_not_found`; `field` `/edges`; six `actions`, each with exactly `label` and `kind`, `kind` `apply` for the five `Use` actions and `pick` for the last; five `candidates`, the first with `reference` `{"q": "edge(f-box1/front|f-ext2/lateral/e-1)", "fp": "line|n=1,0,0|c=0,-10,15|l=20|adj=2,2"}`, `description` `the front edge of the cut made by 'Extrude 1'`, `relation` `on the front of 'Box 1', 5 mm from where it was`, `meaning` true, `distance` 5 and `score` 0.913978 within 1e-6; `reason` `{"kind": "removed", "by": "f-ext2", "how": {"kind": "cut_away"}}`; and `detail` starting `edges[0] q=edge(f-box1/front|f-box1/top) resolution=missing lost.unmet=true candidates=edge(f-box1/front|f-ext2/lateral/e-1):0.913978,`.
+57. `validate` fails on a lost reference (corpus R03, recompute.md test 59). `partsmith validate --rebuild r03.ptsm`, without `--deny-warnings`, exits 1 and prints no `ok` line but the line `r03.ptsm: warning[reference_missing] at /features/2/edges/0: ` followed by the message of recompute.md test 59, then lines `  suggested: <label>` ending with `  suggested: Remove from Edges` and `  suggested: Pick an edge again`, then one line `  candidate: <q>, <relation>` per candidate. `partsmith rebuild r03.ptsm` exits 0, with `  f-fil1 fillet warning`, and 1 with `--deny-warnings`.
+58. `validate --json` (corpus R03). `partsmith validate --rebuild --json r03.ptsm` exits 1; `files[0].ok` is false, and the diagnostic of 'Fillet 1' has `severity` `warning`, `code` `reference_missing`, `path` `/features/2/edges/0`, `feature` `f-fil1`, `field` `/edges/0`, `actions` whose last two are `{"label": "Remove from Edges", "kind": "apply"}` and `{"label": "Pick an edge again", "kind": "pick"}`, `reason` `{"kind": "entity_deleted", "feature": "f-ext1", "sketch": "f-sk1", "entity": "e-5"}` and `detail` starting `edges[0] q=edge(f-ext1/end-cap|f-ext1/lateral/e-5) resolution=missing lost.parts=f-ext1/lateral/e-5`, and no `line`, `column`, `root` or `cause`.
+59. `validate` fails on a guessed reference (corpus R08 (a) at width 200, with f-fil1's reference stored without `nb`, as a script or a build before format version 2 writes it). `partsmith validate --rebuild r08.ptsm` exits 1 with a line starting `r08.ptsm: warning[reference_guessed] at /features/5/edges/0: `.
+60. Warnings that keep the user's intent and notices do not fail `validate`. Corpus R66 (recompute.md test 64): `partsmith validate --rebuild r66.ptsm` prints `r66.ptsm: warning[reference_widened] at /features/2/edges/0: ` followed by the message of corpus R66, whose action lines are `  suggested: Keep all 5`, `  suggested: Use only the back top edge of 'Extrude 1' along the line from (80, 50) to (50, 50)` and `  suggested: Pick an edge again`, in this order, and exits 0; with `--deny-warnings` it exits 1. Corpus R06 (a) with the document of recompute.md test 41 without its second entry: `partsmith validate --rebuild r06.ptsm` prints `r06.ptsm: info[reference_followed] at /features/2/edges/0: ` followed by the notice, then `  suggested: Keep this match` and `  suggested: Pick an edge again`, and no `ok` line, and exits 0, also with `--deny-warnings`; with `--json`, `files[0].ok` is true.
+61. Upstream chains (corpus R54, recompute.md test 46). In `partsmith rebuild --json r54.ptsm`, the message of 'Extrude 2' (f-ext3) is exactly the compact example of 3.3: no `field`, `candidates`, `reason` or `detail`, the action `{"label": "Show 'Datum plane 1'", "kind": "show"}` and `root` `f-dp1`; the text output prints `      suggested: Show 'Datum plane 1'` under its message line.
+62. Reasons in JSON (3.3). In `rebuild --json`, the first message of 'Fillet 1' in corpus R12 at distance 30 (recompute.md test 57) has `reason` `{"kind": "removed", "by": "f-ext2", "how": {"kind": "no_longer_made", "absence": "through"}}`; that of 'Chamfer 1' in corpus R31 (a) (recompute.md test 51) `{"kind": "other_body", "body": "b-2", "by": "f-split1", "by_suppressed": false}`; that of 'Fillet 1' in corpus R41 (recompute.md test 61) `{"kind": "copy_gone", "feature": "f-lp1", "instance": {"first": 2, "second": 0}}`; and the notice of corpus R06 (a) (test 60) `{"kind": "followed", "by": "f-sk1"}`. An ambiguous loss (corpus R63 (a), recompute.md test 67) has no `reason`.
+
 ## 7. Open issues
 
 1. **Command list.** The architecture names `validate | fmt | rebuild | export | schema`. Print checks are an option of `rebuild` (`--checks`) rather than a separate command, and STEP import is left to the UI and Python in M1.
 2. **Asset discovery.** The CLI passes every hash-named file in `assets/` and relies on the engine ignoring unreferenced ones (engine.md 3.14). A large shared asset folder is read fully; a lazy asset source can come later.
 3. **`rebuild --json` and expected results.** Resolved by [delivery.md](delivery.md) section 2.8: an example's `<stem>.expected.json` is the `rebuild --checks --json` report without `path` and the findings' triangle lists.
 4. **Exit code for feature errors in `validate --rebuild` versus `rebuild`.** Both use exit 1; print findings never affect the exit code. A future `--deny-findings` can change that.
+5. **Feature messages in `validate` (needs engine.md).** engine.md section 3.19 step 8 reports a rebuild's feature errors as `feature_error` and its warnings as `feature_warning`, with the feature id in the message and the pointer `/features/<index>`, and `ValidationDiagnostic` has no actions, candidates, reason, root or detail. Section 3.1 needs the rebuild step to report every feature message, info notices included, with its own code, its rendered text, its location and these members, as `FeatureStatus` projects them (engine.md section 3.4), so that `validate --rebuild` and `rebuild` print the same message; tests 18 and 57 to 60 expect it.
+6. **Loss reasons reach the CLI (needs protocol.md and engine.md, with ADR 0024).** `reason` (3.3) is recompute's `Message::reason`, which protocol.md's `Diagnostic` does not carry, also with the study's PR1 (recompute.md open issue 11). The engine's projection of feature messages needs a `reason` member in the form section 3.3 gives before the CLI can print it.
+7. **Lost references without `--rebuild`.** Element references resolve only against built geometry, so `validate` without `--rebuild` cannot tell that a fillet's edge is gone and prints `ok` for such a document, which the study's inventory names as a fault (reference stability and errors study, section 4.2 item 7). Making the rebuild the default for `validate` would close that gap at the cost of the 200 ms budget of section 5; left for review.
+8. **Which warnings fail `validate` (needs review).** The study's CLI1 names lost, ambiguous and guessed references. Section 3.1 also counts their region forms (`region_missing`, `region_ambiguous`, and `region_remapped`, which features.md section 3.7 treats as a guess) and `plane_fallback` (a sketch whose face reference is lost or no longer usable), because each is a stored reference that no longer means what it meant. A widened reference (`reference_widened`) builds on every replacement and waits for the user's choice, so it fails only with `--deny-warnings`, like a resized region.
+9. **Location and action lines (needs review with the error guidelines).** The error guidelines show a location with a line (`model.ptsm:17: /features/1/edges/0`) and an action as `suggested: radius = 2.3 mm`. A feature message carries only a JSON Pointer, and finding the line of a pointer in the input needs a parser that keeps positions, which partsmith-model does not have, so section 2.2 writes the pointer alone. Actions are written with their labels (`suggested: Use 2.3 mm`), as the study's CLI1 says, so the CLI says the same words as every other host.
+10. **Expected results of the examples.** The messages of `rebuild --json` gain `actions`, `candidates`, `reason`, `root` and `detail`, so the expected results of every example whose features have messages change and are blessed again (delivery.md section 2.8).

@@ -83,9 +83,9 @@ mod tests {
     use super::*;
     use crate::profile::generic_fdm;
     use crate::rotation::Rotation;
-    use crate::test_meshes::box_mesh;
+    use partsmith_mesh_fixtures::box_mesh;
 
-    /// The bottom triangle of a box in `test_meshes::box_mesh` order.
+    /// The bottom triangle of a box in `box_mesh` order.
     const BOTTOM: usize = 0;
     /// The first triangle of the +x side of a box.
     const RIGHT: usize = 10;

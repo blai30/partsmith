@@ -16,6 +16,7 @@ partsmith-model.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]
+partsmith-budgets.workspace = true
 partsmith-naming.workspace = true
 partsmith-occt-sys.workspace = true
 partsmith-sketch.workspace = true

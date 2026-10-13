@@ -1,8 +1,6 @@
 //! Parsing the text form (naming.md section 3.7.4).
 
-use super::{
-    Field, Fingerprint, NEGATIVE, NOT_UNIT, canonical_axis, is_negative, length, not_a_number,
-};
+use super::{Field, Fingerprint, FingerprintDefect, canonical_axis, is_negative, length};
 use crate::error::NamingError;
 use crate::kind::GeometryKind;
 
@@ -12,14 +10,14 @@ const UNIT_LENGTH_TOLERANCE: f64 = 1e-4;
 impl Fingerprint {
     /// Parses the text form (section 3.7.4).
     pub fn parse(text: &str) -> Result<Fingerprint, NamingError> {
-        let invalid = |reason: String| NamingError::InvalidFingerprint {
+        let invalid = |defect: FingerprintDefect| NamingError::InvalidFingerprint {
             text: text.to_owned(),
-            reason,
+            reason: defect.to_string(),
         };
         let mut tokens = split_ascii(text, b'|');
         let kind_token = tokens.next().unwrap_or_default();
         let kind = GeometryKind::from_token(kind_token)
-            .ok_or_else(|| invalid(format!("unknown kind \"{kind_token}\"")))?;
+            .ok_or_else(|| invalid(FingerprintDefect::UnknownKind(kind_token.to_owned())))?;
         let mut fingerprint = Fingerprint {
             kind,
             direction: None,
@@ -32,23 +30,19 @@ impl Fingerprint {
         for token in tokens {
             let (name, value) = split_once_ascii(token, b'=').unwrap_or((token, ""));
             let field = Field::from_token(name)
-                .ok_or_else(|| invalid(format!("unknown field \"{name}\"")))?;
+                .ok_or_else(|| invalid(FingerprintDefect::UnknownField(name.to_owned())))?;
             if field.rank() < next_rank {
-                return Err(invalid(format!(
-                    "field \"{name}\" is repeated or out of order"
-                )));
+                return Err(invalid(FingerprintDefect::OutOfOrder(field)));
             }
             next_rank = field.rank() + 1;
             if !field.applies_to(kind) {
-                return Err(invalid(format!(
-                    "field \"{name}\" does not apply to {kind}"
-                )));
+                return Err(invalid(FingerprintDefect::DoesNotApply(field, kind)));
             }
             match field {
                 Field::Direction => {
                     let direction = parse_reals::<3>(field, value).map_err(invalid)?;
                     if (length(direction) - 1.0).abs() > UNIT_LENGTH_TOLERANCE {
-                        return Err(invalid(NOT_UNIT.to_owned()));
+                        return Err(invalid(FingerprintDefect::NotUnit));
                     }
                     fingerprint.direction = Some(if kind.keeps_direction_sign() {
                         direction
@@ -62,7 +56,7 @@ impl Fingerprint {
                 Field::Area | Field::Length | Field::Radius => {
                     let [magnitude] = parse_reals::<1>(field, value).map_err(invalid)?;
                     if is_negative(magnitude) {
-                        return Err(invalid(NEGATIVE.to_owned()));
+                        return Err(invalid(FingerprintDefect::Negative));
                     }
                     if field == Field::Radius {
                         fingerprint.radius = Some(magnitude);
@@ -80,33 +74,39 @@ impl Fingerprint {
 }
 
 /// Parses `COUNT` comma-separated reals of the form `["-"] 1*DIGIT ["." 1*DIGIT]`.
-fn parse_reals<const COUNT: usize>(field: Field, value: &str) -> Result<[f64; COUNT], String> {
+fn parse_reals<const COUNT: usize>(
+    field: Field,
+    value: &str,
+) -> Result<[f64; COUNT], FingerprintDefect> {
     let mut reals = [0.0; COUNT];
     let mut components = split_ascii(value, b',');
     for real in &mut reals {
-        let component = components
-            .next()
-            .ok_or_else(|| values_needed(field, COUNT))?;
-        *real = parse_real(component)?;
+        let Some(component) = components.next() else {
+            return Err(FingerprintDefect::ValueCount(field, COUNT));
+        };
+        *real = parse_real(component)
+            .ok_or_else(|| FingerprintDefect::NotANumber(component.to_owned()))?;
     }
     if components.next().is_some() {
-        return Err(values_needed(field, COUNT));
+        return Err(FingerprintDefect::ValueCount(field, COUNT));
     }
     Ok(reals)
 }
 
 /// Parses `F,X` adjacency counts, each `1*DIGIT` fitting in `u32`.
-fn parse_counts(field: Field, value: &str) -> Result<[u32; 2], String> {
-    let (faces, edges) = split_once_ascii(value, b',').ok_or_else(|| values_needed(field, 2))?;
+fn parse_counts(field: Field, value: &str) -> Result<[u32; 2], FingerprintDefect> {
+    let Some((faces, edges)) = split_once_ascii(value, b',') else {
+        return Err(FingerprintDefect::ValueCount(field, 2));
+    };
     let parse_count = |count: &str| {
         let digits_only = !count.is_empty() && count.bytes().all(|byte| byte.is_ascii_digit());
         digits_only
             .then(|| count.parse::<u32>().ok())
             .flatten()
-            .ok_or_else(|| not_a_number(count))
+            .ok_or_else(|| FingerprintDefect::NotANumber(count.to_owned()))
     };
     if edges.bytes().any(|byte| byte == b',') {
-        return Err(values_needed(field, 2));
+        return Err(FingerprintDefect::ValueCount(field, 2));
     }
     Ok([parse_count(faces)?, parse_count(edges)?])
 }
@@ -137,13 +137,9 @@ fn split_ascii(text: &str, separator: u8) -> impl Iterator<Item = &str> {
     })
 }
 
-/// Reason for a field with the wrong number of values.
-fn values_needed(field: Field, count: usize) -> String {
-    format!("field \"{}\" needs {count} values", field.token())
-}
-
-/// Parses one real of the form `["-"] 1*DIGIT ["." 1*DIGIT]`.
-fn parse_real(text: &str) -> Result<f64, String> {
+/// Parses one real of the form `["-"] 1*DIGIT ["." 1*DIGIT]`; `None` when `text` is not of that
+/// form or its value is not finite.
+fn parse_real(text: &str) -> Option<f64> {
     let is_digits = |part: &str| !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_digit());
     let unsigned = text.strip_prefix('-').unwrap_or(text);
     let well_formed = match split_once_ascii(unsigned, b'.') {
@@ -151,12 +147,9 @@ fn parse_real(text: &str) -> Result<f64, String> {
         None => is_digits(unsigned),
     };
     if !well_formed {
-        return Err(not_a_number(text));
+        return None;
     }
-    text.parse::<f64>()
-        .ok()
-        .filter(|value| value.is_finite())
-        .ok_or_else(|| not_a_number(text))
+    text.parse::<f64>().ok().filter(|value| value.is_finite())
 }
 
 #[cfg(test)]
@@ -298,14 +291,18 @@ mod tests {
 
     #[test]
     fn parse_reports_negative_size() {
-        assert_eq!(reason(Fingerprint::parse("cylinder|r=-1")), NEGATIVE);
-        assert_eq!(reason(Fingerprint::parse("plane|a=-0.5")), NEGATIVE);
+        let negative = "a size or radius cannot be negative";
+
+        assert_eq!(reason(Fingerprint::parse("cylinder|r=-1")), negative);
+        assert_eq!(reason(Fingerprint::parse("plane|a=-0.5")), negative);
     }
 
     #[test]
     fn parse_reports_non_unit_direction() {
-        assert_eq!(reason(Fingerprint::parse("plane|n=0,0,2")), NOT_UNIT);
-        assert_eq!(reason(Fingerprint::parse("line|n=0,0,0")), NOT_UNIT);
+        let not_unit = "the direction is not a unit vector";
+
+        assert_eq!(reason(Fingerprint::parse("plane|n=0,0,2")), not_unit);
+        assert_eq!(reason(Fingerprint::parse("line|n=0,0,0")), not_unit);
     }
 
     #[test]

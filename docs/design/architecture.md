@@ -40,6 +40,7 @@ Rules:
 - No global mutable state anywhere in the core. Every API takes a document or session handle. The `Session` that `partsmith-wasm` keeps in a `thread_local!` is host state, not core state (ADR 0010). The STEP mutex and one-time OCCT initialization inside `partsmith-occt-sys` guard OCCT's own process-wide state, not Partsmith state (kernel.md).
 - `partsmith-model`, `partsmith-mesh`, `partsmith-sketch`, `partsmith-naming` and `partsmith-print` are pure Rust with no kernel dependency, so they test fast and build on every target unchanged.
 - The UI never sees geometry objects, only protocol messages and mesh buffers.
+- Two dev-only crates stay outside the graph (ADR 0027): `partsmith-budgets` (no dependencies), the harness of every `benches/budgets.rs`, and `partsmith-mesh-fixtures` (`-> mesh`), the mesh.md section 6.1 fixtures of the mesh, io and print tests. Crates use them only as dev-dependencies; no library, binary or host depends on them.
 
 ## Conventions shared by all crates
 

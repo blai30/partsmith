@@ -57,6 +57,8 @@ pub(crate) enum NameDefect {
     UnsortedFaces,
     /// A parenthesis is not closed or closes nothing.
     UnbalancedParentheses,
+    /// A valid name of another kind than this kind, which the context needs.
+    WrongKind(ElementKind),
 }
 
 impl NameDefect {
@@ -99,6 +101,11 @@ impl fmt::Display for NameDefect {
                 formatter.write_str("edge and vertex face lists must be sorted and distinct")
             }
             NameDefect::UnbalancedParentheses => formatter.write_str("unbalanced parentheses"),
+            NameDefect::WrongKind(kind) => formatter.write_str(match kind {
+                ElementKind::Face => "it is not a face name",
+                ElementKind::Edge => "it is not an edge name",
+                ElementKind::Vertex => "it is not a vertex name",
+            }),
         }
     }
 }
@@ -260,15 +267,15 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// The prefix of the edge or vertex name that starts here, if one does.
-    fn list_name_prefix(&self) -> Option<&'static str> {
-        list_prefix(self.rest()).map(|(_, prefix)| prefix)
+    /// True when an edge or vertex name starts here.
+    fn at_list_name(&self) -> bool {
+        list_prefix(self.rest()).is_some()
     }
 
     /// `element-name` with its trailing suffixes.
     fn element_name(&mut self) -> Result<(), NameDefect> {
-        if let Some(prefix) = self.list_name_prefix() {
-            self.list_name(prefix)?;
+        if self.at_list_name() {
+            self.list_name()?;
             while self.peek() == Some(b'#') {
                 self.split()?;
             }
@@ -287,8 +294,8 @@ impl<'a> Parser<'a> {
             if !self.eat(b'/') {
                 break;
             }
-            if let Some(prefix) = self.list_name_prefix() {
-                self.list_name(prefix)?;
+            if self.at_list_name() {
+                self.list_name()?;
                 break;
             }
             // An id followed by `/` starts a nested face name; otherwise it is a sketch reference.
@@ -312,8 +319,10 @@ impl<'a> Parser<'a> {
     }
 
     /// `"edge(" face-list ")"` or `"vertex(" face-list ")"`, checking that the faces ascend.
-    /// `prefix` is the prefix `list_name_prefix` found here.
-    fn list_name(&mut self, prefix: &str) -> Result<(), NameDefect> {
+    fn list_name(&mut self) -> Result<(), NameDefect> {
+        let Some((_, prefix)) = list_prefix(self.rest()) else {
+            return Err(self.unexpected());
+        };
         self.position += prefix.len();
         self.depth += 1;
         if self.depth > MAX_NAME_DEPTH {

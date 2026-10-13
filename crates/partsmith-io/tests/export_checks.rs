@@ -204,5 +204,5 @@ fn t045_closed_sphere_gives_no_warning() {
 
 #[test]
 fn t045_degenerate_triangle_gives_no_warning() {
-    assert_clean_in_every_writer(&cube_with(&[], &[[0, 0, 1]]));
+    assert_clean_in_every_writer(&cube_with(&[], &[([0, 0, 1], 0)]));
 }

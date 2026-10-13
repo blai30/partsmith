@@ -228,7 +228,7 @@ impl ElementName {
 }
 
 /// The `InvalidName` error for `text`.
-fn invalid_name(text: &str, defect: &NameDefect) -> NamingError {
+pub(crate) fn invalid_name(text: &str, defect: &NameDefect) -> NamingError {
     NamingError::InvalidName {
         text: text.to_owned(),
         reason: defect.to_string(),

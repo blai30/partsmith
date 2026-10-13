@@ -2,6 +2,8 @@
 
 Crate: `partsmith-engine`. Wire shapes are in [protocol.md](protocol.md); Python code generation rules are in [python-api.md](python-api.md); the CLI is in [cli.md](cli.md).
 
+How the engine projects feature messages with their actions, details, roots, reasons and repair data, applies fixes, attributes causes, captures ghosts and reports uses follows [ADR 0024](../adr/0024-diagnostics-with-actions-causes-and-ghosts.md), a protocol schema change that needs human review at the next gate; full references in picks follow [ADR 0021](../adr/0021-resolve-references-by-meaning.md), body-coordinate fallbacks and axis directions [ADR 0023](../adr/0023-frames-live-on-the-model.md), and format version 2 [ADR 0025](../adr/0025-file-format-version-2.md). Every message follows [the error guidelines](../guidelines/errors.md).
+
 ## 1. Purpose and scope
 
 `Session` is the single entry point for every host (web worker, desktop, CLI, Python). It owns open documents by handle, applies commands, keeps undo logs, runs recompute, tessellates bodies with tolerances from the printer profile, converts picks into references through the naming layer, measures, runs print analysis, exports and imports files, generates Python, and produces protocol events. Hosts contain no modeling logic, so every host behaves identically.
@@ -19,6 +21,11 @@ Crate: `partsmith-engine`. Wire shapes are in [protocol.md](protocol.md); Python
 - Python export (rules in python-api.md).
 - Validation entry point for `partsmith validate`, formatting for `partsmith fmt`, schema text for `partsmith schema`.
 - Determinism guarantees, cache budget, panic containment.
+- Feature messages with severities (info notices included), one-click actions, details, roots, loss reasons and repair data: the lost element or region in words, candidates described by what they keep and how far they are, and the lost element's ghost from its last build (sections 3.4 and 3.23).
+- `apply_fix`, which builds a fix's edits from the current records and applies them as one undo entry, refusing a fix that no longer applies (section 3.22).
+- Cause lines from per-message baselines: which edit started a problem, with its own actions (section 3.21).
+- `list_uses` (what every feature uses) and `set_document_units` with Keep sizes (sections 3.24 and 3.25).
+- Short references in element lists, full references in picks, and body-coordinate fallbacks and axis directions in element descriptors (section 3.9).
 
 **Later (not in M1)**
 
@@ -134,6 +141,10 @@ impl Session {
     pub fn undo(&mut self, doc: DocHandle) -> Result<Stepped, EngineError>;
     /// Reapplies the newest redo entry.
     pub fn redo(&mut self, doc: DocHandle) -> Result<Stepped, EngineError>;
+    /// Applies one offered `apply` action as one batch (section 3.22); returns the new revision.
+    pub fn apply_fix(&mut self, doc: DocHandle, fix: &FixRef) -> Result<u64, EngineError>;
+    /// Changes the document units as one batch, optionally keeping sizes (section 3.25).
+    pub fn set_document_units(&mut self, doc: DocHandle, units: Units, keep_sizes: bool) -> Result<UnitsChanged, EngineError>;
 
     /// Status of every feature in timeline order at the current state.
     pub fn feature_statuses(&self, doc: DocHandle) -> Result<Vec<FeatureStatus>, EngineError>;
@@ -163,6 +174,8 @@ impl Session {
     pub fn resolve_references(&mut self, doc: DocHandle, references: &[ElementRef]) -> Result<Vec<Resolution>, EngineError>;
     /// Measures exactly one target at the display state.
     pub fn measure(&mut self, doc: DocHandle, targets: &[MeasureTarget]) -> Result<Measurement, EngineError>;
+    /// What every feature uses, from the document alone (section 3.24).
+    pub fn list_uses(&self, doc: DocHandle) -> Result<Vec<Use>, EngineError>;
 
     /// Runs the printability checks.
     pub fn analyze_print(&mut self, doc: DocHandle, request: &PrintRequest) -> Result<PrintAnalysis, EngineError>;
@@ -187,6 +200,8 @@ pub struct Saved { pub text: String, pub assets: Vec<Asset>, pub revision: u64 }
 pub struct Committed { pub revision: u64, pub recorded: bool }
 /// Result of `undo` and `redo`.
 pub struct Stepped { pub revision: u64, pub label: String }
+/// Result of `set_document_units`: the new revision, and how many expressions and parameters got the old unit.
+pub struct UnitsChanged { pub revision: u64, pub kept: u32 }
 /// Engine and format versions.
 pub struct EngineInfo { pub protocol_version: u32, pub engine_version: String, pub format_version: u32, pub kernel: String }
 
@@ -224,6 +239,18 @@ pub struct ValidationDiagnostic {
     pub column: Option<u32>,
     /// JSON Pointer into the document, when known (for example `/features/2/radius`).
     pub path: Option<String>,
+    /// For a feature message of the rebuild step (section 3.19 step 8): the feature, the message and its candidates.
+    pub feature: Option<FeatureMessage>,
+}
+/// A feature message as `validate` reports it.
+pub struct FeatureMessage {
+    /// The feature.
+    pub feature: Id,
+    /// The message as section 3.4 projects it, never with a `cause` (validate opens the text fresh).
+    pub diagnostic: Diagnostic,
+    /// The candidates of the feature's element repairs whose `path` is the message's `field` or lies under it, in
+    /// repair order, then candidate order (cli.md section 2.2).
+    pub candidates: Vec<RepairCandidate>,
 }
 impl ValidationReport {
     /// Whether any diagnostic is an error.
@@ -240,7 +267,7 @@ pub fn protocol_schema() -> String;
 
 `EngineInfo.kernel` is `OCCT ` followed by `partsmith_occt_sys::OCCT_VERSION` (kernel.md), for example `OCCT 7.9.3`.
 
-The typed methods return protocol types (`SketchSolution`, `FeatureStatus`, `ElementDescriptor`, `Measurement`, `PrintReport` and so on) with every display field absent (`SketchSolution::display`, `BodyPrint::mesh_id`, `BodyPrint::overhang`); `execute` fills those fields and assigns buffer indices. Typed methods never produce events; only `execute` and `call` do. All types not defined here come from `partsmith-protocol` and the crates it re-exports.
+The typed methods return protocol types (`SketchSolution`, `FeatureStatus`, `ElementDescriptor`, `Measurement`, `PrintReport` and so on) with every display field absent (`SketchSolution::display`, `BodyPrint::mesh_id`, `BodyPrint::overhang`, the `ghost` of repairs and causes, `RepairCandidate::element`); `execute` fills those fields and assigns buffer indices. Typed methods never produce events; only `execute` and `call` do. All types not defined here come from `partsmith-protocol` and the crates it re-exports.
 
 Typed methods convert `Quantity` (model.md) for `evaluate`; `execute` serializes it as `{value, dimension}`.
 
@@ -256,10 +283,10 @@ Typed methods convert `Quantity` (model.md) for `evaluate`; `execute` serializes
 ### 3.2 Documents, handles, revisions and dirty state
 
 - Handles start at 1 and increase by 1 on each successful `new_document` or `open_document`. A failed open does not consume a handle. Closed handles are never reused within the session.
-- `new_document` creates `Document { format: "partsmith", format_version: 1, units, printer, parameters: [], bodies: [], features: [], rollback: None }` with `units` defaulting to `mm`.
+- `new_document` creates `Document { format: "partsmith", format_version: FORMAT_VERSION (2), units, printer, parameters: [], bodies: [], features: [], rollback: None }` with `units` defaulting to `mm`.
 - `open_document` loads through partsmith-model (parse, migrate, validate structure), then canonicalizes feature params through the registry. It fails with `parse_error` or `unsupported_format_version` when the model rejects the text, and with `asset_mismatch` when a supplied asset's bytes do not hash to its name (3.14). It succeeds when feature params are invalid or a feature type is unknown: such features get status `error` at recompute with the registry's message (features.md `UnknownType`: "This document uses a feature type 'wedge' that this version of Partsmith does not have. Update Partsmith, or delete the feature."). Invalid params are kept exactly as loaded.
-- `migrated_from` is `Some(n)` when the text had an older `format_version` `n` and partsmith-model migrated it. M1 reads only version 1, so it is always `None` in M1; the field exists for later migrations.
-- Every document has a `revision: u64`, 0 after `new_document` or `open_document`, incremented by 1 each time the recipe changes: each successful `apply_edits`, `rename_parameter` that changed a name, `cancel_transaction` that reverted at least one edit, `undo`, `redo`, a committing `end_sketch_drag` that changed geometry, and `import_step`. `begin_transaction`, `set_focus`, `commit_transaction`, `save_document`, `mark_saved`, `set_tessellation` and queries never change it.
+- `migrated_from` is `Some(n)` when the text had an older `format_version` `n` and partsmith-model migrated it (file-format.md section 3.9): `Some(1)` for every version 1 text, whose migration changes nothing but the version, so saving it writes version 2 and differs from the text only in its `format_version` line. Hosts tell the user so (ui.md's `migrated` notification).
+- Every document has a `revision: u64`, 0 after `new_document` or `open_document`, incremented by 1 each time the recipe changes: each successful `apply_edits`, `rename_parameter` that changed a name, `cancel_transaction` that reverted at least one edit, `undo`, `redo`, a committing `end_sketch_drag` that changed geometry, `import_step`, `apply_fix`, and `set_document_units` that changed the units. `begin_transaction`, `set_focus`, `commit_transaction`, `save_document`, `mark_saved`, `set_tessellation` and queries never change it.
 - The dirty baseline is the canonical text of the document right after `new_document`, `open_document`, or the `save_document` named by the latest effective `mark_saved`. `dirty` is true exactly when the canonical text of the current recipe (including uncommitted edits) differs from the baseline. Undoing back to the saved recipe makes the document clean again.
 - `save_document` fails with `transaction_open` while a transaction is open. It returns the canonical text (model.md) and the referenced assets with the current revision, and remembers that text and revision for `mark_saved`; it does not change the baseline.
 - `mark_saved` is effective when `revision` equals the revision of the document's latest `save_document`: the baseline becomes that save's text, and `document_changed` is emitted when `dirty` changes. Any other revision (an older save, or no save yet) changes nothing and is not an error. Hosts call it only after the file is written, so a failed write leaves the document dirty.
@@ -308,6 +335,8 @@ Typed methods convert `Quantity` (model.md) for `evaluate`; `execute` serializes
 | `undo`, `redo` | inverses, or edits, of one entry | entry moves between stacks | incremental |
 | `end_sketch_drag` with `commit` | one `update_feature` of the sketch | in the open transaction, else one entry labeled `Drag` | incremental |
 | `import_step` | `add_body`, then `add_feature` of type `import` | in the open transaction, else one entry labeled `Import STEP` | incremental |
+| `apply_fix` | the edits the fix builds (section 3.22) | in the open transaction, else one entry labeled with the action's label | incremental |
+| `set_document_units` | the model's units edit set (section 3.25) | in the open transaction, else one entry labeled `Change units to {units}` | incremental |
 | `save_document`, `mark_saved` | none | none | none |
 | `put_printer_profile` | none | none | documents whose `printer` is the profile id |
 | `set_tessellation` | none | none | none (re-tessellation only) |
@@ -317,7 +346,19 @@ Typed methods convert `Quantity` (model.md) for `evaluate`; `execute` serializes
 
 **Recompute.** After any recipe change, focus change or change of a document's resolved printer profile, the engine runs `partsmith-recompute` on the current recipe with the registry, the evaluation context (parameters and the resolved profile's `printer.*` values) and the stop point (3.5). Recompute is incremental (only dirty features and their transitive dependents run) and sequential in M1. A failing feature records its error and recompute continues (recompute.md).
 
-**Feature status.** `FeatureStatus.status` is `suppressed` for suppressed features, `rolled_back` for the rollback marker feature and every later feature, and, while a focus `F` is set, every feature after `F`; otherwise `error` if the feature failed, `warning` if it built with warnings, and `ok`. The engine passes recompute a `CancelToken` that is never canceled in M1, so recompute's `NotRun` status never occurs. `messages` holds recompute's rendered messages (error first, then warnings), each with `field` from `Message::pointer` and `suggestion` from `Message::suggestion`. `repairs` holds one `Repair` per message with `repair` data: `element` from `Repair::Element` (with its body, and the centroid parsed from the fingerprint when it has one), `region` from `Repair::Region`; `path` is the repair's `pointer`, and `resolution` is `ambiguous` when the repair's `ambiguous` is true, else `missing`. Candidate names are not sent.
+**Feature status.** `FeatureStatus.status` is `suppressed` for suppressed features, `rolled_back` for the rollback marker feature and every later feature, and, while a focus `F` is set, every feature after `F`; otherwise `error` if the feature failed, `warning` if it built with a warning of severity warning, and `ok`, also when it has info notices only (recompute.md section 3.5 step 11). The engine passes recompute a `CancelToken` that is never canceled in M1, so recompute's `NotRun` status never occurs. `messages` holds recompute's rendered messages (`FeatureReport::messages`: the error first, then warnings, then info notices), each a `Diagnostic` with `severity` from `Message::severity`, `code`, `message` from `Message::text`, `field` from `Message::pointer`, `suggestion` from `Message::suggestion`, `actions` from `Message::fixes` (section 3.22), `detail` from `Message::detail`, `root` from `Message::root`, `reason` from `Message::reason` (the protocol's `LossReason` has the same variants and fields, with ids and element names as strings), and `cause` from section 3.21. `repairs` holds one `Repair` per entry of `Message::repairs`, messages in order and each message's repairs in order, so every loss of a `references_not_found` and every region of a `profile_not_found` has one:
+
+- `element` from `Repair::Element { pointer, body, loss }`: `path` the pointer, `body`, `reference` the stored reference (`loss.reference`), `resolution` `ambiguous` when `loss.ambiguous` is true and else `missing`, `centroid` parsed from the stored fingerprint when it has one, `description`, `candidates` (below) and `ghost` (section 3.23).
+- `region` from `Repair::Region`: `path` the pointer, `sketch`, `region`, `resolution` (`ambiguous` when `ambiguous` is true), `description`, `candidates` and `ghost`.
+
+**Descriptions and candidates.** The stored element and the candidates of one element repair are described by one call of features.md's `describe_elements`, the stored element first, in the state the reference was resolved in (the feature's `bodies_before` state of `body`), with `DocumentNames` of the run and the document units, so two of them that would read the same get their entity or position clause (features.md section 3.12). Each `LossCandidate`, in order, gives a `RepairCandidate` with:
+
+- `reference`: the candidate's reference as the feature built it (`Reference::from_element`, the full form);
+- `description`, `meaning`, `distance` and `score`;
+- `relation`: `on {kept face}, {distance} from where it was` for an edge or vertex with `meaning`, `next to {kept face}, {distance} from where it was` for a face with `meaning`, and `{distance} from where it was` otherwise. `{distance}` is `format_value` of the distance as a length in the document units (`5 mm`), and `{distance} from where it was` reads `where it was` when the distance is below `LINEAR_TOLERANCE`. The kept face is the first, in byte order of names, of the candidate's adjacent faces (its face terms for an edge or vertex, the faces it shares an edge with for a face) that is in the family of a part of the stored query in that state (naming.md section 2.7, `NameSet::family`), described in the same call;
+- `element` (display sessions): the `MeshElement` of the element of that name in the body's current model-layer mesh (its `mesh_id` and display id, section 3.8), absent when that mesh has no such element.
+
+A region repair's `description` is `the region of '{sketch}' around ({u}, {v})`, with `(u, v)` the centroid of the stored region fingerprint in the document units, written as features.md section 3.12 writes sketch coordinates. Each candidate set gives a `RegionCandidate` whose `regions` are the references (`Region::reference()`) of the sketch result's regions at its indices, in index order, and whose `description` is `the region of '{sketch}' around ({u}, {v})` for one region and `the {n} regions of '{sketch}' around ({u1}, {v1}) and ({u2}, {v2})` for several (`, ` between all centroids but the last two), from the regions' centroids. Scores reach hosts only in `RepairCandidate::score` and in `detail`, never in a message, label, description or relation.
 
 **Parameter values.** Every parameter is evaluated (regardless of rollback) and reported in document order with its value and dimension, or its error message.
 
@@ -355,7 +396,7 @@ Sketch and datum events are not emitted for `suppressed` or `rolled_back` featur
 - `solve_sketch` and `drag_sketch` fail with `invalid_params` when the params fail `SketchParams::validate` or the solver returns a `SketchError`, and with `expression_error` when a driving dimension does not evaluate.
 - `drag_sketch` fails with `unknown_point` when `point` does not address a point of the sketch. The first frame of a drag calls `Solver::begin_drag` with `DragTarget::Point { point }` on the current params (stored params plus uncommitted edits) and keeps the returned `DragSession`; every frame calls `DragSession::update(to)`, which starts from the previous frame (sketch.md). A `drag_sketch` naming another point than the active drag of that sketch discards the active drag and begins a new one. If a frame's components do not converge, the result is still returned (with `failed` true), the failed components keep their previous geometry, and the drag continues.
 - A drag state (the `DragSession` and the last frame's result) exists per (document, sketch) from the first frame until `end_sketch_drag`, `close_document`, or any recipe change of that document.
-- `end_sketch_drag` fails with `no_drag` when no drag state exists for the sketch. With `commit: false` it discards the drag state. With `commit: true` it applies one `update_feature` whose record equals the stored record with the last frame's solved entity geometry and, for a sketch on a face, `plane.fallback` set to the resolved placement (constraints and every other field unchanged), recorded per 3.3, and discards the drag state. If the geometry equals the stored geometry exactly, no edit is applied and the revision is unchanged.
+- `end_sketch_drag` fails with `no_drag` when no drag state exists for the sketch. With `commit: false` it discards the drag state. With `commit: true` it applies one `update_feature` whose record equals the stored record with the last frame's solved entity geometry and, for a sketch on a face, `plane.fallback` set to the resolved placement in body coordinates (`m.inverse()` applied to it, with `m` the motion of the stored face query in the state the sketch was placed in, `BodyState::motion`, as section 3.9 converts a descriptor's `fallback`) and `plane.fallback_frame` set to `body` (constraints and every other field unchanged), recorded per 3.3, and discards the drag state. If the geometry equals the stored geometry exactly, no edit is applied and the revision is unchanged.
 - No recompute runs during a drag; downstream features update after the commit.
 - **Projection into `SketchSolution`** (protocol.md 2.6), from sketch.md's `SolveResult`, `build_profile` and the resolved placement:
   - `status`, `failed`, `dof`, `redundant` and `conflicting` are copied from `SolveResult` (sketch.md's `SketchStatus` and `failed`, no protocol re-mapping).
@@ -363,6 +404,7 @@ Sketch and datum events are not emitted for `suppressed` or `rolled_back` featur
   - `points` lists every point address of every entity in stored order: a point entity, then `start`, `end`, `center` roles as the entity type has them (line: start, end; circle: center; arc: start, end, center, which is `PointRole` declaration order), with solved positions.
   - `constraints` lists every constraint in stored order with `state` `conflicting` when listed in `conflicting`, else `redundant` when listed in `redundant`, else `unsatisfied` when it belongs to a failed component, else `satisfied`, and `value` from `measured` for dimensional constraints.
   - `regions` are `build_profile`'s regions in its order, each as `{reference: region.reference(), area, centroid}`; `profile_findings` are `build_profile`'s findings.
+  - `messages` are the solve issues of `SolveResult`, in its order, then one message per entry of `profile_findings`, in its order, each rendered by the sketch crate (sketch.md sections 4.2 and 4.3) with a `MessageContext` of the sketch's label, its params, the solved entities, the dimension values and measured values of this solve, and the document units, with `detail` its `Display` (sketch.md section 4.4). A conflict is an `error` with code `sketch_conflict`, no convergence an `error` with code `sketch_not_solved`, a redundant constraint a `warning` with code `redundant_constraints`; they have no `field` and no `actions`, because the sketch feature's own messages carry their fixes (section 3.4). A finding is a `warning` whose `code` is its type (`open_endpoint`, `overlap`, `self_intersection`, `zero_length`) and whose `field` is `/profile_findings/{i}`, with `i` its position. In a solution of the stored sketch (`sketch_solved`, and `solve_sketch` without `candidate`), a finding's `actions` are its fixes (`ConnectEnds`, section 3.22), whose `FixRef` names the sketch, the finding's code and its field. Drag frames and candidate solves carry no actions, since nothing they show is stored.
   - `placement` is the resolved sketch placement; `display` (display sessions) holds the region-fill buffers of protocol.md 2.6, triangulated as that section states.
 
 ### 3.7 Tessellation tolerances
@@ -392,10 +434,12 @@ The engine keeps the element table of the latest model-layer mesh of each body. 
 ### 3.9 Picks, element listing and reference resolution
 
 - `list_elements` fails with `unknown_body` or `body_empty`. It returns `ElementDescriptor`s in element-table order: faces, then edges, then vertices, filtered by `kind` when given. Element `i` of a kind has display id `i` in the body's current model-layer mesh.
-- Each descriptor holds the element name, its `Reference` (built by partsmith-naming from the name and the fingerprint of the element at the display state), and the geometry fields of protocol.md 2.4 from the kernel's element queries: `centroid`, `area` or `length`, `surface` or `curve`, `normal` (outward, planar faces), `direction` (line edges, first vertex to last), `axis` (cylinder, cone and torus faces, circle edges), `radius` (cylinder and sphere faces, circle edges), `placement` (planar faces: `Placement::on_plane(centroid, normal, &OriginPlane::Xy.placement())` from sketch.md, so a sketch on the top face of a box standing on XY has its origin above the model origin and its x axis along +X), and `adjacent` names (faces: their displayed edges; edges: their faces then their displayed vertices; vertices: their displayed edges; each group sorted by name).
+- Each descriptor holds the element name and its `Reference`. In `list_elements` the reference is the short form: `Reference::new` of the name and the element's fingerprint at the display state, equal to `Reference::short` of the full form (query and fingerprint only), so long anchor and merged lists never inflate element lists. `pick_reference` returns the descriptor of `list_elements` with the full reference: `Reference::from_element` of the element against the element set of its body at the display state (`BodyState::element_set`, naming.md section 3.11), with anchors and merged names, which is what hosts store when the user picks. The element set is built once per body state and kept with its element table. The descriptor also holds the geometry fields of protocol.md 2.4 from the kernel's element queries: `centroid`, `area` or `length`, `surface` or `curve`, `normal` (outward, planar faces), `direction` (line edges, first vertex to last), `axis` (cylinder, cone and torus faces, circle edges), `radius` (cylinder and sphere faces, circle edges), `placement` (planar faces: `Placement::on_plane(centroid, normal, &OriginPlane::Xy.placement())` from sketch.md, so a sketch on the top face of a box standing on XY has its origin above the model origin and its x axis along +X), and `adjacent` names (faces: their displayed edges; edges: their faces then their displayed vertices; vertices: their displayed edges; each group sorted by name).
+- `fallback` (planar faces): `placement` in body coordinates, `m.inverse()` applied to it (its origin as a point, its axes as directions), with `m` the face's motion (`BodyState::motion` of its name, naming.md section 3.3 step 8). Hosts store it as a face sketch's `fallback` with `fallback_frame: body` (features/sketch.md section 2), so the sketch keeps its place on the face when a Move body or a copy transform moves the face later. Without a motion, `fallback` equals `placement`.
+- `axis_direction` (line edges; cylinder, cone and torus faces): the axis direction of the element's fingerprint as naming writes it (its first nonzero component positive, naming.md section 3.7), turned by `m.inverse()`, with `m` the motion of the face for a face and of the edge's first face term for an edge. Hosts store it as `direction` when the element is picked for an axis (features.md section 2.5), so the axis keeps the side it was picked on.
 - `feature`: for a face, the feature of the last `@<feature>:<n>` instance suffix of its name when present, else the feature id that starts its name; for an edge or vertex, the latest in timeline order among the `feature`s of its adjacent faces.
-- Names, `adjacent`, `feature` and `reference` come from the element table and its topology; only the geometry fields query the kernel: `list_elements` once per kind for the whole table (its descriptors are then kept with the table), `pick_reference` for the picked element only.
-- `pick_reference` fails with `preview_not_pickable` when `mesh_id` names a preview mesh, `stale_pick` when it names any mesh that is not the latest model-layer mesh of its body (or was never issued), and `invalid_pick` when `index` is not below the mesh's count for `kind`. Otherwise it returns the descriptor of that element, identical to the corresponding `list_elements` entry.
+- Names, `adjacent`, `feature`, the short `reference`, `fallback` and `axis_direction` come from the element table, its topology and the body state's naming map; only the geometry fields query the kernel: `list_elements` once per kind for the whole table (its descriptors are then kept with the table), `pick_reference` for the picked element only.
+- `pick_reference` fails with `preview_not_pickable` when `mesh_id` names a preview mesh, `stale_pick` when it names any mesh that is not the latest model-layer mesh of its body (or was never issued), and `invalid_pick` when `index` is not below the mesh's count for `kind`. Otherwise it returns the descriptor of that element: the corresponding `list_elements` entry with the full reference. Headless sessions have no meshes, so there a pick names the element by `mesh_id` 0, its `body`, and `index` its position among the elements of its kind of that body in `list_elements` order at the display state (the convention `resolve_references` uses for matches, below): a headless pick without `body` or with another `mesh_id` fails with `stale_pick`, an unknown body with `unknown_body`, a body without geometry with `body_empty`, and an index out of range with `invalid_pick`. In display sessions `mesh_id` 0 is never issued, and a `body` other than the mesh's fails with `stale_pick`.
 - `resolve_references` resolves each `ElementRef` with the partsmith-naming resolver against the element set of its body at the display state (`resolved`, `ambiguous`, `missing`; a body without geometry gives `missing`, and an unknown body fails with `unknown_body`). Matches are `MeshElement`s with the body's current model-layer `mesh_id` and the element's display id; in headless sessions `mesh_id` is 0 and `index` is the element's position in `list_elements` order. Matches are sorted by kind, then index.
 
 ### 3.10 Expressions and printer values
@@ -445,7 +489,7 @@ The target is resolved at the display state: `{"kind": "body", "body"}` needs an
 
 ### 3.15 Panics and poisoned documents
 
-- `call` and `execute` run each command under `std::panic::catch_unwind`. A panic produces an `internal_error` response with the panic message, no events, and marks the command's document (if it names one) as poisoned.
+- `call` and `execute` run each command under `std::panic::catch_unwind`. A panic produces an `internal_error` response (section 4: `Partsmith hit a bug while running {command}. ...`) with the panic message in `detail`, no events, and marks the command's document (if it names one) as poisoned.
 - Every command naming a poisoned document fails with `document_poisoned`, except `save_document`, `mark_saved` and `close_document`. On a poisoned document, `save_document` returns the recipe as of the last successful command even when a transaction is open, so the user can rescue their work.
 - The typed API does not catch panics; hosts that call it directly (CLI) let a panic abort with exit code 4 (cli.md).
 
@@ -458,7 +502,7 @@ The target is resolved at the display state: `{"kind": "body", "body"}` needs an
 - One recompute result cache per session, shared by all documents and keyed by the recompute input hash (recompute.md), so closing and reopening the same text in a session is warm.
 - One tessellation cache per session keyed by (shape result hash, chord, angle), holding display meshes and element tables.
 - Entries needed by the model state, display state and preview of any open document are pinned. When the total size exceeds `cache_budget`, unpinned entries are evicted least recently used first. Pinned entries may exceed the budget.
-- Each document keeps at most `undo_limit` undo entries plus its redo stack, one open transaction, its drag states and the element tables of its latest model-layer meshes.
+- Each document keeps at most `undo_limit` undo entries plus its redo stack, one open transaction, its drag states, the element tables of its latest model-layer meshes (with their element sets, section 3.9), its baselines and causes (section 3.21) and its ghosts (section 3.23). Baselines share structure through `Arc`, so a feature that did not change costs nothing per recompute.
 - `close_document` drops all per-document state and unpins its entries.
 - Cache hits and misses never change any output.
 
@@ -466,6 +510,7 @@ The target is resolved at the display state: `{"kind": "body", "body"}` needs an
 
 - With identical `SessionOptions` (including a deterministic id generator such as `SequentialIds`), the same sequence of request frames produces byte-identical response frames, within one build and platform, independent of cache state, `cache_budget` and machine load.
 - No output depends on wall-clock time, randomness other than the configured id generator, hash-map iteration order, memory addresses or thread scheduling. Maps that reach output are ordered (`BTreeMap` or insertion order).
+- Causes (section 3.21) and ghosts (section 3.23) are functions of the session's earlier requests, which the same sequence repeats, so they keep this rule. Everything else in a diagnostic, its actions included, is a function of the document at its revision: opening the same text in a fresh session gives equal messages, actions and repairs, apart from each `FixRef`'s `revision` and the display fields (`ghost`, `element`), and no `cause`.
 - Native and WebAssembly builds produce the same recipes, ids, statuses and messages, and geometry metrics equal within 1e-9 relative; floating-point bytes may differ.
 - `SequentialIds` generates `<prefix><n as 12 lowercase hex digits>` with a separate counter per prefix starting at 1 (`b-000000000001`, `f-000000000001`), skipping any id already used in the document; it is defined in model.md.
 
@@ -480,14 +525,14 @@ The target is resolved at the display state: `{"kind": "body", "body"}` needs an
 5. `unknown_printer_profile` (warning) when `printer` is not installed.
 6. Each sketch is solved: conflicting constraints (`sketch_conflicting`, error, listing the ids), redundant constraints (`sketch_redundant`, warning), no convergence (`sketch_not_converged`, error), with sketch.md's `SolveIssue` messages.
 7. Referenced assets missing from `assets` (`asset_missing`, error, with features.md's `AssetMissing` message).
-8. With `rebuild`: full recompute; every feature error (`feature_error`, error) and warning (`feature_warning`, warning), with the feature id in the message and the JSON Pointer `/features/<index>`.
+8. With `rebuild`: full recompute; every feature message (section 3.4), features in timeline order and each feature's messages in their order (the error, then warnings, then info notices), as one diagnostic with the message's own `severity`, `code` and text, `path` its location (`/features/<index>` followed by the message's `field`, or `/features/<index>` alone when it has none), and `feature` (`FeatureMessage`: the feature's id, the projected message, and the candidates of the feature's element repairs whose `path` is the message's `field` or lies under it, `/edges/0` under `/edges`). The message has no `cause`, since `validate` opens the text fresh, and its `actions` carry the revision 0 of that temporary document. A feature message whose `path` equals that of an error of steps 2 to 4 or 7 is left out, so a feature that fails there is not reported twice.
 9. With `canonical`: `not_canonical` (error) when the text differs from the canonical serialization of the loaded document, with the line of the first differing byte.
 
 Within each step, diagnostics follow document order.
 
 ### 3.20 Test fixtures
 
-Acceptance tests in this spec, cli.md and python-api.md use these documents, stored in `crates/partsmith-engine/tests/fixtures/` as canonical `.ptsm` files written with the params defined in features.md and sketch.md. All use units `mm` and no printer unless stated.
+Acceptance tests in this spec, cli.md and python-api.md use these documents, stored in `crates/partsmith-engine/tests/fixtures/` as canonical `.ptsm` files at format version 2 (`FORMAT_VERSION`), written with the params defined in features.md and sketch.md, so saving one right after opening it gives its text back (test 7). All use units `mm` and no printer unless stated.
 
 | File | Content | Known values |
 | --- | --- | --- |
@@ -501,6 +546,167 @@ Acceptance tests in this spec, cli.md and python-api.md use these documents, sto
 | `datum.ptsm` | Datum plane `f-dp1` offset 10 mm from the XY origin plane. | Placement origin (0, 0, 10), x axis (1, 0, 0), normal (0, 0, 1) |
 
 Profiles are print.md's built-ins: `generic-fdm` (the default; layer height 0.2 mm, bed 256 × 256 mm, so the bed center is (128, 128)) and `generic-resin` (layer height 0.05 mm).
+
+### 3.21 Causes
+
+A message answers "why" twice. Its text says what in the model did it, from the document alone (recompute.md section 3.10). Its `cause` says which edit started it, which only the session knows: `This started after you changed Distance of 'Extrude 2' from 5 mm to 30 mm.`, with actions of its own. Causes are session state: they never enter documents, cache keys, statuses, messages or the message's actions, so the same document gives the same message and actions in the UI, in `partsmith rebuild --json` and in Python, and a document opened fresh has no cause.
+
+**Snapshots.** After every recompute (also of a preview, an undo or a redo), the engine records, for each feature that ran or was reused (status `ok`, `warning` or `error`), a snapshot of its inputs:
+
+- its canonical record (params and suppression; not its `name`, since a rename changes no result), its label, its timeline position and the ids of the features directly above and below it;
+- the display text of each declared expression's value (`format_value` in the document units), or its error;
+- the document units and the rollback marker;
+- the expression and value of each parameter its expressions use, directly or through other parameters;
+- the snapshots of the features it links to and of its body providers (the last active writer of each declared body before it, recompute.md section 3.2);
+- the asset names it reads;
+- for a sketch, its solved entities and its constraints with their dimension values;
+- for a sketch on a face, the placement it was built with.
+
+Snapshots share structure through `Arc`, so a feature whose inputs did not change costs nothing. Suppressed and rolled-back features keep their last snapshot and their causes. A feature that leaves the document leaves a tombstone (its last label, record and timeline position) until the document is closed. Baselines start empty at `new_document` and `open_document`, are never saved, and never enter cache keys.
+
+**When a cause is made.** A message's *key* is its feature, code and field. When a recompute gives a feature `F` a message whose key `F` did not have the last time it ran, the *clean snapshot* `C` of that key is `F`'s snapshot from that last time, and the engine makes the message's cause by comparing `C` with `F`'s snapshot `N` of this recompute. The cause's text and primary change stay fixed while the key lasts, so a later unrelated edit never changes what started the problem; its actions are made again after every recompute (below). When `F` runs without the key, its cause is dropped. A message whose key has no clean snapshot (`F` has had it since the document was opened, or `F` is new) gets no cause.
+
+**Changes.** Comparing `C` with `N` gives the changes that can reach `F`. Each belongs to one feature, or to the document:
+
+- a *record change* of `F` or of a feature upstream of `F` in `N` or in `C` (feature links and body providers, transitively) that is in both: its manifest fields whose value at their pointer differs, in manifest field order, and for a sketch its entities (added, deleted, or moved: any change of their geometry) in stored order, then its constraints (added, deleted, or a dimension whose expression changed) in stored order. A record change counts as one change, whatever the number of fields, entities or constraints;
+- an *added* feature: upstream in `N`, not in `C`, and created after `C` was recorded;
+- a *deleted* feature: upstream in `C`, a tombstone now;
+- a *suppressed* or *unsuppressed* feature: upstream in `N` or in `C`, with its suppression changed;
+- a *moved* feature: upstream in `N` or in `C` with its order relative to `F` changed, or `F` itself when its order relative to a feature it links to, or to a feature that starts a name in its references, changed;
+- a *parameter change* (the document's): a parameter used by `F` or by a feature upstream of `F` whose expression changed. A feature *uses* a parameter *directly* when its own expressions name it, directly or through other parameters;
+- the *units change* (the document's), when the units changed and `F` or a feature upstream of `F` has an expression that is a number without a unit;
+- the *rollback change*, which belongs to the feature the message names, when the rollback marker moved across it.
+
+**Primary change.** The first change of the first group that has one:
+
+1. a change that belongs to a feature the message names (the `feature`, `by`, `root` or `sketch` of its reason, or its `root`), then a parameter change that such a feature uses directly;
+2. a change that belongs to `F` (its record, suppression or position), then a parameter change `F` uses directly, then the units change when `F` has a number without a unit;
+3. a change that belongs to a feature `F` links to directly (its feature links and body providers, in `N` or in `C`);
+4. the change that belongs to the feature latest in timeline order (a deleted feature at its tombstone's position);
+5. the first remaining parameter change in document order, then the units change.
+
+Within one feature: added or deleted first, then suppressed or unsuppressed, then its record change, then its move.
+
+**Text.** `This started after you {change}{others}.`, with `{change}`:
+
+| Change | Words |
+| --- | --- |
+| A record change of `F` | `changed {label} from {old} to {new}`, or `changed {label}` for a field without a short value |
+| A record change of another feature | `changed {label} of '{feature}' from {old} to {new}`, or `changed {label} of '{feature}'` |
+| A record change of an asset field | `replaced the file of '{feature}'` |
+| A sketch entity | `deleted {entity} in '{sketch}'`, `added {entity} in '{sketch}'`, `moved {entity} in '{sketch}'` |
+| A sketch constraint | `added {title} in '{sketch}'`, `deleted {title} in '{sketch}'`, and for a dimension's value `changed {type} of '{sketch}' from {old} to {new}` |
+| Added | `added '{feature}' before {this}` when it comes before `F`, else `added '{feature}'` |
+| Deleted | `deleted '{feature}'`, with the label it had (its tombstone's) |
+| Suppressed, unsuppressed | `suppressed '{feature}'`, `unsuppressed '{feature}'` |
+| Moved | `moved '{feature}' above '{other}'` or `moved '{feature}' below '{other}'` |
+| Parameter | `changed parameter '{name}' from {old} to {new}` |
+| Units | `changed the document units from {old} to {new}` |
+| Rollback | `moved the rollback marker above '{feature}'`, or `moved the rollback marker to the end` |
+
+- `{label}` is the manifest label of the first changed field in manifest order. `{old}` and `{new}` are its values in `C` and `N`: an expression field gives its value's display text, followed by ` ({expression})` when the expression is not a plain value (a number with or without a unit): `5 mm`, `30 mm (d * 6)`; an option field its option label (`Join`); a toggle `on` or `off`; a body field the body's name in single quotes. Any other field (references, lists, profiles, nested objects) has no short value.
+- For an edited sketch, the entity the message names comes first (the `entity` of an `EntityDeleted` reason, the point of a `PointGone` reason), then its other entity changes in stored order, then its constraint changes; the first is named. `{entity}` is `the line from ({u1}, {v1}) to ({u2}, {v2})`, `the circle at ({u}, {v})`, `the arc from ({u1}, {v1}) to ({u2}, {v2})` or `the point at ({u}, {v})`, in the document units as features.md section 3.12 writes sketch coordinates, from `C`'s solved entities for a deleted or moved entity and from `N`'s for an added one. `{title}` is the constraint's title and `{type}` the type label of its dimension (sketch.md section 4: `Distance`), with the dimension values of `C` and `N` as `{old}` and `{new}`.
+- `{this}` is `this` followed by `F`'s manifest label in lowercase (`this fillet`). `{other}` is, of the features whose order relative to the moved feature changed, the one the message names, else `F`, else the one nearest the moved feature's new position; `above` when the moved feature now comes before it. A parameter's `{old}` and `{new}` are written like an expression field's; the units' are their symbols (`mm`, `in`).
+- `{others}` is empty, `, and 1 other change` or `, and {n} other changes`: every other change counted once, leaving out changes that reach `F` only through the feature of the primary change (an added sketch that the added extrude uses), and every sketch entity and constraint change of the sketch whose change is named.
+
+**Cause actions**, in this order, each only when it applies:
+
+1. A revert of the primary change alone (table below).
+2. `Keep the sketch where it was`, for a `plane_fallback`, when the placement the sketch was built with in `C` differs from the one in `N`: one `update_feature` of the sketch's plane storing `C`'s placement as `fallback` in body coordinates (`m.inverse()` applied to it, with `m` the motion of the stored face query in the state just before the sketch, `BodyState::motion`) and `fallback_frame: body`.
+3. `Undo` (host action `undo`) while the undo entry that made the primary change is the newest undo entry and no transaction is open: the entry of the command whose recompute made the cause, or for a change inside a transaction the transaction's entry once committed.
+4. `Show`, when no revert is offered and the changed feature is in the document: `Show the {line, circle, arc or point}` for a sketch entity change (host action `show` with the sketch and the entity, whose ghost shows where it was, section 3.23), otherwise `Show '{feature}'`.
+
+Reverts:
+
+| Change | Label | Edits |
+| --- | --- | --- |
+| One changed field of `F` | `Set {label} back to {old}` | one `update_feature` of `F`'s current record with that field as in `C` |
+| One changed field of another feature | `Set {label} of '{feature}' back to {old}` | one `update_feature` of that feature |
+| Several changed fields, or one without a short value | `Restore the settings of '{feature}'`, or `Restore {label} of '{feature}'` for one field | one `update_feature` with the changed fields as in `C` |
+| A dimension's value | `Set {type} of '{sketch}' back to {old}` | one `update_feature` of the sketch with that constraint's expression as in `C` |
+| Parameter | `Set '{name}' back to {old}` | one `update_parameter` with the expression of `C` |
+| Suppressed, unsuppressed | `Unsuppress '{feature}'`, `Suppress '{feature}'` | one `update_feature` of its suppression |
+| Added | `Suppress '{feature}'` | the same |
+| Moved | `Move '{feature}' back below '{neighbor}'`, or `back above '{neighbor}'` when it was first | one `move_feature` to directly below the feature that was directly above it in `C` (or above the one below), named by id, so it stays right after other edits |
+| Units | `Use {expr} {old unit}` for each field of `F` whose expression is a number without a unit, in manifest order | one `update_feature` of `F` with that field as `Expr::with_unit` of the old unit |
+| Rollback | `Move the rollback marker back above '{feature}'`, or `back to the end` | one `set_rollback` |
+
+In a revert's label, `{old}` of an expression field is its expression when that is not a plain value (`Set Distance of 'Extrude 2' back to d`), else its value (`back to 5 mm`). Deleted features, sketch entity and constraint changes other than a dimension's value, and asset changes have no revert.
+
+A cause action whose edits equal those of an action of the message itself is left out, since the message already offers it. While the key lasts, the actions are made again after every recompute: a revert that would change nothing (the record already holds the old value), or whose feature, parameter or neighbor is gone, is left out; `Undo` follows rule 3; `Keep the sketch where it was` is offered while the placements differ. The cause's `feature` is the feature the primary change belongs to (a deleted one included), absent for a parameter, units or rollback change; its `ghost` (display sessions) is the deleted or moved sketch entity as `C` had it (section 3.23).
+
+Examples, from the reference stability corpus (`[...]` are the cause's actions):
+
+- R12, Distance of 'Extrude 2' from 5 to 30: `This started after you changed Distance of 'Extrude 2' from 5 mm to 30 mm.` [Set Distance of 'Extrude 2' back to 5 mm] [Undo]
+- R16, a rabbet inserted before the fillet: `This started after you added 'Extrude 1' before this fillet.` [Suppress 'Extrude 1'] [Undo]
+- R41, Count from 3 to 2: `This started after you changed Count of 'Linear pattern 1' from 3 to 2.` [Set Count of 'Linear pattern 1' back to 3] [Undo]
+- R03, a bevel line deleted: `This started after you deleted the line from (80, 40) to (70, 50) in 'Sketch 1'.` [Undo] [Show the line]
+- R48, units from mm to in: `This started after you changed the document units from mm to in.` [Undo] (its revert `Use 2 mm` is the message's own first action)
+- R26, the base extrude deleted: `This started after you deleted 'Extrude 1'.` [Keep the sketch where it was] [Undo]
+
+### 3.22 Fix actions
+
+The engine projects each `Fix` of a feature message (section 3.4), each fix of a sketch finding (section 3.6) and each cause action (section 3.21) into a protocol `FixAction`: a label and how to run it. Actions that change the document are `apply` actions carrying a `FixRef`: the feature, the message's code and field, whether it is a cause action, the action's index in the message's or the cause's `actions`, and the document revision of the statuses that carry it. They never carry the edits themselves, so a fix offered before another change cannot overwrite it. `Pick`, `Show`, `Undo` and `FinishTransaction` are host actions.
+
+**`apply_fix { doc, fix }`:**
+
+1. It fails with `stale_fix` when the document's revision is not `fix.revision`; when the latest statuses (section 3.4, or for a field `/profile_findings/{i}` the messages of the stored sketch's latest solution, section 3.6) give `fix.feature` no message with `fix.code` and `fix.field`; when that message, or with `fix.cause` its cause, has no action at `fix.index`; or when that action is not an `apply` action. The statuses can change at one revision, because a focus change or a printer profile change recomputes without changing the recipe.
+2. It builds the action's edits from the current records (tables below and in section 3.21) and applies them as one batch (section 3.3): outside a transaction as one undo entry labeled with the action's label, inside one appended to it, like `apply_edits`. An edit the model or the registry rejects fails the command as in `apply_edits` (`edit_rejected`, `invalid_params`) and nothing changes.
+3. It returns the new revision and emits like `apply_edits`.
+
+**Labels and edits of fixes.** `{label}` is the manifest label of the field the fix names, `{feature}` the label of the feature it names, `{description}` the words section 3.4 gives the element or region the fix stores (equal to its candidate's `description`), and `{value}` the value the fix writes (an expression's text). Every label starts with a verb and says exactly what changes (the error guidelines, "One-click fixes").
+
+| Fix | Label | Edits built at apply time |
+| --- | --- | --- |
+| `SetField` of an expression field of the message's feature | `Use {value}`, or `Replace {expression} with {value}` when the field now holds an expression that is not a plain value (a number with or without a unit) | one `update_feature` of the current record with the field set to the value |
+| `SetField` of a toggle | `Turn on {label}` or `Turn off {label}` | the same |
+| `SetField` of an option field | `Set {label} to {option label}`, for example `Set Operation to Join` | the same |
+| `SetField` to `null` | `Clear {label}` | the same, without the field |
+| `SetField` of another feature | `Set {label} of '{feature}' to {value}` | one `update_feature` of that feature |
+| `UseReferences` | `Use {description}`; on a `reference_widened` message, `Use only {description}` | one `update_feature` with the entry at the pointer replaced by the references, one entry each |
+| `KeepMatch` | `Keep this match`; on a `reference_widened` message, `Keep all {n}` with `n` the elements it now covers | re-anchoring (below) |
+| `RemoveEntry` | `Remove from {label}` | one `update_feature` without the list entry |
+| `UseRegions` | `Use {description}` | one `update_feature` with the region at the pointer replaced by the regions |
+| `KeepRegions` | `Keep these regions` | re-anchoring (below) |
+| `UseBody` | `Use body '{body}'` | one `update_feature` with the field set to the body |
+| `NewBody` | `Put it in a new body` | `add_body` of a body named `Body {n}`, `n` the smallest number from the count of bodies plus 1 that names no body, its id from `SessionOptions::id_generator`; then one `update_feature` with `body` set to it and Operation New body |
+| `Attach` | `Attach to {description}` on the sketch's own message, else `Attach '{sketch}' to {description}` | one `update_feature` of the sketch with `plane` `{kind: face, body, face, fallback, fallback_frame: body}`: `fallback` is the sketch's current placement projected onto the face (`Placement::on_plane` of the face's centroid and outward normal, with the current placement as the hint), in body coordinates (`m.inverse()` applied, `m` the face's motion) |
+| `TurnDrawingBack` | `Turn the drawing back` | one `update_feature` of the sketch with its entities and constraints mirrored and its current placement in body coordinates as `fallback` with `fallback_frame: body`, then one `update_feature` of each feature that uses the sketch with its regions and points mirrored (features/sketch.md section 3.5) |
+| `ConnectEnds` | `Connect the ends ({gap} apart)`, `{gap}` the distance between the two points in the sketch's latest solve, written as a length in the document units | one `update_feature` of the sketch with a coincident constraint on the two points appended, its id from `SessionOptions::id_generator` |
+| `DeleteConstraint` | `Delete {title}` | one `update_feature` of the sketch without the constraint |
+| `MakeReference` | `Make {title} a reference` | one `update_feature` of the sketch with the constraint's `driving` false |
+| `RenameKey` | `Rename {from} to {to}` | one `update_feature` with the value of key `from` moved to key `to` |
+| `Unsuppress`, `Suppress` | `Unsuppress '{feature}'`, `Suppress '{feature}'` | one `update_feature` of that feature's suppression |
+| `Move` | `Move '{feature}' below '{other}'` or `Move '{feature}' above '{other}'` | one `move_feature` to directly below (or above) `other`, found by id at apply time |
+| `Pick` | `Pick {noun} again` | host action `pick` with the feature and the pointer |
+| `Show` | `Show '{feature}'`; with an entity, `Show the {line, circle, arc or point} in '{feature}'` | host action `show` with the feature and the entity |
+
+`{title}` is the constraint's title as the sketch crate renders it for the sketch's latest solve (sketch.md section 4, `MessageContext::title`). `{noun}` is `a face`, `an edge` or `a vertex` when the message has an element repair at the pointer, by its element kind, else by the selection kind of the field's manifest hint: `a body`, `a sketch`, `a region`, `a point`, `a face`, `an edge`, `a plane`, `an axis`. A `transaction_open` error's action is `Finish "{label}" and {what}` (`finish_transaction`, section 4).
+
+**Re-anchoring.** `KeepMatch` stores `Reference::from_element` of each element the reference resolves to now, in the state just before the feature: one entry, or for Keep all one entry per element in the resolver's order, in place of the entry at the pointer. `KeepRegions` stores the regions the profile uses now (`Region::reference()` of each, in the sketch's region order) and, in the same batch, rewrites every later reference whose resolution `via` lists an alias that a succession of the old region reference produced to `Reference::from_element` of the element it resolves to now, so keeping a profile never breaks what followed it. Each is one undo entry.
+
+### 3.23 Ghosts
+
+When a reference of feature `F` goes from resolved, in the previous recompute of the document (`F` ran and had no repair at that pointer), to lost (a repair at that pointer of `reference_missing`, `reference_ambiguous`, `reference_not_found`, `references_not_found`, or `plane_fallback` with a loss), the engine resolves the stored reference in `F`'s `bodies_before` state of the repair's body from the previous recompute and asks the kernel for the display geometry of each element it resolves to, and of nothing else (kernel.md `element_display`, at the document's display tolerance, section 3.7). An edge's polyline gives `lines` (each pair of consecutive points one segment), a face's triangles `triangles`, a vertex's position `points`, all in frame `world` and concatenated in the resolver's order. The ghost is kept, keyed by feature and pointer, while the loss lasts, sent as the repair's `ghost` with every `recomputed`, and dropped when the repair goes away. A reference whose previous resolution failed, and one lost since the document was opened, has no ghost; hosts draw a marker at `centroid` instead. Guessed and widened references, whose elements still exist, have none.
+
+A region repair's ghost is captured at the same transition: the entities of the stored region's outline (its `outline`, else the outer loop of its key) as the previous `sketch_solved` of that sketch had them, as `lines` in frame `sketch`, with circles and arcs split as section 3.6 splits region fills. A cause's ghost is the deleted or moved sketch entity as the clean snapshot had it (section 3.21), the same way, or `points` for a point entity.
+
+Ghost buffers travel in the response frame of the event that carries them (protocol.md section 3.4). Headless sessions capture and send no ghosts, and a ghost never changes a status, message or action.
+
+### 3.24 Uses
+
+`list_uses { doc }` returns what every feature uses, from the document alone, without recomputing or calling the kernel. For each feature record `user`, in timeline order:
+
+- one `Use { user, field, feature }` per feature link of `user` (`Dependencies::features`, with its field path as a JSON Pointer), `entity` absent;
+- for each stored reference in `user`'s params (every JSON object, at any depth, that has a `q` key and deserializes as a naming `Reference`), with `field` its JSON Pointer: one `Use` per `GeneratorUse` of `ElementName::generators` of its query and of each of its merged names (a `Copies` name stands for its source and its feature, naming.md section 2.4), with `feature` the use's feature and `entity` the entity id its generator names (the part before any `.`, so `e-1.center` gives `e-1`), absent when it has none.
+
+Duplicates are removed, and the list is sorted by the user's timeline position, then `field`, then `feature`, then `entity` (absent first). A record whose params fail validation contributes its references but no feature links. A `Use` may name a feature that is not in the document or comes later in the timeline; hosts decide what that means. The UI derives the timeline drop warning, "Used by" and the used marks of sketch entities from it (ui.md sections 3.9 and 3.16.10).
+
+### 3.25 Document units
+
+`set_document_units { doc, units, keep_sizes }` asks partsmith-model for the edit set (`Document::units_edits(units, keep_sizes, &registry)`, model.md section 3.12, with the registry as the `FeatureInspector`) and applies it as one batch (section 3.3), labeled `Change units to {units}` with the units' symbol (`Change units to in`) outside a transaction, else appended to the transaction. With `keep_sizes`, every expression and parameter that is a number without a unit whose meaning the units decide gets the old unit (`20` becomes `20 mm`), so no size changes. `kept` is the number of expressions and parameters the edit set rewrote: `bare_numbers` before the change when `keep_sizes` is true and the units change, else 0. When `units` equals the current units the edit set is empty: nothing changes, the revision stays, no undo entry is made, nothing is emitted, and `kept` is 0.
+
+`document_changed` carries `bare_numbers`, `Document::bare_numbers(&registry)` of the current recipe (model.md section 3.12), so hosts can offer Keep sizes with its count. A change of it emits `document_changed` like a change of any of its fields (section 3.4).
 
 ## 4. Errors
 

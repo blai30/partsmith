@@ -1,15 +1,17 @@
 //! The performance budgets of spec section 5, timed with `std::time::Instant` (decision D7).
 //!
-//! Run them with `cargo bench -p partsmith-naming --bench budgets`. Each operation runs several
-//! times and its median time is compared with its budget; the benchmark fails when any median is
-//! over budget. The budgets hold for a release build on the reference laptop (technical design
+//! Run all of them with `cargo bench -p partsmith-naming --bench budgets`, or some of them by
+//! passing words of their names, for example `cargo bench -p partsmith-naming --bench budgets --
+//! parse`. Each operation runs several times and its median time is compared with its budget;
+//! the benchmark fails when any median is over budget. The budgets hold for a release build on the reference laptop (technical design
 //! section 14), which the CI performance runner stands in for.
 
 use std::collections::BTreeMap;
 use std::hint::black_box;
 use std::process::ExitCode;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
+use partsmith_budgets::{Report, median_time_of};
 use partsmith_naming::{
     Aliases, EdgeInfo, ElementName, FaceInfo, FaceSource, Fingerprint, GeometryKind, NamingMap,
     Reference, TopologyInfo, VertexInfo, resolve,
@@ -28,17 +30,8 @@ const LONG_NAME_LENGTH: usize = 256;
 /// Repetitions of the microsecond-scale operations inside one run; the time is per repetition.
 const REPETITIONS: u32 = 10_000;
 
-/// One timed operation and its budget.
-struct Measurement {
-    /// What was timed, as spec section 5 names it.
-    operation: &'static str,
-    /// The median time.
-    time: Duration,
-    /// The budget from spec section 5.
-    budget: Duration,
-}
-
 fn main() -> ExitCode {
+    let mut report = Report::from_arguments();
     let topology = hexagonal_torus();
     let sources = face_sources();
     let map = NamingMap::build(sources.clone(), &topology, &[]).expect("the benchmark map builds");
@@ -57,80 +50,57 @@ fn main() -> ExitCode {
     let long_name = format!("f-sh1/{role}{generator}");
     let fingerprint_text = "cylinder|n=0,0,1|c=12.5,-40.25,7|a=314.159265|r=5|adj=2,3";
 
-    let measurements = [
-        Measurement {
-            operation: "NamingMap::build (1,000 faces, 3,000 edges, 2,000 vertices)",
-            time: median(|| {
+    report.measure(
+        "NamingMap::build (1,000 faces, 3,000 edges, 2,000 vertices)",
+        Duration::from_millis(5),
+        || {
+            median_time_of(RUNS, || {
                 black_box(NamingMap::build(sources.clone(), &topology, &[]).expect("builds"));
-            }),
-            budget: Duration::from_millis(5),
+            })
         },
-        Measurement {
-            operation: "NamingMap::element_infos (same shape)",
-            time: median(|| {
+    );
+    report.measure(
+        "NamingMap::element_infos (same shape)",
+        Duration::from_millis(3),
+        || {
+            median_time_of(RUNS, || {
                 black_box(map.element_infos(&topology).expect("matches"));
-            }),
-            budget: Duration::from_millis(3),
+            })
         },
-        Measurement {
-            operation: "resolve against 1,000 faces reaching step 5",
-            time: median(|| {
+    );
+    report.measure(
+        "resolve against 1,000 faces reaching step 5",
+        Duration::from_micros(200),
+        || {
+            median_time_of(RUNS, || {
                 black_box(resolve(&far_away, &scope, &Aliases::default()));
-            }),
-            budget: Duration::from_micros(200),
+            })
         },
-        Measurement {
-            operation: "ElementName::parse of a 256-byte name",
-            time: median(|| {
+    );
+    report.measure(
+        "ElementName::parse of a 256-byte name",
+        Duration::from_micros(2),
+        || {
+            median_time_of(RUNS, || {
                 for _ in 0..REPETITIONS {
                     black_box(ElementName::parse(black_box(&long_name)).expect("valid"));
                 }
-            }) / REPETITIONS,
-            budget: Duration::from_micros(2),
+            }) / REPETITIONS
         },
-        Measurement {
-            operation: "Fingerprint::parse plus to_string",
-            time: median(|| {
+    );
+    report.measure(
+        "Fingerprint::parse plus to_string",
+        Duration::from_micros(2),
+        || {
+            median_time_of(RUNS, || {
                 for _ in 0..REPETITIONS {
                     let parsed = Fingerprint::parse(black_box(fingerprint_text)).expect("valid");
                     black_box(parsed.to_string());
                 }
-            }) / REPETITIONS,
-            budget: Duration::from_micros(2),
+            }) / REPETITIONS
         },
-    ];
-
-    let mut within_budget = true;
-    for measurement in &measurements {
-        let verdict = if measurement.time <= measurement.budget {
-            "ok"
-        } else {
-            within_budget = false;
-            "OVER BUDGET"
-        };
-        println!(
-            "{:<64} {:>12.3?} of {:>8?}  {verdict}",
-            measurement.operation, measurement.time, measurement.budget
-        );
-    }
-    if within_budget {
-        ExitCode::SUCCESS
-    } else {
-        ExitCode::FAILURE
-    }
-}
-
-/// The median time of `RUNS` runs of `operation`.
-fn median(mut operation: impl FnMut()) -> Duration {
-    let mut times: Vec<Duration> = (0..RUNS)
-        .map(|_| {
-            let start = Instant::now();
-            operation();
-            start.elapsed()
-        })
-        .collect();
-    times.sort_unstable();
-    times[RUNS / 2]
+    );
+    report.finish()
 }
 
 /// A face position on the torus: row and column, both wrapping.
