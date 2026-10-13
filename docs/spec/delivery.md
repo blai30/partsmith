@@ -310,6 +310,7 @@ Tag-triggered release runs restore caches saved on `main`; a run's own caches ar
 3. A pull request deploys with `--branch=<head branch>`; Pages makes it a preview with a stable alias `https://<sanitized branch>.<project>.pages.dev` and a unique deployment URL. The alias URL is the `preview` environment's URL on the pull request and is written to the job summary.
 4. The artifact deployed is exactly the `web-dist` that `web` checked (`check:dist`) and that `e2e` tested against the same core build.
 5. The project name comes from the repository variable `CLOUDFLARE_PAGES_PROJECT`, else `partsmith`. Creating the project (`wrangler pages project create <name> --production-branch main`) and the token are one-time human steps (section 8).
+6. Only this job builds what Pages serves. Cloudflare's own build image cannot build the WebAssembly core (it needs Emscripten and OCCT built for WebAssembly, longer than a Pages build may run), and `ui/public/core` is not in git, so a Pages build of `ui/` alone serves an app whose core fails to load. A project connected to the repository in the Cloudflare dashboard therefore keeps its automatic builds paused (Settings, Build, Branch control: "Enable automatic production branch deployments" off and preview branches None), and this job's Wrangler deploys go to it as to a project created with Wrangler.
 
 ### 3.4 Generated files
 
@@ -466,7 +467,7 @@ Run by `pnpm test:scripts` in `ui/`. `node --test` takes files or glob patterns,
 
 ## 8. Needs human review
 
-- **Cloudflare setup** (one time): create the Pages project with production branch `main`, create an API token with only "Account, Cloudflare Pages, Edit", add `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` as repository secrets, and optionally `CLOUDFLARE_PAGES_PROJECT`. Decide whether the account belongs to a person or a project organization (technical design section 19).
+- **Cloudflare setup** (one time): create the Pages project with production branch `main`, create an API token with only "Account, Cloudflare Pages, Edit", add `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` as repository secrets, and optionally `CLOUDFLARE_PAGES_PROJECT`. Decide whether the account belongs to a person or a project organization (technical design section 19). A project connected to the repository in the dashboard has its automatic builds paused (3.3 item 6). Status 2026-10-13: `main` exists and a Git-connected project builds `ui/` with `pnpm build`; pausing its builds, the token and the secrets (and the project name variable, if it is not `partsmith`) remain.
 - **Branch protection** on `main` requiring the CI jobs of 2.4.
 - **`deny.toml` advisory exceptions** RUSTSEC-2024-0429 and RUSTSEC-2024-0370 for Tauri's GTK3 stack (3.2), a change to the dependency policy.
 - **Release policy**: tags `vX.Y.Z` on commits with green CI, a dry run from `main` before each tag, draft releases published by a human, unsigned bundles until signing is set up, macOS arm64 only.
