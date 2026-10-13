@@ -478,7 +478,7 @@ mod tests {
 
         assert_eq!(
             schema.as_value()["description"],
-            json!("A Partsmith .ptsm document, format version 1.")
+            json!("A Partsmith .ptsm document, format version 2.")
         );
     }
 }

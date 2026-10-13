@@ -2,7 +2,7 @@
 
 mod common;
 
-use common::{E1, id};
+use common::{E1, id, with_format_version};
 use partsmith_model::{
     Document, Expr, LoadError, NameError, StructureError, Units, load, load_bytes, save,
 };
@@ -23,7 +23,7 @@ const SHUFFLED: &str = r##"{
   ],
   "printer": "generic-fdm",
   "units": "mm",
-  "format_version": 1,
+  "format_version": 2,
   "format": "partsmith"
 }
 "##;
@@ -31,7 +31,7 @@ const SHUFFLED: &str = r##"{
 /// `SHUFFLED` after loading and saving: keys in declaration order, params in file order.
 const SHUFFLED_SAVED: &str = r##"{
   "format": "partsmith",
-  "format_version": 1,
+  "format_version": 2,
   "units": "mm",
   "printer": "generic-fdm",
   "parameters": [
@@ -68,11 +68,7 @@ fn e1_with_list(name: &str, json: &str) -> String {
 
 /// E1 with its `format_version` line replaced, or removed when `value` is `None`.
 fn e1_with_format_version(value: Option<&str>) -> String {
-    let line = "  \"format_version\": 1,\n";
-    let replacement = value.map_or(String::new(), |value| {
-        format!("  \"format_version\": {value},\n")
-    });
-    E1.replace(line, &replacement)
+    with_format_version(E1, value)
 }
 
 /// E1 with one feature whose params are `params_json` (a JSON object body without braces).
@@ -92,7 +88,7 @@ fn t014_keys_are_written_in_declaration_order() {
 
 #[test]
 fn t015_missing_lists_are_empty() {
-    let document = load_document(r#"{"format": "partsmith", "format_version": 1, "units": "mm"}"#);
+    let document = load_document(r#"{"format": "partsmith", "format_version": 2, "units": "mm"}"#);
 
     assert!(document.parameters.is_empty());
     assert!(document.bodies.is_empty());
@@ -225,24 +221,25 @@ fn t022_format_version_must_be_a_whole_number() {
         })
     );
     let whole_float = load(&e1_with_format_version(Some("1.0")));
-    assert!(whole_float.is_ok(), "{whole_float:?}");
+    let migrated_from = whole_float.map(|loaded| loaded.migrated_from);
+    assert_eq!(migrated_from, Ok(Some(1)));
 }
 
 #[test]
 fn t023_newer_and_older_format_versions() {
-    let newer = load(&e1_with_format_version(Some("2")));
+    let newer = load(&e1_with_format_version(Some("3")));
     let older = load(&e1_with_format_version(Some("0")));
 
     assert_eq!(
         newer,
         Err(LoadError::NewerFormatVersion {
-            found: 2,
-            supported: 1
+            found: 3,
+            supported: 2
         })
     );
     assert_eq!(
-        newer.expect_err("version 2 is newer").to_string(),
-        "This file uses format version 2, which is newer than this version of Partsmith supports (up to 1). Update Partsmith to open it."
+        newer.expect_err("version 3 is newer").to_string(),
+        "This file uses format version 3, which is newer than this version of Partsmith supports (up to 2). Update Partsmith to open it."
     );
     assert_eq!(
         older,

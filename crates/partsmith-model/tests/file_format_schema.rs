@@ -69,7 +69,7 @@ fn t046_root_of_the_schema() {
     assert_eq!(at(&schema, "/title"), &json!("Partsmith document"));
     assert_eq!(at(&schema, "/type"), &json!("object"));
     assert_eq!(at(&schema, "/properties/format/const"), &json!("partsmith"));
-    assert_eq!(at(&schema, "/properties/format_version/const"), &json!(1));
+    assert_eq!(at(&schema, "/properties/format_version/const"), &json!(2));
     assert_eq!(
         at(&schema, "/required"),
         &json!(["format", "format_version", "units"])

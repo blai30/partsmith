@@ -13,7 +13,7 @@ pub use schema::{FeatureParamsSchema, SchemaError, ptsm_schema, ptsm_schema_text
 /// Value of the `format` field.
 pub const FORMAT: &str = "partsmith";
 /// Format version this build writes.
-pub const FORMAT_VERSION: u32 = 1;
+pub const FORMAT_VERSION: u32 = 2;
 /// Oldest format version this build can migrate from.
 pub const OLDEST_FORMAT_VERSION: u32 = 1;
 /// File extension, without the dot.

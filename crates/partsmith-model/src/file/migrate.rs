@@ -17,8 +17,11 @@ pub struct MigrationStep {
     pub migrate: fn(Value) -> Result<Value, String>,
 }
 
-/// The built-in chain; empty while FORMAT_VERSION is 1.
-pub const MIGRATIONS: &[MigrationStep] = &[];
+/// The built-in chain: one step from version 1 that returns the document unchanged (section 3.9).
+pub const MIGRATIONS: &[MigrationStep] = &[MigrationStep {
+    from: 1,
+    migrate: migrate_from_1,
+}];
 
 /// Brings raw document JSON to FORMAT_VERSION with the built-in chain; returns the original version if it changed.
 pub fn migrate(document: Value) -> Result<(Value, Option<u32>), LoadError> {
@@ -67,6 +70,12 @@ pub fn migrate_with(
     }
     let migrated_from = (original != current).then_some(original);
     Ok((document, migrated_from))
+}
+
+/// The step from version 1 to 2 (ADR 0025): every field version 2 adds is optional and keeps the
+/// version 1 meaning when absent, so the document is returned as it is.
+fn migrate_from_1(document: Value) -> Result<Value, String> {
+    Ok(document)
 }
 
 /// The root `format_version`: a non-negative whole number, where integral floats such as `1.0`
@@ -212,10 +221,18 @@ mod tests {
     }
 
     #[test]
-    fn the_built_in_chain_accepts_version_one() {
+    fn the_built_in_chain_brings_version_one_to_two() {
         assert_eq!(
-            migrate(json!({"format_version": 1})),
-            Ok((json!({"format_version": 1}), None))
+            migrate(json!({"format_version": 1, "units": "mm"})),
+            Ok((json!({"format_version": 2, "units": "mm"}), Some(1)))
+        );
+    }
+
+    #[test]
+    fn the_built_in_chain_keeps_version_two() {
+        assert_eq!(
+            migrate(json!({"format_version": 2})),
+            Ok((json!({"format_version": 2}), None))
         );
     }
 }

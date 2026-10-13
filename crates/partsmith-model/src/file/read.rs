@@ -236,7 +236,7 @@ mod tests {
     }
 
     fn minimal() -> Value {
-        json!({"format": "partsmith", "format_version": 1, "units": "mm"})
+        json!({"format": "partsmith", "format_version": 2, "units": "mm"})
     }
 
     fn with(key: &str, value: Value) -> Value {

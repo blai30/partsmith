@@ -1,9 +1,12 @@
-//! Acceptance tests for format versions and the migration chain (file-format.md section 6, "Migration", tests 39 to 45).
+//! Acceptance tests for format versions and the migration chain (file-format.md section 6, "Migration", tests 39 to 45), with unit tests of the built-in chain (section 3.9).
 
 mod common;
 
-use common::E1;
-use partsmith_model::{LoadError, MigrationStep, migrate, migrate_with};
+use common::{E1, E2, E10};
+use partsmith_model::{
+    FORMAT_VERSION, LoadError, MIGRATIONS, MigrationStep, OLDEST_FORMAT_VERSION, migrate,
+    migrate_with,
+};
 use serde_json::{Value, json};
 
 /// Step S1: from version 1, adds the root key `"a": 1`.
@@ -66,11 +69,102 @@ fn format_version(document: &Value) -> Option<u64> {
     document["format_version"].as_u64()
 }
 
+/// The raw JSON of a canonical example.
+fn example_json(text: &str) -> Value {
+    serde_json::from_str(text).expect("the example is JSON")
+}
+
+/// `document` with its root `format_version` set to `version`.
+fn at_version(mut document: Value, version: u64) -> Value {
+    document["format_version"] = json!(version);
+    document
+}
+
 #[test]
-fn t039_current_version_is_unchanged() {
-    let document: Value = serde_json::from_str(E1).expect("E1 is JSON");
+fn t039_current_version_is_unchanged_and_version_one_is_brought_to_two() {
+    let document = example_json(E1);
+
+    assert_eq!(migrate(document.clone()), Ok((document.clone(), None)));
+    assert_eq!(
+        migrate(at_version(document.clone(), 1)),
+        Ok((document, Some(1)))
+    );
+}
+
+#[test]
+fn this_build_writes_version_two_and_opens_version_one() {
+    assert_eq!(FORMAT_VERSION, 2);
+    assert_eq!(OLDEST_FORMAT_VERSION, 1);
+}
+
+#[test]
+fn the_built_in_chain_has_one_step_from_version_one() {
+    let froms: Vec<u32> = MIGRATIONS.iter().map(|step| step.from).collect();
+
+    assert_eq!(froms, [1]);
+}
+
+#[test]
+fn the_step_from_version_one_returns_its_input_unchanged() {
+    let step = MIGRATIONS[0];
+    let document = at_version(example_json(E10), 1);
+
+    assert_eq!((step.migrate)(document.clone()), Ok(document));
+}
+
+#[test]
+fn the_step_from_version_one_keeps_params_it_does_not_know() {
+    let step = MIGRATIONS[0];
+    let document = json!({
+        "format": "partsmith",
+        "format_version": 1,
+        "units": "mm",
+        "features": [
+            {"id": "f-1", "type": "gear_demo", "nb": "not a map", "merged": [1, 2], "teeth": 12}
+        ]
+    });
+
+    assert_eq!((step.migrate)(document.clone()), Ok(document));
+}
+
+#[test]
+fn version_one_documents_are_brought_to_version_two_unchanged() {
+    for (name, text) in [("E1", E1), ("E2", E2), ("E10", E10)] {
+        let current = example_json(text);
+
+        assert_eq!(
+            migrate(at_version(current.clone(), 1)),
+            Ok((current, Some(1))),
+            "{name}"
+        );
+    }
+}
+
+#[test]
+fn version_two_documents_are_returned_unchanged() {
+    let document = example_json(E10);
 
     assert_eq!(migrate(document.clone()), Ok((document, None)));
+}
+
+#[test]
+fn the_built_in_chain_rejects_versions_it_cannot_open() {
+    let document = example_json(E1);
+
+    assert_eq!(
+        migrate(at_version(document.clone(), 3)),
+        Err(LoadError::NewerFormatVersion {
+            found: 3,
+            supported: 2
+        })
+    );
+    assert_eq!(
+        migrate(at_version(document, 0)),
+        Err(LoadError::UnsupportedFormatVersion {
+            found: 0,
+            oldest: 1
+        })
+    );
 }
 
 #[test]

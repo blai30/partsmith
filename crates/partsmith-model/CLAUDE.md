@@ -23,7 +23,7 @@ Spec (the definition of done): `docs/spec/model.md`, `docs/spec/expressions.md`,
 
 - `src/expr/`: `lexer.rs` (whole source to tokens first), `parser.rs` (operator-precedence parser on explicit stacks, so no input recurses; depth and parenthesis limits checked as nodes are built), `evaluate.rs` (post-order evaluation, unify and promotion), `parameters.rs` (`ParameterGraph`, iterative Tarjan cycles, Kahn order with ties by position, `ParameterValues`), `dimension.rs`, `error.rs`, `unit.rs`, `function.rs`.
 - `src/canonical/`: `layout.rs` (width check stops at the 120-column budget, so layout is linear), `number.rs` (normalized numbers, `ryu` for non-integers), `string.rs`, `parse.rs` (`serde_json` with a seed that rejects duplicate keys and normalizes numbers), `value.rs` (a no-output serializer that finds NaN and infinity with their path before `serde_json::to_value`).
-- `src/file/`: `mod.rs` (load, save, errors), `read.rs` (hand-written, path-aware reader for `Document`, `Parameter`, `Body`, `FeatureRecord`, so `Invalid` errors carry paths without `serde_path_to_error`), `migrate.rs`, `schema.rs`.
+- `src/file/`: `mod.rs` (load, save, errors), `read.rs` (hand-written, path-aware reader for `Document`, `Parameter`, `Body`, `FeatureRecord`, so `Invalid` errors carry paths without `serde_path_to_error`), `migrate.rs` (version checks and the chain; `FORMAT_VERSION` is 2 and the one built-in step, from version 1, returns the document unchanged, ADR 0025), `schema.rs`.
 - `src/path.rs`: borrowed JSON paths for error messages. Other files hold one area each: `id.rs`, `units.rs`, `names.rs`, `document.rs`, `structure.rs`, `validation.rs`, `edit.rs`, `rename.rs`, `undo.rs`, `inspect.rs`, `manifest.rs`.
 
 ## Commands

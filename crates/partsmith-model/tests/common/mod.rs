@@ -30,10 +30,27 @@ pub const E6: &str = include_str!("../fixtures/e6_characters.ptsm");
 pub const E7: &str = include_str!("../fixtures/e7_arrays.ptsm");
 /// File-format example E8: the saved form of the non-canonical input (282 bytes).
 pub const E8_OUTPUT: &str = include_str!("../fixtures/e8_normalized.ptsm");
+/// File-format example E10: every field format version 2 adds (3081 bytes).
+pub const E10: &str = include_str!("../fixtures/e10_version_2.ptsm");
+
+/// The `format_version` line of every canonical example.
+pub const FORMAT_VERSION_LINE: &str = "  \"format_version\": 2,\n";
+
+/// A canonical example with its `format_version` line set to `value`, or removed when `value` is `None`.
+pub fn with_format_version(text: &str, value: Option<&str>) -> String {
+    assert!(
+        text.contains(FORMAT_VERSION_LINE),
+        "the text has no canonical format_version line"
+    );
+    let replacement = value.map_or(String::new(), |value| {
+        format!("  \"format_version\": {value},\n")
+    });
+    text.replacen(FORMAT_VERSION_LINE, &replacement, 1)
+}
 
 /// Lines of the non-canonical E8 input; the file ends every line with CR LF.
 pub const E8_INPUT_LINES: [&str; 3] = [
-    r#"{"units":"mm","format_version":1.0,"format":"partsmith","#,
+    r#"{"units":"mm","format_version":2.0,"format":"partsmith","#,
     r##" "bodies":[{"name":"Lid","id":"b-1","visible":true,"role":"part","color":"#3B82F6","material":null}],"##,
     r#" "features":[{"type":"box","id":"f-1","suppressed":false,"name":null,"size":["10 mm","10 mm","2 mm"],"x":1.0,"label":"café \/ bar"}]}"#,
 ];

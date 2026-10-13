@@ -25,7 +25,7 @@ fn t030_new_document_is_empty_and_valid() {
     let document = Document::new(Units::In);
 
     assert_eq!(document.format, "partsmith");
-    assert_eq!(document.format_version, 1);
+    assert_eq!(document.format_version, 2);
     assert_eq!(document.units, Units::In);
     assert!(document.parameters.is_empty());
     assert!(document.bodies.is_empty());
@@ -212,7 +212,7 @@ fn t040_rollback_must_name_a_feature() {
 fn t041_structure_problems_are_reported_in_walk_order() {
     let mut document = d1();
     document.format = "other".to_string();
-    document.format_version = 2;
+    document.format_version = 3;
     document.printer = Some(String::new());
     parameter_mut(&mut document, "p-h").name = "wall".to_string();
     body_mut(&mut document, "b-1").name = String::new();
@@ -224,7 +224,7 @@ fn t041_structure_problems_are_reported_in_walk_order() {
             StructureError::WrongFormat {
                 found: "other".to_string()
             },
-            StructureError::WrongFormatVersion { found: 2 },
+            StructureError::WrongFormatVersion { found: 3 },
             StructureError::InvalidLabel {
                 id: None,
                 error: LabelError::Empty {
