@@ -70,6 +70,8 @@ impl Expr {
     pub fn is_bare_number(&self) -> bool;
     /// For a bare number, the same text with `unit` written after the number; `None` otherwise (section 3.17).
     pub fn with_unit(&self, unit: Unit) -> Option<Expr>;
+    /// The parameter names every occurrence of which stands where a plain value is promoted as a whole (section 3.19).
+    pub fn promoted_names(&self) -> Result<std::collections::BTreeSet<String>, ExprError>;
 }
 // Also implemented: From<&str>, From<String>, Display (the source text), and JsonSchema as
 // {"type": "string"} under the definition name "Expr".
@@ -632,7 +634,7 @@ The text always parses back to the same dimension and, within the rounding of st
 
 An expression is a *bare number* when it parses to a `Number` node without a unit, or to one or more `Negate` nodes around one, with no parentheses anywhere: `2`, ` 2 `, `-2`, `- 2`, `.5`, `1e3`. Not bare: `2 mm`, `(2)`, `wall`, `pi`, `2 * 3`, and any text that does not parse. A bare number is the one kind of expression whose value the document units decide by themselves when it stands in a length field (section 3.10), so it is what changes when the units change.
 
-`is_bare_number()` tells whether the expression is one. `with_unit(unit)` returns, for a bare number, the source text with a space and `unit.symbol()` inserted right after the number literal (the end of the `Number` node's span), everything else kept byte for byte: `40` gives `40 mm`, ` 20 ` gives ` 20 mm `, `-2` with `Unit::Inch` gives `-2 in`; for anything else it returns `None`. The result evaluates to the value the bare number has when `unit` is the document unit: `2` under `in` and `2 in` under any units are both 50.8 mm in a length field. model.md section 3.12 uses both to keep sizes when the units change, and features use `is_bare_number` for their sentence that a number without a unit means the document units (features.md section 4.3).
+`is_bare_number()` tells whether the expression is one. `with_unit(unit)` returns, for a bare number, the source text with a space and `unit.symbol()` inserted right after the number literal (the end of the `Number` node's span), everything else kept byte for byte: `40` gives `40 mm`, ` 20 ` gives ` 20 mm `, `-2` with `Unit::Inch` gives `-2 in`; for anything else it returns `None`. The result evaluates to the value the bare number has when `unit` is the document unit: `2` under `in` and `2 in` under any units are both 50.8 mm in a length field. model.md section 3.12 uses both, with the promoted names of section 3.19, to keep sizes when the units change, and features use `is_bare_number` for their sentence that a number without a unit means the document units (features.md section 4.3).
 
 ### 3.18 Suggestions for unknown names
 
@@ -641,6 +643,12 @@ An expression is a *bare number* when it parses to a `Number` node without a uni
 An `UnknownName { name }` gets a suggestion when exactly one candidate name other than `name` has `edit_distance(name, candidate) <= SUGGESTION_DISTANCE`; that candidate is the suggestion. With none or several such candidates there is no suggestion, so a suggestion is never a choice between lookalikes. The candidates are the parameter names in the scope (section 3.12), or, inside `Document::evaluate_parameters`, every parameter of the document except the one being evaluated (section 3.13). Dotted names, units and functions get no suggestion.
 
 The suggestion changes the message (section 4) and gives a fix: `ExprError::corrected(source)` is `source.rename_parameter(name, suggestion)` (section 3.15), which replaces every reference to the unknown name and nothing else. Features offer it as a one-click fix of their `expression` error (features.md section 4.1), which hosts label `Replace {name} with {suggestion}` (newcomer error corpus NC10: `Distance: 'hieght' is not a parameter. Did you mean 'height'?` with [Replace hieght with height]).
+
+### 3.19 Promoted names
+
+`promoted_names()` parses the expression and returns the parameter names every occurrence of which stands in a *promoting position*. The root is in a promoting position; so is an operand of a node in a promoting position when that node is a unary minus, a `+` or `-`, a call of `min` or `max`, a `*` whose other operand is a number literal without a unit, or a `/` of which the operand is the left one and whose right operand is a number literal without a unit. Parentheses do not change positions. Dotted names are not parameter names and are never in the set. An expression that does not parse gives its parse error.
+
+A plain parameter in a promoting position is read as one value of the dimension the whole expression is promoted to: when the expression stands in a length field, writing the parameter's bare number with a length unit (`2` as `2 mm`) leaves the expression a length. In any other position it is not: in `40 mm * scale` the plain `scale` is a factor, and `2 mm * 2 mm` would be an area; in `wall * wall`, `2 / wall`, `sqrt(wall)`, `round(wall)` or `sin(wall)` a unit changes the dimension or the value in other ways. model.md section 3.12 rewrites a parameter for Keep sizes only when it is promoted along every way a length field reaches it.
 
 ## 4. Errors
 
@@ -830,6 +838,7 @@ Release build on the reference desktop (2022 mid-range laptop); web budgets are 
 95. Parameters `a` = `heigth + 1` and `height` = `30 mm`, in this order and in the reverse order, give `a` the error `UnknownName { name: "heigth", suggestion: Some("height") } @ 0..6`. A document whose only parameter is `height` = `heigth + 1` gives `UnknownName { name: "heigth", suggestion: None }`: a parameter is never suggested inside its own expression.
 96. `is_bare_number` is true for `2`, ` 2 `, `-2`, `- 2`, `--2`, `.5` and `1e3`, and false for `2 mm`, `(2)`, `-(2)`, `wall`, `pi`, `2 * 3`, `2,5` and the empty text.
 97. `with_unit`: `Expr::new("40").with_unit(Unit::Millimeter)` is `Some("40 mm")`; `" 20 "` gives `Some(" 20 mm ")`; `"-2"` with `Unit::Inch` gives `Some("-2 in")`; `"- 2"` gives `Some("- 2 mm")`; `"1e3"` gives `Some("1e3 mm")`; `"(2)"`, `"2 mm"` and `"wall"` give `None`. `eval_in(In, "2", Some(LENGTH))` and `eval_in(Mm, "2 in", Some(LENGTH))` are both length 50.8.
+98. `promoted_names` is `{wall}` for each of `wall`, ` wall `, `-wall`, `(wall)`, `wall + 0.5`, `0.5 - wall`, `max(wall, 1 mm)`, `2 * wall`, `wall * 2`, `wall / 4`, `-(wall + 2 * wall)` and `min(3, wall) + 1`; `{gap, wall}` for `wall - gap`; and empty for `40 mm * scale`, `wall * wall`, `wall * ratio`, `4 / wall`, `wall ^ 2`, `sqrt(wall)`, `round(wall)`, `sin(wall)`, `(wall + 1) * scale`, `wall + wall * ratio` (one occurrence of `wall` is a factor), `printer.wall` and `2`. `Expr::new("wall +").promoted_names()` is `Err` with kind `UnexpectedEnd`.
 
 ## 7. Open issues
 

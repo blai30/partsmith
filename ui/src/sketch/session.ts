@@ -74,6 +74,7 @@ import { isAxis, ORIGIN_POINT } from './refs'
 import {
   circlePath,
   dimensionPaths,
+  drawInputsPlacement,
   entitiesInBox,
   entityPoints,
   glyphCenters,
@@ -81,6 +82,7 @@ import {
   projectPolyline,
   screenBox,
   shapePoints,
+  type DrawInputsPlacement,
   type Projector,
 } from './screen'
 import { constraintTool, isDrawingTool } from './tools'
@@ -261,9 +263,10 @@ export type OverlayPaint = {
   readonly highlight: string
   /** SVG path data of point markers in `highlight`: the snap point and constrained points. */
   readonly markers: string
-  /** Top left of the inference glyph row, the draw inputs and the dimension editor. */
+  /** Top left of the inference glyph row and the dimension editor. */
   readonly inference: Vector2 | null
-  readonly drawInputs: Vector2 | null
+  /** Where the draw inputs go, beside the rubber band and away from the pointer. */
+  readonly drawInputs: DrawInputsPlacement | null
   readonly editor: Vector2 | null
   /** Center of the label of the dimension being placed. */
   readonly placing: Vector2 | null
@@ -312,7 +315,7 @@ const CLICK_DISTANCE_PIXELS = 4
 const TESSELLATION_PIXELS = 0.25
 /** Inference glyphs sit this many CSS pixels (times the UI scale) right of and below the cursor. */
 const INFERENCE_OFFSET_PIXELS = 16
-/** Draw inputs sit this many CSS pixels (times the UI scale) off the rubber band's midpoint. */
+/** Draw inputs sit this many CSS pixels (times the UI scale) off the rubber band's midpoint, away from the pointer. */
 const DRAW_INPUT_OFFSET_PIXELS = 12
 /** Dimension arrowheads are this many CSS pixels long (3.16.2). */
 const ARROW_PIXELS = 8
@@ -927,10 +930,7 @@ export function createSketchController(options: SketchControllerOptions): Sketch
       drawInputs:
         inputsAt === null
           ? null
-          : [
-              inputsAt[0] + DRAW_INPUT_OFFSET_PIXELS * scale,
-              inputsAt[1] + DRAW_INPUT_OFFSET_PIXELS * scale,
-            ],
+          : drawInputsPlacement(inputsAt, pointer, DRAW_INPUT_OFFSET_PIXELS * scale),
       editor: editorAt,
       placing,
       box: box === null ? null : pixelRectangle(box.start, box.end),

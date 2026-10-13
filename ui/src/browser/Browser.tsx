@@ -36,7 +36,7 @@ import { featureLabel } from '../core/labels'
 import { formatEvaluated } from '../expression/evaluate'
 import { isPlainNumber } from '../expression/step'
 import type { Body, FeatureRecord, Parameter } from '../generated/protocol'
-import { pickRow, togglesSelection } from '../layout/pick-row'
+import { activatesRow, pickRow, togglesSelection } from '../layout/pick-row'
 import { RenameField } from '../layout/RenameField'
 import { BROWSER_PANEL_ID } from '../layout/panel-ids'
 import { requestUi, useUiRequest } from '../layout/requests'
@@ -236,9 +236,13 @@ function Row({
         if (event.target !== event.currentTarget) {
           return
         }
-        if (event.key === 'Enter') {
-          event.preventDefault()
-          onActivate?.()
+        // Enter with Ctrl, Cmd or Alt stays a shortcut (Mod+Enter finishes a sketch, 3.5), and a
+        // row with nothing to activate leaves Enter to the Enter ladder.
+        if (activatesRow(event)) {
+          if (onActivate !== undefined) {
+            event.preventDefault()
+            onActivate()
+          }
         } else if (event.key === ' ') {
           event.preventDefault()
           pickRow(app, selection, togglesSelection(app, event))
@@ -301,7 +305,7 @@ function GroupHeader({ id, title, expanded, onToggle, actions }: GroupProps) {
         onToggle(id)
       }}
       onKeyDown={(event) => {
-        if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) {
+        if (event.target === event.currentTarget && (activatesRow(event) || event.key === ' ')) {
           event.preventDefault()
           onToggle(id)
         }

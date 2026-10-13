@@ -64,6 +64,18 @@ const ORIGIN_KINDS: ReadonlySet<SelectionItemKind> = new Set([
   'origin_point',
 ])
 
+/**
+ * The kind a selection item competes as in `choosePick`: the active sketch's own origin point and
+ * axes count as origin items, so at equal distance the sketch's curves and points win (3.6).
+ */
+export function candidateKind(item: SelectionItem): SelectionItemKind {
+  const reference = item.sketchItem
+  if (reference?.kind === 'origin') {
+    return reference.which === 'point' ? 'origin_point' : 'origin_axis'
+  }
+  return item.kind
+}
+
 // Whether `candidate` beats `best` within one pick class: the smaller distance, then anything over origin items. Exact ties keep the earlier candidate, so callers list candidates in ascending pick id order.
 function beats(candidate: PickCandidate, best: PickCandidate): boolean {
   if (candidate.distance !== best.distance) {

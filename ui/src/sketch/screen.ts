@@ -230,6 +230,34 @@ export function glyphCenters(
   return centers
 }
 
+/**
+ * Where the draw inputs go (3.16.4): a corner `offset` pixels off the rubber band's midpoint, and
+ * the sides of that corner they extend to. They take the quadrant facing away from the pointer, so
+ * they never cover the point the next click goes to.
+ */
+export type DrawInputsPlacement = {
+  readonly at: Vector2
+  /** The inputs extend left of `at` (the pointer is right of the midpoint), else right. */
+  readonly left: boolean
+  /** The inputs extend above `at` (the pointer is below the midpoint), else below. */
+  readonly above: boolean
+}
+
+/** The draw inputs' placement beside the rubber band's midpoint, away from the pointer. */
+export function drawInputsPlacement(
+  midpoint: Vector2,
+  pointer: Vector2 | null,
+  offset: number,
+): DrawInputsPlacement {
+  const left = pointer !== null && pointer[0] > midpoint[0]
+  const above = pointer !== null && pointer[1] > midpoint[1]
+  return {
+    at: [midpoint[0] + (left ? -offset : offset), midpoint[1] + (above ? -offset : offset)],
+    left,
+    above,
+  }
+}
+
 /** A rectangle on the canvas in CSS pixels. */
 export type ScreenBox = {
   readonly left: number

@@ -1639,6 +1639,79 @@ export function createScene(backend: RenderBackend): Scene {
     readonly selectedKeys: ReadonlySet<string>
   }
 
+  /** The active sketch's origin point and axes (3.16.2), or nothing for another sketch. */
+  function sketchOriginDraws(
+    sketch: { readonly id: string; readonly solution: SketchSolution; readonly active: boolean },
+    input: SketchInput,
+  ): PendingDraw[] {
+    const { theme, scale, picking, hoverKeys, selectedKeys } = input
+    const { solution } = sketch
+    const prefix = `sketch:${sketch.id}`
+    const reference = colorOf(theme, 'sketchReference')
+    const highlight = { hover: hoverKeys, selected: selectedKeys }
+    const axesId = `${prefix}:axes`
+    const originId = `${prefix}:origin`
+    if (!sketch.active) {
+      remove(axesId)
+      remove(originId)
+      return []
+    }
+    const camera = input.camera
+    const aspect = input.size.height > 0 ? input.size.width / input.size.height : 1
+    const reach = SKETCH_AXIS_REACH * visibleHeightAtTarget(camera) * Math.max(aspect, 1)
+    const yAxis = yAxisOf(solution.placement)
+    const offset = subtract(camera.target, solution.placement.origin)
+    const alongX = dot(offset, solution.placement.x_axis)
+    const alongY = dot(offset, yAxis)
+    // Quantized so the axes are uploaded again only after a large camera change.
+    const quantum = Math.max(reach / 8, 1e-6)
+    const centerX = Math.round(alongX / quantum) * quantum
+    const centerY = Math.round(alongY / quantum) * quantum
+    const axisSignature = JSON.stringify([
+      solution.placement,
+      centerX,
+      centerY,
+      Math.round(reach / quantum),
+    ])
+    uploadGenerated(axesId, axisSignature, () => {
+      const { positions } = segmentsOnPlane(solution.placement, [
+        { element: 0, points: new Float32Array([centerX - reach, 0, centerX + reach, 0]) },
+        { element: 1, points: new Float32Array([0, centerY - reach, 0, centerY + reach]) },
+      ])
+      return { kind: 'lines', positions, elementIds: new Uint32Array([0, 1]), elementCount: 2 }
+    })
+    uploadGenerated(originId, JSON.stringify(solution.placement), () => ({
+      kind: 'points',
+      positions: new Float32Array(solution.placement.origin),
+      elementIds: new Uint32Array([0]),
+      elementCount: 1,
+    }))
+    const axisItems = [sketchOriginItem(sketch.id, 'x_axis'), sketchOriginItem(sketch.id, 'y_axis')]
+    const sketchOrigin = sketchOriginItem(sketch.id, 'point')
+    return [
+      {
+        call: {
+          ...overlayCall(reference, 'overlay', 1, REFERENCE_CURVE_WIDTH * scale, true, true),
+          id: axesId,
+          pickSize: SKETCH_CURVE_PICK_WIDTH * scale,
+        },
+        elementCount: 2,
+        target: picking.accepts('sketch_curve') ? itemTarget(axisItems, 'curve') : null,
+        states: statesFor(2, (index) => axisItems[index]?.key ?? '', highlight),
+      },
+      {
+        call: {
+          ...overlayCall(reference, 'overlay', 1, ORIGIN_POINT_SIZE * scale, false, true),
+          id: originId,
+          pickSize: SKETCH_POINT_PICK_SIZE * scale,
+        },
+        elementCount: 1,
+        target: picking.accepts('sketch_point') ? itemTarget([sketchOrigin], 'point') : null,
+        states: statesFor(1, () => sketchOrigin.key, highlight),
+      },
+    ]
+  }
+
   function sketchDraws(
     state: AppState,
     sketch: { readonly id: string; readonly solution: SketchSolution; readonly active: boolean },
@@ -1654,7 +1727,63 @@ export function createScene(backend: RenderBackend): Scene {
     const sketchMode = state.context === 'sketch'
     const pickableSketch = sketch.active || !sketchMode
     const curves = solution.entities.filter((entity) => entity.type !== 'point')
+    // Areas first, then the sketch's origin and axes, then its curves and points: in the ID pass a
+    // later draw covers an earlier one at equal depth, so curves stay pickable where they lie on an
+    // axis or bound a region (3.6).
     const draws: PendingDraw[] = []
+    // Region fills from the solution's display buffers.
+    const regionsId = `${prefix}:regions`
+    const display = state.document?.sketches[sketch.id]?.display ?? null
+    if (display === null || solution.regions.length === 0) {
+      remove(regionsId)
+    } else {
+      const placement = solution.placement
+      const yAxis = yAxisOf(placement)
+      const signature = JSON.stringify(placement)
+      const current = uploaded.get(regionsId)
+      if (
+        current === undefined ||
+        signatures.get(regionsId) !== signature ||
+        current.elementIds !== display.regionIds
+      ) {
+        const positions = new Float32Array((display.regionPositions.length / 2) * 3)
+        for (let i = 0; 2 * i + 1 < display.regionPositions.length; i++) {
+          const point = onPlane(placement, yAxis, [
+            display.regionPositions[2 * i] ?? 0,
+            display.regionPositions[2 * i + 1] ?? 0,
+          ])
+          positions.set(point, 3 * i)
+        }
+        upload(regionsId, {
+          kind: 'fill',
+          positions,
+          indices: display.regionIndices,
+          elementIds: display.regionIds,
+          elementCount: solution.regions.length,
+        })
+        signatures.set(regionsId, signature)
+      }
+      const items = solution.regions.map((_, index) => regionItem(sketch.id, solution, index))
+      draws.push({
+        call: {
+          ...overlayCall(
+            colorOf(theme, 'sketchRegion'),
+            'overlay',
+            sketch.active ? REGION_OPACITY : 0,
+            0,
+            false,
+            false,
+          ),
+          id: regionsId,
+        },
+        elementCount: solution.regions.length,
+        target:
+          pickableSketch && picking.accepts('sketch_region') ? itemTarget(items, 'area') : null,
+        states: statesFor(solution.regions.length, (index) => items[index]?.key ?? '', highlight),
+      })
+    }
+
+    draws.push(...sketchOriginDraws(sketch, input))
     const problemEntities = new Set(
       solution.profile_findings.flatMap((finding) =>
         'entities' in finding ? finding.entities : 'entity' in finding ? [finding.entity] : [],
@@ -1774,118 +1903,6 @@ export function createScene(backend: RenderBackend): Scene {
       })
     }
 
-    // Region fills from the solution's display buffers.
-    const regionsId = `${prefix}:regions`
-    const display = state.document?.sketches[sketch.id]?.display ?? null
-    if (display === null || solution.regions.length === 0) {
-      remove(regionsId)
-    } else {
-      const placement = solution.placement
-      const yAxis = yAxisOf(placement)
-      const signature = JSON.stringify(placement)
-      const current = uploaded.get(regionsId)
-      if (
-        current === undefined ||
-        signatures.get(regionsId) !== signature ||
-        current.elementIds !== display.regionIds
-      ) {
-        const positions = new Float32Array((display.regionPositions.length / 2) * 3)
-        for (let i = 0; 2 * i + 1 < display.regionPositions.length; i++) {
-          const point = onPlane(placement, yAxis, [
-            display.regionPositions[2 * i] ?? 0,
-            display.regionPositions[2 * i + 1] ?? 0,
-          ])
-          positions.set(point, 3 * i)
-        }
-        upload(regionsId, {
-          kind: 'fill',
-          positions,
-          indices: display.regionIndices,
-          elementIds: display.regionIds,
-          elementCount: solution.regions.length,
-        })
-        signatures.set(regionsId, signature)
-      }
-      const items = solution.regions.map((_, index) => regionItem(sketch.id, solution, index))
-      draws.push({
-        call: {
-          ...overlayCall(
-            colorOf(theme, 'sketchRegion'),
-            'overlay',
-            sketch.active ? REGION_OPACITY : 0,
-            0,
-            false,
-            false,
-          ),
-          id: regionsId,
-        },
-        elementCount: solution.regions.length,
-        target:
-          pickableSketch && picking.accepts('sketch_region') ? itemTarget(items, 'area') : null,
-        states: statesFor(solution.regions.length, (index) => items[index]?.key ?? '', highlight),
-      })
-    }
-
-    // The active sketch's origin point and axes (3.16.2).
-    const axesId = `${prefix}:axes`
-    const originId = `${prefix}:origin`
-    if (!sketch.active) {
-      remove(axesId)
-      remove(originId)
-      return draws
-    }
-    const camera = input.camera
-    const aspect = input.size.height > 0 ? input.size.width / input.size.height : 1
-    const reach = SKETCH_AXIS_REACH * visibleHeightAtTarget(camera) * Math.max(aspect, 1)
-    const yAxis = yAxisOf(solution.placement)
-    const offset = subtract(camera.target, solution.placement.origin)
-    const alongX = dot(offset, solution.placement.x_axis)
-    const alongY = dot(offset, yAxis)
-    // Quantized so the axes are uploaded again only after a large camera change.
-    const quantum = Math.max(reach / 8, 1e-6)
-    const centerX = Math.round(alongX / quantum) * quantum
-    const centerY = Math.round(alongY / quantum) * quantum
-    const axisSignature = JSON.stringify([
-      solution.placement,
-      centerX,
-      centerY,
-      Math.round(reach / quantum),
-    ])
-    uploadGenerated(axesId, axisSignature, () => {
-      const { positions } = segmentsOnPlane(solution.placement, [
-        { element: 0, points: new Float32Array([centerX - reach, 0, centerX + reach, 0]) },
-        { element: 1, points: new Float32Array([0, centerY - reach, 0, centerY + reach]) },
-      ])
-      return { kind: 'lines', positions, elementIds: new Uint32Array([0, 1]), elementCount: 2 }
-    })
-    uploadGenerated(originId, JSON.stringify(solution.placement), () => ({
-      kind: 'points',
-      positions: new Float32Array(solution.placement.origin),
-      elementIds: new Uint32Array([0]),
-      elementCount: 1,
-    }))
-    const axisItems = [sketchOriginItem(sketch.id, 'x_axis'), sketchOriginItem(sketch.id, 'y_axis')]
-    const sketchOrigin = sketchOriginItem(sketch.id, 'point')
-    draws.push({
-      call: {
-        ...overlayCall(reference, 'overlay', 1, REFERENCE_CURVE_WIDTH * scale, true, true),
-        id: axesId,
-        pickSize: SKETCH_CURVE_PICK_WIDTH * scale,
-      },
-      elementCount: 2,
-      target: picking.accepts('sketch_curve') ? itemTarget(axisItems, 'curve') : null,
-      states: statesFor(2, (index) => axisItems[index]?.key ?? '', highlight),
-    })
-    draws.push({
-      call: {
-        ...overlayCall(reference, 'overlay', 1, ORIGIN_POINT_SIZE * scale, false, true),
-        id: originId,
-        pickSize: SKETCH_POINT_PICK_SIZE * scale,
-      },
-      elementCount: 1,
-      target: picking.accepts('sketch_point') ? itemTarget([sketchOrigin], 'point') : null,
-      states: statesFor(1, () => sketchOrigin.key, highlight),
-    })
     return draws
   }
 

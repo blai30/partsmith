@@ -27,7 +27,7 @@ import { Tooltip } from '../components/Tooltip'
 import { featureLabel } from '../core/labels'
 import type { FeatureRecord, FeatureStatus } from '../generated/protocol'
 import { SIDE_PANEL_ID } from '../layout/panel-ids'
-import { pickRow, togglesSelection } from '../layout/pick-row'
+import { activatesRow, pickRow, togglesSelection } from '../layout/pick-row'
 import { RenameField } from '../layout/RenameField'
 import { useUiRequest } from '../layout/requests'
 import { keepInViewHorizontally } from '../layout/scroll'
@@ -52,6 +52,11 @@ const NO_FEATURES: readonly FeatureRecord[] = []
 
 /** A press must move this far (CSS pixels) before it drags an item or the marker. */
 const DRAG_THRESHOLD_PIXELS = 4
+
+/** `MouseEvent.button` of the secondary (right) button. */
+const SECONDARY_BUTTON_INDEX = 2
+/** The secondary button's bit in `MouseEvent.buttons`. */
+const SECONDARY_BUTTON_BIT = 2
 
 function plural(count: number, singular: string, several: string): string {
   return `${String(count)} ${count === 1 ? singular : several}`
@@ -148,9 +153,12 @@ function TimelineItem({
   const state = status?.status
   const messages = status?.messages.map((message) => message.message) ?? []
   const tooltip = [label, ...messages].join(' ')
+  // On Linux and macOS the browser fires `contextmenu` on the right button's press. A menu opened
+  // then would be light-dismissed by the release, so it opens on the release instead (3.13).
+  const menuOnRelease = useRef(false)
 
   function onKeyDown(event: KeyboardEvent<HTMLButtonElement>): void {
-    if (event.key === 'Enter') {
+    if (activatesRow(event)) {
       event.preventDefault()
       // A held key edits once.
       if (!event.repeat) {
@@ -194,8 +202,21 @@ function TimelineItem({
             onEdit(record.id)
           }}
           onKeyDown={onKeyDown}
+          onPointerDown={() => {
+            menuOnRelease.current = false
+          }}
+          onPointerUp={(event) => {
+            if (event.button === SECONDARY_BUTTON_INDEX && menuOnRelease.current) {
+              menuOnRelease.current = false
+              onMenu(record.id, event.currentTarget)
+            }
+          }}
           onContextMenu={(event) => {
             event.preventDefault()
+            if ((event.buttons & SECONDARY_BUTTON_BIT) !== 0) {
+              menuOnRelease.current = true
+              return
+            }
             onMenu(record.id, event.currentTarget)
           }}
           className={clsx(
@@ -460,8 +481,6 @@ function Strip() {
       gap: index,
       rollback: null,
     }
-    // jsdom has no pointer capture; browsers send the drag's moves to the item.
-    event.currentTarget.setPointerCapture?.(event.pointerId)
   }
 
   function onPointerMove(event: PointerEvent<HTMLDivElement>): void {
@@ -475,6 +494,10 @@ function Strip() {
         return
       }
       current.dragging = true
+      // The strip captures the pointer only once a drag starts: captured at the press, the
+      // release, click and double-click would go to the strip and never reach the item's button.
+      // jsdom has no pointer capture.
+      element.setPointerCapture?.(event.pointerId)
       current.gaps = gapPositions(element)
       if (current.featureId === null) {
         current.rollback = startRollbackDrag(app, current.index)

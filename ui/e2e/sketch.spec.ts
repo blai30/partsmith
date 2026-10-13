@@ -225,30 +225,26 @@ test.describe('sketching', () => {
     page,
   }) => {
     await openApp(page)
-    await newSketchOnTopPlane(page)
+    await dropFile(page, 'rect-sketch.ptsm')
+    await editSketchFromBrowser(page, 'Sketch 1')
+    await expectDof(page, 0)
     const box = await canvas(page)
-    await page.keyboard.press('l')
-    await clickAt(page, offset(box, 0, 0))
-    await page.mouse.move(box.cx + 200, box.cy - 10, { steps: 4 })
-    await expect(page.locator('[data-testid=inference-glyph][data-type=horizontal]')).toBeVisible()
-    await clickAt(page, offset(box, 200, -10))
-    await leaveLineTool(page)
-    await expectDof(page, 1)
-
-    await clickAt(page, offset(box, 100, 0))
-    await expect(page.getByTestId('selection-title')).toHaveText('1 line')
-    await expect(inspector(page).getByRole('button', { name: /^Vertical/ })).toBeVisible()
-    await page.keyboard.press('v')
+    const { scale } = sketchToScreen(box, [0, 0], [40, 20])
+    await runCommand(page, 'Equal')
+    // The bottom line lies on the sketch's X axis and the left line on its Y axis.
+    await clickAt(page, offset(box, 0, 10 * scale))
+    await clickAt(page, offset(box, -20 * scale, 0))
     const warning = notification(
       page,
       'warning',
-      'Vertical conflicts with Horizontal, so it was not added.',
+      'Equal conflicts with Distance 40 and Distance 20, so it was not added.',
     )
     await expect(warning).toBeVisible()
-    await expectDof(page, 1)
+    await expectDof(page, 0)
+    await expect(sketchDimensions(page)).toHaveCount(2)
     await warning.getByRole('button', { name: 'Replace them', exact: true }).click()
-    await expect(constraintGlyphs(page, 'vertical')).toHaveCount(1)
-    await expect(constraintGlyphs(page, 'horizontal')).toHaveCount(0)
+    await expect(constraintGlyphs(page, 'equal')).toHaveCount(1)
+    await expect(sketchDimensions(page)).toHaveCount(0)
     await expectDof(page, 1)
   })
 

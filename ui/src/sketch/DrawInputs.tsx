@@ -60,63 +60,63 @@ export function DrawInputs({ ref, controller, inputs, focusRequest }: DrawInputs
   }
 
   return (
-    <fieldset
-      ref={ref}
-      className="pointer-events-auto absolute top-0 left-0 flex flex-col items-start gap-1"
-    >
+    <fieldset ref={ref} className="group pointer-events-auto absolute top-0 left-0">
       <legend className="sr-only">Dimensions as you draw</legend>
-      <div className="flex gap-1">
-        {inputs.map((input, index) => (
-          <input
-            key={input.name}
-            ref={(element) => {
-              fields.current[index] = element
-            }}
-            type="text"
-            data-testid="draw-input"
-            data-field={input.name}
-            aria-label={input.name}
-            aria-invalid={input.error === null ? undefined : true}
-            aria-describedby={input.error === null ? undefined : `${errorId}-${input.name}`}
-            value={input.text}
-            spellCheck={false}
-            autoComplete="off"
-            onChange={(event) => {
-              controller.setDrawText(input.name, event.currentTarget.value)
-            }}
-            onKeyDown={(event) => {
-              onKeyDown(event, index)
-            }}
-            className={clsx(
-              'h-6 w-20 rounded-sm border px-1.5 text-xs shadow-sm',
-              FONT_CLASSES.values,
-              COLOR_CLASSES.field.background,
-              COLOR_CLASSES.text.foreground,
-              COLOR_CLASSES.textMuted.placeholder,
-              COLOR_CLASSES.focusRing.outline,
-              input.error === null
-                ? COLOR_CLASSES.borderControl.border
-                : COLOR_CLASSES.errorMark.border,
-            )}
-          />
-        ))}
+      {/* Extends from the painted corner toward the sides it marks, away from the pointer (3.16.4). */}
+      <div className="flex flex-col items-start gap-1 group-data-above:-translate-y-full group-data-left:-translate-x-full">
+        <div className="flex gap-1">
+          {inputs.map((input, index) => (
+            <input
+              key={input.name}
+              ref={(element) => {
+                fields.current[index] = element
+              }}
+              type="text"
+              data-testid="draw-input"
+              data-field={input.name}
+              aria-label={input.name}
+              aria-invalid={input.error === null ? undefined : true}
+              aria-describedby={input.error === null ? undefined : `${errorId}-${input.name}`}
+              value={input.text}
+              spellCheck={false}
+              autoComplete="off"
+              onChange={(event) => {
+                controller.setDrawText(input.name, event.currentTarget.value)
+              }}
+              onKeyDown={(event) => {
+                onKeyDown(event, index)
+              }}
+              className={clsx(
+                'h-6 w-20 rounded-sm border px-1.5 text-xs shadow-sm',
+                FONT_CLASSES.values,
+                COLOR_CLASSES.field.background,
+                COLOR_CLASSES.text.foreground,
+                COLOR_CLASSES.textMuted.placeholder,
+                COLOR_CLASSES.focusRing.outline,
+                input.error === null
+                  ? COLOR_CLASSES.borderControl.border
+                  : COLOR_CLASSES.errorMark.border,
+              )}
+            />
+          ))}
+        </div>
+        {/* Why a typed value is not used, on a chip under the inputs (3.24). */}
+        {inputs.map((input) =>
+          input.error === null ? null : (
+            <p
+              key={input.name}
+              id={`${errorId}-${input.name}`}
+              className={clsx(
+                'w-max max-w-64 rounded-sm px-1.5 py-0.5 text-xs shadow-sm',
+                COLOR_CLASSES.errorFill.background,
+                COLOR_CLASSES.errorFill.foreground,
+              )}
+            >
+              {input.error}
+            </p>
+          ),
+        )}
       </div>
-      {/* Why a typed value is not used, on a chip under the inputs (3.24). */}
-      {inputs.map((input) =>
-        input.error === null ? null : (
-          <p
-            key={input.name}
-            id={`${errorId}-${input.name}`}
-            className={clsx(
-              'w-max max-w-64 rounded-sm px-1.5 py-0.5 text-xs shadow-sm',
-              COLOR_CLASSES.errorFill.background,
-              COLOR_CLASSES.errorFill.foreground,
-            )}
-          >
-            {input.error}
-          </p>
-        ),
-      )}
     </fieldset>
   )
 }

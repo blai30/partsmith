@@ -406,7 +406,9 @@ test.describe('inspector, timeline and browser', () => {
     await fillInspector(page, 'Distance', '30')
     await expectPreviewShown(page)
     await page.keyboard.press('Escape')
-    await expect(inspector(page)).toBeHidden()
+    // The double-click's clicks selected Extrude 1, so the selection inspector may take the place
+    // of the command's (ui.md 3.8, 3.9).
+    await expect(inspector(page)).not.toHaveAttribute('data-mode', 'command')
     await expectBodySize(page, 'Cube', '20 × 20 × 20 mm')
 
     await extrude.dblclick()

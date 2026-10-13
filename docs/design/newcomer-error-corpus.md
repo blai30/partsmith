@@ -33,7 +33,7 @@ Setups use BLOCK unless they say otherwise.
 - **Recompute** (`crates/partsmith-recompute/tests/newcomer_errors.rs`): every scenario's codes, structural messages and fixes from the document alone.
 - **Engine** (`crates/partsmith-engine/tests/newcomer_errors.rs`): every scenario through the protocol, with the edit applied by `apply_edits` and the fix by `apply_fix`, checking the action labels, the cause lines of NC08 and NC11, and the result after the fix; NC09 through `set_document_units`.
 - **Playwright** against the real core and UI: E-110 to E-121 (NC01 to NC12), including the Extrude disabled reason of NC01 and the units control of NC09.
-- **Crate tests** where the study puts them: features document tests for NC02 to NC06 and NC12, fillet and shell spec tests for NC05 and NC06, the sketch crate for the findings and fixes of NC01, NC07 and NC08, the expression evaluator for NC10, and Python for NC09 (`Document.set_units(..., keep_sizes=True)`).
+- **Crate tests** where the study puts them: features document tests for NC02 to NC06 and NC12, fillet and shell spec tests for NC05 and NC06, the sketch crate for the findings, issues and fixes of NC01, NC07 and NC08 (sketch.md tests 237, 243 and 251; a failed sketch is diagnosed where it was given, so NC08 is `sketch_not_solved` whatever the iterations did), the expression evaluator for NC10, and Python for NC09 (`Document.set_units(..., keep_sizes=True)`).
 
 All twelve pass in phase 3 of the study's plan except the cause lines of NC08 and NC11, which pass in phase 4.
 

@@ -115,6 +115,8 @@ export function Menu({
 }
 
 type MenuListProps = {
+  /** The element id, which a submenu's item names as its popover target. */
+  readonly id?: string
   /** The root menu is named by a label; a submenu by its item. */
   readonly name: { readonly label: string } | { readonly labelledBy: string }
   readonly entries: readonly MenuEntry[]
@@ -162,6 +164,7 @@ function nextFocusable(entries: readonly MenuEntry[], start: number, direction: 
 }
 
 function MenuList({
+  id,
   name,
   entries,
   anchor,
@@ -332,6 +335,7 @@ function MenuList({
   return (
     <div
       ref={element}
+      id={id}
       role="menu"
       data-testid={testId}
       tabIndex={-1}
@@ -340,8 +344,9 @@ function MenuList({
       aria-labelledby={'labelledBy' in name ? name.labelledBy : undefined}
       onKeyDown={onKeyDown}
       // `hidden open:flex`: a display class would override the browser's hiding of a closed popover.
+      // `pointer-events-auto`: the top layer still inherits pointer-events from DOM parents.
       className={clsx(
-        'fixed top-0 left-0 m-0 hidden max-h-dvh min-w-48 max-w-80 flex-col open:flex overflow-y-auto rounded-md border p-1 text-sm shadow-lg transition-opacity duration-150 ease-out starting:opacity-0 motion-reduce:transition-none',
+        'pointer-events-auto fixed top-0 left-0 m-0 hidden max-h-dvh min-w-48 max-w-80 flex-col open:flex overflow-y-auto rounded-md border p-1 text-sm shadow-lg transition-opacity duration-150 ease-out starting:opacity-0 motion-reduce:transition-none',
         COLOR_CLASSES.surfaceRaised.background,
         COLOR_CLASSES.border.border,
         COLOR_CLASSES.text.foreground,
@@ -359,6 +364,7 @@ function MenuList({
         const disabled = entry.disabled === true
         const expanded = submenu?.index === index
         const itemId = `${idPrefix}-${String(index)}`
+        const submenuId = `${itemId}-menu`
         const item = (
           <button
             key={itemId}
@@ -375,6 +381,10 @@ function MenuList({
             aria-disabled={disabled ? true : undefined}
             aria-haspopup={entry.kind === 'submenu' ? 'menu' : undefined}
             aria-expanded={entry.kind === 'submenu' ? expanded : undefined}
+            // The submenu's invoker: the browser counts a press on it as a press inside the open
+            // submenu, so clicking the item does not light-dismiss the submenu that hovering opened.
+            popoverTarget={entry.kind === 'submenu' ? submenuId : undefined}
+            popoverTargetAction={entry.kind === 'submenu' ? 'show' : undefined}
             onFocus={() => {
               setActive(index)
             }}
@@ -444,6 +454,7 @@ function MenuList({
             {item}
             {expanded ? (
               <MenuList
+                id={submenuId}
                 name={{ labelledBy: itemId }}
                 entries={entry.entries}
                 anchor={submenuAnchor}

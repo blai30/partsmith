@@ -31,6 +31,7 @@ import { DimensionEditor } from './DimensionEditor'
 import { DrawInputs } from './DrawInputs'
 import type { Vector2 } from './geometry'
 import { issueRings } from './issues'
+import type { DrawInputsPlacement } from './screen'
 import {
   createSketchController,
   EMPTY_SKETCH_MODEL,
@@ -83,6 +84,18 @@ function placeAt(element: HTMLElement | null, at: Vector2 | null): void {
   positionElement(element, at[0], at[1])
 }
 
+/**
+ * Places the draw inputs at their corner; `data-left` and `data-above` say which way they extend,
+ * which their content's translate classes follow (3.16.4).
+ */
+function placeDrawInputs(element: HTMLElement | null, placement: DrawInputsPlacement | null): void {
+  placeAt(element, placement?.at ?? null)
+  if (element !== null && placement !== null) {
+    element.toggleAttribute('data-left', placement.left)
+    element.toggleAttribute('data-above', placement.above)
+  }
+}
+
 function setAttribute(element: Element | null, name: string, value: string): void {
   if (element !== null && element.getAttribute(name) !== value) {
     element.setAttribute(name, value)
@@ -124,7 +137,7 @@ function paintOverlay(paint: OverlayPaint, elements: OverlayElements): void {
     setAttribute(box, 'height', String(paint.box.height))
   }
   placeAt(elements.inference, paint.inference)
-  placeAt(elements.drawInputs, paint.drawInputs)
+  placeDrawInputs(elements.drawInputs, paint.drawInputs)
   placeAt(elements.editor, paint.editor)
   placeAt(elements.placing, paint.placing)
   // Empty draw inputs show the rubber band's measured values, written here and never by React.

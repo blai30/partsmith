@@ -102,8 +102,10 @@ export function Popover({ label, open, anchor, onOpenChange, children, className
       aria-label={label}
       popover="auto"
       tabIndex={-1}
+      // `pointer-events-auto`: in the top layer the popover still inherits pointer-events from its
+      // DOM parents, such as the `pointer-events-none` top-center slot of the sketch header (3.2).
       className={clsx(
-        'fixed top-0 left-0 m-0 rounded-md border p-4 text-sm shadow-lg transition-opacity duration-150 ease-out starting:open:opacity-0 motion-reduce:transition-none',
+        'pointer-events-auto fixed top-0 left-0 m-0 rounded-md border p-4 text-sm shadow-lg transition-opacity duration-150 ease-out starting:open:opacity-0 motion-reduce:transition-none',
         COLOR_CLASSES.surfaceRaised.background,
         COLOR_CLASSES.border.border,
         COLOR_CLASSES.text.foreground,

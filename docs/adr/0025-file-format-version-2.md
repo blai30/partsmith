@@ -16,7 +16,7 @@ Status: Accepted, needs human review
 
 - `FORMAT_VERSION` becomes 2; `OLDEST_FORMAT_VERSION` stays 1.
 - Version 2 adds, all optional and omitted when absent: `nb` and `merged` on references (canonical key order `q`, `fp`, `nb`, `merged`), `outline` on region references, `fallback_frame` on face sketch planes (omitted for `world`, the default) and `direction` on edge and face axes. A reference, region or plane without them serializes exactly as in version 1.
-- `MIGRATIONS` gets one step from 1 that returns the document unchanged: absent fields keep the version 1 meaning (fallbacks in world coordinates, no anchors, no outline, the fingerprint rule for axis directions), so every version 1 document means the same at version 2. When `load` migrates, the engine tells the user that saving will write version 2 (existing rule).
+- `MIGRATIONS` gets one step from 1 that returns the document unchanged: absent fields keep the version 1 meaning (fallbacks in world coordinates, no anchors, no merged names, no outline), so every version 1 document means the same at version 2, with one exception. An axis without `direction` is oriented by its stored fingerprint direction, which differs from version 1, where the first nonzero component was made positive, only for an axis whose direction crossed a coordinate plane after it was picked (corpus R38: a wall leaning 1 mm the other way); there the old rule flipped the axis, which was the bug. When `load` migrates, the engine tells the user that saving will write version 2 (existing rule).
 - One bump covers every addition of the study. The fields are parsed and kept from phase 1, and honored as the phases that use them land.
 - Python mirrors the fields as keywords (`Ref(..., anchors=, merged=, direction=)`, `Region(..., outline=)`, `Sketch(..., fallback_frame=)`), written by generated scripts only when stored, so GUI to Python to `.ptsm` keeps every reference's resolution.
 
@@ -29,8 +29,8 @@ Status: Accepted, needs human review
 
 ## Consequences
 
-- A version 1 document loads, rebuilds with the same placements, volumes and statuses, and saves at version 2 differing from its input only in the `format_version` line; a version 2 document with every new field round-trips byte for byte. file-format.md tests 23, 39 and E1 to E3 change accordingly (study change FF1).
+- A version 1 document loads, rebuilds with the same placements, volumes and statuses, and saves at version 2 differing from its input only in the `format_version` line; a version 2 document with every new field round-trips byte for byte. The one exception is an axis whose direction crossed a coordinate plane since it was picked: it now keeps the side it was picked on (file-format.md test 57, with R38's leaning edge). file-format.md tests 23, 39 and E1 to E3 change accordingly (study change FF1).
 - Builds that read only version 1 cannot open version 2 files; they show `NewerFormatVersion` ("This file uses format version 2, which is newer than this version of Partsmith supports (up to 1). Update Partsmith to open it.").
-- `docs/format/document.schema.json` and the protocol's shared schemas describe the new fields; each check-in is logged in ADR 0016.
+- `docs/format/ptsm.schema.json` (the generated `.ptsm` schema, file-format.md section 3.10) and `docs/format/protocol.schema.json` describe the new fields; each check-in is logged in ADR 0016.
 - Examples whose references are re-picked gain anchors and outlines and are re-blessed with the sign-off of technical design section 16.
 - This changes the file format, so it waits for human review at the next gate. With ADRs 0021 and 0024 it gates all code of the study's plan.

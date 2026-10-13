@@ -49,7 +49,13 @@ import {
   type KeyNavigation,
 } from './navigation'
 import { positionElement } from './overlay'
-import { choosePick, type PickCandidate, type PickResult, type PointerRay } from './picking'
+import {
+  candidateKind,
+  choosePick,
+  type PickCandidate,
+  type PickResult,
+  type PointerRay,
+} from './picking'
 import { commandSelectionFields, type CommandSelectionField, type Scene } from './scene'
 
 // The viewport controller (ui.md 2.11, 3.6, 3.12, 3.13): the camera, rendering on demand, mouse
@@ -590,7 +596,7 @@ export function createViewportController(options: {
       const { result } = target
       candidates.push({
         key: result.kind === 'mesh' ? result.key : result.item.key,
-        kind: result.kind === 'mesh' ? result.element : result.item.kind,
+        kind: result.kind === 'mesh' ? result.element : candidateKind(result.item),
         pickClass: target.pickClass,
         distance: sample.distance,
         result,
