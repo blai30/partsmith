@@ -64,6 +64,14 @@ pub enum NamingError {
         /// The fingerprint's geometry kind.
         kind: GeometryKind,
     },
+    /// A stored reference breaks the rules for its anchors or merged names (section 2.4).
+    #[error("The reference \"{name}\" cannot be read: {reason}.")]
+    InvalidReference {
+        /// The reference's query.
+        name: String,
+        /// Why it was rejected.
+        reason: String,
+    },
     /// The number of face sources differs from the number of faces.
     #[error("Naming received {sources} face sources for a shape with {faces} faces.")]
     FaceCountMismatch {
@@ -77,6 +85,18 @@ pub enum NamingError {
     EmptySources {
         /// The 1-based face index.
         face: u32,
+    },
+    /// A face source names an input map beyond the inherited maps given.
+    #[error(
+        "Face {face} has a source in input map {map}, but only {count} input maps were given."
+    )]
+    SourceOutOfRange {
+        /// The 1-based face index.
+        face: u32,
+        /// The index of the input map the source names.
+        map: u32,
+        /// Number of inherited maps given.
+        count: u32,
     },
     /// An element index is 0 or larger than the number of elements of its kind.
     #[error("{kind} index {index} is out of range: the shape has {count}.")]

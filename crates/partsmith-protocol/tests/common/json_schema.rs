@@ -1,7 +1,7 @@
 //! A small JSON Schema (draft 2020-12) validator for the keywords `schemars` emits, so test 41 can check the spec examples without a validator dependency.
 //!
-//! Supported: boolean schemas, local `$ref`, `type`, `const`, `enum`, `properties`, `required`, `additionalProperties`, `unevaluatedProperties` (with annotation tracking through `$ref`, `allOf`, `anyOf`, `oneOf` and `if`), `propertyNames`, `minProperties`, `maxProperties`, `dependentRequired`, `items`, `prefixItems`, `minItems`, `maxItems`, `uniqueItems`, `minimum`, `maximum`, `exclusiveMinimum`, `exclusiveMaximum`, `multipleOf`, `minLength`, `maxLength`, `allOf`, `anyOf`, `oneOf`, `not`, `if`, `then` and `else`.
-//! `pattern` and `format` are treated as annotations (not checked). Assertion keywords outside this list make validation panic, so a schema the validator cannot judge never passes silently.
+//! Supported: boolean schemas, local `$ref`, `type`, `const`, `enum`, `properties`, `patternProperties` (patterns of the form `^[...]+$` only, which `schemars` emits for maps keyed by element names), `required`, `additionalProperties`, `unevaluatedProperties` (with annotation tracking through `$ref`, `allOf`, `anyOf`, `oneOf` and `if`), `propertyNames`, `minProperties`, `maxProperties`, `dependentRequired`, `items`, `prefixItems`, `minItems`, `maxItems`, `uniqueItems`, `minimum`, `maximum`, `exclusiveMinimum`, `exclusiveMaximum`, `multipleOf`, `minLength`, `maxLength`, `allOf`, `anyOf`, `oneOf`, `not`, `if`, `then` and `else`.
+//! `pattern` and `format` are treated as annotations (not checked). Assertion keywords outside this list, and `patternProperties` patterns of another form, make validation panic, so a schema the validator cannot judge never passes silently.
 
 use std::cmp::Ordering;
 use std::collections::BTreeSet;
@@ -9,8 +9,7 @@ use std::collections::BTreeSet;
 use serde_json::{Map, Number, Value};
 
 /// Keywords this validator does not implement.
-const UNSUPPORTED_KEYWORDS: [&str; 8] = [
-    "patternProperties",
+const UNSUPPORTED_KEYWORDS: [&str; 7] = [
     "unevaluatedItems",
     "dependentSchemas",
     "contains",
@@ -233,7 +232,7 @@ impl Validator<'_> {
         Ok(())
     }
 
-    /// Applies the object keywords; returns the properties evaluated by `properties` and `additionalProperties`.
+    /// Applies the object keywords; returns the properties evaluated by `properties`, `patternProperties` and `additionalProperties`.
     fn check_object(
         &self,
         keywords: &Map<String, Value>,
@@ -250,10 +249,26 @@ impl Validator<'_> {
                 }
             }
         }
+        let patterned = keywords.get("patternProperties").and_then(Value::as_object);
+        if let Some(patterned) = patterned {
+            for (pattern, property_schema) in patterned {
+                for (name, value) in members {
+                    if pattern_matches(pattern, name) {
+                        self.check(property_schema, value, &format!("{location}/{name}"))?;
+                        evaluated.insert(name.clone());
+                    }
+                }
+            }
+        }
         if let Some(additional) = keywords.get("additionalProperties") {
             for (name, value) in members {
                 let is_declared = declared.is_some_and(|declared| declared.contains_key(name));
-                if !is_declared {
+                let is_patterned = patterned.is_some_and(|patterned| {
+                    patterned
+                        .keys()
+                        .any(|pattern| pattern_matches(pattern, name))
+                });
+                if !is_declared && !is_patterned {
                     self.check(additional, value, &format!("{location}/{name}"))?;
                     evaluated.insert(name.clone());
                 }
@@ -302,6 +317,39 @@ impl Validator<'_> {
         }
         Ok(evaluated)
     }
+}
+
+/// Whether `text` matches `pattern`, which must have the form `^[...]+$`: one repeated character class of literal
+/// characters and ranges such as `A-Z`. Any other pattern panics, so a schema the validator cannot judge never passes.
+fn pattern_matches(pattern: &str, text: &str) -> bool {
+    let class: Vec<char> = pattern
+        .strip_prefix("^[")
+        .and_then(|rest| rest.strip_suffix("]+$"))
+        .filter(|class| !class.is_empty() && !class.starts_with('^'))
+        .filter(|class| !class.contains(['[', ']', '\\']))
+        .unwrap_or_else(|| {
+            panic!("the test validator supports only patterns of the form ^[...]+$, not {pattern}")
+        })
+        .chars()
+        .collect();
+    let allowed = |character: char| {
+        let mut index = 0;
+        while index < class.len() {
+            if index + 2 < class.len() && class[index + 1] == '-' {
+                if (class[index]..=class[index + 2]).contains(&character) {
+                    return true;
+                }
+                index += 3;
+            } else {
+                if class[index] == character {
+                    return true;
+                }
+                index += 1;
+            }
+        }
+        false
+    };
+    !text.is_empty() && text.chars().all(allowed)
 }
 
 /// Applies `type`, a type name or a list of type names.

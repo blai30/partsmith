@@ -1,4 +1,4 @@
-//! Acceptance tests for the generated protocol JSON Schema (protocol.md section 6, test 41 of "JSON shapes" and "Schema", tests 43 to 46).
+//! Acceptance tests for the generated protocol JSON Schema (protocol.md section 6, test 41 of "JSON shapes", "Schema", tests 43 to 46, and test 81).
 
 mod common;
 
@@ -6,7 +6,9 @@ use std::path::Path;
 
 use common::examples::{COMMAND_EXAMPLES, MESSAGE_EXAMPLES, RESULT_EXAMPLES, TYPE_EXAMPLES};
 use common::json_schema::validate;
-use common::{definition, parse_json, property, schema_json, variant};
+use common::{
+    definition, parse_json, property, schema_json, string_set, string_values, variant, variant_tags,
+};
 use partsmith_protocol::{MAX_SAFE_INTEGER, protocol_schema};
 use serde_json::{Value, json};
 
@@ -142,4 +144,139 @@ fn t046_ids_and_mesh_ids_declare_the_javascript_safe_maximum() {
         maximum_of(&schema, body_mesh, "mesh_id"),
         Some(MAX_SAFE_INTEGER)
     );
+}
+
+#[test]
+fn t081_schema_defines_the_diagnostic_fix_repair_and_ghost_types() {
+    let schema = schema_json();
+
+    // `Use` joins with list_uses and `Connection` with the connect-ends fix, in their own steps.
+    for name in [
+        "Diagnostic",
+        "Cause",
+        "FixAction",
+        "FixKind",
+        "FixRef",
+        "LossReason",
+        "Removal",
+        "Absence",
+        "InstanceIndex",
+        "Ghost",
+        "GhostKind",
+        "GhostFrame",
+        "RepairCandidate",
+        "RegionCandidate",
+        "HintFrame",
+    ] {
+        definition(&schema, name);
+    }
+    assert!(
+        schema.pointer("/$defs/AxisRef").is_none(),
+        "feature params travel inside FeatureRecord, so AxisRef has no $defs entry"
+    );
+
+    // `actions` is declared but optional in both diagnostics and errors.
+    for name in ["Diagnostic", "ErrorInfo"] {
+        let entry = definition(&schema, name);
+        assert!(
+            property(&schema, entry, "actions").is_some(),
+            "{name} declares actions"
+        );
+        let required: Vec<&str> = entry
+            .get("required")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .collect();
+        assert!(
+            !required.contains(&"actions"),
+            "{name} does not require actions: {required:?}"
+        );
+    }
+
+    // FixRef, which requests carry, rejects unknown properties.
+    let fix = json!({"feature": "f-fil1", "code": "x", "cause": false, "index": 0, "revision": 1});
+    assert_eq!(validate(&schema, "/$defs/FixRef", &fix), Ok(()));
+    let mut with_extra = fix;
+    with_extra["extra"] = json!(1);
+    assert!(validate(&schema, "/$defs/FixRef", &with_extra).is_err());
+}
+
+#[test]
+fn fix_kind_has_exactly_the_five_kinds_of_section_2_4() {
+    assert_eq!(
+        variant_tags(&schema_json(), "FixKind", "kind"),
+        string_set(&["apply", "pick", "show", "undo", "finish_transaction"])
+    );
+}
+
+#[test]
+fn loss_reasons_and_removals_have_exactly_the_kinds_of_section_2_4() {
+    let schema = schema_json();
+
+    assert_eq!(
+        variant_tags(&schema, "LossReason", "kind"),
+        string_set(&[
+            "unknown",
+            "not_in_document",
+            "suppressed",
+            "comes_later",
+            "rolled_back",
+            "upstream_failed",
+            "other_body",
+            "removed",
+            "entity_deleted",
+            "point_gone",
+            "copy_gone",
+            "not_in_file",
+            "followed",
+        ])
+    );
+    assert_eq!(
+        variant_tags(&schema, "Removal", "kind"),
+        string_set(&[
+            "cut_away",
+            "covered",
+            "rounded",
+            "beveled",
+            "hollowed",
+            "piece_gone",
+            "no_longer_made",
+            "no_longer_meet",
+        ])
+    );
+}
+
+#[test]
+fn absence_and_ghost_enums_have_exactly_the_values_of_section_2_4() {
+    let schema = schema_json();
+
+    assert_eq!(
+        string_values(&schema, "Absence"),
+        string_set(&["through", "end_outside", "full_turn"])
+    );
+    assert_eq!(
+        string_values(&schema, "GhostKind"),
+        string_set(&["lines", "triangles", "points"])
+    );
+    assert_eq!(
+        string_values(&schema, "GhostFrame"),
+        string_set(&["world", "sketch"])
+    );
+}
+
+#[test]
+fn apply_fix_request_validates_and_rejects_an_unknown_fix_field() {
+    let schema = schema_json();
+    let request = json!({
+        "protocol_version": 1,
+        "messages": [{"kind": "request", "id": 5, "command": {"type": "apply_fix", "doc": 1, "fix": {"feature": "f-fil1", "code": "x", "cause": false, "index": 0, "revision": 1}}}],
+        "buffers": []
+    });
+    assert_eq!(validate(&schema, "", &request), Ok(()));
+
+    let mut with_extra = request;
+    with_extra["messages"][0]["command"]["fix"]["extra"] = json!(1);
+    assert!(validate(&schema, "", &with_extra).is_err());
 }
