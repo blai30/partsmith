@@ -1,5 +1,5 @@
 import { createLatestOnly } from '../core/queue'
-import type { ElementRef, Resolution } from '../generated/protocol'
+import type { DocHandle, ElementRef, Resolution } from '../generated/protocol'
 import type { AppState, DocumentState, SelectionItem } from '../state/store'
 import type { App } from './createApp'
 
@@ -63,7 +63,7 @@ function remeshed(document: DocumentState, previous: DocumentState | null): bool
 }
 
 type ResolutionRequest = {
-  readonly documentHandle: number
+  readonly documentHandle: DocHandle
   readonly items: readonly SelectionItem[]
 }
 

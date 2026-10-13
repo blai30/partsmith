@@ -13,23 +13,32 @@ const ELEMENT_NOUNS = { face: 'Face', edge: 'Edge', vertex: 'Vertex' } as const
 /** Pick errors that mean the click hit geometry that is gone or not pickable: ignored silently. */
 const IGNORED_PICK_ERRORS: ReadonlySet<string> = new Set(['stale_pick', 'preview_not_pickable'])
 
+/**
+ * The selection with each item toggled by key: removed when it is selected, else added after the
+ * items already selected. A selection holds each key once.
+ */
+export function toggledByKey(
+  selection: readonly SelectionItem[],
+  items: readonly SelectionItem[],
+): SelectionItem[] {
+  // Keys keep insertion order, so toggled-on items follow the ones already selected.
+  const byKey = new Map(selection.map((item) => [item.key, item]))
+  for (const item of items) {
+    if (!byKey.delete(item.key)) {
+      byKey.set(item.key, item)
+    }
+  }
+  return [...byKey.values()]
+}
+
 export function select(
   app: App,
   items: readonly SelectionItem[],
   mode: 'replace' | 'toggle',
 ): void {
-  app.store.setState((state) => {
-    if (mode === 'replace') {
-      return { selection: [...items] }
-    }
-    let selection = [...state.selection]
-    for (const item of items) {
-      selection = selection.some((selected) => selected.key === item.key)
-        ? selection.filter((selected) => selected.key !== item.key)
-        : [...selection, item]
-    }
-    return { selection }
-  })
+  app.store.setState((state) => ({
+    selection: mode === 'replace' ? [...items] : toggledByKey(state.selection, items),
+  }))
 }
 
 export function clearSelection(app: App): void {

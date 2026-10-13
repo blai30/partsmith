@@ -1,4 +1,6 @@
+import type { CoreApi } from '../../core/api'
 import { CoreError } from '../../core/client'
+import { errorMessage } from '../../core/errors'
 import { FileServiceError, type OpenedFile, type SaveTarget } from '../../files/file-service'
 import type { RecentFile } from '../../files/recent'
 import type { RecoveryEntry } from '../../files/recovery'
@@ -6,22 +8,17 @@ import type { Edit, Units } from '../../generated/protocol'
 import { MESSAGES } from '../../messages'
 import { TIMING_NAMES } from '../../performance/marks'
 import { adoptDocument } from '../../state/core-events'
+import { isUnsaved } from '../../state/selectors'
 import type { AppState, DocumentState, FileReference } from '../../state/store'
 import { initialSessionVisibility } from '../../state/visibility'
 import { DEFAULT_CAMERA } from '../../viewport/camera'
 import { nowOf, startTransport } from '../connection'
-import { loadCoreData } from '../core-data'
+import { loadCoreData, markCoreFailed, markCoreReady, openUntitled } from '../core-data'
 import type { App } from '../createApp'
 import { measureToNextFrame } from '../timing'
 import { cancelCommand, redoCommandChange, undoCommandChange } from './command'
-import {
-  commitEdits,
-  documentOf,
-  isUnsaved,
-  mutate,
-  refusedDuringCommand,
-  showCoreError,
-} from './edits'
+import { commitEdits, documentOf, mutate, refusedDuringCommand, showCoreError } from './edits'
+import { showSaveError } from './files'
 import { announce, notify } from './notifications'
 import { leaveSketchHistory, redoInSketch, undoInSketch } from './sketch'
 
@@ -155,7 +152,7 @@ type DocumentSource = {
 
 /** Opens a recipe text in place of the current document (3.19 openFile step 3 and 4). */
 async function replaceDocument(app: App, source: DocumentSource): Promise<boolean> {
-  let opened: { documentHandle: number; migratedFrom: number | null }
+  let opened: Awaited<ReturnType<CoreApi['openDocument']>>
   try {
     opened = await app.mutations.run(() => app.core.openDocument(source.text))
   } catch (error) {
@@ -236,23 +233,14 @@ async function offerRecovery(app: App): Promise<void> {
   )
 }
 
-/** Opens a new empty mm document named "Untitled". */
-async function openUntitled(app: App): Promise<void> {
-  const documentHandle = await app.mutations.run(() => app.core.newDocument('mm'))
-  adoptDocument(app.store, documentHandle, { name: 'Untitled', file: null, localUnsaved: false })
-}
-
 /** Starts the core, loads the catalog and printers, offers recovery and opens "Untitled" (3.1). */
 export async function startCore(app: App): Promise<void> {
   try {
     const ready = await startTransport(app)
     await loadCoreData(app)
-    app.store.setState((state) => ({
-      core: { ...state.core, status: 'ready', engineVersion: ready.engineVersion, fatal: null },
-    }))
+    markCoreReady(app.store, ready.engineVersion)
   } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error)
-    app.store.setState((state) => ({ core: { ...state.core, status: 'failed', fatal: reason } }))
+    markCoreFailed(app.store, errorMessage(error))
     return
   }
   await offerRecovery(app)
@@ -384,26 +372,6 @@ export async function openRecent(app: App, entry: RecentFile): Promise<void> {
   await openFile(app, file)
 }
 
-function saveAsAction(app: App): { readonly label: string; readonly run: () => void } {
-  return {
-    label: 'Save as',
-    run: () => {
-      void saveAs(app)
-    },
-  }
-}
-
-/** The message of a failed write of the document file (3.19). */
-function showWriteError(app: App, fileName: string, error: FileServiceError): void {
-  const [code, message] =
-    error.reason === 'permission'
-      ? ['save_permission', MESSAGES.save_permission(fileName)]
-      : error.reason === 'not_found'
-        ? ['save_not_found', MESSAGES.save_not_found(fileName)]
-        : ['save_io', MESSAGES.save_io(fileName, error.message)]
-  notify(app, { severity: 'error', message, actions: [saveAsAction(app)], code })
-}
-
 /**
  * Saves the document's canonical text to the target, then tells the core which revision is on
  * disk. Nothing is marked saved when the write fails.
@@ -421,7 +389,7 @@ async function writeDocument(app: App, target: SaveTarget): Promise<boolean> {
     await app.files.write(target, 'ptsm', textBytes(saved.text))
   } catch (error) {
     if (error instanceof FileServiceError) {
-      showWriteError(app, target.name, error)
+      showSaveError(app, target.name, error, () => saveAs(app))
       return false
     }
     throw error
@@ -470,7 +438,7 @@ export async function saveAs(app: App): Promise<void> {
     if (!(error instanceof FileServiceError)) {
       throw error
     }
-    showWriteError(app, fileName, error)
+    showSaveError(app, fileName, error, () => saveAs(app))
     return
   }
   if (target === null || !(await writeDocument(app, target))) {

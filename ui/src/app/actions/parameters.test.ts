@@ -1,19 +1,18 @@
 import { describe, expect, it } from 'vitest'
-import { currentDocument, type FakeApp, startWithDocument } from '../../test/fakes/app'
+import {
+  currentDocument,
+  type FakeApp,
+  labeledEdits,
+  startWithDocument,
+} from '../../test/fakes/app'
 import { PARAMETRIC_DOCUMENT, parametersOf } from '../../test/fakes/documents'
-import { withoutNulls, editsOf } from '../../test/fakes/protocol'
+import { editsOf } from '../../test/fakes/protocol'
 import { settle } from '../../test/fakes/settle'
 import { addParameter, deleteParameter, renameParameter, updateParameter } from './parameters'
 
 /** parametric.ptsm: parameter p-size "size" = 20 mm drives the cube. */
 async function parametric(): Promise<FakeApp> {
   return startWithDocument('parametric.ptsm', PARAMETRIC_DOCUMENT)
-}
-
-function appliedEdits(fake: FakeApp): unknown[] {
-  return fake.transport
-    .commandsOfType('apply_edits')
-    .map((command) => withoutNulls({ label: command.label, edits: editsOf(command) }))
 }
 
 describe('renameParameter (3.11)', () => {
@@ -85,7 +84,7 @@ describe('updateParameter (3.11)', () => {
     const fake = await parametric()
     await expect(updateParameter(fake.app, 'p-size', { expression: '30 mm' })).resolves.toBe(true)
     await settle()
-    expect(appliedEdits(fake)).toEqual([
+    expect(labeledEdits(fake)).toEqual([
       {
         label: 'Change size',
         edits: [
@@ -99,7 +98,7 @@ describe('updateParameter (3.11)', () => {
     const fake = await parametric()
     await updateParameter(fake.app, 'p-size', { comment: 'Edge length of the cube' })
     await settle()
-    expect(appliedEdits(fake)).toEqual([
+    expect(labeledEdits(fake)).toEqual([
       {
         label: 'Change comment of size',
         edits: [
@@ -140,7 +139,7 @@ describe('deleteParameter (3.11)', () => {
     const fake = await parametric()
     await expect(deleteParameter(fake.app, 'p-size')).resolves.toBe(true)
     await settle()
-    expect(appliedEdits(fake)).toEqual([
+    expect(labeledEdits(fake)).toEqual([
       { label: 'Delete parameter size', edits: [{ type: 'remove_parameter', id: 'p-size' }] },
     ])
     expect(parametersOf(currentDocument(fake.app).recipe)).toEqual([])

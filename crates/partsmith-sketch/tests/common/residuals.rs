@@ -12,50 +12,10 @@ use partsmith_sketch::{
     PointRole, SketchConstraint, SketchEntity, SketchParams, SolveResult, X_AXIS, Y_AXIS,
 };
 
-type Vector = [f64; 2];
-
-fn subtract(a: Vector, b: Vector) -> Vector {
-    [a[0] - b[0], a[1] - b[1]]
-}
-
-fn add(a: Vector, b: Vector) -> Vector {
-    [a[0] + b[0], a[1] + b[1]]
-}
-
-fn scale(a: Vector, factor: f64) -> Vector {
-    [a[0] * factor, a[1] * factor]
-}
-
-fn norm(a: Vector) -> f64 {
-    a[0].hypot(a[1])
-}
-
-fn cross(a: Vector, b: Vector) -> f64 {
-    a[0] * b[1] - a[1] * b[0]
-}
-
-fn dot(a: Vector, b: Vector) -> f64 {
-    a[0] * b[0] + a[1] * b[1]
-}
-
-fn unit(a: Vector) -> Vector {
-    let length = norm(a);
-    if length >= 1e-12 {
-        scale(a, 1.0 / length)
-    } else {
-        [1.0, 0.0]
-    }
-}
-
-fn safe(a: Vector) -> f64 {
-    norm(a).max(1e-12)
-}
-
-/// Signed distance from `p` to the infinite line through `a` and `b`, positive on the left.
-fn signed_distance(p: Vector, a: Vector, b: Vector) -> f64 {
-    let direction = subtract(b, a);
-    cross(direction, subtract(p, a)) / safe(direction)
-}
+use super::plane::{
+    Vector, add, cross, dot, norm, safe_length, scale, signed_distance, subtract, unit,
+};
+use super::point_at_angle;
 
 /// Geometry lookups on one list of entities.
 struct Shapes<'a> {
@@ -96,7 +56,7 @@ impl<'a> Shapes<'a> {
                     ..
                 },
                 PointRole::Start,
-            ) => arc_point(*center, *radius, *start_angle),
+            ) => point_at_angle(*center, *radius, *start_angle),
             (
                 Geometry::Arc {
                     center,
@@ -105,7 +65,7 @@ impl<'a> Shapes<'a> {
                     ..
                 },
                 PointRole::End,
-            ) => arc_point(*center, *radius, *end_angle),
+            ) => point_at_angle(*center, *radius, *end_angle),
             (geometry, role) => panic!("{point} does not resolve: {role:?} of {geometry:?}"),
         }
     }
@@ -132,7 +92,7 @@ impl<'a> Shapes<'a> {
                 start_angle,
                 ..
             } => {
-                let start = arc_point(*center, *radius, *start_angle);
+                let start = point_at_angle(*center, *radius, *start_angle);
                 (*center, norm(subtract(start, *center)))
             }
             other => panic!("{curve} is a circle or arc, found {other:?}"),
@@ -162,14 +122,6 @@ impl<'a> Shapes<'a> {
         };
         product.sqrt().max(1.0)
     }
-}
-
-/// The point at `angle` on the circle (center, radius).
-pub fn arc_point(center: Vector, radius: f64, angle: f64) -> Vector {
-    [
-        center[0] + radius * angle.cos(),
-        center[1] + radius * angle.sin(),
-    ]
 }
 
 /// Point identification through `coincident` constraints (section 3.6.4).
@@ -347,7 +299,7 @@ fn rows(
             let direction = subtract(b, a);
             vec![
                 signed_distance(scale(add(p, q), 0.5), a, b),
-                dot(direction, subtract(q, p)) / safe(direction),
+                dot(direction, subtract(q, p)) / safe_length(direction),
             ]
         }
         ConstraintKind::Midpoint { point, line } => {

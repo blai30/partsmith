@@ -1,7 +1,8 @@
 import { PROTOCOL_VERSION, type Request } from '../generated/protocol'
 import { callCore, type CoreModule } from './bridge'
-import { decodeFrame, encodeFrame } from './frame'
-import { isSuperseded, supersededFrame } from './superseding'
+import { errorMessage } from './errors'
+import { decodeFrame, engineInfoRequestFrame } from './frame'
+import { headIsSuperseded, requestOf, supersededFrame } from './superseding'
 
 // The logic of the core worker (protocol.md 2.11), kept apart from the worker global so tests drive
 // it with a fake module and a manual scheduler.
@@ -32,33 +33,9 @@ export type WorkerHost = {
 /** A queued call: its frame and, when the frame decodes, its request. */
 type QueuedCall = { readonly frame: ArrayBuffer; readonly request: Request | null }
 
-/** Request id 0 is reserved for the host's own engine_info call (protocol.md 3.5). */
-const ENGINE_INFO_ID = 0
-
-function reasonOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
-}
-
-function requestOf(frame: ArrayBuffer): Request | null {
-  try {
-    const [message] = decodeFrame(frame).header.messages
-    return message?.kind === 'request' ? { id: message.id, command: message.command } : null
-  } catch {
-    // The core answers an unreadable frame itself (malformed_frame).
-    return null
-  }
-}
-
 /** Asks the core for its versions; throws when it is not a core this app can talk to. */
 function engineVersion(core: CoreModule): string {
-  const request = encodeFrame(
-    {
-      protocol_version: PROTOCOL_VERSION,
-      messages: [{ kind: 'request', id: ENGINE_INFO_ID, command: { type: 'engine_info' } }],
-    },
-    [],
-  )
-  const response = decodeFrame(callCore(core, request)).header.messages.at(-1)
+  const response = decodeFrame(callCore(core, engineInfoRequestFrame())).header.messages.at(-1)
   if (response?.kind !== 'response' || response.result.kind !== 'ok') {
     throw new Error('the core did not report its version')
   }
@@ -72,21 +49,6 @@ function engineVersion(core: CoreModule): string {
     )
   }
   return result.engine_version
-}
-
-/**
- * Whether the call at the head of the queue is superseded. Superseding looks only as far as the
- * first unreadable frame, so a request the host cannot read never lets a later one overtake it.
- */
-function headIsSuperseded(queue: readonly QueuedCall[]): boolean {
-  const readable: Request[] = []
-  for (const call of queue) {
-    if (call.request === null) {
-      break
-    }
-    readable.push(call.request)
-  }
-  return readable.length > 0 && isSuperseded(readable, 0)
 }
 
 export function createWorkerHost(options: WorkerHostOptions): WorkerHost {
@@ -133,7 +95,7 @@ export function createWorkerHost(options: WorkerHostOptions): WorkerHost {
         response = callCore(core, current.frame)
       } catch (error) {
         // A trap or an allocation failure leaves the module unusable (rule 6).
-        fail(reasonOf(error))
+        fail(errorMessage(error))
         return
       }
       queue.shift()
@@ -148,7 +110,7 @@ export function createWorkerHost(options: WorkerHostOptions): WorkerHost {
       try {
         version = engineVersion(loaded)
       } catch (error) {
-        fail(reasonOf(error))
+        fail(errorMessage(error))
         return
       }
       core = loaded
@@ -156,7 +118,7 @@ export function createWorkerHost(options: WorkerHostOptions): WorkerHost {
       scheduleStep()
     },
     (error: unknown) => {
-      fail(reasonOf(error))
+      fail(errorMessage(error))
     },
   )
 

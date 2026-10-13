@@ -72,6 +72,7 @@ import {
 import { commitEdits } from '../app/actions/edits'
 import { exportModel, type ExportRequest } from '../app/actions/export'
 import { deleteParameter } from '../app/actions/parameters'
+import { openSidePanel, setBrowserOpen, togglePanel } from '../app/actions/panels'
 import {
   cancelLayOnFace,
   openPrintHealth,
@@ -97,10 +98,10 @@ import type { Settings } from '../settings/settings'
 import type { SketchToolId } from '../sketch/session'
 import { selectSketchRadioTooltip } from '../state/selectors'
 import type { AppContext, AppState, OriginName, SelectionItem, ViewState } from '../state/store'
+import { isSessionVisible } from '../state/visibility'
 import { toggledTheme } from '../theme/theme'
 import type { StandardView, Vector3 } from '../viewport/camera'
 import { cross } from '../viewport/math'
-import { isSessionVisible } from '../viewport/scene'
 import { CONSTRAINT_ICONS } from './icons'
 import { keywordsFor } from './keywords'
 import {
@@ -729,10 +730,6 @@ const EXPORTS: readonly {
   { format: 'step', title: 'Export STEP' },
 ]
 
-function setSide(app: App, side: AppState['panels']['side']): void {
-  app.store.setState((state) => ({ panels: { ...state.panels, side } }))
-}
-
 /** The built-in commands for a platform (the platform decides desktop-only shortcuts). */
 export function builtinCommands(platform: Platform): CommandDefinition[] {
   return [
@@ -744,9 +741,7 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
       shortcuts: ['Mod+K', 'S'],
       contexts: ALL,
       run: (app) => {
-        app.store.setState((state) => ({
-          panels: { ...state.panels, paletteOpen: !state.panels.paletteOpen },
-        }))
+        togglePanel(app, 'paletteOpen')
       },
     }),
 
@@ -759,7 +754,7 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
       contexts: ALL,
       checked: (app) => stateOf(app).panels.side === 'keys',
       run: (app) => {
-        setSide(app, 'keys')
+        openSidePanel(app, 'keys')
       },
     }),
 
@@ -888,7 +883,7 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
         const where =
           target.kind === 'body' || (inBrowser && focusInBrowser()) ? 'browser' : 'timeline'
         if (where === 'browser') {
-          app.store.setState((state) => ({ panels: { ...state.panels, browserOpen: true } }))
+          setBrowserOpen(app, true)
         }
         requestUi(app, { kind: 'rename', key: target.key, where })
       },
@@ -982,9 +977,7 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
       contexts: ALL,
       checked: (app) => stateOf(app).panels.browserOpen,
       run: (app) => {
-        app.store.setState((state) => ({
-          panels: { ...state.panels, browserOpen: !state.panels.browserOpen },
-        }))
+        togglePanel(app, 'browserOpen')
       },
     }),
     command({
@@ -995,9 +988,7 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
       contexts: ALL,
       checked: (app) => !stateOf(app).panels.timelineCollapsed,
       run: (app) => {
-        app.store.setState((state) => ({
-          panels: { ...state.panels, timelineCollapsed: !state.panels.timelineCollapsed },
-        }))
+        togglePanel(app, 'timelineCollapsed')
       },
     }),
     command({
@@ -1007,7 +998,7 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
       icon: SlidersHorizontal,
       contexts: ALL,
       run: (app) => {
-        setSide(app, 'parameters')
+        openSidePanel(app, 'parameters')
       },
     }),
     command({
@@ -1017,7 +1008,7 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
       icon: TriangleAlert,
       contexts: ALL,
       run: (app) => {
-        setSide(app, 'problems')
+        openSidePanel(app, 'problems')
       },
     }),
     command({

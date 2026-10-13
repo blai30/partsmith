@@ -1,6 +1,6 @@
 import { CoreError } from '../../core/client'
 import { createLatestOnly } from '../../core/queue'
-import type { Health, Orientation } from '../../generated/protocol'
+import type { DocHandle, Health, Orientation } from '../../generated/protocol'
 import { MESSAGES } from '../../messages'
 import { ALWAYS_SHOWN_CHECK } from '../../print/checks'
 import { findingAt, locationCenter } from '../../print/health'
@@ -24,7 +24,7 @@ const FOCUS_MARGIN = 0.3
 
 /** What one analysis checks: a document at a revision, placed on the bed one way. */
 type AnalysisInput = {
-  readonly documentHandle: number
+  readonly documentHandle: DocHandle
   readonly revision: number
   /** The session orientation sent, null as modeled. */
   readonly orientation: Orientation | null

@@ -5,11 +5,10 @@ import {
   changeSketchDimension,
   createSketchIds,
   selectInSketch,
-  sketchParamsOf,
   solutionOf,
-  startSketchDrag,
-  type SketchDrag,
+  storedSketchParams,
 } from '../app/actions/sketch'
+import { startSketchDrag, type SketchDrag } from '../app/actions/sketch-drag'
 import type { App, Platform } from '../app/createApp'
 import { CoreError } from '../core/client'
 import { createLatestOnly, type LatestOnly } from '../core/queue'
@@ -23,7 +22,8 @@ import type {
   SketchSolution,
 } from '../generated/protocol'
 import { MESSAGES } from '../messages'
-import type { AppState, SelectionItem, SketchSession } from '../state/store'
+import { editingSession, type EditingSession } from '../state/selectors'
+import type { AppState, SelectionItem } from '../state/store'
 import type { Camera } from '../viewport/camera'
 import type { ViewportController, ViewportHandle } from '../viewport/controller'
 import { dimensionGeometry, dimensionLabelText, hasGlyph } from './annotations'
@@ -357,17 +357,6 @@ export const EMPTY_SKETCH_MODEL: SketchOverlayModel = {
   hovered: null,
 }
 
-type EditingSession = SketchSession & { readonly sketchId: string }
-
-/** The session of the sketch being edited, or null outside sketch mode and while picking a plane. */
-function editingSession(state: AppState): EditingSession | null {
-  const session = state.sketch
-  if (state.context !== 'sketch' || session === null || session.sketchId === null) {
-    return null
-  }
-  return { ...session, sketchId: session.sketchId }
-}
-
 type DimensionConstraint = Extract<SketchConstraint, { expr: string }>
 
 /** What a change of cancels the operation in progress: the edited sketch and its tool. */
@@ -378,9 +367,7 @@ function sessionKey(state: AppState): string {
 
 /** The stored constraints of a sketch, in stored order. */
 function storedConstraints(state: AppState, sketchId: string): readonly SketchConstraint[] {
-  const record = state.document?.recipe.features?.find((feature) => feature.id === sketchId)
-  const params = record?.type === 'sketch' ? sketchParamsOf(record) : null
-  return params?.constraints ?? []
+  return storedSketchParams(state, sketchId)?.constraints ?? []
 }
 
 /** An input of a text-like type, a textarea, a select, or content-editable element. */

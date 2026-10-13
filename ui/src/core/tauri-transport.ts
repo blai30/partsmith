@@ -1,6 +1,12 @@
 import { PROTOCOL_VERSION, type Request } from '../generated/protocol'
-import { decodeFrame, encodeFrame, errorResponseFrame, ProtocolVersionError } from './frame'
-import { isSuperseded, supersededFrame } from './superseding'
+import { errorMessage } from './errors'
+import {
+  decodeFrame,
+  engineInfoRequestFrame,
+  errorResponseFrame,
+  ProtocolVersionError,
+} from './frame'
+import { headIsSuperseded, requestOf, supersededFrame } from './superseding'
 import { CoreFatalError, type Transport } from './transport'
 
 // The desktop transport (ui.md 2.4, protocol.md 2.12): every frame goes through the host's `call`
@@ -21,35 +27,9 @@ type QueuedSend = {
 const VERSION_MISMATCH =
   'This app and its core speak different protocol versions. Reinstall Partsmith.'
 
-function reasonOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
-}
-
-function requestOf(frame: ArrayBuffer): Request | null {
-  try {
-    const [message] = decodeFrame(frame).header.messages
-    return message?.kind === 'request' ? { id: message.id, command: message.command } : null
-  } catch {
-    // The core answers an unreadable frame itself.
-    return null
-  }
-}
-
 /** The protocol's internal_error text (protocol.md section 4) for a failed host call. */
 function internalErrorMessage(detail: string): string {
   return `Something went wrong inside Partsmith (${detail}). Save your work and reload. Please report this.`
-}
-
-/** Whether the head of the queue is superseded, looking no further than the first unreadable frame. */
-function headIsSuperseded(queue: readonly QueuedSend[]): boolean {
-  const readable: Request[] = []
-  for (const send of queue) {
-    if (send.request === null) {
-      break
-    }
-    readable.push(send.request)
-  }
-  return readable.length > 0 && isSuperseded(readable, 0)
 }
 
 export function createTauriTransport(tauri: TauriGlobal): Transport {
@@ -91,7 +71,7 @@ export function createTauriTransport(tauri: TauriGlobal): Transport {
         errorResponseFrame(
           current.request?.id ?? 0,
           'internal_error',
-          internalErrorMessage(reasonOf(error)),
+          internalErrorMessage(errorMessage(error)),
         ),
       )
       .then((frame) => {
@@ -113,21 +93,14 @@ export function createTauriTransport(tauri: TauriGlobal): Transport {
     async start() {
       // Starting again after stop() (a core restart) accepts sends again.
       stopped = null
-      const request = encodeFrame(
-        {
-          protocol_version: PROTOCOL_VERSION,
-          messages: [{ kind: 'request', id: 0, command: { type: 'engine_info' } }],
-        },
-        [],
-      )
       let result
       try {
-        const response = decodeFrame(await invoke(request)).header.messages.at(-1)
+        const response = decodeFrame(await invoke(engineInfoRequestFrame())).header.messages.at(-1)
         result = response?.kind === 'response' ? response.result : null
       } catch (error) {
         // A core of another version may answer in its own version's frame.
         throw new CoreFatalError(
-          error instanceof ProtocolVersionError ? VERSION_MISMATCH : reasonOf(error),
+          error instanceof ProtocolVersionError ? VERSION_MISMATCH : errorMessage(error),
         )
       }
       if (result?.kind === 'error' && result.code === 'protocol_version_mismatch') {

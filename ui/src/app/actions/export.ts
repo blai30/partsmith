@@ -1,11 +1,13 @@
-import type { ExportedFile } from '../../core/api'
+import type { CoreApi, ExportedFile } from '../../core/api'
 import { exportFailedText } from '../../export/status'
 import { FileServiceError, type FileKind, type SaveTarget } from '../../files/file-service'
 import type { Body, Diagnostic, ExportFormat, Orientation } from '../../generated/protocol'
 import { MESSAGES } from '../../messages'
 import type { App } from '../createApp'
 import { documentOf, showCoreError } from './edits'
+import { showSaveError } from './files'
 import { notify } from './notifications'
+import { showProblemsAction } from './panels'
 import { showOrientationError } from './print'
 
 // Export to 3MF, STL, OBJ and STEP (ui.md 3.18).
@@ -70,34 +72,6 @@ type ExportResult = {
   readonly warnings: readonly Diagnostic[]
 }
 
-/** A failed choice or save of an export file (4.3), with "Save as", which tries again. */
-function showSaveError(
-  app: App,
-  fileName: string,
-  error: FileServiceError,
-  saveAs: () => Promise<void>,
-): void {
-  const [code, message] =
-    error.reason === 'permission'
-      ? ['save_permission', MESSAGES.save_permission(fileName)]
-      : error.reason === 'not_found'
-        ? ['save_not_found', MESSAGES.save_not_found(fileName)]
-        : ['save_io', MESSAGES.save_io(fileName, error.message)]
-  notify(app, {
-    severity: 'error',
-    message,
-    code,
-    actions: [
-      {
-        label: 'Save as',
-        run: () => {
-          void saveAs()
-        },
-      },
-    ],
-  })
-}
-
 /**
  * Asks where to save an export file. A canceled picker resolves null; a picker that fails is shown
  * with "Save as", which runs `saveAs`, and resolves null.
@@ -147,14 +121,7 @@ async function writeExport(app: App, target: SaveTarget, exported: ExportResult)
       severity: 'warning',
       message: MESSAGES.exported_with_failures(target.name, failed),
       code: 'exported_with_failures',
-      actions: [
-        {
-          label: 'Show problems',
-          run: () => {
-            app.store.setState((state) => ({ panels: { ...state.panels, side: 'problems' } }))
-          },
-        },
-      ],
+      actions: [showProblemsAction(app)],
     })
   }
   showWarnings(app, exported.warnings)
@@ -199,18 +166,16 @@ export async function exportModel(app: App, request: ExportRequest): Promise<voi
   const orientation: Orientation | null = ORIENTED_FORMATS.has(request.format)
     ? sessionOrientation
     : null
-  let exported: { files: readonly ExportedFile[]; warnings: readonly Diagnostic[] }
+  let exported: Awaited<ReturnType<CoreApi['exportBodies']>>
   try {
     // Through the mutation queue, so the export sees every edit sent before it.
     exported = await app.mutations.run(() =>
-      orientation === null
-        ? app.core.exportBodies(document.documentHandle, FORMATS[request.format], bodies)
-        : app.core.exportBodies(
-            document.documentHandle,
-            FORMATS[request.format],
-            bodies,
-            orientation,
-          ),
+      app.core.exportBodies(
+        document.documentHandle,
+        FORMATS[request.format],
+        bodies,
+        orientation ?? undefined,
+      ),
     )
   } catch (error) {
     if (!showOrientationError(app, error, orientation)) {

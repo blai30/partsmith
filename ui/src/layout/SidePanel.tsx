@@ -1,6 +1,7 @@
 import { clsx } from 'clsx/lite'
 import { useEffect, useId, useRef } from 'react'
 import { setContext } from '../app/actions/context'
+import { closeSidePanel } from '../app/actions/panels'
 import {
   focusFinding,
   runPrintAnalysis,
@@ -52,7 +53,7 @@ function PrintCheckPanel() {
           focusFinding(app, finding)
         }}
         onClose={() => {
-          app.store.setState((state) => ({ panels: { ...state.panels, side: null } }))
+          closeSidePanel(app)
         }}
         orientationBody={orientationBody}
         onPrintAsModeled={() => {
@@ -85,7 +86,7 @@ function OpenSidePanel({ side }: { readonly side: NonNullable<PanelsState['side'
   const app = useApp()
   const panel = useRef<HTMLElement>(null)
   useOverlayDismiss(panel, () => {
-    app.store.setState((state) => ({ panels: { ...state.panels, side: null } }))
+    closeSidePanel(app)
   })
   // Closing the panel from inside it gives focus back to the control that opened it, or to the
   // 3D view when that control is gone (3.24).

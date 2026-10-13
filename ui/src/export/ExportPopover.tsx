@@ -2,6 +2,7 @@ import { clsx } from 'clsx/lite'
 import { ArrowDownToLine } from 'lucide-react'
 import { useId, useState, type ReactNode, type RefObject } from 'react'
 import { exportModel, type ExportRequest } from '../app/actions/export'
+import { openSidePanel } from '../app/actions/panels'
 import { openPrintHealth, setPrintOrientation } from '../app/actions/print'
 import { useApp, useAppState } from '../app/AppProvider'
 import { Button } from '../components/Button'
@@ -78,7 +79,7 @@ function StatusLines({
             <Button
               onClick={() => {
                 onClose()
-                app.store.setState((state) => ({ panels: { ...state.panels, side: 'problems' } }))
+                openSidePanel(app, 'problems')
               }}
             >
               Show problems

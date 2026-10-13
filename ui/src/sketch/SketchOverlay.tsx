@@ -17,7 +17,7 @@ import { useApp, useAppState } from '../app/AppProvider'
 import { CONSTRAINT_ICONS } from '../commands/icons'
 import type { ConstraintSolveState, SketchConstraint, SketchSolution } from '../generated/protocol'
 import { useResolvedTheme } from '../layout/use-resolved-theme'
-import type { AppState } from '../state/store'
+import { selectEditedSketch } from '../state/selectors'
 import { COLOR_CLASSES, FONT_CLASSES, VIEWPORT_COLORS } from '../theme/roles'
 import { positionElement } from '../viewport/overlay'
 import { hasGlyph } from './annotations'
@@ -159,11 +159,6 @@ function emptyModel() {
 /** Shift or Mod with a click toggles the item in the sketch selection (3.16.10). */
 function toggles(event: MouseEvent | KeyboardEvent): boolean {
   return event.shiftKey || event.ctrlKey || event.metaKey
-}
-
-/** The edited sketch's id: undefined outside sketch mode, null while picking a plane. */
-function selectEditedSketch(state: AppState): string | null | undefined {
-  return state.context === 'sketch' && state.sketch !== null ? state.sketch.sketchId : undefined
 }
 
 /** The solve state of each constraint by id. */

@@ -11,8 +11,8 @@ use crate::entity::SketchEntity;
 use crate::error::SketchError;
 use crate::plane::SketchPlane;
 use crate::point_ref::PointRef;
-use crate::reserved::is_reserved;
-use crate::{ORIGIN, validation};
+use crate::reserved::{is_origin, is_reserved};
+use crate::validation;
 
 /// Params of a `sketch` feature; flattened into its feature record after the record's own fields (`id`, `type`, `name`, `suppressed`).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
@@ -74,8 +74,8 @@ impl SketchParams {
 
     /// Stored coordinates of a point reference (`[0.0, 0.0]` for `origin`), or `None` if it does not resolve to a point.
     pub fn point(&self, point: &PointRef) -> Option<[f64; 2]> {
-        if point.entity.as_str() == ORIGIN {
-            return (point.role == crate::PointRole::Point).then_some([0.0, 0.0]);
+        if is_origin(point) {
+            return Some([0.0, 0.0]);
         }
         self.entity(&point.entity)?.point(point.role)
     }
@@ -100,44 +100,24 @@ impl SketchParams {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::entity::Geometry;
-    use crate::plane::OriginPlane;
+    use crate::test_support::{line, point, sketch};
 
-    fn sketch() -> SketchParams {
-        SketchParams {
-            plane: SketchPlane::Origin {
-                plane: OriginPlane::Xy,
-            },
-            entities: vec![SketchEntity {
-                id: Id::new("e-1").expect("valid id"),
-                geometry: Geometry::Line {
-                    start: [1.0, 2.0],
-                    end: [3.0, 4.0],
-                },
-                construction: false,
-            }],
-            constraints: Vec::new(),
-        }
+    fn one_line() -> SketchParams {
+        sketch(vec![line("e-1", [1.0, 2.0], [3.0, 4.0])], Vec::new())
     }
 
     #[test]
     fn point_resolves_entity_roles() {
-        let point: PointRef = "e-1.end".parse().expect("valid reference");
-
-        assert_eq!(sketch().point(&point), Some([3.0, 4.0]));
+        assert_eq!(one_line().point(&point("e-1.end")), Some([3.0, 4.0]));
     }
 
     #[test]
     fn origin_with_a_role_is_not_a_point() {
-        let point: PointRef = "origin.center".parse().expect("valid reference");
-
-        assert_eq!(sketch().point(&point), None);
+        assert_eq!(one_line().point(&point("origin.center")), None);
     }
 
     #[test]
     fn unknown_entity_is_not_a_point() {
-        let point: PointRef = "e-2".parse().expect("valid reference");
-
-        assert_eq!(sketch().point(&point), None);
+        assert_eq!(one_line().point(&point("e-2")), None);
     }
 }

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Request } from '../generated/protocol'
-import { isSuperseded } from './superseding'
+import { encodeFrame } from './frame'
+import { headIsSuperseded, isSuperseded, requestOf, supersededFrame } from './superseding'
 
 function drag(id: number, feature = 'f-sk1', doc = 1): Request {
   return { id, command: { type: 'drag_sketch', doc, feature, point: 'e-1.end', to: [20, 5] } }
@@ -75,5 +76,41 @@ describe('isSuperseded (protocol test 69)', () => {
 
   it('nothing else is ever superseded', () => {
     expect(superseded([edit(1), edit(2)])).toEqual([false, false])
+  })
+})
+
+describe('requestOf', () => {
+  it('reads the request a frame carries', () => {
+    const request = drag(10)
+    const frame = encodeFrame(
+      { protocol_version: 1, messages: [{ kind: 'request', ...request }] },
+      [],
+    )
+    expect(requestOf(frame)).toEqual(request)
+  })
+
+  it('is null for a frame that does not decode', () => {
+    expect(requestOf(new ArrayBuffer(3))).toBeNull()
+  })
+
+  it('is null for a frame whose first message is not a request', () => {
+    expect(requestOf(supersededFrame(4))).toBeNull()
+  })
+})
+
+describe('headIsSuperseded', () => {
+  it('is true when a later readable request supersedes the head', () => {
+    expect(headIsSuperseded([{ request: drag(10) }, { request: drag(11) }])).toBe(true)
+  })
+
+  it('looks no further than the first unreadable frame', () => {
+    expect(
+      headIsSuperseded([{ request: drag(10) }, { request: null }, { request: drag(12) }]),
+    ).toBe(false)
+  })
+
+  it('is false for an empty queue and for an unreadable head', () => {
+    expect(headIsSuperseded([])).toBe(false)
+    expect(headIsSuperseded([{ request: null }, { request: drag(11) }])).toBe(false)
   })
 })

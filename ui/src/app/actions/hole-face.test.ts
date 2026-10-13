@@ -1,14 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import type { Edit, ElementDescriptor } from '../../generated/protocol'
+import type { ElementDescriptor } from '../../generated/protocol'
 import { MESSAGES } from '../../messages'
-import { startWithDocument, type FakeApp } from '../../test/fakes/app'
+import { activeCommand, appliedEdits, type FakeApp, startWithDocument } from '../../test/fakes/app'
 import {
   CUBE_DOCUMENT,
   CUBE_FRONT_FACE,
   CUBE_TOP_FACE,
   featuresOf,
 } from '../../test/fakes/documents'
-import { editsOf } from '../../test/fakes/protocol'
 import { elementItem } from '../../test/fakes/selection'
 import { settle } from '../../test/fakes/settle'
 import { pointSelectionItem } from '../../sketch/hit'
@@ -31,25 +30,13 @@ async function holeOnCube(): Promise<FakeApp> {
   return fake
 }
 
-function commandOf(fake: FakeApp) {
-  const command = fake.app.store.getState().command
-  if (command === null) {
-    throw new Error('No command is active.')
-  }
-  return command
-}
-
 const TOP = elementItem(CUBE_TOP_FACE, 'Cube')
-
-function appliedEdits(fake: FakeApp): readonly (readonly Edit[])[] {
-  return fake.transport.commandsOfType('apply_edits').map((command) => editsOf(command))
-}
 
 describe('placing holes on a face (U-100)', () => {
   it('U-100 gives the command a helper sketch on the face with a point where the ray met it', async () => {
     const fake = await holeOnCube()
     await capturePick(fake.app, TOP, rayAt(3, 4))
-    const { helper, params } = commandOf(fake)
+    const { helper, params } = activeCommand(fake.app)
     expect(helper?.params.plane).toEqual({
       kind: 'face',
       body: 'b-cube',
@@ -72,7 +59,7 @@ describe('placing holes on a face (U-100)', () => {
     const fake = await holeOnCube()
     await capturePick(fake.app, TOP, rayAt(3, 4))
     await capturePick(fake.app, TOP, rayAt(-2, 1))
-    const { helper, params } = commandOf(fake)
+    const { helper, params } = activeCommand(fake.app)
     const entities = helper?.params.entities ?? []
     expect(entities.map((entity) => (entity.type === 'point' ? entity.position : null))).toEqual([
       [3, 4],
@@ -84,14 +71,14 @@ describe('placing holes on a face (U-100)', () => {
   it('U-100 refuses another face with hole_one_face and leaves the params alone', async () => {
     const fake = await holeOnCube()
     await capturePick(fake.app, TOP, rayAt(3, 4))
-    const before = commandOf(fake).params
+    const before = activeCommand(fake.app).params
     const front: ElementDescriptor = CUBE_FRONT_FACE
     await capturePick(fake.app, elementItem(front, 'Cube'), {
       origin: [0, -100, 10],
       direction: [0, 1, 0],
       millimetersPerPixel: 0.1,
     })
-    expect(commandOf(fake).params).toEqual(before)
+    expect(activeCommand(fake.app).params).toEqual(before)
     expect(fake.app.store.getState().pickHint).toEqual({
       message: MESSAGES.hole_one_face(),
       field: 'points',
@@ -101,9 +88,9 @@ describe('placing holes on a face (U-100)', () => {
   it('U-100 replaces points of another sketch with the helper point', async () => {
     const fake = await holeOnCube()
     await capturePick(fake.app, pointSelectionItem('f-sk2', 'e-p1'))
-    expect(commandOf(fake).params).toMatchObject({ points: ['e-p1'], sketch: 'f-sk2' })
+    expect(activeCommand(fake.app).params).toMatchObject({ points: ['e-p1'], sketch: 'f-sk2' })
     await capturePick(fake.app, TOP, rayAt(3, 4))
-    const { helper, params } = commandOf(fake)
+    const { helper, params } = activeCommand(fake.app)
     expect(params['points']).toEqual([helper?.params.entities?.[0]?.id])
     expect(params['sketch']).toBe(helper?.id)
   })
@@ -111,7 +98,7 @@ describe('placing holes on a face (U-100)', () => {
   it('U-100 snaps a ray within 8 times millimetersPerPixel of the centroid to it', async () => {
     const fake = await holeOnCube()
     await capturePick(fake.app, TOP, rayAt(0.5, 0.5))
-    const [entity] = commandOf(fake).helper?.params.entities ?? []
+    const [entity] = activeCommand(fake.app).helper?.params.entities ?? []
     expect(entity?.type === 'point' ? entity.position : null).toEqual([0, 0])
   })
 
@@ -119,7 +106,7 @@ describe('placing holes on a face (U-100)', () => {
     const fake = await holeOnCube()
     const round: ElementDescriptor = { ...CUBE_TOP_FACE, surface: 'cylinder' }
     await capturePick(fake.app, elementItem(round, 'Cube'), rayAt(3, 4))
-    expect(commandOf(fake).helper).toBeNull()
+    expect(activeCommand(fake.app).helper).toBeNull()
     expect(fake.app.store.getState().pickHint).toEqual({
       message: MESSAGES.pick_points(),
       field: 'points',
@@ -130,17 +117,17 @@ describe('placing holes on a face (U-100)', () => {
     const fake = await holeOnCube()
     await capturePick(fake.app, TOP, rayAt(3, 4))
     await capturePick(fake.app, TOP, rayAt(-2, 1))
-    const helper = commandOf(fake).helper
+    const helper = activeCommand(fake.app).helper
     const [first, second] = helper?.params.entities ?? []
     if (helper === null || first === undefined || second === undefined) {
       throw new Error('The helper has no two points.')
     }
     await capturePick(fake.app, pointSelectionItem(helper.id, first.id))
-    expect(commandOf(fake).params['points']).toEqual([second.id])
-    expect(commandOf(fake).helper?.params.entities).toEqual([second])
+    expect(activeCommand(fake.app).params['points']).toEqual([second.id])
+    expect(activeCommand(fake.app).helper?.params.entities).toEqual([second])
     await capturePick(fake.app, pointSelectionItem(helper.id, second.id))
-    expect(commandOf(fake).helper).toBeNull()
-    expect(commandOf(fake).params['sketch']).toBeUndefined()
+    expect(activeCommand(fake.app).helper).toBeNull()
+    expect(activeCommand(fake.app).params['sketch']).toBeUndefined()
   })
 })
 
@@ -150,8 +137,8 @@ describe('the helper sketch in previews (U-101)', () => {
     const index = featuresOf(CUBE_DOCUMENT).length
     await capturePick(fake.app, TOP, rayAt(3, 4))
     await settle()
-    const helperId = commandOf(fake).helper?.id
-    const featureId = commandOf(fake).featureId
+    const helperId = activeCommand(fake.app).helper?.id
+    const featureId = activeCommand(fake.app).featureId
     const [first] = appliedEdits(fake)
     expect(first?.map((edit) => edit.type)).toEqual(['add_feature', 'add_feature'])
     expect(first?.[0]).toMatchObject({ type: 'add_feature', index, feature: { id: helperId } })
@@ -160,7 +147,7 @@ describe('the helper sketch in previews (U-101)', () => {
       index: index + 1,
       feature: { id: featureId, type: 'hole' },
     })
-    expect(commandOf(fake).helper?.applied).toBe(true)
+    expect(activeCommand(fake.app).helper?.applied).toBe(true)
 
     await capturePick(fake.app, TOP, rayAt(-2, 1))
     await settle()
@@ -173,7 +160,7 @@ describe('the helper sketch in previews (U-101)', () => {
     await settle()
     const third = appliedEdits(fake)[2] ?? []
     expect(third).toContainEqual({ type: 'remove_feature', id: helperId })
-    expect(commandOf(fake).helper).toBeNull()
+    expect(activeCommand(fake.app).helper).toBeNull()
   })
 
   it('U-101 cancelCommand calls cancelTransaction and nothing else', async () => {

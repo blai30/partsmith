@@ -1,4 +1,4 @@
-//! Generated benchmark sketches of spec sections 5.2 and 5.3.
+//! Benchmark sketches: the plate of spec section 2.9 and the generated sketches of sections 5.2 and 5.3.
 //!
 //! This file depends only on `partsmith_sketch` and `std`, because the bench target
 //! (`benches/solver.rs`) includes it with `#[path]`.
@@ -12,6 +12,37 @@ use partsmith_sketch::{
     ConstraintKind, DimensionExpr, DimensionValues, DistanceTarget, Expr, Geometry, Id,
     OriginPlane, PointRef, SketchConstraint, SketchEntity, SketchParams, SketchPlane,
 };
+
+/// The `PLATE` sketch of spec section 2.9 as `SketchParams` JSON (the feature record without `id`, `type` and `name`).
+pub const PLATE_PARAMS_JSON: &str = r#"{
+  "plane": {"kind": "origin", "plane": "XY"},
+  "entities": [
+    {"id": "e-1", "type": "line", "start": [0, 0], "end": [80, 0]},
+    {"id": "e-2", "type": "line", "start": [80, 0], "end": [80, 50]},
+    {"id": "e-3", "type": "line", "start": [80, 50], "end": [0, 50]},
+    {"id": "e-4", "type": "line", "start": [0, 50], "end": [0, 0]},
+    {"id": "e-5", "type": "circle", "center": [40, 25], "radius": 5},
+    {"id": "e-6", "type": "line", "start": [40, 0], "end": [40, 50], "construction": true}
+  ],
+  "constraints": [
+    {"id": "c-1", "type": "coincident", "points": ["e-1.end", "e-2.start"]},
+    {"id": "c-2", "type": "coincident", "points": ["e-2.end", "e-3.start"]},
+    {"id": "c-3", "type": "coincident", "points": ["e-3.end", "e-4.start"]},
+    {"id": "c-4", "type": "coincident", "points": ["e-4.end", "e-1.start"]},
+    {"id": "c-5", "type": "horizontal", "line": "e-1"},
+    {"id": "c-6", "type": "horizontal", "line": "e-3"},
+    {"id": "c-7", "type": "vertical", "line": "e-2"},
+    {"id": "c-8", "type": "vertical", "line": "e-4"},
+    {"id": "c-9", "type": "fix", "target": "e-1.start"},
+    {"id": "c-10", "type": "distance", "line": "e-1", "expr": "width"},
+    {"id": "c-11", "type": "distance", "line": "e-2", "expr": "50 mm"},
+    {"id": "c-12", "type": "midpoint", "point": "e-6.start", "line": "e-1"},
+    {"id": "c-13", "type": "midpoint", "point": "e-6.end", "line": "e-3"},
+    {"id": "c-14", "type": "point_on_object", "point": "e-5.center", "curve": "e-6"},
+    {"id": "c-15", "type": "vertical_distance", "points": ["e-1.start", "e-5.center"], "expr": "25 mm"},
+    {"id": "c-16", "type": "diameter", "curve": "e-5", "expr": "hole_d"}
+  ]
+}"#;
 
 /// Number of slot links in the chain benchmark.
 pub const CHAIN_LINKS: usize = 25;

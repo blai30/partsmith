@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from 'react'
 import { useApp, useAppState } from '../app/AppProvider'
+import { openSidePanel } from '../app/actions/panels'
 import { Button } from '../components/Button'
 import { describedBy } from '../components/described-by'
 import { HelpLabel } from '../components/HelpLabel'
@@ -361,7 +362,7 @@ export function ExpressionInput({
       lastValid.current === null || unit === 'any'
         ? ''
         : formatQuantity(lastValid.current, unit, units)
-    app.store.setState((current) => ({ panels: { ...current.panels, side: 'parameters' } }))
+    openSidePanel(app, 'parameters')
     requestUi(app, { kind: 'parameter_draft', name, expression, returnFocus: id })
   }
 

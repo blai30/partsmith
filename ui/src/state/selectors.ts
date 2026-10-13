@@ -1,10 +1,11 @@
 import { featureLabel } from '../core/labels'
+import { activeFeatures } from '../core/recipe'
 import type { Diagnostic } from '../generated/protocol'
 import { fieldForPointer, repairField } from '../inspector/status'
 import { MESSAGES } from '../messages'
 import { isCheckHidden } from '../print/checks'
 import { sameOrientation } from '../print/orientation'
-import type { AppState } from './store'
+import type { AppState, DocumentState, SketchSession } from './store'
 
 // Derived views of the state (ui.md 2.8). Selectors that build new values remember their last
 // inputs and result, so `useAppState(selector)` gets the same value back until the inputs change.
@@ -50,15 +51,37 @@ export function selectEditLabel(state: AppState, id: string): string {
   return field === null ? 'Edit' : `Re-pick ${field.label}`
 }
 
+/** Whether the document has changes that are not in its file (core dirty or locally unsaved). */
+export function isUnsaved(document: DocumentState): boolean {
+  return document.dirty || document.localUnsaved
+}
+
+/** Whether an open document has changes that are not in its file (3.19). */
+export function selectUnsaved(state: AppState): boolean {
+  return state.document !== null && isUnsaved(state.document)
+}
+
+/** A sketch session editing a sketch, not picking a plane. */
+export type EditingSession = SketchSession & { readonly sketchId: string }
+
+/** The session of the sketch being edited, or null outside sketch mode and while picking a plane. */
+export function editingSession(state: AppState): EditingSession | null {
+  const session = state.sketch
+  if (state.context !== 'sketch' || session === null || session.sketchId === null) {
+    return null
+  }
+  return { ...session, sketchId: session.sketchId }
+}
+
+/** The edited sketch's id: undefined outside sketch mode, null while picking a plane. */
+export function selectEditedSketch(state: AppState): string | null | undefined {
+  return state.context === 'sketch' && state.sketch !== null ? state.sketch.sketchId : undefined
+}
+
 /** Ids of the features before the rollback marker, in timeline order. */
 export const selectActiveFeatureIds: (state: AppState) => readonly string[] = memoized(
   (state) => [state.document?.recipe] as const,
-  (recipe) => {
-    const features = recipe?.features ?? []
-    const rollback = recipe?.rollback ?? null
-    const end = features.findIndex((feature) => feature.id === rollback)
-    return features.slice(0, end === -1 ? features.length : end).map((feature) => feature.id)
-  },
+  (recipe) => (recipe === undefined ? [] : activeFeatures(recipe).map((feature) => feature.id)),
 )
 
 /**

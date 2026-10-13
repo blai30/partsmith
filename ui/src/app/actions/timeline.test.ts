@@ -5,6 +5,7 @@ import {
   actionLabels,
   currentDocument,
   type FakeApp,
+  labeledEdits,
   notificationWith,
   runAction,
   startWithDocument,
@@ -15,7 +16,7 @@ import {
   featuresOf,
   withFeatureChanges,
 } from '../../test/fakes/documents'
-import { withoutNulls, editsOf } from '../../test/fakes/protocol'
+import { editsOf } from '../../test/fakes/protocol'
 import { settle } from '../../test/fakes/settle'
 import {
   deleteFeatures,
@@ -27,13 +28,6 @@ import {
   type RollbackDrag,
 } from './timeline'
 
-/** The apply_edits requests as { label, edits }, null fields removed. */
-function appliedEdits(fake: FakeApp): unknown[] {
-  return fake.transport
-    .commandsOfType('apply_edits')
-    .map((command) => withoutNulls({ label: command.label, edits: editsOf(command) }))
-}
-
 async function cubeFeatures(recipe: Partial<Document> = {}): Promise<FakeApp> {
   return startWithDocument('cube-features.ptsm', { ...CUBE_FEATURES_DOCUMENT, ...recipe })
 }
@@ -43,7 +37,7 @@ describe('deleteFeatures (3.9)', () => {
     const fake = await cubeFeatures({ rollback: 'f-fil1' })
     await deleteFeatures(fake.app, ['f-fil1'])
     await settle()
-    expect(appliedEdits(fake)).toEqual([
+    expect(labeledEdits(fake)).toEqual([
       {
         label: 'Delete Fillet 1',
         edits: [
@@ -58,7 +52,7 @@ describe('deleteFeatures (3.9)', () => {
     const fake = await cubeFeatures({ rollback: 'f-fil1' })
     await deleteFeatures(fake.app, ['f-fil1', 'f-sh1'])
     await settle()
-    expect(appliedEdits(fake)).toEqual([
+    expect(labeledEdits(fake)).toEqual([
       {
         label: 'Delete 2 features',
         edits: [
@@ -74,7 +68,7 @@ describe('deleteFeatures (3.9)', () => {
     const fake = await cubeFeatures()
     await deleteFeatures(fake.app, ['f-sh1'])
     await settle()
-    expect(appliedEdits(fake)).toEqual([
+    expect(labeledEdits(fake)).toEqual([
       { label: 'Delete Shell 1', edits: [{ type: 'remove_feature', id: 'f-sh1' }] },
     ])
     expect(featuresOf(currentDocument(fake.app).recipe).map((feature) => feature.id)).toEqual([
@@ -105,7 +99,7 @@ describe('moveFeature (3.9)', () => {
     const fake = await cubeFeatures()
     await moveFeature(fake.app, 'f-sh1', 1)
     await settle()
-    expect(appliedEdits(fake)).toEqual([
+    expect(labeledEdits(fake)).toEqual([
       { label: 'Reorder', edits: [{ type: 'move_feature', id: 'f-sh1', index: 1 }] },
     ])
   })
@@ -123,14 +117,14 @@ describe('setRollback (3.9)', () => {
     const fake = await cubeFeatures({ rollback: 'f-fil1' })
     await setRollback(fake.app, 4)
     await settle()
-    expect(appliedEdits(fake)).toEqual([{ label: 'Roll back', edits: [{ type: 'set_rollback' }] }])
+    expect(labeledEdits(fake)).toEqual([{ label: 'Roll back', edits: [{ type: 'set_rollback' }] }])
   })
 
   it('U-68 position 2 sends the id of the third feature', async () => {
     const fake = await cubeFeatures()
     await setRollback(fake.app, 2)
     await settle()
-    expect(appliedEdits(fake)).toEqual([
+    expect(labeledEdits(fake)).toEqual([
       { label: 'Roll back', edits: [{ type: 'set_rollback', rollback: 'f-fil1' }] },
     ])
     expect(currentDocument(fake.app).featureStatus['f-fil1']?.status).toBe('rolled_back')
@@ -140,7 +134,7 @@ describe('setRollback (3.9)', () => {
     const fake = await cubeFeatures()
     await setRollback(fake.app, 0)
     await settle()
-    expect(appliedEdits(fake)).toEqual([
+    expect(labeledEdits(fake)).toEqual([
       { label: 'Roll back', edits: [{ type: 'set_rollback', rollback: 'f-sk1' }] },
     ])
   })
@@ -243,7 +237,7 @@ describe('startRollbackDrag (3.9)', () => {
     expect(fake.transport.commandsOfType('begin_transaction')).toEqual([
       expect.objectContaining({ type: 'begin_transaction', label: 'Roll back' }),
     ])
-    expect(appliedEdits(fake)).toEqual([{ edits: [{ type: 'set_rollback', rollback: 'f-fil1' }] }])
+    expect(labeledEdits(fake)).toEqual([{ edits: [{ type: 'set_rollback', rollback: 'f-fil1' }] }])
     expect(currentDocument(fake.app).recipe.rollback).toBe('f-fil1')
     expect(currentDocument(fake.app).transactionOpen).toBe(true)
   })
@@ -254,7 +248,7 @@ describe('startRollbackDrag (3.9)', () => {
     drag.move(2)
     drag.move(1)
     await settle()
-    expect(appliedEdits(fake)).toEqual([
+    expect(labeledEdits(fake)).toEqual([
       { edits: [{ type: 'set_rollback', rollback: 'f-sh1' }] },
       { edits: [{ type: 'set_rollback', rollback: 'f-ext1' }] },
     ])

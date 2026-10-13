@@ -7,6 +7,7 @@ import { createMemoryRecentFiles, type RecentFilesStore } from '../../files/rece
 import { createMemoryRecovery, type RecoveryStore } from '../../files/recovery'
 import {
   createAppStore,
+  type ActiveCommand,
   type AppStore,
   type DocumentState,
   type Notification,
@@ -63,6 +64,20 @@ export function currentDocument(app: App): DocumentState {
   return document
 }
 
+/** The active feature command; throws when there is none. */
+export function activeCommand(app: App): ActiveCommand {
+  const command = app.store.getState().command
+  if (command === null) {
+    throw new Error('No command is active.')
+  }
+  return command
+}
+
+/** The messages of the shown notifications, oldest first. */
+export function notificationMessages(app: App): string[] {
+  return app.store.getState().notifications.map((notification) => notification.message)
+}
+
 /** The shown notification whose message matches exactly (a string) or by pattern; throws when there is none. */
 export function notificationWith(app: App, message: string | RegExp): Notification {
   const found = app.store
@@ -73,10 +88,7 @@ export function notificationWith(app: App, message: string | RegExp): Notificati
         : message.test(notification.message),
     )
   if (found === undefined) {
-    const shown = app.store
-      .getState()
-      .notifications.map((notification) => notification.message)
-      .join(' | ')
+    const shown = notificationMessages(app).join(' | ')
     throw new Error(`No notification matches ${String(message)}; shown: ${shown || 'none'}.`)
   }
   return found

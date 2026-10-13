@@ -1,12 +1,12 @@
 import type { Command, Request } from '../generated/protocol'
-import { errorResponseFrame } from './frame'
+import { decodeFrame, errorResponseFrame } from './frame'
 
 // Request superseding (protocol.md 2.11 rule 4), shared by the worker host and the Tauri transport.
 
 /** The message of a synthesized `superseded` response (protocol.md section 4). */
 export const SUPERSEDED_MESSAGE = 'A newer request replaced this one.'
 
-function documentOf(command: Command): number | null {
+function documentHandleOf(command: Command): number | null {
   return 'doc' in command ? command.doc : null
 }
 
@@ -20,7 +20,7 @@ export function isSuperseded(queue: readonly Request[], index: number): boolean 
   if (command === undefined) {
     return false
   }
-  const document = documentOf(command)
+  const document = documentHandleOf(command)
   const later = queue.slice(index + 1).map((request) => request.command)
   if (command.type === 'analyze_print') {
     return later.some(
@@ -32,7 +32,7 @@ export function isSuperseded(queue: readonly Request[], index: number): boolean 
     return false
   }
   for (const candidate of later) {
-    if (documentOf(candidate) !== document) {
+    if (documentHandleOf(candidate) !== document) {
       continue
     }
     // The first later request for the same document decides: the same kind for the same sketch
@@ -40,6 +40,32 @@ export function isSuperseded(queue: readonly Request[], index: number): boolean 
     return candidate.type === command.type && sketchOf(candidate) === sketch
   }
   return false
+}
+
+/** The request a queued frame carries, or null when the frame does not decode to one request. */
+export function requestOf(frame: ArrayBuffer): Request | null {
+  try {
+    const [message] = decodeFrame(frame).header.messages
+    return message?.kind === 'request' ? { id: message.id, command: message.command } : null
+  } catch {
+    // The core answers an unreadable frame itself (malformed_frame).
+    return null
+  }
+}
+
+/**
+ * Whether the call at the head of the queue is superseded. Superseding looks only as far as the
+ * first unreadable frame, so a request the host cannot read never lets a later one overtake it.
+ */
+export function headIsSuperseded(queue: readonly { readonly request: Request | null }[]): boolean {
+  const readable: Request[] = []
+  for (const call of queue) {
+    if (call.request === null) {
+      break
+    }
+    readable.push(call.request)
+  }
+  return readable.length > 0 && isSuperseded(readable, 0)
 }
 
 /** The response frame that answers a superseded request. */

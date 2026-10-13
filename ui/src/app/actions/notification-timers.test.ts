@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { createTestApp } from '../../test/fakes/app'
-import type { App } from '../createApp'
+import { createTestApp, notificationMessages } from '../../test/fakes/app'
 import { notify, pauseNotification, resumeNotification } from './notifications'
 
 // Countdown pauses and persistent notifications (ui.md 3.22, 3.19).
@@ -13,10 +12,6 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
-function messages(app: App): string[] {
-  return app.store.getState().notifications.map((notification) => notification.message)
-}
-
 describe('pauseNotification and resumeNotification', () => {
   it('hold the countdown while paused and continue with the time that was left', () => {
     const app = createTestApp()
@@ -24,12 +19,12 @@ describe('pauseNotification and resumeNotification', () => {
     vi.advanceTimersByTime(3_000)
     pauseNotification(app, id)
     vi.advanceTimersByTime(60_000)
-    expect(messages(app)).toEqual(['Exported cube.3mf.'])
+    expect(notificationMessages(app)).toEqual(['Exported cube.3mf.'])
     resumeNotification(app, id)
     vi.advanceTimersByTime(1_999)
-    expect(messages(app)).toEqual(['Exported cube.3mf.'])
+    expect(notificationMessages(app)).toEqual(['Exported cube.3mf.'])
     vi.advanceTimersByTime(1)
-    expect(messages(app)).toEqual([])
+    expect(notificationMessages(app)).toEqual([])
   })
 
   it('ignore errors, which never count down', () => {
@@ -38,7 +33,7 @@ describe('pauseNotification and resumeNotification', () => {
     pauseNotification(app, id)
     resumeNotification(app, id)
     vi.advanceTimersByTime(60_000)
-    expect(messages(app)).toEqual(['It failed.'])
+    expect(notificationMessages(app)).toEqual(['It failed.'])
   })
 })
 
@@ -50,6 +45,6 @@ describe('persistent notifications', () => {
     vi.advanceTimersByTime(60_000)
     notify(app, { severity: 'info', message, actions: [] })
     vi.advanceTimersByTime(60_000)
-    expect(messages(app)).toEqual([message])
+    expect(notificationMessages(app)).toEqual([message])
   })
 })

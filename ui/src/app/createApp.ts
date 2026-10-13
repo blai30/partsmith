@@ -1,6 +1,7 @@
 import { createCommandRegistry, type CommandRegistry } from '../commands/registry'
 import { createCoreApi, rebuildsDocument, rebuiltDocument, type CoreApi } from '../core/api'
 import { createCoreClient, type CoreClient, type Reply } from '../core/client'
+import { errorMessage } from '../core/errors'
 import type { CoreEvent } from '../core/events'
 import { createMutationQueue, type MutationQueue } from '../core/queue'
 import { CoreFatalError, type Transport } from '../core/transport'
@@ -15,14 +16,14 @@ import {
   recordRebuildTime,
   releaseDocuments,
 } from '../state/core-events'
+import { isUnsaved, selectUnsaved } from '../state/selectors'
 import { createAppStore, type AppStore, type FileReference } from '../state/store'
 import { initialSessionVisibility } from '../state/visibility'
 import type { ViewportHandle } from '../viewport/controller'
-import { isUnsaved } from './actions/edits'
 import { installFailureDismissal } from './actions/notifications'
 import { installPrintAnalysis } from './actions/print'
 import { connectApp } from './connection'
-import { loadCoreData } from './core-data'
+import { loadCoreData, markCoreFailed, markCoreReady, openUntitled } from './core-data'
 import { installSelectionUpkeep } from './selection-upkeep'
 import { measureToNextFrame } from './timing'
 
@@ -73,10 +74,6 @@ type Reopening = {
 
 /** Delay after the last document_changed before a dirty document's recovery copy is written (3.19). */
 const RECOVERY_DELAY_MILLISECONDS = 2_000
-
-function reasonOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
-}
 
 /** Writes a recovery copy of a dirty document 2 s after its last change (3.19). */
 function scheduleRecovery(app: App, now: () => number): (event: CoreEvent) => void {
@@ -153,7 +150,7 @@ export function createApp(options: CreateAppOptions): App {
   }
 
   function failed(error: CoreFatalError): void {
-    store.setState((state) => ({ core: { ...state.core, status: 'failed', fatal: error.message } }))
+    markCoreFailed(store, error.message)
   }
 
   function connect(): CoreClient {
@@ -222,8 +219,7 @@ export function createApp(options: CreateAppOptions): App {
   async function reopen(): Promise<void> {
     const kept = reopening
     if (kept === null) {
-      const documentHandle = await mutations.run(() => core.newDocument('mm'))
-      adoptDocument(store, documentHandle, { name: 'Untitled', file: null, localUnsaved: false })
+      await openUntitled(app)
       store.setState((state) => ({
         view: {
           ...state.view,
@@ -274,11 +270,9 @@ export function createApp(options: CreateAppOptions): App {
         const ready = await options.transport.start()
         await loadCoreData(app)
         await reopen()
-        store.setState((state) => ({
-          core: { ...state.core, status: 'ready', engineVersion: ready.engineVersion, fatal: null },
-        }))
+        markCoreReady(store, ready.engineVersion)
       } catch (error) {
-        failed(error instanceof CoreFatalError ? error : new CoreFatalError(reasonOf(error)))
+        failed(error instanceof CoreFatalError ? error : new CoreFatalError(errorMessage(error)))
       }
     },
   }
@@ -293,8 +287,7 @@ export function createApp(options: CreateAppOptions): App {
 /** Makes the browser ask before leaving the page while the document has unsaved changes (3.19). */
 export function installUnloadGuard(app: App, target: Window): () => void {
   function onBeforeUnload(event: BeforeUnloadEvent): void {
-    const document = app.store.getState().document
-    if (document !== null && isUnsaved(document)) {
+    if (selectUnsaved(app.store.getState())) {
       event.preventDefault()
     }
   }

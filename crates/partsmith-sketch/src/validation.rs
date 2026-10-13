@@ -4,14 +4,13 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use partsmith_model::Id;
 
-use crate::ORIGIN;
 use crate::constraint::{Alignment, ConstraintKind, DistanceTarget, SketchConstraint};
 use crate::entity::EntityKind;
 use crate::error::SketchError;
 use crate::params::{DimensionValues, SketchParams};
 use crate::plane::SketchPlane;
 use crate::point_ref::{PointRef, PointRole};
-use crate::reserved::{is_axis, is_reserved};
+use crate::reserved::{is_axis, is_origin, is_reserved};
 
 /// Checks ids, the plane, geometry and references, returning the first problem in the order of section 3.4.
 pub(crate) fn validate(sketch: &SketchParams) -> Result<(), SketchError> {
@@ -314,10 +313,10 @@ impl Checker<'_> {
 
     /// A point field, or the `fix` target when `whole_entity` (a bare id then names an entity of any kind).
     fn reference(&self, point: &PointRef, whole_entity: bool) -> Result<(), SketchError> {
-        let name = point.entity.as_str();
-        if name == ORIGIN && point.role == PointRole::Point {
+        if is_origin(point) {
             return Ok(());
         }
+        let name = point.entity.as_str();
         if is_reserved(name) {
             return Err(self.misuse(point.to_string()));
         }
@@ -399,52 +398,27 @@ impl Checker<'_> {
 mod tests {
     use super::*;
     use crate::constraint::DimensionExpr;
-    use crate::entity::{Geometry, SketchEntity};
-    use crate::plane::OriginPlane;
+    use crate::entity::Geometry;
+    use crate::test_support::{self, entity, id, line, point};
     use partsmith_model::Expr;
 
-    fn id(text: &str) -> Id {
-        Id::new(text).expect("test ids are valid")
-    }
-
-    fn point(text: &str) -> PointRef {
-        text.parse().expect("test point references are valid")
-    }
-
+    /// The line e-1 and the arc e-2 with these constraints.
     fn sketch(constraints: Vec<ConstraintKind>) -> SketchParams {
-        SketchParams {
-            plane: SketchPlane::Origin {
-                plane: OriginPlane::Xy,
-            },
-            entities: vec![
-                SketchEntity {
-                    id: id("e-1"),
-                    geometry: Geometry::Line {
-                        start: [0.0, 0.0],
-                        end: [1.0, 0.0],
-                    },
-                    construction: false,
-                },
-                SketchEntity {
-                    id: id("e-2"),
-                    geometry: Geometry::Arc {
+        test_support::sketch(
+            vec![
+                line("e-1", [0.0, 0.0], [1.0, 0.0]),
+                entity(
+                    "e-2",
+                    Geometry::Arc {
                         center: [0.0, 0.0],
                         radius: 1.0,
                         start_angle: 0.0,
                         end_angle: 1.0,
                     },
-                    construction: false,
-                },
+                ),
             ],
-            constraints: constraints
-                .into_iter()
-                .enumerate()
-                .map(|(index, kind)| SketchConstraint {
-                    id: id(&format!("c-{index}")),
-                    kind,
-                })
-                .collect(),
-        }
+            constraints,
+        )
     }
 
     fn dimension() -> DimensionExpr {

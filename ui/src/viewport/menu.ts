@@ -7,7 +7,7 @@ import { suggestedCommands } from '../inspector/suggestions'
 import { commandComplete } from '../layout/ladders'
 import { CONSTRAINT_TITLES, applicableConstraints } from '../sketch/constraints'
 import type { AppState, SelectionItem } from '../state/store'
-import { isSessionVisible } from './scene'
+import { isSessionVisible } from '../state/visibility'
 
 // The viewport context menu (ui.md 3.13): what fits the selection under the pointer, one right
 // click away. The items are data, so the plain menu of M1 and the radial marking menu of 1.2 can

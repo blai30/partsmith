@@ -37,17 +37,11 @@ pub struct KeyEdge {
 
 impl RegionKey {
     /// Builds a canonical key: sorts and deduplicates each loop's entries and sorts the holes.
-    pub fn new(outer: Vec<KeyEdge>, holes: Vec<Vec<KeyEdge>>) -> RegionKey {
-        let canonical = |mut entries: Vec<KeyEdge>| {
-            entries.sort();
-            entries.dedup();
-            entries
-        };
-        let mut holes: Vec<Vec<KeyEdge>> = holes.into_iter().map(canonical).collect();
-        holes.sort_by_cached_key(|hole| loop_text(hole));
+    pub fn new(outer: Vec<KeyEdge>, mut holes: Vec<Vec<KeyEdge>>) -> RegionKey {
+        sort_holes(&mut holes, Vec::clone);
         RegionKey {
-            outer: canonical(outer),
-            holes,
+            outer: canonical_loop(outer),
+            holes: holes.into_iter().map(canonical_loop).collect(),
         }
     }
 
@@ -69,6 +63,19 @@ impl fmt::Display for KeyEdge {
         }
         write!(formatter, "{}", self.entity)
     }
+}
+
+/// A loop's entries as a region key lists them: sorted, without repeats.
+pub(crate) fn canonical_loop(mut entries: Vec<KeyEdge>) -> Vec<KeyEdge> {
+    entries.sort();
+    entries.dedup();
+    entries
+}
+
+/// Sorts holes into region key order, by the text of their canonical loops; holes with the same text
+/// keep their order.
+pub(crate) fn sort_holes<T>(holes: &mut [T], entries: impl Fn(&T) -> Vec<KeyEdge>) {
+    holes.sort_by_cached_key(|hole| loop_text(&canonical_loop(entries(hole))));
 }
 
 /// The text of one loop: its entries joined with ",".

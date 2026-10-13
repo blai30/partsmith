@@ -298,14 +298,7 @@ fn coincident_hint(points: &bool) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn id(text: &str) -> Id {
-        Id::new(text).expect("test ids are valid")
-    }
-
-    fn point(text: &str) -> PointRef {
-        text.parse().expect("test point references are valid")
-    }
+    use crate::test_support::{id, point};
 
     #[test]
     fn label_replaces_underscores() {

@@ -1,3 +1,5 @@
+import { errorMessage } from '../core/errors'
+
 export type FileKind = 'ptsm' | '3mf' | 'stl' | 'obj' | 'step'
 
 /** A file the desktop host granted through a native dialog. Plain data, so IndexedDB stores it. */
@@ -136,10 +138,6 @@ function isDomError(error: unknown, name: string): boolean {
   return typeof error === 'object' && error !== null && Reflect.get(error, 'name') === name
 }
 
-function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
-}
-
 /** A failed read or write as a FileServiceError: a missing file is `not_found`, anything else `io`. */
 function fileServiceError(error: unknown, name: string): FileServiceError {
   if (error instanceof FileServiceError) {
@@ -148,7 +146,7 @@ function fileServiceError(error: unknown, name: string): FileServiceError {
   if (isDomError(error, 'NotFoundError')) {
     return new FileServiceError('not_found', `${name} was not found.`, { cause: error })
   }
-  return new FileServiceError('io', messageOf(error), { cause: error })
+  return new FileServiceError('io', errorMessage(error), { cause: error })
 }
 
 /** Asks for permission when the browser has not granted it yet; throws `permission` when it is refused. */

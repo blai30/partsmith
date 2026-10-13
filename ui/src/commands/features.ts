@@ -1,6 +1,7 @@
 import { Shapes } from 'lucide-react'
 import { startFeatureCommand } from '../app/actions/command'
 import type { App } from '../app/createApp'
+import { activeFeatures } from '../core/recipe'
 import type { Category } from '../generated/protocol'
 import { MESSAGES } from '../messages'
 import type { AppContext, AppState, Catalog, CatalogFeature } from '../state/store'
@@ -50,10 +51,7 @@ function hasSketchRegion(state: AppState): boolean {
   if (document === null) {
     return false
   }
-  const features = document.recipe.features ?? []
-  const rollback = document.recipe.rollback ?? null
-  const end = rollback === null ? -1 : features.findIndex((feature) => feature.id === rollback)
-  const active = features.slice(0, end === -1 ? features.length : end)
+  const active = activeFeatures(document.recipe)
   const edited = state.context === 'sketch' ? (state.sketch?.sketchId ?? null) : null
   const hasRegion = (id: string) => (document.sketches[id]?.solution.regions.length ?? 0) > 0
   return (

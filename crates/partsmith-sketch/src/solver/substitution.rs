@@ -202,49 +202,19 @@ impl Substitution {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::constraint::{ConstraintKind, SketchConstraint};
-    use crate::entity::{Geometry, SketchEntity};
-    use crate::params::{DimensionValues, SketchParams};
-    use crate::plane::{OriginPlane, SketchPlane};
-    use partsmith_model::Id;
-
-    fn id(text: &str) -> Id {
-        Id::new(text).expect("test ids are valid")
-    }
-
-    fn line(name: &str, start: [f64; 2], end: [f64; 2]) -> SketchEntity {
-        SketchEntity {
-            id: id(name),
-            geometry: Geometry::Line { start, end },
-            construction: false,
-        }
-    }
+    use crate::constraint::ConstraintKind;
+    use crate::entity::SketchEntity;
+    use crate::params::DimensionValues;
+    use crate::test_support::{id, line, point, sketch};
 
     fn substitution(
         entities: Vec<SketchEntity>,
         kinds: Vec<ConstraintKind>,
     ) -> (Substitution, Vec<f64>) {
-        let sketch = SketchParams {
-            plane: SketchPlane::Origin {
-                plane: OriginPlane::Xy,
-            },
-            entities,
-            constraints: kinds
-                .into_iter()
-                .enumerate()
-                .map(|(index, kind)| SketchConstraint {
-                    id: id(&format!("c-{index}")),
-                    kind,
-                })
-                .collect(),
-        };
+        let sketch = sketch(entities, kinds);
         let system = System::new(&sketch, &DimensionValues::new(), &sketch.entities);
-        let x = system.layout.vector(&sketch.entities);
+        let x = system.warm_start.clone();
         (Substitution::new(&system, &system.components[0], &x), x)
-    }
-
-    fn point(text: &str) -> crate::PointRef {
-        text.parse().expect("valid point reference")
     }
 
     #[test]

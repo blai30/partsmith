@@ -6,6 +6,7 @@ import {
   type Message,
   type PartsmithProtocol,
 } from '../generated/protocol'
+import { errorMessage } from './errors'
 
 // The PSM1 frame codec of protocol.md 2.2 and 3.2: a JSON header followed by 8-byte aligned raw
 // buffers. Decoded buffers are views into the frame (no copies). Every JavaScript engine the app runs
@@ -116,6 +117,20 @@ export function errorResponseFrame(id: number, code: ErrorCode, message: string)
   )
 }
 
+/** Request id 0 is reserved for a host's own engine_info call (protocol.md 3.5). */
+const ENGINE_INFO_ID = 0
+
+/** Encodes the host's own engine_info request (id 0) with no buffers. */
+export function engineInfoRequestFrame(): ArrayBuffer {
+  return encodeFrame(
+    {
+      protocol_version: PROTOCOL_VERSION,
+      messages: [{ kind: 'request', id: ENGINE_INFO_ID, command: { type: 'engine_info' } }],
+    },
+    [],
+  )
+}
+
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
@@ -192,8 +207,7 @@ function parseHeader(bytes: Uint8Array): Readonly<Record<string, unknown>> {
   try {
     parsed = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes))
   } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error)
-    throw new FrameDecodeError(`The frame header is not valid JSON: ${reason}`)
+    throw new FrameDecodeError(`The frame header is not valid JSON: ${errorMessage(error)}`)
   }
   if (!isRecord(parsed)) {
     throw new FrameDecodeError('The frame header is not a valid message: it is not an object.')

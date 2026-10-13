@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { Document, Edit } from '../../generated/protocol'
+import type { Document } from '../../generated/protocol'
 import {
   CUBE_BOUNDS,
   documentState,
@@ -8,7 +8,7 @@ import {
   regionItem,
 } from '../../layout/fixtures.testing'
 import { createModelApp } from '../../layout/test-app.testing'
-import { startWithDocument, type FakeApp } from '../../test/fakes/app'
+import { activeCommand, appliedEdits, startWithDocument } from '../../test/fakes/app'
 import {
   CUBE_DOCUMENT,
   CUBE_REGION,
@@ -16,7 +16,6 @@ import {
   CUBE_TOP_FACE,
   featuresOf,
 } from '../../test/fakes/documents'
-import { editsOf } from '../../test/fakes/protocol'
 import { bodyItem, originItem } from '../../test/fakes/selection'
 import { settle } from '../../test/fakes/settle'
 import { capturePick, setCommandField, startFeatureCommand } from './command'
@@ -25,25 +24,13 @@ import { select } from './selection'
 // Bodies a command creates (ui.md 2.12): new bodies for copies and split parts, and the cut
 // direction of an Extrude sketched on a face of its body (3.7).
 
-function appliedEdits(fake: FakeApp): readonly (readonly Edit[])[] {
-  return fake.transport.commandsOfType('apply_edits').map((command) => editsOf(command))
-}
-
-function commandOf(fake: FakeApp) {
-  const command = fake.app.store.getState().command
-  if (command === null) {
-    throw new Error('No command is active.')
-  }
-  return command
-}
-
 describe('new bodies for copies and split parts (U-105)', () => {
   it('U-105 a split keeps both parts: the first application adds a body for Target', async () => {
     const fake = await startWithDocument('cube.ptsm', CUBE_DOCUMENT)
     select(fake.app, [bodyItem('b-cube', 'Cube'), originItem('XZ')], 'replace')
     await startFeatureCommand(fake.app, 'split_body')
     await settle()
-    const newBody = commandOf(fake).newBody
+    const newBody = activeCommand(fake.app).newBody
     expect(newBody).toMatchObject({ name: 'Body 1', path: 'target' })
     const [first] = appliedEdits(fake)
     expect(first?.map((edit) => edit.type)).toEqual(['add_body', 'add_feature'])
@@ -59,7 +46,7 @@ describe('new bodies for copies and split parts (U-105)', () => {
       second[0]?.type === 'update_feature' ? second[0].feature['target'] : null,
     ).toBeUndefined()
     expect(second[1]).toEqual({ type: 'remove_body', id: newBody?.id })
-    expect(commandOf(fake).newBody).toBeNull()
+    expect(activeCommand(fake.app).newBody).toBeNull()
   })
 
   it('U-105 a mirror makes a new body only with op new, and removes it when op goes back', async () => {
@@ -67,14 +54,14 @@ describe('new bodies for copies and split parts (U-105)', () => {
     select(fake.app, [originItem('XZ')], 'replace')
     await startFeatureCommand(fake.app, 'mirror')
     await settle()
-    expect(commandOf(fake).params).toMatchObject({ op: 'join', body: 'b-cube' })
-    expect(commandOf(fake).params['target']).toBeUndefined()
+    expect(activeCommand(fake.app).params).toMatchObject({ op: 'join', body: 'b-cube' })
+    expect(activeCommand(fake.app).params['target']).toBeUndefined()
     fake.transport.clearRequests()
 
     setCommandField(fake.app, 'op', 'new')
-    const newBody = commandOf(fake).newBody
+    const newBody = activeCommand(fake.app).newBody
     expect(newBody).toMatchObject({ name: 'Body 1', path: 'target' })
-    expect(commandOf(fake).params['target']).toBe(newBody?.id)
+    expect(activeCommand(fake.app).params['target']).toBe(newBody?.id)
     await settle()
     const [added] = appliedEdits(fake)
     expect(added?.map((edit) => edit.type)).toEqual(['add_body', 'update_feature'])
@@ -83,8 +70,8 @@ describe('new bodies for copies and split parts (U-105)', () => {
     await settle()
     const removed = appliedEdits(fake)[1] ?? []
     expect(removed.map((edit) => edit.type)).toEqual(['update_feature', 'remove_body'])
-    expect(commandOf(fake).params['target']).toBeUndefined()
-    expect(commandOf(fake).params['body']).toBe('b-cube')
+    expect(activeCommand(fake.app).params['target']).toBeUndefined()
+    expect(activeCommand(fake.app).params['body']).toBe('b-cube')
   })
 
   it('U-105 an extrude with op new still creates its body in Body', async () => {
@@ -100,10 +87,10 @@ describe('new bodies for copies and split parts (U-105)', () => {
     select(fake.app, [regionItem('f-sk1', CUBE_REGION)], 'replace')
     await startFeatureCommand(fake.app, 'extrude')
     await settle()
-    const newBody = commandOf(fake).newBody
+    const newBody = activeCommand(fake.app).newBody
     expect(newBody).toMatchObject({ path: 'body' })
-    expect(commandOf(fake).params['body']).toBe(newBody?.id)
-    expect(commandOf(fake).params['target']).toBeUndefined()
+    expect(activeCommand(fake.app).params['body']).toBe(newBody?.id)
+    expect(activeCommand(fake.app).params['target']).toBeUndefined()
   })
 })
 

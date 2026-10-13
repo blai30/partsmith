@@ -4,7 +4,7 @@ import { createTestApp, currentDocument, startWithDocument } from '../../test/fa
 import { CUBE_DOCUMENT, CUBE_FRONT_FACE, CUBE_TOP_FACE } from '../../test/fakes/documents'
 import { bodyItem, elementItem, featureItem, originItem } from '../../test/fakes/selection'
 import { settle } from '../../test/fakes/settle'
-import { clearSelection, pickAt, select, setHover } from './selection'
+import { clearSelection, pickAt, select, setHover, toggledByKey } from './selection'
 
 const CUBE = bodyItem('b-cube', 'Cube')
 const EXTRUDE = featureItem('f-ext1', 'Extrude 1')
@@ -52,6 +52,16 @@ describe('select', () => {
     select(app, [CUBE], 'replace')
     clearSelection(app)
     expect(app.store.getState().selection).toEqual([])
+  })
+})
+
+describe('toggledByKey', () => {
+  it('removes selected items and adds the others after the ones already selected', () => {
+    expect(keys(toggledByKey([CUBE, EXTRUDE], [XY, CUBE]))).toEqual(['feature:f-ext1', 'origin:XY'])
+  })
+
+  it('adds and removes an item listed twice', () => {
+    expect(keys(toggledByKey([CUBE], [XY, XY]))).toEqual(['body:b-cube'])
   })
 })
 

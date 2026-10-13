@@ -6,16 +6,17 @@ use std::ops::Range;
 
 use partsmith_model::Id;
 
-use crate::entity::{Geometry, SketchEntity};
+use crate::entity::{EntityKind, Geometry, SketchEntity};
 use crate::point_ref::PointRole;
+use crate::vector::angle_of;
 
 /// Where each entity's parameters sit in the flat vector.
 #[derive(Clone, Debug)]
 pub(crate) struct Layout {
-    /// First parameter of each entity, in entity order.
+    /// Kind of each entity, in entity order.
+    kinds: Vec<EntityKind>,
+    /// First parameter of each entity in entity order, followed by the total parameter count.
     offsets: Vec<usize>,
-    /// Parameter count of each entity.
-    counts: Vec<usize>,
     /// Entity index by id.
     indices: BTreeMap<Id, usize>,
 }
@@ -23,14 +24,13 @@ pub(crate) struct Layout {
 impl Layout {
     /// The layout of these entities in document order.
     pub(crate) fn new(entities: &[SketchEntity]) -> Layout {
-        let mut offsets = Vec::with_capacity(entities.len());
-        let mut counts = Vec::with_capacity(entities.len());
+        let kinds: Vec<EntityKind> = entities.iter().map(SketchEntity::kind).collect();
+        let mut offsets = Vec::with_capacity(kinds.len() + 1);
         let mut next = 0;
-        for entity in entities {
-            let count = parameter_count(&entity.geometry);
+        offsets.push(next);
+        for &kind in &kinds {
+            next += parameter_count(kind);
             offsets.push(next);
-            counts.push(count);
-            next += count;
         }
         let indices = entities
             .iter()
@@ -38,18 +38,15 @@ impl Layout {
             .map(|(index, entity)| (entity.id.clone(), index))
             .collect();
         Layout {
+            kinds,
             offsets,
-            counts,
             indices,
         }
     }
 
     /// Total parameter count.
     pub(crate) fn len(&self) -> usize {
-        self.offsets
-            .last()
-            .zip(self.counts.last())
-            .map_or(0, |(offset, count)| offset + count)
+        self.offsets[self.kinds.len()]
     }
 
     /// The index of the entity with this id.
@@ -57,28 +54,32 @@ impl Layout {
         self.indices.get(id).copied()
     }
 
+    /// The kind of one entity.
+    pub(crate) fn kind(&self, entity: usize) -> EntityKind {
+        self.kinds[entity]
+    }
+
     /// The parameters of one entity.
     pub(crate) fn parameters(&self, entity: usize) -> Range<usize> {
-        self.offsets[entity]..self.offsets[entity] + self.counts[entity]
+        self.offsets[entity]..self.offsets[entity + 1]
     }
 
     /// The first parameter of a point role of an entity (its `x`; `y` follows), or `None` when the role does not apply.
-    pub(crate) fn point_parameter(
-        &self,
-        entity: usize,
-        geometry: &Geometry,
-        role: PointRole,
-    ) -> Option<usize> {
-        let offset = self.offsets[entity];
-        let relative = match (geometry, role) {
-            (Geometry::Point { .. }, PointRole::Point)
-            | (Geometry::Line { .. }, PointRole::Start)
-            | (Geometry::Circle { .. } | Geometry::Arc { .. }, PointRole::Center) => 0,
-            (Geometry::Line { .. }, PointRole::End) | (Geometry::Arc { .. }, PointRole::Start) => 2,
-            (Geometry::Arc { .. }, PointRole::End) => 4,
+    pub(crate) fn point_parameter(&self, entity: usize, role: PointRole) -> Option<usize> {
+        let relative = match (self.kinds[entity], role) {
+            (EntityKind::Point, PointRole::Point)
+            | (EntityKind::Line, PointRole::Start)
+            | (EntityKind::Circle | EntityKind::Arc, PointRole::Center) => 0,
+            (EntityKind::Line, PointRole::End) | (EntityKind::Arc, PointRole::Start) => 2,
+            (EntityKind::Arc, PointRole::End) => 4,
             _ => return None,
         };
-        Some(offset + relative)
+        Some(self.offsets[entity] + relative)
+    }
+
+    /// The radius parameter of a circle, or `None` for other kinds (an arc's radius is the length from its center to its start).
+    pub(crate) fn radius_parameter(&self, entity: usize) -> Option<usize> {
+        (self.kinds[entity] == EntityKind::Circle).then(|| self.offsets[entity] + 2)
     }
 
     /// The flat parameter vector of these entities; arc start and end points come from the stored angles.
@@ -141,13 +142,13 @@ impl Layout {
     }
 }
 
-/// Number of solver parameters of a geometry: point 2, line 4, circle 3, arc 6.
-fn parameter_count(geometry: &Geometry) -> usize {
-    match geometry {
-        Geometry::Point { .. } => 2,
-        Geometry::Line { .. } => 4,
-        Geometry::Circle { .. } => 3,
-        Geometry::Arc { .. } => 6,
+/// Number of solver parameters of an entity kind: point 2, line 4, circle 3, arc 6.
+fn parameter_count(kind: EntityKind) -> usize {
+    match kind {
+        EntityKind::Point => 2,
+        EntityKind::Line => 4,
+        EntityKind::Circle => 3,
+        EntityKind::Arc => 6,
     }
 }
 
@@ -184,7 +185,7 @@ fn geometry_from(kind: &Geometry, values: &[f64]) -> Geometry {
 /// A negative angle closer to 0 than half an ulp of 2*pi rounds to exactly 2*pi when it is added; that
 /// direction is +u, so it becomes 0 and the result stays below 2*pi.
 fn stored_angle(offset: [f64; 2]) -> f64 {
-    let angle = offset[1].atan2(offset[0]);
+    let angle = angle_of(offset);
     if angle < 0.0 {
         let turned = angle + TAU;
         if turned < TAU { turned } else { 0.0 }
@@ -200,14 +201,7 @@ mod tests {
     use std::f64::consts::{FRAC_PI_2, PI};
 
     use super::*;
-
-    fn entity(id: &str, geometry: Geometry) -> SketchEntity {
-        SketchEntity {
-            id: Id::new(id).expect("valid id"),
-            geometry,
-            construction: false,
-        }
-    }
+    use crate::test_support::entity;
 
     #[test]
     fn offsets_follow_parameter_counts() {

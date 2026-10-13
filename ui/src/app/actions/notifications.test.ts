@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Notification } from '../../state/store'
-import { createTestApp } from '../../test/fakes/app'
+import { createTestApp, notificationMessages } from '../../test/fakes/app'
 import type { App } from '../createApp'
 import { dismiss, notify } from './notifications'
 
@@ -8,10 +8,6 @@ type Severity = Notification['severity']
 
 function show(app: App, severity: Severity, message: string): string {
   return notify(app, { severity, message, actions: [] })
-}
-
-function messages(app: App): string[] {
-  return app.store.getState().notifications.map((notification) => notification.message)
 }
 
 beforeEach(() => {
@@ -47,43 +43,43 @@ describe('notify', () => {
     const app = createTestApp()
     show(app, 'error', 'First.')
     show(app, 'error', 'Second.')
-    expect(messages(app)).toEqual(['First.', 'Second.'])
+    expect(notificationMessages(app)).toEqual(['First.', 'Second.'])
   })
 
   it('U-72 an info notification disappears after 5 s', () => {
     const app = createTestApp()
     show(app, 'info', 'Exported cube.3mf.')
     vi.advanceTimersByTime(4_999)
-    expect(messages(app)).toEqual(['Exported cube.3mf.'])
+    expect(notificationMessages(app)).toEqual(['Exported cube.3mf.'])
     vi.advanceTimersByTime(1)
-    expect(messages(app)).toEqual([])
+    expect(notificationMessages(app)).toEqual([])
   })
 
   it('a success notification disappears after 5 s', () => {
     const app = createTestApp()
     show(app, 'success', 'Exported cube.3mf.')
     vi.advanceTimersByTime(4_999)
-    expect(messages(app)).toHaveLength(1)
+    expect(notificationMessages(app)).toHaveLength(1)
     vi.advanceTimersByTime(1)
-    expect(messages(app)).toEqual([])
+    expect(notificationMessages(app)).toEqual([])
   })
 
   it('U-72 a warning disappears after 8 s', () => {
     const app = createTestApp()
     show(app, 'warning', 'Vertical conflicts with Horizontal, so it was not added.')
     vi.advanceTimersByTime(7_999)
-    expect(messages(app)).toHaveLength(1)
+    expect(notificationMessages(app)).toHaveLength(1)
     vi.advanceTimersByTime(1)
-    expect(messages(app)).toEqual([])
+    expect(notificationMessages(app)).toEqual([])
   })
 
   it('U-72 an error stays until dismissed', () => {
     const app = createTestApp()
     const id = show(app, 'error', 'Extrude 1 failed. The profile is empty.')
     vi.advanceTimersByTime(600_000)
-    expect(messages(app)).toEqual(['Extrude 1 failed. The profile is empty.'])
+    expect(notificationMessages(app)).toEqual(['Extrude 1 failed. The profile is empty.'])
     dismiss(app, id)
-    expect(messages(app)).toEqual([])
+    expect(notificationMessages(app)).toEqual([])
   })
 
   it('U-72 a fourth notification removes the oldest non-error one', () => {
@@ -92,7 +88,7 @@ describe('notify', () => {
     show(app, 'info', 'Info one.')
     show(app, 'warning', 'Warning one.')
     show(app, 'info', 'Info two.')
-    expect(messages(app)).toEqual(['Error one.', 'Warning one.', 'Info two.'])
+    expect(notificationMessages(app)).toEqual(['Error one.', 'Warning one.', 'Info two.'])
   })
 
   it('a fourth notification removes the oldest when all are errors', () => {
@@ -101,7 +97,7 @@ describe('notify', () => {
     show(app, 'error', 'Error two.')
     show(app, 'error', 'Error three.')
     show(app, 'error', 'Error four.')
-    expect(messages(app)).toEqual(['Error two.', 'Error three.', 'Error four.'])
+    expect(notificationMessages(app)).toEqual(['Error two.', 'Error three.', 'Error four.'])
   })
 
   it("U-72 a duplicate of a visible message adds nothing and restarts the visible one's timer", () => {
@@ -109,11 +105,11 @@ describe('notify', () => {
     show(app, 'info', 'Nothing to undo.')
     vi.advanceTimersByTime(3_000)
     show(app, 'info', 'Nothing to undo.')
-    expect(messages(app)).toEqual(['Nothing to undo.'])
+    expect(notificationMessages(app)).toEqual(['Nothing to undo.'])
     vi.advanceTimersByTime(4_999)
-    expect(messages(app)).toEqual(['Nothing to undo.'])
+    expect(notificationMessages(app)).toEqual(['Nothing to undo.'])
     vi.advanceTimersByTime(1)
-    expect(messages(app)).toEqual([])
+    expect(notificationMessages(app)).toEqual([])
   })
 })
 
@@ -166,14 +162,14 @@ describe('dismiss', () => {
     const first = show(app, 'error', 'First.')
     show(app, 'error', 'Second.')
     dismiss(app, first)
-    expect(messages(app)).toEqual(['Second.'])
+    expect(notificationMessages(app)).toEqual(['Second.'])
   })
 
   it('ignores an id that is not shown', () => {
     const app = createTestApp()
     show(app, 'error', 'First.')
     dismiss(app, 'no-such-notification')
-    expect(messages(app)).toEqual(['First.'])
+    expect(notificationMessages(app)).toEqual(['First.'])
   })
 
   it('a dismissed info notification does not come back when its timer would have fired', () => {
@@ -182,6 +178,6 @@ describe('dismiss', () => {
     dismiss(app, id)
     show(app, 'error', 'Later.')
     vi.advanceTimersByTime(5_000)
-    expect(messages(app)).toEqual(['Later.'])
+    expect(notificationMessages(app)).toEqual(['Later.'])
   })
 })

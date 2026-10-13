@@ -1,8 +1,8 @@
-import { featureLabel } from '../../core/labels'
 import { createLatestOnly } from '../../core/queue'
 import type { Diagnostic, Edit, FeatureRecord } from '../../generated/protocol'
 import { suggestedRecord } from '../../inspector/status'
 import { MESSAGES } from '../../messages'
+import { selectFeatureLabel } from '../../state/selectors'
 import type { App } from '../createApp'
 import { coreUndo } from './document'
 import {
@@ -13,29 +13,12 @@ import {
   showCoreError,
 } from './edits'
 import { notify } from './notifications'
+import { withOptional } from './records'
 
 // Timeline edits (ui.md 3.9): rollback marker, reorder, suppress, delete and rename.
 
 function recordsOf(app: App): readonly FeatureRecord[] {
   return documentOf(app)?.recipe.features ?? []
-}
-
-function labelOf(app: App, featureId: string): string {
-  const document = documentOf(app)
-  return document === null
-    ? featureId
-    : featureLabel(document.recipe, featureId, app.store.getState().catalog)
-}
-
-/** The record with one property set, or removed when `value` is undefined. */
-function withProperty(record: FeatureRecord, key: string, value: unknown): FeatureRecord {
-  const copy: FeatureRecord = { ...record }
-  if (value === undefined) {
-    Reflect.deleteProperty(copy, key)
-  } else {
-    copy[key] = value
-  }
-  return copy
 }
 
 /** The set_rollback edit for marker position p: features 1 to p are active (3.9). */
@@ -173,14 +156,14 @@ export async function setSuppressed(
     }
     const subject =
       records.length === 1
-        ? featureLabel(document.recipe, first.id, app.store.getState().catalog)
+        ? selectFeatureLabel(app.store.getState(), first.id)
         : `${String(records.length)} features`
     return {
       label: `${verb} ${subject}`,
       edits: records.map((record) => ({
         type: 'update_feature',
         // Suppressed is omitted when false (model.md).
-        feature: withProperty(record, 'suppressed', suppressed ? true : undefined),
+        feature: withOptional(record, 'suppressed', suppressed ? true : undefined),
       })),
     }
   })
@@ -215,7 +198,9 @@ export async function deleteFeatures(app: App, featureIds: readonly string[]): P
     edits.push({ type: 'remove_feature', id: record.id })
   }
   const subject =
-    deleted.length === 1 ? labelOf(app, first.id) : `${String(deleted.length)} features`
+    deleted.length === 1
+      ? selectFeatureLabel(app.store.getState(), first.id)
+      : `${String(deleted.length)} features`
   if (!(await commitEdits(app, `Delete ${subject}`, edits))) {
     return
   }
@@ -253,7 +238,7 @@ export async function renameFeature(app: App, featureId: string, name: string): 
           edits: [
             {
               type: 'update_feature',
-              feature: withProperty(record, 'name', trimmed === '' ? undefined : trimmed),
+              feature: withOptional(record, 'name', trimmed === '' ? undefined : trimmed),
             },
           ],
         }
@@ -279,7 +264,7 @@ export async function applySuggestion(
     return updated === null
       ? null
       : {
-          label: `Change ${featureLabel(document.recipe, featureId, app.store.getState().catalog)}`,
+          label: `Change ${selectFeatureLabel(app.store.getState(), featureId)}`,
           edits: [{ type: 'update_feature', feature: updated }],
         }
   })

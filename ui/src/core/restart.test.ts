@@ -2,28 +2,12 @@ import { describe, expect, it } from 'vitest'
 import { PROTOCOL_VERSION } from '../generated/protocol'
 import { readRequest, requestFrame, responseFrame } from '../test/fakes/protocol'
 import { settle } from '../test/fakes/settle'
+import { FakeWorker } from '../test/fakes/worker'
 import { createCoreClient } from './client'
 import { createTauriTransport } from './tauri-transport'
 import { CoreFatalError, createWorkerTransport } from './transport'
-import type { FromWorker } from './worker-host'
 
 // Restarting the core after a fatal error (ui.md 4.4) starts the same transport again.
-
-class FakeWorker extends EventTarget {
-  terminated = false
-
-  postMessage(): void {
-    // The tests answer through emit.
-  }
-
-  terminate(): void {
-    this.terminated = true
-  }
-
-  emit(data: FromWorker): void {
-    this.dispatchEvent(new MessageEvent('message', { data }))
-  }
-}
 
 describe('createWorkerTransport restarts', () => {
   it('starts a fresh worker after its core died, and sends to it', async () => {

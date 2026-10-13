@@ -11,6 +11,7 @@ import {
   type EditsBuilder,
   type RefusalOptions,
 } from './edits'
+import { withOptional } from './records'
 
 // Parameter edits (ui.md 3.11). Each resolves whether the core accepted the change; with
 // `onRefused`, the core's refusal goes to the caller (for the field) instead of a notification.
@@ -130,17 +131,13 @@ export async function updateParameter(
       if (parameter === undefined) {
         return null
       }
-      const updated: Parameter = { ...parameter }
+      let updated: Parameter = { ...parameter }
       if (change.expression !== undefined) {
         updated.expr = change.expression
       }
       if (change.comment !== undefined) {
         const comment = change.comment?.trim() ?? ''
-        if (comment === '') {
-          Reflect.deleteProperty(updated, 'comment')
-        } else {
-          updated.comment = comment
-        }
+        updated = withOptional(updated, 'comment', comment === '' ? undefined : comment)
       }
       return {
         label:

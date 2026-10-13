@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { ElementDescriptor } from '../../generated/protocol'
 import { registerMissingCommands } from '../../layout/test-app.testing'
 import { MESSAGES } from '../../messages'
-import { startWithDocument, type FakeApp } from '../../test/fakes/app'
+import { activeCommand, type FakeApp, startWithDocument } from '../../test/fakes/app'
 import { CUBE_DOCUMENT, CUBE_TOP_FRONT_EDGE } from '../../test/fakes/documents'
 import { elementItem } from '../../test/fakes/selection'
 import { settle } from '../../test/fakes/settle'
@@ -36,25 +36,17 @@ async function filletWithTwoEdges(): Promise<FakeApp> {
   return fake
 }
 
-function commandOf(fake: FakeApp) {
-  const command = fake.app.store.getState().command
-  if (command === null) {
-    throw new Error('No command is active.')
-  }
-  return command
-}
-
 function edgesOf(fake: FakeApp): unknown {
-  return commandOf(fake).params['edges']
+  return activeCommand(fake.app).params['edges']
 }
 
 describe('command history (3.7)', () => {
   it('records each pick with the field it changed, and Mod+Z undoes only the last one', async () => {
     const fake = await filletWithTwoEdges()
-    expect(commandOf(fake).history.map((step) => step.field)).toEqual(['Edges', 'Edges'])
+    expect(activeCommand(fake.app).history.map((step) => step.field)).toEqual(['Edges', 'Edges'])
     await undo(fake.app)
     expect(edgesOf(fake)).toEqual([CUBE_TOP_FRONT_EDGE.reference])
-    expect(commandOf(fake).future).toHaveLength(1)
+    expect(activeCommand(fake.app).future).toHaveLength(1)
     await redo(fake.app)
     expect(edgesOf(fake)).toEqual([CUBE_TOP_FRONT_EDGE.reference, SECOND_EDGE.reference])
     expect(fake.transport.commandTypes()).not.toContain('undo')
@@ -64,18 +56,18 @@ describe('command history (3.7)', () => {
     const fake = await filletWithTwoEdges()
     await undoCommandChange(fake.app)
     setCommandField(fake.app, 'radius', '2 mm', { typing: true })
-    expect(commandOf(fake).future).toEqual([])
-    expect(commandOf(fake).history.map((step) => step.field)).toEqual(['Edges', 'Radius'])
-    expect(commandOf(fake).changedPaths).toEqual(['edges', 'radius'])
+    expect(activeCommand(fake.app).future).toEqual([])
+    expect(activeCommand(fake.app).history.map((step) => step.field)).toEqual(['Edges', 'Radius'])
+    expect(activeCommand(fake.app).changedPaths).toEqual(['edges', 'radius'])
   })
 
   it('records the edits since a field gained focus as one change', async () => {
     const fake = await filletWithTwoEdges()
     setCommandField(fake.app, 'radius', '2', { typing: true })
     setCommandField(fake.app, 'radius', '2.5', { typing: true })
-    expect(commandOf(fake).history).toHaveLength(3)
+    expect(activeCommand(fake.app).history).toHaveLength(3)
     await undoCommandChange(fake.app)
-    expect(commandOf(fake).params['radius']).toBe('1 mm')
+    expect(activeCommand(fake.app).params['radius']).toBe('1 mm')
   })
 
   it('Mod+Z with an empty history cancels the command without a core undo', async () => {
@@ -129,7 +121,7 @@ describe('implicit cancel and Restore (3.7, U-109)', () => {
 
   it('U-109 Restore cancels Chamfer quietly and reopens Fillet with both edges and the same field', async () => {
     const fake = await filletWithTwoEdges()
-    const activeField = commandOf(fake).activeField
+    const activeField = activeCommand(fake.app).activeField
     await startFeatureCommand(fake.app, 'chamfer')
     await settle()
     const [notification] = fake.app.store.getState().notifications
@@ -140,7 +132,7 @@ describe('implicit cancel and Restore (3.7, U-109)', () => {
       'cancel_transaction',
       'begin_transaction',
     ])
-    const command = commandOf(fake)
+    const command = activeCommand(fake.app)
     expect(command.featureType).toBe('fillet')
     expect(command.params['edges']).toEqual([CUBE_TOP_FRONT_EDGE.reference, SECOND_EDGE.reference])
     expect(command.activeField).toBe(activeField)

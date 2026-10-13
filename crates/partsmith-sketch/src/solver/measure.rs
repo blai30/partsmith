@@ -5,19 +5,22 @@ use std::f64::consts::PI;
 
 use partsmith_model::Id;
 
-use crate::ORIGIN;
+use super::layout::Layout;
 use crate::constraint::{Alignment, ConstraintKind, DistanceTarget};
 use crate::entity::{Geometry, SketchEntity};
 use crate::params::SketchParams;
 use crate::point_ref::PointRef;
-use crate::reserved::axis_line;
+use crate::reserved::{axis_line, is_origin};
 use crate::vector::{cross, dot, norm, signed_distance, subtract};
 
-/// The value of every dimensional constraint, driving or reference, measured on `entities`.
-pub(crate) fn measure(sketch: &SketchParams, entities: &[SketchEntity]) -> BTreeMap<Id, f64> {
-    let shapes = Shapes {
-        by_id: entities.iter().map(|entity| (&entity.id, entity)).collect(),
-    };
+/// The value of every dimensional constraint, driving or reference, measured on `entities`, which
+/// are in the order of `layout`.
+pub(crate) fn measure(
+    sketch: &SketchParams,
+    layout: &Layout,
+    entities: &[SketchEntity],
+) -> BTreeMap<Id, f64> {
+    let shapes = Shapes { layout, entities };
     sketch
         .constraints
         .iter()
@@ -64,20 +67,23 @@ pub(crate) fn measure(sketch: &SketchParams, entities: &[SketchEntity]) -> BTree
         .collect()
 }
 
-/// Geometry lookups on one list of entities.
+/// Geometry lookups on one list of entities in layout order.
 struct Shapes<'a> {
-    by_id: BTreeMap<&'a Id, &'a SketchEntity>,
+    layout: &'a Layout,
+    entities: &'a [SketchEntity],
 }
 
 impl Shapes<'_> {
     fn entity(&self, id: &Id) -> &SketchEntity {
-        self.by_id
-            .get(id)
-            .expect("validation guarantees that constraints name existing entities")
+        let index = self
+            .layout
+            .entity_index(id)
+            .expect("validation guarantees that constraints name existing entities");
+        &self.entities[index]
     }
 
     fn point(&self, point: &PointRef) -> [f64; 2] {
-        if point.entity.as_str() == ORIGIN {
+        if is_origin(point) {
             return [0.0, 0.0];
         }
         self.entity(&point.entity)

@@ -8,6 +8,7 @@ import {
   deleteSketchConstraints,
   selectInSketch,
   showSketchFinding,
+  sketchParamsOf,
 } from '../app/actions/sketch'
 import { Button } from '../components/Button'
 import { Popover } from '../components/Popover'
@@ -16,7 +17,12 @@ import type { ProfileFinding, SketchConstraint, SketchSolution } from '../genera
 import { originItem } from '../inspector/selection-values'
 import { focusLost, focusView } from '../layout/focus'
 import { MESSAGES } from '../messages'
-import { selectFeatureLabel, selectSketchDof, type SketchDof } from '../state/selectors'
+import {
+  selectEditedSketch,
+  selectFeatureLabel,
+  selectSketchDof,
+  type SketchDof,
+} from '../state/selectors'
 import type { AppState } from '../state/store'
 import { COLOR_CLASSES } from '../theme/roles'
 import { constraintTitle } from './constraints'
@@ -52,11 +58,6 @@ function statusOf(dof: SketchDof): { readonly text: string; readonly error: bool
     case 'under':
       return { text: `Not fully constrained · ${String(dof.dof)} DOF`, error: false }
   }
-}
-
-/** The edited sketch's id: undefined outside sketch mode, null while picking a plane. */
-function selectEditedSketch(state: AppState): string | null | undefined {
-  return state.context === 'sketch' && state.sketch !== null ? state.sketch.sketchId : undefined
 }
 
 /** The three origin planes a new sketch can start on in one click (3.16.1). */
@@ -310,8 +311,8 @@ function SketchProblems({ sketchId }: { readonly sketchId: string }) {
   const document = useAppState((state) => state.document)
   const solution = document?.sketches[sketchId]?.solution ?? null
   const record = document?.recipe.features?.find((feature) => feature.id === sketchId)
-  const stored: unknown = record?.['constraints']
-  const constraints = Array.isArray(stored) ? (stored as SketchConstraint[]) : []
+  const constraints =
+    (record?.type === 'sketch' ? sketchParamsOf(record)?.constraints : undefined) ?? []
   const units = document?.recipe.units ?? 'mm'
   const problems = constraints.flatMap((constraint): ConstraintProblem[] => {
     if (solution?.conflicting.includes(constraint.id) === true) {

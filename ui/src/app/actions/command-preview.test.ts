@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { ElementDescriptor, Edit } from '../../generated/protocol'
+import type { ElementDescriptor } from '../../generated/protocol'
 import {
   CUBE_DOCUMENT,
   CUBE_FEATURES_DOCUMENT,
@@ -11,11 +11,16 @@ import {
   RECT_SKETCH_SOLUTION,
   withFeatureChanges,
 } from '../../test/fakes/documents'
-import { createTestApp, startWithDocument, type FakeApp } from '../../test/fakes/app'
+import {
+  appliedEdits,
+  createTestApp,
+  type FakeApp,
+  filletOnCube,
+  startWithDocument,
+} from '../../test/fakes/app'
 import { createFakeCoreApi } from '../../test/fakes/core-api'
 import { stateWithDocument } from '../../test/fakes/state'
 import { createAppStore, type ActiveCommand } from '../../state/store'
-import { editsOf } from '../../test/fakes/protocol'
 import { elementItem, originItem, regionItem } from '../../test/fakes/selection'
 import { settle } from '../../test/fakes/settle'
 import { MESSAGES } from '../../messages'
@@ -31,10 +36,6 @@ import {
 import { select } from './selection'
 
 // The preview cycle and selection capture of ui.md 3.7, beyond the acceptance tests in command.test.ts.
-
-function appliedEdits(fake: FakeApp): readonly (readonly Edit[])[] {
-  return fake.transport.commandsOfType('apply_edits').map((command) => editsOf(command))
-}
 
 async function cubeExtrude(): Promise<FakeApp> {
   const fake = await startWithDocument('cube.ptsm', CUBE_DOCUMENT, {
@@ -131,13 +132,6 @@ describe('confirmCommand', () => {
     expect(fake.app.store.getState().view.sessionVisible['feature:f-sk1']).toBe(false)
   })
 })
-
-async function filletOnCube(): Promise<FakeApp> {
-  const fake = await startWithDocument('cube.ptsm', CUBE_DOCUMENT)
-  await startFeatureCommand(fake.app, 'fillet')
-  await settle()
-  return fake
-}
 
 describe('capturePick', () => {
   afterEach(() => {

@@ -254,7 +254,7 @@ struct Solved {
 /// Solves a validated sketch whose values were checked (sections 3.7 and 3.8).
 fn solve_checked(sketch: &SketchParams, values: &DimensionValues) -> Solved {
     let system = System::new(sketch, values, &sketch.entities);
-    let warm = system.layout.vector(&sketch.entities);
+    let warm = &system.warm_start;
     let mut solved = warm.clone();
     let mut diagnosis_point = warm.clone();
     let mut failed_components = Vec::with_capacity(system.components.len());
@@ -263,11 +263,11 @@ fn solve_checked(sketch: &SketchParams, values: &DimensionValues) -> Solved {
         let untouched = component
             .rows
             .iter()
-            .all(|&row| system.rows[row].value(&warm).abs() <= SOLVER_TOLERANCE);
+            .all(|&row| system.rows[row].value(warm).abs() <= SOLVER_TOLERANCE);
         let failed = if untouched {
             false
         } else {
-            match solve_component(&system, component, &warm, &[], &mut factorization) {
+            match solve_component(&system, component, warm, &[], &mut factorization) {
                 Outcome::Converged(x) => {
                     copy_parameters(component, &x, &mut solved);
                     copy_parameters(component, &x, &mut diagnosis_point);
@@ -281,9 +281,9 @@ fn solve_checked(sketch: &SketchParams, values: &DimensionValues) -> Solved {
         };
         failed_components.push(failed);
     }
-    let entities = system.layout.entities(&sketch.entities, &warm, &solved);
+    let entities = system.layout.entities(&sketch.entities, warm, &solved);
     let diagnosis = diagnose(sketch, &system, &diagnosis_point);
-    let measured = measure(sketch, &entities);
+    let measured = measure(sketch, &system.layout, &entities);
     let failed = failed_components.contains(&true);
     Solved {
         result: SolveResult {
@@ -352,10 +352,7 @@ fn status(redundant: &[Id], conflicting: &[Id], dof: u32) -> SketchStatus {
 mod tests {
     use super::*;
     use crate::entity::Geometry;
-
-    fn id(text: &str) -> Id {
-        Id::new(text).expect("test ids are valid")
-    }
+    use crate::test_support::id;
 
     #[test]
     fn conflicts_win_over_redundancy() {

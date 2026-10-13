@@ -5,21 +5,27 @@ use std::f64::consts::TAU;
 
 use partsmith_model::Id;
 use schemars::{JsonSchema, Schema, SchemaGenerator};
-use serde::ser::SerializeMap;
-use serde::{Deserialize, Serialize, Serializer};
+use serde::{Deserialize, Serialize};
 
 use crate::point_ref::PointRole;
 
 /// One sketch entity: `{"id", "type", geometry fields, "construction"}`.
-#[derive(Clone, Debug, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(from = "EntityRecord")]
 pub struct SketchEntity {
     /// Permanent id; generated ids are "e-" plus 12 lowercase hex characters.
     pub id: Id,
     /// Kind and geometry; the `type` tag and fields are flattened into the record.
+    #[serde(flatten)]
     pub geometry: Geometry,
     /// Construction geometry is solved but never part of a profile; omitted from JSON when false.
+    #[serde(skip_serializing_if = "is_not_construction")]
     pub construction: bool,
+}
+
+/// True when `construction` has its default value.
+fn is_not_construction(construction: &bool) -> bool {
+    !construction
 }
 
 /// Geometry of an entity in sketch coordinates.
@@ -200,45 +206,6 @@ pub(crate) fn point_at_angle(center: [f64; 2], radius: f64, angle: f64) -> [f64;
     ]
 }
 
-impl Serialize for SketchEntity {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut map = serializer.serialize_map(None)?;
-        map.serialize_entry("id", &self.id)?;
-        match &self.geometry {
-            Geometry::Point { position } => {
-                map.serialize_entry("type", "point")?;
-                map.serialize_entry("position", position)?;
-            }
-            Geometry::Line { start, end } => {
-                map.serialize_entry("type", "line")?;
-                map.serialize_entry("start", start)?;
-                map.serialize_entry("end", end)?;
-            }
-            Geometry::Circle { center, radius } => {
-                map.serialize_entry("type", "circle")?;
-                map.serialize_entry("center", center)?;
-                map.serialize_entry("radius", radius)?;
-            }
-            Geometry::Arc {
-                center,
-                radius,
-                start_angle,
-                end_angle,
-            } => {
-                map.serialize_entry("type", "arc")?;
-                map.serialize_entry("center", center)?;
-                map.serialize_entry("radius", radius)?;
-                map.serialize_entry("start_angle", start_angle)?;
-                map.serialize_entry("end_angle", end_angle)?;
-            }
-        }
-        if self.construction {
-            map.serialize_entry("construction", &true)?;
-        }
-        map.end()
-    }
-}
-
 impl JsonSchema for SketchEntity {
     fn schema_name() -> Cow<'static, str> {
         "SketchEntity".into()
@@ -360,18 +327,18 @@ mod tests {
     use std::f64::consts::{FRAC_PI_2, PI};
 
     use super::*;
+    use crate::test_support::entity;
 
     fn arc(start_angle: f64, end_angle: f64) -> SketchEntity {
-        SketchEntity {
-            id: Id::new("e-9").expect("valid id"),
-            geometry: Geometry::Arc {
+        entity(
+            "e-9",
+            Geometry::Arc {
                 center: [20.0, 0.0],
                 radius: 5.0,
                 start_angle,
                 end_angle,
             },
-            construction: false,
-        }
+        )
     }
 
     #[test]

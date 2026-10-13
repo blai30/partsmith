@@ -2,7 +2,7 @@ import { clsx } from 'clsx/lite'
 import { Download, Moon, PanelLeft, Search } from 'lucide-react'
 import { useRef, useState } from 'react'
 import { setContext } from '../app/actions/context'
-import { isUnsaved } from '../app/actions/edits'
+import { setPaletteOpen } from '../app/actions/panels'
 import { updateSettings } from '../app/actions/settings'
 import { useApp, useAppState } from '../app/AppProvider'
 import { formatShortcut } from '../commands/shortcuts'
@@ -10,8 +10,8 @@ import { IconButton } from '../components/IconButton'
 import { SegmentedControl, type SegmentedOption } from '../components/SegmentedControl'
 import { Tooltip } from '../components/Tooltip'
 import { ExportPopover } from '../export/ExportPopover'
-import { selectSketchRadioTooltip } from '../state/selectors'
-import type { AppContext, AppState } from '../state/store'
+import { selectSketchRadioTooltip, selectUnsaved } from '../state/selectors'
+import type { AppContext } from '../state/store'
 import { COLOR_CLASSES } from '../theme/roles'
 import { toggledTheme } from '../theme/theme'
 import { useResolvedTheme } from './use-resolved-theme'
@@ -48,14 +48,9 @@ function BrowserToggle() {
   )
 }
 
-/** Whether the document has changes that are not in its file: the core's flag or a recovered copy. */
-function selectEdited(state: AppState): boolean {
-  return state.document !== null && isUnsaved(state.document)
-}
-
 function DocumentTitle() {
   const name = useAppState((state) => state.document?.name ?? 'Untitled')
-  const edited = useAppState(selectEdited)
+  const edited = useAppState(selectUnsaved)
   const anchor = useRef<HTMLButtonElement>(null)
   const [open, setOpen] = useState(false)
   return (
@@ -121,7 +116,7 @@ function PaletteButton() {
       data-testid="palette-button"
       aria-keyshortcuts={app.platform.operatingSystem === 'mac' ? 'Meta+K' : 'Control+K'}
       onClick={() => {
-        app.store.setState((state) => ({ panels: { ...state.panels, paletteOpen: true } }))
+        setPaletteOpen(app, true)
       }}
       className={clsx(
         'inline-flex h-8 shrink-0 items-center gap-2 rounded-sm border px-2 text-sm transition-colors duration-150 motion-reduce:transition-none',

@@ -1,5 +1,6 @@
 import { X } from 'lucide-react'
 import type { ReactNode } from 'react'
+import { closeSidePanel } from '../app/actions/panels'
 import { useApp } from '../app/AppProvider'
 import { IconButton } from '../components/IconButton'
 
@@ -25,7 +26,7 @@ export function PanelHeader({
         icon={X}
         size="compact"
         onClick={() => {
-          app.store.setState((state) => ({ panels: { ...state.panels, side: null } }))
+          closeSidePanel(app)
         }}
       />
     </div>

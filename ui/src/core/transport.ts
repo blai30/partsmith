@@ -1,3 +1,4 @@
+import { errorMessage } from './errors'
 import { createTauriTransport, type TauriGlobal } from './tauri-transport'
 import type { FromWorker, ToWorker } from './worker-host'
 
@@ -68,13 +69,20 @@ function isFromWorker(data: unknown): data is FromWorker {
 
 /** One run of the core worker, from start() until it ends. */
 type WorkerSession = {
-  readonly started: Promise<CoreReady>
   readonly startup: Deferred<CoreReady>
   readonly pending: Settlers<ArrayBuffer>[]
   worker: Worker | null
   ready: boolean
   ended: CoreFatalError | null
   startTimer: ReturnType<typeof setTimeout> | null
+}
+
+/** Stops a session's start timeout. */
+function clearStartTimer(timed: WorkerSession): void {
+  if (timed.startTimer !== null) {
+    clearTimeout(timed.startTimer)
+    timed.startTimer = null
+  }
 }
 
 /** Creates the web transport. `createWorker` is injectable for tests. */
@@ -90,10 +98,7 @@ export function createWorkerTransport(options: WorkerTransportOptions = {}): Tra
       return
     }
     ending.ended = error
-    if (ending.startTimer !== null) {
-      clearTimeout(ending.startTimer)
-      ending.startTimer = null
-    }
+    clearStartTimer(ending)
     ending.worker?.terminate()
     ending.worker = null
     if (!ending.ready) {
@@ -114,10 +119,7 @@ export function createWorkerTransport(options: WorkerTransportOptions = {}): Tra
     switch (data.type) {
       case 'ready':
         if (!receiving.ready) {
-          if (receiving.startTimer !== null) {
-            clearTimeout(receiving.startTimer)
-            receiving.startTimer = null
-          }
+          clearStartTimer(receiving)
           receiving.ready = true
           receiving.startup.resolve({
             protocolVersion: data.protocolVersion,
@@ -176,12 +178,11 @@ export function createWorkerTransport(options: WorkerTransportOptions = {}): Tra
     kind: 'worker',
     start() {
       if (session !== null && session.ended === null) {
-        return session.started
+        return session.startup.promise
       }
       // A transport whose core ended starts a fresh worker (the restart of ui.md 4.4).
       const startup = new Deferred<CoreReady>()
       const starting: WorkerSession = {
-        started: startup.promise,
         startup,
         pending: [],
         worker: null,
@@ -194,12 +195,8 @@ export function createWorkerTransport(options: WorkerTransportOptions = {}): Tra
         starting.worker = createWorker()
         listen(starting, starting.worker)
       } catch (error) {
-        end(
-          starting,
-          new CoreFatalError(error instanceof Error ? error.message : String(error)),
-          false,
-        )
-        return starting.started
+        end(starting, new CoreFatalError(errorMessage(error)), false)
+        return startup.promise
       }
       starting.startTimer = setTimeout(() => {
         starting.startTimer = null
@@ -211,7 +208,7 @@ export function createWorkerTransport(options: WorkerTransportOptions = {}): Tra
           false,
         )
       }, startTimeout)
-      return starting.started
+      return startup.promise
     },
     send(request) {
       if (session === null) {

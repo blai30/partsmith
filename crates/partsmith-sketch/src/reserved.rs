@@ -1,10 +1,16 @@
 //! The reserved references `origin`, `x_axis` and `y_axis` (spec section 3.16).
 
+use crate::point_ref::{PointRef, PointRole};
 use crate::{ORIGIN, X_AXIS, Y_AXIS};
 
 /// True for `origin`, `x_axis` and `y_axis`.
 pub(crate) fn is_reserved(name: &str) -> bool {
     name == ORIGIN || is_axis(name)
+}
+
+/// True for the point reference `origin` (the bare name; `origin` has no other points).
+pub(crate) fn is_origin(point: &PointRef) -> bool {
+    point.entity.as_str() == ORIGIN && point.role == PointRole::Point
 }
 
 /// True for `x_axis` and `y_axis`.
@@ -30,6 +36,15 @@ mod tests {
         assert!(is_reserved("origin"));
         assert!(is_reserved("y_axis"));
         assert!(!is_reserved("origin2"));
+    }
+
+    #[test]
+    fn only_the_bare_origin_is_the_origin_point() {
+        let point = |text: &str| text.parse::<PointRef>().expect("valid point reference");
+
+        assert!(is_origin(&point("origin")));
+        assert!(!is_origin(&point("origin.start")));
+        assert!(!is_origin(&point("e-1")));
     }
 
     #[test]

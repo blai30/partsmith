@@ -213,8 +213,10 @@ export function createCoreApi(client: CoreClient): CoreApi {
       return (await call({ type: 'list_printer_profiles' })).result.profiles
     },
     async newDocument(units) {
-      const command: CommandOfType<'new_document'> =
-        units === undefined ? { type: 'new_document' } : { type: 'new_document', units }
+      const command: CommandOfType<'new_document'> = {
+        type: 'new_document',
+        ...(units === undefined ? {} : { units }),
+      }
       return (await call(command)).result.doc
     },
     async openDocument(text) {
@@ -232,10 +234,12 @@ export function createCoreApi(client: CoreClient): CoreApi {
       await call({ type: 'close_document', doc: documentHandle })
     },
     async applyEdits(documentHandle, label, edits) {
-      const command: CommandOfType<'apply_edits'> =
-        label === null
-          ? { type: 'apply_edits', doc: documentHandle, edits: [...edits] }
-          : { type: 'apply_edits', doc: documentHandle, label, edits: [...edits] }
+      const command: CommandOfType<'apply_edits'> = {
+        type: 'apply_edits',
+        doc: documentHandle,
+        ...(label === null ? {} : { label }),
+        edits: [...edits],
+      }
       return (await call(command)).result.revision
     },
     async renameParameter(documentHandle, parameter, name) {
@@ -251,11 +255,11 @@ export function createCoreApi(client: CoreClient): CoreApi {
       await call({ type: 'begin_transaction', doc: documentHandle, label })
     },
     async setFocus(documentHandle, feature) {
-      await call(
-        feature === null
-          ? { type: 'set_focus', doc: documentHandle }
-          : { type: 'set_focus', doc: documentHandle, feature },
-      )
+      await call({
+        type: 'set_focus',
+        doc: documentHandle,
+        ...(feature === null ? {} : { feature }),
+      })
     },
     async commitTransaction(documentHandle) {
       const { result } = await call({ type: 'commit_transaction', doc: documentHandle })
@@ -274,11 +278,12 @@ export function createCoreApi(client: CoreClient): CoreApi {
     },
     solveSketch(documentHandle, feature, candidate) {
       return unlessSuperseded(
-        solved(
-          candidate === undefined
-            ? { type: 'solve_sketch', doc: documentHandle, feature }
-            : { type: 'solve_sketch', doc: documentHandle, feature, candidate },
-        ),
+        solved({
+          type: 'solve_sketch',
+          doc: documentHandle,
+          feature,
+          ...(candidate === undefined ? {} : { candidate }),
+        }),
       )
     },
     dragSketch(documentHandle, feature, point, to) {
@@ -300,10 +305,12 @@ export function createCoreApi(client: CoreClient): CoreApi {
       return { value: result.value, dimension: result.dimension }
     },
     async listElements(documentHandle, body, kind) {
-      const command: CommandOfType<'list_elements'> =
-        kind === undefined
-          ? { type: 'list_elements', doc: documentHandle, body }
-          : { type: 'list_elements', doc: documentHandle, body, kind }
+      const command: CommandOfType<'list_elements'> = {
+        type: 'list_elements',
+        doc: documentHandle,
+        body,
+        ...(kind === undefined ? {} : { kind }),
+      }
       return (await call(command)).result.elements
     },
     async pickReference(documentHandle, pick) {
@@ -321,15 +328,12 @@ export function createCoreApi(client: CoreClient): CoreApi {
       return (await call({ type: 'measure', doc: documentHandle, targets: [target] })).result
     },
     analyzePrint(documentHandle, options) {
-      const command: CommandOfType<'analyze_print'> =
-        options.profile === undefined
-          ? { type: 'analyze_print', doc: documentHandle, orientation: options.orientation }
-          : {
-              type: 'analyze_print',
-              doc: documentHandle,
-              profile: options.profile,
-              orientation: options.orientation,
-            }
+      const command: CommandOfType<'analyze_print'> = {
+        type: 'analyze_print',
+        doc: documentHandle,
+        ...(options.profile === undefined ? {} : { profile: options.profile }),
+        orientation: options.orientation,
+      }
       return unlessSuperseded(call(command).then(({ result }) => result.health))
     },
     async exportBodies(documentHandle, format, bodies, orientation) {

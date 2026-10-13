@@ -5,25 +5,26 @@ use std::fmt;
 
 use partsmith_model::{Expr, Id};
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
-use serde::ser::SerializeMap;
-use serde::{Deserialize, Serialize, Serializer};
+use serde::{Deserialize, Serialize};
 
 use crate::params::ValueKind;
 use crate::point_ref::PointRef;
 use crate::reserved::is_reserved;
 
 /// One constraint: `{"id", "type", reference fields, "expr", "driving"}`.
-#[derive(Clone, Debug, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(try_from = "ConstraintRecord")]
 pub struct SketchConstraint {
     /// Permanent id; generated ids are "c-" plus 12 lowercase hex characters.
     pub id: Id,
     /// Kind and references; the `type` tag and fields are flattened into the record.
+    #[serde(flatten)]
     pub kind: ConstraintKind,
 }
 
 /// Every M1 constraint. JSON field order is the declaration order below.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum ConstraintKind {
     /// Two points are the same point.
     Coincident {
@@ -93,22 +94,28 @@ pub enum ConstraintKind {
     /// Distance between two points, length of a line, or distance from a point to a line.
     Distance {
         /// What is measured.
+        #[serde(flatten)]
         target: DistanceTarget,
         /// The value.
+        #[serde(flatten)]
         dimension: DimensionExpr,
     },
     /// Signed u-extent: `u(second) - u(first)`, or `u(end) - u(start)` of a line.
     HorizontalDistance {
         /// What is measured.
+        #[serde(flatten)]
         target: Alignment,
         /// The value.
+        #[serde(flatten)]
         dimension: DimensionExpr,
     },
     /// Signed v-extent: `v(second) - v(first)`, or `v(end) - v(start)` of a line.
     VerticalDistance {
         /// What is measured.
+        #[serde(flatten)]
         target: Alignment,
         /// The value.
+        #[serde(flatten)]
         dimension: DimensionExpr,
     },
     /// Radius of a circle or arc.
@@ -116,6 +123,7 @@ pub enum ConstraintKind {
         /// The circle or arc.
         curve: Id,
         /// The value.
+        #[serde(flatten)]
         dimension: DimensionExpr,
     },
     /// Diameter of a circle or arc.
@@ -123,6 +131,7 @@ pub enum ConstraintKind {
         /// The circle or arc.
         curve: Id,
         /// The value.
+        #[serde(flatten)]
         dimension: DimensionExpr,
     },
     /// Counterclockwise angle from the first line to the second, modulo pi.
@@ -130,6 +139,7 @@ pub enum ConstraintKind {
         /// The two lines.
         lines: [Id; 2],
         /// The value.
+        #[serde(flatten)]
         dimension: DimensionExpr,
     },
 }
@@ -266,9 +276,8 @@ impl ConstraintKind {
 
     /// The entity id of every reference field in field order, reserved names included.
     fn references(&self) -> Vec<&Id> {
-        let points = pair_entities;
         match self {
-            ConstraintKind::Coincident { points: pair } => points(pair).to_vec(),
+            ConstraintKind::Coincident { points } => pair_entities(points).to_vec(),
             ConstraintKind::PointOnObject { point, curve } => vec![&point.entity, curve],
             ConstraintKind::Horizontal(alignment)
             | ConstraintKind::Vertical(alignment)
@@ -279,7 +288,7 @@ impl ConstraintKind {
                 target: alignment, ..
             } => match alignment {
                 Alignment::Line { line } => vec![line],
-                Alignment::Points { points: pair } => points(pair).to_vec(),
+                Alignment::Points { points } => pair_entities(points).to_vec(),
             },
             ConstraintKind::Parallel { lines }
             | ConstraintKind::Perpendicular { lines }
@@ -288,13 +297,14 @@ impl ConstraintKind {
             ConstraintKind::Tangent { curves }
             | ConstraintKind::Concentric { curves }
             | ConstraintKind::Equal { curves } => curves.iter().collect(),
-            ConstraintKind::Symmetric { points: pair, line } => {
-                vec![&pair[0].entity, &pair[1].entity, line]
+            ConstraintKind::Symmetric { points, line } => {
+                let [first, second] = pair_entities(points);
+                vec![first, second, line]
             }
             ConstraintKind::Midpoint { point, line } => vec![&point.entity, line],
             ConstraintKind::Fix { target } => vec![&target.entity],
             ConstraintKind::Distance { target, .. } => match target {
-                DistanceTarget::Points { points: pair } => points(pair).to_vec(),
+                DistanceTarget::Points { points } => pair_entities(points).to_vec(),
                 DistanceTarget::PointLine { point, line } => vec![&point.entity, line],
                 DistanceTarget::Line { line } => vec![line],
             },
@@ -308,86 +318,6 @@ impl ConstraintKind {
 /// The entities of a pair of point references.
 fn pair_entities(points: &[PointRef; 2]) -> [&Id; 2] {
     [&points[0].entity, &points[1].entity]
-}
-
-impl Serialize for SketchConstraint {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut map = serializer.serialize_map(None)?;
-        map.serialize_entry("id", &self.id)?;
-        map.serialize_entry("type", self.type_name())?;
-        match &self.kind {
-            ConstraintKind::Coincident { points } => map.serialize_entry("points", points)?,
-            ConstraintKind::PointOnObject { point, curve } => {
-                map.serialize_entry("point", point)?;
-                map.serialize_entry("curve", curve)?;
-            }
-            ConstraintKind::Horizontal(alignment) | ConstraintKind::Vertical(alignment) => {
-                serialize_alignment(&mut map, alignment)?;
-            }
-            ConstraintKind::Parallel { lines }
-            | ConstraintKind::Perpendicular { lines }
-            | ConstraintKind::Collinear { lines } => map.serialize_entry("lines", lines)?,
-            ConstraintKind::Tangent { curves }
-            | ConstraintKind::Concentric { curves }
-            | ConstraintKind::Equal { curves } => map.serialize_entry("curves", curves)?,
-            ConstraintKind::Symmetric { points, line } => {
-                map.serialize_entry("points", points)?;
-                map.serialize_entry("line", line)?;
-            }
-            ConstraintKind::Midpoint { point, line } => {
-                map.serialize_entry("point", point)?;
-                map.serialize_entry("line", line)?;
-            }
-            ConstraintKind::Fix { target } => map.serialize_entry("target", target)?,
-            ConstraintKind::Distance { target, dimension } => {
-                match target {
-                    DistanceTarget::Points { points } => map.serialize_entry("points", points)?,
-                    DistanceTarget::PointLine { point, line } => {
-                        map.serialize_entry("point", point)?;
-                        map.serialize_entry("line", line)?;
-                    }
-                    DistanceTarget::Line { line } => map.serialize_entry("line", line)?,
-                }
-                serialize_dimension(&mut map, dimension)?;
-            }
-            ConstraintKind::HorizontalDistance { target, dimension }
-            | ConstraintKind::VerticalDistance { target, dimension } => {
-                serialize_alignment(&mut map, target)?;
-                serialize_dimension(&mut map, dimension)?;
-            }
-            ConstraintKind::Radius { curve, dimension }
-            | ConstraintKind::Diameter { curve, dimension } => {
-                map.serialize_entry("curve", curve)?;
-                serialize_dimension(&mut map, dimension)?;
-            }
-            ConstraintKind::Angle { lines, dimension } => {
-                map.serialize_entry("lines", lines)?;
-                serialize_dimension(&mut map, dimension)?;
-            }
-        }
-        map.end()
-    }
-}
-
-fn serialize_alignment<M: SerializeMap>(
-    map: &mut M,
-    alignment: &Alignment,
-) -> Result<(), M::Error> {
-    match alignment {
-        Alignment::Line { line } => map.serialize_entry("line", line),
-        Alignment::Points { points } => map.serialize_entry("points", points),
-    }
-}
-
-fn serialize_dimension<M: SerializeMap>(
-    map: &mut M,
-    dimension: &DimensionExpr,
-) -> Result<(), M::Error> {
-    map.serialize_entry("expr", &dimension.expr)?;
-    if !dimension.driving {
-        map.serialize_entry("driving", &false)?;
-    }
-    Ok(())
 }
 
 /// The JSON record of a constraint as read: every reference field of the type, the alternative forms optional.
@@ -768,14 +698,7 @@ impl JsonSchema for SketchConstraint {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn id(text: &str) -> Id {
-        Id::new(text).expect("test ids are valid")
-    }
-
-    fn point(text: &str) -> PointRef {
-        text.parse().expect("test point references are valid")
-    }
+    use crate::test_support::{id, point};
 
     #[test]
     fn referenced_entities_skip_reserved_names_and_repeats() {
@@ -805,6 +728,37 @@ mod tests {
 
         assert_eq!(angle.value_kind(), Some(ValueKind::Angle));
         assert!(!angle.is_driving_dimension());
+    }
+
+    /// A value of one reference field, for building records of every shape.
+    fn sample_field(field: &str) -> serde_json::Value {
+        match field {
+            "points" => serde_json::json!(["e-1.start", "e-2.end"]),
+            "point" => serde_json::json!("e-1.start"),
+            "target" => serde_json::json!("e-1"),
+            "lines" | "curves" => serde_json::json!(["e-1", "e-2"]),
+            _ => serde_json::json!("e-1"),
+        }
+    }
+
+    #[test]
+    fn every_record_shape_serializes_with_its_type_name() {
+        for (type_name, fields) in RECORD_SHAPES {
+            let mut record = serde_json::json!({"id": "c-1", "type": type_name});
+            for field in fields {
+                record[*field] = sample_field(field);
+            }
+            if DIMENSION_TYPES.contains(&type_name) {
+                record["expr"] = serde_json::json!("1 mm");
+            }
+            let constraint: SketchConstraint =
+                serde_json::from_value(record.clone()).expect("every record shape is accepted");
+
+            let written = serde_json::to_string(&constraint).expect("constraints serialize");
+
+            assert_eq!(constraint.type_name(), type_name);
+            assert_eq!(written, record.to_string(), "{type_name}");
+        }
     }
 
     #[test]

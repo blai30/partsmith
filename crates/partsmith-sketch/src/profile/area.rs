@@ -6,7 +6,7 @@
 use std::f64::consts::{PI, TAU};
 
 use super::ProfileCurve;
-use crate::vector::{cross, norm, subtract};
+use crate::vector::{angle_of, cross, dot, norm, subtract};
 
 /// Signed area and first moments (`integral of u dA`, `integral of v dA`) of one oriented curve, measured from `origin`.
 pub(crate) fn moments(curve: &ProfileCurve, origin: [f64; 2]) -> [f64; 3] {
@@ -25,7 +25,7 @@ pub(crate) fn moments(curve: &ProfileCurve, origin: [f64; 2]) -> [f64; 3] {
             // The segment is that of the counterclockwise arc from `first` to `last`.
             let (first, last) = if ccw { (start, end) } else { (end, start) };
             let sweep = arc_sweep(center, first, last);
-            let first_angle = angle(subtract(first, center));
+            let first_angle = angle_of(subtract(first, center));
             let segment_area = 0.5 * radius * radius * (sweep - sweep.sin());
             let lever = 2.0 / 3.0 * radius.powi(3) * (sweep / 2.0).sin().powi(3);
             let middle = first_angle + sweep / 2.0;
@@ -50,6 +50,18 @@ pub(crate) fn moments(curve: &ProfileCurve, origin: [f64; 2]) -> [f64; 3] {
     }
 }
 
+/// Signed area and first moments of a chain of curves, measured from `origin`: the sum of each
+/// curve's moments, starting from 0.
+pub(crate) fn total_moments<'a>(
+    curves: impl IntoIterator<Item = &'a ProfileCurve>,
+    origin: [f64; 2],
+) -> [f64; 3] {
+    curves.into_iter().fold([0.0; 3], |total, curve| {
+        let part = moments(curve, origin);
+        [total[0] + part[0], total[1] + part[1], total[2] + part[2]]
+    })
+}
+
 /// Moments of the triangle (origin, start, end).
 fn chord_moments(start: [f64; 2], end: [f64; 2]) -> [f64; 3] {
     let twice_area = cross(start, end);
@@ -65,11 +77,7 @@ pub(crate) fn arc_sweep(center: [f64; 2], start: [f64; 2], end: [f64; 2]) -> f64
     if start == end {
         return TAU;
     }
-    (angle(subtract(end, center)) - angle(subtract(start, center))).rem_euclid(TAU)
-}
-
-fn angle(offset: [f64; 2]) -> f64 {
-    offset[1].atan2(offset[0])
+    (angle_of(subtract(end, center)) - angle_of(subtract(start, center))).rem_euclid(TAU)
 }
 
 /// The winding number of a closed chain of curves around `point`; the point must not lie on a curve.
@@ -119,7 +127,7 @@ pub(crate) fn winding_number(curves: &[ProfileCurve], point: [f64; 2]) -> i64 {
 fn chord_angle(start: [f64; 2], end: [f64; 2], point: [f64; 2]) -> f64 {
     let first = subtract(start, point);
     let second = subtract(end, point);
-    cross(first, second).atan2(first[0] * second[0] + first[1] * second[1])
+    cross(first, second).atan2(dot(first, second))
 }
 
 #[cfg(test)]
@@ -136,16 +144,9 @@ mod tests {
             .collect()
     }
 
-    fn total(curves: &[ProfileCurve], origin: [f64; 2]) -> [f64; 3] {
-        curves.iter().fold([0.0; 3], |sum, curve| {
-            let part = moments(curve, origin);
-            [sum[0] + part[0], sum[1] + part[1], sum[2] + part[2]]
-        })
-    }
-
     #[test]
     fn square_area_and_moments() {
-        let [area, moment_u, moment_v] = total(&square(), [0.0, 0.0]);
+        let [area, moment_u, moment_v] = total_moments(&square(), [0.0, 0.0]);
 
         assert!((area - 4.0).abs() < 1e-12);
         assert!((moment_u / area - 1.0).abs() < 1e-12);
@@ -168,7 +169,7 @@ mod tests {
             },
         ];
 
-        let [area, moment_u, moment_v] = total(&curves, [0.5, 0.5]);
+        let [area, moment_u, moment_v] = total_moments(&curves, [0.5, 0.5]);
 
         // Moments are taken about (0.5, 0.5), so the centroid comes out relative to it.
         assert!((area - PI / 2.0).abs() < 1e-12);
@@ -192,7 +193,7 @@ mod tests {
             },
         ];
 
-        assert!((total(&curves, [0.0, 0.0])[0] + PI / 2.0).abs() < 1e-12);
+        assert!((total_moments(&curves, [0.0, 0.0])[0] + PI / 2.0).abs() < 1e-12);
     }
 
     #[test]

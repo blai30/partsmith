@@ -2,13 +2,13 @@ import { CoreError } from '../../core/client'
 import { generateId, usedIds } from '../../core/ids'
 import { featureLabel, nextBodyName } from '../../core/labels'
 import { createLatestOnly, type LatestOnly } from '../../core/queue'
+import { activeFeatures, markerPosition } from '../../core/recipe'
 import type {
   DocHandle,
   Edit,
   ElementDescriptor,
   FeatureRecord,
   FeatureStatus,
-  Placement,
   SelectionKind,
   SketchEntity,
 } from '../../generated/protocol'
@@ -16,19 +16,15 @@ import {
   bodyCreatingTarget,
   buildInspectorModel,
   defaultParams,
-  filledByCommand,
   getParam,
   setParam,
   type InspectorField,
   type InspectorModel,
 } from '../../inspector/model'
-import { acceptsTarget, selectionValue } from '../../inspector/selection-values'
-import { fieldForPointer, fieldPointer, repairField } from '../../inspector/status'
+import { repairField } from '../../inspector/status'
 import { MESSAGES } from '../../messages'
 import { TIMING_NAMES } from '../../performance/marks'
-import { pointSelectionItem } from '../../sketch/hit'
 import { memoized } from '../../state/selectors'
-import { worldToSketch } from '../../sketch/placement'
 import type {
   ActiveCommand,
   AppState,
@@ -39,21 +35,36 @@ import type {
   HelperSketch,
   SelectionItem,
 } from '../../state/store'
-import { addScaled, dot, length, subtract } from '../../viewport/math'
+import { referencedSketches } from '../../state/visibility'
 import type { PointerRay } from '../../viewport/picking'
 import type { App } from '../createApp'
 import { measureToNextFrame } from '../timing'
 import { setSessionVisible } from './bodies'
+import {
+  pendingRepair,
+  repairedValue,
+  repairSlots,
+  replacedInList,
+  type RepairSlot,
+} from './command-repairs'
+import { isEmptyValue, sameValue, siblingPath, toggledValue, type Params } from './command-values'
 import { commitEdits, documentOf, reportNewFailures, showCoreError } from './edits'
+import { helperFor, helperOnFace, holeCenter } from './hole-placement'
 import { notify, showPickHint } from './notifications'
-import { enterSketch, finishSketch, sketchPlaneOf, startNewSketch } from './sketch'
+import {
+  fieldsOf,
+  firstEmptySelectionField,
+  openingActiveField,
+  preselected,
+  takes,
+  withSiblingBody,
+} from './preselection'
+import { enterSketch, finishSketch, sketchFaceBody, sketchPlaneOf, startNewSketch } from './sketch'
 import { setSuppressed } from './timeline'
 
 // Feature commands (ui.md 3.7): an inspector over one feature record inside a transaction, with a
 // live preview of every complete state of its params, a history of the user's changes, and the
 // bodies and helper sketch the command creates.
-
-type Params = Readonly<Record<string, unknown>>
 
 /** A body the command creates, and the field that names it (2.12). */
 type NewBody = NonNullable<ActiveCommand['newBody']>
@@ -63,17 +74,6 @@ type PreviewRequest = {
   readonly params: Params
   /** `performance.now()` of the inspector change, which starts `ps:preview` (2.18), or null. */
   readonly changedAt: number | null
-}
-
-/**
- * A reference of the edited feature the core could not resolve (4.2): the selection field it is in,
- * where in that field's value it sits (`['0']` for the first edge, `['regions', '1']` for a profile's
- * second region) and the stored value, which the next pick in that field replaces.
- */
-type RepairSlot = {
-  readonly field: string
-  readonly segments: readonly string[]
-  readonly lost: unknown
 }
 
 /** What a command keeps beside its store state. */
@@ -130,11 +130,22 @@ const SELECTION_NOUNS: Readonly<Record<SelectionKind, string>> = {
   axis: 'axes',
 }
 
-/** A hole center snaps to the face's centroid within this many CSS pixels (3.7). */
-const CENTROID_SNAP_PIXELS = 8
-
-/** Sketch coordinates of hole centers are kept to this many decimals of a millimeter. */
-const CENTER_DECIMALS = 6
+/** A feature record split into its params and the record properties beside them. */
+function splitRecord(record: Readonly<Record<string, unknown>>): {
+  readonly recordExtras: Readonly<Record<string, unknown>>
+  readonly params: Params
+} {
+  const recordExtras: Record<string, unknown> = {}
+  const params: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(record)) {
+    if (RECORD_EXTRAS.has(key)) {
+      recordExtras[key] = value
+    } else if (key !== 'id' && key !== 'type') {
+      params[key] = value
+    }
+  }
+  return { recordExtras, params }
+}
 
 function commandOf(app: App): ActiveCommand | null {
   return app.store.getState().command
@@ -163,9 +174,7 @@ function adoptSession(app: App, command: ActiveCommand): CommandSession | null {
     return null
   }
   const record = document.recipe.features?.find((candidate) => candidate.id === command.featureId)
-  const recordExtras = Object.fromEntries(
-    Object.entries(record ?? {}).filter(([key]) => RECORD_EXTRAS.has(key)),
-  )
+  const { recordExtras } = splitRecord(record ?? {})
   const session = createSession(app, {
     featureId: command.featureId,
     feature,
@@ -203,104 +212,9 @@ function modelOf(session: CommandSession, command: ActiveCommand): InspectorMode
   })
 }
 
-function fieldsOf(model: InspectorModel): readonly InspectorField[] {
-  return [...model.essential, ...model.more]
-}
-
-function isEmptyValue(value: unknown): boolean {
-  if (value === undefined || value === null || value === '') {
-    return true
-  }
-  if (Array.isArray(value)) {
-    return value.length === 0
-  }
-  return (
-    typeof value === 'object' &&
-    Array.isArray(Reflect.get(value, 'regions')) &&
-    Reflect.get(value, 'regions').length === 0
-  )
-}
-
-/** The path of the object holding a field (`''` at the top). */
-function parentOf(path: string): string {
-  const separator = path.lastIndexOf('.')
-  return separator === -1 ? '' : path.slice(0, separator)
-}
-
-function siblingPath(path: string, name: string): string {
-  const parent = parentOf(path)
-  return parent === '' ? name : `${parent}.${name}`
-}
-
-/** Selection fields of the model, in manifest order. */
-function selectionFields(model: InspectorModel, feature: CatalogFeature): InspectorField[] {
-  const fields = fieldsOf(model)
-  return feature.manifest.fields.flatMap((hint) => {
-    const field = fields.find((candidate) => candidate.path === hint.path)
-    return field?.control.type === 'selection' ? [field] : []
-  })
-}
-
-/** Whether a body field fills itself from the first pick of a face or edge field beside it (2.12). */
-function fillsFromSiblingPick(field: InspectorField, fields: readonly InspectorField[]): boolean {
-  if (field.control.type !== 'selection' || field.control.accepts !== 'body') {
-    return false
-  }
-  const parent = parentOf(field.path)
-  return fields.some(
-    (other) =>
-      other.control.type === 'selection' &&
-      (other.control.accepts === 'face' || other.control.accepts === 'edge') &&
-      parentOf(other.path) === parent,
-  )
-}
-
-/**
- * The first required, empty selection field that waits for a pick, or null: a body field that the
- * first face or edge pick fills, or that the command fills itself (op new), waits for none.
- */
-function firstEmptySelectionField(
-  model: InspectorModel,
-  feature: CatalogFeature,
-  params: Params,
-): string | null {
-  const fields = selectionFields(model, feature)
-  const next = fields.find(
-    (field) =>
-      field.required &&
-      isEmptyValue(field.value) &&
-      !fillsFromSiblingPick(field, fields) &&
-      !filledByCommand(field, params, feature),
-  )
-  return next?.path ?? null
-}
-
-/**
- * The field that takes picks when a command opens (3.7 step 5): the first required empty
- * selection field, else the first essential multiple selection field, else none.
- */
-function openingActiveField(
-  model: InspectorModel,
-  feature: CatalogFeature,
-  params: Params,
-): string | null {
-  const empty = firstEmptySelectionField(model, feature, params)
-  if (empty !== null) {
-    return empty
-  }
-  const multiple = model.essential.find(
-    (field) => field.control.type === 'selection' && field.control.multiple,
-  )
-  return multiple?.path ?? null
-}
-
 /** The body of the latest active feature with a body that has model geometry (3.7 step 3). */
 function lastTargetBodyOf(document: DocumentState): string | null {
-  const features = document.recipe.features ?? []
-  const rollback = document.recipe.rollback ?? null
-  const end = features.findIndex((feature) => feature.id === rollback)
-  const active = features.slice(0, end === -1 ? features.length : end)
-  for (const feature of active.toReversed()) {
+  for (const feature of activeFeatures(document.recipe).toReversed()) {
     const body = feature['body']
     if (
       feature.suppressed !== true &&
@@ -315,14 +229,7 @@ function lastTargetBodyOf(document: DocumentState): string | null {
 
 /** The timeline index of a new feature: before the rollback marker, so it is active. */
 function insertionIndex(document: DocumentState): number {
-  const features = document.recipe.features ?? []
-  const rollback = document.recipe.rollback ?? null
-  const index = rollback === null ? -1 : features.findIndex((feature) => feature.id === rollback)
-  return index === -1 ? features.length : index
-}
-
-function sameValue(first: unknown, second: unknown): boolean {
-  return JSON.stringify(first) === JSON.stringify(second)
+  return markerPosition(document.recipe.features ?? [], document.recipe.rollback ?? null)
 }
 
 /** Whether the params can be previewed: complete, no field error and nothing pending. */
@@ -365,6 +272,11 @@ function allocateBody(app: App, session: CommandSession, path: NewBody['path']):
   return body
 }
 
+/** Whether the feature has a selection field of this kind at this path. */
+function hasSelectionField(feature: CatalogFeature, path: string, kind: SelectionKind): boolean {
+  return feature.manifest.fields.some((hint) => hint.path === path && hint.selection === kind)
+}
+
 /** The body this command should have in the document for these params, and the params naming it. */
 function wantedBody(
   app: App,
@@ -382,10 +294,7 @@ function wantedBody(
       params,
     }
   }
-  const hasBodyField = session.feature.manifest.fields.some(
-    (hint) => hint.path === 'body' && hint.selection === 'body',
-  )
-  if (!hasBodyField || params['op'] !== 'new') {
+  if (!hasSelectionField(session.feature, 'body', 'body') || params['op'] !== 'new') {
     return { body: null, params }
   }
   const body = params['body']
@@ -617,6 +526,16 @@ function fieldLabel(session: CommandSession, path: string): string {
   return session.feature.manifest.fields.find((hint) => hint.path === path)?.label ?? path
 }
 
+/** The command's state as one step of its history, labeled with the field a change touches. */
+function stepOf(command: ActiveCommand, field: string): CommandStep {
+  return {
+    params: command.params,
+    helper: command.helper,
+    activeField: command.activeField,
+    field,
+  }
+}
+
 /** The store change that records one user change of the field at `path` (3.7 command history). */
 function recordedChange(
   command: ActiveCommand,
@@ -628,186 +547,7 @@ function recordedChange(
   if (!record) {
     return { history: command.history, future: command.future, changedPaths }
   }
-  const step: CommandStep = {
-    params: command.params,
-    helper: command.helper,
-    activeField: command.activeField,
-    field: label,
-  }
-  return { history: [...command.history, step], future: [], changedPaths }
-}
-
-/** Whether a field takes the item; a feature row only counts as a sketch when it is one. */
-function takes(state: AppState, accepts: SelectionKind, item: SelectionItem): boolean {
-  if (!acceptsTarget(accepts, item)) {
-    return false
-  }
-  if (accepts !== 'sketch' || item.kind !== 'feature') {
-    return true
-  }
-  return sketchRecordOf(state, item.feature) !== null
-}
-
-/** The sketch record with this id, or null. */
-function sketchRecordOf(state: AppState, sketchId: string | null): FeatureRecord | null {
-  if (sketchId === null) {
-    return null
-  }
-  const record = state.document?.recipe.features?.find((feature) => feature.id === sketchId)
-  return record?.type === 'sketch' ? record : null
-}
-
-/** The one closed region of a sketch, as an item, when it has exactly one. */
-function onlyRegionOf(state: AppState, sketchId: string): SelectionItem | null {
-  const regions = state.document?.sketches[sketchId]?.solution.regions ?? []
-  const [region] = regions
-  if (regions.length !== 1 || region === undefined) {
-    return null
-  }
-  return {
-    key: `region:${sketchId}:${region.reference.key}`,
-    kind: 'sketch_region',
-    label: 'Region 1',
-    body: null,
-    feature: sketchId,
-    element: null,
-    sketchItem: { kind: 'region', sketch: sketchId, region },
-    origin: null,
-  }
-}
-
-/**
- * The hole centers a sketch offers (3.3): its non-construction point entities, or, when it has
- * none, the centers of its non-construction circles and arcs.
- */
-function sketchPointsOf(state: AppState, sketchId: string): SelectionItem[] {
-  const entities = state.document?.sketches[sketchId]?.solution.entities ?? []
-  const drawn = entities.filter((entity) => entity.construction !== true)
-  const points = drawn.filter((entity) => entity.type === 'point')
-  if (points.length > 0) {
-    return points.map((entity) => pointSelectionItem(sketchId, entity.id))
-  }
-  return drawn
-    .filter((entity) => entity.type === 'circle' || entity.type === 'arc')
-    .map((entity) => pointSelectionItem(sketchId, `${entity.id}.center`))
-}
-
-/** What a whole sketch stands for in a region or point field (3.3, 3.7 step 4), or null for other fields. */
-function sketchStandIns(
-  state: AppState,
-  sketchId: string,
-  accepts: SelectionKind,
-): SelectionItem[] | null {
-  if (accepts === 'sketch_region') {
-    const region = onlyRegionOf(state, sketchId)
-    return region === null ? [] : [region]
-  }
-  if (accepts === 'sketch_point') {
-    return sketchPointsOf(state, sketchId)
-  }
-  return null
-}
-
-/**
- * Fills selection fields from the selection, in manifest order, each item used once (3.7 step 4).
- * A selected sketch, or the sketch just finished when nothing is selected, stands for its region
- * or its points in region and point fields.
- */
-function preselected(
-  state: AppState,
-  feature: CatalogFeature,
-  params: Params,
-  items: readonly SelectionItem[],
-  finishedSketch: string | null,
-): Record<string, unknown> {
-  let next: Record<string, unknown> = { ...params }
-  const used = new Set<string>()
-  const model = buildInspectorModel({ feature, params, errors: {} })
-  for (const field of selectionFields(model, feature)) {
-    if (field.control.type !== 'selection') {
-      continue
-    }
-    const { accepts, multiple } = field.control
-    const candidates = items.flatMap((item) => {
-      const sketch = item.kind === 'feature' ? sketchRecordOf(state, item.feature) : null
-      const standIns = sketch === null ? null : sketchStandIns(state, sketch.id, accepts)
-      return standIns === null
-        ? [{ source: item.key, item }]
-        : standIns.map((standIn) => ({ source: item.key, item: standIn }))
-    })
-    if (items.length === 0 && finishedSketch !== null) {
-      for (const standIn of sketchStandIns(state, finishedSketch, accepts) ?? []) {
-        candidates.push({ source: `feature:${finishedSketch}`, item: standIn })
-      }
-    }
-    const accepted = candidates.filter(
-      (candidate) => !used.has(candidate.source) && takes(state, accepts, candidate.item),
-    )
-    const taken = multiple ? accepted : accepted.slice(0, 1)
-    const value = selectionValue(
-      accepts,
-      taken.map((candidate) => candidate.item),
-      multiple,
-    )
-    if (value === null || isEmptyValue(value)) {
-      continue
-    }
-    for (const candidate of taken) {
-      used.add(candidate.source)
-    }
-    next = setParam(feature, next, field.path, value)
-    next = withSiblingBody(state, feature, next, field, taken[0]?.item ?? null)
-  }
-  return next
-}
-
-/**
- * Fills the fields beside a picked element (2.12): an empty body beside a face or edge field from
- * the item's body; the sketch beside a point field from the points' sketch, and the body beside
- * them from that sketch's plane when it lies on a face.
- */
-function withSiblingBody(
-  state: AppState,
-  feature: CatalogFeature,
-  params: Record<string, unknown>,
-  field: InspectorField,
-  item: SelectionItem | null,
-): Record<string, unknown> {
-  if (item === null || field.control.type !== 'selection') {
-    return params
-  }
-  const accepts = field.control.accepts
-  const hintOf = (path: string) => feature.manifest.fields.find((hint) => hint.path === path)
-  const bodyPath = siblingPath(field.path, 'body')
-  if (accepts === 'face' || accepts === 'edge') {
-    if (
-      item.body !== null &&
-      hintOf(bodyPath)?.selection === 'body' &&
-      isEmptyValue(getParam(params, bodyPath))
-    ) {
-      return setParam(feature, params, bodyPath, item.body)
-    }
-    return params
-  }
-  if (accepts !== 'sketch_point') {
-    return params
-  }
-  const sketch = item.sketchItem?.sketch ?? null
-  const sketchPath = siblingPath(field.path, 'sketch')
-  if (sketch === null || hintOf(sketchPath)?.selection !== 'sketch') {
-    return params
-  }
-  let next = setParam(feature, params, sketchPath, sketch)
-  const plane: unknown = sketchRecordOf(state, sketch)?.['plane']
-  const planeBody =
-    typeof plane === 'object' && plane !== null && Reflect.get(plane, 'kind') === 'face'
-      ? Reflect.get(plane, 'body')
-      : undefined
-  if (typeof planeBody === 'string' && hintOf(bodyPath)?.selection === 'body') {
-    // A hole drills the body its sketch was drawn on.
-    next = setParam(feature, next, bodyPath, planeBody)
-  }
-  return next
+  return { history: [...command.history, stepOf(command, label)], future: [], changedPaths }
 }
 
 /** Options for reopening a command the user can restore (3.7 implicit cancel). */
@@ -816,16 +556,17 @@ type RestoreOptions = {
 }
 
 /** A command ended implicitly, kept so Restore can reopen it. */
-type SavedCommand = {
-  readonly featureType: string
-  readonly featureId: string
-  readonly editing: boolean
-  readonly title: string
-  readonly params: Params
-  readonly helper: HelperSketch | null
-  readonly activeField: string | null
-  readonly newBody: NewBody | null
-}
+type SavedCommand = Pick<
+  ActiveCommand,
+  | 'featureType'
+  | 'featureId'
+  | 'editing'
+  | 'title'
+  | 'params'
+  | 'helper'
+  | 'activeField'
+  | 'newBody'
+>
 
 /** The params of a restored new command with the bodies it had made up taken out, so it makes them again. */
 function withoutCreatedBodies(
@@ -942,7 +683,7 @@ async function openFeatureCommand(
     selection: [],
     // Repeat starts this command again (3.5).
     lastFeatureType: featureType,
-    command: {
+    command: openedCommand({
       featureType,
       featureId,
       editing: false,
@@ -950,15 +691,11 @@ async function openFeatureCommand(
       params: opening.params,
       activeField:
         saved === null ? openingActiveField(model, feature, opening.params) : saved.activeField,
-      fieldErrors: {},
       applied: false,
       newBody: opening.newBody,
       helper: saved === null ? null : unappliedHelper(saved.helper),
-      changedPaths: [],
-      history: [],
-      future: [],
       preview: 'none',
-    },
+    }),
   })
   refreshPreview(app)
 }
@@ -1001,6 +738,13 @@ function restoredOpening(
     }
   }
   return withoutCreatedBodies(app, session, saved)
+}
+
+/** A command as it opens: no field errors and no changes yet. */
+function openedCommand(
+  command: Omit<ActiveCommand, 'fieldErrors' | 'changedPaths' | 'history' | 'future'>,
+): ActiveCommand {
+  return { ...command, fieldErrors: {}, changedPaths: [], history: [], future: [] }
 }
 
 /** A saved helper sketch as the command holds it before the transaction has it again. */
@@ -1110,15 +854,7 @@ async function openFeatureEdit(
     showCoreError(app, error)
     return
   }
-  const recordExtras: Record<string, unknown> = {}
-  const params: Record<string, unknown> = {}
-  for (const [key, value] of Object.entries(record)) {
-    if (RECORD_EXTRAS.has(key)) {
-      recordExtras[key] = value
-    } else if (key !== 'id' && key !== 'type') {
-      params[key] = value
-    }
-  }
+  const { recordExtras, params } = splitRecord(record)
   const session = createSession(app, {
     featureId,
     feature,
@@ -1133,7 +869,7 @@ async function openFeatureEdit(
   const restored = saved === null ? null : restoredOpening(app, session, saved)
   app.store.setState({
     context: 'model',
-    command: {
+    command: openedCommand({
       featureType: record.type,
       featureId,
       editing: true,
@@ -1144,52 +880,15 @@ async function openFeatureEdit(
         saved === null
           ? (repairField(feature.manifest.fields, document.featureStatus[featureId])?.path ?? null)
           : saved.activeField,
-      fieldErrors: {},
       applied: true,
       newBody: restored?.newBody ?? null,
       helper: saved === null ? null : unappliedHelper(saved.helper),
-      changedPaths: [],
-      history: [],
-      future: [],
       preview: previewStateAfter(app, featureId),
-    },
+    }),
   })
   if (saved !== null) {
     refreshPreview(app)
   }
-}
-
-/** The helper after a change of the params: dropped once the point field holds none of its points. */
-function helperFor(
-  feature: CatalogFeature,
-  params: Params,
-  helper: HelperSketch | null,
-): { readonly params: Params; readonly helper: HelperSketch | null } {
-  if (helper === null) {
-    return { params, helper }
-  }
-  const pointField = feature.manifest.fields.find((hint) => hint.selection === 'sketch_point')
-  if (pointField === undefined) {
-    return { params, helper: null }
-  }
-  const sketchPath = siblingPath(pointField.path, 'sketch')
-  const points = getParam(params, pointField.path)
-  const held = new Set(
-    getParam(params, sketchPath) === helper.id && Array.isArray(points) ? points : [],
-  )
-  const all = helper.params.entities ?? []
-  const entities = all.filter((entity) => held.has(entity.id))
-  if (entities.length === 0) {
-    // The helper goes; a sketch field still naming it is cleared with it.
-    const cleared =
-      getParam(params, sketchPath) === helper.id
-        ? setParam(feature, params, sketchPath, undefined)
-        : params
-    return { params: cleared, helper: null }
-  }
-  return entities.length === all.length
-    ? { params, helper }
-    : { params, helper: { ...helper, params: { ...helper.params, entities } } }
 }
 
 /** Clears a body field that the first pick of a face or edge field filled once that field is empty (2.12). */
@@ -1215,9 +914,7 @@ function afterOperationChange(
   let next = params
   let newBody = command.newBody
   const rule = bodyCreatingTarget(feature)
-  const hasBodyField = feature.manifest.fields.some(
-    (hint) => hint.path === 'body' && hint.selection === 'body',
-  )
+  const hasBodyField = hasSelectionField(feature, 'body', 'body')
   if (rule === 'op') {
     // Op new puts the copies in a new body; leaving it lets them join again (2.12).
     if (value === 'new' && previous !== 'new') {
@@ -1253,14 +950,10 @@ function withCutDirection(
     return params
   }
   const sketch = getParam(params, 'profile.sketch')
-  const plane: unknown = sketchRecordOf(
-    app.store.getState(),
-    typeof sketch === 'string' ? sketch : null,
-  )?.['plane']
-  if (typeof plane !== 'object' || plane === null || Reflect.get(plane, 'kind') !== 'face') {
+  const planeBody = sketchFaceBody(app.store.getState(), typeof sketch === 'string' ? sketch : null)
+  if (planeBody === null) {
     return params
   }
-  const planeBody: unknown = Reflect.get(plane, 'body')
   if (planeBody !== command.params['body'] && planeBody !== params['body']) {
     return params
   }
@@ -1420,172 +1113,6 @@ function refusalHint(accepts: SelectionKind): string {
   }
 }
 
-/** A property of an object value, or undefined. */
-function propertyOf(value: unknown, key: string): unknown {
-  return typeof value === 'object' && value !== null ? Reflect.get(value, key) : undefined
-}
-
-/** The lost references of a feature's status as slots of its selection fields (4.2). */
-function repairSlots(
-  feature: CatalogFeature,
-  params: Params,
-  status: FeatureStatus | undefined,
-): readonly RepairSlot[] {
-  const paths = feature.manifest.fields
-    .filter((hint) => (hint.selection ?? null) !== null)
-    .map((hint) => hint.path)
-  return (status?.repairs ?? []).flatMap((repair): RepairSlot[] => {
-    const field = fieldForPointer(paths, repair.path)
-    if (field === null) {
-      return []
-    }
-    const segments = repair.path
-      .slice(fieldPointer(field).length)
-      .split('/')
-      .filter((segment) => segment !== '')
-    // A whole single value is replaced by any pick already; only an entry of a list needs a slot.
-    return segments.length === 0
-      ? []
-      : [{ field, segments, lost: valueAt(getParam(params, field), segments) }]
-  })
-}
-
-/** The value at a path of segments inside a value, or undefined. */
-function valueAt(value: unknown, segments: readonly string[]): unknown {
-  let current = value
-  for (const segment of segments) {
-    if (Array.isArray(current)) {
-      current = current[Number(segment)]
-    } else {
-      current = propertyOf(current, segment)
-    }
-  }
-  return current
-}
-
-/** The repair slot of a field whose lost reference is still in its value, or null. */
-function pendingRepair(session: CommandSession, field: string, value: unknown): RepairSlot | null {
-  return (
-    session.repairs.find(
-      (slot) =>
-        slot.field === field &&
-        slot.lost !== undefined &&
-        sameValue(valueAt(value, slot.segments), slot.lost),
-    ) ?? null
-  )
-}
-
-/**
- * The list a repair slot sits in with its lost entry replaced by `entries` (4.2): entries the list
- * already holds elsewhere are not added twice. Null when the slot's list cannot be found.
- */
-function replacedInList(
-  value: unknown,
-  slot: RepairSlot,
-  entries: readonly unknown[],
-): unknown[] | null {
-  const list = valueAt(value, slot.segments.slice(0, -1))
-  const index = Number(slot.segments.at(-1))
-  if (!Array.isArray(list) || !Number.isInteger(index) || index < 0 || index >= list.length) {
-    return null
-  }
-  const others = list.filter((_entry, position) => position !== index)
-  const added = entries.filter((entry) => !others.some((other) => sameValue(other, entry)))
-  return [...others.slice(0, index), ...added, ...others.slice(index)]
-}
-
-/** A value with the list a repair slot sits in replaced. */
-function withList(value: unknown, slot: RepairSlot, list: readonly unknown[]): unknown {
-  const parents = slot.segments.slice(0, -1)
-  if (parents.length === 0) {
-    return list
-  }
-  // The lists of selection values sit one level down at most (a profile's `regions`).
-  const [key] = parents
-  return typeof value === 'object' && value !== null && key !== undefined
-    ? { ...value, [key]: list }
-    : value
-}
-
-/**
- * The field's value after a pick that replaces a lost reference (3.7, 4.2): the picked item takes
- * the lost entry's place. Null when no lost reference of this field is waiting, or when the pick
- * cannot go in its list (a region of another sketch replaces the whole profile instead).
- */
-function repairedValue(
-  session: CommandSession,
-  accepts: SelectionKind,
-  multiple: boolean,
-  field: string,
-  current: unknown,
-  item: SelectionItem,
-): { readonly value: unknown } | null {
-  const slot = pendingRepair(session, field, current)
-  if (slot === null) {
-    return null
-  }
-  const picked = selectionValue(accepts, [item], multiple)
-  if (
-    accepts === 'sketch_region' &&
-    propertyOf(picked, 'sketch') !== propertyOf(current, 'sketch')
-  ) {
-    return null
-  }
-  const entries = valueAt(picked, slot.segments.slice(0, -1))
-  if (!Array.isArray(entries)) {
-    return null
-  }
-  const list = replacedInList(current, slot, entries)
-  return list === null ? null : { value: withList(current, slot, list) }
-}
-
-/** The field's value with the picked item toggled (added, replacing a single value, or removed). */
-function toggledValue(
-  accepts: SelectionKind,
-  multiple: boolean,
-  current: unknown,
-  item: SelectionItem,
-  currentSketch: unknown,
-): unknown {
-  const picked = selectionValue(accepts, [item], multiple)
-  if (accepts === 'sketch_region') {
-    // A region of another sketch replaces the profile (2.12).
-    const sketch = propertyOf(current, 'sketch')
-    const regions = propertyOf(current, 'regions')
-    const pickedRegions = propertyOf(picked, 'regions')
-    if (
-      sketch !== propertyOf(picked, 'sketch') ||
-      !Array.isArray(regions) ||
-      !Array.isArray(pickedRegions)
-    ) {
-      return picked
-    }
-    const toggled = toggledList(regions, pickedRegions)
-    return toggled.length === 0 ? undefined : { sketch, regions: toggled }
-  }
-  if (accepts === 'sketch_point' && item.sketchItem?.sketch !== currentSketch) {
-    // A point of another sketch replaces the list (2.12).
-    return picked
-  }
-  if (multiple) {
-    const list = Array.isArray(current) ? current : []
-    const additions = Array.isArray(picked) ? picked : [picked]
-    const toggled = toggledList(list, additions)
-    return toggled.length === 0 ? undefined : toggled
-  }
-  return sameValue(current, picked) ? undefined : picked
-}
-
-function toggledList(list: readonly unknown[], additions: readonly unknown[]): unknown[] {
-  let toggled = [...list]
-  for (const addition of additions) {
-    toggled = toggled.some((entry) => sameValue(entry, addition))
-      ? toggled.filter((entry) => !sameValue(entry, addition))
-      : [...toggled, addition]
-  }
-  return toggled
-}
-
 /** Shows `pick_same_body` when a face or edge pick lies on another body than the field's (2.12). */
 function refusedForBody(
   app: App,
@@ -1681,44 +1208,6 @@ function commitPick(
   refreshPreview(app)
 }
 
-/** A world point rounded into a placement's sketch coordinates. */
-function sketchCoordinates(placement: Placement, point: readonly [number, number, number]) {
-  const [x, y] = worldToSketch(placement, point)
-  const factor = 10 ** CENTER_DECIMALS
-  const rounded = (value: number) => Math.round(value * factor) / factor + 0
-  return [rounded(x), rounded(y)] as [number, number]
-}
-
-/** Where a click's ray meets a face's plane, snapped to the centroid within 8 CSS pixels (3.7). */
-function holeCenter(element: ElementDescriptor, placement: Placement, pointer?: PointerRay) {
-  const centroid = element.centroid
-  if (pointer === undefined) {
-    return sketchCoordinates(placement, centroid)
-  }
-  const along = dot(pointer.direction, placement.normal)
-  const hit =
-    Math.abs(along) < 1e-12
-      ? centroid
-      : addScaled(
-          pointer.origin,
-          pointer.direction,
-          dot(subtract(placement.origin, pointer.origin), placement.normal) / along,
-        )
-  const snapped =
-    length(subtract(hit, centroid)) <= CENTROID_SNAP_PIXELS * pointer.millimetersPerPixel
-      ? centroid
-      : hit
-  return sketchCoordinates(placement, snapped)
-}
-
-/** Whether a helper sketch lies on this face. */
-function helperOnFace(helper: HelperSketch, element: ElementDescriptor): boolean {
-  const plane = helper.params.plane
-  return (
-    plane.kind === 'face' && plane.body === element.body && sameValue(plane.face, element.reference)
-  )
-}
-
 /**
  * Places a hole center where a click met a flat face (3.7): the first click gives the command a
  * helper sketch on that face, further clicks on it add points, and another face is refused.
@@ -1768,11 +1257,7 @@ function placeHoleOnFace(
   let params: Params = setParam(session.feature, command.params, field.path, value)
   params = setParam(session.feature, params, sketchPath, helper.id)
   const bodyPath = siblingPath(field.path, 'body')
-  if (
-    session.feature.manifest.fields.some(
-      (hint) => hint.path === bodyPath && hint.selection === 'body',
-    )
-  ) {
+  if (hasSelectionField(session.feature, bodyPath, 'body')) {
     // The hole drills the body of the face.
     params = setParam(session.feature, params, bodyPath, element.body)
   }
@@ -1847,7 +1332,7 @@ async function pickFaceEdges(
   }
   const current = getParam(command.params, field.path)
   const list: readonly unknown[] = Array.isArray(current) ? current : []
-  const repair = pendingRepair(session, field.path, current)
+  const repair = pendingRepair(session.repairs, field.path, current)
   const holdsAll = around.every((reference) => list.some((entry) => sameValue(entry, reference)))
   // A face picked to replace a lost edge puts its edges in that edge's place (4.2).
   const replaced = repair === null ? null : replacedInList(current, repair, around)
@@ -1910,26 +1395,13 @@ export async function capturePick(
     return
   }
   const currentSketch = getParam(command.params, siblingPath(field.path, 'sketch'))
-  const repaired = repairedValue(session, accepts, multiple, field.path, field.value, item)
+  const repaired = repairedValue(session.repairs, accepts, multiple, field.path, field.value, item)
   const value =
     repaired === null
       ? toggledValue(accepts, multiple, field.value, item, currentSketch)
       : repaired.value
   const params = pickedParams(app, session, command, field, value, item)
   commitPick(app, session, command, field, params, command.helper)
-}
-
-/** Every sketch a value refers to through a `sketch` key (a ProfileRef, an AxisRef, a hole's sketch). */
-function referencedSketches(value: unknown): string[] {
-  if (Array.isArray(value)) {
-    return value.flatMap(referencedSketches)
-  }
-  if (typeof value !== 'object' || value === null) {
-    return []
-  }
-  return Object.entries(value).flatMap(([key, entry]) =>
-    key === 'sketch' && typeof entry === 'string' ? [entry] : referencedSketches(entry),
-  )
 }
 
 /** OK: applies the latest params and commits the transaction as one undo entry (3.7). */
@@ -1974,7 +1446,6 @@ export async function cancelCommand(app: App): Promise<void> {
   if (command === null) {
     return
   }
-  sessions.get(app.store)?.preview.cancel()
   endSession(app)
   if (document === null) {
     return
@@ -2085,15 +1556,9 @@ export async function undoCommandChange(app: App): Promise<void> {
     await cancelCommand(app)
     return
   }
-  const current: CommandStep = {
-    params: command.params,
-    helper: command.helper,
-    activeField: command.activeField,
-    field: step.field,
-  }
   restoreStep(app, session, step, {
     history: command.history.slice(0, -1),
-    future: [...command.future, current],
+    future: [...command.future, stepOf(command, step.field)],
   })
 }
 
@@ -2105,14 +1570,8 @@ export async function redoCommandChange(app: App): Promise<void> {
   if (session === null || command === null || step === undefined) {
     return
   }
-  const current: CommandStep = {
-    params: command.params,
-    helper: command.helper,
-    activeField: command.activeField,
-    field: step.field,
-  }
   restoreStep(app, session, step, {
-    history: [...command.history, current],
+    history: [...command.history, stepOf(command, step.field)],
     future: command.future.slice(0, -1),
   })
 }

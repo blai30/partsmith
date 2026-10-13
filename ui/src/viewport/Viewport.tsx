@@ -15,6 +15,7 @@ import { markTiming, TIMING_NAMES } from '../performance/marks'
 import { focusedFindingPoint } from '../print/health'
 import { selectRepairMarkers } from '../state/selectors'
 import type { AppState, SectionState, ViewState } from '../state/store'
+import { isSessionVisible } from '../state/visibility'
 import { COLOR_CLASSES } from '../theme/roles'
 import { createWebGl2Backend } from './backend'
 import { orbit, type Vector3 } from './camera'
@@ -24,7 +25,6 @@ import { orientElement } from './overlay'
 import {
   createScene,
   drawnOriginPlanes,
-  isSessionVisible,
   originPlaneLabelAnchor,
   planeExtent,
   type Scene,

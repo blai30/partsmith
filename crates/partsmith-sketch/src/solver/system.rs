@@ -8,12 +8,11 @@ use partsmith_model::Id;
 
 use super::layout::Layout;
 use super::rows::{Anchor, Equality, LineTerm, PointTerm, Row, RowOwner, Term};
-use crate::ORIGIN;
 use crate::constraint::{Alignment, ConstraintKind, DistanceTarget, SketchConstraint};
-use crate::entity::{Geometry, SketchEntity};
+use crate::entity::{EntityKind, SketchEntity};
 use crate::params::{DimensionValues, SketchParams};
 use crate::point_ref::{PointRef, PointRole};
-use crate::reserved::{axis_line, is_reserved};
+use crate::reserved::{axis_line, is_origin, is_reserved};
 use crate::union_find::UnionFind;
 use crate::vector::{norm, signed_distance, subtract, unit};
 
@@ -22,6 +21,8 @@ use crate::vector::{norm, signed_distance, subtract, unit};
 pub(crate) struct System {
     /// Where each entity's parameters sit.
     pub(crate) layout: Layout,
+    /// The parameter vector of the warm-start choices the rows were built on.
+    pub(crate) warm_start: Vec<f64>,
     /// Every row in the order of section 3.6.5: arc rules in entity order, then constraint rows in document order.
     pub(crate) rows: Vec<Row>,
     /// For each constraint, the indices of its rows.
@@ -53,25 +54,26 @@ impl System {
         choices: &[SketchEntity],
     ) -> System {
         let layout = Layout::new(&sketch.entities);
-        let choice_vector = layout.vector(choices);
+        let warm_start = layout.vector(choices);
         let builder = Builder {
-            sketch,
             layout: &layout,
-            x: &choice_vector,
+            x: &warm_start,
             identification: Identification::new(sketch),
             points_on: points_on_curves(sketch),
         };
         let mut rows = Vec::new();
-        for (index, entity) in sketch.entities.iter().enumerate() {
-            if matches!(entity.geometry, Geometry::Arc { .. }) {
-                let center = layout.parameters(index).start;
-                let length = |point| Term::Length {
-                    from: PointTerm::Parameters(center),
-                    to: PointTerm::Parameters(point),
+        for index in 0..sketch.entities.len() {
+            if layout.kind(index) == EntityKind::Arc {
+                let length = |role| Term::Length {
+                    from: builder.point_term(index, PointRole::Center),
+                    to: builder.point_term(index, role),
                 };
                 rows.push(Row::new(
                     RowOwner::ArcRule(index),
-                    vec![(1.0, length(center + 4)), (-1.0, length(center + 2))],
+                    vec![
+                        (1.0, length(PointRole::End)),
+                        (-1.0, length(PointRole::Start)),
+                    ],
                     0.0,
                 ));
             }
@@ -87,6 +89,7 @@ impl System {
         let components = components(sketch, &layout, &rows);
         System {
             layout,
+            warm_start,
             rows,
             constraint_rows,
             freezes,
@@ -97,7 +100,6 @@ impl System {
 
 /// Builds rows on the warm-start choice vector `x`.
 struct Builder<'a> {
-    sketch: &'a SketchParams,
     layout: &'a Layout,
     x: &'a [f64],
     identification: Identification,
@@ -114,24 +116,26 @@ struct CurveTerm {
 }
 
 impl Builder<'_> {
-    fn entity(&self, id: &Id) -> (usize, &Geometry) {
-        let index = self
-            .layout
+    fn entity(&self, id: &Id) -> usize {
+        self.layout
             .entity_index(id)
-            .expect("validation guarantees that constraints name existing entities");
-        (index, &self.sketch.entities[index].geometry)
+            .expect("validation guarantees that constraints name existing entities")
+    }
+
+    /// The point of `role` on the entity at `index`.
+    fn point_term(&self, index: usize, role: PointRole) -> PointTerm {
+        let parameter = self
+            .layout
+            .point_parameter(index, role)
+            .expect("validation guarantees that point roles exist on their entities");
+        PointTerm::Parameters(parameter)
     }
 
     fn point(&self, point: &PointRef) -> PointTerm {
-        if point.entity.as_str() == ORIGIN {
+        if is_origin(point) {
             return PointTerm::Constant([0.0, 0.0]);
         }
-        let (index, geometry) = self.entity(&point.entity);
-        let parameter = self
-            .layout
-            .point_parameter(index, geometry, point.role)
-            .expect("validation guarantees that point roles exist on their entities");
-        PointTerm::Parameters(parameter)
+        self.point_term(self.entity(&point.entity), point.role)
     }
 
     fn line(&self, line: &Id) -> LineTerm {
@@ -141,32 +145,29 @@ impl Builder<'_> {
                 end: PointTerm::Constant(end),
             };
         }
-        let start = self.layout.parameters(self.entity(line).0).start;
+        let index = self.entity(line);
         LineTerm {
-            start: PointTerm::Parameters(start),
-            end: PointTerm::Parameters(start + 2),
+            start: self.point_term(index, PointRole::Start),
+            end: self.point_term(index, PointRole::End),
         }
     }
 
     fn curve(&self, curve: &Id) -> CurveTerm {
-        let (index, geometry) = self.entity(curve);
-        let center = self.layout.parameters(index).start;
-        let radius = match geometry {
-            Geometry::Circle { .. } => Term::Coordinate(center + 2),
-            _ => Term::Length {
-                from: PointTerm::Parameters(center),
-                to: PointTerm::Parameters(center + 2),
+        let index = self.entity(curve);
+        let center = self.point_term(index, PointRole::Center);
+        let radius = match self.layout.radius_parameter(index) {
+            Some(radius) => Term::Coordinate(radius),
+            None => Term::Length {
+                from: center,
+                to: self.point_term(index, PointRole::Start),
             },
         };
-        CurveTerm {
-            center: PointTerm::Parameters(center),
-            radius,
-        }
+        CurveTerm { center, radius }
     }
 
     /// True for a line entity (or an axis) in a curve field.
     fn is_straight(&self, curve: &Id) -> bool {
-        is_reserved(curve.as_str()) || matches!(self.entity(curve).1, Geometry::Line { .. })
+        is_reserved(curve.as_str()) || self.layout.kind(self.entity(curve)) == EntityKind::Line
     }
 
     /// `size` of section 3.6.3, or `None` for an axis.
@@ -215,131 +216,49 @@ impl Builder<'_> {
                 .get(&constraint.id)
                 .expect("values of driving dimensions are checked before rows are built")
         };
-        let single =
-            |terms: Vec<(f64, Term)>, constant: f64| vec![Row::new(owner, terms, constant)];
+        let one_row = |terms: Vec<(f64, Term)>| vec![Row::new(owner, terms, 0.0)];
         let rows = match &constraint.kind {
             ConstraintKind::Coincident { points } => {
                 let (first, second) = (self.point(&points[0]), self.point(&points[1]));
                 equality_rows(owner, first, second, &[0, 1])
             }
             ConstraintKind::PointOnObject { point, curve } => {
-                let point = self.point(point);
-                if self.is_straight(curve) {
-                    single(
-                        vec![(
-                            1.0,
-                            Term::SignedDistance {
-                                point: Anchor::Point(point),
-                                line: self.line(curve),
-                            },
-                        )],
-                        0.0,
-                    )
-                } else {
-                    let curve = self.curve(curve);
-                    single(
-                        vec![
-                            (
-                                1.0,
-                                Term::Length {
-                                    from: curve.center,
-                                    to: point,
-                                },
-                            ),
-                            (-1.0, curve.radius),
-                        ],
-                        0.0,
-                    )
-                }
+                vec![self.point_on_object(owner, point, curve)]
             }
-            ConstraintKind::Horizontal(alignment) => {
+            ConstraintKind::Horizontal(alignment) | ConstraintKind::Vertical(alignment) => {
                 let (first, second) = self.alignment(alignment);
-                equality_rows(owner, second, first, &[1])
+                equality_rows(owner, second, first, &[axis(&constraint.kind)])
             }
-            ConstraintKind::Vertical(alignment) => {
-                let (first, second) = self.alignment(alignment);
-                equality_rows(owner, second, first, &[0])
-            }
-            ConstraintKind::Parallel { lines } => single(self.angle_terms(lines, 1.0, 0.0), 0.0),
-            ConstraintKind::Perpendicular { lines } => {
-                single(self.angle_terms(lines, 0.0, -1.0), 0.0)
-            }
+            ConstraintKind::Parallel { lines } => one_row(self.angle_terms(lines, 1.0, 0.0)),
+            ConstraintKind::Perpendicular { lines } => one_row(self.angle_terms(lines, 0.0, -1.0)),
             ConstraintKind::Angle { lines, dimension } if dimension.driving => {
                 let angle = value();
-                single(self.angle_terms(lines, angle.cos(), angle.sin()), 0.0)
+                one_row(self.angle_terms(lines, angle.cos(), angle.sin()))
             }
-            ConstraintKind::Tangent { curves } => single(self.tangent_terms(curves), 0.0),
+            ConstraintKind::Tangent { curves } => one_row(self.tangent_terms(curves)),
             ConstraintKind::Collinear { lines } => {
                 let first = self.line(&lines[0]);
                 let second = self.line(&lines[1]);
                 [second.start, second.end]
-                    .into_iter()
-                    .map(|point| {
-                        Row::new(
-                            owner,
-                            vec![(
-                                1.0,
-                                Term::SignedDistance {
-                                    point: Anchor::Point(point),
-                                    line: first,
-                                },
-                            )],
-                            0.0,
-                        )
-                    })
-                    .collect()
+                    .map(|point| Row::single(owner, Term::distance_from(point, first), 0.0))
+                    .to_vec()
             }
             ConstraintKind::Concentric { curves } => {
                 let (first, second) = (self.curve(&curves[0]), self.curve(&curves[1]));
                 equality_rows(owner, first.center, second.center, &[0, 1])
             }
-            ConstraintKind::Equal { curves } => {
-                let terms = if self.is_straight(&curves[0]) {
-                    let length = |line: LineTerm| Term::Length {
-                        from: line.start,
-                        to: line.end,
-                    };
-                    vec![
-                        (1.0, length(self.line(&curves[0]))),
-                        (-1.0, length(self.line(&curves[1]))),
-                    ]
-                } else {
-                    vec![
-                        (1.0, self.curve(&curves[0]).radius),
-                        (-1.0, self.curve(&curves[1]).radius),
-                    ]
-                };
-                single(terms, 0.0)
-            }
-            ConstraintKind::Symmetric { points, line } => {
-                let (first, second) = (self.point(&points[0]), self.point(&points[1]));
-                let line = self.line(line);
+            ConstraintKind::Equal { curves } => one_row(if self.is_straight(&curves[0]) {
                 vec![
-                    Row::new(
-                        owner,
-                        vec![(
-                            1.0,
-                            Term::SignedDistance {
-                                point: Anchor::Midpoint(first, second),
-                                line,
-                            },
-                        )],
-                        0.0,
-                    ),
-                    Row::new(
-                        owner,
-                        vec![(
-                            1.0,
-                            Term::Projection {
-                                from: first,
-                                to: second,
-                                line,
-                            },
-                        )],
-                        0.0,
-                    ),
+                    (1.0, self.line(&curves[0]).length()),
+                    (-1.0, self.line(&curves[1]).length()),
                 ]
-            }
+            } else {
+                vec![
+                    (1.0, self.curve(&curves[0]).radius),
+                    (-1.0, self.curve(&curves[1]).radius),
+                ]
+            }),
+            ConstraintKind::Symmetric { points, line } => self.symmetric(owner, points, line),
             ConstraintKind::Midpoint { point, line } => {
                 let point = self.point(point);
                 let line = self.line(line);
@@ -360,70 +279,25 @@ impl Builder<'_> {
                 return (self.fix_rows(owner, target, &freeze), freeze);
             }
             ConstraintKind::Distance { target, dimension } if dimension.driving => {
-                let value = value();
-                match target {
-                    DistanceTarget::Points { points } => single(
-                        vec![(
-                            1.0,
-                            Term::Length {
-                                from: self.point(&points[0]),
-                                to: self.point(&points[1]),
-                            },
-                        )],
-                        -value,
-                    ),
-                    DistanceTarget::Line { line } => {
-                        let line = self.line(line);
-                        single(
-                            vec![(
-                                1.0,
-                                Term::Length {
-                                    from: line.start,
-                                    to: line.end,
-                                },
-                            )],
-                            -value,
-                        )
-                    }
-                    DistanceTarget::PointLine { point, line } => {
-                        let point = self.point(point);
-                        let line = self.line(line);
-                        single(
-                            vec![(
-                                self.side(point, line),
-                                Term::SignedDistance {
-                                    point: Anchor::Point(point),
-                                    line,
-                                },
-                            )],
-                            -value,
-                        )
-                    }
-                }
+                vec![self.distance(owner, target, value())]
             }
-            ConstraintKind::HorizontalDistance { target, dimension } if dimension.driving => {
+            ConstraintKind::HorizontalDistance { target, dimension }
+            | ConstraintKind::VerticalDistance { target, dimension }
+                if dimension.driving =>
+            {
                 let (first, second) = self.alignment(target);
                 vec![linear_row(
                     owner,
                     &[(1.0, second), (-1.0, first)],
-                    0,
-                    -value(),
-                )]
-            }
-            ConstraintKind::VerticalDistance { target, dimension } if dimension.driving => {
-                let (first, second) = self.alignment(target);
-                vec![linear_row(
-                    owner,
-                    &[(1.0, second), (-1.0, first)],
-                    1,
+                    axis(&constraint.kind),
                     -value(),
                 )]
             }
             ConstraintKind::Radius { curve, dimension } if dimension.driving => {
-                single(vec![(1.0, self.curve(curve).radius)], -value())
+                vec![Row::single(owner, self.curve(curve).radius, -value())]
             }
             ConstraintKind::Diameter { curve, dimension } if dimension.driving => {
-                single(vec![(1.0, self.curve(curve).radius)], -value() / 2.0)
+                vec![Row::single(owner, self.curve(curve).radius, -value() / 2.0)]
             }
             // Reference dimensions add no rows.
             ConstraintKind::Distance { .. }
@@ -434,6 +308,80 @@ impl Builder<'_> {
             | ConstraintKind::Angle { .. } => Vec::new(),
         };
         (rows, Vec::new())
+    }
+
+    /// The row of `point_on_object`: the signed distance to a line or axis, or the distance from a
+    /// circle's or arc's center minus its radius.
+    fn point_on_object(&self, owner: RowOwner, point: &PointRef, curve: &Id) -> Row {
+        let point = self.point(point);
+        if self.is_straight(curve) {
+            return Row::single(owner, Term::distance_from(point, self.line(curve)), 0.0);
+        }
+        let curve = self.curve(curve);
+        Row::new(
+            owner,
+            vec![
+                (
+                    1.0,
+                    Term::Length {
+                        from: curve.center,
+                        to: point,
+                    },
+                ),
+                (-1.0, curve.radius),
+            ],
+            0.0,
+        )
+    }
+
+    /// The rows of `symmetric`: the midpoint of the points lies on the line, and the segment between
+    /// them has no length along it.
+    fn symmetric(&self, owner: RowOwner, points: &[PointRef; 2], line: &Id) -> Vec<Row> {
+        let (first, second) = (self.point(&points[0]), self.point(&points[1]));
+        let line = self.line(line);
+        vec![
+            Row::single(
+                owner,
+                Term::SignedDistance {
+                    point: Anchor::Midpoint(first, second),
+                    line,
+                },
+                0.0,
+            ),
+            Row::single(
+                owner,
+                Term::Projection {
+                    from: first,
+                    to: second,
+                    line,
+                },
+                0.0,
+            ),
+        ]
+    }
+
+    /// The row of a driving `distance` whose value is `value`.
+    fn distance(&self, owner: RowOwner, target: &DistanceTarget, value: f64) -> Row {
+        match target {
+            DistanceTarget::Points { points } => Row::single(
+                owner,
+                Term::Length {
+                    from: self.point(&points[0]),
+                    to: self.point(&points[1]),
+                },
+                -value,
+            ),
+            DistanceTarget::Line { line } => Row::single(owner, self.line(line).length(), -value),
+            DistanceTarget::PointLine { point, line } => {
+                let point = self.point(point);
+                let line = self.line(line);
+                Row::new(
+                    owner,
+                    vec![(self.side(point, line), Term::distance_from(point, line))],
+                    -value,
+                )
+            }
+        }
     }
 
     /// The first and second point of an alignment: a line's start and end, or the two points.
@@ -490,10 +438,7 @@ impl Builder<'_> {
                 None => vec![
                     (
                         self.side(curve.center, line),
-                        Term::SignedDistance {
-                            point: Anchor::Point(curve.center),
-                            line,
-                        },
+                        Term::distance_from(curve.center, line),
                     ),
                     (-1.0, curve.radius),
                 ],
@@ -572,8 +517,8 @@ impl Builder<'_> {
     fn has_ends(&self, curve: &Id) -> bool {
         !is_reserved(curve.as_str())
             && matches!(
-                self.entity(curve).1,
-                Geometry::Line { .. } | Geometry::Arc { .. }
+                self.layout.kind(self.entity(curve)),
+                EntityKind::Line | EntityKind::Arc
             )
     }
 
@@ -599,11 +544,11 @@ impl Builder<'_> {
 
     /// The parameters a `fix` freezes with their warm-start values: point 2, line 4, circle 3, arc all 6.
     fn fixed_parameters(&self, target: &PointRef) -> Vec<(usize, f64)> {
-        if target.entity.as_str() == ORIGIN {
+        if is_origin(target) {
             return Vec::new();
         }
-        let (index, geometry) = self.entity(&target.entity);
-        let parameters = match self.layout.point_parameter(index, geometry, target.role) {
+        let index = self.entity(&target.entity);
+        let parameters = match self.layout.point_parameter(index, target.role) {
             Some(first) => first..first + 2,
             None => self.layout.parameters(index),
         };
@@ -614,16 +559,16 @@ impl Builder<'_> {
 
     /// The rows of a `fix` on `target` with the fix values in `freeze`.
     fn fix_rows(&self, owner: RowOwner, target: &PointRef, freeze: &[(usize, f64)]) -> Vec<Row> {
-        if target.entity.as_str() == ORIGIN {
+        if is_origin(target) {
             return [0, 1]
                 .map(|axis| linear_row(owner, &[(1.0, PointTerm::Constant([0.0, 0.0]))], axis, 0.0))
                 .to_vec();
         }
         let difference = |&(parameter, value): &(usize, f64)| {
-            Row::new(owner, vec![(1.0, Term::Coordinate(parameter))], -value)
+            Row::single(owner, Term::Coordinate(parameter), -value)
         };
-        let (_, geometry) = self.entity(&target.entity);
-        let whole_arc = target.role == PointRole::Point && matches!(geometry, Geometry::Arc { .. });
+        let whole_arc = target.role == PointRole::Point
+            && self.layout.kind(self.entity(&target.entity)) == EntityKind::Arc;
         if !whole_arc {
             return freeze.iter().map(difference).collect();
         }
@@ -656,6 +601,15 @@ fn linear_row(owner: RowOwner, points: &[(f64, PointTerm)], axis: usize, constan
         }
     }
     Row::new(owner, terms, total)
+}
+
+/// The coordinate whose difference a horizontal or vertical constraint sets: `x` (0) for `vertical`
+/// and `horizontal_distance`, `y` (1) for `horizontal` and `vertical_distance`.
+fn axis(kind: &ConstraintKind) -> usize {
+    match kind {
+        ConstraintKind::Vertical(_) | ConstraintKind::HorizontalDistance { .. } => 0,
+        _ => 1,
+    }
 }
 
 /// Rows `first[axis] - second[axis]` for each axis, with the equality each states.

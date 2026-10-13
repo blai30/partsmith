@@ -3,6 +3,7 @@ import { Shapes, Trash2, type LucideIcon } from 'lucide-react'
 import { useEffect, useId, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { setBodyMaterial, setBodyVisible } from '../app/actions/bodies'
 import { editFeature } from '../app/actions/command'
+import { openSidePanel } from '../app/actions/panels'
 import { select, setHover } from '../app/actions/selection'
 import {
   addSketchDimension,
@@ -919,9 +920,7 @@ export function SelectionInspector({ items }: { readonly items: readonly Selecti
           <div className="flex">
             <Button
               onClick={() => {
-                app.store.setState((current) => ({
-                  panels: { ...current.panels, side: 'parameters' },
-                }))
+                openSidePanel(app, 'parameters')
               }}
             >
               Edit parameters

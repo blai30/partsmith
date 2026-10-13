@@ -19,6 +19,7 @@ import {
   type KeyboardEvent,
 } from 'react'
 import { recordPaletteRecent } from '../app/actions/settings'
+import { setPaletteOpen } from '../app/actions/panels'
 import { useApp, useAppState } from '../app/AppProvider'
 import type { App } from '../app/createApp'
 import { rankPaletteItems, recentItems, type PaletteItem } from '../commands/fuzzy'
@@ -152,7 +153,7 @@ function OpenPalette() {
   const [footer, setFooter] = useState('')
 
   const close = (): void => {
-    app.store.setState((state) => ({ panels: { ...state.panels, paletteOpen: false } }))
+    setPaletteOpen(app, false)
   }
 
   // Focus moves into the input and returns, on closing, to where it was (3.4).
@@ -188,7 +189,7 @@ function OpenPalette() {
   useEffect(() => {
     const onPointerDown = (event: PointerEvent): void => {
       if (event.target instanceof Node && palette.current?.contains(event.target) !== true) {
-        app.store.setState((state) => ({ panels: { ...state.panels, paletteOpen: false } }))
+        setPaletteOpen(app, false)
       }
     }
     document.addEventListener('pointerdown', onPointerDown, true)

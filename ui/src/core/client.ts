@@ -8,6 +8,7 @@ import {
   type Message,
 } from '../generated/protocol'
 import { decodeEvent, type CoreEvent } from './events'
+import { errorMessage } from './errors'
 import { decodeFrame, encodeFrame, type BufferView } from './frame'
 import { CoreFatalError, type Transport } from './transport'
 
@@ -88,10 +89,6 @@ function commandResultOf(outcome: CommandResult & { readonly kind: 'ok' }): Comm
   return result
 }
 
-function reasonOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
-}
-
 export function createCoreClient(transport: Transport): CoreClient {
   const eventListeners = new Set<(event: CoreEvent) => void>()
   const fatalListeners = new Set<(error: CoreFatalError) => void>()
@@ -146,7 +143,7 @@ export function createCoreClient(transport: Transport): CoreClient {
         }
       } catch (error) {
         const fatal = new CoreFatalError(
-          `The geometry core sent a response the app cannot read: ${reasonOf(error)}`,
+          `The geometry core sent a response the app cannot read: ${errorMessage(error)}`,
         )
         reportFatal(fatal)
         throw fatal

@@ -1,4 +1,4 @@
-import type { Document } from '../generated/protocol'
+import type { Document, OriginPlane } from '../generated/protocol'
 import type { Catalog } from '../state/store'
 
 // Default display labels (features.md 3.12, model.md).
@@ -36,8 +36,8 @@ export function nextBodyName(document: Document): string {
   return `Body ${String(number)}`
 }
 
-/** An origin plane by its coordinates. */
-export type OriginPlane = 'XY' | 'XZ' | 'YZ'
+/** An origin plane by its coordinates, as the protocol names it. */
+export type { OriginPlane }
 
 const ORIGIN_PLANE_VIEWS: Readonly<Record<OriginPlane, 'Top' | 'Front' | 'Right'>> = {
   XY: 'Top',

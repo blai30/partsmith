@@ -10,6 +10,7 @@ import type {
   FeatureManifest,
   FeatureStatus,
   Orientation,
+  OriginPlane,
   ParameterValue,
   Placement,
   PointRef,
@@ -250,7 +251,7 @@ export type ViewState = {
 }
 
 export type SectionState = {
-  readonly plane: 'XY' | 'XZ' | 'YZ'
+  readonly plane: OriginPlane
   readonly offset: string
   readonly flipped: boolean
 }

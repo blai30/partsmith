@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import type { Command } from '../generated/protocol'
-import { decodeFrame, encodeFrame, FrameDecodeError, ProtocolVersionError } from './frame'
+import {
+  decodeFrame,
+  encodeFrame,
+  engineInfoRequestFrame,
+  FrameDecodeError,
+  ProtocolVersionError,
+} from './frame'
 
 // Example frames A and B of protocol.md 2.2, byte for byte as the spec's hex dumps list them.
 const EXAMPLE_A_HEX = `
@@ -278,5 +284,15 @@ describe('a frame of another protocol version', () => {
     expect(error).toBeInstanceOf(FrameDecodeError)
     expect(error).toBeInstanceOf(ProtocolVersionError)
     expect(error instanceof ProtocolVersionError ? error.found : null).toBe(2)
+  })
+})
+
+describe('engineInfoRequestFrame', () => {
+  it('holds one engine_info request with the reserved id 0 and no buffers', () => {
+    const decoded = decodeFrame(engineInfoRequestFrame())
+    expect(decoded.header.messages).toEqual([
+      { kind: 'request', id: 0, command: { type: 'engine_info' } },
+    ])
+    expect(decoded.buffers).toEqual([])
   })
 })

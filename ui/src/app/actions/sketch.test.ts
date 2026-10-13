@@ -11,11 +11,21 @@ import {
   CUBE_TOP_FACE,
 } from '../../test/fakes/documents'
 import { elementItem, originItem } from '../../test/fakes/selection'
+import { stateWithDocument } from '../../test/fakes/state'
 import { editsOf } from '../../test/fakes/protocol'
 import { settle } from '../../test/fakes/settle'
 import { startFeatureCommand } from './command'
 import { select } from './selection'
-import { createSketchOn, enterSketch, finishSketch, setSketchTool, startNewSketch } from './sketch'
+import {
+  createSketchOn,
+  enterSketch,
+  finishSketch,
+  setSketchTool,
+  sketchFaceBody,
+  sketchRecordOf,
+  startNewSketch,
+  storedSketchParams,
+} from './sketch'
 
 type AddFeature = Extract<Edit, { type: 'add_feature' }>
 
@@ -204,5 +214,45 @@ describe('enterSketch, setSketchTool and finishSketch (3.16)', () => {
     expect(state.context).toBe('model')
     expect(state.sketch).toBeNull()
     expect(state.view.sessionVisible['feature:f-sk1']).toBe(true)
+  })
+})
+
+describe('sketch record readers', () => {
+  const FACE_SKETCH = {
+    id: 'f-sk2',
+    type: 'sketch',
+    plane: {
+      kind: 'face',
+      body: 'b-cube',
+      face: { q: 'f-ext1/end-cap', fp: 'plane|n=0,0,1|c=0,0,20|a=400|adj=4,4' },
+      fallback: { origin: [0, 0, 20], normal: [0, 0, 1], x_axis: [1, 0, 0] },
+    },
+    entities: [],
+    constraints: [],
+  }
+  const state = stateWithDocument({
+    ...CUBE_DOCUMENT,
+    features: [...(CUBE_DOCUMENT.features ?? []), FACE_SKETCH],
+  })
+
+  it('sketchRecordOf finds a sketch record and is null for other features and no id', () => {
+    expect(sketchRecordOf(state, 'f-sk1')?.id).toBe('f-sk1')
+    expect(sketchRecordOf(state, 'f-ext1')).toBeNull()
+    expect(sketchRecordOf(state, null)).toBeNull()
+  })
+
+  it('storedSketchParams reads the stored plane, entities and constraints', () => {
+    expect(storedSketchParams(state, 'f-sk2')).toEqual({
+      plane: FACE_SKETCH.plane,
+      entities: [],
+      constraints: [],
+    })
+    expect(storedSketchParams(state, 'f-ext1')).toBeNull()
+  })
+
+  it('sketchFaceBody is the body of a face sketch and null for a sketch on a plane', () => {
+    expect(sketchFaceBody(state, 'f-sk2')).toBe('b-cube')
+    expect(sketchFaceBody(state, 'f-sk1')).toBeNull()
+    expect(sketchFaceBody(state, null)).toBeNull()
   })
 })

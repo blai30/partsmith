@@ -1,25 +1,9 @@
 import type { Body } from '../../generated/protocol'
 import type { App } from '../createApp'
 import { commitBuiltEdits, documentOf, refusedDuringCommand } from './edits'
+import { withOptional } from './records'
 
 // Body edits and session-only body view state (ui.md 3.8, 3.10).
-
-type OptionalBodyProperty = 'material' | 'color' | 'visible'
-
-/** The body with one optional property set, or removed for null. */
-function withProperty<Key extends OptionalBodyProperty>(
-  body: Body,
-  key: Key,
-  value: Body[Key] | null,
-): Body {
-  const copy: Body = { ...body }
-  if (value === null) {
-    Reflect.deleteProperty(copy, key)
-  } else {
-    copy[key] = value
-  }
-  return copy
-}
 
 /**
  * Commits one update_body made from the body as it is when the edit's turn in the mutation queue
@@ -49,7 +33,7 @@ export async function setBodyVisible(app: App, bodyId: string, visible: boolean)
   await updateBody(app, bodyId, (body) => ({
     label: `${visible ? 'Show' : 'Hide'} ${body.name}`,
     // Visible is omitted when true (model.md).
-    body: withProperty(body, 'visible', visible ? null : false),
+    body: withOptional(body, 'visible', visible ? undefined : false),
   }))
 }
 
@@ -57,7 +41,7 @@ export async function setBodyVisible(app: App, bodyId: string, visible: boolean)
 export async function setBodyColor(app: App, bodyId: string, color: string | null): Promise<void> {
   await updateBody(app, bodyId, (body) => ({
     label: 'Change color',
-    body: withProperty(body, 'color', color),
+    body: withOptional(body, 'color', color ?? undefined),
   }))
 }
 
@@ -70,7 +54,7 @@ export async function setBodyMaterial(
   const trimmed = material?.trim() ?? ''
   await updateBody(app, bodyId, (body) => ({
     label: 'Change material',
-    body: withProperty(body, 'material', trimmed === '' ? null : trimmed),
+    body: withOptional(body, 'material', trimmed === '' ? undefined : trimmed),
   }))
 }
 

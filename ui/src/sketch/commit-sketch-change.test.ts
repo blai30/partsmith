@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
-import { commitSketchChange, deleteSketchItems, startSketchDrag } from '../app/actions/sketch'
+import { commitSketchChange, deleteSketchItems } from '../app/actions/sketch'
+import { startSketchDrag } from '../app/actions/sketch-drag'
 import type { App } from '../app/createApp'
 import type { CoreApi, SolvedSketch } from '../core/api'
 import type { Edit, SketchConstraint, SketchParams, SketchSolution } from '../generated/protocol'

@@ -9,13 +9,16 @@ import {
 } from '../test/fakes/documents'
 import { checkResult, finding, printReport, stateWithDocument } from '../test/fakes/state'
 import {
+  editingSession,
   selectActiveFeatureIds,
   selectEditLabel,
+  selectEditedSketch,
   selectEmptyState,
   selectFeatureLabel,
   selectHealthBadge,
   selectOriginVisible,
   selectProblems,
+  selectUnsaved,
 } from './selectors'
 import type { ActiveCommand, AppState, DocumentState, PrintState, SketchSession } from './store'
 
@@ -171,6 +174,51 @@ describe('selectActiveFeatureIds', () => {
     expect(selectActiveFeatureIds({ ...stateWithDocument(CUBE_DOCUMENT), document: null })).toEqual(
       [],
     )
+  })
+})
+
+describe('editingSession and selectEditedSketch', () => {
+  const SESSION: SketchSession = {
+    sketchId: 'f-sk1',
+    tool: null,
+    construction: false,
+    showConstraints: true,
+    selection: [],
+    dragging: false,
+    cameraBefore: null,
+  }
+
+  it('give the edited sketch in sketch mode', () => {
+    const state = stateWithDocument(CUBE_DOCUMENT, { context: 'sketch', sketch: SESSION })
+    expect(editingSession(state)?.sketchId).toBe('f-sk1')
+    expect(selectEditedSketch(state)).toBe('f-sk1')
+  })
+
+  it('while a plane is picked: no editing session and a null sketch', () => {
+    const state = stateWithDocument(CUBE_DOCUMENT, {
+      context: 'sketch',
+      sketch: { ...SESSION, sketchId: null },
+    })
+    expect(editingSession(state)).toBeNull()
+    expect(selectEditedSketch(state)).toBeNull()
+  })
+
+  it('outside sketch mode: no editing session and an undefined sketch', () => {
+    const state = stateWithDocument(CUBE_DOCUMENT, { sketch: SESSION })
+    expect(editingSession(state)).toBeNull()
+    expect(selectEditedSketch(state)).toBeUndefined()
+  })
+})
+
+describe('selectUnsaved (3.19)', () => {
+  it('is true when the core reports the document dirty or a recovered copy is not saved', () => {
+    expect(selectUnsaved(stateWithDocument(CUBE_DOCUMENT, {}, { dirty: true }))).toBe(true)
+    expect(selectUnsaved(stateWithDocument(CUBE_DOCUMENT, {}, { localUnsaved: true }))).toBe(true)
+  })
+
+  it('is false for a saved document and without a document', () => {
+    expect(selectUnsaved(stateWithDocument(CUBE_DOCUMENT))).toBe(false)
+    expect(selectUnsaved({ ...stateWithDocument(CUBE_DOCUMENT), document: null })).toBe(false)
   })
 })
 

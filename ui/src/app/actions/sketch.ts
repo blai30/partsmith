@@ -1,11 +1,6 @@
-import { CoreError } from '../../core/client'
 import { generateId, usedIds } from '../../core/ids'
-import { createLatestOnly } from '../../core/queue'
-import { featureLabel } from '../../core/labels'
-import { CoreFatalError } from '../../core/transport'
+import { markerPosition } from '../../core/recipe'
 import type {
-  DocHandle,
-  Edit,
   FeatureRecord,
   FeatureStatus,
   ProfileFinding,
@@ -16,7 +11,6 @@ import type {
   SketchSolution,
 } from '../../generated/protocol'
 import { MESSAGES } from '../../messages'
-import { measureTiming, TIMING_NAMES } from '../../performance/marks'
 import type { SolvedSketch } from '../../core/api'
 import {
   CONSTRAINT_TITLES,
@@ -24,17 +18,23 @@ import {
   constraintsFor,
   joinTitles,
   pickVerdict,
-  referencedEntities,
   type ConstraintType,
 } from '../../sketch/constraints'
 import { pointSelectionItem } from '../../sketch/hit'
-import { failedSolveMessage, findingPoints, outlineProblems } from '../../sketch/issues'
+import { findingPoints, outlineProblems } from '../../sketch/issues'
 import { worldBounds } from '../../sketch/placement'
-import type { Vector2 } from '../../sketch/geometry'
 import type { IdSource } from '../../sketch/recipes'
 import type { SketchChange, SketchCommitResult, SketchToolId } from '../../sketch/session'
 import { constraintTool } from '../../sketch/tools'
-import type { AppStore, DocumentState, SelectionItem, SketchSession } from '../../state/store'
+import { editingSession, selectFeatureLabel } from '../../state/selectors'
+import type {
+  AppState,
+  AppStore,
+  DocumentState,
+  Notification,
+  SelectionItem,
+  SketchSession,
+} from '../../state/store'
 import { cameraAfterSketch, type Camera, type Vector3 } from '../../viewport/camera'
 import { addScaled, cross } from '../../viewport/math'
 import type { App } from '../createApp'
@@ -42,7 +42,10 @@ import { cancelCommandImplicitly } from './command'
 import { coreRedo, coreUndo } from './document'
 import { commitEdits, documentOf, reportNewFailures, showCoreError } from './edits'
 import { dismiss, notify, showPickHint } from './notifications'
-import { select } from './selection'
+import { select, toggledByKey } from './selection'
+import { commitSketchChange } from './sketch-commit'
+
+export { commitSketchChange }
 
 // Sketch mode (ui.md 3.16): entering, leaving and navigating it (3.16.1, 3.16.11, 3.20), and the
 // changes its tools commit: geometry, constraints, dimensions, construction and deletion.
@@ -61,6 +64,9 @@ type SketchModeRecord = {
 }
 
 const sessionRecords = new WeakMap<AppStore, SketchModeRecord>()
+
+/** The `fitBounds` margin of a framed sketch or profile issue: content fills 80 percent of the view. */
+const SKETCH_FRAME_MARGIN = 0.1
 
 /** A fresh session on a sketch, or plane picking for a new one (no camera to go back to yet). */
 function sketchSession(sketchId: string | null, cameraBefore: Camera | null): SketchSession {
@@ -223,14 +229,10 @@ async function addSketchOn(
   document: DocumentState,
   sketchPlane: SketchPlane,
 ): Promise<void> {
-  const features = document.recipe.features ?? []
   const taken = usedIds(document.recipe)
   const sketchId = generateId('f', (id) => taken.has(id))
   // A new feature goes in front of the rollback marker, so it is active (3.7).
-  const rollback = document.recipe.rollback ?? null
-  const markerIndex =
-    rollback === null ? -1 : features.findIndex((feature) => feature.id === rollback)
-  const index = markerIndex === -1 ? features.length : markerIndex
+  const index = markerPosition(document.recipe.features ?? [], document.recipe.rollback ?? null)
   const added = await commitEdits(app, 'New sketch', [
     {
       type: 'add_feature',
@@ -299,7 +301,7 @@ function lookAtSketch(app: App, solution: SketchSolution): void {
     pick(...corners.map((corner) => corner[axis]))
   const min: [number, number, number] = [along(0, Math.min), along(1, Math.min), along(2, Math.min)]
   const max: [number, number, number] = [along(0, Math.max), along(1, Math.max), along(2, Math.max)]
-  viewport.zoomToBounds({ min, max }, 0.1)
+  viewport.zoomToBounds({ min, max }, SKETCH_FRAME_MARGIN)
 }
 
 /**
@@ -416,15 +418,14 @@ function finishedSketchSelection(
       return points.map((point) => pointSelectionItem(sketchId, point.id))
     }
   }
-  const recipe = documentOf(app)?.recipe
-  if (solution.entities.length === 0 || recipe === undefined) {
+  if (solution.entities.length === 0 || documentOf(app) === null) {
     return []
   }
   return [
     {
       key: `feature:${sketchId}`,
       kind: 'feature',
-      label: featureLabel(recipe, sketchId, app.store.getState().catalog),
+      label: selectFeatureLabel(app.store.getState(), sketchId),
       body: null,
       feature: sketchId,
       element: null,
@@ -497,7 +498,7 @@ export async function finishSketch(app: App, options: FinishSketchOptions = {}):
       severity: 'warning',
       code: 'profile_problems',
       message: MESSAGES.profile_problems(
-        featureLabel(document.recipe, sketchId, state.catalog),
+        selectFeatureLabel(app.store.getState(), sketchId),
         outline,
       ),
       actions: [
@@ -510,16 +511,6 @@ export async function finishSketch(app: App, options: FinishSketchOptions = {}):
       ],
     })
   }
-}
-
-/** The session of the sketch being edited, or null outside sketch mode and while picking a plane. */
-function editingSession(app: App): (SketchSession & { readonly sketchId: string }) | null {
-  const state = app.store.getState()
-  const session = state.sketch
-  if (state.context !== 'sketch' || session === null || session.sketchId === null) {
-    return null
-  }
-  return { ...session, sketchId: session.sketchId }
 }
 
 function updateSession(app: App, change: Partial<SketchSession>): void {
@@ -536,7 +527,7 @@ function updateSession(app: App, change: Partial<SketchSession>): void {
  * (3.16.6).
  */
 export function setSketchTool(app: App, tool: SketchToolId | null): void {
-  const session = editingSession(app)
+  const session = editingSession(app.store.getState())
   if (session === null) {
     return
   }
@@ -563,7 +554,7 @@ export function selectInSketch(
   items: readonly SelectionItem[],
   mode: 'replace' | 'toggle',
 ): void {
-  const session = editingSession(app)
+  const session = editingSession(app.store.getState())
   if (session === null) {
     return
   }
@@ -571,14 +562,7 @@ export function selectInSketch(
     updateSession(app, { selection: [...items] })
     return
   }
-  // Keys keep insertion order, so toggled-on items follow the ones already selected.
-  const selection = new Map(session.selection.map((item) => [item.key, item]))
-  for (const item of items) {
-    if (!selection.delete(item.key)) {
-      selection.set(item.key, item)
-    }
-  }
-  updateSession(app, { selection: [...selection.values()] })
+  updateSession(app, { selection: toggledByKey(session.selection, items) })
 }
 
 /** Marks whether a point drag is in progress, which the session shows as `dragging`. */
@@ -614,9 +598,24 @@ export function createSketchIds(app: App): IdSource {
 }
 
 /** The sketch record with this id in the recipe, or null. */
-function sketchRecord(app: App, sketchId: string): FeatureRecord | null {
-  const record = documentOf(app)?.recipe.features?.find((feature) => feature.id === sketchId)
+export function sketchRecordOf(state: AppState, sketchId: string | null): FeatureRecord | null {
+  if (sketchId === null) {
+    return null
+  }
+  const record = state.document?.recipe.features?.find((feature) => feature.id === sketchId)
   return record?.type === 'sketch' ? record : null
+}
+
+/** The params of the sketch with this id as the recipe stores them, or null. */
+export function storedSketchParams(state: AppState, sketchId: string | null): SketchParams | null {
+  const record = sketchRecordOf(state, sketchId)
+  return record === null ? null : sketchParamsOf(record)
+}
+
+/** The body whose face the sketch is drawn on, or null for a sketch on a plane. */
+export function sketchFaceBody(state: AppState, sketchId: string | null): string | null {
+  const plane = storedSketchParams(state, sketchId)?.plane
+  return plane?.kind === 'face' ? plane.body : null
 }
 
 /** A sketch record's params, read from the core's recipe (sketch.md 2.2). */
@@ -659,209 +658,7 @@ export function showSketchSolution(app: App, sketchId: string, solved: SolvedSke
   )
 }
 
-/** The candidate params: the stored ones with the change applied (3.16.3 step 1). */
-export function applySketchChange(params: SketchParams, change: SketchChange): SketchParams {
-  const removedEntities = new Set(change.removeEntities ?? [])
-  const removedConstraints = new Set(change.removeConstraints ?? [])
-  const toggled = new Set(change.toggleConstruction ?? [])
-  const entities = (params.entities ?? [])
-    .filter((entity) => !removedEntities.has(entity.id))
-    .map((entity) => (toggled.has(entity.id) ? toggledConstruction(entity) : entity))
-  const replacement = change.replaceConstraint
-  const constraints = (params.constraints ?? [])
-    .filter(
-      (constraint) =>
-        !removedConstraints.has(constraint.id) &&
-        !referencedEntities(constraint).some((entity) => removedEntities.has(entity)),
-    )
-    .map((constraint) =>
-      replacement !== undefined && constraint.id === replacement.id ? replacement : constraint,
-    )
-  return {
-    plane: params.plane,
-    entities: [...entities, ...(change.add?.entities ?? [])],
-    constraints: [...constraints, ...(change.add?.constraints ?? [])],
-  }
-}
-
-/** The entity with its construction flag flipped; sketch.md omits the flag when false. */
-function toggledConstruction(entity: SketchEntity): SketchEntity {
-  if (entity.construction === true) {
-    const { construction: _construction, ...rest } = entity
-    return rest
-  }
-  return { ...entity, construction: true }
-}
-
-/** The solved geometry of each candidate entity, without the solver's `constrained` state. */
-function solvedEntities(
-  candidate: readonly SketchEntity[],
-  solution: SketchSolution,
-): SketchEntity[] {
-  const solved = new Map(solution.entities.map((entity) => [entity.id, entity]))
-  return candidate.map((entity) => {
-    const match = solved.get(entity.id)
-    if (match === undefined) {
-      return entity
-    }
-    const { constrained: _constrained, ...geometry } = match
-    return geometry
-  })
-}
-
-// Commits.
-
-/** How many times a probe superseded by another solve of the same sketch is sent again. */
-const SUPERSEDED_RETRIES = 3
-
-/** The core's refusal of a probe or commit as a failed result; anything else is a bug. */
-function failure(error: unknown): SketchCommitResult {
-  if (error instanceof CoreError || error instanceof CoreFatalError) {
-    return { outcome: 'failed', message: error.message }
-  }
-  throw error
-}
-
-/**
- * Commits one sketch change as one undo entry (3.16.3): the candidate is probed with the solver
- * first; a requested constraint that is redundant or conflicting refuses the change, inferred ones
- * are dropped silently, and a failed solve or a refused probe applies nothing. The committed
- * entities carry the solved geometry, and a sketch on a face records the solved placement as its
- * fallback. Reading the params, probing and applying are one task of the mutation queue, so no
- * drag end, undo or other commit lands between them.
- */
-export function commitSketchChange(
-  app: App,
-  label: string,
-  change: SketchChange,
-): Promise<SketchCommitResult> {
-  // The change belongs to the sketch edited when the user made it, even when the session has
-  // finished or moved to another sketch by the time its turn in the queue comes.
-  const sketchId = app.store.getState().sketch?.sketchId ?? null
-  return app.mutations.run(() => commitNow(app, sketchId, label, change))
-}
-
-async function commitNow(
-  app: App,
-  sketchId: string | null,
-  label: string,
-  change: SketchChange,
-): Promise<SketchCommitResult> {
-  const document = documentOf(app)
-  const record = sketchId === null ? null : sketchRecord(app, sketchId)
-  const params = record === null ? null : sketchParamsOf(record)
-  if (document === null || sketchId === null || record === null || params === null) {
-    return { outcome: 'failed', message: 'There is no sketch being edited.' }
-  }
-  return probe(app, label, {
-    documentHandle: document.documentHandle,
-    sketchId,
-    record,
-    candidate: applySketchChange(params, change),
-    requested: change.requested,
-    inferred: change.inferred,
-    retries: 0,
-  })
-}
-
-/** One solver probe of a commit and what it still has to check. */
-type Probe = {
-  readonly documentHandle: DocHandle
-  readonly sketchId: string
-  readonly record: FeatureRecord
-  readonly candidate: SketchParams
-  readonly requested: readonly string[]
-  /** Inferred constraints still in the candidate. */
-  readonly inferred: readonly string[]
-  /** Probes sent again after another solve of the sketch superseded them. */
-  readonly retries: number
-}
-
-/** Probes the candidate (3.16.3 step 2) and applies it, or says why not; each retry is one more probe. */
-async function probe(app: App, label: string, current: Probe): Promise<SketchCommitResult> {
-  let solved: SolvedSketch | null
-  try {
-    solved = await app.core.solveSketch(current.documentHandle, current.sketchId, current.candidate)
-  } catch (error) {
-    return failure(error)
-  }
-  if (solved === null) {
-    return current.retries < SUPERSEDED_RETRIES
-      ? probe(app, label, { ...current, retries: current.retries + 1 })
-      : { outcome: 'failed', message: MESSAGES.core_not_running() }
-  }
-  const solution = solved.solution
-  const refused =
-    current.requested.find((id) => solution.conflicting.includes(id)) ??
-    current.requested.find((id) => solution.redundant.includes(id))
-  if (refused !== undefined) {
-    const conflicting = solution.conflicting.includes(refused)
-    return {
-      outcome: 'over_constrained',
-      constraint: refused,
-      conflicting: conflicting ? solution.conflicting.filter((id) => id !== refused) : [],
-      redundant: !conflicting,
-    }
-  }
-  const dropped = new Set(
-    current.inferred.filter(
-      (id) => solution.conflicting.includes(id) || solution.redundant.includes(id),
-    ),
-  )
-  if (dropped.size > 0) {
-    // Inferred constraints that over-constrain the sketch are dropped and the rest solved again.
-    return probe(app, label, {
-      ...current,
-      candidate: {
-        ...current.candidate,
-        constraints: (current.candidate.constraints ?? []).filter(
-          (constraint) => !dropped.has(constraint.id),
-        ),
-      },
-      inferred: current.inferred.filter((id) => !dropped.has(id)),
-    })
-  }
-  if (solution.failed) {
-    return { outcome: 'failed', message: failedSolveMessage(solution) }
-  }
-  return applyCandidate(app, label, current.record, current.candidate, solution)
-}
-
-/** Applies a probed candidate; it runs inside the commit's task of the mutation queue. */
-async function applyCandidate(
-  app: App,
-  label: string,
-  record: FeatureRecord,
-  candidate: SketchParams,
-  solution: SketchSolution,
-): Promise<SketchCommitResult> {
-  const document = documentOf(app)
-  if (document === null) {
-    return { outcome: 'failed', message: 'There is no document open.' }
-  }
-  const plane: SketchPlane =
-    candidate.plane.kind === 'face'
-      ? { ...candidate.plane, fallback: solution.placement }
-      : candidate.plane
-  const edit: Edit = {
-    type: 'update_feature',
-    feature: {
-      ...record,
-      plane,
-      entities: solvedEntities(candidate.entities ?? [], solution),
-      constraints: [...(candidate.constraints ?? [])],
-    },
-  }
-  let revision: number
-  try {
-    revision = await app.core.applyEdits(document.documentHandle, label, [edit])
-  } catch (error) {
-    return failure(error)
-  }
-  // No failure notification here: features this edit made fail are reported on finishing (U-110).
-  recordSketchEdit(app, record.id)
-  return { outcome: 'committed', revision }
-}
+// Deleting and constraining (3.16.6, 3.16.10).
 
 /** The ids a selection names as entities to delete: curves and point entities. */
 function selectedEntities(items: readonly SelectionItem[]): string[] {
@@ -902,7 +699,7 @@ export async function deleteSketchItems(app: App, items: readonly SelectionItem[
   })
   if (result.outcome === 'committed') {
     const removed = new Set(items.map((item) => item.key))
-    const session = editingSession(app)
+    const session = editingSession(app.store.getState())
     if (session !== null) {
       updateSession(app, {
         selection: session.selection.filter((item) => !removed.has(item.key)),
@@ -938,8 +735,7 @@ function showSketchRefusal(app: App, result: SketchCommitResult): void {
 
 /** The constraints of the edited sketch by id, for naming them in messages. */
 function storedConstraints(app: App, sketchId: string): ReadonlyMap<string, SketchConstraint> {
-  const record = sketchRecord(app, sketchId)
-  const params = record === null ? null : sketchParamsOf(record)
+  const params = storedSketchParams(app.store.getState(), sketchId)
   return new Map((params?.constraints ?? []).map((constraint) => [constraint.id, constraint]))
 }
 
@@ -970,7 +766,7 @@ export async function applySketchConstraints(
   type: ConstraintType,
   constraints: readonly SketchConstraint[],
 ): Promise<boolean> {
-  const sketchId = editingSession(app)?.sketchId ?? null
+  const sketchId = editingSession(app.store.getState())?.sketchId ?? null
   if (sketchId === null || constraints.length === 0) {
     return false
   }
@@ -987,17 +783,36 @@ export async function applySketchConstraints(
       return false
     case 'over_constrained':
       if (result.redundant) {
-        notify(app, {
-          severity: 'info',
-          message: MESSAGES.redundant_constraint(title),
-          actions: [],
-          code: 'redundant_constraint',
-        })
-        return false
+        showOverConstrained(app, sketchId, title, result)
+      } else {
+        offerReplacement(app, sketchId, title, change, result)
       }
-      offerReplacement(app, sketchId, title, change, result.conflicting)
       return false
   }
+}
+
+type OverConstrained = Extract<SketchCommitResult, { outcome: 'over_constrained' }>
+
+/**
+ * The refusal of a change that over-constrains the sketch: `redundant_constraint` as info when the
+ * new constraint changes nothing, else `over_constrained` as a warning naming the conflicting
+ * constraints (3.16.6). Returns the notification's id.
+ */
+function showOverConstrained(
+  app: App,
+  sketchId: string | null,
+  title: string,
+  result: OverConstrained,
+  actions: Notification['actions'] = [],
+): string {
+  return notify(app, {
+    severity: result.redundant ? 'info' : 'warning',
+    code: result.redundant ? 'redundant_constraint' : 'over_constrained',
+    message: result.redundant
+      ? MESSAGES.redundant_constraint(title)
+      : MESSAGES.over_constrained(title, conflictList(app, sketchId, result.conflicting)),
+    actions,
+  })
 }
 
 /** The over-constrained warning with "Replace them", which swaps the conflicting constraints for the new ones. */
@@ -1006,29 +821,24 @@ function offerReplacement(
   sketchId: string,
   title: string,
   change: SketchChange,
-  conflicting: readonly string[],
+  result: OverConstrained,
 ): void {
   let id = ''
-  id = notify(app, {
-    severity: 'warning',
-    message: MESSAGES.over_constrained(title, conflictList(app, sketchId, conflicting)),
-    code: 'over_constrained',
-    actions: [
-      {
-        label: 'Replace them',
-        run: () => {
-          dismiss(app, id)
-          void replaceConstraints(app, title, change, conflicting)
-        },
+  id = showOverConstrained(app, sketchId, title, result, [
+    {
+      label: 'Replace them',
+      run: () => {
+        dismiss(app, id)
+        void replaceConstraints(app, title, change, result.conflicting)
       },
-      {
-        label: 'Cancel',
-        run: () => {
-          dismiss(app, id)
-        },
+    },
+    {
+      label: 'Cancel',
+      run: () => {
+        dismiss(app, id)
       },
-    ],
-  })
+    },
+  ])
 }
 
 async function replaceConstraints(
@@ -1046,7 +856,7 @@ async function replaceConstraints(
     return
   }
   if (result.outcome === 'over_constrained') {
-    const sketchId = editingSession(app)?.sketchId ?? null
+    const sketchId = editingSession(app.store.getState())?.sketchId ?? null
     notify(app, {
       severity: 'warning',
       message: MESSAGES.over_constrained(title, conflictList(app, sketchId, result.conflicting)),
@@ -1064,7 +874,7 @@ const MINIMUM_FINDING_PADDING = 2
 
 /** Frames a profile issue of the edited sketch in the view (3.16.8 "Show"). */
 export function showSketchFinding(app: App, finding: ProfileFinding): void {
-  const sketchId = editingSession(app)?.sketchId ?? null
+  const sketchId = editingSession(app.store.getState())?.sketchId ?? null
   const solution = sketchId === null ? null : solutionOf(app, sketchId)
   const viewport = app.viewport()
   if (solution === null || viewport === null) {
@@ -1076,137 +886,25 @@ export function showSketchFinding(app: App, finding: ProfileFinding): void {
   const padding = Math.max(MINIMUM_FINDING_PADDING, FINDING_PADDING_SHARE * size)
   const bounds = worldBounds(solution.placement, findingPoints(finding), padding)
   if (bounds !== null) {
-    viewport.zoomToBounds(bounds, FINDING_MARGIN)
-  }
-}
-
-/** Margin of a framed profile issue, as for a framed sketch. */
-const FINDING_MARGIN = 0.1
-
-// Dragging points (3.16.9).
-
-/** A point drag: moves solved through the core one at a time, then one commit or a cancel. */
-export type SketchDrag = {
-  /** Asks the core to solve with the point pinned at `to`; `startedAt` is the pointer move's time. */
-  move(to: Vector2, startedAt: number): void
-  /** Ends the drag, committing the last solved frame as one undo entry when a move was sent. */
-  finish(): Promise<void>
-  /** Ends the drag without committing and shows the stored geometry again. */
-  cancel(): Promise<void>
-}
-
-type DragRequest = { readonly to: Vector2; readonly startedAt: number }
-
-/**
- * Starts dragging a point of the edited sketch. Each move goes through a LatestOnly outside the
- * mutation queue, since drag frames change nothing in the document; each solution is shown at
- * once. The end goes through the mutation queue.
- */
-export function startSketchDrag(app: App, sketchId: string, point: string): SketchDrag | null {
-  const document = documentOf(app)
-  if (document === null) {
-    return null
-  }
-  const { documentHandle } = document
-  const before = document.sketches[sketchId] ?? null
-  let sent = false
-  // Closing: finish or cancel was called. Ended: solved frames are no longer shown.
-  let closing = false
-  let ended = false
-  const frames = createLatestOnly<DragRequest, SolvedSketch | null>(
-    (request) =>
-      app.core.dragSketch(documentHandle, sketchId, point, [request.to[0], request.to[1]]),
-    (solved, request) => {
-      if (solved === null || ended) {
-        return
-      }
-      showSketchSolution(app, sketchId, solved)
-      // The viewport draws in the next animation frame, which runs before this one.
-      requestAnimationFrame(() => {
-        measureTiming(TIMING_NAMES.sketchDrag, request.startedAt)
-      })
-    },
-    (error) => {
-      showCoreError(app, error)
-    },
-  )
-  setSketchDragging(app, true)
-
-  /**
-   * Ends the drag in the core as one task of the mutation queue, queued when the drag closes: a
-   * commit or undo asked for right after the release runs after it and sees the dragged geometry.
-   * A committing end first waits for the last drag frame.
-   */
-  async function end(commit: boolean): Promise<void> {
-    try {
-      await app.mutations.run(async () => {
-        if (commit) {
-          await frames.flush()
-        }
-        ended = true
-        await app.core.endSketchDrag(documentHandle, sketchId, commit)
-      })
-      if (commit) {
-        recordSketchEdit(app, sketchId)
-      }
-    } catch (error) {
-      if (!(error instanceof CoreError && error.code === 'no_drag')) {
-        showCoreError(app, error)
-      }
-      if (before !== null) {
-        showSketchSolution(app, sketchId, before)
-      }
-    }
-  }
-
-  return {
-    move(to, startedAt) {
-      if (closing) {
-        return
-      }
-      sent = true
-      frames.submit({ to, startedAt })
-    },
-    async finish() {
-      if (closing) {
-        return
-      }
-      closing = true
-      if (sent) {
-        await end(true)
-      }
-      ended = true
-      setSketchDragging(app, false)
-    },
-    async cancel() {
-      if (closing) {
-        return
-      }
-      closing = true
-      ended = true
-      frames.cancel()
-      if (before !== null) {
-        showSketchSolution(app, sketchId, before)
-      }
-      if (sent) {
-        await end(false)
-      }
-      setSketchDragging(app, false)
-    },
+    viewport.zoomToBounds(bounds, SKETCH_FRAME_MARGIN)
   }
 }
 
 // Dimensions (3.16.7).
+
+/** Whether a dimension drives the sketch; a reference dimension only reports (sketch.md). */
+function isDriving(dimension: SketchConstraint): boolean {
+  return !('driving' in dimension) || dimension.driving !== false
+}
 
 /** Adds a dimension the dimension tool made, labeled "Dimension"; a driving one is probed first. */
 export function addSketchDimension(
   app: App,
   dimension: SketchConstraint,
 ): Promise<SketchCommitResult> {
-  const driving = !('driving' in dimension) || dimension.driving !== false
   return commitSketchChange(app, 'Dimension', {
     add: { entities: [], constraints: [dimension] },
-    requested: driving ? [dimension.id] : [],
+    requested: isDriving(dimension) ? [dimension.id] : [],
     inferred: [],
   })
 }
@@ -1216,10 +914,9 @@ export function changeSketchDimension(
   app: App,
   dimension: SketchConstraint,
 ): Promise<SketchCommitResult> {
-  const driving = !('driving' in dimension) || dimension.driving !== false
   return commitSketchChange(app, 'Change dimension', {
     replaceConstraint: dimension,
-    requested: driving ? [dimension.id] : [],
+    requested: isDriving(dimension) ? [dimension.id] : [],
     inferred: [],
   })
 }
@@ -1238,21 +935,14 @@ export async function addSketchShape(
       showSketchRefusal(app, result)
       return false
     case 'over_constrained': {
-      const sketchId = editingSession(app)?.sketchId ?? null
+      const sketchId = editingSession(app.store.getState())?.sketchId ?? null
       const added = change.add?.constraints.find(
         (constraint) => constraint.id === result.constraint,
       )
       const units = documentOf(app)?.recipe.units ?? 'mm'
       const solution = sketchId === null ? null : solutionOf(app, sketchId)
       const title = added === undefined ? label : constraintTitle(added, solution, units)
-      notify(app, {
-        severity: result.redundant ? 'info' : 'warning',
-        code: result.redundant ? 'redundant_constraint' : 'over_constrained',
-        message: result.redundant
-          ? MESSAGES.redundant_constraint(title)
-          : MESSAGES.over_constrained(title, conflictList(app, sketchId, result.conflicting)),
-        actions: [],
-      })
+      showOverConstrained(app, sketchId, title, result)
       return false
     }
   }

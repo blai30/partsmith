@@ -1,13 +1,7 @@
 import type { FeatureRecord, FeatureStatus } from '../generated/protocol'
 
-// The timeline strip's arithmetic (ui.md 3.9): the rollback marker's position and wording, item
-// status wording, and the gaps a drag drops into.
-
-/** The rollback marker position p: features 1 to p are active (3.9). */
-export function markerPosition(records: readonly FeatureRecord[], rollback: string | null): number {
-  const index = rollback === null ? -1 : records.findIndex((record) => record.id === rollback)
-  return index === -1 ? records.length : index
-}
+// The timeline strip's arithmetic (ui.md 3.9): the rollback marker's wording, item status wording,
+// and the gaps a drag drops into. The marker's position is core/recipe.ts markerPosition.
 
 /** The status the item shows: the latest recomputed one, or pending before it (3.9). */
 export function itemStatus(status: FeatureStatus | undefined): FeatureStatus['status'] | 'pending' {

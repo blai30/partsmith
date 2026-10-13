@@ -12,7 +12,7 @@ use std::hint::black_box;
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
-use benchmark::{CHAIN_FREE_END, chain_benchmark, grid_benchmark};
+use benchmark::{CHAIN_FREE_END, PLATE_PARAMS_JSON, chain_benchmark, grid_benchmark};
 use partsmith_sketch::{
     ConstraintKind, DimensionValues, DragSession, DragTarget, Id, NativeSolver, PointRef,
     SketchParams, Solver, build_profile,
@@ -29,37 +29,6 @@ const DRAG_REPETITIONS: usize = 5;
 
 /// Frames of one drag repetition.
 const DRAG_FRAMES: u32 = 100;
-
-/// The plate of spec section 2.9 as `SketchParams` JSON.
-const PLATE_JSON: &str = r#"{
-  "plane": {"kind": "origin", "plane": "XY"},
-  "entities": [
-    {"id": "e-1", "type": "line", "start": [0, 0], "end": [80, 0]},
-    {"id": "e-2", "type": "line", "start": [80, 0], "end": [80, 50]},
-    {"id": "e-3", "type": "line", "start": [80, 50], "end": [0, 50]},
-    {"id": "e-4", "type": "line", "start": [0, 50], "end": [0, 0]},
-    {"id": "e-5", "type": "circle", "center": [40, 25], "radius": 5},
-    {"id": "e-6", "type": "line", "start": [40, 0], "end": [40, 50], "construction": true}
-  ],
-  "constraints": [
-    {"id": "c-1", "type": "coincident", "points": ["e-1.end", "e-2.start"]},
-    {"id": "c-2", "type": "coincident", "points": ["e-2.end", "e-3.start"]},
-    {"id": "c-3", "type": "coincident", "points": ["e-3.end", "e-4.start"]},
-    {"id": "c-4", "type": "coincident", "points": ["e-4.end", "e-1.start"]},
-    {"id": "c-5", "type": "horizontal", "line": "e-1"},
-    {"id": "c-6", "type": "horizontal", "line": "e-3"},
-    {"id": "c-7", "type": "vertical", "line": "e-2"},
-    {"id": "c-8", "type": "vertical", "line": "e-4"},
-    {"id": "c-9", "type": "fix", "target": "e-1.start"},
-    {"id": "c-10", "type": "distance", "line": "e-1", "expr": "width"},
-    {"id": "c-11", "type": "distance", "line": "e-2", "expr": "50 mm"},
-    {"id": "c-12", "type": "midpoint", "point": "e-6.start", "line": "e-1"},
-    {"id": "c-13", "type": "midpoint", "point": "e-6.end", "line": "e-3"},
-    {"id": "c-14", "type": "point_on_object", "point": "e-5.center", "curve": "e-6"},
-    {"id": "c-15", "type": "vertical_distance", "points": ["e-1.start", "e-5.center"], "expr": "25 mm"},
-    {"id": "c-16", "type": "diameter", "curve": "e-5", "expr": "hole_d"}
-  ]
-}"#;
 
 /// The timings of one scenario and its budget.
 struct Scenario {
@@ -131,14 +100,17 @@ fn time<T>(mut run: impl FnMut() -> T) -> Vec<Duration> {
 }
 
 /// Times every frame of the chain drag scenario (section 5.2), pooled over the measured repetitions.
-fn drag_frames(sketch: &SketchParams, values: &DimensionValues) -> Vec<Duration> {
-    let free_end: PointRef = CHAIN_FREE_END
-        .parse()
-        .expect("the chain's free end is a valid point reference");
+fn drag_frames(
+    sketch: &SketchParams,
+    values: &DimensionValues,
+    free_end: &PointRef,
+) -> Vec<Duration> {
     let start = sketch
-        .point(&free_end)
+        .point(free_end)
         .expect("the chain's free end is a point of the chain");
-    let target = DragTarget::Point { point: free_end };
+    let target = DragTarget::Point {
+        point: free_end.clone(),
+    };
     let run = |times: &mut Vec<Duration>| {
         let mut session = NativeSolver
             .begin_drag(sketch, values, &target)
@@ -183,13 +155,14 @@ fn main() -> ExitCode {
             six_mm_radii.insert(constraint.id.clone(), 6.0);
         }
     }
+    let free_end: PointRef = CHAIN_FREE_END
+        .parse()
+        .expect("the chain's free end is a valid point reference");
     let target = DragTarget::Point {
-        point: CHAIN_FREE_END
-            .parse()
-            .expect("the chain's free end is a valid point reference"),
+        point: free_end.clone(),
     };
     let plate: SketchParams =
-        serde_json::from_str(PLATE_JSON).expect("the plate JSON is valid sketch params");
+        serde_json::from_str(PLATE_PARAMS_JSON).expect("the plate JSON is valid sketch params");
     let plate_values: DimensionValues = [
         ("c-10", 100.0),
         ("c-11", 50.0),
@@ -204,7 +177,7 @@ fn main() -> ExitCode {
     let scenarios = [
         Scenario {
             name: "DragSession::update, chain, 100 frames",
-            times: drag_frames(&chain, &chain_values),
+            times: drag_frames(&chain, &chain_values, &free_end),
             median_budget: Duration::from_millis(4),
             maximum_budget: Some(Duration::from_millis(16)),
         },

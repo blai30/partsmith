@@ -1,4 +1,5 @@
 import { openRecent } from '../app/actions/document'
+import { openSidePanel } from '../app/actions/panels'
 import { select } from '../app/actions/selection'
 import type { App } from '../app/createApp'
 import { featureLabel } from '../core/labels'
@@ -126,7 +127,7 @@ function documentItems(app: App, state: AppState): PaletteItem[] {
       `${parameter.name} = ${parameter.expr}`,
       parameter.comment ?? null,
       () => {
-        app.store.setState((current) => ({ panels: { ...current.panels, side: 'parameters' } }))
+        openSidePanel(app, 'parameters')
         requestUi(app, { kind: 'parameter', id: parameter.id })
       },
     ),

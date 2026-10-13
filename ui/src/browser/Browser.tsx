@@ -26,6 +26,7 @@ import {
 import { renameBody, setBodyVisible, setLocked, setSessionVisible } from '../app/actions/bodies'
 import { editFeature } from '../app/actions/command'
 import { notify } from '../app/actions/notifications'
+import { openSidePanel, setBrowserOpen } from '../app/actions/panels'
 import { enterSketch } from '../app/actions/sketch'
 import { renameFeature } from '../app/actions/timeline'
 import { useApp, useAppState } from '../app/AppProvider'
@@ -44,8 +45,8 @@ import { originItem } from '../inspector/selection-values'
 import { useOverlayDismiss } from '../layout/use-overlay-dismiss'
 import { selectCommandBlock } from '../state/selectors'
 import type { AppState, OriginName, SelectionItem, SelectionItemKind } from '../state/store'
+import { isSessionVisible } from '../state/visibility'
 import { COLOR_CLASSES, FONT_CLASSES } from '../theme/roles'
-import { isSessionVisible } from '../viewport/scene'
 import { BodyColorButton } from './BodyColor'
 
 // The browser (ui.md 3.10): a tree of the origin, bodies, sketches, datum planes and parameters.
@@ -552,7 +553,7 @@ function ParameterRow({
       selected={selected}
       icon={rowIcon(SlidersHorizontal)}
       onActivate={() => {
-        app.store.setState((state) => ({ panels: { ...state.panels, side: 'parameters' } }))
+        openSidePanel(app, 'parameters')
         requestUi(app, { kind: 'parameter', id: parameter.id })
       }}
     >
@@ -647,7 +648,7 @@ export function Browser() {
   const [renaming, setRenaming] = useState<string | null>(null)
 
   useOverlayDismiss(panel, () => {
-    app.store.setState((state) => ({ panels: { ...state.panels, browserOpen: false } }))
+    setBrowserOpen(app, false)
   })
 
   // Absent lists are empty; anything else is used as the protocol gives it.
@@ -784,7 +785,7 @@ export function Browser() {
               label="Edit parameters"
               icon={SlidersHorizontal}
               onClick={() => {
-                app.store.setState((state) => ({ panels: { ...state.panels, side: 'parameters' } }))
+                openSidePanel(app, 'parameters')
               }}
             />
           }

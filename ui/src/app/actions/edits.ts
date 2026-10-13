@@ -1,14 +1,14 @@
 import { CoreError } from '../../core/client'
-import { featureLabel } from '../../core/labels'
 import { CoreFatalError } from '../../core/transport'
 import type { Edit, FeatureStatus } from '../../generated/protocol'
 import { MESSAGES } from '../../messages'
-import { selectEditLabel } from '../../state/selectors'
+import { selectEditLabel, selectFeatureLabel } from '../../state/selectors'
 import type { DocumentState } from '../../state/store'
 import type { App } from '../createApp'
 import { editFeature } from './command'
 import { undo } from './document'
 import { notify } from './notifications'
+import { showProblemsAction } from './panels'
 
 // Helpers shared by the actions that change the document: labeled edits through the mutation
 // queue, and the error and failure notifications of ui.md 4.2.
@@ -16,11 +16,6 @@ import { notify } from './notifications'
 /** The open document, or null. */
 export function documentOf(app: App): DocumentState | null {
   return app.store.getState().document
-}
-
-/** Whether the document has changes that are not in its file (core dirty or locally unsaved). */
-export function isUnsaved(document: DocumentState): boolean {
-  return document.dirty || document.localUnsaved
 }
 
 /**
@@ -103,19 +98,11 @@ export function reportNewFailures(app: App, before: Readonly<Record<string, Feat
       message: MESSAGES.features_failed(failed.length),
       code: 'features_failed',
       features,
-      actions: [
-        {
-          label: 'Show problems',
-          run: () => {
-            app.store.setState((state) => ({ panels: { ...state.panels, side: 'problems' } }))
-          },
-        },
-        undoAction,
-      ],
+      actions: [showProblemsAction(app), undoAction],
     })
     return
   }
-  const label = featureLabel(document.recipe, first.id, app.store.getState().catalog)
+  const label = selectFeatureLabel(app.store.getState(), first.id)
   const message = document.featureStatus[first.id]?.messages[0]?.message ?? ''
   notify(app, {
     severity: 'error',

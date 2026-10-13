@@ -1,3 +1,4 @@
+import { errorMessage } from '../core/errors'
 import {
   FileServiceError,
   noAccessError,
@@ -54,8 +55,7 @@ function fileServiceErrorOf(rejection: unknown): FileServiceError {
       return new FileServiceError(reason, message, { cause: rejection })
     }
   }
-  const text = rejection instanceof Error ? rejection.message : String(rejection)
-  return new FileServiceError('io', text, { cause: rejection })
+  return new FileServiceError('io', errorMessage(rejection), { cause: rejection })
 }
 
 function unexpectedReply(command: string): FileServiceError {

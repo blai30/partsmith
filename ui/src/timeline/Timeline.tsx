@@ -10,6 +10,7 @@ import {
   type PointerEvent,
 } from 'react'
 import { editFeature } from '../app/actions/command'
+import { openSidePanel, togglePanel } from '../app/actions/panels'
 import {
   deleteFeatures,
   moveFeature,
@@ -20,6 +21,7 @@ import {
   type RollbackDrag,
 } from '../app/actions/timeline'
 import { useApp, useAppState } from '../app/AppProvider'
+import { markerPosition } from '../core/recipe'
 import { FEATURE_ICONS } from '../commands/icons'
 import { IconButton } from '../components/IconButton'
 import { Menu, type MenuEntry } from '../components/Menu'
@@ -35,14 +37,7 @@ import { selectCommandBlock, selectProblems } from '../state/selectors'
 import type { SelectionItem } from '../state/store'
 import { COLOR_CLASSES } from '../theme/roles'
 import { positionElement } from '../viewport/overlay'
-import {
-  gapPositions,
-  itemStatus,
-  markerPosition,
-  markerText,
-  nearestGap,
-  statusText,
-} from './strip'
+import { gapPositions, itemStatus, markerText, nearestGap, statusText } from './strip'
 
 // The timeline (ui.md 3.9): the features in timeline order with the rollback marker in its gap,
 // reordering by drag, inline rename, a context menu, and the problems count. The strip is a
@@ -762,7 +757,7 @@ function ProblemsButton() {
       data-testid="timeline-problems"
       aria-controls={SIDE_PANEL_ID}
       onClick={() => {
-        app.store.setState((state) => ({ panels: { ...state.panels, side: 'problems' } }))
+        openSidePanel(app, 'problems')
       }}
       className={clsx(
         'inline-flex h-6 shrink-0 items-center gap-1.5 rounded-sm px-2 text-xs whitespace-nowrap tabular-nums transition-colors duration-150 motion-reduce:transition-none',
@@ -814,9 +809,7 @@ export function Timeline() {
         icon={collapsed ? ChevronUp : ChevronDown}
         size="compact"
         onClick={() => {
-          app.store.setState((state) => ({
-            panels: { ...state.panels, timelineCollapsed: !state.panels.timelineCollapsed },
-          }))
+          togglePanel(app, 'timelineCollapsed')
         }}
       />
       {collapsed ? (

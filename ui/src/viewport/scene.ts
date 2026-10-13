@@ -4,7 +4,6 @@ import type {
   BoundingBox,
   Body,
   DocHandle,
-  Document,
   Placement,
   SelectionKind,
   SketchSolution,
@@ -17,8 +16,8 @@ import { resolvedTheme } from '../layout/color-scheme'
 import { bedOutline } from '../print/bed'
 import { overhangAnalysis, overhangFields } from '../print/overhang'
 import { tessellateArc, type Vector2 } from '../sketch/geometry'
-import { selectOriginVisible } from '../state/selectors'
 import type { AppState, HelperSketch, SelectionItem, SketchItemReference } from '../state/store'
+import { isSessionVisible } from '../state/visibility'
 import {
   contrastRatio,
   encodedFromHex,
@@ -452,39 +451,6 @@ function regionItem(sketch: string, solution: SketchSolution, index: number): Se
   )
 }
 
-// Visibility.
-
-/** Whether some feature other than the sketch refers to it through a `sketch` key (3.10). */
-function referencesSketch(value: unknown, sketchId: string): boolean {
-  if (Array.isArray(value)) {
-    return value.some((entry) => referencesSketch(entry, sketchId))
-  }
-  if (typeof value !== 'object' || value === null) {
-    return false
-  }
-  return Object.entries(value).some(
-    ([key, entry]) => (key === 'sketch' && entry === sketchId) || referencesSketch(entry, sketchId),
-  )
-}
-
-/** Session visibility of a sketch, datum or origin item; without an entry, the opening rule of 3.10 applies. */
-function sessionVisible(state: AppState, key: string, recipe: Document | null): boolean {
-  const stored = state.view.sessionVisible[key]
-  if (stored !== undefined) {
-    return stored
-  }
-  if (key.startsWith('origin:')) {
-    return selectOriginVisible(state, key)
-  }
-  const id = key.slice('feature:'.length)
-  const features = recipe?.features ?? []
-  const feature = features.find((candidate) => candidate.id === id)
-  if (feature?.type !== 'sketch') {
-    return true
-  }
-  return !features.some((other) => other.id !== id && referencesSketch(other, id))
-}
-
 function bodyVisible(body: Body): boolean {
   return body.visible !== false
 }
@@ -714,11 +680,6 @@ export function planeExtent(bounds: BoundingBox | null): { side: number; center:
   }
 }
 
-/** Whether a sketch, datum plane or origin item is shown this session (3.10). */
-export function isSessionVisible(state: AppState, key: string): boolean {
-  return sessionVisible(state, key, state.document?.recipe ?? null)
-}
-
 /** The 3D bounds of a visible sketch's entities. */
 function sketchBounds(solution: SketchSolution): BoundingBox | null {
   const yAxis = yAxisOf(solution.placement)
@@ -749,10 +710,7 @@ function visibleSketches(state: AppState): readonly {
     }
     const solution = document.sketches[feature.id]?.solution
     const active = feature.id === activeId
-    if (
-      solution === undefined ||
-      (!active && !sessionVisible(state, `feature:${feature.id}`, document.recipe))
-    ) {
+    if (solution === undefined || (!active && !isSessionVisible(state, `feature:${feature.id}`))) {
       return []
     }
     return [{ id: feature.id, solution, active }]
@@ -771,7 +729,7 @@ function visibleDatums(
     if (
       feature.type !== 'datum_plane' ||
       placement === null ||
-      !sessionVisible(state, `feature:${feature.id}`, document.recipe)
+      !isSessionVisible(state, `feature:${feature.id}`)
     ) {
       return []
     }
@@ -812,7 +770,7 @@ function originPlanesShown(state: AppState): boolean {
  */
 export function drawnOriginPlanes(state: AppState): readonly OriginPlane[] {
   const shown = originPlanesShown(state)
-  return ORIGIN_PLANES.filter((plane) => shown || sessionVisible(state, `origin:${plane}`, null))
+  return ORIGIN_PLANES.filter((plane) => shown || isSessionVisible(state, `origin:${plane}`))
 }
 
 /**
@@ -1602,7 +1560,7 @@ export function createScene(backend: RenderBackend): Scene {
     }
     const axisFieldActive = activeFieldKind(state) === 'axis'
     const axes = ORIGIN_AXES.filter(
-      (axis) => axisFieldActive || sessionVisible(state, `origin:${axis.name}`, null),
+      (axis) => axisFieldActive || isSessionVisible(state, `origin:${axis.name}`),
     )
     const color = colorOf(theme, 'sketchReference')
     const highlight = { hover: hoverKeys, selected: selectedKeys }
@@ -1639,7 +1597,7 @@ export function createScene(backend: RenderBackend): Scene {
         states: statesFor(axes.length, (index) => `origin:${axes[index]?.name ?? ''}`, highlight),
       })
     }
-    if (!sessionVisible(state, 'origin:O', null)) {
+    if (!isSessionVisible(state, 'origin:O')) {
       remove('origin:point')
     } else {
       uploadGenerated('origin:point', 'origin', () => ({

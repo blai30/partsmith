@@ -6,13 +6,10 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::error::{PlacementProblem, SketchError};
-use crate::vector::{dot, length, scale, subtract};
+use crate::vector::{MIN_LENGTH, dot, length, scale, subtract, vector_product};
 
 /// Largest deviation from unit length or perpendicularity a valid placement may have.
 const FRAME_TOLERANCE: f64 = 1e-9;
-
-/// Shortest plane normal `Placement::on_plane` accepts.
-const MIN_NORMAL_LENGTH: f64 = 1e-12;
 
 /// Shortest projected axis candidate `Placement::on_plane` accepts.
 const MIN_AXIS_LENGTH: f64 = 1e-6;
@@ -98,19 +95,18 @@ impl Placement {
 
     /// Checks that all values are finite and the axes are unit length and perpendicular within 1e-9.
     pub fn validate(&self) -> Result<(), SketchError> {
-        let invalid = |reason| Err(SketchError::InvalidPlacement { reason });
         let values = self.origin.iter().chain(&self.x_axis).chain(&self.normal);
         if !values.into_iter().all(|value| value.is_finite()) {
-            return invalid(PlacementProblem::NonFinite);
+            return Err(invalid(PlacementProblem::NonFinite));
         }
         if (length(self.normal) - 1.0).abs() > FRAME_TOLERANCE {
-            return invalid(PlacementProblem::NormalNotUnit);
+            return Err(invalid(PlacementProblem::NormalNotUnit));
         }
         if (length(self.x_axis) - 1.0).abs() > FRAME_TOLERANCE {
-            return invalid(PlacementProblem::XAxisNotUnit);
+            return Err(invalid(PlacementProblem::XAxisNotUnit));
         }
         if dot(self.x_axis, self.normal).abs() > FRAME_TOLERANCE {
-            return invalid(PlacementProblem::NotPerpendicular);
+            return Err(invalid(PlacementProblem::NotPerpendicular));
         }
         Ok(())
     }
@@ -128,15 +124,12 @@ impl Placement {
             .chain(&hint.x_axis)
             .chain(&hint.normal);
         if !inputs.into_iter().all(|value| value.is_finite()) {
-            return Err(SketchError::InvalidPlacement {
-                reason: PlacementProblem::NonFinite,
-            });
+            return Err(invalid(PlacementProblem::NonFinite));
         }
+        // A shorter normal has no direction.
         let normal_length = length(plane_normal);
-        if normal_length < MIN_NORMAL_LENGTH {
-            return Err(SketchError::InvalidPlacement {
-                reason: PlacementProblem::ZeroNormal,
-            });
+        if normal_length < MIN_LENGTH {
+            return Err(invalid(PlacementProblem::ZeroNormal));
         }
         let normal = scale(plane_normal, 1.0 / normal_length);
         let height = dot(subtract(hint.origin, plane_point), normal);
@@ -156,13 +149,9 @@ impl Placement {
     }
 }
 
-/// The vector product `first x second` of two space vectors.
-fn vector_product(first: [f64; 3], second: [f64; 3]) -> [f64; 3] {
-    [
-        first[1] * second[2] - first[2] * second[1],
-        first[2] * second[0] - first[0] * second[2],
-        first[0] * second[1] - first[1] * second[0],
-    ]
+/// The error of a placement with this problem.
+fn invalid(reason: PlacementProblem) -> SketchError {
+    SketchError::InvalidPlacement { reason }
 }
 
 #[cfg(test)]

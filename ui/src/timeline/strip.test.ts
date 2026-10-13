@@ -1,13 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { FeatureRecord, FeatureStatus } from '../generated/protocol'
-import {
-  gapsBetween,
-  itemStatus,
-  markerPosition,
-  markerText,
-  nearestGap,
-  statusText,
-} from './strip'
+import { gapsBetween, itemStatus, markerText, nearestGap, statusText } from './strip'
 
 function records(...ids: readonly string[]): FeatureRecord[] {
   return ids.map((id) => ({ id, type: 'box' }))
@@ -21,21 +14,6 @@ function status(state: FeatureStatus['status'], message?: string): FeatureStatus
     repairs: [],
   }
 }
-
-describe('markerPosition', () => {
-  it('is the number of features without a rollback feature', () => {
-    expect(markerPosition(records('f-1', 'f-2', 'f-3'), null)).toBe(3)
-  })
-
-  it('is the index of the rollback feature, the first rolled-back one', () => {
-    expect(markerPosition(records('f-1', 'f-2', 'f-3'), 'f-2')).toBe(1)
-    expect(markerPosition(records('f-1', 'f-2', 'f-3'), 'f-1')).toBe(0)
-  })
-
-  it('is at the end when the rollback feature is not in the timeline', () => {
-    expect(markerPosition(records('f-1'), 'f-9')).toBe(1)
-  })
-})
 
 function labels(id: string): string {
   return `Label of ${id}`

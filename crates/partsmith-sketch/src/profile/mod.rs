@@ -2,6 +2,8 @@
 
 mod area;
 mod arrangement;
+mod graph;
+mod intersection;
 mod key;
 mod matching;
 

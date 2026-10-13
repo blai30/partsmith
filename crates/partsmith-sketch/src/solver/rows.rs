@@ -45,6 +45,16 @@ pub(crate) struct LineTerm {
     pub(crate) end: PointTerm,
 }
 
+impl LineTerm {
+    /// The length from `start` to `end`.
+    pub(crate) fn length(self) -> Term {
+        Term::Length {
+            from: self.start,
+            to: self.end,
+        }
+    }
+}
+
 /// The point a signed distance is measured from: a point, or the midpoint of two points.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum Anchor {
@@ -111,6 +121,14 @@ pub(crate) enum Term {
 }
 
 impl Term {
+    /// The signed distance from `point` to `line`.
+    pub(crate) fn distance_from(point: PointTerm, line: LineTerm) -> Term {
+        Term::SignedDistance {
+            point: Anchor::Point(point),
+            line,
+        }
+    }
+
     /// The value of the term at `x`.
     pub(crate) fn value(&self, x: &[f64]) -> f64 {
         self.evaluate(x, 1.0, None)
@@ -275,6 +293,11 @@ impl Row {
             constant,
             equality: None,
         }
+    }
+
+    /// A row of one term with weight 1 and no equality.
+    pub(crate) fn single(owner: RowOwner, term: Term, constant: f64) -> Row {
+        Row::new(owner, vec![(1.0, term)], constant)
     }
 
     /// The residual at `x`.

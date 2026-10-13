@@ -6,9 +6,10 @@ use super::system::System;
 use super::{
     DragSession, DragTarget, Outcome, SolveResult, measure, solve_checked, solve_component,
 };
-use crate::entity::{Geometry, SketchEntity};
+use crate::entity::{EntityKind, SketchEntity};
 use crate::error::SketchError;
 use crate::params::{DimensionValues, SketchParams};
+use crate::point_ref::PointRole;
 use crate::reserved::is_reserved;
 use crate::validation::check_values;
 use crate::vector::{norm, subtract};
@@ -16,14 +17,13 @@ use crate::vector::{norm, subtract};
 /// Drag state of `NativeSolver`: the prepared system and the previous frame's geometry.
 pub struct NativeDragSession {
     sketch: SketchParams,
-    /// Rows with warm-start choices and fix values taken from the initial result.
+    /// Rows with warm-start choices and fix values taken from the initial result; its warm start is
+    /// the initial result's parameter vector.
     system: System,
     /// Index of the component that contains the dragged entity.
     component: usize,
     target: Dragged,
     initial: SolveResult,
-    /// Parameters of the initial result, for translating a dragged line.
-    begin: Vec<f64>,
     /// The geometry of the last frame that converged (the initial result before the first frame).
     previous: Vec<SketchEntity>,
     /// True when a component other than the dragged one failed in the initial solve.
@@ -32,17 +32,17 @@ pub struct NativeDragSession {
     factorization: SparseQr,
 }
 
-/// The parameters a drag moves, by target kind.
+/// The parameters a drag moves, by target kind; points are given by the parameter of their `x`.
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Dragged {
-    /// A point whose `x` is this parameter, moved to the cursor.
+    /// A point, moved to the cursor.
     Point(usize),
-    /// A whole line whose parameters start here, translated with the cursor from `grab`.
-    Line { start: usize, grab: [f64; 2] },
-    /// A circle whose parameters start here; its radius follows the cursor.
-    Circle(usize),
-    /// An arc whose parameters start here; its radius follows the cursor and its angles stay.
-    Arc(usize),
+    /// A whole line with these end points, translated with the cursor from `grab`.
+    Line { ends: [usize; 2], grab: [f64; 2] },
+    /// A circle whose radius follows the cursor.
+    Circle { center: usize, radius: usize },
+    /// An arc with these end points whose radius follows the cursor and whose angles stay.
+    Arc { center: usize, ends: [usize; 2] },
 }
 
 impl NativeDragSession {
@@ -54,7 +54,7 @@ impl NativeDragSession {
     ) -> Result<NativeDragSession, SketchError> {
         sketch.validate()?;
         check_values(sketch, values)?;
-        let (entity, dragged) = resolve_target(sketch, &Layout::new(&sketch.entities), target)?;
+        let (entity, dragged) = resolve_target(&Layout::new(&sketch.entities), target)?;
         let solved = solve_checked(sketch, values);
         let initial = solved.result;
         let system = System::new(sketch, values, &initial.entities);
@@ -68,7 +68,6 @@ impl NativeDragSession {
             .iter()
             .enumerate()
             .any(|(index, failed)| *failed && index != component);
-        let begin = system.layout.vector(&initial.entities);
         Ok(NativeDragSession {
             sketch: sketch.clone(),
             system,
@@ -76,7 +75,6 @@ impl NativeDragSession {
             target: dragged,
             previous: initial.entities.clone(),
             initial,
-            begin,
             other_failed,
             factorization: SparseQr::default(),
         })
@@ -87,24 +85,30 @@ impl NativeDragSession {
         let point = |index: usize| [warm[index], warm[index + 1]];
         match self.target {
             Dragged::Point(index) => vec![(index, cursor[0]), (index + 1, cursor[1])],
-            Dragged::Line { start, grab } => {
+            Dragged::Line { ends, grab } => {
+                // The line moves with the cursor from where it was when the drag began.
+                let begin = &self.system.warm_start;
                 let offset = subtract(cursor, grab);
-                (0..4)
-                    .map(|i| (start + i, self.begin[start + i] + offset[i % 2]))
+                ends.into_iter()
+                    .flat_map(|end| {
+                        [
+                            (end, begin[end] + offset[0]),
+                            (end + 1, begin[end + 1] + offset[1]),
+                        ]
+                    })
                     .collect()
             }
-            Dragged::Circle(center) => {
-                vec![(center + 2, norm(subtract(cursor, point(center))))]
+            Dragged::Circle { center, radius } => {
+                vec![(radius, norm(subtract(cursor, point(center))))]
             }
-            Dragged::Arc(center) => {
+            Dragged::Arc { center, ends } => {
                 let middle = point(center);
-                let radius = norm(subtract(point(center + 2), middle));
+                let radius = norm(subtract(point(ends[0]), middle));
                 if radius <= 0.0 {
                     return Vec::new();
                 }
                 let factor = norm(subtract(cursor, middle)) / radius;
-                [center + 2, center + 4]
-                    .into_iter()
+                ends.into_iter()
                     .flat_map(|end| {
                         let offset = subtract(point(end), middle);
                         [
@@ -141,7 +145,7 @@ impl DragSession for NativeDragSession {
             Outcome::Failed(_) => (warm.clone(), true),
         };
         let entities = self.system.layout.entities(&self.previous, &warm, &solved);
-        let measured = measure(&self.sketch, &entities);
+        let measured = measure(&self.sketch, &self.system.layout, &entities);
         if !failed {
             self.previous = entities.clone();
         }
@@ -159,11 +163,7 @@ impl DragSession for NativeDragSession {
 }
 
 /// The dragged entity's index and parameters, or `UnknownDragTarget` (section 3.9).
-fn resolve_target(
-    sketch: &SketchParams,
-    layout: &Layout,
-    target: &DragTarget,
-) -> Result<(usize, Dragged), SketchError> {
+fn resolve_target(layout: &Layout, target: &DragTarget) -> Result<(usize, Dragged), SketchError> {
     let (name, text) = match target {
         DragTarget::Point { point } => (&point.entity, point.to_string()),
         DragTarget::Entity { entity, .. } => (entity, entity.to_string()),
@@ -175,23 +175,38 @@ fn resolve_target(
         return Err(unknown());
     }
     let index = layout.entity_index(name).ok_or_else(unknown)?;
-    let geometry = &sketch.entities[index].geometry;
-    let start = layout.parameters(index).start;
+    let point = |role| {
+        layout
+            .point_parameter(index, role)
+            .expect("every entity has the points of its kind")
+    };
     let dragged = match target {
         DragTarget::Point { point } => Dragged::Point(
             layout
-                .point_parameter(index, geometry, point.role)
+                .point_parameter(index, point.role)
                 .ok_or_else(unknown)?,
         ),
         DragTarget::Entity { grab, .. } => {
             if !grab.iter().all(|value| value.is_finite()) {
                 return Err(unknown());
             }
-            match geometry {
-                Geometry::Point { .. } => Dragged::Point(start),
-                Geometry::Line { .. } => Dragged::Line { start, grab: *grab },
-                Geometry::Circle { .. } => Dragged::Circle(start),
-                Geometry::Arc { .. } => Dragged::Arc(start),
+            let ends = || [point(PointRole::Start), point(PointRole::End)];
+            match layout.kind(index) {
+                EntityKind::Point => Dragged::Point(point(PointRole::Point)),
+                EntityKind::Line => Dragged::Line {
+                    ends: ends(),
+                    grab: *grab,
+                },
+                EntityKind::Circle => Dragged::Circle {
+                    center: point(PointRole::Center),
+                    radius: layout
+                        .radius_parameter(index)
+                        .expect("a circle has a radius parameter"),
+                },
+                EntityKind::Arc => Dragged::Arc {
+                    center: point(PointRole::Center),
+                    ends: ends(),
+                },
             }
         }
     };

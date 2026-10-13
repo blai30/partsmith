@@ -16,6 +16,8 @@
 //! one solve, whose Jacobians share their pattern, only do the arithmetic. A plan is reused while the
 //! column has the same pattern and every earlier column had the same pattern and decision.
 
+use std::ops::Range;
+
 /// What happened to an added column.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum Added {
@@ -48,6 +50,96 @@ struct Plan {
     accepted: bool,
 }
 
+/// The Householder reflectors `I - beta v v^T` of the accepted columns with their sparse vectors `v`,
+/// followed by the entries of the vector being built for the next one.
+#[derive(Clone, Debug, Default)]
+struct Reflectors {
+    /// `beta` of each reflector.
+    betas: Vec<f64>,
+    /// Where each reflector's entries start in `vector_rows` and `vector_values`, plus the end of the last.
+    vector_starts: Vec<usize>,
+    /// Rows of the vectors `v`, ascending within each reflector.
+    vector_rows: Vec<usize>,
+    /// Entries of the vectors `v` on those rows.
+    vector_values: Vec<f64>,
+}
+
+impl Reflectors {
+    /// Forgets every reflector and the vector being built.
+    fn clear(&mut self) {
+        self.betas.clear();
+        self.vector_starts.clear();
+        self.vector_starts.push(0);
+        self.vector_rows.clear();
+        self.vector_values.clear();
+    }
+
+    /// Where a reflector's entries sit in `vector_rows` and `vector_values`.
+    fn range(&self, reflector: usize) -> Range<usize> {
+        self.vector_starts[reflector]..self.vector_starts[reflector + 1]
+    }
+
+    /// The rows of a reflector's vector, ascending.
+    fn rows(&self, reflector: usize) -> &[usize] {
+        &self.vector_rows[self.range(reflector)]
+    }
+
+    /// Applies a reflector to a dense vector.
+    fn apply(&self, reflector: usize, values: &mut [f64]) {
+        let range = self.range(reflector);
+        let rows = &self.vector_rows[range.clone()];
+        let vector = &self.vector_values[range];
+        let product: f64 = rows
+            .iter()
+            .zip(vector)
+            .map(|(&row, &value)| value * values[row])
+            .sum();
+        if product == 0.0 {
+            return;
+        }
+        let factor = self.betas[reflector] * product;
+        for (&row, &value) in rows.iter().zip(vector) {
+            values[row] -= factor * value;
+        }
+    }
+
+    /// Where the vector being built starts in `vector_rows` and `vector_values`.
+    fn building_start(&self) -> usize {
+        self.vector_starts[self.betas.len()]
+    }
+
+    /// Appends an entry to the vector being built.
+    fn push(&mut self, row: usize, value: f64) {
+        self.vector_rows.push(row);
+        self.vector_values.push(value);
+    }
+
+    /// The entries of the vector being built.
+    fn building(&self) -> &[f64] {
+        &self.vector_values[self.building_start()..]
+    }
+
+    /// Drops the entries of the vector being built.
+    fn truncate_to_built(&mut self) {
+        let start = self.building_start();
+        self.vector_rows.truncate(start);
+        self.vector_values.truncate(start);
+    }
+
+    /// Turns the vector being built, whose norm is `norm`, into the reflector that maps it onto its
+    /// first row, and returns that pivot row with the diagonal entry of `R` the reflector leaves there.
+    fn finish(&mut self, norm: f64) -> (usize, f64) {
+        let start = self.building_start();
+        let pivot = self.vector_rows[start];
+        let pivot_value = self.vector_values[start];
+        let diagonal = if pivot_value >= 0.0 { -norm } else { norm };
+        self.vector_values[start] -= diagonal;
+        self.betas.push(1.0 / (norm * (norm + pivot_value.abs())));
+        self.vector_starts.push(self.vector_rows.len());
+        (pivot, diagonal)
+    }
+}
+
 /// The factorization of the columns added so far.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct SparseQr {
@@ -55,16 +147,10 @@ pub(crate) struct SparseQr {
     dimension: usize,
     /// Pivot row of each reflector.
     pivots: Vec<usize>,
-    /// `beta` of each reflector `I - beta v v^T`.
-    betas: Vec<f64>,
+    /// The reflector of each accepted column.
+    reflectors: Reflectors,
     /// Diagonal entry of `R` in the column of each reflector.
     diagonals: Vec<f64>,
-    /// Where each reflector's entries start in `vector_rows` and `vector_values`, plus the end of the last.
-    vector_starts: Vec<usize>,
-    /// Rows of the vectors `v`, ascending within each reflector.
-    vector_rows: Vec<usize>,
-    /// Entries of the vectors `v` on those rows.
-    vector_values: Vec<f64>,
     /// Where each reflector's column of `R` starts in `above`, plus the end of the last.
     above_starts: Vec<usize>,
     /// Entries of `R` above the diagonal: (earlier reflector, value).
@@ -106,12 +192,8 @@ impl SparseQr {
         }
         self.added = 0;
         self.pivots.clear();
-        self.betas.clear();
+        self.reflectors.clear();
         self.diagonals.clear();
-        self.vector_starts.clear();
-        self.vector_starts.push(0);
-        self.vector_rows.clear();
-        self.vector_values.clear();
         self.above_starts.clear();
         self.above_starts.push(0);
         self.above.clear();
@@ -173,29 +255,19 @@ impl SparseQr {
         let original_norm = norm(self.pattern.iter().map(|&row| self.values[row]));
         let plan = &self.plans[index];
         for &reflector in &plan.schedule {
-            let range = self.vector_starts[reflector]..self.vector_starts[reflector + 1];
-            reflect(
-                &self.vector_rows[range.clone()],
-                &self.vector_values[range],
-                self.betas[reflector],
-                &mut self.values,
-            );
+            self.reflectors.apply(reflector, &mut self.values);
         }
         // The projection becomes the column of R and the residual the reflector's vector; both are
         // written in place and taken back out when the column turns out dependent.
         let above_start = self.above.len();
-        let vector_start = self.vector_rows.len();
         for &row in &plan.rows {
             let value = std::mem::take(&mut self.values[row]);
             match self.pivot_of[row] {
                 Some(reflector) => self.above.push((reflector, value)),
-                None => {
-                    self.vector_rows.push(row);
-                    self.vector_values.push(value);
-                }
+                None => self.reflectors.push(row, value),
             }
         }
-        let residual_norm = norm(self.vector_values[vector_start..].iter().copied());
+        let residual_norm = norm(self.reflectors.building().iter().copied());
         let independent =
             residual_norm > tolerance * original_norm.max(1.0) && residual_norm.is_finite();
         if self.plans[index].accepted != independent {
@@ -203,30 +275,19 @@ impl SparseQr {
             self.plans[index].accepted = independent;
         }
         if !independent {
-            self.vector_rows.truncate(vector_start);
-            self.vector_values.truncate(vector_start);
+            self.reflectors.truncate_to_built();
             let mut projection = self.above.split_off(above_start);
             projection.sort_unstable_by_key(|&(reflector, _)| reflector);
             return Added::Dependent { projection };
         }
         let reflector = self.pivots.len();
-        let pivot = self.vector_rows[vector_start];
-        let pivot_value = self.vector_values[vector_start];
-        let diagonal = if pivot_value >= 0.0 {
-            -residual_norm
-        } else {
-            residual_norm
-        };
-        self.vector_values[vector_start] -= diagonal;
-        for &row in &self.vector_rows[vector_start..] {
+        let (pivot, diagonal) = self.reflectors.finish(residual_norm);
+        for &row in self.reflectors.rows(reflector) {
             self.touching[row].push(reflector);
         }
         self.pivot_of[pivot] = Some(reflector);
         self.pivots.push(pivot);
-        self.betas
-            .push(1.0 / (residual_norm * (residual_norm + pivot_value.abs())));
         self.diagonals.push(diagonal);
-        self.vector_starts.push(self.vector_rows.len());
         self.above_starts.push(self.above.len());
         self.queued.push(false);
         Added::Accepted
@@ -249,9 +310,7 @@ impl SparseQr {
         while let Some(reflector) = self.queue.pop() {
             self.queued[reflector] = false;
             schedule.push(reflector);
-            for &row in
-                &self.vector_rows[self.vector_starts[reflector]..self.vector_starts[reflector + 1]]
-            {
+            for &row in self.reflectors.rows(reflector) {
                 if self.marked[row] {
                     continue;
                 }
@@ -288,7 +347,7 @@ impl SparseQr {
             solution[self.pivots[index]] = forward[index];
         }
         for reflector in (0..self.rank()).rev() {
-            self.reflect_dense(reflector, &mut solution);
+            self.reflectors.apply(reflector, &mut solution);
         }
         solution
     }
@@ -297,7 +356,7 @@ impl SparseQr {
     pub(crate) fn least_squares(&self, right_side: &[f64]) -> Vec<f64> {
         let mut transformed = right_side.to_vec();
         for reflector in 0..self.rank() {
-            self.reflect_dense(reflector, &mut transformed);
+            self.reflectors.apply(reflector, &mut transformed);
         }
         let projection: Vec<f64> = self
             .pivots
@@ -343,13 +402,7 @@ impl SparseQr {
             let (schedule, rows) = self.reach(Order::Descending);
             self.values[row] = 1.0;
             for &reflector in &schedule {
-                let range = self.vector_starts[reflector]..self.vector_starts[reflector + 1];
-                reflect(
-                    &self.vector_rows[range.clone()],
-                    &self.vector_values[range],
-                    self.betas[reflector],
-                    &mut self.values,
-                );
+                self.reflectors.apply(reflector, &mut self.values);
             }
             for &other in &rows {
                 let value = std::mem::take(&mut self.values[other]);
@@ -362,17 +415,6 @@ impl SparseQr {
     /// The entries of `R` above the diagonal in a reflector's column.
     fn above(&self, reflector: usize) -> &[(usize, f64)] {
         &self.above[self.above_starts[reflector]..self.above_starts[reflector + 1]]
-    }
-
-    /// Applies one reflector to a dense vector.
-    fn reflect_dense(&self, reflector: usize, values: &mut [f64]) {
-        let range = self.vector_starts[reflector]..self.vector_starts[reflector + 1];
-        reflect(
-            &self.vector_rows[range.clone()],
-            &self.vector_values[range],
-            self.betas[reflector],
-            values,
-        );
     }
 }
 
@@ -387,22 +429,6 @@ fn enqueue(queue: &mut Vec<usize>, queued: &mut [bool], reflector: usize, order:
         Order::Descending => queue.partition_point(|&other| other < reflector),
     };
     queue.insert(position, reflector);
-}
-
-/// Applies the reflector `I - beta v v^T`, with `v` given by its rows and entries, to a dense vector.
-fn reflect(rows: &[usize], vector: &[f64], beta: f64, values: &mut [f64]) {
-    let product: f64 = rows
-        .iter()
-        .zip(vector)
-        .map(|(&row, &value)| value * values[row])
-        .sum();
-    if product == 0.0 {
-        return;
-    }
-    let factor = beta * product;
-    for (&row, &value) in rows.iter().zip(vector) {
-        values[row] -= factor * value;
-    }
 }
 
 fn norm(values: impl Iterator<Item = f64>) -> f64 {

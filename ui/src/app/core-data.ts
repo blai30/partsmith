@@ -1,10 +1,11 @@
 import { featureCommands } from '../commands/features'
 import type { CatalogEntry } from '../generated/protocol'
-import type { Catalog, CatalogFeature } from '../state/store'
+import { adoptDocument } from '../state/core-events'
+import type { AppStore, Catalog, CatalogFeature } from '../state/store'
 import type { App } from './createApp'
 
-// The session data every started core provides: the feature catalog and the printer profiles
-// (ui.md 3.1 step 4, 4.4).
+// Starting a core (ui.md 3.1 step 4, 4.4): the session data every started core provides (the
+// feature catalog and the printer profiles), the core's status, and the first document.
 
 function isObjectSchema(schema: unknown): schema is Readonly<Record<string, unknown>> {
   return (
@@ -47,4 +48,22 @@ export async function loadCoreData(app: App): Promise<void> {
       app.commands.register(command)
     }
   }
+}
+
+/** Marks the core ready with the engine version it reported. */
+export function markCoreReady(store: AppStore, engineVersion: string): void {
+  store.setState((state) => ({
+    core: { ...state.core, status: 'ready', engineVersion, fatal: null },
+  }))
+}
+
+/** Marks the core failed with the message its fatal state shows (4.4). */
+export function markCoreFailed(store: AppStore, message: string): void {
+  store.setState((state) => ({ core: { ...state.core, status: 'failed', fatal: message } }))
+}
+
+/** Opens a new empty mm document named "Untitled". */
+export async function openUntitled(app: App): Promise<void> {
+  const documentHandle = await app.mutations.run(() => app.core.newDocument('mm'))
+  adoptDocument(app.store, documentHandle, { name: 'Untitled', file: null, localUnsaved: false })
 }

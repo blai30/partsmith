@@ -41,6 +41,20 @@ pub(crate) fn norm(vector: [f64; 2]) -> f64 {
     vector[0].hypot(vector[1])
 }
 
+/// The vector product `first x second` of two space vectors.
+pub(crate) fn vector_product(first: [f64; 3], second: [f64; 3]) -> [f64; 3] {
+    [
+        first[1] * second[2] - first[2] * second[1],
+        first[2] * second[0] - first[0] * second[2],
+        first[0] * second[1] - first[1] * second[0],
+    ]
+}
+
+/// The direction of a plane vector as an angle in [-pi, pi] from +u, counterclockwise.
+pub(crate) fn angle_of(vector: [f64; 2]) -> f64 {
+    vector[1].atan2(vector[0])
+}
+
 /// `first.x * second.y - first.y * second.x`.
 pub(crate) fn cross(first: [f64; 2], second: [f64; 2]) -> f64 {
     first[0] * second[1] - first[1] * second[0]

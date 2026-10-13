@@ -13,6 +13,7 @@ use partsmith_sketch::{
     OriginPlane, PointRef, PointRole, SketchConstraint, SketchEntity, SketchParams, SketchPlane,
 };
 
+use super::plane::{Vector, add, cross, dot, left_normal, norm, scale, subtract, unit};
 use super::random::Rng;
 
 /// The 19 constraint type names of spec section 2.5.
@@ -178,41 +179,6 @@ fn sketch(entities: Vec<SketchEntity>, constraints: Vec<SketchConstraint>) -> Sk
 // ---------------------------------------------------------------------------
 // Geometry helpers
 // ---------------------------------------------------------------------------
-
-type Vector = [f64; 2];
-
-fn subtract(a: Vector, b: Vector) -> Vector {
-    [a[0] - b[0], a[1] - b[1]]
-}
-
-fn add(a: Vector, b: Vector) -> Vector {
-    [a[0] + b[0], a[1] + b[1]]
-}
-
-fn scale(a: Vector, factor: f64) -> Vector {
-    [a[0] * factor, a[1] * factor]
-}
-
-fn norm(a: Vector) -> f64 {
-    a[0].hypot(a[1])
-}
-
-fn cross(a: Vector, b: Vector) -> f64 {
-    a[0] * b[1] - a[1] * b[0]
-}
-
-fn dot(a: Vector, b: Vector) -> f64 {
-    a[0] * b[0] + a[1] * b[1]
-}
-
-fn unit(a: Vector) -> Vector {
-    scale(a, 1.0 / norm(a))
-}
-
-/// Left normal of a unit direction.
-fn left_normal(direction: Vector) -> Vector {
-    [-direction[1], direction[0]]
-}
 
 fn make_id(text: String) -> Id {
     Id::new(text.as_str()).unwrap_or_else(|_| panic!("{text} is a valid id"))
