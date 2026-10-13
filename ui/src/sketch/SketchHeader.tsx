@@ -14,7 +14,12 @@ import { reportFailure } from '../app/report'
 import { Button } from '../components/Button'
 import { Popover } from '../components/Popover'
 import { originPlaneName, originPlaneView, type OriginPlane } from '../core/labels'
-import type { ProfileFinding, SketchConstraint, SketchSolution } from '../generated/protocol'
+import type {
+  ProfileFinding,
+  SketchConstraint,
+  SketchSolution,
+  SolvedEntity,
+} from '../generated/protocol'
 import { originItem } from '../inspector/selection-values'
 import { focusLost, focusView } from '../layout/focus'
 import { counted, MESSAGES } from '../messages'
@@ -276,18 +281,9 @@ function SketchHint({ sketchId, active, hint, freePlacement }: SketchHintProps) 
 
 type ConstraintProblem = { readonly constraint: SketchConstraint; readonly conflicting: boolean }
 
-const ENTITY_NOUNS: Readonly<
-  Record<'point' | 'line' | 'circle' | 'arc', readonly [singular: string, plural: string]>
-> = {
-  point: ['point', 'points'],
-  line: ['line', 'lines'],
-  circle: ['circle', 'circles'],
-  arc: ['arc', 'arcs'],
-}
-
 /** "3 lines, 1 circle": the under-constrained entities counted by type, in type order (3.16.8). */
 function freeGeometry(solution: SketchSolution): string {
-  const counts = new Map<keyof typeof ENTITY_NOUNS, number>()
+  const counts = new Map<SolvedEntity['type'], number>()
   for (const entity of solution.entities) {
     if (entity.constrained === 'under_constrained') {
       counts.set(entity.type, (counts.get(entity.type) ?? 0) + 1)
@@ -296,7 +292,7 @@ function freeGeometry(solution: SketchSolution): string {
   return (['line', 'circle', 'arc', 'point'] as const)
     .flatMap((type) => {
       const count = counts.get(type) ?? 0
-      return count === 0 ? [] : [counted(count, ...ENTITY_NOUNS[type])]
+      return count === 0 ? [] : [counted(count, type)]
     })
     .join(', ')
 }

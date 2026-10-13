@@ -30,15 +30,6 @@ import { InspectorCommandButton, Title } from './parts'
 // The selection inspector in a sketch (ui.md 3.8): a dimension's value, a curve's size field, the
 // constraints that fit the selection, construction and Delete.
 
-const ENTITY_NOUNS: Readonly<
-  Record<'point' | 'line' | 'circle' | 'arc', readonly [singular: string, plural: string]>
-> = {
-  point: ['point', 'points'],
-  line: ['line', 'lines'],
-  circle: ['circle', 'circles'],
-  arc: ['arc', 'arcs'],
-}
-
 /**
  * The selection inspector's fields of one dimension (3.8): its value, committed on Enter, and the
  * Reference switch, both as "Change dimension". A driving value is probed first (3.16.7): when the
@@ -258,9 +249,7 @@ export function SketchSection({
   const [firstType] = entityTypes
   const uniform =
     firstType !== null && firstType !== undefined && entityTypes.every((type) => type === firstType)
-  const title = uniform
-    ? counted(items.length, ...ENTITY_NOUNS[firstType])
-    : counted(items.length, 'item')
+  const title = counted(items.length, uniform ? firstType : 'item')
   const entities = items.flatMap((item) => {
     const reference = item.sketchItem
     if (reference?.kind === 'entity') {
