@@ -12,7 +12,7 @@ use super::common::{
     unit_hint,
 };
 use super::dressup::{
-    FaceOrigins, add_origins, face_names, modified, new_face, run_or_search, smallest_name,
+    FaceOrigins, add_origins, modified, names_of_faces, new_face, run_or_search, smallest_name,
 };
 use crate::{
     BuildContext, Dependencies, Feature, FeatureError, FeatureOutput, Named, PythonCall,
@@ -278,7 +278,7 @@ fn face_source(
         return new_face(feature, roles::RIM, Some(&rim));
     }
     if !kept.is_empty() {
-        return Ok(FaceSource::From(face_names(input, &kept)?));
+        return Ok(FaceSource::From(names_of_faces(input, &kept)?));
     }
     let generators = [
         (ElementKind::Face, &origin.faces),
@@ -301,10 +301,8 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::builtin::dressup::test_fixtures::reference;
     use crate::name_by_history;
-    use crate::test_support::ScriptNames;
-    use crate::test_support::{face_names as sorted_face_names, id, named_box};
+    use crate::test_support::{ScriptNames, face_names, id, named_box, reference};
 
     /// `F-TOP` of shell.md section 6.
     const TOP: &str = r#"{"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,30|a=4000"}"#;
@@ -429,7 +427,7 @@ mod tests {
 
         assert_eq!(hollow.shape.count(SubShapeKind::Face), 11);
         assert_eq!(
-            sorted_face_names(&naming),
+            face_names(&naming),
             [
                 "f-box1/back",
                 "f-box1/bottom",
@@ -453,7 +451,7 @@ mod tests {
         let (hollow, naming) = shelled(&cube.shape, &cube.naming, &[]);
 
         assert_eq!(hollow.shape.count(SubShapeKind::Face), 12);
-        let names = sorted_face_names(&naming);
+        let names = face_names(&naming);
         assert_eq!(
             names
                 .iter()
@@ -487,7 +485,7 @@ mod tests {
 
         assert_eq!(hollow.shape.count(SubShapeKind::Solid), 2);
         assert_eq!(hollow.shape.count(SubShapeKind::Face), 22);
-        let names = sorted_face_names(&names);
+        let names = face_names(&names);
         assert!(names.contains(&"f-sh1/rim/f-box1/top".to_string()));
         assert!(names.contains(&"f-sh1/rim/f-box2/top".to_string()));
         assert!(names.contains(&"f-sh1/inner/f-box2/bottom".to_string()));

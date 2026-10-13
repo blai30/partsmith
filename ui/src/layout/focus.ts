@@ -14,3 +14,33 @@ export function focusLost(): boolean {
 export function focusView(): void {
   document.getElementById(VIEW_ID)?.focus()
 }
+
+/** Input types that take no typed text, so their keys stay shortcuts. */
+const NON_TEXT_INPUT_TYPES: ReadonlySet<string> = new Set([
+  'button',
+  'checkbox',
+  'color',
+  'file',
+  'hidden',
+  'image',
+  'radio',
+  'range',
+  'reset',
+  'submit',
+])
+
+/** An input of a text-like type, a textarea, a select, or content-editable element. */
+export function isEditable(target: EventTarget | null): boolean {
+  if (target instanceof HTMLInputElement) {
+    return !NON_TEXT_INPUT_TYPES.has(target.type)
+  }
+  if (target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement) {
+    return true
+  }
+  return target instanceof HTMLElement && target.isContentEditable
+}
+
+/** Whether a menu or a popover (light-dismiss popovers; tooltips are manual) is open. */
+export function hasOpenPopover(document: Document): boolean {
+  return document.querySelector('[popover=""]:popover-open, [popover="auto"]:popover-open') !== null
+}

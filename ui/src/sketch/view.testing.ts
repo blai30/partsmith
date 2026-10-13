@@ -3,6 +3,7 @@
 // sketch origin at the canvas center, pointer events at sketch coordinates, and a fake core that
 // solves candidates as given and applies sketch edits to the store as the core's events would.
 
+import { act } from '@testing-library/react'
 import { vi } from 'vitest'
 import type { App } from '../app/createApp'
 import type { CoreApi } from '../core/api'
@@ -13,14 +14,14 @@ import type {
   SketchParams,
   SketchSolution,
 } from '../generated/protocol'
-import type { AppState } from '../state/store'
+import { createAppStore, type AppState } from '../state/store'
+import { coreErrorFor } from '../test/fakes/core-api'
+import { createTestApp } from '../test/fakes/test-app'
 import { DEFAULT_CAMERA, standardViewRotation, type Camera } from '../viewport/camera'
 import type { ViewportHandle } from '../viewport/controller'
 import {
   SKETCH_ID,
-  coreError,
   createFakeCore,
-  createSketchTestApp,
   documentState,
   sketchRecord,
   sketchSession,
@@ -28,6 +29,7 @@ import {
   solvedSketch,
 } from './fixtures.testing'
 import type { Vector2 } from './geometry'
+import type { SketchToolId } from './session'
 
 /** The canvas is this many CSS pixels wide and high; powers of two keep the arithmetic exact. */
 export const VIEW_PIXELS = 1024
@@ -175,6 +177,7 @@ export function sketchHarness(
   options: {
     readonly entities?: SketchEntity[]
     readonly constraints?: SketchConstraint[]
+    readonly plane?: SketchParams['plane']
     readonly solution?: SketchSolution
     readonly state?: Partial<AppState>
     readonly core?: Partial<CoreApi>
@@ -224,25 +227,35 @@ export function sketchHarness(
       }
       return Promise.resolve(revision)
     },
-    evaluate: (_handle, expression) => {
+    evaluate: async (_handle, expression) => {
       const value = Number.parseFloat(expression)
-      return Number.isFinite(value)
-        ? Promise.resolve({ value, dimension: { length: 0, angle: 0 } })
-        : Promise.reject(coreError('expression_error', `Unknown name '${expression}'.`))
+      if (Number.isFinite(value)) {
+        return { value, dimension: { length: 0, angle: 0 } }
+      }
+      throw await coreErrorFor({
+        code: 'expression_error',
+        message: `Unknown name '${expression}'.`,
+      })
     },
     ...options.core,
   })
-  const app = createSketchTestApp({
+  const app = createTestApp({
     core,
-    state: {
+    store: createAppStore({
       context: 'sketch',
       sketch: sketchSession(),
       document: documentState({
-        features: [sketchRecord({ entities, constraints: options.constraints ?? [] })],
+        features: [
+          sketchRecord({
+            entities,
+            constraints: options.constraints ?? [],
+            ...(options.plane === undefined ? {} : { plane: options.plane }),
+          }),
+        ],
         sketches: { [SKETCH_ID]: solvedSketch(options.solution ?? solutionFor(entities)) },
       }),
       ...options.state,
-    },
+    }),
   })
   holder.app = app
   app.attachViewport(fixedViewport())
@@ -256,5 +269,21 @@ export function sketchHarness(
 export async function settleCommits(): Promise<void> {
   await new Promise((resolve) => {
     setTimeout(resolve, 0)
+  })
+}
+
+/** Activates a sketch tool, or none, in the session the app edits. */
+export function setTool(app: App, tool: SketchToolId | null): void {
+  app.store.setState((state) =>
+    state.sketch === null ? {} : { sketch: { ...state.sketch, tool } },
+  )
+}
+
+/** Lets the sketch controller's scheduled paint run, inside React's `act`. */
+export async function nextFrame(): Promise<void> {
+  await act(async () => {
+    await new Promise((resolve) => {
+      requestAnimationFrame(resolve)
+    })
   })
 }

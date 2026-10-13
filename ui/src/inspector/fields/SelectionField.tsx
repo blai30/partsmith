@@ -9,6 +9,7 @@ import {
   setHoveredField,
 } from '../../app/actions/command'
 import { useApp, useAppState } from '../../app/AppProvider'
+import { reportFailure } from '../../app/report'
 import { featureLabel } from '../../core/labels'
 import { Button } from '../../components/Button'
 import { describedBy } from '../../components/described-by'
@@ -21,8 +22,13 @@ import type { AppState, SelectionItem } from '../../state/store'
 import { COLOR_CLASSES } from '../../theme/roles'
 import { isSessionVisible } from '../../state/visibility'
 import { formatArea } from '../area'
-import { bodyCreatingTarget, type InspectorField } from '../model'
-import { itemsFromValue, originItem } from '../selection-values'
+import { activeCommandFeature, bodyCreatingTarget, type InspectorField } from '../model'
+import {
+  bodySelectionItem,
+  featureSelectionItem,
+  itemsFromValue,
+  originItem,
+} from '../selection-values'
 import { fieldInputId } from './field-id'
 
 // A selection param (3.7): a box that receives viewport and browser picks while it is the active
@@ -49,25 +55,6 @@ const CHOOSABLE: ReadonlySet<SelectionKind> = new Set([
   'axis',
   'sketch_region',
 ])
-
-/** A selection item a Choose menu offers: no element, and only the data its kind carries. */
-function candidate(
-  key: string,
-  kind: SelectionItem['kind'],
-  label: string,
-  data: Partial<Pick<SelectionItem, 'body' | 'feature' | 'sketchItem' | 'origin'>> = {},
-): SelectionItem {
-  return {
-    key,
-    kind,
-    label,
-    body: data.body ?? null,
-    feature: data.feature ?? null,
-    element: null,
-    sketchItem: data.sketchItem ?? null,
-    origin: data.origin ?? null,
-  }
-}
 
 /** The placeholder of an empty box (3.7); point and multiple edge fields also take faces. */
 function placeholder(accepts: SelectionKind, multiple: boolean): string {
@@ -113,19 +100,12 @@ function candidatesFor(
       return (recipe.bodies ?? [])
         .filter((body) => (document.meshes[body.id] !== undefined) !== createsBody)
         .filter((body) => body.id !== state.command?.newBody?.id)
-        .map((body) => candidate(`body:${body.id}`, 'body', body.name, { body: body.id }))
+        .map((body) => bodySelectionItem(body.id, body.name))
     case 'sketch':
       return features
         .filter((feature) => feature.type === 'sketch')
         .map((feature) =>
-          candidate(
-            `feature:${feature.id}`,
-            'feature',
-            featureLabel(recipe, feature.id, state.catalog),
-            {
-              feature: feature.id,
-            },
-          ),
+          featureSelectionItem(feature.id, featureLabel(recipe, feature.id, state.catalog)),
         )
     case 'plane':
       return [
@@ -135,11 +115,10 @@ function candidatesFor(
         ...features
           .filter((feature) => feature.type === 'datum_plane')
           .map((feature) =>
-            candidate(
-              `feature:${feature.id}`,
-              'datum_plane',
+            featureSelectionItem(
+              feature.id,
               featureLabel(recipe, feature.id, state.catalog),
-              { feature: feature.id },
+              'datum_plane',
             ),
           ),
       ]
@@ -211,8 +190,7 @@ export function SelectionField({
   const newBody = useAppState((state) => state.command?.newBody ?? null)
   // A body-creating target lists "New body" first in its Choose menu (2.12, 3.7).
   const createsBody = useAppState((state) => {
-    const feature =
-      state.command === null ? undefined : state.catalog?.byType[state.command.featureType]
+    const feature = activeCommandFeature(state)
     return field.path === 'target' && feature !== undefined && bodyCreatingTarget(feature) !== null
   })
   // Why the field refused the last pick, for 3 s (3.7).
@@ -244,9 +222,7 @@ export function SelectionField({
         label: item.label,
         onSelect: () => {
           setActiveField(app, field.path)
-          capturePick(app, item).catch((error: unknown) => {
-            console.error('Choosing a selection failed.', error)
-          })
+          capturePick(app, item).catch(reportFailure('Choosing a selection'))
         },
       }))
     : []

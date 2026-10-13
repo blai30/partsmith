@@ -15,7 +15,7 @@ use partsmith_occt_sys::{
     SubShapeKind, Vector,
 };
 
-use super::common::{bodies, face_name, solid_body, unchanged};
+use super::common::{bodies, check_canceled, face_name, unchanged};
 use crate::{
     BodyChange, BodyState, BodyUpdate, BuildContext, FeatureError, FeatureOutput, FeatureWarning,
     IgnoredReason, Measurements, Named, name_shape, too_large_search,
@@ -44,16 +44,72 @@ pub(super) struct SelectedEdge {
     pub(super) faces: Vec<u32>,
 }
 
-/// Resolves the `edges` references in `body` and skips the smooth edges with an `Ignored` warning
-/// each (fillet.md section 3.3 steps 3 and 4, chamfer.md step 3). The faces of each edge come from
-/// the body state's topology, which resolving the references has already read.
-pub(super) fn select_edges(
+/// The edges a fillet or chamfer works on, of a body that holds a solid.
+pub(super) struct BlendTarget<'a> {
+    /// The body.
+    pub(super) body: &'a Id,
+    /// Its state just before the feature.
+    pub(super) state: &'a BodyState,
+    /// Its shape.
+    pub(super) shape: &'a Shape,
+    /// The `edges` references.
+    pub(super) edges: &'a [Reference],
+}
+
+/// Builds a fillet or chamfer (fillet.md and chamfer.md section 3.3): selects the edges of
+/// `target`, gives the kernel `operation` the input `edge_input` makes for each of them in name
+/// order at the `requested` value, with the "too large" search, and names the result faces of the
+/// blend by `role`. Without an edge to work on, the body keeps its state with `NoEffect`.
+pub(super) fn blend<Edge>(
+    context: &BuildContext<'_>,
+    target: BlendTarget<'_>,
+    role: &str,
+    requested: f64,
+    edge_input: impl Fn(&SelectedEdge) -> Result<Edge, FeatureError>,
+    operation: impl Fn(&[Edge], f64) -> Result<OpResult, KernelError>,
+    too_large: impl FnOnce(Option<f64>, KernelError) -> FeatureError,
+) -> Result<FeatureOutput, FeatureError> {
+    let selection = select_edges(
+        context,
+        target.body,
+        target.state,
+        target.shape,
+        target.edges,
+    )?;
+    if selection.edges.is_empty() {
+        return Ok(no_effect(target.body, target.state, selection.warnings));
+    }
+    let edges = sorted_by_name(target.state.naming(), &selection.edges)?
+        .into_iter()
+        .map(edge_input)
+        .collect::<Result<Vec<_>, FeatureError>>()?;
+    let result = run_or_search(
+        context,
+        requested,
+        |value| operation(&edges, value),
+        too_large,
+    )?;
+    let named = name_blend(context.feature(), role, target.state.naming(), &result)?;
+    Ok(modified(
+        target.body,
+        result.shape,
+        named,
+        selection.warnings,
+    ))
+}
+
+/// Resolves the `edges` references in `body`, which holds `shape` in `state`, and skips the smooth
+/// edges with an `Ignored` warning each (fillet.md section 3.3 steps 3 and 4, chamfer.md step 3).
+/// The faces of each edge come from the body state's topology, which resolving the references has
+/// already read.
+fn select_edges(
     context: &BuildContext<'_>,
     body: &Id,
+    state: &BodyState,
+    shape: &Shape,
     edges: &[Reference],
 ) -> Result<EdgeSelection, FeatureError> {
     let resolved = context.resolve_all("edges", body, edges, ElementKind::Edge)?;
-    let (state, shape) = solid_body(context, body)?;
     let topology = state.topology()?;
     let mut selection = EdgeSelection {
         edges: Vec::new(),
@@ -132,9 +188,7 @@ pub(super) fn run_or_search<T>(
     operation: impl Fn(f64) -> Result<T, KernelError>,
     too_large: impl FnOnce(Option<f64>, KernelError) -> FeatureError,
 ) -> Result<T, FeatureError> {
-    if context.is_canceled() {
-        return Err(FeatureError::Canceled);
-    }
+    check_canceled(context)?;
     match operation(requested) {
         Ok(result) => Ok(result),
         Err(error) if error.kind == KernelErrorKind::InvalidInput => Err(FeatureError::from(error)),
@@ -227,7 +281,7 @@ pub(super) fn single_input_origins(result: &OpResult) -> Result<Vec<FaceOrigins>
 }
 
 /// The names of body faces, which are always named.
-pub(super) fn face_names(
+pub(super) fn names_of_faces(
     naming: &NamingMap,
     faces: &[u32],
 ) -> Result<Vec<ElementName>, FeatureError> {
@@ -272,7 +326,7 @@ pub(super) fn new_face(
 /// names of the body faces it descends from; a face generated from body edges is named
 /// `<feature>/<role>/<smallest edge name>`, one generated from body vertices
 /// `<feature>/corner/<smallest vertex name>`, and any other face falls back to `<feature>/face`.
-pub(super) fn name_blend(
+fn name_blend(
     feature: &Id,
     role: &str,
     input: &NamingMap,
@@ -282,7 +336,7 @@ pub(super) fn name_blend(
         .iter()
         .map(|origin| {
             if !origin.modified.is_empty() {
-                return Ok(FaceSource::From(face_names(input, &origin.modified)?));
+                return Ok(FaceSource::From(names_of_faces(input, &origin.modified)?));
             }
             if let Some(edge) = smallest_name(input, ElementKind::Edge, &origin.edges) {
                 return new_face(feature, role, Some(&edge));
@@ -322,7 +376,7 @@ pub(super) fn modified(
 /// `edges` references never changes the result: the kernel's result depends on the order it gets
 /// edges in (in the last bits of its geometry, and for a chamfer the side of a whole tangent
 /// chain comes from the first of its edges it receives).
-pub(super) fn sorted_by_name<'a>(
+fn sorted_by_name<'a>(
     naming: &NamingMap,
     edges: &'a [SelectedEdge],
 ) -> Result<Vec<&'a SelectedEdge>, FeatureError> {
@@ -343,24 +397,9 @@ pub(super) fn sorted_by_name<'a>(
 
 /// The output of a fillet or chamfer left with no edge to work on: `body` keeps its `state`, and a
 /// `NoEffect` warning follows the other warnings (fillet.md section 3.3 step 4).
-pub(super) fn no_effect(
-    body: &Id,
-    state: &BodyState,
-    mut warnings: Vec<FeatureWarning>,
-) -> FeatureOutput {
+fn no_effect(body: &Id, state: &BodyState, mut warnings: Vec<FeatureWarning>) -> FeatureOutput {
     warnings.push(FeatureWarning::NoEffect { body: body.clone() });
     bodies(vec![unchanged(body, state, BodyChange::Modify)], warnings)
-}
-
-/// Fixtures shared by the dress-up unit tests.
-#[cfg(test)]
-pub(super) mod test_fixtures {
-    use partsmith_naming::Reference;
-
-    /// A reference parsed from its JSON form.
-    pub(in crate::builtin) fn reference(json: &str) -> Reference {
-        serde_json::from_str(json).expect("references written in tests are valid")
-    }
 }
 
 #[cfg(test)]
@@ -374,7 +413,7 @@ mod tests {
     };
 
     use super::*;
-    use crate::test_support::{Fixture, box_body, face_names as sorted_face_names, id, named_box};
+    use crate::test_support::{Fixture, box_body, face_names, id, named_box, reference};
     use crate::topology_info;
 
     #[test]
@@ -592,12 +631,13 @@ mod tests {
         let shape = state.shape().expect("a solid").clone();
         let front = face_index(state.naming(), "f-box1/front");
         let top = face_index(state.naming(), "f-box1/top");
-        let fixture = Fixture::new("f-fil1").with_body("b-1", state);
-        let edges = [test_fixtures::reference(
+        let fixture = Fixture::new("f-fil1").with_body("b-1", state.clone());
+        let edges = [reference(
             r#"{"q": "edge(f-box1/front|f-box1/top)", "fp": "line|n=1,0,0|c=5,0,10|l=10"}"#,
         )];
 
-        let selection = select_edges(&fixture.context(), &id("b-1"), &edges).expect("resolved");
+        let selection =
+            select_edges(&fixture.context(), &id("b-1"), &state, &shape, &edges).expect("resolved");
 
         let mut faces = vec![front, top];
         faces.sort_unstable();
@@ -981,7 +1021,7 @@ mod tests {
             .naming;
 
         assert_eq!(
-            sorted_face_names(&naming),
+            face_names(&naming),
             [
                 "f-box1/back",
                 "f-box1/bottom",
@@ -1006,7 +1046,7 @@ mod tests {
             .expect("the result is named")
             .naming;
 
-        let names = sorted_face_names(&naming);
+        let names = face_names(&naming);
         let corners = names
             .iter()
             .filter(|name| name.starts_with("f-fil1/corner/vertex("))

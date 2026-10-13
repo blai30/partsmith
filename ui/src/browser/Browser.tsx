@@ -2,17 +2,14 @@ import { clsx } from 'clsx/lite'
 import {
   ChevronDown,
   ChevronRight,
-  CircleX,
   Dot,
   Eye,
   EyeOff,
   Lock,
   LockOpen,
   MoveRight,
-  Shapes,
   SlidersHorizontal,
   Square,
-  TriangleAlert,
   type LucideIcon,
 } from 'lucide-react'
 import {
@@ -25,13 +22,14 @@ import {
 } from 'react'
 import { renameBody, setBodyVisible, setLocked, setSessionVisible } from '../app/actions/bodies'
 import { editFeature } from '../app/actions/command'
-import { notify } from '../app/actions/notifications'
 import { openSidePanel, setBrowserOpen } from '../app/actions/panels'
 import { enterSketch } from '../app/actions/sketch'
 import { renameFeature } from '../app/actions/timeline'
 import { useApp, useAppState } from '../app/AppProvider'
 import type { App } from '../app/createApp'
-import { FEATURE_ICONS } from '../commands/icons'
+import { reportFailure } from '../app/report'
+import { featureIcon } from '../commands/icons'
+import { explainDisabled } from '../commands/registry'
 import { Tooltip } from '../components/Tooltip'
 import { featureLabel } from '../core/labels'
 import { formatEvaluated } from '../expression/evaluate'
@@ -41,10 +39,22 @@ import { activatesRow, pickRow, togglesSelection } from '../layout/pick-row'
 import { RenameField } from '../layout/RenameField'
 import { BROWSER_PANEL_ID } from '../layout/panel-ids'
 import { requestUi, useUiRequest } from '../layout/requests'
-import { originItem } from '../inspector/selection-values'
+import {
+  bodyKey,
+  bodySelectionItem,
+  featureKey,
+  featureSelectionItem,
+  originItem,
+  parameterKey,
+  parameterSelectionItem,
+  parseSelectionKey,
+} from '../inspector/selection-values'
+import { rovingTabStop } from '../layout/roving'
 import { useOverlayDismiss } from '../layout/use-overlay-dismiss'
+import { SEVERITY_NAMES } from '../print/health'
+import { SeverityIcon } from '../print/SeverityIcon'
 import { selectCommandBlock } from '../state/selectors'
-import type { AppState, OriginName, SelectionItem, SelectionItemKind } from '../state/store'
+import type { AppState, OriginName, SelectionItem } from '../state/store'
 import { isSessionVisible } from '../state/visibility'
 import { COLOR_CLASSES, FONT_CLASSES } from '../theme/roles'
 import { BodyColorButton } from './BodyColor'
@@ -70,11 +80,11 @@ function renameGroup(
   bodies: readonly Body[],
   features: readonly FeatureRecord[],
 ): GroupId | null {
-  if (key.startsWith('body:')) {
-    const id = key.slice('body:'.length)
-    return bodies.some((body) => body.id === id) ? 'bodies' : null
+  const parsed = parseSelectionKey(key)
+  if (parsed?.kind === 'body') {
+    return bodies.some((body) => body.id === parsed.id) ? 'bodies' : null
   }
-  const id = key.startsWith('feature:') ? key.slice('feature:'.length) : null
+  const id = parsed?.kind === 'feature' ? parsed.id : null
   const record = features.find((feature) => feature.id === id)
   switch (record?.type) {
     case 'sketch':
@@ -111,30 +121,6 @@ const ORIGIN_ROWS: readonly {
   { origin: 'O', kind: 'origin_point', icon: Dot },
 ]
 
-function item(
-  key: string,
-  kind: SelectionItemKind,
-  label: string,
-  data: Partial<Pick<SelectionItem, 'body' | 'feature' | 'origin'>> = {},
-): SelectionItem {
-  return {
-    key,
-    kind,
-    label,
-    body: data.body ?? null,
-    feature: data.feature ?? null,
-    element: null,
-    sketchItem: null,
-    origin: data.origin ?? null,
-  }
-}
-
-function report(action: string): (error: unknown) => void {
-  return (error) => {
-    console.error(`${action} failed.`, error)
-  }
-}
-
 /** Stops a row button's click from also selecting the row. */
 function own(handler: () => void): (event: MouseEvent) => void {
   return (event) => {
@@ -164,12 +150,7 @@ function RowButton({ label, icon: Icon, pressed, disabledReason = null, onClick 
       aria-disabled={disabledReason === null ? undefined : true}
       onClick={own(() => {
         if (disabledReason !== null) {
-          notify(app, {
-            severity: 'info',
-            message: disabledReason,
-            actions: [],
-            code: 'finish_command_first',
-          })
+          explainDisabled(app, { reason: disabledReason, code: 'finish_command_first' })
           return
         }
         onClick()
@@ -329,29 +310,9 @@ function GroupHeader({ id, title, expanded, onToggle, actions }: GroupProps) {
 /** The status badge of a sketch or datum row, as in the timeline (3.10). */
 function StatusBadge({ featureId }: { readonly featureId: string }) {
   const status = useAppState((state) => state.document?.featureStatus[featureId]?.status)
-  if (status === 'error') {
-    return (
-      <CircleX
-        aria-label="Error"
-        strokeWidth={1.75}
-        className={clsx('size-4 shrink-0', COLOR_CLASSES.errorMark.foreground)}
-      />
-    )
-  }
-  if (status === 'warning') {
-    return (
-      <TriangleAlert
-        aria-label="Warning"
-        strokeWidth={1.75}
-        className={clsx(
-          'size-4 shrink-0',
-          COLOR_CLASSES.warningMark.fill,
-          COLOR_CLASSES.warningMark.foreground,
-        )}
-      />
-    )
-  }
-  return null
+  return status === 'error' || status === 'warning' ? (
+    <SeverityIcon severity={status} label={SEVERITY_NAMES[status]} />
+  ) : null
 }
 
 function rowIcon(Icon: LucideIcon): ReactNode {
@@ -420,12 +381,12 @@ function BodyRow({
   // Visibility is a document edit, which waits for an open command (3.7).
   const blocked = useAppState(selectCommandBlock)
   const visible = body.visible !== false
-  const key = `body:${body.id}`
+  const key = bodyKey(body.id)
   return (
     <Row
       kind="body"
       id={body.id}
-      selection={item(key, 'body', body.name, { body: body.id })}
+      selection={bodySelectionItem(body.id, body.name)}
       selected={selected}
       icon={<BodyColorButton body={body} tabbable={false} />}
       onActivate={() => {
@@ -449,7 +410,7 @@ function BodyRow({
             icon={visible ? Eye : EyeOff}
             disabledReason={blocked}
             onClick={() => {
-              setBodyVisible(app, body.id, !visible).catch(report('Changing the visibility'))
+              setBodyVisible(app, body.id, !visible).catch(reportFailure('Changing the visibility'))
             }}
           />
         </>
@@ -461,7 +422,7 @@ function BodyRow({
         onRenamed={(name) => {
           onRename(null)
           if (name !== null && name.trim() !== '' && name.trim() !== body.name) {
-            renameBody(app, body.id, name).catch(report('Renaming the body'))
+            renameBody(app, body.id, name).catch(reportFailure('Renaming the body'))
           }
         }}
       />
@@ -491,21 +452,21 @@ function FeatureRow({
 }) {
   const app = useApp()
   const iconName = useAppState((state) => state.catalog?.byType[record.type]?.manifest.icon)
-  const Icon = iconName === undefined ? Shapes : (FEATURE_ICONS[iconName] ?? Shapes)
-  const key = `feature:${record.id}`
+  const Icon = featureIcon(iconName)
+  const key = featureKey(record.id)
   const selectionKind = kind === 'sketch' ? 'feature' : 'datum_plane'
   return (
     <Row
       kind={kind}
       id={record.id}
-      selection={item(key, selectionKind, label, { feature: record.id })}
+      selection={featureSelectionItem(record.id, label, selectionKind)}
       selected={selected}
       icon={rowIcon(Icon)}
       onActivate={() => {
         if (kind === 'sketch') {
-          enterSketch(app, record.id).catch(report('Entering the sketch'))
+          enterSketch(app, record.id).catch(reportFailure('Entering the sketch'))
         } else {
-          editFeature(app, record.id).catch(report('Editing the datum plane'))
+          editFeature(app, record.id).catch(reportFailure('Editing the datum plane'))
         }
       }}
       onRename={() => {
@@ -519,7 +480,7 @@ function FeatureRow({
         onRenamed={(name) => {
           onRename(null)
           if (name !== null && name.trim() !== label) {
-            renameFeature(app, record.id, name).catch(report('Renaming the feature'))
+            renameFeature(app, record.id, name).catch(reportFailure('Renaming the feature'))
           }
         }}
       />
@@ -549,7 +510,7 @@ function ParameterRow({
     <Row
       kind="parameter"
       id={parameter.id}
-      selection={item(`parameter:${parameter.id}`, 'parameter', parameter.name)}
+      selection={parameterSelectionItem(parameter.id, parameter.name)}
       selected={selected}
       icon={rowIcon(SlidersHorizontal)}
       onActivate={() => {
@@ -685,11 +646,7 @@ export function Browser() {
     if (element === null) {
       return
     }
-    const items = [...element.querySelectorAll<HTMLElement>('[data-tree-item]')]
-    const stop = items.find((candidate) => candidate === lastFocused.current) ?? items[0]
-    for (const candidate of items) {
-      candidate.tabIndex = candidate === stop ? 0 : -1
-    }
+    rovingTabStop(element, '[data-tree-item]', lastFocused.current)
   })
 
   function labelOf(record: FeatureRecord): string {
@@ -731,8 +688,8 @@ export function Browser() {
               <BodyRow
                 key={body.id}
                 body={body}
-                selected={selected.has(`body:${body.id}`)}
-                renaming={renaming === `body:${body.id}`}
+                selected={selected.has(bodyKey(body.id))}
+                renaming={renaming === bodyKey(body.id)}
                 onRename={setRenaming}
               />
             ))
@@ -750,8 +707,8 @@ export function Browser() {
                 record={record}
                 kind="sketch"
                 label={labelOf(record)}
-                selected={selected.has(`feature:${record.id}`)}
-                renaming={renaming === `feature:${record.id}`}
+                selected={selected.has(featureKey(record.id))}
+                renaming={renaming === featureKey(record.id)}
                 onRename={setRenaming}
               />
             ))
@@ -769,8 +726,8 @@ export function Browser() {
                 record={record}
                 kind="datum"
                 label={labelOf(record)}
-                selected={selected.has(`feature:${record.id}`)}
-                renaming={renaming === `feature:${record.id}`}
+                selected={selected.has(featureKey(record.id))}
+                renaming={renaming === featureKey(record.id)}
                 onRename={setRenaming}
               />
             ))
@@ -795,7 +752,7 @@ export function Browser() {
               <ParameterRow
                 key={parameter.id}
                 parameter={parameter}
-                selected={selected.has(`parameter:${parameter.id}`)}
+                selected={selected.has(parameterKey(parameter.id))}
               />
             ))
           : null}

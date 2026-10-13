@@ -2,35 +2,25 @@ import { openRecent } from '../app/actions/document'
 import { openSidePanel } from '../app/actions/panels'
 import { select } from '../app/actions/selection'
 import type { App } from '../app/createApp'
+import { reportFailure } from '../app/report'
 import { featureLabel } from '../core/labels'
 import type { RecentFile } from '../files/recent'
+import {
+  bodyKey,
+  bodySelectionItem,
+  featureKey,
+  featureSelectionItem,
+  parameterKey,
+} from '../inspector/selection-values'
 import { requestUi } from '../layout/requests'
 import { MESSAGES } from '../messages'
-import type { AppState, SelectionItem } from '../state/store'
+import type { AppState } from '../state/store'
 import type { PaletteItem } from './fuzzy'
-import { shortcutsActiveIn, type CommandDefinition } from './registry'
+import { runCommand, shortcutsActiveIn, type CommandDefinition } from './registry'
 import { formatShortcut } from './shortcuts'
 
 // The items the command palette searches (ui.md 3.4): commands and settings, then the document's
 // features, bodies and parameters, then recent files.
-
-function selectionItem(
-  key: string,
-  kind: SelectionItem['kind'],
-  label: string,
-  ids: { readonly body?: string; readonly feature?: string },
-): SelectionItem {
-  return {
-    key,
-    kind,
-    label,
-    body: ids.body ?? null,
-    feature: ids.feature ?? null,
-    element: null,
-    sketchItem: null,
-    origin: null,
-  }
-}
 
 /** Whether a command is listed in the palette now: its context and host, and not hidden. */
 function listed(app: App, state: AppState, definition: CommandDefinition): boolean {
@@ -67,9 +57,7 @@ function commandItem(app: App, state: AppState, definition: CommandDefinition): 
     shortcut: shortcut === undefined ? null : formatShortcut(shortcut, app.platform),
     disabledReason: availability.state === 'disabled' ? availability.reason : null,
     run: () => {
-      app.commands.run(app, definition.id, 'palette').catch((error: unknown) => {
-        console.error(`The command ${definition.id} failed.`, error)
-      })
+      runCommand(app, definition.id, 'palette')
     },
   }
 }
@@ -104,16 +92,14 @@ function documentItems(app: App, state: AppState): PaletteItem[] {
   const recipe = document.recipe
   const features = (recipe.features ?? []).map((feature) => {
     const label = featureLabel(recipe, feature.id, state.catalog)
-    const key = `feature:${feature.id}`
-    return documentItem(key, 'feature', label, null, () => {
-      select(app, [selectionItem(key, 'feature', label, { feature: feature.id })], 'replace')
+    return documentItem(featureKey(feature.id), 'feature', label, null, () => {
+      select(app, [featureSelectionItem(feature.id, label)], 'replace')
       requestUi(app, { kind: 'reveal', feature: feature.id })
     })
   })
   const bodies = (recipe.bodies ?? []).map((body) => {
-    const key = `body:${body.id}`
-    return documentItem(key, 'body', body.name, null, () => {
-      select(app, [selectionItem(key, 'body', body.name, { body: body.id })], 'replace')
+    return documentItem(bodyKey(body.id), 'body', body.name, null, () => {
+      select(app, [bodySelectionItem(body.id, body.name)], 'replace')
       const bounds = app.store.getState().document?.meshes[body.id]?.boundingBox
       if (bounds !== undefined) {
         app.viewport()?.fit(bounds)
@@ -122,7 +108,7 @@ function documentItems(app: App, state: AppState): PaletteItem[] {
   })
   const parameters = (recipe.parameters ?? []).map((parameter) =>
     documentItem(
-      `parameter:${parameter.id}`,
+      parameterKey(parameter.id),
       'parameter',
       `${parameter.name} = ${parameter.expr}`,
       parameter.comment ?? null,
@@ -153,9 +139,7 @@ export function paletteItems(app: App, recent: readonly RecentFile[]): PaletteIt
     shortcut: null,
     disabledReason: state.core.status === 'ready' ? null : MESSAGES.core_not_running(),
     run: () => {
-      openRecent(app, entry).catch((error: unknown) => {
-        console.error(`Opening ${entry.name} failed.`, error)
-      })
+      openRecent(app, entry).catch(reportFailure(`Opening ${entry.name}`))
     },
   }))
   return [...commands, ...documentItems(app, state), ...recentItems]

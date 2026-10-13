@@ -1,5 +1,5 @@
 import type { ProfileFinding, SketchSolution } from '../generated/protocol'
-import type { Vector2 } from './geometry'
+import { midpoint, type Vector2 } from './geometry'
 
 // The solver's and profile check's messages (sketch.md 4.2, 4.3). A solution carries ids and
 // findings but no text, so the UI words them exactly as the sketch crate does.
@@ -68,7 +68,7 @@ function profileIssuePosition(finding: ProfileFinding): Vector2 | null {
     case 'self_intersection':
       return finding.point
     case 'overlap':
-      return [(finding.start[0] + finding.end[0]) / 2, (finding.start[1] + finding.end[1]) / 2]
+      return midpoint(finding.start, finding.end)
     case 'zero_length':
       return null
   }

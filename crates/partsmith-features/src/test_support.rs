@@ -6,16 +6,17 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use partsmith_model::{
-    Category, EmptyContext, FeatureManifest, FeatureRecord, FieldHint, Id, ParameterValues, Scope,
-    Units,
+    Category, EmptyContext, Expr, FeatureManifest, FeatureRecord, FieldHint, FieldUnit, Id,
+    ParameterValues, Scope, Units,
 };
-use partsmith_naming::{ElementKind, NamingMap};
+use partsmith_naming::{ElementKind, NamingMap, Reference};
 use partsmith_occt_sys::{Plane, Point, Primitive, Shape, make_box};
 use partsmith_sketch::RegionRef;
 use serde_json::Value;
 
 use crate::builtin::common::primitive_tool;
 use crate::context::{BodyState, BuildContext, BuildInputs, CancelToken, Values};
+use crate::deps::ExprUse;
 use crate::error::FeatureError;
 use crate::feature::Feature;
 use crate::output::{BodyUpdate, FeatureOutput, OutputData, Tool};
@@ -25,6 +26,31 @@ use crate::python::PythonNames;
 /// A valid id written in a test.
 pub(crate) fn id(text: &str) -> Id {
     Id::new(text).expect("ids written in tests are valid")
+}
+
+/// The values of these `(field, expression, unit)` uses in a millimeter document without
+/// parameters.
+pub(crate) fn values(uses: &[(&str, &str, FieldUnit)]) -> Values {
+    let uses: Vec<ExprUse> = uses
+        .iter()
+        .map(|(field, expr, kind)| ExprUse {
+            field: field.to_string(),
+            expr: Expr::new(*expr),
+            kind: *kind,
+        })
+        .collect();
+    let parameters = ParameterValues::default();
+    let scope = Scope {
+        units: Units::Mm,
+        parameters: &parameters,
+        context: &EmptyContext,
+    };
+    Values::evaluate(&uses, &scope, &manifest(Vec::new()))
+}
+
+/// A stored reference parsed from its JSON form.
+pub(crate) fn reference(json: &str) -> Reference {
+    serde_json::from_str(json).expect("references written in tests are valid")
 }
 
 /// A version 1 manifest labeled "Test" with the given fields.

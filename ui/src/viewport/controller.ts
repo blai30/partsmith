@@ -3,6 +3,7 @@ import { layOnFace } from '../app/actions/print'
 import { clearSelection, elementSelectionItem, pickAt } from '../app/actions/selection'
 import { createSketchOn, enterSketch, recordSketchView } from '../app/actions/sketch'
 import { onCoreEvent, type App } from '../app/createApp'
+import { reportFailure } from '../app/report'
 import { CoreError } from '../core/client'
 import type { BoundingBox, ElementDescriptor } from '../generated/protocol'
 import type { Rectangle } from '../inspector/placement'
@@ -54,6 +55,7 @@ import {
   type PickResult,
   type PointerRay,
 } from './picking'
+import { requestFrame } from './frames'
 import { createHighlights } from './highlights'
 import { selectionFieldAt } from './picking-rules'
 import type { Scene } from './scene'
@@ -148,22 +150,6 @@ function prefersReducedMotion(): boolean {
   return typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
 }
 
-/** Animation frames, or a timer where the environment has none. */
-function requestFrame(callback: (time: number) => void): () => void {
-  if (typeof requestAnimationFrame === 'function') {
-    const id = requestAnimationFrame(callback)
-    return () => {
-      cancelAnimationFrame(id)
-    }
-  }
-  const timer = setTimeout(() => {
-    callback(performance.now())
-  }, 16)
-  return () => {
-    clearTimeout(timer)
-  }
-}
-
 /** A coordinate rounded to 2 decimals, trailing zeros trimmed, -0 written 0 (3.13). */
 function coordinateText(value: number): string {
   const rounded = Math.round(value * 100) / 100
@@ -173,11 +159,6 @@ function coordinateText(value: number): string {
 function emptyFitBounds(): BoundingBox {
   const half = EMPTY_FIT_SIDE / 2
   return { min: [-half, -half, -half], max: [half, half, half] }
-}
-
-/** Reports a viewport action that failed. */
-function report(error: unknown): void {
-  console.error('A viewport action failed.', error)
 }
 
 /** A middle-button press never starts the browser's autoscroll (3.13). */
@@ -879,7 +860,9 @@ export function createViewportController(options: {
       Math.hypot(point.x - ended.startX, point.y - ended.startY) <= CLICK_DISTANCE &&
       performance.now() - ended.startedAt <= CLICK_MILLISECONDS
     if (isClick && ended.startButtons === LEFT_BUTTON && event.button === 0) {
-      click(point.x, point.y, event.shiftKey || event.ctrlKey || event.metaKey).catch(report)
+      click(point.x, point.y, event.shiftKey || event.ctrlKey || event.metaKey).catch(
+        reportFailure('A viewport action'),
+      )
     } else if (
       released &&
       ended.gesture === null &&
@@ -887,7 +870,7 @@ export function createViewportController(options: {
       event.button === SECONDARY_BUTTON_INDEX
     ) {
       // A right press released before it became an orbit or pan opens the context menu (3.13).
-      contextClick(ended.startX, ended.startY).catch(report)
+      contextClick(ended.startX, ended.startY).catch(reportFailure('A viewport action'))
     } else if (
       isClick &&
       ended.startButtons === MIDDLE_BUTTON &&
@@ -1007,7 +990,7 @@ export function createViewportController(options: {
       return
     }
     const point = canvasPoint(event)
-    doubleClick(point.x, point.y).catch(report)
+    doubleClick(point.x, point.y).catch(reportFailure('A viewport action'))
   }
 
   // Store and core subscriptions.

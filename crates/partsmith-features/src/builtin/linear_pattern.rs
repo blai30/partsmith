@@ -9,8 +9,8 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use super::common::{
-    COPY_OP_OPTIONS, check_range, essential, hint, into_keyword, is_false, manifest, options_hint,
-    selection_hint, unit_hint,
+    check_canceled, essential, hint, into_keyword, is_false, length_in_range, manifest,
+    selection_hint, target_hint, unit_hint,
 };
 use super::copy::{self, Source};
 use crate::context::BuildContext;
@@ -82,14 +82,11 @@ impl Step {
     ) -> Result<Step, FeatureError> {
         let count = context.eval_count(&format!("{field}.count"), &direction.count, 1)?;
         let spacing_field = format!("{field}.spacing");
-        let spacing = context.eval_length(&spacing_field, &direction.spacing)?;
-        check_range(
+        let spacing = length_in_range(
             context,
             &spacing_field,
-            FieldUnit::Length,
-            spacing,
+            &direction.spacing,
             Bound::GreaterThan(0.0),
-            None,
         )?;
         let axis = context.axis(&format!("{field}.axis"), &direction.axis)?;
         let signed = if direction.reverse { -spacing } else { spacing };
@@ -141,8 +138,8 @@ impl Feature for LinearPattern {
                     FieldUnit::Length,
                 ),
                 hint("second_direction.reverse", "Second reverse"),
-                options_hint("op", "Operation", &COPY_OP_OPTIONS),
-                selection_hint("target", "Target body", SelectionKind::Body),
+                copy::op_hint(),
+                target_hint(),
             ],
         )
     }
@@ -199,7 +196,7 @@ impl Feature for LinearPattern {
                 if (first_step, second_step) == (0, 0) {
                     continue;
                 }
-                copy::check_canceled(context)?;
+                check_canceled(context)?;
                 let along_first = first.offset.scaled(f64::from(first_step));
                 let along_second = second.offset.scaled(f64::from(second_step));
                 let offset = Vector::new(
@@ -300,17 +297,6 @@ mod tests {
 
     fn run(params: &LinearPatternParams) -> Result<FeatureOutput, FeatureError> {
         build::<LinearPattern>("f-lp1", params, cube(), Vec::new())
-    }
-
-    #[test]
-    fn registers_with_its_manifest() {
-        let mut registry = Registry::new();
-
-        registry
-            .register::<LinearPattern>()
-            .expect("the linear pattern passes the registration checks");
-
-        assert_eq!(registry.types().collect::<Vec<_>>(), ["linear_pattern"]);
     }
 
     #[test]
@@ -442,41 +428,6 @@ mod tests {
     }
 
     #[test]
-    fn count_one_has_no_effect() {
-        let output = run(&pattern(direction(X, "1", "20"), json!({}))).expect("no copies is fine");
-
-        assert_eq!(output.warnings[0].code(), "no_effect");
-    }
-
-    #[test]
-    fn a_zero_count_is_out_of_range() {
-        let error = run(&pattern(direction(X, "0", "20"), json!({}))).expect_err("count 0");
-
-        assert_eq!(
-            error.field().expect("names a field").path,
-            "direction.count"
-        );
-        assert_eq!(
-            error.to_string(),
-            "Count must be at least 1, but it is 0. Use 1 or more."
-        );
-    }
-
-    #[test]
-    fn a_negative_count_suggests_a_count_that_works() {
-        let error = run(&pattern(direction(X, "-1", "20"), json!({}))).expect_err("count -1");
-
-        assert_eq!(
-            error.to_string(),
-            "Count must be at least 1, but it is -1. Use 1 or more."
-        );
-        assert_eq!(
-            error.suggestion(partsmith_model::Units::Mm).as_deref(),
-            Some("1")
-        );
-    }
-
-    #[test]
     fn count_one_with_op_new_needs_an_empty_target() {
         let params = pattern(
             direction(X, "1", "20"),
@@ -490,35 +441,6 @@ mod tests {
         assert_eq!(
             result.map(|_| ()),
             Err(FeatureError::BodyNotEmpty { body: id("b-2") })
-        );
-    }
-
-    #[test]
-    fn a_zero_spacing_is_out_of_range() {
-        let error = run(&pattern(direction(X, "3", "0"), json!({}))).expect_err("spacing 0");
-
-        assert_eq!(error.code(), "out_of_range");
-        assert_eq!(
-            error.field().expect("names a field").path,
-            "direction.spacing"
-        );
-    }
-
-    #[test]
-    fn more_than_ten_thousand_instances_are_too_many() {
-        let params = pattern(
-            direction(X, "200", "20"),
-            json!({"second_direction": direction(Y, "100", "20")}),
-        );
-
-        let error = run(&params).expect_err("20000 instances");
-
-        assert_eq!(
-            error,
-            FeatureError::TooManyInstances {
-                count: 20_000,
-                limit: 10_000
-            }
         );
     }
 

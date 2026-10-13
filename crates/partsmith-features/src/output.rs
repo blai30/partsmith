@@ -12,7 +12,7 @@ use partsmith_sketch::{ORIGIN, Placement, PointRef, PointRole, Profile, SolveRes
 use crate::context::BuildContext;
 use crate::error::FeatureError;
 use crate::error::FeatureWarning;
-use crate::naming::name_by_history;
+use crate::naming::{has_element_counts, name_by_history};
 use crate::params::BodyOp;
 
 /// Relative volume tolerance of the body rules (section 3.5): a volume change, or a remaining
@@ -179,9 +179,7 @@ pub fn apply_op(
             use_new: true,
         });
     };
-    if context.is_canceled() {
-        return Err(FeatureError::Canceled);
-    }
+    context.check_canceled()?;
     let tool_shapes: Vec<Shape> = tools.iter().map(|tool| tool.shape.clone()).collect();
     let result = boolean(target, &tool_shapes)?;
     apply_op_result(context, body, op, &tools, result)
@@ -277,13 +275,12 @@ pub fn apply_op_result(
 
 /// True when `input` has one entry per face, edge and vertex of `shape`.
 fn history_fits(input: &InputHistory, shape: &Shape) -> bool {
-    [
-        (input.faces.len(), SubShapeKind::Face),
-        (input.edges.len(), SubShapeKind::Edge),
-        (input.vertices.len(), SubShapeKind::Vertex),
-    ]
-    .into_iter()
-    .all(|(entries, kind)| u32::try_from(entries).is_ok_and(|entries| entries == shape.count(kind)))
+    has_element_counts(
+        shape,
+        input.faces.len(),
+        input.edges.len(),
+        input.vertices.len(),
+    )
 }
 
 /// The shape and names of the tools fused into one: the only tool as it is (its topology unknown
@@ -297,9 +294,7 @@ fn combine_tools(
         let tool = tools.remove(0);
         return Ok((tool.shape, tool.naming, None));
     }
-    if context.is_canceled() {
-        return Err(FeatureError::Canceled);
-    }
+    context.check_canceled()?;
     let shapes: Vec<Shape> = tools.iter().map(|tool| tool.shape.clone()).collect();
     let result = fuse(&shapes[0], &shapes[1..])?;
     let inputs: Vec<&NamingMap> = tools.iter().map(|tool| &tool.naming).collect();

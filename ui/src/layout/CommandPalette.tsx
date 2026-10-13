@@ -1,13 +1,5 @@
 import { clsx } from 'clsx/lite'
-import {
-  Box,
-  Check,
-  History,
-  Search,
-  Shapes,
-  SlidersHorizontal,
-  type LucideIcon,
-} from 'lucide-react'
+import { Box, Check, History, Search, SlidersHorizontal, type LucideIcon } from 'lucide-react'
 import {
   useEffect,
   useId,
@@ -22,9 +14,11 @@ import { recordPaletteRecent } from '../app/actions/settings'
 import { setPaletteOpen } from '../app/actions/panels'
 import { useApp, useAppState } from '../app/AppProvider'
 import type { App } from '../app/createApp'
+import { reportFailure } from '../app/report'
 import { rankPaletteItems, recentItems, type PaletteItem } from '../commands/fuzzy'
-import { FEATURE_ICONS } from '../commands/icons'
+import { featureIcon } from '../commands/icons'
 import { paletteItems } from '../commands/palette'
+import { parseSelectionKey } from '../inspector/selection-values'
 import { measureTiming, TIMING_NAMES } from '../performance/marks'
 import type { AppContext } from '../state/store'
 import { COLOR_CLASSES } from '../theme/roles'
@@ -54,10 +48,10 @@ function iconFor(app: App, item: PaletteItem): LucideIcon | null {
       return app.commands.get(item.id)?.icon ?? null
     case 'feature': {
       const state = app.store.getState()
-      const id = item.id.slice('feature:'.length)
+      const id = parseSelectionKey(item.id)?.id
       const type = state.document?.recipe.features?.find((feature) => feature.id === id)?.type
       const icon = type === undefined ? undefined : state.catalog?.byType[type]?.manifest.icon
-      return icon === undefined ? Shapes : (FEATURE_ICONS[icon] ?? Shapes)
+      return featureIcon(icon)
     }
     case 'body':
       return Box
@@ -170,16 +164,11 @@ function OpenPalette() {
   // Recent files join the items once they are read.
   useEffect(() => {
     let current = true
-    app.recent.list().then(
-      (recent) => {
-        if (current && recent.length > 0) {
-          setItems(paletteItems(app, recent))
-        }
-      },
-      (error: unknown) => {
-        console.error('Reading the recent files failed.', error)
-      },
-    )
+    app.recent.list().then((recent) => {
+      if (current && recent.length > 0) {
+        setItems(paletteItems(app, recent))
+      }
+    }, reportFailure('Reading the recent files'))
     return () => {
       current = false
     }

@@ -6,6 +6,7 @@ import { startCore } from './app/actions/document'
 import { AppProvider } from './app/AppProvider'
 import { installCloseGuard } from './app/close-guard'
 import { createApp, detectPlatform, installUnloadGuard } from './app/createApp'
+import { reportFailure } from './app/report'
 import { builtinCommands } from './commands/builtin'
 import { installShortcutDispatcher } from './commands/dispatcher'
 import type { TauriGlobal } from './core/tauri-transport'
@@ -98,7 +99,5 @@ if (missing !== null) {
       </AppProvider>
     </StrictMode>,
   )
-  startCore(app).catch((error: unknown) => {
-    console.error('Starting the geometry core failed.', error)
-  })
+  startCore(app).catch(reportFailure('Starting the geometry core'))
 }

@@ -6,14 +6,29 @@ import type {
   FieldUnit,
   SelectionKind,
 } from '../generated/protocol'
-import type { CatalogFeature } from '../state/store'
+import type { ActiveCommand, AppState, CatalogFeature } from '../state/store'
 import { fieldHelp } from './help'
+import { isRecord, parentPath, parsePath, writtenParams } from './param-path'
+import {
+  isExpression,
+  locate,
+  propertiesOf,
+  requiredOf,
+  resolved,
+  schemaOrNull,
+  tagOf,
+  typesOf,
+  unwrapped,
+  variantsOf,
+  type JsonSchema,
+  type Located,
+} from './schema'
 import { startValue } from './start-values'
 
 // The schema-driven inspector model (ui.md 2.12): manifest field hints mapped onto the params JSON
 // Schema (draft 2020-12 as schemars 1 emits it) to controls, defaults and param updates.
 
-export type JsonSchema = Readonly<Record<string, unknown>>
+export type { JsonSchema } from './schema'
 
 export type FieldControl =
   | { readonly type: 'expression'; readonly unit: FieldUnit }
@@ -62,6 +77,13 @@ export type InspectorModel = {
   readonly complete: boolean
 }
 
+/** The active feature command with its catalog feature and inspector model. */
+export type ActiveCommandModel = {
+  readonly command: ActiveCommand
+  readonly feature: CatalogFeature
+  readonly model: InspectorModel
+}
+
 export type DefaultsContext = {
   readonly bodies: readonly Body[]
   readonly bodiesWithGeometry: readonly string[]
@@ -83,192 +105,7 @@ const EXPRESSION_DEFAULTS: Readonly<Record<FieldUnit, string>> = {
   count: '2',
 }
 
-type PathSegment = string | number
 type Params = Readonly<Record<string, unknown>>
-
-function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
-function schemaOrNull(value: unknown): JsonSchema | null {
-  return isRecord(value) ? value : null
-}
-
-/** Splits `a.b[1].c` into `['a', 'b', 1, 'c']`; null for paths this model cannot address (`[*]`). */
-function parsePath(path: string): PathSegment[] | null {
-  const segments: PathSegment[] = []
-  for (const part of path.split('.')) {
-    const match = /^([A-Za-z_][A-Za-z0-9_]*)((?:\[\d+\])*)$/.exec(part)
-    if (match === null) {
-      return null
-    }
-    segments.push(match[1] ?? '')
-    for (const index of (match[2] ?? '').matchAll(/\[(\d+)\]/g)) {
-      segments.push(Number(index[1]))
-    }
-  }
-  return segments
-}
-
-/** Follows `$ref`s into the root schema's `$defs`. */
-function resolved(schema: JsonSchema, root: JsonSchema): JsonSchema {
-  let current = schema
-  for (let depth = 0; depth < 32; depth += 1) {
-    const reference = current['$ref']
-    if (typeof reference !== 'string') {
-      return current
-    }
-    const name = /^#\/\$defs\/(.+)$/.exec(reference)?.[1]
-    const target = name === undefined ? null : schemaOrNull(schemaOrNull(root['$defs'])?.[name])
-    if (target === null) {
-      return current
-    }
-    current = target
-  }
-  return current
-}
-
-/** The inner schema of an `Option<T>` (`anyOf: [T, {type: null}]`), or null for anything else. */
-function optionInner(schema: JsonSchema): JsonSchema | null {
-  const choices = schema['anyOf']
-  if (!Array.isArray(choices) || choices.length !== 2) {
-    return null
-  }
-  const [first, second] = choices.map(schemaOrNull)
-  if (second?.['type'] === 'null') {
-    return first ?? null
-  }
-  if (first?.['type'] === 'null') {
-    return second ?? null
-  }
-  return null
-}
-
-/** A schema with references followed and an Option unwrapped. */
-type Unwrapped = {
-  /** The schema as written, below any Option. */
-  readonly written: JsonSchema
-  readonly schema: JsonSchema
-  readonly optional: boolean
-}
-
-function unwrapped(schema: JsonSchema, root: JsonSchema): Unwrapped {
-  const direct = resolved(schema, root)
-  const inner = optionInner(direct)
-  if (inner === null) {
-    return { written: schema, schema: direct, optional: false }
-  }
-  return { written: inner, schema: resolved(inner, root), optional: true }
-}
-
-function typesOf(schema: JsonSchema): readonly string[] {
-  const type = schema['type']
-  if (typeof type === 'string') {
-    return [type]
-  }
-  return Array.isArray(type)
-    ? type.filter((entry): entry is string => typeof entry === 'string')
-    : []
-}
-
-function propertiesOf(schema: JsonSchema): Readonly<Record<string, unknown>> {
-  return schemaOrNull(schema['properties']) ?? {}
-}
-
-function requiredOf(schema: JsonSchema): readonly unknown[] {
-  const required = schema['required']
-  return Array.isArray(required) ? required : []
-}
-
-/** The value of a variant's `kind` tag, or null when the schema is not a tagged variant. */
-function tagOf(variant: JsonSchema, root: JsonSchema): string | null {
-  const kind = schemaOrNull(propertiesOf(resolved(variant, root))['kind'])
-  const value = kind?.['const']
-  return typeof value === 'string' ? value : null
-}
-
-/** The variants of a tagged union (a `oneOf` of objects with a constant `kind`), or null. */
-function variantsOf(schema: JsonSchema, root: JsonSchema): readonly JsonSchema[] | null {
-  const choices = schema['oneOf']
-  if (!Array.isArray(choices) || choices.length === 0) {
-    return null
-  }
-  const variants = choices.map(schemaOrNull)
-  if (variants.some((variant) => variant === null || tagOf(variant, root) === null)) {
-    return null
-  }
-  return variants.map((variant) => resolved(variant ?? {}, root))
-}
-
-/** The variant a value selects by its `kind`, else the first. */
-function variantFor(variants: readonly JsonSchema[], value: unknown, root: JsonSchema): JsonSchema {
-  const kind = isRecord(value) ? value['kind'] : undefined
-  return variants.find((variant) => tagOf(variant, root) === kind) ?? variants[0] ?? {}
-}
-
-function isExpression(schema: JsonSchema, root: JsonSchema): boolean {
-  return schema['$ref'] === '#/$defs/Expr' || resolved(schema, root)['title'] === 'Expr'
-}
-
-/** Where a path leads in the schema, for the current params. */
-type Located = {
-  /** The leaf schema as written (below any Option). */
-  readonly written: JsonSchema
-  /** The leaf schema with references followed. */
-  readonly schema: JsonSchema
-  readonly required: boolean
-  /** The leaf is the `kind` tag of a tagged union. */
-  readonly tag: boolean
-}
-
-/** Follows a path through the schema; null when the current value's branch does not declare it. */
-function locate(
-  root: JsonSchema,
-  params: Params,
-  segments: readonly PathSegment[],
-): Located | null {
-  let current: JsonSchema = root
-  let value: unknown = params
-  let required = true
-  let tag = false
-  let raw: JsonSchema = root
-  for (const segment of segments) {
-    const parent = unwrapped(current, root)
-    if (parent.optional) {
-      required = false
-    }
-    let next: JsonSchema | null
-    if (typeof segment === 'number') {
-      const items = parent.schema['items']
-      const maximum = parent.schema['maxItems']
-      next =
-        typeof maximum === 'number' && segment >= maximum
-          ? null
-          : schemaOrNull(Array.isArray(items) ? items[segment] : items)
-      value = Array.isArray(value) ? value[segment] : undefined
-      tag = false
-    } else {
-      const variants = variantsOf(parent.schema, root)
-      const object = variants === null ? parent.schema : variantFor(variants, value, root)
-      next = schemaOrNull(propertiesOf(object)[segment])
-      required = required && requiredOf(object).includes(segment)
-      tag = variants !== null && segment === 'kind'
-      value = isRecord(value) ? value[segment] : undefined
-    }
-    if (next === null) {
-      return null
-    }
-    raw = next
-    current = next
-  }
-  const leaf = unwrapped(raw, root)
-  return {
-    written: leaf.written,
-    schema: leaf.schema,
-    required: required && !leaf.optional,
-    tag,
-  }
-}
 
 function isChoiceSchema(located: Located, root: JsonSchema): boolean {
   if (located.tag || Array.isArray(located.schema['enum'])) {
@@ -340,6 +177,31 @@ export function getParam(params: Params, path: string): unknown {
   return value
 }
 
+/** The params object that holds a field: the top level, or its parent object (empty when that is no object). */
+export function siblingsOf(params: Params, path: string): Params {
+  const parent = parentPath(path)
+  if (parent === '') {
+    return params
+  }
+  const value = getParam(params, parent)
+  return isRecord(value) ? value : {}
+}
+
+/** Whether a field value is missing: nothing, empty text, an empty list, or a profile without regions. */
+export function isEmptyValue(value: unknown): boolean {
+  if (value === undefined || value === null || value === '') {
+    return true
+  }
+  if (Array.isArray(value)) {
+    return value.length === 0
+  }
+  return (
+    typeof value === 'object' &&
+    Array.isArray(Reflect.get(value, 'regions')) &&
+    Reflect.get(value, 'regions').length === 0
+  )
+}
+
 function hasValue(control: FieldControl, value: unknown): boolean {
   if (value === undefined || value === null) {
     return false
@@ -363,12 +225,6 @@ function hasValue(control: FieldControl, value: unknown): boolean {
   }
 }
 
-/** The path of the parent object of a field path (`''` for top-level fields). */
-function parentPath(path: string): string {
-  const dot = path.lastIndexOf('.')
-  return dot === -1 ? '' : path.slice(0, dot)
-}
-
 /**
  * How a feature creates a body through its `target` field (2.12): `op` when its op options include
  * `new` (Mirror, Linear pattern, Circular pattern: the target is shown only while op is new), and
@@ -383,7 +239,7 @@ export function bodyCreatingTarget(feature: CatalogFeature): 'op' | 'always' | n
   }
   const op = hints.find((hint) => hint.path === 'op')
   if (op === undefined) {
-    return requiredOf(rootSchemaOf(feature)).includes('target') ? null : 'always'
+    return requiredOf(feature.paramsSchema).includes('target') ? null : 'always'
   }
   return op.options?.some((option) => option.value === 'new') === true ? 'op' : null
 }
@@ -441,16 +297,12 @@ function missing(field: InspectorField, params: Params, feature: CatalogFeature)
   )
 }
 
-function rootSchemaOf(feature: CatalogFeature): JsonSchema {
-  return feature.paramsSchema
-}
-
 /** Extent variants in which the feature ignores Reverse (features/extrude.md open issue 1). */
 const REVERSE_IGNORED: ReadonlySet<string> = new Set(['symmetric', 'full'])
 
 /** Whether the feature's params have a top-level boolean `reverse` and a top-level tagged union `extent` (2.12). */
 function hasInlineReverse(feature: CatalogFeature): boolean {
-  const root = rootSchemaOf(feature)
+  const root = feature.paramsSchema
   const properties = propertiesOf(root)
   const reverse = schemaOrNull(properties['reverse'])
   const extent = schemaOrNull(properties['extent'])
@@ -517,7 +369,7 @@ function alignedStart(feature: CatalogFeature, start: Params, params: Params): P
   let aligned: Params = start
   for (const hint of feature.manifest.fields) {
     const segments = parsePath(hint.path)
-    const located = segments === null ? null : locate(rootSchemaOf(feature), params, segments)
+    const located = segments === null ? null : locate(feature.paramsSchema, params, segments)
     const value = getParam(params, hint.path)
     if (
       located?.tag === true &&
@@ -539,7 +391,7 @@ export function buildInspectorModel(input: {
   readonly startParams?: Params
 }): InspectorModel {
   const { feature, params } = input
-  const root = rootSchemaOf(feature)
+  const root = feature.paramsSchema
   const targetRule = bodyCreatingTarget(feature)
   const essentialFields: InspectorField[] = []
   const moreFields: InspectorField[] = []
@@ -599,6 +451,33 @@ export function buildInspectorModel(input: {
   }
 }
 
+/** The model's fields: essential ones, then those under More options. */
+export function fieldsOf(model: InspectorModel): readonly InspectorField[] {
+  return [...model.essential, ...model.more]
+}
+
+/** The catalog feature of the active feature command, or undefined without one. */
+export function activeCommandFeature(state: AppState): CatalogFeature | undefined {
+  return state.command === null ? undefined : state.catalog?.byType[state.command.featureType]
+}
+
+/** The active feature command's model, or null without a command. */
+export function activeCommandModel(
+  state: AppState,
+  errors: Readonly<Record<string, string>> = {},
+): ActiveCommandModel | null {
+  const command = state.command
+  const feature = activeCommandFeature(state)
+  if (command === null || feature === undefined) {
+    return null
+  }
+  return {
+    command,
+    feature,
+    model: buildInspectorModel({ feature, params: command.params, errors }),
+  }
+}
+
 function hintFor(feature: CatalogFeature, path: string): FieldHint | undefined {
   return feature.manifest.fields.find((hint) => hint.path === path)
 }
@@ -615,7 +494,7 @@ function defaultValue(
   required: boolean,
   scope: Params,
 ): unknown {
-  const root = rootSchemaOf(feature)
+  const root = feature.paramsSchema
   const direct = resolved(schema, root)
   const leaf = unwrapped(schema, root)
   const hint = hintFor(feature, path)
@@ -741,7 +620,7 @@ function reusedParams(
         record.type === feature.type && context.featureStatus[record.id]?.status !== 'error',
     )
     .toReversed()
-  const root = rootSchemaOf(feature)
+  const root = feature.paramsSchema
   let reused = params
   for (const hint of feature.manifest.fields) {
     const segments = parsePath(hint.path)
@@ -784,7 +663,7 @@ export function defaultParams(
 ): Record<string, unknown> {
   const params = reusedParams(
     feature,
-    objectDefaults(feature, rootSchemaOf(feature), '', {}),
+    objectDefaults(feature, feature.paramsSchema, '', {}),
     context,
   )
   const op = hintFor(feature, 'op')
@@ -803,42 +682,6 @@ export function defaultParams(
   return params
 }
 
-/** The params with `value` written at `segments`. */
-function writtenParams(
-  params: Params,
-  segments: readonly PathSegment[],
-  value: unknown,
-): Record<string, unknown> {
-  const result = written(params, segments, value)
-  return isRecord(result) ? { ...result } : {}
-}
-
-/** A copy of `container` with `value` written at `segments`, creating objects on the way. */
-function written(container: unknown, segments: readonly PathSegment[], value: unknown): unknown {
-  const [segment, ...rest] = segments
-  if (segment === undefined) {
-    return value
-  }
-  if (typeof segment === 'number') {
-    const array = Array.isArray(container) ? [...container] : []
-    const item = written(array[segment], rest, value)
-    if (item === undefined && rest.length === 0) {
-      array.splice(segment, 1)
-    } else {
-      array[segment] = item
-    }
-    return array
-  }
-  const object: Record<string, unknown> = isRecord(container) ? { ...container } : {}
-  const property = written(object[segment], rest, value)
-  if (property === undefined) {
-    Reflect.deleteProperty(object, segment)
-  } else {
-    object[segment] = property
-  }
-  return object
-}
-
 /**
  * Writes a value at a path, creating intermediate objects; undefined removes the key. Changing a
  * tagged union's `kind` gives the new variant's defaults, keeping properties both variants have.
@@ -853,7 +696,7 @@ export function setParam(
   if (segments === null) {
     return { ...params }
   }
-  const root = rootSchemaOf(feature)
+  const root = feature.paramsSchema
   const located = locate(root, params, segments)
   const unionPath = segments.slice(0, -1)
   if (located?.tag === true && typeof value === 'string' && unionPath.length > 0) {

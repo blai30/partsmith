@@ -4,6 +4,7 @@ import { commitSketchChange, enterSketch } from '../app/actions/sketch'
 import type { App } from '../app/createApp'
 import { createAppStore, type AppStore } from '../state/store'
 import { createFakeBackend } from '../test/fakes/backend'
+import { createTestApp } from '../test/fakes/test-app'
 import {
   DEFAULT_CAMERA,
   classifyView,
@@ -18,7 +19,6 @@ import { createScene } from '../viewport/scene'
 import {
   SKETCH_ID,
   createFakeCore,
-  createSketchTestApp,
   documentState,
   pointEntity,
   sketchRecord,
@@ -113,7 +113,7 @@ async function enterEmptySketch(): Promise<Fixture> {
       return Promise.resolve({ revision: 4, label: 'Point' })
     },
   })
-  const app = createSketchTestApp({ core, store })
+  const app = createTestApp({ core, store })
   const canvas = document.createElement('canvas')
   const overlay = document.createElement('div')
   document.body.append(canvas, overlay)
@@ -247,7 +247,7 @@ describe('sketch view history (3.20)', () => {
     expectCamera(fixture.controller.getCamera(), orbited)
   })
 
-  it('with the stack empty, Mod+Z calls core undo directly', async () => {
+  it('with only the entry recorded, Mod+Z restores the camera from before entering, then calls core undo', async () => {
     const fixture = await enterEmptySketch()
 
     await undo(fixture.app)

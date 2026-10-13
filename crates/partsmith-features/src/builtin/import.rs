@@ -2,11 +2,13 @@
 
 use partsmith_model::{Category, FeatureManifest, Id};
 use partsmith_naming::{FaceSource, roles};
-use partsmith_occt_sys::{Shape, SubShapeKind, compound, read_step};
+use partsmith_occt_sys::{Shape, SubShapeKind, read_step};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use super::common::{apply_tool, body_hint, body_op_hint, essential, face_name, hint, manifest};
+use super::common::{
+    apply_tool, body_hint, body_op_hint, essential, face_name, hint, manifest, single_or_compound,
+};
 use crate::context::BuildContext;
 use crate::deps::Dependencies;
 use crate::error::{FeatureError, FeatureWarning};
@@ -109,16 +111,13 @@ fn is_step_asset(asset: &str) -> bool {
 
 /// The tool of the imported solids: the only solid as it is, several grouped in read order, with
 /// every face named by the fallback rule (naming.md section 3.6.14).
-fn imported_tool(context: &BuildContext<'_>, mut solids: Vec<Shape>) -> Result<Tool, FeatureError> {
-    let shape = match solids.len() {
-        0 => {
-            return Err(FeatureError::internal(
-                "the kernel read a STEP file without solids and without an error",
-            ));
-        }
-        1 => solids.remove(0),
-        _ => compound(&solids)?.shape,
-    };
+fn imported_tool(context: &BuildContext<'_>, solids: Vec<Shape>) -> Result<Tool, FeatureError> {
+    if solids.is_empty() {
+        return Err(FeatureError::internal(
+            "the kernel read a STEP file without solids and without an error",
+        ));
+    }
+    let shape = single_or_compound(solids)?;
     let name = face_name(context.feature(), roles::FACE, None)?;
     let faces = vec![FaceSource::New(name); shape.count(SubShapeKind::Face) as usize];
     let naming = name_shape(&shape, faces, &[])?.naming;
@@ -182,17 +181,6 @@ mod tests {
         let mut fixture = fixture::<Import>("f-imp1", params, bodies, Vec::new());
         fixture.assets.insert(asset(), bytes);
         Import::build(params, &fixture.context())
-    }
-
-    #[test]
-    fn registers_with_its_manifest() {
-        let mut registry = Registry::new();
-
-        registry
-            .register::<Import>()
-            .expect("the import passes the registration checks");
-
-        assert_eq!(registry.types().collect::<Vec<_>>(), ["import"]);
     }
 
     #[test]

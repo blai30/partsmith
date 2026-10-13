@@ -1,6 +1,7 @@
 import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { commandComplete } from '../app/actions/command'
 import { installPopoverPolyfill } from '../components/popover-polyfill.testing'
 import type { ActiveCommand, AppState, SketchSession } from '../state/store'
 import { CUBE_TOP_FRONT_EDGE, RECT_REGION } from '../test/fakes/documents'
@@ -13,7 +14,7 @@ import {
   rectSketchDocumentState,
   sketchLineItem,
 } from './fixtures.testing'
-import { commandComplete, escapeStep } from './ladders'
+import { escapeStep } from './ladders'
 import { createModelApp, deferred, renderWithApp, stubMatchMedia } from './test-app.testing'
 
 let uninstallPopovers: () => void

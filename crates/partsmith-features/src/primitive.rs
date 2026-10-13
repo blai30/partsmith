@@ -3,6 +3,7 @@
 use partsmith_model::{Expr, FieldHint, FieldUnit, SelectionKind};
 use partsmith_sketch::Placement;
 
+use crate::builtin::common::three_lengths;
 use crate::context::BuildContext;
 use crate::deps::Dependencies;
 use crate::error::FeatureError;
@@ -46,10 +47,7 @@ impl PrimitivePlacement<'_> {
     /// The primitive's local frame: the plane's placement with its origin moved to the position.
     pub fn frame(&self, context: &BuildContext<'_>) -> Result<Placement, FeatureError> {
         let plane = context.plane("plane", self.plane)?;
-        let mut offset = [0.0; 3];
-        for ((value, field), expr) in offset.iter_mut().zip(POSITION_FIELDS).zip(self.position) {
-            *value = context.eval_length(field, expr)?;
-        }
+        let offset = three_lengths(context, POSITION_FIELDS, self.position)?;
         Ok(Placement {
             origin: plane.local_to_world(offset),
             ..plane
@@ -103,47 +101,14 @@ impl PrimitivePlacement<'_> {
 
 #[cfg(test)]
 mod tests {
-    use partsmith_model::{Id, Units};
-    use partsmith_sketch::{OriginPlane, RegionRef};
+    use partsmith_sketch::OriginPlane;
 
     use super::*;
-    use crate::params::BodyOp;
-
-    struct Names;
-
-    impl PythonNames for Names {
-        fn units(&self) -> Units {
-            Units::Mm
-        }
-
-        fn body(&self, _body: &Id) -> Option<String> {
-            None
-        }
-
-        fn feature(&self, feature: &Id) -> Option<String> {
-            (feature.as_str() == "f-dp1").then(|| "plane_1".to_string())
-        }
-
-        fn entity(&self, _sketch: &Id, _entity: &Id) -> Option<String> {
-            None
-        }
-
-        fn parameter(&self, _name: &str) -> Option<String> {
-            None
-        }
-
-        fn regions(&self, _sketch: &Id) -> Option<Vec<RegionRef>> {
-            None
-        }
-
-        fn default_op(&self, _body: &Id) -> BodyOp {
-            BodyOp::New
-        }
-    }
+    use crate::test_support::{ScriptNames, id};
 
     fn datum(feature: &str) -> PlaneRef {
         PlaneRef::Datum {
-            feature: Id::new(feature).expect("valid id"),
+            feature: id(feature),
         }
     }
 
@@ -187,7 +152,7 @@ mod tests {
             plane: &plane,
             position: &position,
         }
-        .python_keywords(&Names);
+        .python_keywords(&ScriptNames::default());
 
         assert_eq!(keywords, Some(Vec::new()));
     }
@@ -201,7 +166,7 @@ mod tests {
             plane: &plane,
             position: &position,
         }
-        .python_keywords(&Names)
+        .python_keywords(&ScriptNames::default())
         .expect("the datum has a variable");
 
         let rendered: Vec<String> = keywords
@@ -220,7 +185,7 @@ mod tests {
             plane: &plane,
             position: &position,
         }
-        .python_keywords(&Names);
+        .python_keywords(&ScriptNames::default());
 
         assert_eq!(keywords, None);
     }

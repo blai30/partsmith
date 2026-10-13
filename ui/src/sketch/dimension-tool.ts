@@ -1,7 +1,15 @@
 import type { SketchConstraint, SketchSolution } from '../generated/protocol'
 import type { SelectionItem } from '../state/store'
 import type { DimensionType } from './constraints'
-import { dimensionFor, dimensionTypeFor, measuredValue } from './dimensions'
+import {
+  dimensionForMeasured,
+  dimensionTypeFor,
+  measuredOf,
+  typeOf,
+  valueOf,
+  type Measured,
+} from './dimensions'
+import type { IdSource } from './recipes'
 import type { Vector2 } from './geometry'
 import { operandOf } from './operands'
 
@@ -79,6 +87,18 @@ function second(
     : unchanged({ stage: 'place', picks })
 }
 
+/** A click that places the label at `at`: the draft whose editor opens, or why there is none. */
+function placeLabel(
+  picks: readonly SelectionItem[],
+  at: Vector2,
+  solution: SketchSolution,
+): DimensionClick {
+  const draft = dimensionDraft(picks, at, solution)
+  return 'unsupported' in draft
+    ? { picking: DIMENSION_START, draft: null, refused: draft.unsupported }
+    : { picking: DIMENSION_START, draft, refused: null }
+}
+
 /** The tool's next state for a click at `at` on `item` (null for empty space). */
 export function dimensionClick(
   picking: DimensionPicking,
@@ -107,21 +127,12 @@ export function dimensionClick(
     }
     case 'point':
       return item === null ? unchanged(picking) : second(picking, item, at, solution)
-    case 'line': {
-      if (item !== null) {
-        return second(picking, item, at, solution)
-      }
-      const draft = dimensionDraft([picking.first], at, solution)
-      return 'unsupported' in draft
-        ? { picking: DIMENSION_START, draft: null, refused: draft.unsupported }
-        : { picking: DIMENSION_START, draft, refused: null }
-    }
-    case 'place': {
-      const draft = dimensionDraft(picking.picks, at, solution)
-      return 'unsupported' in draft
-        ? { picking: DIMENSION_START, draft: null, refused: draft.unsupported }
-        : { picking: DIMENSION_START, draft, refused: null }
-    }
+    case 'line':
+      return item === null
+        ? placeLabel([picking.first], at, solution)
+        : second(picking, item, at, solution)
+    case 'place':
+      return placeLabel(picking.picks, at, solution)
   }
 }
 
@@ -133,6 +144,19 @@ export type DimensionPreview = {
 
 const PREVIEW_IDS = { next: () => 'dimension-preview' }
 
+/** The picks a label can be placed for: while placing, and after a line (its length); else null. */
+function placeablePicks(picking: DimensionPicking): readonly SelectionItem[] | null {
+  switch (picking.stage) {
+    case 'place':
+      return picking.picks
+    case 'line':
+      return [picking.first]
+    case 'first':
+    case 'point':
+      return null
+  }
+}
+
 /**
  * The dimension the tool would place with its label at `cursor`: while placing, and after a line
  * (its length), or null when the picks cannot be dimensioned there.
@@ -142,29 +166,50 @@ export function dimensionPreview(
   cursor: Vector2,
   solution: SketchSolution,
 ): DimensionPreview | null {
-  const picks =
-    picking.stage === 'place' ? picking.picks : picking.stage === 'line' ? [picking.first] : null
+  const picks = placeablePicks(picking)
   if (picks === null) {
     return null
   }
-  const draft = dimensionDraft(picks, cursor, solution)
-  if ('unsupported' in draft) {
-    return null
-  }
-  return draftPreview(draft, solution)
+  const measured = measuredOf(picks, solution)
+  const type = typeOf(measured, cursor)
+  return typeof type === 'string' ? previewOf({ picks, labelAt: cursor, type }, measured) : null
 }
 
-/** The constraint and measured value of a draft. */
-export function draftPreview(draft: DimensionDraft, solution: SketchSolution): DimensionPreview {
-  const value = measuredValue(draft.type, draft.picks, draft.labelAt, solution)
-  const constraint = dimensionFor(
+/** The constraint and value of a draft whose picks are measured. */
+function previewOf(draft: DimensionDraft, measured: Measured): DimensionPreview {
+  const value = valueOf(draft.type, measured, draft.labelAt)
+  const constraint = dimensionForMeasured(
     draft.type,
     draft.picks,
+    measured,
     '0',
     true,
     draft.labelAt,
     PREVIEW_IDS,
-    solution,
   )
   return { constraint, value }
+}
+
+/** The constraint and measured value of a draft. */
+export function draftPreview(draft: DimensionDraft, solution: SketchSolution): DimensionPreview {
+  return previewOf(draft, measuredOf(draft.picks, solution))
+}
+
+/** The dimension a draft adds with `expression` as its value (`dimensionFor` on the draft). */
+export function dimensionForDraft(
+  draft: DimensionDraft,
+  expression: string,
+  driving: boolean,
+  ids: IdSource,
+  solution: SketchSolution,
+): SketchConstraint {
+  return dimensionForMeasured(
+    draft.type,
+    draft.picks,
+    measuredOf(draft.picks, solution),
+    expression,
+    driving,
+    draft.labelAt,
+    ids,
+  )
 }

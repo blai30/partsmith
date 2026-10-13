@@ -3,6 +3,7 @@ import {
   circleThroughThreePoints,
   direction,
   normalizeAngle,
+  reflect,
   subtract,
   type Vector2,
 } from './geometry'
@@ -20,7 +21,7 @@ export type SketchAddition = {
 }
 
 /** Above this radius (mm) three points count as in a line for the 3-point arc (3.16.4). */
-export const MAXIMUM_ARC_RADIUS = 1e6
+const MAXIMUM_ARC_RADIUS = 1e6
 
 /** sketch.md omits `construction` when false. */
 function constructionFlag(construction: boolean): { construction?: true } {
@@ -108,7 +109,7 @@ export function rectangleCenterRecipe(input: {
   ids: IdSource
 }): SketchAddition | null {
   const { center, corner, construction, ids } = input
-  const opposite: Vector2 = [2 * center[0] - corner[0], 2 * center[1] - corner[1]]
+  const opposite = reflect(corner, center)
   const rectangle = rectangleTwoPointRecipe({
     corner: opposite,
     opposite: corner,
@@ -162,7 +163,7 @@ export function circleRecipe(input: {
 }
 
 /** The counterclockwise angles of the arc through `start`, `through` and `end` on (center), start first. */
-export function arcAngles(
+function arcAngles(
   center: Vector2,
   start: Vector2,
   end: Vector2,
@@ -180,6 +181,33 @@ export function arcAngles(
     : { startAngle: endAngle, endAngle: startAngle, reversed: true }
 }
 
+/** An arc through three points, as it is stored: counterclockwise from its start angle. */
+export type ThreePointArc = {
+  readonly center: Vector2
+  readonly radius: number
+  readonly startAngle: number
+  readonly endAngle: number
+  /** Whether the arc runs from `end` to `start`, because `through` is clockwise of `start`. */
+  readonly reversed: boolean
+}
+
+/**
+ * The arc from `start` through `through` to `end`; null when the three points are in a line or the
+ * radius is above 1e6 mm (3.16.4).
+ */
+export function threePointArc(
+  start: Vector2,
+  end: Vector2,
+  through: Vector2,
+): ThreePointArc | null {
+  const circle = circleThroughThreePoints(start, end, through)
+  if (circle === null || circle.radius > MAXIMUM_ARC_RADIUS) {
+    return null
+  }
+  const angles = arcAngles(circle.center, start, end, through)
+  return { center: circle.center, radius: circle.radius, ...angles }
+}
+
 /**
  * The arc from `start` (A) to `end` (B) through `through` (T), stored counterclockwise; null when
  * the three points are in a line or the radius is above 1e6 mm.
@@ -191,20 +219,19 @@ export function arcThreePointRecipe(input: {
   construction: boolean
   ids: IdSource
 }): SketchAddition | null {
-  const circle = circleThroughThreePoints(input.start, input.end, input.through)
-  if (circle === null || circle.radius > MAXIMUM_ARC_RADIUS) {
+  const arc = threePointArc(input.start, input.end, input.through)
+  if (arc === null) {
     return null
   }
-  const angles = arcAngles(circle.center, input.start, input.end, input.through)
   return {
     entities: [
       {
         id: input.ids.next('e'),
         type: 'arc',
-        center: [circle.center[0], circle.center[1]],
-        radius: circle.radius,
-        start_angle: angles.startAngle,
-        end_angle: angles.endAngle,
+        center: [arc.center[0], arc.center[1]],
+        radius: arc.radius,
+        start_angle: arc.startAngle,
+        end_angle: arc.endAngle,
         ...constructionFlag(input.construction),
       },
     ],

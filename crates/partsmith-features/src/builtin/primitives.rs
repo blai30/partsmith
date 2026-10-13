@@ -7,8 +7,8 @@ use partsmith_occt_sys::{KernelError, Primitive};
 use partsmith_sketch::Placement;
 
 use super::common::{
-    apply_tool, body_hint, body_op_hint, call, essential, manifest, op_keyword, primitive_tool,
-    unit_hint,
+    apply_tool, body_hint, body_op_hint, call, essential, manifest, op_keyword, positive_length,
+    primitive_tool, unit_hint,
 };
 use crate::PrimitivePlacement;
 use crate::context::BuildContext;
@@ -58,6 +58,22 @@ impl PrimitiveParams<'_> {
         }
         self.placement.add_dependencies(&mut dependencies);
         dependencies
+    }
+
+    /// The `N` sizes in field order, each greater than 0 by the positive length rule
+    /// (`positive_length`), checked before any kernel work.
+    pub(crate) fn positive_sizes<const N: usize>(
+        &self,
+        context: &BuildContext<'_>,
+    ) -> Result<[f64; N], FeatureError> {
+        let sizes = self
+            .sizes
+            .iter()
+            .map(|(field, expr)| positive_length(context, field, expr))
+            .collect::<Result<Vec<f64>, FeatureError>>()?;
+        <[f64; N]>::try_from(sizes).map_err(|sizes| {
+            FeatureError::internal(format!("the primitive has {} sizes, not {N}", sizes.len()))
+        })
     }
 
     /// Evaluates the placement, builds the kernel solid that `make` returns in that local frame,

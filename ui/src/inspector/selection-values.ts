@@ -2,6 +2,7 @@ import { featureLabel, originPlaneName, type OriginPlane } from '../core/labels'
 import type { ElementKind, Reference, RegionInfo, SelectionKind } from '../generated/protocol'
 import { regionSelectionItem } from '../sketch/hit'
 import type { AppState, OriginName, SelectionItem } from '../state/store'
+import { isRecord } from './param-path'
 
 // Param values of selection fields from selection items, and back (ui.md 2.12, features.md 2.5).
 
@@ -12,10 +13,6 @@ const ELEMENT_NOUNS: Readonly<Record<ElementKind, string>> = {
   face: 'Face',
   edge: 'Edge',
   vertex: 'Vertex',
-}
-
-function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function isReference(value: unknown): value is Reference {
@@ -168,6 +165,56 @@ const NO_ITEM_DATA = {
   origin: null,
 } as const
 
+/** The selection key of a body (3.6). */
+export function bodyKey(id: string): string {
+  return `body:${id}`
+}
+
+/** The selection key of a feature, such as a sketch or a datum plane (3.6). */
+export function featureKey(id: string): string {
+  return `feature:${id}`
+}
+
+/** The selection key of a parameter (3.6). */
+export function parameterKey(id: string): string {
+  return `parameter:${id}`
+}
+
+/** A body, feature or parameter selection key split into its kind and id. */
+export type ParsedSelectionKey = {
+  readonly kind: 'body' | 'feature' | 'parameter'
+  readonly id: string
+}
+
+/** The kind and id of a body, feature or parameter key; null for any other key. */
+export function parseSelectionKey(key: string): ParsedSelectionKey | null {
+  const colon = key.indexOf(':')
+  const kind = key.slice(0, colon)
+  if (colon === -1 || (kind !== 'body' && kind !== 'feature' && kind !== 'parameter')) {
+    return null
+  }
+  return { kind, id: key.slice(colon + 1) }
+}
+
+/** The selection item of a body. */
+export function bodySelectionItem(id: string, label: string): SelectionItem {
+  return { ...NO_ITEM_DATA, key: bodyKey(id), kind: 'body', label, body: id }
+}
+
+/** The selection item of a feature: a sketch or another feature, or a datum plane. */
+export function featureSelectionItem(
+  id: string,
+  label: string,
+  kind: 'feature' | 'datum_plane' = 'feature',
+): SelectionItem {
+  return { ...NO_ITEM_DATA, key: featureKey(id), kind, label, feature: id }
+}
+
+/** The selection item of a parameter. */
+export function parameterSelectionItem(id: string, label: string): SelectionItem {
+  return { ...NO_ITEM_DATA, key: parameterKey(id), kind: 'parameter', label }
+}
+
 function isOriginPlane(origin: OriginName): origin is OriginPlane {
   return ORIGIN_PLANES.has(origin)
 }
@@ -204,30 +251,6 @@ function featureName(state: AppState, featureId: string): string {
   return state.document === null
     ? featureId
     : featureLabel(state.document.recipe, featureId, state.catalog)
-}
-
-function bodyItem(state: AppState, bodyId: string): SelectionItem {
-  return {
-    ...NO_ITEM_DATA,
-    key: `body:${bodyId}`,
-    kind: 'body',
-    label: bodyName(state, bodyId),
-    body: bodyId,
-  }
-}
-
-function featureItem(
-  state: AppState,
-  featureId: string,
-  kind: 'feature' | 'datum_plane',
-): SelectionItem {
-  return {
-    ...NO_ITEM_DATA,
-    key: `feature:${featureId}`,
-    kind,
-    label: featureName(state, featureId),
-    feature: featureId,
-  }
 }
 
 /** A face or edge item for a stored reference; its element name is the reference's query. */
@@ -283,7 +306,8 @@ function planeItems(
     return [originItem(value['plane'] as OriginName)]
   }
   if (kind === 'datum' && typeof value['feature'] === 'string') {
-    return [featureItem(state, value['feature'], 'datum_plane')]
+    const feature = value['feature']
+    return [featureSelectionItem(feature, featureName(state, feature), 'datum_plane')]
   }
   if (kind === 'face' && typeof value['body'] === 'string' && isReference(value['face'])) {
     return [referenceItem(state, 'face', value['body'], value['face'])]
@@ -347,10 +371,12 @@ export function itemsFromValue(
       : [value]
   switch (accepts) {
     case 'body':
-      return values.flatMap((id) => (typeof id === 'string' ? [bodyItem(state, id)] : []))
+      return values.flatMap((id) =>
+        typeof id === 'string' ? [bodySelectionItem(id, bodyName(state, id))] : [],
+      )
     case 'sketch':
       return values.flatMap((id) =>
-        typeof id === 'string' ? [featureItem(state, id, 'feature')] : [],
+        typeof id === 'string' ? [featureSelectionItem(id, featureName(state, id))] : [],
       )
     case 'sketch_region':
       return regionItems(state, value)

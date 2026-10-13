@@ -10,6 +10,7 @@ import {
 } from '../app/actions/sketch'
 import { startSketchDrag, type SketchDrag } from '../app/actions/sketch-drag'
 import type { App, Platform } from '../app/createApp'
+import { reportFailure } from '../app/report'
 import { CoreError } from '../core/client'
 import { createLatestOnly, type LatestOnly } from '../core/queue'
 import { convertForField } from '../expression/evaluate'
@@ -23,31 +24,37 @@ import type {
   SketchSolution,
   Units,
 } from '../generated/protocol'
+import { hasOpenPopover, isEditable } from '../layout/focus'
 import { MESSAGES } from '../messages'
 import { editingSession, type EditingSession } from '../state/selectors'
 import type { AppState, SelectionItem } from '../state/store'
 import type { Camera } from '../viewport/camera'
 import type { ViewportController, ViewportHandle } from '../viewport/controller'
-import { dimensionGeometry, dimensionLabelText, hasGlyph } from './annotations'
+import { requestFrame } from '../viewport/frames'
+import { dimensionLabelText } from './annotations'
 import {
-  constraintReferences,
   constraintRequirement,
   constraintsFor,
   constraintTitle,
+  dimensionUnit,
   isDimension,
   pickVerdict,
   type ConstraintType,
+  type DimensionConstraint,
+  type QuantityUnit,
 } from './constraints'
 import {
   DIMENSION_START,
   dimensionClick,
+  dimensionForDraft,
   draftPreview,
   dimensionPreview,
   pickedItems,
   type DimensionDraft,
   type DimensionPicking,
+  type DimensionPreview,
 } from './dimension-tool'
-import { defaultLabelPosition, dimensionFor } from './dimensions'
+import { defaultLabelPosition } from './dimensions'
 import {
   drawClick,
   drawFields,
@@ -68,25 +75,11 @@ import {
   hitTest,
   type SketchHit,
 } from './hit'
-import { issueRings } from './issues'
-import { ownerOf, pointPosition, solvedEntity } from './operands'
+import { ownerOf, solvedEntity } from './operands'
+import { EMPTY_PAINT, overlayPaint, type OverlayPaint, type PaintSnapshot } from './overlay-paint'
 import { millimetersPerPixelAt, pixelToSketch, sketchToPixel, type CanvasSize } from './placement'
 import type { SketchAddition } from './recipes'
-import { isAxis, ORIGIN_POINT } from './refs'
-import {
-  circlePath,
-  dimensionPaths,
-  drawInputsPlacement,
-  entitiesInBox,
-  entityPoints,
-  glyphCenters,
-  polylinePath,
-  projectPolyline,
-  screenBox,
-  shapePoints,
-  type DrawInputsPlacement,
-  type Projector,
-} from './screen'
+import { entitiesInBox, screenBox, type Projector } from './screen'
 import { constraintTool, isDrawingTool } from './tools'
 
 // Sketch mode's session (ui.md 2.14, 3.16): its tools and the changes they commit, the step
@@ -95,15 +88,7 @@ import { constraintTool, isDrawingTool } from './tools'
 // selection, bypassing React (ADR 0002).
 
 /** A sketch tool: a drawing tool, the dimension tool, or a constraint tool in pick mode. */
-export type SketchToolId =
-  | 'line'
-  | 'rectangle_2point'
-  | 'rectangle_center'
-  | 'circle'
-  | 'arc_3point'
-  | 'point'
-  | 'dimension'
-  | `constrain_${ConstraintType}`
+export type SketchToolId = DrawingTool | 'dimension' | `constrain_${ConstraintType}`
 
 /** One edit of the sketch being edited, committed as one undo entry by `commitSketchChange`. */
 export type SketchChange = {
@@ -192,7 +177,7 @@ export function sketchStepHint(step: SketchStep, platform: Platform): string | n
 /** A draw input (3.16.4): its quantity, the typed text and why the text is not a value, if it is not. */
 export type DrawInputModel = {
   readonly name: DrawFieldName
-  readonly unit: 'length' | 'angle'
+  readonly unit: QuantityUnit
   readonly text: string
   readonly error: string | null
 }
@@ -203,7 +188,7 @@ export type DimensionEditorModel = {
   readonly key: number
   readonly mode: 'new' | 'edit'
   readonly text: string
-  readonly unit: 'length' | 'angle'
+  readonly unit: QuantityUnit
   /** The Diameter | Radius choice of a new dimension on a circle or arc, else null. */
   readonly round: 'diameter' | 'radius' | null
   readonly reference: boolean
@@ -234,45 +219,6 @@ export type SketchOverlayModel = {
   readonly editor: DimensionEditorModel | null
   readonly box: 'window' | 'crossing' | null
   readonly hovered: string | null
-}
-
-/** A rectangle on the canvas in CSS pixels. */
-export type PixelRectangle = {
-  readonly x: number
-  readonly y: number
-  readonly width: number
-  readonly height: number
-}
-
-/** Where the overlay's elements go this frame, in canvas CSS pixels (3.12 runtime positions). */
-export type OverlayPaint = {
-  /** Center of each constraint glyph by constraint id; null hides it. */
-  readonly glyphs: ReadonlyMap<string, Vector2 | null>
-  /** Center of each dimension label by constraint id; null hides it. */
-  readonly labels: ReadonlyMap<string, Vector2 | null>
-  /** Text of each dimension label by constraint id: its solved value changes during a drag. */
-  readonly labelTexts: ReadonlyMap<string, string>
-  /** Center of each profile issue ring, in `issueRings` order. */
-  readonly issues: readonly (Vector2 | null)[]
-  /** SVG path data: dimension lines (stroked) and their arrowheads (filled). */
-  readonly dimensionLines: string
-  readonly dimensionArrows: string
-  /** SVG path data of the rubber band. */
-  readonly rubberBand: string
-  /** SVG path data stroked in `highlight`: the snap curve and the hovered constraint's curves. */
-  readonly highlight: string
-  /** SVG path data of point markers in `highlight`: the snap point and constrained points. */
-  readonly markers: string
-  /** Top left of the inference glyph row and the dimension editor. */
-  readonly inference: Vector2 | null
-  /** Where the draw inputs go, beside the rubber band and away from the pointer. */
-  readonly drawInputs: DrawInputsPlacement | null
-  readonly editor: Vector2 | null
-  /** Center of the label of the dimension being placed. */
-  readonly placing: Vector2 | null
-  readonly box: PixelRectangle | null
-  /** The rubber band's quantities as text, shown in empty draw inputs. */
-  readonly measures: Readonly<Partial<Record<DrawFieldName, string>>>
 }
 
 export type SketchController = {
@@ -313,36 +259,10 @@ const DRAG_THRESHOLD_PIXELS = 3
 const CLICK_DISTANCE_PIXELS = 4
 /** The chord tolerance of curves the overlay draws, in CSS pixels (3.16.2). */
 const TESSELLATION_PIXELS = 0.25
-/** Inference glyphs sit this many CSS pixels (times the UI scale) right of and below the cursor. */
-const INFERENCE_OFFSET_PIXELS = 16
-/** Draw inputs sit this many CSS pixels (times the UI scale) off the rubber band's midpoint. */
-const DRAW_INPUT_OFFSET_PIXELS = 12
-/** Dimension arrowheads are this many CSS pixels long (3.16.2). */
-const ARROW_PIXELS = 8
-/** Radius of point markers in CSS pixels (times the UI scale). */
-const MARKER_PIXELS = 5
 /** How long a refused pick's message stays in the sketch hint. */
 const FLASH_MILLISECONDS = 3_000
 /** Characters that start typing a value into the first draw input (3.16.4). */
 const VALUE_START = /^[\d.\-(]$/
-
-const EMPTY_PAINT: OverlayPaint = {
-  glyphs: new Map(),
-  labels: new Map(),
-  labelTexts: new Map(),
-  issues: [],
-  dimensionLines: '',
-  dimensionArrows: '',
-  rubberBand: '',
-  highlight: '',
-  markers: '',
-  inference: null,
-  drawInputs: null,
-  editor: null,
-  placing: null,
-  box: null,
-  measures: {},
-}
 
 export const EMPTY_SKETCH_MODEL: SketchOverlayModel = {
   hint: null,
@@ -357,8 +277,6 @@ export const EMPTY_SKETCH_MODEL: SketchOverlayModel = {
   hovered: null,
 }
 
-type DimensionConstraint = Extract<SketchConstraint, { expr: string }>
-
 /** What a change of cancels the operation in progress: the edited sketch and its tool. */
 function sessionKey(state: AppState): string {
   const session = editingSession(state)
@@ -370,89 +288,17 @@ function storedConstraints(state: AppState, sketchId: string): readonly SketchCo
   return storedSketchParams(state, sketchId)?.constraints ?? []
 }
 
-/** An input of a text-like type, a textarea, a select, or content-editable element. */
-function isEditable(target: EventTarget | null): boolean {
-  if (target instanceof HTMLInputElement) {
-    return !['button', 'checkbox', 'radio', 'range', 'reset', 'submit', 'color', 'file'].includes(
-      target.type,
-    )
-  }
-  return (
-    target instanceof HTMLTextAreaElement ||
-    target instanceof HTMLSelectElement ||
-    (target instanceof HTMLElement && target.isContentEditable)
-  )
-}
-
-/** Whether a menu or a light-dismiss popover is open, which takes Esc and Enter first (3.5). */
-function hasOpenPopover(document: Document): boolean {
-  return document.querySelector('[popover=""]:popover-open, [popover="auto"]:popover-open') !== null
-}
-
-/** Animation frames, or a timer where the environment has none. */
-function requestFrame(callback: () => void): () => void {
-  if (typeof requestAnimationFrame === 'function') {
-    const id = requestAnimationFrame(callback)
-    return () => {
-      cancelAnimationFrame(id)
-    }
-  }
-  const timer = setTimeout(callback, 16)
-  return () => {
-    clearTimeout(timer)
-  }
-}
-
 /** A viewport that reports its rendered frames, so the overlay follows the camera in the same frame. */
 type FrameSource = ViewportHandle & Pick<ViewportController, 'onRender'>
 
 function hasFrames(handle: ViewportHandle): handle is FrameSource {
-  return typeof Reflect.get(handle, 'onRender') === 'function'
-}
-
-function report(error: unknown): void {
-  console.error('A sketch action failed.', error)
-}
-
-/** The unit of the value a dimension type takes. */
-function dimensionUnit(type: string): 'length' | 'angle' {
-  return type === 'angle' ? 'angle' : 'length'
-}
-
-/** The rectangle spanned by two canvas pixels. */
-function pixelRectangle(start: Vector2, end: Vector2): PixelRectangle {
-  const area = screenBox(start, end)
-  return {
-    x: area.left,
-    y: area.top,
-    width: area.right - area.left,
-    height: area.bottom - area.top,
-  }
+  return 'onRender' in handle && typeof handle.onRender === 'function'
 }
 
 /** A changed dimension that drives again: `driving: true` is the default sketch.md leaves out. */
 function withoutDriving(constraint: DimensionConstraint): SketchConstraint {
   const { driving: _driving, ...rest } = constraint
   return rest
-}
-
-/** The point references and curve ids a constraint names, split into the two. */
-function constrainedItems(
-  constraint: SketchConstraint,
-  solution: SketchSolution,
-): { readonly points: readonly PointRef[]; readonly curves: readonly string[] } {
-  const points: PointRef[] = []
-  const curves: string[] = []
-  for (const reference of constraintReferences(constraint)) {
-    const owner = ownerOf(reference)
-    const entity = solvedEntity(solution, owner)
-    if (reference !== owner || reference === ORIGIN_POINT || entity?.type === 'point') {
-      points.push(reference)
-    } else if (!isAxis(reference)) {
-      curves.push(reference)
-    }
-  }
-  return { points, curves }
 }
 
 /** What the dimension tool has picked, for its step prompt. */
@@ -469,6 +315,33 @@ function dimensionPicked(
     case 'place':
       return picking.picks.length === 1 ? 'round' : 'pair'
   }
+}
+
+/**
+ * The sketch hint (3.16.3): a warning (a refused pick, collinear arc points), else a constraint
+ * tool's requirement, else the step prompt.
+ */
+function hintOf(
+  warning: string | null,
+  constraint: ConstraintType | null,
+  prompt: string | null,
+): SketchOverlayModel['hint'] {
+  if (warning !== null) {
+    return { text: warning, warning: true }
+  }
+  if (constraint !== null) {
+    return { text: constraintRequirement(constraint), warning: false }
+  }
+  return prompt === null ? null : { text: prompt, warning: false }
+}
+
+/** Shift or Mod with a click toggles the item in the sketch selection (3.16.10). */
+export function togglesSelection(event: {
+  readonly shiftKey: boolean
+  readonly ctrlKey: boolean
+  readonly metaKey: boolean
+}): boolean {
+  return event.shiftKey || event.ctrlKey || event.metaKey
 }
 
 /** A selection box dragged rightward selects what it holds; leftward, what it touches (3.16.9). */
@@ -530,7 +403,7 @@ export function createSketchController(options: SketchControllerOptions): Sketch
   type Evaluation = {
     readonly documentHandle: DocHandle
     readonly name: DrawFieldName
-    readonly unit: 'length' | 'angle'
+    readonly unit: QuantityUnit
     readonly text: string
   }
 
@@ -713,6 +586,7 @@ export function createSketchController(options: SketchControllerOptions): Sketch
     }
   }
 
+  /** The drawing tool's rubber band at the pointer, or null with another tool. */
   function preview(session: EditingSession): DrawPreview | null {
     const tool = session.tool
     if (!isDrawingTool(tool)) {
@@ -722,17 +596,24 @@ export function createSketchController(options: SketchControllerOptions): Sketch
     return input === null ? null : drawPreview(tool, draw, input)
   }
 
-  function placingText(): string | null {
-    const solved = solution()
+  /** The dimension the dimension tool places with its label at the pointer, or null. */
+  function placedDimension(
+    session: EditingSession,
+    solved: SketchSolution,
+  ): (DimensionPreview & { readonly labelAt: Vector2 }) | null {
     const cursor = pointer === null ? null : toSketch(pointer)
-    if (current()?.tool !== 'dimension' || editor !== null || solved === null || cursor === null) {
+    if (session.tool !== 'dimension' || editor !== null || cursor === null) {
       return null
     }
     const placed = dimensionPreview(picking, cursor, solved)
-    if (placed === null || !isDimension(placed.constraint)) {
-      return null
-    }
-    return dimensionLabelText(placed.constraint, placed.value, documentUnits())
+    return placed === null ? null : { ...placed, labelAt: cursor }
+  }
+
+  /** The text of the label of the dimension being placed, or null. */
+  function placingText(placed: DimensionPreview | null): string | null {
+    return placed === null || !isDimension(placed.constraint)
+      ? null
+      : dimensionLabelText(placed.constraint, placed.value, documentUnits())
   }
 
   function editorModel(): DimensionEditorModel | null {
@@ -758,23 +639,16 @@ export function createSketchController(options: SketchControllerOptions): Sketch
     if (session === null) {
       return EMPTY_SKETCH_MODEL
     }
+    const solved = solution()
     const drawn = preview(session)
+    const placed = solved === null ? null : placedDimension(session, solved)
     const tool = session.tool
-    const constraint = constraintTool(tool)
     const step = toolStep(tool)
     const prompt = step === null ? null : sketchStepHint(step, app.platform)
-    const warning = flash?.text ?? drawn?.hint ?? null
     const fields = isDrawingTool(tool) ? drawFields(tool, draw) : []
     const inference = drawn?.glyphs ?? []
     return {
-      hint:
-        warning !== null
-          ? { text: warning, warning: true }
-          : constraint !== null
-            ? { text: constraintRequirement(constraint), warning: false }
-            : prompt === null
-              ? null
-              : { text: prompt, warning: false },
+      hint: hintOf(flash?.text ?? drawn?.hint ?? null, constraintTool(tool), prompt),
       freePlacement: inference.length > 0,
       inference,
       drawInputs: fields.map((field) => ({
@@ -785,7 +659,7 @@ export function createSketchController(options: SketchControllerOptions): Sketch
       })),
       focusRequest,
       construction: session.construction,
-      placing: placingText(),
+      placing: placingText(placed),
       editor: editorModel(),
       box: box === null ? null : boxMode(box),
       hovered,
@@ -805,160 +679,53 @@ export function createSketchController(options: SketchControllerOptions): Sketch
 
   // Painting.
 
-  function computePaint(): OverlayPaint {
+  /** What this frame paints from; null when the sketch or the view is not there. */
+  function paintSnapshot(): PaintSnapshot | null {
     const state = store.getState()
     const session = editingSession(state)
     const solved = solution()
     const project = projector()
     if (session === null || solved === null || project === null) {
-      return EMPTY_PAINT
+      return null
     }
-    const scale = uiScale()
-    const units = documentUnits()
     const pixelSize = centerPixelSize()
-    const tolerance = TESSELLATION_PIXELS * pixelSize
-    const constraints = storedConstraints(state, session.sketchId)
-
-    // Glyphs, dimensions and profile issues.
-    const glyphs = session.showConstraints
-      ? glyphCenters(constraints.filter(hasGlyph), solved, project, scale)
-      : new Map<string, Vector2 | null>()
-    const labels = new Map<string, Vector2 | null>()
-    const labelTexts = new Map<string, string>()
-    const values = new Map(solved.constraints.map((entry) => [entry.id, entry.value ?? null]))
-    const dimensionLines: string[] = []
-    const dimensionArrows: string[] = []
-    for (const constraint of constraints) {
-      if (!isDimension(constraint)) {
-        continue
-      }
-      const labelAt =
-        labelPositions.get(constraint.id) ?? defaultLabelPosition(constraint, solved, pixelSize)
-      labels.set(constraint.id, project(labelAt))
-      labelTexts.set(
-        constraint.id,
-        dimensionLabelText(constraint, values.get(constraint.id) ?? null, units),
-      )
-      const paths = dimensionPaths(
-        dimensionGeometry(constraint, solved, labelAt),
-        project,
-        tolerance,
-        ARROW_PIXELS,
-      )
-      dimensionLines.push(paths.lines)
-      dimensionArrows.push(paths.arrows)
-    }
-    const issues = issueRings(solved).map((ring) => project(ring.at))
-
-    // The dimension being placed.
-    const cursor = pointer === null ? null : toSketch(pointer)
-    let placing: Vector2 | null = null
-    if (session.tool === 'dimension' && editor === null && cursor !== null && pointer !== null) {
-      const placed = dimensionPreview(picking, cursor, solved)
-      if (placed !== null) {
-        const paths = dimensionPaths(
-          dimensionGeometry(placed.constraint, solved, cursor),
-          project,
-          tolerance,
-          ARROW_PIXELS,
-        )
-        dimensionLines.push(paths.lines)
-        dimensionArrows.push(paths.arrows)
-        placing = pointer
-      }
-    }
-    let editorAt: Vector2 | null = null
-    if (editor !== null) {
-      editorAt = project(editor.labelAt)
-      if (editor.mode === 'new') {
-        const drafted = draftPreview(editor.draft, solved)
-        const paths = dimensionPaths(
-          dimensionGeometry(drafted.constraint, solved, editor.draft.labelAt),
-          project,
-          tolerance,
-          ARROW_PIXELS,
-        )
-        dimensionLines.push(paths.lines)
-        dimensionArrows.push(paths.arrows)
-      }
-    }
-
-    // The rubber band, its snap and the hovered constraint's items.
-    const highlight: Vector2[][] = []
-    const markers: Vector2[] = []
-    const drawn = preview(session)
-    const rubberBand =
-      drawn === null
-        ? ''
-        : polylinePath(
-            drawn.shapes.flatMap((shape) =>
-              projectPolyline(shapePoints(shape, tolerance), project),
-            ),
-          )
-    if (drawn?.snap !== null && drawn?.snap !== undefined) {
-      const marker = project(drawn.snap.at)
-      if (marker !== null) {
-        markers.push(marker)
-      }
-      const snapped = drawn.snap.kind === 'curve' ? solvedEntity(solved, drawn.snap.entity) : null
-      if (snapped !== null && snapped !== undefined) {
-        highlight.push(...projectPolyline(entityPoints(snapped, tolerance), project))
-      }
-    }
-    const hoveredConstraint =
-      hovered === null ? undefined : constraints.find((constraint) => constraint.id === hovered)
-    if (hoveredConstraint !== undefined) {
-      const items = constrainedItems(hoveredConstraint, solved)
-      for (const curve of items.curves) {
-        const entity = solvedEntity(solved, curve)
-        if (entity !== undefined) {
-          highlight.push(...projectPolyline(entityPoints(entity, tolerance), project))
-        }
-      }
-      for (const point of items.points) {
-        const at = pointPosition(solved, point)
-        const pixel = at === null ? null : project(at)
-        if (pixel !== null) {
-          markers.push(pixel)
-        }
-      }
-    }
-
-    // Positions of the HTML chrome.
-    const inference =
-      pointer === null || drawn === null || drawn.glyphs.length === 0
-        ? null
-        : ([
-            pointer[0] + INFERENCE_OFFSET_PIXELS * scale,
-            pointer[1] + INFERENCE_OFFSET_PIXELS * scale,
-          ] as Vector2)
-    const inputsAt = drawn?.inputsAt === null || drawn === null ? null : project(drawn.inputsAt)
-    const measures: Partial<Record<DrawFieldName, string>> = {}
-    for (const [name, value] of Object.entries(drawn?.measures ?? {})) {
-      const field = name as DrawFieldName
-      measures[field] = formatNumber(value, field === 'Angle' ? 'angle' : 'length', units)
-    }
-
     return {
-      glyphs,
-      labels,
-      labelTexts,
-      issues,
-      dimensionLines: dimensionLines.filter((path) => path !== '').join(' '),
-      dimensionArrows: dimensionArrows.filter((path) => path !== '').join(' '),
-      rubberBand,
-      highlight: polylinePath(highlight),
-      markers: markers.map((marker) => circlePath(marker, MARKER_PIXELS * scale)).join(' '),
-      inference,
-      drawInputs:
-        inputsAt === null
-          ? null
-          : drawInputsPlacement(inputsAt, pointer, DRAW_INPUT_OFFSET_PIXELS * scale),
-      editor: editorAt,
-      placing,
-      box: box === null ? null : pixelRectangle(box.start, box.end),
-      measures,
+      solution: solved,
+      project,
+      uiScale: uiScale(),
+      units: documentUnits(),
+      pixelSize,
+      tolerance: TESSELLATION_PIXELS * pixelSize,
+      constraints: storedConstraints(state, session.sketchId),
+      showConstraints: session.showConstraints,
+      labelPositions,
+      pointer,
+      drawn: preview(session),
+      placing: placedDimension(session, solved),
+      editor: editorSnapshot(solved),
+      hovered,
+      box,
     }
+  }
+
+  /** The open editor as the paint reads it: where it is, and the new dimension it drafts. */
+  function editorSnapshot(solved: SketchSolution): PaintSnapshot['editor'] {
+    if (editor === null) {
+      return null
+    }
+    const draft =
+      editor.mode === 'new'
+        ? {
+            constraint: draftPreview(editor.draft, solved).constraint,
+            labelAt: editor.draft.labelAt,
+          }
+        : null
+    return { at: editor.labelAt, draft }
+  }
+
+  function computePaint(): OverlayPaint {
+    const snapshot = paintSnapshot()
+    return snapshot === null ? EMPTY_PAINT : overlayPaint(snapshot)
   }
 
   function paint(): void {
@@ -1045,7 +812,7 @@ export function createSketchController(options: SketchControllerOptions): Sketch
     }
     const ending = drag
     drag = null
-    ending.cancel().catch(report)
+    ending.cancel().catch(reportFailure('A sketch action'))
     return true
   }
 
@@ -1107,7 +874,7 @@ export function createSketchController(options: SketchControllerOptions): Sketch
           refresh()
         }
       })
-      .catch(report)
+      .catch(reportFailure('A sketch action'))
   }
 
   function drawAt(tool: DrawingTool, pixel: Vector2): void {
@@ -1150,7 +917,7 @@ export function createSketchController(options: SketchControllerOptions): Sketch
       case 'complete': {
         const constraints = constraintsFor(type, picks, solved, createSketchIds(app))
         selectInSketch(app, [], 'replace')
-        applySketchConstraints(app, type, constraints).catch(report)
+        applySketchConstraints(app, type, constraints).catch(reportFailure('A sketch action'))
       }
     }
   }
@@ -1231,12 +998,10 @@ export function createSketchController(options: SketchControllerOptions): Sketch
     refresh()
     if (opened.mode === 'new') {
       const { draft } = opened
-      const dimension = dimensionFor(
-        draft.type,
-        draft.picks,
+      const dimension = dimensionForDraft(
+        draft,
         opened.text,
         !reference,
-        draft.labelAt,
         createSketchIds(app),
         solved,
       )
@@ -1415,7 +1180,7 @@ export function createSketchController(options: SketchControllerOptions): Sketch
       pointerId: event.pointerId,
       start: pixel,
       intent: pressIntent(pixel),
-      toggle: event.shiftKey || event.ctrlKey || event.metaKey,
+      toggle: togglesSelection(event),
       moved: false,
     }
   }
@@ -1505,7 +1270,7 @@ export function createSketchController(options: SketchControllerOptions): Sketch
     if (drag !== null) {
       const finishing = drag
       drag = null
-      finishing.finish().catch(report)
+      finishing.finish().catch(reportFailure('A sketch action'))
       refresh()
       return
     }

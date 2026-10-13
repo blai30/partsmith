@@ -1,36 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { pointSelectionItem } from '../../sketch/hit'
 import { bodyItem } from '../../test/fakes/selection'
-import {
-  isEmptyValue,
-  parentOf,
-  propertyOf,
-  sameValue,
-  siblingPath,
-  toggledValue,
-  valueAt,
-} from './command-values'
-
-describe('isEmptyValue', () => {
-  it('is true for missing values, empty text and lists, and a profile without regions', () => {
-    for (const value of [undefined, null, '', [], { sketch: 'f-sk1', regions: [] }]) {
-      expect(isEmptyValue(value)).toBe(true)
-    }
-  })
-
-  it('is false for anything else', () => {
-    for (const value of [0, 'b-1', ['e-1'], { sketch: 'f-sk1', regions: ['r'] }, {}]) {
-      expect(isEmptyValue(value)).toBe(false)
-    }
-  })
-})
+import { propertyOf, sameValue, siblingPath, toggledValue, valueAt } from './command-values'
 
 describe('field paths', () => {
-  it('parentOf is the path of the object holding the field', () => {
-    expect(parentOf('profile.sketch')).toBe('profile')
-    expect(parentOf('body')).toBe('')
-  })
-
   it('siblingPath names a field beside another', () => {
     expect(siblingPath('points', 'sketch')).toBe('sketch')
     expect(siblingPath('axis.line', 'sketch')).toBe('axis.sketch')

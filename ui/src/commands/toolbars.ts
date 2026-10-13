@@ -6,6 +6,7 @@ import {
   RectangleHorizontal,
   type LucideIcon,
 } from 'lucide-react'
+import { CONSTRAINT_TYPES } from '../sketch/constraints'
 import type { AppContext } from '../state/store'
 
 // The toolbar of each context (ui.md 3.3). Entries name registry commands; an entry whose command
@@ -27,21 +28,9 @@ function command(id: string): ToolbarEntry {
 }
 
 /** The 13 constraint commands in the order of 3.16.6. */
-const CONSTRAINT_COMMANDS: readonly string[] = [
-  'coincident',
-  'point_on_object',
-  'horizontal',
-  'vertical',
-  'parallel',
-  'perpendicular',
-  'tangent',
-  'collinear',
-  'concentric',
-  'equal',
-  'symmetric',
-  'midpoint',
-  'fix',
-].map((type) => `sketch.constrain_${type}`)
+const CONSTRAINT_COMMANDS: readonly string[] = CONSTRAINT_TYPES.map(
+  (type) => `sketch.constrain_${type}`,
+)
 
 export const TOOLBARS: Readonly<Record<AppContext, readonly ToolbarEntry[]>> = {
   model: [

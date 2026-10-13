@@ -2,10 +2,12 @@ import { useEffect, useState, type RefObject } from 'react'
 import { openRecent } from '../app/actions/document'
 import { useApp, useAppState } from '../app/AppProvider'
 import type { App } from '../app/createApp'
+import { reportFailure } from '../app/report'
+import { runCommand } from '../commands/registry'
 import { Menu, type MenuEntry } from '../components/Menu'
 import type { RecentFile } from '../files/recent'
 import type { Settings } from '../settings/settings'
-import { commandMenuItem, runCommand, useCommandViews, type CommandView } from './use-commands'
+import { commandMenuItem, useCommandViews, type CommandView } from './use-commands'
 
 // The Document menu under the document name (ui.md 3.2): New, Open..., Open recent, Save,
 // Save as..., Export..., then the Theme, Navigation and UI scale settings.
@@ -37,10 +39,6 @@ function commandItem(app: App, view: CommandView | undefined, label: string): Me
     : [commandMenuItem(app, view, label)]
 }
 
-function report(error: unknown): void {
-  console.error('Opening the recent file failed.', error)
-}
-
 export type DocumentMenuProps = {
   readonly open: boolean
   readonly anchor: RefObject<HTMLElement | null>
@@ -60,16 +58,11 @@ export function DocumentMenu({ open, anchor, onOpenChange }: DocumentMenuProps) 
       return undefined
     }
     let current = true
-    app.recent.list().then(
-      (files) => {
-        if (current) {
-          setRecent(files)
-        }
-      },
-      (error: unknown) => {
-        console.error('Reading the recent files failed.', error)
-      },
-    )
+    app.recent.list().then((files) => {
+      if (current) {
+        setRecent(files)
+      }
+    }, reportFailure('Reading the recent files'))
     return () => {
       current = false
     }
@@ -85,7 +78,7 @@ export function DocumentMenu({ open, anchor, onOpenChange }: DocumentMenuProps) 
           shortcut: openedText(file.openedAt),
           disabled: !coreReady,
           onSelect: () => {
-            openRecent(app, file).catch(report)
+            openRecent(app, file).catch(reportFailure('Opening the recent file'))
           },
         }))
   const entries: MenuEntry[] = [

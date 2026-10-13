@@ -5,13 +5,13 @@ use std::sync::Arc;
 
 use partsmith_model::{Category, FeatureManifest, Id, SelectionKind};
 use partsmith_naming::{FaceSource, NamingMap, roles};
-use partsmith_occt_sys::{PlaneSide, Shape, SplitResult, SubShapeKind, compound, split};
+use partsmith_occt_sys::{PlaneSide, Shape, SplitResult, SubShapeKind, split};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use super::common::{
     bodies, essential, face_name, flag, hint, is_false, manifest, naming_failed, part,
-    selection_hint, solid_body,
+    selection_hint, single_or_compound, solid_body, target_hint,
 };
 use crate::context::BuildContext;
 use crate::deps::Dependencies;
@@ -53,7 +53,7 @@ impl Feature for SplitBody {
             vec![
                 essential(selection_hint("body", "Body", SelectionKind::Body)),
                 essential(selection_hint("plane", "Split plane", SelectionKind::Plane)),
-                essential(selection_hint("target", "Target body", SelectionKind::Body)),
+                essential(target_hint()),
                 essential(hint("flip", "Flip")),
             ],
         )
@@ -225,14 +225,10 @@ fn part_update(
     body: &Id,
     result: &Shape,
     whole: &NamingMap,
-    mut solids: Vec<Shape>,
+    solids: Vec<Shape>,
     change: BodyChange,
 ) -> Result<BodyUpdate, FeatureError> {
-    let shape = if solids.len() == 1 {
-        solids.remove(0)
-    } else {
-        compound(&solids)?.shape
-    };
+    let shape = single_or_compound(solids)?;
     let indices = |kind: SubShapeKind| -> Result<Vec<u32>, FeatureError> {
         result
             .locate(&shape, kind)?
@@ -267,7 +263,6 @@ mod tests {
     use super::*;
     use crate::context::BodyState;
     use crate::output::{DatumResult, FeatureOutput, OutputData};
-    use crate::registry::Registry;
     use crate::test_support::{
         assert_bounds, assert_volume, box_body, build, face_names, id, params_with, python, update,
         updated_shape, updates,
@@ -315,17 +310,6 @@ mod tests {
         updated_shape(output, body)
             .element(SubShapeKind::Face, index)
             .expect("the face has geometry")
-    }
-
-    #[test]
-    fn registers_with_its_manifest() {
-        let mut registry = Registry::new();
-
-        registry
-            .register::<SplitBody>()
-            .expect("the split passes the registration checks");
-
-        assert_eq!(registry.types().collect::<Vec<_>>(), ["split_body"]);
     }
 
     #[test]

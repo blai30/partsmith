@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { setSketchTool } from '../app/actions/sketch'
 import type { CoreApi } from '../core/api'
 import type { Edit, SketchConstraint, SketchSolution } from '../generated/protocol'
+import { LINUX_WEB, MAC_WEB } from '../test/fakes/test-app'
 import {
   DOCUMENT_HANDLE,
   SKETCH_ID,
@@ -10,13 +11,14 @@ import {
   lineEntity,
   sketchSession,
   solutionFor,
-  solvedEntity,
+  solvedAs,
   solvedSketch,
+  withoutIds,
 } from './fixtures.testing'
+import type { OverlayPaint } from './overlay-paint'
 import {
   createSketchController,
   sketchStepHint,
-  type OverlayPaint,
   type SketchController,
   type SketchToolId,
 } from './session'
@@ -26,67 +28,69 @@ import {
   mountView,
   pointerAt,
   pressKey,
+  setTool,
   settleCommits,
   sketchHarness,
   type SketchHarness,
   type TestView,
 } from './view.testing'
 
-const LINUX = { operatingSystem: 'linux', host: 'web' } as const
-const MAC = { operatingSystem: 'mac', host: 'web' } as const
-
 describe('sketchStepHint (2.14)', () => {
   it('U-102 prompts on Linux', () => {
-    expect(sketchStepHint({ kind: 'idle', empty: true }, LINUX)).toBe(
+    expect(sketchStepHint({ kind: 'idle', empty: true }, LINUX_WEB)).toBe(
       'Choose Line (L), Rectangle (R) or Circle (C) to start drawing.',
     )
-    expect(sketchStepHint({ kind: 'idle', empty: false }, LINUX)).toBeNull()
-    expect(sketchStepHint({ kind: 'line', chain: false }, LINUX)).toBe('Click to start a line.')
-    expect(sketchStepHint({ kind: 'line', chain: true }, LINUX)).toBe(
+    expect(sketchStepHint({ kind: 'idle', empty: false }, LINUX_WEB)).toBeNull()
+    expect(sketchStepHint({ kind: 'line', chain: false }, LINUX_WEB)).toBe('Click to start a line.')
+    expect(sketchStepHint({ kind: 'line', chain: true }, LINUX_WEB)).toBe(
       'Click to end the segment, or type a length. Click the first point to close the shape, or press Enter to stop.',
     )
-    expect(sketchStepHint({ kind: 'circle', clicks: 1 }, LINUX)).toBe(
+    expect(sketchStepHint({ kind: 'circle', clicks: 1 }, LINUX_WEB)).toBe(
       'Click to set the size, or type the diameter.',
     )
-    expect(sketchStepHint({ kind: 'dimension', picked: 'point' }, LINUX)).toBe(
+    expect(sketchStepHint({ kind: 'dimension', picked: 'point' }, LINUX_WEB)).toBe(
       'Click a second point or a line.',
     )
-    expect(sketchStepHint({ kind: 'dimension', picked: 'round' }, LINUX)).toBe(
+    expect(sketchStepHint({ kind: 'dimension', picked: 'round' }, LINUX_WEB)).toBe(
       'Click to place the dimension.',
     )
   })
 
   it('U-102 renders shortcuts for macOS', () => {
-    expect(sketchStepHint({ kind: 'line', chain: true }, MAC)).toMatch(/press ↩ to stop\.$/)
+    expect(sketchStepHint({ kind: 'line', chain: true }, MAC_WEB)).toMatch(/press ↩ to stop\.$/)
   })
 
   it('maps every step of the table of 3.16.3', () => {
-    expect(sketchStepHint({ kind: 'rectangle_2point', clicks: 0 }, LINUX)).toBe(
+    expect(sketchStepHint({ kind: 'rectangle_2point', clicks: 0 }, LINUX_WEB)).toBe(
       'Click the first corner.',
     )
-    expect(sketchStepHint({ kind: 'rectangle_2point', clicks: 1 }, LINUX)).toBe(
+    expect(sketchStepHint({ kind: 'rectangle_2point', clicks: 1 }, LINUX_WEB)).toBe(
       'Click the opposite corner, or type the width.',
     )
-    expect(sketchStepHint({ kind: 'rectangle_center', clicks: 0 }, LINUX)).toBe('Click the center.')
-    expect(sketchStepHint({ kind: 'rectangle_center', clicks: 1 }, LINUX)).toBe(
+    expect(sketchStepHint({ kind: 'rectangle_center', clicks: 0 }, LINUX_WEB)).toBe(
+      'Click the center.',
+    )
+    expect(sketchStepHint({ kind: 'rectangle_center', clicks: 1 }, LINUX_WEB)).toBe(
       'Click a corner, or type the width.',
     )
-    expect(sketchStepHint({ kind: 'circle', clicks: 0 }, LINUX)).toBe('Click the center.')
-    expect(sketchStepHint({ kind: 'arc_3point', clicks: 0 }, LINUX)).toBe(
+    expect(sketchStepHint({ kind: 'circle', clicks: 0 }, LINUX_WEB)).toBe('Click the center.')
+    expect(sketchStepHint({ kind: 'arc_3point', clicks: 0 }, LINUX_WEB)).toBe(
       'Click where the arc starts.',
     )
-    expect(sketchStepHint({ kind: 'arc_3point', clicks: 1 }, LINUX)).toBe('Click where it ends.')
-    expect(sketchStepHint({ kind: 'arc_3point', clicks: 2 }, LINUX)).toBe(
+    expect(sketchStepHint({ kind: 'arc_3point', clicks: 1 }, LINUX_WEB)).toBe(
+      'Click where it ends.',
+    )
+    expect(sketchStepHint({ kind: 'arc_3point', clicks: 2 }, LINUX_WEB)).toBe(
       'Move to shape the arc, then click, or type the radius.',
     )
-    expect(sketchStepHint({ kind: 'point' }, LINUX)).toBe('Click to place a point.')
-    expect(sketchStepHint({ kind: 'dimension', picked: 'nothing' }, LINUX)).toBe(
+    expect(sketchStepHint({ kind: 'point' }, LINUX_WEB)).toBe('Click to place a point.')
+    expect(sketchStepHint({ kind: 'dimension', picked: 'nothing' }, LINUX_WEB)).toBe(
       'Click a line, circle, arc or point.',
     )
-    expect(sketchStepHint({ kind: 'dimension', picked: 'line' }, LINUX)).toBe(
+    expect(sketchStepHint({ kind: 'dimension', picked: 'line' }, LINUX_WEB)).toBe(
       'Click to place the dimension, or click a second point or line to measure between them.',
     )
-    expect(sketchStepHint({ kind: 'dimension', picked: 'pair' }, LINUX)).toBe(
+    expect(sketchStepHint({ kind: 'dimension', picked: 'pair' }, LINUX_WEB)).toBe(
       'Click to place the dimension.',
     )
   })
@@ -106,9 +110,7 @@ afterEach(() => {
 })
 
 function start(harness: SketchHarness, tool: SketchToolId | null = null): SketchController {
-  harness.app.store.setState((state) =>
-    state.sketch === null ? {} : { sketch: { ...state.sketch, tool } },
-  )
+  setTool(harness.app, tool)
   view = mountView()
   controller = createSketchController({ app: harness.app, canvas: view.canvas })
   return controller
@@ -135,10 +137,6 @@ function appliedSketch(harness: SketchHarness, index = 0): UpdateFeature['featur
 function constraintsOf(feature: UpdateFeature['feature']): SketchConstraint[] {
   const constraints: unknown = feature['constraints']
   return Array.isArray(constraints) ? (constraints as SketchConstraint[]) : []
-}
-
-function withoutIds(constraints: readonly SketchConstraint[]): unknown[] {
-  return constraints.map(({ id: _id, ...rest }) => rest)
 }
 
 describe('line tool (3.16.4)', () => {
@@ -319,7 +317,7 @@ describe('inference and draw inputs (3.16.4, 3.16.5)', () => {
 
   it('reads the held Cmd key on macOS', () => {
     const harness = sketchHarness()
-    Object.assign(harness.app, { platform: MAC })
+    Object.assign(harness.app, { platform: MAC_WEB })
     const sketch = start(harness, 'point')
     pointerAt(canvas(), 'pointermove', [0.3, 0.2], { ctrlKey: true })
     expect(sketch.getModel().inference).toEqual(['coincident'])
@@ -651,7 +649,7 @@ describe('drag and box selection (3.16.9)', () => {
     const dragSketch = vi.fn<CoreApi['dragSketch']>(() => Promise.resolve(null))
     const harness = sketchHarness({
       entities: [line],
-      solution: solutionFor([line], { entities: [solvedEntity(line, 'fully_constrained')] }),
+      solution: solutionFor([line], { entities: [solvedAs(line, 'fully_constrained')] }),
       core: { dragSketch },
     })
     start(harness)

@@ -13,10 +13,14 @@ import type {
   SketchEntity,
 } from '../../generated/protocol'
 import {
+  activeCommandFeature,
+  activeCommandModel,
   bodyCreatingTarget,
   buildInspectorModel,
   defaultParams,
+  fieldsOf,
   getParam,
+  isEmptyValue,
   setParam,
   type InspectorField,
   type InspectorModel,
@@ -38,6 +42,7 @@ import type {
 import { referencedSketches } from '../../state/visibility'
 import type { PointerRay } from '../../viewport/picking'
 import type { App } from '../createApp'
+import { reportFailure } from '../report'
 import { measureToNextFrame } from '../timing'
 import { setSessionVisible } from './bodies'
 import {
@@ -47,12 +52,11 @@ import {
   replacedInList,
   type RepairSlot,
 } from './command-repairs'
-import { isEmptyValue, sameValue, siblingPath, toggledValue, type Params } from './command-values'
+import { sameValue, siblingPath, toggledValue, type Params } from './command-values'
 import { commitEdits, documentOf, reportNewFailures, showCoreError } from './edits'
 import { helperFor, helperOnFace, holeCenter } from './hole-placement'
 import { notify, showPickHint } from './notifications'
 import {
-  fieldsOf,
   firstEmptySelectionField,
   openingActiveField,
   preselected,
@@ -1439,6 +1443,20 @@ export async function confirmCommand(app: App): Promise<void> {
   reportNewFailures(app, session.statusesBefore)
 }
 
+/** Whether the active feature command can be confirmed: every required field set, no field error. */
+export function commandComplete(state: AppState): boolean {
+  return activeCommandModel(state, state.command?.fieldErrors)?.model.complete === true
+}
+
+/** The Enter ladder's last step (3.5): confirms the active feature command when it is complete. Returns whether it did. */
+export function confirmIfComplete(app: App): boolean {
+  if (!commandComplete(app.store.getState())) {
+    return false
+  }
+  confirmCommand(app).catch(reportFailure('Confirming the command'))
+  return true
+}
+
 /** Cancel: reverts the transaction; nothing is recorded (3.7). */
 export async function cancelCommand(app: App): Promise<void> {
   const command = commandOf(app)
@@ -1503,9 +1521,7 @@ export async function cancelCommandImplicitly(app: App): Promise<void> {
       {
         label: 'Restore',
         run: () => {
-          restoreCommand(app, saved).catch((error: unknown) => {
-            console.error('Restoring the command failed.', error)
-          })
+          restoreCommand(app, saved).catch(reportFailure('Restoring the command'))
         },
       },
     ],
@@ -1581,15 +1597,12 @@ export async function redoCommandChange(app: App): Promise<void> {
  * the first essential expression field; null without one.
  */
 export function commandValueField(state: AppState): string | null {
-  const command = state.command
-  const feature = command === null ? undefined : state.catalog?.byType[command.featureType]
-  if (command === null || feature === undefined) {
+  const active = activeCommandModel(state)
+  if (active === null) {
     return null
   }
-  const model = buildInspectorModel({ feature, params: command.params, errors: {} })
-  const expressions = [...model.essential, ...model.more].filter(
-    (field) => field.control.type === 'expression',
-  )
+  const { command, model } = active
+  const expressions = fieldsOf(model).filter((field) => field.control.type === 'expression')
   const changed = command.changedPaths.findLast((path) =>
     expressions.some((field) => field.path === path),
   )
@@ -1601,11 +1614,7 @@ export function commandValueField(state: AppState): string | null {
 /** The params a command started from, without the reuse rule: what More options compares with (2.12). */
 export const commandStartParams: (state: AppState) => Params | null = memoized(
   (state: AppState) =>
-    [
-      state.command === null ? undefined : state.catalog?.byType[state.command.featureType],
-      state.document?.recipe.bodies,
-      state.document?.meshes,
-    ] as const,
+    [activeCommandFeature(state), state.document?.recipe.bodies, state.document?.meshes] as const,
   (feature, bodies, meshes) =>
     feature === undefined || meshes === undefined
       ? null

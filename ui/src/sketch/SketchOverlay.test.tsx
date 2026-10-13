@@ -3,7 +3,6 @@ import { Profiler } from 'react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it } from 'vitest'
 import { AppProvider } from '../app/AppProvider'
-import type { App } from '../app/createApp'
 import type { SketchConstraint } from '../generated/protocol'
 import { COLOR_CLASSES, FONT_CLASSES } from '../theme/roles'
 import { circleEntity, lineEntity, SKETCH_ID, solutionFor, solvedSketch } from './fixtures.testing'
@@ -12,8 +11,10 @@ import { SketchOverlay } from './SketchOverlay'
 import {
   clickAt,
   mountView,
+  nextFrame,
   pointerAt,
   pressKey,
+  setTool,
   settleCommits,
   sketchHarness,
   type SketchHarness,
@@ -37,9 +38,7 @@ function renderOverlay(
   harness: SketchHarness,
   tool: SketchToolId | null = null,
 ): HTMLCanvasElement {
-  harness.app.store.setState((state) =>
-    state.sketch === null ? {} : { sketch: { ...state.sketch, tool } },
-  )
+  setTool(harness.app, tool)
   view = mountView()
   const container = document.createElement('div')
   view.region.append(container)
@@ -50,23 +49,6 @@ function renderOverlay(
     { container },
   )
   return view.canvas
-}
-
-/** Lets the controller's scheduled paint run. */
-async function nextFrame(): Promise<void> {
-  await act(async () => {
-    await new Promise((resolve) => {
-      requestAnimationFrame(resolve)
-    })
-  })
-}
-
-function setTool(app: App, tool: SketchToolId | null): void {
-  act(() => {
-    app.store.setState((state) =>
-      state.sketch === null ? {} : { sketch: { ...state.sketch, tool } },
-    )
-  })
 }
 
 /** A line along X to `end` with a satisfied horizontal c-1 and a reference length c-3 of `end`. */
@@ -194,9 +176,7 @@ describe('SketchOverlay annotations (3.16.2)', () => {
       constraints: [HORIZONTAL, reference],
       solution: referenceSolution(20),
     })
-    harness.app.store.setState((state) =>
-      state.sketch === null ? {} : { sketch: { ...state.sketch, tool: null } },
-    )
+    setTool(harness.app, null)
     view = mountView()
     const container = document.createElement('div')
     view.region.append(container)
@@ -570,6 +550,8 @@ describe('SketchOverlay box selection (3.16.9)', () => {
       pointerAt(canvas, 'pointerup', [-10, -10])
     })
     expect(screen.queryByTestId('box-selection')).toBeNull()
-    setTool(harness.app, null)
+    act(() => {
+      setTool(harness.app, null)
+    })
   })
 })

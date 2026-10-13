@@ -9,6 +9,8 @@ import {
 } from '../test/fakes/test-app'
 import {
   createCommandRegistry,
+  explainDisabled,
+  runCommand,
   type Availability,
   type CommandDefinition,
   type CommandRegistry,
@@ -171,6 +173,56 @@ describe('run', () => {
     const app = createTestApp(registry)
     await registry.run(app, 'file.save', 'shortcut')
     expect(finished).toBe(true)
+  })
+})
+
+describe('explainDisabled', () => {
+  it('shows the reason as an info notification with its code', () => {
+    const app = createTestApp(createCommandRegistry())
+    explainDisabled(app, { reason: 'Finish or cancel Fillet first.', code: 'finish_command_first' })
+    expect(app.store.getState().notifications).toEqual([
+      expect.objectContaining({
+        severity: 'info',
+        message: 'Finish or cancel Fillet first.',
+        actions: [],
+        code: 'finish_command_first',
+      }),
+    ])
+  })
+
+  it('leaves the code out when the reason has none', () => {
+    const app = createTestApp(createCommandRegistry())
+    explainDisabled(app, { reason: 'Nothing to undo.' })
+    const [notification] = app.store.getState().notifications
+    expect(notification).toEqual(
+      expect.objectContaining({ severity: 'info', message: 'Nothing to undo.' }),
+    )
+    expect(notification).not.toHaveProperty('code')
+  })
+})
+
+describe('runCommand', () => {
+  it('runs the command with the invocation source', async () => {
+    const registry = createCommandRegistry()
+    const run = vi.fn<CommandDefinition['run']>()
+    registry.register(command('file.save', { run }))
+    const app = createTestApp(registry)
+    runCommand(app, 'file.save', 'menu')
+    await vi.waitFor(() => {
+      expect(run).toHaveBeenCalledWith(app, 'menu')
+    })
+  })
+
+  it('logs "The command {id} failed." when the command rejects', async () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const error = new Error('The disk is full.')
+    const registry = createCommandRegistry()
+    registry.register(command('file.save', { run: () => Promise.reject(error) }))
+    runCommand(createTestApp(registry), 'file.save', 'toolbar')
+    await vi.waitFor(() => {
+      expect(log).toHaveBeenCalledWith('The command file.save failed.', error)
+    })
+    log.mockRestore()
   })
 })
 

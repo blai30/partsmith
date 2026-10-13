@@ -7,12 +7,10 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use super::common::{
-    body_hint, empty_selection, essential, manifest, positive_length, references, selection_hint,
+    body_hint, essential, manifest, positive_length, references, require_selection, selection_hint,
     solid_body, unit_hint,
 };
-use super::dressup::{
-    modified, name_blend, no_effect, run_or_search, select_edges, sorted_by_name,
-};
+use super::dressup::{BlendTarget, blend};
 use crate::{
     BuildContext, Dependencies, Feature, FeatureError, FeatureOutput, Noun, PythonCall,
     PythonNames, PythonValue,
@@ -58,10 +56,7 @@ impl Feature for Fillet {
     }
 
     fn validate(params: &FilletParams) -> Result<(), FeatureError> {
-        if params.edges.is_empty() {
-            return Err(empty_selection(&Self::manifest(), "edges", Noun::Edge));
-        }
-        Ok(())
+        require_selection(&params.edges, Self::manifest, "edges", Noun::Edge)
     }
 
     fn build(
@@ -70,21 +65,22 @@ impl Feature for Fillet {
     ) -> Result<FeatureOutput, FeatureError> {
         let (state, shape) = solid_body(context, &params.body)?;
         let radius = positive_length(context, "radius", &params.radius)?;
-        let selection = select_edges(context, &params.body, &params.edges)?;
-        if selection.edges.is_empty() {
-            return Ok(no_effect(&params.body, state, selection.warnings));
-        }
-        let edges = sorted_by_name(state.naming(), &selection.edges)?;
-        let result = run_or_search(
+        let target = BlendTarget {
+            body: &params.body,
+            state,
+            shape,
+            edges: &params.edges,
+        };
+        blend(
             context,
+            target,
+            roles::FILLET,
             radius,
-            |radius| {
+            |edge| Ok(edge.index),
+            |edges, radius| {
                 let edges: Vec<EdgeRadius> = edges
                     .iter()
-                    .map(|edge| EdgeRadius {
-                        edge: edge.index,
-                        radius,
-                    })
+                    .map(|&edge| EdgeRadius { edge, radius })
                     .collect();
                 fillet(shape, &edges)
             },
@@ -94,14 +90,7 @@ impl Feature for Fillet {
                 max,
                 cause,
             },
-        )?;
-        let named = name_blend(context.feature(), roles::FILLET, state.naming(), &result)?;
-        Ok(modified(
-            &params.body,
-            result.shape,
-            named,
-            selection.warnings,
-        ))
+        )
     }
 
     /// `fillet(edges, radius)`: the edges as references, the radius as an expression; the
@@ -122,9 +111,8 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::builtin::dressup::test_fixtures::reference;
-    use crate::test_support::ScriptNames;
-    use crate::{FieldRef, Registry, test_support::id};
+    use crate::test_support::{ScriptNames, id, reference};
+    use crate::{FieldRef, Registry};
 
     /// `E-FT` of fillet.md section 6.
     const FRONT_TOP: &str =

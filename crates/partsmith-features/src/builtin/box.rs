@@ -7,7 +7,6 @@ use partsmith_sketch::Placement;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use super::common::positive_length;
 use super::primitives::{PrimitiveParams, primitive_manifest};
 use crate::context::BuildContext;
 use crate::deps::Dependencies;
@@ -80,12 +79,9 @@ impl Feature for BoxFeature {
         params: &BoxParams,
         context: &BuildContext<'_>,
     ) -> Result<FeatureOutput, FeatureError> {
-        let mut size = [0.0; 3];
-        for ((value, field), expr) in size.iter_mut().zip(SIZE_FIELDS).zip(&params.size) {
-            *value = positive_length(context, field, expr)?;
-        }
-        let [length, width, height] = size;
-        params.primitive().build(context, |frame| {
+        let primitive = params.primitive();
+        let [length, width, height] = primitive.positive_sizes(context)?;
+        primitive.build(context, |frame| {
             // The kernel's box starts at its placement origin; center it in x and y.
             let corner = Placement {
                 origin: frame.local_to_world([-length / 2.0, -width / 2.0, 0.0]),

@@ -1,5 +1,6 @@
 import { createLatestOnly } from '../core/queue'
 import type { DocHandle, ElementRef, Resolution } from '../generated/protocol'
+import { parameterKey } from '../inspector/selection-values'
 import type { AppState, DocumentState, SelectionItem } from '../state/store'
 import type { App } from './createApp'
 
@@ -17,7 +18,7 @@ function exists(document: DocumentState, item: SelectionItem): boolean {
     case 'datum_plane':
       return (recipe.features ?? []).some((feature) => feature.id === item.feature)
     case 'parameter':
-      return (recipe.parameters ?? []).some((parameter) => `parameter:${parameter.id}` === item.key)
+      return (recipe.parameters ?? []).some((parameter) => parameterKey(parameter.id) === item.key)
     default:
       break
   }

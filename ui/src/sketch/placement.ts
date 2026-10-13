@@ -1,7 +1,7 @@
 import type { BoundingBox, Placement } from '../generated/protocol'
 import { eye, forward, normalizedPosition, pointAtDepth, type Camera } from '../viewport/camera'
 import { addScaled, cross, dot, length, subtract, type Vector3 } from '../viewport/math'
-import type { Vector2 } from './geometry'
+import { distance, type Vector2 } from './geometry'
 
 // Between sketch coordinates, model space and the canvas (ui.md 3.16.3): a sketch's placement maps
 // (u, v) to model space (sketch.md 3.1), and the camera maps model space to CSS pixels.
@@ -130,8 +130,8 @@ export function millimetersPerPixelAt(
   if (here === null || right === null || below === null) {
     return null
   }
-  const across = Math.hypot(right[0] - here[0], right[1] - here[1])
-  const down = Math.hypot(below[0] - here[0], below[1] - here[1])
+  const across = distance(right, here)
+  const down = distance(below, here)
   const mean = (across + down) / 2
   return mean > 0 && Number.isFinite(mean) ? mean : null
 }

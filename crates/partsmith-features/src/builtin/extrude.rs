@@ -7,9 +7,10 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use super::common::{
-    THROUGH_ALL_MARGIN, apply_tool, body_hint, body_op_hint, call, check_range, empty_selection,
-    essential, farthest_corner, flag, hint, is_false, is_positive_length, manifest, op_keyword,
-    options_hint, positive_length, profile_arguments, selection_hint, sweep_tool, unit_hint,
+    THROUGH_ALL_MARGIN, body_hint, body_op_hint, call, essential, farthest_corner, flag, hint,
+    is_false, is_positive_length, length_in_range, manifest, op_keyword, options_hint,
+    positive_length, profile_arguments, require_selection, selection_hint, sweep_profile,
+    unit_hint,
 };
 use crate::context::BuildContext;
 use crate::deps::Dependencies;
@@ -103,14 +104,12 @@ impl Feature for Extrude {
     }
 
     fn validate(params: &ExtrudeParams) -> Result<(), FeatureError> {
-        if params.profile.regions.is_empty() {
-            return Err(empty_selection(
-                &Extrude::manifest(),
-                "profile",
-                Noun::Region,
-            ));
-        }
-        Ok(())
+        require_selection(
+            &params.profile.regions,
+            Extrude::manifest,
+            "profile",
+            Noun::Region,
+        )
     }
 
     fn dependencies(params: &ExtrudeParams) -> Dependencies {
@@ -150,13 +149,9 @@ impl Feature for Extrude {
             plane.normal
         };
         let (start, end) = interval(params, context, plane.origin, direction)?;
-        let faces = profile.faces()?;
-        if context.is_canceled() {
-            return Err(FeatureError::Canceled);
-        }
-        let sweep = extrude(&faces.profile, direction, start, end)?;
-        let tool = sweep_tool(context.feature(), sweep, &faces.entities)?;
-        apply_tool(context, &params.body, params.op, tool, profile.warnings)
+        sweep_profile(context, &params.body, params.op, profile, |faces| {
+            extrude(faces, direction, start, end)
+        })
     }
 
     fn python(params: &ExtrudeParams, names: &dyn PythonNames) -> Option<PythonCall> {
@@ -193,17 +188,8 @@ fn interval(
     origin: Point,
     direction: Vector,
 ) -> Result<(f64, f64), FeatureError> {
-    let not_negative = |field: &str, expr: &Expr| -> Result<f64, FeatureError> {
-        let value = context.eval_length(field, expr)?;
-        check_range(
-            context,
-            field,
-            FieldUnit::Length,
-            value,
-            Bound::AtLeast(0.0),
-            None,
-        )
-    };
+    let not_negative =
+        |field: &str, expr: &Expr| length_in_range(context, field, expr, Bound::AtLeast(0.0));
     match &params.extent {
         ExtrudeExtent::Distance { expr } => {
             Ok((0.0, positive_length(context, "extent.expr", expr)?))

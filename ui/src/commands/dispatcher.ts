@@ -1,4 +1,6 @@
 import type { App } from '../app/createApp'
+import { hasOpenPopover, isEditable } from '../layout/focus'
+import { runCommand } from './registry'
 import { chordFromEvent, chordToString } from './shortcuts'
 
 /** Chords native text editing keeps inside editable targets. */
@@ -14,36 +16,6 @@ const NATIVE_EDITING_CHORDS: ReadonlySet<string> = new Set([
 
 /** The one chord considered while the palette, a menu or a popover is open (it closes the palette). */
 const PALETTE_CHORD = 'Mod+K'
-
-/** Input types that take no typed text, so their keys stay shortcuts. */
-const NON_TEXT_INPUT_TYPES: ReadonlySet<string> = new Set([
-  'button',
-  'checkbox',
-  'color',
-  'file',
-  'hidden',
-  'image',
-  'radio',
-  'range',
-  'reset',
-  'submit',
-])
-
-/** An input of a text-like type, a textarea, a select, or content-editable element. */
-function isEditable(target: EventTarget | null): boolean {
-  if (target instanceof HTMLInputElement) {
-    return !NON_TEXT_INPUT_TYPES.has(target.type)
-  }
-  if (target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement) {
-    return true
-  }
-  return target instanceof HTMLElement && target.isContentEditable
-}
-
-/** Whether a menu or a popover (light-dismiss popovers; tooltips are manual) is open. */
-function hasOpenPopover(document: Document): boolean {
-  return document.querySelector('[popover=""]:popover-open, [popover="auto"]:popover-open') !== null
-}
 
 /** Runs registry commands for key presses on the window (ui.md 2.10 dispatch rules); returns the uninstaller. */
 export function installShortcutDispatcher(app: App, target: Window): () => void {
@@ -69,9 +41,7 @@ export function installShortcutDispatcher(app: App, target: Window): () => void 
       return
     }
     event.preventDefault()
-    app.commands.run(app, command.id, 'shortcut').catch((error: unknown) => {
-      console.error(`The command ${command.id} failed.`, error)
-    })
+    runCommand(app, command.id, 'shortcut')
   }
   target.addEventListener('keydown', onKeyDown)
   return () => {

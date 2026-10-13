@@ -4,6 +4,9 @@
 
 export type Vector2 = readonly [number, number]
 
+/** A line segment, or the two points that give a line its direction. */
+export type Segment = { readonly start: Vector2; readonly end: Vector2 }
+
 const FULL_TURN = 2 * Math.PI
 /** Determinants below this fraction of the squared extent count as zero (three points in a line). */
 const COLLINEAR_TOLERANCE = 1e-12
@@ -22,6 +25,11 @@ export function scale(vector: Vector2, factor: number): Vector2 {
   return [vector[0] * factor, vector[1] * factor]
 }
 
+/** `point` reflected through `center`: 2 × center - point. */
+export function reflect(point: Vector2, center: Vector2): Vector2 {
+  return [2 * center[0] - point[0], 2 * center[1] - point[1]]
+}
+
 export function dot(first: Vector2, second: Vector2): number {
   return first[0] * second[0] + first[1] * second[1]
 }
@@ -29,6 +37,11 @@ export function dot(first: Vector2, second: Vector2): number {
 /** The z component of the 3D cross product: positive when `second` is counterclockwise from `first`. */
 export function cross(first: Vector2, second: Vector2): number {
   return first[0] * second[1] - first[1] * second[0]
+}
+
+/** The angle between two directions taken as undirected lines, in [0, π/2]. */
+export function undirectedAngle(first: Vector2, second: Vector2): number {
+  return Math.atan2(Math.abs(cross(first, second)), Math.abs(dot(first, second)))
 }
 
 export function length(vector: Vector2): number {

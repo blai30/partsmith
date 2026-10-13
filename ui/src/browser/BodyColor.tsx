@@ -1,8 +1,9 @@
 import { clsx } from 'clsx/lite'
 import { useId, useRef, useState, type RefObject } from 'react'
 import { setBodyColor } from '../app/actions/bodies'
-import { notify } from '../app/actions/notifications'
 import { useApp, useAppState } from '../app/AppProvider'
+import { reportFailure } from '../app/report'
+import { explainDisabled } from '../commands/registry'
 import { Popover } from '../components/Popover'
 import { Tooltip } from '../components/Tooltip'
 import { useResolvedTheme } from '../layout/use-resolved-theme'
@@ -53,12 +54,7 @@ export function BodyColorButton({ body, tabbable = true, size = 'row' }: BodyCol
       onClick={(event) => {
         event.stopPropagation()
         if (blocked !== null) {
-          notify(app, {
-            severity: 'info',
-            message: blocked,
-            actions: [],
-            code: 'finish_command_first',
-          })
+          explainDisabled(app, { reason: blocked, code: 'finish_command_first' })
           return
         }
         setOpen((current) => !current)
@@ -102,9 +98,7 @@ function ColorPopover({ body, anchor, current, onClose }: ColorPopoverProps) {
 
   function choose(color: string | null): void {
     onClose()
-    setBodyColor(app, body.id, color).catch((error: unknown) => {
-      console.error('Changing the body color failed.', error)
-    })
+    setBodyColor(app, body.id, color).catch(reportFailure('Changing the body color'))
   }
 
   return (

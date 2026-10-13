@@ -1,5 +1,5 @@
 import { clsx } from 'clsx/lite'
-import { CircleX, Plus, Trash2 } from 'lucide-react'
+import { Plus, Trash2 } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
 import {
   addParameter,
@@ -8,6 +8,7 @@ import {
   updateParameter,
 } from '../app/actions/parameters'
 import { useApp, useAppState } from '../app/AppProvider'
+import { reportFailure } from '../app/report'
 import { Button } from '../components/Button'
 import { IconButton } from '../components/IconButton'
 import { TextField } from '../components/TextField'
@@ -17,6 +18,7 @@ import type { Parameter, ParameterValue, Units } from '../generated/protocol'
 import { PanelHeader } from '../layout/PanelHeader'
 import { useUiRequest } from '../layout/requests'
 import { MESSAGES } from '../messages'
+import { SeverityIcon } from '../print/SeverityIcon'
 import { COLOR_CLASSES, FONT_CLASSES } from '../theme/roles'
 
 // The Parameters panel (ui.md 3.11): one row per parameter with its name, expression, value and
@@ -33,10 +35,6 @@ function expressionId(parameterId: string): string {
   return `parameter-expression-${parameterId}`
 }
 
-function report(error: unknown): void {
-  console.error('A parameter change failed.', error)
-}
-
 function ParameterValueText({
   value,
   units,
@@ -50,11 +48,7 @@ function ParameterValueText({
         data-testid="parameter-value"
         className={clsx('flex items-start gap-1 text-xs', COLOR_CLASSES.errorText.foreground)}
       >
-        <CircleX
-          aria-hidden="true"
-          strokeWidth={1.75}
-          className={clsx('size-4 shrink-0', COLOR_CLASSES.errorMark.foreground)}
-        />
+        <SeverityIcon severity="error" />
         {value.error}
       </span>
     )
@@ -111,7 +105,7 @@ function ParameterRow({
           setName(null)
         }
       })
-      .catch(report)
+      .catch(reportFailure('A parameter change'))
   }
 
   function commitExpression(text: string, state: ExpressionState): void {
@@ -122,7 +116,7 @@ function ParameterRow({
       .then(() => {
         setExpression(null)
       })
-      .catch(report)
+      .catch(reportFailure('A parameter change'))
   }
 
   function commitComment(): void {
@@ -135,7 +129,7 @@ function ParameterRow({
       .then(() => {
         setComment(null)
       })
-      .catch(report)
+      .catch(reportFailure('A parameter change'))
   }
 
   return (
@@ -201,7 +195,7 @@ function ParameterRow({
           size="compact"
           className="mt-1"
           onClick={() => {
-            deleteParameter(app, parameter.id).catch(report)
+            deleteParameter(app, parameter.id).catch(reportFailure('A parameter change'))
           }}
         />
       </div>
@@ -330,7 +324,7 @@ function DraftRow({ draft, onDone }: { readonly draft: Draft; readonly onDone: (
                     done()
                   }
                 })
-                .catch(report)
+                .catch(reportFailure('A parameter change'))
             }}
             onCancel={done}
           />

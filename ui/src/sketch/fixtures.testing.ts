@@ -1,14 +1,7 @@
 // Test support for the sketch module: sketch records, solutions and selection items built from
-// sketch.md's JSON, a fake core, and an app around them, so tests read like the spec's scenarios.
+// sketch.md's JSON, and a fake core, so tests read like the spec's scenarios.
 
-import type { App } from '../app/createApp'
-import { createCommandRegistry } from '../commands/registry'
 import type { CoreApi, SolvedSketch } from '../core/api'
-import { CoreError } from '../core/client'
-import { createMutationQueue } from '../core/queue'
-import { createWebFileService } from '../files/file-service'
-import { createMemoryRecentFiles } from '../files/recent'
-import { createMemoryRecovery } from '../files/recovery'
 import type {
   Document,
   SketchConstraint,
@@ -16,20 +9,12 @@ import type {
   SketchParams,
   SketchSolution,
 } from '../generated/protocol'
-import {
-  createAppStore,
-  type AppState,
-  type AppStore,
-  type DocumentState,
-  type SelectionItem,
-  type SketchSession,
-} from '../state/store'
-import type { ViewportHandle } from '../viewport/controller'
-import type { Vector2 } from './geometry'
+import type { DocumentState, SelectionItem, SketchSession } from '../state/store'
+import { pointOnCircle, type Vector2 } from './geometry'
+import type { SolvedEntity } from './operands'
 import type { IdSource } from './recipes'
 
 export type FeatureRecord = NonNullable<Document['features']>[number]
-export type SolvedEntity = SketchSolution['entities'][number]
 export type EntityState = SolvedEntity['constrained']
 export type EntityType = 'point' | 'line' | 'circle' | 'arc'
 
@@ -98,11 +83,6 @@ export function arcEntity(
   }
 }
 
-/** The point at `angle` radians on the circle (center, radius). */
-export function pointOnCircle(center: Vector2, radius: number, angle: number): [number, number] {
-  return [center[0] + radius * Math.cos(angle), center[1] + radius * Math.sin(angle)]
-}
-
 /** The addressable points of an entity in role order (protocol.md `SketchSolution.points`). */
 export function solvedPoints(entity: SketchEntity): SketchSolution['points'] {
   switch (entity.type) {
@@ -115,22 +95,22 @@ export function solvedPoints(entity: SketchEntity): SketchSolution['points'] {
       ]
     case 'circle':
       return [{ point: `${entity.id}.center`, at: entity.center }]
-    case 'arc':
+    case 'arc': {
+      const at = (angle: number): [number, number] => {
+        const [x, y] = pointOnCircle(entity.center, entity.radius, angle)
+        return [x, y]
+      }
       return [
-        {
-          point: `${entity.id}.start`,
-          at: pointOnCircle(entity.center, entity.radius, entity.start_angle),
-        },
-        {
-          point: `${entity.id}.end`,
-          at: pointOnCircle(entity.center, entity.radius, entity.end_angle),
-        },
+        { point: `${entity.id}.start`, at: at(entity.start_angle) },
+        { point: `${entity.id}.end`, at: at(entity.end_angle) },
         { point: `${entity.id}.center`, at: entity.center },
       ]
+    }
   }
 }
 
-export function solvedEntity(
+/** An entity as the solver reports it, with its constraint state. */
+export function solvedAs(
   entity: SketchEntity,
   constrained: EntityState = 'under_constrained',
 ): SolvedEntity {
@@ -150,7 +130,7 @@ export function solutionFor(
     redundant: [],
     conflicting: [],
     placement: XY_PLACEMENT,
-    entities: entities.map((entity) => solvedEntity(entity)),
+    entities: entities.map((entity) => solvedAs(entity)),
     points: entities.flatMap(solvedPoints),
     constraints: [],
     regions: [],
@@ -234,6 +214,11 @@ export function sketchSession(fields: Partial<SketchSession> = {}): SketchSessio
   }
 }
 
+/** Constraints without their ids, for comparing constraints whose ids are generated. */
+export function withoutIds(constraints: readonly SketchConstraint[] | undefined): unknown[] {
+  return (constraints ?? []).map(({ id: _id, ...rest }) => rest)
+}
+
 const ENTITY_LABELS: Readonly<Record<EntityType, string>> = {
   point: 'Point',
   line: 'Line',
@@ -303,45 +288,5 @@ export function createFakeCore(methods: Partial<CoreApi>): CoreApi {
     analyzePrint: unexpected('analyzePrint'),
     exportBodies: unexpected('exportBodies'),
     ...methods,
-  }
-}
-
-/**
- * A `CoreError` as the core client raises it for an error response. ui.md 2.5 specifies its fields
- * but not its constructor, so the error is assembled on the class prototype.
- */
-export function coreError(code: CoreError['code'], message: string): CoreError {
-  const error: CoreError = Object.create(CoreError.prototype)
-  Object.defineProperties(error, {
-    name: { value: 'CoreError' },
-    message: { value: message },
-    code: { value: code },
-    editIndex: { value: null },
-    span: { value: null },
-  })
-  return error
-}
-
-/** An app on `core` with an isolated store, a real mutation queue and an attachable viewport. */
-export function createSketchTestApp(options: {
-  readonly core: CoreApi
-  readonly state?: Partial<AppState>
-  readonly store?: AppStore
-}): App {
-  let viewport: ViewportHandle | null = null
-  return {
-    store: options.store ?? createAppStore(options.state),
-    core: options.core,
-    mutations: createMutationQueue(),
-    commands: createCommandRegistry(),
-    files: createWebFileService(window),
-    recent: createMemoryRecentFiles(),
-    recovery: createMemoryRecovery(),
-    platform: { operatingSystem: 'linux', host: 'web' },
-    viewport: () => viewport,
-    attachViewport: (handle) => {
-      viewport = handle
-    },
-    restartCore: unexpected('restartCore'),
   }
 }

@@ -5,6 +5,7 @@ import { cancelCommand } from '../app/actions/command'
 import { clearSelection } from '../app/actions/selection'
 import { useApp, useAppState } from '../app/AppProvider'
 import type { App } from '../app/createApp'
+import { reportFailure } from '../app/report'
 import { FEATURE_ICONS } from '../commands/icons'
 import { IconButton } from '../components/IconButton'
 import { Tooltip } from '../components/Tooltip'
@@ -14,7 +15,7 @@ import { positionElement } from '../viewport/overlay'
 import { commandSelectionFields } from '../viewport/picking-rules'
 import { CommandInspector } from './CommandInspector'
 import { fieldInputId } from './fields/field-id'
-import { buildInspectorModel } from './model'
+import { activeCommandModel, fieldsOf, isEmptyValue } from './model'
 import { placeInspector } from './placement'
 import { SelectionInspector } from './SelectionInspector'
 import { itemsFromValue } from './selection-values'
@@ -222,36 +223,20 @@ function Panel({
  * inside the closed More options gives way to the first essential expression field.
  */
 function openingFocus(state: AppState): readonly string[] {
-  const command = state.command
-  const feature = command === null ? undefined : state.catalog?.byType[command.featureType]
-  if (command === null || feature === undefined) {
+  const active = activeCommandModel(state)
+  if (active === null) {
     return []
   }
-  const model = buildInspectorModel({ feature, params: command.params, errors: {} })
-  const fields = [...model.essential, ...model.more]
-  const active = fields.find((field) => field.path === command.activeField)
-  const waiting = active !== undefined && active.required && isEmptyField(active.value)
+  const { command, model } = active
+  const activeField = fieldsOf(model).find((field) => field.path === command.activeField)
+  const waiting =
+    activeField !== undefined && activeField.required && isEmptyValue(activeField.value)
   const expression = model.essential.find((field) => field.control.type === 'expression')
   const paths =
     waiting || expression === undefined
       ? [command.activeField, expression?.path]
       : [expression.path, command.activeField]
   return paths.filter((path): path is string => path !== null && path !== undefined)
-}
-
-function isEmptyField(value: unknown): boolean {
-  if (value === undefined || value === null || value === '') {
-    return true
-  }
-  if (Array.isArray(value)) {
-    return value.length === 0
-  }
-  const regions: unknown = typeof value === 'object' ? Reflect.get(value, 'regions') : undefined
-  return Array.isArray(regions) && regions.length === 0
-}
-
-function report(error: unknown): void {
-  console.error('An inspector action failed.', error)
 }
 
 export function Inspector() {
@@ -278,7 +263,7 @@ export function Inspector() {
         preview={command.preview}
         closeLabel="Cancel"
         onClose={() => {
-          cancelCommand(app).catch(report)
+          cancelCommand(app).catch(reportFailure('An inspector action'))
         }}
       >
         <CommandInspector command={command} feature={feature} />

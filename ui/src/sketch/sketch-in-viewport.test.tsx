@@ -5,7 +5,7 @@ import { AppProvider } from '../app/AppProvider'
 import { stubMatchMedia } from '../layout/test-app.testing'
 import { Viewport } from '../viewport/Viewport'
 import { SketchOverlay } from './SketchOverlay'
-import { clickAt, settleCommits, sketchHarness, VIEW_PIXELS } from './view.testing'
+import { clickAt, nextFrame, settleCommits, sketchHarness, VIEW_PIXELS } from './view.testing'
 
 // The sketch overlay inside the real viewport, mounted as the shell mounts it (ui.md 3.2): it finds
 // the viewport's canvas, holds the one sketch header, and its tools draw on that canvas.
@@ -23,14 +23,6 @@ afterEach(() => {
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
 })
-
-async function nextFrame(): Promise<void> {
-  await act(async () => {
-    await new Promise((resolve) => {
-      requestAnimationFrame(resolve)
-    })
-  })
-}
 
 describe('the sketch overlay in the viewport (3.2, 3.16.4)', () => {
   it('draws a line with the line tool and two clicks on the viewport canvas', async () => {

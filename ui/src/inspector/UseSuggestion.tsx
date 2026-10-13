@@ -1,5 +1,6 @@
 import { applySuggestion } from '../app/actions/timeline'
 import { useApp, useAppState } from '../app/AppProvider'
+import { reportFailure } from '../app/report'
 import { Button } from '../components/Button'
 import { Tooltip } from '../components/Tooltip'
 import type { Diagnostic, FeatureRecord } from '../generated/protocol'
@@ -29,9 +30,7 @@ export function UseSuggestion({
         className="self-start"
         aria-disabled={blocked === null ? undefined : true}
         onClick={() => {
-          applySuggestion(app, record.id, message).catch((error: unknown) => {
-            console.error('Applying the suggestion failed.', error)
-          })
+          applySuggestion(app, record.id, message).catch(reportFailure('Applying the suggestion'))
         }}
       >
         Use {message.suggestion}

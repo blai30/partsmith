@@ -17,12 +17,13 @@ import {
   PackageOpen,
   PencilRuler,
   Rotate3d,
+  Shapes,
   SquareRoundCorner,
   SquareSplitVertical,
   Torus,
 } from 'lucide-react'
 import { afterEach, describe, expect, it } from 'vitest'
-import { CONSTRAINT_ICONS, FEATURE_ICONS } from './icons'
+import { CONSTRAINT_ICONS, FEATURE_ICONS, featureIcon } from './icons'
 
 afterEach(() => {
   cleanup()
@@ -67,6 +68,18 @@ const CONSTRAINT_TYPES = [
   'midpoint',
   'fix',
 ] as const
+
+describe('featureIcon', () => {
+  it('is the icon of a known manifest icon name', () => {
+    expect(featureIcon('fillet')).toBe(SquareRoundCorner)
+  })
+
+  it('is the shapes icon for an unknown or missing name', () => {
+    expect(featureIcon('custom')).toBe(Shapes)
+    expect(featureIcon('')).toBe(Shapes)
+    expect(featureIcon(undefined)).toBe(Shapes)
+  })
+})
 
 describe('FEATURE_ICONS', () => {
   it.each(FEATURE_ICON_TABLE)('maps %s to its lucide icon', (name, icon) => {

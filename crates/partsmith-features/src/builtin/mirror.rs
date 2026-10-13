@@ -7,9 +7,7 @@ use partsmith_occt_sys::Transform;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use super::common::{
-    COPY_OP_OPTIONS, essential, into_keyword, manifest, options_hint, selection_hint,
-};
+use super::common::{essential, into_keyword, manifest, selection_hint, target_hint};
 use super::copy::{self, Source};
 use crate::context::BuildContext;
 use crate::deps::Dependencies;
@@ -61,8 +59,8 @@ impl Feature for Mirror {
                     "Mirror plane",
                     SelectionKind::Plane,
                 )),
-                essential(options_hint("op", "Operation", &COPY_OP_OPTIONS)),
-                essential(selection_hint("target", "Target body", SelectionKind::Body)),
+                essential(copy::op_hint()),
+                essential(target_hint()),
             ],
         )
     }
@@ -119,7 +117,6 @@ mod tests {
     use super::*;
     use crate::context::BodyState;
     use crate::output::{BodyChange, DatumResult, OutputData};
-    use crate::registry::Registry;
     use crate::test_support::{
         assert_bounds, assert_volume, box_body, build, face_names, id, params_with, python, update,
         updated_shape, updates,
@@ -138,17 +135,6 @@ mod tests {
     /// A 10 mm cube in `b-1` spanning [x,-5,0]-[x+10,5,10].
     fn cube_at(x: f64) -> Vec<(&'static str, BodyState)> {
         vec![("b-1", box_body("f-box1", [x, -5.0, 0.0], 10.0))]
-    }
-
-    #[test]
-    fn registers_with_its_manifest() {
-        let mut registry = Registry::new();
-
-        registry
-            .register::<Mirror>()
-            .expect("the mirror passes the registration checks");
-
-        assert_eq!(registry.types().collect::<Vec<_>>(), ["mirror"]);
     }
 
     #[test]

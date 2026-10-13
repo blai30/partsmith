@@ -1,15 +1,15 @@
 import type { PointRef, SketchConstraint, SketchSolution } from '../generated/protocol'
 import { MESSAGES } from '../messages'
-import type { ConstraintType } from './constraints'
+import type { ConstraintType, QuantityUnit } from './constraints'
 import {
   add,
-  circleThroughThreePoints,
   distance,
   dot,
   length,
   midpoint,
   normalizeAngle,
   pointOnCircle,
+  reflect,
   scale,
   subtract,
   unitAt,
@@ -24,16 +24,16 @@ import {
 } from './inference'
 import { pointPosition, solvedEntity } from './operands'
 import {
-  arcAngles,
   arcThreePointRecipe,
   circleRecipe,
   lineRecipe,
-  MAXIMUM_ARC_RADIUS,
   pointRecipe,
   rectangleCenterRecipe,
   rectangleTwoPointRecipe,
+  threePointArc,
   type IdSource,
   type SketchAddition,
+  type ThreePointArc,
 } from './recipes'
 import { X_AXIS } from './refs'
 import type { SketchChange } from './session'
@@ -41,18 +41,41 @@ import type { SketchChange } from './session'
 // The drawing tools as a state machine (ui.md 3.16.4, 3.16.5): what the rubber band shows for the
 // pointer and typed values, and the change each click or Enter commits.
 
-export type DrawingTool =
-  | 'line'
-  | 'rectangle_2point'
-  | 'rectangle_center'
-  | 'circle'
-  | 'arc_3point'
-  | 'point'
+/** The drawing tools, which place new geometry and show a crosshair (3.16.4). */
+export const DRAWING_TOOLS = [
+  'line',
+  'rectangle_2point',
+  'rectangle_center',
+  'circle',
+  'arc_3point',
+  'point',
+] as const
+
+export type DrawingTool = (typeof DRAWING_TOOLS)[number]
 
 /** The quantities of dimension as you draw, named by their draw inputs' accessible names. */
-export type DrawFieldName = 'Length' | 'Angle' | 'Width' | 'Height' | 'Diameter' | 'Radius'
+export const DRAW_FIELD_NAMES = [
+  'Length',
+  'Angle',
+  'Width',
+  'Height',
+  'Diameter',
+  'Radius',
+] as const
 
-export type DrawField = { readonly name: DrawFieldName; readonly unit: 'length' | 'angle' }
+export type DrawFieldName = (typeof DRAW_FIELD_NAMES)[number]
+
+/** The unit of each draw input's value. */
+export const FIELD_UNITS: Readonly<Record<DrawFieldName, QuantityUnit>> = {
+  Length: 'length',
+  Angle: 'angle',
+  Width: 'length',
+  Height: 'length',
+  Diameter: 'length',
+  Radius: 'length',
+}
+
+export type DrawField = { readonly name: DrawFieldName; readonly unit: QuantityUnit }
 
 /** A valid typed value: the expression text and its value in mm or rad. */
 export type TypedValue = { readonly text: string; readonly value: number }
@@ -139,28 +162,23 @@ const LABELS: Readonly<Record<DrawingTool, string>> = {
   point: 'Point',
 }
 
+/** The draw inputs with these names, with their units. */
+function fields(...names: DrawFieldName[]): DrawField[] {
+  return names.map((name) => ({ name, unit: FIELD_UNITS[name] }))
+}
+
 /** The draw inputs of a tool in a state (3.16.4), empty when the shape is not rubber-banding. */
 export function drawFields(tool: DrawingTool, state: DrawState): readonly DrawField[] {
   switch (tool) {
     case 'line':
-      return state.stage === 'line'
-        ? [
-            { name: 'Length', unit: 'length' },
-            { name: 'Angle', unit: 'angle' },
-          ]
-        : []
+      return state.stage === 'line' ? fields('Length', 'Angle') : []
     case 'rectangle_2point':
     case 'rectangle_center':
-      return state.stage === 'second'
-        ? [
-            { name: 'Width', unit: 'length' },
-            { name: 'Height', unit: 'length' },
-          ]
-        : []
+      return state.stage === 'second' ? fields('Width', 'Height') : []
     case 'circle':
-      return state.stage === 'second' ? [{ name: 'Diameter', unit: 'length' }] : []
+      return state.stage === 'second' ? fields('Diameter') : []
     case 'arc_3point':
-      return state.stage === 'third' ? [{ name: 'Radius', unit: 'length' }] : []
+      return state.stage === 'third' ? fields('Radius') : []
     case 'point':
       return []
   }
@@ -441,7 +459,7 @@ function rectangleCorners(
   corner: Vector2,
 ): { readonly from: Vector2; readonly to: Vector2 } {
   return tool === 'rectangle_center'
-    ? { from: [2 * first[0] - corner[0], 2 * first[1] - corner[1]], to: corner }
+    ? { from: reflect(corner, first), to: corner }
     : { from: first, to: corner }
 }
 
@@ -492,7 +510,7 @@ function rectangleCommit(
     tool === 'rectangle_center'
       ? rectangleCenterRecipe({ center: first.at, corner, construction, ids })
       : rectangleTwoPointRecipe({ corner: first.at, opposite: corner, construction, ids })
-  const [bottom, right, , left, , center] = addition?.entities ?? []
+  const [bottom, right, _top, left, _diagonal, center] = addition?.entities ?? []
   if (addition === null || bottom === undefined || right === undefined || left === undefined) {
     return { state: { stage: 'second', first }, commit: null }
   }
@@ -610,51 +628,35 @@ function arcThrough(first: Placed, second: Placed, input: DrawInput): Vector2 | 
   return add(center, scale(normal, side * radius.value))
 }
 
-type ArcGeometry = {
-  readonly center: Vector2
-  readonly radius: number
-  readonly startAngle: number
-  readonly endAngle: number
-  readonly reversed: boolean
-}
-
-function arcGeometry(first: Placed, second: Placed, through: Vector2 | null): ArcGeometry | null {
-  if (through === null) {
-    return null
-  }
-  const circle = circleThroughThreePoints(first.at, second.at, through)
-  if (circle === null || circle.radius > MAXIMUM_ARC_RADIUS) {
-    return null
-  }
-  const angles = arcAngles(circle.center, first.at, second.at, through)
-  return { center: circle.center, radius: circle.radius, ...angles }
+function arcGeometry(first: Placed, second: Placed, through: Vector2 | null): ThreePointArc | null {
+  return through === null ? null : threePointArc(first.at, second.at, through)
 }
 
 /** The tangent inference at A: the new arc leaves A along the tangent of the curve ending there. */
 function arcTangent(
   first: Placed,
-  arc: ArcGeometry,
+  arc: ThreePointArc,
   solution: SketchSolution,
 ): DirectionInference | null {
   const radial = subtract(first.at, arc.center)
   return inferTangent(solution, snappedPoint(first.snap), [-radial[1], radial[0]], true)
 }
 
-function arcPreview(state: DrawState, input: DrawInput): DrawPreview {
-  if (state.stage === 'second') {
-    const { point, snap } = inferAt(input, 'arc_3point', null)
-    return {
-      shapes: [{ kind: 'line', start: state.first.at, end: point }],
-      snap,
-      glyphs: snapGlyph(snap),
-      hint: null,
-      inputsAt: null,
-      measures: {},
-    }
+/** After the arc's first click: the chord to where its second click would go. */
+function arcChordPreview(first: Placed, input: DrawInput): DrawPreview {
+  const { point, snap } = inferAt(input, 'arc_3point', null)
+  return {
+    shapes: [{ kind: 'line', start: first.at, end: point }],
+    snap,
+    glyphs: snapGlyph(snap),
+    hint: null,
+    inputsAt: null,
+    measures: {},
   }
-  if (state.stage !== 'third') {
-    return idlePreview('arc_3point', input)
-  }
+}
+
+/** After the arc's two ends: the arc through the cursor, or the chord while it cannot be one. */
+function arcPreview(state: Extract<DrawState, { stage: 'third' }>, input: DrawInput): DrawPreview {
   const arc = arcGeometry(state.first, state.second, arcThrough(state.first, state.second, input))
   if (arc === null) {
     return {
@@ -750,7 +752,7 @@ function secondPreview(
     case 'circle':
       return circlePreview(state.first, input)
     case 'arc_3point':
-      return arcPreview(state, input)
+      return arcChordPreview(state.first, input)
     case 'line':
     case 'point':
       return idlePreview(tool, input)
@@ -771,10 +773,42 @@ export function drawPreview(tool: DrawingTool, state: DrawState, input: DrawInpu
   }
 }
 
-/** The first click: where the shape starts, with its snap. */
-function firstClick(tool: DrawingTool, input: DrawInput): Placed {
+/** Where a click places a point, with its snap. */
+function placedAt(tool: DrawingTool, input: DrawInput): Placed {
   const { point, snap } = inferAt(input, tool, null)
   return { at: point, snap }
+}
+
+/** The first click: a point is placed at once; the other tools start their shape there. */
+function startShape(
+  tool: DrawingTool,
+  input: DrawInput,
+  ids: IdSource,
+  construction: boolean,
+): DrawStep {
+  const placed = placedAt(tool, input)
+  if (tool === 'point') {
+    const addition = pointRecipe({ at: placed.at, construction, ids })
+    const point = addition.entities[0]
+    const inferred =
+      placed.snap === null || point === undefined
+        ? []
+        : [snapConstraint(placed.snap, point.id, ids)]
+    return { state: IDLE, commit: commitOf('point', addition, inferred, []) }
+  }
+  if (tool === 'line') {
+    const snapped = snappedPoint(placed.snap)
+    return {
+      state: {
+        stage: 'line',
+        start: placed,
+        previousEnd: null,
+        chainStart: snapped === null ? [] : [snapped],
+      },
+      commit: null,
+    }
+  }
+  return { state: { stage: 'second', first: placed }, commit: null }
 }
 
 /**
@@ -789,31 +823,8 @@ export function drawClick(
   construction: boolean,
 ): DrawStep {
   switch (state.stage) {
-    case 'idle': {
-      const placed = firstClick(tool, input)
-      if (tool === 'point') {
-        const addition = pointRecipe({ at: placed.at, construction, ids })
-        const point = addition.entities[0]
-        const inferred =
-          placed.snap === null || point === undefined
-            ? []
-            : [snapConstraint(placed.snap, point.id, ids)]
-        return { state: IDLE, commit: commitOf('point', addition, inferred, []) }
-      }
-      if (tool === 'line') {
-        const snapped = snappedPoint(placed.snap)
-        return {
-          state: {
-            stage: 'line',
-            start: placed,
-            previousEnd: null,
-            chainStart: snapped === null ? [] : [snapped],
-          },
-          commit: null,
-        }
-      }
-      return { state: { stage: 'second', first: placed }, commit: null }
-    }
+    case 'idle':
+      return startShape(tool, input, ids, construction)
     case 'line':
       return lineCommit(state, input, ids, construction)
     case 'second':
@@ -838,7 +849,7 @@ function secondClick(
     case 'circle':
       return circleCommit(state.first, input, ids, construction)
     case 'arc_3point': {
-      const second = firstClick(tool, input)
+      const second = placedAt(tool, input)
       if (distance(second.at, state.first.at) < MINIMUM_SIZE_PIXELS * input.millimetersPerPixel) {
         return { state, commit: null }
       }

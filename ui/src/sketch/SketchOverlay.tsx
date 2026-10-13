@@ -7,15 +7,13 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
-  type KeyboardEvent,
-  type MouseEvent,
   type RefObject,
 } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { sketchParamsOf } from '../app/actions/sketch'
 import { useApp, useAppState } from '../app/AppProvider'
 import { CONSTRAINT_ICONS } from '../commands/icons'
-import type { ConstraintSolveState, SketchConstraint, SketchSolution } from '../generated/protocol'
+import type { ConstraintSolveState, SketchSolution } from '../generated/protocol'
 import { useResolvedTheme } from '../layout/use-resolved-theme'
 import { selectEditedSketch } from '../state/selectors'
 import { COLOR_CLASSES, FONT_CLASSES, VIEWPORT_COLORS } from '../theme/roles'
@@ -26,17 +24,21 @@ import {
   DIMENSION_TITLES,
   isDimension,
   type ConstraintType,
+  type DimensionConstraint,
+  type GlyphConstraint,
 } from './constraints'
 import { DimensionEditor } from './DimensionEditor'
 import { DrawInputs } from './DrawInputs'
 import type { Vector2 } from './geometry'
 import { issueRings } from './issues'
 import type { DrawInputsPlacement } from './screen'
+import type { OverlayPaint } from './overlay-paint'
 import {
   createSketchController,
   EMPTY_SKETCH_MODEL,
-  type OverlayPaint,
+  togglesSelection,
   type SketchController,
+  type SketchOverlayModel,
 } from './session'
 import { SketchHeader } from './SketchHeader'
 
@@ -46,8 +48,6 @@ import { SketchHeader } from './SketchHeader'
 // box. React renders the elements; the sketch controller writes their positions and the dimension
 // values each frame, so a drag re-renders nothing (ADR 0002).
 
-type GlyphConstraint = Exclude<SketchConstraint, { expr: string }>
-type DimensionConstraint = Extract<SketchConstraint, { expr: string }>
 type ConstraintStates = Readonly<Record<string, ConstraintSolveState>>
 
 /** The elements the painter writes positions, path data and text into. */
@@ -131,10 +131,11 @@ function paintOverlay(paint: OverlayPaint, elements: OverlayElements): void {
   setAttribute(elements.markers, 'd', paint.markers)
   const box = elements.box
   if (box !== null && paint.box !== null) {
-    setAttribute(box, 'x', String(paint.box.x))
-    setAttribute(box, 'y', String(paint.box.y))
-    setAttribute(box, 'width', String(paint.box.width))
-    setAttribute(box, 'height', String(paint.box.height))
+    const { left, top, right, bottom } = paint.box
+    setAttribute(box, 'x', String(left))
+    setAttribute(box, 'y', String(top))
+    setAttribute(box, 'width', String(right - left))
+    setAttribute(box, 'height', String(bottom - top))
   }
   placeAt(elements.inference, paint.inference)
   placeDrawInputs(elements.drawInputs, paint.drawInputs)
@@ -154,11 +155,6 @@ function subscribeNothing(): () => void {
 
 function emptyModel() {
   return EMPTY_SKETCH_MODEL
-}
-
-/** Shift or Mod with a click toggles the item in the sketch selection (3.16.10). */
-function toggles(event: MouseEvent | KeyboardEvent): boolean {
-  return event.shiftKey || event.ctrlKey || event.metaKey
 }
 
 /** The solve state of each constraint by id. */
@@ -193,7 +189,12 @@ export function SketchOverlay() {
         freePlacement={editing && model.freePlacement}
       />
       {editing ? (
-        <SketchLayer key={sketchId} sketchId={sketchId} onController={setController} />
+        <SketchLayer
+          key={sketchId}
+          sketchId={sketchId}
+          model={model}
+          onController={setController}
+        />
       ) : null}
     </>
   )
@@ -201,18 +202,16 @@ export function SketchOverlay() {
 
 type SketchLayerProps = {
   readonly sketchId: string
+  /** The model of the layer's controller, which the sketch overlay subscribes to. */
+  readonly model: SketchOverlayModel
   /** Receives the layer's controller once it exists, and null when the layer goes. */
   readonly onController: (controller: SketchController | null) => void
 }
 
-function SketchLayer({ sketchId, onController }: SketchLayerProps) {
+function SketchLayer({ sketchId, model, onController }: SketchLayerProps) {
   const app = useApp()
   const layer = useRef<HTMLDivElement>(null)
   const [controller, setController] = useState<SketchController | null>(null)
-  const model = useSyncExternalStore(
-    controller?.subscribe ?? subscribeNothing,
-    controller?.getModel ?? emptyModel,
-  )
   // Slices compared by value: a drag replaces the solution every frame, and only a changed
   // constraint state or outline problem renders again.
   const solved = useAppState((state) => state.document?.sketches[sketchId] !== undefined)
@@ -235,21 +234,8 @@ function SketchLayer({ sketchId, onController }: SketchLayerProps) {
     () => (record?.type === 'sketch' ? (sketchParamsOf(record)?.constraints ?? []) : []),
     [record],
   )
-  const glyphConstraints = useMemo(
-    () =>
-      constraints.filter(
-        (constraint): constraint is GlyphConstraint =>
-          !isDimension(constraint) && hasGlyph(constraint),
-      ),
-    [constraints],
-  )
-  const dimensions = useMemo(
-    () =>
-      constraints.filter((constraint): constraint is DimensionConstraint =>
-        isDimension(constraint),
-      ),
-    [constraints],
-  )
+  const glyphConstraints = useMemo(() => constraints.filter(hasGlyph), [constraints])
+  const dimensions = useMemo(() => constraints.filter(isDimension), [constraints])
   const selected = useMemo(() => new Set((selection ?? []).map((item) => item.key)), [selection])
 
   const glyphElements = useRef(new Map<string, HTMLElement>())
@@ -364,15 +350,7 @@ function SketchLayer({ sketchId, onController }: SketchLayerProps) {
               // Rings follow the solution's findings, which have no ids (sketch.md 3.13.7).
               // oxlint-disable-next-line react/no-array-index-key
               key={index}
-              ref={(element) => {
-                if (element === null) {
-                  return undefined
-                }
-                issueElements.current.set(index, element)
-                return () => {
-                  issueElements.current.delete(index)
-                }
-              }}
+              ref={register(issueElements, index)}
               data-testid="profile-issue"
               r={6}
               fill="none"
@@ -479,20 +457,30 @@ function InferenceGlyph({ type }: { readonly type: ConstraintType }) {
   )
 }
 
-/** Registers an element under an id for the painter while it is mounted. */
-function register(
-  elements: RefObject<Map<string, HTMLElement>>,
-  id: string,
-): (element: HTMLElement | null) => (() => void) | undefined {
+/** Registers an element under a key for the painter while it is mounted. */
+function register<Key, Painted>(
+  elements: RefObject<Map<Key, Painted>>,
+  key: Key,
+): (element: Painted | null) => (() => void) | undefined {
   return (element) => {
     if (element === null) {
       return undefined
     }
-    elements.current.set(id, element)
+    elements.current.set(key, element)
     return () => {
-      elements.current.delete(id)
+      elements.current.delete(key)
     }
   }
+}
+
+/** The colors of a solve state that is a problem: redundant or conflicting (3.16.2). */
+function solveStateClasses(state: ConstraintSolveState): string {
+  return clsx(
+    state === 'redundant' && COLOR_CLASSES.warningFill.background,
+    state === 'redundant' && COLOR_CLASSES.warningFill.foreground,
+    state === 'conflicting' && COLOR_CLASSES.errorFill.background,
+    state === 'conflicting' && COLOR_CLASSES.errorFill.foreground,
+  )
 }
 
 type GlyphProps = {
@@ -527,7 +515,7 @@ const ConstraintGlyph = memo(function ConstraintGlyph({
         aria-label={CONSTRAINT_TITLES[constraint.type]}
         aria-pressed={selected}
         onClick={(event) => {
-          controller?.selectConstraint(constraint.id, toggles(event))
+          controller?.selectConstraint(constraint.id, togglesSelection(event))
         }}
         onPointerEnter={() => {
           controller?.hoverConstraint(constraint.id)
@@ -548,10 +536,7 @@ const ConstraintGlyph = memo(function ConstraintGlyph({
           muted && 'opacity-90',
           muted && COLOR_CLASSES.surfaceRaised.background,
           muted && COLOR_CLASSES.textMuted.foreground,
-          state === 'redundant' && COLOR_CLASSES.warningFill.background,
-          state === 'redundant' && COLOR_CLASSES.warningFill.foreground,
-          state === 'conflicting' && COLOR_CLASSES.errorFill.background,
-          state === 'conflicting' && COLOR_CLASSES.errorFill.foreground,
+          solveStateClasses(state),
         )}
       >
         <Icon aria-hidden="true" strokeWidth={1.75} className="size-3.5" />
@@ -593,7 +578,7 @@ const DimensionLabel = memo(function DimensionLabel({
         data-driving={String(constraint.driving !== false)}
         aria-pressed={selected}
         onClick={(event) => {
-          controller?.selectConstraint(constraint.id, toggles(event))
+          controller?.selectConstraint(constraint.id, togglesSelection(event))
         }}
         onDoubleClick={() => {
           controller?.editDimension(constraint.id)
@@ -618,10 +603,7 @@ const DimensionLabel = memo(function DimensionLabel({
           plain && 'opacity-90',
           plain && COLOR_CLASSES.surfaceRaised.background,
           plain && COLOR_CLASSES.text.foreground,
-          state === 'redundant' && COLOR_CLASSES.warningFill.background,
-          state === 'redundant' && COLOR_CLASSES.warningFill.foreground,
-          state === 'conflicting' && COLOR_CLASSES.errorFill.background,
-          state === 'conflicting' && COLOR_CLASSES.errorFill.foreground,
+          solveStateClasses(state),
         )}
       >
         <span className="sr-only">{DIMENSION_TITLES[constraint.type]}</span>{' '}

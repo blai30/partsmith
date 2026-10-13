@@ -2,6 +2,7 @@ import type { LucideIcon } from 'lucide-react'
 import { notify } from '../app/actions/notifications'
 import { recordPaletteRecent } from '../app/actions/settings'
 import type { App, Platform } from '../app/createApp'
+import { reportFailure } from '../app/report'
 import type { MessageId } from '../messages'
 import type { AppContext } from '../state/store'
 import { chordToString, parseShortcut, type Chord } from './shortcuts'
@@ -120,6 +121,24 @@ function onHost(definition: CommandDefinition, platform: Platform): boolean {
   return definition.host === undefined || definition.host === platform.host
 }
 
+/** Says why a command or control cannot act now, as an info notification carrying the reason's code (2.8). */
+export function explainDisabled(
+  app: App,
+  disabled: Pick<DisabledAvailability, 'reason' | 'code'>,
+): void {
+  notify(app, {
+    severity: 'info',
+    message: disabled.reason,
+    actions: [],
+    ...(disabled.code === undefined ? {} : { code: disabled.code }),
+  })
+}
+
+/** Runs a command from a control, logging a failure for reports. */
+export function runCommand(app: App, id: string, source: InvocationSource): void {
+  app.commands.run(app, id, source).catch(reportFailure(`The command ${id}`))
+}
+
 /** Whether a command's shortcuts are active in a context (3.5). */
 export function shortcutsActiveIn(definition: CommandDefinition, context: AppContext): boolean {
   return (definition.shortcutContexts ?? definition.contexts).includes(context)
@@ -177,12 +196,7 @@ export function createCommandRegistry(): CommandRegistry {
       }
       const availability = definition.availability(app)
       if (availability.state === 'disabled') {
-        notify(app, {
-          severity: 'info',
-          message: availability.reason,
-          actions: [],
-          ...(availability.code === undefined ? {} : { code: availability.code }),
-        })
+        explainDisabled(app, availability)
         return
       }
       if (availability.state === 'enabled') {

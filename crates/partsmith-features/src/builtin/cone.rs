@@ -1,11 +1,11 @@
 //! The `cone` feature: a right circular cone or frustum standing on a plane (features/cone.md).
 
-use partsmith_model::{Expr, FeatureManifest, FieldUnit, Id, LINEAR_TOLERANCE};
+use partsmith_model::{Expr, FeatureManifest, Id, LINEAR_TOLERANCE};
 use partsmith_occt_sys::{KernelError, Plane, Primitive, make_cone, make_cylinder};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use super::common::{check_range, positive_length};
+use super::common::{length_in_range, positive_length};
 use super::primitives::{PrimitiveParams, primitive_manifest};
 use crate::context::BuildContext;
 use crate::deps::Dependencies;
@@ -65,16 +65,7 @@ impl ConeParams {
 
 /// A radius that must be at least 0, as the kernel builds it (`kernel_radius`).
 fn radius(context: &BuildContext<'_>, field: &str, expr: &Expr) -> Result<f64, FeatureError> {
-    let value = context.eval_length(field, expr)?;
-    check_range(
-        context,
-        field,
-        FieldUnit::Length,
-        value,
-        Bound::AtLeast(0.0),
-        None,
-    )
-    .map(kernel_radius)
+    length_in_range(context, field, expr, Bound::AtLeast(0.0)).map(kernel_radius)
 }
 
 /// A checked radius as the kernel builds it: one below the kernel's modeling tolerance is a point

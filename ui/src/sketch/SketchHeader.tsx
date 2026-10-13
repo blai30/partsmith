@@ -10,6 +10,7 @@ import {
   showSketchFinding,
   sketchParamsOf,
 } from '../app/actions/sketch'
+import { reportFailure } from '../app/report'
 import { Button } from '../components/Button'
 import { Popover } from '../components/Popover'
 import { originPlaneName, originPlaneView, type OriginPlane } from '../core/labels'
@@ -125,9 +126,7 @@ function PlanePicking() {
           ref={index === 0 ? first : undefined}
           aria-label={`Sketch on ${originPlaneName(plane)}`}
           onClick={() => {
-            createSketchOn(app, originItem(plane)).catch((error: unknown) => {
-              console.error('Creating the sketch failed.', error)
-            })
+            createSketchOn(app, originItem(plane)).catch(reportFailure('Creating the sketch'))
           }}
         >
           {originPlaneView(plane)}
@@ -353,9 +352,9 @@ function SketchProblems({ sketchId }: { readonly sketchId: string }) {
                   <Button
                     aria-label={`Delete ${title}`}
                     onClick={() => {
-                      deleteSketchConstraints(app, [constraint.id]).catch((error: unknown) => {
-                        console.error('Deleting the constraint failed.', error)
-                      })
+                      deleteSketchConstraints(app, [constraint.id]).catch(
+                        reportFailure('Deleting the constraint'),
+                      )
                     }}
                   >
                     Delete

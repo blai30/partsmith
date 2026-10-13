@@ -1,13 +1,12 @@
 import { useEffect } from 'react'
-import { cancelCommand, confirmCommand } from '../app/actions/command'
+import { cancelCommand, confirmIfComplete } from '../app/actions/command'
 import { cancelLayOnFace } from '../app/actions/print'
 import { clearSelection } from '../app/actions/selection'
 import { showPickHint } from '../app/actions/notifications'
 import { finishSketch, setSketchTool } from '../app/actions/sketch'
 import type { App } from '../app/createApp'
-import { buildInspectorModel } from '../inspector/model'
+import { reportFailure } from '../app/report'
 import { MESSAGES } from '../messages'
-import type { AppState } from '../state/store'
 import { isNarrowWindow } from './use-overlay-dismiss'
 
 // The Esc and Enter ladders (ui.md 3.5): what the two keys do when no focused control takes them.
@@ -42,9 +41,7 @@ export function escapeStep(app: App): boolean {
     return false
   }
   if (state.command !== null) {
-    cancelCommand(app).catch((error: unknown) => {
-      console.error('Canceling the command failed.', error)
-    })
+    cancelCommand(app).catch(reportFailure('Canceling the command'))
     return true
   }
   if (state.print.pickingFace) {
@@ -117,28 +114,6 @@ export function useEscapeLadder(app: App): void {
   }, [app])
 }
 
-/** Whether the active feature command can be confirmed: every required field set, no field error. */
-export function commandComplete(state: AppState): boolean {
-  const command = state.command
-  const feature = command === null ? undefined : state.catalog?.byType[command.featureType]
-  return (
-    command !== null &&
-    feature !== undefined &&
-    buildInspectorModel({ feature, params: command.params, errors: command.fieldErrors }).complete
-  )
-}
-
-/** The Enter ladder's last step (3.5): confirms the active feature command when it is complete. Returns whether it did. */
-export function confirmIfComplete(app: App): boolean {
-  if (!commandComplete(app.store.getState())) {
-    return false
-  }
-  confirmCommand(app).catch((error: unknown) => {
-    console.error('Confirming the command failed.', error)
-  })
-  return true
-}
-
 /** Whether Enter on the element belongs to the element itself (a button activates, a list opens). */
 function handlesOwnEnter(element: Element): boolean {
   return (
@@ -158,9 +133,7 @@ export function repeatOnSelection(app: App): boolean {
   if (state.command !== null || state.context === 'sketch' || state.selection.length === 0) {
     return false
   }
-  app.commands.run(app, 'edit.repeat', 'shortcut').catch((error: unknown) => {
-    console.error('Repeating the command failed.', error)
-  })
+  app.commands.run(app, 'edit.repeat', 'shortcut').catch(reportFailure('Repeating the command'))
   return true
 }
 

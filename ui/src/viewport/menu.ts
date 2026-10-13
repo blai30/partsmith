@@ -1,10 +1,10 @@
-import { cancelCommand, confirmCommand, editFeature } from '../app/actions/command'
+import { cancelCommand, commandComplete, confirmCommand, editFeature } from '../app/actions/command'
 import type { App } from '../app/createApp'
-import { shortcutsActiveIn } from '../commands/registry'
+import { reportFailure } from '../app/report'
+import { runCommand, shortcutsActiveIn } from '../commands/registry'
 import { formatShortcut } from '../commands/shortcuts'
 import { featureLabel } from '../core/labels'
 import { suggestedCommands } from '../inspector/suggestions'
-import { commandComplete } from '../layout/ladders'
 import { CONSTRAINT_TITLES, applicableConstraints } from '../sketch/constraints'
 import type { AppState, SelectionItem } from '../state/store'
 import { isSessionVisible } from '../state/visibility'
@@ -29,12 +29,6 @@ type CommandItem = Extract<ViewportMenuItem, { readonly kind: 'command' }>
 
 const SEPARATOR: ViewportMenuItem = { kind: 'separator' }
 
-function report(id: string): (error: unknown) => void {
-  return (error) => {
-    console.error(`The command ${id} failed.`, error)
-  }
-}
-
 /** The item of an enabled registry command, with its title as shown now; null when it is not enabled. */
 function commandItem(app: App, state: AppState, id: string, label?: string): CommandItem | null {
   const definition = app.commands.get(id)
@@ -48,7 +42,7 @@ function commandItem(app: App, state: AppState, id: string, label?: string): Com
     label: label ?? definition.label?.(app) ?? definition.title,
     shortcut: shortcut === undefined ? null : formatShortcut(shortcut, app.platform),
     run: () => {
-      app.commands.run(app, id, 'menu').catch(report(id))
+      runCommand(app, id, 'menu')
     },
   }
 }
@@ -66,7 +60,7 @@ function actionItem(
     label,
     shortcut,
     run: () => {
-      action().catch(report(command))
+      action().catch(reportFailure(`The command ${command}`))
     },
   }
 }

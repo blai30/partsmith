@@ -1,5 +1,5 @@
 import type { PointRef } from '../generated/protocol'
-import type { Vector2 } from './geometry'
+import type { Segment } from './geometry'
 
 // sketch.md 3.16: the reserved references to the sketch's own origin and axes. They are fixed
 // constants that constraints accept wherever they take a point or a line; they are never stored as
@@ -26,6 +26,6 @@ export function isAxis(reference: string): reference is AxisName {
 }
 
 /** The constant geometry of an axis (sketch.md 3.16): the line through (0, 0) along +u or +v. */
-export function axisLine(axis: AxisName): { readonly start: Vector2; readonly end: Vector2 } {
+export function axisLine(axis: AxisName): Segment {
   return axis === X_AXIS ? { start: [0, 0], end: [1, 0] } : { start: [0, 0], end: [0, 1] }
 }

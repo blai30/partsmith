@@ -3,20 +3,28 @@
 //! how the copies are combined (features.md section 3.5, mirror.md section 3, naming.md sections
 //! 3.5.1, 3.6.10 and 3.6.11).
 
-use partsmith_model::{FeatureManifest, Id};
+use partsmith_model::{FeatureManifest, FieldHint, Id};
 use partsmith_naming::Instance;
 use partsmith_occt_sys::{Shape, Transform, transform};
 
-use super::common::{bodies, naming_failed, solid_body, unchanged};
+use super::common::{bodies, naming_failed, options_hint, solid_body, unchanged};
 use crate::context::{BodyState, BuildContext};
 use crate::deps::Dependencies;
 use crate::error::{FeatureError, FeatureWarning, FieldRef};
 use crate::output::{BodyChange, FeatureOutput, Tool, apply_op};
 use crate::params::{BodyOp, CopyOp};
 
+/// The options of a `CopyOp` field, with their labels.
+const COPY_OP_OPTIONS: [(&str, &str); 2] = [("join", "Join"), ("new", "New body")];
+
 /// Most instances a pattern makes, the original included (linear_pattern.md and
 /// circular_pattern.md section 3.3).
 const INSTANCE_LIMIT: u64 = 10_000;
+
+/// The `op` hint of a copy feature.
+pub(super) fn op_hint() -> FieldHint {
+    options_hint("op", "Operation", &COPY_OP_OPTIONS)
+}
 
 /// Checks the `op` and `target` of a copy feature (mirror.md section 3.1): op new needs a target,
 /// op join takes none, and the target is not the source body.
@@ -62,15 +70,6 @@ pub(super) fn check_instance_limit(total: u64) -> Result<(), FeatureError> {
             count: total,
             limit: INSTANCE_LIMIT,
         })
-    } else {
-        Ok(())
-    }
-}
-
-/// `Canceled` once the run has been canceled. Patterns check it before each instance.
-pub(super) fn check_canceled(context: &BuildContext<'_>) -> Result<(), FeatureError> {
-    if context.is_canceled() {
-        Err(FeatureError::Canceled)
     } else {
         Ok(())
     }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import type { SketchConstraint, SketchSolution } from '../generated/protocol'
+import type { SketchSolution } from '../generated/protocol'
 import { drawClick, drawFields, drawPreview, IDLE, type DrawInput, type DrawState } from './drawing'
-import { lineEntity, sequentialIds, solutionFor } from './fixtures.testing'
+import { lineEntity, sequentialIds, solutionFor, withoutIds } from './fixtures.testing'
 import type { Vector2 } from './geometry'
 
 // The drawing tools' clicks and rubber bands (3.16.4, 3.16.5) at 0.1 mm per pixel.
@@ -19,10 +19,6 @@ function input(cursor: Vector2, fields: Partial<DrawInput> = {}): DrawInput {
     typed: {},
     ...fields,
   }
-}
-
-function withoutIds(constraints: readonly SketchConstraint[] | undefined): unknown[] {
-  return (constraints ?? []).map(({ id: _id, ...rest }) => rest)
 }
 
 describe('rectangles', () => {

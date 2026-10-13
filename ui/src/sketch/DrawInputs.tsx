@@ -1,5 +1,6 @@
 import { clsx } from 'clsx/lite'
 import { useEffect, useId, useRef, type KeyboardEvent, type Ref } from 'react'
+import { reportFailure } from '../app/report'
 import { COLOR_CLASSES, FONT_CLASSES } from '../theme/roles'
 import type { DrawInputModel, SketchController } from './session'
 
@@ -38,9 +39,7 @@ export function DrawInputs({ ref, controller, inputs, focusRequest }: DrawInputs
     switch (event.key) {
       case 'Enter':
         event.preventDefault()
-        controller.commitDrawInputs().catch((error: unknown) => {
-          console.error('Committing the typed shape failed.', error)
-        })
+        controller.commitDrawInputs().catch(reportFailure('Committing the typed shape'))
         return
       case 'Escape':
         event.preventDefault()

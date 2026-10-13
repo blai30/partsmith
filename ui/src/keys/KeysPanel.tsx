@@ -9,10 +9,10 @@ import {
   withPlatformKeys,
   type ComponentKey,
 } from '../commands/component-keys'
+import { runCommand } from '../commands/registry'
 import { formatShortcut } from '../commands/shortcuts'
 import { SegmentedControl } from '../components/SegmentedControl'
 import { PanelHeader } from '../layout/PanelHeader'
-import { runCommand } from '../layout/use-commands'
 import { COLOR_CLASSES } from '../theme/roles'
 import { NAVIGATION_PRESETS, type NavigationPreset } from '../viewport/navigation'
 

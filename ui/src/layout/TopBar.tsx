@@ -5,6 +5,8 @@ import { setContext } from '../app/actions/context'
 import { setPaletteOpen } from '../app/actions/panels'
 import { updateSettings } from '../app/actions/settings'
 import { useApp, useAppState } from '../app/AppProvider'
+import { reportFailure } from '../app/report'
+import { runCommand } from '../commands/registry'
 import { formatShortcut } from '../commands/shortcuts'
 import { IconButton } from '../components/IconButton'
 import { SegmentedControl, type SegmentedOption } from '../components/SegmentedControl'
@@ -19,16 +21,10 @@ import { ContextToolbar } from './ContextToolbar'
 import { DocumentMenu } from './DocumentMenu'
 import { BROWSER_PANEL_ID } from './panel-ids'
 import { useUiRequest } from './requests'
-import { runCommand, useCommandViews } from './use-commands'
+import { useCommandViews } from './use-commands'
 
 // The top bar (ui.md 3.2): browser toggle, document name and save state, context switcher,
 // context toolbar, palette button, Export button and theme toggle.
-
-function report(action: string): (error: unknown) => void {
-  return (error) => {
-    console.error(`${action} failed.`, error)
-  }
-}
 
 function BrowserToggle() {
   const app = useApp()
@@ -101,7 +97,7 @@ function ContextSwitcher() {
       options={options}
       value={context}
       onChange={(next) => {
-        setContext(app, next).catch(report('Switching the context'))
+        setContext(app, next).catch(reportFailure('Switching the context'))
       }}
     />
   )

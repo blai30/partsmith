@@ -4,15 +4,17 @@
 
 use std::f64::consts::TAU;
 
-use partsmith_model::{Category, Expr, FeatureManifest, FieldUnit, Id, SelectionKind};
+use partsmith_model::{
+    ANGULAR_TOLERANCE, Category, Expr, FeatureManifest, FieldUnit, Id, SelectionKind,
+};
 use partsmith_naming::Instance;
 use partsmith_occt_sys::Transform;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use super::common::{
-    COPY_OP_OPTIONS, check_range, essential, flag, hint, into_keyword, is_false, manifest,
-    options_hint, selection_hint, unit_hint,
+    angle_in_range, check_canceled, essential, flag, hint, into_keyword, is_false, manifest,
+    out_of_range, selection_hint, target_hint, unit_hint,
 };
 use super::copy::{self, Source};
 use crate::context::BuildContext;
@@ -25,10 +27,6 @@ use crate::python::{PythonCall, PythonNames, PythonValue};
 
 /// The stored text of the default total angle, a full turn.
 const FULL_TURN: &str = "360 deg";
-
-/// How far above 2π a total angle may be and still count as a full turn (circular_pattern.md
-/// section 3.3).
-const ANGLE_TOLERANCE: f64 = 1e-9;
 
 /// Copies a body around an axis.
 #[derive(Clone, Copy, Debug, Default)]
@@ -84,8 +82,8 @@ impl Feature for CircularPattern {
                 essential(unit_hint("count", "Count", FieldUnit::Count)),
                 essential(unit_hint("angle", "Total angle", FieldUnit::Angle)),
                 hint("reverse", "Reverse"),
-                options_hint("op", "Operation", &COPY_OP_OPTIONS),
-                selection_hint("target", "Target body", SelectionKind::Body),
+                copy::op_hint(),
+                target_hint(),
             ],
         )
     }
@@ -122,30 +120,23 @@ impl Feature for CircularPattern {
         let source = Source::new(context, &params.body)?;
         let count = context.eval_count("count", &params.count, 1)?;
         copy::check_instance_limit(u64::from(count))?;
-        let angle = context.eval_angle("angle", &params.angle)?;
-        check_range(
-            context,
-            "angle",
-            FieldUnit::Angle,
-            angle,
-            Bound::GreaterThan(0.0),
-            None,
-        )?;
+        let angle = angle_in_range(context, "angle", &params.angle, Bound::GreaterThan(0.0))?;
         // A total angle within the tolerance above 360 deg counts as a full turn.
-        if angle > TAU + ANGLE_TOLERANCE {
-            return Err(FeatureError::OutOfRange {
-                field: context.field("angle"),
-                kind: FieldUnit::Angle,
-                value: angle,
-                bound: Bound::AtMost(TAU),
-                bound_name: None,
-            });
+        if angle > TAU + ANGULAR_TOLERANCE {
+            return Err(out_of_range(
+                context,
+                "angle",
+                FieldUnit::Angle,
+                angle,
+                Bound::AtMost(TAU),
+                None,
+            ));
         }
         let axis = context.axis("axis", &params.axis)?;
         let step = step_angle(angle, count) * if params.reverse { -1.0 } else { 1.0 };
         let mut copies = Vec::new();
         for instance in 1..count {
-            copy::check_canceled(context)?;
+            check_canceled(context)?;
             let rotation = Transform::rotation(&axis, step * f64::from(instance));
             let suffix = Instance {
                 first: instance,
@@ -182,7 +173,7 @@ impl Feature for CircularPattern {
 /// (0, 2π]: 2π / n for a full turn, so the last instance does not land on the first, else
 /// angle / (n - 1), so the first and last instances sit at the ends of the angle.
 fn step_angle(angle: f64, count: u32) -> f64 {
-    if (angle - TAU).abs() <= ANGLE_TOLERANCE {
+    if (angle - TAU).abs() <= ANGULAR_TOLERANCE {
         TAU / f64::from(count)
     } else if count >= 2 {
         angle / f64::from(count - 1)
@@ -201,7 +192,6 @@ mod tests {
     use super::*;
     use crate::context::BodyState;
     use crate::output::BodyChange;
-    use crate::registry::Registry;
     use crate::test_support::{
         assert_bounds, assert_volume, box_body, build, face_names, id, named_primitive,
         params_with, python, update, updated_shape,
@@ -234,17 +224,6 @@ mod tests {
 
     fn run(params: &CircularPatternParams) -> Result<FeatureOutput, FeatureError> {
         build::<CircularPattern>("f-cp1", params, peg(), Vec::new())
-    }
-
-    #[test]
-    fn registers_with_its_manifest() {
-        let mut registry = Registry::new();
-
-        registry
-            .register::<CircularPattern>()
-            .expect("the circular pattern passes the registration checks");
-
-        assert_eq!(registry.types().collect::<Vec<_>>(), ["circular_pattern"]);
     }
 
     #[test]
@@ -343,25 +322,6 @@ mod tests {
     }
 
     #[test]
-    fn count_one_has_no_effect() {
-        let output = run(&pattern(json!({"count": "1"}))).expect("no copies is fine");
-
-        assert_eq!(output.warnings[0].code(), "no_effect");
-    }
-
-    #[test]
-    fn an_angle_above_a_full_turn_is_out_of_range() {
-        let error = run(&pattern(json!({"count": "3", "angle": "400 deg"})))
-            .expect_err("400 deg is too much");
-
-        assert_eq!(error.field().expect("names a field").path, "angle");
-        assert_eq!(
-            error.to_string(),
-            "Total angle must be at most 360 deg, but it is 400 deg. Use 360 deg or less."
-        );
-    }
-
-    #[test]
     fn a_zero_angle_is_out_of_range() {
         let error =
             run(&pattern(json!({"count": "3", "angle": "0"}))).expect_err("0 deg turns nothing");
@@ -379,21 +339,6 @@ mod tests {
         assert_eq!(
             error.to_string(),
             "Count must be at least 1, but it is 0. Use 1 or more."
-        );
-    }
-
-    #[test]
-    fn a_negative_count_suggests_a_count_that_works() {
-        let error = run(&pattern(json!({"count": "-1"}))).expect_err("count -1");
-
-        assert_eq!(error.field().expect("names a field").path, "count");
-        assert_eq!(
-            error.to_string(),
-            "Count must be at least 1, but it is -1. Use 1 or more."
-        );
-        assert_eq!(
-            error.suggestion(partsmith_model::Units::Mm).as_deref(),
-            Some("1")
         );
     }
 

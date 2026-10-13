@@ -5,7 +5,6 @@ import type { DimensionType } from './constraints'
 import {
   add,
   closestPointOnLine,
-  cross,
   direction,
   distance,
   dot,
@@ -17,7 +16,9 @@ import {
   scale,
   signedDistanceToLine,
   subtract,
+  undirectedAngle,
   unitAt,
+  type Segment,
   type Vector2,
 } from './geometry'
 import {
@@ -27,7 +28,10 @@ import {
   operandsOf,
   pointPosition,
   solvedEntity,
+  solvedValue,
+  type LineOperand,
   type Operand,
+  type PointOperand,
 } from './operands'
 import type { IdSource } from './recipes'
 
@@ -41,31 +45,31 @@ const PARALLEL_TOLERANCE = 1e-6
 /** How far a default label sits from its geometry, in CSS pixels. */
 const LABEL_OFFSET_PIXELS = 28
 
-type Point = Extract<Operand, { kind: 'point' }>
-type Line = Extract<Operand, { kind: 'line' }>
-
-/** How a selection is dimensioned, with its solved geometry. */
-type Measured =
+/**
+ * How a selection is dimensioned, with its solved geometry: the selection read once, which the
+ * dimension's type, value and operand order all derive from.
+ */
+export type Measured =
   | {
       readonly kind: 'points'
-      readonly first: Point
-      readonly second: Point
+      readonly first: PointOperand
+      readonly second: PointOperand
       readonly at: readonly [Vector2, Vector2]
     }
-  | { readonly kind: 'line'; readonly line: Line; readonly at: readonly [Vector2, Vector2] }
+  | { readonly kind: 'line'; readonly line: LineOperand; readonly at: readonly [Vector2, Vector2] }
   | {
       readonly kind: 'point_line'
-      readonly point: Point
-      readonly line: Line
+      readonly point: PointOperand
+      readonly line: LineOperand
       readonly at: Vector2
-      readonly ends: { readonly start: Vector2; readonly end: Vector2 }
+      readonly ends: Segment
     }
   | {
       readonly kind: 'lines'
-      readonly first: Line
-      readonly second: Line
-      readonly firstEnds: { readonly start: Vector2; readonly end: Vector2 }
-      readonly secondEnds: { readonly start: Vector2; readonly end: Vector2 }
+      readonly first: LineOperand
+      readonly second: LineOperand
+      readonly firstEnds: Segment
+      readonly secondEnds: Segment
     }
   | {
       readonly kind: 'round'
@@ -75,6 +79,16 @@ type Measured =
       readonly radius: number
     }
   | { readonly kind: 'unsupported'; readonly message: string }
+
+/** The point and the line of a pair of operands that is one of each, in either order, or null. */
+function pointAndLine(
+  first: Operand,
+  second: Operand,
+): { readonly point: PointOperand; readonly line: LineOperand } | null {
+  const point = first.kind === 'point' ? first : second.kind === 'point' ? second : null
+  const line = first.kind === 'line' ? first : second.kind === 'line' ? second : null
+  return point === null || line === null ? null : { point, line }
+}
 
 function unsupported(operands: readonly Operand[]): Measured {
   const [first, second] = operands
@@ -91,7 +105,10 @@ function unsupported(operands: readonly Operand[]): Measured {
 }
 
 /** Reads the selection as one of the dimensionable shapes of 3.16.7. */
-function measuredOf(selection: readonly SelectionItem[], solution: SketchSolution): Measured {
+export function measuredOf(
+  selection: readonly SelectionItem[],
+  solution: SketchSolution,
+): Measured {
   const operands = operandsOf(selection) ?? []
   const [first, second] = operands
   if (operands.length === 1 && first !== undefined) {
@@ -125,9 +142,9 @@ function measuredOf(selection: readonly SelectionItem[], solution: SketchSolutio
       ? unsupported(operands)
       : { kind: 'points', first, second, at: [firstAt, secondAt] }
   }
-  const point = first.kind === 'point' ? first : second.kind === 'point' ? second : null
-  const line = first.kind === 'line' ? first : second.kind === 'line' ? second : null
-  if (point !== null && line !== null) {
+  const pointLine = pointAndLine(first, second)
+  if (pointLine !== null) {
+    const { point, line } = pointLine
     const at = pointPosition(solution, point.point)
     const ends = lineEnds(solution, line.line)
     return at === null || ends === null || point.owner === line.line
@@ -144,15 +161,10 @@ function measuredOf(selection: readonly SelectionItem[], solution: SketchSolutio
   return unsupported(operands)
 }
 
-function parallel(
-  first: { readonly start: Vector2; readonly end: Vector2 },
-  second: { readonly start: Vector2; readonly end: Vector2 },
-): boolean {
-  const firstDirection = subtract(first.end, first.start)
-  const secondDirection = subtract(second.end, second.start)
-  const angle = Math.atan2(
-    Math.abs(cross(firstDirection, secondDirection)),
-    Math.abs(dot(firstDirection, secondDirection)),
+function parallel(first: Segment, second: Segment): boolean {
+  const angle = undirectedAngle(
+    subtract(first.end, first.start),
+    subtract(second.end, second.start),
   )
   return angle <= PARALLEL_TOLERANCE
 }
@@ -181,16 +193,11 @@ function pointsType(at: readonly [Vector2, Vector2], labelAt: Vector2): Dimensio
   return 'distance'
 }
 
-/**
- * The dimension a selection gets with its label at `labelAt` (3.16.7), or why it cannot be
- * dimensioned.
- */
-export function dimensionTypeFor(
-  selection: readonly SelectionItem[],
+/** The dimension a measured selection gets with its label at `labelAt`, or why it gets none. */
+export function typeOf(
+  measured: Measured,
   labelAt: Vector2,
-  solution: SketchSolution,
 ): DimensionType | { readonly unsupported: string } {
-  const measured = measuredOf(selection, solution)
   switch (measured.kind) {
     case 'points':
     case 'line':
@@ -211,8 +218,8 @@ export function dimensionTypeFor(
  * bound it: the sector runs counterclockwise from `from` to `from + value`.
  */
 function labeledSector(
-  first: { readonly start: Vector2; readonly end: Vector2 },
-  second: { readonly start: Vector2; readonly end: Vector2 },
+  first: Segment,
+  second: Segment,
   labelAt: Vector2,
 ): {
   readonly vertex: Vector2
@@ -254,14 +261,20 @@ function labeledSector(
   return { vertex, from: start.angle, value, fromFirst: start.first }
 }
 
-/** The value a dimension of `type` measures on the selection now: mm, or rad for angles. */
-export function measuredValue(
-  type: DimensionType,
+/**
+ * The dimension a selection gets with its label at `labelAt` (3.16.7), or why it cannot be
+ * dimensioned.
+ */
+export function dimensionTypeFor(
   selection: readonly SelectionItem[],
   labelAt: Vector2,
   solution: SketchSolution,
-): number {
-  const measured = measuredOf(selection, solution)
+): DimensionType | { readonly unsupported: string } {
+  return typeOf(measuredOf(selection, solution), labelAt)
+}
+
+/** The value a dimension of `type` measures on a measured selection: mm, or rad for angles. */
+export function valueOf(type: DimensionType, measured: Measured, labelAt: Vector2): number {
   switch (measured.kind) {
     case 'points':
     case 'line': {
@@ -293,6 +306,16 @@ export function measuredValue(
     case 'unsupported':
       return Number.NaN
   }
+}
+
+/** The value a dimension of `type` measures on the selection now: mm, or rad for angles. */
+export function measuredValue(
+  type: DimensionType,
+  selection: readonly SelectionItem[],
+  labelAt: Vector2,
+  solution: SketchSolution,
+): number {
+  return valueOf(type, measuredOf(selection, solution), labelAt)
 }
 
 /** The expression fields of a dimension: `driving` is written only when false (sketch.md 3.3). */
@@ -363,10 +386,11 @@ function buildDimension(
       ? signedDistance(type, id, points, fields)
       : null
   }
-  const point = first.kind === 'point' ? first : second.kind === 'point' ? second : null
-  const line = first.kind === 'line' ? first : second.kind === 'line' ? second : null
-  if (point !== null && line !== null) {
-    return type === 'distance' ? { id, type, point: point.point, line: line.line, ...fields } : null
+  const pointLine = pointAndLine(first, second)
+  if (pointLine !== null) {
+    return type === 'distance'
+      ? { id, type, point: pointLine.point.point, line: pointLine.line.line, ...fields }
+      : null
   }
   if (first.kind === 'line' && second.kind === 'line') {
     if (type === 'angle') {
@@ -391,13 +415,11 @@ function buildDimension(
  * distances read positive (sketch.md 2.5 makes them signed), and an angle measures the sector that
  * contains the label (it runs counterclockwise from its first line to its second).
  */
-function operandOrder(
+function orderOf(
   type: DimensionType,
-  selection: readonly SelectionItem[],
+  measured: Measured | null,
   labelAt: Vector2,
-  solution: SketchSolution | undefined,
 ): { readonly swapLines: boolean; readonly swapPoints: boolean } {
-  const measured = solution === undefined ? null : measuredOf(selection, solution)
   if (measured === null) {
     return { swapLines: false, swapPoints: false }
   }
@@ -417,6 +439,28 @@ function operandOrder(
 }
 
 /**
+ * `dimensionFor` on a selection measured once, or not measured (null), which keeps the operands in
+ * selection order.
+ */
+export function dimensionForMeasured(
+  type: DimensionType,
+  selection: readonly SelectionItem[],
+  measured: Measured | null,
+  expression: string,
+  driving: boolean,
+  labelAt: Vector2,
+  ids: IdSource,
+): SketchConstraint {
+  const operands = operandsOf(selection) ?? []
+  const order = orderOf(type, measured, labelAt)
+  const built = buildDimension(type, operands, '', valueFields(expression, driving), order)
+  if (built === null) {
+    throw new Error(`The selection cannot take a ${type.replaceAll('_', ' ')} dimension.`)
+  }
+  return { ...built, id: ids.next('c') }
+}
+
+/**
  * The dimension constraint of `type` on the selection with `expression` as its value. With the
  * solution, operands are ordered so a horizontal or vertical distance is positive and an angle
  * measures the sector that contains `labelAt`. Throws when the selection cannot take the type, which
@@ -431,13 +475,8 @@ export function dimensionFor(
   ids: IdSource,
   solution?: SketchSolution,
 ): SketchConstraint {
-  const operands = operandsOf(selection) ?? []
-  const order = operandOrder(type, selection, labelAt, solution)
-  const built = buildDimension(type, operands, '', valueFields(expression, driving), order)
-  if (built === null) {
-    throw new Error(`The selection cannot take a ${type.replaceAll('_', ' ')} dimension.`)
-  }
-  return { ...built, id: ids.next('c') }
+  const measured = solution === undefined ? null : measuredOf(selection, solution)
+  return dimensionForMeasured(type, selection, measured, expression, driving, labelAt, ids)
 }
 
 /** The sketch's centroid of points, which default labels move away from. */
@@ -460,8 +499,17 @@ function awayFrom(base: Vector2, along: Vector2, away: Vector2, offset: number):
   return add(base, scale(normal, side * offset))
 }
 
-function referencedPoint(solution: SketchSolution, reference: string): Vector2 | null {
-  return pointPosition(solution, reference)
+/**
+ * The angle an angle dimension spans between two lines: its solved value, or without one the
+ * counterclockwise angle from the first line's direction to the second's, modulo a half turn.
+ */
+export function angleSweep(first: Segment, second: Segment, value: number | null): number {
+  return (
+    value ??
+    normalizeAngle(
+      direction(subtract(second.end, second.start)) - direction(subtract(first.end, first.start)),
+    ) % Math.PI
+  )
 }
 
 /**
@@ -517,13 +565,7 @@ export function defaultLabelPosition(
       if (vertex === null) {
         return midpoint(midpoint(first.start, first.end), midpoint(second.start, second.end))
       }
-      const value = solution.constraints.find((state) => state.id === constraint.id)?.value
-      const sweep =
-        value ??
-        normalizeAngle(
-          direction(subtract(second.end, second.start)) -
-            direction(subtract(first.end, first.start)),
-        ) % Math.PI
+      const sweep = angleSweep(first, second, solvedValue(constraint, solution))
       // The sector starts on the ray toward the first line's middle, so the label sits by the lines.
       const toward = subtract(midpoint(first.start, first.end), vertex)
       const from =
@@ -543,8 +585,8 @@ export function dimensionEnds(
   solution: SketchSolution,
 ): readonly [Vector2, Vector2] | null {
   if ('points' in constraint) {
-    const first = referencedPoint(solution, constraint.points[0])
-    const second = referencedPoint(solution, constraint.points[1])
+    const first = pointPosition(solution, constraint.points[0])
+    const second = pointPosition(solution, constraint.points[1])
     return first === null || second === null ? null : [first, second]
   }
   if (
@@ -555,7 +597,7 @@ export function dimensionEnds(
     return null
   }
   if ('point' in constraint) {
-    const at = referencedPoint(solution, constraint.point)
+    const at = pointPosition(solution, constraint.point)
     const ends = lineEnds(solution, constraint.line)
     return at === null || ends === null ? null : [at, closestPointOnLine(at, ends.start, ends.end)]
   }

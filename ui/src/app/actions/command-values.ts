@@ -1,4 +1,5 @@
 import type { SelectionKind } from '../../generated/protocol'
+import { parentPath } from '../../inspector/param-path'
 import { selectionValue } from '../../inspector/selection-values'
 import type { SelectionItem } from '../../state/store'
 
@@ -7,28 +8,8 @@ import type { SelectionItem } from '../../state/store'
 /** A feature command's params. */
 export type Params = Readonly<Record<string, unknown>>
 
-export function isEmptyValue(value: unknown): boolean {
-  if (value === undefined || value === null || value === '') {
-    return true
-  }
-  if (Array.isArray(value)) {
-    return value.length === 0
-  }
-  return (
-    typeof value === 'object' &&
-    Array.isArray(Reflect.get(value, 'regions')) &&
-    Reflect.get(value, 'regions').length === 0
-  )
-}
-
-/** The path of the object holding a field (`''` at the top). */
-export function parentOf(path: string): string {
-  const separator = path.lastIndexOf('.')
-  return separator === -1 ? '' : path.slice(0, separator)
-}
-
 export function siblingPath(path: string, name: string): string {
-  const parent = parentOf(path)
+  const parent = parentPath(path)
   return parent === '' ? name : `${parent}.${name}`
 }
 

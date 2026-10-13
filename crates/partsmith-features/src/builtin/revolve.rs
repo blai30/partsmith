@@ -13,9 +13,9 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use super::common::{
-    apply_tool, body_hint, body_op_hint, call, check_range, empty_selection, essential, flag, hint,
-    is_false, manifest, op_keyword, options_hint, out_of_range, profile_arguments, selection_hint,
-    sweep_tool, unit_hint,
+    body_hint, body_op_hint, call, essential, flag, hint, is_false, manifest, op_keyword,
+    options_hint, out_of_range, profile_arguments, require_selection, selection_hint,
+    sweep_profile, unit_hint,
 };
 use crate::context::{BuildContext, ResolvedProfile};
 use crate::deps::Dependencies;
@@ -90,14 +90,12 @@ impl Feature for Revolve {
     }
 
     fn validate(params: &RevolveParams) -> Result<(), FeatureError> {
-        if params.profile.regions.is_empty() {
-            return Err(empty_selection(
-                &Revolve::manifest(),
-                "profile",
-                Noun::Region,
-            ));
-        }
-        Ok(())
+        require_selection(
+            &params.profile.regions,
+            Revolve::manifest,
+            "profile",
+            Noun::Region,
+        )
     }
 
     /// The profile's sketch, the written body, what the axis reads (a sketch line's sketch, or an
@@ -128,13 +126,9 @@ impl Feature for Revolve {
             return Err(FeatureError::ProfileCrossesAxis);
         }
         let angle = turn(params, context)?.sweep_angle(params.reverse);
-        let faces = profile.faces()?;
-        if context.is_canceled() {
-            return Err(FeatureError::Canceled);
-        }
-        let sweep = revolve(&faces.profile, &axis, angle)?;
-        let tool = sweep_tool(context.feature(), sweep, &faces.entities)?;
-        apply_tool(context, &params.body, params.op, tool, profile.warnings)
+        sweep_profile(context, &params.body, params.op, profile, |faces| {
+            revolve(faces, &axis, angle)
+        })
     }
 
     /// `revolve(profile, axis, angle, regions=..., reverse=True, op=...)`, without `angle` for a
@@ -193,9 +187,15 @@ fn turn(params: &RevolveParams, context: &BuildContext<'_>) -> Result<Turn, Feat
             None,
         ));
     }
-    let range = |bound| check_range(context, "extent.expr", FieldUnit::Angle, angle, bound, None);
     if angle > TAU + ANGULAR_TOLERANCE {
-        range(Bound::AtMost(TAU))?;
+        return Err(out_of_range(
+            context,
+            "extent.expr",
+            FieldUnit::Angle,
+            angle,
+            Bound::AtMost(TAU),
+            None,
+        ));
     }
     if (angle - TAU).abs() <= ANGULAR_TOLERANCE {
         return Ok(Turn::Full);
@@ -304,7 +304,6 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::registry::Registry;
     use crate::test_support::{ScriptNames, id};
 
     /// `REV(axis, extent, op)` with `P-RING`, plus `extra` members.
@@ -359,13 +358,6 @@ mod tests {
             origin: Point::new(0.0, 0.0, 0.0),
             direction: Vector::new(direction[0], direction[1], direction[2]),
         }
-    }
-
-    #[test]
-    fn registers_through_the_public_registry() {
-        let mut registry = Registry::new();
-
-        assert_eq!(registry.register::<Revolve>(), Ok(()));
     }
 
     #[test]

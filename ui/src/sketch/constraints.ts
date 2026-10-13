@@ -1,38 +1,25 @@
-import type { SketchConstraint, SketchSolution, Units } from '../generated/protocol'
+import type { FieldUnit, SketchConstraint, SketchSolution, Units } from '../generated/protocol'
 import { formatNumber } from '../expression/format'
 import type { SelectionItem } from '../state/store'
-import { operandsOf, ownerOf, solvedEntity, type Operand } from './operands'
+import {
+  operandEntity,
+  operandsOf,
+  ownerOf,
+  solvedEntity,
+  solvedValue,
+  type LineOperand,
+  type Operand,
+  type PointOperand,
+  type RoundOperand,
+} from './operands'
 import type { IdSource } from './recipes'
 import { isReservedReference, ORIGIN_POINT } from './refs'
 
 // The constraint tools (ui.md 3.16.6): which constraints a selection allows and the constraint
 // records they make, in sketch.md's JSON.
 
-export type ConstraintType =
-  | 'coincident'
-  | 'point_on_object'
-  | 'horizontal'
-  | 'vertical'
-  | 'parallel'
-  | 'perpendicular'
-  | 'tangent'
-  | 'collinear'
-  | 'concentric'
-  | 'equal'
-  | 'symmetric'
-  | 'midpoint'
-  | 'fix'
-
-export type DimensionType =
-  | 'distance'
-  | 'horizontal_distance'
-  | 'vertical_distance'
-  | 'radius'
-  | 'diameter'
-  | 'angle'
-
 /** The constraint tools in the order of 3.16.6. */
-export const CONSTRAINT_TYPES: readonly ConstraintType[] = [
+export const CONSTRAINT_TYPES = [
   'coincident',
   'point_on_object',
   'horizontal',
@@ -46,7 +33,23 @@ export const CONSTRAINT_TYPES: readonly ConstraintType[] = [
   'symmetric',
   'midpoint',
   'fix',
-]
+] as const
+
+export type ConstraintType = (typeof CONSTRAINT_TYPES)[number]
+
+export type DimensionType =
+  | 'distance'
+  | 'horizontal_distance'
+  | 'vertical_distance'
+  | 'radius'
+  | 'diameter'
+  | 'angle'
+
+/** A dimension: a constraint with an expression (sketch.md 3.3). */
+export type DimensionConstraint = Extract<SketchConstraint, { expr: string }>
+
+/** A geometric constraint, the kind that can show a glyph. */
+export type GlyphConstraint = Exclude<SketchConstraint, { expr: string }>
 
 /** The title of each constraint type: its command title and accessible name. */
 export const CONSTRAINT_TITLES: Readonly<Record<ConstraintType, string>> = {
@@ -91,7 +94,7 @@ const REQUIREMENTS: Readonly<Record<ConstraintType, string>> = {
 }
 
 export function isConstraintType(value: string): value is ConstraintType {
-  return (CONSTRAINT_TYPES as readonly string[]).includes(value)
+  return CONSTRAINT_TYPES.some((type) => type === value)
 }
 
 /** What a constraint tool asks for while it waits for picks (3.16.6). */
@@ -99,25 +102,21 @@ export function constraintRequirement(type: ConstraintType): string {
   return REQUIREMENTS[type]
 }
 
-type Point = Extract<Operand, { kind: 'point' }>
-type Line = Extract<Operand, { kind: 'line' }>
-type Curve = Extract<Operand, { kind: 'circle' | 'arc' }>
-
 /** A selection's operands sorted by kind, in selection order within a kind. */
 type Sorted = {
   readonly count: number
-  readonly points: readonly Point[]
-  readonly lines: readonly Line[]
-  readonly round: readonly Curve[]
+  readonly points: readonly PointOperand[]
+  readonly lines: readonly LineOperand[]
+  readonly round: readonly RoundOperand[]
 }
 
 function sortOperands(operands: readonly Operand[]): Sorted {
   return {
     count: operands.length,
-    points: operands.filter((operand): operand is Point => operand.kind === 'point'),
-    lines: operands.filter((operand): operand is Line => operand.kind === 'line'),
+    points: operands.filter((operand): operand is PointOperand => operand.kind === 'point'),
+    lines: operands.filter((operand): operand is LineOperand => operand.kind === 'line'),
     round: operands.filter(
-      (operand): operand is Curve => operand.kind === 'circle' || operand.kind === 'arc',
+      (operand): operand is RoundOperand => operand.kind === 'circle' || operand.kind === 'arc',
     ),
   }
 }
@@ -130,10 +129,6 @@ function shaped(sorted: Sorted, points: number, lines: number, round: number): b
     sorted.round.length === round &&
     sorted.count === points + lines + round
   )
-}
-
-function curveId(operand: Line | Curve): string {
-  return operand.kind === 'line' ? operand.line : operand.curve
 }
 
 /** The `type` constraint on these operands with this id, or null when they are not its operand set. */
@@ -158,8 +153,8 @@ function build(type: ConstraintType, sorted: Sorted, id: string): SketchConstrai
       return firstPoint !== undefined &&
         curve !== null &&
         curve !== undefined &&
-        firstPoint.owner !== curveId(curve)
-        ? { id, type, point: firstPoint.point, curve: curveId(curve) }
+        firstPoint.owner !== operandEntity(curve)
+        ? { id, type, point: firstPoint.point, curve: operandEntity(curve) }
         : null
     }
     case 'horizontal':
@@ -268,12 +263,7 @@ function fixTarget(operand: Operand): string | null {
 /** Whether every entity the operands name is in the solution (a stale selection allows nothing). */
 function present(operands: readonly Operand[], solution: SketchSolution): boolean {
   return operands.every((operand) => {
-    const reference =
-      operand.kind === 'point'
-        ? operand.owner
-        : operand.kind === 'line'
-          ? operand.line
-          : operand.curve
+    const reference = operandEntity(operand)
     return isReservedReference(reference) || solvedEntity(solution, reference) !== undefined
   })
 }
@@ -480,10 +470,23 @@ export function pickVerdict(
 }
 
 /** Whether a constraint is a dimension (it has an expression). */
-export function isDimension(
-  constraint: SketchConstraint,
-): constraint is Extract<SketchConstraint, { expr: string }> {
+export function isDimension(constraint: SketchConstraint): constraint is DimensionConstraint {
   return 'expr' in constraint
+}
+
+/** The unit of a sketch quantity, a dimension's or a draw input's value: a length or an angle. */
+export type QuantityUnit = Extract<FieldUnit, 'length' | 'angle'>
+
+/** The unit of the value a dimension type takes. */
+export function dimensionUnit(type: DimensionType): QuantityUnit {
+  return type === 'angle' ? 'angle' : 'length'
+}
+
+/** A dimension's value as its label and title show it: a length, or an angle in degrees with °. */
+export function dimensionValueText(type: DimensionType, value: number, units: Units): string {
+  return type === 'angle'
+    ? `${formatNumber(value, 'angle', units)}°`
+    : formatNumber(value, 'length', units)
 }
 
 /** Every point reference and entity id a constraint names, in field order. */
@@ -525,15 +528,11 @@ export function constraintTitle(
     return CONSTRAINT_TITLES[constraint.type]
   }
   const title = DIMENSION_TITLES[constraint.type]
-  const value = solution?.constraints.find((state) => state.id === constraint.id)?.value
-  if (value === undefined || value === null) {
+  const value = solution === null ? null : solvedValue(constraint, solution)
+  if (value === null) {
     return `${title} ${constraint.expr}`
   }
-  const text =
-    constraint.type === 'angle'
-      ? `${formatNumber(value, 'angle', units)}°`
-      : formatNumber(value, 'length', units)
-  return `${title} ${text}`
+  return `${title} ${dimensionValueText(constraint.type, value, units)}`
 }
 
 /** Titles joined as a sentence list: "A", "A and B", "A, B and C". */

@@ -4,18 +4,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AppProvider } from '../app/AppProvider'
 import { installPopoverPolyfill } from '../components/popover-polyfill.testing'
 import type { ProfileFinding, SketchEntity, SketchSolution } from '../generated/protocol'
-import type { AppState, SketchSession } from '../state/store'
+import { createAppStore, type AppState, type SketchSession } from '../state/store'
+import { createTestApp } from '../test/fakes/test-app'
 import {
   SKETCH_ID,
   circleEntity,
   createFakeCore,
-  createSketchTestApp,
   documentState,
   lineEntity,
   sketchRecord,
   sketchSession,
   solutionFor,
-  solvedEntity,
+  solvedAs,
   solvedSketch,
 } from './fixtures.testing'
 import { SketchHeader } from './SketchHeader'
@@ -29,16 +29,16 @@ afterEach(() => {
 
 /** Renders the header in sketch mode on f-sk1 with these entities and this solution. */
 function renderHeader(entities: SketchEntity[], solution: SketchSolution): HTMLElement {
-  const app = createSketchTestApp({
+  const app = createTestApp({
     core: createFakeCore({}),
-    state: {
+    store: createAppStore({
       context: 'sketch',
       sketch: sketchSession(),
       document: documentState({
         features: [sketchRecord({ entities })],
         sketches: { [SKETCH_ID]: solvedSketch(solution) },
       }),
-    },
+    }),
   })
   render(
     <AppProvider app={app}>
@@ -76,7 +76,7 @@ describe('SketchHeader', () => {
       solutionFor([LINE], {
         status: 'fully_constrained',
         dof: 0,
-        entities: [solvedEntity(LINE, 'fully_constrained')],
+        entities: [solvedAs(LINE, 'fully_constrained')],
       }),
     )
     expect(header).toHaveAttribute('data-state', 'full')
@@ -91,7 +91,7 @@ describe('SketchHeader', () => {
         status: 'conflicting',
         dof: 0,
         conflicting: ['c-1', 'c-2'],
-        entities: [solvedEntity(LINE, 'conflicting')],
+        entities: [solvedAs(LINE, 'conflicting')],
         constraints: [
           { id: 'c-1', state: 'conflicting' },
           { id: 'c-2', state: 'conflicting' },
@@ -115,7 +115,7 @@ describe('SketchHeader', () => {
         status: 'redundant',
         dof: 0,
         redundant: ['c-2'],
-        entities: [solvedEntity(LINE, 'fully_constrained')],
+        entities: [solvedAs(LINE, 'fully_constrained')],
         constraints: [
           { id: 'c-1', state: 'satisfied' },
           { id: 'c-2', state: 'redundant' },
@@ -127,9 +127,9 @@ describe('SketchHeader', () => {
   })
 
   it('reads "Pick a plane or a flat face" with data-state picking while picking a plane (3.16.8)', () => {
-    const app = createSketchTestApp({
+    const app = createTestApp({
       core: createFakeCore({}),
-      state: { context: 'sketch', sketch: sketchSession({ sketchId: null }) },
+      store: createAppStore({ context: 'sketch', sketch: sketchSession({ sketchId: null }) }),
     })
     render(
       <AppProvider app={app}>
@@ -146,7 +146,7 @@ function fullWith(findings: ProfileFinding[]): SketchSolution {
   return solutionFor([LINE], {
     status: 'fully_constrained',
     dof: 0,
-    entities: [solvedEntity(LINE, 'fully_constrained')],
+    entities: [solvedAs(LINE, 'fully_constrained')],
     profile_findings: findings,
   })
 }
@@ -180,13 +180,13 @@ describe('SketchHeader outline (3.16.8)', () => {
 
 describe('plane picking header (3.16.1)', () => {
   it('gives the Top plane button the focus the Sketch button that started the pick had (3.24)', () => {
-    const app = createSketchTestApp({
+    const app = createTestApp({
       core: createFakeCore({}),
-      state: {
+      store: createAppStore({
         context: 'sketch',
         sketch: sketchSession({ sketchId: null }),
         document: documentState({ features: [] }),
-      },
+      }),
     })
     expect(document.activeElement).toBe(document.body)
     render(
@@ -199,18 +199,18 @@ describe('plane picking header (3.16.1)', () => {
 
   it('offers the three origin planes, and Top creates the sketch on XY', async () => {
     const applied: unknown[] = []
-    const app = createSketchTestApp({
+    const app = createTestApp({
       core: createFakeCore({
         applyEdits: (_handle, label, edits) => {
           applied.push({ label, edits })
           return Promise.reject(new Error('stop after the edit'))
         },
       }),
-      state: {
+      store: createAppStore({
         context: 'sketch',
         sketch: sketchSession({ sketchId: null }),
         document: documentState({ features: [] }),
-      },
+      }),
     })
     render(
       <AppProvider app={app}>
@@ -248,9 +248,9 @@ describe('plane picking header (3.16.1)', () => {
   })
 
   it('shows plane_pick_hint in the sketch hint', () => {
-    const app = createSketchTestApp({
+    const app = createTestApp({
       core: createFakeCore({}),
-      state: { context: 'sketch', sketch: sketchSession({ sketchId: null }) },
+      store: createAppStore({ context: 'sketch', sketch: sketchSession({ sketchId: null }) }),
     })
     render(
       <AppProvider app={app}>
@@ -262,7 +262,7 @@ describe('plane picking header (3.16.1)', () => {
 })
 
 function renderWith(fields: Partial<AppState>): void {
-  const app = createSketchTestApp({ core: createFakeCore({}), state: fields })
+  const app = createTestApp({ core: createFakeCore({}), store: createAppStore(fields) })
   render(
     <AppProvider app={app}>
       <SketchHeader />
@@ -328,7 +328,7 @@ describe('top-center slot (3.2)', () => {
   })
 
   it('shows the hint it is given in place of the step prompt', () => {
-    const app = createSketchTestApp({ core: createFakeCore({}), state: editing([]) })
+    const app = createTestApp({ core: createFakeCore({}), store: createAppStore(editing([])) })
     render(
       <AppProvider app={app}>
         <SketchHeader
@@ -347,7 +347,7 @@ describe('sketch problems (3.16.8)', () => {
   it('lists the free geometry once opened, ending with the DOF help', async () => {
     const solution = solutionFor([LINE], {
       dof: 4,
-      entities: [solvedEntity(LINE, 'under_constrained')],
+      entities: [solvedAs(LINE, 'under_constrained')],
     })
     renderHeader([LINE], solution)
     const problems = screen.getByTestId('sketch-problems')
@@ -423,10 +423,7 @@ describe('sketch problems actions (3.16.8)', () => {
       entities: [LINE, circle],
       solution: solutionFor([LINE, circle], {
         dof: 7,
-        entities: [
-          solvedEntity(LINE, 'under_constrained'),
-          solvedEntity(circle, 'under_constrained'),
-        ],
+        entities: [solvedAs(LINE, 'under_constrained'), solvedAs(circle, 'under_constrained')],
       }),
     })
     render(

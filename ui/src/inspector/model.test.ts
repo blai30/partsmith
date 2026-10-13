@@ -1,14 +1,19 @@
 import { describe, expect, it } from 'vitest'
 import type { FeatureManifest } from '../generated/protocol'
-import { testFeature } from '../layout/fixtures.testing'
-import type { CatalogFeature } from '../state/store'
+import { FILLET_EDGES_COMMAND, readyState, testFeature } from '../layout/fixtures.testing'
+import { INITIAL_STATE, type AppState, type CatalogFeature } from '../state/store'
 import { catalogFeature } from '../test/fakes/catalog'
 import { CUBE_REGION } from '../test/fakes/documents'
 import {
+  activeCommandFeature,
+  activeCommandModel,
   buildInspectorModel,
   defaultParams,
+  fieldsOf,
   getParam,
+  isEmptyValue,
   setParam,
+  siblingsOf,
   type InspectorField,
   type InspectorModel,
 } from './model'
@@ -526,5 +531,69 @@ describe('setParam and getParam', () => {
     expect(getParam(params, 'size[2]')).toBe('3')
     expect(getParam(params, 'extent.opposite_expr')).toBeUndefined()
     expect(getParam(params, 'profile.sketch')).toBeUndefined()
+  })
+})
+
+describe('the active command model', () => {
+  const withFillet: AppState = {
+    ...INITIAL_STATE,
+    ...readyState(null, { command: FILLET_EDGES_COMMAND }),
+  }
+
+  it('lists the essential fields, then the More options fields', () => {
+    const model = extrudeModel(DISTANCE_PARAMS)
+    expect(fieldsOf(model)).toEqual([...model.essential, ...model.more])
+  })
+
+  it('is null without a command or without its catalog entry', () => {
+    const idle: AppState = { ...INITIAL_STATE, ...readyState(null) }
+    expect(activeCommandFeature(idle)).toBeUndefined()
+    expect(activeCommandModel(idle)).toBeNull()
+    const uncataloged: AppState = { ...withFillet, catalog: null }
+    expect(activeCommandFeature(uncataloged)).toBeUndefined()
+    expect(activeCommandModel(uncataloged)).toBeNull()
+  })
+
+  it("builds the command's model from its params and the given errors", () => {
+    const errors = { radius: 'Radius needs a value.' }
+    const active = activeCommandModel(withFillet, errors)
+    const fillet = testFeature('fillet')
+    expect(activeCommandFeature(withFillet)).toBe(withFillet.catalog?.byType['fillet'])
+    expect(active?.command).toBe(FILLET_EDGES_COMMAND)
+    expect(active?.feature).toBe(withFillet.catalog?.byType['fillet'])
+    expect(active?.model).toEqual(
+      buildInspectorModel({ feature: fillet, params: FILLET_EDGES_COMMAND.params, errors }),
+    )
+  })
+})
+
+describe('isEmptyValue', () => {
+  it('is true for missing values, empty text and lists, and a profile without regions', () => {
+    for (const value of [undefined, null, '', [], { sketch: 'f-sk1', regions: [] }]) {
+      expect(isEmptyValue(value)).toBe(true)
+    }
+  })
+
+  it('is false for anything else', () => {
+    for (const value of [0, 'b-1', ['e-1'], { sketch: 'f-sk1', regions: ['r'] }, {}]) {
+      expect(isEmptyValue(value)).toBe(false)
+    }
+  })
+})
+
+describe('siblingsOf', () => {
+  const params = { extent: { kind: 'distance', expr: '10 mm' }, op: 'new', size: ['1 mm'] }
+
+  it('is the params for a top-level field', () => {
+    expect(siblingsOf(params, 'op')).toBe(params)
+  })
+
+  it('is the object holding a nested field', () => {
+    expect(siblingsOf(params, 'extent.expr')).toBe(params.extent)
+  })
+
+  it('is empty when the parent is missing or no object', () => {
+    expect(siblingsOf(params, 'axis.line')).toEqual({})
+    expect(siblingsOf(params, 'op.kind')).toEqual({})
   })
 })

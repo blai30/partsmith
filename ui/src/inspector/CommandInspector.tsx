@@ -1,5 +1,5 @@
 import { clsx } from 'clsx/lite'
-import { ArrowUpDown, ChevronDown, ChevronRight, CircleX, TriangleAlert } from 'lucide-react'
+import { ArrowUpDown, ChevronDown, ChevronRight } from 'lucide-react'
 import type { ReactNode } from 'react'
 import {
   cancelCommand,
@@ -12,6 +12,7 @@ import {
 import { updateSettings } from '../app/actions/settings'
 import { useApp, useAppState } from '../app/AppProvider'
 import type { App } from '../app/createApp'
+import { reportFailure } from '../app/report'
 import { formatShortcut } from '../commands/shortcuts'
 import { Button } from '../components/Button'
 import { IconButton } from '../components/IconButton'
@@ -19,6 +20,7 @@ import { Tooltip } from '../components/Tooltip'
 import { isPlainNumber } from '../expression/step'
 import type { Diagnostic } from '../generated/protocol'
 import { MESSAGES } from '../messages'
+import { SeverityIcon } from '../print/SeverityIcon'
 import type { ActiveCommand, CatalogFeature } from '../state/store'
 import { COLOR_CLASSES } from '../theme/roles'
 import { ChoiceField } from './fields/ChoiceField'
@@ -26,28 +28,11 @@ import { ExpressionField } from './fields/ExpressionField'
 import { fieldInputId } from './fields/field-id'
 import { SelectionField } from './fields/SelectionField'
 import { NumberField, SwitchField, TextValueField, UnsupportedField } from './fields/ValueFields'
-import { buildInspectorModel, getParam, type InspectorField } from './model'
+import { buildInspectorModel, fieldsOf, siblingsOf, type InspectorField } from './model'
 import { messagesByField } from './status'
 
 // The inspector of a feature command (ui.md 3.7): the status banner, the essential fields, the
 // rest behind "More options", and Cancel and OK.
-
-function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
-/** The params object that holds a field: the top level, or its parent object. */
-function siblingsOf(
-  params: Readonly<Record<string, unknown>>,
-  path: string,
-): Readonly<Record<string, unknown>> {
-  const dot = path.lastIndexOf('.')
-  if (dot === -1) {
-    return params
-  }
-  const parent = getParam(params, path.slice(0, dot))
-  return isRecord(parent) ? parent : {}
-}
 
 /** An inline toggle at the end of the row of the field it attaches to, such as Reverse (2.12, 3.7). */
 function ToggleField({ field }: { readonly field: InspectorField }) {
@@ -231,23 +216,7 @@ function StatusBanner({
           // Messages carry no id; their order is the core's.
           // oxlint-disable-next-line react/no-array-index-key
           <div key={index} className="flex items-start gap-2">
-            {error ? (
-              <CircleX
-                aria-hidden="true"
-                strokeWidth={1.75}
-                className={clsx('mt-0.5 size-4 shrink-0', COLOR_CLASSES.errorMark.foreground)}
-              />
-            ) : (
-              <TriangleAlert
-                aria-hidden="true"
-                strokeWidth={1.75}
-                className={clsx(
-                  'mt-0.5 size-4 shrink-0',
-                  COLOR_CLASSES.warningMark.fill,
-                  COLOR_CLASSES.warningMark.foreground,
-                )}
-              />
-            )}
+            <SeverityIcon severity={error ? 'error' : 'warning'} className="mt-0.5" />
             <div className="flex min-w-0 flex-col gap-2">
               {field === null ? (
                 <p className={textClass}>{message.message}</p>
@@ -309,7 +278,7 @@ export function CommandInspector({ command, feature }: CommandInspectorProps) {
     errors: command.fieldErrors,
     ...(startParams === null ? {} : { startParams }),
   })
-  const fields = [...model.essential, ...model.more]
+  const fields = fieldsOf(model)
   const toggles = fields.filter((field) => field.control.type === 'toggle')
   const messages = status?.messages ?? []
   const byField = messagesByField(
@@ -404,9 +373,7 @@ export function CommandInspector({ command, feature }: CommandInspectorProps) {
         <Tooltip label="Cancel" shortcut={formatShortcut('Escape', app.platform)}>
           <Button
             onClick={() => {
-              cancelCommand(app).catch((error: unknown) => {
-                console.error('Canceling the command failed.', error)
-              })
+              cancelCommand(app).catch(reportFailure('Canceling the command'))
             }}
           >
             Cancel
@@ -425,9 +392,7 @@ export function CommandInspector({ command, feature }: CommandInspectorProps) {
               if (!complete) {
                 return
               }
-              confirmCommand(app).catch((error: unknown) => {
-                console.error('Confirming the command failed.', error)
-              })
+              confirmCommand(app).catch(reportFailure('Confirming the command'))
             }}
           >
             OK

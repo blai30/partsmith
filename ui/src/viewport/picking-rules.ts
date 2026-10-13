@@ -1,5 +1,5 @@
 import type { SelectionKind } from '../generated/protocol'
-import { buildInspectorModel, getParam } from '../inspector/model'
+import { activeCommandModel, fieldsOf, siblingsOf } from '../inspector/model'
 import { itemsFromValue } from '../inspector/selection-values'
 import type { AppState, SelectionItem } from '../state/store'
 import type { SelectionItemKind } from './picking'
@@ -115,32 +115,24 @@ export type CommandSelectionField = {
   readonly siblings: Readonly<Record<string, unknown>>
 }
 
-function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
 /** The selection fields of the active feature command, in manifest order. */
 export function commandSelectionFields(state: AppState): readonly CommandSelectionField[] {
-  const command = state.command
-  const feature = command === null ? undefined : state.catalog?.byType[command.featureType]
-  if (command === null || feature === undefined) {
+  const active = activeCommandModel(state)
+  if (active === null) {
     return []
   }
-  const model = buildInspectorModel({ feature, params: command.params, errors: {} })
-  return [...model.essential, ...model.more].flatMap((field) => {
+  const { command, model } = active
+  return fieldsOf(model).flatMap((field) => {
     if (field.control.type !== 'selection') {
       return []
     }
-    const lastDot = field.path.lastIndexOf('.')
-    const parent =
-      lastDot === -1 ? command.params : getParam(command.params, field.path.slice(0, lastDot))
     return [
       {
         path: field.path,
         accepts: field.control.accepts,
         multiple: field.control.multiple,
         value: field.value,
-        siblings: isRecord(parent) ? parent : {},
+        siblings: siblingsOf(command.params, field.path),
       },
     ]
   })

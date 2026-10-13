@@ -91,10 +91,12 @@ import {
 import { deleteFeatures, setSuppressed } from '../app/actions/timeline'
 import type { App, Platform } from '../app/createApp'
 import type { Edit, Placement, SketchSolution, Units } from '../generated/protocol'
+import { parseSelectionKey } from '../inspector/selection-values'
 import { resolvedTheme } from '../layout/color-scheme'
 import { requestUi } from '../layout/requests'
 import { MESSAGES } from '../messages'
 import type { Settings } from '../settings/settings'
+import { CONSTRAINT_TITLES, CONSTRAINT_TYPES, type ConstraintType } from '../sketch/constraints'
 import type { SketchToolId } from '../sketch/session'
 import { selectSketchRadioTooltip } from '../state/selectors'
 import type { AppContext, AppState, OriginName, SelectionItem, ViewState } from '../state/store'
@@ -219,9 +221,10 @@ function selectedBodyIds(state: AppState): string[] {
 }
 
 function selectedParameterIds(state: AppState): string[] {
-  return state.selection.flatMap((item) =>
-    item.kind === 'parameter' ? [item.key.slice('parameter:'.length)] : [],
-  )
+  return state.selection.flatMap((item) => {
+    const parsed = parseSelectionKey(item.key)
+    return parsed?.kind === 'parameter' ? [parsed.id] : []
+  })
 }
 
 function featureRecord(state: AppState, id: string) {
@@ -538,92 +541,39 @@ const DRAWING_TOOL_IDS: ReadonlySet<SketchToolId | null> = new Set(
   DRAWING_TOOLS.filter((entry) => entry.tool !== 'dimension').map((entry) => entry.tool),
 )
 
-/** Constraint tools in the order of 3.16.6. */
-const CONSTRAINT_TOOLS: readonly {
-  readonly type: keyof typeof CONSTRAINT_ICONS
-  readonly title: string
-  readonly shortcuts: readonly string[]
-  readonly description: string
-}[] = [
-  {
-    type: 'coincident',
-    title: 'Coincident',
+/** What each constraint tool adds to its constraint type (3.16.6): shortcuts and a description. */
+const CONSTRAINT_TOOLS: Readonly<
+  Record<ConstraintType, { readonly shortcuts: readonly string[]; readonly description: string }>
+> = {
+  coincident: {
     shortcuts: ['I'],
     description: 'Makes two points meet, or puts a point on a curve.',
   },
-  {
-    type: 'point_on_object',
-    title: 'Point on object',
-    shortcuts: [],
-    description: 'Keeps a point on a line, circle or arc.',
-  },
-  {
-    type: 'horizontal',
-    title: 'Horizontal',
+  point_on_object: { shortcuts: [], description: 'Keeps a point on a line, circle or arc.' },
+  horizontal: {
     shortcuts: ['H'],
     description: 'Makes a line horizontal, or lines up two points horizontally.',
   },
-  {
-    type: 'vertical',
-    title: 'Vertical',
+  vertical: {
     shortcuts: ['V'],
     description: 'Makes a line vertical, or lines up two points vertically.',
   },
-  {
-    type: 'parallel',
-    title: 'Parallel',
-    shortcuts: [],
-    description: 'Makes two lines parallel.',
-  },
-  {
-    type: 'perpendicular',
-    title: 'Perpendicular',
-    shortcuts: [],
-    description: 'Makes two lines meet at a right angle.',
-  },
-  {
-    type: 'tangent',
-    title: 'Tangent',
+  parallel: { shortcuts: [], description: 'Makes two lines parallel.' },
+  perpendicular: { shortcuts: [], description: 'Makes two lines meet at a right angle.' },
+  tangent: {
     shortcuts: [],
     description: 'Makes a line and a curve, or two curves, touch smoothly.',
   },
-  {
-    type: 'collinear',
-    title: 'Collinear',
-    shortcuts: [],
-    description: 'Puts two lines on the same straight line.',
-  },
-  {
-    type: 'concentric',
-    title: 'Concentric',
-    shortcuts: [],
-    description: 'Gives two circles or arcs the same center.',
-  },
-  {
-    type: 'equal',
-    title: 'Equal',
+  collinear: { shortcuts: [], description: 'Puts two lines on the same straight line.' },
+  concentric: { shortcuts: [], description: 'Gives two circles or arcs the same center.' },
+  equal: {
     shortcuts: [],
     description: 'Makes two lines the same length, or two circles or arcs the same size.',
   },
-  {
-    type: 'symmetric',
-    title: 'Symmetric',
-    shortcuts: [],
-    description: 'Places two points symmetrically about a line.',
-  },
-  {
-    type: 'midpoint',
-    title: 'Midpoint',
-    shortcuts: [],
-    description: 'Puts a point at the middle of a line.',
-  },
-  {
-    type: 'fix',
-    title: 'Fix',
-    shortcuts: [],
-    description: 'Locks points or curves where they are.',
-  },
-]
+  symmetric: { shortcuts: [], description: 'Places two points symmetrically about a line.' },
+  midpoint: { shortcuts: [], description: 'Puts a point at the middle of a line.' },
+  fix: { shortcuts: [], description: 'Locks points or curves where they are.' },
+}
 
 const ENTITY_NOUNS = { point: 'Point', line: 'Line', circle: 'Circle', arc: 'Arc' } as const
 
@@ -1201,20 +1151,20 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
       checked: (app) => stateOf(app).sketch?.construction === true,
       run: (app) => toggleConstruction(app),
     }),
-    ...CONSTRAINT_TOOLS.map((entry) =>
+    ...CONSTRAINT_TYPES.map((type) =>
       command({
-        id: `sketch.constrain_${entry.type}`,
-        title: entry.title,
+        id: `sketch.constrain_${type}`,
+        title: CONSTRAINT_TITLES[type],
         category: 'Constrain',
-        icon: CONSTRAINT_ICONS[entry.type],
-        description: entry.description,
-        shortcuts: entry.shortcuts,
+        icon: CONSTRAINT_ICONS[type],
+        description: CONSTRAINT_TOOLS[type].description,
+        shortcuts: CONSTRAINT_TOOLS[type].shortcuts,
         contexts: SKETCH,
         availability: whileEditingSketch,
-        checked: (app) => stateOf(app).sketch?.tool === `constrain_${entry.type}`,
+        checked: (app) => stateOf(app).sketch?.tool === `constrain_${type}`,
         run: (app) => {
           // The sketch controller applies the constraint at once when the selection fits (3.16.6).
-          setSketchTool(app, `constrain_${entry.type}`)
+          setSketchTool(app, `constrain_${type}`)
         },
       }),
     ),

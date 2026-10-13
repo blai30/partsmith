@@ -88,7 +88,7 @@ pub fn name_shape(
     inherited_aliases: &[&Aliases],
 ) -> Result<Named, FeatureError> {
     let topology = topology_info(shape)?;
-    let naming = NamingMap::build(faces, &topology, inherited_aliases).map_err(naming)?;
+    let naming = NamingMap::build(faces, &topology, inherited_aliases).map_err(naming_failed)?;
     Ok(Named {
         naming,
         topology: Arc::new(topology),
@@ -143,7 +143,7 @@ pub fn name_by_history(
     result: &OpResult,
     inputs: &[&NamingMap],
 ) -> Result<Named, FeatureError> {
-    let fallback = ElementName::generated(feature, roles::FACE, None).map_err(naming)?;
+    let fallback = ElementName::generated(feature, roles::FACE, None).map_err(naming_failed)?;
     let faces = modified_sources(result, inputs)?
         .into_iter()
         .map(|names| {
@@ -158,6 +158,23 @@ pub fn name_by_history(
     name_shape(&result.shape, faces, &aliases)
 }
 
+/// True when `shape` has exactly these numbers of faces, edges and vertices, compared in that
+/// order.
+pub(crate) fn has_element_counts(
+    shape: &Shape,
+    faces: usize,
+    edges: usize,
+    vertices: usize,
+) -> bool {
+    [
+        (faces, SubShapeKind::Face),
+        (edges, SubShapeKind::Edge),
+        (vertices, SubShapeKind::Vertex),
+    ]
+    .into_iter()
+    .all(|(entries, kind)| u32::try_from(entries).is_ok_and(|entries| entries == shape.count(kind)))
+}
+
 /// The kernel sub-shape kind of an element kind.
 pub(crate) fn sub_shape_kind(kind: ElementKind) -> SubShapeKind {
     match kind {
@@ -168,7 +185,7 @@ pub(crate) fn sub_shape_kind(kind: ElementKind) -> SubShapeKind {
 }
 
 /// A naming failure, which valid kernel output cannot cause, as an internal error.
-pub(crate) fn naming(error: partsmith_naming::NamingError) -> FeatureError {
+pub(crate) fn naming_failed(error: partsmith_naming::NamingError) -> FeatureError {
     FeatureError::internal(format!("naming the result failed: {error}"))
 }
 
@@ -189,7 +206,7 @@ fn fingerprint(geometry: &ElementGeometry, kind: ElementKind) -> Result<Fingerpr
         size,
         geometry.radius,
     )
-    .map_err(naming)
+    .map_err(naming_failed)
 }
 
 /// The naming crate's geometry kind of a kernel geometry kind; the two enums mirror each other.

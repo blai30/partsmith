@@ -17,6 +17,7 @@ import {
   PackageOpen,
   PencilRuler,
   Rotate3d,
+  Shapes,
   SquareRoundCorner,
   SquareSplitVertical,
   Torus,
@@ -48,6 +49,11 @@ export const FEATURE_ICONS: Readonly<Record<string, LucideIcon>> = {
   'circular-pattern': Orbit,
   'datum-plane': Layers2,
   import: FileInput,
+}
+
+/** The icon of a manifest icon name, or the generic shapes icon for an unknown or missing one. */
+export function featureIcon(iconName: string | undefined): LucideIcon {
+  return (iconName === undefined ? undefined : FEATURE_ICONS[iconName]) ?? Shapes
 }
 
 function path(d: string, key: string): IconNode[number] {

@@ -2,12 +2,11 @@ import { clsx } from 'clsx/lite'
 import { CircleCheck, LoaderCircle, RefreshCw, X } from 'lucide-react'
 import { Button } from '../components/Button'
 import { IconButton } from '../components/IconButton'
-import type { Severity } from '../generated/protocol'
 import { MESSAGES } from '../messages'
 import type { ReactNode } from 'react'
 import type { FindingKey } from '../state/store'
 import { COLOR_CLASSES } from '../theme/roles'
-import type { HealthRow, MissingReport } from './health'
+import { SEVERITY_NAMES, type HealthRow, type MissingReport } from './health'
 import { SeverityIcon } from './SeverityIcon'
 
 export type HealthListProps = {
@@ -42,13 +41,6 @@ const LAY_ON_FACE_CHECKS: ReadonlySet<string> = new Set([
   'first_layer_contact',
   'islands',
 ])
-
-/** Words for the severity icon, which screen readers read in its place. */
-const SEVERITY_NAMES: Readonly<Record<Severity, string>> = {
-  error: 'Error',
-  warning: 'Warning',
-  info: 'Info',
-}
 
 function sameFinding(first: FindingKey, second: FindingKey | null | undefined): boolean {
   return (

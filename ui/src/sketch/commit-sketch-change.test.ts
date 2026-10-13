@@ -4,22 +4,25 @@ import { startSketchDrag } from '../app/actions/sketch-drag'
 import type { App } from '../app/createApp'
 import type { CoreApi, SolvedSketch } from '../core/api'
 import type { Edit, SketchConstraint, SketchParams, SketchSolution } from '../generated/protocol'
+import { createAppStore } from '../state/store'
+import { coreErrorFor } from '../test/fakes/core-api'
+import { createTestApp } from '../test/fakes/test-app'
 import {
   DOCUMENT_HANDLE,
   SKETCH_ID,
-  coreError,
   createFakeCore,
-  createSketchTestApp,
   curveItem,
   documentState,
   lineEntity,
   sketchRecord,
   sketchSession,
   solutionFor,
-  solvedEntity,
+  solvedAs,
   solvedSketch,
+  XY_PLANE,
 } from './fixtures.testing'
 import type { SketchChange } from './session'
+import { sketchHarness } from './view.testing'
 
 // sketch.md 4.2: the message of a solve that did not converge.
 const NOT_CONVERGED =
@@ -49,23 +52,13 @@ const SOLVED_NEW_LINE = lineEntity('e-2', [10, 0], [10, 10.0125])
 type SolveSketch = CoreApi['solveSketch']
 type ApplyEdits = CoreApi['applyEdits']
 
-function appWith(
-  core: Partial<CoreApi>,
-  plane: SketchParams['plane'] = { kind: 'origin', plane: 'XY' },
-): App {
-  return createSketchTestApp({
-    core: createFakeCore(core),
-    state: {
-      context: 'sketch',
-      sketch: sketchSession(),
-      document: documentState({
-        features: [
-          sketchRecord({ entities: [STORED_LINE], constraints: [STORED_HORIZONTAL], plane }),
-        ],
-        sketches: { [SKETCH_ID]: solvedSketch(solutionFor([STORED_LINE])) },
-      }),
-    },
-  })
+function appWith(core: Partial<CoreApi>, plane: SketchParams['plane'] = XY_PLANE): App {
+  return sketchHarness({
+    entities: [STORED_LINE],
+    constraints: [STORED_HORIZONTAL],
+    plane,
+    core,
+  }).app
 }
 
 function answers(...solutions: SketchSolution[]): SolveSketch {
@@ -166,8 +159,8 @@ describe('commitSketchChange', () => {
       {
         ...solutionFor([STORED_LINE, SOLVED_NEW_LINE]),
         entities: [
-          solvedEntity(STORED_LINE, 'fully_constrained'),
-          solvedEntity(SOLVED_NEW_LINE, 'under_constrained'),
+          solvedAs(STORED_LINE, 'fully_constrained'),
+          solvedAs(SOLVED_NEW_LINE, 'under_constrained'),
         ],
       },
     )
@@ -204,7 +197,9 @@ describe('commitSketchChange', () => {
 
   it('U-61 an invalid_params CoreError returns failed with the core message and calls no applyEdits', async () => {
     const message = 'Line e-2: the start and end are the same point.'
-    const solveSketch = vi.fn<SolveSketch>().mockRejectedValue(coreError('invalid_params', message))
+    const solveSketch = vi
+      .fn<SolveSketch>()
+      .mockRejectedValue(await coreErrorFor({ code: 'invalid_params', message }))
     const applyEdits = revision(5)
     const app = appWith({ solveSketch, applyEdits })
 
@@ -218,7 +213,7 @@ describe('commitSketchChange', () => {
     const message = "Unknown name 'widht'. Did you mean 'width'?"
     const solveSketch = vi
       .fn<SolveSketch>()
-      .mockRejectedValue(coreError('expression_error', message))
+      .mockRejectedValue(await coreErrorFor({ code: 'expression_error', message }))
     const applyEdits = revision(5)
     const app = appWith({ solveSketch, applyEdits })
 
@@ -269,9 +264,9 @@ describe('deleteSketchItems', () => {
       Promise.resolve<SolvedSketch>(solvedSketch(solutionFor(candidate?.entities ?? []))),
     )
     const applyEdits = revision(6)
-    const app = createSketchTestApp({
+    const app = createTestApp({
       core: createFakeCore({ solveSketch, applyEdits }),
-      state: {
+      store: createAppStore({
         context: 'sketch',
         sketch: sketchSession(),
         document: documentState({
@@ -282,7 +277,7 @@ describe('deleteSketchItems', () => {
             }),
           ],
         }),
-      },
+      }),
     })
 
     await deleteSketchItems(app, [curveItem('e-1', 'line')])

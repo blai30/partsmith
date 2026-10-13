@@ -1,7 +1,13 @@
-import type { PointRef, SketchSolution } from '../generated/protocol'
+import type { PointRef, SketchConstraint, SketchSolution } from '../generated/protocol'
 import type { SelectionItem } from '../state/store'
 import { axisLine, isAxis, ORIGIN_POINT } from './refs'
-import { arcSweep, closestPointOnArc, closestPointOnSegment, type Vector2 } from './geometry'
+import {
+  arcSweep,
+  closestPointOnArc,
+  closestPointOnSegment,
+  type Segment,
+  type Vector2,
+} from './geometry'
 
 // Sketch selection items as constraint and dimension operands, and their solved geometry.
 
@@ -13,6 +19,24 @@ export type Operand =
   | { readonly kind: 'line'; readonly line: string; readonly axis: boolean }
   | { readonly kind: 'circle'; readonly curve: string }
   | { readonly kind: 'arc'; readonly curve: string }
+
+export type PointOperand = Extract<Operand, { kind: 'point' }>
+export type LineOperand = Extract<Operand, { kind: 'line' }>
+/** A circle or an arc. */
+export type RoundOperand = Extract<Operand, { kind: 'circle' | 'arc' }>
+
+/** The entity an operand names: a point's owner, or the line or curve itself. */
+export function operandEntity(operand: Operand): string {
+  switch (operand.kind) {
+    case 'point':
+      return operand.owner
+    case 'line':
+      return operand.line
+    case 'circle':
+    case 'arc':
+      return operand.curve
+  }
+}
 
 /** The entity a point reference belongs to: the id before the role, or the reserved name itself. */
 export function ownerOf(point: PointRef): string {
@@ -69,6 +93,12 @@ export function solvedEntity(solution: SketchSolution, id: string): SolvedEntity
   return solution.entities.find((entity) => entity.id === id)
 }
 
+/** The solved value of a constraint, or null when the solution has none. */
+export function solvedValue(constraint: SketchConstraint, solution: SketchSolution): number | null {
+  const value = solution.constraints.find((state) => state.id === constraint.id)?.value
+  return value ?? null
+}
+
 /** The solved position of a point reference; the origin is (0, 0). */
 export function pointPosition(solution: SketchSolution, point: PointRef): Vector2 | null {
   if (point === ORIGIN_POINT) {
@@ -84,10 +114,7 @@ export function pointPosition(solution: SketchSolution, point: PointRef): Vector
 }
 
 /** The start and end of a line or axis (an axis is its constant unit segment from the origin). */
-export function lineEnds(
-  solution: SketchSolution,
-  line: string,
-): { readonly start: Vector2; readonly end: Vector2 } | null {
+export function lineEnds(solution: SketchSolution, line: string): Segment | null {
   if (isAxis(line)) {
     return axisLine(line)
   }

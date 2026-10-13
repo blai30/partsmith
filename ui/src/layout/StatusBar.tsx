@@ -2,11 +2,10 @@ import { clsx } from 'clsx/lite'
 import { LoaderCircle } from 'lucide-react'
 import { useEffect, useRef, useState, type Ref } from 'react'
 import { setUnits } from '../app/actions/document'
-import { notify } from '../app/actions/notifications'
 import { openPrintHealth, setPrinter } from '../app/actions/print'
 import { useApp, useAppState } from '../app/AppProvider'
-import type { App } from '../app/createApp'
-import type { DisabledAvailability } from '../commands/registry'
+import { reportFailure } from '../app/report'
+import { explainDisabled, type DisabledAvailability } from '../commands/registry'
 import { Menu, type MenuEntry } from '../components/Menu'
 import { Tooltip } from '../components/Tooltip'
 import { formatQuantity } from '../expression/format'
@@ -26,12 +25,6 @@ import { useCommandViews } from './use-commands'
 const REBUILDING_DELAY_MILLISECONDS = 300
 
 const UNITS: readonly Units[] = ['mm', 'cm', 'm', 'in']
-
-function report(action: string): (error: unknown) => void {
-  return (error) => {
-    console.error(`${action} failed.`, error)
-  }
-}
 
 function Spinner() {
   return (
@@ -197,15 +190,6 @@ function useDisabled(commandId: string): DisabledAvailability | null {
 }
 
 /** A disabled control's click shows its reason with its message id, as a disabled toolbar command's does (3.3). */
-function explain(app: App, disabled: DisabledAvailability): void {
-  notify(app, {
-    severity: 'info',
-    message: disabled.reason,
-    actions: [],
-    ...(disabled.code === undefined ? {} : { code: disabled.code }),
-  })
-}
-
 function UnitsButton() {
   const app = useApp()
   const units = useAppState((state) => state.document?.recipe.units ?? null)
@@ -223,7 +207,7 @@ function UnitsButton() {
     checked: unit === units,
     onSelect: () => {
       if (unit !== units) {
-        setUnits(app, unit).catch(report('Changing the units'))
+        setUnits(app, unit).catch(reportFailure('Changing the units'))
       }
     },
   }))
@@ -240,7 +224,7 @@ function UnitsButton() {
             if (disabled === null) {
               setOpen((current) => !current)
             } else {
-              explain(app, disabled)
+              explainDisabled(app, disabled)
             }
           }}
         />
@@ -277,7 +261,7 @@ function PrinterButton() {
             if (disabled === null) {
               setOpen((value) => !value)
             } else {
-              explain(app, disabled)
+              explainDisabled(app, disabled)
             }
           }}
         />
@@ -289,7 +273,7 @@ function PrinterButton() {
         printers={printers}
         current={current}
         onChoose={(profileId) => {
-          setPrinter(app, profileId).catch(report('Changing the printer'))
+          setPrinter(app, profileId).catch(reportFailure('Changing the printer'))
         }}
       />
     </>
@@ -303,7 +287,7 @@ function Health() {
     <HealthBadge
       badge={badge}
       onClick={() => {
-        openPrintHealth(app).catch(report('Checking the print'))
+        openPrintHealth(app).catch(reportFailure('Checking the print'))
       }}
     />
   )

@@ -9,6 +9,7 @@ import {
   startLayOnFace,
 } from '../app/actions/print'
 import { useApp, useAppState } from '../app/AppProvider'
+import { reportFailure } from '../app/report'
 import { KeysPanel } from '../keys/KeysPanel'
 import { ParametersPanel } from '../parameters/ParametersPanel'
 import { hasPrintableBody, healthRows, missingReport } from '../print/health'
@@ -45,9 +46,7 @@ function PrintCheckPanel() {
         missingReport={missing}
         focusedFinding={focused}
         onCheckAgain={() => {
-          runPrintAnalysis(app).catch((error: unknown) => {
-            console.error('The print check failed.', error)
-          })
+          runPrintAnalysis(app).catch(reportFailure('The print check'))
         }}
         onFocusFinding={(finding) => {
           focusFinding(app, finding)
@@ -65,9 +64,7 @@ function PrintCheckPanel() {
             .then(() => {
               startLayOnFace(app)
             })
-            .catch((error: unknown) => {
-              console.error('Starting Lay on face failed.', error)
-            })
+            .catch(reportFailure('Starting Lay on face'))
         }}
       />
     </section>

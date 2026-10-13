@@ -286,14 +286,18 @@ pub trait PythonNames {
     fn default_op(&self, body: &Id) -> BodyOp;
 }
 
-/// True for a keyword argument name: an identifier `[A-Za-z_][A-Za-z0-9_]*` that is not a Python keyword.
+/// True for a keyword argument name: an identifier that is not a Python keyword.
 pub(crate) fn is_keyword_name(name: &str) -> bool {
-    let mut characters = name.chars();
+    is_identifier(name) && !PYTHON_KEYWORDS.contains(&name)
+}
+
+/// True for an ASCII identifier `[A-Za-z_][A-Za-z0-9_]*`.
+fn is_identifier(text: &str) -> bool {
+    let mut characters = text.chars();
     characters
         .next()
         .is_some_and(|first| first.is_ascii_alphabetic() || first == '_')
         && characters.all(|character| character.is_ascii_alphanumeric() || character == '_')
-        && !PYTHON_KEYWORDS.contains(&name)
 }
 
 /// A double-quoted string literal with `\`, `"`, newline, carriage return and tab escaped, and
@@ -389,15 +393,9 @@ fn quantity_literal(source: &str) -> Option<String> {
 
 /// True for a source matching `printer(\.[A-Za-z_][A-Za-z0-9_]*)+`.
 fn is_printer_name(source: &str) -> bool {
-    source.strip_prefix("printer.").is_some_and(|path| {
-        path.split('.').all(|part| {
-            let mut characters = part.chars();
-            characters
-                .next()
-                .is_some_and(|first| first.is_ascii_alphabetic() || first == '_')
-                && characters.all(|character| character.is_ascii_alphanumeric() || character == '_')
-        })
-    })
+    source
+        .strip_prefix("printer.")
+        .is_some_and(|path| path.split('.').all(is_identifier))
 }
 
 #[cfg(test)]

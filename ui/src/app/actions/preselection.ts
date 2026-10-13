@@ -1,25 +1,23 @@
 import type { SelectionKind } from '../../generated/protocol'
 import {
   buildInspectorModel,
+  fieldsOf,
   filledByCommand,
   getParam,
+  isEmptyValue,
   setParam,
   type InspectorField,
   type InspectorModel,
 } from '../../inspector/model'
+import { parentPath } from '../../inspector/param-path'
 import { acceptsTarget, selectionValue } from '../../inspector/selection-values'
 import { drawnPointItems, pointSelectionItem, regionSelectionItem } from '../../sketch/hit'
 import type { AppState, CatalogFeature, SelectionItem } from '../../state/store'
-import { isEmptyValue, parentOf, siblingPath, type Params } from './command-values'
+import { siblingPath, type Params } from './command-values'
 import { sketchFaceBody, sketchRecordOf } from './sketch'
 
 // The selection fields of a feature command: which field takes picks, and how the selection fills
 // them when the command opens (ui.md 3.7 steps 4 and 5, 2.12).
-
-/** The model's fields: essential ones, then those under More options. */
-export function fieldsOf(model: InspectorModel): readonly InspectorField[] {
-  return [...model.essential, ...model.more]
-}
 
 /** Selection fields of the model, in manifest order. */
 function selectionFields(model: InspectorModel, feature: CatalogFeature): InspectorField[] {
@@ -35,12 +33,12 @@ function fillsFromSiblingPick(field: InspectorField, fields: readonly InspectorF
   if (field.control.type !== 'selection' || field.control.accepts !== 'body') {
     return false
   }
-  const parent = parentOf(field.path)
+  const parent = parentPath(field.path)
   return fields.some(
     (other) =>
       other.control.type === 'selection' &&
       (other.control.accepts === 'face' || other.control.accepts === 'edge') &&
-      parentOf(other.path) === parent,
+      parentPath(other.path) === parent,
   )
 }
 

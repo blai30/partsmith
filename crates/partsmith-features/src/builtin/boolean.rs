@@ -7,8 +7,8 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use super::common::{
-    bodies, essential, flag, hint, is_false, manifest, one_or_list, options_hint, part,
-    selection_hint, solid_body, unchanged,
+    BODY_OP_OPTIONS, bodies, body_op_name, essential, flag, hint, is_false, manifest, one_or_list,
+    options_hint, part, require_selection, selection_hint, solid_body, target_hint, unchanged,
 };
 use crate::context::{BodyState, BuildContext};
 use crate::deps::Dependencies;
@@ -49,13 +49,9 @@ pub enum BooleanOp {
 }
 
 impl BooleanOp {
-    /// The stored name, which Python also writes.
+    /// The stored name, which Python also writes: the name of the body op.
     fn name(self) -> &'static str {
-        match self {
-            BooleanOp::Join => "join",
-            BooleanOp::Cut => "cut",
-            BooleanOp::Intersect => "intersect",
-        }
+        body_op_name(self.body_op())
     }
 
     /// The body op of the same name, which `apply_op` applies to the target.
@@ -78,13 +74,10 @@ impl Feature for Boolean {
             Category::Modify,
             "boolean",
             vec![
-                essential(selection_hint("target", "Target body", SelectionKind::Body)),
+                essential(target_hint()),
                 essential(selection_hint("tools", "Tool bodies", SelectionKind::Body)),
-                essential(options_hint(
-                    "op",
-                    "Operation",
-                    &[("join", "Join"), ("cut", "Cut"), ("intersect", "Intersect")],
-                )),
+                // Every body op but new.
+                essential(options_hint("op", "Operation", &BODY_OP_OPTIONS[1..])),
                 essential(hint("keep_tools", "Keep tools")),
             ],
         )
@@ -92,17 +85,11 @@ impl Feature for Boolean {
 
     /// At least one tool, and no tool that is the target or repeats (boolean.md section 3.1).
     fn validate(params: &BooleanParams) -> Result<(), FeatureError> {
-        let manifest = Boolean::manifest();
-        if params.tools.is_empty() {
-            return Err(FeatureError::EmptySelection {
-                field: FieldRef::new("tools", &manifest),
-                noun: Noun::Body,
-            });
-        }
+        require_selection(&params.tools, Boolean::manifest, "tools", Noun::Body)?;
         for (position, tool) in params.tools.iter().enumerate() {
             if *tool == params.target || params.tools[..position].contains(tool) {
                 return Err(FeatureError::SameBody {
-                    field: FieldRef::new(&format!("tools[{position}]"), &manifest),
+                    field: FieldRef::new(&format!("tools[{position}]"), &Boolean::manifest()),
                     body: tool.clone(),
                 });
             }
@@ -220,17 +207,6 @@ mod tests {
         bodies: Vec<(&str, BodyState)>,
     ) -> Result<FeatureOutput, FeatureError> {
         build::<Boolean>("f-bool1", params, bodies, Vec::new())
-    }
-
-    #[test]
-    fn registers_with_its_manifest() {
-        let mut registry = Registry::new();
-
-        registry
-            .register::<Boolean>()
-            .expect("the boolean passes the registration checks");
-
-        assert_eq!(registry.types().collect::<Vec<_>>(), ["boolean"]);
     }
 
     #[test]

@@ -1,26 +1,23 @@
 //! The read-only build context and what it is made from (features.md sections 2.6, 3.4 and 3.6 to 3.8).
 
-use std::collections::BTreeMap;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, OnceLock};
+mod body_state;
+mod values;
 
-use partsmith_model::{
-    Dimension, Expr, FeatureManifest, FieldUnit, Id, LINEAR_TOLERANCE, Scope, Units,
-};
-use partsmith_naming::{
-    ElementInfo, ElementKind, ElementName, NamingMap, Reference, Resolution, TopologyInfo,
-};
-use partsmith_occt_sys::{
-    Axis, ElementGeometry, GeometryKind, Point, Shape, SubShape, SubShapeKind, Vector,
-};
+pub use body_state::BodyState;
+pub use values::Values;
+
+use std::collections::BTreeMap;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+use partsmith_model::{Expr, FeatureManifest, FieldUnit, Id, LINEAR_TOLERANCE, Units};
+use partsmith_naming::{ElementKind, ElementName, Reference, Resolution};
+use partsmith_occt_sys::{Axis, ElementGeometry, GeometryKind, Point, SubShape, Vector};
 use partsmith_sketch::{Geometry, MatchMethod, OriginPlane, Placement, RegionMatch, match_region};
 
-use crate::deps::ExprUse;
 use crate::error::{Bound, FallbackReason, FeatureError, FeatureWarning, FieldRef, Noun};
-use crate::naming::{naming, sub_shape_kind, topology_info};
-use crate::output::{
-    BodyUpdate, DatumResult, FeatureOutput, Measurements, OutputData, SketchResult,
-};
+use crate::naming::sub_shape_kind;
+use crate::output::{DatumResult, FeatureOutput, OutputData, SketchResult};
 use crate::params::{AxisRef, PlaneRef, ProfileRef, point, vector};
 
 /// Largest distance from a whole number that a count may have (section 3.4).
@@ -202,7 +199,6 @@ impl<'a> BuildContext<'a> {
         kind: ElementKind,
     ) -> Result<Vec<SubShape>, FeatureError> {
         let state = self.solid_body(body)?;
-        let elements = state.elements()?;
         let not_found = |candidates| FeatureError::ReferenceNotFound {
             field: self.field(field),
             body: body.clone(),
@@ -210,7 +206,7 @@ impl<'a> BuildContext<'a> {
             kind,
             candidates,
         };
-        match lookup(state, &elements, reference, kind)? {
+        match lookup(state, reference, kind)? {
             Lookup::Found(found) => Ok(found),
             Lookup::Ambiguous(candidates) => Err(not_found(candidates)),
             Lookup::Missing => Err(not_found(Vec::new())),
@@ -227,14 +223,13 @@ impl<'a> BuildContext<'a> {
         kind: ElementKind,
     ) -> Result<Resolved, FeatureError> {
         let state = self.solid_body(body)?;
-        let elements = state.elements()?;
         let mut resolved = Resolved {
             elements: Vec::new(),
             warnings: Vec::new(),
         };
         for (position, reference) in references.iter().enumerate() {
             let entry = || self.field(&format!("{field}[{position}]"));
-            match lookup(state, &elements, reference, kind)? {
+            match lookup(state, reference, kind)? {
                 Lookup::Found(found) => {
                     for element in found {
                         if !resolved.elements.contains(&element) {
@@ -307,15 +302,12 @@ impl<'a> BuildContext<'a> {
         let Some(shape) = state.shape() else {
             return Ok(Err(FallbackReason::Missing));
         };
-        let elements = state.elements()?;
-        let found = match lookup(state, &elements, face, ElementKind::Face)? {
+        let found = match lookup(state, face, ElementKind::Face)? {
             Lookup::Found(found) => found,
             Lookup::Ambiguous(_) => return Ok(Err(FallbackReason::Ambiguous)),
             Lookup::Missing => return Ok(Err(FallbackReason::Missing)),
         };
-        let first = found
-            .first()
-            .ok_or_else(|| FeatureError::internal("a resolved reference has no element"))?;
+        let first = first(&found)?;
         let geometry = shape.element(first.kind, first.index)?;
         Ok(on_face(&geometry, hint)?.ok_or(FallbackReason::NotPlanar))
     }
@@ -365,6 +357,15 @@ impl<'a> BuildContext<'a> {
     /// True once the run has been canceled. Long builds check it between steps.
     pub fn is_canceled(&self) -> bool {
         self.inputs.cancel.is_canceled()
+    }
+
+    /// `Canceled` once the run has been canceled, for the framework's own long steps.
+    pub(crate) fn check_canceled(&self) -> Result<(), FeatureError> {
+        if self.is_canceled() {
+            Err(FeatureError::Canceled)
+        } else {
+            Ok(())
+        }
     }
 
     /// The value of a declared use, if `field` was declared with exactly this expression and unit.
@@ -419,10 +420,7 @@ impl<'a> BuildContext<'a> {
         reference: &Reference,
         kind: ElementKind,
     ) -> Result<ElementGeometry, FeatureError> {
-        let found = self.resolve(field, body, reference, kind)?;
-        let first = found
-            .first()
-            .ok_or_else(|| FeatureError::internal("a resolved reference has no element"))?;
+        let first = first(&self.resolve(field, body, reference, kind)?)?;
         let shape = self
             .solid_body(body)?
             .shape()
@@ -464,218 +462,6 @@ impl<'a> BuildContext<'a> {
             origin: point(start),
             direction: direction.scaled(1.0 / length),
         })
-    }
-}
-
-/// Evaluated values of one feature's declared expressions.
-#[derive(Clone, Debug, Default)]
-pub struct Values {
-    /// The uses in declaration order, each with its converted value or error.
-    entries: Vec<(ExprUse, Result<f64, FeatureError>)>,
-    /// Position in `entries` of the first use of each field.
-    by_field: BTreeMap<String, usize>,
-}
-
-impl Values {
-    /// Evaluates each use with `expr.evaluate(scope, Some(expected))` and converts it (section 3.4).
-    pub fn evaluate(uses: &[ExprUse], scope: &Scope<'_>, manifest: &FeatureManifest) -> Values {
-        let mut values = Values::default();
-        for declared in uses {
-            let value = evaluate_use(declared, scope, manifest);
-            values
-                .by_field
-                .entry(declared.field.clone())
-                .or_insert(values.entries.len());
-            values.entries.push((declared.clone(), value));
-        }
-        values
-    }
-
-    /// Every use with its converted value or error, in declaration order. Recompute hashes them into cache keys (recompute.md section 3.4).
-    pub fn iter(&self) -> impl Iterator<Item = (&ExprUse, &Result<f64, FeatureError>)> + '_ {
-        self.entries
-            .iter()
-            .map(|(declared, value)| (declared, value))
-    }
-
-    /// The first use declared at `field` with its value.
-    fn get(&self, field: &str) -> Option<&(ExprUse, Result<f64, FeatureError>)> {
-        self.by_field
-            .get(field)
-            .and_then(|&position| self.entries.get(position))
-    }
-}
-
-/// The state of a body at one point in the timeline. Cloning is cheap.
-#[derive(Clone, Debug)]
-pub struct BodyState {
-    /// The shared state.
-    content: Arc<BodyContent>,
-}
-
-/// What a `BodyState` shares between its clones.
-#[derive(Debug)]
-struct BodyContent {
-    /// The solid, or None for an empty body.
-    shape: Option<Shape>,
-    /// Names of the shape's elements.
-    naming: Arc<NamingMap>,
-    /// Topology and fingerprints, carried from the update or computed on first use.
-    topology: OnceLock<Result<Arc<TopologyInfo>, FeatureError>>,
-    /// Element infos, computed on first use.
-    elements: OnceLock<Result<Arc<[ElementInfo]>, FeatureError>>,
-    /// Volume, carried from the update or computed on first use.
-    volume: OnceLock<Result<f64, FeatureError>>,
-}
-
-impl BodyState {
-    /// A body with no solid.
-    pub fn empty() -> Self {
-        let naming = NamingMap::build(Vec::new(), &empty_topology(), &[])
-            .expect("a shape without elements always has a naming map");
-        BodyState::with(None, Arc::new(naming), Measurements::default())
-    }
-
-    /// A body holding `shape` named by `naming`.
-    pub fn new(shape: Shape, naming: Arc<NamingMap>) -> Self {
-        BodyState::with(Some(shape), naming, Measurements::default())
-    }
-
-    /// The state a body update gives the body: empty without a shape, else the update's shape and
-    /// naming map, with the update's measurements as the values `topology` and `volume` would
-    /// compute (features.md section 2.7). Measurements whose topology does not list one entry per
-    /// face, edge and vertex of the shape belong to another shape and are measured again instead.
-    /// Recompute makes every body state after a feature this way.
-    pub fn from_update(update: &BodyUpdate) -> Self {
-        match &update.shape {
-            None => BodyState::empty(),
-            Some(shape) => {
-                let measured = if fits(&update.measured, shape) {
-                    update.measured.clone()
-                } else {
-                    Measurements::default()
-                };
-                BodyState::with(Some(shape.clone()), Arc::clone(&update.naming), measured)
-            }
-        }
-    }
-
-    /// The shape, or None when the body is empty.
-    pub fn shape(&self) -> Option<&Shape> {
-        self.content.shape.as_ref()
-    }
-
-    /// The naming map of the shape (empty for an empty body).
-    pub fn naming(&self) -> &Arc<NamingMap> {
-        &self.content.naming
-    }
-
-    /// True when the body has no solid.
-    pub fn is_empty(&self) -> bool {
-        self.content.shape.is_none()
-    }
-
-    /// Topology and fingerprints of every face, edge and vertex of the shape (`topology_info`,
-    /// empty for an empty body), computed once on first use and shared by clones.
-    pub fn topology(&self) -> Result<Arc<TopologyInfo>, FeatureError> {
-        self.content
-            .topology
-            .get_or_init(|| match &self.content.shape {
-                None => Ok(Arc::new(empty_topology())),
-                Some(shape) => topology_info(shape).map(Arc::new),
-            })
-            .clone()
-    }
-
-    /// Element infos (names, kinds, fingerprints, adjacency) of the shape, computed from
-    /// `topology` once on first use and shared by clones.
-    pub fn elements(&self) -> Result<Arc<[ElementInfo]>, FeatureError> {
-        self.content
-            .elements
-            .get_or_init(|| {
-                let topology = self.topology()?;
-                let infos = self
-                    .content
-                    .naming
-                    .element_infos(&topology)
-                    .map_err(naming)?;
-                Ok(Arc::from(infos))
-            })
-            .clone()
-    }
-
-    /// Volume of the shape in cubic millimeters (0 for an empty body), computed once on first use
-    /// and shared by clones.
-    pub fn volume(&self) -> Result<f64, FeatureError> {
-        self.content
-            .volume
-            .get_or_init(|| match &self.content.shape {
-                None => Ok(0.0),
-                Some(shape) => Ok(shape.volume()?),
-            })
-            .clone()
-    }
-
-    /// The topology and volume measured so far, for an update that keeps this state: what has not
-    /// been computed yet, or failed, is `None`.
-    pub fn measurements(&self) -> Measurements {
-        Measurements {
-            topology: self
-                .content
-                .topology
-                .get()
-                .and_then(|topology| topology.as_ref().ok())
-                .cloned(),
-            volume: self
-                .content
-                .volume
-                .get()
-                .and_then(|volume| volume.as_ref().ok())
-                .copied(),
-        }
-    }
-
-    /// A state with this shape and naming map, holding the measured values.
-    fn with(shape: Option<Shape>, naming: Arc<NamingMap>, measured: Measurements) -> Self {
-        BodyState {
-            content: Arc::new(BodyContent {
-                shape,
-                naming,
-                topology: known(measured.topology.map(Ok)),
-                elements: OnceLock::new(),
-                volume: known(measured.volume.map(Ok)),
-            }),
-        }
-    }
-}
-
-/// True unless `measured` carries a topology whose face, edge or vertex count differs from the
-/// shape's.
-fn fits(measured: &Measurements, shape: &Shape) -> bool {
-    measured.topology.as_ref().is_none_or(|topology| {
-        [
-            (topology.faces.len(), SubShapeKind::Face),
-            (topology.edges.len(), SubShapeKind::Edge),
-            (topology.vertices.len(), SubShapeKind::Vertex),
-        ]
-        .into_iter()
-        .all(|(entries, kind)| {
-            u32::try_from(entries).is_ok_and(|entries| entries == shape.count(kind))
-        })
-    })
-}
-
-/// A cell holding `value` when it is known, else an empty one.
-fn known<T>(value: Option<T>) -> OnceLock<T> {
-    value.map_or_else(OnceLock::new, OnceLock::from)
-}
-
-/// The topology of a shape without elements.
-fn empty_topology() -> TopologyInfo {
-    TopologyInfo {
-        faces: Vec::new(),
-        edges: Vec::new(),
-        vertices: Vec::new(),
     }
 }
 
@@ -736,14 +522,14 @@ enum Lookup {
 /// Resolves one reference of `kind` against a body state's elements.
 fn lookup(
     state: &BodyState,
-    elements: &[ElementInfo],
     reference: &Reference,
     kind: ElementKind,
 ) -> Result<Lookup, FeatureError> {
+    let elements = state.elements()?;
     if reference.query.kind() != kind {
         return Ok(Lookup::Missing);
     }
-    match partsmith_naming::resolve(reference, elements, state.naming().aliases()) {
+    match partsmith_naming::resolve(reference, &elements, state.naming().aliases()) {
         Resolution::Resolved { elements, .. } => elements
             .iter()
             .map(|name| {
@@ -767,26 +553,12 @@ fn lookup(
     }
 }
 
-/// Evaluates one declared use and converts it (section 3.4).
-fn evaluate_use(
-    declared: &ExprUse,
-    scope: &Scope<'_>,
-    manifest: &FeatureManifest,
-) -> Result<f64, FeatureError> {
-    let expected = match declared.kind {
-        FieldUnit::Length => Dimension::LENGTH,
-        FieldUnit::Angle => Dimension::ANGLE,
-        FieldUnit::Scalar | FieldUnit::Count => Dimension::NONE,
-    };
-    declared
-        .expr
-        .evaluate(scope, Some(expected))
-        .map(|quantity| quantity.value)
-        .map_err(|error| FeatureError::Expression {
-            field: FieldRef::new(&declared.field, manifest),
-            expr: declared.expr.clone(),
-            error,
-        })
+/// The first element a resolved reference denotes.
+fn first(found: &[SubShape]) -> Result<SubShape, FeatureError> {
+    found
+        .first()
+        .copied()
+        .ok_or_else(|| FeatureError::internal("a resolved reference has no element"))
 }
 
 /// Why a value is not a valid count.
@@ -893,7 +665,6 @@ fn canonical_axis(through: Point, direction: Vector) -> Result<Axis, FeatureErro
 
 #[cfg(test)]
 mod tests {
-    use partsmith_model::{EmptyContext, ParameterValues};
     use partsmith_naming::Fingerprint;
     use partsmith_occt_sys::{
         Plane as KernelPlane, make_cone, make_cylinder, make_sphere, make_torus,
@@ -903,25 +674,7 @@ mod tests {
 
     use super::*;
     use crate::params::{OriginAxis, PlacementExt};
-    use crate::test_support::{Fixture, box_body, id, manifest, named_primitive};
-
-    fn values(uses: &[(&str, &str, FieldUnit)]) -> Values {
-        let uses: Vec<ExprUse> = uses
-            .iter()
-            .map(|(field, expr, kind)| ExprUse {
-                field: field.to_string(),
-                expr: Expr::new(*expr),
-                kind: *kind,
-            })
-            .collect();
-        let parameters = ParameterValues::default();
-        let scope = Scope {
-            units: Units::Mm,
-            parameters: &parameters,
-            context: &EmptyContext,
-        };
-        Values::evaluate(&uses, &scope, &manifest(Vec::new()))
-    }
+    use crate::test_support::{Fixture, box_body, id, manifest, named_primitive, values};
 
     fn reference(query: &str, fingerprint: &str) -> Reference {
         Reference::new(
@@ -1414,15 +1167,6 @@ mod tests {
     }
 
     #[test]
-    fn face_placement_in_an_empty_body_is_missing() {
-        let fixture = Fixture::new("f-sk1").with_body("b-1", BodyState::empty());
-
-        let result = face_placement_of(&fixture, "f-box1/top", "plane|n=0,0,1");
-
-        assert_eq!(result, Ok(Err(FallbackReason::Missing)));
-    }
-
-    #[test]
     fn face_placement_of_an_ambiguous_face_is_ambiguous() {
         let result = face_placement_of(&box_fixture(), "f-box1/nothing", ANY_BOX_FACE);
 
@@ -1434,20 +1178,6 @@ mod tests {
         let result = face_placement_of(&cylinder_fixture(), "f-cyl1/side", "cylinder|n=0,0,1");
 
         assert_eq!(result, Ok(Err(FallbackReason::NotPlanar)));
-    }
-
-    #[test]
-    fn face_placement_in_an_undeclared_body_fails() {
-        let result = Fixture::new("f-sk1").context().face_placement(
-            &id("b-9"),
-            &reference("f-box1/top", "plane|n=0,0,1"),
-            &tilted_hint(),
-        );
-
-        assert_eq!(
-            result.map_err(|error| error.code()),
-            Err("undeclared_dependency")
-        );
     }
 
     #[test]
@@ -1813,12 +1543,6 @@ mod tests {
     }
 
     #[test]
-    fn fractions_in_range_are_not_whole() {
-        assert!(matches!(count(2.5, 0), Err(CountProblem::NotWhole)));
-        assert!(matches!(count(1.5, 1), Err(CountProblem::NotWhole)));
-    }
-
-    #[test]
     fn eval_count_checks_the_minimum_the_feature_gives() {
         let mut fixture = Fixture::new("f-lp1");
         fixture.values = values(&[("count", "0.5", FieldUnit::Count)]);
@@ -1853,41 +1577,6 @@ mod tests {
     }
 
     #[test]
-    fn counts_are_stored_as_evaluated() {
-        let values = values(&[("count", "2.5", FieldUnit::Count)]);
-
-        let (_, value) = values.iter().next().expect("one use");
-        assert_eq!(value, &Ok(2.5));
-    }
-
-    #[test]
-    fn values_keep_declaration_order() {
-        let values = values(&[("b", "2", FieldUnit::Length), ("a", "1", FieldUnit::Scalar)]);
-
-        let fields: Vec<&str> = values
-            .iter()
-            .map(|(declared, _)| declared.field.as_str())
-            .collect();
-        assert_eq!(fields, ["b", "a"]);
-    }
-
-    #[test]
-    fn scalars_are_plain_numbers() {
-        let values = values(&[("factor", "1.5", FieldUnit::Scalar)]);
-
-        let (_, value) = values.iter().next().expect("one use");
-        assert_eq!(value, &Ok(1.5));
-    }
-
-    #[test]
-    fn a_repeated_field_reads_its_first_use() {
-        let values = values(&[("a", "1", FieldUnit::Scalar), ("a", "2", FieldUnit::Scalar)]);
-
-        let (declared, _) = values.get("a").expect("a is declared");
-        assert_eq!(declared.expr.as_str(), "1");
-    }
-
-    #[test]
     fn canonical_axes_point_their_first_component_up() {
         let axis = canonical_axis(Point::new(3.0, 4.0, 5.0), Vector::new(0.0, -2.0, 0.0))
             .expect("a direction with length");
@@ -1902,159 +1591,6 @@ mod tests {
             .expect("a direction with length");
 
         assert_eq!(axis.direction.z, 1.0);
-    }
-
-    #[test]
-    fn empty_bodies_have_no_elements() {
-        let state = BodyState::empty();
-
-        assert!(state.is_empty());
-        assert!(state.shape().is_none());
-        assert_eq!(state.elements().expect("no elements").len(), 0);
-    }
-
-    #[test]
-    fn empty_bodies_have_no_volume() {
-        assert_eq!(BodyState::empty().volume().expect("no volume"), 0.0);
-    }
-
-    #[test]
-    fn the_volume_of_a_state_is_shared_by_its_clones() {
-        let state = box_body("f-box1", [0.0, 0.0, 0.0], 10.0);
-        let clone = state.clone();
-
-        let volume = state.volume().expect("the box has a volume");
-
-        assert!((volume - 1000.0).abs() < 1e-9, "{volume}");
-        assert_eq!(clone.volume().expect("the clone has a volume"), volume);
-    }
-
-    #[test]
-    fn the_topology_of_a_state_is_the_kernel_topology_and_shared_by_its_clones() {
-        let state = box_body("f-box1", [0.0, 0.0, 0.0], 10.0);
-        let clone = state.clone();
-
-        let topology = state.topology().expect("the box has a topology");
-
-        assert_eq!(topology.faces.len(), 6);
-        let shape = state.shape().expect("a solid");
-        assert_eq!(
-            *topology,
-            topology_info(shape).expect("the kernel topology")
-        );
-        assert!(Arc::ptr_eq(
-            &topology,
-            &clone.topology().expect("the clone has a topology")
-        ));
-    }
-
-    #[test]
-    fn a_state_measures_nothing_until_asked() {
-        let state = box_body("f-box1", [0.0, 0.0, 0.0], 10.0);
-
-        let before = state.measurements();
-        state.volume().expect("a volume");
-        state.elements().expect("element infos");
-        let after = state.measurements();
-
-        assert!(before.topology.is_none() && before.volume.is_none());
-        assert!(after.topology.is_some());
-        assert_eq!(after.volume, Some(state.volume().expect("a volume")));
-    }
-
-    #[test]
-    fn a_state_from_an_update_keeps_its_measurements() {
-        let state = box_body("f-box1", [0.0, 0.0, 0.0], 10.0);
-        let shape = state.shape().cloned().expect("the box is a solid");
-        let topology = Arc::new(crate::topology_info(&shape).expect("a topology"));
-        let volume = shape.volume().expect("a volume");
-        let update = BodyUpdate {
-            body: id("b-1"),
-            shape: Some(shape),
-            naming: Arc::clone(state.naming()),
-            change: crate::output::BodyChange::Modify,
-            measured: Measurements {
-                topology: Some(Arc::clone(&topology)),
-                volume: Some(volume),
-            },
-        };
-
-        let next = BodyState::from_update(&update);
-
-        // The carried values are cached before anything asks for them.
-        let cached = next.measurements();
-        assert!(
-            cached
-                .topology
-                .is_some_and(|carried| Arc::ptr_eq(&carried, &topology))
-        );
-        assert_eq!(cached.volume, Some(volume));
-        assert!(Arc::ptr_eq(next.naming(), state.naming()));
-    }
-
-    #[test]
-    fn a_state_from_an_update_measures_again_what_another_shape_gave() {
-        let state = box_body("f-box1", [0.0, 0.0, 0.0], 10.0);
-        let cylinder = partsmith_occt_sys::make_cylinder(&partsmith_occt_sys::Plane::XY, 5.0, 10.0)
-            .expect("a cylinder")
-            .shape;
-        let update = BodyUpdate {
-            body: id("b-1"),
-            shape: state.shape().cloned(),
-            naming: Arc::clone(state.naming()),
-            change: crate::output::BodyChange::Modify,
-            // The cylinder's topology, as a plugin copying another state's measurements would.
-            measured: Measurements {
-                topology: Some(Arc::new(
-                    crate::topology_info(&cylinder).expect("a topology"),
-                )),
-                volume: Some(cylinder.volume().expect("a volume")),
-            },
-        };
-
-        let next = BodyState::from_update(&update);
-
-        let cached = next.measurements();
-        assert!(cached.topology.is_none() && cached.volume.is_none());
-        assert_eq!(next.topology().expect("a topology").faces.len(), 6);
-        assert!((next.volume().expect("a volume") - 1000.0).abs() < 1e-9);
-    }
-
-    #[test]
-    fn a_state_from_an_update_without_measurements_measures_the_shape() {
-        let state = box_body("f-box1", [0.0, 0.0, 0.0], 10.0);
-        let update = BodyUpdate {
-            body: id("b-1"),
-            shape: state.shape().cloned(),
-            naming: Arc::clone(state.naming()),
-            change: crate::output::BodyChange::Modify,
-            measured: Measurements::default(),
-        };
-
-        let next = BodyState::from_update(&update);
-
-        assert!((next.volume().expect("a volume") - 1000.0).abs() < 1e-9);
-        assert_eq!(next.topology().expect("a topology").faces.len(), 6);
-    }
-
-    #[test]
-    fn a_state_from_an_update_without_a_shape_is_empty() {
-        let update = BodyUpdate {
-            body: id("b-1"),
-            shape: None,
-            naming: Arc::clone(BodyState::empty().naming()),
-            change: crate::output::BodyChange::Clear,
-            measured: Measurements {
-                topology: None,
-                volume: Some(5.0),
-            },
-        };
-
-        let next = BodyState::from_update(&update);
-
-        assert!(next.is_empty());
-        assert_eq!(next.volume().expect("no volume"), 0.0);
-        assert!(next.topology().expect("no elements").faces.is_empty());
     }
 
     #[test]

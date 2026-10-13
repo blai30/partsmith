@@ -7,9 +7,12 @@ use partsmith_model::{
     SelectionKind,
 };
 use partsmith_naming::{ElementName, FaceSource, Generator, NamingError, Reference, roles};
-use partsmith_occt_sys::{Point, Primitive, PrimitiveFace, Shape, SweepFace, SweepResult, Vector};
+use partsmith_occt_sys::{
+    KernelError, PlanarProfile, Point, Primitive, PrimitiveFace, Shape, SweepFace, SweepResult,
+    Vector, compound,
+};
 
-use crate::context::{BodyState, BuildContext};
+use crate::context::{BodyState, BuildContext, ResolvedProfile};
 use crate::error::{Bound, FeatureError, FeatureWarning, FieldRef, Noun};
 use crate::name_shape;
 use crate::output::{BodyChange, BodyUpdate, FeatureOutput, OutputData, Tool, apply_op};
@@ -23,9 +26,6 @@ pub(crate) const BODY_OP_OPTIONS: [(&str, &str); 4] = [
     ("cut", "Cut"),
     ("intersect", "Intersect"),
 ];
-
-/// The options of a `CopyOp` field, with their labels.
-pub(crate) const COPY_OP_OPTIONS: [(&str, &str); 2] = [("join", "Join"), ("new", "New body")];
 
 /// How far past the farthest corner of the body's bounding box a through-all extrusion or hole
 /// goes, in millimeters (decision D21).
@@ -107,18 +107,31 @@ pub(crate) fn body_op_hint() -> FieldHint {
     essential(options_hint("op", "Operation", &BODY_OP_OPTIONS))
 }
 
+/// The `target` hint of a feature that puts its result into another body.
+pub(crate) fn target_hint() -> FieldHint {
+    selection_hint("target", "Target body", SelectionKind::Body)
+}
+
 /// The `body` hint of a feature that names its body in a `with <part>:` block.
 pub(crate) fn body_hint() -> FieldHint {
     selection_hint("body", "Body", SelectionKind::Body)
 }
 
-/// `EmptySelection` of `noun` at `path`, labeled from `manifest`. For `Feature::validate`, which
-/// has no context.
-pub(crate) fn empty_selection(manifest: &FeatureManifest, path: &str, noun: Noun) -> FeatureError {
-    FeatureError::EmptySelection {
-        field: FieldRef::new(path, manifest),
-        noun,
+/// `EmptySelection` of `noun` at `path`, labeled from `manifest`, when `selection` is empty. For
+/// `Feature::validate`, which has no context; the manifest is only built for the error.
+pub(crate) fn require_selection<T>(
+    selection: &[T],
+    manifest: fn() -> FeatureManifest,
+    path: &str,
+    noun: Noun,
+) -> Result<(), FeatureError> {
+    if selection.is_empty() {
+        return Err(FeatureError::EmptySelection {
+            field: FieldRef::new(path, &manifest()),
+            noun,
+        });
     }
+    Ok(())
 }
 
 /// True when `value` satisfies `bound`.
@@ -167,6 +180,43 @@ pub(crate) fn check_range(
     }
 }
 
+/// The declared length at `field` when it satisfies `bound`, else `OutOfRange` (features.md section
+/// 4.1).
+pub(crate) fn length_in_range(
+    context: &BuildContext<'_>,
+    field: &str,
+    expr: &Expr,
+    bound: Bound,
+) -> Result<f64, FeatureError> {
+    let value = context.eval_length(field, expr)?;
+    check_range(context, field, FieldUnit::Length, value, bound, None)
+}
+
+/// The declared angle at `field` when it satisfies `bound`, else `OutOfRange` (features.md section
+/// 4.1).
+pub(crate) fn angle_in_range(
+    context: &BuildContext<'_>,
+    field: &str,
+    expr: &Expr,
+    bound: Bound,
+) -> Result<f64, FeatureError> {
+    let value = context.eval_angle(field, expr)?;
+    check_range(context, field, FieldUnit::Angle, value, bound, None)
+}
+
+/// The declared lengths at three fields, such as the coordinates of a position, in field order.
+pub(crate) fn three_lengths(
+    context: &BuildContext<'_>,
+    fields: [&str; 3],
+    exprs: &[Expr; 3],
+) -> Result<[f64; 3], FeatureError> {
+    let mut lengths = [0.0; 3];
+    for ((length, field), expr) in lengths.iter_mut().zip(fields).zip(exprs) {
+        *length = context.eval_length(field, expr)?;
+    }
+    Ok(lengths)
+}
+
 /// True when `length` counts as greater than 0: at least `LINEAR_TOLERANCE`, below which the
 /// kernel builds nothing (the positive length rule of features.md section 3.4).
 pub(crate) fn is_positive_length(length: f64) -> bool {
@@ -193,6 +243,15 @@ pub(crate) fn positive_length(
             Bound::GreaterThan(0.0),
             None,
         ))
+    }
+}
+
+/// `Canceled` once the run has been canceled. Long builds check it before each kernel step.
+pub(crate) fn check_canceled(context: &BuildContext<'_>) -> Result<(), FeatureError> {
+    if context.is_canceled() {
+        Err(FeatureError::Canceled)
+    } else {
+        Ok(())
     }
 }
 
@@ -244,6 +303,15 @@ pub(crate) fn apply_tool(
     let (update, op_warnings) = apply_op(context, body, op, vec![tool])?;
     warnings.extend(op_warnings);
     Ok(bodies(vec![update], warnings))
+}
+
+/// One solid as it is, several grouped in order into one compound (kernel `compound`).
+pub(crate) fn single_or_compound(mut solids: Vec<Shape>) -> Result<Shape, FeatureError> {
+    if solids.len() == 1 {
+        Ok(solids.remove(0))
+    } else {
+        Ok(compound(&solids)?.shape)
+    }
 }
 
 /// The largest signed distance `(corner - origin) · direction` over the eight corners of `bounds`,
@@ -309,11 +377,7 @@ pub(crate) fn primitive_tool(feature: &Id, primitive: Primitive) -> Result<Tool,
 /// `<feature>/lateral/<entity>` after the sketch entity of their curve tag (tag `i` is
 /// `entities[i]`), caps `<feature>/start-cap` and `<feature>/end-cap` (naming.md sections 3.6.2
 /// and 3.6.3).
-pub(crate) fn sweep_tool(
-    feature: &Id,
-    sweep: SweepResult,
-    entities: &[Id],
-) -> Result<Tool, FeatureError> {
+fn sweep_tool(feature: &Id, sweep: SweepResult, entities: &[Id]) -> Result<Tool, FeatureError> {
     let faces = sweep
         .faces
         .iter()
@@ -340,6 +404,23 @@ pub(crate) fn sweep_tool(
         shape: sweep.shape,
         naming,
     })
+}
+
+/// Sweeps the faces of a resolved `profile` with the kernel `sweep`, names the tool by
+/// `sweep_tool` and applies it to `body` with `op`, after the profile's warnings: the shared tail
+/// of extrude and revolve. A canceled run stops before the kernel sweep.
+pub(crate) fn sweep_profile(
+    context: &BuildContext<'_>,
+    body: &Id,
+    op: BodyOp,
+    profile: ResolvedProfile<'_>,
+    sweep: impl FnOnce(&PlanarProfile) -> Result<SweepResult, KernelError>,
+) -> Result<FeatureOutput, FeatureError> {
+    let faces = profile.faces()?;
+    check_canceled(context)?;
+    let swept = sweep(&faces.profile)?;
+    let tool = sweep_tool(context.feature(), swept, &faces.entities)?;
+    apply_tool(context, body, op, tool, profile.warnings)
 }
 
 /// The snake_case name of a body op, as stored and as Python writes it.

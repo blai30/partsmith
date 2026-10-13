@@ -3,7 +3,7 @@ import type { PointRef, SketchConstraint, SketchSolution, Units } from '../gener
 import { dimensionGeometry, dimensionLabelText, hasGlyph } from './annotations'
 import { constraintReferences, isDimension } from './constraints'
 import { defaultLabelPosition } from './dimensions'
-import type { DrawFieldName, DrawPreview } from './drawing'
+import { DRAW_FIELD_NAMES, FIELD_UNITS, type DrawFieldName, type DrawPreview } from './drawing'
 import type { Vector2 } from './geometry'
 import { issueRings } from './issues'
 import { ownerOf, pointPosition, solvedEntity } from './operands'
@@ -20,6 +20,7 @@ import {
   shapePoints,
   type DrawInputsPlacement,
   type Projector,
+  type ScreenBox,
 } from './screen'
 
 // What the sketch overlay paints each frame (ui.md 3.12, 3.16.2): from a snapshot of the edited
@@ -34,14 +35,6 @@ const MARKER_PIXELS = 5
 const INFERENCE_OFFSET_PIXELS = 16
 /** Draw inputs sit this many CSS pixels (times the UI scale) off the rubber band's midpoint. */
 const DRAW_INPUT_OFFSET_PIXELS = 12
-
-/** A rectangle on the canvas in CSS pixels. */
-export type PixelRectangle = {
-  readonly x: number
-  readonly y: number
-  readonly width: number
-  readonly height: number
-}
 
 /** Where the overlay's elements go this frame, in canvas CSS pixels (3.12 runtime positions). */
 export type OverlayPaint = {
@@ -69,7 +62,7 @@ export type OverlayPaint = {
   readonly editor: Vector2 | null
   /** Center of the label of the dimension being placed. */
   readonly placing: Vector2 | null
-  readonly box: PixelRectangle | null
+  readonly box: ScreenBox | null
   /** The rubber band's quantities as text, shown in empty draw inputs. */
   readonly measures: Readonly<Partial<Record<DrawFieldName, string>>>
 }
@@ -125,17 +118,6 @@ export type PaintSnapshot = {
   readonly hovered: string | null
   /** The selection box being dragged, between two canvas pixels, or null. */
   readonly box: { readonly start: Vector2; readonly end: Vector2 } | null
-}
-
-/** The rectangle spanned by two canvas pixels. */
-function pixelRectangle(start: Vector2, end: Vector2): PixelRectangle {
-  const area = screenBox(start, end)
-  return {
-    x: area.left,
-    y: area.top,
-    width: area.right - area.left,
-    height: area.bottom - area.top,
-  }
 }
 
 /** The point references and curve ids a constraint names, split into the two. */
@@ -278,9 +260,11 @@ export function chromePositions(
   const { pointer, drawn, project, uiScale } = snapshot
   const inputsAt = drawn?.inputsAt === null || drawn === null ? null : project(drawn.inputsAt)
   const measures: Partial<Record<DrawFieldName, string>> = {}
-  for (const [name, value] of Object.entries(drawn?.measures ?? {})) {
-    const field = name as DrawFieldName
-    measures[field] = formatNumber(value, field === 'Angle' ? 'angle' : 'length', snapshot.units)
+  for (const name of DRAW_FIELD_NAMES) {
+    const value = drawn?.measures[name]
+    if (value !== undefined) {
+      measures[name] = formatNumber(value, FIELD_UNITS[name], snapshot.units)
+    }
   }
   return {
     inference:
@@ -296,7 +280,7 @@ export function chromePositions(
         : drawInputsPlacement(inputsAt, pointer, DRAW_INPUT_OFFSET_PIXELS * uiScale),
     editor: snapshot.editor === null ? null : project(snapshot.editor.at),
     placing: snapshot.placing === null ? null : pointer,
-    box: snapshot.box === null ? null : pixelRectangle(snapshot.box.start, snapshot.box.end),
+    box: snapshot.box === null ? null : screenBox(snapshot.box.start, snapshot.box.end),
     measures,
   }
 }

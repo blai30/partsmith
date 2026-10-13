@@ -17,6 +17,13 @@ export type HealthRow = {
 
 const SEVERITY_ORDER: Readonly<Record<Severity, number>> = { error: 0, warning: 1, info: 2 }
 
+/** Words for the severity icon, which screen readers read in its place. */
+export const SEVERITY_NAMES: Readonly<Record<Severity, string>> = {
+  error: 'Error',
+  warning: 'Warning',
+  info: 'Info',
+}
+
 const CHECK_ORDER: ReadonlyMap<string, number> = new Map(
   PRINT_CHECKS.map(({ check }, index) => [check, index]),
 )

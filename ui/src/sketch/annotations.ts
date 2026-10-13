@@ -1,8 +1,12 @@
 import type { SketchConstraint, SketchSolution, Units } from '../generated/protocol'
-import { formatNumber } from '../expression/format'
 import { isPlainNumber } from '../expression/step'
-import { isDimension } from './constraints'
-import { dimensionEnds } from './dimensions'
+import {
+  dimensionValueText,
+  isDimension,
+  type DimensionConstraint,
+  type GlyphConstraint,
+} from './constraints'
+import { angleSweep, dimensionEnds } from './dimensions'
 import {
   add,
   angleWithin,
@@ -12,7 +16,6 @@ import {
   length,
   lineIntersection,
   midpoint,
-  normalizeAngle,
   pointOnCircle,
   scale,
   subtract,
@@ -26,6 +29,7 @@ import {
   ownerOf,
   pointPosition,
   solvedEntity,
+  solvedValue,
 } from './operands'
 import { isAxis, isReservedReference } from './refs'
 
@@ -48,7 +52,7 @@ export type GlyphAnchor = {
 }
 
 /** Whether a constraint shows a glyph (geometric constraints except coincident and point on object). */
-export function hasGlyph(constraint: SketchConstraint): boolean {
+export function hasGlyph(constraint: SketchConstraint): constraint is GlyphConstraint {
   return !isDimension(constraint) && !WITHOUT_GLYPH.has(constraint.type)
 }
 
@@ -138,27 +142,16 @@ export function glyphAnchor(
 
 /** The text of a dimension label (3.16.2): ⌀ and R prefixes, ° for angles, fx for formulas, and parentheses for reference dimensions. */
 export function dimensionLabelText(
-  constraint: Extract<SketchConstraint, { expr: string }>,
+  constraint: DimensionConstraint,
   value: number | null,
   units: Units,
 ): string {
   const number =
-    value === null
-      ? constraint.expr
-      : constraint.type === 'angle'
-        ? formatNumber(value, 'angle', units)
-        : formatNumber(value, 'length', units)
+    value === null ? constraint.expr : dimensionValueText(constraint.type, value, units)
   const prefix = constraint.type === 'diameter' ? '⌀' : constraint.type === 'radius' ? 'R' : ''
-  const suffix = constraint.type === 'angle' && value !== null ? '°' : ''
   const formula = isPlainNumber(constraint.expr) ? '' : 'fx '
-  const text = `${formula}${prefix}${number}${suffix}`
+  const text = `${formula}${prefix}${number}`
   return constraint.driving === false ? `(${text})` : text
-}
-
-/** The solved value of a constraint, or null when the solution has none. */
-export function solvedValue(constraint: SketchConstraint, solution: SketchSolution): number | null {
-  const value = solution.constraints.find((state) => state.id === constraint.id)?.value
-  return value ?? null
 }
 
 /** Dimension geometry in sketch coordinates: lines, arcs and arrowheads (tip, and a point behind it). */
@@ -237,8 +230,9 @@ export function dimensionGeometry(
       const toward = subtract(labelAt, circle.center)
       const angle = length(toward) === 0 ? Math.PI / 4 : direction(toward)
       const near = pointOnCircle(circle.center, circle.radius, angle)
+      // The dimension line reaches out to a label outside the circle.
+      const outer = distance(labelAt, circle.center) > circle.radius ? labelAt : near
       if (constraint.type === 'radius') {
-        const outer = distance(labelAt, circle.center) > circle.radius ? labelAt : near
         return {
           lines: [[circle.center, outer]],
           arcs: [],
@@ -246,7 +240,6 @@ export function dimensionGeometry(
         }
       }
       const far = pointOnCircle(circle.center, circle.radius, angle + Math.PI)
-      const outer = distance(labelAt, circle.center) > circle.radius ? labelAt : near
       return {
         lines: [[far, outer]],
         arcs: [],
@@ -268,11 +261,8 @@ export function dimensionGeometry(
         return EMPTY
       }
       const radius = distance(labelAt, vertex)
-      const value = solvedValue(constraint, solution)
       const firstAngle = direction(subtract(first.end, first.start))
-      const sweep =
-        value ??
-        normalizeAngle(direction(subtract(second.end, second.start)) - firstAngle) % Math.PI
+      const sweep = angleSweep(first, second, solvedValue(constraint, solution))
       // Of the two sectors the value spans, draw the one that holds the label.
       const label = direction(subtract(labelAt, vertex))
       const start = angleWithin(label, firstAngle, sweep) ? firstAngle : firstAngle + Math.PI

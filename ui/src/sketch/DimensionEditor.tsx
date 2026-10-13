@@ -1,5 +1,6 @@
 import { clsx } from 'clsx/lite'
 import { useEffect, useId, useRef } from 'react'
+import { reportFailure } from '../app/report'
 import { Button } from '../components/Button'
 import { SegmentedControl } from '../components/SegmentedControl'
 import { ExpressionInput } from '../expression/ExpressionInput'
@@ -19,10 +20,6 @@ const ROUND_OPTIONS = [
   { value: 'diameter', label: 'Diameter' },
   { value: 'radius', label: 'Radius' },
 ] as const
-
-function report(error: unknown): void {
-  console.error('Committing the dimension failed.', error)
-}
 
 /** The editor, centered on its position: the overlay moves a wrapper onto the label (3.12). */
 export function DimensionEditor({ controller, editor }: DimensionEditorProps) {
@@ -70,7 +67,7 @@ export function DimensionEditor({ controller, editor }: DimensionEditorProps) {
           controller.setEditorText(value)
         }}
         onCommit={() => {
-          controller.commitEditor().catch(report)
+          controller.commitEditor().catch(reportFailure('Committing the dimension'))
         }}
         onCancel={() => {
           controller.closeEditor()
@@ -104,7 +101,9 @@ export function DimensionEditor({ controller, editor }: DimensionEditorProps) {
             <Button
               variant="primary"
               onClick={() => {
-                controller.commitEditor({ reference: true }).catch(report)
+                controller
+                  .commitEditor({ reference: true })
+                  .catch(reportFailure('Committing the dimension'))
               }}
             >
               Add reference

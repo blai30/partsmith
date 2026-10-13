@@ -5,7 +5,6 @@ use partsmith_occt_sys::make_sphere;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use super::common::positive_length;
 use super::primitives::{PrimitiveParams, primitive_manifest};
 use crate::context::BuildContext;
 use crate::deps::Dependencies;
@@ -71,10 +70,9 @@ impl Feature for Sphere {
         params: &SphereParams,
         context: &BuildContext<'_>,
     ) -> Result<FeatureOutput, FeatureError> {
-        let radius = positive_length(context, "radius", &params.radius)?;
-        params
-            .primitive()
-            .build(context, |frame| make_sphere(&frame.to_kernel(), radius))
+        let primitive = params.primitive();
+        let [radius] = primitive.positive_sizes(context)?;
+        primitive.build(context, |frame| make_sphere(&frame.to_kernel(), radius))
     }
 
     fn python(params: &SphereParams, names: &dyn PythonNames) -> Option<PythonCall> {

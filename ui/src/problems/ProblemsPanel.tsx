@@ -1,13 +1,16 @@
 import { clsx } from 'clsx/lite'
-import { CircleX, Info, TriangleAlert } from 'lucide-react'
 import { useId } from 'react'
 import { editFeature } from '../app/actions/command'
 import { select } from '../app/actions/selection'
 import { useApp, useAppState } from '../app/AppProvider'
+import { reportFailure } from '../app/report'
 import { Button } from '../components/Button'
 import type { Severity } from '../generated/protocol'
+import { featureSelectionItem } from '../inspector/selection-values'
 import { UseSuggestion } from '../inspector/UseSuggestion'
 import { PanelHeader } from '../layout/PanelHeader'
+import { SEVERITY_NAMES } from '../print/health'
+import { SeverityIcon } from '../print/SeverityIcon'
 import { selectEditLabel, selectProblems } from '../state/selectors'
 import { COLOR_CLASSES } from '../theme/roles'
 
@@ -15,35 +18,7 @@ import { COLOR_CLASSES } from '../theme/roles'
 // document's diagnostics, each with the way to fix it.
 
 function StatusIcon({ severity }: { readonly severity: Severity }) {
-  if (severity === 'error') {
-    return (
-      <CircleX
-        aria-label="Error"
-        strokeWidth={1.75}
-        className={clsx('mt-0.5 size-4 shrink-0', COLOR_CLASSES.errorMark.foreground)}
-      />
-    )
-  }
-  if (severity === 'info') {
-    return (
-      <Info
-        aria-label="Info"
-        strokeWidth={1.75}
-        className={clsx('mt-0.5 size-4 shrink-0', COLOR_CLASSES.textMuted.foreground)}
-      />
-    )
-  }
-  return (
-    <TriangleAlert
-      aria-label="Warning"
-      strokeWidth={1.75}
-      className={clsx(
-        'mt-0.5 size-4 shrink-0',
-        COLOR_CLASSES.warningMark.fill,
-        COLOR_CLASSES.warningMark.foreground,
-      )}
-    />
-  )
+  return <SeverityIcon severity={severity} label={SEVERITY_NAMES[severity]} className="mt-0.5" />
 }
 
 /** "Edit", or "Re-pick {field}" for a feature with a lost reference (4.2). */
@@ -79,18 +54,7 @@ export function ProblemsPanel() {
                         onClick={() => {
                           select(
                             app,
-                            [
-                              {
-                                key: `feature:${problem.featureId}`,
-                                kind: 'feature',
-                                label: problem.label,
-                                body: null,
-                                feature: problem.featureId,
-                                element: null,
-                                sketchItem: null,
-                                origin: null,
-                              },
-                            ],
+                            [featureSelectionItem(problem.featureId, problem.label)],
                             'replace',
                           )
                         }}
@@ -103,9 +67,9 @@ export function ProblemsPanel() {
                       </button>
                       <Button
                         onClick={() => {
-                          editFeature(app, problem.featureId).catch((error: unknown) => {
-                            console.error('Editing the feature failed.', error)
-                          })
+                          editFeature(app, problem.featureId).catch(
+                            reportFailure('Editing the feature'),
+                          )
                         }}
                       >
                         <EditLabel featureId={problem.featureId} />

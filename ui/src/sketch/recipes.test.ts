@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { SketchConstraint, SketchEntity } from '../generated/protocol'
-import { pointOnCircle, sequentialIds } from './fixtures.testing'
+import { sequentialIds } from './fixtures.testing'
+import { pointOnCircle } from './geometry'
 import type { Vector2 } from './geometry'
 import {
   arcThreePointRecipe,

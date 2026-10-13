@@ -21,6 +21,7 @@ import {
   type RollbackDrag,
 } from '../app/actions/timeline'
 import { useApp, useAppState } from '../app/AppProvider'
+import { reportFailure } from '../app/report'
 import { markerPosition } from '../core/recipe'
 import { FEATURE_ICONS } from '../commands/icons'
 import { IconButton } from '../components/IconButton'
@@ -28,13 +29,14 @@ import { Menu, type MenuEntry } from '../components/Menu'
 import { Tooltip } from '../components/Tooltip'
 import { featureLabel } from '../core/labels'
 import type { FeatureRecord, FeatureStatus } from '../generated/protocol'
+import { featureKey, featureSelectionItem, parseSelectionKey } from '../inspector/selection-values'
 import { SIDE_PANEL_ID } from '../layout/panel-ids'
 import { activatesRow, pickRow, togglesSelection } from '../layout/pick-row'
 import { RenameField } from '../layout/RenameField'
 import { useUiRequest } from '../layout/requests'
+import { arrowTarget, rovingTabStop } from '../layout/roving'
 import { keepInViewHorizontally } from '../layout/scroll'
 import { selectCommandBlock, selectProblems } from '../state/selectors'
-import type { SelectionItem } from '../state/store'
 import { COLOR_CLASSES } from '../theme/roles'
 import { positionElement } from '../viewport/overlay'
 import { gapPositions, itemStatus, markerText, nearestGap, statusText } from './strip'
@@ -57,25 +59,6 @@ const SECONDARY_BUTTON_BIT = 2
 
 function plural(count: number, singular: string, several: string): string {
   return `${String(count)} ${count === 1 ? singular : several}`
-}
-
-function featureItem(id: string, label: string): SelectionItem {
-  return {
-    key: `feature:${id}`,
-    kind: 'feature',
-    label,
-    body: null,
-    feature: id,
-    element: null,
-    sketchItem: null,
-    origin: null,
-  }
-}
-
-function report(action: string): (error: unknown) => void {
-  return (error) => {
-    console.error(`${action} failed.`, error)
-  }
 }
 
 /** Everything the strip draws, read from the store with one subscription per slice. */
@@ -141,7 +124,7 @@ function TimelineItem({
   const app = useApp()
   const descriptionId = useId()
   // The selection inspector's "Made by" row hovers the feature it names (3.8).
-  const hovered = useAppState((state) => state.hover?.key === `feature:${record.id}`)
+  const hovered = useAppState((state) => state.hover?.key === featureKey(record.id))
   const catalog = useAppState((state) => state.catalog)
   const suppressed = record.suppressed === true
   const description = statusText(status, suppressed)
@@ -278,7 +261,7 @@ function TimelineItem({
           onDone={(name) => {
             onRename(null)
             if (name !== null && name.trim() !== label) {
-              renameFeature(app, record.id, name).catch(report('Renaming the feature'))
+              renameFeature(app, record.id, name).catch(reportFailure('Renaming the feature'))
             }
           }}
         />
@@ -314,7 +297,7 @@ function Marker({ position, count, valueText, onPress }: MarkerProps) {
     }
     event.preventDefault()
     if (target >= 0 && target <= count && target !== position) {
-      setRollback(app, target).catch(report('Moving the rollback marker'))
+      setRollback(app, target).catch(reportFailure('Moving the rollback marker'))
     }
   }
 
@@ -368,15 +351,15 @@ function Strip() {
   const selectedKeys = new Set(selection.map((item) => item.key))
 
   useUiRequest(app, 'rename', (request) => {
-    const id = request.key.startsWith('feature:') ? request.key.slice('feature:'.length) : null
+    const parsed = parseSelectionKey(request.key)
     if (
       request.where !== 'timeline' ||
-      id === null ||
-      !records.some((record) => record.id === id)
+      parsed?.kind !== 'feature' ||
+      !records.some((record) => record.id === parsed.id)
     ) {
       return false
     }
-    setRenaming(id)
+    setRenaming(parsed.id)
     return true
   })
 
@@ -397,11 +380,7 @@ function Strip() {
     if (element === null) {
       return
     }
-    const items = [...element.querySelectorAll<HTMLElement>('[data-strip-item]')]
-    const stop = items.find((item) => item === lastFocused.current) ?? items[0]
-    for (const item of items) {
-      item.tabIndex = item === stop ? 0 : -1
-    }
+    rovingTabStop(element, '[data-strip-item]', lastFocused.current)
   })
 
   // A newly added item and the moved marker scroll into view (3.9).
@@ -436,7 +415,7 @@ function Strip() {
         const current = press.current
         press.current = null
         setDragging(null)
-        current?.rollback?.cancel().catch(report('Canceling the roll back'))
+        current?.rollback?.cancel().catch(reportFailure('Canceling the roll back'))
       }
     }
     window.addEventListener('keydown', onKeyDown, true)
@@ -451,11 +430,11 @@ function Strip() {
 
   /** The features an action on an item covers: the selected features when it is one of them. */
   function targetsOf(id: string): readonly string[] {
-    if (!selectedKeys.has(`feature:${id}`)) {
+    if (!selectedKeys.has(featureKey(id))) {
       return [id]
     }
     return records
-      .filter((record) => selectedKeys.has(`feature:${record.id}`))
+      .filter((record) => selectedKeys.has(featureKey(record.id)))
       .map((record) => record.id)
   }
 
@@ -529,13 +508,13 @@ function Strip() {
     }
     setDragging(null)
     if (current.featureId === null) {
-      current.rollback?.drop().catch(report('Rolling back'))
+      current.rollback?.drop().catch(reportFailure('Rolling back'))
       return
     }
     // Dropping at gap g moves the feature to g before its own index, else to g - 1 (3.9).
     const target = current.gap < current.index ? current.gap : current.gap - 1
     if (target !== current.index) {
-      moveFeature(app, current.featureId, target).catch(report('Reordering'))
+      moveFeature(app, current.featureId, target).catch(reportFailure('Reordering'))
     }
   }
 
@@ -546,7 +525,7 @@ function Strip() {
     }
     press.current = null
     setDragging(null)
-    current.rollback?.cancel().catch(report('Canceling the roll back'))
+    current.rollback?.cancel().catch(reportFailure('Canceling the roll back'))
   }
 
   function moveFocus(event: KeyboardEvent<HTMLDivElement>): void {
@@ -558,17 +537,7 @@ function Strip() {
     if (index === -1) {
       return
     }
-    const last = items.length - 1
-    const target =
-      event.key === 'ArrowRight'
-        ? Math.min(index + 1, last)
-        : event.key === 'ArrowLeft'
-          ? Math.max(index - 1, 0)
-          : event.key === 'Home'
-            ? 0
-            : event.key === 'End'
-              ? last
-              : null
+    const target = arrowTarget(event.key, index, items.length - 1, { wrap: false })
     if (target === null) {
       return
     }
@@ -590,7 +559,7 @@ function Strip() {
               label: 'Edit',
               disabled: menuRecord.type === 'import',
               onSelect: () => {
-                editFeature(app, menuRecord.id).catch(report('Editing the feature'))
+                editFeature(app, menuRecord.id).catch(reportFailure('Editing the feature'))
               },
             },
             {
@@ -606,7 +575,7 @@ function Strip() {
               label: suppressed ? 'Unsuppress' : 'Suppress',
               disabled: blocked,
               onSelect: () => {
-                setSuppressed(app, targets, !suppressed).catch(report('Suppressing'))
+                setSuppressed(app, targets, !suppressed).catch(reportFailure('Suppressing'))
               },
             },
             {
@@ -614,7 +583,7 @@ function Strip() {
               label: 'Roll back to here',
               disabled: blocked,
               onSelect: () => {
-                setRollback(app, index + 1).catch(report('Rolling back'))
+                setRollback(app, index + 1).catch(reportFailure('Rolling back'))
               },
             },
             {
@@ -622,7 +591,7 @@ function Strip() {
               label: 'Delete',
               disabled: blocked,
               onSelect: () => {
-                deleteFeatures(app, targets).catch(report('Deleting'))
+                deleteFeatures(app, targets).catch(reportFailure('Deleting'))
               },
             },
           ]
@@ -650,17 +619,17 @@ function Strip() {
         status={statuses?.[record.id]}
         rolledBack={index >= position}
         dimmed={index >= position || (editingIndex !== -1 && index > editingIndex)}
-        selected={selectedKeys.has(`feature:${record.id}`)}
+        selected={selectedKeys.has(featureKey(record.id))}
         outlined={record.id === editing || record.id === editedSketch}
         renaming={renaming === record.id}
         onPress={(event, featureId, itemIndex) => {
           startPress(event, featureId, itemIndex)
         }}
         onPick={(picked, label, toggle) => {
-          pickRow(app, featureItem(picked.id, label), toggle)
+          pickRow(app, featureSelectionItem(picked.id, label), toggle)
         }}
         onEdit={(featureId) => {
-          editFeature(app, featureId).catch(report('Editing the feature'))
+          editFeature(app, featureId).catch(reportFailure('Editing the feature'))
         }}
         onMenu={(featureId, button) => {
           menuAnchor.current = button

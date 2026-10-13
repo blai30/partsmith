@@ -9,6 +9,7 @@ import {
   elementItem,
   featureItem,
   originItem,
+  parameterItem,
   readyState,
   regionItem,
   sketchLineItem,
@@ -19,7 +20,18 @@ import { CUBE_REGION, CUBE_TOP_FACE, CUBE_TOP_FRONT_EDGE } from '../test/fakes/d
 
 const TOP_FACE = CUBE_TOP_FACE
 const LINE_EDGE = CUBE_TOP_FRONT_EDGE
-import { acceptsTarget, itemsFromValue, selectionValue } from './selection-values'
+import {
+  acceptsTarget,
+  bodyKey,
+  bodySelectionItem,
+  featureKey,
+  featureSelectionItem,
+  itemsFromValue,
+  parameterKey,
+  parameterSelectionItem,
+  parseSelectionKey,
+  selectionValue,
+} from './selection-values'
 
 const SECOND_REGION = {
   reference: { key: 'e-5', fp: 'c=30,30|a=78.539816' },
@@ -232,5 +244,38 @@ describe('itemsFromValue', () => {
   it('gives no items for an empty value', () => {
     expect(itemsFromValue('plane', undefined, state)).toEqual([])
     expect(itemsFromValue('edge', [], state)).toEqual([])
+  })
+})
+
+describe('selection items and keys (3.6)', () => {
+  it('builds body, feature, datum plane and parameter items', () => {
+    expect(bodySelectionItem('b1', 'Body 1')).toEqual(bodyItem('b1', 'Body 1'))
+    expect(featureSelectionItem('f-sk1', 'Sketch 1')).toEqual(featureItem('f-sk1', 'Sketch 1'))
+    expect(featureSelectionItem('f-dp1', 'Plane 1', 'datum_plane')).toEqual(
+      datumItem('f-dp1', 'Plane 1'),
+    )
+    expect(parameterSelectionItem('p1', 'width')).toEqual(parameterItem('p1', 'width'))
+  })
+
+  it('keys bodies, features and parameters by kind and id', () => {
+    expect(bodyKey('b1')).toBe('body:b1')
+    expect(featureKey('f-sk1')).toBe('feature:f-sk1')
+    expect(parameterKey('p1')).toBe('parameter:p1')
+  })
+
+  it('parses body, feature and parameter keys back into kind and id', () => {
+    expect(parseSelectionKey('body:b1')).toEqual({ kind: 'body', id: 'b1' })
+    expect(parseSelectionKey('feature:f-sk1')).toEqual({ kind: 'feature', id: 'f-sk1' })
+    expect(parseSelectionKey('parameter:p1')).toEqual({ kind: 'parameter', id: 'p1' })
+  })
+
+  it('keeps the rest of the key as the id', () => {
+    expect(parseSelectionKey('feature:a:b')).toEqual({ kind: 'feature', id: 'a:b' })
+  })
+
+  it('parses no other key', () => {
+    expect(parseSelectionKey('origin:XY')).toBeNull()
+    expect(parseSelectionKey(`element:b1:${CUBE_TOP_FACE.name}`)).toBeNull()
+    expect(parseSelectionKey('body')).toBeNull()
   })
 })

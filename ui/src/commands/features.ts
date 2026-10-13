@@ -1,4 +1,3 @@
-import { Shapes } from 'lucide-react'
 import { startFeatureCommand } from '../app/actions/command'
 import type { App } from '../app/createApp'
 import { activeFeatures } from '../core/recipe'
@@ -6,7 +5,7 @@ import type { Category } from '../generated/protocol'
 import { MESSAGES } from '../messages'
 import type { AppContext, AppState, Catalog, CatalogFeature } from '../state/store'
 import { FEATURE_DESCRIPTIONS } from './descriptions'
-import { FEATURE_ICONS } from './icons'
+import { featureIcon } from './icons'
 import { keywordsFor } from './keywords'
 import {
   disabledWith,
@@ -116,7 +115,7 @@ function featureCommand(feature: CatalogFeature): CommandDefinition {
     id: `feature.${feature.type}`,
     title: feature.manifest.label,
     category: CATEGORIES[feature.manifest.category],
-    icon: FEATURE_ICONS[feature.manifest.icon] ?? Shapes,
+    icon: featureIcon(feature.manifest.icon),
     keywords: keywordsFor(`feature.${feature.type}`),
     shortcuts: bound?.shortcuts ?? [],
     // Every feature command is in every context (3.3); some of their letters are not (3.5).

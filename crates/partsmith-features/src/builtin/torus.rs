@@ -5,7 +5,7 @@ use partsmith_occt_sys::make_torus;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use super::common::{is_positive_length, out_of_range, positive_length};
+use super::common::{is_positive_length, out_of_range};
 use super::primitives::{PrimitiveParams, primitive_manifest};
 use crate::context::BuildContext;
 use crate::deps::Dependencies;
@@ -83,8 +83,8 @@ impl Feature for Torus {
         params: &TorusParams,
         context: &BuildContext<'_>,
     ) -> Result<FeatureOutput, FeatureError> {
-        let major = positive_length(context, "major_radius", &params.major_radius)?;
-        let minor = positive_length(context, "minor_radius", &params.minor_radius)?;
+        let primitive = params.primitive();
+        let [major, minor] = primitive.positive_sizes(context)?;
         // The kernel needs the ring at least `LINEAR_TOLERANCE` wider than the tube.
         if !is_positive_length(major - minor) {
             return Err(out_of_range(
@@ -96,7 +96,7 @@ impl Feature for Torus {
                 Some("the ring radius"),
             ));
         }
-        params.primitive().build(context, |frame| {
+        primitive.build(context, |frame| {
             make_torus(&frame.to_kernel(), major, minor)
         })
     }

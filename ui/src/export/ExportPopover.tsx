@@ -5,6 +5,7 @@ import { exportModel, type ExportRequest } from '../app/actions/export'
 import { openSidePanel } from '../app/actions/panels'
 import { openPrintHealth, setPrintOrientation } from '../app/actions/print'
 import { useApp, useAppState } from '../app/AppProvider'
+import { reportFailure } from '../app/report'
 import { Button } from '../components/Button'
 import { Popover } from '../components/Popover'
 import { SegmentedControl, type SegmentedOption } from '../components/SegmentedControl'
@@ -97,9 +98,7 @@ function StatusLines({
               <Button
                 onClick={() => {
                   onClose()
-                  openPrintHealth(app).catch((error: unknown) => {
-                    console.error('The print check failed.', error)
-                  })
+                  openPrintHealth(app).catch(reportFailure('The print check'))
                 }}
               >
                 Check print
@@ -216,9 +215,7 @@ export function ExportPopover({ anchor, onClose }: ExportPopoverProps) {
             variant="primary"
             onClick={() => {
               onClose()
-              exportModel(app, { format, scope }).catch((error: unknown) => {
-                console.error('The export failed.', error)
-              })
+              exportModel(app, { format, scope }).catch(reportFailure('The export'))
             }}
           >
             Export

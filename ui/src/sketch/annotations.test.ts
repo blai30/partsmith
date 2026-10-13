@@ -1,11 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import type { SketchConstraint } from '../generated/protocol'
 import { dimensionGeometry, dimensionLabelText } from './annotations'
+import type { DimensionConstraint } from './constraints'
 import { circleEntity, lineEntity, pointEntity, solutionFor } from './fixtures.testing'
 
 // Dimension labels and geometry (ui.md 3.16.2).
-
-type DimensionConstraint = Extract<SketchConstraint, { expr: string }>
 
 const LENGTH: DimensionConstraint = { id: 'c-1', type: 'distance', line: 'e-1', expr: '40' }
 

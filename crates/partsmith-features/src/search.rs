@@ -19,9 +19,7 @@ pub fn too_large_search(
     let mut high = requested;
     let mut largest = None;
     for _ in 0..ATTEMPTS {
-        if context.is_canceled() {
-            return Err(FeatureError::Canceled);
-        }
+        context.check_canceled()?;
         let middle = (low + high) / 2.0;
         if succeeds(middle) {
             low = middle;

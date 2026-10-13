@@ -10,7 +10,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use super::common::{
-    bodies, essential, manifest, selection_hint, solid_body, unchanged, unit_hint,
+    bodies, essential, manifest, selection_hint, solid_body, three_lengths, unchanged, unit_hint,
 };
 use crate::context::BuildContext;
 use crate::deps::Dependencies;
@@ -112,14 +112,7 @@ impl Feature for MoveBody {
         context: &BuildContext<'_>,
     ) -> Result<FeatureOutput, FeatureError> {
         let (state, shape) = solid_body(context, &params.body)?;
-        let mut translation = [0.0; 3];
-        for ((value, field), expr) in translation
-            .iter_mut()
-            .zip(TRANSLATION_FIELDS)
-            .zip(&params.translation)
-        {
-            *value = context.eval_length(field, expr)?;
-        }
+        let translation = three_lengths(context, TRANSLATION_FIELDS, &params.translation)?;
         let rotation = match &params.rotation {
             Some(rotation) => {
                 let angle = context.eval_angle("rotation.angle", &rotation.angle)?;
@@ -197,7 +190,6 @@ mod tests {
 
     use super::*;
     use crate::context::BodyState;
-    use crate::registry::Registry;
     use crate::test_support::{
         assert_bounds, assert_volume, box_body, build, id, params_with, python, update,
         updated_shape, updates,
@@ -221,17 +213,6 @@ mod tests {
 
     fn run(params: &MoveBodyParams) -> Result<FeatureOutput, FeatureError> {
         build::<MoveBody>("f-mv1", params, cube(), Vec::new())
-    }
-
-    #[test]
-    fn registers_with_its_manifest() {
-        let mut registry = Registry::new();
-
-        registry
-            .register::<MoveBody>()
-            .expect("the move passes the registration checks");
-
-        assert_eq!(registry.types().collect::<Vec<_>>(), ["move_body"]);
     }
 
     #[test]

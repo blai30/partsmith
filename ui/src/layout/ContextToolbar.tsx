@@ -13,6 +13,8 @@ import {
 import { setCheckHidden, setPrinter } from '../app/actions/print'
 import { useApp, useAppState } from '../app/AppProvider'
 import type { App } from '../app/createApp'
+import { reportFailure } from '../app/report'
+import { runCommand } from '../commands/registry'
 import { PRIMARY_COMMANDS, TOOLBARS, type ToolbarEntry } from '../commands/toolbars'
 import { Menu, type MenuEntry } from '../components/Menu'
 import { Tooltip } from '../components/Tooltip'
@@ -23,8 +25,9 @@ import { selectHealthBadge } from '../state/selectors'
 import type { AppContext, AppState } from '../state/store'
 import { COLOR_CLASSES } from '../theme/roles'
 import { useUiRequest } from './requests'
+import { arrowTarget, rovingTabStop } from './roving'
 import { EMPTY_MEMORY, FULL_FIT, nextFit, type FitMemory, type ToolbarFit } from './toolbar-fit'
-import { commandMenuItem, runCommand, useCommandViews, type CommandView } from './use-commands'
+import { commandMenuItem, useCommandViews, type CommandView } from './use-commands'
 
 // The context toolbar of the top bar (ui.md 3.2, 3.3): one short toolbar per context, built from
 // TOOLBARS. It measures the room the top bar leaves it: buttons show icon and label when all of
@@ -288,9 +291,7 @@ function PrinterButton({
         printers={printers}
         current={current}
         onChoose={(profileId) => {
-          setPrinter(app, profileId).catch((error: unknown) => {
-            console.error('Changing the printer failed.', error)
-          })
+          setPrinter(app, profileId).catch(reportFailure('Changing the printer'))
         }}
       />
     </>
@@ -557,21 +558,7 @@ function moveFocus(event: KeyboardEvent<HTMLDivElement>): void {
   if (index === -1) {
     return
   }
-  const last = items.length - 1
-  const target =
-    event.key === 'ArrowRight'
-      ? index === last
-        ? 0
-        : index + 1
-      : event.key === 'ArrowLeft'
-        ? index === 0
-          ? last
-          : index - 1
-        : event.key === 'Home'
-          ? 0
-          : event.key === 'End'
-            ? last
-            : null
+  const target = arrowTarget(event.key, index, items.length - 1, { wrap: true })
   if (target === null) {
     return
   }
@@ -581,11 +568,7 @@ function moveFocus(event: KeyboardEvent<HTMLDivElement>): void {
 
 /** Makes one button the toolbar's tab stop: the last focused one while it exists, else the first. */
 function rove(container: HTMLElement, focused: Element | null): void {
-  const items = [...container.querySelectorAll<HTMLButtonElement>('[data-toolbar-item]')]
-  const stop = items.find((item) => item === focused) ?? items[0]
-  for (const item of items) {
-    item.tabIndex = item === stop ? 0 : -1
-  }
+  rovingTabStop(container, '[data-toolbar-item]', focused)
 }
 
 /** The toolbar's inner width, the width its buttons take, the movable buttons' widths and the More tools width, in CSS pixels. */

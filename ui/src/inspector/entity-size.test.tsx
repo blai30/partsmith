@@ -9,7 +9,6 @@ import {
   arcEntity,
   circleEntity,
   createFakeCore,
-  createSketchTestApp,
   curveItem,
   documentState,
   lineEntity,
@@ -20,7 +19,8 @@ import {
   solvedSketch,
   SKETCH_ID,
 } from '../sketch/fixtures.testing'
-import type { SelectionItem } from '../state/store'
+import { createAppStore, type SelectionItem } from '../state/store'
+import { createTestApp } from '../test/fakes/test-app'
 import { entitySize, entitySizeDimension } from './entity-size'
 import { SelectionInspector } from './SelectionInspector'
 
@@ -109,12 +109,12 @@ describe('entitySize (3.8)', () => {
 })
 
 function sketchApp(constraints: SketchConstraint[], core: Partial<CoreApi>): App {
-  return createSketchTestApp({
+  return createTestApp({
     core: createFakeCore({
       evaluate: () => Promise.resolve({ value: 12, dimension: { length: 1, angle: 0 } }),
       ...core,
     }),
-    state: {
+    store: createAppStore({
       core: { status: 'ready', engineVersion: '0.1.0', fatal: null, pendingMutations: 0 },
       context: 'sketch',
       sketch: sketchSession(),
@@ -122,7 +122,7 @@ function sketchApp(constraints: SketchConstraint[], core: Partial<CoreApi>): App
         features: [sketchRecord({ entities: ENTITIES, constraints })],
         sketches: { [SKETCH_ID]: solvedSketch(SOLUTION) },
       }),
-    },
+    }),
   })
 }
 

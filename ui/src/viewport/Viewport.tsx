@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 
 import { useShallow } from 'zustand/react/shallow'
 import { useApp, useAppState } from '../app/AppProvider'
 import type { App } from '../app/createApp'
+import { reportFailure } from '../app/report'
 import { formatShortcut } from '../commands/shortcuts'
 import { originPlaneView } from '../core/labels'
 import { Button } from '../components/Button'
@@ -189,9 +190,7 @@ function CoreStatus({ restoring }: { readonly restoring: boolean }) {
               <Button
                 variant="primary"
                 onClick={() => {
-                  app.restartCore().catch((error: unknown) => {
-                    console.error('Restarting the geometry core failed.', error)
-                  })
+                  app.restartCore().catch(reportFailure('Restarting the geometry core'))
                 }}
               >
                 Restart core

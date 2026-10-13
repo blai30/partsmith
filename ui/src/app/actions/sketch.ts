@@ -10,6 +10,7 @@ import type {
   SketchPlane,
   SketchSolution,
 } from '../../generated/protocol'
+import { featureSelectionItem } from '../../inspector/selection-values'
 import { MESSAGES } from '../../messages'
 import type { SolvedSketch } from '../../core/api'
 import {
@@ -398,18 +399,7 @@ function finishedSketchSelection(
   if (solution.entities.length === 0 || documentOf(app) === null) {
     return []
   }
-  return [
-    {
-      key: `feature:${sketchId}`,
-      kind: 'feature',
-      label: selectFeatureLabel(app.store.getState(), sketchId),
-      body: null,
-      feature: sketchId,
-      element: null,
-      sketchItem: null,
-      origin: null,
-    },
-  ]
+  return [featureSelectionItem(sketchId, selectFeatureLabel(app.store.getState(), sketchId))]
 }
 
 /**

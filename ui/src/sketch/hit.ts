@@ -1,6 +1,6 @@
 import type { PointRef, RegionInfo, SketchSolution } from '../generated/protocol'
 import type { SelectionItem } from '../state/store'
-import { distance, type Vector2 } from './geometry'
+import { distance, length, type Vector2 } from './geometry'
 import { closestOnEntity, ownerOf, solvedEntity, type SolvedEntity } from './operands'
 
 // What the pointer is over in sketch mode (ui.md 3.6): the active sketch's points and curves and
@@ -78,7 +78,7 @@ export function hitTest(
   if (options.includeOrigin) {
     points.push({
       hit: { kind: 'origin', part: 'point' },
-      pixels: toPixels(Math.hypot(cursor[0], cursor[1])),
+      pixels: toPixels(length(cursor)),
       origin: true,
     })
     curves.push(

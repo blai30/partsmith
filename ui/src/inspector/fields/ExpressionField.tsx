@@ -1,9 +1,13 @@
 import type { ReactNode } from 'react'
-import { noteFieldFocused, setCommandField, setFieldStatus } from '../../app/actions/command'
+import {
+  confirmIfComplete,
+  noteFieldFocused,
+  setCommandField,
+  setFieldStatus,
+} from '../../app/actions/command'
 import { useApp } from '../../app/AppProvider'
 import type { FieldUnit } from '../../generated/protocol'
 import { ExpressionInput } from '../../expression/ExpressionInput'
-import { confirmIfComplete } from '../../layout/ladders'
 import type { InspectorField } from '../model'
 import { fieldInputId } from './field-id'
 

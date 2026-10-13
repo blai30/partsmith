@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from 'react'
 import { useAppState } from '../app/AppProvider'
 import type { App } from '../app/createApp'
-import type { Availability, CommandDefinition } from '../commands/registry'
+import { runCommand, type Availability, type CommandDefinition } from '../commands/registry'
 import { formatShortcut } from '../commands/shortcuts'
 import type { MenuEntry } from '../components/Menu'
 
@@ -61,13 +61,6 @@ export function useCommandViews(app: App, ids: readonly string[]): readonly Comm
   return ids.flatMap((id) => {
     const view = viewOf(app, id)
     return view === null ? [] : [view]
-  })
-}
-
-/** Runs a command from a chrome control, reporting a failure to the console. */
-export function runCommand(app: App, id: string, source: 'toolbar' | 'menu'): void {
-  app.commands.run(app, id, source).catch((error: unknown) => {
-    console.error(`The command ${id} failed.`, error)
   })
 }
 

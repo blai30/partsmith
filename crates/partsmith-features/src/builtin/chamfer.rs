@@ -7,12 +7,10 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use super::common::{
-    body_hint, empty_selection, essential, hint, is_false, manifest, options_hint, positive_length,
-    references, selection_hint, solid_body, unit_hint,
+    body_hint, essential, hint, is_false, manifest, options_hint, positive_length, references,
+    require_selection, selection_hint, solid_body, unit_hint,
 };
-use super::dressup::{
-    SelectedEdge, modified, name_blend, no_effect, run_or_search, select_edges, sorted_by_name,
-};
+use super::dressup::{BlendTarget, SelectedEdge, blend};
 use crate::{
     BuildContext, Dependencies, Feature, FeatureError, FeatureOutput, Noun, PythonCall,
     PythonNames, PythonValue,
@@ -161,10 +159,7 @@ impl Feature for Chamfer {
     }
 
     fn validate(params: &ChamferParams) -> Result<(), FeatureError> {
-        if params.edges.is_empty() {
-            return Err(empty_selection(&Self::manifest(), "edges", Noun::Edge));
-        }
-        Ok(())
+        require_selection(&params.edges, Self::manifest, "edges", Noun::Edge)
     }
 
     fn build(
@@ -192,24 +187,25 @@ impl Feature for Chamfer {
                 (Distances::TwoDistances { on_first, on_other }, "distance")
             }
         };
-        let selection = select_edges(context, &params.body, &params.edges)?;
-        if selection.edges.is_empty() {
-            return Ok(no_effect(&params.body, state, selection.warnings));
-        }
-        let edges = sorted_by_name(state.naming(), &selection.edges)?
-            .into_iter()
-            .map(|edge| {
+        let larger = distances.larger();
+        let target = BlendTarget {
+            body: &params.body,
+            state,
+            shape,
+            edges: &params.edges,
+        };
+        blend(
+            context,
+            target,
+            roles::CHAMFER,
+            larger,
+            |edge| {
                 Ok(ChamferEdge {
                     edge: edge.index,
                     size: distances.size(edge, state.naming())?,
                 })
-            })
-            .collect::<Result<Vec<_>, FeatureError>>()?;
-        let larger = distances.larger();
-        let result = run_or_search(
-            context,
-            larger,
-            |value| {
+            },
+            |edges, value| {
                 let factor = value / larger;
                 let scaled_edges: Vec<ChamferEdge> = edges
                     .iter()
@@ -226,14 +222,7 @@ impl Feature for Chamfer {
                 max,
                 cause,
             },
-        )?;
-        let named = name_blend(context.feature(), roles::CHAMFER, state.naming(), &result)?;
-        Ok(modified(
-            &params.body,
-            result.shape,
-            named,
-            selection.warnings,
-        ))
+        )
     }
 
     /// `chamfer(edges, distance)` for an equal distance: the edges as references, the distance as
@@ -270,9 +259,8 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::builtin::dressup::test_fixtures::reference;
-    use crate::test_support::ScriptNames;
-    use crate::{FieldRef, Registry, Tool, test_support::id, test_support::named_box};
+    use crate::test_support::{ScriptNames, id, named_box, reference};
+    use crate::{FieldRef, Registry, Tool};
 
     /// `E-FT` of fillet.md section 6.
     const FRONT_TOP: &str =

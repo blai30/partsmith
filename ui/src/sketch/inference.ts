@@ -1,12 +1,11 @@
 import type { PointRef, SketchSolution } from '../generated/protocol'
 import {
   closestPointOnLine,
-  cross,
   distance,
-  dot,
   length,
   midpoint,
   subtract,
+  undirectedAngle,
   type Vector2,
 } from './geometry'
 import { closestOnEntity, ownerOf, solvedEntity } from './operands'
@@ -117,11 +116,6 @@ function snapTarget(
   )
 }
 
-/** The angle between two directions taken as undirected lines, in [0, π/2]. */
-function lineAngle(first: Vector2, second: Vector2): number {
-  return Math.atan2(Math.abs(cross(first, second)), Math.abs(dot(first, second)))
-}
-
 /**
  * The tangent direction at the point of a line or arc (an undirected line direction), or null when
  * the point is not a line's or arc's end.
@@ -167,7 +161,7 @@ export function inferTangent(
   if (end === null || length(end.tangent) === 0) {
     return null
   }
-  return lineAngle(leaving, end.tangent) <= TANGENT_TOLERANCE
+  return undirectedAngle(leaving, end.tangent) <= TANGENT_TOLERANCE
     ? { kind: 'tangent', entity: end.entity }
     : null
 }
@@ -177,10 +171,10 @@ function alignment(segment: Vector2): DirectionInference | null {
   if (length(segment) === 0) {
     return null
   }
-  if (lineAngle(segment, [1, 0]) <= ALIGNMENT_TOLERANCE) {
+  if (undirectedAngle(segment, [1, 0]) <= ALIGNMENT_TOLERANCE) {
     return { kind: 'horizontal' }
   }
-  if (lineAngle(segment, [0, 1]) <= ALIGNMENT_TOLERANCE) {
+  if (undirectedAngle(segment, [0, 1]) <= ALIGNMENT_TOLERANCE) {
     return { kind: 'vertical' }
   }
   return null
