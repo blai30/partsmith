@@ -1394,7 +1394,7 @@ A region's loop text (`Region::outline()`) lists the entries of its outer loop (
 
 Successions are sorted by `entity`. They exist only while the stored reference is older than the sketch edit: a reference written by `Region::reference()` after the edit matches by key.
 
-Matching uses only the arguments, and treats `entities` as a set. Indices refer to the `regions` slice. Each call builds one map from every edge of every region's loops, keyed by its entity and the bit patterns of its end points (of its center and radius for a `Circle` edge), to its region, and visits regions in index order; the twin of an edge is found by one lookup with the end points swapped, so steps 2 and 3 are linear in the number of edges (section 5.1).
+Matching uses only the arguments, and treats `entities` as a set. Indices refer to the `regions` slice. Each call builds one map from every edge of every region's loops, keyed by its entity and the bit patterns of its end points (of its center and radius for a `Circle` edge), to its region, and visits regions in index order; the twin of an edge is found by one lookup with the end points swapped, so step 2 is linear in the number of edges (section 5.1).
 
 ### 3.15 Contracts with other crates (informative)
 
@@ -1425,7 +1425,7 @@ Three names refer to the sketch's own origin and axes. They are fixed constants,
 
 ### 3.17 Mirrored drawing
 
-On a face that turned over, a face sketch keeps a right-handed placement, so its drawing lies mirrored across the sketch's x axis; "Turn the drawing back" stores the drawing mirrored (features/sketch.md, [ADR 0023](../adr/0023-frames-live-on-the-model.md)). Negating `v` alone is not enough: signed dimensions and angles, the direction of arcs and the orientation of region entries depend on handedness. These functions give the mirrored sketch, in which every constraint holds exactly when it held before, so solving it gives the mirror of what solving the original gives (test 248).
+On a face that turned over, a face sketch keeps a right-handed placement, so its drawing lies mirrored across the sketch's x axis; "Turn the drawing back" stores the drawing mirrored (features/sketch.md, [ADR 0023](../adr/0023-frames-live-on-the-model.md)). Negating `v` alone is not enough: signed dimensions and angles, the direction of arcs and the orientation of region entries depend on handedness. These functions give the mirrored sketch, in which every constraint holds exactly when it held before, so solving it gives the mirror of what solving the original gives (tests 248 and 249).
 
 `SketchParams::mirrored()` maps every coordinate `(u, v)` to `(u, -v)` and rewrites what depends on handedness:
 
