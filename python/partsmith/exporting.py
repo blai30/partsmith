@@ -3,13 +3,11 @@
 from __future__ import annotations
 
 import os
-import warnings
 from collections.abc import Sequence
 from pathlib import Path
 
 from ._files import write_atomic
-from .document import PACKAGE_DIRECTORY, Document, Part
-from .errors import PartsmithWarning
+from .document import Document, Part, warn
 from .expressions import DEGREE, raw_number
 from .selectors import Axis, rotation_rows
 
@@ -87,7 +85,7 @@ def _export(
         "export", format=file_format, bodies=bodies, tolerance=tolerance, orientation=orientation
     )
     for warning in reply.result["warnings"]:
-        warnings.warn(warning["message"], PartsmithWarning, skip_file_prefixes=(PACKAGE_DIRECTORY,))
+        warn(warning["message"])
     files = reply.result["files"]
     target = Path(path)
     if into_directory:

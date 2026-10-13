@@ -17,11 +17,13 @@ from .document import (
     FEATURE_PREFIX,
     Document,
     _open_sketch,
+    check_no_sketch,
     current_document,
     open_sketch,
 )
 from .errors import PartsmithError
-from .expressions import Expr, is_quantity, raw_angle, raw_length, raw_number, render_value
+from .expressions import Expr, is_quantity, items_of, raw_angle, raw_length, raw_number, render_value
+from .reports import point
 
 if TYPE_CHECKING:
     from contextvars import Token
@@ -31,7 +33,7 @@ if TYPE_CHECKING:
 
 
 type PlaneLike = Plane | DatumPlane | Element | Selection | Ref
-"""A sketch plane: an origin plane, a datum plane, or a flat face."""
+"""A plane argument: an origin plane, a datum plane, or a flat face."""
 
 Point2 = tuple[object, object]
 """Sketch coordinates as Python values."""
@@ -177,8 +179,7 @@ class Sketch:
         suppressed: bool = False,
         id: str | None = None,
     ) -> None:
-        if open_sketch() is not None:
-            raise PartsmithError("Finish the sketch before calling Sketch().")
+        check_no_sketch("Sketch")
         # Imported here: features imports this module.
         from .features import sketch_plane
 
@@ -194,8 +195,7 @@ class Sketch:
         self._added = False
 
     def __enter__(self) -> Sketch:
-        if open_sketch() is not None:
-            raise PartsmithError("Finish the sketch before calling Sketch().")
+        check_no_sketch("Sketch")
         if self._added:
             raise PartsmithError(f"The sketch {self.id} is finished; start a new Sketch(...) block.")
         self._token = _open_sketch.set(self)
@@ -707,17 +707,13 @@ def _sketch_of(name: str) -> Sketch:
 
 def _point(values: object, document: Document, name: str) -> list[float]:
     """Sketch coordinates in millimeters."""
-    if not isinstance(values, Sequence) or isinstance(values, str) or len(values) != 2:
-        raise TypeError(f"{name} must be a pair of coordinates (x, y).")
-    return [raw_length(value, document, name) for value in values]
+    items = items_of(values, 2, f"{name} must be a pair of coordinates (x, y).")
+    return [raw_length(value, document, name) for value in items]
 
 
 def _three(values: Sequence[object], name: str) -> tuple[object, object, object]:
     """Three values as a tuple."""
-    if not isinstance(values, Sequence) or isinstance(values, str) or len(values) != 3:
-        raise TypeError(f"{name} must be three values (x, y, z).")
-    x, y, z = values
-    return (x, y, z)
+    return point(items_of(values, 3, f"{name} must be three values (x, y, z)."))
 
 
 def _is_parametric(value: object) -> bool:

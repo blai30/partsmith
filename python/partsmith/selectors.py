@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, ClassVar, overload
 
 from .document import Document, Part, current_part
 from .errors import SelectionError
-from .expressions import raw_angle, raw_number
+from .expressions import items_of, raw_angle, raw_number
 from .reports import Point3, point
 from .sketch import Placement
 
@@ -32,16 +32,8 @@ ELEMENT_KINDS = ("face", "edge", "vertex")
 
 def _vector(values: object, name: str) -> Point3:
     """Three finite floats."""
-    if not isinstance(values, Sequence) or isinstance(values, str) or len(values) != 3:
-        raise TypeError(f"{name} must be three numbers (x, y, z).")
-    components = [raw_number(value, name) for value in values]
-    return _triple(components)
-
-
-def _triple(values: Iterable[float]) -> Point3:
-    """Three floats as a tuple."""
-    x, y, z = values
-    return (x, y, z)
+    items = items_of(values, 3, f"{name} must be three numbers (x, y, z).")
+    return point([raw_number(value, name) for value in items])
 
 
 @dataclass(frozen=True)
@@ -60,7 +52,7 @@ class Axis:
         length = math.hypot(*direction)
         if length == 0:
             raise ValueError("Axis direction must not be zero.")
-        object.__setattr__(self, "direction", _triple(component / length for component in direction))
+        object.__setattr__(self, "direction", point(component / length for component in direction))
         object.__setattr__(self, "origin", _vector(self.origin, "Axis origin"))
 
     def _coordinate(self, position: Point3) -> float:

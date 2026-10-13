@@ -20,7 +20,7 @@ from ._client import Client, Reply
 from ._files import write_atomic
 from .errors import EngineError, ExpressionError, FeatureError, PartsmithError, PartsmithWarning
 from .expressions import ATOM, Expr, render_value
-from .reports import BoundingBox, Finding, PrintReport, bounding_box, location_center, point
+from .reports import BoundingBox, PrintReport, bounding_box, point, print_report
 
 if TYPE_CHECKING:
     from .features import Feature
@@ -181,6 +181,18 @@ class Document:
         parts: Sequence[Part] | None = None,
     ) -> PrintReport:
         """Runs the printability checks on the parts (default: the visible parts with geometry)."""
+        orientation = self._orientation(rotate, face_down)
+        bodies = None if parts is None else [self._own_part(part, "check()").id for part in parts]
+        reply = self._client.command("analyze_print", profile=printer, orientation=orientation, bodies=bodies)
+        report = next(event for event in reply.events if event["type"] == "print_health")["report"]
+        return print_report(report, self._part)
+
+    def close(self) -> None:
+        """Discards the document; later use of it or its parts raises PartsmithError."""
+        self._client.close()
+
+    def _orientation(self, rotate: Sequence[tuple[Axis, float]], face_down: Element | Selection | None) -> dict:
+        """The protocol `Orientation` of `check()`: the face down, the rotations, or as modeled."""
         # Imported here: selectors imports this module.
         from .selectors import rotation_rows, single_element
 
@@ -188,37 +200,10 @@ class Document:
             raise ValueError("check() takes rotate or face_down, not both.")
         if face_down is not None:
             face = single_element("check() face_down", face_down, "face")
-            orientation = {"kind": "face_down", "body": face.part.id, "face": face.reference._json()}
-        elif rotate:
-            orientation = {"kind": "matrix", "rows": rotation_rows(rotate, self, "check() rotate")}
-        else:
-            orientation = {"kind": "as_modeled"}
-        bodies = None if parts is None else [self._own_part(part, "check()").id for part in parts]
-        reply = self._client.command("analyze_print", profile=printer, orientation=orientation, bodies=bodies)
-        report = next(event for event in reply.events if event["type"] == "print_health")["report"]
-        findings = [
-            Finding(
-                check=finding["check"],
-                code=finding["code"],
-                severity=finding["severity"],
-                part=self._part(body["body"]),
-                message=finding["message"],
-                location=location_center(finding["location"]),
-                value=finding.get("value"),
-                limit=finding.get("limit"),
-            )
-            for body in report["bodies"]
-            for check in body["report"]["checks"]
-            for finding in check["findings"]
-        ]
-        summary = report["summary"]
-        return PrintReport(
-            profile=report["profile"], health=summary["health"], label=summary["label"], findings=findings
-        )
-
-    def close(self) -> None:
-        """Discards the document; later use of it or its parts raises PartsmithError."""
-        self._client.close()
+            return {"kind": "face_down", "body": face.part.id, "face": face.reference._json()}
+        if rotate:
+            return {"kind": "matrix", "rows": rotation_rows(rotate, self, "check() rotate")}
+        return {"kind": "as_modeled"}
 
     @property
     def _recipe(self) -> dict:
@@ -252,7 +237,7 @@ class Document:
             raise FeatureError(status["messages"][0]["message"], feature_type=record["type"])
         for message in status["messages"]:
             if message["severity"] == "warning":
-                warnings.warn(message["message"], PartsmithWarning, skip_file_prefixes=(PACKAGE_DIRECTORY,))
+                warn(message["message"])
 
     def _check_parameter(self, parameter_id: str) -> None:
         """Undoes the last edit and raises ExpressionError when the parameter does not evaluate."""
@@ -295,24 +280,22 @@ class Document:
 
     def _record(self, feature_id: str) -> dict:
         """The stored record of a feature."""
-        for record in self._recipe["features"]:
-            if record["id"] == feature_id:
-                return record
-        raise PartsmithError(f"The document has no feature {feature_id}.")
+        return self._find_record("features", feature_id, "feature")
 
     def _body_record(self, body_id: str) -> dict:
         """The stored record of a body."""
-        for body in self._recipe["bodies"]:
-            if body["id"] == body_id:
-                return body
-        raise PartsmithError(f"The document has no part {body_id}.")
+        return self._find_record("bodies", body_id, "part")
 
     def _parameter_record(self, parameter_id: str) -> dict:
         """The stored record of a parameter."""
-        for parameter in self._recipe["parameters"]:
-            if parameter["id"] == parameter_id:
-                return parameter
-        raise PartsmithError(f"The document has no parameter {parameter_id}.")
+        return self._find_record("parameters", parameter_id, "parameter")
+
+    def _find_record(self, key: str, record_id: str, noun: str) -> dict:
+        """The record with this id in the recipe list `key`; `noun` names it when there is none."""
+        for record in self._recipe[key]:
+            if record["id"] == record_id:
+                return record
+        raise PartsmithError(f"The document has no {noun} {record_id}.")
 
     def _status(self, feature_id: str) -> dict:
         """The latest status of a feature."""
@@ -535,6 +518,17 @@ def current_part() -> Part | None:
 def open_sketch() -> Sketch | None:
     """The sketch of the open `with Sketch(...)` block, if any."""
     return _open_sketch.get()
+
+
+def check_no_sketch(function: str) -> None:
+    """Raises PartsmithError inside an open sketch block."""
+    if open_sketch() is not None:
+        raise PartsmithError(f"Finish the sketch before calling {function}().")
+
+
+def warn(message: str) -> None:
+    """Issues a PartsmithWarning pointing at the first frame outside this package."""
+    warnings.warn(message, PartsmithWarning, skip_file_prefixes=(PACKAGE_DIRECTORY,))
 
 
 def param(name: str, value: Expr | str | float, *, comment: str | None = None, id: str | None = None) -> Param:

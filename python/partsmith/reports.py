@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from collections.abc import Callable, Iterable
+
     from .document import Part
 
 Point3 = tuple[float, float, float]
@@ -60,10 +62,31 @@ def bounding_box(data: dict) -> BoundingBox:
     return BoundingBox(min=point(data["min"]), max=point(data["max"]))
 
 
-def point(values: list[float]) -> Point3:
-    """A protocol `Vec3` as a tuple."""
+def point[T](values: Iterable[T]) -> tuple[T, T, T]:
+    """Three values as a tuple, such as a protocol `Vec3`."""
     x, y, z = values
     return (x, y, z)
+
+
+def print_report(report: dict, part_of: Callable[[str], Part]) -> PrintReport:
+    """The PrintReport of a protocol `PrintHealthReport`; `part_of` gives the part of a body id."""
+    findings = [
+        Finding(
+            check=finding["check"],
+            code=finding["code"],
+            severity=finding["severity"],
+            part=part_of(body["body"]),
+            message=finding["message"],
+            location=location_center(finding["location"]),
+            value=finding.get("value"),
+            limit=finding.get("limit"),
+        )
+        for body in report["bodies"]
+        for check in body["report"]["checks"]
+        for finding in check["findings"]
+    ]
+    summary = report["summary"]
+    return PrintReport(profile=report["profile"], health=summary["health"], label=summary["label"], findings=findings)
 
 
 def location_center(location: dict) -> Point3:

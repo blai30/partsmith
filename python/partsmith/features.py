@@ -11,14 +11,12 @@ import math
 from collections.abc import Sequence
 from typing import cast
 
-from .document import FEATURE_PREFIX, PART_PREFIX, Document, Part, current_document, current_part, open_sketch
+from .document import FEATURE_PREFIX, PART_PREFIX, Document, Part, check_no_sketch, current_document, current_part
 from .errors import PartsmithError, SelectionError
-from .expressions import Expr, render_value
+from .expressions import Expr, items_of, render_value
 from .selectors import ORIGIN_AXES, Axis, Element, Ref, Selection, element_references, faces, single_element
-from .sketch import Line, Placement, Plane, Point, PointRef, Region, Sketch
+from .sketch import Line, Placement, Plane, PlaneLike, Point, PointRef, Region, Sketch
 
-type PlaneLike = Plane | DatumPlane | Element | Selection | Ref
-"""A plane argument: an origin plane, a datum plane, or a flat face."""
 type AxisLike = Axis | Line | Element | Ref
 """An axis argument: an origin axis, a sketch line, a straight edge or a round face."""
 type Value = int | float | Expr | str
@@ -158,7 +156,7 @@ def extrude(
     if reverse:
         params["reverse"] = True
     params["op"] = _body_op("extrude", op, target)
-    return _add("extrude", target.document, "extrude", params, name, suppressed, id)
+    return _add("extrude", target.document, params, name=name, suppressed=suppressed, id=id)
 
 
 def revolve(
@@ -187,7 +185,7 @@ def revolve(
     if reverse:
         params["reverse"] = True
     params["op"] = _body_op("revolve", op, target)
-    return _add("revolve", target.document, "revolve", params, name, suppressed, id)
+    return _add("revolve", target.document, params, name=name, suppressed=suppressed, id=id)
 
 
 def fillet(
@@ -206,7 +204,7 @@ def fillet(
         "edges": element_references("fillet", edges, "edge"),
         "radius": render_value(radius, "fillet() radius"),
     }
-    return _add("fillet", target.document, "fillet", params, name, suppressed, id)
+    return _add("fillet", target.document, params, name=name, suppressed=suppressed, id=id)
 
 
 def chamfer(
@@ -225,7 +223,7 @@ def chamfer(
         "edges": element_references("chamfer", edges, "edge"),
         "distance": {"kind": "equal", "expr": render_value(distance, "chamfer() distance")},
     }
-    return _add("chamfer", target.document, "chamfer", params, name, suppressed, id)
+    return _add("chamfer", target.document, params, name=name, suppressed=suppressed, id=id)
 
 
 def shell(
@@ -242,7 +240,7 @@ def shell(
     params: dict = {"body": target.id, "thickness": render_value(thickness, "shell() thickness")}
     if faces is not None:
         params["remove_faces"] = element_references("shell", faces, "face")
-    return _add("shell", target.document, "shell", params, name, suppressed, id)
+    return _add("shell", target.document, params, name=name, suppressed=suppressed, id=id)
 
 
 def hole(
@@ -284,7 +282,7 @@ def hole(
         params["tip_angle"] = render_value(tip_angle, "hole() tip_angle")
     if reverse:
         params["reverse"] = True
-    return _add("hole", target.document, "hole", params, name, suppressed, id)
+    return _add("hole", target.document, params, name=name, suppressed=suppressed, id=id)
 
 
 def box(
@@ -411,7 +409,7 @@ def boolean(
     }
     if keep_tools:
         params["keep_tools"] = True
-    return _add("boolean", target.document, "boolean", params, name, suppressed, id)
+    return _add("boolean", target.document, params, name=name, suppressed=suppressed, id=id)
 
 
 def mirror(
@@ -426,7 +424,7 @@ def mirror(
     """Mirrors the part across a plane, into the part itself or into the empty part `into`."""
     target = _target("mirror", part)
     params = {"body": target.id, "plane": plane_reference("mirror", plane), **_into("mirror", target, into)}
-    return _add("mirror", target.document, "mirror", params, name, suppressed, id)
+    return _add("mirror", target.document, params, name=name, suppressed=suppressed, id=id)
 
 
 def linear_pattern(
@@ -450,7 +448,7 @@ def linear_pattern(
             raise TypeError("linear_pattern() second must be (axis, count, spacing).")
         params["second_direction"] = _direction("linear_pattern() second", *second)
     params.update(_into("linear_pattern", target, into))
-    return _add("linear_pattern", target.document, "linear_pattern", params, name, suppressed, id)
+    return _add("linear_pattern", target.document, params, name=name, suppressed=suppressed, id=id)
 
 
 def circular_pattern(
@@ -476,7 +474,7 @@ def circular_pattern(
     if reverse:
         params["reverse"] = True
     params.update(_into("circular_pattern", target, into))
-    return _add("circular_pattern", target.document, "circular_pattern", params, name, suppressed, id)
+    return _add("circular_pattern", target.document, params, name=name, suppressed=suppressed, id=id)
 
 
 def datum_plane(
@@ -490,7 +488,7 @@ def datum_plane(
 ) -> DatumPlane:
     """A construction plane `offset` along the normal of an origin plane, datum plane or flat
     face; `flip` reverses its normal."""
-    _check_no_sketch("datum_plane")
+    check_no_sketch("datum_plane")
     document = _document_of(base) or current_document()
     params: dict = {
         "base": plane_reference("datum_plane", base),
@@ -499,7 +497,7 @@ def datum_plane(
     if flip:
         params["flip"] = True
     # feature_object makes every datum_plane feature a DatumPlane.
-    return cast(DatumPlane, _add("datum_plane", document, "datum_plane", params, name, suppressed, id))
+    return cast(DatumPlane, _add("datum_plane", document, params, name=name, suppressed=suppressed, id=id))
 
 
 def move(
@@ -522,7 +520,7 @@ def move(
             raise TypeError("move() rotate must be (axis, angle).")
         axis, angle = rotate
         params["rotation"] = {"axis": axis_reference("move", axis), "angle": render_value(angle, "move() rotate angle")}
-    return _add("move", target.document, "move_body", params, name, suppressed, id)
+    return _add("move", target.document, params, name=name, suppressed=suppressed, id=id, feature_type="move_body")
 
 
 def split(
@@ -551,19 +549,28 @@ def split(
         params["target"] = body_id
     elif into is not None:
         params["target"] = document._own_part(into, "split() into").id
-    return _add("split", document, "split_body", params, name, suppressed, id, edits_before)
+    return _add(
+        "split",
+        document,
+        params,
+        name=name,
+        suppressed=suppressed,
+        id=id,
+        feature_type="split_body",
+        edits_before=edits_before,
+    )
 
 
 def feature(
     type: str, /, *, name: str | None = None, suppressed: bool = False, id: str | None = None, **params: object
 ) -> Feature:
     """A feature of any registered type with exactly these params, converted to JSON."""
-    _check_no_sketch("feature")
+    check_no_sketch("feature")
     if not isinstance(type, str):
         raise TypeError(f"feature() type must be text, not {type.__class__.__name__}.")
     document = current_document()
     converted = {key: _json_value(f"feature() {key}", value) for key, value in params.items()}
-    return _add("feature", document, type, converted, name, suppressed, id)
+    return _add("feature", document, converted, name=name, suppressed=suppressed, id=id, feature_type=type)
 
 
 def plane_reference(function: str, value: object) -> dict:
@@ -640,15 +647,9 @@ def _face(subject: str, value: Element | Selection | Ref) -> tuple[Part, dict, P
     return element.part, element.reference._json(), element.placement
 
 
-def _check_no_sketch(function: str) -> None:
-    """Raises PartsmithError inside an open sketch block."""
-    if open_sketch() is not None:
-        raise PartsmithError(f"Finish the sketch before calling {function}().")
-
-
 def _target(function: str, part: Part | None) -> Part:
     """The part a solid feature function targets: `part`, else the current part."""
-    _check_no_sketch(function)
+    check_no_sketch(function)
     if part is None:
         part = current_part()
         if part is None:
@@ -670,15 +671,20 @@ def _body_op(function: str, op: str | None, target: Part) -> str:
 def _add(
     function: str,
     document: Document,
-    feature_type: str,
     params: dict,
+    *,
     name: str | None,
     suppressed: bool,
     id: str | None,
+    feature_type: str | None = None,
     edits_before: Sequence[dict] = (),
 ) -> Feature:
-    """Adds a feature record (the record keys, then the params) and returns its object."""
-    record: dict = {"id": document._new_id(FEATURE_PREFIX) if id is None else id, "type": feature_type}
+    """Adds a feature record (the record keys, then the params) and returns its object; the
+    feature type is the function name unless `feature_type` names another."""
+    record: dict = {
+        "id": document._new_id(FEATURE_PREFIX) if id is None else id,
+        "type": function if feature_type is None else feature_type,
+    }
     if name is not None:
         record["name"] = name
     if suppressed:
@@ -709,7 +715,7 @@ def _primitive(
     if rendered != ORIGIN_POSITION:
         params["position"] = rendered
     params["op"] = _body_op(function, op, target)
-    return _add(function, target.document, function, params, name, suppressed, id)
+    return _add(function, target.document, params, name=name, suppressed=suppressed, id=id)
 
 
 def _profile(function: str, profile: object, regions: Sequence[Region] | None, document: Document) -> dict:
@@ -796,16 +802,14 @@ def _direction(name: str, axis: object, count: object, spacing: object) -> dict:
 
 def _pair(name: str, values: object, keys: tuple[str, str]) -> dict:
     """Two expression values under `keys`."""
-    if not isinstance(values, Sequence) or isinstance(values, str) or len(values) != 2:
-        raise TypeError(f"{name} must be a pair of values ({keys[0]}, {keys[1]}).")
-    return {key: render_value(value, f"{name} {key}") for key, value in zip(keys, values, strict=True)}
+    items = items_of(values, 2, f"{name} must be a pair of values ({keys[0]}, {keys[1]}).")
+    return {key: render_value(value, f"{name} {key}") for key, value in zip(keys, items, strict=True)}
 
 
 def _three_values(name: str, values: object) -> list[str]:
     """Three expression values (a position or translation)."""
-    if not isinstance(values, Sequence) or isinstance(values, str) or len(values) != 3:
-        raise TypeError(f"{name} must be three values (x, y, z).")
-    return [render_value(value, name) for value in values]
+    items = items_of(values, 3, f"{name} must be three values (x, y, z).")
+    return [render_value(value, name) for value in items]
 
 
 def _document_of(value: object) -> Document | None:

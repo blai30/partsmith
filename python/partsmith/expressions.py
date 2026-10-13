@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import math
 import re
+from collections.abc import Sequence
 from typing import Protocol
 
 # Precedence levels of expressions.md section 3.4, from loosest to tightest.
@@ -245,6 +246,14 @@ def raw_number(value: object, name: str) -> float:
     return number
 
 
+def items_of(values: object, count: int, message: str) -> Sequence[object]:
+    """The items of a sequence of exactly `count` values (text is not one); TypeError with
+    `message` for anything else."""
+    if not isinstance(values, Sequence) or isinstance(values, str) or len(values) != count:
+        raise TypeError(message)
+    return values
+
+
 def is_quantity(value: object) -> bool:
     """True for a quantity literal built as `number * unit` (unit objects included)."""
     return isinstance(value, Expr) and value._quantity is not None
@@ -340,7 +349,7 @@ def _raw(value: object, document: Evaluator, name: str, dimension: tuple[int, in
     """A raw value of `dimension` in internal units (see `raw_length` and `raw_angle`)."""
     if _is_number(value):
         return raw_number(value, name) * plain_factor
-    if isinstance(value, Expr) and value._quantity is not None:
+    if is_quantity(value):
         number, symbol = value._quantity
         factors = LENGTH_FACTORS if dimension == LENGTH else ANGLE_FACTORS
         if symbol not in factors:
@@ -355,8 +364,10 @@ def _raw(value: object, document: Evaluator, name: str, dimension: tuple[int, in
         if evaluated_dimension == PLAIN:
             return evaluated * plain_factor
         raise ValueError(_dimension_message(name, dimension, source, evaluated_dimension))
-    kind = "a length" if dimension == LENGTH else "an angle"
-    raise TypeError(f"{name} must be {kind}: a number, an Expr or expression text, not {type(value).__name__}.")
+    raise TypeError(
+        f"{name} must be {describe_dimension(dimension)}: a number, an Expr or expression text, "
+        f"not {type(value).__name__}."
+    )
 
 
 def _dimension_message(name: str, expected: tuple[int, int], source: str, actual: tuple[int, int]) -> str:
