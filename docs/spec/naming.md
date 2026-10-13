@@ -9,9 +9,9 @@ This spec defines element names, naming maps, fingerprints, references and the r
 **In the M1 slice:**
 
 - The element name grammar, its validation, ordering and the operations on names (split base, face terms, generated names, instance renaming).
-- `NamingMap`: names for every face, edge and vertex of one output shape, built from per-face sources plus topology, with deterministic `#n` numbering for split elements, aliases for merged faces and sketch successions, and motions per face.
+- `NamingMap`: names for every face, edge and vertex of one output shape, built from per-face sources plus topology, with deterministic `#n` numbering for split elements, aliases for merged faces, successions for sketch entities that other entities replaced or extended, and motions per face.
 - Naming rules for every M1 feature kind: sketch, extrude (distance, symmetric, two sides, through all; ops new, join, cut, intersect), revolve (angle, full; ops), fillet (constant radius), chamfer (equal distance, two distances), shell (remove faces, inward thickness), hole (simple, counterbore, countersink, at sketch points), primitives (box, cylinder, sphere, cone, torus), boolean (join, cut, intersect, keep tools), mirror (body across plane), linear and circular pattern (of bodies), datum plane, move body (translate, rotate), split body (by plane), STEP import (fallback rule, section 3.6.14).
-- `Fingerprint` with its exact text form; `Reference` (`{"q": ..., "fp": ..., "nb": ..., "merged": ...}`) with anchors and merged names; `ElementInfo` and `ElementSet`; the resolver, which resolves by meaning and ranks candidates by fingerprint; and `Resolution` with what was lost and the candidates.
+- `Fingerprint` with its exact text form; `Reference` (`{"q": ..., "fp": ..., "nb": ..., "merged": ...}`) with anchors and merged names; `ElementInfo`, `ElementSet` and its names-only view `NameSet`; the resolver, which resolves by meaning and ranks candidates by fingerprint; and `Resolution` with what was lost and the candidates.
 
 **Explicitly later (not in M1):**
 
@@ -331,8 +331,9 @@ A `Reference` carries no body, and names are unique per naming map, not per docu
 pub enum FaceSource {
     /// A face the current feature created, named with `ElementName::generated`.
     New(ElementName),
-    /// A face descending (kept, modified, split or merged) from these input face names. Never empty.
-    From(Vec<ElementName>),
+    /// A face descending (kept, modified, split or merged) from these input faces, each given by the index of its
+    /// map in `inherited` (section 3.3) and its name there. Never empty.
+    From(Vec<(u32, ElementName)>),
 }
 
 /// Topology and geometry of one output shape, indexed like the kernel: entry `i` is element `i + 1`.
@@ -387,11 +388,11 @@ impl TopologyInfo {
 }
 ```
 
-### 2.6 Naming maps and aliases
+### 2.6 Naming maps, aliases and successions
 
 ```rust
-/// Former face names mapped to the piece-free names that carry them now, sorted and distinct: one face when faces
-/// merged, one or more when a feature records that a face continues in others (section 3.6.2).
+/// Merge aliases: the full former name of a face, or of a piece of one, mapped to the final names of the faces it
+/// merged into, sorted and distinct (section 3.3 step 2).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(transparent)]
 pub struct Aliases(pub BTreeMap<ElementName, Vec<ElementName>>);
@@ -401,6 +402,18 @@ impl Aliases {
     /// stops on a cycle, keeping a name met again on the path as it is. A name that is no key gives itself.
     pub fn chase(&self, name: &ElementName) -> Vec<ElementName>;
     /// True when there are no aliases.
+    pub fn is_empty(&self) -> bool;
+}
+
+/// Sketch successions: the lateral face of a sketch entity that other entities replaced or extended, mapped to the
+/// lateral faces that carry its place now, in the order of the profile match (sketch.md section 3.14). An extension
+/// lists its key first (section 3.6.2). Kept apart from merge aliases, never sorted or unioned.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(transparent)]
+pub struct Successions(pub BTreeMap<ElementName, Vec<ElementName>>);
+
+impl Successions {
+    /// True when there are no successions.
     pub fn is_empty(&self) -> bool;
 }
 
@@ -414,7 +427,8 @@ impl Motion {
     pub const IDENTITY: Motion;
     /// The motion with this matrix (rows) and translation. The caller passes an isometry, such as a kernel transform.
     pub fn new(matrix: [[f64; 3]; 3], translation: [f64; 3]) -> Motion;
-    /// `self` followed by `after`.
+    /// `self` followed by `after`: `a.then(&b).apply_point(p)` is `b.apply_point(a.apply_point(p))`. So the motion
+    /// that undoes `s` and then applies `n` is `s.inverse().then(&n)`.
     pub fn then(&self, after: &Motion) -> Motion;
     /// The motion that undoes `self`.
     pub fn inverse(&self) -> Motion;
@@ -432,12 +446,19 @@ impl Eq for Motion {}
 /// Names of every face, edge and vertex of one output shape, indexed like the kernel.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(try_from = "NamingMapData")]
-pub struct NamingMap { /* private: faces, edges, vertices, aliases, motions, and a derived name index */ }
+pub struct NamingMap { /* private: faces, edges, vertices, aliases, successions, motions, and a derived name index */ }
 
 impl NamingMap {
     /// Builds the map for one output shape (algorithm in section 3.3). `inherited` are the maps of every input shape,
-    /// the body the feature writes first; `added` are aliases the feature records on purpose (section 3.6.2).
-    pub fn build(faces: Vec<FaceSource>, topology: &TopologyInfo, inherited: &[&NamingMap], added: &Aliases) -> Result<NamingMap, NamingError>;
+    /// the body the feature writes first; `added_successions` are the successions the feature records (section 3.6.2);
+    /// `new_motion` is the motion of the geometry the feature builds its new faces on (section 3.6).
+    pub fn build(
+        faces: Vec<FaceSource>,
+        topology: &TopologyInfo,
+        inherited: &[&NamingMap],
+        added_successions: &Successions,
+        new_motion: &Motion,
+    ) -> Result<NamingMap, NamingError>;
     /// The name of element `index` (1-based) of `kind`; `None` if out of range or unnamed.
     pub fn name(&self, kind: ElementKind, index: u32) -> Option<&ElementName>;
     /// The 1-based index of the element with this exact name, searched among elements of the name's kind.
@@ -446,11 +467,13 @@ impl NamingMap {
     pub fn count(&self, kind: ElementKind) -> u32;
     /// Named elements of `kind` as `(index, name)` in index order.
     pub fn names(&self, kind: ElementKind) -> impl Iterator<Item = (u32, &ElementName)> + '_;
-    /// Aliases of faces merged, or continued in others (section 3.6.2), by this or an earlier feature.
+    /// Aliases of faces merged by this or an earlier feature.
     pub fn aliases(&self) -> &Aliases;
-    /// How far Move body features and copy transforms have moved the face since it was built (section 3.3 step 8):
-    /// the motion recorded for its piece-free name, or the map's base motion. Defined for every face name, also one
-    /// that is no longer in the shape.
+    /// Successions recorded by this or an earlier feature (section 3.6.2).
+    pub fn successions(&self) -> &Successions;
+    /// How far Move body features and copy transforms have moved the face since it, or the geometry it was built on,
+    /// was built (section 3.3 step 8): the motion recorded for its full name, else for its piece-free name, else the
+    /// map's base motion. Defined for every face name, also one that is no longer in the shape.
     pub fn motion(&self, face: &ElementName) -> Motion;
     /// The same map with `motion` applied after every recorded motion (section 3.6.12).
     pub fn moved(&self, motion: &Motion) -> NamingMap;
@@ -463,7 +486,7 @@ impl NamingMap {
 }
 ```
 
-`NamingMap` is serialized for the result cache (`.ptsm-cache/`), never into documents or protocol messages. Deserialization validates every name, checks that names are unique per kind and that each name's kind matches its list, and rebuilds the name index. JSON (exact field names; `aliases` and `motions` are omitted when empty, as described below; unnamed edges and vertices are `null`):
+`NamingMap` is serialized for the result cache (`.ptsm-cache/`), never into documents or protocol messages. Deserialization validates every name, checks that names are unique per kind and that each name's kind matches its list, and rebuilds the name index. JSON (exact field names; `aliases`, `successions` and `motions` are omitted when empty, as described below; unnamed edges and vertices are `null`):
 
 ```json
 {
@@ -481,7 +504,7 @@ impl NamingMap {
 }
 ```
 
-A map built after a merge carries its aliases as an object from former names to sorted lists of the piece-free names that carry them now, for example `"aliases": {"f-ext2/end-cap": ["f-ext1/end-cap"]}` in a map that has a face named `f-ext1/end-cap`. A map with motions carries `"motions": {"base": [12 numbers], "own": {"<piece-free face name>": [12 numbers]}}`, omitted when the base is the identity and `own` is empty; when present it has both keys. Deserialization checks that every alias key and target is a valid face name, that every target list is non-empty, sorted and distinct, that every `own` key is a valid piece-free face name and that every motion holds 12 finite numbers; it stores negative zeros as zeros, as `Motion::new` does.
+A map built after a merge carries its aliases as an object from former names to sorted lists of the names of the faces that carry them now, for example `"aliases": {"f-ext2/end-cap": ["f-ext1/end-cap"]}` in a map that has a face named `f-ext1/end-cap`, or `"aliases": {"f-box2/top": ["f-a1/top#2"]}` when the face it merged into is a piece. A map built from a profile with successions carries them in their order, for example `"successions": {"f-ext1/lateral/e-3": ["f-ext1/lateral/e-9", "f-ext1/lateral/e-10"]}`. A map with motions carries `"motions": {"base": [12 numbers], "own": {"<face name>": [12 numbers]}}`, omitted when the base is the identity and `own` is empty; when present it has both keys. Deserialization checks that every alias and succession key and target is a valid face name, that every alias target list is non-empty, sorted and distinct, that every succession list is non-empty and distinct (in any order), that every `own` key is a valid face name and that every motion holds 12 finite numbers; it stores negative zeros as zeros, as `Motion::new` does.
 
 ### 2.7 Element infos and element sets
 
@@ -511,21 +534,43 @@ JSON:
 ```
 
 ```rust
-/// The resolver's view of one body state: its element infos, its aliases, and an index of every face under the
-/// canonical forms of its name (section 3.9). Built once per body state and shared (features.md `BodyState::element_set`).
+/// The resolver's view of one body state: its element infos and their `NameSet` (section 3.9). Built once per body
+/// state and shared (features.md `BodyState::element_set`).
 pub struct ElementSet { /* private */ }
 
 impl ElementSet {
-    /// Builds the set and its canonical-name index.
-    pub fn new(elements: Arc<[ElementInfo]>, aliases: Aliases) -> Result<ElementSet, NamingError>;
+    /// Builds the set and its name indexes; two faces touch when one lists the other in its adjacency.
+    pub fn new(elements: Arc<[ElementInfo]>, aliases: Aliases, successions: Successions) -> Result<ElementSet, NamingError>;
     /// The element infos, faces, then edges, then vertices.
     pub fn elements(&self) -> &[ElementInfo];
-    /// The aliases.
+    /// The names-only view of the same body state.
+    pub fn names(&self) -> &NameSet;
+}
+
+/// The names-only view of one body state: its face names, aliases and successions, which faces touch, and the
+/// indexes the resolver matches names with (section 3.9). It reads no fingerprints, so recompute's loss diagnosis
+/// builds it from the naming maps of a body's writer chain, and features read families through `ElementSet::names`
+/// (the chamfer side rule, features/chamfer.md).
+pub struct NameSet { /* private */ }
+
+impl NameSet {
+    /// Builds the view of one naming map; two faces touch when an edge name lists both (`edge(a|b)`).
+    pub fn new(map: &NamingMap) -> NameSet;
+    /// The merge aliases.
     pub fn aliases(&self) -> &Aliases;
+    /// The successions.
+    pub fn successions(&self) -> &Successions;
+    /// The family of a part (section 3.9), using the merged names that `merged` records for it and for the face
+    /// names nested in it; sorted, distinct.
+    pub fn family(&self, part: &ElementName, merged: &Merged) -> Vec<&ElementName>;
+    /// True when `face` touches a face in the family of `anchor` (the anchor test of section 3.9).
+    pub fn touches(&self, face: &ElementName, anchor: &ElementName) -> bool;
 }
 ```
 
-`ElementSet::new` keeps the given order within each kind and fails with `DuplicateName` when two elements of one kind share a name. Resolving never depends on the order of the infos or on the insertion order of the aliases (section 3.9).
+`ElementSet::new` keeps the given order within each kind and fails with `DuplicateName` when two elements of one kind share a name. Resolving never depends on the order of the infos or on the insertion order of the aliases and successions (section 3.9). `NameSet::new` cannot fail: a naming map's names are valid and unique by construction (section 3.3).
+
+Both constructors build, once per body state, every index a resolve needs, so candidates are never parsed during a resolve: the faces by their name and by their piece-free name; the faces with an element generator, and the alias keys with one, by their skeleton (section 3.9); the rim faces `<feature>/rim/<generator>` by the forms of their generator (step 3); the faces with a sketch generator by feature, generator and `@` groups (step 4); the face names by every feature of their `ElementName::generators` (step 5); and which faces touch. For the same body state, `NameSet::new` of its map and `ElementSet::new` of its element infos give the same families and the same answers to `touches`: an edge name lists exactly the faces its edge separates, and a face's adjacency lists the faces it shares a non-degenerate edge with. The anchor test of an edge with its own `#n` needs the vertex infos (section 3.9), so it is not available from names alone.
 
 ### 2.8 Resolver
 
@@ -557,7 +602,7 @@ pub enum Resolution {
         /// How the reference followed a change, when features should tell the user (section 3.9).
         #[serde(skip_serializing_if = "Option::is_none", default)]
         follow: Option<Follow>,
-        /// The alias keys the match went through (successions and merges), sorted. Empty for a match by name.
+        /// The alias and succession keys the match went through, sorted. Empty for a match by name.
         #[serde(skip_serializing_if = "Vec::is_empty", default)]
         via: Vec<ElementName>,
         /// For `Guess`: the other elements that could be meant, in candidate order.
@@ -709,10 +754,10 @@ Definitions used throughout:
 - **Order-dependent name:** a name containing `#` anywhere. Its number depends on the geometric order of section 3.4, so the resolver confirms it by its anchors, or, without anchors, against its siblings (section 3.9).
 - **Face terms** of an edge or vertex name: the face names in its `face-list`, split at `|` characters at parenthesis depth 1 relative to the outer `edge(`/`vertex(`.
 - **Byte order:** lexicographic order of the UTF-8 bytes (Rust `str` ordering). `#` (0x23) sorts before every other character allowed in names, so a strict split descendant sorts immediately after its ancestor.
-- **Suffix groups** of a face name: the `#n` and `@<feature>:<instance>` groups after its role or generator, in written order. **Piece-free name:** the face name with every `#n` group removed, wherever it stands (`f-ext1/end-cap#1@f-lp1:1#2` gives `f-ext1/end-cap@f-lp1:1`). A face name `d` **extends** `t` when their piece-free names are equal and `d`'s suffix groups are `t`'s with zero or more `#n` groups inserted (`f-ext1/end-cap#1@f-lp1:1` extends `f-ext1/end-cap@f-lp1:1`; `f-a/x#2#1` extends `f-a/x#2`, not `f-a/x#1`). An edge or vertex name `d` extends `t` when `d` is `t` or a strict split descendant of it. The **pieces** of `t` are the names that extend it: `t` itself, or `t` split further.
+- **Suffix groups** of a face name: the `#n` and `@<feature>:<instance>` groups after its role or generator, in written order. **Piece-free name:** the face name with every `#n` group removed, wherever it stands (`f-ext1/end-cap#1@f-lp1:1#2` gives `f-ext1/end-cap@f-lp1:1`). A face name `d` **extends** `t` when their piece-free names are equal, `d`'s suffix groups are `t`'s with zero or more `#n` groups inserted, and, when they have an element generator, each face name in `d`'s generator extends the face name in `t`'s generator it pairs with, one to one (`f-ext1/end-cap#1@f-lp1:1` extends `f-ext1/end-cap@f-lp1:1`; `f-a/x#2#1` extends `f-a/x#2`, not `f-a/x#1`; `f-c/chamfer/edge(f-a/x#1|f-b/y)` does not extend `f-c/chamfer/edge(f-a/x#2|f-b/y)`). An edge or vertex name `d` extends `t` when `d` is `t` or a strict split descendant of it. The **pieces** of `t` are the names that extend it: `t` itself, or `t` split further.
 - **Fallback name:** a face name whose role is `face` (section 3.6.14). It has no meaning beyond geometric order.
 - **Parts** of a query: its face terms for an edge or vertex name, the name itself for a face name. The parts of an edge or vertex name with its own trailing `#n` also include the name itself. The **face names occurring in** a query are its parts and every face name nested in their generators.
-- **Candidate order:** candidates with `meaning` first, then by increasing `distance`, then by name in byte order.
+- **Candidate order:** candidates with `meaning` first; then, for a face query whose fingerprint has a direction, those whose fingerprint direction agrees with it (a dot product of at least `1 - 1e-9` for planes, an absolute dot product of at least `1 - 1e-9` for other kinds), so a face that faces the way the stored one did comes before nearer faces that do not; then by increasing `distance`; then by name in byte order.
 
 Examples of valid names: `f-ext1/end-cap`, `f-ext1/lateral/e-9e12`, `f-ext1/lateral/e-1#2`, `f-hole1/bore/e-1.center`, `f-fil1/fillet/edge(f-ext1/end-cap|f-ext1/lateral/e-1)`, `f-sh1/inner/f-ext1/lateral/e-3`, `f-box1/top@f-pat1:2`, `f-box1/top@f-pat1:0.1`, `edge(f-cyl1/side)`, `edge(f-box1/front|f-box1/top)#2`, `vertex(f-box1/bottom|f-box1/front|f-box1/left)`.
 
