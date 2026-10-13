@@ -1,9 +1,9 @@
-//! Acceptance tests for element names (spec section 6, tests 1 to 15).
+//! Acceptance tests for element names (spec section 6, tests 1 to 15 and 117).
 
 mod common;
 
 use common::{id, name};
-use partsmith_naming::{ElementKind, ElementName, Generator, Instance, NamingError};
+use partsmith_naming::{ElementKind, ElementName, Generator, GeneratorUse, Instance, NamingError};
 
 /// The valid examples of spec section 3.1.
 const VALID_EXAMPLES: [&str; 11] = [
@@ -399,4 +399,95 @@ fn t015_ordering_is_byte_order() {
     assert!(name("f-a/x") < name("f-a/x#1"));
     assert!(name("f-a/x#1") < name("f-a/x-y"));
     assert!(name("f-a/x-y") < name("f-a/x@f-p:1"));
+}
+
+/// A generator use of `feature`, with the sketch generator text when there is one.
+fn generator_use(feature: &str, generator: Option<&str>) -> GeneratorUse {
+    GeneratorUse {
+        feature: id(feature),
+        generator: generator.map(str::to_owned),
+    }
+}
+
+#[test]
+fn t117_generators_of_nested_instance_edge() {
+    let generators =
+        name("edge(f-ext1/lateral/e-2@f-lp1:1|f-fil1/fillet/edge(f-box1/front|f-box1/top))")
+            .generators();
+
+    assert_eq!(
+        generators,
+        vec![
+            generator_use("f-box1", None),
+            generator_use("f-ext1", Some("e-2")),
+            generator_use("f-fil1", None),
+            generator_use("f-lp1", None),
+        ]
+    );
+}
+
+#[test]
+fn t117_generators_of_plain_face_is_its_feature() {
+    assert_eq!(
+        name("f-box1/top").generators(),
+        vec![generator_use("f-box1", None)]
+    );
+}
+
+#[test]
+fn t117_generators_ignore_split_suffixes() {
+    assert_eq!(
+        name("f-box1/top#2#1").generators(),
+        vec![generator_use("f-box1", None)]
+    );
+}
+
+#[test]
+fn t117_generators_keep_the_sketch_reference_text() {
+    assert_eq!(
+        name("f-hole1/bore/e-1.center").generators(),
+        vec![generator_use("f-hole1", Some("e-1.center"))]
+    );
+}
+
+#[test]
+fn t117_generators_of_face_named_after_a_face() {
+    assert_eq!(
+        name("f-sh1/inner/f-ext1/lateral/e-3").generators(),
+        vec![
+            generator_use("f-ext1", Some("e-3")),
+            generator_use("f-sh1", None),
+        ]
+    );
+}
+
+#[test]
+fn t117_generators_keep_a_feature_with_and_without_sketch_generator() {
+    assert_eq!(
+        name("edge(f-ext1/end-cap|f-ext1/lateral/e-1)").generators(),
+        vec![
+            generator_use("f-ext1", None),
+            generator_use("f-ext1", Some("e-1")),
+        ]
+    );
+}
+
+#[test]
+fn t117_generators_of_vertex_are_sorted_and_distinct() {
+    assert_eq!(
+        name("vertex(f-box1/front|f-box1/top|f-cyl1/side)").generators(),
+        vec![generator_use("f-box1", None), generator_use("f-cyl1", None)]
+    );
+}
+
+#[test]
+fn t117_generators_include_every_instance_group() {
+    assert_eq!(
+        name("f-box1/top@f-lp1:2@f-mir1:1").generators(),
+        vec![
+            generator_use("f-box1", None),
+            generator_use("f-lp1", None),
+            generator_use("f-mir1", None),
+        ]
+    );
 }

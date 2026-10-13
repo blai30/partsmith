@@ -3,18 +3,40 @@
 // Each test binary uses only some of these fixtures.
 #![allow(dead_code)]
 
+use std::sync::Arc;
+
 use partsmith_model::Id;
 use partsmith_naming::{
-    Aliases, EdgeInfo, ElementInfo, ElementKind, ElementName, FaceInfo, FaceSource, Fingerprint,
-    GeometryKind, NamingMap, Reference, TopologyInfo, VertexInfo,
+    Aliases, Anchors, Candidate, EdgeInfo, ElementInfo, ElementKind, ElementName, ElementSet,
+    FaceInfo, FaceSource, Fingerprint, Follow, GeometryKind, Lost, MatchMethod, Merged,
+    MergedName, Motion, NamingMap, Reference, Resolution, Successions, TopologyInfo, VertexInfo,
 };
 use proptest::prelude::*;
+use serde_json::Value;
 
 /// Tolerance for scores and confidences, which the spec gives rounded to 6 decimals.
 pub const SCORE_TOLERANCE: f64 = 1e-6;
 
+/// Tolerance for candidate distances, which the spec gives rounded to 6 decimals.
+pub const DISTANCE_TOLERANCE: f64 = 1e-6;
+
+/// Tolerance for the components of composed motions (spec test 139).
+pub const MOTION_TOLERANCE: f64 = 1e-12;
+
 /// Fingerprint of the BOX top face with adjacency counts (spec section 3.7.3).
 pub const TOP_FINGERPRINT: &str = "plane|n=0,0,1|c=5,10,30|a=200|adj=4,4";
+
+/// Fingerprint of BOX edge E2, the top front edge, with adjacency counts (spec test 56).
+pub const TOP_FRONT_EDGE_FINGERPRINT: &str = "line|n=1,0,0|c=5,0,30|l=10|adj=2,2";
+
+/// The fingerprint of a face whose fingerprint a resolver test does not state (spec section 6).
+pub const DEFAULT_FACE_FINGERPRINT: &str = "plane|n=0,0,1|c=0,0,0";
+
+/// The fingerprint of an edge whose fingerprint a resolver test does not state (spec section 6).
+pub const DEFAULT_EDGE_FINGERPRINT: &str = "line|n=1,0,0|c=0,0,0";
+
+/// The fingerprint of a vertex whose fingerprint a resolver test does not state (spec section 6).
+pub const DEFAULT_VERTEX_FINGERPRINT: &str = "point|c=0,0,0";
 
 /// BOX sources: the names of faces 1 to 6.
 pub const BOX_FACE_NAMES: [&str; 6] = [
@@ -85,6 +107,11 @@ pub fn name(text: &str) -> ElementName {
         .unwrap_or_else(|error| panic!("{text:?} is a valid element name, got {error:?}"))
 }
 
+/// Parses element names the test knows to be valid, in the given order.
+pub fn names(texts: &[&str]) -> Vec<ElementName> {
+    texts.iter().map(|text| name(text)).collect()
+}
+
 /// Builds an id the test knows to be valid.
 pub fn id(text: &str) -> Id {
     Id::new(text).unwrap_or_else(|error| panic!("{text:?} is a valid id, got {error:?}"))
@@ -96,6 +123,16 @@ pub fn fingerprint(text: &str) -> Fingerprint {
         .unwrap_or_else(|error| panic!("{text:?} is a valid fingerprint, got {error:?}"))
 }
 
+/// The fingerprint a resolver test uses for an element of `kind` whose fingerprint it does not
+/// state (spec section 6).
+pub fn default_fingerprint(kind: ElementKind) -> &'static str {
+    match kind {
+        ElementKind::Face => DEFAULT_FACE_FINGERPRINT,
+        ElementKind::Edge => DEFAULT_EDGE_FINGERPRINT,
+        ElementKind::Vertex => DEFAULT_VERTEX_FINGERPRINT,
+    }
+}
+
 /// Builds a reference whose query and fingerprint the test knows to be valid and of one kind.
 pub fn reference(query: &str, fingerprint_text: &str) -> Reference {
     Reference::new(name(query), fingerprint(fingerprint_text)).unwrap_or_else(|error| {
@@ -103,14 +140,108 @@ pub fn reference(query: &str, fingerprint_text: &str) -> Reference {
     })
 }
 
-/// Builds an alias set from `(former name, current split base)` pairs.
-pub fn aliases(pairs: &[(&str, &str)]) -> Aliases {
-    Aliases(
-        pairs
+/// A reference to `query` with the default fingerprint of its kind (spec section 6).
+pub fn query(text: &str) -> Reference {
+    reference(text, default_fingerprint(name(text).kind()))
+}
+
+/// The same reference with these anchors: `(part, anchor names)` pairs.
+pub fn with_anchors(mut reference: Reference, entries: &[(&str, &[&str])]) -> Reference {
+    reference.anchors = anchors(entries);
+    reference
+}
+
+/// The same reference with these merged names: `(face name, merged name texts)` pairs.
+pub fn with_merged(mut reference: Reference, entries: &[(&str, &[&str])]) -> Reference {
+    reference.merged = merged(entries);
+    reference
+}
+
+/// Anchors from `(part, anchor names)` pairs, each list as written.
+pub fn anchors(entries: &[(&str, &[&str])]) -> Anchors {
+    Anchors(
+        entries
             .iter()
-            .map(|(former, current)| (name(former), name(current)))
+            .map(|(part, anchor_names)| (name(part), names(anchor_names)))
             .collect(),
     )
+}
+
+/// Parses the text form of a merged name (`f-box2/top` or `f-box1/top@f-lp1:*`).
+pub fn merged_name(text: &str) -> MergedName {
+    serde_json::from_value(Value::String(text.to_owned()))
+        .unwrap_or_else(|error| panic!("{text:?} is a valid merged name, got {error}"))
+}
+
+/// Merged names from `(face name, merged name texts)` pairs, each list as written.
+pub fn merged(entries: &[(&str, &[&str])]) -> Merged {
+    Merged(
+        entries
+            .iter()
+            .map(|(face, texts)| {
+                (
+                    name(face),
+                    texts.iter().map(|text| merged_name(text)).collect(),
+                )
+            })
+            .collect(),
+    )
+}
+
+/// Merge aliases from `(former name, target names)` pairs, each target list as written.
+pub fn aliases(entries: &[(&str, &[&str])]) -> Aliases {
+    Aliases(
+        entries
+            .iter()
+            .map(|(former, targets)| (name(former), names(targets)))
+            .collect(),
+    )
+}
+
+/// Sketch successions from `(replaced face, faces that carry its place now)` pairs, in order.
+pub fn successions(entries: &[(&str, &[&str])]) -> Successions {
+    Successions(
+        entries
+            .iter()
+            .map(|(replaced, now)| (name(replaced), names(now)))
+            .collect(),
+    )
+}
+
+/// The motion that translates by `(x, y, z)` without turning.
+pub fn translation(x: f64, y: f64, z: f64) -> Motion {
+    Motion::new([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]], [x, y, z])
+}
+
+/// The 12 components of a motion read through its public API: the matrix rows, then the
+/// translation. Column `j` of the matrix is the image of the `j`-th unit direction.
+pub fn motion_components(motion: &Motion) -> [f64; 12] {
+    let columns = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
+        .map(|direction| motion.apply_direction(direction));
+    let mut components = [0.0; 12];
+    for (column, image) in columns.iter().enumerate() {
+        for (row, value) in image.iter().enumerate() {
+            components[row * 3 + column] = *value;
+        }
+    }
+    components[9..].copy_from_slice(&motion.apply_point([0.0, 0.0, 0.0]));
+    components
+}
+
+/// Asserts that every component of `actual` is within `MOTION_TOLERANCE` of `expected`.
+pub fn assert_motion_close(actual: &Motion, expected: &Motion) {
+    let actual_components = motion_components(actual);
+    let expected_components = motion_components(expected);
+    for (index, (actual_value, expected_value)) in actual_components
+        .iter()
+        .zip(expected_components)
+        .enumerate()
+    {
+        assert!(
+            (actual_value - expected_value).abs() <= MOTION_TOLERANCE,
+            "component {index}: expected {expected_components:?}, got {actual_components:?}"
+        );
+    }
 }
 
 /// `FaceSource::New` of a name.
@@ -118,9 +249,20 @@ pub fn new_source(text: &str) -> FaceSource {
     FaceSource::New(name(text))
 }
 
-/// `FaceSource::From` of a list of input face names.
+/// `FaceSource::From` of input face names, every one from the first inherited map (spec section
+/// 6, "Sources in building tests").
 pub fn from_sources(texts: &[&str]) -> FaceSource {
-    FaceSource::From(texts.iter().map(|text| name(text)).collect())
+    FaceSource::From(texts.iter().map(|text| (0, name(text))).collect())
+}
+
+/// `FaceSource::From` of `(inherited map index, name)` pairs.
+pub fn from_indexed_sources(sources: &[(u32, &str)]) -> FaceSource {
+    FaceSource::From(
+        sources
+            .iter()
+            .map(|(map, text)| (*map, name(text)))
+            .collect(),
+    )
 }
 
 /// One face with its bounding edges.
@@ -170,19 +312,64 @@ pub fn faces_only_topology(fingerprints: &[&str]) -> TopologyInfo {
     }
 }
 
-/// Builds a map without inherited aliases from inputs the test knows to be valid.
-pub fn build(sources: Vec<FaceSource>, topology: &TopologyInfo) -> NamingMap {
-    build_with_aliases(sources, topology, &[])
+/// A topology of `count` unit faces in a row along x (face `i` at x = i - 1), without edges.
+pub fn face_row_topology(count: usize) -> TopologyInfo {
+    TopologyInfo {
+        faces: (0..count)
+            .map(|position| face_info(&[], &format!("plane|n=0,0,1|c={position},0,0|a=1")))
+            .collect(),
+        edges: Vec::new(),
+        vertices: Vec::new(),
+    }
 }
 
-/// Builds a map with inherited aliases from inputs the test knows to be valid.
-pub fn build_with_aliases(
+/// Builds a map with every option: inherited maps, added successions and the new motion.
+pub fn build_with(
     sources: Vec<FaceSource>,
     topology: &TopologyInfo,
-    inherited_aliases: &[&Aliases],
+    inherited: &[&NamingMap],
+    added_successions: &Successions,
+    new_motion: &Motion,
 ) -> NamingMap {
-    NamingMap::build(sources, topology, inherited_aliases)
+    NamingMap::build(sources, topology, inherited, added_successions, new_motion)
         .unwrap_or_else(|error| panic!("the fixture builds, got {error:?}"))
+}
+
+/// Builds a map on inherited maps, without added successions and with the identity as the new
+/// motion (spec section 6, "Sources in building tests").
+pub fn build_on(
+    sources: Vec<FaceSource>,
+    topology: &TopologyInfo,
+    inherited: &[&NamingMap],
+) -> NamingMap {
+    build_with(
+        sources,
+        topology,
+        inherited,
+        &Successions::default(),
+        &Motion::IDENTITY,
+    )
+}
+
+/// Builds a map without inherited maps, added successions or motion.
+pub fn build(sources: Vec<FaceSource>, topology: &TopologyInfo) -> NamingMap {
+    build_on(sources, topology, &[])
+}
+
+/// A map whose faces are these new names, in a row along x, without edges or vertices: an
+/// inherited map for building tests.
+pub fn map_with_faces(face_names: &[&str]) -> NamingMap {
+    build(
+        face_names.iter().map(|text| new_source(text)).collect(),
+        &face_row_topology(face_names.len()),
+    )
+}
+
+/// Deserializes a naming map from JSON the test knows to be valid (spec section 2.6). The only way
+/// to give a map aliases or successions without building the features that record them.
+pub fn map_from_json(value: Value) -> NamingMap {
+    serde_json::from_value(value.clone())
+        .unwrap_or_else(|error| panic!("{value} is a valid naming map, got {error}"))
 }
 
 /// The names of every element of `kind` in index order, `None` for unnamed elements.
@@ -240,11 +427,25 @@ pub fn box_map() -> NamingMap {
     build(box_sources(), &box_topology())
 }
 
-/// BOX scope: the element infos of the BOX map.
-pub fn box_scope() -> Vec<ElementInfo> {
+/// The element infos of the BOX map.
+pub fn box_infos() -> Vec<ElementInfo> {
     box_map()
         .element_infos(&box_topology())
         .unwrap_or_else(|error| panic!("the BOX map matches the BOX topology, got {error:?}"))
+}
+
+/// BOX scope: the element set of the BOX infos, without aliases (spec section 6).
+pub fn box_scope() -> ElementSet {
+    element_set(box_infos())
+}
+
+/// The BOX infos without the elements named in `removed`, followed by `added`.
+pub fn box_infos_with(removed: &[&str], added: Vec<ElementInfo>) -> Vec<ElementInfo> {
+    box_infos()
+        .into_iter()
+        .filter(|info| !removed.contains(&info.name.as_str()))
+        .chain(added)
+        .collect()
 }
 
 /// CYL topology: a cylinder of radius 5 and height 10 on XY (spec section 6).
@@ -306,7 +507,7 @@ pub fn sphere_map() -> NamingMap {
     build(vec![new_source("f-sph1/surface")], &sphere_topology())
 }
 
-/// One element info for a resolver scope.
+/// One element info with every field given, without vertices.
 pub fn element_info(
     name_text: &str,
     kind: ElementKind,
@@ -317,16 +518,93 @@ pub fn element_info(
         name: name(name_text),
         kind,
         fingerprint: fingerprint(fingerprint_text),
-        adjacency: adjacency.iter().map(|text| name(text)).collect(),
+        adjacency: names(adjacency),
+        vertices: Vec::new(),
     }
 }
 
-/// The info named `text` in `scope`.
-pub fn info_named<'a>(scope: &'a [ElementInfo], text: &str) -> &'a ElementInfo {
-    scope
+/// A scope element named `text` as resolver tests list it when they state nothing else (spec
+/// section 6): the default fingerprint of its kind, no vertices, and as adjacency the face terms
+/// of its name for an edge or vertex, none for a face.
+pub fn scope_element(text: &str) -> ElementInfo {
+    let element_name = name(text);
+    let kind = element_name.kind();
+    ElementInfo {
+        adjacency: element_name.face_terms(),
+        name: element_name,
+        kind,
+        fingerprint: fingerprint(default_fingerprint(kind)),
+        vertices: Vec::new(),
+    }
+}
+
+/// Changes to a scope element, for the fields a resolver test states.
+pub trait ScopeElement {
+    /// The same element with this fingerprint.
+    fn with_fingerprint(self, fingerprint_text: &str) -> Self;
+    /// The same element with this adjacency, as written.
+    fn with_adjacency(self, adjacency: &[&str]) -> Self;
+    /// The same edge with these named vertices, as written.
+    fn with_vertices(self, vertices: &[&str]) -> Self;
+}
+
+impl ScopeElement for ElementInfo {
+    fn with_fingerprint(self, fingerprint_text: &str) -> Self {
+        ElementInfo {
+            fingerprint: fingerprint(fingerprint_text),
+            ..self
+        }
+    }
+
+    fn with_adjacency(self, adjacency: &[&str]) -> Self {
+        ElementInfo {
+            adjacency: names(adjacency),
+            ..self
+        }
+    }
+
+    fn with_vertices(self, vertices: &[&str]) -> Self {
+        ElementInfo {
+            vertices: names(vertices),
+            ..self
+        }
+    }
+}
+
+/// Builds an element set the test knows to be valid.
+pub fn element_set_with(
+    infos: Vec<ElementInfo>,
+    aliases: Aliases,
+    successions: Successions,
+) -> ElementSet {
+    ElementSet::new(Arc::from(infos), aliases, successions)
+        .unwrap_or_else(|error| panic!("the scope has no duplicate names, got {error:?}"))
+}
+
+/// An element set without aliases and successions.
+pub fn element_set(infos: Vec<ElementInfo>) -> ElementSet {
+    element_set_with(infos, Aliases::default(), Successions::default())
+}
+
+/// The element set of a built map: its element infos, aliases and successions.
+pub fn element_set_of_map(map: &NamingMap, topology: &TopologyInfo) -> ElementSet {
+    let infos = map
+        .element_infos(topology)
+        .unwrap_or_else(|error| panic!("the map matches its topology, got {error:?}"));
+    element_set_with(infos, map.aliases().clone(), map.successions().clone())
+}
+
+/// The info named `text` in `infos`.
+pub fn info_named<'a>(infos: &'a [ElementInfo], text: &str) -> &'a ElementInfo {
+    infos
         .iter()
         .find(|info| info.name.as_str() == text)
         .unwrap_or_else(|| panic!("the scope contains {text:?}"))
+}
+
+/// The info named `text` in `set`.
+pub fn element_named<'a>(set: &'a ElementSet, text: &str) -> &'a ElementInfo {
+    info_named(set.elements(), text)
 }
 
 /// Asserts that `actual` is within `tolerance` of `expected`.
@@ -335,6 +613,202 @@ pub fn assert_close(actual: f64, expected: f64, tolerance: f64) {
         (actual - expected).abs() <= tolerance,
         "expected {expected} within {tolerance}, got {actual}"
     );
+}
+
+/// The fields of a `Resolved` outcome, names as text.
+pub struct Resolved<'a> {
+    /// The elements, as text.
+    pub elements: Vec<&'a str>,
+    /// The resolver step.
+    pub method: MatchMethod,
+    /// The confidence.
+    pub confidence: f64,
+    /// How the reference followed a change.
+    pub follow: Option<Follow>,
+    /// The keys the match went through, as text.
+    pub via: Vec<&'a str>,
+    /// The alternatives of a guess.
+    pub alternatives: &'a [Candidate],
+}
+
+/// The fields of a `Resolved` outcome; panics on any other outcome.
+pub fn resolved(resolution: &Resolution) -> Resolved<'_> {
+    let Resolution::Resolved {
+        elements,
+        method,
+        confidence,
+        follow,
+        via,
+        alternatives,
+    } = resolution
+    else {
+        panic!("expected a resolved reference, got {resolution:?}");
+    };
+    Resolved {
+        elements: elements.iter().map(ElementName::as_str).collect(),
+        method: *method,
+        confidence: *confidence,
+        follow: *follow,
+        via: via.iter().map(ElementName::as_str).collect(),
+        alternatives,
+    }
+}
+
+/// Asserts a `Resolved` outcome with these elements, method and confidence (within 1e-6), and no
+/// alternatives unless it is a guess.
+pub fn assert_resolved(
+    resolution: &Resolution,
+    expected_elements: &[&str],
+    expected_method: MatchMethod,
+    expected_confidence: f64,
+) {
+    let outcome = resolved(resolution);
+    assert_eq!(outcome.elements, expected_elements, "{resolution:?}");
+    assert_eq!(outcome.method, expected_method, "{resolution:?}");
+    assert_close(outcome.confidence, expected_confidence, SCORE_TOLERANCE);
+    if expected_method != MatchMethod::Guess {
+        assert!(
+            outcome.alternatives.is_empty(),
+            "only a guess has alternatives, got {resolution:?}"
+        );
+    }
+}
+
+/// Asserts a `Guess` with these elements, confidence and alternatives in this order.
+pub fn assert_guess(
+    resolution: &Resolution,
+    expected_elements: &[&str],
+    expected_confidence: f64,
+    expected_alternatives: &[&str],
+) {
+    assert_resolved(
+        resolution,
+        expected_elements,
+        MatchMethod::Guess,
+        expected_confidence,
+    );
+    assert_eq!(
+        candidate_names(resolved(resolution).alternatives),
+        expected_alternatives,
+        "{resolution:?}"
+    );
+}
+
+/// Asserts the `follow` of a `Resolved` outcome.
+pub fn assert_follow(resolution: &Resolution, expected: Option<Follow>) {
+    assert_eq!(resolved(resolution).follow, expected, "{resolution:?}");
+}
+
+/// Asserts the `via` of a `Resolved` outcome.
+pub fn assert_via(resolution: &Resolution, expected: &[&str]) {
+    assert_eq!(resolved(resolution).via, expected, "{resolution:?}");
+}
+
+/// The `lost` and `candidates` of a `Missing` outcome; panics on any other outcome.
+pub fn missing(resolution: &Resolution) -> (&Lost, &[Candidate]) {
+    let Resolution::Missing { lost, candidates } = resolution else {
+        panic!("expected a missing reference, got {resolution:?}");
+    };
+    (lost, candidates)
+}
+
+/// The candidates of an `Ambiguous` outcome; panics on any other outcome.
+pub fn ambiguous(resolution: &Resolution) -> &[Candidate] {
+    let Resolution::Ambiguous { candidates } = resolution else {
+        panic!("expected an ambiguous reference, got {resolution:?}");
+    };
+    candidates
+}
+
+/// Asserts what the resolver found gone.
+pub fn assert_lost(lost: &Lost, parts: &[&str], pieces: &[&str], unmet: bool) {
+    let lost_parts: Vec<&str> = lost.parts.iter().map(ElementName::as_str).collect();
+    let lost_pieces: Vec<&str> = lost.pieces.iter().map(ElementName::as_str).collect();
+    assert_eq!(lost_parts, parts, "{lost:?}");
+    assert_eq!(lost_pieces, pieces, "{lost:?}");
+    assert_eq!(lost.unmet, unmet, "{lost:?}");
+}
+
+/// Asserts every field of a candidate (distance and score within 1e-6).
+pub fn assert_candidate(
+    candidate: &Candidate,
+    expected_name: &str,
+    expected_meaning: bool,
+    expected_distance: f64,
+    expected_score: f64,
+) {
+    assert_eq!(candidate.name.as_str(), expected_name, "{candidate:?}");
+    assert_eq!(candidate.meaning, expected_meaning, "{candidate:?}");
+    assert_close(candidate.distance, expected_distance, DISTANCE_TOLERANCE);
+    assert_close(candidate.score, expected_score, SCORE_TOLERANCE);
+}
+
+/// Asserts the name, meaning and distance of a candidate (distance within 1e-6).
+pub fn assert_candidate_place(
+    candidate: &Candidate,
+    expected_name: &str,
+    expected_meaning: bool,
+    expected_distance: f64,
+) {
+    assert_eq!(candidate.name.as_str(), expected_name, "{candidate:?}");
+    assert_eq!(candidate.meaning, expected_meaning, "{candidate:?}");
+    assert_close(candidate.distance, expected_distance, DISTANCE_TOLERANCE);
+}
+
+/// The names of candidates, in order.
+pub fn candidate_names(candidates: &[Candidate]) -> Vec<&str> {
+    candidates
+        .iter()
+        .map(|candidate| candidate.name.as_str())
+        .collect()
+}
+
+/// Test 92's scope: three pieces of a top face, the second split again, each next to other walls.
+pub fn renumbered_pieces_infos() -> Vec<ElementInfo> {
+    vec![
+        scope_element("f-b/top#1").with_adjacency(&["f-b/back", "f-b/front", "f-b/left", "f-n/w"]),
+        scope_element("f-b/top#2#1").with_adjacency(&[
+            "f-b/back", "f-b/front", "f-c/w1", "f-n/w2",
+        ]),
+        scope_element("f-b/top#2#2").with_adjacency(&[
+            "f-b/back",
+            "f-b/front",
+            "f-b/right",
+            "f-c/w2",
+        ]),
+    ]
+}
+
+/// Test 104's merge aliases: the box faces a chamfer was named after merged into other faces.
+pub fn nested_aliases() -> Aliases {
+    aliases(&[
+        ("f-box1/front", &["f-a1/front"]),
+        ("f-box1/top", &["f-a1/top"]),
+    ])
+}
+
+/// Test 104's scope: one chamfer face named after the faces the box faces merged into.
+pub fn nested_alias_scope() -> ElementSet {
+    element_set_with(
+        vec![scope_element("f-cha1/chamfer/edge(f-a1/front|f-a1/top)")],
+        nested_aliases(),
+        Successions::default(),
+    )
+}
+
+/// Test 105's merged names: the faces of the query's chamfer name were merged from the box faces.
+pub fn nested_merged() -> Merged {
+    merged(&[
+        ("f-a1/front", &["f-box1/front"]),
+        ("f-a1/top", &["f-box1/top"]),
+    ])
+}
+
+/// Test 105's scope: one chamfer face named after the box faces.
+pub fn nested_merged_scope() -> ElementSet {
+    element_set(vec![scope_element(
+        "f-cha1/chamfer/edge(f-box1/front|f-box1/top)",
+    )])
 }
 
 /// Raw values for random fingerprints (spec test 27), every magnitude below 1e9.
