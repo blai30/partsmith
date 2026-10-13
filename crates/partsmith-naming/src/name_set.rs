@@ -89,6 +89,9 @@ struct KeyIndex {
     alias_targets: HashMap<Arc<str>, Vec<Arc<Shape>>>,
     /// The names chases end at, by piece-free name, each with the key whose chase holds it.
     ends: HashMap<Arc<str>, Vec<(Arc<Shape>, ElementName)>>,
+    /// The names chases of merge aliases alone end at, by piece-free name, each with the alias key
+    /// whose chase holds it.
+    merge_ends: HashMap<Arc<str>, Vec<(Arc<Shape>, ElementName)>>,
 }
 
 /// One key and its chase.
@@ -249,9 +252,7 @@ impl NameSet {
 
     /// True when face `face` touches one of the faces `family` (ascending ids).
     pub(crate) fn touches_any(&self, face: u32, family: &[u32]) -> bool {
-        self.touching(face)
-            .iter()
-            .any(|other| family.binary_search(other).is_ok())
+        share_a_face(self.touching(face), family)
     }
 
     /// The number of face names.
@@ -262,11 +263,6 @@ impl NameSet {
     /// The id of the face named `name`.
     pub(crate) fn face_id(&self, name: &str) -> Option<u32> {
         self.by_name.get(name).copied()
-    }
-
-    /// The name of face `face`.
-    pub(crate) fn face_name(&self, face: u32) -> &ElementName {
-        &self.faces[face as usize].name
     }
 
     /// Face `face` taken apart.
@@ -424,6 +420,21 @@ impl NameSet {
             .any(|(end, key)| name.extends(end) && !known(key.as_str()))
     }
 
+    /// The merge alias keys, other than `name` itself, whose chase over the aliases holds a name
+    /// that `name` extends: the merged names of `name` (section 3.11). Sorted and distinct.
+    pub(crate) fn merged_into(&self, name: &Shape) -> Vec<ElementName> {
+        let keys: BTreeSet<&ElementName> = self
+            .keys
+            .merge_ends
+            .get(name.piece_free_text())
+            .into_iter()
+            .flatten()
+            .filter(|(end, key)| key.as_str() != name.text().as_ref() && name.extends(end))
+            .map(|(_, key)| key)
+            .collect();
+        keys.into_iter().cloned().collect()
+    }
+
     /// Builds the forms of faces with terms and the skeleton index.
     fn index_terms(&mut self, shapes: &mut Shapes) {
         let mut by_skeleton: HashMap<Arc<str>, SkeletonIndex> = HashMap::new();
@@ -487,7 +498,9 @@ impl NameSet {
                         .bytes()
                         .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
             }) && !instance.is_empty()
-                && instance.bytes().all(|byte| byte.is_ascii_digit() || byte == b'.');
+                && instance
+                    .bytes()
+                    .all(|byte| byte.is_ascii_digit() || byte == b'.');
             if is_copy {
                 copies
                     .entry(prefix.to_owned())
@@ -528,6 +541,16 @@ impl KeyIndex {
                     .entry(Arc::clone(shape.piece_free_text()))
                     .or_default()
                     .push(shape);
+            }
+        }
+        for (key, reached) in Chaser::aliases_only(&aliases.0).chase_every_key() {
+            for end in reached {
+                let end_shape = shapes.of(end.name.shared_text());
+                index
+                    .merge_ends
+                    .entry(Arc::clone(end_shape.piece_free_text()))
+                    .or_default()
+                    .push((end_shape, key.clone()));
             }
         }
         let chaser = Chaser::with_successions(&aliases.0, &successions.0);
@@ -574,6 +597,16 @@ pub(crate) fn ids_by_name(names: &[ElementName]) -> HashMap<Arc<str>, u32> {
         .zip(names)
         .map(|(id, name)| (Arc::clone(name.shared_text()), id))
         .collect()
+}
+
+/// True when the two ascending lists of face ids share a face.
+pub(crate) fn share_a_face(first: &[u32], second: &[u32]) -> bool {
+    let (fewer, more) = if first.len() <= second.len() {
+        (first, second)
+    } else {
+        (second, first)
+    };
+    fewer.iter().any(|face| more.binary_search(face).is_ok())
 }
 
 /// The links of every via entry together.

@@ -60,7 +60,10 @@ mod tests {
             entries
                 .iter()
                 .map(|(former, targets)| {
-                    (name(former), targets.iter().map(|target| name(target)).collect())
+                    (
+                        name(former),
+                        targets.iter().map(|target| name(target)).collect(),
+                    )
                 })
                 .collect(),
         )
@@ -82,8 +85,8 @@ mod tests {
 
     #[test]
     fn serializes_as_object_of_lists() {
-        let json = serde_json::to_string(&aliases(&[("f-b/y", &["f-a/x"])]))
-            .expect("aliases serialize");
+        let json =
+            serde_json::to_string(&aliases(&[("f-b/y", &["f-a/x"])])).expect("aliases serialize");
 
         assert_eq!(json, r#"{"f-b/y":["f-a/x"]}"#);
     }

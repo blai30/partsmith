@@ -14,7 +14,9 @@
 
 use partsmith_features::{BodyState, Repair};
 use partsmith_model::Document;
-use partsmith_naming::{ElementKind, ElementName, MatchMethod, Reference, Resolution, resolve};
+use partsmith_naming::{
+    ElementKind, ElementName, ElementSet, MatchMethod, Reference, Resolution, resolve,
+};
 use partsmith_occt_sys::{ElementGeometry, GeometryKind, SubShapeKind};
 use partsmith_recompute::Status;
 use serde_json::{Value, json};
@@ -474,14 +476,25 @@ pub fn resolution(run: &Run, feature: &str, body: &str, reference: &Value) -> Op
     if state.is_empty() {
         return None;
     }
+    Some(resolve_in_state(&parsed_reference(reference), state))
+}
+
+/// The element set of a body state: its element infos, aliases and successions.
+pub fn element_set(state: &BodyState) -> ElementSet {
     let elements = state
         .elements()
-        .unwrap_or_else(|error| panic!("element infos of {body}: {error}"));
-    Some(resolve(
-        &parsed_reference(reference),
-        &elements,
-        state.naming().aliases(),
-    ))
+        .unwrap_or_else(|error| panic!("element infos of the body: {error}"));
+    ElementSet::new(
+        elements,
+        state.naming().aliases().clone(),
+        state.naming().successions().clone(),
+    )
+    .unwrap_or_else(|error| panic!("the body names each element once: {error}"))
+}
+
+/// The resolution of `reference` against a body state.
+pub fn resolve_in_state(reference: &Reference, state: &BodyState) -> Resolution {
+    resolve(reference, &element_set(state))
 }
 
 /// A one-line description of a resolution.
@@ -491,6 +504,7 @@ pub fn describe_resolution(resolution: &Resolution) -> String {
             elements,
             method,
             confidence,
+            ..
         } => {
             let names: Vec<&str> = elements.iter().map(ElementName::as_str).collect();
             format!("resolved {method:?} (confidence {confidence:.4}) to {names:?}")
@@ -502,7 +516,7 @@ pub fn describe_resolution(resolution: &Resolution) -> String {
                 .collect();
             format!("ambiguous among {names:?}")
         }
-        Resolution::Missing { nearest } => match nearest {
+        Resolution::Missing { candidates, .. } => match candidates.first() {
             Some(candidate) => format!(
                 "missing (nearest {} {:.4})",
                 candidate.name, candidate.score

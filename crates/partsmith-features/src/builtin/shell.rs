@@ -12,7 +12,8 @@ use super::common::{
     unit_hint,
 };
 use super::dressup::{
-    FaceOrigins, add_origins, modified, names_of_faces, new_face, run_or_search, smallest_name,
+    FaceOrigins, add_origins, from_body, modified, names_of_faces, new_face, run_or_search,
+    smallest_name,
 };
 use crate::{
     BuildContext, Dependencies, Feature, FeatureError, FeatureOutput, Named, PythonCall,
@@ -259,7 +260,7 @@ fn name_shell(
         .iter()
         .map(|origin| face_source(feature, input, removed, origin))
         .collect::<Result<Vec<_>, FeatureError>>()?;
-    name_shape(&hollow.shape, faces, &[input.aliases()])
+    name_shape(&hollow.shape, faces, &[input])
 }
 
 /// The source of one face of the hollow body by the first rule of naming.md section 3.6.7 that
@@ -278,7 +279,7 @@ fn face_source(
         return new_face(feature, roles::RIM, Some(&rim));
     }
     if !kept.is_empty() {
-        return Ok(FaceSource::From(names_of_faces(input, &kept)?));
+        return Ok(from_body(names_of_faces(input, &kept)?));
     }
     let generators = [
         (ElementKind::Face, &origin.faces),

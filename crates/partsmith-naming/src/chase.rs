@@ -178,7 +178,12 @@ mod tests {
     fn lists(entries: &[(&str, &[&str])]) -> BTreeMap<ElementName, Vec<ElementName>> {
         entries
             .iter()
-            .map(|(key, targets)| (name(key), targets.iter().map(|target| name(target)).collect()))
+            .map(|(key, targets)| {
+                (
+                    name(key),
+                    targets.iter().map(|target| name(target)).collect(),
+                )
+            })
             .collect()
     }
 
@@ -220,7 +225,10 @@ mod tests {
 
         let chased = chaser.chase(&start);
 
-        assert_eq!(ends(&chased), [("f-c/z", Links::MERGE | Links::REPLACEMENT)]);
+        assert_eq!(
+            ends(&chased),
+            [("f-c/z", Links::MERGE | Links::REPLACEMENT)]
+        );
     }
 
     #[test]

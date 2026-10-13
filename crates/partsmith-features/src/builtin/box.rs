@@ -15,7 +15,7 @@ use crate::feature::Feature;
 use crate::output::FeatureOutput;
 use crate::params::{BodyOp, PlacementExt, PlaneRef};
 use crate::python::{PythonCall, PythonNames};
-use crate::{PrimitivePlacement, default_position, is_default_position};
+use crate::{PrimitivePlacement, add_position_default, default_position, is_default_position};
 
 /// Field paths of the three sizes.
 const SIZE_FIELDS: [&str; 3] = ["size[0]", "size[1]", "size[2]"];
@@ -39,6 +39,7 @@ pub struct BoxParams {
         default = "default_position",
         skip_serializing_if = "is_default_position"
     )]
+    #[schemars(transform = add_position_default)]
     pub position: [Expr; 3],
     /// How the box combines with the body. Required.
     pub op: BodyOp,

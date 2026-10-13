@@ -176,6 +176,15 @@ impl ElementName {
         uses.into_iter().collect()
     }
 
+    /// The name with every `#n` group removed, wherever it stands; `None` when that text is no
+    /// valid name (removing numbers can unsort the face terms of a nested name).
+    pub(crate) fn piece_free(&self) -> Option<ElementName> {
+        if !self.is_order_dependent() {
+            return Some(self.clone());
+        }
+        ElementName::parse(&crate::shape::piece_free_text(&self.0)).ok()
+    }
+
     /// The text of the name, shared.
     pub(crate) fn shared_text(&self) -> &Arc<str> {
         &self.0

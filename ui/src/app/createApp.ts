@@ -76,6 +76,9 @@ type Reopening = {
   readonly recoveryId: string
 }
 
+// DIAG-STILL-WORKING (temporary)
+const diagOutstanding = new Map<number, { type: string; sent: number }>()
+let diagNext = 0
 /** How long the core may answer nothing while a request waits before it is still working (4.4). */
 export const STILL_WORKING_SECONDS = 10
 
@@ -100,6 +103,10 @@ function watchResponses(store: AppStore): ResponseWatch {
 
   function setStillWorking(stillWorking: boolean): void {
     if (store.getState().core.stillWorking !== stillWorking) {
+      // DIAG-STILL-WORKING (temporary)
+      console.debug(
+        `[diag-sw] stillWorking=${String(stillWorking)} t=${performance.now().toFixed(0)} outstanding=${JSON.stringify([...diagOutstanding.entries()].map(([id, entry]) => ({ id, type: entry.type, age: Math.round(performance.now() - entry.sent) })))}`,
+      )
       store.setState((state) => ({ core: { ...state.core, stillWorking } }))
     }
   }
@@ -217,6 +224,17 @@ export function createApp(options: CreateAppOptions): App {
    * the viewport drew it (2.18).
    */
   async function request(command: Command): Promise<Reply> {
+    // DIAG-STILL-WORKING (temporary)
+    const diagId = (diagNext += 1)
+    diagOutstanding.set(diagId, { type: command.type, sent: performance.now() })
+    console.debug(`[diag-sw] sent #${String(diagId)} ${command.type} t=${performance.now().toFixed(0)}`)
+    const diagEnd = (outcome: string): void => {
+      const entry = diagOutstanding.get(diagId)
+      diagOutstanding.delete(diagId)
+      console.debug(
+        `[diag-sw] end #${String(diagId)} ${command.type} ${outcome} took=${entry === undefined ? '?' : (performance.now() - entry.sent).toFixed(0)}ms t=${performance.now().toFixed(0)}`,
+      )
+    }
     const ended = responses.sent()
     const rebuilds = rebuildsDocument(command)
     const started = performance.now()
@@ -225,6 +243,7 @@ export function createApp(options: CreateAppOptions): App {
     }
     try {
       const reply = await client.request(command)
+      diagEnd('ok')
       ended(true)
       const documentHandle = rebuiltDocument(command, reply.result)
       if (documentHandle !== null) {
@@ -236,6 +255,7 @@ export function createApp(options: CreateAppOptions): App {
       return reply
     } catch (error) {
       // A refusal is a response; a core that stopped gave none.
+      diagEnd(error instanceof CoreFatalError ? 'fatal' : 'refused')
       ended(!(error instanceof CoreFatalError))
       throw error
     } finally {

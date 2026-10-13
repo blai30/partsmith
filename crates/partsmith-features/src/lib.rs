@@ -60,7 +60,9 @@ pub use partsmith_model::manifest::{
     Category, FeatureManifest, FieldHint, FieldUnit, OptionHint, SelectionKind,
 };
 pub use partsmith_occt_sys::OCCT_VERSION;
-pub use primitive::{PrimitivePlacement, default_position, is_default_position};
+pub use primitive::{
+    PrimitivePlacement, add_position_default, default_position, is_default_position,
+};
 pub use profile::ProfileFaces;
 pub use python::{PythonCall, PythonNames, PythonValue};
 pub use registry::{Canonical, DynFeature, Registry, RegistryError, Validated, register_builtins};

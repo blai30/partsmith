@@ -5,7 +5,9 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use partsmith_model::{Document, Id};
-use partsmith_naming::{ElementKind, ElementName, Reference, Resolution as Resolved, resolve};
+use partsmith_naming::{
+    ElementKind, ElementName, ElementSet, Reference, Resolution as Resolved, resolve,
+};
 use partsmith_protocol::{
     DocHandle, ElementDescriptor, ElementRef, MeasureTarget, Measurement, MeshElement, Pick,
     Resolution, ResolutionStatus,
@@ -236,19 +238,24 @@ fn resolve_in(
     reference: &Reference,
 ) -> Result<(ResolutionStatus, Vec<ElementName>), EngineError> {
     let elements = view.state.elements().map_err(EngineError::unexpected)?;
-    Ok(
-        match resolve(reference, &elements, view.state.naming().aliases()) {
-            Resolved::Resolved { elements, .. } => (ResolutionStatus::Resolved, elements),
-            Resolved::Ambiguous { candidates } => (
-                ResolutionStatus::Ambiguous,
-                candidates
-                    .into_iter()
-                    .map(|candidate| candidate.name)
-                    .collect(),
-            ),
-            Resolved::Missing { .. } => (ResolutionStatus::Missing, Vec::new()),
-        },
+    let naming = view.state.naming();
+    let set = ElementSet::new(
+        elements,
+        naming.aliases().clone(),
+        naming.successions().clone(),
     )
+    .map_err(EngineError::unexpected)?;
+    Ok(match resolve(reference, &set) {
+        Resolved::Resolved { elements, .. } => (ResolutionStatus::Resolved, elements),
+        Resolved::Ambiguous { candidates } => (
+            ResolutionStatus::Ambiguous,
+            candidates
+                .into_iter()
+                .map(|candidate| candidate.name)
+                .collect(),
+        ),
+        Resolved::Missing { .. } => (ResolutionStatus::Missing, Vec::new()),
+    })
 }
 
 /// The kind and kernel index of the one element a reference resolves to

@@ -151,7 +151,9 @@ impl Reference {
             let piece_free_faces = anchor_names
                 .iter()
                 .all(|anchor| anchor.kind() == ElementKind::Face && !anchor.is_order_dependent());
-            if !piece_free_faces || anchor_names.len() > ANCHOR_LIMIT || !is_sorted_list(anchor_names)
+            if !piece_free_faces
+                || anchor_names.len() > ANCHOR_LIMIT
+                || !is_sorted_list(anchor_names)
             {
                 return Err(invalid(format!(
                     "the anchors of \"{part}\" must be 1 to {ANCHOR_LIMIT} sorted, distinct, piece-free face names"
@@ -346,12 +348,7 @@ mod tests {
 
         assert_eq!(
             faces.into_iter().collect::<Vec<_>>(),
-            [
-                "f-a/x",
-                "f-b/y",
-                "f-c/chamfer/edge(f-a/x|f-b/y)",
-                "f-d/w"
-            ]
+            ["f-a/x", "f-b/y", "f-c/chamfer/edge(f-a/x|f-b/y)", "f-d/w"]
         );
     }
 

@@ -593,7 +593,7 @@ fn t079_resolution_does_not_depend_on_scope_order() {
         ),
         (
             box_infos(),
-            "edge(f-gone/x|f-box1/top)",
+            "edge(f-box1/top|f-gone/x)",
             "line|n=1,0,0|c=5,0,30|l=10|adj=2,2",
         ),
     ];

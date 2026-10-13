@@ -5,8 +5,8 @@ use std::sync::Arc;
 
 use partsmith_model::Id;
 use partsmith_naming::{
-    Aliases, EdgeInfo, ElementKind, ElementName, FaceInfo, FaceSource, Fingerprint, GeometryKind,
-    NamingMap, TopologyInfo, VertexInfo, roles,
+    EdgeInfo, ElementKind, ElementName, FaceInfo, FaceSource, Fingerprint, GeometryKind, Motion,
+    NamingMap, Successions, TopologyInfo, VertexInfo, roles,
 };
 use partsmith_occt_sys::{
     ElementGeometry, GeometryKind as KernelGeometryKind, OpResult, Shape, SubShapeKind,
@@ -81,27 +81,35 @@ pub struct Named {
 }
 
 /// Names every element of `shape` from one source per face, in face index order (naming.md
-/// section 3.3). `inherited_aliases` are the aliases of every input naming map.
+/// section 3.3). `inherited` are the naming maps of every input shape, the body the feature writes
+/// first; each `FaceSource::From` source names its map by its index there.
 pub fn name_shape(
     shape: &Shape,
     faces: Vec<FaceSource>,
-    inherited_aliases: &[&Aliases],
+    inherited: &[&NamingMap],
 ) -> Result<Named, FeatureError> {
     let topology = topology_info(shape)?;
-    let naming = NamingMap::build(faces, &topology, inherited_aliases).map_err(naming_failed)?;
+    let naming = NamingMap::build(
+        faces,
+        &topology,
+        inherited,
+        &Successions::default(),
+        &Motion::IDENTITY,
+    )
+    .map_err(naming_failed)?;
     Ok(Named {
         naming,
         topology: Arc::new(topology),
     })
 }
 
-/// For each face of `result.shape`, in index order, the names of the input faces whose `modified`
-/// list contains it (naming.md `modified_sources`), in input order. `inputs` names the
-/// operation's history inputs in order.
+/// For each face of `result.shape`, in index order, the input faces whose `modified` list contains
+/// it (naming.md `modified_sources`), in input order, each as the index of its input in `inputs`
+/// and its name there. `inputs` names the operation's history inputs in order.
 pub fn modified_sources(
     result: &OpResult,
     inputs: &[&NamingMap],
-) -> Result<Vec<Vec<ElementName>>, FeatureError> {
+) -> Result<Vec<Vec<(u32, ElementName)>>, FeatureError> {
     if inputs.len() != result.history.inputs.len() {
         return Err(FeatureError::internal(format!(
             "the kernel history has {} inputs but {} naming maps were given",
@@ -111,7 +119,7 @@ pub fn modified_sources(
     }
     let face_count = result.shape.count(SubShapeKind::Face) as usize;
     let mut sources = vec![Vec::new(); face_count];
-    for (history, naming) in result.history.inputs.iter().zip(inputs) {
+    for ((map, history), naming) in (0..).zip(&result.history.inputs).zip(inputs) {
         for (input_index, fate) in (1..).zip(&history.faces) {
             let name = naming.name(ElementKind::Face, input_index).ok_or_else(|| {
                 FeatureError::internal(format!(
@@ -127,7 +135,7 @@ pub fn modified_sources(
                             "the kernel history names output face {output} of a shape with {face_count} faces"
                         ))
                     })?;
-                names.push(name.clone());
+                names.push((map, name.clone()));
             }
         }
     }
@@ -154,8 +162,7 @@ pub fn name_by_history(
             }
         })
         .collect();
-    let aliases: Vec<&Aliases> = inputs.iter().map(|naming| naming.aliases()).collect();
-    name_shape(&result.shape, faces, &aliases)
+    name_shape(&result.shape, faces, inputs)
 }
 
 /// True when `shape` has exactly these numbers of faces, edges and vertices, compared in that
@@ -333,7 +340,7 @@ mod tests {
         let top = ElementName::parse("f-a/top").expect("valid name");
         let merged = ElementName::parse("f-b/top").expect("valid name");
         assert!(naming.index(&top).is_some());
-        assert_eq!(naming.aliases().chase(&merged), top);
+        assert_eq!(naming.aliases().chase(&merged), [top]);
         assert!(!face_names(&naming).contains(&"f-c/face".to_string()));
     }
 

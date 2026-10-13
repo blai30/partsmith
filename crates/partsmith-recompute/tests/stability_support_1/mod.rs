@@ -30,7 +30,7 @@ use std::f64::consts::PI;
 
 use partsmith_features::{BodyState, Repair, SketchResult};
 use partsmith_model::Document;
-use partsmith_naming::{ElementKind, ElementName, MatchMethod, Resolution, resolve, score};
+use partsmith_naming::{ElementKind, ElementName, MatchMethod, Resolution, score};
 use partsmith_occt_sys::{ElementGeometry, GeometryKind};
 use partsmith_recompute::{FeatureReport, Message, Report, Severity, Status};
 use partsmith_sketch::{RegionRef, match_region};
@@ -449,7 +449,7 @@ pub fn diagnose(state: &BodyState, reference: &Value) -> String {
     format!(
         "{} resolves to {:?}; best fingerprint scores {scores:?}",
         parsed.query,
-        resolve(&parsed, &elements, state.naming().aliases())
+        resolve_in_state(&parsed, state)
     )
 }
 
@@ -880,12 +880,7 @@ impl Expectations {
 
     /// A reference resolves exactly (method exact) against a body state.
     pub fn resolves_exactly(&mut self, what: &str, state: &BodyState, reference: &Value) {
-        let elements = state.elements().expect("element infos of the body");
-        let resolution = resolve(
-            &parsed_reference(reference),
-            &elements,
-            state.naming().aliases(),
-        );
+        let resolution = resolve_in_state(&parsed_reference(reference), state);
         let exact = matches!(
             &resolution,
             Resolution::Resolved { method, .. } if *method == MatchMethod::Exact

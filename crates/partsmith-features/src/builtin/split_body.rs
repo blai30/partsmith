@@ -216,7 +216,7 @@ fn name_pieces(
             })
         })
         .collect();
-    Ok(name_shape(&pieces.result.shape, faces, &[input.aliases()])?.naming)
+    Ok(name_shape(&pieces.result.shape, faces, &[input])?.naming)
 }
 
 /// The update giving `body` these solids of the split `result`: one solid as it is, several as

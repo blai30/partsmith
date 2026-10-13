@@ -11,12 +11,12 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use partsmith_model::{Expr, FeatureManifest, FieldUnit, Id, LINEAR_TOLERANCE, Units};
-use partsmith_naming::{ElementKind, ElementName, Reference, Resolution};
+use partsmith_naming::{ElementKind, ElementName, ElementSet, Reference, Resolution};
 use partsmith_occt_sys::{Axis, ElementGeometry, GeometryKind, Point, SubShape, Vector};
 use partsmith_sketch::{Geometry, MatchMethod, OriginPlane, Placement, RegionMatch, match_region};
 
 use crate::error::{Bound, FallbackReason, FeatureError, FeatureWarning, FieldRef, Noun};
-use crate::naming::sub_shape_kind;
+use crate::naming::{naming_failed, sub_shape_kind};
 use crate::output::{DatumResult, FeatureOutput, OutputData, SketchResult};
 use crate::params::{AxisRef, PlaneRef, ProfileRef, point, vector};
 
@@ -529,7 +529,13 @@ fn lookup(
     if reference.query.kind() != kind {
         return Ok(Lookup::Missing);
     }
-    match partsmith_naming::resolve(reference, &elements, state.naming().aliases()) {
+    let set = ElementSet::new(
+        elements,
+        state.naming().aliases().clone(),
+        state.naming().successions().clone(),
+    )
+    .map_err(naming_failed)?;
+    match partsmith_naming::resolve(reference, &set) {
         Resolution::Resolved { elements, .. } => elements
             .iter()
             .map(|name| {
@@ -692,6 +698,20 @@ mod tests {
         Fixture::new("f-test1").with_body("b-1", box_body("f-box1", [0.0, 0.0, 0.0], 10.0))
     }
 
+    /// A fixture whose `b-1` is a 10 mm box with its corner at the origin whose faces have the
+    /// fallback names of imported faces, `f-imp1/face#1` to `#6`, numbered by centroid x, then y,
+    /// then z (naming.md sections 3.4 and 3.6.14), so the top is `#4`.
+    fn imported_box_fixture() -> Fixture {
+        let block = crate::test_support::named_box("f-box1", [0.0, 0.0, 0.0], 10.0);
+        let face = ElementName::parse("f-imp1/face").expect("valid name");
+        let faces = (0..block.naming.count(ElementKind::Face))
+            .map(|_| partsmith_naming::FaceSource::New(face.clone()))
+            .collect();
+        let named = crate::naming::name_shape(&block.shape, faces, &[]).expect("the box is named");
+        Fixture::new("f-test1")
+            .with_body("b-1", BodyState::new(block.shape, Arc::new(named.naming)))
+    }
+
     /// A fixture whose `b-1` is a cylinder of radius 5 and height 10 standing on XY at (3, 4).
     fn cylinder_fixture() -> Fixture {
         let placement = KernelPlane {
@@ -802,16 +822,21 @@ mod tests {
     /// A fingerprint that six faces of a 10 mm box match equally: only the kind and the area.
     const ANY_BOX_FACE: &str = "plane|a=100";
 
+    /// An imported face that is gone. Fallback names are confirmed by their fingerprint, so with
+    /// `ANY_BOX_FACE` every face of `imported_box_fixture` fits it equally (naming.md section 3.9
+    /// step 1); an unknown name of any other face never resolves by its fingerprint.
+    const GONE_IMPORTED_FACE: &str = "f-imp1/face#9";
+
     #[test]
     fn an_ambiguous_required_reference_lists_its_candidates() {
-        let fixture = box_fixture();
+        let fixture = imported_box_fixture();
 
         let error = fixture
             .context()
             .resolve(
                 "plane.face",
                 &id("b-1"),
-                &reference("f-box1/nothing", ANY_BOX_FACE),
+                &reference(GONE_IMPORTED_FACE, ANY_BOX_FACE),
                 ElementKind::Face,
             )
             .expect_err("six faces match equally");
@@ -835,10 +860,10 @@ mod tests {
 
     #[test]
     fn an_ambiguous_listed_reference_is_skipped_with_its_candidates() {
-        let fixture = box_fixture();
+        let fixture = imported_box_fixture();
         let faces = [
-            reference("f-box1/nothing", ANY_BOX_FACE),
-            reference("f-box1/top", "plane|n=0,0,1"),
+            reference(GONE_IMPORTED_FACE, ANY_BOX_FACE),
+            reference("f-imp1/face#4", "plane|n=0,0,1"),
         ];
 
         let resolved = fixture
@@ -1168,7 +1193,7 @@ mod tests {
 
     #[test]
     fn face_placement_of_an_ambiguous_face_is_ambiguous() {
-        let result = face_placement_of(&box_fixture(), "f-box1/nothing", ANY_BOX_FACE);
+        let result = face_placement_of(&imported_box_fixture(), GONE_IMPORTED_FACE, ANY_BOX_FACE);
 
         assert_eq!(result, Ok(Err(FallbackReason::Ambiguous)));
     }

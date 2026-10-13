@@ -87,9 +87,7 @@ pub enum NamingError {
         face: u32,
     },
     /// A face source names an input map beyond the inherited maps given.
-    #[error(
-        "Face {face} has a source in input map {map}, but only {count} input maps were given."
-    )]
+    #[error("Face {face} has a source in input map {map}, but only {count} input maps were given.")]
     SourceOutOfRange {
         /// The 1-based face index.
         face: u32,

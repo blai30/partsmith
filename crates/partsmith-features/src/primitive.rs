@@ -2,6 +2,8 @@
 
 use partsmith_model::{Expr, FieldHint, FieldUnit, SelectionKind};
 use partsmith_sketch::Placement;
+use schemars::Schema;
+use serde_json::Value;
 
 use crate::context::BuildContext;
 use crate::deps::Dependencies;
@@ -20,6 +22,16 @@ pub fn default_position() -> [Expr; 3] {
 /// True for the default `position`; for `skip_serializing_if`.
 pub fn is_default_position(position: &[Expr; 3]) -> bool {
     *position == default_position()
+}
+
+/// Writes the default `["0", "0", "0"]` into the schema of a `position` field, or of any array of
+/// three lengths that `default_position` and `is_default_position` give its default; for
+/// `#[schemars(transform = ...)]`. schemars leaves out a default that `skip_serializing_if` would
+/// skip, but a host sets one item of such an array only by sending all three, so it starts them
+/// from the default (features.md section 3.3).
+pub fn add_position_default(schema: &mut Schema) {
+    let default = default_position().map(|expr| Value::String(expr.as_str().to_owned()));
+    schema.insert("default".to_owned(), Value::Array(default.into()));
 }
 
 /// The `plane` and `position` params a primitive declares after its size fields and before `op`:

@@ -27,7 +27,7 @@ use std::sync::Arc;
 use feature_support::{Assets, Run};
 use partsmith_features::{BodyState, Repair};
 use partsmith_model::Document;
-use partsmith_naming::{resolve, score};
+use partsmith_naming::score;
 use partsmith_occt_sys::{ElementGeometry, GeometryKind, Plane, Point, Shape};
 use serde_json::{Value, json};
 
@@ -447,7 +447,7 @@ pub fn diagnose_in(state: &BodyState, place: &str, reference: &Value) -> String 
     let elements = state
         .elements()
         .unwrap_or_else(|error| panic!("element infos in {place}: {error}"));
-    let resolution = resolve(&parsed, &elements, state.naming().aliases());
+    let resolution = resolve_in_state(&parsed, state);
     let kind = parsed.query.kind();
     let mut scored: Vec<(f64, &str)> = elements
         .iter()

@@ -251,7 +251,8 @@ impl ElementSet {
     /// The positions of the edges or vertices, as `kind` says, that list face `face`.
     pub(crate) fn incident(&self, kind: ElementKind, face: u32) -> &[u32] {
         let positions = self.incident.get(face as usize);
-        let vertices = positions.partition_point(|&position| (position as usize) < self.vertices_start);
+        let vertices =
+            positions.partition_point(|&position| (position as usize) < self.vertices_start);
         match kind {
             ElementKind::Edge => &positions[..vertices],
             ElementKind::Vertex => &positions[vertices..],
@@ -283,7 +284,10 @@ fn in_kind_order(elements: Arc<[ElementInfo]>) -> Arc<[ElementInfo]> {
         ElementKind::Edge => 1,
         ElementKind::Vertex => 2,
     };
-    if elements.windows(2).all(|pair| rank(&pair[0]) <= rank(&pair[1])) {
+    if elements
+        .windows(2)
+        .all(|pair| rank(&pair[0]) <= rank(&pair[1]))
+    {
         return elements;
     }
     let mut ordered = elements.to_vec();

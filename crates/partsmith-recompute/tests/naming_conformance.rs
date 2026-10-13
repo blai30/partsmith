@@ -11,7 +11,9 @@ use common::{
 };
 use partsmith_features::BodyState;
 use partsmith_model::Document;
-use partsmith_naming::{ElementKind, ElementName, MatchMethod, Reference, Resolution, resolve};
+use partsmith_naming::{
+    ElementKind, ElementName, ElementSet, MatchMethod, Reference, Resolution, resolve,
+};
 use serde_json::{Value, json};
 
 /// An extrude record of one profile region.
@@ -187,7 +189,14 @@ fn t084_a_split_cap_keeps_its_name_with_suffixes_and_old_references_follow_it() 
     let infos = slotted
         .elements()
         .expect("element infos of the slotted body");
-    match resolve(&reference, &infos, slotted.naming().aliases()) {
+    let naming = slotted.naming();
+    let set = ElementSet::new(
+        infos,
+        naming.aliases().clone(),
+        naming.successions().clone(),
+    )
+    .expect("the slotted body names each element once");
+    match resolve(&reference, &set) {
         Resolution::Resolved {
             elements, method, ..
         } => {
@@ -413,7 +422,7 @@ fn t089_pattern_copies_take_instance_suffixes_and_merged_faces_keep_aliases() {
     for former in ["f-box1/top@f-pat1:1", "f-box1/top@f-pat1:2"] {
         assert_eq!(
             aliases.get(&element(former)),
-            Some(&element("f-box1/top")),
+            Some(&vec![element("f-box1/top")]),
             "alias of {former}"
         );
     }

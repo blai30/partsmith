@@ -244,6 +244,12 @@ pub(super) fn names_of_faces(
         .collect()
 }
 
+/// The source of a face that descends from these faces of the body, whose naming map is the only
+/// inherited one.
+pub(super) fn from_body(names: Vec<ElementName>) -> FaceSource {
+    FaceSource::From(names.into_iter().map(|name| (0, name)).collect())
+}
+
 /// The smallest name in byte order of these body elements of `kind`; unnamed elements (such as
 /// degenerated edges) are left out.
 pub(super) fn smallest_name(
@@ -296,7 +302,7 @@ fn name_blend(
         .iter()
         .map(|origin| {
             if !origin.modified.is_empty() {
-                return Ok(FaceSource::From(names_of_faces(input, &origin.modified)?));
+                return Ok(from_body(names_of_faces(input, &origin.modified)?));
             }
             if let Some(edge) = smallest_name(input, ElementKind::Edge, &origin.edges) {
                 return new_face(feature, role, Some(&edge));
@@ -307,7 +313,7 @@ fn name_blend(
             new_face(feature, roles::FACE, None)
         })
         .collect::<Result<Vec<_>, FeatureError>>()?;
-    name_shape(&result.shape, faces, &[input.aliases()])
+    name_shape(&result.shape, faces, &[input])
 }
 
 /// The output of a dress-up feature that changed `body` into `shape` named by `named`, with the

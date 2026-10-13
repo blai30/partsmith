@@ -998,7 +998,8 @@
           "items": {"$ref": "#/$defs/Expr"},
           "minItems": 3,
           "maxItems": 3,
-          "description": "Placement offset. Default [\"0\", \"0\", \"0\"], omitted when default."
+          "description": "Placement offset. Default [\"0\", \"0\", \"0\"], omitted when default.",
+          "default": ["0", "0", "0"]
         },
         "op": {"$ref": "#/$defs/BodyOp", "description": "How the box combines with the body. Required."}
       },
@@ -1070,7 +1071,8 @@
           "items": {"$ref": "#/$defs/Expr"},
           "minItems": 3,
           "maxItems": 3,
-          "description": "Placement offset. Default [\"0\", \"0\", \"0\"], omitted when default."
+          "description": "Placement offset. Default [\"0\", \"0\", \"0\"], omitted when default.",
+          "default": ["0", "0", "0"]
         },
         "op": {"$ref": "#/$defs/BodyOp", "description": "How the cone combines with the body. Required."}
       },
@@ -1093,7 +1095,8 @@
           "items": {"$ref": "#/$defs/Expr"},
           "minItems": 3,
           "maxItems": 3,
-          "description": "Placement offset. Default [\"0\", \"0\", \"0\"], omitted when default."
+          "description": "Placement offset. Default [\"0\", \"0\", \"0\"], omitted when default.",
+          "default": ["0", "0", "0"]
         },
         "op": {"$ref": "#/$defs/BodyOp", "description": "How the cylinder combines with the body. Required."}
       },
@@ -1250,7 +1253,8 @@
           "items": {"$ref": "#/$defs/Expr"},
           "minItems": 3,
           "maxItems": 3,
-          "description": "Translation along world X, Y and Z, applied after the rotation. Lengths. Default\n[\"0\", \"0\", \"0\"], omitted when default."
+          "description": "Translation along world X, Y and Z, applied after the rotation. Lengths. Default\n[\"0\", \"0\", \"0\"], omitted when default.",
+          "default": ["0", "0", "0"]
         },
         "rotation": {
           "anyOf": [
@@ -1331,7 +1335,8 @@
           "items": {"$ref": "#/$defs/Expr"},
           "minItems": 3,
           "maxItems": 3,
-          "description": "Placement offset (the center). Default [\"0\", \"0\", \"0\"], omitted when default."
+          "description": "Placement offset (the center). Default [\"0\", \"0\", \"0\"], omitted when default.",
+          "default": ["0", "0", "0"]
         },
         "op": {"$ref": "#/$defs/BodyOp", "description": "How the sphere combines with the body. Required."}
       },
@@ -1378,7 +1383,8 @@
           "items": {"$ref": "#/$defs/Expr"},
           "minItems": 3,
           "maxItems": 3,
-          "description": "Placement offset (the center). Default [\"0\", \"0\", \"0\"], omitted when default."
+          "description": "Placement offset (the center). Default [\"0\", \"0\", \"0\"], omitted when default.",
+          "default": ["0", "0", "0"]
         },
         "op": {"$ref": "#/$defs/BodyOp", "description": "How the torus combines with the body. Required."}
       },

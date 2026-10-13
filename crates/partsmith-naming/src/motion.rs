@@ -16,7 +16,8 @@ const TRANSLATION: usize = 9;
 
 impl Motion {
     /// The motion that changes nothing.
-    pub const IDENTITY: Motion = Motion([1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0]);
+    pub const IDENTITY: Motion =
+        Motion([1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0]);
 
     /// The motion with this matrix (rows) and translation. The caller passes an isometry, such as
     /// a kernel transform.
@@ -130,22 +131,36 @@ mod tests {
 
     #[test]
     fn new_stores_negative_zeros_as_zeros() {
-        let motion = Motion::new([[1.0, -0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]], [-0.0; 3]);
+        let motion = Motion::new(
+            [[1.0, -0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+            [-0.0; 3],
+        );
 
-        assert!(motion.0.iter().all(|component| !component.is_sign_negative()));
+        assert!(
+            motion
+                .0
+                .iter()
+                .all(|component| !component.is_sign_negative())
+        );
         assert_eq!(motion, Motion::IDENTITY);
     }
 
     #[test]
     fn equality_compares_every_component() {
-        let shifted = Motion::new([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]], [0.0, 0.0, 1e-300]);
+        let shifted = Motion::new(
+            [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+            [0.0, 0.0, 1e-300],
+        );
 
         assert_ne!(shifted, Motion::IDENTITY);
     }
 
     #[test]
     fn determinant_of_a_reflection_is_negative() {
-        let mirror = Motion::new([[-1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]], [0.0; 3]);
+        let mirror = Motion::new(
+            [[-1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+            [0.0; 3],
+        );
 
         assert!(!mirror.is_proper());
         assert!(Motion::IDENTITY.is_proper());

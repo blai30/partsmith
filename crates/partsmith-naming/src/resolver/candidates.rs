@@ -82,7 +82,11 @@ fn direction_agrees(stored: &Fingerprint, candidate: &Fingerprint) -> bool {
     let (Some(first), Some(second)) = (stored.direction, candidate.direction) else {
         return false;
     };
-    let dot: f64 = first.iter().zip(second).map(|(first, second)| first * second).sum();
+    let dot: f64 = first
+        .iter()
+        .zip(second)
+        .map(|(first, second)| first * second)
+        .sum();
     let alignment = if stored.kind == crate::kind::GeometryKind::Plane {
         dot
     } else {

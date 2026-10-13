@@ -19,7 +19,7 @@ use crate::feature::Feature;
 use crate::output::{BodyChange, BodyUpdate, FeatureOutput, Measurements};
 use crate::params::AxisRef;
 use crate::python::{PythonCall, PythonNames, PythonValue};
-use crate::{default_position, is_default_position, vector};
+use crate::{add_position_default, default_position, is_default_position, vector};
 
 /// Field paths of the three translation components.
 const TRANSLATION_FIELDS: [&str; 3] = ["translation[0]", "translation[1]", "translation[2]"];
@@ -43,6 +43,7 @@ pub struct MoveBodyParams {
         default = "default_position",
         skip_serializing_if = "is_default_position"
     )]
+    #[schemars(transform = add_position_default)]
     pub translation: [Expr; 3],
     /// Rotation applied first. Omitted when None.
     #[serde(default, skip_serializing_if = "Option::is_none")]

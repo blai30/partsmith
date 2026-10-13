@@ -3,7 +3,7 @@
 
 use std::sync::{Arc, OnceLock};
 
-use partsmith_naming::{ElementInfo, NamingMap, TopologyInfo};
+use partsmith_naming::{ElementInfo, Motion, NamingMap, Successions, TopologyInfo};
 use partsmith_occt_sys::Shape;
 
 use crate::error::FeatureError;
@@ -35,8 +35,14 @@ struct BodyContent {
 impl BodyState {
     /// A body with no solid.
     pub fn empty() -> Self {
-        let naming = NamingMap::build(Vec::new(), &empty_topology(), &[])
-            .expect("a shape without elements always has a naming map");
+        let naming = NamingMap::build(
+            Vec::new(),
+            &empty_topology(),
+            &[],
+            &Successions::default(),
+            &Motion::IDENTITY,
+        )
+        .expect("a shape without elements always has a naming map");
         BodyState::with(None, Arc::new(naming), Measurements::default())
     }
 

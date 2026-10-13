@@ -6,7 +6,7 @@ use std::sync::Arc;
 use crate::canon::Forms;
 use crate::element_set::ElementSet;
 use crate::name::ElementName;
-use crate::name_set::NameSet;
+use crate::name_set::{NameSet, share_a_face};
 use crate::reference::Reference;
 use crate::shape::Shape;
 
@@ -88,26 +88,16 @@ impl LiveAnchors {
     pub(super) fn covers(&self, adjacent: &[u32]) -> bool {
         self.families
             .iter()
-            .all(|family| touches(adjacent, family))
+            .all(|family| share_a_face(adjacent, family))
     }
 
     /// Which live anchors the faces `adjacent` (ascending) touch.
     pub(super) fn touched(&self, adjacent: &[u32]) -> Vec<bool> {
         self.families
             .iter()
-            .map(|family| touches(adjacent, family))
+            .map(|family| share_a_face(adjacent, family))
             .collect()
     }
-}
-
-/// True when the two ascending lists share a face.
-pub(super) fn touches(adjacent: &[u32], family: &[u32]) -> bool {
-    let (fewer, more) = if adjacent.len() <= family.len() {
-        (adjacent, family)
-    } else {
-        (family, adjacent)
-    };
-    fewer.iter().any(|face| more.binary_search(face).is_ok())
 }
 
 impl FacePart {
@@ -117,13 +107,15 @@ impl FacePart {
         let canonical = names.canonical(&shape, &reference.merged);
         let family = names.family_of(&canonical);
         let members: Vec<usize> = family.iter().map(|&face| face as usize).collect();
-        let anchors = reference.anchors.0.get(&name).and_then(|anchor_names| {
+        let order_dependent = name.is_order_dependent();
+        let anchored = reference.anchors.0.get(&name).filter(|_| order_dependent);
+        let anchors = anchored.and_then(|anchor_names| {
             LiveAnchors::of(anchor_names, names, &members, |member| {
                 names.touching(face_id(member)).to_vec()
             })
         });
         FacePart {
-            order_dependent: name.is_order_dependent(),
+            order_dependent,
             fallback: shape.is_fallback(),
             name,
             shape,

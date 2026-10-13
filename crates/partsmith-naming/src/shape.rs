@@ -112,7 +112,9 @@ impl Shape {
         if text.as_bytes().get(end) == Some(&b'.') {
             end += 1 + text[end + 1..]
                 .bytes()
-                .take_while(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || *byte == b'-')
+                .take_while(|byte| {
+                    byte.is_ascii_lowercase() || byte.is_ascii_digit() || *byte == b'-'
+                })
                 .count();
         }
         (Source::Sketch(start..end), end, None)
@@ -332,7 +334,10 @@ fn runs_extend(longer: &[(u32, u32)], shorter: &[(u32, u32)]) -> bool {
     for &(run, number) in shorter {
         if previous_run != Some(run) {
             // Skip the rest of the previous run of `longer`, and every earlier run.
-            while longer.next_if(|&&(longer_run, _)| longer_run < run).is_some() {}
+            while longer
+                .next_if(|&&(longer_run, _)| longer_run < run)
+                .is_some()
+            {}
             previous_run = Some(run);
         }
         match longer.next() {
@@ -428,7 +433,11 @@ mod tests {
     fn edge_generator_terms_and_skeleton_keep_instance_groups() {
         let chamfer = shape("f-c/chamfer/edge(f-a/x#1|f-b/y)@f-p:1#2");
 
-        let terms: Vec<&str> = chamfer.terms().iter().map(|term| term.text().as_ref()).collect();
+        let terms: Vec<&str> = chamfer
+            .terms()
+            .iter()
+            .map(|term| term.text().as_ref())
+            .collect();
 
         assert_eq!(terms, ["f-a/x#1", "f-b/y"]);
         assert_eq!(

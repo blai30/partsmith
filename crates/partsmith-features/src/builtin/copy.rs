@@ -4,7 +4,7 @@
 //! 3.5.1, 3.6.10 and 3.6.11).
 
 use partsmith_model::{FeatureManifest, FieldHint, Id};
-use partsmith_naming::Instance;
+use partsmith_naming::{Instance, Motion};
 use partsmith_occt_sys::{Shape, Transform, transform};
 
 use super::common::{bodies, naming_failed, options_hint, solid_body, unchanged};
@@ -108,7 +108,7 @@ impl<'a> Source<'a> {
         let naming = self
             .state
             .naming()
-            .with_instance(context.feature(), instance)
+            .with_instance(context.feature(), instance, &naming_motion(motion))
             .map_err(naming_failed)?;
         Ok(Tool {
             shape: moved.shape,
@@ -162,6 +162,19 @@ impl<'a> Source<'a> {
         let (update, warnings) = apply_op(context, destination, body_op, copies)?;
         Ok(bodies(vec![update], warnings))
     }
+}
+
+/// The kernel transform `motion` as a naming motion: its linear part, then its translation.
+fn naming_motion(motion: &Transform) -> Motion {
+    let [first, second, third] = motion.matrix;
+    Motion::new(
+        [
+            [first[0], first[1], first[2]],
+            [second[0], second[1], second[2]],
+            [third[0], third[1], third[2]],
+        ],
+        [first[3], second[3], third[3]],
+    )
 }
 
 #[cfg(test)]

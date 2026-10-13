@@ -13,7 +13,7 @@ use crate::feature::Feature;
 use crate::output::FeatureOutput;
 use crate::params::{BodyOp, PlacementExt, PlaneRef};
 use crate::python::{PythonCall, PythonNames};
-use crate::{PrimitivePlacement, default_position, is_default_position};
+use crate::{PrimitivePlacement, add_position_default, default_position, is_default_position};
 
 /// A right circular cylinder.
 #[derive(Clone, Copy, Debug)]
@@ -36,6 +36,7 @@ pub struct CylinderParams {
         default = "default_position",
         skip_serializing_if = "is_default_position"
     )]
+    #[schemars(transform = add_position_default)]
     pub position: [Expr; 3],
     /// How the cylinder combines with the body. Required.
     pub op: BodyOp,

@@ -302,7 +302,12 @@ impl NameSet {
 
     /// The keys whose chase gave a form a face of the set was matched by, against `canonical`, with
     /// the kinds of history used: the "via" of section 3.9.
-    pub(crate) fn matched_via(&self, face: u32, canonical: &Forms, via: &mut Vec<(ElementName, Links)>) {
+    pub(crate) fn matched_via(
+        &self,
+        face: u32,
+        canonical: &Forms,
+        via: &mut Vec<(ElementName, Links)>,
+    ) {
         let face_forms = match self.face_pattern(face) {
             Some(pattern) => Forms {
                 names: Vec::new(),
@@ -350,7 +355,10 @@ impl NameSet {
     }
 
     /// The patterns of a set of forms and of its names with terms, each with the keys that gave it.
-    fn patterns_with_names<'a>(&self, forms: &'a Forms) -> Vec<(Pattern, &'a [(ElementName, Links)])> {
+    fn patterns_with_names<'a>(
+        &self,
+        forms: &'a Forms,
+    ) -> Vec<(Pattern, &'a [(ElementName, Links)])> {
         let mut patterns: Vec<(Pattern, &[(ElementName, Links)])> = forms
             .patterns
             .iter()

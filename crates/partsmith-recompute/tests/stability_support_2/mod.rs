@@ -23,7 +23,7 @@ pub use stability_common::*;
 use feature_support::{Assets, Run, body_before, element_names, sketch_result};
 use partsmith_features::BodyState;
 use partsmith_model::Document;
-use partsmith_naming::{ElementKind, resolve, score};
+use partsmith_naming::{ElementKind, score};
 use serde_json::{Value, json};
 
 // Sketch entities and regions.
@@ -174,7 +174,7 @@ pub fn diagnose(run: &Run, feature: &str, body: &str, reference: &Value) -> Stri
     let elements = state
         .elements()
         .unwrap_or_else(|error| panic!("element infos of {body}: {error}"));
-    let resolution = resolve(&parsed, &elements, state.naming().aliases());
+    let resolution = resolve_in_state(&parsed, state);
     let kind = parsed.query.kind();
     let mut scored: Vec<(f64, &str)> = elements
         .iter()
