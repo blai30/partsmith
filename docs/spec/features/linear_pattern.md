@@ -113,12 +113,12 @@ As [mirror.md](mirror.md) section 3.1 for `op` and `target`.
 
 ### 3.3 Build
 
-1. The source body must hold a solid, else `BodyEmpty { use_new: false }`.
-2. For each direction, in order: n = `ctx.eval_count("direction.count", count, 1)` (`second_direction.count` for the second direction), so a count below 1, fractional or not, is `OutOfRange` (`AtLeast(1)`) (features.md section 3.4); s = spacing > 0 (`OutOfRange`, `GreaterThan(0)`); d = the resolved axis direction, negated when `reverse`.
+1. The source body must hold a solid, else `BodyEmpty { field: body, body, use_new: false }` (recompute's diagnosis adds why it is empty, features.md section 4.1).
+2. For each direction, in order: n = `ctx.eval_count("direction.count", count, 1)` (`second_direction.count` for the second direction), so a count below 1, fractional or not, is `OutOfRange` (`AtLeast(1)`) (features.md section 3.4); s = spacing > 0 (`OutOfRange`, `GreaterThan(0)`) and at most the modeling limit (`AtMost(MODEL_LIMIT)`); d = the resolved axis direction (`ctx.axis`, features.md section 3.6), negated when `reverse`. The axis's warnings and notices go into the output. An `edge` or `face` axis keeps the side the user picked: it is oriented by its stored `direction` moved with the part, or else by its fingerprint, so a small edit that tilts the edge never sends the copies the other way (corpus R38); edges that do not lie on one line give `NotCollinear`.
 3. Total instances N = n1 × n2 (n2 = 1 without a second direction). N > 10000 gives `TooManyInstances { count: N, limit: 10000 }`.
-4. Instances are (i, j) for i in 0..n1 and j in 0..n2; (0, 0) is the original. Each other instance is the source translated by i·s1·d1 + j·s2·d2 (kernel `transform`, index-preserving), named with `source_map.with_instance(<id>, Instance { first: i, second: j })`. Instances are built in order of j, then i. The build checks `ctx.is_canceled()` before each instance and returns `Canceled` when set.
-5. If there are no copies (N = 1), the body (or target) is unchanged and a `NoEffect` warning is added.
-6. The copies are combined with one multi-argument kernel boolean: op join `apply_op(ctx, body, Join, copies)`; op new `apply_op(ctx, target, New, copies)`, which fuses the copies with each other into the empty `target`. Copies that overlap each other or the source fuse into one solid; separate copies stay separate solids of the same body.
+4. Instances are (i, j) for i in 0..n1 and j in 0..n2; (0, 0) is the original. Each other instance is the source translated by t = i·s1·d1 + j·s2·d2 (kernel `transform`, index-preserving), named with `source_map.with_instance(<id>, Instance { first: i, second: j }, t)` (naming.md section 3.5.1): every face of a copy has the motion of its source face followed by t, so a sketch on a copy's face moves with the copy when the spacing changes ([sketch.md](sketch.md) test 27). Instances are built in order of j, then i. The build checks `ctx.is_canceled()` before each instance and returns `Canceled` when set.
+5. If there are no copies (N = 1), the body (or target) is unchanged and a `NoEffect { how: NoCopies { fields } }` warning is added, with `fields` the count fields that are 1 (features.md section 3.15).
+6. The copies are combined with one multi-argument kernel boolean: op join `apply_op(ctx, body, Join, copies, None)`; op new `apply_op(ctx, target, New, copies, None)`, which fuses the copies with each other into the empty `target`. Copies that overlap each other or the source fuse into one solid; separate copies stay separate solids of the same body, which is what a pattern makes, so no `SeparateSolid` warning is given (features.md section 3.5).
 
 ### 3.4 Element names
 
@@ -136,11 +136,14 @@ Source faces keep their names. Instance numbers are pattern positions, not kerne
 | Count < 1 (fractional included) | `OutOfRange` | `Count must be at least 1, but it is 0. Use 1 or more.` |
 | Count not whole | `NotWholeNumber` | `Count must be a whole number, but it is 2.5. Use 2 or 3.` |
 | Spacing ≤ 0 | `OutOfRange` | `Spacing must be greater than 0 mm, but it is 0 mm. Use a value greater than 0 mm.` |
-| Too many instances | `TooManyInstances` | `This pattern would make 20000 instances; the limit is 10000. Use fewer instances.` |
-| Axis errors | `NotStraight`, `NoAxis`, `UnknownEntity`, `NotALine`, `ReferenceNotFound` | features.md section 4.1 |
+| Spacing above the modeling limit | `OutOfRange` | `Spacing must be at most 1000000 mm, but it is 1e200 mm. Use 1000000 mm or less.` |
+| Too many instances | `TooManyInstances` | `This linear pattern would make 20000 copies, more than the limit of 10000. Lower Count.` |
+| Axis errors | `NotStraight`, `NoAxis`, `NotCollinear`, `UnknownEntity`, `NotALine`, `ReferenceNotFound` | features.md section 4.1 |
 | Op, target and body errors | as [mirror.md](mirror.md) section 4 | |
-| Canceled during the build | `Canceled` | `Recompute was canceled before this feature finished.` |
-| No copies, or copies inside the source | warning `NoEffect` | features.md section 4.2 |
+| Canceled during the build | `Canceled` | `Recompute was canceled before this linear pattern finished.` |
+| No copies | warning `NoEffect` (`NoCopies`) | `This linear pattern makes no copies, because Count is 1.`; with two directions `This linear pattern makes no copies, because Count and Second count are 1.` |
+| Copies inside the body | warning `NoEffect` (`Inside`) | `This linear pattern adds nothing to body 'Body 1': its copies lie entirely inside the body.` |
+| The axis reference guessed or followed | warning `ReferenceGuessed`, notice `ReferenceFollowed` | features.md section 4.2 |
 
 ## 5. Performance
 
@@ -158,18 +161,22 @@ Conventions from features.md section 6.1. Bodies `[b-1, b-2]`. Fixtures:
 2. **Overlapping copies fuse.** `CUBE10`, `LP(DIR(X, "3", "5"))`. Expected: volume 2000, 6 faces, 1 solid, bbox [-5,-5,0]-[15,5,10].
 3. **Grid.** `CUBE10`, `LP(DIR(X, "3", "20"), "second_direction": DIR(Y, "2", "15"))`. Expected: volume 6000, 36 faces, bbox [-5,-5,0]-[45,20,10]; faces `f-box1/top@f-lp1:1`, `f-box1/top@f-lp1:0.1` and `f-box1/top@f-lp1:2.1` exist.
 4. **Reverse.** `CUBE10`, `LP({"axis": X, "count": "3", "spacing": "20", "reverse": true})`. Expected: bbox [-45,-5,0]-[5,5,10].
-5. **Count 1.** `CUBE10`, `LP(DIR(X, "1", "20"))`. Expected: warning `no_effect`; b-1 unchanged.
+5. **Count 1.** `CUBE10`, `LP(DIR(X, "1", "20"))`. Expected: warning `no_effect` with how `NoCopies { fields: [direction.count] }`, rendered `This linear pattern makes no copies, because Count is 1.`; b-1 unchanged. With `"second_direction": DIR(Y, "1", "15")` as well: rendered `This linear pattern makes no copies, because Count and Second count are 1.`
 6. **Fractional count.** `CUBE10`, `LP(DIR(X, "2.5", "20"))`. Expected: error `not_whole_number`, field `direction.count`, rendered `Count must be a whole number, but it is 2.5. Use 2 or 3.`
 7. **Zero count.** `CUBE10`, `LP(DIR(X, "0", "20"))`. Expected: error `out_of_range` rendered `Count must be at least 1, but it is 0. Use 1 or more.`
 8. **Zero spacing.** `CUBE10`, `LP(DIR(X, "3", "0"))`. Expected: error `out_of_range`, field `direction.spacing`.
 9. **New body.** `CUBE10`, `LP(DIR(X, "3", "20"), "op": "new", "target": "b-2")`. Expected: b-1 unchanged; b-2 volume 2000, 12 faces, bbox [15,-5,0]-[45,5,10], change `New`.
 10. **Direction from a sketch line.** `CUBE10`; sketch `{"id": "f-sk1", "type": "sketch", "plane": {"kind": "origin", "plane": "XY"}, "entities": [{"id": "e-1", "type": "line", "start": [0, 0], "end": [3, 4], "construction": true}]}`; `LP(DIR({"kind": "sketch_line", "sketch": "f-sk1", "line": "e-1"}, "2", "50"))`. Expected: volume 2000, bbox [-5,-5,0]-[35,45,10]; dependencies `features == ["f-sk1"]`.
-11. **Direction from an edge.** `CUBE10`, `LP(DIR({"kind": "edge", "body": "b-1", "edge": {"q": "edge(f-box1/front|f-box1/top)", "fp": "line|n=1,0,0|c=0,-5,10|l=10"}}, "2", "20"))`. The canonical direction is +X. Expected: bbox [-5,-5,0]-[25,5,10].
-12. **Too many instances.** `CUBE10`, `LP(DIR(X, "200", "20"), "second_direction": DIR(Y, "100", "20"))`. Expected: error `too_many_instances` rendered `This pattern would make 20000 instances; the limit is 10000. Use fewer instances.`; b-1 unchanged.
+11. **Direction from an edge.** `CUBE10`, `LP(DIR({"kind": "edge", "body": "b-1", "edge": {"q": "edge(f-box1/front|f-box1/top)", "fp": "line|n=1,0,0|c=0,-5,10|l=10"}}, "2", "20"))`. The fingerprint's direction is +X, so the edge's direction is taken as +X. Expected: bbox [-5,-5,0]-[25,5,10].
+12. **Too many instances.** `CUBE10`, `LP(DIR(X, "200", "20"), "second_direction": DIR(Y, "100", "20"))`. Expected: error `too_many_instances` rendered `This linear pattern would make 20000 copies, more than the limit of 10000. Lower Count.`; b-1 unchanged.
 13. **Cancellation.** Build test 3's pattern through `Registry::build` with a `BuildContext` whose `CancelToken` is already canceled. Expected: `Err(Canceled)`.
 14. **Performance.** `CUBE10` with `DIR(X, "100", "20")` builds in under 500 ms (desktop, release).
 15. **Fractional count below 1.** `CUBE10`, `LP(DIR(X, "0.5", "20"))`. Expected: error `out_of_range`, field `direction.count`, rendered `Count must be at least 1, but it is 0.5. Use 1 or more.`, suggestion `1`; b-1 unchanged.
+16. **A sketch on a copy's face follows the spacing.** The document of [sketch.md](sketch.md) test 27 (a face sketch on `f-box1/top@f-lp1:1` with `fallback_frame: body` and a hole at its point (5, 5)). Expected: with spacing `"60"`, the motion of `f-box1/top@f-lp1:1` in b-1 after f-lp1 is the translation (60, 0, 0) and the bore's axis passes through (65, 5, 0); with spacing `"80"`, the translation (80, 0, 0) and (85, 5, 0); every feature status ok.
+17. **An edge direction that leans keeps its side (corpus R38).** Bodies `[b-1]`; `{"id": "f-sk1", "type": "sketch", "plane": {"kind": "origin", "plane": "XY"}, "entities": RECT(0, 0, 40, 20)}`; `{"id": "f-ext1", "type": "extrude", "body": "b-1", "profile": {"sketch": "f-sk1", "regions": [{"key": "e-1,e-2,e-3,e-4", "fp": "c=20,10|a=800"}]}, "extent": {"kind": "distance", "expr": "10"}, "op": "new"}`; `LP(DIR({"kind": "edge", "body": "b-1", "edge": {"q": "edge(f-ext1/lateral/e-4|f-ext1/start-cap)", "fp": "line|n=0,1,0|c=0,10,0|l=20|adj=2,2"}}, "2", "30"))` (the left wall's bottom edge; copy at y 30..50). Edit: move the shared point of `e-3`'s end and `e-4`'s start from (0, 20) to (-1, 20) (the left wall leans 1 mm). Expected: ok; the edge resolves exactly and keeps the side of its fingerprint's direction: the copy is offset by (-1.498129, 29.962570, 0) (direction (-0.049938, 0.998752, 0)), bbox [-2.498129,0,0]-[40,49.962570,10]. Leaning to (1, 20) instead: offset (1.498129, 29.962570, 0), bbox [0,0,0]-[41.498129,49.962570,10]. The same with `"direction": [0, 1, 0]` stored on the axis.
+18. **A 180 degree turn of the part turns the direction.** `CUBE10`; `{"id": "f-mv1", "type": "move_body", "body": "b-1", "rotation": {"axis": {"kind": "origin", "axis": "Z"}, "angle": "180 deg"}}`; `LP(DIR({"kind": "edge", "body": "b-1", "edge": {"q": "edge(f-box1/front|f-box1/top)", "fp": "line|n=1,0,0|c=0,-5,10|l=10"}, "direction": [1, 0, 0]}, "2", "20"))` (picked before the move was inserted). Expected: ok; the stored direction turns with the part to -X: bbox [-25,-5,0]-[5,5,10]. The same document without `direction` (as written before format version 2) keeps the fingerprint's side, +X: bbox [-5,-5,0]-[25,5,10].
+19. **Direction edges not on one line.** b-1 holds the L-shaped body of [fillet.md](fillet.md) test 4; `LP(DIR({"kind": "edge", "body": "b-1", "edge": {"q": "edge(f-box1/front|f-box1/top)", "fp": "line|n=1,0,0|c=-10,-10,10|l=20", "merged": {"f-box1/top": ["f-box2/top"]}}}, "2", "50"))`. Expected: error `not_collinear`, field `direction.axis`, rendered `The edge selected for Direction now matches 2 edges that do not lie on one line. Pick the one you mean.`, fixes `UseReferences` with each of `edge(f-box1/front|f-box1/top)` and `edge(f-box1/front|f-box2/top)`, then `Pick`; b-1 unchanged.
 
 ## Open issues
 
-None beyond features.md.
+1. **The count in `too_many_instances`.** The message says `copies` for N, which counts the original as well (the study's text, features.md section 4.1). The difference is one in ten thousand, but a later wording could say `instances` to match Count's meaning.

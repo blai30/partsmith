@@ -94,7 +94,7 @@ feature(
 
 1. Checks in order: bottom_radius ≥ 0 and top_radius ≥ 0 (`OutOfRange`, `AtLeast(0)`); not both 0 (`ConeRadiiZero`); height at least `LINEAR_TOLERANCE` (`OutOfRange`, `GreaterThan(0)`, features.md section 3.14). From the second check on, a radius below `LINEAR_TOLERANCE` (1e-6 mm) counts as 0: it is an apex, because the kernel builds no circle smaller than its modeling tolerance (kernel.md section 3.4.1), and such a value displays as 0 mm anyway.
 2. In the local frame the axis is local z; the circle of `bottom_radius` is at z = 0 and the circle of `top_radius` at z = height. A zero radius is a point (apex). With radii that differ by at least `LINEAR_TOLERANCE` the tool is kernel `make_cone`; with radii closer than that it is kernel `make_cylinder` of `bottom_radius`, because the kernel's cone needs radii at least `LINEAR_TOLERANCE` apart. With these rules every pair of radii that passes step 1 builds in the kernel.
-3. Name the faces, then `apply_op(ctx, body, op, vec![tool])`.
+3. Name the faces, then `apply_op(ctx, body, op, vec![tool], None)` (a primitive has no direction, features.md section 3.10).
 
 ### 3.3 Element names
 
@@ -111,6 +111,7 @@ feature(
 | A radius < 0 | `OutOfRange` | `Top radius must be at least 0 mm, but it is -1 mm. Use 0 mm or more.` |
 | Both radii 0 (below 1e-6 mm) | `ConeRadiiZero` | `Cone bottom and top radius cannot both be 0. Give one of them a size.` |
 | Height below 1e-6 mm (0 and negative included) | `OutOfRange` | `Height must be greater than 0 mm, but it is 0 mm. Use a value greater than 0 mm.` |
+| A size above the modeling limit | `OutOfRange` | `Height must be at most 1000000 mm, but it is 1e200 mm. Use 1000000 mm or less.` |
 | Expression, placement, body and kernel errors | as in [box.md](box.md) section 4 | |
 
 ## 5. Performance
@@ -132,7 +133,7 @@ Conventions from features.md section 6.1. Bodies `[b-1]`. `CONE(r1, r2, h)`: `{"
 9. **Nearly equal radii.** `CONE("5", "5.0000005", "10")`. Expected: ok; volume 785.398163, 3 faces; `f-cone1/side` cylindrical.
 10. **Apex below the tolerance.** `CONE("10", "0.0000005", "10")`. Expected: ok; volume 1047.197551, 2 faces (`bottom`, `side`).
 11. **Both radii below the tolerance.** `CONE("0.0000000001", "0", "10")`. Expected: error `cone_radii_zero`.
-12. **Height below the tolerance.** `CONE("10", "5", "0.0000001")`. Expected: error `out_of_range`, field `height`, rendered `Height must be greater than 0 mm, but it is 0 mm. Use a value greater than 0 mm.`; b-1 empty.
+12. **Height below the tolerance.** `CONE("10", "5", "0.0000001")`. Expected: error `out_of_range`, field `height`, rendered `Height must be greater than 0 mm, but it is 0.0000001 mm. Use a value greater than 0 mm.` (the value is written with the digits that tell it apart from the bound, features.md section 3.12); b-1 empty.
 
 ## Open issues
 

@@ -100,6 +100,25 @@ describe('SegmentedControl', () => {
     expect(onChange).toHaveBeenLastCalledWith('sketch')
   })
 
+  it('sizes each segment to its label by default', () => {
+    const { radio } = setUp('model')
+    expect(screen.getByRole('radiogroup')).toHaveClass('inline-flex', 'shrink-0')
+    expect(segment(radio('Model'))).toHaveClass('px-3')
+    expect(segment(radio('Model'))).not.toHaveClass('flex-1')
+  })
+
+  it('stretched, spans the rest of its row and shares the width between the segments', () => {
+    render(
+      <SegmentedControl stretch label="Plane" options={PLANES} value="XY" onChange={() => {}} />,
+    )
+    const group = screen.getByRole('radiogroup', { name: 'Plane' })
+    expect(group).toHaveClass('flex', 'flex-1')
+    expect(group).not.toHaveClass('inline-flex', 'shrink-0')
+    for (const radio of screen.getAllByRole('radio')) {
+      expect(segment(radio)).toHaveClass('flex-1', 'justify-center', 'px-2')
+    }
+  })
+
   it('shows the checked segment with the selection background', () => {
     const { radio } = setUp('print')
     expect(segment(radio('Print'))).toHaveClass(COLOR_CLASSES.selection.background)

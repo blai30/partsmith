@@ -53,6 +53,8 @@ const NO_FEATURES: readonly FeatureRecord[] = []
 /** A press must move this far (CSS pixels) before it drags an item or the marker. */
 const DRAG_THRESHOLD_PIXELS = 4
 
+/** The primary button's bit in `MouseEvent.buttons`. */
+const PRIMARY_BUTTON_BIT = 1
 /** `MouseEvent.button` of the secondary (right) button. */
 const SECONDARY_BUTTON_INDEX = 2
 /** The secondary button's bit in `MouseEvent.buttons`. */
@@ -490,6 +492,11 @@ function Strip() {
       return
     }
     if (!current.dragging) {
+      // Not captured yet, a press released outside the strip never reaches it; it ends here.
+      if ((event.buttons & PRIMARY_BUTTON_BIT) === 0) {
+        press.current = null
+        return
+      }
       if (Math.abs(event.clientX - current.startX) <= DRAG_THRESHOLD_PIXELS) {
         return
       }
@@ -738,10 +745,17 @@ function Strip() {
 
 function ProblemsButton() {
   const app = useApp()
-  const count = useAppState((state) => selectProblems(state).length)
+  const problems = useAppState(selectProblems)
+  const count = problems.length
   if (count === 0) {
     return null
   }
+  // The icon names the worst problem, as status icons do everywhere (3.24).
+  const error = problems.some((problem) =>
+    problem.kind === 'feature'
+      ? problem.status === 'error'
+      : problem.diagnostic.severity === 'error',
+  )
   return (
     <button
       type="button"
@@ -758,15 +772,23 @@ function ProblemsButton() {
         COLOR_CLASSES.accent.outline,
       )}
     >
-      <TriangleAlert
-        aria-hidden="true"
-        strokeWidth={1.75}
-        className={clsx(
-          'size-4',
-          COLOR_CLASSES.warningMark.fill,
-          COLOR_CLASSES.warningMark.foreground,
-        )}
-      />
+      {error ? (
+        <CircleX
+          aria-hidden="true"
+          strokeWidth={1.75}
+          className={clsx('size-4', COLOR_CLASSES.errorMark.foreground)}
+        />
+      ) : (
+        <TriangleAlert
+          aria-hidden="true"
+          strokeWidth={1.75}
+          className={clsx(
+            'size-4',
+            COLOR_CLASSES.warningMark.fill,
+            COLOR_CLASSES.warningMark.foreground,
+          )}
+        />
+      )}
       {plural(count, 'problem', 'problems')}
     </button>
   )

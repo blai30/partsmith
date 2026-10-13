@@ -628,6 +628,45 @@ describe('sketches and datum planes', () => {
     expect(hidden.draws.some((draw) => draw.layer === 'overlay')).toBe(false)
   })
 
+  describe('region fills in the Model context (3.12 pass 7)', () => {
+    // One triangle standing for the rectangle's region.
+    const DISPLAY = {
+      regionPositions: new Float32Array([0, 0, 40, 0, 40, 20]),
+      regionIndices: new Uint32Array([0, 1, 2]),
+      regionIds: new Uint32Array([0, 0, 0]),
+    }
+    const EXTRUDE_PROFILE_COMMAND: ActiveCommand = {
+      ...FILLET_EDGES_COMMAND,
+      featureType: 'extrude',
+      featureId: 'f-ext9',
+      title: 'Extrude',
+      params: { extent: { kind: 'distance', expr: '10 mm' }, op: 'new' },
+      activeField: 'profile',
+    }
+
+    function regionOpacity(command: ActiveCommand | null): number | undefined {
+      const backend = createFakeBackend()
+      const scene = createScene(backend)
+      const document = rectSketchDocumentState({
+        sketches: { 'f-sk1': { solution: RECT_SKETCH_SOLUTION, display: DISPLAY } },
+      })
+      const frame = scene.frame(stateOf(document, { command }), DEFAULT_CAMERA, SIZE)
+      return frame.draws.find((draw) => draw.id === 'sketch:f-sk1:regions')?.opacity
+    }
+
+    it('leaves the regions of a visible sketch unfilled without a command', () => {
+      expect(regionOpacity(null)).toBe(0)
+    })
+
+    it('fills every region at 12 percent while the active selection field takes regions', () => {
+      expect(regionOpacity(EXTRUDE_PROFILE_COMMAND)).toBe(0.12)
+    })
+
+    it('leaves them unfilled while the active field takes something else', () => {
+      expect(regionOpacity({ ...EXTRUDE_PROFILE_COMMAND, activeField: null })).toBe(0)
+    })
+  })
+
   it('draws a datum plane as a translucent square at 15 percent and picks it as a datum plane', () => {
     const backend = createFakeBackend()
     const scene = createScene(backend)
@@ -745,13 +784,28 @@ describe('the grid (3.12)', () => {
       ['grid:major', 0.7],
     ])
     for (const draw of draws) {
-      expect(draw.layer).toBe('translucent')
+      expect(draw.layer).toBe('opaque')
       expect(draw.color).toEqual(linearFromHex(VIEWPORT_COLORS.light.grid))
       expect(draw.size).toBe(1)
       expect(draw.depthTest).toBe(true)
       expect(draw.pickBase).toBeNull()
       expect(fixture.backend.geometries.get(draw.id)?.kind).toBe('lines')
     }
+  })
+
+  it('draws after the faces, which hide it, and before the edges and vertices, so an edge on the ground stays on top of its grid line (3.12 pass 4)', () => {
+    const fixture = cubeScene()
+    const frame = render(fixture, cubeState())
+    const order = [
+      faces(fixture, frame).id,
+      'grid:minor',
+      'grid:major',
+      edges(fixture, frame).id,
+      vertices(fixture, frame).id,
+    ].map((id) => frame.draws.findIndex((draw) => draw.id === id))
+    expect(order.every((index) => index !== -1)).toBe(true)
+    expect(order.toSorted((first, second) => first - second)).toEqual(order)
+    expect(new Set(order.map((index) => frame.draws[index]?.layer))).toEqual(new Set(['opaque']))
   })
 
   it('draws lines 1 pixel wide times the UI scale', () => {
@@ -788,6 +842,58 @@ describe('the grid (3.12)', () => {
       )
       expect(Math.abs(along)).toBeLessThan(1e-3)
     }
+  })
+
+  it('draws the origin and axes of the edited sketch before its curves and points, so a curve on an axis covers it in the ID pass (3.6)', () => {
+    const fixture = cubeScene()
+    const frame = render(fixture, cubeState({ context: 'sketch', sketch: EDITING }))
+    const order = [
+      'sketch:f-sk1:axes',
+      'sketch:f-sk1:origin',
+      'sketch:f-sk1:curves',
+      'sketch:f-sk1:points',
+    ].map((id) => frame.draws.findIndex((draw) => draw.id === id))
+    expect(order.every((index) => index !== -1)).toBe(true)
+    expect(order.toSorted((first, second) => first - second)).toEqual(order)
+  })
+
+  it('draws a profile problem halo under the curves it names, which keep their DOF color (3.16.2)', () => {
+    const fixture = cubeScene()
+    const base = cubeState({ context: 'sketch', sketch: EDITING })
+    const sketchState = base.document?.sketches['f-sk1']
+    if (base.document === null || sketchState === undefined) {
+      throw new Error('The cube document has no sketch.')
+    }
+    const solution: SketchSolution = {
+      ...sketchState.solution,
+      profile_findings: [{ type: 'open_endpoint', entity: 'e-2', point: [10, 10] }],
+    }
+    const state: AppState = {
+      ...base,
+      document: {
+        ...base.document,
+        sketches: { 'f-sk1': { ...sketchState, solution } },
+      },
+    }
+    const frame = render(fixture, state)
+    const ids = frame.draws.map((draw) => draw.id)
+    const halo = frame.draws.find((draw) => draw.id === 'sketch:f-sk1:halo')
+    expect(halo).toMatchObject({ layer: 'overlay', opacity: 1, size: 9.5, pickBase: null })
+    // Problem (red-700) at 30 percent over the viewport bottom (zinc-100), sRGB-encoded.
+    expect(halo?.color).toEqual(linearFromHex('#e5abae'))
+    expect(fixture.backend.geometries.get('sketch:f-sk1:halo')?.elementCount).toBe(1)
+    expect(ids.indexOf('sketch:f-sk1:halo')).toBeLessThan(ids.indexOf('sketch:f-sk1:curves'))
+    const curves = fixture.backend.elementStates.get('sketch:f-sk1:curves')
+    expect([...(curves ?? [])]).toEqual([0, 0, 0, 0])
+    expect(frame.draws.find((draw) => draw.id === 'sketch:f-sk1:curves')?.elementColors).toEqual(
+      new Float32Array(
+        Array.from({ length: 4 }, () => [
+          ...linearFromHex(VIEWPORT_COLORS.light.sketchFull),
+        ]).flat(),
+      ),
+    )
+    render(fixture, base)
+    expect(fixture.backend.geometries.has('sketch:f-sk1:halo')).toBe(false)
   })
 
   it('draws no grid in Print, which draws the bed, or while it is turned off', () => {

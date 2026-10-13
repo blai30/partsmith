@@ -5,7 +5,7 @@
 //! operands are complete and the next token shows it is done, which is when a recursive-descent
 //! parser would build it; the depth limit is checked at that moment, scanning left to right.
 
-use super::lexer::{Token, TokenKind, tokenize};
+use super::lexer::{Token, TokenKind, is_whitespace, tokenize};
 use super::{
     BinaryOperator, ExprError, ExprErrorKind, ExprNode, ExprNodeKind, Function,
     MAX_EXPRESSION_DEPTH, MAX_EXPRESSION_LENGTH, ParsedExpr, Span, Unit,
@@ -16,10 +16,7 @@ const NEGATE_PRECEDENCE: u8 = 3;
 
 /// Parses `source`: blank and length checks, then lexing, then syntax.
 pub(super) fn parse(source: &str) -> Result<ParsedExpr, ExprError> {
-    if source
-        .bytes()
-        .all(|byte| matches!(byte, b' ' | b'\t' | b'\n' | b'\r'))
-    {
+    if source.bytes().all(is_whitespace) {
         return Err(ExprError::new(ExprErrorKind::Empty, Span::whole(source)));
     }
     let length = source.chars().count();

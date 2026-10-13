@@ -1,6 +1,6 @@
 # Kernel facade (`partsmith-occt-sys`)
 
-This spec defines the safe Rust facade over OCCT 7.9.3 (ADR 0003) and the C++ shim behind it. It implements the "Kernel facade" contract of `docs/design/architecture.md` and the kernel hygiene rules of technical design section 5. `partsmith-occt-sys` is the only crate with C++ and `unsafe`; its public API is safe Rust with no C++ types.
+This spec defines the safe Rust facade over OCCT 7.9.3 (ADR 0003) and the C++ shim behind it. It implements the "Kernel facade" contract of `docs/design/architecture.md` and the kernel hygiene rules of technical design section 5. `partsmith-occt-sys` is the only crate with C++ and `unsafe`; its public API is safe Rust with no C++ types. The additions for helpful errors (solid and shell counts, `width_across`, `element_display`, and the hints and messages of section 4.3) are decided in [ADR 0026](../adr/0026-kernel-facade-additions-for-errors.md), and the hints and messages follow [the error guidelines](../guidelines/errors.md).
 
 ## 1. Purpose and scope
 
@@ -19,11 +19,11 @@ The facade turns OCCT into deterministic, thread-safe Rust functions that take p
 - Constant-radius fillet, chamfer (equal distance, two distances), shell (thick solid, inward, removed faces).
 - Transforms: translate, rotate, mirror, uniform scale.
 - Split by plane and planar section.
-- Measurement: volume, area, center of mass, bounding box, validity.
-- Element geometry queries (kind, direction, location, radius, centroid, area or length), the point, tangent and outward face normals at the middle of an edge with the continuity recorded between its faces, and topology (faces of an edge, edges of a face, faces and edges of a vertex, seam and degenerate flags).
-- Tessellation into `partsmith_mesh::Mesh` with `f64` positions, per-triangle face ids, edge polylines with edge ids, and vertex markers with vertex ids, from a `partsmith_mesh::TessellationTolerance`.
+- Measurement: volume, area, center of mass, bounding box, validity, and the solid and shell counts that tell separate pieces and closed cavities apart.
+- Element geometry queries (kind, direction, location, radius, centroid, area or length), the point, tangent and outward face normals at the middle of an edge with the continuity recorded between its faces, the width of a face across an edge, and topology (faces of an edge, edges of a face, faces and edges of a vertex, seam and degenerate flags).
+- Tessellation into `partsmith_mesh::Mesh` with `f64` positions, per-triangle face ids, edge polylines with edge ids, and vertex markers with vertex ids, from a `partsmith_mesh::TessellationTolerance`; the display geometry of one face, edge or vertex alone, for the ghost of a lost element.
 - STEP write to bytes and read from bytes (AP214, millimeters, body names and colors); binary BRep write and read for the result cache.
-- `KernelError` with operation, kind, C++ exception type and raw message, plus the user-facing translation.
+- `KernelError` with operation, kind, C++ exception type and raw message, plus a hint that follows a feature's own sentence, a whole message for hosts, and the technical detail for reports.
 - Shim rules, thread safety, determinism, and the `build.rs` contract.
 
 **Explicitly later (not in M1):**
@@ -150,7 +150,7 @@ pub enum ShapeKind { Compound, CompSolid, Solid, Shell, Face, Wire, Edge, Vertex
 
 /// A kind of indexed sub-shape. The order of variants is the sort order used in history lists.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum SubShapeKind { Solid, Face, Edge, Vertex }
+pub enum SubShapeKind { Solid, Shell, Face, Edge, Vertex }
 
 /// One sub-shape: its kind and 1-based index.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -201,9 +201,13 @@ impl Shape {
     pub fn topology(&self) -> Result<Topology, KernelError>;
     /// The point and tangent at the middle of an edge, the outward normal there of each face containing it, and the continuity recorded between them (section 3.6, item 5).
     pub fn edge_normals(&self, edge: u32) -> Result<EdgeNormals, KernelError>;
+    /// How wide a face is across an edge: the largest distance from the edge to a sampled point of the face (section 3.6, item 7).
+    pub fn width_across(&self, face: u32, edge: u32) -> Result<f64, KernelError>;
 
     /// Triangulates the shape into a mesh with face ids, edge polylines and vertex markers (section 3.7).
     pub fn tessellate(&self, tolerance: &partsmith_mesh::TessellationTolerance) -> Result<partsmith_mesh::Mesh, KernelError>;
+    /// The display geometry of one face, edge or vertex, without meshing the rest of the shape (section 3.7, item 9).
+    pub fn element_display(&self, kind: SubShapeKind, index: u32, tolerance: &partsmith_mesh::TessellationTolerance) -> Result<ElementDisplay, KernelError>;
 
     /// Serializes to OCCT binary BRep (section 3.8.2).
     pub fn to_brep(&self) -> Result<Vec<u8>, KernelError>;
@@ -212,7 +216,7 @@ impl Shape {
 }
 ```
 
-`SubShapeKind::Solid` is valid for `count`, `locate` and `solids`; `element` and `elements` accept `Face`, `Edge` and `Vertex` only.
+`SubShapeKind::Solid` is valid for `count`, `locate` and `solids`, and `SubShapeKind::Shell` for `count` and `locate` (section 3.6, item 6); `element`, `elements` and `element_display` accept `Face`, `Edge` and `Vertex` only.
 
 ### 2.3 Results and history
 
@@ -550,7 +554,20 @@ pub struct FaceNormal {
 
 ### 2.11 Tessellation
 
-`Shape::tessellate` takes the shared `partsmith_mesh::TessellationTolerance` (mesh.md section 2.4): `chord_deviation` is the maximum distance between a triangle and the surface in millimeters (absolute), and `angular_deviation` the maximum angle in radians between consecutive segments along curves and between adjacent triangle normals. The facade defines no tolerance type of its own; section 3.7 maps the fields to OCCT's parameters.
+`Shape::tessellate` takes the shared `partsmith_mesh::TessellationTolerance` (mesh.md section 2.4): `chord_deviation` is the maximum distance between a triangle and the surface in millimeters (absolute), and `angular_deviation` the maximum angle in radians between consecutive segments along curves and between adjacent triangle normals. The facade defines no tolerance type of its own; section 3.7 maps the fields to OCCT's parameters. `Shape::element_display` takes the same tolerance and returns:
+
+```rust
+/// The display geometry of one face, edge or vertex, in millimeters with locations applied (section 3.7, item 9).
+#[derive(Debug, Clone, PartialEq)]
+pub enum ElementDisplay {
+    /// A face's triangles, three points each, wound counterclockwise seen from outside.
+    Triangles(Vec<Point>),
+    /// An edge's points from its first vertex to its last; a closed edge repeats its first point at the end.
+    Polyline(Vec<Point>),
+    /// A vertex's position.
+    Position(Point),
+}
+```
 
 ### 2.12 STEP
 
@@ -596,14 +613,18 @@ pub struct KernelError {
 }
 
 impl KernelError {
-    /// The plain-language message for makers (section 4.3).
+    /// The whole plain-language message, for hosts that show a kernel error without a sentence of their own (section 4.3).
     pub fn user_message(&self) -> String;
+    /// One sentence that follows a feature's own sentence, "Partsmith's geometry kernel could not build {this}." (section 4.3).
+    pub fn hint(&self) -> String;
+    /// The technical text for reports: operation, kind, exception and message; never shown as the message (section 4.3).
+    pub fn detail(&self) -> String;
 }
 
 /// Classification of a failure.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum KernelErrorKind {
-    /// The arguments were rejected before or while building; `message` is already user-facing.
+    /// The arguments were rejected before or while building; `message` is the facade's sentence of section 4.2.
     InvalidInput,
     /// The kernel could not perform the operation.
     Failed,
@@ -647,7 +668,7 @@ pub enum Operation {
 ### 3.2 Indexing
 
 1. Sub-shape `i` of kind `K` is the `i`-th entry (1-based) of OCCT's `TopExp::MapShapes(shape, K, map)` with a `TopTools_IndexedMapOfShape`. Orientation is ignored (`IsSame` semantics). Index 0 is never valid.
-2. The shim's `Shape` builds the four index maps (solids, faces, edges, vertices) once when it is created and never changes them, so `count`, `kind` and index lookups are O(1) and cannot fail.
+2. The shim's `Shape` builds the five index maps (solids, shells, faces, edges, vertices) once when it is created and never changes them, so `count`, `kind` and index lookups are O(1) and cannot fail.
 3. Indices are deterministic: the same operation on the same inputs gives the same indices. They are preserved by `transform` (element `i` of the input is element `i` of the output, for every kind) and by the BRep round trip (`from_brep(to_brep(s))` has the same counts and element `i` has the same geometry). They are not stable across other operations; history relates them.
 4. `locate(part, kind)` matches sub-shapes by `IsSame` (same underlying `TShape` and location). `solids()` returns shapes that share sub-shapes with `self`, so `self.locate(&solid, Face)` maps every face of a solid.
 5. Indices never leave `partsmith-features` (architecture rule); this crate exposes them only to it.
@@ -796,6 +817,12 @@ Checking the whole result took a large share of every operation on big bodies: `
    4. Faces: one entry per distinct face containing the edge (`TopExp::MapShapesAndUniqueAncestors`, `IsSame` semantics), in ascending face index order, which is the order of `topology().edges[edge - 1].faces`. An edge between two faces of a solid has two entries; a seam lists its face once; a boundary edge of an open shell or face has one entry; a free edge has none; an edge shared by several solids of a compound has one entry per face.
    5. Normal: the surface parameters `(u, v)` of `point` on the face come from the edge's curve on that face (`BRep_Tool::CurveOnSurface` for the edge as stored in the edge index map, evaluated at `m`; edges of valid shapes are same-parameter), or, when the face has no curve for the edge, from projecting `point` onto the face's surface (`GeomAPI_ProjectPointOnSurf`, nearest solution). `BRepLProp_SLProps` on `BRepAdaptor_Surface` of the face at `(u, v)` (derivative order 1, resolution `LINEAR`) gives the unit normal (the direction of `dU x dV`), which is reversed when the face as stored in the face index map is reversed. For a valid solid it therefore points out of the material, like the `Plane` direction of item 3; for a lone face it is the face's own normal. Where `IsNormalDefined()` is false (a singular point of the surface, such as a cone apex or a sphere pole), the call fails with `InvalidInput` and `Face <face> has no defined normal at the middle of edge <index>.`
    6. Continuity: with two entries in `faces`, `BRep_Tool::Continuity(edge, first face, second face)`; with one entry on whose face the edge is closed (a seam, `BRep_Tool::IsClosed`), `BRep_Tool::Continuity(edge, face, face)`; otherwise `None`. `GeomAbs_C0`, which OCCT also reports when nothing is recorded, gives `C0`, and every higher value `G1OrBetter`. It is what the operations that built and kept the edge recorded: OCCT's primitives record their seams as smooth, fillets record `G1` between a fillet face and each face it blends into (its ends on the other faces stay `C0`), offsets record it where the input was smooth, and booleans keep the records of the edges they keep. An edge between faces that meet smoothly can still report `C0` when nothing was recorded for it, so fillet.md compares the normals as well.
+6. Solids and shells: `count(Solid)` is the number of solids of the shape and `count(Shell)` the number of distinct shells (the index maps of section 3.2), so both are known as soon as an operation returns. Solid operations return solids only (section 3.1 item 7), and each shell of their results bounds one of its solids: one outer shell per solid, and one inner shell, oriented toward the cavity, per closed cavity inside it. So `count(Solid)` is the number of separate pieces (lumps) and `count(Shell) - count(Solid)` the number of closed cavities. Features compare both before and after a join or cut (features.md section 3.5: `closed_void` when the closed cavities grow, `separate_solid` when the lumps do), which the volume cannot tell: a join that closes a cavity changes the volume like any other join (test 118).
+7. `width_across(face, edge)` measures how wide a face is across an edge, so the "too large" messages of features.md section 4.3 can name a face that is narrower than the requested size ("which is only 2.4 mm across"). Callers use it on failure paths only. Errors use operation `Query`.
+   1. Requirements: `face` is a face index and `edge` an edge index of the shape, else `InvalidInput` with the element index message of section 4.2; the edge is not degenerated, else `InvalidInput` with `Edge <index> is a degenerated edge, so it has no curve to measure or draw.` The face need not contain the edge.
+   2. Samples: points of the face, with its location applied: every vertex of the face; the middle of every edge of the face that is not degenerated (the point of item 5.2); and the cell centers of an 8 x 8 grid over the face's parameter bounds (`BRepTools::UVBounds`), `(u0 + (i + 1/2) (u1 - u0) / 8, v0 + (j + 1/2) (v1 - v0) / 8)` for i and j from 0 to 7, each kept when `BRepClass_FaceClassifier` with tolerance `LINEAR` finds it inside the face or on its boundary.
+   3. Value: the largest, over the samples, of the distance from the sample to the edge, the shortest distance to a point of the edge's curve between its vertices (`BRepExtrema_DistShapeShape` between a vertex at the sample and the edge as stored in the edge index map). A distance computation that reports failure fails the call (section 3.9 item 3).
+   4. Accuracy: every sample lies on the face, so the value is never more than `LINEAR` above the largest distance from the edge to a point of the face, and it equals that distance within `LINEAR` when a farthest point of the face is a vertex or an edge middle of the face. That holds for a planar face bounded by straight edges measured from a straight edge, because the distance to a segment is convex, so it is largest at a corner of the face, and for the faces of tests 119 and 120. On other faces the value can be smaller, because a farthest point that lies between samples is not measured; features state it as a measured width, never as an exact one.
 
 ### 3.7 Tessellation
 
@@ -809,6 +836,12 @@ Checking the whole result took a large share of every operation on big bodies: `
 6. Vertex markers: one `VertexMarker` per vertex that bounds at least two distinct edges with a polyline (item 5), in vertex index order; `vertex_id` is its 1-based index and `position` its point with the location applied. A box gets 8 markers; a cylinder, sphere or torus gets none (their vertices bound only one polyline edge, or none).
 7. If a face gets no triangulation, the call fails with `Failed`.
 8. Determinism: the same shape and tolerance give an identical mesh, regardless of which thread calls and of earlier tessellations of the same shape with other tolerances.
+9. `element_display(kind, index, tolerance)` gives the display geometry of one element, for the ghost the engine draws where a lost element was in its last build (engine.md section 3.23), without meshing the rest of the shape. Errors use operation `Tessellate`.
+   1. Requirements: `kind` is `Face`, `Edge` or `Vertex`, else `InvalidInput` with `Only faces, edges and vertices can be queried.`; `index` is an index of that kind, else the element index message of section 4.2; the tolerance as in item 1; an edge is not degenerated, else `InvalidInput` with `Edge <index> is a degenerated edge, so it has no curve to measure or draw.`
+   2. Face: a copy of the face alone, as stored in the face index map with its location (`BRepBuilderAPI_Copy` without copying geometry, so the triangulation is stored on the copy), is meshed with the parameters of item 2. `Triangles` lists, for each triangle of the copy's triangulation in its order, its three nodes in millimeters with the face location applied, wound counterclockwise seen from outside as in item 3 (two nodes swapped for a reversed face). A face that gets no triangulation fails with `Failed`.
+   3. Edge: the edge as stored in the edge index map is discretized with `GCPnts_TangentialDeflection` on its 3D curve (`BRepAdaptor_Curve`, location applied), with angular deflection `angular_deviation`, curvature deflection `chord_deviation` and at least 2 points. `Polyline` lists the points from the edge's first vertex to its last (edge orientation as stored in the edge map, as in item 5); a closed edge's last point is its first point repeated exactly.
+   4. Vertex: `Position`, the vertex's point with its location applied, equal to `element(Vertex, index).centroid`.
+   5. Only the element is meshed, so the cost does not grow with the rest of the shape (section 5). A face's triangles can differ from that face's triangles in `tessellate`, where each edge is discretized once for all of its faces (item 4); a ghost only shows where the element was. The input is never meshed in place, and the same shape, element and tolerance give identical output whatever ran before (test 125).
 
 ### 3.8 Exchange formats
 
@@ -838,9 +871,9 @@ Checking the whole result took a large share of every operation on big bodies: `
 1. **Layout.** `cpp/shim.h` declares the C++ `Shape` class, the `rust::behavior::trycatch` customization and the shim's exception types; the implementation is split by area (`cpp/primitives.cpp`, `cpp/profiles.cpp`, `cpp/sweeps.cpp`, `cpp/booleans.cpp`, `cpp/blends.cpp` (fillet, chamfer, shell), `cpp/transforms.cpp`, `cpp/queries.cpp`, `cpp/mesh.cpp`, `cpp/exchange.cpp`, `cpp/history.cpp`). `build.rs` lists every `.cpp` file in `SOURCES`.
 2. **Exceptions never cross.** `cpp/shim.h` keeps the spike's `trycatch` customization unchanged in behavior: it is `noexcept`, catches `Standard_Failure` and reports `"<DynamicType()->Name()>: <GetMessageString()>"`, then `std::exception` as `"std::exception: <what()>"`, then everything else as `"unknown: unknown C++ exception"`. cxx uses it for every bridge function declared with `Result`. Every bridge function that can fail is declared returning `Result<...>` in `src/ffi.rs`; the only functions declared without `Result` are those that read values cached at `Shape` construction (kind, counts) and the one creating `Shape::empty()`, whose only failure mode is allocation failure, which terminates the process exactly as a Rust allocation failure does. Errors from `solids` and `locate` use operation `Query`.
 3. **Failures without exceptions.** When an OCCT algorithm reports failure through `IsDone()`, `HasErrors()` or a status code instead of throwing, the shim throws `StdFail_NotDone` with a message naming the algorithm and its status (for booleans the alert names from `DumpErrors`, for fillets and chamfers the `ChFiDS_ErrorStatus` of each faulty contour, for offsets the `BRepOffset_Error` value).
-4. **Shim exception types.** Defined with `DEFINE_STANDARD_EXCEPTION` in `shim.h`, deriving from `Standard_Failure`: `Partsmith_InvalidInput` (geometry-dependent argument checks; message is the user-facing sentence of section 4.2), `Partsmith_InvalidResult`, `Partsmith_EmptyResult`, `Partsmith_ReadError`.
+4. **Shim exception types.** Defined with `DEFINE_STANDARD_EXCEPTION` in `shim.h`, deriving from `Standard_Failure`: `Partsmith_InvalidInput` (geometry-dependent argument checks; message is the sentence of section 4.2), `Partsmith_InvalidResult`, `Partsmith_EmptyResult`, `Partsmith_ReadError`.
 5. **Data across the bridge.** Shapes cross as `SharedPtr<Shape>` (a C++ `std::shared_ptr<partsmith::occt::Shape>`, never null; the facade treats a null pointer as `Internal`). Results cross as cxx shared structs and `Vec`s declared in the bridge module (for example flat index arrays for history), which the facade converts to the public types. No raw pointers, references into C++ memory or C++ containers outlive a call.
-6. **The C++ `Shape`** holds a `TopoDS_Shape` and its four index maps, all `const` after construction.
+6. **The C++ `Shape`** holds a `TopoDS_Shape` and its five index maps, all `const` after construction.
 7. **No side channels.** The shim never prints, never calls `exit` or `abort`, never installs signal handlers (`OSD::SetSignal` is not called), never reads environment variables in its own code, and never writes files.
 8. **Rust facade.** Every `unsafe` block or impl has a `// SAFETY:` comment. The only `unsafe` code is the `unsafe extern "C++"` block and the `Send` and `Sync` impls of `Shape`. No cxx type appears in a public signature.
 
@@ -887,6 +920,8 @@ The raw text from the shim is split at the first `": "` into `exception` and `me
 ### 4.2 `InvalidInput` messages
 
 Numbers in messages use the fingerprint number format of `docs/spec/naming.md` section 3.7.3 (at most 6 decimals, trailing zeros removed). `<index>` and `<tag>` are decimal.
+
+These are the facade's own sentences for its callers and tests. Several name kernel indices and curve tags, which never belong in a message a user reads (docs/guidelines/errors.md), so features never show them: they show `hint()` and put the sentence in the detail (section 4.3). Hosts show `user_message()`, and with it these sentences, only for the checks of the operations they call directly (export and mesh: `There is nothing to export.`, `Body "<name>" has no solid to export.`, `Color components must be between 0 and 1.` and the mesh tolerance message), which name none.
 
 | Check | Message |
 | --- | --- |
@@ -937,6 +972,7 @@ Numbers in messages use the fingerprint number format of `docs/spec/naming.md` s
 | Edge normals of a degenerated edge | `Edge <index> is a degenerated edge, so it has no middle point.` |
 | Edge without a tangent at its middle | `Edge <index> has no direction at its middle.` |
 | Face normal undefined at an edge's middle | `Face <face> has no defined normal at the middle of edge <index>.` |
+| Width across or display of a degenerated edge | `Edge <index> is a degenerated edge, so it has no curve to measure or draw.` |
 | Mesh tolerances | `Mesh tolerances must be greater than 0, with an angle of at most 90 degrees.` |
 | Nothing to export | `There is nothing to export.` |
 | Body without solid | `Body "<name>" has no solid to export.` |
@@ -944,47 +980,56 @@ Numbers in messages use the fingerprint number format of `docs/spec/naming.md` s
 
 ### 4.3 User-facing messages
 
-`user_message()` returns, by `kind`:
+A `KernelError` gives three texts ([ADR 0026](../adr/0026-kernel-facade-additions-for-errors.md)):
 
-- `InvalidInput`: `message` unchanged.
-- `Failed` and `InvalidResult`: the operation sentence below.
-- `EmptyResult`: `The STEP file contains no solid bodies.` for `read_step`; otherwise `The <noun> produced no solid.` with nouns `box`, `cylinder`, `sphere`, `cone`, `torus`, `extrusion`, `revolution`, `fillet`, `chamfer`, `shell`, `transform`, `split` for the corresponding operations.
-- `ReadFailed`: `The file is not a valid STEP file.` for `read_step`; `The cached geometry could not be read, so it will be rebuilt.` for `read_brep`.
-- `Internal`: `The geometry kernel failed unexpectedly (<exception>: <message>). Please report this with the model file.`, or `(<exception>)` when `message` is empty.
+- `hint()`: one sentence that follows a feature's own sentence. Features report a kernel error as `Partsmith's geometry kernel could not build {this}. {hint}` (features.md section 4.1, code `kernel`), so their message stays at two sentences. Each hint is true whenever the kernel fails in that operation, and never blames input that was checked before the kernel: features check sizes, ranges and preconditions first (features.md sections 3.4 and 3.10), so a hint never stands in for a range check.
+- `user_message()`: the whole message, for hosts that show a kernel error without a sentence of their own (STEP export and import and the meshes of an export, io.md section 4; the result cache). `Display` writes it.
+- `detail()`: the technical text for reports, never shown as the message: the operation as `Operation` displays it, a space, the kind in snake_case (`invalid_input`, `failed`, `invalid_result`, `empty_result`, `read_failed`, `internal`), then `: <exception>` when `exception` is not empty and `: <message>` when `message` is not empty. Examples: `fillet failed: StdFail_NotDone: BRep_API: command not done`, `make_box invalid_input: A box needs a length, width and height greater than 0 mm.` Features put it in their message's detail (features.md section 2.8), which hosts offer behind Copy details.
 
-| Operation | `Failed` and `InvalidResult` message |
+By kind:
+
+| Kind | `hint()` | `user_message()` |
+| --- | --- | --- |
+| `InvalidInput` | `It rejected the shapes or values it was given, which is likely a bug; report it with the details.` | `message` unchanged (section 4.2) |
+| `Failed`, `InvalidResult`, `EmptyResult` | the operation's hint in the tables below | `Partsmith's geometry kernel could not build the {noun}. {hint}` for an operation with a noun in the first table; the hint for the others |
+| `ReadFailed` | `read_step`: `The file is not a valid STEP file.`; `read_brep`: `The cached geometry could not be read, so it will be rebuilt.`; any other operation as `Failed` | the hint |
+| `Internal` | `It hit an unexpected problem; report it with the details.` | `Partsmith's geometry kernel hit an unexpected problem.` |
+
+The `InvalidInput` hint does not repeat the facade's sentence: features check what they pass before calling the kernel, so a rejection that reaches a feature means Partsmith's own checks disagree, and the sentence (which may name kernel indices and tags) goes to the detail.
+
+Operations that build geometry for features, with the noun of their user message:
+
+| Operation | Hint | Noun |
+| --- | --- | --- |
+| `make_box`, `make_cylinder`, `make_sphere`, `make_cone`, `make_torus` | `Its sizes passed every check, so this is likely a bug; report it with the details.` | `box`, `cylinder`, `sphere`, `cone`, `torus` |
+| `make_profile` | `The closed shape could not be turned into a face; report it with the details if the sketch shows no problem.` | `profile` |
+| `extrude`, `revolve` | `Report it with the details if the profile and the sizes look right.` | `extrusion`, `revolution` |
+| `fuse`, `cut`, `common` | `Bodies that touch only along an edge or at a point, or faces that almost coincide, often cause this; move one of them slightly.` | `join`, `cut`, `intersection` |
+| `fillet`, `chamfer`, `shell` | `A smaller radius may work.`, `A smaller distance may work.` and `A thinner wall may work.`, for callers that do not search; built-in features run the "too large" search instead (features.md section 4.3) | `fillet`, `chamfer`, `shell` |
+| `transform` (move body, mirror, patterns) | `Report it with the details.` | `moved or copied body` |
+| `split` | `Try moving the split plane slightly.` | `split` |
+
+The other operations say what could not be done in the user's terms, as hint and as user message. The texts the message inventory found at fault are rewritten (`compound`, `measure` and `query`, which gave no way forward, and `query` named a selection where there may be none); the others are unchanged:
+
+| Operation | Hint and user message |
 | --- | --- |
-| `make_box` | `The box could not be built.` |
-| `make_cylinder` | `The cylinder could not be built.` |
-| `make_sphere` | `The sphere could not be built.` |
-| `make_cone` | `The cone could not be built.` |
-| `make_torus` | `The torus could not be built.` |
-| `make_profile` | `The sketch profile could not be turned into a face. Check that the region is closed and does not cross itself.` |
-| `extrude` | `The extrusion failed. Check that the profile is a closed region that does not cross itself.` |
-| `revolve` | `The revolution failed. Check that the profile is a closed region on one side of the axis.` |
-| `fuse` | `Joining the bodies failed. Bodies that touch only along an edge or at a point, or faces that almost coincide, often cause this. Move one body slightly and try again.` |
-| `cut` | `Cutting failed. Bodies that touch only along an edge or at a point, or faces that almost coincide, often cause this. Move the tool slightly and try again.` |
-| `common` | `Intersecting the bodies failed. Bodies that touch only along an edge or at a point, or faces that almost coincide, often cause this. Move one body slightly and try again.` |
-| `fillet` | `The fillet failed. The radius is probably too large for the selected edges or the faces next to them. Try a smaller radius.` |
-| `chamfer` | `The chamfer failed. The distance is probably too large for the selected edges or the faces next to them. Try a smaller distance.` |
-| `shell` | `The shell failed. The wall is probably too thick for the thinnest part of the body or for a tightly curved face. Try a thinner wall.` |
-| `transform` | `Moving the body failed.` |
-| `split` | `Splitting the body failed. Try moving the split plane slightly.` |
 | `section` | `The cross-section could not be computed.` |
-| `compound` | `The bodies could not be grouped.` |
-| `measure` | `The body could not be measured.` |
-| `query` | `The selected geometry could not be measured.` |
+| `compound` | `The solids could not be grouped into one body; report it with the details.` |
+| `measure` | `The body could not be measured; report it with the details.` |
+| `query` | `The faces and edges of the body could not be read; report it with the details.` |
 | `tessellate` | `The body could not be meshed for display or export.` |
 | `write_step` | `The STEP file could not be written.` |
-| `read_step` | `The STEP file could not be read.` |
+| `read_step` | `The STEP file could not be read.`; for `EmptyResult`, `The STEP file contains no solid bodies.` |
 | `write_brep` | `The geometry could not be saved to the cache.` |
 | `read_brep` | `The cached geometry could not be read, so it will be rebuilt.` |
 
-Features may replace these messages with more specific ones (for example computing the largest fillet radius that works), but must keep the kernel error as the cause.
+These replace the operation sentences of the first M1 facade, which blamed input that features check first (`The extrusion failed. Check that the profile is a closed region that does not cross itself.` for a distance of 1e200 mm, which the modeling limit now rejects with its field) or named something nobody did (`Moving the body failed.` under Mirror and patterns). Every hint is one sentence. Every hint and every user message, for `InvalidInput` those of the checks hosts show (section 4.2), passes the message lint of docs/guidelines/errors.md and contains no exception name and no text from the kernel (test 130).
+
+Features write `Partsmith's geometry kernel could not build {this}.` followed by `hint()` and keep `detail()` for the report; fillet, chamfer and shell run the "too large" search instead (features.md section 4.3) and keep the first kernel error as its cause. Hosts that call the kernel without a feature show `user_message()` (io.md section 4).
 
 ## 5. Performance budgets
 
-Release builds on the reference laptop (technical design section 14), single thread, measured by benchmarks in `crates/partsmith-occt-sys/benches/` (not by acceptance tests). Web budgets are three times these. "Part" is the 80 x 50 x 30 extrude of naming spec test 81 with a cut hole, a slot, 4 fillets and a shell (about 40 faces) unless stated. `PLATE` is a 200 x 200 x 10 box (origin (0,0,-5) on `Plane::XY`) with 194 through holes of radius 4 cut in one `cut` call (tool cylinders of height 20 on `Plane::XY` at origins (10 + 13.5 c, 10 + 13.5 r, -10) for c = i mod 14, r = i div 14, i = 0 to 193): 200 faces, 594 edges, 396 vertices, the body of the `BodyState::elements` budget in features.md section 5. `L` is the L-shaped body of test 102.
+Release builds on the reference laptop (technical design section 14), single thread, measured by benchmarks in `crates/partsmith-occt-sys/benches/` (not by acceptance tests). Web budgets are three times these. "Part" is the 80 x 50 x 30 extrude of naming spec test 81 with a cut hole, a slot, 4 fillets and a shell (about 40 faces) unless stated. `PLATE` is a 200 x 200 x 10 box (origin (0,0,-5) on `Plane::XY`) with 194 through holes of radius 4 cut in one `cut` call (tool cylinders of height 20 on `Plane::XY` at origins (10 + 13.5 c, 10 + 13.5 r, -10) for c = i mod 14, r = i div 14, i = 0 to 193): 200 faces, 594 edges, 396 vertices, the body of the `BodyState::elements` budget in features.md section 5. `L` is the L-shaped body of test 102. `PLATE1000` is `PLATE` grown to 1,000 faces: a 440 x 440 x 10 box (origin (0,0,-5) on `Plane::XY`) with 994 through holes of radius 4 cut in one `cut` call (tool cylinders of height 20 at (10 + 13.5 c, 10 + 13.5 r, -10) for c = i mod 32, r = i div 32, i = 0 to 993): 1,000 faces, 2,994 edges, 1,996 vertices. `STAIR` is the stepped block of test 119.
 
 | Operation | Budget |
 | --- | --- |
@@ -999,6 +1044,8 @@ Release builds on the reference laptop (technical design section 14), single thr
 | `transform` (rigid) | 0.1 ms |
 | `elements(Face)` plus `topology()` for a 200-face shape | 10 ms |
 | `elements` of faces, edges and vertices plus `topology()` for `PLATE` | 8 ms |
+| `width_across` of any face across any of its edges, on `STAIR` and on the result of test 44 (one call) | 5 ms |
+| `element_display` of one hole wall of `PLATE1000` at 0.05 mm and 5 degrees | 5 ms |
 | `volume` of the part | 2 ms |
 | `tessellate` the part at 0.05 mm and 0.1 rad | 30 ms |
 | `tessellate` a sphere of radius 250 at 0.0125 mm and 5 degrees (about 200 000 triangles) | 1.5 s |
@@ -1078,7 +1125,7 @@ Fillet and chamfer (`TF` is BOX's edge between `Top` and `Front`, found through 
 
 44. `fillet(&BOX, &[EdgeRadius { edge: TF, radius: 2 }])`: volume 5991.415926535898 relative 1e-7; 7 faces; valid; the input edge TF is deleted and generates exactly one face, of kind `Cylinder` with radius 2; BOX's `Top` and `Front` faces each list one output face in `modified`.
 45. Filleting all 12 BOX edges with radius 1: 26 faces (6 planar, 12 cylindrical, 8 corner); volume 5949.834793498635 relative 1e-5; each of the 8 input vertices lists exactly one face in `generated`.
-46. Filleting all 12 BOX edges with radius 6 fails with kind `Failed` (or `InvalidResult`) and user message `The fillet failed. The radius is probably too large for the selected edges or the faces next to them. Try a smaller radius.`
+46. Filleting all 12 BOX edges with radius 6 fails with kind `Failed` (or `InvalidResult`) and user message `Partsmith's geometry kernel could not build the fillet. A smaller radius may work.`
 47. `fillet` with radius 0, with an edge index 13, with TF listed twice, and with an empty list fail with `InvalidInput` and the messages of section 4.2; a fillet of the cylinder seam fails with the seam message.
 48. `chamfer(&BOX, &[ChamferEdge { edge: TF, size: Equal { distance: 2 } }])`: volume 5980 relative 1e-9; 7 faces; TF generates one `Plane` face.
 49. `chamfer` of TF with `TwoDistances { distance: 2, other_distance: 3, face: <Top> }`: volume 5970 relative 1e-9; the chamfer face's edge shared with the output top face lies at y = 2 (2 mm from the front plane, measured on the top face), and its edge shared with the output front face lies at z = 27.
@@ -1156,7 +1203,7 @@ BRep:
 
 Errors and concurrency:
 
-87. `KernelError { operation: Fillet, kind: Failed, exception: "StdFail_NotDone", message: "" }.to_string()` is the fillet sentence of section 4.3; with kind `Internal`, exception `std::exception` and message `bad`, it is `The geometry kernel failed unexpectedly (std::exception: bad). Please report this with the model file.`; with kind `EmptyResult` and operation `Extrude` it is `The extrusion produced no solid.`
+87. `KernelError { operation: Fillet, kind: Failed, exception: "StdFail_NotDone", message: "" }.to_string()` is the fillet message of section 4.3, `Partsmith's geometry kernel could not build the fillet. A smaller radius may work.`; with kind `Internal`, exception `std::exception` and message `bad`, it is `Partsmith's geometry kernel hit an unexpected problem.`; with kind `EmptyResult` and operation `Extrude` it is `Partsmith's geometry kernel could not build the extrusion. Report it with the details if the profile and the sizes look right.`
 88. `Operation::WriteStep.to_string()` is `write_step`; `Operation::MakeBox.to_string()` is `make_box`.
 89. `Shape` is `Send + Sync + Clone` (compile-time assertion).
 90. One fillet result shared by 8 threads, each computing `volume`, `elements(Face)`, `tessellate(OPT)` and `to_brep` 20 times, gives results identical to a single-threaded run.
@@ -1220,6 +1267,32 @@ Volume (section 3.6, item 1):
 
 116. `cut(&BOX, &[<the cylinder of test 37>])` has volume 6000 - 120π within 1e-12 relative, and so do its mirror by `Plane::YZ` and its translation by (50,7,-3). The result of test 45 has volume 8·18·28 + 2(8·18 + 18·28 + 8·28) + 54π + 4π/3 (the inner box, a slab on each face, a quarter cylinder along each edge and the eight corners) within 1e-9 relative.
 
+Solids and shells (section 3.6, item 6):
+
+117. `BOX` has `count(Solid)` 1 and `count(Shell)` 1; the result of test 51 (`shell(&BOX, &[Top], 1)`) 1 and 1; the closed hollow of test 52 (`shell(&BOX, &[], 1)`) 1 and 2; `fuse(&A, &[<a 10 x 10 x 10 box at (20,0,0)>])` 2 and 2; the result of test 41 and `Shape::empty()` 0 and 0. `element(Shell, 1)` on `BOX` fails with `InvalidInput` and `Only faces, edges and vertices can be queried.`
+118. A join that closes a cavity: `CUP`, the shape of `cut(&make_box(&Plane::XY, 30, 30, 30).shape, &[make_box(&Plane { origin: (10,10,10), ..Plane::XY }, 10, 10, 30).shape])`, is a 30 mm cube with a 10 x 10 pocket open at the top from z = 10 (1 solid, 1 shell, volume 25000), and `LID` is `make_box(&Plane { origin: (0,0,30), ..Plane::XY }, 30, 30, 10)`. `R`, the shape of `fuse(&CUP, &[LID.shape])`, is valid with volume 34000 relative 1e-9, 12 faces, `count(Solid)` 1 and `count(Shell)` 2: the closed cavities went from 0 to 1. `R.locate(&R.solids()?[0], Shell)` has two entries, `Some(a)` and `Some(b)` with `{a, b} = {1, 2}`. `transform(&R, &Transform::translation((1,2,3)))` and `from_brep(&R.to_brep()?)` have 1 solid and 2 shells. The cut of `R` by `make_box(&Plane { origin: (14,14,25), ..Plane::XY }, 2, 2, 20)`, a vent from the cavity through the lid, has volume 33960 relative 1e-9, 1 solid and 1 shell.
+
+Width across (section 3.6, item 7):
+
+119. `STAIR`, the shape of `cut(&make_box(&Plane { origin: (-20,-10,0), ..Plane::XY }, 40, 20, 10).shape, &[make_box(&Plane { origin: (0,-15,7.6), ..Plane::XY }, 20, 30, 5).shape])`, is the block of newcomer error corpus scenario NC05 (x from -20 to 20, y from -10 to 10, z from 0 to 10) with a step 2.4 mm deep over x from 0 to 20: valid, volume 7040 relative 1e-9, 8 faces. With its faces `TOP` (direction (0,0,1), centroid (-10,0,10)), `RISER` (direction (1,0,0), centroid (0,0,8.8), 20 x 2.4), `TREAD` (direction (0,0,1), centroid (10,0,7.6)) and `BOTTOM` (direction (0,0,-1)), its edge `UPPER` between `TOP` and `RISER` and its edge `LOWER` between `RISER` and `TREAD`: `width_across(RISER, UPPER)` is 2.4, `width_across(TOP, UPPER)` 20, `width_across(RISER, LOWER)` 2.4, `width_across(TREAD, LOWER)` 20, and `width_across(BOTTOM, UPPER)`, for a face that does not touch the edge, sqrt(500) = 22.360679774997898, each within 1e-6. Each call made twice gives bit-identical values, and `to_brep` of `STAIR` is byte-identical before and after the calls.
+120. A curved face: in the result of test 44, with `ROUND` the face TF generates (kind `Cylinder`, radius 2), `TOP2` the face `Top` lists in `modified`, and `G` the edge between them (a `Line` at y = 2, z = 30), `width_across(ROUND, G)` is 2√2 = 2.8284271247461903 (the far side of the round, at y = 0 and z = 28) and `width_across(TOP2, G)` is 18, each within 1e-6.
+121. Errors, each of kind `InvalidInput` with operation `Query`: on `STAIR`, `width_across(9, UPPER)` fails with `Face 9 does not exist in this body.` and `width_across(TOP, 0)` with `Edge 0 does not exist in this body.`; on `make_sphere(&Plane::XY, 10)`, `width_across(1, d)` for each degenerated edge `d` fails with `Edge <d> is a degenerated edge, so it has no curve to measure or draw.`
+
+Display geometry of one element (section 3.7, item 9):
+
+122. Faces: `BOX` `element_display(Face, <Top>, &OPT)` is `Triangles` with 6 points; every point has z = 30, x in [0, 10] and y in [0, 20]; the normal of each triangle by its winding, `(p1 - p0) x (p2 - p0)`, points along (0,0,1); the triangle areas sum to 200 relative 1e-9. The face with role `Bottom` gives normals along (0,0,-1). The `Side` face of `make_cylinder(&Plane::XY, 5, 10)` gives `Triangles` whose points lie at distance 5 from the Z axis within 1e-9 with z in [0, 10], whose normals by winding have a positive dot product with the outward radial direction at their triangle's centroid, and whose areas sum to between 0.99 and 1 times 314.1592653589793 (plus 1e-9 relative).
+123. Edges: `BOX` `element_display(Edge, TF, &OPT)` is `Polyline` with 2 points, (0,0,30) and (10,0,30), ordered so that the second minus the first has a positive dot product with `element(Edge, TF).direction`. The circle edge of `make_cylinder(&Plane::XY, 5, 10)` between `Side` and `Top` gives `Polyline` with at least 4 points whose last point equals its first bit for bit, every point at z = 10 and at distance 5 from the Z axis within 1e-9, and the middle of every segment at distance at least 4.99 from the axis (the chord deviation 0.01 of `OPT`).
+124. Vertices and located shapes: `element_display(Vertex, i, &OPT)` on `BOX` is `Position` equal to `element(Vertex, i).centroid` for i = 1 to 8. On `transform(&BOX, &Transform::translation((50,0,0)))`, the face with role `Top` and the edge TF (indices preserved) give the points of tests 122 and 123, in the same order, moved by (50,0,0) within 1e-9.
+125. Inputs and determinism: calling `element_display` twice with the same arguments gives equal results; after the calls of tests 122 to 124, `to_brep` of `BOX` and of the cylinder is byte-identical to its value before them, and `tessellate(&OPT)` of each gives the mesh it gave before them.
+126. Errors, each of kind `InvalidInput` with operation `Tessellate`: on `BOX`, `element_display(Solid, 1, &OPT)` and `element_display(Shell, 1, &OPT)` fail with `Only faces, edges and vertices can be queried.`, `element_display(Face, 7, &OPT)` with `Face 7 does not exist in this body.`, and a chord deviation of 0 with `Mesh tolerances must be greater than 0, with an angle of at most 90 degrees.`; on `make_sphere(&Plane::XY, 10)`, each degenerated edge `d` fails with `Edge <d> is a degenerated edge, so it has no curve to measure or draw.`
+
+Hints, messages and details (section 4.3):
+
+127. For each `Operation` and each kind among `Failed`, `InvalidResult` and `EmptyResult`, `KernelError { operation, kind, exception: "StdFail_NotDone", message: "BRep_API: command not done" }` has the `hint()` of the section 4.3 tables for its operation (for `read_step` with `EmptyResult`, `The STEP file contains no solid bodies.`), and as `user_message()` `Partsmith's geometry kernel could not build the {noun}. {hint}` for an operation with a noun and the hint for the others. Among them: `make_box` with `Failed` has the hint `Its sizes passed every check, so this is likely a bug; report it with the details.` and the user message `Partsmith's geometry kernel could not build the box. Its sizes passed every check, so this is likely a bug; report it with the details.`; `cut` with `InvalidResult` the hint `Bodies that touch only along an edge or at a point, or faces that almost coincide, often cause this; move one of them slightly.`; `transform` with `Failed` the user message `Partsmith's geometry kernel could not build the moved or copied body. Report it with the details.`; `split` with `EmptyResult` the hint `Try moving the split plane slightly.`; `query` with `Failed` the hint and user message `The faces and edges of the body could not be read; report it with the details.`
+128. Other kinds: `KernelError { operation: MakeBox, kind: InvalidInput, exception: "", message: "A box needs a length, width and height greater than 0 mm." }` has that message as user message and the hint `It rejected the shapes or values it was given, which is likely a bug; report it with the details.`; `KernelError { operation: Fillet, kind: Internal, exception: "std::exception", message: "bad" }` has the user message `Partsmith's geometry kernel hit an unexpected problem.` and the hint `It hit an unexpected problem; report it with the details.`; with kind `ReadFailed`, `ReadStep` gives `The file is not a valid STEP file.` and `ReadBrep` `The cached geometry could not be read, so it will be rebuilt.` as both hint and user message, and `Fuse` the two texts of `Fuse` with `Failed`.
+129. `detail()`: the errors of test 128 give `make_box invalid_input: A box needs a length, width and height greater than 0 mm.` and `fillet internal: std::exception: bad`; `make_box` with `Failed` in test 127 gives `make_box failed: StdFail_NotDone: BRep_API: command not done`; `KernelError { operation: Fuse, kind: Failed, exception: "", message: "" }` gives `fuse failed`.
+130. Lint: every `hint()` and `user_message()` of tests 127 and 128, for every operation and kind, with the `InvalidInput` user messages taken from the checks hosts show (section 4.2: `There is nothing to export.`, `Body "Bracket" has no solid to export.`, `Color components must be between 0 and 1.` and the mesh tolerance message), passes the message lint of docs/guidelines/errors.md, ends with a period, and contains none of `StdFail_NotDone`, `BRep_API`, `std::exception`, `OCCT` and `exception`. Every hint has exactly one period, at its end, so a feature's `Partsmith's geometry kernel could not build {this}. {hint}` has two sentences.
+
 ## 7. Open issues
 
 1. **History for constructive operations.** The architecture says operations return `OpResult { shape, history }` with history per input index. For primitives and sweeps the inputs are parameters or a profile, so this spec returns explicit face roles instead (`Primitive::faces`, `SweepResult::faces`), which is what naming needs; `OpResult` is used for every operation on existing shapes.
@@ -1232,3 +1305,4 @@ Volume (section 3.6, item 1):
 8. **Mesher change and expected results.** Section 3.7 item 2 replaces OCCT's default mesher (Watson) with Delabella, which brings the tessellation of large spheres and of faces with many holes from 11 to 12 s down to about 1 s at the engine's tolerances. Meshes change wherever nodes are cocircular, and with them the print checks computed from meshes that `examples/*/*.expected.json` record (delivery.md section 2.8): those files must be regenerated with `PARTSMITH_BLESS=1 cargo test -p partsmith-cli --test examples`, and delivery.md asks for the sign-off of technical design section 16 when a kernel change alters them. They were regenerated on October 13 2026 so that `cargo test --workspace` passes again (needs human review: the sign-off is still to be given at the next gate, and reverting the mesher means blessing them again). Only print checks changed beyond the comparison tolerance, in 12 examples (the regenerated files also take the last digits of volumes and areas that the exact volume of section 3.6 item 1 and the stored curves of section 3.5 item 5 moved within 1e-15 relative): `bench/fifty-features`, the four cone examples, `fillet/every-edge`, `hole/blind-tip`, `revolve/sphere` and the four sphere examples. Most changes move finding boxes and values in the last digits; the pointed and apex-below-tolerance cones report 4 warnings instead of 11, because the thin walls the mesh shows at the apex group into fewer findings. A further speedup for whole spheres and tori would have to avoid OCCT classifying every surface node against the face's boundary, which only trimmed faces need.
 9. **Validity check limited to the change (needs human review).** Section 3.5 once checked every result in full with `BRepCheck_Analyzer`; it now checks what the operation produced or changed, which halves the time of most operations on large bodies (the measurements in section 3.5). The guarantee changes in one case: a shape that is invalid when it reaches an operation (a solid `read_step` kept although repair could not make it valid, or invalid bytes read with `from_brep`) passes its invalid unchanged parts through, and the operation returns `Ok` with an invalid result (test 111), where the full check repaired it or failed with `InvalidResult`. The guarantee for valid inputs is unchanged, since no operation writes to its inputs (section 3.1 item 3) and faces changed in place count as changed (section 3.5 item 1). A validity flag on each shape (the full check whenever an input is not known to be valid) was considered and not adopted: a flag that `read_step` clears would not cover bytes read with `from_brep` (the input of test 111), and treating every `from_brep` shape as unchecked would run the full check on every body that the disk cache recompute.md plans would read back; `Shape::is_valid` already lets a caller check an imported body once. This decision needs sign-off at the next gate.
 10. **Budgets after the October 13 changes (needs a budget decision for extrude).** Release builds on the 4-core reference container at load 1, medians of nine alternating runs of the section 5 benchmark before and after: `extrude` of a 100-edge profile went from 17.0 to 15.4 ms (15 ms) once the check trusted the sweep's caps (section 3.5 item 4); it stays over budget on this container, mostly the check of the 100 lateral faces and of the caps' edges in their context, so it needs a measurement on the reference laptop or a budget decision. `volume` of the part went from 1.52 to 0.053 ms (section 3.6 item 1). The copies booleans now run on (section 3.1 item 3) cost a few percent: `fuse` of two primitives 5.9 to 6.2 ms, `cut` of two primitives 5.3 to 5.5 ms, `cut` of 20 cylinders from a box 39.4 to 40.8 ms, all within budget. A lighter copy (new elements sharing every representation instead of `BRepBuilderAPI_Copy`, which rebuilds each curve on a face) would save most of that, but `BRep_TVertex::EmptyCopy` drops a vertex's parameters on its edges, so it needs its own tests before it replaces the tested copy.
+11. **Facade additions for helpful errors (needs human review, ADR 0026).** Section 3.6 items 6 and 7, section 3.7 item 9 and section 4.3 add to the facade what the reference stability and errors study (sections 7.5 and 9, decision D7) needs: shell counts, so features can warn about closed cavities and floating joins; `width_across`, so a "too large" message names a face only when it was measured narrower than the requested size; `element_display`, so the engine can draw a lost element's ghost; and hints that are true for every failure of their operation, with the kernel's own text moved to `detail`. Points for review: `SubShapeKind` gains `Shell`, a variant code outside this crate may match on, and the shim keeps a fifth index map; `width_across` samples the face (its vertices, its edge middles and an 8 x 8 parameter grid), so on a curved face it can report less than the true width, never more; `element_display` meshes the element alone, so a face's ghost can differ in its triangles from the same face in `tessellate`; and every text of section 4.3 changes, which the features' `kernel` message (features.md section 4.1) and the export and import messages of io.md section 4 read. The `InvalidInput` sentences of section 4.2 keep naming indices and tags for callers and tests, and reach users only in the detail. None of them needs a new OCCT toolkit or dependency: `BRepExtrema`, `BRepClass` and `GCPnts` are in `TKTopAlgo` and `TKGeomBase`, already linked (section 3.12 item 3).

@@ -150,6 +150,37 @@ describe('the context toolbar fits its width (3.2)', () => {
     expect(toolbar).not.toHaveClass('overflow-x-auto')
   })
 
+  it('keeps the label of Finish sketch and moves the last tools into More tools when they do not fit beside it', () => {
+    // Finish sketch labeled, the separator, More tools and four icons: 100 + 9 + 5 × 36 = 289.
+    const { toolbar } = renderToolbar(
+      300,
+      { context: 'sketch', sketch: EDITING_SKETCH },
+      'Sketch tools',
+    )
+    expect(shown(toolbar)).toEqual([
+      ['Line', false],
+      ['Rectangle', false],
+      ['Circle', false],
+      ['Arc', false],
+      ['Finish sketch', true],
+      ['More tools', false],
+    ])
+  })
+
+  it('shows Finish sketch as an icon only when its label does not fit beside More tools', () => {
+    // Finish sketch as an icon, the separator, More tools and one icon: 9 + 3 × 36 = 117.
+    const { toolbar } = renderToolbar(
+      140,
+      { context: 'sketch', sketch: EDITING_SKETCH },
+      'Sketch tools',
+    )
+    expect(shown(toolbar)).toEqual([
+      ['Line', false],
+      ['Finish sketch', false],
+      ['More tools', false],
+    ])
+  })
+
   it('never moves Finish sketch into More tools', () => {
     const { toolbar } = renderToolbar(
       3 * ICON + SEPARATOR,

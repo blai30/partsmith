@@ -78,7 +78,7 @@ Dedicated form: `torus(major_radius, minor_radius, plane=..., position=..., op=.
 
 1. Checks in order: major_radius at least `LINEAR_TOLERANCE` (`GreaterThan(0)`); minor_radius at least `LINEAR_TOLERANCE` (`GreaterThan(0)`), both as features.md section 3.14 says for sizes; minor_radius at least `LINEAR_TOLERANCE` less than major_radius (major_radius - minor_radius ≥ `LINEAR_TOLERANCE`, the positive length rule of features.md section 3.4, because the kernel needs that much of a hole in the middle), else `OutOfRange` on `minor_radius`, `LessThan(major)`, bound name `the ring radius`.
 2. Kernel `make_torus` centered on the local origin with its axis on local z; it spans z in [-minor, minor].
-3. Name the face, then `apply_op(ctx, body, op, vec![tool])`.
+3. Name the face, then `apply_op(ctx, body, op, vec![tool], None)` (a primitive has no direction, features.md section 3.10).
 
 ### 3.3 Element names
 
@@ -93,6 +93,7 @@ Dedicated form: `torus(major_radius, minor_radius, plane=..., position=..., op=.
 | Ring radius below 1e-6 mm (0 and negative included) | `OutOfRange` | `Ring radius must be greater than 0 mm, but it is 0 mm. Use a value greater than 0 mm.` |
 | Tube radius below 1e-6 mm (0 and negative included) | `OutOfRange` | `Tube radius must be greater than 0 mm, but it is 0 mm. Use a value greater than 0 mm.` |
 | Tube not at least 1e-6 mm smaller than ring | `OutOfRange` | `Tube radius must be less than the ring radius (20 mm), but it is 20 mm. Use a value less than 20 mm.` |
+| A radius above the modeling limit | `OutOfRange` | `Ring radius must be at most 1000000 mm, but it is 1e200 mm. Use 1000000 mm or less.` |
 | Expression, placement, body and kernel errors | as in [box.md](box.md) section 4 | |
 
 ## 5. Performance
@@ -109,8 +110,8 @@ Conventions from features.md section 6.1. Bodies `[b-1]`. `TOR`: `{"id": "f-tor1
 4. **Tube as large as the ring.** `TOR` with `"minor_radius": "20"`. Expected: error `out_of_range`, field `minor_radius`, rendered `Tube radius must be less than the ring radius (20 mm), but it is 20 mm. Use a value less than 20 mm.`
 5. **Zero tube.** `TOR` with `"minor_radius": "0"`. Expected: error `out_of_range`, field `minor_radius`, bound `GreaterThan(0)`.
 6. **Performance.** Test 1 builds in under 2 ms (desktop, release).
-7. **Tube below the tolerance.** `TOR` with `"minor_radius": "0.0000001"`. Expected: error `out_of_range`, field `minor_radius`, rendered `Tube radius must be greater than 0 mm, but it is 0 mm. Use a value greater than 0 mm.`; b-1 empty.
-8. **Tube within the tolerance of the ring.** `TOR` with `"major_radius": "10", "minor_radius": "9.9999999"`. Expected: error `out_of_range`, field `minor_radius`, rendered `Tube radius must be less than the ring radius (10 mm), but it is 10 mm. Use a value less than 10 mm.`; b-1 empty.
+7. **Tube below the tolerance.** `TOR` with `"minor_radius": "0.0000001"`. Expected: error `out_of_range`, field `minor_radius`, rendered `Tube radius must be greater than 0 mm, but it is 0.0000001 mm. Use a value greater than 0 mm.` (the value is written with the digits that tell it apart from the bound, features.md section 3.12); b-1 empty.
+8. **Tube within the tolerance of the ring.** `TOR` with `"major_radius": "10", "minor_radius": "9.9999999"`. Expected: error `out_of_range`, field `minor_radius`, rendered `Tube radius must be less than the ring radius (10 mm), but it is 9.9999999 mm. Use a value less than 10 mm.`; b-1 empty.
 
 ## Open issues
 

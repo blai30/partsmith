@@ -84,7 +84,7 @@ Dedicated form: `box(length, width, height, plane=..., position=..., op=...)` (p
 
 1. Each size must be at least `LINEAR_TOLERANCE` (1e-6 mm), else `OutOfRange` (`GreaterThan(0)`) on `size[i]` (features.md section 3.14), in field order.
 2. In the local frame the box spans x in [-sx/2, sx/2], y in [-sy/2, sy/2], z in [0, sz]: kernel `make_box` (corner-anchored) with the local frame moved by (-sx/2, -sy/2, 0).
-3. Name the faces from the kernel's `PrimitiveFace` roles, then `apply_op(ctx, body, op, vec![tool])`.
+3. Name the faces from the kernel's `PrimitiveFace` roles, then `apply_op(ctx, body, op, vec![tool], None)` (a primitive has no direction, features.md section 3.10).
 
 ### 3.3 Element names
 
@@ -104,12 +104,15 @@ The faces take the kernel's `PrimitiveFace` roles of `make_box`, whose frame the
 | Condition | Variant | Example message |
 | --- | --- | --- |
 | A size below 1e-6 mm (0 and negative included) | `OutOfRange` | `Length must be greater than 0 mm, but it is 0 mm. Use a value greater than 0 mm.` |
+| A size above the modeling limit | `OutOfRange` | `Length must be at most 1000000 mm, but it is 1e200 mm. Use 1000000 mm or less.` |
 | Expression or dimension error | `Expression` | `Height: Expected a length, but this expression gives an angle.` |
-| Placement face not flat | `NotPlanar` | `The face selected for Plane is not flat. Pick a flat face, a datum plane or an origin plane.` |
-| Placement face lost | `ReferenceNotFound` | `The face selected for Plane can no longer be found. Re-pick it in the repair panel.` |
+| Placement face not flat | `NotPlanar` | `The side of 'Cylinder 1' selected for Plane is not flat. Pick a flat face, a datum plane or an origin plane.` |
+| Placement faces not in one plane | `NotCoplanar` | `The face selected for Plane now matches 2 faces that do not lie in one plane. Pick the one you mean.` |
+| Placement face lost | `ReferenceNotFound` | `{Element} {reason}.`, for example `The top of 'Box 1' selected for Plane was cut away by 'Extrude 1', which comes before this box.` (features.md section 4.1) |
 | Placement datum is not a datum | `WrongFeatureType` | `'Sketch 1' is not a datum plane. Pick a datum plane for Plane.` |
-| Body rules | `BodyNotEmpty`, `BodyEmpty`, `EmptyResult`, warning `NoEffect` | features.md sections 3.5 and 4 |
-| Kernel failure | `Kernel` | the kernel's message |
+| Body rules | `BodyNotEmpty`, `BodyEmpty`, `EmptyResult`, warnings `NoEffect`, `SeparateSolid`, `ClosedVoid` | features.md sections 3.5, 3.15 and 4, for example `This box adds nothing to body 'Body 1': it lies entirely inside the body.` |
+| Placement face guessed or followed | warning `ReferenceGuessed`, notice `ReferenceFollowed` | features.md section 4.2 |
+| Kernel failure | `Kernel` | `Partsmith's geometry kernel could not build this box. {hint}` (features.md section 4.1) |
 
 ## 5. Performance
 
@@ -129,7 +132,9 @@ Conventions from features.md section 6.1. Bodies `[b-1]` unless stated.
 8. **Cut a square hole.** `{"id": "f-box1", "type": "box", "body": "b-1", "size": ["40", "40", "10"], "op": "new"}`, `{"id": "f-box2", "type": "box", "body": "b-1", "size": ["10", "10", "20"], "position": ["0", "0", "-5"], "op": "cut"}`. Expected: volume 15000, 10 faces, bbox [-20,-20,0]-[20,20,10].
 9. **Expressions.** Parameters `[{"id": "p-w", "name": "w", "expr": "8 mm"}]`; `"size": ["w", "2 * w", "w / 2"]`. Expected: volume 512, bbox [-4,-8,0]-[4,8,4].
 10. **Performance.** Test 1 builds in under 2 ms (desktop, release).
-11. **Size below the tolerance.** `"size": ["10", "0.0000001", "30"]`. Expected: error `out_of_range`, field `size[1]`, rendered `Width must be greater than 0 mm, but it is 0 mm. Use a value greater than 0 mm.`; b-1 empty.
+11. **Size below the tolerance.** `"size": ["10", "0.0000001", "30"]`. Expected: error `out_of_range`, field `size[1]`, rendered `Width must be greater than 0 mm, but it is 0.0000001 mm. Use a value greater than 0 mm.` (the value is written with the digits that tell it apart from the bound, features.md section 3.12); b-1 empty.
+12. **A join inside the body, and one that floats.** Test 1's box, then `{"id": "f-box2", "type": "box", "body": "b-1", "size": ["2", "2", "2"], "position": ["0", "0", "10"], "op": "join"}` (inside). Expected: f-box2 status warning (`no_effect` with how `Inside`) rendered `This box adds nothing to body 'Body 1': it lies entirely inside the body.`, with no fix (a primitive has no profile sketch to attach, and a join inside gets no Reverse); b-1 volume 6000. With position `["0", "0", "40"]` instead (above the box): f-box2 status warning (`separate_solid`) rendered `This box does not touch body 'Body 1', so the body now has 2 separate pieces.`, fix `NewBody` only; b-1 has 2 solids, volume 6008.
+13. **A size beyond the modeling limit.** `"size": ["1e200", "20", "30"]`. Expected: error `out_of_range`, field `size[0]`, rendered `Length must be at most 1000000 mm, but it is 1e200 mm. Use 1000000 mm or less.`; no kernel call is made; b-1 empty.
 
 ## Open issues
 

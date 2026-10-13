@@ -31,7 +31,7 @@ The Playwright tests in this folder run against the production build of the app 
 
 ## Tags
 
-- `@visual` (ui.md 6.6): screenshot tests. The configuration sets `animations: 'disabled'` and `maxDiffPixelRatio: 0.002` for `toHaveScreenshot`. They need Google Fonts to be reachable. Baselines change only with reviewer approval; regenerate them with `--update-snapshots`.
+- `@visual` (ui.md 6.6): screenshot tests in `visual.spec.ts`, with their baselines in `visual.spec.ts-snapshots/`. The configuration sets `animations: 'disabled'`, `maxDiffPixelRatio: 0.002` and `threshold: 0.05` for `toHaveScreenshot`, and `visual.css` hides the rebuild time while a screenshot is taken. They need Google Fonts to be reachable. Baselines change only with reviewer approval; regenerate them with `--update-snapshots=all`, since the default mode keeps every baseline that still passes the comparison.
 - `@perf` (ui.md 6.7): left out unless `PARTSMITH_PERF=1`.
 
 ## Fixtures

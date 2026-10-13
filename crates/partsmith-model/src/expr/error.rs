@@ -1,8 +1,9 @@
 //! Expression errors and their messages (expressions.md section 4).
 
+use std::borrow::Borrow;
 use std::fmt;
 
-use super::{Arity, Dimension, Function, Span};
+use super::{Arity, Dimension, Function, MAX_EXPRESSION_DEPTH, MAX_EXPRESSION_LENGTH, Span, Unit};
 use crate::names::NameError;
 
 /// An expression error with the source range it points at.
@@ -158,10 +159,11 @@ impl fmt::Display for ExprErrorKind {
             ExprErrorKind::Empty => formatter.write_str("Enter a value, such as 2 mm."),
             ExprErrorKind::TooLong { length } => write!(
                 formatter,
-                "This expression is {length} characters long; the limit is 1000. Move parts of it into parameters."
+                "This expression is {length} characters long; the limit is {MAX_EXPRESSION_LENGTH}. Move parts of it into parameters."
             ),
-            ExprErrorKind::TooDeep => formatter.write_str(
-                "This expression is nested more than 64 levels deep. Move parts of it into parameters.",
+            ExprErrorKind::TooDeep => write!(
+                formatter,
+                "This expression is nested more than {MAX_EXPRESSION_DEPTH} levels deep. Move parts of it into parameters."
             ),
             ExprErrorKind::UnexpectedCharacter { character } => write!(
                 formatter,
@@ -178,20 +180,21 @@ impl fmt::Display for ExprErrorKind {
             ExprErrorKind::UnclosedParenthesis => {
                 formatter.write_str("This ( has no matching ). Add the closing parenthesis.")
             }
-            ExprErrorKind::UnmatchedParenthesis => formatter.write_str(
-                "This ) has no matching (. Remove it or add an opening parenthesis.",
-            ),
+            ExprErrorKind::UnmatchedParenthesis => formatter
+                .write_str("This ) has no matching (. Remove it or add an opening parenthesis."),
             ExprErrorKind::PowerOperator => formatter.write_str("Use ^ for powers, as in 2^3."),
             ExprErrorKind::DecimalComma => {
                 formatter.write_str("Use . as the decimal separator, as in 2.5.")
             }
             ExprErrorKind::UnknownUnit { number, unit } => write!(
                 formatter,
-                "Unknown unit '{unit}' after {number}. Use one of um, mm, cm, m, in, ft, deg or rad, or write {number} * {unit} to multiply."
+                "Unknown unit '{unit}' after {number}. Use one of {units}, or write {number} * {unit} to multiply.",
+                units = join_list(&Unit::ALL.map(Unit::symbol), " or ")
             ),
             ExprErrorKind::UnknownFunction { name } => write!(
                 formatter,
-                "Unknown function '{name}'. Available functions: abs, sqrt, sin, cos, tan, asin, acos, atan, atan2, min, max, floor, ceil, round."
+                "Unknown function '{name}'. Available functions: {functions}.",
+                functions = Function::ALL.map(Function::name).join(", ")
             ),
             ExprErrorKind::MissingCall { function } => write!(
                 formatter,
@@ -214,17 +217,7 @@ impl fmt::Display for ExprErrorKind {
                 formatter,
                 "This uses {name}, which has an error. Fix {name} first."
             ),
-            ExprErrorKind::Cycle { names } => match names.as_slice() {
-                [name] => write!(
-                    formatter,
-                    "{name} depends on itself. Change its expression so it does not use {name}."
-                ),
-                _ => write!(
-                    formatter,
-                    "{} depend on each other in a loop. Change one of them so it does not use the others.",
-                    join_names(names)
-                ),
-            },
+            ExprErrorKind::Cycle { names } => formatter.write_str(&cycle_sentence(names)),
             ExprErrorKind::DimensionMismatch {
                 operation,
                 left,
@@ -272,8 +265,10 @@ impl fmt::Display for ExprErrorKind {
                 "Cannot take a fractional power of {}: the result would have no unit.",
                 found.describe()
             ),
-            ExprErrorKind::DimensionOverflow => formatter.write_str(
-                "The units in this expression grow beyond a power of 16. Simplify the expression.",
+            ExprErrorKind::DimensionOverflow => write!(
+                formatter,
+                "The units in this expression grow beyond a power of {}. Simplify the expression.",
+                Dimension::MAX_EXPONENT
             ),
             ExprErrorKind::ExpectedDimension { expected, found } => write!(
                 formatter,
@@ -339,12 +334,30 @@ pub enum RenameError {
     InvalidName(NameError),
 }
 
+/// The sentence for parameters that depend on each other in a loop, starting with their names.
+pub(crate) fn cycle_sentence(names: &[String]) -> String {
+    match names {
+        [name] => {
+            format!("{name} depends on itself. Change its expression so it does not use {name}.")
+        }
+        _ => format!(
+            "{} depend on each other in a loop. Change one of them so it does not use the others.",
+            join_names(names)
+        ),
+    }
+}
+
 /// Joins names with `, ` and puts ` and ` before the last: `a and b`, `a, b and c`.
 pub(crate) fn join_names(names: &[String]) -> String {
-    match names {
+    join_list(names, " and ")
+}
+
+/// Joins words with `, ` and puts `conjunction` before the last: `a or b`, `a, b or c` for ` or `.
+pub(crate) fn join_list<Word: Borrow<str>>(words: &[Word], conjunction: &str) -> String {
+    match words {
         [] => String::new(),
-        [only] => only.clone(),
-        [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
+        [only] => only.borrow().to_owned(),
+        [rest @ .., last] => format!("{}{conjunction}{}", rest.join(", "), last.borrow()),
     }
 }
 
@@ -428,5 +441,78 @@ mod tests {
         let error = RenameError::InvalidName(NameError::Empty);
 
         assert_eq!(error.to_string(), "A parameter name cannot be empty.");
+    }
+
+    #[test]
+    fn lists_are_joined_with_the_given_conjunction() {
+        assert_eq!(join_list::<&str>(&[], " or "), "");
+        assert_eq!(join_list(&["a"], " or "), "a");
+        assert_eq!(join_list(&["a", "b"], " or "), "a or b");
+        assert_eq!(join_list(&["a", "b", "c"], " or "), "a, b or c");
+    }
+
+    #[test]
+    fn too_long_names_the_length_limit() {
+        let message = ExprErrorKind::TooLong { length: 1001 }.to_string();
+
+        assert!(
+            message.contains(&format!("the limit is {MAX_EXPRESSION_LENGTH}.")),
+            "{message}"
+        );
+    }
+
+    #[test]
+    fn too_deep_names_the_depth_limit() {
+        let message = ExprErrorKind::TooDeep.to_string();
+
+        assert!(
+            message.contains(&format!("more than {MAX_EXPRESSION_DEPTH} levels")),
+            "{message}"
+        );
+    }
+
+    #[test]
+    fn dimension_overflow_names_the_largest_exponent() {
+        let message = ExprErrorKind::DimensionOverflow.to_string();
+
+        assert!(
+            message.contains(&format!("a power of {}.", Dimension::MAX_EXPONENT)),
+            "{message}"
+        );
+    }
+
+    #[test]
+    fn unknown_unit_lists_every_unit() {
+        let message = ExprErrorKind::UnknownUnit {
+            number: "2".to_string(),
+            unit: "yd".to_string(),
+        }
+        .to_string();
+
+        assert!(
+            message.contains("Use one of um, mm, cm, m, in, ft, deg or rad, or write"),
+            "{message}"
+        );
+        for unit in Unit::ALL {
+            assert!(message.contains(unit.symbol()), "{message}");
+        }
+    }
+
+    #[test]
+    fn unknown_function_lists_every_function() {
+        let message = ExprErrorKind::UnknownFunction {
+            name: "log".to_string(),
+        }
+        .to_string();
+
+        assert!(
+            message.ends_with(
+                "Available functions: abs, sqrt, sin, cos, tan, asin, acos, atan, atan2, min, max, floor, ceil, round."
+            ),
+            "{message}"
+        );
+        for function in Function::ALL {
+            assert!(message.contains(function.name()), "{message}");
+        }
     }
 }

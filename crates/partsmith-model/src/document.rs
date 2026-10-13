@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::canonical::normalize_numbers;
 use crate::expr::evaluate_parameters;
+use crate::names::{LabelError, LabelField, is_valid_feature_type, validate_label};
 use crate::{
     BodyRole, Color, EvaluationContext, Expr, FORMAT, FORMAT_VERSION, Id, ParameterValues, Units,
 };
@@ -174,6 +175,28 @@ impl Body {
             role: BodyRole::Part,
         }
     }
+
+    /// What is wrong with the name, then with the material (model.md section 3.6).
+    pub(crate) fn label_errors(&self) -> impl Iterator<Item = LabelError> + '_ {
+        let labels = [
+            (LabelField::BodyName, Some(&self.name)),
+            (LabelField::Material, self.material.as_ref()),
+        ];
+        labels
+            .into_iter()
+            .filter_map(|(field, text)| validate_label(field, text?).err())
+    }
+}
+
+/// A structural rule a feature record breaks (model.md section 3.6).
+#[derive(Debug, PartialEq)]
+pub(crate) enum RecordProblem<'record> {
+    /// The type is not a valid feature type name.
+    InvalidType,
+    /// The name breaks the label rules.
+    InvalidName(LabelError),
+    /// A params key is one the record itself uses.
+    ReservedKey(&'record String),
 }
 
 /// One timeline entry. Its params are stored generically and owned by the feature registry.
@@ -210,8 +233,24 @@ impl FeatureRecord {
         }
     }
 
+    /// What is wrong with the record: its type, then its name, then each reserved params key in
+    /// params order.
+    pub(crate) fn problems(&self) -> impl Iterator<Item = RecordProblem<'_>> {
+        let invalid_type =
+            (!is_valid_feature_type(&self.kind)).then_some(RecordProblem::InvalidType);
+        let invalid_name = self
+            .name
+            .as_ref()
+            .and_then(|name| validate_label(LabelField::FeatureName, name).err())
+            .map(RecordProblem::InvalidName);
+        invalid_type
+            .into_iter()
+            .chain(invalid_name)
+            .chain(self.reserved_params_keys().map(RecordProblem::ReservedKey))
+    }
+
     /// The params keys that the record itself uses, in params order.
-    pub(crate) fn reserved_params_keys(&self) -> impl Iterator<Item = &String> {
+    fn reserved_params_keys(&self) -> impl Iterator<Item = &String> {
         self.params
             .keys()
             .filter(|key| FeatureRecord::RESERVED_KEYS.contains(&key.as_str()))
@@ -310,6 +349,43 @@ mod tests {
         assert_eq!(
             record.reserved_params_keys().collect::<Vec<_>>(),
             ["type", "id"]
+        );
+    }
+
+    #[test]
+    fn record_problems_come_type_then_name_then_keys() {
+        let mut record = FeatureRecord::new(id("f-1"), "Box");
+        record.name = Some(" ".to_string());
+        record.params.insert("id".to_string(), json!(1));
+        let key = "id".to_string();
+
+        assert_eq!(
+            record.problems().collect::<Vec<_>>(),
+            [
+                RecordProblem::InvalidType,
+                RecordProblem::InvalidName(LabelError::Empty {
+                    field: LabelField::FeatureName
+                }),
+                RecordProblem::ReservedKey(&key)
+            ]
+        );
+    }
+
+    #[test]
+    fn body_label_errors_come_name_then_material() {
+        let mut body = Body::new(id("b-1"), "");
+        body.material = Some(String::new());
+
+        assert_eq!(
+            body.label_errors().collect::<Vec<_>>(),
+            [
+                LabelError::Empty {
+                    field: LabelField::BodyName
+                },
+                LabelError::Empty {
+                    field: LabelField::Material
+                }
+            ]
         );
     }
 

@@ -121,10 +121,16 @@ pub enum LoadError {
     )]
     NotPartsmith,
     /// The root has no `format_version`.
-    #[error("The document has no \"format_version\". Add \"format_version\": 1 after \"format\".")]
+    #[error(
+        "The document has no \"format_version\". Add \"format_version\": {version} after \"format\".",
+        version = FORMAT_VERSION
+    )]
     MissingFormatVersion,
     /// `format_version` is not a non-negative whole number.
-    #[error("\"format_version\" must be a whole number such as 1, not {found}.")]
+    #[error(
+        "\"format_version\" must be a whole number such as {version}, not {found}.",
+        version = FORMAT_VERSION
+    )]
     InvalidFormatVersion {
         /// The value's one-line canonical form.
         found: String,
@@ -312,5 +318,29 @@ mod tests {
     #[test]
     fn non_object_roots_are_not_partsmith() {
         assert_eq!(load("\"partsmith\""), Err(LoadError::NotPartsmith));
+    }
+
+    #[test]
+    fn missing_format_version_suggests_the_current_version() {
+        let message = LoadError::MissingFormatVersion.to_string();
+
+        assert!(
+            message.contains(&format!("\"format_version\": {FORMAT_VERSION} after")),
+            "{message}"
+        );
+    }
+
+    #[test]
+    fn invalid_format_version_suggests_the_current_version() {
+        let error = LoadError::InvalidFormatVersion {
+            found: "\"1\"".to_string(),
+        };
+
+        assert!(
+            error
+                .to_string()
+                .contains(&format!("such as {FORMAT_VERSION}, not")),
+            "{error}"
+        );
     }
 }

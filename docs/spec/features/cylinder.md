@@ -79,7 +79,7 @@ Dedicated form: `cylinder(radius, height, plane=..., position=..., op=...)` (pyt
 
 1. radius and height at least `LINEAR_TOLERANCE` (1e-6 mm), else `OutOfRange` (`GreaterThan(0)`) on that field (features.md section 3.14), in field order.
 2. Kernel `make_cylinder` in the local frame: axis on local z, base circle of `radius` at z = 0, top at z = `height`.
-3. Name the faces, then `apply_op(ctx, body, op, vec![tool])`.
+3. Name the faces, then `apply_op(ctx, body, op, vec![tool], None)` (a primitive has no direction, features.md section 3.10).
 
 ### 3.3 Element names
 
@@ -95,6 +95,7 @@ Dedicated form: `cylinder(radius, height, plane=..., position=..., op=...)` (pyt
 | --- | --- | --- |
 | Radius below 1e-6 mm (0 and negative included) | `OutOfRange` | `Radius must be greater than 0 mm, but it is 0 mm. Use a value greater than 0 mm.` |
 | Height below 1e-6 mm (0 and negative included) | `OutOfRange` | `Height must be greater than 0 mm, but it is -2 mm. Use a value greater than 0 mm.` |
+| A size above the modeling limit | `OutOfRange` | `Radius must be at most 1000000 mm, but it is 1e200 mm. Use 1000000 mm or less.` |
 | Expression, placement, body and kernel errors | as in [box.md](box.md) section 4 | |
 
 ## 5. Performance
@@ -112,8 +113,8 @@ Conventions from features.md section 6.1. Bodies `[b-1]`. `CYL`: `{"id": "f-cyl1
 5. **Negative height.** `CYL` with `"height": "-2"`. Expected: error `out_of_range`, field `height`, rendered `Height must be greater than 0 mm, but it is -2 mm. Use a value greater than 0 mm.`
 6. **Cut a round hole.** `{"id": "f-box1", "type": "box", "body": "b-1", "size": ["40", "40", "10"], "position": ["0", "0", "-10"], "op": "new"}`, `{"id": "f-cyl1", "type": "cylinder", "body": "b-1", "radius": "3", "height": "10", "position": ["0", "0", "-10"], "op": "cut"}`. Expected: volume 15717.256661, 7 faces, bbox [-20,-20,-10]-[20,20,0]; `f-cyl1/side` exists in b-1.
 7. **Performance.** Test 1 builds in under 2 ms (desktop, release).
-8. **Radius below the tolerance.** `CYL` with `"radius": "0.0000001"`. Expected: error `out_of_range`, field `radius`, rendered `Radius must be greater than 0 mm, but it is 0 mm. Use a value greater than 0 mm.`; b-1 empty.
-9. **Height below the tolerance.** `CYL` with `"height": "0.0000001"`. Expected: error `out_of_range`, field `height`, rendered `Height must be greater than 0 mm, but it is 0 mm. Use a value greater than 0 mm.`
+8. **Radius below the tolerance.** `CYL` with `"radius": "0.0000001"`. Expected: error `out_of_range`, field `radius`, rendered `Radius must be greater than 0 mm, but it is 0.0000001 mm. Use a value greater than 0 mm.` (the value is written with the digits that tell it apart from the bound, features.md section 3.12); b-1 empty.
+9. **Height below the tolerance.** `CYL` with `"height": "0.0000001"`. Expected: error `out_of_range`, field `height`, rendered `Height must be greater than 0 mm, but it is 0.0000001 mm. Use a value greater than 0 mm.`
 
 ## Open issues
 

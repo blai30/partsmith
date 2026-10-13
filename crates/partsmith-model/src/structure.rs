@@ -2,8 +2,9 @@
 
 use std::collections::BTreeSet;
 
+use crate::document::RecordProblem;
 use crate::names::{LabelError, LabelField, NameError, validate_label, validate_parameter_name};
-use crate::{Document, FORMAT, FORMAT_VERSION, Id, is_valid_feature_type};
+use crate::{Document, FORMAT, FORMAT_VERSION, Id};
 
 /// A violation of the structural rules (model.md section 3.6).
 #[derive(Clone, Debug, PartialEq, thiserror::Error)]
@@ -16,7 +17,8 @@ pub enum StructureError {
     },
     /// `format_version` is not FORMAT_VERSION.
     #[error(
-        "The document is at format version {found}, but documents in memory must be at version 1. Load it from text so it is migrated."
+        "The document is at format version {found}, but documents in memory must be at version {version}. Load it from text so it is migrated.",
+        version = FORMAT_VERSION
     )]
     WrongFormatVersion {
         /// The version found.
@@ -142,42 +144,29 @@ impl Document {
         }
         for body in &self.bodies {
             check_repeat(&mut seen_ids, &body.id, &mut problems);
-            let labels = [
-                (LabelField::BodyName, Some(&body.name)),
-                (LabelField::Material, body.material.as_ref()),
-            ];
-            for (field, text) in labels {
-                if let Some(text) = text
-                    && let Err(error) = validate_label(field, text)
-                {
-                    problems.push(StructureError::InvalidLabel {
+            problems.extend(
+                body.label_errors()
+                    .map(|error| StructureError::InvalidLabel {
                         id: Some(body.id.clone()),
                         error,
-                    });
-                }
-            }
+                    }),
+            );
         }
         for feature in &self.features {
             check_repeat(&mut seen_ids, &feature.id, &mut problems);
-            if !is_valid_feature_type(&feature.kind) {
-                problems.push(StructureError::InvalidFeatureType {
+            problems.extend(feature.problems().map(|problem| match problem {
+                RecordProblem::InvalidType => StructureError::InvalidFeatureType {
                     id: feature.id.clone(),
                     kind: feature.kind.clone(),
-                });
-            }
-            if let Some(name) = &feature.name
-                && let Err(error) = validate_label(LabelField::FeatureName, name)
-            {
-                problems.push(StructureError::InvalidLabel {
+                },
+                RecordProblem::InvalidName(error) => StructureError::InvalidLabel {
                     id: Some(feature.id.clone()),
                     error,
-                });
-            }
-            problems.extend(feature.reserved_params_keys().map(|key| {
-                StructureError::ReservedParamKey {
+                },
+                RecordProblem::ReservedKey(key) => StructureError::ReservedParamKey {
                     id: feature.id.clone(),
                     key: key.clone(),
-                }
+                },
             }));
         }
         if let Some(rollback) = &self.rollback
@@ -316,6 +305,18 @@ mod tests {
         assert_eq!(
             error.to_string(),
             "Parameter p-1: A parameter name cannot be empty."
+        );
+    }
+
+    #[test]
+    fn wrong_format_version_names_the_current_version() {
+        let error = StructureError::WrongFormatVersion { found: 0 };
+
+        assert!(
+            error
+                .to_string()
+                .contains(&format!("must be at version {FORMAT_VERSION}.")),
+            "{error}"
         );
     }
 }

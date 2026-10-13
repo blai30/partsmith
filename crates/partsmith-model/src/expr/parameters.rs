@@ -67,10 +67,10 @@ pub(crate) struct ParameterGraph<'a> {
     /// Position of the first parameter with each name; later parameters with the same name lose lookups.
     positions: BTreeMap<&'a str, usize>,
     /// Each parameter's parse result, in document order.
-    pub(crate) parsed: Vec<Result<ParsedExpr, ExprError>>,
+    parsed: Vec<Result<ParsedExpr, ExprError>>,
     /// For each parameter, the positions of the parameters its expression names, in first-use
     /// order without repeats. A name used by several parameters refers to the first of them.
-    pub(crate) dependencies: Vec<Vec<usize>>,
+    dependencies: Vec<Vec<usize>>,
 }
 
 impl<'a> ParameterGraph<'a> {
@@ -103,6 +103,11 @@ impl<'a> ParameterGraph<'a> {
         }
     }
 
+    /// Each parameter's parse result, in document order.
+    pub(crate) fn parsed(&self) -> &[Result<ParsedExpr, ExprError>] {
+        &self.parsed
+    }
+
     /// True when a parameter has this name.
     pub(crate) fn has_parameter(&self, name: &str) -> bool {
         self.positions.contains_key(name)
@@ -133,6 +138,21 @@ impl<'a> ParameterGraph<'a> {
     }
 }
 
+/// Where the evaluation of one parameter stands.
+enum Slot {
+    /// Parsed, waiting for its turn in dependency order.
+    Pending(ParsedExpr),
+    /// Its final result: a parse or cycle error, or what it evaluated to.
+    Done(Result<Quantity, ExprError>),
+}
+
+impl Slot {
+    /// True while the parameter waits to be evaluated.
+    fn is_pending(&self) -> bool {
+        matches!(self, Slot::Pending(_))
+    }
+}
+
 /// Evaluates every parameter: parse errors, then cycles, then the rest in dependency order with
 /// ties broken by document order (expressions.md section 3.13). Entries are in document order.
 pub(crate) fn evaluate_parameters(
@@ -143,17 +163,13 @@ pub(crate) fn evaluate_parameters(
     let mut graph = ParameterGraph::new(parameters);
     let cycles = graph.cycles();
 
-    let mut results: Vec<Option<Result<Quantity, ExprError>>> = vec![None; parameters.len()];
-    let mut pending: Vec<Option<ParsedExpr>> = Vec::with_capacity(parameters.len());
-    for (result, parse) in results.iter_mut().zip(std::mem::take(&mut graph.parsed)) {
-        match parse {
-            Ok(tree) => pending.push(Some(tree)),
-            Err(error) => {
-                *result = Some(Err(error));
-                pending.push(None);
-            }
-        }
-    }
+    let mut slots: Vec<Slot> = std::mem::take(&mut graph.parsed)
+        .into_iter()
+        .map(|parsed| match parsed {
+            Ok(tree) => Slot::Pending(tree),
+            Err(error) => Slot::Done(Err(error)),
+        })
+        .collect();
     for cycle in cycles {
         let names: Vec<String> = cycle
             .iter()
@@ -161,26 +177,27 @@ pub(crate) fn evaluate_parameters(
             .collect();
         for &position in &cycle {
             let span = Span::whole(parameters[position].expr.as_str());
-            results[position] = Some(Err(ExprError::new(
+            slots[position] = Slot::Done(Err(ExprError::new(
                 ExprErrorKind::Cycle {
                     names: names.clone(),
                 },
                 span,
             )));
-            pending[position] = None;
         }
     }
 
     // Lookups see only the first parameter with each name.
-    let mut known: ParameterValues = results
+    let mut known: ParameterValues = slots
         .iter()
         .enumerate()
         .filter(|&(position, _)| graph.is_first_with_name(parameters, position))
-        .filter_map(|(position, result)| Some((parameters[position].name.clone(), result.clone()?)))
+        .filter_map(|(position, slot)| match slot {
+            Slot::Done(result) => Some((parameters[position].name.clone(), result.clone())),
+            Slot::Pending(_) => None,
+        })
         .collect();
-    let is_pending: Vec<bool> = pending.iter().map(Option::is_some).collect();
-    for position in dependency_order(&graph.dependencies, &is_pending) {
-        let Some(tree) = pending[position].take() else {
+    for position in dependency_order(&graph.dependencies, |node| slots[node].is_pending()) {
+        let Slot::Pending(tree) = &slots[position] else {
             continue;
         };
         let scope = Scope {
@@ -192,39 +209,39 @@ pub(crate) fn evaluate_parameters(
         if graph.is_first_with_name(parameters, position) {
             known.insert(parameters[position].name.clone(), result.clone());
         }
-        results[position] = Some(result);
+        slots[position] = Slot::Done(result);
     }
 
     parameters
         .iter()
-        .zip(results)
-        .map(|(parameter, result)| {
-            let result = result.expect(
-                "every parameter failed to parse, is in a cycle, or was evaluated in dependency order",
-            );
-            (parameter.name.clone(), result)
+        .zip(slots)
+        .map(|(parameter, slot)| match slot {
+            Slot::Done(result) => (parameter.name.clone(), result),
+            Slot::Pending(_) => unreachable!(
+                "every parameter failed to parse, is in a cycle, or was evaluated in dependency order"
+            ),
         })
         .collect()
 }
 
 /// The pending nodes in dependency order (each after every pending node it depends on), ties
 /// broken by position. Pending nodes form no cycle, so every one of them is in the order.
-fn dependency_order(dependencies: &[Vec<usize>], is_pending: &[bool]) -> Vec<usize> {
+fn dependency_order(dependencies: &[Vec<usize>], is_pending: impl Fn(usize) -> bool) -> Vec<usize> {
     let mut waiting_on = vec![0_usize; dependencies.len()];
     let mut dependents = vec![Vec::new(); dependencies.len()];
     for (node, node_dependencies) in dependencies.iter().enumerate() {
-        if !is_pending[node] {
+        if !is_pending(node) {
             continue;
         }
         for &dependency in node_dependencies {
-            if is_pending[dependency] {
+            if is_pending(dependency) {
                 waiting_on[node] += 1;
                 dependents[dependency].push(node);
             }
         }
     }
     let mut ready: BinaryHeap<Reverse<usize>> = (0..dependencies.len())
-        .filter(|&node| is_pending[node] && waiting_on[node] == 0)
+        .filter(|&node| is_pending(node) && waiting_on[node] == 0)
         .map(Reverse)
         .collect();
     let mut order = Vec::new();
@@ -387,14 +404,14 @@ mod tests {
     fn dependency_order_breaks_ties_by_position() {
         let dependencies = vec![vec![2], vec![], vec![], vec![1]];
 
-        assert_eq!(dependency_order(&dependencies, &[true; 4]), [1, 2, 0, 3]);
+        assert_eq!(dependency_order(&dependencies, |_| true), [1, 2, 0, 3]);
     }
 
     #[test]
     fn dependencies_that_are_not_pending_do_not_block() {
         let dependencies = vec![vec![1], vec![]];
 
-        assert_eq!(dependency_order(&dependencies, &[true, false]), [0]);
+        assert_eq!(dependency_order(&dependencies, |node| node == 0), [0]);
     }
 
     #[test]

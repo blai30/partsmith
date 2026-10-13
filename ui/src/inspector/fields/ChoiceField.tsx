@@ -1,5 +1,5 @@
 import { clsx } from 'clsx/lite'
-import type { ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { setCommandField } from '../../app/actions/command'
 import { useApp } from '../../app/AppProvider'
 import { HelpLabel } from '../../components/HelpLabel'
@@ -16,14 +16,68 @@ export type ChoiceFieldProps = {
   readonly trailing?: ReactNode
 }
 
-/** One of a few options: a segmented control up to 4 options, else a native select (3.7). */
+/**
+ * Whether a segmented row fits its field: measured before the browser paints and whenever the
+ * segmented control changes size (the chosen option is drawn bold), and tried again from the
+ * segmented control once the fonts have loaded or the labels change. A row that overflowed stays a
+ * select until then, so choosing an option with a wider bold label cannot flip it back and forth.
+ */
+function useSegmentsFit(labels: string): {
+  readonly fits: boolean
+  readonly rowRef: RefObject<HTMLDivElement | null>
+} {
+  const rowRef = useRef<HTMLDivElement>(null)
+  // The labels that overflowed the row, or null while the segmented control is tried.
+  const [overflowed, setOverflowed] = useState<string | null>(null)
+  const fits = overflowed !== labels
+  useLayoutEffect(() => {
+    const row = rowRef.current
+    if (!fits || row === null) {
+      return undefined
+    }
+    const measure = () => {
+      if (row.scrollWidth > row.clientWidth) {
+        setOverflowed(labels)
+      }
+    }
+    measure()
+    const group = row.firstElementChild
+    if (group === null || typeof ResizeObserver !== 'function') {
+      return undefined
+    }
+    const observer = new ResizeObserver(measure)
+    observer.observe(group)
+    return () => {
+      observer.disconnect()
+    }
+  }, [fits, labels])
+  useEffect(() => {
+    if (!('fonts' in document)) {
+      return undefined
+    }
+    const retry = () => {
+      setOverflowed(null)
+    }
+    document.fonts.addEventListener('loadingdone', retry)
+    return () => {
+      document.fonts.removeEventListener('loadingdone', retry)
+    }
+  }, [])
+  return { fits, rowRef }
+}
+
+/**
+ * One of a few options (3.7): a segmented control up to 4 options when its segments fit the field,
+ * else a native select, so no option is ever clipped.
+ */
 export function ChoiceField({ field, options, presentation, trailing = null }: ChoiceFieldProps) {
   const app = useApp()
   const value = typeof field.value === 'string' ? field.value : (options[0]?.value ?? '')
   const id = fieldInputId(field.path)
   const helpId = `${id}-help`
   const help = field.help
-  if (presentation === 'segmented') {
+  const { fits, rowRef } = useSegmentsFit(options.map((option) => option.label).join('\n'))
+  if (presentation === 'segmented' && fits) {
     return (
       <div className="flex min-w-0 flex-col gap-1">
         <HelpLabel help={help} helpId={helpId}>
@@ -38,8 +92,9 @@ export function ChoiceField({ field, options, presentation, trailing = null }: C
             {field.label}
           </span>
         </HelpLabel>
-        <div className="flex min-w-0 items-center justify-between gap-2">
+        <div ref={rowRef} className="flex min-w-0 items-center justify-between gap-2">
           <SegmentedControl
+            stretch
             label={field.label}
             options={options}
             value={value}

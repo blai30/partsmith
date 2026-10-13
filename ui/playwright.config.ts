@@ -22,8 +22,9 @@ export default defineConfig({
   grepInvert: process.env.PARTSMITH_PERF === '1' ? undefined : /@perf/,
   reporter: process.env.CI ? [['github'], ['html', { open: 'never' }]] : 'list',
   expect: {
-    // Visual tests (ui.md 6.6).
-    toHaveScreenshot: { animations: 'disabled', maxDiffPixelRatio: 0.002 },
+    // Visual tests (ui.md 6.6). The per-pixel color threshold is stricter than Playwright's 0.2, which
+    // passes a missing 12 percent region fill, a 30 percent problem halo or a recolored 1-pixel edge.
+    toHaveScreenshot: { animations: 'disabled', maxDiffPixelRatio: 0.002, threshold: 0.05 },
   },
   use: {
     baseURL: `http://localhost:${String(port)}`,

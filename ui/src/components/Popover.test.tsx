@@ -123,6 +123,12 @@ describe('Popover', () => {
     expect(dialog).toHaveClass('border', 'rounded-md', 'shadow-lg')
   })
 
+  it('takes pointer input inside a pointer-events-none parent, such as the sketch header slot', async () => {
+    render(<Harness />)
+    await userEvent.click(screen.getByRole('button', { name: 'Section view' }))
+    expect(screen.getByRole('dialog', { name: 'Section' })).toHaveClass('pointer-events-auto')
+  })
+
   it('puts layout classes on a wrapper of the content, never on the popover element', () => {
     // A display class on the popover element would override the browser's display: none while
     // it is closed.

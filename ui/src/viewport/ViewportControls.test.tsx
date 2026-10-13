@@ -62,7 +62,8 @@ describe('ViewportControls layout', () => {
   it('sits under the view cube, below the reach of its corners in every orientation', () => {
     const { controls } = setUp()
     const box = controls.parentElement
-    expect(box).toHaveClass('absolute', 'right-4', 'w-24')
+    // Centered under the cube, which is as wide and as far from the right edge.
+    expect(box).toHaveClass('absolute', 'right-6', 'w-24')
     const top = /\btop-(\d+)\b/.exec(box?.className ?? '')?.[1]
     // The 6rem cube at top-8 is centered 5rem down; its corners turn up to 3√3 rem from the center, a little more under the cube's perspective.
     const cubeReach = 5 + 3 * Math.sqrt(3) * 1.01

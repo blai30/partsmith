@@ -276,6 +276,11 @@ describe('Menu', () => {
     expect(menu).toHaveClass('border', 'rounded-md', 'shadow-lg')
   })
 
+  it('takes pointer input inside a pointer-events-none parent, whose setting the top layer keeps', async () => {
+    const { menu } = await openMenu(documentEntries(handlers()))
+    expect(menu).toHaveClass('pointer-events-auto')
+  })
+
   it('is positioned at runtime next to its anchor', async () => {
     const { menu } = await openMenu(documentEntries(handlers()))
     expect(menu).toHaveAttribute('data-positioned')
@@ -322,6 +327,14 @@ describe('Menu keys and pointer details', () => {
     expect(submenu).not.toContainElement(focused())
     await user.keyboard('{ArrowRight}')
     expect(submenu).toContainElement(focused())
+  })
+
+  it('a submenu item is the invoker of its open submenu, so clicking it is a press inside the submenu', async () => {
+    const { user } = await openMenu(documentEntries(handlers()))
+    await user.hover(item('Theme'))
+    const submenu = screen.getByRole('menu', { name: 'Theme' })
+    expect(item('Theme')).toHaveAttribute('popovertarget', submenu.id)
+    expect(item('Theme')).toHaveAttribute('popovertargetaction', 'show')
   })
 
   it('hovering another item closes an open submenu', async () => {

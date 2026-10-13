@@ -10,7 +10,7 @@ use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::{Deserialize, Serialize, Serializer};
 
 use crate::error::NamingError;
-use crate::grammar::{self, EDGE_PREFIX, NameDefect, VERTEX_PREFIX};
+use crate::grammar::{self, NameDefect};
 use crate::kind::ElementKind;
 
 /// A validated element name such as `f-ext1/end-cap#2` or `edge(f-ext1/end-cap|f-ext1/lateral/e-9e12)`.
@@ -65,13 +65,7 @@ impl ElementName {
 
     /// Face, edge or vertex, from the name's form.
     pub fn kind(&self) -> ElementKind {
-        if self.0.starts_with(EDGE_PREFIX) {
-            ElementKind::Edge
-        } else if self.0.starts_with(VERTEX_PREFIX) {
-            ElementKind::Vertex
-        } else {
-            ElementKind::Face
-        }
+        grammar::list_prefix(self.0.as_bytes()).map_or(ElementKind::Face, |(kind, _)| kind)
     }
 
     /// True when the name contains a `#` anywhere, so its meaning depends on a geometric order.
@@ -147,20 +141,21 @@ impl ElementName {
 
     /// The edge name for the given adjacent face names (sorted and deduplicated here).
     pub fn edge(faces: &[ElementName]) -> Result<ElementName, NamingError> {
-        ElementName::from_faces(EDGE_PREFIX, faces.iter().collect())
+        ElementName::from_faces(ElementKind::Edge, faces.iter().collect())
     }
 
     /// The vertex name for the given adjacent face names (sorted and deduplicated here).
     pub fn vertex(faces: &[ElementName]) -> Result<ElementName, NamingError> {
-        ElementName::from_faces(VERTEX_PREFIX, faces.iter().collect())
+        ElementName::from_faces(ElementKind::Vertex, faces.iter().collect())
     }
 
-    /// The edge (`EDGE_PREFIX`) or vertex (`VERTEX_PREFIX`) name of these face names, sorted and
-    /// deduplicated here.
+    /// The edge or vertex name, as `kind` says, of these face names, sorted and deduplicated here.
     pub(crate) fn from_faces(
-        prefix: &str,
+        kind: ElementKind,
         mut faces: Vec<&ElementName>,
     ) -> Result<ElementName, NamingError> {
+        let prefix =
+            grammar::list_prefix_of(kind).expect("only edge and vertex names list face names");
         faces.sort_unstable();
         faces.dedup();
         let length = prefix.len() + faces.iter().map(|face| face.0.len() + 1).sum::<usize>();
@@ -241,7 +236,7 @@ fn invalid_name(text: &str, defect: &NameDefect) -> NamingError {
 }
 
 /// `text` with every trailing split suffix (`#` and digits) removed.
-pub(crate) fn split_base_of(text: &str) -> &str {
+fn split_base_of(text: &str) -> &str {
     let mut base = text;
     while let Some((head, number)) = base.rsplit_once('#') {
         if number.is_empty() || !number.bytes().all(|byte| byte.is_ascii_digit()) {
@@ -253,7 +248,7 @@ pub(crate) fn split_base_of(text: &str) -> &str {
 }
 
 /// True when `text` is `ancestor` followed by one or more split suffixes.
-pub(crate) fn is_split_descendant(text: &str, ancestor: &str) -> bool {
+fn is_split_descendant(text: &str, ancestor: &str) -> bool {
     text.strip_prefix(ancestor).is_some_and(|suffixes| {
         suffixes.starts_with('#')
             && suffixes
@@ -319,10 +314,7 @@ impl TryFrom<String> for ElementName {
     type Error = NamingError;
 
     fn try_from(text: String) -> Result<ElementName, NamingError> {
-        match grammar::validate(&text) {
-            Ok(()) => Ok(ElementName(Arc::from(text))),
-            Err(defect) => Err(invalid_name(&text, &defect)),
-        }
+        ElementName::parse(&text)
     }
 }
 

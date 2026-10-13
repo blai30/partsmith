@@ -16,8 +16,8 @@ use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::{Deserialize, Serialize};
 
 pub use dimension::{Dimension, Quantity};
-pub(crate) use error::join_names;
 pub use error::{ExprError, ExprErrorKind, MismatchOperation, RenameError};
+pub(crate) use error::{cycle_sentence, join_list};
 pub use evaluate::{EmptyContext, EvaluationContext, Scope};
 pub use function::{Arity, Function};
 pub use parameters::ParameterValues;
@@ -25,6 +25,7 @@ pub(crate) use parameters::{ParameterGraph, evaluate_parameters};
 pub use unit::Unit;
 
 use crate::names::validate_parameter_name;
+use lexer::is_whitespace;
 
 /// Longest expression source, in Unicode scalar values.
 pub const MAX_EXPRESSION_LENGTH: usize = 1000;
@@ -87,7 +88,9 @@ impl Expr {
 
 /// The name inside the span of a name node, which also covers any parentheses around it.
 fn name_span(source: &str, span: Span) -> Span {
-    let is_wrapping = |character: char| matches!(character, '(' | ')' | ' ' | '\t' | '\n' | '\r');
+    let is_wrapping = |character: char| {
+        matches!(character, '(' | ')') || u8::try_from(character).is_ok_and(is_whitespace)
+    };
     let text = &source[span.start..span.end];
     let leading = text.len() - text.trim_start_matches(is_wrapping).len();
     let trailing = text.len() - text.trim_end_matches(is_wrapping).len();

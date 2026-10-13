@@ -736,7 +736,8 @@ describe('painting (3.12, 3.16.2)', () => {
     clickAt(canvas(), [-10, -10])
     pointerAt(canvas(), 'pointermove', [10, -5])
     expect(paint().rubberBand).toBe('M432 592 L592 552')
-    expect(paint().drawInputs).not.toBeNull()
+    // Beside the band's midpoint (512, 572), on the side away from the pointer at (592, 552).
+    expect(paint().drawInputs).toEqual({ at: [500, 584], left: true, above: false })
     expect(paint().measures['Length']).toBe('20.616')
   })
 

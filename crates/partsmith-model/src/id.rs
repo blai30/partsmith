@@ -8,7 +8,7 @@ use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::{Deserialize, Serialize};
 
 /// Regular expression every valid id matches.
-const ID_PATTERN: &str = "^[A-Za-z0-9_-]{1,64}$";
+pub(crate) const ID_PATTERN: &str = "^[A-Za-z0-9_-]{1,64}$";
 
 /// Largest value a generated id can encode: the low 48 bits.
 const MAX_GENERATED_VALUE: u64 = 0xFFFF_FFFF_FFFF;
@@ -187,7 +187,10 @@ pub enum IdError {
     #[error("An id cannot be empty.")]
     Empty,
     /// The text has more than 64 characters.
-    #[error("This id is {length} characters long; ids can be at most 64 characters.")]
+    #[error(
+        "This id is {length} characters long; ids can be at most {max} characters.",
+        max = Id::MAX_LENGTH
+    )]
     TooLong {
         /// Length in characters.
         length: usize,
@@ -429,5 +432,17 @@ mod tests {
 
         assert!(generated.as_str().starts_with("e-"));
         assert_eq!(generated.as_str().len(), 14);
+    }
+
+    #[test]
+    fn too_long_names_the_maximum_length() {
+        let error = IdError::TooLong { length: 65 };
+
+        assert!(
+            error
+                .to_string()
+                .contains(&format!("at most {} characters", Id::MAX_LENGTH)),
+            "{error}"
+        );
     }
 }

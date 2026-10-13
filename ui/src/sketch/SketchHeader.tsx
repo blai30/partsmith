@@ -106,14 +106,18 @@ function PlanePicking() {
       data-state="picking"
       data-dof="0"
       data-outline="0"
+      // A narrow slot (200 percent UI scale) wraps the prompt and the buttons onto more lines
+      // instead of pushing them out of the viewport.
       className={clsx(
-        'pointer-events-auto flex h-10 items-center gap-2 rounded-md border pr-1 pl-3 text-sm whitespace-nowrap shadow-sm',
+        'pointer-events-auto flex min-h-10 max-w-full flex-wrap items-center gap-x-2 gap-y-1 rounded-md border py-1 pr-1 pl-3 text-sm shadow-sm',
         COLOR_CLASSES.surfaceRaised.background,
         COLOR_CLASSES.border.border,
         COLOR_CLASSES.text.foreground,
       )}
     >
-      <legend className="float-left font-medium">Pick a plane or a flat face to draw on</legend>
+      <legend className="float-left min-w-0 font-medium">
+        Pick a plane or a flat face to draw on
+      </legend>
       {ORIGIN_PLANES.map((plane, index) => (
         <Button
           key={plane}

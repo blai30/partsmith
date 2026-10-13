@@ -477,6 +477,39 @@ describe('keyboard (3.10)', () => {
     expect(document.activeElement).toBe(focusable[0])
   })
 
+  it('enters a sketch with Enter on its focused row', async () => {
+    const { app, user } = renderBrowser()
+    row('sketch', 'f-sk1').focus()
+    await user.keyboard('{Enter}')
+    await settle()
+    expect(app.store.getState().sketch?.sketchId).toBe('f-sk1')
+  })
+
+  it('leaves Mod+Enter on a focused row to the shortcuts, so it can finish a sketch (3.5)', () => {
+    const { app } = renderBrowser()
+    const sketchRow = row('sketch', 'f-sk1')
+    sketchRow.focus()
+    const event = new KeyboardEvent('keydown', {
+      key: 'Enter',
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true,
+    })
+    sketchRow.dispatchEvent(event)
+    expect(event.defaultPrevented).toBe(false)
+    expect(app.store.getState().sketch).toBeNull()
+  })
+
+  it('leaves Enter to the Enter ladder on a row with nothing to activate', async () => {
+    const { user, browser } = renderBrowser()
+    await user.click(within(browser).getByText('Origin'))
+    const plane = row('origin_plane', 'XY')
+    plane.focus()
+    const event = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })
+    plane.dispatchEvent(event)
+    expect(event.defaultPrevented).toBe(false)
+  })
+
   it('takes no row buttons into the tab order', () => {
     const { browser } = renderBrowser()
     const buttons = within(browser).queryAllByRole('button', { hidden: true })

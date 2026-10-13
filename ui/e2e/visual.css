@@ -1,0 +1,4 @@
+/* Hidden while a visual test takes a screenshot (ui.md 6.6): its text changes from run to run. */
+[data-testid='status-recompute'] {
+  visibility: hidden;
+}

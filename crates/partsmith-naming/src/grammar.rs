@@ -8,17 +8,19 @@ use std::fmt;
 
 use partsmith_model::Id;
 
+use crate::kind::ElementKind;
+
 /// Longest valid element name, in bytes.
 pub(crate) const MAX_NAME_LENGTH: usize = 16384;
 
 /// Deepest valid nesting of `edge(` and `vertex(` groups.
 pub(crate) const MAX_NAME_DEPTH: usize = 32;
 
-/// Prefix of an edge name.
-pub(crate) const EDGE_PREFIX: &str = "edge(";
-
-/// Prefix of a vertex name.
-pub(crate) const VERTEX_PREFIX: &str = "vertex(";
+/// The kinds of names that list faces, with the text each starts with.
+const LIST_PREFIXES: [(ElementKind, &str); 2] = [
+    (ElementKind::Edge, "edge("),
+    (ElementKind::Vertex, "vertex("),
+];
 
 /// Most digits a number in a name can have: `u32::MAX` has 10.
 const MAX_NUMBER_DIGITS: usize = 10;
@@ -80,9 +82,11 @@ impl fmt::Display for NameDefect {
                 "unexpected character '{character}' at byte {position}"
             ),
             NameDefect::EndsEarly => formatter.write_str("it ends too early"),
-            NameDefect::InvalidId => {
-                formatter.write_str("a feature id must be 1 to 64 letters, digits, '_' or '-'")
-            }
+            NameDefect::InvalidId => write!(
+                formatter,
+                "a feature id must be 1 to {} letters, digits, '_' or '-'",
+                Id::MAX_LENGTH
+            ),
             NameDefect::InvalidRole => {
                 formatter.write_str("a role must start with a lowercase letter")
             }
@@ -157,12 +161,23 @@ pub(crate) fn is_sketch_reference(text: &str) -> bool {
     parser.sketch_reference().is_ok() && parser.at_end()
 }
 
+/// The kind and prefix of the edge or vertex name `text` starts with; `None` for a face name.
+pub(crate) fn list_prefix(text: &[u8]) -> Option<(ElementKind, &'static str)> {
+    LIST_PREFIXES
+        .into_iter()
+        .find(|(_, prefix)| text.starts_with(prefix.as_bytes()))
+}
+
+/// The prefix of edge or vertex names; `None` for faces, whose names list no faces.
+pub(crate) fn list_prefix_of(kind: ElementKind) -> Option<&'static str> {
+    LIST_PREFIXES
+        .into_iter()
+        .find_map(|(listed, prefix)| (listed == kind).then_some(prefix))
+}
+
 /// Number of bytes before the face list of an edge or vertex name; `None` for a face name.
 pub(crate) fn list_prefix_length(text: &str) -> Option<usize> {
-    [EDGE_PREFIX, VERTEX_PREFIX]
-        .into_iter()
-        .find(|prefix| text.starts_with(prefix))
-        .map(str::len)
+    list_prefix(text.as_bytes()).map(|(_, prefix)| prefix.len())
 }
 
 /// A cursor over the bytes of a candidate name.
@@ -245,16 +260,15 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// True when an edge or vertex name starts here.
-    fn at_list_name(&self) -> bool {
-        let rest = self.rest();
-        rest.starts_with(EDGE_PREFIX.as_bytes()) || rest.starts_with(VERTEX_PREFIX.as_bytes())
+    /// The prefix of the edge or vertex name that starts here, if one does.
+    fn list_name_prefix(&self) -> Option<&'static str> {
+        list_prefix(self.rest()).map(|(_, prefix)| prefix)
     }
 
     /// `element-name` with its trailing suffixes.
     fn element_name(&mut self) -> Result<(), NameDefect> {
-        if self.at_list_name() {
-            self.list_name()?;
+        if let Some(prefix) = self.list_name_prefix() {
+            self.list_name(prefix)?;
             while self.peek() == Some(b'#') {
                 self.split()?;
             }
@@ -273,8 +287,8 @@ impl<'a> Parser<'a> {
             if !self.eat(b'/') {
                 break;
             }
-            if self.at_list_name() {
-                self.list_name()?;
+            if let Some(prefix) = self.list_name_prefix() {
+                self.list_name(prefix)?;
                 break;
             }
             // An id followed by `/` starts a nested face name; otherwise it is a sketch reference.
@@ -297,14 +311,9 @@ impl<'a> Parser<'a> {
         Ok(())
     }
 
-    /// `"edge(" face-list ")"` or `"vertex(" face-list ")"`, checking that the faces ascend. The
-    /// caller has checked `at_list_name`.
-    fn list_name(&mut self) -> Result<(), NameDefect> {
-        let prefix = if self.rest().starts_with(EDGE_PREFIX.as_bytes()) {
-            EDGE_PREFIX
-        } else {
-            VERTEX_PREFIX
-        };
+    /// `"edge(" face-list ")"` or `"vertex(" face-list ")"`, checking that the faces ascend.
+    /// `prefix` is the prefix `list_name_prefix` found here.
+    fn list_name(&mut self, prefix: &str) -> Result<(), NameDefect> {
         self.position += prefix.len();
         self.depth += 1;
         if self.depth > MAX_NAME_DEPTH {
@@ -684,6 +693,26 @@ mod tests {
     }
 
     #[test]
+    fn list_prefix_names_the_kind_of_list_names() {
+        assert_eq!(
+            list_prefix(b"edge(f-a/x)"),
+            Some((ElementKind::Edge, "edge("))
+        );
+        assert_eq!(
+            list_prefix(b"vertex(f-a/x)"),
+            Some((ElementKind::Vertex, "vertex("))
+        );
+        assert_eq!(list_prefix(b"edge/x"), None);
+    }
+
+    #[test]
+    fn only_edges_and_vertices_have_a_list_prefix() {
+        assert_eq!(list_prefix_of(ElementKind::Edge), Some("edge("));
+        assert_eq!(list_prefix_of(ElementKind::Vertex), Some("vertex("));
+        assert_eq!(list_prefix_of(ElementKind::Face), None);
+    }
+
+    #[test]
     fn list_prefix_length_detects_edge_and_vertex_names() {
         assert_eq!(list_prefix_length("edge(f-a/x)"), Some(5));
         assert_eq!(list_prefix_length("vertex(f-a/x)"), Some(7));
@@ -711,6 +740,16 @@ mod tests {
         assert_eq!(
             NameDefect::InvalidId.to_string(),
             "a feature id must be 1 to 64 letters, digits, '_' or '-'"
+        );
+    }
+
+    #[test]
+    fn invalid_id_message_names_the_id_length_limit() {
+        let message = NameDefect::InvalidId.to_string();
+
+        assert!(
+            message.contains(&format!("1 to {} letters", Id::MAX_LENGTH)),
+            "{message}"
         );
     }
 }

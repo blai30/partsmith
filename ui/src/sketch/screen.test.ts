@@ -5,6 +5,7 @@ import type { Vector2 } from './geometry'
 import {
   arrowheadPath,
   circlePath,
+  drawInputsPlacement,
   entitiesInBox,
   glyphCenters,
   polylinePath,
@@ -147,5 +148,31 @@ describe('entitiesInBox (3.16.9)', () => {
 
   it('normalizes the box whichever way it was dragged', () => {
     expect(screenBox([130, 70], [105, 95])).toEqual({ left: 105, top: 70, right: 130, bottom: 95 })
+  })
+})
+
+describe('drawInputsPlacement (3.16.4)', () => {
+  it('puts the draw inputs above and left of the midpoint when the pointer is below and right', () => {
+    expect(drawInputsPlacement([150, 130], [200, 160], 12)).toEqual({
+      at: [138, 118],
+      left: true,
+      above: true,
+    })
+  })
+
+  it('puts them below and right of the midpoint when the pointer is above and left', () => {
+    expect(drawInputsPlacement([150, 130], [100, 100], 12)).toEqual({
+      at: [162, 142],
+      left: false,
+      above: false,
+    })
+  })
+
+  it('puts them below and right without a pointer', () => {
+    expect(drawInputsPlacement([150, 130], null, 12)).toEqual({
+      at: [162, 142],
+      left: false,
+      above: false,
+    })
   })
 })

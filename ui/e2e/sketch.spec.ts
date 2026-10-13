@@ -1,37 +1,40 @@
 /// <reference lib="dom" />
 import { expect, test, type Page } from '@playwright/test'
 import {
-  app,
   bodyRow,
   canvas,
-  clickAt,
-  constraintGlyphs,
-  dragBetween,
-  dimensionLabel,
   dropFile,
-  editSketchFromBrowser,
-  editSketchFromTimeline,
   expandOrigin,
-  expectDof,
   expectHover,
-  expectNoHover,
-  inferenceGlyphs,
+  fitView,
   inspector,
   inspectorField,
   inspectorInput,
-  newSketchOnTopPlane,
-  notification,
-  offset,
   openApp,
   originRow,
   runCommand,
-  sketchDimensions,
-  sketchHeader,
-  sketchHint,
   sketchToScreen,
   timelineItem,
   viewport,
   type PagePoint,
+} from './helpers'
+import {
+  app,
+  clickAt,
+  constraintGlyphs,
+  dimensionLabel,
+  dragBetween,
+  editSketchFromBrowser,
+  editSketchFromTimeline,
+  expectDof,
+  expectNoHover,
+  inferenceGlyphs,
+  newSketchOnTopPlane,
+  notification,
+  offset,
+  sketchDimensions,
+  sketchHeader,
+  sketchHint,
 } from './support/sketch'
 
 // Sketch mode against the production build and the real core (ui.md 3.16, 6.5): entering and
@@ -149,7 +152,7 @@ test.describe('sketching', () => {
   test('E-14 the Extrude distance is checked live as a length', async ({ page }) => {
     await openApp(page)
     await dropFile(page, 'rect-sketch.ptsm')
-    await fitTop(page)
+    await fitView(page, 'Top')
     await page.keyboard.press('e')
     await expect(inspector(page)).toHaveAccessibleName('Extrude')
     const box = await canvas(page)
@@ -310,13 +313,13 @@ test.describe('sketching', () => {
     const mapping = sketchToScreen(box, [0, -5], [55, 5])
     const old = mapping.toPage([30, 0])
     const moved = mapping.toPage([30, 10])
-    await expectHover(page, old, 'sketch_point')
+    await expectHover(page, old.x, old.y, 'sketch_point')
     await dragBetween(page, old, moved, 10)
     await expectDof(page, 7)
-    await expectHover(page, moved, 'sketch_point')
+    await expectHover(page, moved.x, moved.y, 'sketch_point')
     await expectNoHover(page, old, 'sketch_point')
     await page.keyboard.press('ControlOrMeta+z')
-    await expectHover(page, old, 'sketch_point')
+    await expectHover(page, old.x, old.y, 'sketch_point')
   })
 
   test('E-21 window and crossing box selection', async ({ page }) => {
@@ -575,19 +578,3 @@ test.describe('sketch mode for everyone', () => {
     await expect(viewport(page)).toHaveAttribute('data-view', 'custom')
   })
 })
-
-/** Looks at the model from the top, orthographic, fitted to the content (ui.md 6.3 `fitView`). */
-async function fitTop(page: Page): Promise<void> {
-  await page
-    .getByRole('group', { name: 'View cube' })
-    .getByRole('button', { name: 'Top view', exact: true })
-    .click()
-  const orthographic = page.getByRole('button', { name: 'Orthographic', exact: true })
-  if ((await orthographic.getAttribute('aria-pressed')) !== 'true') {
-    await orthographic.click()
-  }
-  await expect(orthographic).toHaveAttribute('aria-pressed', 'true')
-  await page.getByRole('button', { name: 'Fit to view', exact: true }).click()
-  await expect(viewport(page)).toHaveAttribute('data-view', 'top')
-  await expect(viewport(page)).toHaveAttribute('data-projection', 'orthographic')
-}

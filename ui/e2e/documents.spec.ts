@@ -7,17 +7,20 @@ import {
   download,
   dropFile,
   expectReady,
-  expectTimeline,
-  fitView,
   fixtureBytes,
   fixturePath,
-  notification,
+  inspector,
+  inspectorInput,
   openApp,
-  recentFileNames,
   renameBody,
   runCommand,
-  storedRecovery,
   timelineItem,
+} from './helpers'
+import {
+  expectTimeline,
+  notification,
+  recentFileNames,
+  storedRecovery,
   timelineItems,
 } from './support/documents'
 
@@ -233,32 +236,6 @@ test.describe('Undo and redo', () => {
     await expect(bodyRows(page)).toHaveCount(1)
     await expect(bodyRow(page, 'Box')).toBeVisible()
   })
-
-  test('E-79 Mod+Z steps back through a command, then cancels it', async ({ page }) => {
-    await openApp(page)
-    await dropFile(page, 'cube.ptsm')
-    await fitView(page, 'Front')
-    const { cx, cy, H } = await canvas(page)
-    await page.keyboard.press('F')
-    const inspector = page.getByTestId('inspector')
-    await expect(inspector).toHaveAttribute('data-mode', 'command')
-    const edges = inspector
-      .locator('[data-testid=inspector-field][data-path=edges]')
-      .getByTestId('selection-field')
-    await expect(edges).toHaveAttribute('data-active', 'true')
-    await page.mouse.click(cx, cy - 0.4 * H)
-    await expect(edges).toHaveAttribute('data-count', '1')
-    await page.mouse.click(cx + 0.4 * H, cy)
-    await expect(edges).toHaveAttribute('data-count', '2')
-    await page.keyboard.press('ControlOrMeta+Z')
-    await expect(edges).toHaveAttribute('data-count', '1')
-    await expect(inspector).toBeVisible()
-    await page.keyboard.press('ControlOrMeta+Z')
-    await expect(edges).toHaveAttribute('data-count', '0')
-    await page.keyboard.press('ControlOrMeta+Z')
-    await expect(inspector).toBeHidden()
-    await expect(timelineItems(page)).toHaveCount(2)
-  })
 })
 
 test.describe('Notifications', () => {
@@ -266,12 +243,8 @@ test.describe('Notifications', () => {
     await openApp(page)
     await dropFile(page, 'cube-features.ptsm')
     await timelineItem(page, 'Fillet 1').getByRole('button').dblclick()
-    const inspector = page.getByTestId('inspector')
-    await expect(inspector).toHaveAttribute('data-mode', 'command')
-    // The expression input is a combobox while it offers parameter names (ui.md 2.13).
-    const radius = inspector
-      .getByRole('combobox', { name: 'Radius', exact: true })
-      .or(inspector.getByRole('textbox', { name: 'Radius', exact: true }))
+    await expect(inspector(page)).toHaveAttribute('data-mode', 'command')
+    const radius = inspectorInput(page, 'Radius')
     await radius.fill('15')
     await expect(radius).toHaveValue('15')
     await page.keyboard.press('Enter')

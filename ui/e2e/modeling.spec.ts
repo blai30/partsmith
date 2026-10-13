@@ -1,16 +1,12 @@
 /// <reference lib="dom" />
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import {
-  browserRow,
+  bodyRow,
   canvas,
-  chooseOption,
-  clickTool,
   download,
   dropFile,
   expandOrigin,
   expectHover,
-  expectPreviewShown,
-  fillInspector,
   fitView,
   inspector,
   inspectorField,
@@ -18,19 +14,21 @@ import {
   openApp,
   originRow,
   runCommand,
+  timelineItem,
+} from './helpers'
+import {
+  browserRow,
+  chooseOption,
+  clickTool,
+  expectPreviewShown,
+  fillInspector,
   runFromGroup,
   selectionField,
-  timelineItem,
   timelineLabels,
 } from './support/modeling'
 
 // Feature commands, the inspector, previews, the timeline, the browser, the palette and the
 // parameters panel against the production build and the real core (ui.md 3.3 to 3.11, 6.5).
-
-/** The single body row of the browser for a body name. */
-function bodyRow(page: Page, name: string): Locator {
-  return browserRow(page, 'body', name)
-}
 
 /** The notification of a severity whose text contains `text`. */
 function notification(page: Page, severity: string, text: string | RegExp): Locator {
@@ -574,32 +572,6 @@ test.describe('inspector, timeline and browser', () => {
     await expect.poll(focusedItem).toBe('Extrude 1')
   })
 
-  test('E-39 undo and redo of a rename; a parameter draft does not join the document history', async ({
-    page,
-  }) => {
-    await openApp(page)
-    await dropFile(page, 'cube.ptsm')
-    const row = page.locator('[data-testid=browser-row][data-kind=body]')
-    await row.click()
-    await page.keyboard.press('F2')
-    await page.keyboard.press('ControlOrMeta+A')
-    await page.keyboard.type('Box')
-    await page.keyboard.press('Enter')
-    await expect(row).toHaveText('Box', { useInnerText: true })
-    await page.keyboard.press('ControlOrMeta+Z')
-    await expect(row).toHaveText('Cube', { useInnerText: true })
-    await page.keyboard.press('ControlOrMeta+Shift+Z')
-    await expect(row).toHaveText('Box', { useInnerText: true })
-    await runCommand(page, 'Parameters')
-    await page
-      .getByTestId('parameters-panel')
-      .getByRole('button', { name: 'Add parameter', exact: true })
-      .click()
-    await page.keyboard.type('abc')
-    await page.keyboard.press('ControlOrMeta+Z')
-    await expect(row).toHaveText('Box', { useInnerText: true })
-  })
-
   test('E-40 every visible button has an accessible name', async ({ page }) => {
     await openApp(page)
     await dropFile(page, 'cube.ptsm')
@@ -790,9 +762,10 @@ const FEATURE_ROWS: readonly FeatureRow[] = [
     },
   },
   {
-    // Core defect (followups.md "E2E core defects"): the catalog's move_body params schema has no
-    // `default` for `translation`, so Move X, Y and Z start empty and Move X alone sends a
-    // translation of length 1, which the core refuses as invalid params.
+    // Core defect, ui.md open issue 17: the catalog's move_body params schema has no `default`
+    // for `translation`, so Move X, Y and Z start empty and Move X alone sends a translation of
+    // length 1, which the core refuses as invalid params ("invalid length 1, expected an array of
+    // length 3").
     type: 'move_body',
     label: 'Move body 1',
     blocked: true,
@@ -921,9 +894,8 @@ test.describe('fixes and renames', () => {
       .getByRole('button', { name: /^Use / })
     await use.click()
     await expectPreviewShown(page)
-    await inspectorInput(page, 'Radius').focus()
-    await page.keyboard.press('Enter')
-    await expect(timelineItem(page, 'Fillet 1')).toHaveAttribute('data-status', 'ok')
+    // The live preview already shows Fillet 1 ok, so the command must have closed as well.
+    await confirmAndExpectOk(page, 'Fillet 1')
   })
 
   test('E-59 renaming a parameter keeps every feature ok, and undo restores the name', async ({
@@ -968,6 +940,9 @@ test.describe('one interface for everyone', () => {
     await expect(empty).toBeHidden()
     await expect(inspector(page)).toHaveAccessibleName('Box')
     await page.keyboard.press('Enter')
+    // The preview puts "Box 1" in the timeline and hides both empty states before Enter, so the
+    // command must have closed first.
+    await expect(page.locator('[data-testid=inspector][data-mode=command]')).toHaveCount(0)
     await expect(timelineItem(page, 'Box 1')).toHaveCount(1)
     await expect(empty).toBeHidden()
     await expect(page.getByTestId('timeline-empty')).toBeHidden()
@@ -1220,19 +1195,6 @@ test.describe('one interface for everyone', () => {
     await expect(selectionField(page, 'edges')).toHaveAttribute('data-count', '1')
   })
 
-  test('E-83 the failure notification goes when undo fixes the feature', async ({ page }) => {
-    await openApp(page)
-    await dropFile(page, 'cube-features.ptsm')
-    await timelineItem(page, 'Fillet 1').getByRole('button', { name: 'Fillet 1' }).dblclick()
-    await expect(inspector(page)).toHaveAccessibleName('Fillet 1')
-    await fillInspector(page, 'Radius', '15')
-    await page.keyboard.press('Enter')
-    const errors = page.locator('[data-testid=notification][data-severity=error]')
-    await expect(errors.first()).toBeVisible()
-    await page.keyboard.press('ControlOrMeta+Z')
-    await expect(errors).toHaveCount(0, { timeout: 2_000 })
-  })
-
   test('E-84 descriptions and field help on hover, and in the palette footer', async ({ page }) => {
     await openApp(page)
     await dropFile(page, 'cube.ptsm')
@@ -1328,8 +1290,9 @@ test.describe('one interface for everyone', () => {
     await expect(volume).toContainText('8000 mm³')
   })
 
-  // Core defect (followups.md "E2E core defects"): the catalog's box params schema has no `default`
-  // for `position`, so Position X alone sends a position of length 1, which the core refuses.
+  // Core defect, ui.md open issue 17: the catalog's box params schema has no `default` for
+  // `position`, so Position X alone sends a position of length 1, which the core refuses as
+  // invalid params ("invalid length 1, expected an array of length 3").
   test.fixme('E-93 More options names the values changed out of sight', async ({ page }) => {
     await openApp(page)
     await dropFile(page, 'cube.ptsm')

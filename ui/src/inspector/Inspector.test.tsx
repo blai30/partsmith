@@ -285,6 +285,36 @@ describe('the command inspector (3.7)', () => {
     })
   })
 
+  it('shows a segmented choice whose segments overflow the field as a select, so no option is clipped', async () => {
+    // A row is as wide as its field but its segments need more room than that.
+    const scrollWidth = vi
+      .spyOn(HTMLElement.prototype, 'scrollWidth', 'get')
+      .mockImplementation(function measured(this: HTMLElement) {
+        return this.querySelector('[role=radiogroup]') === null ? 0 : 380
+      })
+    const clientWidth = vi
+      .spyOn(HTMLElement.prototype, 'clientWidth', 'get')
+      .mockImplementation(function measured(this: HTMLElement) {
+        return this.querySelector('[role=radiogroup]') === null ? 0 : 286
+      })
+    try {
+      const { app, user } = renderInspector(rectSketchDocumentState(), { command: NEW_EXTRUDE })
+      const extent = within(field('extent.kind'))
+      expect(extent.queryByRole('radiogroup')).toBeNull()
+      const select = extent.getByRole('combobox', { name: 'Extent' })
+      expect(
+        within(select)
+          .getAllByRole('option')
+          .map((option) => option.textContent),
+      ).toEqual(['Distance', 'Symmetric', 'Two sides', 'Through all'])
+      await user.selectOptions(select, 'Through all')
+      expect(app.store.getState().command?.params.extent).toMatchObject({ kind: 'through_all' })
+    } finally {
+      scrollWidth.mockRestore()
+      clientWidth.mockRestore()
+    }
+  })
+
   it('writes a typed expression into the command params', async () => {
     const { app, user } = renderInspector(filletDocument(), { command: EDIT_FILLET })
     const radius = within(field('radius')).getByRole('combobox', { name: 'Radius' })

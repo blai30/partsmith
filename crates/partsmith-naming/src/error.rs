@@ -1,5 +1,6 @@
 //! Errors from building or parsing names, fingerprints, references and naming maps (naming.md section 4).
 
+use crate::grammar::{MAX_NAME_DEPTH, MAX_NAME_LENGTH};
 use crate::kind::{ElementKind, GeometryKind};
 
 /// Errors from building or parsing names, fingerprints, references and naming maps.
@@ -37,7 +38,9 @@ pub enum NamingError {
     InvalidInstance,
     /// A constructed name exceeds the length or nesting limit.
     #[error(
-        "An element name would be {length} bytes long or nested too deeply; the limits are 16384 bytes and 32 levels."
+        "An element name would be {length} bytes long or nested too deeply; the limits are {max_length} bytes and {max_depth} levels.",
+        max_length = MAX_NAME_LENGTH,
+        max_depth = MAX_NAME_DEPTH
     )]
     NameTooLong {
         /// Length of the name that was too long or too deep, in bytes.
@@ -163,6 +166,18 @@ mod tests {
         assert_eq!(
             error.to_string(),
             "An element name would be 16385 bytes long or nested too deeply; the limits are 16384 bytes and 32 levels."
+        );
+    }
+
+    #[test]
+    fn name_too_long_names_both_grammar_limits() {
+        let message = NamingError::NameTooLong { length: 1 }.to_string();
+
+        assert!(
+            message.contains(&format!(
+                "the limits are {MAX_NAME_LENGTH} bytes and {MAX_NAME_DEPTH} levels."
+            )),
+            "{message}"
         );
     }
 }

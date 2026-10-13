@@ -24,6 +24,11 @@ export type SegmentedControlProps<Value extends string> = {
   readonly describedBy?: string | undefined
   /** An id for the checked option's radio, so other controls can move focus to the group. */
   readonly checkedId?: string | undefined
+  /**
+   * Spans the rest of its flex row with the segments sharing the width, as the inspector's fields
+   * do; otherwise each segment is as wide as its label.
+   */
+  readonly stretch?: boolean
 }
 
 /** The option index an arrow, Home or End key moves focus to, or null for other keys. */
@@ -58,6 +63,7 @@ export function SegmentedControl<Value extends string>({
   className,
   describedBy,
   checkedId,
+  stretch = false,
 }: SegmentedControlProps<Value>) {
   const name = useId()
   const radios = useRef<(HTMLInputElement | null)[]>([])
@@ -78,7 +84,8 @@ export function SegmentedControl<Value extends string>({
       aria-label={label}
       aria-describedby={describedBy}
       className={clsx(
-        'inline-flex h-8 shrink-0 items-stretch gap-0.5 rounded-sm border p-0.5',
+        'h-8 items-stretch gap-0.5 rounded-sm border p-0.5',
+        stretch ? 'flex flex-1' : 'inline-flex shrink-0',
         COLOR_CLASSES.field.background,
         COLOR_CLASSES.border.border,
         className,
@@ -92,6 +99,7 @@ export function SegmentedControl<Value extends string>({
             name={name}
             id={option.value === value ? checkedId : undefined}
             checked={option.value === value}
+            stretch={stretch}
             disabled={disabled}
             radioRef={(radio) => {
               radios.current[index] = radio
@@ -122,6 +130,7 @@ type SegmentProps<Value extends string> = {
   readonly id: string | undefined
   readonly checked: boolean
   readonly disabled: boolean
+  readonly stretch: boolean
   readonly radioRef: Ref<HTMLInputElement>
   readonly onChange: () => void
   readonly onKeyDown: (event: KeyboardEvent<HTMLInputElement>) => void
@@ -136,6 +145,7 @@ function Segment<Value extends string>({
   id,
   checked,
   disabled,
+  stretch,
   radioRef,
   onChange,
   onKeyDown,
@@ -145,7 +155,9 @@ function Segment<Value extends string>({
   return (
     <label
       className={clsx(
-        'relative flex items-center gap-2 rounded-xs px-3 text-sm whitespace-nowrap transition-colors duration-150 motion-reduce:transition-none',
+        'relative flex items-center gap-2 rounded-xs text-sm whitespace-nowrap transition-colors duration-150 motion-reduce:transition-none',
+        // Shared segments keep room to spare, so a bold checked label never overflows the row.
+        stretch ? 'flex-1 justify-center px-2' : 'px-3',
         disabled && COLOR_CLASSES.textDisabled.foreground,
         !disabled && checked && COLOR_CLASSES.selection.background,
         !disabled && checked && COLOR_CLASSES.text.foreground,

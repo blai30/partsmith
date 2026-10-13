@@ -220,6 +220,9 @@ describe('plane picking header (3.16.1)', () => {
     const header = screen.getByTestId('sketch-header')
     expect(header).toHaveAttribute('data-state', 'picking')
     expect(header).toHaveTextContent('Pick a plane or a flat face to draw on')
+    // It wraps inside the slot rather than overflowing the viewport at 200 percent UI scale.
+    expect(header).toHaveClass('max-w-full', 'flex-wrap', 'min-h-10')
+    expect(header).not.toHaveClass('whitespace-nowrap', 'h-10')
     for (const name of [
       'Sketch on Top plane (XY)',
       'Sketch on Front plane (XZ)',

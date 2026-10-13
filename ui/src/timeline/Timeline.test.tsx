@@ -359,6 +359,25 @@ describe('selecting and editing (3.9)', () => {
     ).toEqual(['Edit', 'Rename', 'Suppress', 'Roll back to here', 'Delete'])
   })
 
+  it('opens the context menu on the release when the browser fires contextmenu on the press', () => {
+    renderTimeline()
+    const extrude = itemButton('Extrude 1')
+    const init = { pointerId: 1, pointerType: 'mouse' }
+    fireEvent.pointerDown(extrude, { ...init, button: 2, buttons: 2 })
+    // Linux and macOS: the menu event comes while the button is down, before the release that
+    // would light-dismiss a menu opened now.
+    fireEvent.contextMenu(extrude, { button: 2, buttons: 2 })
+    expect(screen.queryByTestId('context-menu')).toBeNull()
+    fireEvent.pointerUp(extrude, { ...init, button: 2, buttons: 0 })
+    expect(screen.getByTestId('context-menu')).toBeVisible()
+  })
+
+  it('opens the context menu at once when the browser fires contextmenu after the release', () => {
+    renderTimeline()
+    fireEvent.contextMenu(itemButton('Extrude 1'), { button: 2, buttons: 0 })
+    expect(screen.getByTestId('context-menu')).toBeVisible()
+  })
+
   it('opens the context menu with Shift+F10', async () => {
     const { user } = renderTimeline()
     itemButton('Extrude 1').focus()
@@ -570,6 +589,43 @@ describe('reordering by drag (3.9)', () => {
     ])
   })
 
+  it('captures the pointer only once a press moves past the drag threshold', () => {
+    stubItemRectangles()
+    const captured: number[] = []
+    // jsdom has no pointer capture.
+    Object.defineProperty(HTMLElement.prototype, 'setPointerCapture', {
+      configurable: true,
+      value(this: HTMLElement, pointerId: number) {
+        expect(this).toBe(screen.getByRole('toolbar', { name: 'Features' }))
+        captured.push(pointerId)
+      },
+    })
+    try {
+      renderTimeline(boxes(null, FOUR_BOXES_DOCUMENT))
+      const init = { pointerId: 7, pointerType: 'mouse', button: 0 }
+      fireEvent.pointerDown(item('f-box4'), { ...init, buttons: 1, clientX: 252, clientY: 28 })
+      fireEvent.pointerMove(item('f-box4'), { ...init, buttons: 1, clientX: 255, clientY: 28 })
+      // Captured at the press, the click and double-click would never reach the item's button.
+      expect(captured).toEqual([])
+      fireEvent.pointerMove(item('f-box4'), { ...init, buttons: 1, clientX: 240, clientY: 28 })
+      expect(captured).toEqual([7])
+    } finally {
+      Reflect.deleteProperty(HTMLElement.prototype, 'setPointerCapture')
+    }
+  })
+
+  it('a press released outside the strip starts no drag when the pointer comes back', async () => {
+    stubItemRectangles()
+    const { core } = renderTimeline(boxes(null, FOUR_BOXES_DOCUMENT))
+    const init = { pointerId: 1, pointerType: 'mouse', button: 0 }
+    fireEvent.pointerDown(item('f-box4'), { ...init, buttons: 1, clientX: 252, clientY: 28 })
+    // The release happened elsewhere; the next move over the strip has no button down.
+    fireEvent.pointerMove(item('f-box2'), { ...init, buttons: 0, clientX: 142, clientY: 28 })
+    fireEvent.pointerUp(item('f-box2'), { ...init, buttons: 0, clientX: 142, clientY: 28 })
+    await settle()
+    expect(core.callsTo('applyEdits')).toEqual([])
+  })
+
   it('a press that moves 4 pixels or less starts no drag', async () => {
     stubItemRectangles()
     const { core } = renderTimeline(boxes(null, FOUR_BOXES_DOCUMENT))
@@ -621,6 +677,24 @@ describe('problems and collapsing (3.9)', () => {
     expect(problems).toHaveTextContent('1 problem')
     await user.click(problems)
     expect(app.store.getState().panels.side).toBe('problems')
+  })
+
+  it('shows the crossed circle of an error when any problem is an error, else the hazard sign (3.24)', () => {
+    const warning: FeatureStatus = {
+      id: 'f-sk1',
+      status: 'warning',
+      messages: [{ severity: 'warning', code: 'open_profile', message: 'The profile is open.' }],
+      repairs: [],
+    }
+    renderTimeline(withStatus(withStatus(cubeDocumentState(), FAILED_EXTRUDE), warning))
+    const problems = screen.getByTestId('timeline-problems')
+    expect(problems.querySelector('.lucide-circle-x')).toHaveClass('text-red-700')
+    expect(problems.querySelector('.lucide-triangle-alert')).toBeNull()
+    cleanup()
+    renderTimeline(withStatus(cubeDocumentState(), warning))
+    const warnings = screen.getByTestId('timeline-problems')
+    expect(warnings.querySelector('.lucide-triangle-alert')).toHaveClass('fill-yellow-400')
+    expect(warnings.querySelector('.lucide-circle-x')).toBeNull()
   })
 
   it('pluralizes the problem count', () => {
@@ -683,6 +757,22 @@ describe('keyboard (3.9)', () => {
     await waitFor(() => {
       expect(core.callsTo('beginTransaction')).toEqual([[1, 'Edit Extrude 1']])
     })
+  })
+
+  it('leaves Mod+Enter on a focused item to the shortcuts (3.5)', async () => {
+    const { core } = renderTimeline()
+    const extrude = itemButton('Extrude 1')
+    extrude.focus()
+    const event = new KeyboardEvent('keydown', {
+      key: 'Enter',
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true,
+    })
+    extrude.dispatchEvent(event)
+    await settle()
+    expect(event.defaultPrevented).toBe(false)
+    expect(core.callsTo('beginTransaction')).toEqual([])
   })
 
   it('a held Enter edits the feature once: repeated presses do nothing', async () => {

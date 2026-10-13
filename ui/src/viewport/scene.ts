@@ -21,6 +21,7 @@ import { selectOriginVisible } from '../state/selectors'
 import type { AppState, HelperSketch, SelectionItem, SketchItemReference } from '../state/store'
 import {
   contrastRatio,
+  encodedFromHex,
   linearFromHex,
   VIEWPORT_COLORS,
   viewportTheme,
@@ -136,6 +137,10 @@ const SKETCH_TOLERANCE_PIXELS = 0.25
 const RETESSELLATION_FACTOR = 1.5
 
 const REGION_OPACITY = 0.12
+/** Profile problem halos reach this many CSS pixels (times the UI scale) beyond each side of a curve (3.16.2). */
+const PROBLEM_HALO_PIXELS = 4
+/** How much of `problem` a halo mixes over the viewport background (3.16.2). */
+const PROBLEM_HALO_AMOUNT = 0.3
 const PLANE_FILL_OPACITY = 0.15
 const PLANE_OUTLINE_OPACITY = 0.6
 const NON_PART_OPACITY = 0.4
@@ -216,6 +221,9 @@ type PendingDraw = {
   readonly scalars?: Float32Array | null
 }
 
+/** A body's draws: its faces, then its edges and vertices, which the grid goes between (3.12). */
+type BodyDraws = { readonly surfaces: PendingDraw[]; readonly lines: PendingDraw[] }
+
 type Point3 = readonly [number, number, number]
 
 /** Line segments, two points each, as unpicked line geometry with one element. */
@@ -253,6 +261,23 @@ function plainItem(
 
 function colorOf(theme: ThemeName, role: ViewportRole): Rgb {
   return linearFromHex(VIEWPORT_COLORS[theme][role])
+}
+
+/**
+ * A profile problem halo's color: `problem` at 30 percent over the viewport's bottom color, mixed
+ * sRGB-encoded as blending would mix it, then drawn opaque, so the overlapping segment quads of a
+ * tessellated curve do not darken it in beads (3.16.2).
+ */
+function problemHaloColor(theme: ThemeName): Rgb {
+  const background = encodedFromHex(VIEWPORT_COLORS[theme].viewportBottom)
+  const problem = encodedFromHex(VIEWPORT_COLORS[theme].problem)
+  const channels = background.map((channel, index) => {
+    const mixed = channel + ((problem[index] ?? channel) - channel) * PROBLEM_HALO_AMOUNT
+    return Math.round(mixed * 255)
+      .toString(16)
+      .padStart(2, '0')
+  })
+  return linearFromHex(`#${channels.join('')}`)
 }
 
 /** A box's union with points; null stays null when there are none. */
@@ -1049,7 +1074,9 @@ export function createScene(backend: RenderBackend): Scene {
     const bounds = modelBounds(state, cachedSketchBounds)
     let sceneBounds = bounds
 
-    // Bodies (3.12 passes 2 to 5).
+    // Bodies (3.12 passes 2 to 5): every body's faces, then the grid, then every body's edges and
+    // vertices.
+    const bodyLines: PendingDraw[] = []
     if (document !== null) {
       const previewShown = state.command !== null && state.command.preview !== 'none'
       const selectedBodies = new Set(
@@ -1068,32 +1095,34 @@ export function createScene(backend: RenderBackend): Scene {
         if (model !== undefined) {
           sceneBounds = extend(sceneBounds, boxCorners(model.data.boundingBox))
         }
-        pending.push(
-          ...bodyDraws(state, {
-            body,
-            model,
-            preview,
-            theme,
-            scale,
-            picking,
-            hoverKey,
-            hoverKeys,
-            selectedBody: selectedBodies.has(body.id),
-            field: fields[body.id] ?? null,
-          }),
-        )
+        const draws = bodyDraws(state, {
+          body,
+          model,
+          preview,
+          theme,
+          scale,
+          picking,
+          hoverKey,
+          hoverKeys,
+          selectedBody: selectedBodies.has(body.id),
+          field: fields[body.id] ?? null,
+        })
+        pending.push(...draws.surfaces)
+        bodyLines.push(...draws.lines)
         if (preview !== undefined) {
           sceneBounds = extend(sceneBounds, boxCorners(preview.data.boundingBox))
         }
       }
     }
 
-    // The ground or sketch grid (3.12 pass 6), never picked.
+    // The ground or sketch grid (3.12 pass 4), never picked: after the faces, which hide it, and
+    // before the edges, so an edge lying on the grid (a part's bottom edges on the ground) is drawn
+    // over the grid line it coincides with instead of under it.
     const gridDraws = drawGrid(state, bounds, camera, size.height, theme, scale)
     for (const corner of gridDraws.corners) {
       sceneBounds = extend(sceneBounds, [corner])
     }
-    pending.push(...gridDraws.draws)
+    pending.push(...gridDraws.draws, ...bodyLines)
 
     // Datum and origin planes, origin axes (3.12 pass 6).
     const planes = planeExtent(bounds)
@@ -1326,7 +1355,7 @@ export function createScene(backend: RenderBackend): Scene {
       ] as const
     ).map(([id, opacity]) => ({
       call: {
-        ...overlayCall(color, 'translucent', opacity, GRID_LINE_WIDTH * scale, false, false),
+        ...overlayCall(color, 'opaque', opacity, GRID_LINE_WIDTH * scale, false, false),
         id,
         depthTest: true,
       },
@@ -1352,7 +1381,7 @@ export function createScene(backend: RenderBackend): Scene {
     readonly field: Float32Array | null
   }
 
-  function bodyDraws(state: AppState, input: BodyInput): PendingDraw[] {
+  function bodyDraws(state: AppState, input: BodyInput): BodyDraws {
     const { body, model, preview, theme, scale } = input
     const base = linearFromHex(body.color ?? VIEWPORT_COLORS[theme].body)
     const baseHex = body.color ?? VIEWPORT_COLORS[theme].body
@@ -1393,9 +1422,9 @@ export function createScene(backend: RenderBackend): Scene {
       pickSize: EDGE_PICK_WIDTH * scale,
       analysis: false,
     })
-    const draws: PendingDraw[] =
+    const draws: BodyDraws =
       model === undefined
-        ? []
+        ? { surfaces: [], lines: [] }
         : modelDraws(state, input, model, {
             base,
             shaded,
@@ -1404,14 +1433,14 @@ export function createScene(backend: RenderBackend): Scene {
           })
     if (preview !== undefined) {
       const previewIds = meshIds('preview', preview)
-      draws.push({
+      draws.surfaces.push({
         call: shaded(previewIds.faces, base),
         elementCount: preview.data.faceCount,
         target: null,
         states: null,
         scalars: null,
       })
-      draws.push({
+      draws.lines.push({
         call: lines(previewIds.edges, EDGE_WIDTH * scale),
         elementCount: preview.data.edgeCount,
         target: null,
@@ -1435,7 +1464,7 @@ export function createScene(backend: RenderBackend): Scene {
     input: BodyInput,
     model: MeshEntry,
     style: BodyStyle,
-  ): PendingDraw[] {
+  ): BodyDraws {
     const { body, scale, picking, hoverKey, hoverKeys } = input
     const { base, shaded, lines, previewing } = style
     const locked = state.view.locked.includes(body.id)
@@ -1524,32 +1553,36 @@ export function createScene(backend: RenderBackend): Scene {
     }
     const faceKind: SelectionItemKind = picking.facesPickBodies ? 'body' : 'face'
     const pickable = (kind: SelectionItemKind): boolean => !locked && picking.accepts(kind)
-    return [
-      {
-        call: previewing
-          ? { ...shaded(ids.faces, base), layer: 'translucent', opacity: 0, analysis: false }
-          : shaded(ids.faces, base),
-        elementCount: mesh.faceCount,
-        target: pickable(faceKind) ? meshTarget('face', 'area') : null,
-        states: elementStates('face', mesh.faceCount),
-        scalars: previewing ? null : input.field,
-      },
-      {
-        call: lines(ids.edges, previewing ? 0 : EDGE_WIDTH * scale),
-        elementCount: mesh.edgeCount,
-        target: pickable('edge') ? meshTarget('edge', 'curve') : null,
-        states: elementStates('edge', mesh.edgeCount),
-      },
-      {
-        call: {
-          ...lines(ids.vertices, 0),
-          pickSize: VERTEX_PICK_SIZE * scale,
+    return {
+      surfaces: [
+        {
+          call: previewing
+            ? { ...shaded(ids.faces, base), layer: 'translucent', opacity: 0, analysis: false }
+            : shaded(ids.faces, base),
+          elementCount: mesh.faceCount,
+          target: pickable(faceKind) ? meshTarget('face', 'area') : null,
+          states: elementStates('face', mesh.faceCount),
+          scalars: previewing ? null : input.field,
         },
-        elementCount: mesh.vertexCount,
-        target: pickable('vertex') ? meshTarget('vertex', 'point') : null,
-        states: elementStates('vertex', mesh.vertexCount),
-      },
-    ]
+      ],
+      lines: [
+        {
+          call: lines(ids.edges, previewing ? 0 : EDGE_WIDTH * scale),
+          elementCount: mesh.edgeCount,
+          target: pickable('edge') ? meshTarget('edge', 'curve') : null,
+          states: elementStates('edge', mesh.edgeCount),
+        },
+        {
+          call: {
+            ...lines(ids.vertices, 0),
+            pickSize: VERTEX_PICK_SIZE * scale,
+          },
+          elementCount: mesh.vertexCount,
+          target: pickable('vertex') ? meshTarget('vertex', 'point') : null,
+          states: elementStates('vertex', mesh.vertexCount),
+        },
+      ],
+    }
   }
 
   function originDraws(
@@ -1764,12 +1797,15 @@ export function createScene(backend: RenderBackend): Scene {
         signatures.set(regionsId, signature)
       }
       const items = solution.regions.map((_, index) => regionItem(sketch.id, solution, index))
+      // The edited sketch fills its regions; in the Model context they fill only while the active
+      // selection field takes regions, so the shapes that can be clicked show (3.12 pass 7).
+      const filled = sketch.active || (state.command !== null && picking.accepts('sketch_region'))
       draws.push({
         call: {
           ...overlayCall(
             colorOf(theme, 'sketchRegion'),
             'overlay',
-            sketch.active ? REGION_OPACITY : 0,
+            filled ? REGION_OPACITY : 0,
             0,
             false,
             false,
@@ -1789,6 +1825,40 @@ export function createScene(backend: RenderBackend): Scene {
         'entities' in finding ? finding.entities : 'entity' in finding ? [finding.entity] : [],
       ),
     )
+    // Curves named by profile findings get a halo under them, so they keep their DOF color.
+    const haloId = `${prefix}:halo`
+    const haloCurves = sketch.active
+      ? curves.filter((entity) => problemEntities.has(entity.id))
+      : []
+    if (haloCurves.length === 0) {
+      remove(haloId)
+    } else {
+      const signature = `${String(solutionNumber(solution))}:${String(tolerance)}:${haloCurves.map((entity) => entity.id).join(',')}`
+      uploadGenerated(haloId, signature, () => {
+        const polylines = haloCurves.map((entity, element) => ({
+          element,
+          points: curvePolyline(entity, tolerance) ?? new Float32Array(),
+        }))
+        const { positions, elementIds } = segmentsOnPlane(solution.placement, polylines)
+        return { kind: 'lines', positions, elementIds, elementCount: haloCurves.length }
+      })
+      draws.push({
+        call: {
+          ...overlayCall(
+            problemHaloColor(theme),
+            'overlay',
+            1,
+            (SKETCH_CURVE_WIDTH + 2 * PROBLEM_HALO_PIXELS) * scale,
+            false,
+            false,
+          ),
+          id: haloId,
+        },
+        elementCount: haloCurves.length,
+        target: null,
+        states: null,
+      })
+    }
     const entityColor = (entity: SolvedEntity): Rgb => {
       if (!sketch.active) {
         return reference
@@ -1826,13 +1896,6 @@ export function createScene(backend: RenderBackend): Scene {
       const elementColors = new Float32Array(chosen.flatMap((entity) => [...entityColor(entity)]))
       const items = chosen.map((entity) => entityItem(sketch.id, entity))
       const states = statesFor(chosen.length, (index) => items[index]?.key ?? '', highlight)
-      if (sketch.active) {
-        chosen.forEach((entity, index) => {
-          if (problemEntities.has(entity.id)) {
-            states[index] = (states[index] ?? 0) | ELEMENT_STATE.problem
-          }
-        })
-      }
       draws.push({
         call: {
           ...overlayCall(

@@ -46,6 +46,11 @@ pub(super) struct Token {
     pub(super) span: Span,
 }
 
+/// True for the whitespace an expression may contain between tokens: space, tab, LF and CR.
+pub(super) fn is_whitespace(byte: u8) -> bool {
+    matches!(byte, b' ' | b'\t' | b'\n' | b'\r')
+}
+
 /// Splits `source` into tokens, or returns the first character no token can start with.
 pub(super) fn tokenize(source: &str) -> Result<Vec<Token>, ExprError> {
     let bytes = source.as_bytes();
@@ -54,7 +59,7 @@ pub(super) fn tokenize(source: &str) -> Result<Vec<Token>, ExprError> {
     while let Some(&byte) = bytes.get(position) {
         let start = position;
         let kind = match byte {
-            b' ' | b'\t' | b'\n' | b'\r' => {
+            byte if is_whitespace(byte) => {
                 position += 1;
                 continue;
             }

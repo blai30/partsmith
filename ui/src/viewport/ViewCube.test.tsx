@@ -32,7 +32,7 @@ describe('ViewCube', () => {
   it('is a group named "View cube" at the top right of the viewport, size-24', () => {
     const { cube } = setUp()
     expect(screen.getByRole('group', { name: 'View cube' })).toBe(cube)
-    expect(cube).toHaveClass('absolute', 'top-8', 'right-4', 'size-24')
+    expect(cube).toHaveClass('absolute', 'top-8', 'right-6', 'size-24')
   })
 
   it('sits low enough that the iso view keeps its top corner inside the viewport (3.14)', () => {
@@ -40,6 +40,15 @@ describe('ViewCube', () => {
     const top = Number(/\btop-(\d+)\b/.exec(cube.className)?.[1]) * 0.25
     // Centered half its 6rem below its top; in iso the top corner rises 4√(3/2) rem above the center, a little more under the cube's perspective.
     expect(top + 3).toBeGreaterThan(4 * Math.sqrt(1.5) * 1.01)
+  })
+
+  it('sits far enough from the right edge that the iso view keeps its side corners inside the viewport (3.14)', () => {
+    const { cube } = setUp()
+    const right = Number(/\bright-(\d+)\b/.exec(cube.className)?.[1]) * 0.25
+    // Centered half its 6rem in from its right; in iso the side corners reach 3√2 rem beside the
+    // center, more under the cube's perspective, which is fixed in CSS pixels and so grows with the
+    // UI scale (measured 1.042 times at 200 percent).
+    expect(right + 3).toBeGreaterThan(3 * Math.sqrt(2) * 1.042)
   })
 
   it('fills its size-24 box with each face, so corners and edge bands are at least size-6 (3.24)', () => {

@@ -88,10 +88,10 @@ feature(
 ### 3.3 Build
 
 1. bytes = `ctx.asset("asset", &asset)`. Recompute has already checked that the host supplied the asset; a missing one fails before the build with `AssetMissing` (recompute.md section 3.3).
-2. Kernel `read_step(bytes)`. A `KernelError` becomes `Kernel { error }` (for example `The file is not a valid STEP file.` or `The STEP file contains no solid bodies.`). Each string of `StepImport::warnings`, in order, becomes an `ImportWarning { message }` warning.
+2. Kernel `read_step(bytes)`. A `KernelError` becomes `Kernel { error }`, rendered `Partsmith's geometry kernel could not build this import. {hint}` with the kernel's hint (`The file is not a valid STEP file.` or `The STEP file contains no solid bodies.`, kernel.md section 4.3) and its technical text in the detail. Each string of `StepImport::warnings`, in order, becomes an `ImportWarning { message }` warning.
 3. The tool shape is the single solid when the file has one, else kernel `compound` of all solids (`StepImport::bodies[i].shape`) in read order. Product names and colors are not used by the feature; the engine uses them for the new body's record (engine.md section 3.14).
 4. Every face of the tool is `New(<id>/face)` (naming.md section 3.6.14). Several faces are numbered `#1`, `#2`, ... in naming.md's geometric order (section 3.4: centroid x, then y, then z, then area); a single face keeps the name `<id>/face`.
-5. `apply_op(ctx, body, op, vec![tool])`.
+5. `apply_op(ctx, body, op, vec![tool], None)` (an import has no direction; a join that does not touch the body gives `SeparateSolid` with the fix `NewBody`, features.md section 3.5).
 
 ### 3.4 Element names
 
@@ -105,13 +105,13 @@ Faces of the body keep their names through the boolean of a join, cut or interse
 
 | Condition | Variant | Example message |
 | --- | --- | --- |
-| `asset` is not a STEP asset name | `InvalidParams` | `This feature's settings are invalid: 'asset' must name a file in the assets folder, such as <64 hex digits>.step. Fix the setting, or delete and recreate the feature.` |
-| The host did not supply the asset | `AssetMissing` (raised by recompute) | `The imported file assets/7c3e9a1f0b2d4c6e8a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f.step is missing. Put it next to the document in the assets folder.` |
-| The bytes are not STEP | `Kernel` | `The file is not a valid STEP file.` |
-| The file has no solid | `Kernel` | `The STEP file contains no solid bodies.` |
-| Body rules | `BodyNotEmpty`, `BodyEmpty`, `EmptyResult` | features.md section 4.1 |
+| `asset` is not a STEP asset name | `InvalidParams` | `File of this import cannot be read, so it was not built. Set File again.` (the parser text, `'asset' must name a file in the assets folder, such as <64 hex digits>.step`, in the detail) |
+| The host did not supply the asset | `AssetMissing` (raised by recompute) | `The STEP file of this import is not in this document's assets folder. Copy the assets folder that came with the document next to it, or import the file again.` (the asset name in the detail) |
+| The bytes are not STEP | `Kernel` | `Partsmith's geometry kernel could not build this import. The file is not a valid STEP file.` |
+| The file has no solid | `Kernel` | `Partsmith's geometry kernel could not build this import. The STEP file contains no solid bodies.` |
+| Body rules | `BodyNotEmpty`, `BodyEmpty`, `EmptyResult`, warnings `SeparateSolid`, `ClosedVoid` | features.md sections 3.5 and 4 |
 | Skipped or repaired content | warning `ImportWarning` | the kernel's text, for example `Skipped 2 shapes that are not closed solids.` |
-| Volume unchanged | warning `NoEffect` | features.md section 4.2 |
+| Volume unchanged | warning `NoEffect` | features.md section 3.15, for example `This import adds nothing to body 'Body 1': it lies entirely inside the body.` |
 
 ## 5. Performance
 
@@ -131,9 +131,9 @@ The asset map is `{A: BYTES}` unless stated.
 
 1. **Op new.** `IMP("new")`. Expected: ok; volume 6000, 6 faces named `f-imp1/face#1` to `f-imp1/face#6`, bbox [0,0,0]-[10,20,30]; `f-imp1/face#4` is the plane z=30 (by centroid the order is left, front, bottom, top, back, right); change `New`; dependencies `assets [(A, "asset")]`, `bodies_written [("b-1", "body")]`, `expressions []`.
 2. **Join.** `{"id": "f-box1", "type": "box", "body": "b-1", "size": ["10", "10", "10"], "op": "new"}`, then `IMP("join")`. Expected: ok; volume 6750 (1000 + 6000 - 250 overlap), bbox [-5,-5,0]-[10,20,30]; change `Join`.
-3. **Missing asset.** `IMP("new")` with an empty asset map. Expected: error `asset_missing`, pointer `/asset`, rendered `The imported file assets/0000000000000000000000000000000000000000000000000000000000000000.step is missing. Put it next to the document in the assets folder.`; b-1 empty. A second run on the same `Recompute` with the map `{A: BYTES}` builds the feature (`from_cache` false) and gives the result of test 1.
-4. **Not a STEP file.** Asset map `{A: b"not a step file"}`. Expected: error `kernel` rendered `The file is not a valid STEP file.`; b-1 empty.
-5. **Invalid asset name.** `IMP("new")` with `"asset": "box.step"`. Expected: `validate_and_canonicalize` returns `InvalidParams` with detail `'asset' must name a file in the assets folder, such as <64 hex digits>.step`; recompute reports `invalid_params`.
+3. **Missing asset.** `IMP("new")` with an empty asset map. Expected: error `asset_missing`, pointer `/asset`, rendered `The STEP file of this import is not in this document's assets folder. Copy the assets folder that came with the document next to it, or import the file again.`, with `assets/0000000000000000000000000000000000000000000000000000000000000000.step` in its detail; b-1 empty. A second run on the same `Recompute` with the map `{A: BYTES}` builds the feature (`from_cache` false) and gives the result of test 1.
+4. **Not a STEP file.** Asset map `{A: b"not a step file"}`. Expected: error `kernel` rendered `Partsmith's geometry kernel could not build this import. The file is not a valid STEP file.`, with the kernel's `detail()` (starting `read_step read_failed`) as its detail; b-1 empty.
+5. **Invalid asset name.** `IMP("new")` with `"asset": "box.step"`. Expected: `validate_and_canonicalize` returns `InvalidParams` with field `asset` and detail `'asset' must name a file in the assets folder, such as <64 hex digits>.step`; recompute reports `invalid_params` rendered `File of this import cannot be read, so it was not built. Set File again.`
 6. **Two solids.** Asset map `{A: TWO}`. Expected: ok; volume 2000, 12 faces, 2 solids, bbox [0,0,0]-[60,10,10].
 7. **Cut.** `{"id": "f-box1", "type": "box", "body": "b-1", "size": ["40", "40", "10"], "position": ["0", "5", "0"], "op": "new"}` (spanning [-20,-15,0]-[20,25,10], so the block's y range 0 to 20 lies inside it), then `IMP("cut")`. The imported block passes through the plate. Expected: ok; volume 14000, 10 faces, bbox [-20,-15,0]-[20,25,10]; the walls of the rectangular hole are `f-imp1/face#1` (x=0), `f-imp1/face#2` (y=0), `f-imp1/face#5` (y=20) and `f-imp1/face#6` (x=10); change `Cut`.
 8. **Performance.** Test 1 builds in under 10 ms plus the kernel's `read_step` time (desktop, release).

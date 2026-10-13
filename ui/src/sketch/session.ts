@@ -315,7 +315,7 @@ const CLICK_DISTANCE_PIXELS = 4
 const TESSELLATION_PIXELS = 0.25
 /** Inference glyphs sit this many CSS pixels (times the UI scale) right of and below the cursor. */
 const INFERENCE_OFFSET_PIXELS = 16
-/** Draw inputs sit this many CSS pixels (times the UI scale) off the rubber band's midpoint, away from the pointer. */
+/** Draw inputs sit this many CSS pixels (times the UI scale) off the rubber band's midpoint. */
 const DRAW_INPUT_OFFSET_PIXELS = 12
 /** Dimension arrowheads are this many CSS pixels long (3.16.2). */
 const ARROW_PIXELS = 8

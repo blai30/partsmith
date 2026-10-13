@@ -16,6 +16,9 @@ pub const RESERVED_NAMES: &[&str] = &[
     "asin", "acos", "atan", "atan2", "min", "max", "floor", "ceil", "round", "printer",
 ];
 
+/// Regular expression every valid parameter name matches, apart from the reserved words.
+pub(crate) const PARAMETER_NAME_PATTERN: &str = "^[A-Za-z_][A-Za-z0-9_]{0,63}$";
+
 /// Checks a parameter name against model.md section 3.3.
 pub fn validate_parameter_name(name: &str) -> Result<(), NameError> {
     let mut characters = name.chars();
@@ -65,6 +68,9 @@ pub fn validate_label(field: LabelField, text: &str) -> Result<(), LabelError> {
     Ok(())
 }
 
+/// Regular expression every valid feature type name matches.
+pub(crate) const FEATURE_TYPE_PATTERN: &str = "^[a-z][a-z0-9_]{0,63}$";
+
 /// True when `kind` is a valid feature type name (model.md section 3.5): `^[a-z][a-z0-9_]{0,63}$`.
 pub fn is_valid_feature_type(kind: &str) -> bool {
     let mut characters = kind.chars();
@@ -109,7 +115,10 @@ pub enum NameError {
     #[error("A parameter name cannot be empty.")]
     Empty,
     /// The name has more than 64 characters.
-    #[error("The parameter name '{name}' is {length} characters long; the limit is 64.")]
+    #[error(
+        "The parameter name '{name}' is {length} characters long; the limit is {max}.",
+        max = MAX_PARAMETER_NAME_LENGTH
+    )]
     TooLong {
         /// The rejected name.
         name: String,
@@ -151,7 +160,7 @@ pub enum LabelError {
         field: LabelField,
     },
     /// The label has more than 128 characters.
-    #[error("{field} is {length} characters long; the limit is 128.")]
+    #[error("{field} is {length} characters long; the limit is {max}.", max = MAX_LABEL_LENGTH)]
     TooLong {
         /// The label being checked.
         field: LabelField,
@@ -264,5 +273,43 @@ mod tests {
         assert!(is_valid_feature_type("a_1"));
         assert!(is_valid_feature_type(&"a".repeat(64)));
         assert!(!is_valid_feature_type("aé"));
+    }
+
+    #[test]
+    fn too_long_parameter_name_names_the_limit() {
+        let error = NameError::TooLong {
+            name: "a".repeat(65),
+            length: 65,
+        };
+
+        assert!(
+            error
+                .to_string()
+                .contains(&format!("the limit is {MAX_PARAMETER_NAME_LENGTH}.")),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn too_long_label_names_the_limit() {
+        let error = LabelError::TooLong {
+            field: LabelField::BodyName,
+            length: 129,
+        };
+
+        assert!(
+            error
+                .to_string()
+                .contains(&format!("the limit is {MAX_LABEL_LENGTH}.")),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn patterns_allow_the_longest_valid_names() {
+        assert!(
+            PARAMETER_NAME_PATTERN.ends_with(&format!(",{}}}$", MAX_PARAMETER_NAME_LENGTH - 1))
+        );
+        assert!(FEATURE_TYPE_PATTERN.ends_with(&format!(",{}}}$", MAX_FEATURE_TYPE_LENGTH - 1)));
     }
 }

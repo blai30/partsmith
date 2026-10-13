@@ -2,8 +2,10 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::expr::{ParameterGraph, join_names};
-use crate::{Document, Expr, ExprError, FeatureInspector, Id, StructureError};
+use crate::expr::{ParameterGraph, cycle_sentence};
+use crate::{
+    Document, Expr, ExprError, FeatureInspector, Id, ParsedExpr, References, StructureError,
+};
 
 /// A problem found by `Document::validate`.
 #[derive(Clone, Debug, PartialEq, thiserror::Error)]
@@ -93,17 +95,14 @@ pub enum ValidationError {
     },
 }
 
-/// The message of `ParameterCycle`, which differs for one name and for several.
+/// The message of `ParameterCycle`: the cycle sentence after "Parameter" or "Parameters".
 fn cycle_message(names: &[String]) -> String {
-    match names {
-        [name] => format!(
-            "Parameter {name} depends on itself. Change its expression so it does not use {name}."
-        ),
-        _ => format!(
-            "Parameters {} depend on each other in a loop. Change one of them so it does not use the others.",
-            join_names(names)
-        ),
-    }
+    let noun = if names.len() == 1 {
+        "Parameter"
+    } else {
+        "Parameters"
+    };
+    format!("{noun} {}", cycle_sentence(names))
 }
 
 impl Document {
@@ -126,32 +125,46 @@ impl Document {
             .into_iter()
             .map(ValidationError::Structure)
             .collect();
-
         let graph = ParameterGraph::new(&self.parameters);
-        for (parameter, parsed) in self.parameters.iter().zip(&graph.parsed) {
-            match parsed {
-                Ok(tree) => unknown_parameters(
-                    &graph,
-                    &parameter.id,
-                    &tree.references().parameters,
-                    &mut problems,
-                ),
-                Err(error) => problems.push(ValidationError::InvalidExpression {
-                    owner: parameter.id.clone(),
-                    expr: parameter.expr.clone(),
-                    error: error.clone(),
-                }),
-            }
+        for (parameter, parsed) in self.parameters.iter().zip(graph.parsed()) {
+            let references = parsed
+                .as_ref()
+                .map(ParsedExpr::references)
+                .map_err(ExprError::clone);
+            expression_problems(
+                &graph,
+                &parameter.id,
+                &parameter.expr,
+                references,
+                &mut problems,
+            );
         }
-        problems.extend(graph.cycles().into_iter().map(|cycle| {
-            ValidationError::ParameterCycle {
+        problems.extend(self.cycle_problems(&graph));
+        self.feature_link_problems(inspector, &graph, &mut problems);
+        problems
+    }
+
+    /// One `ParameterCycle` per loop of parameters, ordered by their first position.
+    fn cycle_problems(&self, graph: &ParameterGraph<'_>) -> impl Iterator<Item = ValidationError> {
+        graph
+            .cycles()
+            .into_iter()
+            .map(|cycle| ValidationError::ParameterCycle {
                 names: cycle
                     .into_iter()
                     .map(|position| self.parameters[position].name.clone())
                     .collect(),
-            }
-        }));
+            })
+    }
 
+    /// Problems of each feature's links in timeline order: params the inspector rejects, then
+    /// repeated declared ids, unknown bodies, bad feature references and bad expressions.
+    fn feature_link_problems(
+        &self,
+        inspector: &dyn FeatureInspector,
+        graph: &ParameterGraph<'_>,
+        problems: &mut Vec<ValidationError>,
+    ) {
         // Every lookup below goes through these indexes, built once, so checking the links of
         // every feature takes O(n log n) rather than a scan of the record lists per link.
         // `taken` starts with the record ids and gains each declared id as it is met.
@@ -190,45 +203,14 @@ impl Document {
                     });
                 }
             }
-            for target in links.features {
-                let problem = if target == feature.id {
-                    Some(ValidationError::SelfReference {
-                        feature: feature.id.clone(),
-                    })
-                } else {
-                    match feature_positions.get(&target).copied() {
-                        None => Some(ValidationError::UnknownFeature {
-                            feature: feature.id.clone(),
-                            target,
-                        }),
-                        Some(index) if index > position => Some(ValidationError::LaterFeature {
-                            feature: feature.id.clone(),
-                            target,
-                        }),
-                        Some(_) => None,
-                    }
-                };
-                problems.extend(problem);
-            }
+            problems.extend(links.features.into_iter().filter_map(|target| {
+                feature_reference_problem(&feature.id, position, target, &feature_positions)
+            }));
             for link in links.expressions {
-                match link.expr.references() {
-                    Ok(references) => {
-                        unknown_parameters(
-                            &graph,
-                            &feature.id,
-                            &references.parameters,
-                            &mut problems,
-                        );
-                    }
-                    Err(error) => problems.push(ValidationError::InvalidExpression {
-                        owner: feature.id.clone(),
-                        expr: link.expr,
-                        error,
-                    }),
-                }
+                let references = link.expr.references();
+                expression_problems(graph, &feature.id, &link.expr, references, problems);
             }
         }
-        problems
     }
 
     /// The ids of every parameter, body and feature.
@@ -242,20 +224,59 @@ impl Document {
     }
 }
 
-/// Reports each of `names` that is not the name of a parameter.
-fn unknown_parameters(
+/// The problem with feature `feature` at `position` referring to `target`: itself, a missing
+/// feature or a later one; `None` for an earlier feature.
+fn feature_reference_problem(
+    feature: &Id,
+    position: usize,
+    target: Id,
+    feature_positions: &BTreeMap<&Id, usize>,
+) -> Option<ValidationError> {
+    if target == *feature {
+        return Some(ValidationError::SelfReference {
+            feature: feature.clone(),
+        });
+    }
+    match feature_positions.get(&target).copied() {
+        None => Some(ValidationError::UnknownFeature {
+            feature: feature.clone(),
+            target,
+        }),
+        Some(index) if index > position => Some(ValidationError::LaterFeature {
+            feature: feature.clone(),
+            target,
+        }),
+        Some(_) => None,
+    }
+}
+
+/// Reports an expression of `owner` that does not parse, or else each name it uses that is not
+/// the name of a parameter.
+fn expression_problems(
     graph: &ParameterGraph<'_>,
     owner: &Id,
-    names: &[String],
+    expr: &Expr,
+    references: Result<References, ExprError>,
     problems: &mut Vec<ValidationError>,
 ) {
-    for name in names {
-        if !graph.has_parameter(name) {
-            problems.push(ValidationError::UnknownParameter {
-                owner: owner.clone(),
-                name: name.clone(),
-            });
+    match references {
+        Ok(references) => {
+            problems.extend(
+                references
+                    .parameters
+                    .into_iter()
+                    .filter(|name| !graph.has_parameter(name))
+                    .map(|name| ValidationError::UnknownParameter {
+                        owner: owner.clone(),
+                        name,
+                    }),
+            );
         }
+        Err(error) => problems.push(ValidationError::InvalidExpression {
+            owner: owner.clone(),
+            expr: expr.clone(),
+            error,
+        }),
     }
 }
 

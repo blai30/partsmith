@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { choosePick, decodePickId, encodePickId, type PickCandidate } from './picking'
+import type { SelectionItem } from '../state/store'
+import {
+  candidateKind,
+  choosePick,
+  decodePickId,
+  encodePickId,
+  type PickCandidate,
+} from './picking'
 
 function candidate(
   key: string,
@@ -126,6 +133,12 @@ describe('choosePick', () => {
     expect(choosePick([originPoint, sketchPoint], acceptAll, RADIUS)).toEqual(sketchPoint)
   })
 
+  it('prefers a sketch curve over the axis of its sketch at the same distance, whatever their order (3.6)', () => {
+    const axis = candidate('sketch:f-sk1:x_axis', 'origin_axis', 'curve', 1)
+    const line = candidate('sketch:f-sk1:e-1', 'sketch_curve', 'curve', 1)
+    expect(choosePick([axis, line], acceptAll, RADIUS)).toEqual(line)
+  })
+
   it('prefers a face over an origin plane at distance 0', () => {
     const originPlane = candidate('origin:XY', 'origin_plane', 'area', 0)
     expect(choosePick([originPlane, face], acceptAll, RADIUS)).toEqual(face)
@@ -135,5 +148,49 @@ describe('choosePick', () => {
     const originPlane = candidate('origin:XZ', 'origin_plane', 'area', 0)
     const datumPlane = candidate('feature:f-dat1', 'datum_plane', 'area', 0)
     expect(choosePick([originPlane, datumPlane], acceptAll, RADIUS)).toEqual(datumPlane)
+  })
+})
+
+function sketchItem(
+  key: string,
+  kind: SelectionItem['kind'],
+  reference: SelectionItem['sketchItem'],
+): SelectionItem {
+  return {
+    key,
+    kind,
+    label: key,
+    body: null,
+    feature: 'f-sk1',
+    element: null,
+    sketchItem: reference,
+    origin: null,
+  }
+}
+
+describe('candidateKind (3.6)', () => {
+  it('counts the origin point and axes of the active sketch as origin items', () => {
+    const origin = sketchItem('point:f-sk1:origin', 'sketch_point', {
+      kind: 'origin',
+      sketch: 'f-sk1',
+      which: 'point',
+    })
+    const axis = sketchItem('sketch:f-sk1:y_axis', 'sketch_curve', {
+      kind: 'origin',
+      sketch: 'f-sk1',
+      which: 'y_axis',
+    })
+    expect(candidateKind(origin)).toBe('origin_point')
+    expect(candidateKind(axis)).toBe('origin_axis')
+  })
+
+  it('keeps the kind of every other item', () => {
+    const line = sketchItem('sketch:f-sk1:e-1', 'sketch_curve', {
+      kind: 'entity',
+      sketch: 'f-sk1',
+      entity: 'e-1',
+      entityType: 'line',
+    })
+    expect(candidateKind(line)).toBe('sketch_curve')
   })
 })

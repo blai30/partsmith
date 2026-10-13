@@ -20,7 +20,7 @@ Everything is re-exported at the crate root.
 
 ## Modules
 
-`grammar` (name validation), `name`, `kind`, `fingerprint` (text form and number formatting), `reference`, `topology`, `map` (building, numbering, instances, projection, element infos), `aliases`, `element_info`, `score`, `resolver`, `roles`, `error`.
+`grammar` (name validation), `name`, `kind`, `fingerprint` (`mod.rs` the type, construction and display, `number.rs` the number format, `parse.rs` the text parser), `reference`, `topology`, `map` (building, numbering, instances, projection, element infos), `aliases`, `element_info`, `score`, `resolver`, `roles`, `error`.
 
 ## Commands
 
@@ -38,7 +38,6 @@ cargo bench -p partsmith-naming --bench budgets   # spec section 5 budgets, fail
 
 ## Open spec questions (waiting for an ADR or spec edit)
 
-- `Fingerprint::new` rounds the unit direction before canonicalizing it; naming.md 3.7.1 says the reverse, which breaks the spec's own round trip (direction `[-1e-8, 1, 0]` would display `n=0,-1,0` and parse as `[0,1,0]`). Do not switch the order back.
 - Error reasons used beyond naming.md section 4's list: `it ends too early`, `instance numbers are n, n.m or 0.m, with n and m of 1 or more and no leading zeros`, `it is not a face name` (`an edge`, `a vertex`), `field "{field}" is required for {kind}`, `field "{field}" needs {count} values`.
 - Instance suffixes go after split suffixes (`X#1@f-p:1`, spec test 13), so the split base of a copied piece is the whole name: alias targets and resolver families do not match in instance copies of split faces. Fixing it changes names (ADR).
 - Spec test 39 pairs size 2 with x = 1.0000004, which gives the same order with or without quantization; the test pairs size 1 with it so quantization decides.

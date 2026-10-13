@@ -7,6 +7,9 @@ use schemars::Schema;
 use serde_json::{Map, Value, json};
 
 use super::{FORMAT, FORMAT_VERSION};
+use crate::id::ID_PATTERN;
+use crate::names::{FEATURE_TYPE_PATTERN, PARAMETER_NAME_PATTERN};
+use crate::units::COLOR_PATTERN;
 use crate::{BodyRole, FeatureRecord, Units, canonical, is_valid_feature_type};
 
 /// A registered feature type and the JSON Schema of its params.
@@ -194,21 +197,15 @@ fn add_definition(
 /// The definitions of the model types; `FeatureRecord` selects each feature's params by type.
 fn model_definitions(features: &[&FeatureParamsSchema]) -> BTreeMap<String, Value> {
     let units: Vec<&str> = Units::ALL.iter().map(|units| units.symbol()).collect();
-    let roles: Vec<Value> = [
-        BodyRole::Part,
-        BodyRole::NegativeVolume,
-        BodyRole::SupportBlocker,
-        BodyRole::SupportEnforcer,
-        BodyRole::SettingsModifier,
-    ]
-    .iter()
-    .map(|role| serde_json::to_value(role).expect("a body role serializes as a string"))
-    .collect();
+    let roles: Vec<Value> = BodyRole::ALL
+        .iter()
+        .map(|role| serde_json::to_value(role).expect("a body role serializes as a string"))
+        .collect();
     let mut feature_record = json!({
         "type": "object",
         "properties": {
             "id": {"$ref": "#/$defs/Id"},
-            "type": {"type": "string", "pattern": "^[a-z][a-z0-9_]{0,63}$"},
+            "type": {"type": "string", "pattern": FEATURE_TYPE_PATTERN},
             "name": {"type": "string"},
             "suppressed": {"type": "boolean"}
         },
@@ -229,12 +226,12 @@ fn model_definitions(features: &[&FeatureParamsSchema]) -> BTreeMap<String, Valu
     BTreeMap::from([
         (
             "Id".to_string(),
-            json!({"type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$"}),
+            json!({"type": "string", "pattern": ID_PATTERN}),
         ),
         ("Expr".to_string(), json!({"type": "string"})),
         (
             "Color".to_string(),
-            json!({"type": "string", "pattern": "^#[0-9A-Fa-f]{6}$"}),
+            json!({"type": "string", "pattern": COLOR_PATTERN}),
         ),
         (
             "Units".to_string(),
@@ -250,7 +247,7 @@ fn model_definitions(features: &[&FeatureParamsSchema]) -> BTreeMap<String, Valu
                 "type": "object",
                 "properties": {
                     "id": {"$ref": "#/$defs/Id"},
-                    "name": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,63}$"},
+                    "name": {"type": "string", "pattern": PARAMETER_NAME_PATTERN},
                     "expr": {"$ref": "#/$defs/Expr"},
                     "comment": {"type": "string"}
                 },
@@ -435,6 +432,19 @@ mod tests {
             definitions["Units"]["enum"],
             Value::Array(enumerated_strings(schemars::schema_for!(Units).as_value()))
         );
+    }
+
+    #[test]
+    fn every_body_role_serializes_to_a_listed_role() {
+        let schema = ptsm_schema(&[]).expect("builds");
+        let listed = &schema.as_value()["$defs"]["BodyRole"]["enum"];
+        let listed = listed.as_array().expect("an enum list");
+
+        assert_eq!(listed.len(), BodyRole::ALL.len());
+        for role in BodyRole::ALL {
+            let serialized = serde_json::to_value(role).expect("a body role serializes");
+            assert!(listed.contains(&serialized), "{serialized}");
+        }
     }
 
     #[test]

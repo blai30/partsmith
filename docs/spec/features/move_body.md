@@ -92,25 +92,28 @@ feature(
 
 ### 3.2 Build
 
-1. The body must hold a solid, else `BodyEmpty { use_new: false }`.
-2. Resolve the rotation axis (if any) against the state before the move, so an edge of the moved body itself may be the axis.
-3. The transform is kernel `Transform::rotation(axis, angle).then(&Transform::translation(t))`: rotate about the axis line, then translate.
-4. If the translation is zero (each component abs ≤ 1e-12 mm) and there is no rotation or the angle is a multiple of 2π within 1e-12 rad, the body is unchanged with a `NoEffect` warning.
-5. Apply kernel `transform` (index-preserving). The naming map is carried over unchanged: every element keeps its name, and the map is not rebuilt (naming.md section 3.6.12). Change `Modify`.
+1. The body must hold a solid, else `BodyEmpty { field: body, body, use_new: false }` (recompute's diagnosis adds why it is empty, features.md section 4.1).
+2. Each translation component is at most the modeling limit in absolute value (`AtMost(MODEL_LIMIT)`, `AtLeast(-MODEL_LIMIT)` on `translation[i]`, features.md section 3.4).
+3. Resolve the rotation axis (if any) with `ctx.axis` against the state before the move, so an edge of the moved body itself may be the axis. Its warnings and notices go into the output. An `edge` or `face` axis keeps the side the user picked: it is oriented by its stored `direction` moved with the part, or else by its fingerprint, so a small edit that tilts the edge never turns the part the other way (corpus R38); edges or faces whose axes do not lie on one line give `NotCollinear` (features.md section 3.6).
+4. The transform is kernel `Transform::rotation(axis, angle).then(&Transform::translation(t))`: rotate about the axis line, then translate.
+5. If the translation is zero (each component abs ≤ 1e-12 mm) and there is no rotation or the angle is a multiple of 2π within 1e-12 rad, the body is unchanged with a `NoEffect { how: NotMoved }` warning (features.md section 3.15).
+6. Apply kernel `transform` (index-preserving). The output map is `NamingMap::moved(transform)` (naming.md section 3.6.12): every element keeps its name, and the transform is composed after the motion of every face (and the map's base), so a sketch on a face of the moved body whose fallback is in body coordinates, a stored axis `direction` and the faces later features build on such a sketch all move with the part. Change `Modify`.
 
 ### 3.3 Element names
 
-No new names; all names are kept.
+No new names; all names are kept, with their motions moved by the transform.
 
 ## 4. Errors and warnings
 
 | Condition | Variant | Example message |
 | --- | --- | --- |
-| Body empty | `BodyEmpty` | `Body 'Body 1' is empty at this point, so this feature has nothing to work on. Pick a body that has a solid.` |
+| Body empty | `BodyEmpty` | without a cause: `Body 'Body 1' has no solid at this point, so this move body has nothing to work on. Pick a body that has a solid.`; with one, features.md section 4.1 |
+| Translation beyond the modeling limit | `OutOfRange` | `Move X must be at least -1000000 mm, but it is -10000000 mm. Use -1000000 mm or more.` |
 | Expression or dimension error | `Expression` | `Rotation angle: Expected an angle, but this expression gives a length.` |
-| Axis errors | `NotStraight`, `NoAxis`, `UnknownEntity`, `NotALine`, `ReferenceNotFound` | features.md section 4.1 |
-| Kernel failure | `Kernel` | `Moving the body failed.` |
-| Nothing moves | warning `NoEffect` | features.md section 4.2 |
+| Axis errors | `NotStraight`, `NoAxis`, `NotCollinear`, `UnknownEntity`, `NotALine`, `ReferenceNotFound` | features.md section 4.1 |
+| Kernel failure | `Kernel` | `Partsmith's geometry kernel could not build this move body. {hint}` (features.md section 4.1) |
+| Nothing moves | warning `NoEffect` (`NotMoved`) | `This move body leaves body 'Body 1' where it is, because its move is 0 and it turns by whole turns or not at all.` |
+| The axis reference guessed or followed | warning `ReferenceGuessed`, notice `ReferenceFollowed` | features.md section 4.2 |
 
 ## 5. Performance
 
@@ -125,10 +128,14 @@ Conventions from features.md section 6.1. Bodies `[b-1]`. Fixtures: `BOX123`: `{
 3. **Rotate, then translate.** `BOX123`, `MV("translation": ["5", "0", "0"], "rotation": ROT-Z("90 deg"))`. Expected: bbox [-5,-5,0]-[15,5,30].
 4. **Rotate about its own edge.** `{"id": "f-box1", "type": "box", "body": "b-1", "size": ["10", "10", "10"], "op": "new"}`, `MV("rotation": {"axis": {"kind": "edge", "body": "b-1", "edge": {"q": "edge(f-box1/right|f-box1/top)", "fp": "line|n=0,1,0|c=5,0,10|l=10"}}, "angle": "180 deg"})`. Expected: volume 1000, bbox [5,-5,10]-[15,5,20].
 5. **References survive a move.** `{"id": "f-box1", "type": "box", "body": "b-1", "size": ["10", "10", "10"], "op": "new"}`, `MV("translation": ["50", "0", "0"])`, `{"id": "f-fil1", "type": "fillet", "body": "b-1", "edges": [{"q": "edge(f-box1/front|f-box1/top)", "fp": "line|n=1,0,0|c=0,-5,10|l=10"}], "radius": "2"}`. Expected: fillet ok with no warnings (exact name match); volume 991.415927, 7 faces, bbox [45,-5,0]-[55,5,10].
-6. **Nothing moves.** `BOX123`, `MV("translation": ["0", "0", "0"], "rotation": ROT-Z("360 deg"))`. Expected: warning `no_effect`; b-1 unchanged.
-7. **Empty body.** `MV("translation": ["5", "0", "0"])` alone. Expected: error `body_empty`.
+6. **Nothing moves.** `BOX123`, `MV("translation": ["0", "0", "0"], "rotation": ROT-Z("360 deg"))`. Expected: warning `no_effect` with how `NotMoved`, rendered `This move body leaves body 'Body 1' where it is, because its move is 0 and it turns by whole turns or not at all.`; b-1 unchanged.
+7. **Empty body.** `MV("translation": ["5", "0", "0"])` alone. Expected: error `body_empty` rendered `Body 'Body 1' has no solid at this point, so this move body has nothing to work on. Pick a body that has a solid.`
 8. **Wrong angle dimension.** `BOX123`, `MV("rotation": ROT-Z("5 mm"))`. Expected: error `expression`, field `rotation.angle`, rendered `Rotation angle: Expected an angle, but this expression gives a length.`
 9. **Performance.** Test 3 builds in under 5 ms (desktop, release).
+10. **A sketch after the move keeps its point on the moved face.** The document of [sketch.md](sketch.md) test 20 (corpus R32a: a face sketch on the top of a 40 x 40 x 10 box with `fallback_frame: body`, a hole at its point (15, 15), and this move body of (100, 0, 0) inserted before the sketch). Expected: every feature status ok; in b-1's state after f-mv1, `BodyState::motion` of `f-box1/top` is the translation (100, 0, 0); the bore's axis passes through (115, 15, 0); with the rotation of 90 deg about Z instead, through (-15, 15, 0).
+11. **An axis edge that leans keeps its side (corpus R38).** `{"id": "f-sk1", "type": "sketch", "plane": {"kind": "origin", "plane": "XY"}, "entities": RECT(0, 0, 40, 20)}`; `{"id": "f-ext1", "type": "extrude", "body": "b-1", "profile": {"sketch": "f-sk1", "regions": [{"key": "e-1,e-2,e-3,e-4", "fp": "c=20,10|a=800"}]}, "extent": {"kind": "distance", "expr": "10"}, "op": "new"}`; `MV("rotation": {"axis": {"kind": "edge", "body": "b-1", "edge": {"q": "edge(f-ext1/lateral/e-4|f-ext1/start-cap)", "fp": "line|n=0,1,0|c=0,10,0|l=20|adj=2,2"}}, "angle": "90 deg"})` (about the left wall's bottom edge, which passes through the origin). Expected: ok; bbox [0,0,-40]-[10,20,0] (the part turns down). Edit: move the shared point of `e-3`'s end and `e-4`'s start from (0, 20) to (-1, 20). Expected: ok; the axis keeps the fingerprint's side, (-0.049938, 0.998752, 0), so the part still turns down: bbox [-1,-1.995012,-40.948846]-[10.087274,20.499376,0]. Leaning to (1, 20) instead: bbox [0,-0.499376,-39.950094]-[11.08478,21.945137,0].
+12. **A 180 degree turn before the move turns its axis.** `{"id": "f-box1", "type": "box", "body": "b-1", "size": ["10", "10", "10"], "op": "new"}`; `MV("rotation": ROT-Z("180 deg"))` (inserted later, so the edge `edge(f-box1/right|f-box1/top)` now lies at x = -5, z = 10); `{"id": "f-mv2", "type": "move_body", "body": "b-1", "rotation": {"axis": {"kind": "edge", "body": "b-1", "edge": {"q": "edge(f-box1/right|f-box1/top)", "fp": "line|n=0,1,0|c=5,0,10|l=10"}, "direction": [0, 1, 0]}, "angle": "90 deg"}}` (picked before f-mv1 was inserted). Expected: ok; the stored direction turns with the part to -Y, so the box turns over that edge to where it went before the insert: bbox [-5,-5,10]-[5,5,20]. The same document without `direction` keeps the fingerprint's side, +Y: bbox [-15,-5,0]-[-5,5,10].
+13. **Axis edges not on one line.** b-1 holds the L-shaped body of [fillet.md](fillet.md) test 4; `MV("rotation": {"axis": {"kind": "edge", "body": "b-1", "edge": {"q": "edge(f-box1/front|f-box1/top)", "fp": "line|n=1,0,0|c=-10,-10,10|l=20", "merged": {"f-box1/top": ["f-box2/top"]}}}, "angle": "90 deg"})`. Expected: error `not_collinear`, field `rotation.axis`, rendered `The edge selected for Rotation axis now matches 2 edges that do not lie on one line. Pick the one you mean.`, fixes `UseReferences` with each of the two edges, then `Pick`; b-1 unchanged.
 
 ## Open issues
 

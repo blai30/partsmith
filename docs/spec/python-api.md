@@ -9,12 +9,13 @@ Code is a first-class way to model (technical design section 10): a build123d-st
 **In M1**
 
 - `partsmith._core`: `Session` with the frame `call`, version constants, schema text; abi3 wheel for CPython 3.12 and later, built with maturin.
-- Documents: `Document` (new, open, save, canonical text, Python export, print check, STEP import), the current-document context, `param`, `rollback`.
+- Documents: `Document` (new, open, save, canonical text, Python export, print check, STEP import, units with Keep sizes), the current-document context, `param`, `rollback`.
 - Values: numbers in document units, `Expr` with arithmetic, units `mm`, `cm`, `meter`, `inch`, `deg`, `rad`, the `printer` namespace, `expr()` for any expression text.
 - Parts: `Part` with name, material, color, visibility, role; measurement helpers.
 - Sketches: `Sketch` on origin planes, datum planes and planar faces; `Point`, `Line`, `Circle`, `Arc`; shapes `Rectangle` and `Polygon`; the M1 constraints.
 - Features: `extrude`, `revolve`, `fillet`, `chamfer`, `shell`, `hole`, `box`, `cylinder`, `sphere`, `cone`, `torus`, `boolean`, `mirror`, `linear_pattern`, `circular_pattern`, `datum_plane`, `move`, `split`, and the generic `feature`.
-- Selectors: `faces()`, `edges()`, `vertices()` and `Selection` filters (`top`, `bottom`, `max`, `min`, `parallel_to`, `perpendicular_to`, `planar`, `cylindrical`, `lines`, `circles`, `longest`, `shortest`, `largest`, `smallest`, `sort_by`, `filter`) compiling to stored references; `Ref` for literal references.
+- Selectors: `faces()`, `edges()`, `vertices()` and `Selection` filters (`top`, `bottom`, `max`, `min`, `parallel_to`, `perpendicular_to`, `planar`, `cylindrical`, `lines`, `circles`, `longest`, `shortest`, `largest`, `smallest`, `sort_by`, `filter`) compiling to the full references a pick stores (anchors and merged names), with a warning when a selection is indexed by position; `Ref` for literal references, with anchors, merged names and axis directions.
+- Errors and warnings that carry their diagnostic: code, field, suggestion, actions, candidates, cause and detail, with the message starting at the call that failed (section 4).
 - Export: `export_stl`, `export_3mf`, `export_obj`, `export_step`.
 - `run_script`, `run_code`, `python -m partsmith build`.
 - Code generation rules (readable, deterministic, exact) and the round-trip test.
@@ -95,7 +96,7 @@ pytest python/tests
 ```python
 PROTOCOL_VERSION: int  # 1
 ENGINE_VERSION: str    # "0.1.0"
-FORMAT_VERSION: int    # 1
+FORMAT_VERSION: int    # 2
 
 class Session:
     """One engine session. Thread-safe: concurrent calls are serialized."""
@@ -190,6 +191,8 @@ class Document:
     def __exit__(self, *exc: object) -> None: ...  # restores the previous current document
     @property
     def units(self) -> str: ...
+    def set_units(self, units: str, *, keep_sizes: bool = False) -> int: ...
+        # set_document_units edit (3.2); returns how many numbers without a unit got the old unit
     @property
     def printer(self) -> str | None: ...
     @printer.setter
@@ -279,8 +282,9 @@ class Sketch:
     ORIGIN: ClassVar["SketchOrigin"]   # the sketch origin (0, 0), a point; stored as "origin"
     X_AXIS: ClassVar["SketchAxis"]     # the sketch x axis, along +u, a line; stored as "x_axis"
     Y_AXIS: ClassVar["SketchAxis"]     # the sketch y axis, along +v, a line; stored as "y_axis"
-    def __init__(self, plane: PlaneLike, *, fallback: Placement | None = None,
+    def __init__(self, plane: PlaneLike, *, fallback: Placement | None = None, fallback_frame: str | None = None,
                  name: str | None = None, suppressed: bool = False, id: str | None = None) -> None: ...
+        # fallback_frame: "world" or "body" (features/sketch.md section 2); None stores none, which means "world"
     def __enter__(self) -> "Sketch": ...
     def __exit__(self, *exc: object) -> None: ...   # adds the feature (one edit) unless the block raised
     id: str
@@ -292,9 +296,11 @@ class Sketch:
 
 class Region:
     """A closed sketch region, stored as a sketch.md RegionRef."""
-    def __init__(self, key: str, fp: str | None = None) -> None: ...   # fp None: taken from the current solve
+    def __init__(self, key: str, fp: str | None = None, *, outline: str | None = None) -> None: ...
+        # fp None: fp and outline taken from the current solve
     key: str                       # RegionKey text, for example "e-1,e-2,e-3,e-4"
     fp: str | None                 # RegionFingerprint text, for example "c=40,25|a=4000"
+    outline: str | None            # region loop text in traversal order, for example "e-1,e-2,e-3,e-4" (sketch.md 3.13.8)
     area: float | None
     centroid: tuple[float, float] | None
 
@@ -378,7 +384,7 @@ class Feature:
     @property
     def status(self) -> str: ...            # "ok" | "warning" | "error" | "suppressed" | "rolled_back"
     @property
-    def messages(self) -> list[str]: ...
+    def messages(self) -> list[str]: ...     # texts of its messages: error, warnings, then info notices
     def faces(self) -> "Selection": ...      # faces of its part whose element name starts with "<id>/"
     def edges(self) -> "Selection": ...      # self.faces().edges()
 
@@ -430,10 +436,18 @@ class Axis:
 
 class Ref:
     """A stored reference literal; `part` names the body it lies on when a param needs one (axes and planes)."""
-    def __init__(self, q: str, fp: str, *, part: "Part | None" = None) -> None: ...
+    def __init__(self, q: str, fp: str, *, part: "Part | None" = None,
+                 anchors: Mapping[str, Sequence[str]] | None = None,
+                 merged: Mapping[str, Sequence[str]] | None = None,
+                 direction: tuple[float, float, float] | None = None) -> None: ...
     q: str
     fp: str
     part: "Part | None"
+    anchors: dict[str, list[str]] | None      # the reference's "nb" (naming.md 2.4), lists in stored order
+    merged: dict[str, list[str]] | None       # the reference's "merged" (naming.md 2.4)
+    direction: tuple[float, float, float] | None  # an edge or face axis's picked direction, body coordinates
+    description: str | None                   # a repair candidate's words (4); None otherwise
+    relation: str | None                      # a repair candidate's relation, for example "on the top of 'Box 1', 5 mm from where it was"
 
 class Element:
     """One face, edge or vertex at the time it was selected (protocol ElementDescriptor)."""
@@ -448,6 +462,8 @@ class Element:
     direction: tuple[float, float, float] | None
     axis: Axis | None; radius: float | None
     placement: Placement | None
+    fallback: Placement | None                # planar faces: the placement in body coordinates (engine.md 3.9)
+    axis_direction: tuple[float, float, float] | None  # line edges and faces with an axis, body coordinates
 
 class Selection(Sequence[Element]):
     def top(self) -> "Selection": ...
@@ -522,9 +538,25 @@ class PartsmithError(Exception):
 class EngineError(PartsmithError): ...
 class FeatureError(PartsmithError):
     feature_type: str
+    feature: str                  # the feature's id
+    code: str                     # the diagnostic's code, for example "fillet_too_large" (never None)
+    field: str | None             # JSON Pointer of the field, relative to the feature record, for example "/radius"
+    suggestion: str | None        # replacement expression for `field`, for example "2.3 mm"
+    actions: list[str]            # the labels of the diagnostic's actions, in order, for example ["Use 2.3 mm"]
+    candidates: list[Ref]         # repair candidates, each with `description` and `relation`
+    cause: str | None             # the cause line, "This started after you ..."; None unless an edit in this session started it
+    detail: str | None            # technical text for reports
 class SelectionError(PartsmithError): ...
 class ExpressionError(PartsmithError): ...
-class PartsmithWarning(UserWarning): ...
+class PartsmithWarning(UserWarning):
+    code: str | None              # the diagnostic's code, or "selection_index" (3.6)
+    feature: str | None           # the feature's id, for feature warnings
+    field: str | None
+    suggestion: str | None
+    actions: list[str]
+    candidates: list[Ref]
+    cause: str | None
+    detail: str | None
 ```
 
 ### 2.10 `python -m partsmith`
@@ -534,7 +566,7 @@ python -m partsmith build <SCRIPT> [-o <OUTPUT>]
 python -m partsmith --version
 ```
 
-`build` runs the script with `run_script`; exactly one document must be created; it is saved to `OUTPUT` (default: the script path with the suffix `.ptsm`). Exit codes follow cli.md: 0 success, 1 the script raised or did not create exactly one document, 2 usage error, 3 I/O error. `--version` prints `partsmith 0.1.0 (protocol 1, format 1)`.
+`build` runs the script with `run_script`; exactly one document must be created; it is saved to `OUTPUT` (default: the script path with the suffix `.ptsm`). Exit codes follow cli.md: 0 success, 1 the script raised or did not create exactly one document, 2 usage error, 3 I/O error. `--version` prints `partsmith 0.1.0 (protocol 1, format 2)`.
 
 ## 3. Behavior
 
@@ -555,6 +587,8 @@ python -m partsmith --version
 - **Operators.** `+`, `-`, `*`, `/`, `**` (rendered `^`), unary `-` and `+` build expressions. Binary operators render with one space on each side. Precedence from low to high: `+ -`, `* /`, unary minus, `^`; quantity literals, names and numbers are atoms. An operand is parenthesized when its precedence is lower than the operator's, and the right operand of `-`, `/` and the left operand of `^` also when it is equal. Unary `+` renders its operand unchanged. Examples: `2 * wall` is `2 * wall`; `(wall + 1) * 2` is `(wall + 1) * 2`; `wall - (a - b)` keeps its parentheses; `-wall ** 2` is `-wall ^ 2`; `wall ** 2` is `wall ^ 2`.
 - **`printer`.** Attribute access builds dotted names (`printer.fit.slip` renders `printer.fit.slip`). `printer` itself is not an expression (`TypeError` when used as a value); names starting with `_` raise `AttributeError`.
 - **Parameters.** `param` renders `value`, generates an id (3.11) unless given, sends `apply_edits` (label `param`) with `add_parameter` at the end of the list, and returns a `Param` that renders as its name. If the `recomputed` event reports an error for the parameter, the edit is undone and `ExpressionError` is raised with the evaluator's message. `Param.set` sends `update_parameter` with the same rule. `Param.value` is the evaluated value in internal units.
+- **Document units.** `Document.set_units(units, keep_sizes=False)` sends `set_document_units {doc, units, keep_sizes}` (engine.md section 3.25), one edit labeled `Change units to <units>`, and returns the result's `kept`: how many expressions and parameters that were numbers without a unit got the old unit appended (`20` becomes `20 mm`), so with `keep_sizes=True` no size changes, and without it those numbers take the new unit. Raw numbers that Python converts (below) are in the document units in force when the call is made. `units` is one of `mm`, `cm`, `m`, `in` (model.md), else `ValueError`.
+- **Problems an edit starts.** After `Param.set`, `Document.set_units`, `rollback` and the `printer` setter, Python emits one `PartsmithWarning` (3.5, section 4) for each warning or error message of severity warning or error that the edit added: one whose feature, code and field were not in the statuses before the edit. Its `cause` is the diagnostic's cause line, which names the edit (engine.md section 3.21); the edit itself is kept.
 - **Raw geometry numbers.** Sketch coordinates, entity radii and angles, and other params the registry stores as plain numbers are converted by Python: a plain length number is in document units and is multiplied by the exact unit factor (mm 1, cm 10, m 1000, in 25.4); a plain angle number is in degrees and is converted to radians. A **quantity literal** (an `Expr` built as `number * unit`) is converted locally by its unit's factor (`5*mm` is exactly 5, `1.5*rad` exactly 1.5). Any other `Expr`, and a `str`, is evaluated through the engine (`evaluate`) and the internal value is stored; it does not stay parametric. Expression-typed params (sizes, distances, radii of features, constraint values) store the rendered text and stay parametric.
 
 ### 3.3 Parts and the default operation
@@ -569,7 +603,7 @@ python -m partsmith --version
 
 - Calling an entity, shape or constraint constructor outside a `with Sketch(...)` block raises `PartsmithError("<Name>() must be called inside 'with Sketch(...)'.")`. Calling a feature function inside an open sketch block raises `PartsmithError("Finish the sketch before calling <function>().")`.
 - Entities and constraints are collected in creation order. On normal exit of the block, Python sends one `apply_edits` (label `Sketch`) with `add_feature` of type `sketch` holding the plane, entities and constraints. If the block raised, nothing is sent.
-- **Plane.** `Plane.XY`, `Plane.XZ`, `Plane.YZ` give the origin planes; a `DatumPlane` gives the datum reference; an `Element`, single-element `Selection` or `Ref` gives a face reference on its part's body (`{"kind": "face", "body", "face", "fallback"}`, sketch.md), with `fallback` as the fallback placement, defaulting to the element's `placement` (a `Ref` requires `fallback` and `part=`, the face's body). A non-planar face raises `SelectionError("A sketch needs a flat face; the selected face is <surface>.")`; a selection with more than one element raises `SelectionError("Expected exactly one face, got <n>.")`.
+- **Plane.** `Plane.XY`, `Plane.XZ`, `Plane.YZ` give the origin planes; a `DatumPlane` gives the datum reference; an `Element`, single-element `Selection` or `Ref` gives a face reference on its part's body (`{"kind": "face", "body", "face", "fallback", "fallback_frame"}`, [features/sketch.md](features/sketch.md) section 2), whose `face` is the element's full reference (3.6). Without `fallback`, an `Element` or `Selection` stores the element's `fallback` (its placement in body coordinates, engine.md section 3.9) with `fallback_frame` `"body"`, as every host's attach does. With `fallback`, the given placement is stored with `fallback_frame` as given: `"body"` is written as is, while `"world"` and `None` write no `fallback_frame` (world coordinates, the meaning of documents written before format version 2); any other value raises `ValueError`. A `Ref` requires `fallback` and `part=`, the face's body. A non-planar face raises `SelectionError("A sketch needs a flat face; the selected face is <surface>.")`; a selection with more than one element raises `SelectionError("Expected exactly one face, got <n>.")`.
 - `Point`, `Line`, `Circle`, `Arc` create one entity each with the given geometry (raw numbers, 3.2). They add no constraints, except that `Circle` and `Arc` whose radius is a `str` or an `Expr` other than a number or a quantity literal (a `Param`, an arithmetic expression, an `expr()` result) add a driving `Radius` constraint with that expression after the entity, placing the geometry at the evaluated value. So `Circle(wall)` follows the parameter, while `Circle(5)` and `Circle(5*mm)` add nothing.
 - `Rectangle(width, height, center=(cx, cy))` creates 4 lines counter-clockwise from the bottom-left corner: bottom `(x0, y0)` to `(x1, y0)`, right to `(x1, y1)`, top to `(x0, y1)`, left back to `(x0, y0)`, where `x0 = cx - w/2`, `x1 = cx + w/2`, `y0 = cy - h/2`, `y1 = cy + h/2` with `w` and `h` the evaluated sizes. It adds, in order: 4 `Coincident` (bottom end with right start, right end with top start, top end with left start, left end with bottom start), `Horizontal(bottom)`, `Horizontal(top)`, `Vertical(right)`, `Vertical(left)`, `HorizontalDistance(bottom.start, bottom.end, width)`, `VerticalDistance(right.start, right.end, height)`. The sketch has 2 degrees of freedom from a rectangle (its position).
 - `Polygon(p0, ..., pn)` needs at least 3 points (`ValueError` otherwise) and creates lines `p_i` to `p_(i+1 mod n+1)` with one `Coincident` per corner (line `i` end with line `i+1` start). No dimensions.
@@ -579,16 +613,16 @@ python -m partsmith --version
 
 ### 3.5 Features
 
-- Each feature function builds a feature record and sends one `apply_edits` (label = the function name) with `add_feature` at the end of the timeline. Params are mapped as in the table below; `Value`s render per 3.2; element arguments compile to references (3.6); `Part` arguments become body ids; `Sketch`, `DatumPlane` and `Feature` arguments become feature ids; region arguments become `RegionRef` values (`{"key", "fp"}`).
+- Each feature function builds a feature record and sends one `apply_edits` (label = the function name) with `add_feature` at the end of the timeline. Params are mapped as in the table below; `Value`s render per 3.2; element arguments compile to references (3.6); `Part` arguments become body ids; `Sketch`, `DatumPlane` and `Feature` arguments become feature ids; region arguments become `RegionRef` values (`{"key", "fp", "outline"}`, `outline` only when the `Region` has one).
 - After the response, Python reads the feature's status from `recomputed`:
-  - `error`: Python sends `undo` (so the document no longer contains the feature) and raises `FeatureError` whose message is the feature's first error message and whose `feature_type` is the type.
-  - `warning`: Python emits one `warnings.warn(message, PartsmithWarning)` per warning message and keeps the feature.
-  - any other status: the feature is kept silently.
+  - `error`: Python sends `undo` (so the document no longer contains the feature) and raises `FeatureError` for the feature's error message (section 4), whose `feature_type` is the type.
+  - `warning`: Python emits one `PartsmithWarning` (section 4) per message of severity warning, in order, with `warnings.warn` at the stack level of the user's call, and keeps the feature.
+  - any other status, including `ok` with info notices only: the feature is kept silently. Info notices are never emitted; `Feature.messages` lists them.
 - Element arguments must not be empty (`SelectionError("<function>() needs at least one <kind>; the selection is empty.")`) and must have the kind the parameter needs (`SelectionError("<function>() takes edges, got faces.")`). `Ref` literals carry no kind and are accepted as given.
 - `extrude` and `revolve` without `regions` use every region of the `profile` sketch in the order of its `sketch_solved` event; `regions=[...]` selects those regions of that sketch, in the given order (a `Region` whose `fp` is `None` takes the fingerprint of the region with its key in the current solve; an unknown key raises `ValueError`). For `extrude`, exactly one of `distance` and `through_all=True` must be given (`ValueError` otherwise).
 - Stored records without a dedicated form use the generic `feature(...)` form in generated code: an extrude with a `two_sides` extent, a linear pattern direction with `reverse: true`, and every `import` feature (features/import.md).
 
-Mapping onto feature params (features/<type>.md). `AxisLike` values become features.md `AxisRef`s: `Axis.X`, `Axis.Y`, `Axis.Z` give `{"kind": "origin", "axis": "X"}` and so on, a `Line` of a finished sketch gives `{"kind": "sketch_line", "sketch", "line"}`, a straight edge `Element` gives `{"kind": "edge", "body", "edge"}`, a round face `Element` gives `{"kind": "face", "body", "face"}`, and a `Ref` with `part` gives the edge form (the face form when its fingerprint text starts with a surface type) on that part's body; any other `Axis` raises `ValueError("Only Axis.X, Axis.Y, Axis.Z, sketch lines, straight edges and round faces can be used as axes.")`. `PlaneLike` values become `PlaneRef`s: origin planes, `DatumPlane`s (`{"kind": "datum", "feature"}`) and planar face `Element`s or `Ref`s with `part` (`{"kind": "face", "body", "face"}`). Where features.md and this table differ, features.md wins.
+Mapping onto feature params (features/<type>.md). `AxisLike` values become features.md `AxisRef`s: `Axis.X`, `Axis.Y`, `Axis.Z` give `{"kind": "origin", "axis": "X"}` and so on, a `Line` of a finished sketch gives `{"kind": "sketch_line", "sketch", "line"}`, a straight edge `Element` gives `{"kind": "edge", "body", "edge", "direction"}`, a round face `Element` gives `{"kind": "face", "body", "face", "direction"}`, each with the element's full reference (3.6) and its `axis_direction` as `direction` (features.md section 2.5), and a `Ref` with `part` gives the edge form (the face form when its fingerprint text starts with a surface type) on that part's body, with `direction` only when the `Ref` has one; any other `Axis` raises `ValueError("Only Axis.X, Axis.Y, Axis.Z, sketch lines, straight edges and round faces can be used as axes.")`. `PlaneLike` values become `PlaneRef`s: origin planes, `DatumPlane`s (`{"kind": "datum", "feature"}`) and planar face `Element`s or `Ref`s with `part` (`{"kind": "face", "body", "face"}`). Where features.md and this table differ, features.md wins.
 
 | Python | Feature type | Params set |
 | --- | --- | --- |
@@ -618,7 +652,8 @@ Mapping onto feature params (features/<type>.md). `AxisLike` values become featu
 - `longest()` and `shortest()` keep edges whose length is within 1e-6 mm of the maximum or minimum; `largest()` and `smallest()` keep faces whose area is within 1e-6 mm² of the maximum or minimum.
 - `sort_by(axis)` sorts by coordinate, ties by name. `filter(predicate)` keeps elements for which it returns true. All filters keep the existing order and return empty selections for empty input.
 - `faces()`, `edges()` and `vertices()` on a selection return the union of adjacent elements of that kind (from `adjacent`; faces of vertices go through their edges, vertices of faces through their edges), sorted by name.
-- Indexing with an integer returns an `Element` (`IndexError` when out of range); slicing returns a `Selection`.
+- Indexing with an integer returns an `Element` (`IndexError` when out of range); slicing returns a `Selection`. Indexing a `Selection` of more than one element with an integer (`edges()[3]`, `faces()[-1]`) also emits a `PartsmithWarning` with `code` `selection_index` at the stack level of the user's line: `<kind>s()[<index>] picks <a or an> <kind> by its position in the list, which can change when anything before it changes. Select it by what it is, for example <example>.`, with `<index>` as written and `<example>` `edges().top().parallel_to(Axis.X)` for edges, `faces().top()` for faces and `vertices().top().min(Axis.X)` for vertices; for example `edges()[3] picks an edge by its position in the list, which can change when anything before it changes. Select it by what it is, for example edges().top().parallel_to(Axis.X).` Indexing a selection of one element, iteration, slicing and `len` do not warn.
+- **Full references.** An element compiles to the full reference a pick of it stores (`Reference::from_element`, with anchors and merged names, engine.md section 3.9), not to the short form `list_elements` gives: `Element.reference` is that reference, which Python requests with `pick_reference` the first time it is read, once per element and document revision, as a headless pick (`mesh_id` 0 and the element's position among the elements of its kind in `list_elements` order at the current revision). When the element's name is no longer in its body at the current revision, `Element.reference` is the short reference it was listed with. So a script stores what a click on the same element in the UI stores, and its references keep their meaning when a later edit splits a face (corpus R08).
 - When a selection is passed to a feature, each element contributes its `reference` in selection order; duplicates (same `q` and `fp`) are kept once at their first position.
 
 ### 3.7 Export, import and checks
@@ -640,7 +675,7 @@ Mapping onto feature params (features/<type>.md). `AxisLike` values become featu
 6. **Feature statements.** In timeline order, each feature is one statement in the form of the table in 3.5 (sketches are a `with Sketch(...) as <var>:` block containing their entities, then their constraints, in stored order, or `pass` when they have neither). Each built-in feature emits its dedicated form through its `Feature::python(params, names)` hook (features.md 2.10): the generator passes a `PythonNames` that supplies the document units, the variables of bodies, features, sketch entities and parameters, every region of a sketch in solved order (rule 9) and the default op of a body (3.3), and calls `Registry::python(record, names)`, which returns the hook's `PythonCall` with the trailing `name=`, `suppressed=True` and `id=` keywords appended, or the generic form when the type has no hook, the params do not validate or the hook returns `None`. The generator, not the hook, owns sketch `with` blocks (the `sketch` type has no hook) and variables (rule 7); it emits the registry's calls unchanged. Positional arguments follow the signature; then keyword arguments in signature order, each only when it differs from its default (`op` of `extrude`, `revolve` and the primitives per the static rule of 3.3; `op` of `boolean` defaults to `cut`); then `name="<name>"`, `suppressed=True` and `id="<id>"`, in that order, `id` always present. Feature types without a dedicated form (plugins, `import`), and records whose params do not fit their form (for example invalid params, 3.5), use the generic form `feature("<type>", <name/suppressed/id keywords>, <param>=<value>, ...)` from `Registry::python_generic` with every stored param in stored order; a param whose name is not a valid Python identifier, or is a keyword (`keyword.kwlist`; soft keywords such as `type` and `match` are ordinary identifiers), is passed through a trailing `**{"<name>": <value>}`.
 7. **Variables.** A feature or sketch entity gets a variable (`<var> = ...`, or `as <var>` for sketches) only when a later statement refers to it; parameters and parts always get one. A name comes from the object's `name` field converted to snake case (lowercase; each run of characters outside `[a-z0-9]` becomes `_`; leading and trailing `_` removed; a result that starts with a digit or has a single character gets the prefix `<kind>_`); objects without a usable name get `<kind>_<n>`, where `<kind>` is `part`, `sketch`, `plane` (datum planes), the feature type for other features, or the entity type for entities (numbered per sketch), and `<n>` counts objects of that kind from 1 in emission order. Parameters use their name. A name that is a Python keyword or soft keyword, is in `partsmith.__all__`, is `doc`, or is already taken gets the first free suffix `_2`, `_3`, ...
 8. **Expressions.** An expression param with source `s` is emitted as: a bare number when `s` is a short canonical number (below); `<number>*<unit>` when `s` is `<short canonical number> <unit>` with exactly one space and `<unit>` one of `mm`, `cm`, `m`, `in`, `deg`, `rad` (emitted as `mm`, `cm`, `meter`, `inch`, `deg`, `rad`); the parameter's variable when `s` equals a parameter name exactly; `s` itself when it matches `printer(\.[A-Za-z_][A-Za-z0-9_]*)+`; otherwise a string literal of `s`. A short canonical number matches `-?(0|[1-9][0-9]*)(\.[0-9]*[1-9])?`, is not `-0`, has at most 15 significant digits, and, when it has a fractional part, has magnitude at least 0.0001. These are exactly the texts that 3.2 renders back unchanged.
-9. **Other values.** In dedicated forms: references are `Ref("<q>", "<fp>")`, and a list of references with one element is written as that element alone (lists of two or more as `[a, b]`); body ids become the part's variable; feature ids become the feature's variable; sketch points become `<entity var>.<role>` (or the point entity's variable), and the reserved references `origin`, `x_axis` and `y_axis` (3.4) become `Sketch.ORIGIN`, `Sketch.X_AXIS` and `Sketch.Y_AXIS`, so a sketch whose constraints use them is a `with Sketch(...)` block like any other; regions are `Region("<key>", "<fp>")` with the stored `RegionRef` texts, and `regions=` is emitted only when the stored list differs from all of the sketch's regions (their references, in solved order); placements are `Placement((x, y, z), (x, y, z), (x, y, z))`; `AxisRef`, `PlaneRef` and sketch plane values are `Axis.X`, `Axis.Y`, `Axis.Z`, `Plane.XY`, `Plane.XZ`, `Plane.YZ`, a datum plane's variable, a sketch line's variable, or, for face and edge forms (including a sketch on a face), `Ref("<q>", "<fp>", part=<part var>)`. Raw numbers are written in canonical JSON number form (model.md), which is valid Python, except that raw angles are always written as `<number>*rad`, and in documents whose units are not `mm` raw lengths are written as `<number>*mm`; both are quantity literals, so 3.2's conversion is exact. In the generic form, every param value is written as a Python literal of its stored JSON, without substitutions: objects as `{"k": v}` with `": "` and `", "`, arrays as `[a, b]`, strings per rule 10, numbers in canonical JSON form, `true`, `false`, `null` as `True`, `False`, `None`.
+9. **Other values.** In dedicated forms: references are `Ref("<q>", "<fp>")`, followed by `anchors={...}` and `merged={...}` when the stored reference has them (dicts of lists of strings, keys and lists in stored order, strings per rule 10), and a list of references with one element is written as that element alone (lists of two or more as `[a, b]`); body ids become the part's variable; feature ids become the feature's variable; sketch points become `<entity var>.<role>` (or the point entity's variable), and the reserved references `origin`, `x_axis` and `y_axis` (3.4) become `Sketch.ORIGIN`, `Sketch.X_AXIS` and `Sketch.Y_AXIS`, so a sketch whose constraints use them is a `with Sketch(...)` block like any other; regions are `Region("<key>", "<fp>")` with the stored `RegionRef` texts, followed by `outline="<loop>"` when the stored region has one, and `regions=` is emitted only when the stored list differs from all of the sketch's regions (their references, in solved order); placements are `Placement((x, y, z), (x, y, z), (x, y, z))`; `AxisRef`, `PlaneRef` and sketch plane values are `Axis.X`, `Axis.Y`, `Axis.Z`, `Plane.XY`, `Plane.XZ`, `Plane.YZ`, a datum plane's variable, a sketch line's variable, or, for face and edge forms (including a sketch on a face), `Ref("<q>", "<fp>", part=<part var>)` with `anchors=` and `merged=` as above and, for an edge or face axis whose stored `AxisRef` has `direction`, `direction=(x, y, z)` with the three numbers in canonical JSON number form (a unit vector, never a length); a sketch on a face writes `fallback=Placement(...)` and then, when its plane stores `fallback_frame` `body`, `fallback_frame="body"`. Keywords follow the order of the `Ref`, `Region` and `Sketch` signatures (2.6, 2.8), each only when the stored value has it, so a reference picked before format version 2 is written exactly as before (features.md section 3.11). Raw numbers are written in canonical JSON number form (model.md), which is valid Python, except that raw angles are always written as `<number>*rad`, and in documents whose units are not `mm` raw lengths are written as `<number>*mm`; both are quantity literals, so 3.2's conversion is exact. In the generic form, every param value is written as a Python literal of its stored JSON, without substitutions: objects as `{"k": v}` with `": "` and `", "`, arrays as `[a, b]`, strings per rule 10, numbers in canonical JSON form, `true`, `false`, `null` as `True`, `False`, `None`.
 10. **Strings.** Double-quoted; `\` and `"` are escaped with a backslash; `\n`, `\r`, `\t` are written as such; other characters below U+0020 and U+007F as `\xNN` (two lowercase hex digits, as Python's `repr` writes them); everything else literally (UTF-8), as in features.md 3.11.
 11. **Line length.** When a statement on one line would exceed 88 characters including indentation (the limit features.md 3.11 uses), it is written with one argument per line, indented 4 spaces more than the statement, each followed by a comma, and the closing parenthesis on its own line at the statement's indentation. Nested calls are not split.
 12. **Rollback.** When `rollback` is set, the last line is `rollback("<feature id>")`.
@@ -657,7 +692,7 @@ For a canonical document text `T` whose features all build without an `error` st
 
 For a script `S` written by hand: `D1 = run_code(S)`, `D2 = run_code(D1.to_python())`, and `D2.to_text() == D1.to_text()`.
 
-CI runs the first form for every engine fixture and every example that has a Python twin, and the second for every Python twin; an example is any `.ptsm` file under `examples/`, and its twin is the same path with `.py` (delivery.md section 2.8).
+CI runs the first form for every engine fixture, for the documents of test 86 (which hold every field file format version 2 adds), and for every example that has a Python twin, and the second for every Python twin; an example is any `.ptsm` file under `examples/`, and its twin is the same path with `.py` (delivery.md section 2.8).
 
 ### 3.10 Mapping onto engine commands
 
@@ -666,10 +701,11 @@ CI runs the first form for every engine fixture and every example that has a Pyt
 | `Document()` | `new_document` |
 | `Document.open` | `open_document` |
 | `param`, `Param.set` | `apply_edits` (`add_parameter`, `update_parameter`); `undo` on error |
+| `Document.set_units` | `set_document_units` |
 | `Part()` | `apply_edits` (`add_body`) |
 | End of `with Sketch` | `apply_edits` (`add_feature` sketch); `evaluate` for expression sizes inside the block |
-| Feature functions | `apply_edits` (`add_feature`); `undo` on error; `list_elements` for selections; `evaluate` for raw expression values |
-| Selectors | `list_elements` |
+| Feature functions | `apply_edits` (`add_feature`); `undo` on error; `list_elements` for selections; `pick_reference` for the full reference of each element passed (3.6); `evaluate` for raw expression values |
+| Selectors | `list_elements`; `pick_reference` when an element's `reference` is first read (3.6) |
 | `Part.volume` and friends | `measure` |
 | `rollback`, `Document.printer = ...` | `apply_edits` (`set_rollback`, `set_printer`) |
 | `save` | `save_document`, then `mark_saved` after the file is written |
@@ -698,13 +734,21 @@ Ids given with `id=` are used as is. Otherwise Python generates them in the `Seq
 | --- | --- | --- |
 | `EngineError` | an engine error response | the engine message; `code` is the protocol code |
 | `ExpressionError` | `expression_error` responses; a parameter whose evaluation fails | the evaluator's message |
-| `FeatureError` | a feature (or sketch) builds with status `error` | the feature's first error message |
+| `FeatureError` | a feature (or sketch) builds with status `error` | `<function>(): ` followed by the feature's error message |
 | `SelectionError` | empty or wrong-kind selections, ambiguous single-element arguments, selectors without a part | the messages in 3.4 to 3.6 |
 | `PartsmithError` | misuse outside the required context, closed documents | the messages in 3.1 to 3.4 |
 | `ValueError` | invalid argument values (non-finite numbers, too few polygon points, both or neither of `distance` and `through_all`, a `Region` without `fp` whose key the sketch does not have, parts from several documents, `rotate` with a non-origin axis) | a sentence naming the argument |
 | `TypeError` | arguments of the wrong type | a sentence naming the argument |
 | `OSError` | file reads and writes | from the OS |
-| `PartsmithWarning` | feature warnings, export warnings | the engine message |
+| `PartsmithWarning` | feature warnings of severity warning, problems an edit starts (3.2), export warnings, indexing a selection by position (3.6) | `<function>(): ` followed by the engine message for feature messages; the engine message for export warnings; the text of 3.6 for `selection_index` |
+
+**Feature diagnostics.** A `FeatureError`, and a `PartsmithWarning` for a feature message, carry the diagnostic they come from (protocol.md `Diagnostic` and the feature's `repairs`, engine.md section 3.4):
+
+- `code` and `suggestion` from the diagnostic, so `code` is never None (`fillet_too_large`, `references_not_found`); `field`; `feature`, the feature's id; `detail`.
+- `actions`: the labels of the diagnostic's actions, in order (`["Use 2.3 mm"]`).
+- `candidates`: one `Ref` per candidate of the feature's element repairs whose `path` is the diagnostic's `field` or lies under it (`/edges/0` under `/edges`), in repair order, then candidate order, with `q`, `fp`, `anchors` and `merged` of the candidate's reference, `part` the repair's body, and its `description` and `relation`. Passing one to a feature function stores that reference.
+- `cause`: the text of the diagnostic's `cause` (engine.md section 3.21). A feature that a feature function just added has none, because it has no earlier build to compare with, so `cause` is set only on the warnings of an edit that changed something that built before (3.2).
+- The message starts with the call that failed, `<function>` being the function or method as 2.4 to 2.7 name it (`fillet()`, `Param.set()`, `Document.set_units()`), for example `fillet(): Fillet radius 30 mm is too large for the selected edges: ...`. Warnings are emitted at the stack level of the first frame outside the `partsmith` package, and an exception gets the note `Called at <file>, line <n>.` (`BaseException.add_note`) naming that frame, so Python points at the user's line, not at Partsmith's internals.
 
 ## 5. Performance budgets
 
@@ -868,7 +912,7 @@ with Sketch(
 69. `run_code` of the same script twice returns documents with identical `to_text()`.
 70. A script run with `run_code` does not see or change the caller's current document.
 71. `python -m partsmith build script.py -o out.ptsm` exits 0 and writes a canonical file; for a script that raises, it exits 1 and prints the traceback to standard error; for a script creating two documents, it exits 1 with `error: The script created 2 documents; build needs exactly one.`
-72. `partsmith._core.PROTOCOL_VERSION == 1`, `ENGINE_VERSION == "0.1.0"`, `FORMAT_VERSION == 1`.
+72. `partsmith._core.PROTOCOL_VERSION == 1`, `ENGINE_VERSION == "0.1.0"`, `FORMAT_VERSION == 2`.
 73. `Session().call(<example A of protocol.md>)` returns bytes that decode to an `engine_info` response with id 1; `call(b"hello")` returns an error frame with code `malformed_frame` and does not raise; `call("text")` raises `TypeError`.
 74. Two threads each sending 50 `engine_info` frames through one `Session` all receive valid responses.
 75. `partsmith._core.protocol_schema()` equals `docs/format/protocol.schema.json`, and `ptsm_schema()` equals `docs/format/ptsm.schema.json`.
@@ -889,6 +933,21 @@ with Sketch(
 84. `Distance(p, Sketch.Y_AXIS, 4)` stores the point-to-line form `{"type": "distance", "point": "<p>", "line": "y_axis", "expr": "4"}`. `repr(Sketch.ORIGIN)`, `repr(Sketch.X_AXIS)` and `repr(Sketch.Y_AXIS)` are `Sketch.ORIGIN`, `Sketch.X_AXIS` and `Sketch.Y_AXIS`, and none of the three names is in `partsmith.__all__`. A sketch with `Equal(Sketch.X_AXIS, l)` raises `FeatureError` whose message names `x_axis`, and the document has no sketch afterwards.
 85. `export_python` of the document of test 83 writes the sketch as a `with Sketch(Plane.XY, id="<id>") as sketch_1:` block (or without `as` when nothing refers to the sketch) whose constraint lines are `Coincident(line_1.start, Sketch.ORIGIN, id="<id>")`, `Angle(Sketch.X_AXIS, line_1, 30*deg, id="<id>")`, `Distance(line_1, 10, id="<id>")` and `PointOn(point_1, Sketch.Y_AXIS, id="<id>")`, with no generic `feature("sketch", ...)` call, and the round trip of 3.9 holds.
 
+**References, diagnostics and units**
+
+Tests 86 to 95 use the corpus setups of [the reference stability corpus](../design/reference-stability-corpus.md) and [the newcomer error corpus](../design/newcomer-error-corpus.md) as documents, with references picked as the reference stability corpus's "Picked references" rule says.
+
+86. Format version 2 fields round-trip (3.8 rule 9, 3.9). Five documents: (a) BLOCK and SLOT(30,50) with `f-fil1` fillet radius 2 on the picked front top edge of the right piece, whose reference has `nb` for `f-ext1/end-cap#2`; (b) corpus R52 (a) before its edit, with `f-fil1` on the picked front top edge of the fused bar, whose reference has `merged {"f-box1/front": ["f-box1/front@f-lp1:*"], "f-box1/top": ["f-box1/top@f-lp1:*"]}`; (c) BLOCK's sketch with a circle `e-5` center (40, 25) radius 5 added, extruded from the picked ring region only (`{"key": "e-1,e-2,e-3,e-4;~e-5", "fp": "c=40,25|a=3921.460184", "outline": "e-1,e-2,e-3,e-4"}`); (d) the document of [features/sketch.md](features/sketch.md) test 20 (a face sketch with `fallback_frame: body`); (e) corpus R38 before its edit, with the picked axis edge storing `direction` `[0, 1, 0]`. Expected: the round trip of 3.9 holds for each, and the scripts contain (a) `anchors={"f-ext1/end-cap#2": [`, (b) `merged={"f-box1/front": ["f-box1/front@f-lp1:*"], "f-box1/top": ["f-box1/top@f-lp1:*"]}`, (c) `Region("e-1,e-2,e-3,e-4;~e-5", "c=40,25|a=3921.460184", outline="e-1,e-2,e-3,e-4")`, (d) `fallback_frame="body"` after `fallback=Placement(`, and (e) `direction=(0, 1, 0)` after `part=`.
+87. A region reference without an outline. `plate.ptsm` with its region's `outline` removed, as written before format version 2: `export_python` emits `regions=[Region("e-1,e-2,e-3,e-4", "c=40,25|a=4000")]`, because the stored list differs from the sketch's regions, which carry their outline, and the round trip of 3.9 holds. A reference without `nb` and `merged` is written `Ref("<q>", "<fp>")` as in test 4.
+88. Planes and axes from elements (3.4, 3.5). In `Part("P")` with `box(20, 30, 40, id="f-box1")`: `with Sketch(faces().top()):` and `Point(5, 5)` inside store the plane `{"kind": "face", "body": <P>, "face": <the top's full reference>, "fallback": <faces().top()[0].fallback>, "fallback_frame": "body"}`; with `fallback=Placement((0, 0, 40), (1, 0, 0), (0, 0, 1))` and no `fallback_frame`, that placement and no `fallback_frame`; with `fallback_frame="sideways"`, `ValueError`. `linear_pattern(edges().top().min(Axis.Y)[0], 2, 40)` stores the edge axis with `direction` equal to that element's `axis_direction`; `linear_pattern(Ref("edge(f-box1/front|f-box1/top)", "line|n=1,0,0|c=0,-15,40|l=20", part=p, direction=(1, 0, 0)), 2, 40)` stores `"direction": [1, 0, 0]`.
+89. Selections store full references (3.6, corpus R08 (b)). In `Part("P")`: `w = param("w", 80*mm)`, `box(w, 50, 30, position=(w / 2, 25, 0), id="f-box1")`, `box(20, 60, 5, position=(w / 2, 25, 25), op="cut", id="f-box2")`, then `fillet(edges().top().min(Axis.Y).max(Axis.X), 2, id="f-fil1")`. Expected: the stored reference is `edge(f-box1/front|f-box1/top#2)` with `nb` for `f-box1/top#2` holding `f-box1/right`, equal to that element's `reference` read in Python (the full reference, 3.6). After `w.set(200*mm)`: no `PartsmithWarning`, f-fil1 status `ok` with one fillet face, on the front top edge of the right piece (x 110..200).
+90. Indexing a selection warns (3.6). On `box(20, 30, 40)`: `edges()[3]` emits one `PartsmithWarning` with `code` `selection_index`, the message `edges()[3] picks an edge by its position in the list, which can change when anything before it changes. Select it by what it is, for example edges().top().parallel_to(Axis.X).`, and the test file as its `filename`; `faces()[-1]` emits the message starting `faces()[-1] picks a face by its position in the list`. `faces().top()[0]`, `for element in edges(): pass`, `edges()[1:3]` and `len(edges())` emit none.
+91. Generated scripts never index (3.8). `export_python` of every engine fixture, of the documents of tests 86 and 87, and of every example with a Python twin contains no `)[`.
+92. Feature errors carry their diagnostic (section 4). In `Part("P")` with `box(20, 30, 40, id="f-box1")`: `fillet(edges().top(), 30)` raises `FeatureError` with `code` `fillet_too_large`, `field` `/radius`, a `suggestion`, `actions[0]` equal to `Use ` followed by that suggestion, `detail` set, `cause` None, `feature_type` `fillet`, a message starting `fillet(): Fillet radius 30 mm is too large for the selected edges`, and the note `Called at <this test file>, line <n>.` with the line of the call. `fillet(Ref("edge(f-box1/front|f-gone/x)", "line|n=1,0,0|c=0,-15,40|l=20"), 1)` raises `FeatureError` with `code` `references_not_found`, the message `fillet(): An edge of a feature that is not in this document selected for Edges is gone.`, the last action `Pick an edge again`, and `candidates[0]` a `Ref` with `q` `edge(f-box1/front|f-box1/top)` (it keeps the front of 'Box 1' and lies where the edge was) and a `description` and `relation`; `fillet(that_error.candidates[0], 1)` then builds with status `ok`.
+93. An edit's new problems warn with their cause (3.2, corpus R12). In `Part("P")`: `d = param("d", 5*mm)`; a sketch on `Plane.XY` with `Rectangle(80, 50, center=(40, 25))`, extruded by 30; a sketch on `datum_plane(Plane.XY, offset=30)` with `Circle(10, center=(40, 25))`, extruded by `d` with `reverse=True` and `op="cut"`; `fillet(edges().circles().min(Axis.Z), 2)` (the pocket floor's edge). `d.set(30*mm)` emits one `PartsmithWarning` with `code` `references_not_found`, a message starting `Param.set(): ` and ending `is no longer made by 'Extrude 2', which goes all the way through the body.`, and a `cause` starting `This started after you changed parameter 'd'`; `d.value` is 30 and the fillet's status is `error`.
+94. Document units (2.4, 3.2, newcomer error corpus NC09). In `Part("P")`: `box(40, 20, 10)` and `fillet(edges().top().min(Axis.Y), 2)`. `doc.set_units("in", keep_sizes=True)` returns 4, `doc.units` is `in`, `doc.to_text()` holds `"40 mm"`, `"20 mm"`, `"10 mm"` and `"2 mm"`, and `p.volume()` is unchanged. The same script with `doc.set_units("in")` instead returns 0, the four numbers stay bare, and `p.bounding_box()` is (-508, -254, 0) to (508, 254, 254). `doc.set_units("ft")` raises `ValueError`.
+95. Info notices are not emitted (3.5, corpus R61 (a)). In `Part("P")`: `s = param("s", 20*mm)`, `box(10, 10, 10, id="f-box1")`, `linear_pattern(Axis.X, 3, s, id="f-lp1")`, `fillet(edges().top().min(Axis.Y).max(Axis.X), 1)` (the third cube's front top edge). `s.set(10*mm)` emits no warning; the fillet's status is `ok` and its `messages` hold the notice ending `merged with neighboring parts when 'Linear pattern 1' joined them, so all of it is used.`
+
 ## 7. Open issues
 
 1. **`param` ranges.** The technical design's `param("wall", 2*mm, min=..., max=...)` needs `min` and `max` fields on `Parameter`, which the architecture does not have; deferred.
@@ -897,3 +956,6 @@ with Sketch(
 4. **Imported STEP in scripts.** No protocol command adds an asset without importing, so generated code for a document with an `import` feature (generic form `feature("import", id=..., body=..., asset="<name>", op="new")`, features/import.md) fails with `asset_missing` when run in a fresh document. Round trips exclude such documents in M1.
 5. **Default regions.** `extrude(sketch)` stores every region of the sketch. When the sketch has a hole region and an outer region, both are stored and the hole is filled; build123d users may expect the outer region only. Code generation omits `regions` only when the stored list equals all regions in solved order.
 6. **Reserved sketch references.** Resolved: `Sketch.ORIGIN`, `Sketch.X_AXIS` and `Sketch.Y_AXIS` (2.6, 3.4) store sketch.md 3.16's `origin`, `x_axis` and `y_axis`, and code generation writes sketches that use them as `with Sketch(...)` blocks with these names (3.8 rule 9; tests 83 to 85). They are deliberately not `Axis.X` and `Axis.Y`, which are model axes, while the sketch axes follow the sketch plane.
+7. **Headless picks (needs engine.md).** Full references (3.6) come from `pick_reference`, which engine.md section 3.9 defines for picks in a displayed model-layer mesh. Python sessions are headless, so this spec uses the convention engine.md gives `resolve_references` in headless sessions (`mesh_id` 0 and the element's position among the elements of its kind in `list_elements` order); engine.md's E2 change (full references in `pick_reference`) should accept it.
+8. **Warnings after edits.** The study (PY3) says `cause` is None in scripts unless an edit in the same session started it, but a feature function's own new feature never has a cause. Section 3.2 therefore emits a warning for each problem that `Param.set`, `Document.set_units`, `rollback` and the `printer` setter add, which is where a script sees a cause; the edit is kept, as in the UI.
+9. **Reasons are not attributes.** The error guidelines list `code`, `field`, `suggestion`, `actions`, `candidates`, `cause` and `detail` for Python, and section 4 follows them; the loss reason that cli.md prints (recompute.md `LossReason`) is not an attribute, since its words are in the message.

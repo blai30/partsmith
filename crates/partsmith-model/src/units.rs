@@ -7,10 +7,10 @@ use std::str::FromStr;
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use crate::expr::Unit;
+use crate::expr::{Unit, join_list};
 
 /// Regular expression every serialized color matches.
-const COLOR_PATTERN: &str = "^#[0-9A-Fa-f]{6}$";
+pub(crate) const COLOR_PATTERN: &str = "^#[0-9A-Fa-f]{6}$";
 
 /// Document units: the unit of bare numbers in length expressions and the display unit for lengths.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, JsonSchema)]
@@ -82,7 +82,10 @@ impl<'de> Deserialize<'de> for Units {
 #[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum UnitsError {
     /// The text is not `mm`, `cm`, `m` or `in`.
-    #[error("'{text}' is not a document unit. Use mm, cm, m or in.")]
+    #[error(
+        "'{text}' is not a document unit. Use {units}.",
+        units = join_list(&Units::ALL.map(Units::symbol), " or ")
+    )]
     Unknown {
         /// The rejected text.
         text: String,
@@ -191,6 +194,15 @@ pub enum BodyRole {
 }
 
 impl BodyRole {
+    /// Every role, in declaration order.
+    pub(crate) const ALL: [BodyRole; 5] = [
+        BodyRole::Part,
+        BodyRole::NegativeVolume,
+        BodyRole::SupportBlocker,
+        BodyRole::SupportEnforcer,
+        BodyRole::SettingsModifier,
+    ];
+
     /// True for `Part`; used to omit the default when saving.
     pub fn is_part(&self) -> bool {
         *self == BodyRole::Part
@@ -282,5 +294,18 @@ mod tests {
             serde_json::from_str::<BodyRole>("\"negative_volume\"").ok(),
             Some(BodyRole::NegativeVolume)
         );
+    }
+
+    #[test]
+    fn unknown_units_list_every_document_unit() {
+        let message = UnitsError::Unknown {
+            text: "yd".to_string(),
+        }
+        .to_string();
+
+        assert!(message.ends_with("Use mm, cm, m or in."), "{message}");
+        for units in Units::ALL {
+            assert!(message.contains(units.symbol()), "{message}");
+        }
     }
 }

@@ -6,10 +6,8 @@ use std::mem;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::names::{
-    LabelError, LabelField, NameError, is_valid_feature_type, validate_label,
-    validate_parameter_name,
-};
+use crate::document::RecordProblem;
+use crate::names::{LabelError, LabelField, NameError, validate_label, validate_parameter_name};
 use crate::{Body, Document, FeatureRecord, Id, Parameter, Units};
 
 /// One change to a document. Every change goes through an Edit; applying one returns its exact inverse.
@@ -239,7 +237,8 @@ pub struct TransactionError {
 impl Document {
     /// Applies one edit and returns its exact inverse; on error the document is unchanged.
     pub fn apply(&mut self, edit: Edit) -> Result<Edit, EditError> {
-        self.apply_located(edit).map(|(inverse, _)| inverse)
+        self.apply_located(edit.normalized())
+            .map(|(inverse, _)| inverse)
     }
 
     /// Applies edits in order, all or nothing, and returns each edit with its inverse.
@@ -274,9 +273,10 @@ impl Document {
         Ok(steps)
     }
 
-    /// Applies one edit and returns its inverse together with the position, in its list, of the
-    /// record the edit inserted, replaced, removed or moved (its position after the edit; where
-    /// it was, for a removal). The position is 0 for edits that set a document field.
+    /// Applies one edit, whose feature params are already normalized, and returns its inverse
+    /// together with the position, in its list, of the record the edit inserted, replaced,
+    /// removed or moved (its position after the edit; where it was, for a removal). The position
+    /// is 0 for edits that set a document field.
     fn apply_located(&mut self, edit: Edit) -> Result<(Edit, usize), EditError> {
         match edit {
             Edit::AddParameter { index, parameter } => {
@@ -354,18 +354,16 @@ impl Document {
                     index,
                 ))
             }
-            Edit::AddFeature { index, mut feature } => {
+            Edit::AddFeature { index, feature } => {
                 self.check_unused_id(&feature.id)?;
                 check_feature(&feature)?;
-                feature.normalize();
                 let id = feature.id.clone();
                 insert(&mut self.features, index, feature)?;
                 Ok((Edit::RemoveFeature { id }, index))
             }
-            Edit::UpdateFeature { mut feature } => {
+            Edit::UpdateFeature { feature } => {
                 let position = position(&self.features, &feature.id)?;
                 check_feature(&feature)?;
-                feature.normalize();
                 let previous = mem::replace(&mut self.features[position], feature);
                 Ok((Edit::UpdateFeature { feature: previous }, position))
             }
@@ -530,29 +528,26 @@ fn check_parameter_name(name: &str) -> Result<(), EditError> {
     validate_parameter_name(name).map_err(EditError::InvalidParameterName)
 }
 
-/// Checks a body's name and material for an edit.
+/// Checks a body's name and material for an edit: the first problem fails it.
 fn check_body(body: &Body) -> Result<(), EditError> {
-    validate_label(LabelField::BodyName, &body.name).map_err(EditError::InvalidLabel)?;
-    if let Some(material) = &body.material {
-        validate_label(LabelField::Material, material).map_err(EditError::InvalidLabel)?;
+    match body.label_errors().next() {
+        Some(error) => Err(EditError::InvalidLabel(error)),
+        None => Ok(()),
     }
-    Ok(())
 }
 
-/// Checks a feature record's type, name and params keys for an edit.
+/// Checks a feature record's type, name and params keys for an edit: the first problem fails it.
 fn check_feature(feature: &FeatureRecord) -> Result<(), EditError> {
-    if !is_valid_feature_type(&feature.kind) {
-        return Err(EditError::InvalidFeatureType {
+    let Some(problem) = feature.problems().next() else {
+        return Ok(());
+    };
+    Err(match problem {
+        RecordProblem::InvalidType => EditError::InvalidFeatureType {
             kind: feature.kind.clone(),
-        });
-    }
-    if let Some(name) = &feature.name {
-        validate_label(LabelField::FeatureName, name).map_err(EditError::InvalidLabel)?;
-    }
-    if let Some(key) = feature.reserved_params_keys().next() {
-        return Err(EditError::ReservedParamKey { key: key.clone() });
-    }
-    Ok(())
+        },
+        RecordProblem::InvalidName(error) => EditError::InvalidLabel(error),
+        RecordProblem::ReservedKey(key) => EditError::ReservedParamKey { key: key.clone() },
+    })
 }
 
 #[cfg(test)]

@@ -11,7 +11,6 @@ use crate::aliases::Aliases;
 use crate::element_info::ElementInfo;
 use crate::error::NamingError;
 use crate::fingerprint::Fingerprint;
-use crate::grammar::{EDGE_PREFIX, VERTEX_PREFIX};
 use crate::kind::ElementKind;
 use crate::name::{ElementName, Instance};
 use crate::topology::{FaceSource, TopologyInfo, element_count, index_of, indices};
@@ -94,7 +93,7 @@ impl NamingMap {
             let named = !edge.degenerate && !edge.faces.is_empty();
             edge_names.push(
                 named
-                    .then(|| list_name(EDGE_PREFIX, &edge.faces, &face_names))
+                    .then(|| list_name(ElementKind::Edge, &edge.faces, &face_names))
                     .transpose()?,
             );
         }
@@ -104,7 +103,7 @@ impl NamingMap {
         for vertex in &topology.vertices {
             vertex_names.push(
                 (!vertex.faces.is_empty())
-                    .then(|| list_name(VERTEX_PREFIX, &vertex.faces, &face_names))
+                    .then(|| list_name(ElementKind::Vertex, &vertex.faces, &face_names))
                     .transpose()?,
             );
         }
@@ -385,9 +384,9 @@ fn face_base(
     Ok(smallest.clone())
 }
 
-/// The edge or vertex name of the faces at these 1-based indices.
+/// The edge or vertex name, as `kind` says, of the faces at these 1-based indices.
 fn list_name(
-    prefix: &str,
+    kind: ElementKind,
     faces: &[u32],
     face_names: &[ElementName],
 ) -> Result<ElementName, NamingError> {
@@ -395,7 +394,7 @@ fn list_name(
         .iter()
         .map(|&face| &face_names[position(face)])
         .collect();
-    ElementName::from_faces(prefix, names)
+    ElementName::from_faces(kind, names)
 }
 
 /// Appends `#1`, `#2`, ... to elements sharing a name, in the order of section 3.4, until every

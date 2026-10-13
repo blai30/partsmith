@@ -1,32 +1,34 @@
 /// <reference lib="dom" />
 import { expect, test, type Page } from '@playwright/test'
 import {
-  cameraTarget,
   canvas,
-  chooseContext,
   download,
-  dragOnCanvas,
   dropFile,
-  expectCurrentReport,
   expectHover,
   expectReady,
+  fitView,
+  openApp,
+  renameBody,
+  runCommand,
+  viewCubeButton,
+  viewport,
+} from './helpers'
+import {
+  cameraTarget,
+  chooseContext,
+  dragOnCanvas,
+  expectCurrentReport,
   expectTargetChanged,
   exportFromPopover,
   exportStatusText,
-  fitView,
   healthBadge,
   healthItems,
   notification,
-  openApp,
   openExportPopover,
   openPrintCheck,
   printTool,
   printToolbar,
   printerButton,
-  renameBody,
-  runCommand,
-  viewCubeButton,
-  viewport,
   wheelAt,
 } from './support/print'
 
@@ -416,6 +418,11 @@ test.describe('Print and export', () => {
     const { cx, cy } = await canvas(page)
     await page.mouse.click(cx, cy)
     await expect(layOnFace).toHaveAttribute('aria-pressed', 'true')
+    // The new orientation makes the report out of date before it is checked again (3.17), so the
+    // report checked next is not the one from before the pick.
+    await expect(
+      healthBadge(page).and(page.locator('[data-stale=true], [data-state=running]')),
+    ).toHaveCount(1)
     await expectCurrentReport(page)
     await openExportPopover(page)
     await expect
