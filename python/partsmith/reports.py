@@ -5,8 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from .expressions import triple
+
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable
+    from collections.abc import Callable
 
     from .document import Part
 
@@ -62,10 +64,9 @@ def bounding_box(data: dict) -> BoundingBox:
     return BoundingBox(min=point(data["min"]), max=point(data["max"]))
 
 
-def point[T](values: Iterable[T]) -> tuple[T, T, T]:
-    """Three values as a tuple, such as a protocol `Vec3`."""
-    x, y, z = values
-    return (x, y, z)
+def point(values: list[float]) -> Point3:
+    """A protocol `Vec3` as a tuple."""
+    return triple(values)
 
 
 def print_report(report: dict, part_of: Callable[[str], Part]) -> PrintReport:

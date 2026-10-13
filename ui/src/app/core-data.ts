@@ -64,6 +64,6 @@ export function markCoreFailed(store: AppStore, message: string): void {
 
 /** Opens a new empty mm document named "Untitled". */
 export async function openUntitled(app: App): Promise<void> {
-  const documentHandle = await app.mutations.run(() => app.core.newDocument('mm'))
+  const documentHandle = await app.mutations.run(() => app.core.newDocument('mm'), 'other')
   adoptDocument(app.store, documentHandle, { name: 'Untitled', file: null, localUnsaved: false })
 }

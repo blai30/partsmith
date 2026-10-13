@@ -78,7 +78,11 @@ if (missing !== null) {
     transport: chooseTransport(environment),
     files: chooseFileService(window),
     recent: createIndexedDbRecentFiles(indexedDB),
-    recovery: createIndexedDbRecovery(indexedDB),
+    // Both are missing outside secure contexts, and Web Locks in older browsers.
+    recovery: createIndexedDbRecovery(indexedDB, {
+      locks: navigator.locks ?? null,
+      storage: navigator.storage ?? null,
+    }),
     platform,
     store,
   })

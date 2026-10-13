@@ -33,7 +33,7 @@ import {
 // core.
 
 const STILL_WORKING =
-  'The geometry core has been working for more than 10 seconds, and Partsmith cannot tell whether it will finish. Stopping it reopens your document as it was after the last change the core finished.'
+  'The geometry core has been working for more than 10 seconds, and Partsmith cannot tell whether it will finish. Stopping it reopens your document as it was after the last change the core finished, and closes any open feature command without keeping it.'
 const CHANGES_NOT_APPLIED =
   'Your latest changes were not applied, because the geometry core was stopped before it finished them. Make them again if you still want them.'
 

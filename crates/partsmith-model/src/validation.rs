@@ -203,9 +203,14 @@ impl Document {
                     });
                 }
             }
-            problems.extend(links.features.into_iter().filter_map(|target| {
-                feature_reference_problem(&feature.id, position, target, &feature_positions)
-            }));
+            for target in links.features {
+                problems.extend(feature_reference_problem(
+                    &feature.id,
+                    position,
+                    target,
+                    &feature_positions,
+                ));
+            }
             for link in links.expressions {
                 let references = link.expr.references();
                 expression_problems(graph, &feature.id, &link.expr, references, problems);
@@ -261,16 +266,14 @@ fn expression_problems(
 ) {
     match references {
         Ok(references) => {
-            problems.extend(
-                references
-                    .parameters
-                    .into_iter()
-                    .filter(|name| !graph.has_parameter(name))
-                    .map(|name| ValidationError::UnknownParameter {
+            for name in references.parameters {
+                if !graph.has_parameter(&name) {
+                    problems.push(ValidationError::UnknownParameter {
                         owner: owner.clone(),
                         name,
-                    }),
-            );
+                    });
+                }
+            }
         }
         Err(error) => problems.push(ValidationError::InvalidExpression {
             owner: owner.clone(),

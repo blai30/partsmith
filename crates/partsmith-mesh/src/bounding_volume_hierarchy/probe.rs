@@ -65,6 +65,7 @@ impl BoxProbe {
     /// An axis whose inverse direction is not finite is treated as parallel to the ray. That is
     /// safe: an accepted hit lies within about `5 · R` along the ray, so such an axis moves the
     /// ray by less than `1e-300 · R` before any hit.
+    #[inline]
     pub(super) fn entry(&self, node: &Node, min_distance: f64, max_distance: f64) -> Option<f64> {
         let padding = self.padding(node);
         let mut near = min_distance;

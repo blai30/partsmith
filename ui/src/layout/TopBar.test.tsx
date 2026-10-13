@@ -288,7 +288,13 @@ describe('the top bar (3.2)', () => {
 
   it('marks disabled toolbar commands with aria-disabled', () => {
     renderApp({
-      core: { status: 'failed', engineVersion: null, fatal: 'HTTP 404', pendingMutations: 0 },
+      core: {
+        status: 'failed',
+        engineVersion: null,
+        fatal: 'HTTP 404',
+        pendingMutations: 0,
+        stillWorking: false,
+      },
     })
     expect(screen.getByRole('button', { name: 'Extrude' })).toHaveAttribute('aria-disabled', 'true')
   })

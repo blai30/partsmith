@@ -238,6 +238,14 @@ struct Bin {
     count: usize,
 }
 
+impl Bin {
+    /// The bin without items.
+    const EMPTY: Bin = Bin {
+        bounds: Bounds::EMPTY,
+        count: 0,
+    };
+}
+
 /// Splits more than `LEAF_SIZE` items into two groups of at least two, reordering them so the
 /// lower group comes first. `bounds` is the box around their boxes, and `item_bins` holds one
 /// byte per item for the split to work in.
@@ -267,7 +275,9 @@ fn split_along(
     if !(extent > 0.0 && extent.is_finite()) {
         return None;
     }
-    let bins = fill_bins(items, item_bins, axis, low, extent);
+    // The bins live here and are filled in place, so they are never copied.
+    let mut bins = [Bin::EMPTY; BIN_COUNT];
+    fill_bins(&mut bins, items, item_bins, axis, low, extent);
     let (split_bin, lower_bounds, upper_bounds) = best_split(&bins)?;
     Some(Split {
         middle: partition(items, item_bins, split_bin),
@@ -276,20 +286,18 @@ fn split_along(
     })
 }
 
-/// Sorts the items into bins by box center along `axis`, whose centers span `low` to
+/// Sorts the items into the empty `bins` by box center along `axis`, whose centers span `low` to
 /// `low + extent`, and records each item's bin in `item_bins`.
+#[inline]
 fn fill_bins(
+    bins: &mut [Bin; BIN_COUNT],
     items: &[BuildItem],
     item_bins: &mut [u8],
     axis: usize,
     low: f32,
     extent: f32,
-) -> [Bin; BIN_COUNT] {
+) {
     let bins_per_unit = BIN_COUNT as f32 / extent;
-    let mut bins = [Bin {
-        bounds: Bounds::EMPTY,
-        count: 0,
-    }; BIN_COUNT];
     for (item, item_bin) in items.iter().zip(item_bins.iter_mut()) {
         // Centers lie in `low..=low + extent`, so the scaled offset lies in `0..=BIN_COUNT` up
         // to rounding (and is 0 for a NaN center). Converting through `i32` costs less than
@@ -301,11 +309,11 @@ fn fill_bins(
         bin.count += 1;
         *item_bin = index as u8;
     }
-    bins
 }
 
 /// The bin before which a split costs least by the surface area heuristic, among the splits
 /// that leave two items on each side, with the boxes around the lower and the upper group.
+#[inline]
 fn best_split(bins: &[Bin; BIN_COUNT]) -> Option<(usize, Bounds, Bounds)> {
     // Splitting before bin `i` puts bins `i..` in the upper group.
     let mut upper_bounds = [Bounds::EMPTY; BIN_COUNT];
@@ -339,6 +347,7 @@ fn best_split(bins: &[Bin; BIN_COUNT]) -> Option<(usize, Bounds, Bounds)> {
 
 /// Moves the items whose bin comes before `split_bin` to the front, in place, and returns how
 /// many there are.
+#[inline]
 fn partition(items: &mut [BuildItem], item_bins: &mut [u8], split_bin: usize) -> usize {
     // Partition from both ends, moving each item's bin along with it.
     let is_lower = |item_bin: u8| usize::from(item_bin) < split_bin;

@@ -10,7 +10,9 @@ use super::common::{
     body_hint, essential, hint, is_false, manifest, options_hint, positive_length, references,
     require_selection, selection_hint, solid_body, unit_hint,
 };
-use super::dressup::{BlendTarget, SelectedEdge, blend};
+use super::dressup::{
+    SelectedEdge, finish_blend, no_effect, run_or_search, select_edges, sorted_by_name,
+};
 use crate::{
     BuildContext, Dependencies, Feature, FeatureError, FeatureOutput, Noun, PythonCall,
     PythonNames, PythonValue,
@@ -187,25 +189,24 @@ impl Feature for Chamfer {
                 (Distances::TwoDistances { on_first, on_other }, "distance")
             }
         };
-        let larger = distances.larger();
-        let target = BlendTarget {
-            body: &params.body,
-            state,
-            shape,
-            edges: &params.edges,
-        };
-        blend(
-            context,
-            target,
-            roles::CHAMFER,
-            larger,
-            |edge| {
+        let selection = select_edges(context, &params.body, state, shape, &params.edges)?;
+        if selection.edges.is_empty() {
+            return Ok(no_effect(&params.body, state, selection.warnings));
+        }
+        let edges = sorted_by_name(state.naming(), &selection.edges)?
+            .into_iter()
+            .map(|edge| {
                 Ok(ChamferEdge {
                     edge: edge.index,
                     size: distances.size(edge, state.naming())?,
                 })
-            },
-            |edges, value| {
+            })
+            .collect::<Result<Vec<_>, FeatureError>>()?;
+        let larger = distances.larger();
+        let result = run_or_search(
+            context,
+            larger,
+            |value| {
                 let factor = value / larger;
                 let scaled_edges: Vec<ChamferEdge> = edges
                     .iter()
@@ -222,6 +223,14 @@ impl Feature for Chamfer {
                 max,
                 cause,
             },
+        )?;
+        finish_blend(
+            context,
+            &params.body,
+            state,
+            roles::CHAMFER,
+            result,
+            selection.warnings,
         )
     }
 

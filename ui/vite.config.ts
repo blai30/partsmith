@@ -12,6 +12,8 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: { headers: isolationHeaders },
   preview: { headers: isolationHeaders },
+  // Keep Vite's default modulePreload and output names: check:dist finds the initial JavaScript
+  // through them (delivery.md 2.6).
   worker: { format: 'es' },
   build: { target: 'es2023', sourcemap: true },
   test: {

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import math
 import re
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from typing import Protocol
 
 # Precedence levels of expressions.md section 3.4, from loosest to tightest.
@@ -252,6 +252,12 @@ def items_of(values: object, count: int, message: str) -> Sequence[object]:
     if not isinstance(values, Sequence) or isinstance(values, str) or len(values) != count:
         raise TypeError(message)
     return values
+
+
+def triple[T](values: Iterable[T]) -> tuple[T, T, T]:
+    """Three values as a tuple."""
+    x, y, z = values
+    return (x, y, z)
 
 
 def is_quantity(value: object) -> bool:

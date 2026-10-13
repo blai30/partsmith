@@ -3,7 +3,6 @@
 use partsmith_model::{Expr, FieldHint, FieldUnit, SelectionKind};
 use partsmith_sketch::Placement;
 
-use crate::builtin::common::three_lengths;
 use crate::context::BuildContext;
 use crate::deps::Dependencies;
 use crate::error::FeatureError;
@@ -47,7 +46,10 @@ impl PrimitivePlacement<'_> {
     /// The primitive's local frame: the plane's placement with its origin moved to the position.
     pub fn frame(&self, context: &BuildContext<'_>) -> Result<Placement, FeatureError> {
         let plane = context.plane("plane", self.plane)?;
-        let offset = three_lengths(context, POSITION_FIELDS, self.position)?;
+        let mut offset = [0.0; 3];
+        for ((value, field), expr) in offset.iter_mut().zip(POSITION_FIELDS).zip(self.position) {
+            *value = context.eval_length(field, expr)?;
+        }
         Ok(Placement {
             origin: plane.local_to_world(offset),
             ..plane

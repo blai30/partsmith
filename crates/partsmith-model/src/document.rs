@@ -177,6 +177,7 @@ impl Body {
     }
 
     /// What is wrong with the name, then with the material (model.md section 3.6).
+    /// `Document::check_structure` checks the same rules in place.
     pub(crate) fn label_errors(&self) -> impl Iterator<Item = LabelError> + '_ {
         let labels = [
             (LabelField::BodyName, Some(&self.name)),
@@ -234,7 +235,7 @@ impl FeatureRecord {
     }
 
     /// What is wrong with the record: its type, then its name, then each reserved params key in
-    /// params order.
+    /// params order. `Document::check_structure` checks the same rules in place.
     pub(crate) fn problems(&self) -> impl Iterator<Item = RecordProblem<'_>> {
         let invalid_type =
             (!is_valid_feature_type(&self.kind)).then_some(RecordProblem::InvalidType);
@@ -250,7 +251,7 @@ impl FeatureRecord {
     }
 
     /// The params keys that the record itself uses, in params order.
-    fn reserved_params_keys(&self) -> impl Iterator<Item = &String> {
+    pub(crate) fn reserved_params_keys(&self) -> impl Iterator<Item = &String> {
         self.params
             .keys()
             .filter(|key| FeatureRecord::RESERVED_KEYS.contains(&key.as_str()))

@@ -69,7 +69,13 @@ describe('selectEmptyState (3.2)', () => {
 
   it('U-95 is false while the core is loading', () => {
     const state = stateWithDocument(emptyDocument(), {
-      core: { status: 'loading', engineVersion: null, fatal: null, pendingMutations: 0 },
+      core: {
+        status: 'loading',
+        engineVersion: null,
+        fatal: null,
+        pendingMutations: 0,
+        stillWorking: false,
+      },
     })
     expect(selectEmptyState(state)).toBe(false)
   })

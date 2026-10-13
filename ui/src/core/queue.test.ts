@@ -133,6 +133,34 @@ describe('MutationQueue.discard (4.4)', () => {
     expect(queue.pending).toBe(0)
   })
 
+  it('U-160 changing says whether the started task or a waiting one is a change', async () => {
+    const queue = createMutationQueue()
+    expect(queue.changing).toBe(false)
+    const save = deferred<void>()
+    const saving = queue.run(() => save.promise, 'other')
+    const edit = deferred<void>()
+    const editing = queue.run(() => edit.promise)
+    await settle()
+    expect(queue.changing).toBe(true)
+    save.resolve()
+    await saving
+    await settle()
+    expect(queue.changing).toBe(true)
+    const exporting = queue.run(async () => 'exported', 'other')
+    edit.resolve()
+    await editing
+    await settle()
+    await expect(exporting).resolves.toBe('exported')
+    expect(queue.changing).toBe(false)
+    const open = deferred<void>()
+    const opening = queue.run(() => open.promise, 'other')
+    const waiting = queue.run(async () => undefined, 'other')
+    await settle()
+    expect(queue.changing).toBe(false)
+    open.resolve()
+    await Promise.all([opening, waiting])
+  })
+
   it('U-160 returns 0 and changes nothing when no task is waiting', async () => {
     const queue = createMutationQueue()
     expect(queue.discard(new Error('stopped'))).toBe(0)

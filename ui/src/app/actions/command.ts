@@ -2,6 +2,7 @@ import { CoreError } from '../../core/client'
 import { generateId, usedIds } from '../../core/ids'
 import { featureLabel, nextBodyName } from '../../core/labels'
 import { createLatestOnly, type LatestOnly } from '../../core/queue'
+import { CoreFatalError } from '../../core/transport'
 import { activeFeatures, markerPosition } from '../../core/recipe'
 import type {
   DocHandle,
@@ -841,6 +842,10 @@ async function openFeatureEdit(
   try {
     await app.mutations.run(() => app.core.setFocus(handle, featureId))
   } catch (error) {
+    // A core that stopped took its transaction with it; a restarted one never had it (4.4).
+    if (error instanceof CoreFatalError) {
+      return
+    }
     await app.mutations
       .run(() => app.core.cancelTransaction(handle))
       .catch((cancelError: unknown) => {

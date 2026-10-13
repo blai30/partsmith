@@ -9,10 +9,6 @@ pub mod plane;
 pub mod random;
 pub mod residuals;
 
-// Like the helpers, the plate JSON is used by only some test binaries.
-#[allow(unused_imports)]
-pub use benchmark::PLATE_PARAMS_JSON;
-
 use std::f64::consts::FRAC_PI_2;
 use std::fmt::Debug;
 

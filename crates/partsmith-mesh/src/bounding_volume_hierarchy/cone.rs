@@ -144,6 +144,7 @@ fn triangle_grazing([corner_a, corner_b, corner_c]: [Point3; 3]) -> TriangleGraz
 
 /// The grazing cone of a leaf's triangles, or `None` when none of them can be hit. Sets
 /// `unbounded` when a triangle's error is not bounded.
+#[inline]
 pub(super) fn leaf_cone(
     mesh: &Mesh,
     items: &[BuildItem],

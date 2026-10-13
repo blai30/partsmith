@@ -23,10 +23,10 @@ The Playwright tests in this folder run against the production build of the app 
 ## What the configuration does
 
 - `playwright.config.ts` stops with a message when `ui/public/core` lacks `partsmith_core.mjs` or `partsmith_core.wasm`.
-- The web server is `pnpm build && pnpm preview --port 4173 --strictPort`: the production build, with the core copied from `public/core` to `dist/core`, served with the cross-origin isolation headers of `public/_headers` (set again in `vite.config.ts` for the preview), so `crossOriginIsolated` is true as in production. `smoke.spec.ts` checks that the core reaches `data-core-status="ready"` and that the first frame is marked (`ps:usable`).
+- The web server is `pnpm build && pnpm preview --port 4173 --strictPort`: the production build, with the core copied from `public/core` to `dist/core`, served with the cross-origin isolation headers of `public/_headers` (set again in `vite.config.ts` for the preview), so `crossOriginIsolated` is true as in production. `smoke.spec.ts` checks that the core reaches `data-core-status="ready"` and that the first frame is marked (`ps:usable`), and checks the helpers that only the performance tests use (ui.md 6.3).
 - Outside CI, a server already listening on port 4173 is reused instead of building. To skip the build on repeated runs, start one yourself with `pnpm -C ui build && pnpm -C ui preview --port 4173 --strictPort`, and rebuild after changing `src/` or the core: the preview serves whatever `dist/` holds. Parallel runs that each start the server rebuild `dist/` under each other, so share one server instead.
 - The project is Desktop Chrome: 1280 by 720 at device scale factor 1. Headless Chromium renders WebGL2 with SwiftShader.
-- `viewport.spec.ts` tests the render backend on its own page (`pages/viewport.html`), served by a Vite dev server that each worker starts. `perf.spec.ts` serves the worker transfer page of P-12 (`pages/transfer.html`) the same way.
+- `viewport.spec.ts` tests the render backend on its own page (`pages/viewport.html`), served by a Vite dev server that each worker starts (`serveTestPage` in `support/test-pages.ts`). `perf.spec.ts` serves the worker transfer page of P-12 (`pages/transfer.html`) the same way.
 - The page requests `/favicon.ico`, which the build does not have, so Chromium logs one 404 console error that tests collecting console errors need to ignore.
 
 ## Tags
@@ -36,7 +36,7 @@ The Playwright tests in this folder run against the production build of the app 
 
 ## Helpers
 
-`helpers.ts` holds the shared helpers of ui.md 6.3 (opening the app and fixtures, the canvas geometry, the mapping from millimeters to page pixels, hover polling, downloads, performance measures, percentiles and long tasks) and the locators every area uses. `support/` holds the helpers of one area each: documents, modeling, print and export, and sketch.
+`helpers.ts` holds the shared helpers of ui.md 6.3 (opening the app and fixtures, the canvas geometry, the mapping from millimeters to page pixels, hover polling, downloads, performance measures, percentiles and long tasks) and the locators every area uses. `support/` holds the helpers of one area each: documents, modeling, print and export, and sketch, and `test-pages.ts` serves the test pages of `pages/`.
 
 ## Fixtures
 

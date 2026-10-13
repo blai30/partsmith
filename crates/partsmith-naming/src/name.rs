@@ -65,7 +65,7 @@ impl ElementName {
 
     /// Face, edge or vertex, from the name's form.
     pub fn kind(&self) -> ElementKind {
-        grammar::list_prefix(self.0.as_bytes()).map_or(ElementKind::Face, |(kind, _)| kind)
+        grammar::leading_list_prefix(self.0.as_bytes()).map_or(ElementKind::Face, |(kind, _)| kind)
     }
 
     /// True when the name contains a `#` anywhere, so its meaning depends on a geometric order.

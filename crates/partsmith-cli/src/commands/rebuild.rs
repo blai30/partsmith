@@ -203,7 +203,7 @@ fn feature_reports(
     statuses
         .into_iter()
         .map(|status| {
-            let kind = recorded(&kinds, &status.id, "the status of feature")?;
+            let kind = recorded_text(&kinds, &status.id, "the status of feature")?;
             Ok(FeatureReport {
                 kind: kind.to_owned(),
                 id: status.id,
@@ -229,7 +229,7 @@ fn parameter_reports(
     values
         .into_iter()
         .map(|value| {
-            let name = recorded(&names, &value.id, "the value of parameter")?;
+            let name = recorded_text(&names, &value.id, "the value of parameter")?;
             Ok(ParameterReport {
                 name: name.to_owned(),
                 id: value.id,
@@ -241,15 +241,15 @@ fn parameter_reports(
         .collect()
 }
 
-/// The text the document records for `id` in `names`. The engine reports only records of the
-/// document, so a missing one is an internal error naming what was `reported`, for example "the
-/// status of feature".
-fn recorded<'a>(
-    names: &BTreeMap<&Id, &'a str>,
+/// The text the document records for `id` in `records`, such as a parameter's name or a feature's
+/// type. The engine reports only records of the document, so a missing one is an internal error
+/// naming what was `reported`, for example "the status of feature".
+fn recorded_text<'a>(
+    records: &BTreeMap<&Id, &'a str>,
     id: &Id,
     reported: &str,
 ) -> Result<&'a str, CliError> {
-    names.get(id).copied().ok_or_else(|| CliError::Internal {
+    records.get(id).copied().ok_or_else(|| CliError::Internal {
         detail: format!("the engine reported {reported} {id}, which the document does not have"),
     })
 }

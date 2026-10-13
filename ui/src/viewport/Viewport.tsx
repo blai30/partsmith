@@ -3,7 +3,8 @@ import { LoaderCircle } from 'lucide-react'
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useApp, useAppState } from '../app/AppProvider'
-import type { App } from '../app/createApp'
+import { canStopRunningCore } from '../app/connection'
+import { STILL_WORKING_SECONDS, type App } from '../app/createApp'
 import { reportFailure } from '../app/report'
 import { formatShortcut } from '../commands/shortcuts'
 import { originPlaneView } from '../core/labels'
@@ -33,8 +34,9 @@ import { ViewportMenu } from './ViewportMenu'
 import { VIEW_ID } from '../layout/focus'
 
 // The 3D view (ui.md 3.2, 3.12 to 3.15): the canvas and its controller, the overlay layer, the
-// view cube and viewport controls, and the core's loading and fatal states. React renders the
-// chrome once; the controller draws and moves runtime positions without React (ADR 0002).
+// view cube and viewport controls, and the core's loading, still-working and fatal states. React
+// renders the chrome once; the controller draws and moves runtime positions without React
+// (ADR 0002).
 
 export type ViewportProps = {
   /** Chrome over the view: the inspector, the sketch header and legends. */
@@ -163,12 +165,46 @@ function Spinner() {
   )
 }
 
-/** The loading, fatal and context-loss states drawn over the view (3.1, 3.12, 4.4). */
+/**
+ * A core that has answered nothing for `STILL_WORKING_SECONDS` (4.4), over the model: on the web
+ * the user can stop it, while the desktop core cannot be stopped from outside (desktop.md open
+ * issue 9).
+ */
+function StillWorking() {
+  const app = useApp()
+  const stoppable = canStopRunningCore(app)
+  return (
+    <OverlayChip>
+      <div data-testid="core-working" role="alert" className="flex flex-col gap-3">
+        <p>
+          {stoppable
+            ? MESSAGES.core_still_working(STILL_WORKING_SECONDS)
+            : MESSAGES.core_still_working_desktop(STILL_WORKING_SECONDS)}
+        </p>
+        {stoppable && (
+          <div className="flex justify-end">
+            <Button
+              variant="primary"
+              onClick={() => {
+                app.restartCore().catch(reportFailure('Stopping and restarting the geometry core'))
+              }}
+            >
+              Stop and restart core
+            </Button>
+          </div>
+        )}
+      </div>
+    </OverlayChip>
+  )
+}
+
+/** The loading, still-working, fatal and context-loss states drawn over the view (3.1, 3.12, 4.4). */
 function CoreStatus({ restoring }: { readonly restoring: boolean }) {
   const app = useApp()
   const status = useAppState((state) => state.core.status)
   const fatal = useAppState((state) => state.core.fatal)
   const started = useAppState((state) => state.core.engineVersion !== null)
+  const stillWorking = useAppState((state) => state.core.stillWorking)
   if (status === 'loading') {
     return (
       <OverlayChip>
@@ -209,6 +245,9 @@ function CoreStatus({ restoring }: { readonly restoring: boolean }) {
         </div>
       </OverlayChip>
     )
+  }
+  if (stillWorking) {
+    return <StillWorking />
   }
   if (restoring) {
     return (

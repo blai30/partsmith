@@ -186,6 +186,7 @@ export function documentState(options: {
     recipe: recipeWith(options.features),
     dirty: false,
     localUnsaved: false,
+    recoveryId: 'session-1',
     undoLabel: options.undoLabel ?? null,
     redoLabel: null,
     transactionOpen: false,

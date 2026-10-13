@@ -9,6 +9,7 @@ import type { FileService } from '../files/file-service'
 import type { RecentFilesStore } from '../files/recent'
 import type { RecoveryStore } from '../files/recovery'
 import type { Command, DocHandle, Document } from '../generated/protocol'
+import { MESSAGES } from '../messages'
 import { TIMING_NAMES } from '../performance/marks'
 import {
   adoptDocument,
@@ -16,21 +17,23 @@ import {
   recordRebuildTime,
   releaseDocuments,
 } from '../state/core-events'
-import { isUnsaved, selectUnsaved } from '../state/selectors'
+import { selectUnsaved } from '../state/selectors'
 import { createAppStore, type AppStore, type FileReference } from '../state/store'
 import { initialSessionVisibility } from '../state/visibility'
 import type { ViewportHandle } from '../viewport/controller'
-import { installFailureDismissal } from './actions/notifications'
+import { installFailureDismissal, notify } from './actions/notifications'
 import { installPrintAnalysis } from './actions/print'
 import { connectApp } from './connection'
 import { loadCoreData, markCoreFailed, markCoreReady, openUntitled } from './core-data'
+import { continueRecoverySession, installRecoveryCopy } from './recovery-copy'
 import { installSelectionUpkeep } from './selection-upkeep'
 import { measureToNextFrame } from './timing'
 
 // The app object every action takes (ui.md 2.9): the store, the core API, the mutation queue, the
 // command registry and the host services. createApp wires core events into the store, counts and
-// times the requests that rebuild a document, keeps a recovery copy of unsaved work, and restarts
-// the core after a fatal error (4.4).
+// times the requests that rebuild a document, notices a core that has answered nothing for a long
+// time, keeps a recovery copy of unsaved work, and restarts the core after a fatal error or when
+// the user stops a core that is still working (4.4).
 
 export { onCoreEvent } from './connection'
 
@@ -51,7 +54,7 @@ export type App = {
   /** The mounted viewport, or null before the viewport mounts. */
   viewport(): ViewportHandle | null
   attachViewport(handle: ViewportHandle | null): void
-  /** Restarts the core after a fatal error and reopens the last recipe (4.4). */
+  /** Restarts the core after a fatal error, or stops and restarts one that is still working, and reopens the settled recipe (4.4). */
   restartCore(): Promise<void>
 }
 
@@ -65,55 +68,90 @@ export type CreateAppOptions = {
   readonly now?: () => number
 }
 
-/** What a core restart opens again: the document shown when the core stopped (4.4). */
+/** What a core restart opens again: the document shown when the core stopped, in its session (4.4). */
 type Reopening = {
   readonly recipe: Document
   readonly name: string
   readonly file: FileReference | null
+  readonly recoveryId: string
 }
 
-/** Delay after the last document_changed before a dirty document's recovery copy is written (3.19). */
-const RECOVERY_DELAY_MILLISECONDS = 2_000
+/** How long the core may answer nothing while a request waits before it is still working (4.4). */
+export const STILL_WORKING_SECONDS = 10
 
-/** Writes a recovery copy of a dirty document 2 s after its last change (3.19). */
-function scheduleRecovery(app: App, now: () => number): (event: CoreEvent) => void {
+/** Notes the requests sent to one core and how they end, for the still-working state (4.4). */
+type ResponseWatch = {
+  /** Notes a request sent; the returned function notes its end, `answered` false when no response came. */
+  sent(): (answered: boolean) => void
+  /** Forgets the requests in flight, whose core is gone, and leaves the still-working state. */
+  reset(): void
+}
+
+/**
+ * Sets `core.stillWorking` once the core has answered nothing for `STILL_WORKING_SECONDS` while a
+ * request waits, counted from the later of the oldest waiting request's sending and the latest
+ * response, which the core gives in request order. The next response clears it.
+ */
+function watchResponses(store: AppStore): ResponseWatch {
+  let waiting = 0
+  // Requests sent before a reset end without touching the count.
+  let generation = 0
   let timer: ReturnType<typeof setTimeout> | null = null
-  return (event) => {
-    if (event.type !== 'document_changed') {
-      return
+
+  function setStillWorking(stillWorking: boolean): void {
+    if (store.getState().core.stillWorking !== stillWorking) {
+      store.setState((state) => ({ core: { ...state.core, stillWorking } }))
     }
-    const document = app.store.getState().document
-    if (document?.documentHandle !== event.documentHandle) {
-      return
-    }
+  }
+
+  // Counts the time without a response from now, while a request waits.
+  function countFromNow(): void {
     if (timer !== null) {
       clearTimeout(timer)
       timer = null
     }
-    if (!isUnsaved(document)) {
-      return
+    if (waiting > 0) {
+      timer = setTimeout(() => {
+        timer = null
+        setStillWorking(true)
+      }, STILL_WORKING_SECONDS * 1_000)
     }
-    timer = setTimeout(() => {
-      timer = null
-      const current = app.store.getState().document
-      if (current === null || !isUnsaved(current)) {
-        return
+  }
+
+  return {
+    sent() {
+      const sentIn = generation
+      waiting += 1
+      if (waiting === 1) {
+        countFromNow()
       }
-      void app.recovery.write({
-        name: current.name,
-        text: JSON.stringify(current.recipe, null, 2),
-        savedAt: now(),
-        handle: current.file?.handle ?? null,
-        reason: 'autosave',
-      })
-    }, RECOVERY_DELAY_MILLISECONDS)
+      return (answered) => {
+        if (sentIn !== generation) {
+          return
+        }
+        waiting -= 1
+        if (answered) {
+          setStillWorking(false)
+        }
+        if (answered || waiting === 0) {
+          countFromNow()
+        }
+      }
+    },
+    reset() {
+      generation += 1
+      waiting = 0
+      countFromNow()
+      setStillWorking(false)
+    },
   }
 }
 
 /**
- * Follows the recipe of the shown document as it was last without an open transaction, which is
- * what the user has confirmed: a restart reopens it, so a previewed feature is never made
- * permanent (protocol.md 2.7, 4.4). Returns the reader of that recipe for a document handle.
+ * Follows the settled recipe of the shown document (1.3): its recipe as it was last without an
+ * open transaction, which is what the user has confirmed. The recovery copy keeps it and a restart
+ * reopens it, so a previewed feature is never made permanent (protocol.md 2.7, 3.19, 4.4).
+ * Returns the reader of that recipe for a document handle.
  */
 function followSettledRecipe(store: AppStore): (documentHandle: DocHandle) => Document | null {
   let settled: { readonly documentHandle: DocHandle; readonly recipe: Document } | null = null
@@ -134,9 +172,12 @@ export function createApp(options: CreateAppOptions): App {
   const mutations = createMutationQueue()
   const eventListeners = new Set<(event: CoreEvent) => void>()
   const settledRecipe = followSettledRecipe(store)
+  const responses = watchResponses(store)
   let viewport: ViewportHandle | null = null
   /** Set by the first restart attempt and kept until a restart has opened it again. */
   let reopening: Reopening | null = null
+  /** Set when a stop dropped changes the core had not finished, until a restart has reopened the document. */
+  let changesDropped = false
 
   function dispatch(event: CoreEvent): void {
     applyCoreEvent(store, event)
@@ -150,6 +191,7 @@ export function createApp(options: CreateAppOptions): App {
   }
 
   function failed(error: CoreFatalError): void {
+    responses.reset()
     markCoreFailed(store, error.message)
   }
 
@@ -169,26 +211,37 @@ export function createApp(options: CreateAppOptions): App {
   }
 
   /**
-   * Sends a command to the running core. A command that rebuilds a document counts in
-   * `pendingMutations` until it is answered, and its time from sending to the applied response is
-   * the document's rebuild time (3.21) and `ps:rebuild` once the viewport drew it (2.18).
+   * Sends a command to the running core and watches for its response (4.4). A command that
+   * rebuilds a document counts in `pendingMutations` until it is answered, and its time from
+   * sending to the applied response is the document's rebuild time (3.21) and `ps:rebuild` once
+   * the viewport drew it (2.18).
    */
   async function request(command: Command): Promise<Reply> {
-    if (!rebuildsDocument(command)) {
-      return client.request(command)
-    }
+    const ended = responses.sent()
+    const rebuilds = rebuildsDocument(command)
     const started = performance.now()
-    changePending(1)
+    if (rebuilds) {
+      changePending(1)
+    }
     try {
       const reply = await client.request(command)
+      ended(true)
       const documentHandle = rebuiltDocument(command, reply.result)
       if (documentHandle !== null) {
         recordRebuildTime(store, documentHandle, performance.now() - started)
       }
-      measureToNextFrame(TIMING_NAMES.rebuild, started)
+      if (rebuilds) {
+        measureToNextFrame(TIMING_NAMES.rebuild, started)
+      }
       return reply
+    } catch (error) {
+      // A refusal is a response; a core that stopped gave none.
+      ended(!(error instanceof CoreFatalError))
+      throw error
     } finally {
-      changePending(-1)
+      if (rebuilds) {
+        changePending(-1)
+      }
     }
   }
 
@@ -212,6 +265,7 @@ export function createApp(options: CreateAppOptions): App {
       recipe: settledRecipe(shown.documentHandle) ?? shown.recipe,
       name: shown.name,
       file: shown.file,
+      recoveryId: shown.recoveryId,
     }
   }
 
@@ -228,15 +282,28 @@ export function createApp(options: CreateAppOptions): App {
       }))
       return
     }
-    const opened = await mutations.run(() =>
-      core.openDocument(JSON.stringify(kept.recipe, null, 2)),
+    const opened = await mutations.run(
+      () => core.openDocument(JSON.stringify(kept.recipe, null, 2)),
+      'other',
     )
     adoptDocument(store, opened.documentHandle, {
       name: kept.name,
       file: kept.file,
       localUnsaved: true,
+      recoveryId: kept.recoveryId,
     })
     reopening = null
+    // The session goes on, so its recovery entry carries on (3.19).
+    continueRecoverySession(app, kept.recoveryId)
+  }
+
+  /**
+   * Whether stopping the core drops changes it had not finished: a stop while it is still working
+   * with a change started or waiting in the mutation queue, or a feature command open (4.4).
+   */
+  function dropsChanges(): boolean {
+    const { core: state, command } = store.getState()
+    return state.stillWorking && (mutations.changing || command !== null)
   }
 
   const app: App = {
@@ -253,8 +320,12 @@ export function createApp(options: CreateAppOptions): App {
       viewport = handle
     },
     async restartCore() {
+      changesDropped ||= dropsChanges()
+      // None of the waiting mutations reaches the new core.
+      mutations.discard(new CoreFatalError('The geometry core was stopped.'))
       // Taken before the store forgets the document, and kept if this attempt fails.
       reopening = reopeningOf()
+      responses.reset()
       store.setState((state) => ({
         core: { ...state.core, status: 'loading', fatal: null },
         context: state.context === 'sketch' ? 'model' : state.context,
@@ -264,6 +335,7 @@ export function createApp(options: CreateAppOptions): App {
         sketch: null,
       }))
       releaseDocuments(store)
+      // Stopping the transport ends the worker and rejects the request in flight.
       client.close()
       client = connect()
       try {
@@ -273,11 +345,26 @@ export function createApp(options: CreateAppOptions): App {
         markCoreReady(store, ready.engineVersion)
       } catch (error) {
         failed(error instanceof CoreFatalError ? error : new CoreFatalError(errorMessage(error)))
+        return
+      }
+      if (changesDropped) {
+        changesDropped = false
+        notify(app, {
+          severity: 'warning',
+          message: MESSAGES.changes_not_applied(),
+          code: 'changes_not_applied',
+          actions: [],
+        })
       }
     },
   }
-  connectApp(app, { transport: options.transport, now, eventListeners })
-  eventListeners.add(scheduleRecovery(app, now))
+  connectApp(app, {
+    transport: options.transport,
+    now,
+    eventListeners,
+    settledRecipe,
+  })
+  eventListeners.add(installRecoveryCopy(app))
   installPrintAnalysis(app)
   installSelectionUpkeep(app)
   installFailureDismissal(app)

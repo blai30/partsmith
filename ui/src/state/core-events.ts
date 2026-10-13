@@ -14,13 +14,21 @@ export type DocumentDetails = {
   readonly name: string
   readonly file: FileReference | null
   readonly localUnsaved: boolean
+  /**
+   * The recovery session the document continues, as after a core restart (ui.md 3.19, 4.4), or
+   * the one an action named for it; adopting a document without one starts a new session.
+   */
+  readonly recoveryId?: string
 }
+
+/** The details of an adopted document, with its recovery session. */
+type AdoptedDetails = DocumentDetails & { readonly recoveryId: string }
 
 type DocumentRegistry = {
   /** Documents the core reported that no action has adopted yet. */
   readonly pending: Map<DocHandle, DocumentState>
   /** An adopted document whose first document_changed has not arrived yet. */
-  awaiting: ({ readonly documentHandle: DocHandle } & DocumentDetails) | null
+  awaiting: ({ readonly documentHandle: DocHandle } & AdoptedDetails) | null
   /**
    * The document_changed that was the last event applied, and when its `applyCoreEvent` call
    * started: the start of ps:apply-events if the recomputed of that document comes next.
@@ -43,7 +51,7 @@ function newDocumentState(
   documentHandle: DocHandle,
   revision: number,
   recipe: Document,
-  details: DocumentDetails,
+  details: AdoptedDetails,
 ): DocumentState {
   return {
     documentHandle,
@@ -53,6 +61,7 @@ function newDocumentState(
     recipe,
     dirty: false,
     localUnsaved: details.localUnsaved,
+    recoveryId: details.recoveryId,
     undoLabel: null,
     redoLabel: null,
     transactionOpen: false,
@@ -208,10 +217,12 @@ function applyEvent(store: AppStore, registry: DocumentRegistry, event: CoreEven
   const pending = registry.pending.get(event.documentHandle)
   if (pending === undefined) {
     if (event.type === 'document_changed') {
+      // Adoption fills in the details, the recovery session included.
       const document = newDocumentState(event.documentHandle, event.revision, event.document, {
         name: '',
         file: null,
         localUnsaved: false,
+        recoveryId: '',
       })
       registry.pending.set(event.documentHandle, applied(document, event) ?? document)
     }
@@ -234,15 +245,19 @@ export function adoptDocument(
   details: DocumentDetails,
 ): void {
   const registry = registryOf(store)
+  const adopted: AdoptedDetails = {
+    ...details,
+    recoveryId: details.recoveryId ?? crypto.randomUUID(),
+  }
   const pending = registry.pending.get(documentHandle)
   registry.pending.clear()
   if (pending === undefined) {
-    registry.awaiting = { documentHandle, ...details }
+    registry.awaiting = { documentHandle, ...adopted }
     store.setState({ document: null })
     return
   }
   registry.awaiting = null
-  store.setState({ document: { ...pending, ...details } })
+  store.setState({ document: { ...pending, ...adopted } })
 }
 
 /**

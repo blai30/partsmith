@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
+import { readProjectFile } from '../test/project-file'
+
 // The approved block of ADR 0013 and ui.md 2.16.1, byte for byte.
 const APPROVED_STYLESHEET = `@import url('https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap');
 @import 'tailwindcss';
@@ -22,15 +24,6 @@ const STYLE_INDEX = ['.style', '['].join('')
 const PIXEL_VALUE = ['px', ']'].join('')
 const HEX_VALUE = ['[', '#'].join('')
 
-type FileSystem = { readFileSync(path: URL, encoding: 'utf8'): string }
-
-// Reads a file next to this test through Node, which runs Vitest.
-async function readFile(relativePath: string): Promise<string> {
-  const specifier: string = 'node:fs'
-  const fileSystem = (await import(/* @vite-ignore */ specifier)) as FileSystem
-  return fileSystem.readFileSync(new URL(relativePath, import.meta.url), 'utf8')
-}
-
 function filesContaining(needle: string, files: Readonly<Record<string, string>>): string[] {
   return Object.entries(files)
     .filter(([, text]) => text.includes(needle))
@@ -39,7 +32,7 @@ function filesContaining(needle: string, files: Readonly<Record<string, string>>
 
 describe('styles in source (U-91)', () => {
   it('U-91 src/index.css equals the block of 2.16.1 byte for byte', async () => {
-    expect(await readFile('../index.css')).toBe(APPROVED_STYLESHEET)
+    expect(await readProjectFile('/src/index.css')).toBe(APPROVED_STYLESHEET)
   })
 
   it('U-91 src/index.css is the only .css file under src/', () => {
@@ -68,7 +61,7 @@ describe('styles in source (U-91)', () => {
 
   it('U-91 no file under src/ contains a pixel arbitrary value or an arbitrary hex color', async () => {
     const stylesheets = await Promise.all(
-      STYLESHEET_PATHS.map(async (path) => [path, await readFile(`../..${path}`)] as const),
+      STYLESHEET_PATHS.map(async (path) => [path, await readProjectFile(path)] as const),
     )
     const files = { ...SOURCES, ...Object.fromEntries(stylesheets) }
     expect(filesContaining(PIXEL_VALUE, files)).toEqual([])

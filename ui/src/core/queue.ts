@@ -1,28 +1,68 @@
 // Ordering helpers for core requests (ui.md 2.5).
 
+/**
+ * What a task does, for a core that is stopped before it ends (4.4): a `change` to a document, or
+ * `other` work (an open, a new document, a save, an export) whose action says itself that it was
+ * not done.
+ */
+export type TaskKind = 'change' | 'other'
+
 /** Runs tasks strictly one after another, in submission order. */
 export type MutationQueue = {
-  run<Result>(task: () => Promise<Result>): Promise<Result>
+  /** Runs `task` after every task submitted before it; `kind` is `change` unless given. */
+  run<Result>(task: () => Promise<Result>, kind?: TaskKind): Promise<Result>
+  /** Rejects every task that has not started with `error`, without running it, and returns how many it rejected (4.4). */
+  discard(error: Error): number
+  /** The started task and the waiting ones. */
   readonly pending: number
+  /** Whether the started task or a waiting one is a `change`. */
+  readonly changing: boolean
 }
 
 export function createMutationQueue(): MutationQueue {
   let tail: Promise<void> = Promise.resolve()
   let pending = 0
-
-  function finished(): void {
-    pending -= 1
-  }
+  // The kind of the started task, while one runs.
+  let started: TaskKind | null = null
+  // The tasks that have not started yet: their rejecters, with their kinds.
+  const waiting = new Map<(error: Error) => void, TaskKind>()
 
   return {
-    run(task) {
+    run<Result>(task: () => Promise<Result>, kind: TaskKind = 'change') {
       pending += 1
-      const result = tail.then(task)
-      tail = result.then(finished, finished)
-      return result
+      return new Promise<Result>((resolve, reject) => {
+        waiting.set(reject, kind)
+        tail = tail.then(async () => {
+          // A discarded task was rejected already and never runs.
+          if (!waiting.delete(reject)) {
+            return
+          }
+          started = kind
+          try {
+            resolve(await task())
+          } catch (error) {
+            reject(error)
+          } finally {
+            started = null
+            pending -= 1
+          }
+        })
+      })
+    },
+    discard(error) {
+      const discarded = Array.from(waiting.keys())
+      waiting.clear()
+      pending -= discarded.length
+      for (const reject of discarded) {
+        reject(error)
+      }
+      return discarded.length
     },
     get pending() {
       return pending
+    },
+    get changing() {
+      return started === 'change' || Array.from(waiting.values()).includes('change')
     },
   }
 }

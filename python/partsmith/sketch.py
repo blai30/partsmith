@@ -22,8 +22,7 @@ from .document import (
     open_sketch,
 )
 from .errors import PartsmithError
-from .expressions import Expr, is_quantity, items_of, raw_angle, raw_length, raw_number, render_value
-from .reports import point
+from .expressions import Expr, is_quantity, items_of, raw_angle, raw_length, raw_number, render_value, triple
 
 if TYPE_CHECKING:
     from contextvars import Token
@@ -713,7 +712,7 @@ def _point(values: object, document: Document, name: str) -> list[float]:
 
 def _three(values: Sequence[object], name: str) -> tuple[object, object, object]:
     """Three values as a tuple."""
-    return point(items_of(values, 3, f"{name} must be three values (x, y, z)."))
+    return triple(items_of(values, 3, f"{name} must be three values (x, y, z)."))
 
 
 def _is_parametric(value: object) -> bool:

@@ -15,6 +15,7 @@ import {
   bodiesOf,
 } from '../test/fakes/documents'
 import { createFakeFileHandle } from '../test/fakes/files'
+import { deferred } from '../test/fakes/deferred'
 import { createRecordingRecovery } from '../test/fakes/recovery'
 import { elementItem } from '../test/fakes/selection'
 import { settle } from '../test/fakes/settle'
@@ -489,6 +490,61 @@ describe('recovery copy (3.19)', () => {
     await expect(fake.recovery.list()).resolves.toEqual([])
     await advance(10_000)
     await expect(fake.recovery.list()).resolves.toEqual([])
+  })
+})
+
+describe('recovery copy across saves and restarts (3.19, 4.4)', () => {
+  it('U-167 a save keeps the entry while an edit made during its file write leaves the document unsaved', async () => {
+    const { fake } = await cubeWithHandle()
+    vi.useFakeTimers()
+    await applyEdits(fake.app, 'Rename', RENAME_TO_BOX)
+    await advance(2_000)
+    expect(await fake.recovery.list()).toHaveLength(1)
+    const released = deferred<void>()
+    const write = fake.files.write.bind(fake.files)
+    vi.spyOn(fake.files, 'write').mockImplementation(async (target, kind, bytes) => {
+      await released.promise
+      await write(target, kind, bytes)
+    })
+    const saving = save(fake.app)
+    await settle()
+    await applyEdits(fake.app, 'Rename', RENAME_TO_BLOCK)
+    await settle()
+    released.resolve()
+    await saving
+    await settle()
+    expect(currentDocument(fake.app)).toMatchObject({ dirty: true, localUnsaved: false })
+    expect(await fake.recovery.list()).toHaveLength(1)
+    await advance(2_000)
+    const texts = (await fake.recovery.list()).map((entry) => entry.text)
+    expect(texts).toEqual([JSON.stringify(renamed('Block'), null, 2)])
+  })
+
+  it('U-166 a write that falls due while the core restarts is written right after the restart', async () => {
+    const { fake, handle } = await cubeWithHandle()
+    vi.useFakeTimers()
+    await applyEdits(fake.app, 'Rename', RENAME_TO_BOX)
+    await settle()
+    fake.transport.die('The worker crashed.')
+    await settle()
+    fake.transport.failNextStart(new CoreFatalError('The geometry core did not start.'))
+    await fake.app.restartCore()
+    await settle()
+    // The write falls due at 2,000 ms, while no document is shown.
+    await advance(3_000)
+    await expect(fake.recovery.list()).resolves.toEqual([])
+    await fake.app.restartCore()
+    await settle()
+    await expect(fake.recovery.list()).resolves.toEqual([
+      {
+        id: currentDocument(fake.app).recoveryId,
+        name: 'cube',
+        text: JSON.stringify(R1, null, 2),
+        savedAt: expect.any(Number),
+        handle,
+        reason: 'autosave',
+      },
+    ])
   })
 })
 

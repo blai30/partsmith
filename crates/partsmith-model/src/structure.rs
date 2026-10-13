@@ -2,9 +2,8 @@
 
 use std::collections::BTreeSet;
 
-use crate::document::RecordProblem;
 use crate::names::{LabelError, LabelField, NameError, validate_label, validate_parameter_name};
-use crate::{Document, FORMAT, FORMAT_VERSION, Id};
+use crate::{Document, FORMAT, FORMAT_VERSION, Id, is_valid_feature_type};
 
 /// A violation of the structural rules (model.md section 3.6).
 #[derive(Clone, Debug, PartialEq, thiserror::Error)]
@@ -142,31 +141,46 @@ impl Document {
             }
             seen_names.insert(&parameter.name);
         }
+        // The rules of `Body::label_errors` and `FeatureRecord::problems`, checked in place: their
+        // iterator chains cost 1% more on the model.md section 5 benchmark.
         for body in &self.bodies {
             check_repeat(&mut seen_ids, &body.id, &mut problems);
-            problems.extend(
-                body.label_errors()
-                    .map(|error| StructureError::InvalidLabel {
+            let labels = [
+                (LabelField::BodyName, Some(&body.name)),
+                (LabelField::Material, body.material.as_ref()),
+            ];
+            for (field, text) in labels {
+                if let Some(text) = text
+                    && let Err(error) = validate_label(field, text)
+                {
+                    problems.push(StructureError::InvalidLabel {
                         id: Some(body.id.clone()),
                         error,
-                    }),
-            );
+                    });
+                }
+            }
         }
         for feature in &self.features {
             check_repeat(&mut seen_ids, &feature.id, &mut problems);
-            problems.extend(feature.problems().map(|problem| match problem {
-                RecordProblem::InvalidType => StructureError::InvalidFeatureType {
+            if !is_valid_feature_type(&feature.kind) {
+                problems.push(StructureError::InvalidFeatureType {
                     id: feature.id.clone(),
                     kind: feature.kind.clone(),
-                },
-                RecordProblem::InvalidName(error) => StructureError::InvalidLabel {
+                });
+            }
+            if let Some(name) = &feature.name
+                && let Err(error) = validate_label(LabelField::FeatureName, name)
+            {
+                problems.push(StructureError::InvalidLabel {
                     id: Some(feature.id.clone()),
                     error,
-                },
-                RecordProblem::ReservedKey(key) => StructureError::ReservedParamKey {
+                });
+            }
+            problems.extend(feature.reserved_params_keys().map(|key| {
+                StructureError::ReservedParamKey {
                     id: feature.id.clone(),
                     key: key.clone(),
-                },
+                }
             }));
         }
         if let Some(rollback) = &self.rollback

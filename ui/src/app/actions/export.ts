@@ -169,19 +169,23 @@ export async function exportModel(app: App, request: ExportRequest): Promise<voi
   let exported: Awaited<ReturnType<CoreApi['exportBodies']>>
   try {
     // Through the mutation queue, so the export sees every edit sent before it.
-    exported = await app.mutations.run(() =>
-      orientation === null
-        ? app.core.exportBodies(document.documentHandle, FORMATS[request.format], bodies)
-        : app.core.exportBodies(
-            document.documentHandle,
-            FORMATS[request.format],
-            bodies,
-            orientation,
-          ),
+    exported = await app.mutations.run(
+      () =>
+        orientation === null
+          ? app.core.exportBodies(document.documentHandle, FORMATS[request.format], bodies)
+          : app.core.exportBodies(
+              document.documentHandle,
+              FORMATS[request.format],
+              bodies,
+              orientation,
+            ),
+      'other',
     )
   } catch (error) {
     if (!showOrientationError(app, error, orientation)) {
-      showCoreError(app, error)
+      showCoreError(app, error, {
+        stopped: { code: 'export_stopped', message: MESSAGES.export_stopped(target.name) },
+      })
     }
     return
   }

@@ -57,7 +57,7 @@ pub(crate) enum NameDefect {
     UnsortedFaces,
     /// A parenthesis is not closed or closes nothing.
     UnbalancedParentheses,
-    /// A valid name of another kind than this kind, which the context needs.
+    /// A valid name, but not of the kind the context needs.
     WrongKind(ElementKind),
 }
 
@@ -169,7 +169,7 @@ pub(crate) fn is_sketch_reference(text: &str) -> bool {
 }
 
 /// The kind and prefix of the edge or vertex name `text` starts with; `None` for a face name.
-pub(crate) fn list_prefix(text: &[u8]) -> Option<(ElementKind, &'static str)> {
+pub(crate) fn leading_list_prefix(text: &[u8]) -> Option<(ElementKind, &'static str)> {
     LIST_PREFIXES
         .into_iter()
         .find(|(_, prefix)| text.starts_with(prefix.as_bytes()))
@@ -184,7 +184,7 @@ pub(crate) fn list_prefix_of(kind: ElementKind) -> Option<&'static str> {
 
 /// Number of bytes before the face list of an edge or vertex name; `None` for a face name.
 pub(crate) fn list_prefix_length(text: &str) -> Option<usize> {
-    list_prefix(text.as_bytes()).map(|(_, prefix)| prefix.len())
+    leading_list_prefix(text.as_bytes()).map(|(_, prefix)| prefix.len())
 }
 
 /// A cursor over the bytes of a candidate name.
@@ -269,7 +269,7 @@ impl<'a> Parser<'a> {
 
     /// True when an edge or vertex name starts here.
     fn at_list_name(&self) -> bool {
-        list_prefix(self.rest()).is_some()
+        leading_list_prefix(self.rest()).is_some()
     }
 
     /// `element-name` with its trailing suffixes.
@@ -320,7 +320,7 @@ impl<'a> Parser<'a> {
 
     /// `"edge(" face-list ")"` or `"vertex(" face-list ")"`, checking that the faces ascend.
     fn list_name(&mut self) -> Result<(), NameDefect> {
-        let Some((_, prefix)) = list_prefix(self.rest()) else {
+        let Some((_, prefix)) = leading_list_prefix(self.rest()) else {
             return Err(self.unexpected());
         };
         self.position += prefix.len();
@@ -702,16 +702,16 @@ mod tests {
     }
 
     #[test]
-    fn list_prefix_names_the_kind_of_list_names() {
+    fn leading_list_prefix_names_the_kind_of_list_names() {
         assert_eq!(
-            list_prefix(b"edge(f-a/x)"),
+            leading_list_prefix(b"edge(f-a/x)"),
             Some((ElementKind::Edge, "edge("))
         );
         assert_eq!(
-            list_prefix(b"vertex(f-a/x)"),
+            leading_list_prefix(b"vertex(f-a/x)"),
             Some((ElementKind::Vertex, "vertex("))
         );
-        assert_eq!(list_prefix(b"edge/x"), None);
+        assert_eq!(leading_list_prefix(b"edge/x"), None);
     }
 
     #[test]

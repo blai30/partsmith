@@ -1,8 +1,9 @@
-//! Helpers shared by the second and last thirds of the reference stability corpus
-//! (`stability_support_2` and `stability_support_3`, R23 to R65 of
+//! Helpers shared by the three thirds of the reference stability corpus (`stability_support_1`,
+//! `stability_support_2` and `stability_support_3`, R01 to R65 of
 //! docs/design/reference-stability-corpus.md): the record builders, run readers and checks that
-//! are the same in both. Each includes it with `#[path]` and re-exports it, beside its own
-//! `feature_support`.
+//! are the same in all of them. Each includes it with `#[path]` and re-exports it, beside its own
+//! `feature_support`. The first third checks against body states with its own `Expectations` at
+//! the corpus's exact 1e-6 mm instead of `Checks`, which reads the run.
 //!
 //! It lives in its own directory, like `common/` and `feature_support/`, so Cargo does not build
 //! it as a test target of its own.

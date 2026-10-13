@@ -1,4 +1,5 @@
 import { CoreError } from '../../core/client'
+import type { TaskKind } from '../../core/queue'
 import { CoreFatalError } from '../../core/transport'
 import type { Edit, FeatureStatus } from '../../generated/protocol'
 import { MESSAGES } from '../../messages'
@@ -36,14 +37,20 @@ export function refusedDuringCommand(app: App): boolean {
   return true
 }
 
+/** The warning of an open, a new document, a save or an export that the core stopped before it ended (4.3). */
+export type StoppedNotice = { readonly code: string; readonly message: string }
+
 export type RefusalOptions = {
   /** Receives the core's refusal instead of an error notification, for errors shown next to a field. */
   readonly onRefused?: (message: string) => void
+  /** Shown as a warning when the core stops before the call ends, for a call that is not a change (4.4). */
+  readonly stopped?: StoppedNotice
 }
 
 /**
- * Shows a failed core call: a CoreError's message verbatim as an error notification (4.2), a fatal
- * error through the fatal state the store already shows; anything else is a bug and is rethrown.
+ * Shows a failed core call: a CoreError's message verbatim as an error notification (4.2). A fatal
+ * error shows the call's `stopped` notice; a change shows nothing, since the fatal state or the
+ * restart after a stop reports it (4.4). Anything else is a bug and is rethrown.
  */
 export function showCoreError(app: App, error: unknown, options: RefusalOptions = {}): void {
   if (error instanceof CoreError) {
@@ -56,6 +63,9 @@ export function showCoreError(app: App, error: unknown, options: RefusalOptions 
     return
   }
   if (error instanceof CoreFatalError) {
+    if (options.stopped !== undefined) {
+      notify(app, { severity: 'warning', ...options.stopped, actions: [] })
+    }
     return
   }
   throw error
@@ -180,18 +190,21 @@ export async function commitBuiltEdits(
   return sent
 }
 
-/** Runs a core call that changes the document through the mutation queue, reporting failures; resolves null when it failed. */
+/**
+ * Runs a core call on the open document through the mutation queue, as a task of `kind` (a change
+ * unless given), reporting failures; resolves null when it failed.
+ */
 export async function mutate<Result>(
   app: App,
   task: (document: DocumentState) => Promise<Result>,
-  options: RefusalOptions = {},
+  options: RefusalOptions & { readonly kind?: TaskKind } = {},
 ): Promise<Result | null> {
   const document = documentOf(app)
   if (document === null) {
     return null
   }
   try {
-    return await app.mutations.run(() => task(document))
+    return await app.mutations.run(() => task(document), options.kind)
   } catch (error) {
     showCoreError(app, error, options)
     return null

@@ -130,12 +130,24 @@ describe('the app shell (3.2)', () => {
     expect(screen.getByTestId('app')).toHaveAttribute('data-core-status', 'ready')
     cleanup()
     renderApp({
-      core: { status: 'loading', engineVersion: null, fatal: null, pendingMutations: 0 },
+      core: {
+        status: 'loading',
+        engineVersion: null,
+        fatal: null,
+        pendingMutations: 0,
+        stillWorking: false,
+      },
     })
     expect(screen.getByTestId('app')).toHaveAttribute('data-core-status', 'loading')
     cleanup()
     renderApp({
-      core: { status: 'failed', engineVersion: null, fatal: 'HTTP 404', pendingMutations: 0 },
+      core: {
+        status: 'failed',
+        engineVersion: null,
+        fatal: 'HTTP 404',
+        pendingMutations: 0,
+        stillWorking: false,
+      },
     })
     expect(screen.getByTestId('app')).toHaveAttribute('data-core-status', 'failed')
   })

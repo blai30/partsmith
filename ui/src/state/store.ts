@@ -59,6 +59,8 @@ export type CoreState = {
   readonly fatal: string | null
   /** Mutating requests sent and not yet answered. */
   readonly pendingMutations: number
+  /** True while the core has answered nothing for `STILL_WORKING_SECONDS` with a request waiting (4.4); false at start. */
+  readonly stillWorking: boolean
 }
 
 export type Catalog = {
@@ -83,6 +85,8 @@ export type DocumentState = {
   readonly dirty: boolean
   /** Set when the recipe was opened from a recovery copy or reopened after a core restart, so the core's baseline is not the file on disk; cleared by a successful save (3.19). */
   readonly localUnsaved: boolean
+  /** The key of this document session's recovery entry (3.19): a new `crypto.randomUUID()` for each document the app adopts (New, Open, a recovery Open), kept when a core restart reopens the document (4.4). */
+  readonly recoveryId: string
   readonly undoLabel: string | null
   readonly redoLabel: string | null
   readonly transactionOpen: boolean
@@ -305,7 +309,13 @@ function startsWithBrowserOpen(): boolean {
 }
 
 export const INITIAL_STATE: AppState = {
-  core: { status: 'loading', engineVersion: null, fatal: null, pendingMutations: 0 },
+  core: {
+    status: 'loading',
+    engineVersion: null,
+    fatal: null,
+    pendingMutations: 0,
+    stillWorking: false,
+  },
   catalog: null,
   printers: [],
   document: null,

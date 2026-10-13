@@ -10,7 +10,7 @@ use super::common::{
     body_hint, essential, manifest, positive_length, references, require_selection, selection_hint,
     solid_body, unit_hint,
 };
-use super::dressup::{BlendTarget, blend};
+use super::dressup::{finish_blend, no_effect, run_or_search, select_edges, sorted_by_name};
 use crate::{
     BuildContext, Dependencies, Feature, FeatureError, FeatureOutput, Noun, PythonCall,
     PythonNames, PythonValue,
@@ -65,22 +65,21 @@ impl Feature for Fillet {
     ) -> Result<FeatureOutput, FeatureError> {
         let (state, shape) = solid_body(context, &params.body)?;
         let radius = positive_length(context, "radius", &params.radius)?;
-        let target = BlendTarget {
-            body: &params.body,
-            state,
-            shape,
-            edges: &params.edges,
-        };
-        blend(
+        let selection = select_edges(context, &params.body, state, shape, &params.edges)?;
+        if selection.edges.is_empty() {
+            return Ok(no_effect(&params.body, state, selection.warnings));
+        }
+        let edges = sorted_by_name(state.naming(), &selection.edges)?;
+        let result = run_or_search(
             context,
-            target,
-            roles::FILLET,
             radius,
-            |edge| Ok(edge.index),
-            |edges, radius| {
+            |radius| {
                 let edges: Vec<EdgeRadius> = edges
                     .iter()
-                    .map(|&edge| EdgeRadius { edge, radius })
+                    .map(|edge| EdgeRadius {
+                        edge: edge.index,
+                        radius,
+                    })
                     .collect();
                 fillet(shape, &edges)
             },
@@ -90,6 +89,14 @@ impl Feature for Fillet {
                 max,
                 cause,
             },
+        )?;
+        finish_blend(
+            context,
+            &params.body,
+            state,
+            roles::FILLET,
+            result,
+            selection.warnings,
         )
     }
 

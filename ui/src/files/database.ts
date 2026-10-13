@@ -1,11 +1,15 @@
 // The IndexedDB database behind recent files and recovery (ui.md 2.15).
 
 import { isDomError } from './file-service'
+import { recoveryEntryFrom } from './recovery-entry'
 
 export const DATABASE_NAME = 'partsmith'
-export const DATABASE_VERSION = 1
+export const DATABASE_VERSION = 2
 export const RECENT_STORE = 'recent'
 export const RECOVERY_STORE = 'recovery'
+
+/** The key of the one recovery record of version 1, whose `recovery` store had the key path `slot`. */
+const VERSION_1_SLOT = 'current'
 
 export type StoreName = typeof RECENT_STORE | typeof RECOVERY_STORE
 
@@ -35,7 +39,48 @@ export function transactionDone(transaction: IDBTransaction): Promise<void> {
   })
 }
 
-/** Opens the database, creating its object stores on first use. */
+/**
+ * Moves the recovery copy of version 1 into the version 2 store, inside the upgrade transaction:
+ * the one record under the slot `current` becomes an entry with a new id, and an invalid record is
+ * dropped (2.15).
+ */
+function upgradeRecoveryFromVersion1(database: IDBDatabase, upgrade: IDBTransaction): void {
+  const slot = upgrade.objectStore(RECOVERY_STORE).get(VERSION_1_SLOT)
+  slot.addEventListener('success', () => {
+    const record: unknown = slot.result
+    database.deleteObjectStore(RECOVERY_STORE)
+    const recovery = database.createObjectStore(RECOVERY_STORE, { keyPath: 'id' })
+    const entry =
+      typeof record === 'object' && record !== null
+        ? recoveryEntryFrom({ ...record, id: crypto.randomUUID() })
+        : null
+    if (entry !== null) {
+      recovery.put(entry)
+    }
+  })
+}
+
+/**
+ * Brings a database at `oldVersion` to the stores of `DATABASE_VERSION`, inside the open request's
+ * versionchange transaction `upgrade`: a new database gets them at once, and each later step runs
+ * only for a database older than the version that made it, so no upgrade redoes an earlier one.
+ */
+export function upgradeDatabase(
+  database: IDBDatabase,
+  upgrade: IDBTransaction,
+  oldVersion: number,
+): void {
+  if (oldVersion < 1) {
+    database.createObjectStore(RECENT_STORE, { keyPath: 'id' })
+    database.createObjectStore(RECOVERY_STORE, { keyPath: 'id' })
+    return
+  }
+  if (oldVersion < 2) {
+    upgradeRecoveryFromVersion1(database, upgrade)
+  }
+}
+
+/** Opens the database, creating or upgrading its object stores on first use. */
 function openDatabase(factory: IDBFactory): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     let rejected = false
@@ -44,13 +89,11 @@ function openDatabase(factory: IDBFactory): Promise<IDBDatabase> {
       reject(error)
     }
     const request = factory.open(DATABASE_NAME, DATABASE_VERSION)
-    request.addEventListener('upgradeneeded', () => {
-      const database = request.result
-      if (!database.objectStoreNames.contains(RECENT_STORE)) {
-        database.createObjectStore(RECENT_STORE, { keyPath: 'id' })
-      }
-      if (!database.objectStoreNames.contains(RECOVERY_STORE)) {
-        database.createObjectStore(RECOVERY_STORE, { keyPath: 'slot' })
+    request.addEventListener('upgradeneeded', (event) => {
+      // An upgrade runs in its versionchange transaction, which the open request holds meanwhile.
+      const upgrade = request.transaction
+      if (upgrade !== null) {
+        upgradeDatabase(request.result, upgrade, event.oldVersion)
       }
     })
     request.addEventListener('success', () => {

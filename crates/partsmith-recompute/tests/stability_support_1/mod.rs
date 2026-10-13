@@ -3,9 +3,14 @@
 //! geometry probes for fillet, chamfer and shell results, a collector of unmet expectations and
 //! resolver diagnostics.
 //!
-//! A scenario states several expectations (the result, the status, the message); [`Checks`] records
-//! each one that is not met and fails the test once with all of them, so a failing scenario shows
-//! everything that is wrong, with the resolver's view of the reference under test.
+//! A scenario states several expectations (the result, the status, the message);
+//! [`Expectations`] records each one that is not met and fails the test once with all of them, so
+//! a failing scenario shows everything that is wrong, with the resolver's view of the reference
+//! under test. Positions are compared at the corpus's 1e-6 mm (`EXACT_POSITION_TOLERANCE`).
+//!
+//! The record builders and readers the three thirds of the corpus share come from
+//! `stability_common`, which it includes with `#[path]` and re-exports, beside its own
+//! `feature_support`.
 //!
 //! It lives in its own directory, like `common/` and `feature_support/`, so Cargo does not build
 //! it as a test target of its own.
@@ -14,21 +19,26 @@
 // Each user of the module needs only some of the helpers.
 #![allow(dead_code)]
 
+#[path = "../feature_support/mod.rs"]
+pub mod feature_support;
+#[path = "../stability_common/mod.rs"]
+mod stability_common;
+
+pub use stability_common::*;
+
 use std::f64::consts::PI;
 
 use partsmith_features::{BodyState, Repair, SketchResult};
 use partsmith_model::Document;
-use partsmith_naming::{ElementKind, ElementName, Reference, Resolution, resolve, score};
-use partsmith_occt_sys::{ElementGeometry, GeometryKind, SubShapeKind};
+use partsmith_naming::{ElementKind, ElementName, MatchMethod, Resolution, resolve, score};
+use partsmith_occt_sys::{ElementGeometry, GeometryKind};
 use partsmith_recompute::{FeatureReport, Message, Report, Severity, Status};
 use partsmith_sketch::{RegionRef, match_region};
 use serde_json::{Value, json};
 
-/// Positions and lengths the corpus compares exactly (1e-6 mm).
-pub const POSITION_TOLERANCE: f64 = 1e-6;
-
-/// Relative tolerance of the corpus's volumes and areas.
-pub const RELATIVE_TOLERANCE: f64 = 1e-6;
+/// Positions and lengths the corpus compares exactly (1e-6 mm), which these scenarios check at
+/// the corpus's own precision rather than at the shared `POSITION_TOLERANCE`.
+pub const EXACT_POSITION_TOLERANCE: f64 = 1e-6;
 
 /// Warning codes that report a lost or unusable reference or region, which a notice never is.
 pub const LOSS_CODES: [&str; 6] = [
@@ -46,36 +56,12 @@ pub const GENERIC_LOSS: &str = "can no longer be found";
 
 // Sketch entities and feature records.
 
-/// A sketch line.
-pub fn line(id: &str, start: [f64; 2], end: [f64; 2]) -> Value {
-    json!({"id": id, "type": "line", "start": start, "end": end})
-}
-
-/// A sketch circle.
-pub fn circle(id: &str, center: [f64; 2], radius: f64) -> Value {
-    json!({"id": id, "type": "circle", "center": center, "radius": radius})
-}
-
 /// A sketch arc, counterclockwise from `start_angle` to `end_angle` (radians).
 pub fn arc(id: &str, center: [f64; 2], radius: f64, start_angle: f64, end_angle: f64) -> Value {
     json!({
         "id": id, "type": "arc", "center": center, "radius": radius,
         "start_angle": start_angle, "end_angle": end_angle
     })
-}
-
-/// Four lines `e-<first>` to `e-<first + 3>` drawn counterclockwise from the lower-left corner.
-pub fn rectangle(first: usize, x0: f64, y0: f64, x1: f64, y1: f64) -> Vec<Value> {
-    let corners = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
-    (0..4)
-        .map(|i| {
-            line(
-                &format!("e-{}", first + i),
-                corners[i],
-                corners[(i + 1) % 4],
-            )
-        })
-        .collect()
 }
 
 /// The region ref of [`rectangle`]: its key and its centroid and area fingerprint.
@@ -91,51 +77,12 @@ pub fn rectangle_region(first: usize, x0: f64, y0: f64, x1: f64, y1: f64) -> Val
         (y0 + y1) / 2.0,
         (x1 - x0) * (y1 - y0)
     );
-    region(&key, &fingerprint)
+    region_with_fingerprint(&key, &fingerprint)
 }
 
-/// A region ref.
-pub fn region(key: &str, fingerprint: &str) -> Value {
+/// A region ref with this key and fingerprint text.
+pub fn region_with_fingerprint(key: &str, fingerprint: &str) -> Value {
     json!({"key": key, "fp": fingerprint})
-}
-
-/// An element reference `{q, fp}`.
-pub fn reference(query: &str, fingerprint: &str) -> Value {
-    json!({"q": query, "fp": fingerprint})
-}
-
-/// A sketch on an origin plane (`XY`, `XZ` or `YZ`).
-pub fn sketch_on_origin(id: &str, plane: &str, entities: Vec<Value>) -> Value {
-    json!({"id": id, "type": "sketch", "plane": {"kind": "origin", "plane": plane}, "entities": entities})
-}
-
-/// A sketch on a datum plane feature.
-pub fn sketch_on_datum(id: &str, datum: &str, entities: Vec<Value>) -> Value {
-    json!({"id": id, "type": "sketch", "plane": {"kind": "datum", "feature": datum}, "entities": entities})
-}
-
-/// A face sketch on `face` of `b-1` with its stored fallback placement.
-pub fn sketch_on_face(
-    id: &str,
-    face: Value,
-    origin: [f64; 3],
-    x_axis: [f64; 3],
-    normal: [f64; 3],
-    entities: Vec<Value>,
-) -> Value {
-    json!({
-        "id": id, "type": "sketch",
-        "plane": {
-            "kind": "face", "body": "b-1", "face": face,
-            "fallback": {"origin": origin, "x_axis": x_axis, "normal": normal}
-        },
-        "entities": entities
-    })
-}
-
-/// A one-sided distance extent.
-pub fn distance(expr: &str) -> Value {
-    json!({"kind": "distance", "expr": expr})
 }
 
 /// A symmetric extent.
@@ -148,66 +95,9 @@ pub fn through_all() -> Value {
     json!({"kind": "through_all"})
 }
 
-/// An extrude into `b-1`.
-pub fn extrude(
-    id: &str,
-    sketch: &str,
-    regions: Vec<Value>,
-    extent: Value,
-    op: &str,
-    reverse: bool,
-) -> Value {
-    let mut record = json!({
-        "id": id, "type": "extrude", "body": "b-1",
-        "profile": {"sketch": sketch, "regions": regions},
-        "extent": extent, "op": op
-    });
-    if reverse {
-        record["reverse"] = json!(true);
-    }
-    record
-}
-
-/// A datum plane parallel to an origin plane at `offset`.
-pub fn datum_on_origin(id: &str, plane: &str, offset: &str) -> Value {
-    json!({"id": id, "type": "datum_plane", "base": {"kind": "origin", "plane": plane}, "offset": offset})
-}
-
-/// A datum plane on a face of `b-1` at `offset`.
-pub fn datum_on_face(id: &str, face: Value, offset: &str) -> Value {
-    json!({
-        "id": id, "type": "datum_plane",
-        "base": {"kind": "face", "body": "b-1", "face": face},
-        "offset": offset
-    })
-}
-
-/// A box in `body` at `position` (the default position when None).
-pub fn box_record(
-    id: &str,
-    body: &str,
-    size: [&str; 3],
-    position: Option<[&str; 3]>,
-    op: &str,
-) -> Value {
-    let mut record = json!({"id": id, "type": "box", "body": body, "size": size, "op": op});
-    if let Some(position) = position {
-        record["position"] = json!(position);
-    }
-    record
-}
-
-/// A fillet of `b-1`.
-pub fn fillet(id: &str, edges: Vec<Value>, radius: &str) -> Value {
-    json!({"id": id, "type": "fillet", "body": "b-1", "edges": edges, "radius": radius})
-}
-
-/// An equal-distance chamfer of `b-1`.
-pub fn chamfer_equal(id: &str, edges: Vec<Value>, distance: &str) -> Value {
-    json!({
-        "id": id, "type": "chamfer", "body": "b-1", "edges": edges,
-        "distance": {"kind": "equal", "expr": distance}
-    })
+/// The same extrude record with `reverse` set.
+pub fn reversed(record: Value) -> Value {
+    with(record, "reverse", json!(true))
 }
 
 /// A two-distance chamfer of `b-1`.
@@ -216,11 +106,6 @@ pub fn chamfer_two_distances(id: &str, edges: Vec<Value>, first: &str, second: &
         "id": id, "type": "chamfer", "body": "b-1", "edges": edges,
         "distance": {"kind": "two_distances", "expr": first, "second_expr": second}
     })
-}
-
-/// A shell of `b-1` removing `faces`.
-pub fn shell(id: &str, thickness: &str, faces: Vec<Value>) -> Value {
-    json!({"id": id, "type": "shell", "body": "b-1", "thickness": thickness, "remove_faces": faces})
 }
 
 /// A linear pattern of `b-1` along an origin axis (op join, the default).
@@ -237,12 +122,6 @@ pub fn split_body(id: &str, datum: &str, target: &str) -> Value {
         "id": id, "type": "split_body", "body": "b-1",
         "plane": {"kind": "datum", "feature": datum}, "target": target
     })
-}
-
-/// `record` with `suppressed` set.
-pub fn suppressed(mut record: Value) -> Value {
-    record["suppressed"] = json!(true);
-    record
 }
 
 /// A parameter record.
@@ -295,21 +174,21 @@ pub fn block_outline_to(x: f64) -> Vec<Value> {
 
 /// The BLOCK profile region as stored when the block was made.
 pub fn block_region() -> Value {
-    region("e-1,e-2,e-3,e-4", "c=40,25|a=4000")
+    region_with_fingerprint("e-1,e-2,e-3,e-4", "c=40,25|a=4000")
 }
 
 /// BLOCK with this outline in `f-sk1` and this extrude distance: `f-sk1` on XY and `f-ext1`, an
 /// extrude of the stored block region, op new.
 pub fn block_with(outline: Vec<Value>, height: &str) -> Vec<Value> {
     vec![
-        sketch_on_origin("f-sk1", "XY", outline),
+        sketch("f-sk1", origin_plane("XY"), outline),
         extrude(
             "f-ext1",
+            "b-1",
             "f-sk1",
             vec![block_region()],
             distance(height),
             "new",
-            false,
         ),
     ]
 }
@@ -321,22 +200,26 @@ pub fn block() -> Vec<Value> {
 
 /// `f-dp1`: datum XY offset 30 (the block top).
 pub fn top_datum() -> Value {
-    datum_on_origin("f-dp1", "XY", "30")
+    datum_offset("f-dp1", "XY", "30")
 }
 
-/// A slot cut 5 deep down from `f-dp1`: sketch `sketch` with a rectangle x `x0..x1`, y -1..51
-/// (entities `e-5` to `e-8`) and its reversed extrude `extrude_id`, op cut.
-pub fn slot(sketch: &str, extrude_id: &str, x0: f64, x1: f64) -> Vec<Value> {
+/// A slot cut 5 deep down from `f-dp1`: the sketch `sketch_feature` with a rectangle x `x0..x1`,
+/// y -1..51 (entities `e-5` to `e-8`) and its reversed extrude `extrude_feature`, op cut.
+pub fn slot(sketch_feature: &str, extrude_feature: &str, x0: f64, x1: f64) -> Vec<Value> {
     vec![
-        sketch_on_datum(sketch, "f-dp1", rectangle(5, x0, -1.0, x1, 51.0)),
-        extrude(
-            extrude_id,
-            sketch,
+        sketch(
+            sketch_feature,
+            datum_plane("f-dp1"),
+            rectangle(5, x0, -1.0, x1, 51.0),
+        ),
+        reversed(extrude(
+            extrude_feature,
+            "b-1",
+            sketch_feature,
             vec![rectangle_region(5, x0, -1.0, x1, 51.0)],
             distance("5"),
             "cut",
-            true,
-        ),
+        )),
     ]
 }
 
@@ -345,11 +228,6 @@ pub fn slot_setup(x0: f64, x1: f64) -> Vec<Value> {
     let mut records = vec![top_datum()];
     records.extend(slot("f-sk2", "f-ext2", x0, x1));
     records
-}
-
-/// CUBE20: `f-box1`, a 20 mm cube x -10..10, y -10..10, z 0..20.
-pub fn cube20() -> Value {
-    box_record("f-box1", "b-1", ["20", "20", "20"], None, "new")
 }
 
 /// The front top edge of CUBE20, as picked.
@@ -361,27 +239,6 @@ pub fn cube20_front_top() -> Value {
 }
 
 // Geometry probes.
-
-/// The sub-shape kind of an element kind.
-fn sub_shape(kind: ElementKind) -> SubShapeKind {
-    match kind {
-        ElementKind::Face => SubShapeKind::Face,
-        ElementKind::Edge => SubShapeKind::Edge,
-        ElementKind::Vertex => SubShapeKind::Vertex,
-    }
-}
-
-/// The kernel geometry of the element named `name` (face, edge or vertex), if the body has one.
-pub fn find_geometry(state: &BodyState, name: &str) -> Option<ElementGeometry> {
-    let element = ElementName::parse(name)
-        .unwrap_or_else(|error| panic!("{name} is not a valid element name: {error}"));
-    let index = state.naming().index(&element)?;
-    let geometry = state
-        .shape()?
-        .element(sub_shape(element.kind()), index)
-        .unwrap_or_else(|error| panic!("geometry of {name}: {error}"));
-    Some(geometry)
-}
 
 /// The names of a body's elements of one kind, sorted.
 pub fn names(state: &BodyState, kind: ElementKind) -> Vec<String> {
@@ -399,15 +256,6 @@ pub fn sorted(names: &[&str]) -> Vec<String> {
     let mut names: Vec<String> = names.iter().map(|name| (*name).to_owned()).collect();
     names.sort();
     names
-}
-
-/// The faces whose names start with `prefix`, with their geometry, sorted by name.
-pub fn faces_with_prefix(state: &BodyState, prefix: &str) -> Vec<(String, ElementGeometry)> {
-    names(state, ElementKind::Face)
-        .into_iter()
-        .filter(|name| name.starts_with(prefix))
-        .filter_map(|name| find_geometry(state, &name).map(|geometry| (name, geometry)))
-        .collect()
 }
 
 /// The volume of a body's solid, or None when it is empty.
@@ -484,8 +332,8 @@ pub fn is_edge_at(geometry: &ElementGeometry, centroid: [f64; 3], length: f64) -
     coordinates(geometry.centroid)
         .iter()
         .zip(centroid)
-        .all(|(a, b)| (a - b).abs() <= POSITION_TOLERANCE)
-        && (geometry.measure - length).abs() <= POSITION_TOLERANCE
+        .all(|(a, b)| (a - b).abs() <= EXACT_POSITION_TOLERANCE)
+        && (geometry.measure - length).abs() <= EXACT_POSITION_TOLERANCE
 }
 
 /// The names among `candidates` of edges in `state` with this centroid and length.
@@ -499,7 +347,7 @@ pub fn edges_at(
         .iter()
         .filter(|name| name.kind() == ElementKind::Edge)
         .filter(|name| {
-            find_geometry(state, name.as_str())
+            element(state, name.as_str())
                 .is_some_and(|geometry| is_edge_at(&geometry, centroid, length))
         })
         .map(|name| name.as_str().to_owned())
@@ -577,26 +425,13 @@ pub fn summary(report: &Report) -> String {
 
 // Diagnostics.
 
-/// A reference from its JSON.
-pub fn parse_reference(value: &Value) -> Reference {
-    serde_json::from_value(value.clone())
-        .unwrap_or_else(|error| panic!("{value} is not a valid reference: {error}"))
-}
-
-/// How the resolver resolves `reference` against a body state.
-pub fn resolution(state: &BodyState, reference: &Value) -> Resolution {
-    let reference = parse_reference(reference);
-    let elements = state.elements().expect("element infos of the body");
-    resolve(&reference, &elements, state.naming().aliases())
-}
-
 /// The resolution of `reference` against a body state and the five best fingerprint scores of
 /// elements of its kind, for failure reports.
 pub fn diagnose(state: &BodyState, reference: &Value) -> String {
     if state.is_empty() {
         return "the body is empty".to_owned();
     }
-    let parsed = parse_reference(reference);
+    let parsed = parsed_reference(reference);
     let kind = parsed.query.kind();
     let elements = state.elements().expect("element infos of the body");
     let mut scores: Vec<(f64, &str)> = elements
@@ -643,17 +478,17 @@ pub fn diagnose_region(sketch: &SketchResult, region: &Value) -> String {
 
 /// The unmet expectations of one scenario, with notes (diagnostics) for the failure report.
 #[derive(Default)]
-pub struct Checks {
+pub struct Expectations {
     /// One line per unmet expectation.
     failures: Vec<String>,
     /// Diagnostics shown with the failures.
     notes: Vec<String>,
 }
 
-impl Checks {
+impl Expectations {
     /// No expectations checked yet.
-    pub fn new() -> Checks {
-        Checks::default()
+    pub fn new() -> Expectations {
+        Expectations::default()
     }
 
     /// Adds a diagnostic to show if the scenario fails.
@@ -682,7 +517,7 @@ impl Checks {
 
     /// `actual` within the corpus's relative tolerance of `expected`.
     pub fn relative(&mut self, what: &str, actual: f64, expected: f64) {
-        self.near(what, actual, expected, RELATIVE_TOLERANCE * expected.abs());
+        self.near(what, actual, expected, VOLUME_TOLERANCE * expected.abs());
     }
 
     /// Every coordinate of `actual` within 1e-6 of `expected`.
@@ -690,7 +525,7 @@ impl Checks {
         let close = actual
             .iter()
             .zip(expected)
-            .all(|(a, b)| (a - b).abs() <= POSITION_TOLERANCE);
+            .all(|(a, b)| (a - b).abs() <= EXACT_POSITION_TOLERANCE);
         self.expect(close, || {
             format!("{what}: expected {expected:?}, got {actual:?}")
         });
@@ -718,14 +553,14 @@ impl Checks {
     /// The largest z of a body's bounding box (1e-6 mm).
     pub fn top_at(&mut self, what: &str, state: &BodyState, z: f64) {
         match bounds(state) {
-            Some((_, max)) => self.near(what, max[2], z, POSITION_TOLERANCE),
+            Some((_, max)) => self.near(what, max[2], z, EXACT_POSITION_TOLERANCE),
             None => self.fail(format!("{what}: the body is empty")),
         }
     }
 
     /// The face, edge or vertex named `name`; records a failure when the body has none.
     pub fn element(&mut self, state: &BodyState, name: &str) -> Option<ElementGeometry> {
-        let geometry = find_geometry(state, name);
+        let geometry = element(state, name);
         if geometry.is_none() {
             let kind = ElementName::parse(name)
                 .expect("a valid element name")
@@ -740,7 +575,7 @@ impl Checks {
 
     /// The body has no face named `name`.
     pub fn no_face(&mut self, state: &BodyState, name: &str) {
-        self.expect(find_geometry(state, name).is_none(), || {
+        self.expect(element(state, name).is_none(), || {
             format!("unexpected face {name}")
         });
     }
@@ -787,7 +622,7 @@ impl Checks {
                 &format!("{what} radius"),
                 actual,
                 radius,
-                POSITION_TOLERANCE,
+                EXACT_POSITION_TOLERANCE,
             );
         }
         let (Some(axis), Some(location)) = (geometry.direction, geometry.location) else {
@@ -815,7 +650,7 @@ impl Checks {
             &format!("{what}: distance from {point:?} to the axis"),
             distance,
             0.0,
-            POSITION_TOLERANCE,
+            EXACT_POSITION_TOLERANCE,
         );
     }
 
@@ -843,7 +678,8 @@ impl Checks {
     pub fn spans(&mut self, what: &str, actual: &[(f64, f64)], expected: &[(f64, f64)]) {
         let close = actual.len() == expected.len()
             && actual.iter().zip(expected).all(|(a, b)| {
-                (a.0 - b.0).abs() <= POSITION_TOLERANCE && (a.1 - b.1).abs() <= POSITION_TOLERANCE
+                (a.0 - b.0).abs() <= EXACT_POSITION_TOLERANCE
+                    && (a.1 - b.1).abs() <= EXACT_POSITION_TOLERANCE
             });
         self.expect(close, || {
             format!("{what}: expected spans {expected:?}, got {actual:?}")
@@ -1044,10 +880,15 @@ impl Checks {
 
     /// A reference resolves exactly (method exact) against a body state.
     pub fn resolves_exactly(&mut self, what: &str, state: &BodyState, reference: &Value) {
-        let resolution = resolution(state, reference);
+        let elements = state.elements().expect("element infos of the body");
+        let resolution = resolve(
+            &parsed_reference(reference),
+            &elements,
+            state.naming().aliases(),
+        );
         let exact = matches!(
             &resolution,
-            Resolution::Resolved { method, .. } if *method == partsmith_naming::MatchMethod::Exact
+            Resolution::Resolved { method, .. } if *method == MatchMethod::Exact
         );
         self.expect(exact, || {
             format!("{what} should resolve exactly, but resolves to {resolution:?}")

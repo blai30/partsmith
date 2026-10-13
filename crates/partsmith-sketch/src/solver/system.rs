@@ -16,6 +16,11 @@ use crate::reserved::{axis_line, is_origin, is_reserved};
 use crate::union_find::UnionFind;
 use crate::vector::{norm, signed_distance, subtract, unit};
 
+/// Offset of a point's sketch x coordinate from its first parameter.
+const X_COORDINATE: usize = 0;
+/// Offset of a point's sketch y coordinate from its first parameter.
+const Y_COORDINATE: usize = 1;
+
 /// The rows of a sketch and how they split into components.
 #[derive(Clone, Debug)]
 pub(crate) struct System {
@@ -225,9 +230,14 @@ impl Builder<'_> {
             ConstraintKind::PointOnObject { point, curve } => {
                 vec![self.point_on_object(owner, point, curve)]
             }
-            ConstraintKind::Horizontal(alignment) | ConstraintKind::Vertical(alignment) => {
+            // A horizontal pair shares its y coordinate, a vertical pair its x coordinate.
+            ConstraintKind::Horizontal(alignment) => {
                 let (first, second) = self.alignment(alignment);
-                equality_rows(owner, second, first, &[axis(&constraint.kind)])
+                equality_rows(owner, second, first, &[Y_COORDINATE])
+            }
+            ConstraintKind::Vertical(alignment) => {
+                let (first, second) = self.alignment(alignment);
+                equality_rows(owner, second, first, &[X_COORDINATE])
             }
             ConstraintKind::Parallel { lines } => one_row(self.angle_terms(lines, 1.0, 0.0)),
             ConstraintKind::Perpendicular { lines } => one_row(self.angle_terms(lines, 0.0, -1.0)),
@@ -281,17 +291,12 @@ impl Builder<'_> {
             ConstraintKind::Distance { target, dimension } if dimension.driving => {
                 vec![self.distance(owner, target, value())]
             }
-            ConstraintKind::HorizontalDistance { target, dimension }
-            | ConstraintKind::VerticalDistance { target, dimension }
-                if dimension.driving =>
-            {
-                let (first, second) = self.alignment(target);
-                vec![linear_row(
-                    owner,
-                    &[(1.0, second), (-1.0, first)],
-                    axis(&constraint.kind),
-                    -value(),
-                )]
+            // A horizontal distance is measured along x, a vertical distance along y.
+            ConstraintKind::HorizontalDistance { target, dimension } if dimension.driving => {
+                vec![self.offset_row(owner, target, X_COORDINATE, value())]
+            }
+            ConstraintKind::VerticalDistance { target, dimension } if dimension.driving => {
+                vec![self.offset_row(owner, target, Y_COORDINATE, value())]
             }
             ConstraintKind::Radius { curve, dimension } if dimension.driving => {
                 vec![Row::single(owner, self.curve(curve).radius, -value())]
@@ -393,6 +398,23 @@ impl Builder<'_> {
             }
             Alignment::Points { points } => (self.point(&points[0]), self.point(&points[1])),
         }
+    }
+
+    /// The row `second[coordinate] - first[coordinate] - distance` of an alignment's points.
+    fn offset_row(
+        &self,
+        owner: RowOwner,
+        target: &Alignment,
+        coordinate: usize,
+        distance: f64,
+    ) -> Row {
+        let (first, second) = self.alignment(target);
+        linear_row(
+            owner,
+            &[(1.0, second), (-1.0, first)],
+            coordinate,
+            -distance,
+        )
     }
 
     /// `S * (cross(u1, u2) * cos - dot(u1, u2) * sin)` for two lines.
@@ -601,15 +623,6 @@ fn linear_row(owner: RowOwner, points: &[(f64, PointTerm)], axis: usize, constan
         }
     }
     Row::new(owner, terms, total)
-}
-
-/// The coordinate whose difference a horizontal or vertical constraint sets: `x` (0) for `vertical`
-/// and `horizontal_distance`, `y` (1) for `horizontal` and `vertical_distance`.
-fn axis(kind: &ConstraintKind) -> usize {
-    match kind {
-        ConstraintKind::Vertical(_) | ConstraintKind::HorizontalDistance { .. } => 0,
-        _ => 1,
-    }
 }
 
 /// Rows `first[axis] - second[axis]` for each axis, with the equality each states.

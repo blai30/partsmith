@@ -80,14 +80,26 @@ describe('the status bar (3.21)', () => {
 
   it('shows "Loading core" while the core loads', () => {
     renderApp({
-      core: { status: 'loading', engineVersion: null, fatal: null, pendingMutations: 0 },
+      core: {
+        status: 'loading',
+        engineVersion: null,
+        fatal: null,
+        pendingMutations: 0,
+        stillWorking: false,
+      },
     })
     expect(screen.getByTestId('status-core')).toHaveTextContent('Loading core')
   })
 
   it('shows "Core stopped" in the error text role after a failure', () => {
     renderApp({
-      core: { status: 'failed', engineVersion: '0.1.0', fatal: 'trap', pendingMutations: 0 },
+      core: {
+        status: 'failed',
+        engineVersion: '0.1.0',
+        fatal: 'trap',
+        pendingMutations: 0,
+        stillWorking: false,
+      },
     })
     const status = screen.getByTestId('status-core')
     expect(status).toHaveTextContent('Core stopped')

@@ -12,12 +12,20 @@ import { isUnsaved } from '../../state/selectors'
 import type { AppState, DocumentState, FileReference } from '../../state/store'
 import { initialSessionVisibility } from '../../state/visibility'
 import { DEFAULT_CAMERA } from '../../viewport/camera'
-import { nowOf, startTransport } from '../connection'
+import { startTransport } from '../connection'
 import { loadCoreData, markCoreFailed, markCoreReady, openUntitled } from '../core-data'
 import type { App } from '../createApp'
+import { adoptRecoveryEntry, endRecoverySession, removeRecoveryEntry } from '../recovery-copy'
 import { measureToNextFrame } from '../timing'
 import { cancelCommand, redoCommandChange, undoCommandChange } from './command'
-import { commitEdits, documentOf, mutate, refusedDuringCommand, showCoreError } from './edits'
+import {
+  commitEdits,
+  documentOf,
+  mutate,
+  refusedDuringCommand,
+  showCoreError,
+  type StoppedNotice,
+} from './edits'
 import { showSaveError } from './files'
 import { announce, notify } from './notifications'
 import { leaveSketchHistory, redoInSketch, undoInSketch } from './sketch'
@@ -82,58 +90,36 @@ async function cancelCommandOfReplaced(app: App): Promise<void> {
   }
 }
 
-function recoveryEntryFor(app: App, document: DocumentState): RecoveryEntry {
-  return {
-    name: document.name,
-    text: JSON.stringify(document.recipe, null, 2),
-    savedAt: nowOf(app),
-    handle: document.file?.handle ?? null,
-    reason: 'replaced',
-  }
-}
-
 /**
- * Closes the document the new one replaces: an unsaved one is first kept as a recovery copy, and
- * the returned function then offers to reopen it (3.19). With `clearRecovery` (a New), a clean one
- * clears the recovery store.
+ * Closes the document the new one replaces and ends its recovery session: an unsaved one is first
+ * kept as a `replaced` recovery entry, and the returned function then offers to reopen it (3.19).
  */
-async function closeReplaced(
-  app: App,
-  replaced: DocumentState | null,
-  clearRecovery: boolean,
-): Promise<() => void> {
+async function closeReplaced(app: App, replaced: DocumentState | null): Promise<() => void> {
   if (replaced === null) {
     return () => undefined
   }
-  let stashed: RecoveryEntry | null = null
-  if (isUnsaved(replaced)) {
-    stashed = recoveryEntryFor(app, replaced)
-    await app.recovery.write(stashed)
-  } else if (clearRecovery) {
-    await app.recovery.clear()
-  }
+  const stashed = await endRecoverySession(app, replaced)
   try {
-    await app.mutations.run(() => app.core.closeDocument(replaced.documentHandle))
+    await app.mutations.run(() => app.core.closeDocument(replaced.documentHandle), 'other')
   } catch (error) {
     // A document the core no longer has is closed already.
     if (!(error instanceof CoreError)) {
       throw error
     }
   }
-  const entry = stashed
   return () => {
-    if (entry === null) {
+    if (stashed === null) {
       return
     }
     notify(app, {
       severity: 'info',
-      message: MESSAGES.stashed(entry.name),
+      message: MESSAGES.stashed(stashed.name),
       code: 'stashed',
       actions: [
         {
           label: 'Reopen',
           run: () => {
-            void openRecovered(app, entry)
+            void openRecovered(app, stashed)
           },
         },
       ],
@@ -148,13 +134,18 @@ type DocumentSource = {
   readonly localUnsaved: boolean
   /** The file name used in messages. */
   readonly fileName: string
+  /** The warning shown when the core stops before the document is open (4.4). */
+  readonly stopped: StoppedNotice
 }
 
-/** Opens a recipe text in place of the current document (3.19 openFile step 3 and 4). */
-async function replaceDocument(app: App, source: DocumentSource): Promise<boolean> {
+/**
+ * Opens a recipe text in place of the current document (3.19 openFile step 3 and 4) in a new
+ * document session. Resolves the session's recovery id, or null when the text was not opened.
+ */
+async function replaceDocument(app: App, source: DocumentSource): Promise<string | null> {
   let opened: Awaited<ReturnType<CoreApi['openDocument']>>
   try {
-    opened = await app.mutations.run(() => app.core.openDocument(source.text))
+    opened = await app.mutations.run(() => app.core.openDocument(source.text), 'other')
   } catch (error) {
     if (error instanceof CoreError) {
       notify(app, {
@@ -163,17 +154,26 @@ async function replaceDocument(app: App, source: DocumentSource): Promise<boolea
         code: 'open_failed',
         actions: [],
       })
-      return false
+      return null
     }
-    showCoreError(app, error)
-    return false
+    showCoreError(app, error, { stopped: source.stopped })
+    return null
   }
-  await cancelCommandOfReplaced(app)
-  const offerReopen = await closeReplaced(app, documentOf(app), false)
+  let offerReopen: () => void
+  try {
+    await cancelCommandOfReplaced(app)
+    offerReopen = await closeReplaced(app, documentOf(app))
+  } catch (error) {
+    // The core stopped before the replaced document was closed, so the opened one is not shown.
+    showCoreError(app, error, { stopped: source.stopped })
+    return null
+  }
+  const recoveryId = crypto.randomUUID()
   adoptDocument(app.store, opened.documentHandle, {
     name: source.name,
     file: source.file,
     localUnsaved: source.localUnsaved,
+    recoveryId,
   })
   startDocumentSession(app)
   const viewport = app.viewport()
@@ -188,43 +188,64 @@ async function replaceDocument(app: App, source: DocumentSource): Promise<boolea
     })
   }
   offerReopen()
-  return true
+  return recoveryId
 }
 
-/** Opens a recovery copy as a locally unsaved document named after it (3.19). */
+/**
+ * Opens a recovery entry as a locally unsaved document named after it, in a new document session
+ * that takes the entry over (3.19). An entry the core refuses stays.
+ */
 async function openRecovered(app: App, entry: RecoveryEntry): Promise<void> {
-  await replaceDocument(app, {
+  const recoveryId = await replaceDocument(app, {
     text: entry.text,
     name: entry.name,
     file: entry.handle === null ? null : { name: entry.handle.name, handle: entry.handle },
     localUnsaved: true,
     fileName: entry.name,
+    stopped: {
+      code: 'recovery_open_stopped',
+      message: MESSAGES.recovery_open_stopped(entry.name),
+    },
   })
+  if (recoveryId !== null) {
+    await adoptRecoveryEntry(app, entry, recoveryId)
+  }
 }
 
-/** Offers the recovery copy kept from an earlier session, without opening it (3.1 step 5). */
-async function offerRecovery(app: App): Promise<void> {
-  const entry = await app.recovery.read()
-  if (entry === null) {
+/**
+ * Offers recovery entries one at a time, newest first, each with Open and Discard; once either
+ * has finished, the next one is offered. Dismissing an offer leaves the rest for the next startup.
+ */
+function offerRecoveries(app: App, entries: readonly RecoveryEntry[]): void {
+  const [entry, ...waiting] = entries
+  if (entry === undefined) {
     return
+  }
+  const time = recoveryTime(entry.savedAt)
+  const offerNext = (): void => {
+    offerRecoveries(app, waiting)
   }
   notify(
     app,
     {
       severity: 'info',
-      message: MESSAGES.recovered(entry.name, recoveryTime(entry.savedAt)),
-      code: 'recovered',
+      ...(waiting.length === 0
+        ? { message: MESSAGES.recovered(entry.name, time), code: 'recovered' }
+        : {
+            message: MESSAGES.recovered_more(entry.name, time, waiting.length),
+            code: 'recovered_more',
+          }),
       actions: [
         {
           label: 'Open',
           run: () => {
-            void openRecovered(app, entry)
+            void openRecovered(app, entry).then(offerNext)
           },
         },
         {
           label: 'Discard',
           run: () => {
-            void app.recovery.clear()
+            void app.recovery.remove(entry.id).then(offerNext)
           },
         },
       ],
@@ -243,7 +264,8 @@ export async function startCore(app: App): Promise<void> {
     markCoreFailed(app.store, errorMessage(error))
     return
   }
-  await offerRecovery(app)
+  // The entries of sessions that no running page holds; none is opened without being asked.
+  offerRecoveries(app, await app.recovery.list())
   try {
     await openUntitled(app)
     startDocumentSession(app)
@@ -256,13 +278,15 @@ export async function startCore(app: App): Promise<void> {
 export async function newDocument(app: App): Promise<void> {
   try {
     await cancelCommandOfReplaced(app)
-    const offerReopen = await closeReplaced(app, documentOf(app), true)
+    const offerReopen = await closeReplaced(app, documentOf(app))
     await openUntitled(app)
     startDocumentSession(app)
     app.viewport()?.setCamera(DEFAULT_CAMERA)
     offerReopen()
   } catch (error) {
-    showCoreError(app, error)
+    showCoreError(app, error, {
+      stopped: { code: 'new_stopped', message: MESSAGES.new_stopped() },
+    })
   }
 }
 
@@ -297,8 +321,9 @@ export async function openFile(app: App, file: OpenedFile): Promise<void> {
     file: { name: file.name, handle: file.handle },
     localUnsaved: false,
     fileName: file.name,
+    stopped: { code: 'open_stopped', message: MESSAGES.open_stopped(file.name) },
   })
-  if (opened) {
+  if (opened !== null) {
     measureToNextFrame(TIMING_NAMES.open, started)
     await app.recent.remember({ name: file.name, handle: file.handle, text })
   }
@@ -381,7 +406,10 @@ async function writeDocument(app: App, target: SaveTarget): Promise<boolean> {
   if (document === null) {
     return false
   }
-  const saved = await mutate(app, (current) => app.core.saveDocument(current.documentHandle))
+  const saved = await mutate(app, (current) => app.core.saveDocument(current.documentHandle), {
+    kind: 'other',
+    stopped: { code: 'save_stopped', message: MESSAGES.save_stopped(target.name) },
+  })
   if (saved === null) {
     return false
   }
@@ -394,8 +422,11 @@ async function writeDocument(app: App, target: SaveTarget): Promise<boolean> {
     }
     throw error
   }
-  const marked = await mutate(app, (current) =>
-    app.core.markSaved(current.documentHandle, saved.revision),
+  // A core that stops now leaves the written document unsaved, which keeps its recovery copy.
+  const marked = await mutate(
+    app,
+    (current) => app.core.markSaved(current.documentHandle, saved.revision),
+    { kind: 'other' },
   )
   if (marked === null) {
     return false
@@ -403,7 +434,12 @@ async function writeDocument(app: App, target: SaveTarget): Promise<boolean> {
   app.store.setState((state) =>
     state.document === null ? {} : { document: { ...state.document, localUnsaved: false } },
   )
-  await app.recovery.clear()
+  // Only the saved session's entry goes, and only when nothing is left unsaved: an edit made while
+  // the file was written keeps it, and a document that replaced it meanwhile keeps its own.
+  const current = documentOf(app)
+  if (current?.recoveryId === document.recoveryId && !isUnsaved(current)) {
+    await removeRecoveryEntry(app, current)
+  }
   return true
 }
 

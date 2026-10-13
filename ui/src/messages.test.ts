@@ -32,17 +32,42 @@ const CASES: readonly Case[] = [
   [
     'core_still_working',
     () => MESSAGES.core_still_working(10),
-    'The geometry core has been working for more than 10 seconds, and Partsmith cannot tell whether it will finish. Stopping it reopens your document as it was after the last change the core finished.',
+    'The geometry core has been working for more than 10 seconds, and Partsmith cannot tell whether it will finish. Stopping it reopens your document as it was after the last change the core finished, and closes any open feature command without keeping it.',
   ],
   [
     'core_still_working_desktop',
     () => MESSAGES.core_still_working_desktop(10),
-    'The geometry core has been working for more than 10 seconds, and Partsmith cannot tell whether it will finish. The desktop app cannot stop it yet: wait, or quit Partsmith, which keeps your changes up to the last one the core finished.',
+    'The geometry core has been working for more than 10 seconds, and Partsmith cannot tell whether it will finish. The desktop app cannot stop it yet: wait, or quit Partsmith, which keeps your changes up to the last one the core finished, except those of an open feature command.',
   ],
   [
     'changes_not_applied',
     () => MESSAGES.changes_not_applied(),
     'Your latest changes were not applied, because the geometry core was stopped before it finished them. Make them again if you still want them.',
+  ],
+  [
+    'save_stopped',
+    () => MESSAGES.save_stopped('bracket.ptsm'),
+    'bracket.ptsm was not saved, because the geometry core stopped before saving it. Save it again.',
+  ],
+  [
+    'export_stopped',
+    () => MESSAGES.export_stopped('bracket.stl'),
+    'bracket.stl was not exported, because the geometry core stopped before exporting it. Export it again.',
+  ],
+  [
+    'open_stopped',
+    () => MESSAGES.open_stopped('bracket.ptsm'),
+    'bracket.ptsm was not opened, because the geometry core stopped before opening it. Open it again.',
+  ],
+  [
+    'recovery_open_stopped',
+    () => MESSAGES.recovery_open_stopped('bracket'),
+    'The unsaved changes to bracket were not opened, because the geometry core stopped before opening them. They are still kept, and Partsmith offers them again the next time it starts.',
+  ],
+  [
+    'new_stopped',
+    () => MESSAGES.new_stopped(),
+    'The new document was not opened, because the geometry core stopped before opening it. Choose New again.',
   ],
   [
     'not_ptsm',
@@ -327,7 +352,7 @@ describe('MESSAGES', () => {
 
   it('U-73 has an entry for every message id of 4.3', () => {
     expect(Object.keys(MESSAGES)).toEqual(expect.arrayContaining(CASES.map(([id]) => id)))
-    expect(CASES).toHaveLength(81)
+    expect(CASES).toHaveLength(86)
   })
 
   it('U-73 recovered_more counts one other document in the singular', () => {

@@ -1,13 +1,14 @@
-// Acceptance tests 14 to 19 and 26 to 31 of docs/spec/delivery.md section 6 for the distribution check.
+// Acceptance tests 14 to 19 and 26 to 33 of docs/spec/delivery.md section 6 for the distribution check.
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
-import { mkdir, mkdtemp, readFile, rm, symlink, truncate, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, mkdtemp, readFile, rm, symlink, truncate, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { gzipSync } from 'node:zlib'
+import { resolveConfig } from 'vite'
 
 import {
   EXPECTED_HEADERS,
@@ -21,6 +22,7 @@ import {
 
 const scriptPath = fileURLToPath(new URL('check-dist.mjs', import.meta.url))
 const publicHeadersPath = fileURLToPath(new URL('../public/_headers', import.meta.url))
+const uiDirectory = fileURLToPath(new URL('..', import.meta.url))
 
 // The cross-origin isolation headers exactly as section 2.7 gives them.
 const isolationHeaders =
@@ -58,7 +60,7 @@ function missingDirectoryMessage(directory) {
 
 /** The section 4 message for a script or preload of `index.html` that is not a file of the build. */
 function unresolvedMessage(directory, reference) {
-  return `${directory}/index.html loads ${reference}, which is not a file in ${directory}. Every script the page loads must be part of the build.`
+  return `${directory}/index.html loads ${reference}, which is not a file in ${directory}. Make it the path of a file of the build, with no scheme, query or fragment, and keep base in vite.config.ts as '/' or './'.`
 }
 
 /** The section 4 message for initial JavaScript over `limit`, with `files` as `{ path, gzippedSize }` in path order. */
@@ -99,6 +101,17 @@ function generatedScript() {
 function pageWith(tags) {
   const head = tags.map((tag) => `    ${tag}\n`).join('')
   return `<!doctype html>\n<html lang="en">\n  <head>\n    <meta charset="UTF-8" />\n${head}  </head>\n  <body>\n    <div id="root"></div>\n  </body>\n</html>\n`
+}
+
+let buildConfiguration
+
+/** Vite's configuration for `pnpm build`, resolved from `ui/vite.config.ts` once for all tests. */
+function resolvedBuildConfiguration() {
+  buildConfiguration ??= resolveConfig(
+    { root: uiDirectory, configFile: join(uiDirectory, 'vite.config.ts'), logLevel: 'silent' },
+    'build',
+  )
+  return buildConfiguration
 }
 
 /** Creates a temporary directory that is removed when the test ends. */
@@ -553,5 +566,50 @@ test('31: the command on a directory over the initial JavaScript limit exits 1 w
     status: 1,
     stdout: '',
     stderr: `${overLimitMessage('dist', totalOf(files), 250_000, files)}\n`,
+  })
+})
+
+test("32: the build keeps Vite's default build.modulePreload, so every static chunk has a modulepreload link", async () => {
+  const configuration = await resolvedBuildConfiguration()
+
+  assert.deepEqual(configuration.build.modulePreload, { polyfill: true })
+})
+
+test("32: the build keeps Vite's name assets/[name]-[hash].js for the worker script", async () => {
+  const configuration = await resolvedBuildConfiguration()
+
+  assert.equal(configuration.build.assetsDir, 'assets')
+  assert.equal(configuration.worker.rolldownOptions.output, undefined)
+})
+
+test('32: src/core/core.worker.ts is a regular file', async () => {
+  const worker = await lstat(join(uiDirectory, 'src', 'core', 'core.worker.ts'))
+
+  assert.ok(worker.isFile())
+})
+
+test('32: transport.ts passes the URL of core.worker.ts to new Worker', async () => {
+  const transport = await readFile(join(uiDirectory, 'src', 'core', 'transport.ts'), 'utf8')
+
+  assert.match(transport, /new Worker\(\s*new URL\('\.\/core\.worker\.ts', import\.meta\.url\)/)
+})
+
+test('33: initialJavaScript reads the attributes of a tag in any order', async (context) => {
+  const directory = await temporaryDirectory(context)
+  const entry = Buffer.from('export const entry = 1\n')
+  const vendor = Buffer.from('export const vendor = 1\n')
+  await writeFileAt(
+    join(directory, 'index.html'),
+    pageWith([
+      '<link crossorigin href="/assets/vendor-b2.js" rel="modulepreload">',
+      '<script src="/assets/index-a1.js" type="module"></script>',
+    ]),
+  )
+  await writeFileAt(join(directory, 'assets', 'index-a1.js'), entry)
+  await writeFileAt(join(directory, 'assets', 'vendor-b2.js'), vendor)
+
+  assert.deepEqual(await initialJavaScript(directory), {
+    files: [initialFile('assets/index-a1.js', entry), initialFile('assets/vendor-b2.js', vendor)],
+    unresolved: [],
   })
 })

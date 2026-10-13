@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, ClassVar, overload
 
 from .document import Document, Part, current_part
 from .errors import SelectionError
-from .expressions import items_of, raw_angle, raw_number
+from .expressions import items_of, raw_angle, raw_number, triple
 from .reports import Point3, point
 from .sketch import Placement
 
@@ -33,7 +33,7 @@ ELEMENT_KINDS = ("face", "edge", "vertex")
 def _vector(values: object, name: str) -> Point3:
     """Three finite floats."""
     items = items_of(values, 3, f"{name} must be three numbers (x, y, z).")
-    return point([raw_number(value, name) for value in items])
+    return triple([raw_number(value, name) for value in items])
 
 
 @dataclass(frozen=True)
@@ -52,7 +52,7 @@ class Axis:
         length = math.hypot(*direction)
         if length == 0:
             raise ValueError("Axis direction must not be zero.")
-        object.__setattr__(self, "direction", point(component / length for component in direction))
+        object.__setattr__(self, "direction", triple(component / length for component in direction))
         object.__setattr__(self, "origin", _vector(self.origin, "Axis origin"))
 
     def _coordinate(self, position: Point3) -> float:

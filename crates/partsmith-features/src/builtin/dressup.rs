@@ -44,65 +44,11 @@ pub(super) struct SelectedEdge {
     pub(super) faces: Vec<u32>,
 }
 
-/// The edges a fillet or chamfer works on, of a body that holds a solid.
-pub(super) struct BlendTarget<'a> {
-    /// The body.
-    pub(super) body: &'a Id,
-    /// Its state just before the feature.
-    pub(super) state: &'a BodyState,
-    /// Its shape.
-    pub(super) shape: &'a Shape,
-    /// The `edges` references.
-    pub(super) edges: &'a [Reference],
-}
-
-/// Builds a fillet or chamfer (fillet.md and chamfer.md section 3.3): selects the edges of
-/// `target`, gives the kernel `operation` the input `edge_input` makes for each of them in name
-/// order at the `requested` value, with the "too large" search, and names the result faces of the
-/// blend by `role`. Without an edge to work on, the body keeps its state with `NoEffect`.
-pub(super) fn blend<Edge>(
-    context: &BuildContext<'_>,
-    target: BlendTarget<'_>,
-    role: &str,
-    requested: f64,
-    edge_input: impl Fn(&SelectedEdge) -> Result<Edge, FeatureError>,
-    operation: impl Fn(&[Edge], f64) -> Result<OpResult, KernelError>,
-    too_large: impl FnOnce(Option<f64>, KernelError) -> FeatureError,
-) -> Result<FeatureOutput, FeatureError> {
-    let selection = select_edges(
-        context,
-        target.body,
-        target.state,
-        target.shape,
-        target.edges,
-    )?;
-    if selection.edges.is_empty() {
-        return Ok(no_effect(target.body, target.state, selection.warnings));
-    }
-    let edges = sorted_by_name(target.state.naming(), &selection.edges)?
-        .into_iter()
-        .map(edge_input)
-        .collect::<Result<Vec<_>, FeatureError>>()?;
-    let result = run_or_search(
-        context,
-        requested,
-        |value| operation(&edges, value),
-        too_large,
-    )?;
-    let named = name_blend(context.feature(), role, target.state.naming(), &result)?;
-    Ok(modified(
-        target.body,
-        result.shape,
-        named,
-        selection.warnings,
-    ))
-}
-
 /// Resolves the `edges` references in `body`, which holds `shape` in `state`, and skips the smooth
 /// edges with an `Ignored` warning each (fillet.md section 3.3 steps 3 and 4, chamfer.md step 3).
 /// The faces of each edge come from the body state's topology, which resolving the references has
 /// already read.
-fn select_edges(
+pub(super) fn select_edges(
     context: &BuildContext<'_>,
     body: &Id,
     state: &BodyState,
@@ -322,6 +268,20 @@ pub(super) fn new_face(
     face_name(feature, role, element.map(Generator::Element)).map(FaceSource::New)
 }
 
+/// The output of a fillet or chamfer that changed `body`, whose state before the feature is
+/// `state`, into `result`: the result's faces named by `role` (`name_blend`), then the update.
+pub(super) fn finish_blend(
+    context: &BuildContext<'_>,
+    body: &Id,
+    state: &BodyState,
+    role: &str,
+    result: OpResult,
+    warnings: Vec<FeatureWarning>,
+) -> Result<FeatureOutput, FeatureError> {
+    let named = name_blend(context.feature(), role, state.naming(), &result)?;
+    Ok(modified(body, result.shape, named, warnings))
+}
+
 /// Names a fillet or chamfer result (naming.md sections 3.6.5 and 3.6.6). Each face keeps the
 /// names of the body faces it descends from; a face generated from body edges is named
 /// `<feature>/<role>/<smallest edge name>`, one generated from body vertices
@@ -376,7 +336,7 @@ pub(super) fn modified(
 /// `edges` references never changes the result: the kernel's result depends on the order it gets
 /// edges in (in the last bits of its geometry, and for a chamfer the side of a whole tangent
 /// chain comes from the first of its edges it receives).
-fn sorted_by_name<'a>(
+pub(super) fn sorted_by_name<'a>(
     naming: &NamingMap,
     edges: &'a [SelectedEdge],
 ) -> Result<Vec<&'a SelectedEdge>, FeatureError> {
@@ -397,7 +357,11 @@ fn sorted_by_name<'a>(
 
 /// The output of a fillet or chamfer left with no edge to work on: `body` keeps its `state`, and a
 /// `NoEffect` warning follows the other warnings (fillet.md section 3.3 step 4).
-fn no_effect(body: &Id, state: &BodyState, mut warnings: Vec<FeatureWarning>) -> FeatureOutput {
+pub(super) fn no_effect(
+    body: &Id,
+    state: &BodyState,
+    mut warnings: Vec<FeatureWarning>,
+) -> FeatureOutput {
     warnings.push(FeatureWarning::NoEffect { body: body.clone() });
     bodies(vec![unchanged(body, state, BodyChange::Modify)], warnings)
 }

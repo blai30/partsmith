@@ -626,6 +626,19 @@ describe('ps:expression (2.18)', () => {
     await settle()
     expect(expressionMeasures()).toHaveLength(2)
 
+    // 2345, then back to 234 before its result shows: 234's result shows at once, so evaluating
+    // 234 again records no measure.
+    await user.type(input, '5')
+    await waitFor(() => {
+      expect(asked.map((evaluation) => evaluation.expression)).toContain('2345')
+    })
+    await user.type(input, '{Backspace}')
+    expect(screen.getByTestId('expression-result')).toHaveTextContent(/^mm$/)
+    await answer(asked, '2345', { value: 2345, dimension: PLAIN })
+    await answer(asked, '234', { value: 234, dimension: PLAIN }, 2)
+    await settle()
+    expect(expressionMeasures()).toHaveLength(2)
+
     // A newly shown field measures its first text.
     renderWithApp(app, <Harness initial="10 mm" id="height" label="Height" />)
     await answer(asked, '10 mm', { value: 10, dimension: LENGTH })

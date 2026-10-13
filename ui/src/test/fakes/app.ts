@@ -45,17 +45,17 @@ type FakeCoreOptions = Omit<FakeTransportOptions, 'journal'>
 /** A recovery store that also logs "recovery.<method>" to the journal. */
 function journaledRecovery(recovery: RecoveryStore, journal: string[]): RecoveryStore {
   return {
-    read: () => {
-      journal.push('recovery.read')
-      return recovery.read()
+    list: () => {
+      journal.push('recovery.list')
+      return recovery.list()
     },
     write: (entry) => {
       journal.push('recovery.write')
       return recovery.write(entry)
     },
-    clear: () => {
-      journal.push('recovery.clear')
-      return recovery.clear()
+    remove: (id) => {
+      journal.push('recovery.remove')
+      return recovery.remove(id)
     },
   }
 }

@@ -189,7 +189,7 @@ function gzippedTotal(initialFiles) {
 function initialJavaScriptMessages(directory, initial, limit) {
   const unresolved = initial.unresolved.map(
     (reference) =>
-      `${directory}/index.html loads ${reference}, which is not a file in ${directory}. Every script the page loads must be part of the build.`,
+      `${directory}/index.html loads ${reference}, which is not a file in ${directory}. Make it the path of a file of the build, with no scheme, query or fragment, and keep base in vite.config.ts as '/' or './'.`,
   )
   const total = gzippedTotal(initial.files)
   if (total <= limit) {

@@ -1,8 +1,7 @@
 /// <reference lib="dom" />
-import { fileURLToPath } from 'node:url'
 import { expect, test, type Page } from '@playwright/test'
-import { createServer, type ViteDevServer } from 'vite'
 import type { Sample } from './pages/viewport-harness'
+import { serveTestPage } from './support/test-pages'
 
 // What e2e/pages/viewport.html puts on window: the harness around the real WebGL2 backend, served by Vite from src/.
 type HarnessModule = typeof import('./pages/viewport-harness')
@@ -16,30 +15,7 @@ const CANVAS_WIDTH = 320
 const CANVAS_HEIGHT = 240
 const PIXEL_RATIO = 2
 
-const uiDirectory = fileURLToPath(new URL('..', import.meta.url))
-let server: ViteDevServer | null = null
-let pageUrl = ''
-
-// The production preview serves only the app, so these tests serve their own page from a Vite dev server.
-test.beforeAll(async () => {
-  server = await createServer({
-    root: uiDirectory,
-    logLevel: 'error',
-    clearScreen: false,
-    server: { port: 0, hmr: false },
-    optimizeDeps: { entries: ['e2e/pages/viewport.html'] },
-  })
-  await server.listen()
-  const base = server.resolvedUrls?.local[0]
-  if (base === undefined) {
-    throw new Error('The Vite dev server reported no local URL.')
-  }
-  pageUrl = new URL('e2e/pages/viewport.html', base).href
-})
-
-test.afterAll(async () => {
-  await server?.close()
-})
+const harnessPage = serveTestPage('viewport.html')
 
 // Opens the test page and waits until the harness is on window.
 async function openHarness(page: Page): Promise<void> {
@@ -50,7 +26,7 @@ async function openHarness(page: Page): Promise<void> {
       pageErrors.push(message.text())
     }
   })
-  await page.goto(pageUrl)
+  await page.goto(harnessPage.url)
   const ready = await page
     .locator('body[data-ready=true]')
     .waitFor({ timeout: 15_000 })

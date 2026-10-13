@@ -1,7 +1,5 @@
 /// <reference lib="dom" />
-import { fileURLToPath } from 'node:url'
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { createServer, type ViteDevServer } from 'vite'
 import {
   canvas,
   dropFile,
@@ -24,6 +22,7 @@ import {
 import type { measureTransfers } from './pages/transfer-harness'
 import { wheelAt } from './support/print'
 import { editSketchFromTimeline } from './support/sketch'
+import { serveTestPage } from './support/test-pages'
 
 // The performance tests of ui.md 6.7, tagged @perf and run only with PARTSMITH_PERF=1, on the
 // reference machine before a release until the fixed hardware runner exists (delivery.md 1.2).
@@ -44,9 +43,6 @@ const REBUILD_TIMEOUT_MILLISECONDS = 30_000
  * the pick takes seconds, so the default expect timeout would end the run before it reports.
  */
 const PICK_TIMEOUT_MILLISECONDS = 30_000
-
-/** The time between pointer moves of a timed gesture: one per frame at 60 frames a second. */
-const MOVE_INTERVAL_MILLISECONDS = 1_000 / 60
 
 /** A measured value and the budget it is held to. */
 type Measured = { readonly statistic: string; readonly value: number; readonly budget: number }
@@ -70,6 +66,14 @@ function expectWithinBudgets(id: string, measured: readonly Measured[]): void {
   for (const { statistic, value, budget } of measured) {
     expect.soft(value, `${id} ${statistic}`).toBeLessThanOrEqual(budget)
   }
+}
+
+/**
+ * The nearest-rank percentile of `values`, or NaN when there is none, so the test still reports
+ * its other values and then fails this one's budget.
+ */
+function measuredPercentile(values: readonly number[], fraction: number): number {
+  return values.length === 0 ? Number.NaN : percentile(values, fraction)
 }
 
 /** The longest of the long tasks, 0 when there was none, held to the 50 ms budget. */
@@ -106,28 +110,6 @@ async function movePaced(page: Page, path: readonly PagePoint[], duration: numbe
     await waitUntil(page, start + (duration * (index + 1)) / path.length)
     // oxlint-disable-next-line no-await-in-loop
     await page.mouse.move(point.x, point.y)
-  }
-}
-
-/**
- * Moves the mouse from `from` to `to` at an even speed for `duration` ms, one move per
- * `MOVE_INTERVAL_MILLISECONDS` or as fast as the page takes them, the last one at `to`.
- */
-async function moveFor(
-  page: Page,
-  from: PagePoint,
-  to: PagePoint,
-  duration: number,
-): Promise<void> {
-  const start = performance.now()
-  let fraction = 0
-  for (let i = 1; fraction < 1; i++) {
-    // The moves are paced: each waits for its time, then moves to where the gesture is by then.
-    // oxlint-disable-next-line no-await-in-loop
-    await waitUntil(page, start + i * MOVE_INTERVAL_MILLISECONDS)
-    fraction = Math.min((performance.now() - start) / duration, 1)
-    // oxlint-disable-next-line no-await-in-loop
-    await page.mouse.move(from.x + (to.x - from.x) * fraction, from.y + (to.y - from.y) * fraction)
   }
 }
 
@@ -188,9 +170,13 @@ test('P-2 sketch drag, 500 constraints: 95th percentile of ps:sketch-drag at mos
   await page.mouse.up()
   const drags = await measures(page, 'ps:sketch-drag', since)
   const tasks = await longTasks(page, since)
-  expect(drags.length, 'ps:sketch-drag measures during the drag').toBeGreaterThan(0)
+  expect.soft(drags.length, 'ps:sketch-drag measures during the drag').toBeGreaterThan(0)
   expectWithinBudgets('P-2', [
-    { statistic: 'ps:sketch-drag 95th percentile', value: percentile(drags, 0.95), budget: 16 },
+    {
+      statistic: 'ps:sketch-drag 95th percentile',
+      value: measuredPercentile(drags, 0.95),
+      budget: 16,
+    },
     longestLongTask(tasks),
   ])
 })
@@ -227,7 +213,7 @@ test('P-3 feature preview: median ps:preview at most 250 ms over 20 distances, n
   const previews = await measures(page, 'ps:preview', since)
   const tasks = await longTasks(page, since)
   expectWithinBudgets('P-3', [
-    { statistic: 'ps:preview median', value: percentile(previews, 0.5), budget: 250 },
+    { statistic: 'ps:preview median', value: measuredPercentile(previews, 0.5), budget: 250 },
     longestLongTask(tasks),
   ])
 })
@@ -266,7 +252,8 @@ test('P-5 warm open of 50 features: the second ps:open at most 1,000 ms @perf', 
 test('P-6 orbit, 2 M triangles: 95th percentile of ps:frame at most 16.7 ms, no long task over 50 ms @perf', async ({
   page,
 }) => {
-  test.setTimeout(180_000)
+  // Opening dense.ptsm takes about 25 s; without a GPU each frame of the orbit takes about a second.
+  test.setTimeout(600_000)
   await watchLongTasks(page)
   await openApp(page)
   await dropFile(page, 'dense.ptsm')
@@ -278,15 +265,20 @@ test('P-6 orbit, 2 M triangles: 95th percentile of ps:frame at most 16.7 ms, no 
   const since = await pageTime(page)
   await page.keyboard.down('Shift')
   await page.mouse.down({ button: 'middle' })
-  // A 3 s orbit across the canvas center (Shift + middle drag, 3.13): 300 pixels, 120 degrees.
-  await moveFor(page, from, { x: box.cx + 150, y: box.cy }, 3_000)
+  // A 3 s orbit across the canvas center (Shift + middle drag, 3.13): 300 pixels, 120 degrees, in
+  // 180 pointer moves, one per frame at 60 frames a second.
+  await movePaced(page, pointsAlong(from, { x: box.cx + 150, y: box.cy }, 180), 3_000)
   await page.mouse.up({ button: 'middle' })
   await page.keyboard.up('Shift')
   const frames = await measures(page, 'ps:frame', since)
   const tasks = await longTasks(page, since)
-  expect(frames.length, 'ps:frame measures during the orbit').toBeGreaterThan(0)
+  expect.soft(frames.length, 'ps:frame measures during the orbit').toBeGreaterThan(0)
   expectWithinBudgets('P-6', [
-    { statistic: 'ps:frame 95th percentile', value: percentile(frames, 0.95), budget: 16.7 },
+    {
+      statistic: 'ps:frame 95th percentile',
+      value: measuredPercentile(frames, 0.95),
+      budget: 16.7,
+    },
     longestLongTask(tasks),
   ])
 })
@@ -316,7 +308,7 @@ test('P-7 hover picks, 2 M triangles: 95th percentile of ps:pick at most 1 ms @p
   }
   const picks = await measures(page, 'ps:pick', since)
   expectWithinBudgets('P-7', [
-    { statistic: 'ps:pick 95th percentile', value: percentile(picks, 0.95), budget: 1 },
+    { statistic: 'ps:pick 95th percentile', value: measuredPercentile(picks, 0.95), budget: 1 },
   ])
 })
 
@@ -337,7 +329,7 @@ test('P-8 palette re-rank, 2,000 items: 95th percentile of ps:palette at most 8 
   }
   const ranks = await measures(page, 'ps:palette', since)
   expectWithinBudgets('P-8', [
-    { statistic: 'ps:palette 95th percentile', value: percentile(ranks, 0.95), budget: 8 },
+    { statistic: 'ps:palette 95th percentile', value: measuredPercentile(ranks, 0.95), budget: 8 },
   ])
 })
 
@@ -365,7 +357,11 @@ test('P-10 applying document_changed plus recomputed for 50 features: 95th perce
   const applied = await measures(page, 'ps:apply-events', since)
   expect.soft(applied, 'one ps:apply-events measure per change').toHaveLength(20)
   expectWithinBudgets('P-10', [
-    { statistic: 'ps:apply-events 95th percentile', value: percentile(applied, 0.95), budget: 8 },
+    {
+      statistic: 'ps:apply-events 95th percentile',
+      value: measuredPercentile(applied, 0.95),
+      budget: 8,
+    },
   ])
 })
 
@@ -388,7 +384,7 @@ test('P-11 expression validation round trip: median ps:expression at most 50 ms 
   const validations = await measures(page, 'ps:expression', since)
   expect.soft(validations, 'one ps:expression measure per keystroke').toHaveLength(20)
   expectWithinBudgets('P-11', [
-    { statistic: 'ps:expression median', value: percentile(validations, 0.5), budget: 50 },
+    { statistic: 'ps:expression median', value: measuredPercentile(validations, 0.5), budget: 50 },
   ])
 })
 
@@ -397,36 +393,13 @@ test.describe('worker transfer', () => {
   const BUFFER_BYTES = 50_000_000
   const TRANSFER_COUNT = 20
 
-  const uiDirectory = fileURLToPath(new URL('..', import.meta.url))
-  let server: ViteDevServer | null = null
-  let pageUrl = ''
-
-  // The production preview serves only the app, so P-12 serves its page from a Vite dev server.
-  test.beforeAll(async () => {
-    server = await createServer({
-      root: uiDirectory,
-      logLevel: 'error',
-      clearScreen: false,
-      server: { port: 0, hmr: false },
-      optimizeDeps: { entries: ['e2e/pages/transfer.html'] },
-    })
-    await server.listen()
-    const base = server.resolvedUrls?.local[0]
-    if (base === undefined) {
-      throw new Error('The Vite dev server reported no local URL.')
-    }
-    pageUrl = new URL('e2e/pages/transfer.html', base).href
-  })
-
-  test.afterAll(async () => {
-    await server?.close()
-  })
+  const transferPage = serveTestPage('transfer.html')
 
   test('P-12 worker transfer of a 50 MB response frame: median at most 2 ms, every sent buffer detached @perf', async ({
     page,
   }) => {
     test.setTimeout(120_000)
-    await page.goto(pageUrl)
+    await page.goto(transferPage.url)
     await expect(page.locator('body')).toHaveAttribute('data-ready', 'true', { timeout: 15_000 })
     const transfers = await page.evaluate(
       ({ count, bytes }) => {
@@ -441,7 +414,7 @@ test.describe('worker transfer', () => {
     expectWithinBudgets('P-12', [
       {
         statistic: 'transfer median',
-        value: percentile(
+        value: measuredPercentile(
           transfers.map((transfer) => transfer.milliseconds),
           0.5,
         ),

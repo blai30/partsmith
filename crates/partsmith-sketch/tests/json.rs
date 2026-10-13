@@ -5,7 +5,8 @@ mod common;
 use std::collections::BTreeSet;
 use std::fmt::Debug;
 
-use common::{FACE_PLANE_JSON, PLATE_PARAMS_JSON, Sketch, id, plate, rect};
+use common::benchmark::PLATE_PARAMS_JSON;
+use common::{FACE_PLANE_JSON, Sketch, id, plate, rect};
 use partsmith_sketch::{
     DragTarget, Geometry, OriginPlane, PointRef, PointRole, ProfileCurve, ProfileFinding,
     RegionMatch, RegionRef, SketchConstraint, SketchEntity, SketchError, SketchParams, SketchPlane,

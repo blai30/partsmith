@@ -213,6 +213,8 @@ export function createViewportController(options: {
   /** The camera of the last frame and when a frame last showed a different one, for the hover pause (3.13). */
   let renderedCamera: Camera = camera
   let cameraChangedAt = Number.NEGATIVE_INFINITY
+  /** The time of the last animation frame when it rendered motion: where the next ps:frame starts (2.18). */
+  let motionFrameAt: number | null = null
   let hoverTimer: ReturnType<typeof setTimeout> | null = null
   /** The last middle-button click, for the Fit to view double-click (3.13). */
   let lastMiddleClick: { readonly at: number; readonly x: number; readonly y: number } | null = null
@@ -246,7 +248,7 @@ export function createViewportController(options: {
     schedule()
   }
 
-  function step(): void {
+  function step(frameTime: number): void {
     cancelFrame = null
     if (disposed) {
       return
@@ -254,7 +256,10 @@ export function createViewportController(options: {
     advanceAnimation()
     if (renderNeeded) {
       renderNeeded = false
-      render()
+      render(frameTime)
+    } else {
+      // A frame with nothing to draw ends the motion that ps:frame times.
+      motionFrameAt = null
     }
     if (hoverAt !== null && press === null) {
       // Hover picking waits for the camera to be still, so a moving camera renders no ID pass (3.13).
@@ -280,16 +285,17 @@ export function createViewportController(options: {
     }, milliseconds)
   }
 
-  function render(): void {
-    const started = performance.now()
+  /** Renders the frame of `frameTime`: the animation frame's time, or now outside one. */
+  function render(frameTime: number): void {
     const state = store.getState()
+    const moving = camera !== renderedCamera || (press !== null && press.gesture !== null)
     if (camera !== renderedCamera) {
       renderedCamera = camera
-      cameraChangedAt = started
+      cameraChangedAt = performance.now()
     }
     lastFrame = scene.frame(state, camera, size)
     backend.render(lastFrame)
-    measureTiming(TIMING_NAMES.frame, started)
+    timeFrame(frameTime, moving)
     const rendered: RenderedFrame = { camera, size, project }
     for (const listener of Array.from(renderListeners)) {
       listener(rendered)
@@ -297,6 +303,22 @@ export function createViewportController(options: {
     positionAnchors()
     mirrorCameraTarget()
     mirrorGridSpacing(state)
+  }
+
+  /**
+   * Records ps:frame (2.18) from the previous animation frame to this one when both rendered while
+   * the camera moved or a drag ran, then asks for the next frame to see whether the motion goes on.
+   */
+  function timeFrame(frameTime: number, moving: boolean): void {
+    if (!moving) {
+      motionFrameAt = null
+      return
+    }
+    if (motionFrameAt !== null) {
+      measureTiming(TIMING_NAMES.frame, motionFrameAt, frameTime)
+    }
+    motionFrameAt = frameTime
+    schedule()
   }
 
   /** Mirrors the drawn grid's minor spacing in the store when it changes, for the status bar (3.12, 3.21). */
@@ -426,7 +448,7 @@ export function createViewportController(options: {
   function currentFrame(): RenderFrame {
     if (lastFrame === null || renderNeeded) {
       renderNeeded = false
-      render()
+      render(performance.now())
     }
     return lastFrame ?? scene.frame(store.getState(), camera, size)
   }

@@ -21,6 +21,7 @@ export const READY_CORE: CoreState = {
   engineVersion: '0.1.0',
   fatal: null,
   pendingMutations: 0,
+  stillWorking: false,
 }
 
 /** The bounds of the 20 mm cube of cube.ptsm. */
@@ -56,6 +57,7 @@ export function documentStateFor(
     recipe,
     dirty: false,
     localUnsaved: false,
+    recoveryId: 'session-1',
     undoLabel: null,
     redoLabel: null,
     transactionOpen: false,

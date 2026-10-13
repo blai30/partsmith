@@ -315,6 +315,19 @@ describe('the startup offer (3.1 step 5, 3.19)', () => {
     ])
   })
 
+  it('U-168 an opened entry stays when its new copy is not stored', async () => {
+    const memory = createMemoryRecovery()
+    const kept = entryNamed('b', 2000)
+    await memory.write(kept)
+    // A full IndexedDB: nothing new is stored.
+    const full: RecoveryStore = { ...memory, write: async () => false }
+    const fake = await startFakeApp({ recovery: full })
+    click(fake.app, notificationWith(fake.app, OFFER), 'Open')
+    await settle()
+    expect(currentDocument(fake.app)).toMatchObject({ name: 'b', localUnsaved: true })
+    await expect(full.list()).resolves.toEqual([kept])
+  })
+
   it('U-159 an Open the core refuses keeps the entry it tried to open', async () => {
     const recovery = createMemoryRecovery()
     const kept: RecoveryEntry = { ...entryNamed('broken', 1000), text: 'not json' }

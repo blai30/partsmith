@@ -319,7 +319,15 @@ describe('the view cube and viewport controls (3.14)', () => {
 
 describe('overlays', () => {
   it('shows "Loading the geometry core" while the core loads', () => {
-    setUp({ core: { status: 'loading', engineVersion: null, fatal: null, pendingMutations: 0 } })
+    setUp({
+      core: {
+        status: 'loading',
+        engineVersion: null,
+        fatal: null,
+        pendingMutations: 0,
+        stillWorking: false,
+      },
+    })
     expect(screen.getByTestId('core-overlay')).toHaveTextContent('Loading the geometry core')
   })
 
@@ -330,7 +338,13 @@ describe('overlays', () => {
 
   it('shows the core load failure with Reload (4.4)', () => {
     setUp({
-      core: { status: 'failed', engineVersion: null, fatal: 'HTTP 404', pendingMutations: 0 },
+      core: {
+        status: 'failed',
+        engineVersion: null,
+        fatal: 'HTTP 404',
+        pendingMutations: 0,
+        stillWorking: false,
+      },
     })
     const panel = screen.getByTestId('core-fatal')
     expect(panel).toHaveAttribute('role', 'alert')
@@ -345,6 +359,7 @@ describe('overlays', () => {
         engineVersion: '0.1.0',
         fatal: 'out of memory',
         pendingMutations: 0,
+        stillWorking: false,
       },
     })
     const restart = vi.spyOn(app, 'restartCore')

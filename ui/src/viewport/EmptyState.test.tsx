@@ -100,7 +100,13 @@ describe('the empty-document first step (3.2)', () => {
 
   it('is not shown while the core loads', () => {
     renderEmpty({
-      core: { status: 'loading', engineVersion: null, fatal: null, pendingMutations: 0 },
+      core: {
+        status: 'loading',
+        engineVersion: null,
+        fatal: null,
+        pendingMutations: 0,
+        stillWorking: false,
+      },
     })
     expect(screen.queryByTestId('empty-state')).toBeNull()
   })

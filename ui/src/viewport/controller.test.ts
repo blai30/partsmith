@@ -662,6 +662,93 @@ describe('hover while the camera moves (3.13)', () => {
   })
 })
 
+describe('ps:frame (2.18)', () => {
+  const FRAME = 'ps:frame'
+  /** A Shift and middle press at the canvas center: an orbit in the Fusion preset. */
+  const ORBIT = {
+    pointerId: 1,
+    pointerType: 'mouse',
+    button: 1,
+    buttons: 4,
+    shiftKey: true,
+    clientX: 400,
+    clientY: 300,
+  }
+
+  function frameDurations(): number[] {
+    return performance.getEntriesByName(FRAME, 'measure').map((entry) => entry.duration)
+  }
+
+  /**
+   * A fixture whose `performance.now()` stands still after mounting, so only the animation
+   * frames' times, 16 ms apart, can give a measure a duration.
+   */
+  function setUpStillClock(): Fixture {
+    const fixture = setUp()
+    vi.spyOn(performance, 'now').mockReturnValue(performance.now())
+    performance.clearMeasures(FRAME)
+    return fixture
+  }
+
+  /** Moves the pressed pointer to each x in turn, one animation frame per move. */
+  function orbitThrough(fixture: Fixture, xs: readonly number[]): void {
+    for (const x of xs) {
+      fireEvent.pointerMove(fixture.canvas, { ...ORBIT, clientX: x })
+      fixture.frames.flush(1)
+    }
+  }
+
+  it('U-164 measures from one frame time to the next while an orbit moves the camera', () => {
+    const fixture = setUpStillClock()
+    fireEvent.pointerDown(fixture.canvas, ORBIT)
+    orbitThrough(fixture, [420, 440, 460])
+    expect(frameDurations()).toEqual([16, 16])
+  })
+
+  it('U-164 records none for a redraw with a still camera and no drag', () => {
+    const fixture = setUpStillClock()
+    fireEvent.pointerDown(fixture.canvas, ORBIT)
+    orbitThrough(fixture, [420])
+    fireEvent.pointerUp(fixture.canvas, { ...ORBIT, buttons: 0, clientX: 420 })
+    // A hover highlight right after the last moving frame.
+    const rendered = fixture.backend.frames.length
+    fixture.app.store.setState({ hover: { key: 'mesh:1:face:3', kind: 'face' } })
+    fixture.frames.flush(1)
+    expect(fixture.backend.frames).toHaveLength(rendered + 1)
+    // The wheel moves the camera again: its first frame starts a new motion.
+    fireEvent.wheel(fixture.canvas, { deltaY: 100, deltaMode: 0, clientX: 400, clientY: 300 })
+    fixture.frames.flush(1)
+    expect(frameDurations()).toEqual([])
+  })
+
+  it('U-164 ends the motion at an animation frame with nothing to draw', () => {
+    const fixture = setUpStillClock()
+    fireEvent.pointerDown(fixture.canvas, ORBIT)
+    orbitThrough(fixture, [420])
+    // The pointer rests for one frame.
+    fixture.frames.flush(1)
+    orbitThrough(fixture, [440, 460])
+    expect(frameDurations()).toEqual([16])
+  })
+
+  it('U-164 measures frames a drag renders while the camera stays still', () => {
+    const fixture = setUpStillClock()
+    const camera = fixture.controller.getCamera()
+    const press = { ...ORBIT, button: 0, buttons: 1, shiftKey: false }
+    fireEvent.pointerDown(fixture.canvas, press)
+    fireEvent.pointerMove(fixture.canvas, { ...press, clientX: 460 })
+    for (let i = 0; i < 3; i++) {
+      fixture.controller.requestRender()
+      fixture.frames.flush(1)
+    }
+    fireEvent.pointerUp(fixture.canvas, { ...press, buttons: 0, clientX: 460 })
+    fixture.controller.requestRender()
+    fixture.frames.flush()
+    expect(fixture.controller.getCamera()).toBe(camera)
+    expect(frameDurations()).toEqual([16, 16])
+  })
+})
+
 describe('clicks (3.6)', () => {
   it('selects the picked face by its element name and highlights it', async () => {
     const fixture = setUp({

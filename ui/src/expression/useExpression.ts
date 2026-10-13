@@ -98,9 +98,11 @@ export function useExpression(
   const units = useAppState((state) => state.document?.recipe.units ?? 'mm')
   const [evaluated, setEvaluated] = useState<Evaluated | null>(null)
   const empty = text.trim() === ''
-  // The last text submitted, and the one whose result is awaited for ps:expression.
+  // The last text submitted, the one whose result is awaited for ps:expression, and whether the
+  // latest commit rendered the field pending.
   const lastSubmitted = useRef<string | null>(null)
   const awaited = useRef<Submitted | null>(null)
+  const renderedPending = useRef(true)
 
   const latest = useMemo(
     () =>
@@ -128,9 +130,12 @@ export function useExpression(
       return
     }
     if (text !== lastSubmitted.current) {
-      // A new text, not the same one again at a newer revision: its round trip starts now.
+      // A new text, not the same one again at a newer revision: its round trip starts now, unless
+      // the field already shows its result (back to a text whose result is still kept).
       lastSubmitted.current = text
-      awaited.current = { text, submittedAt: performance.now() }
+      if (renderedPending.current) {
+        awaited.current = { text, submittedAt: performance.now() }
+      }
     }
     latest.submit({ documentHandle, revision, text, unit, units, label })
   }, [latest, empty, documentHandle, revision, text, unit, units, label])
@@ -150,9 +155,11 @@ export function useExpression(
       evaluated !== null && sameRequest(evaluated.request, current) ? evaluated.state : PENDING
   }
 
-  // Layout effects run once the field's DOM is committed, so the measure ends when the awaited
-  // text's result renders. A text replaced before its result renders records nothing.
+  // Layout effects run once the field's DOM is committed and before the submitting effect, so the
+  // measure ends when the awaited text's result renders. A text replaced before its result renders
+  // records nothing.
   useLayoutEffect(() => {
+    renderedPending.current = state.state === 'pending'
     const submitted = awaited.current
     if (submitted === null || (submitted.text === text && state.state === 'pending')) {
       return

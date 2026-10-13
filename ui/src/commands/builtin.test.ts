@@ -333,7 +333,13 @@ describe('availability', () => {
 
   it('disables core-dependent commands with core_not_running after a core failure (4.4)', () => {
     const { app } = cubeApp({
-      core: { status: 'failed', engineVersion: null, fatal: 'HTTP 404', pendingMutations: 0 },
+      core: {
+        status: 'failed',
+        engineVersion: null,
+        fatal: 'HTTP 404',
+        pendingMutations: 0,
+        stillWorking: false,
+      },
     })
     for (const id of ['file.save', 'file.open', 'feature.extrude', 'print.check_now']) {
       expect(app.commands.get(id)?.availability(app)).toEqual({

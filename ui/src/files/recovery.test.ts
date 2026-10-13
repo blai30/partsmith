@@ -94,7 +94,8 @@ describe('createMemoryRecovery', () => {
 
   it('replaces only the entry with the same id, and removes only the entry with the id', async () => {
     const recovery = createMemoryRecovery()
-    await writeAll(recovery, [ENTRY, SECOND])
+    await expect(recovery.write(ENTRY)).resolves.toBe(true)
+    await recovery.write(SECOND)
     const replaced: RecoveryEntry = { ...ENTRY, text: '{"format": 3}', reason: 'replaced' }
     await recovery.write(replaced)
     await expect(recovery.list()).resolves.toEqual([SECOND, replaced])
@@ -104,11 +105,11 @@ describe('createMemoryRecovery', () => {
 })
 
 describe('createIndexedDbRecovery', () => {
-  it('resolves empty and without effect when IndexedDB fails, and warns naming the store', async () => {
+  it('resolves empty, false and without effect when IndexedDB fails, and warns naming the store', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     const recovery = createIndexedDbRecovery(blockedFactory(), BARE)
     await expect(recovery.list()).resolves.toEqual([])
-    await expect(recovery.write(ENTRY)).resolves.toBeUndefined()
+    await expect(recovery.write(ENTRY)).resolves.toBe(false)
     await expect(recovery.remove('a')).resolves.toBeUndefined()
     expect(warn).toHaveBeenCalled()
     expect(warn.mock.calls.flat().map(String).join(' ')).toMatch(/recovery/i)
@@ -124,7 +125,8 @@ describe('createIndexedDbRecovery', () => {
   it('U-155 keeps one record per entry: writing an entry again replaces only it, and remove deletes only it', async () => {
     const fake = createFakeIndexedDb()
     const recovery = createIndexedDbRecovery(fake.factory, BARE)
-    await writeAll(recovery, [ENTRY, SECOND])
+    await expect(recovery.write(ENTRY)).resolves.toBe(true)
+    await recovery.write(SECOND)
     expect(fake.records('partsmith', 'recovery')).toEqual([ENTRY, SECOND])
     const rewritten: RecoveryEntry = { ...ENTRY, text: '{"format": 3}' }
     await recovery.write(rewritten)
@@ -348,7 +350,7 @@ describe('persistent storage (2.15)', () => {
       locks: null,
       storage: storage.storage,
     })
-    await expect(recovery.write(ENTRY)).resolves.toBeUndefined()
+    await expect(recovery.write(ENTRY)).resolves.toBe(true)
     await settle()
     expect(storage.calls.persist).toBe(1)
     await expect(recovery.list()).resolves.toEqual([ENTRY])

@@ -1,17 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
-type FileSystem = { readFileSync(path: URL, encoding: 'utf8'): string }
-
-// Reads a file relative to this test through Node, which runs Vitest, as U-91 reads src/index.css.
-async function readFile(relativePath: string): Promise<string> {
-  const specifier: string = 'node:fs'
-  const fileSystem = (await import(/* @vite-ignore */ specifier)) as FileSystem
-  return fileSystem.readFileSync(new URL(relativePath, import.meta.url), 'utf8')
-}
+import { readProjectFile } from '../test/project-file'
 
 // The page of ui/index.html as the browser parses it before the bundle runs.
 async function indexPage(): Promise<Document> {
-  return new DOMParser().parseFromString(await readFile('../../index.html'), 'text/html')
+  return new DOMParser().parseFromString(await readProjectFile('/index.html'), 'text/html')
 }
 
 function colorSchemeMetas(page: Document): HTMLMetaElement[] {

@@ -16,6 +16,22 @@ export const MESSAGES = {
     `The geometry core did not load: ${reason}. Check your connection and reload the page.`,
   core_stopped: (reason: string) =>
     `The geometry core stopped: ${reason}. Restart it to keep working; your latest changes are kept.`,
+  core_still_working: (seconds: number) =>
+    `The geometry core has been working for more than ${String(seconds)} seconds, and Partsmith cannot tell whether it will finish. Stopping it reopens your document as it was after the last change the core finished, and closes any open feature command without keeping it.`,
+  core_still_working_desktop: (seconds: number) =>
+    `The geometry core has been working for more than ${String(seconds)} seconds, and Partsmith cannot tell whether it will finish. The desktop app cannot stop it yet: wait, or quit Partsmith, which keeps your changes up to the last one the core finished, except those of an open feature command.`,
+  changes_not_applied: () =>
+    'Your latest changes were not applied, because the geometry core was stopped before it finished them. Make them again if you still want them.',
+  save_stopped: (file: string) =>
+    `${file} was not saved, because the geometry core stopped before saving it. Save it again.`,
+  export_stopped: (file: string) =>
+    `${file} was not exported, because the geometry core stopped before exporting it. Export it again.`,
+  open_stopped: (file: string) =>
+    `${file} was not opened, because the geometry core stopped before opening it. Open it again.`,
+  recovery_open_stopped: (name: string) =>
+    `The unsaved changes to ${name} were not opened, because the geometry core stopped before opening them. They are still kept, and Partsmith offers them again the next time it starts.`,
+  new_stopped: () =>
+    'The new document was not opened, because the geometry core stopped before opening it. Choose New again.',
   not_ptsm: (file: string) => `${file} is not a Partsmith model. Partsmith opens .ptsm files.`,
   not_text: (file: string) => `${file} could not be read as text.`,
   open_failed: (file: string, coreMessage: string) => `Could not open ${file}. ${coreMessage}`,
@@ -35,6 +51,9 @@ export const MESSAGES = {
   stashed: (name: string) => `${name} had unsaved changes. They are kept for you.`,
   recovered: (name: string, time: string) =>
     `Partsmith kept unsaved changes to ${name} from ${time}.`,
+  /** `count` is the number of other entries still waiting to be offered (3.19). */
+  recovered_more: (name: string, time: string, count: number) =>
+    `Partsmith kept unsaved changes to ${name} from ${time}, and to ${String(count)} other ${count === 1 ? 'document' : 'documents'}.`,
   nothing_to_export: () => 'There is no visible body with geometry to export.',
   exported: (file: string) => `Exported ${file}.`,
   /** `failed` is the text of `export_failed_feature` or `export_failed_features`. */

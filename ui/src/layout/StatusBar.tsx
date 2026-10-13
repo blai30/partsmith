@@ -13,7 +13,7 @@ import { HealthBadge } from '../print/HealthBadge'
 import { PrinterMenu } from '../print/PrinterMenu'
 import { printerLabel } from '../print/printer'
 import { selectHealthBadge, selectSketchDof } from '../state/selectors'
-import type { AppState } from '../state/store'
+import type { AppState, CoreState } from '../state/store'
 import { COLOR_CLASSES, FONT_CLASSES } from '../theme/roles'
 import { useCommandViews } from './use-commands'
 
@@ -52,8 +52,24 @@ function useRebuilding(): boolean {
   return pending && late
 }
 
+/** The core's state while it is not idle: loading, rebuilding, still working (4.4) or stopped. */
+function busyText(
+  status: CoreState['status'],
+  stillWorking: boolean,
+  rebuilding: boolean,
+): string | null {
+  if (status === 'loading') {
+    return 'Loading core'
+  }
+  if (stillWorking) {
+    return 'Still working'
+  }
+  return rebuilding ? 'Rebuilding' : null
+}
+
 function CoreStatus() {
   const status = useAppState((state) => state.core.status)
+  const stillWorking = useAppState((state) => state.core.stillWorking)
   const rebuilding = useRebuilding()
   if (status === 'failed') {
     return (
@@ -62,15 +78,16 @@ function CoreStatus() {
       </span>
     )
   }
-  if (status === 'loading' || rebuilding) {
-    return (
-      <span data-testid="status-core" className="flex items-center gap-1.5">
-        <Spinner />
-        {status === 'loading' ? 'Loading core' : 'Rebuilding'}
-      </span>
-    )
+  const text = busyText(status, stillWorking, rebuilding)
+  if (text === null) {
+    return null
   }
-  return null
+  return (
+    <span data-testid="status-core" className="flex items-center gap-1.5">
+      <Spinner />
+      {text}
+    </span>
+  )
 }
 
 function SketchDof() {

@@ -7,6 +7,7 @@ import {
   RECENT_STORE,
   RECOVERY_STORE,
   requestResult,
+  upgradeDatabase,
   withStore,
 } from './database'
 
@@ -24,6 +25,34 @@ function failingOnce(fake: FakeIndexedDb): IDBFactory {
     },
   }
 }
+
+describe('upgradeDatabase (2.15)', () => {
+  it('U-170 keeps the recovery entries of a version 2 database when a later version upgrades it', async () => {
+    const fake = createFakeIndexedDb()
+    fake.createDatabase(DATABASE_NAME, 2, { recent: 'id', recovery: 'id' })
+    const entry = {
+      id: 'a',
+      name: 'bracket',
+      text: '{}',
+      savedAt: 1000,
+      handle: null,
+      reason: 'autosave',
+    }
+    fake.putRecord(DATABASE_NAME, RECOVERY_STORE, entry)
+    // Version 3 stands in for a later build whose upgrade runs this one's steps first.
+    const request = fake.factory.open(DATABASE_NAME, 3)
+    request.addEventListener('upgradeneeded', (event) => {
+      if (request.transaction !== null) {
+        upgradeDatabase(request.result, request.transaction, event.oldVersion)
+      }
+    })
+    const database = await requestResult(request)
+    database.close()
+    expect(fake.version(DATABASE_NAME)).toBe(3)
+    expect(fake.keyPaths(DATABASE_NAME)).toEqual({ recent: 'id', recovery: 'id' })
+    expect(fake.records(DATABASE_NAME, RECOVERY_STORE)).toEqual([entry])
+  })
+})
 
 describe('createConnection', () => {
   it('U-155 opens the database partsmith at version 2 with the stores recent and recovery, both keyed by id', async () => {
