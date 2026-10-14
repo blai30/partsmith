@@ -13,8 +13,8 @@ use crate::pass_lru::PassLru;
 pub(crate) enum Outcome {
     /// The feature built.
     Built(Built),
-    /// The feature failed.
-    Failed(FeatureError),
+    /// The feature failed. Boxed because an error is much larger than a built output.
+    Failed(Box<FeatureError>),
 }
 
 /// A built output with the body states derived from it, so element infos computed once are
@@ -117,7 +117,7 @@ mod tests {
     }
 
     fn failed() -> Outcome {
-        Outcome::Failed(FeatureError::BothSidesZero)
+        Outcome::Failed(Box::new(FeatureError::BothSidesZero))
     }
 
     #[test]

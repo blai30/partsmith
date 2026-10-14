@@ -143,6 +143,12 @@ pub enum EngineError {
     /// The picked mesh is no longer displayed.
     #[error("The picked geometry changed since it was displayed. Pick again.")]
     StalePick,
+    /// `apply_fix` names a revision other than the document's, or a message or action its feature
+    /// no longer has.
+    #[error(
+        "This fix no longer applies because the document changed after it was offered. Look at the problem again."
+    )]
+    StaleFix,
     /// The picked mesh is a preview.
     #[error("Preview geometry cannot be picked. Pick the model instead.")]
     PreviewNotPickable,
@@ -260,6 +266,7 @@ impl EngineError {
             EngineError::UnknownPoint { .. } => ErrorCode::UnknownPoint,
             EngineError::NoDrag { .. } => ErrorCode::NoDrag,
             EngineError::StalePick => ErrorCode::StalePick,
+            EngineError::StaleFix => ErrorCode::StaleFix,
             EngineError::PreviewNotPickable => ErrorCode::PreviewNotPickable,
             EngineError::InvalidPick { .. } => ErrorCode::InvalidPick,
             EngineError::UnknownBody { .. } => ErrorCode::UnknownBody,
@@ -297,10 +304,9 @@ impl EngineError {
             _ => None,
         };
         ErrorInfo {
-            code: self.code(),
-            message: self.to_string(),
             edit_index: self.edit_index(),
             span,
+            ..ErrorInfo::new(self.code(), self.to_string())
         }
     }
 

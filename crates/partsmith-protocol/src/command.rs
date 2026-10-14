@@ -11,8 +11,8 @@ use serde::{Deserialize, Serialize};
 use crate::strict::{self, no_fields};
 use crate::{
     AssetData, Axis, BufferIndex, CurveKind, Diagnostic, DocHandle, ElementDescriptor, ElementRef,
-    ExportFile, MeshElement, Orientation, Pick, SketchSolution, SurfaceKind, TessellationQuality,
-    Vec2, Vec3,
+    ExportFile, FixRef, MeshElement, Orientation, Pick, SketchSolution, SurfaceKind,
+    TessellationQuality, Vec2, Vec3,
 };
 
 /// Every command a client can send. Tagged by `type`; unknown types and fields are rejected.
@@ -92,6 +92,13 @@ pub enum Command {
         parameter: Id,
         /// Its new name.
         name: String,
+    },
+    /// Applies one `apply` action of a diagnostic, with its edits built from the current records (engine.md section 3.22).
+    ApplyFix {
+        /// The document.
+        doc: DocHandle,
+        /// The action's fix, as the diagnostic offered it.
+        fix: FixRef,
     },
     /// Opens a transaction; later `apply_edits` join it and are previewed.
     BeginTransaction {
@@ -333,6 +340,11 @@ pub enum CommandResult {
         /// The revision after the rename.
         revision: u64,
     },
+    /// Result of `apply_fix`.
+    ApplyFix {
+        /// The revision after the fix.
+        revision: u64,
+    },
     /// Result of `begin_transaction`.
     BeginTransaction,
     /// Result of `set_focus`.
@@ -397,8 +409,9 @@ pub enum CommandResult {
     },
     /// Result of `pick_reference`.
     PickReference {
-        /// The picked element.
-        element: ElementDescriptor,
+        /// The picked element, with its full reference.
+        // Boxed so the largest result does not set the size of every result and message.
+        element: Box<ElementDescriptor>,
     },
     /// Result of `resolve_references`.
     ResolveReferences {

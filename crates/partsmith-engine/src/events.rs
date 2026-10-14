@@ -648,6 +648,7 @@ mod tests {
                 mesh_id: shown,
                 kind: ElementKind::Face,
                 index: 0,
+                body: None,
             },
         );
 

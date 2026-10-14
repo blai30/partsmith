@@ -108,3 +108,92 @@ impl Motions {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn name(text: &str) -> ElementName {
+        ElementName::parse(text).expect("the test name is valid")
+    }
+
+    /// A translation by `x` mm along x.
+    fn shift(x: f64) -> Motion {
+        Motion::new(
+            [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+            [x, 0.0, 0.0],
+        )
+    }
+
+    #[test]
+    fn pieces_that_moved_alike_share_one_entry_under_their_piece_free_name() {
+        let named = BTreeMap::from([
+            (name("f-a/top#1"), shift(5.0)),
+            (name("f-a/top#2"), shift(5.0)),
+        ]);
+
+        let motions = Motions::canonical(Motion::IDENTITY, named);
+
+        assert_eq!(motions.own, BTreeMap::from([(name("f-a/top"), shift(5.0))]));
+    }
+
+    #[test]
+    fn pieces_that_moved_apart_keep_their_full_names() {
+        let named = BTreeMap::from([
+            (name("f-a/top#1"), shift(5.0)),
+            (name("f-a/top#2"), shift(7.0)),
+        ]);
+
+        let motions = Motions::canonical(Motion::IDENTITY, named);
+
+        assert_eq!(
+            motions.own,
+            BTreeMap::from([
+                (name("f-a/top#1"), shift(5.0)),
+                (name("f-a/top#2"), shift(7.0))
+            ])
+        );
+    }
+
+    #[test]
+    fn motions_equal_to_the_base_are_left_out() {
+        let named = BTreeMap::from([
+            (name("f-a/top"), shift(5.0)),
+            (name("f-a/side"), shift(1.0)),
+        ]);
+
+        let motions = Motions::canonical(shift(1.0), named);
+
+        assert_eq!(motions.own, BTreeMap::from([(name("f-a/top"), shift(5.0))]));
+    }
+
+    #[test]
+    fn a_name_takes_its_own_motion_then_its_piece_free_one_then_the_base() {
+        let motions = Motions {
+            base: shift(1.0),
+            own: BTreeMap::from([
+                (name("f-a/top"), shift(2.0)),
+                (name("f-a/top#3"), shift(3.0)),
+            ]),
+        };
+
+        assert_eq!(motions.of(&name("f-a/top#3")), shift(3.0));
+        assert_eq!(motions.of(&name("f-a/top#1")), shift(2.0));
+        assert_eq!(motions.of(&name("f-a/side")), shift(1.0));
+    }
+
+    #[test]
+    fn then_applies_a_motion_after_the_base_and_every_own_motion() {
+        let motions = Motions {
+            base: Motion::IDENTITY,
+            own: BTreeMap::from([(name("f-a/top"), shift(2.0))]),
+        };
+
+        let moved = motions.then(&shift(10.0));
+
+        assert_eq!(moved.base, shift(10.0));
+        assert_eq!(moved.of(&name("f-a/top")), shift(12.0));
+        assert!(!moved.is_identity());
+        assert!(Motions::default().is_identity());
+    }
+}

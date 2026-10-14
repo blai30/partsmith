@@ -173,7 +173,11 @@ mod tests {
 
         let plan = plan_of(
             &document,
-            &cache_with(&fresh, 0, Outcome::Failed(FeatureError::BothSidesZero)),
+            &cache_with(
+                &fresh,
+                0,
+                Outcome::Failed(Box::new(FeatureError::BothSidesZero)),
+            ),
         );
 
         assert_eq!(actions(&plan), [Action::Reuse, Action::Fail, Action::Fail]);

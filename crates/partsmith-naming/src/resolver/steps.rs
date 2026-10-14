@@ -1034,3 +1034,157 @@ fn resolved_with(element: ElementName, method: MatchMethod, confidence: f64) -> 
         alternatives: Vec::new(),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use partsmith_model::Id;
+
+    use super::*;
+    use crate::fingerprint::Fingerprint;
+    use crate::name_set::testing::{name, set_of};
+    use crate::reference::Merged;
+
+    /// The ids of the faces `texts` of `set`, ascending.
+    fn ids(set: &NameSet, texts: &[&str]) -> Vec<u32> {
+        let mut ids: Vec<u32> = texts
+            .iter()
+            .map(|text| set.face_id(text).expect("the face is in the set"))
+            .collect();
+        ids.sort_unstable();
+        ids
+    }
+
+    /// The top split in three pieces: `#1` touches the front, `#2` the back, `#3` nothing.
+    fn split_top() -> NameSet {
+        set_of(
+            &[
+                "f-a/top#1",
+                "f-a/top#2",
+                "f-a/top#3",
+                "f-a/front",
+                "f-a/back",
+            ],
+            &[("f-a/top#1", "f-a/front"), ("f-a/top#2", "f-a/back")],
+            &[],
+            &[],
+        )
+    }
+
+    /// The live anchors `anchors` of the pieces of the top of `set`, and the pieces.
+    fn live(set: &NameSet, anchors: &[&str]) -> (Option<LiveAnchors>, Vec<usize>) {
+        let anchor_names: Vec<ElementName> = anchors.iter().map(|anchor| name(anchor)).collect();
+        let members: Vec<usize> = ids(set, &["f-a/top#1", "f-a/top#2", "f-a/top#3"])
+            .into_iter()
+            .map(|face| face as usize)
+            .collect();
+        let anchors = LiveAnchors::of(&anchor_names, set, &members, |member| {
+            set.touching(face_id(member)).to_vec()
+        });
+        (anchors, members)
+    }
+
+    #[test]
+    fn the_member_covering_the_anchors_is_selected() {
+        let set = split_top();
+        let (anchors, members) = live(&set, &["f-a/front"]);
+        let anchors = anchors.expect("the anchor is live");
+
+        let selected = select_anchored(&anchors, &members, |member| {
+            set.touching(face_id(member)).to_vec()
+        });
+
+        assert_eq!(
+            selected,
+            Some(vec![set.face_id("f-a/top#1").expect("a face") as usize])
+        );
+    }
+
+    #[test]
+    fn members_that_cover_the_anchors_together_are_selected_together() {
+        let set = split_top();
+        let (anchors, members) = live(&set, &["f-a/back", "f-a/front"]);
+        let anchors = anchors.expect("the anchors are live");
+
+        let selected = select_anchored(&anchors, &members, |member| {
+            set.touching(face_id(member)).to_vec()
+        });
+
+        let expected: Vec<usize> = ids(&set, &["f-a/top#1", "f-a/top#2"])
+            .into_iter()
+            .map(|face| face as usize)
+            .collect();
+        assert_eq!(selected, Some(expected));
+    }
+
+    #[test]
+    fn a_part_with_a_gone_anchor_and_no_covering_member_is_piece_lost() {
+        let set = split_top();
+        let (anchors, members) = live(&set, &["f-a/back", "f-a/front", "f-a/left"]);
+        let anchors = anchors.expect("two anchors are live");
+
+        let selected = select_anchored(&anchors, &members, |member| {
+            set.touching(face_id(member)).to_vec()
+        });
+
+        assert_eq!(selected, None);
+    }
+
+    #[test]
+    fn faces_pair_when_each_sits_in_its_own_allowed_set() {
+        assert!(pairs(&[1, 4], &[&[4, 5], &[1, 2]]));
+        assert!(!pairs(&[1, 2], &[&[1, 2], &[3]]));
+        assert!(!pairs(&[1], &[&[1], &[1]]));
+    }
+
+    #[test]
+    fn one_kept_face_with_relatives_keeps_one_part() {
+        let kept = BTreeSet::from([1]);
+        let relatives = BTreeSet::from([2, 3]);
+
+        assert!(keeps_one_part(&[1, 2], &kept, &relatives));
+        assert!(!keeps_one_part(&[1, 4], &kept, &relatives));
+        assert!(!keeps_one_part(&[1], &kept, &relatives));
+        assert!(!keeps_one_part(&[2, 3], &kept, &relatives));
+    }
+
+    #[test]
+    fn the_top_two_scores_default_to_zero() {
+        assert_eq!(top_two(&[(0.9, 1), (0.8, 2), (0.1, 3)]), (0.9, 0.8));
+        assert_eq!(top_two(&[(0.9, 1)]), (0.9, 0.0));
+        assert_eq!(top_two(&[]), (0.0, 0.0));
+    }
+
+    #[test]
+    fn query_names_hold_parts_merged_faces_and_instances_of_copies() {
+        let set = set_of(&["f-a/top"], &[], &[], &[]);
+        let mut reference = Reference::new(
+            name("f-a/top"),
+            Fingerprint::parse("plane|n=0,0,1").expect("valid fingerprint"),
+        )
+        .expect("the kinds agree");
+        reference.merged = Merged(
+            [(
+                name("f-a/top"),
+                vec![
+                    MergedName::Face(name("f-b/top")),
+                    MergedName::Copies {
+                        source: name("f-c/top"),
+                        feature: Id::new("f-lp1").expect("valid id"),
+                    },
+                ],
+            )]
+            .into(),
+        );
+        let parts = [FacePart::new(name("f-a/top"), &reference, &set)];
+
+        let named = QueryNames::of(&reference, &parts);
+
+        assert!(named.holds("f-a/top"));
+        assert!(named.holds("f-b/top"));
+        assert!(named.holds("f-c/top@f-lp1:2"));
+        assert!(named.holds("f-c/top@f-lp1:1.2"));
+        assert!(!named.holds("f-c/top@f-lp1:"));
+        assert!(!named.holds("f-c/top@f-lp1:2#1"));
+        assert!(!named.holds("f-d/top"));
+    }
+}

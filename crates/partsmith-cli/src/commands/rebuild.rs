@@ -508,13 +508,7 @@ mod tests {
 
     #[test]
     fn the_report_lists_features_then_bodies() {
-        let message = Diagnostic {
-            severity: Severity::Error,
-            code: "feature_error".to_owned(),
-            message: "The box is too small.".to_owned(),
-            field: None,
-            suggestion: None,
-        };
+        let message = Diagnostic::new(Severity::Error, "feature_error", "The box is too small.");
         let text = human(&report(
             vec![feature(FeatureState::Error, vec![message])],
             vec![BodyReport::Measured(block())],

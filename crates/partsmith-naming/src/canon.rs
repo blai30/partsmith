@@ -380,3 +380,197 @@ fn push_via(via: &mut Via, more: &[(ElementName, Links)]) {
         *known = *known | *links;
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::name_set::testing::{name, names_of, set_of, shape};
+
+    /// The names of a set of forms.
+    fn texts(forms: &Forms) -> Vec<String> {
+        forms
+            .names
+            .iter()
+            .map(|form| form.shape.text().to_string())
+            .collect()
+    }
+
+    /// A set of forms holding the names `names`, taken as they are.
+    fn forms_of(names: &[&str]) -> Forms {
+        let mut forms = FormsBuilder::default();
+        for text in names {
+            forms.add(Form {
+                shape: Arc::new(shape(text)),
+                via: Vec::new(),
+            });
+        }
+        forms.build()
+    }
+
+    #[test]
+    fn the_builder_keeps_a_name_once_with_every_key_that_gave_it() {
+        let mut forms = FormsBuilder::default();
+        for key in ["f-b/top", "f-c/top", "f-b/top"] {
+            forms.add(Form {
+                shape: Arc::new(shape("f-a/top")),
+                via: vec![(name(key), Links::MERGE)],
+            });
+        }
+
+        let forms = forms.build();
+
+        assert_eq!(texts(&forms), ["f-a/top"]);
+        assert_eq!(
+            forms.names[0].via,
+            [
+                (name("f-b/top"), Links::MERGE),
+                (name("f-c/top"), Links::MERGE)
+            ]
+        );
+    }
+
+    #[test]
+    fn built_forms_are_sorted_by_piece_free_name_then_name() {
+        let forms = forms_of(&["f-a/top#2", "f-a/side", "f-a/top", "f-a/top#1"]);
+
+        assert_eq!(
+            texts(&forms),
+            ["f-a/side", "f-a/top", "f-a/top#1", "f-a/top#2"]
+        );
+        assert_eq!(forms.len(), 4);
+    }
+
+    #[test]
+    fn the_canonical_set_of_a_key_is_its_chase() {
+        let set = set_of(&["f-a/top"], &[], &[("f-b/top", &["f-a/top"])], &[]);
+
+        let canonical = set.canonical(&shape("f-b/top"), &Merged::default());
+
+        assert_eq!(texts(&canonical), ["f-a/top"]);
+        assert_eq!(canonical.names[0].via, [(name("f-b/top"), Links::MERGE)]);
+    }
+
+    #[test]
+    fn the_canonical_set_of_a_piece_that_is_no_key_is_its_piece_free_name() {
+        let set = set_of(&["f-a/top#1"], &[], &[], &[]);
+
+        let canonical = set.canonical(&shape("f-a/top#2"), &Merged::default());
+
+        assert_eq!(texts(&canonical), ["f-a/top"]);
+    }
+
+    #[test]
+    fn the_canonical_set_holds_the_chase_of_every_key_that_extends_the_name() {
+        let set = set_of(&["f-c/x"], &[], &[("f-a/top#1", &["f-c/x"])], &[]);
+
+        let canonical = set.canonical(&shape("f-a/top"), &Merged::default());
+
+        assert_eq!(texts(&canonical), ["f-a/top", "f-c/x"]);
+    }
+
+    #[test]
+    fn the_canonical_set_holds_the_recorded_merged_names() {
+        let set = set_of(&["f-a/top"], &[], &[], &[]);
+        let merged = Merged(
+            [(name("f-a/top"), vec![MergedName::Face(name("f-z/old"))])]
+                .into_iter()
+                .collect(),
+        );
+
+        let canonical = set.canonical(&shape("f-a/top"), &merged);
+
+        assert_eq!(texts(&canonical), ["f-a/top", "f-z/old"]);
+    }
+
+    #[test]
+    fn the_canonical_set_of_a_name_with_terms_is_a_pattern() {
+        let set = set_of(
+            &["f-box1/top"],
+            &[],
+            &[("f-box2/top", &["f-box1/top"])],
+            &[],
+        );
+
+        let canonical = set.canonical(
+            &shape("f-cha1/chamfer/edge(f-box1/front|f-box2/top)"),
+            &Merged::default(),
+        );
+
+        assert!(canonical.names.is_empty());
+        assert_eq!(canonical.patterns.len(), 1);
+        let terms: Vec<Vec<String>> = canonical.patterns[0].terms.iter().map(texts).collect();
+        assert_eq!(terms, [vec!["f-box1/front"], vec!["f-box1/top"]]);
+    }
+
+    #[test]
+    fn sets_meet_when_a_name_of_one_extends_a_name_of_the_other() {
+        let set = set_of(&[], &[], &[], &[]);
+
+        assert!(set.meet(&forms_of(&["f-a/top"]), &forms_of(&["f-a/top#1"])));
+        assert!(!set.meet(&forms_of(&["f-a/top#1"]), &forms_of(&["f-a/top#2"])));
+        assert!(!set.meet(&forms_of(&["f-a/top"]), &forms_of(&["f-a/side"])));
+    }
+
+    #[test]
+    fn a_name_fits_a_pattern_whose_term_sets_meet_its_terms() {
+        let set = set_of(&[], &[], &[("f-box2/top", &["f-box1/top"])], &[]);
+        let pattern = set.pattern_of(&shape("f-cha1/chamfer/edge(f-box1/front|f-box2/top)"));
+
+        assert!(set.fits(
+            &shape("f-cha1/chamfer/edge(f-box1/front|f-box1/top)"),
+            &pattern
+        ));
+        assert!(!set.fits(
+            &shape("f-fil1/fillet/edge(f-box1/front|f-box1/top)"),
+            &pattern
+        ));
+        assert!(!set.fits(
+            &shape("f-cha1/chamfer/edge(f-box1/back|f-box1/top)"),
+            &pattern
+        ));
+    }
+
+    #[test]
+    fn the_family_of_a_whole_name_holds_its_pieces() {
+        let set = set_of(&["f-a/top#1", "f-a/top#2", "f-a/side"], &[], &[], &[]);
+
+        let family = set.family_of(&set.canonical(&shape("f-a/top"), &Merged::default()));
+
+        assert_eq!(names_of(&set, &family), ["f-a/top#1", "f-a/top#2"]);
+    }
+
+    #[test]
+    fn the_family_of_a_piece_holds_its_siblings() {
+        let set = set_of(&["f-a/top#1", "f-a/top#2", "f-a/side"], &[], &[], &[]);
+
+        let family = set.family_of(&set.canonical(&shape("f-a/top#1"), &Merged::default()));
+
+        assert_eq!(names_of(&set, &family), ["f-a/top#1", "f-a/top#2"]);
+    }
+
+    #[test]
+    fn the_family_of_a_merged_key_holds_the_faces_its_chase_ends_at() {
+        let set = set_of(
+            &["f-a/top", "f-b/side"],
+            &[],
+            &[("f-b/top", &["f-a/top"])],
+            &[],
+        );
+
+        let family = set.family_of(&set.canonical(&shape("f-b/top"), &Merged::default()));
+
+        assert_eq!(names_of(&set, &family), ["f-a/top"]);
+    }
+
+    #[test]
+    fn matched_via_names_the_keys_a_face_was_matched_through() {
+        let set = set_of(&["f-a/top"], &[], &[("f-b/top", &["f-a/top"])], &[]);
+        let canonical = set.canonical(&shape("f-b/top"), &Merged::default());
+        let face = set.face_id("f-a/top").expect("the face is in the set");
+        let mut via = Via::new();
+
+        set.matched_via(face, &canonical, &mut via);
+
+        assert_eq!(via, Via::from([(name("f-b/top"), Links::MERGE)]));
+    }
+}

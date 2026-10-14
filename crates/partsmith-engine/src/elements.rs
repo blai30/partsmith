@@ -297,6 +297,8 @@ impl<'a> Describer<'a> {
             axis: fields.axis,
             radius: fields.radius,
             placement: fields.placement,
+            fallback: None,
+            axis_direction: None,
             adjacent,
         })
     }

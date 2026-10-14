@@ -178,6 +178,35 @@ mod tests {
     }
 
     #[test]
+    fn invalid_reference_message_quotes_the_query_and_reason() {
+        let error = NamingError::InvalidReference {
+            name: "f-box1/top".to_owned(),
+            reason:
+                "merged names are listed for \"f-box2/top\", which is not a face name in the query"
+                    .to_owned(),
+        };
+
+        assert_eq!(
+            error.to_string(),
+            "The reference \"f-box1/top\" cannot be read: merged names are listed for \"f-box2/top\", which is not a face name in the query."
+        );
+    }
+
+    #[test]
+    fn source_out_of_range_message_counts_the_input_maps() {
+        let error = NamingError::SourceOutOfRange {
+            face: 1,
+            map: 1,
+            count: 1,
+        };
+
+        assert_eq!(
+            error.to_string(),
+            "Face 1 has a source in input map 1, but only 1 input maps were given."
+        );
+    }
+
+    #[test]
     fn name_too_long_message_states_the_limits() {
         let error = NamingError::NameTooLong { length: 16385 };
 

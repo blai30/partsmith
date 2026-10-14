@@ -39,8 +39,8 @@ pub(crate) enum StepKind<'a> {
     RolledBack,
     /// Nothing: the user suppressed it.
     Suppressed,
-    /// Reports its validation error.
-    Invalid(FeatureError),
+    /// Reports its validation error. Boxed because an error is much larger than an active step.
+    Invalid(Box<FeatureError>),
     /// Evaluates, checks and builds it.
     Active(ActiveStep<'a>),
 }
@@ -123,7 +123,7 @@ impl<'a> Timeline<'a> {
                             providers,
                         })
                     }
-                    Err(error) => StepKind::Invalid(error),
+                    Err(error) => StepKind::Invalid(Box::new(error)),
                 }
             };
             node.state = kind.state();

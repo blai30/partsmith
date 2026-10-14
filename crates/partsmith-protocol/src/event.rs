@@ -9,8 +9,8 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    BufferIndex, Diagnostic, DocHandle, Layer, MAX_SAFE_INTEGER, Orientation, ResolutionStatus,
-    SketchSolution, Vec3,
+    BufferIndex, Diagnostic, DocHandle, Ghost, Layer, MAX_SAFE_INTEGER, MeshElement, Orientation,
+    ResolutionStatus, SketchSolution, Vec3,
 };
 
 /// A state change caused by the request answered in the same frame. Tagged by `type`; every event carries `doc` and the document `revision` it describes.
@@ -109,11 +109,11 @@ pub enum Event {
 pub struct FeatureStatus {
     /// The feature.
     pub id: Id,
-    /// `ok`, `warning`, `error`, `suppressed` or `rolled_back`.
+    /// `ok`, `warning`, `error`, `suppressed` or `rolled_back`. A feature with info notices only is `ok`.
     pub status: FeatureState,
-    /// The error first, then warnings, each with `field` and `suggestion` when the feature reported them.
+    /// The error first, then warnings, then info notices, as engine.md section 3.4 projects them.
     pub messages: Vec<Diagnostic>,
-    /// Lost references and profile regions the repair panel offers to re-pick.
+    /// Repair data of lost, ambiguous, guessed and widened references and regions, one per repair of each message, in message order: what repair mode shows and replaces (ui.md section 3.7).
     pub repairs: Vec<Repair>,
 }
 
@@ -121,7 +121,7 @@ pub struct FeatureStatus {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum FeatureState {
-    /// Built without problems.
+    /// Built without problems, or with info notices only.
     Ok,
     /// Built with warnings.
     Warning,
@@ -133,7 +133,7 @@ pub enum FeatureState {
     RolledBack,
 }
 
-/// A reference or region that did not resolve uniquely: the engine's projection of features.md `Repair` (engine.md 3.4).
+/// A reference or region that did not resolve to what it meant: the engine's projection of features.md `Repair` (engine.md 3.4).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Repair {
@@ -147,9 +147,16 @@ pub enum Repair {
         reference: Reference,
         /// `missing` or `ambiguous`.
         resolution: ResolutionStatus,
-        /// Centroid from the stored fingerprint, for drawing a ghost marker.
+        /// Centroid from the stored fingerprint, for a marker where the element was when there is no ghost.
         #[serde(skip_serializing_if = "Option::is_none")]
         centroid: Option<Vec3>,
+        /// The element in words, for example "the front top edge of 'Box 1'".
+        description: String,
+        /// Possible replacements in candidate order; each is also an action of the message.
+        candidates: Vec<RepairCandidate>,
+        /// Where the element was in its last build, for a dashed outline in the viewport (engine.md section 3.23).
+        #[serde(skip_serializing_if = "Option::is_none")]
+        ghost: Option<Ghost>,
     },
     /// A profile region.
     Region {
@@ -161,7 +168,43 @@ pub enum Repair {
         region: RegionRef,
         /// `missing` or `ambiguous`.
         resolution: ResolutionStatus,
+        /// The region in words, for example "the region of 'Sketch 1' around (40, 25)".
+        description: String,
+        /// Sets of regions that could be meant; each is also an action of the message.
+        candidates: Vec<RegionCandidate>,
+        /// The stored outline as it was, in sketch coordinates, for the sketch overlay (engine.md section 3.23).
+        #[serde(skip_serializing_if = "Option::is_none")]
+        ghost: Option<Ghost>,
     },
+}
+
+/// A possible replacement for a lost, ambiguous, guessed or widened reference.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct RepairCandidate {
+    /// The reference the "Use" action stores (the full form, with anchors and merged names).
+    pub reference: Reference,
+    /// The candidate in words, for example "the top edge of the cut made by 'Extrude 1'".
+    pub description: String,
+    /// What it keeps and how far it is, for example "on the top of 'Box 1', 5 mm from where it was".
+    pub relation: String,
+    /// True when it keeps a face the lost element touched.
+    pub meaning: bool,
+    /// Distance in mm from where the lost element was.
+    pub distance: f64,
+    /// Fingerprint score in [0, 1], for reports; hosts never show it.
+    pub score: f64,
+    /// The candidate in the body's current model-layer mesh, for highlighting; absent in headless sessions and when that mesh does not have it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub element: Option<MeshElement>,
+}
+
+/// A set of regions that a lost or ambiguous region reference could mean.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct RegionCandidate {
+    /// The references the "Use" action stores, in the sketch's region order.
+    pub regions: Vec<RegionRef>,
+    /// The regions in words, for example "the region of 'Sketch 1' around (175, 10)".
+    pub description: String,
 }
 
 /// The evaluated value of one parameter.
@@ -268,7 +311,7 @@ mod tests {
 
         assert_eq!(
             text,
-            r#"{"type":"document_changed","doc":1,"revision":0,"document":{"format":"partsmith","format_version":1,"units":"mm","parameters":[],"bodies":[],"features":[]},"dirty":false,"transaction_open":false}"#
+            r#"{"type":"document_changed","doc":1,"revision":0,"document":{"format":"partsmith","format_version":2,"units":"mm","parameters":[],"bodies":[],"features":[]},"dirty":false,"transaction_open":false}"#
         );
     }
 
@@ -311,9 +354,9 @@ mod tests {
         assert_eq!(text, r#"{"id":"p-w","error":"Unknown name 'wal'."}"#);
     }
 
-    #[test]
-    fn element_repair_without_centroid_omits_it() {
-        let repair = Repair::Element {
+    /// An element repair of the box fixture's top face without centroid, candidates or ghost.
+    fn bare_element_repair() -> Repair {
+        Repair::Element {
             path: "/edges/0".to_string(),
             body: id("b-1"),
             reference: serde_json::from_str(
@@ -322,12 +365,35 @@ mod tests {
             .expect("the reference deserializes"),
             resolution: ResolutionStatus::Missing,
             centroid: None,
-        };
+            description: "the top of 'Box 1'".to_string(),
+            candidates: Vec::new(),
+            ghost: None,
+        }
+    }
 
-        let written = serde_json::to_value(&repair).expect("serializes");
+    #[test]
+    fn element_repair_without_centroid_omits_it() {
+        let written = serde_json::to_value(bare_element_repair()).expect("serializes");
 
         assert_eq!(written["kind"], "element");
         assert!(written.get("centroid").is_none(), "{written}");
+    }
+
+    #[test]
+    fn element_repair_without_a_ghost_omits_it_and_writes_empty_candidates() {
+        let written = serde_json::to_value(bare_element_repair()).expect("serializes");
+
+        assert!(written.get("ghost").is_none(), "{written}");
+        assert_eq!(written["candidates"], serde_json::json!([]));
+    }
+
+    #[test]
+    fn region_repair_round_trips_with_candidates_and_a_ghost() {
+        let text = r#"{"kind":"region","path":"/profile/regions/0","sketch":"f-sk1","region":{"key":"e-1,e-2,e-3,e-4","fp":"c=40,25|a=4000"},"resolution":"ambiguous","description":"the region of 'Sketch 1' around (40, 25)","candidates":[{"regions":[{"key":"e-1,e-3,e-4,e-9","fp":"c=40,25|a=4000"}],"description":"the region of 'Sketch 1' around (40, 25)"}],"ghost":{"positions":2,"kind":"lines","frame":"sketch"}}"#;
+
+        let repair: Repair = serde_json::from_str(text).expect("the region repair deserializes");
+
+        assert_eq!(serde_json::to_string(&repair).expect("serializes"), text);
     }
 
     #[test]

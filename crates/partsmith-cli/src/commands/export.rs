@@ -644,13 +644,11 @@ mod tests {
                 media_type: "model/stl".to_owned(),
                 bytes: 684,
             }],
-            warnings: vec![Diagnostic {
-                severity: Severity::Warning,
-                code: "open_edges".to_owned(),
-                message: "Not watertight.".to_owned(),
-                field: None,
-                suggestion: None,
-            }],
+            warnings: vec![Diagnostic::new(
+                Severity::Warning,
+                "open_edges",
+                "Not watertight.",
+            )],
             error: None,
         };
 

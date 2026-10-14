@@ -1,6 +1,6 @@
 # partsmith-naming
 
-Element names, `NamingMap`, references (`{q, fp}`), fingerprints and the resolver.
+Element names, `NamingMap` with aliases, successions and motions, references (`{q, fp, nb, merged}`), fingerprints, `ElementSet` and the resolver that resolves by meaning.
 
 Spec: `docs/spec/naming.md`. Depends only on `partsmith-model` (for `Id`).
 
@@ -9,18 +9,20 @@ Spec: `docs/spec/naming.md`. Depends only on `partsmith-model` (for `Id`).
 Everything is re-exported at the crate root.
 
 - `ElementKind` (face, edge, vertex) and `GeometryKind` (surface, curve and point kinds; `token()`, `element_kind()`).
-- `ElementName`: a validated name (`parse`, `kind`, `split_base`, `is_split_descendant_of`, `is_order_dependent`, `face_terms`, `with_split`, `with_instance`, `generated`, `edge`, `vertex`). Serialized as a JSON string. `Generator` (sketch reference or input element) and `Instance` (pattern or mirror copy number) feed `generated` and `with_instance`. Role words live in `roles`.
+- `ElementName`: a validated name (`parse`, `kind`, `split_base`, `is_split_descendant_of`, `is_order_dependent`, `face_terms`, `with_split`, `with_instance`, `generated`, `edge`, `vertex`, `generators`). Serialized as a JSON string. `Generator` (sketch reference or input element) and `Instance` (pattern or mirror copy number) feed `generated` and `with_instance`. `generators()` lists every feature and sketch generator a name depends on as sorted `GeneratorUse { feature, generator }`. Role words live in `roles`.
 - `Fingerprint`: geometry kind, direction, centroid, size, radius and adjacency counts with a canonical text form (`new`, `with_adjacency`, `parse`, `Display`). Serialized as its text.
-- `Reference { query, fingerprint }`: serialized as `{"q": ..., "fp": ...}`; `new` checks that the kinds agree, `from_info` references an element as it is now.
-- Naming inputs (not serialized): `FaceSource` (`New` or `From` input names) per output face, and `TopologyInfo` with `FaceInfo`, `EdgeInfo`, `VertexInfo` (`validate`, `fingerprint` with adjacency counts).
-- `NamingMap`: `build(faces, topology, inherited_aliases)`, lookups `name`, `index`, `count`, `names`, `aliases`, and `with_instance`, `project`, `element_infos`. Serialized for the result cache only. `Aliases` maps former names of merged faces to their current split base (`chase`).
-- `ElementInfo`: one element as the resolver sees it (name, kind, fingerprint, adjacent face names).
-- `resolve(reference, elements, aliases) -> Resolution` (`Resolved`, `Ambiguous`, `Missing`) with `MatchMethod` and `Candidate`; `score` compares fingerprints; `CONFIDENCE_THRESHOLD` and `AMBIGUITY_MARGIN`.
+- `Reference { query, fingerprint, anchors, merged }`: serialized as `{"q", "fp", "nb", "merged"}` (`nb` and `merged` omitted when empty) and validated on deserialization (`InvalidReference`). `Anchors` (part to at most `ANCHOR_LIMIT` piece-free face names) and `Merged` (face name in the query to sorted `MergedName`s: `Face` or `Copies { source, feature }`, written `<source>@<feature>:*`). `new` checks that the kinds agree; `from_element(info, set)` builds the reference of an element as it is now, with anchors and merged names (spec section 3.11); `short` drops anchors and merged names.
+- Naming inputs (not serialized): `FaceSource` (`New`, or `From` with `(input map index, name)` pairs) per output face, and `TopologyInfo` with `FaceInfo`, `EdgeInfo`, `VertexInfo` (`validate`, `fingerprint` with adjacency counts).
+- `NamingMap`: `build(faces, topology, inherited, added_successions, new_motion)`, lookups `name`, `index`, `count`, `names`, `aliases`, `successions`, `motion`, and `moved`, `with_instance(feature, instance, transform)`, `project`, `element_infos` (edges list their vertices). Serialized for the result cache only (`aliases`, `successions` and `motions` omitted when empty). `Aliases` maps former names of merged faces to sorted lists of the faces that carry them now (`chase`, `is_empty`); `Successions` maps a replaced or extended sketch lateral face to the faces that carry its place now, in profile order (`is_empty`).
+- `Motion`: an isometry, row-major matrix then translation, compared bitwise (`IDENTITY`, `new`, `then`, `inverse`, `apply_point`, `apply_direction`, `is_proper`).
+- `ElementInfo`: one element as the resolver sees it (name, kind, fingerprint, adjacent face names, and for an edge its vertex names).
+- `ElementSet::new(elements, aliases, successions)`: the resolver's view of one body state with every name index built once (`elements`, `names`; `DuplicateName` per kind). `NameSet` is its names-only view, also built from a map (`NameSet::new`): `aliases`, `successions`, `family(part, merged)`, `touches(face, anchor)`.
+- `resolve(reference, set) -> Resolution` (`Resolved { elements, method, confidence, follow, via, alternatives }`, `Ambiguous { candidates }`, `Missing { lost, candidates }`) with `MatchMethod` (`Exact`, `History`, `Continued`, `Related`, `Guess`), `Follow` (`Replaced`, `Extended`, `Merged`, `Continued`, `Related`), `Lost { parts, pieces, unmet }` and `Candidate { name, meaning, distance, score }`; `score` compares fingerprints; `CONFIDENCE_THRESHOLD` and `AMBIGUITY_MARGIN`.
 - `NamingError`: every error, with the messages of spec section 4.
 
 ## Modules
 
-`grammar` (name validation), `name`, `kind`, `fingerprint` (`mod.rs` the type, construction and display, `number.rs` the number format, `parse.rs` the text parser), `reference`, `topology`, `map` (building, numbering, instances, projection, element infos), `aliases`, `element_info`, `score`, `resolver`, `roles`, `error`.
+`grammar` (name validation), `name`, `kind`, `shape` (names taken apart: piece-free names, skeletons, terms, generators, `extends`), `fingerprint` (`mod.rs` the type, construction and display, `number.rs` the number format, `parse.rs` the text parser), `reference` (references, anchors, merged names and their validation), `pick` (`Reference::from_element`), `topology`, `motion`, `map` (`mod.rs` lookups, instances, projection and element infos, `build.rs` the build algorithm, `motions.rs` base and own motions, `serial.rs` the cache JSON), `aliases`, `chase` (following aliases and successions with the kinds of history used), `canon` (canonical sets, patterns, how sets meet, families), `name_set` (`NameSet` and its indexes), `element_set` (`ElementSet`: element infos with adjacency and incidence lists), `element_info`, `score`, `resolver` (`mod.rs` the public types and `resolve`, `parts.rs` query parts, families and live anchors, `steps.rs` steps 1 to 5, `candidates.rs` candidate order), `fast_hash` (the hasher of the internal name indexes), `roles`, `error`.
 
 ## Commands
 
@@ -40,5 +42,10 @@ cargo bench -p partsmith-naming --bench budgets -- parse # only the operations w
 ## Open spec questions (waiting for an ADR or spec edit)
 
 - Error reasons used beyond naming.md section 4's list: `it ends too early`, `instance numbers are n, n.m or 0.m, with n and m of 1 or more and no leading zeros`, `it is not a face name` (`an edge`, `a vertex`), `field "{field}" is required for {kind}`, `field "{field}" needs {count} values`.
-- Instance suffixes go after split suffixes (`X#1@f-p:1`, spec test 13), so the split base of a copied piece is the whole name: alias targets and resolver families do not match in instance copies of split faces. Fixing it changes names (ADR).
+- Instance suffixes go after split suffixes (`X#1@f-p:1`, spec test 13), so `ElementName::split_base` of a copied piece is the whole name. The resolver does not depend on it: piece-free names (section 3.1) drop every `#n` group, also before `@` groups, so families match in instance copies of split faces.
 - Spec test 39 pairs size 2 with x = 1.0000004, which gives the same order with or without quantization; the test pairs size 1 with it so quantization decides.
+- Which name owns trailing `#n` and `@` groups after a generator (section 3.1 rule 6 does not say): after a face-name generator they belong to the generator (the rim `f-sh1/rim/f-ext1/end-cap#2` has generator `f-ext1/end-cap#2`); after an edge or vertex generator they belong to the outer name, so they are part of its skeleton.
+- A face "stands for" a form (section 3.9) is read as: its name extends the form.
+- Merged names of `Reference::from_element` (section 3.11) chase merge aliases only, never successions, so a succession does not widen a merged list (corpus R66).
+- "A face of a feature in `ElementName::generators` of a part" (section 3.9 step 5) is read as a face whose own `generators` list that feature.
+- `NameSet::family` of an edge or vertex part is empty: families of edges and vertices need the element infos.

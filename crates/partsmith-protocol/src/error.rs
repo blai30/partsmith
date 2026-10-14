@@ -3,6 +3,8 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use crate::FixAction;
+
 /// A failed request.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct ErrorInfo {
@@ -16,16 +18,24 @@ pub struct ErrorInfo {
     /// For `expression_error`: the UTF-8 byte range of the problem in the expression text (expressions.md spans). The UI converts it to string indices.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub span: Option<Span>,
+    /// Technical text for reports (a panic message, a parser's text), never shown as the message.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+    /// One-click ways out, in the order to offer them (section 4, for example "Finish \"Fillet\" and save" for `transaction_open`). Omitted when empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub actions: Vec<FixAction>,
 }
 
 impl ErrorInfo {
-    /// An error with a code and a message, without an edit index or span.
+    /// An error with a code and a message, without an edit index, span, detail or actions.
     pub fn new(code: ErrorCode, message: impl Into<String>) -> ErrorInfo {
         ErrorInfo {
             code,
             message: message.into(),
             edit_index: None,
             span: None,
+            detail: None,
+            actions: Vec::new(),
         }
     }
 }
@@ -132,6 +142,8 @@ pub enum ErrorCode {
     ImportFailed,
     /// A tessellation tolerance is out of range.
     InvalidTolerance,
+    /// `apply_fix` names a revision other than the document's, or a message or action the feature no longer has, or an action that is not `apply`.
+    StaleFix,
 }
 
 #[cfg(test)]
@@ -144,6 +156,22 @@ mod tests {
 
         assert_eq!(info.edit_index, None);
         assert_eq!(info.span, None);
+    }
+
+    #[test]
+    fn error_info_writes_its_detail_after_the_span() {
+        let info = ErrorInfo {
+            detail: Some("unknown name wal".to_string()),
+            span: Some(Span { start: 4, end: 7 }),
+            ..ErrorInfo::new(ErrorCode::ExpressionError, "Unknown name 'wal'.")
+        };
+
+        let text = serde_json::to_string(&info).expect("an error serializes");
+
+        assert_eq!(
+            text,
+            r#"{"code":"expression_error","message":"Unknown name 'wal'.","span":{"start":4,"end":7},"detail":"unknown name wal"}"#
+        );
     }
 
     #[test]

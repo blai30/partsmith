@@ -6,8 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::BufferIndex;
 
-/// Geometry drawn where something was: a lost element in its last build, a lost region's outline, or a sketch entity
-/// before an edit. Positions travel as a binary buffer of the same frame (section 3.4).
+/// Geometry drawn where something was: a lost element in its last build, a lost region's outline, or a sketch entity before an edit. Positions travel as a binary buffer of the same frame (section 3.4).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 pub struct Ghost {
     /// `f32` positions in mm: 3 per point in `world`, 2 per point (u, v) in `sketch`.

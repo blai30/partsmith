@@ -2,7 +2,6 @@
 
 use partsmith_model::Id;
 use partsmith_naming::{ElementKind, Reference};
-use partsmith_print::Severity;
 use partsmith_sketch::Placement;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -41,17 +40,20 @@ pub enum Layer {
     Preview,
 }
 
-/// A pixel pick in a displayed mesh.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+/// A pixel pick in a displayed mesh. In a headless session, which has no meshes, `mesh_id` is 0, `body` names the body and `index` is the element's position among the elements of its kind in `list_elements` order (engine.md section 3.9); in a display session `body` is absent or the mesh's body.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Pick {
-    /// The displayed mesh.
+    /// The displayed mesh; 0 in a headless session.
     #[schemars(range(max = MAX_SAFE_INTEGER))]
     pub mesh_id: u64,
     /// Face, edge or vertex.
     pub kind: ElementKind,
-    /// Display id of the element within the mesh.
+    /// Display id of the element within the mesh; in a headless session, its position among the body's elements of its kind.
     pub index: u32,
+    /// The body of a headless pick; absent, or the mesh's body, in a display session.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub body: Option<Id>,
 }
 
 /// An element of a displayed mesh.
@@ -125,7 +127,7 @@ pub struct ElementDescriptor {
     pub body: Id,
     /// Feature whose output created the element (engine.md 3.9).
     pub feature: Id,
-    /// The stored reference a feature param uses for this element.
+    /// The reference a feature param stores for this element: the short form (query and fingerprint) in `list_elements`, the full form with anchors and merged names in `pick_reference` (engine.md section 3.9).
     pub reference: Reference,
     /// Surface type (faces only).
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -156,6 +158,12 @@ pub struct ElementDescriptor {
     /// Sketch placement a sketch on this face receives (planar faces only).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub placement: Option<Placement>,
+    /// `placement` in body coordinates, which hosts store as a face sketch's fallback with `fallback_frame: body` (planar faces only, engine.md section 3.9).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fallback: Option<Placement>,
+    /// Unit axis direction in body coordinates, which hosts store as `direction` when the element is picked for an axis (line edges; cylinder, cone and torus faces; engine.md section 3.9).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub axis_direction: Option<Vec3>,
     /// Names of adjacent elements: a face's edges; an edge's faces then vertices; a vertex's edges. Each group sorted by name.
     pub adjacent: Vec<String>,
 }
@@ -192,23 +200,6 @@ pub enum TessellationQuality {
     Standard,
     /// Finer than the profile's tolerance.
     Fine,
-}
-
-/// A message about a document, feature or export.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-pub struct Diagnostic {
-    /// Info, warning or error.
-    pub severity: Severity,
-    /// Stable snake_case code from the crate that produced it.
-    pub code: String,
-    /// Plain-sentence message for the user.
-    pub message: String,
-    /// JSON Pointer of the feature param the message is about, relative to the feature record (for example `/radius`). Feature messages only.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub field: Option<String>,
-    /// Replacement expression for `field` that fixes the problem, in document units (for example `2.3 mm`). Feature messages only.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub suggestion: Option<String>,
 }
 
 /// A file passed into or out of the engine.
@@ -316,6 +307,8 @@ mod tests {
             axis: None,
             radius: None,
             placement: None,
+            fallback: None,
+            axis_direction: None,
             adjacent: Vec::new(),
         };
 
@@ -369,16 +362,5 @@ mod tests {
                 data: BufferIndex(0)
             }
         );
-    }
-
-    #[test]
-    fn diagnostic_reads_null_options_as_absent() {
-        let diagnostic: Diagnostic = serde_json::from_str(
-            r#"{"severity":"info","code":"note","message":"Fine.","field":null,"suggestion":null}"#,
-        )
-        .expect("deserializes");
-
-        assert_eq!(diagnostic.field, None);
-        assert_eq!(diagnostic.suggestion, None);
     }
 }

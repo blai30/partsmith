@@ -223,3 +223,153 @@ fn copy_of(name: &ElementName) -> Option<(ElementName, Id)> {
     (source.kind() == ElementKind::Face).then_some(())?;
     Some((source, Id::new(feature).ok()?))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::name_set::testing::{name, set_of};
+
+    /// The element names `texts`.
+    fn names(texts: &[&str]) -> Vec<ElementName> {
+        texts.iter().map(|text| name(text)).collect()
+    }
+
+    /// The face ids of the names `texts` in `set`.
+    fn ids(set: &NameSet, texts: &[&str]) -> Vec<u32> {
+        let mut ids: Vec<u32> = texts
+            .iter()
+            .map(|text| set.face_id(text).expect("the face is in the set"))
+            .collect();
+        ids.sort_unstable();
+        ids
+    }
+
+    #[test]
+    fn an_instance_name_is_a_copy_of_its_source_by_its_feature() {
+        let (source, feature) = copy_of(&name("f-a/top@f-lp1:2")).expect("an instance name");
+
+        assert_eq!(source, name("f-a/top"));
+        assert_eq!(feature.as_str(), "f-lp1");
+        assert_eq!(
+            copy_of(&name("f-a/top@f-lp1:0.3")).map(|copy| copy.0),
+            Some(name("f-a/top"))
+        );
+    }
+
+    #[test]
+    fn a_plain_name_or_a_piece_of_a_copy_is_no_copy_name() {
+        assert_eq!(copy_of(&name("f-a/top")), None);
+        assert_eq!(copy_of(&name("f-a/top@f-lp1:2#1")), None);
+    }
+
+    #[test]
+    fn neighbors_are_piece_free_names_without_fallbacks_or_left_out_names() {
+        let set = set_of(
+            &[
+                "f-a/side#1",
+                "f-a/side#2",
+                "f-imp1/face#3",
+                "f-a/top#1",
+                "f-a/back",
+            ],
+            &[],
+            &[],
+            &[],
+        );
+        let faces = ids(
+            &set,
+            &[
+                "f-a/side#1",
+                "f-a/side#2",
+                "f-imp1/face#3",
+                "f-a/top#1",
+                "f-a/back",
+            ],
+        );
+
+        let neighbors = piece_free_neighbors(&set, &faces, &BTreeSet::from(["f-a/top"]));
+
+        assert_eq!(neighbors, names(&["f-a/back", "f-a/side"]));
+    }
+
+    #[test]
+    fn a_part_without_siblings_keeps_every_neighbor() {
+        let set = set_of(&["f-a/side", "f-a/back"], &[], &[], &[]);
+
+        let kept = distinguishing(&set, &names(&["f-a/back", "f-a/side"]), &[]);
+
+        assert_eq!(kept, Some(names(&["f-a/back", "f-a/side"])));
+    }
+
+    #[test]
+    fn a_neighbor_every_sibling_touches_is_not_kept() {
+        let set = set_of(&["f-a/side", "f-a/back", "f-a/front"], &[], &[], &[]);
+        let siblings = [ids(&set, &["f-a/side", "f-a/front"])];
+
+        let kept = distinguishing(&set, &names(&["f-a/back", "f-a/side"]), &siblings);
+
+        assert_eq!(kept, Some(names(&["f-a/back"])));
+    }
+
+    #[test]
+    fn no_anchors_are_kept_when_a_sibling_touches_every_candidate() {
+        let set = set_of(&["f-a/side", "f-a/back", "f-a/front"], &[], &[], &[]);
+        let siblings = [
+            ids(&set, &["f-a/back", "f-a/side"]),
+            ids(&set, &["f-a/front"]),
+        ];
+
+        let kept = distinguishing(&set, &names(&["f-a/back", "f-a/side"]), &siblings);
+
+        assert_eq!(kept, None);
+    }
+
+    #[test]
+    fn the_fewest_touched_neighbors_are_kept_up_to_the_limit() {
+        let faces = [
+            "f-a/n1", "f-a/n2", "f-a/n3", "f-a/n4", "f-a/n5", "f-a/n6", "f-a/n7", "f-a/n8",
+        ];
+        let set = set_of(&faces, &[], &[], &[]);
+        let siblings = [
+            ids(&set, &["f-a/n1", "f-a/n2"]),
+            ids(&set, &["f-a/n2", "f-a/n3"]),
+        ];
+
+        let kept = distinguishing(&set, &names(&faces), &siblings).expect("anchors are kept");
+
+        assert_eq!(
+            kept,
+            names(&["f-a/n1", "f-a/n4", "f-a/n5", "f-a/n6", "f-a/n7", "f-a/n8"])
+        );
+    }
+
+    #[test]
+    fn every_known_copy_listed_is_written_once() {
+        let set = set_of(&["f-a/top@f-lp1:1", "f-a/top@f-lp1:2"], &[], &[], &[]);
+
+        let merged = with_copies_written_once(
+            names(&["f-a/top@f-lp1:1", "f-a/top@f-lp1:2", "f-b/top"]),
+            &set,
+        );
+
+        assert_eq!(
+            merged,
+            [
+                MergedName::Face(name("f-b/top")),
+                MergedName::Copies {
+                    source: name("f-a/top"),
+                    feature: Id::new("f-lp1").expect("valid id"),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn copies_stay_listed_when_a_known_copy_is_missing() {
+        let set = set_of(&["f-a/top@f-lp1:1", "f-a/top@f-lp1:2"], &[], &[], &[]);
+
+        let merged = with_copies_written_once(names(&["f-a/top@f-lp1:1"]), &set);
+
+        assert_eq!(merged, [MergedName::Face(name("f-a/top@f-lp1:1"))]);
+    }
+}

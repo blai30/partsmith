@@ -732,6 +732,7 @@ mod tests {
                     mesh_id,
                     kind: ElementKind::Edge,
                     index: 3,
+                    body: None,
                 },
             )
             .expect("the pick names an edge");

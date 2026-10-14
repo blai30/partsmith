@@ -119,7 +119,7 @@ impl Runner<'_> {
             StepKind::RolledBack => FeatureReport::idle(&step.record.id, Status::RolledBack),
             StepKind::Suppressed => FeatureReport::idle(&step.record.id, Status::Suppressed),
             StepKind::Invalid(error) => FeatureReport {
-                error: Some(error.clone()),
+                error: Some(FeatureError::clone(error)),
                 messages: render_messages(Some(error), &[], &self.names, self.inputs.scope.units),
                 ..FeatureReport::idle(&step.record.id, Status::Error)
             },
@@ -178,7 +178,7 @@ impl Runner<'_> {
                 }
                 Ok(built.output)
             }
-            Outcome::Failed(error) => Err(error),
+            Outcome::Failed(error) => Err(*error),
         };
         self.report(record, step, key, result, timing, bodies_before)
     }
@@ -208,10 +208,11 @@ impl Runner<'_> {
                 self.canceled = true;
                 return None;
             }
-            Err(error) => Outcome::Failed(error),
+            Err(error) => Outcome::Failed(Box::new(error)),
         };
         // A panic is never cached, so the next run builds the feature again.
-        if !matches!(outcome, Outcome::Failed(FeatureError::Internal { .. })) {
+        let panicked = matches!(&outcome, Outcome::Failed(error) if matches!(**error, FeatureError::Internal { .. }));
+        if !panicked {
             cache.insert(key, outcome.clone());
         }
         let timing = Timing {

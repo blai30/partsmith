@@ -156,3 +156,143 @@ impl OwnPart {
 pub(super) fn face_id(member: usize) -> u32 {
     u32::try_from(member).expect("face ids fit in u32")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::fingerprint::Fingerprint;
+    use crate::name_set::testing::{name, set_of};
+    use crate::reference::Anchors;
+
+    /// The ids of the faces `texts` of `set`, ascending.
+    fn ids(set: &NameSet, texts: &[&str]) -> Vec<u32> {
+        let mut ids: Vec<u32> = texts
+            .iter()
+            .map(|text| set.face_id(text).expect("the face is in the set"))
+            .collect();
+        ids.sort_unstable();
+        ids
+    }
+
+    /// A box top split in two pieces: `#1` touches the front and the left, `#2` the back.
+    fn split_top() -> NameSet {
+        set_of(
+            &[
+                "f-a/top#1",
+                "f-a/top#2",
+                "f-a/front",
+                "f-a/left",
+                "f-a/back",
+            ],
+            &[
+                ("f-a/top#1", "f-a/front"),
+                ("f-a/top#1", "f-a/left"),
+                ("f-a/top#2", "f-a/back"),
+            ],
+            &[],
+            &[],
+        )
+    }
+
+    /// The live anchors `anchors` of the pieces of the top of `set`.
+    fn live(set: &NameSet, anchors: &[&str]) -> Option<LiveAnchors> {
+        let anchor_names: Vec<ElementName> = anchors.iter().map(|anchor| name(anchor)).collect();
+        let members: Vec<usize> = ids(set, &["f-a/top#1", "f-a/top#2"])
+            .into_iter()
+            .map(|face| face as usize)
+            .collect();
+        LiveAnchors::of(&anchor_names, set, &members, |member| {
+            set.touching(face_id(member)).to_vec()
+        })
+    }
+
+    #[test]
+    fn anchors_without_a_family_are_not_live() {
+        let set = split_top();
+
+        assert!(live(&set, &["f-a/right"]).is_none());
+    }
+
+    #[test]
+    fn the_one_member_that_covers_the_live_anchors_is_kept() {
+        let set = split_top();
+
+        let anchors = live(&set, &["f-a/front", "f-a/left"]).expect("the anchors are live");
+
+        assert!(anchors.every_anchor_live);
+        assert_eq!(
+            anchors.covering,
+            set.face_id("f-a/top#1").map(|face| face as usize)
+        );
+    }
+
+    #[test]
+    fn a_gone_anchor_leaves_the_others_live() {
+        let set = split_top();
+
+        let anchors = live(&set, &["f-a/front", "f-a/right"]).expect("one anchor is live");
+
+        assert!(!anchors.every_anchor_live);
+        assert_eq!(
+            anchors.covering,
+            set.face_id("f-a/top#1").map(|face| face as usize)
+        );
+    }
+
+    #[test]
+    fn anchors_two_members_cover_tell_nothing_apart() {
+        let set = set_of(
+            &["f-a/top#1", "f-a/top#2", "f-a/front"],
+            &[("f-a/top#1", "f-a/front"), ("f-a/top#2", "f-a/front")],
+            &[],
+            &[],
+        );
+
+        assert!(live(&set, &["f-a/front"]).is_none());
+    }
+
+    #[test]
+    fn touched_says_which_live_anchors_faces_touch() {
+        let set = split_top();
+        let anchors = live(&set, &["f-a/back", "f-a/front"]).expect("the anchors are live");
+
+        assert_eq!(anchors.touched(&ids(&set, &["f-a/front"])), [false, true]);
+        assert!(anchors.covers(&ids(&set, &["f-a/back", "f-a/front"])));
+        assert!(!anchors.covers(&ids(&set, &["f-a/back"])));
+    }
+
+    #[test]
+    fn a_face_part_reads_its_anchors_only_when_order_dependent() {
+        let set = split_top();
+        let mut reference = Reference::new(
+            name("f-a/top#1"),
+            Fingerprint::parse("plane|n=0,0,1").expect("valid fingerprint"),
+        )
+        .expect("the kinds agree");
+        reference.anchors = Anchors([(name("f-a/top#1"), vec![name("f-a/front")])].into());
+
+        let part = FacePart::new(name("f-a/top#1"), &reference, &set);
+
+        assert!(part.order_dependent);
+        assert!(!part.fallback);
+        assert!(part.is_present());
+        assert_eq!(part.family, ids(&set, &["f-a/top#1", "f-a/top#2"]));
+        assert!(part.anchors.is_some());
+    }
+
+    #[test]
+    fn a_part_without_a_family_is_not_present() {
+        let set = split_top();
+        let reference = Reference::new(
+            name("f-imp1/face#3"),
+            Fingerprint::parse("plane|n=0,0,1").expect("valid fingerprint"),
+        )
+        .expect("the kinds agree");
+
+        let part = FacePart::new(name("f-imp1/face#3"), &reference, &set);
+
+        assert!(part.fallback);
+        assert!(!part.is_present());
+        assert!(part.anchors.is_none());
+    }
+}

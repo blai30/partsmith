@@ -17,6 +17,10 @@ const MIN_AXIS_LENGTH: f64 = 1e-6;
 /// Where a sketch lies.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+#[expect(
+    clippy::large_enum_variant,
+    reason = "one plane exists per sketch, so the space a small variant leaves unused costs nothing, and boxing would change the shape the spec gives"
+)]
 pub enum SketchPlane {
     /// One of the three origin planes.
     Origin {

@@ -617,3 +617,303 @@ pub(crate) fn share_a_face(first: &[u32], second: &[u32]) -> bool {
     };
     fewer.iter().any(|face| more.binary_search(face).is_ok())
 }
+
+/// Name sets for unit tests.
+#[cfg(test)]
+pub(crate) mod testing {
+    use std::collections::BTreeMap;
+
+    use super::*;
+
+    /// The element name `text`.
+    pub(crate) fn name(text: &str) -> ElementName {
+        ElementName::parse(text).expect("the test name is valid")
+    }
+
+    /// The taken-apart name `text`.
+    pub(crate) fn shape(text: &str) -> Shape {
+        Shape::of(Arc::from(text))
+    }
+
+    /// Name lists by key.
+    pub(crate) fn lists(entries: &[(&str, &[&str])]) -> BTreeMap<ElementName, Vec<ElementName>> {
+        entries
+            .iter()
+            .map(|(key, targets)| {
+                (
+                    name(key),
+                    targets.iter().map(|target| name(target)).collect(),
+                )
+            })
+            .collect()
+    }
+
+    /// The names-only view of the faces `faces`, where the faces of each pair of `touching` touch,
+    /// with the aliases `aliases` and the successions `successions`.
+    pub(crate) fn set_of(
+        faces: &[&str],
+        touching: &[(&str, &str)],
+        aliases: &[(&str, &[&str])],
+        successions: &[(&str, &[&str])],
+    ) -> NameSet {
+        let mut names: Vec<ElementName> = faces.iter().map(|face| name(face)).collect();
+        names.sort_unstable();
+        let by_name = ids_by_name(&names);
+        let mut touches = vec![Vec::new(); names.len()];
+        for (first, second) in touching {
+            let first = by_name[*first];
+            let second = by_name[*second];
+            touches[first as usize].push(second);
+            touches[second as usize].push(first);
+        }
+        NameSet::build(
+            names,
+            by_name,
+            touches,
+            Aliases(lists(aliases)),
+            Successions(lists(successions)),
+        )
+    }
+
+    /// The names of the face ids `faces` of `set`.
+    pub(crate) fn names_of(set: &NameSet, faces: &[u32]) -> Vec<String> {
+        faces
+            .iter()
+            .map(|&face| set.face_shape(face).text().to_string())
+            .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::testing::{name, names_of, set_of, shape};
+    use super::*;
+    use crate::chase::Links;
+
+    #[test]
+    fn faces_are_numbered_in_byte_order() {
+        let set = set_of(&["f-b/top", "f-a/top", "f-a/side"], &[], &[], &[]);
+
+        assert_eq!(set.face_count(), 3);
+        assert_eq!(
+            names_of(&set, &[0, 1, 2]),
+            ["f-a/side", "f-a/top", "f-b/top"]
+        );
+        assert_eq!(set.face_id("f-a/top"), Some(1));
+        assert_eq!(set.face_id("f-c/top"), None);
+    }
+
+    #[test]
+    fn touching_faces_are_sorted_and_listed_once() {
+        let set = set_of(
+            &["f-a/x", "f-a/y", "f-a/z"],
+            &[("f-a/x", "f-a/z"), ("f-a/x", "f-a/y"), ("f-a/z", "f-a/x")],
+            &[],
+            &[],
+        );
+
+        assert_eq!(set.touching(0), [1, 2]);
+        assert_eq!(set.touching(1), [0]);
+    }
+
+    #[test]
+    fn new_makes_the_faces_of_one_edge_name_touch() {
+        let map: NamingMap = serde_json::from_str(
+            r#"{"faces": ["f-a/x", "f-a/y", "f-a/z"], "edges": ["edge(f-a/x|f-a/y)"], "vertices": []}"#,
+        )
+        .expect("the test map is valid");
+
+        let set = NameSet::new(&map);
+
+        assert_eq!(set.touching(0), [1]);
+        assert_eq!(set.touching(1), [0]);
+        assert!(set.touching(2).is_empty());
+    }
+
+    #[test]
+    fn pieces_are_found_by_their_piece_free_name() {
+        let set = set_of(&["f-a/top#1", "f-a/top#2", "f-a/side"], &[], &[], &[]);
+
+        assert_eq!(
+            names_of(&set, set.faces_with_piece_free("f-a/top")),
+            ["f-a/top#1", "f-a/top#2"]
+        );
+        assert!(set.faces_with_piece_free("f-a/bottom").is_empty());
+    }
+
+    #[test]
+    fn a_face_is_listed_under_every_feature_it_depends_on() {
+        let set = set_of(
+            &["f-cha1/chamfer/edge(f-box1/front|f-box1/top)"],
+            &[],
+            &[],
+            &[],
+        );
+
+        assert_eq!(set.faces_of_feature("f-cha1"), [0]);
+        assert_eq!(set.faces_of_feature("f-box1"), [0]);
+        assert!(set.faces_of_feature("f-fil1").is_empty());
+    }
+
+    #[test]
+    fn relatives_share_feature_sketch_generator_and_instance_groups() {
+        let set = set_of(
+            &[
+                "f-ext1/lateral/e-1",
+                "f-ext1/end-cap",
+                "f-ext1/lateral/e-1@f-lp1:1",
+            ],
+            &[],
+            &[],
+            &[],
+        );
+        let key = shape("f-ext1/lateral/e-1")
+            .relative_key()
+            .expect("a sketch generator has relatives");
+
+        assert_eq!(
+            names_of(&set, set.faces_with_relative_key(&key)),
+            ["f-ext1/lateral/e-1"]
+        );
+    }
+
+    #[test]
+    fn rims_are_found_with_their_generator() {
+        let set = set_of(
+            &["f-sh1/rim/f-ext1/end-cap#2", "f-ext1/lateral/e-1"],
+            &[],
+            &[],
+            &[],
+        );
+
+        let rims = set.rims();
+
+        assert_eq!(rims.len(), 1);
+        assert_eq!(
+            names_of(&set, &[rims[0].face]),
+            ["f-sh1/rim/f-ext1/end-cap#2"]
+        );
+        assert_eq!(rims[0].generator.text().as_ref(), "f-ext1/end-cap#2");
+    }
+
+    #[test]
+    fn alias_and_succession_keys_are_keys() {
+        let set = set_of(
+            &["f-a/top", "f-ext1/lateral/e-9"],
+            &[],
+            &[("f-b/top", &["f-a/top"])],
+            &[("f-ext1/lateral/e-3", &["f-ext1/lateral/e-9"])],
+        );
+
+        assert!(set.is_key("f-b/top"));
+        assert!(set.is_key("f-ext1/lateral/e-3"));
+        assert!(!set.is_key("f-a/top"));
+    }
+
+    #[test]
+    fn the_chase_of_a_key_follows_every_alias_on_the_way() {
+        let set = set_of(
+            &["f-a/top"],
+            &[],
+            &[("f-c/top", &["f-b/top"]), ("f-b/top", &["f-a/top"])],
+            &[],
+        );
+
+        let forms = set.chase_forms(&shape("f-c/top"));
+
+        assert_eq!(forms.len(), 1);
+        assert_eq!(forms[0].shape.text().as_ref(), "f-a/top");
+        assert_eq!(forms[0].via, [(name("f-c/top"), Links::MERGE)]);
+    }
+
+    #[test]
+    fn the_chase_of_a_name_that_is_no_key_is_the_name() {
+        let set = set_of(&["f-a/top"], &[], &[], &[]);
+
+        let forms = set.chase_forms(&shape("f-a/top"));
+
+        assert_eq!(forms.len(), 1);
+        assert_eq!(forms[0].shape.text().as_ref(), "f-a/top");
+        assert!(forms[0].via.is_empty());
+    }
+
+    #[test]
+    fn known_copies_are_the_instances_of_faces_and_keys() {
+        let set = set_of(
+            &["f-a/top@f-lp1:1", "f-a/top@f-lp1:2#1", "f-a/top@f-mir1:1"],
+            &[],
+            &[("f-a/top@f-lp1:3", &["f-a/top@f-lp1:1"])],
+            &[],
+        );
+
+        let copies: Vec<String> = set
+            .known_copies(&name("f-a/top"), "f-lp1")
+            .iter()
+            .map(|copy| copy.text().to_string())
+            .collect();
+
+        assert_eq!(
+            copies,
+            ["f-a/top@f-lp1:1", "f-a/top@f-lp1:2", "f-a/top@f-lp1:3"]
+        );
+        assert!(set.known_copies(&name("f-b/top"), "f-lp1").is_empty());
+    }
+
+    #[test]
+    fn a_merge_target_grew_while_a_key_merged_into_it_is_unknown() {
+        let set = set_of(&["f-a/top"], &[], &[("f-b/top", &["f-a/top"])], &[]);
+        let top = shape("f-a/top");
+
+        assert!(set.grew(&top, |text| text == "f-a/top"));
+        assert!(!set.grew(&top, |_| true));
+        assert!(!set.grew(&shape("f-a/side"), |_| false));
+    }
+
+    #[test]
+    fn merged_into_lists_every_alias_key_whose_chase_holds_the_name() {
+        let set = set_of(
+            &["f-a/top"],
+            &[],
+            &[("f-c/top", &["f-b/top"]), ("f-b/top", &["f-a/top"])],
+            &[("f-ext1/lateral/e-3", &["f-a/top"])],
+        );
+
+        assert_eq!(
+            set.merged_into(&shape("f-a/top")),
+            [name("f-b/top"), name("f-c/top")]
+        );
+        assert!(set.merged_into(&shape("f-a/side")).is_empty());
+    }
+
+    #[test]
+    fn the_family_of_an_edge_part_is_empty() {
+        let set = set_of(&["f-a/x", "f-a/y"], &[], &[], &[]);
+
+        assert!(
+            set.family(&name("edge(f-a/x|f-a/y)"), &Merged::default())
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn touches_tests_the_family_of_the_anchor() {
+        let set = set_of(
+            &["f-a/top#1", "f-a/top#2", "f-a/side"],
+            &[("f-a/top#1", "f-a/side")],
+            &[],
+            &[],
+        );
+
+        assert!(set.touches(&name("f-a/top#1"), &name("f-a/side")));
+        assert!(set.touches(&name("f-a/side"), &name("f-a/top")));
+        assert!(!set.touches(&name("f-a/top#2"), &name("f-a/side")));
+        assert!(!set.touches(&name("f-a/bottom"), &name("f-a/side")));
+    }
+
+    #[test]
+    fn two_id_lists_share_a_face_when_one_id_is_in_both() {
+        assert!(share_a_face(&[1, 3, 5], &[2, 3]));
+        assert!(!share_a_face(&[1, 3], &[2, 4]));
+        assert!(!share_a_face(&[], &[2]));
+    }
+}

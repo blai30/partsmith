@@ -233,6 +233,9 @@ impl Session {
                 self.events(doc, &mut output)?;
                 CommandResult::RenameParameter { revision }
             }
+            // No diagnostic offers an `apply` action yet, so every fix names an action its
+            // feature does not have (section 3.22).
+            Command::ApplyFix { .. } => return Err(EngineError::StaleFix.into()),
             Command::BeginTransaction { doc, label } => {
                 self.begin_transaction(doc, &label)?;
                 self.events(doc, &mut output)?;
@@ -318,7 +321,7 @@ impl Session {
                 elements: self.list_elements(doc, &body, kind)?,
             },
             Command::PickReference { doc, pick } => CommandResult::PickReference {
-                element: self.pick_reference(doc, pick)?,
+                element: Box::new(self.pick_reference(doc, pick)?),
             },
             Command::ResolveReferences { doc, references } => CommandResult::ResolveReferences {
                 results: self.resolve_references(doc, &references)?,
@@ -466,6 +469,7 @@ fn document_of(command: &Command) -> Option<DocHandle> {
         | Command::MarkSaved { doc, .. }
         | Command::ApplyEdits { doc, .. }
         | Command::RenameParameter { doc, .. }
+        | Command::ApplyFix { doc, .. }
         | Command::BeginTransaction { doc, .. }
         | Command::SetFocus { doc, .. }
         | Command::CommitTransaction { doc }
@@ -508,6 +512,7 @@ fn panic_message(payload: &(dyn Any + Send)) -> String {
 #[cfg(test)]
 mod tests {
     use partsmith_model::{Edit, Parameter};
+    use partsmith_protocol::FixRef;
 
     use super::*;
     use crate::test_support::{box_session, id};
@@ -600,6 +605,24 @@ mod tests {
         assert_eq!(
             error_code(&mut session, Command::Undo { doc }),
             Some(ErrorCode::DocumentPoisoned)
+        );
+    }
+
+    #[test]
+    fn apply_fix_is_stale_while_no_diagnostic_offers_an_apply_action() {
+        let (mut session, doc) = box_session(false);
+        let fix = FixRef {
+            feature: id("f-box1"),
+            code: "fillet_too_large".to_string(),
+            field: Some("/radius".to_string()),
+            cause: false,
+            index: 0,
+            revision: session.revision(doc).expect("the document is open"),
+        };
+
+        assert_eq!(
+            error_code(&mut session, Command::ApplyFix { doc, fix }),
+            Some(ErrorCode::StaleFix)
         );
     }
 

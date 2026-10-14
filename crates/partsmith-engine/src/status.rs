@@ -84,26 +84,19 @@ fn state(status: Status) -> FeatureState {
 
 /// A diagnostic about no field, with no suggestion.
 pub(crate) fn diagnostic(severity: Severity, code: &str, message: String) -> Diagnostic {
-    Diagnostic {
-        severity,
-        code: code.to_string(),
-        message,
-        field: None,
-        suggestion: None,
-    }
+    Diagnostic::new(severity, code, message)
 }
 
 /// A rendered feature message as a protocol diagnostic.
 fn message_diagnostic(message: &Message) -> Diagnostic {
+    let severity = match message.severity {
+        MessageSeverity::Error => Severity::Error,
+        MessageSeverity::Warning => Severity::Warning,
+    };
     Diagnostic {
-        severity: match message.severity {
-            MessageSeverity::Error => Severity::Error,
-            MessageSeverity::Warning => Severity::Warning,
-        },
-        code: message.code.to_string(),
-        message: message.text.clone(),
         field: message.pointer.clone(),
         suggestion: message.suggestion.clone(),
+        ..Diagnostic::new(severity, message.code, message.text.clone())
     }
 }
 
@@ -129,6 +122,9 @@ fn repair(message: &Message) -> Option<Repair> {
             reference: reference.clone(),
             resolution: resolution(*ambiguous),
             centroid: reference.fingerprint.centroid,
+            description: String::new(),
+            candidates: Vec::new(),
+            ghost: None,
         },
         FeatureRepair::Region {
             pointer,
@@ -140,6 +136,9 @@ fn repair(message: &Message) -> Option<Repair> {
             sketch: sketch.clone(),
             region: region.clone(),
             resolution: resolution(*ambiguous),
+            description: String::new(),
+            candidates: Vec::new(),
+            ghost: None,
         },
     })
 }
