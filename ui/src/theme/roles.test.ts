@@ -1,6 +1,7 @@
 import colors from 'tailwindcss/colors'
 import { describe, expect, it } from 'vitest'
 import {
+  AXIS_ROLES,
   BODY_SWATCHES,
   COLOR_CLASSES,
   contrastRatio,
@@ -49,11 +50,17 @@ const PALETTE_TABLE: readonly (readonly [step: string, tailwind: string, hex: st
   ['red-600', 'oklch(57.7% 0.245 27.325)', '#e7000b'],
   ['red-700', 'oklch(50.5% 0.213 27.518)', '#c10007'],
   ['red-950', 'oklch(25.8% 0.092 26.042)', '#460809'],
+  ['rose-400', 'oklch(71.2% 0.194 13.428)', '#ff637e'],
+  ['rose-600', 'oklch(58.6% 0.253 17.585)', '#ec003f'],
+  ['lime-400', 'oklch(84.1% 0.238 128.85)', '#9ae600'],
   ['green-400', 'oklch(79.2% 0.209 151.711)', '#05df72'],
   ['green-600', 'oklch(62.7% 0.194 149.214)', '#00a63e'],
   ['green-700', 'oklch(52.7% 0.154 150.069)', '#008236'],
+  ['emerald-700', 'oklch(50.8% 0.118 165.612)', '#007a55'],
   ['teal-600', 'oklch(60% 0.118 184.704)', '#009689'],
   ['sky-200', 'oklch(90.1% 0.058 230.902)', '#b8e6fe'],
+  ['sky-300', 'oklch(82.8% 0.111 230.318)', '#74d4ff'],
+  ['sky-700', 'oklch(50% 0.134 242.749)', '#0069a8'],
   ['blue-400', 'oklch(70.7% 0.165 254.624)', '#51a2ff'],
   ['blue-500', 'oklch(62.3% 0.214 259.815)', '#2b7fff'],
   ['blue-600', 'oklch(54.6% 0.245 262.881)', '#155dfc'],
@@ -103,6 +110,12 @@ const CLASS_TABLE: readonly (readonly [role: string, facet: string, classes: str
   ['warningFill', 'foreground', 'text-zinc-950'],
   ['successMark', 'foreground', 'text-green-700 dark:text-green-400'],
   ['analysis', 'background', 'bg-linear-to-r/srgb from-sky-200 to-violet-700'],
+  ['axisX', 'foreground', 'text-rose-600 dark:text-rose-400'],
+  ['axisX', 'border', 'border-rose-600 dark:border-rose-400'],
+  ['axisY', 'foreground', 'text-emerald-700 dark:text-lime-400'],
+  ['axisY', 'border', 'border-emerald-700 dark:border-lime-400'],
+  ['axisZ', 'foreground', 'text-sky-700 dark:text-sky-300'],
+  ['axisZ', 'border', 'border-sky-700 dark:border-sky-300'],
 ]
 
 // Table of ui.md 2.16.4: role, light step, dark step, light hex, dark hex.
@@ -131,6 +144,9 @@ const VIEWPORT_TABLE: readonly (readonly [
   ['grid', 'zinc-300', 'zinc-600', '#d4d4d8', '#52525c'],
   ['analysisLow', 'sky-200', 'sky-200', '#b8e6fe', '#b8e6fe'],
   ['analysisHigh', 'violet-700', 'violet-700', '#7008e7', '#7008e7'],
+  ['axisX', 'rose-600', 'rose-400', '#ec003f', '#ff637e'],
+  ['axisY', 'emerald-700', 'lime-400', '#007a55', '#9ae600'],
+  ['axisZ', 'sky-700', 'sky-300', '#0069a8', '#74d4ff'],
 ]
 
 // Swatch table of ui.md 2.16.5: name, step, stored Body.color.
@@ -175,6 +191,12 @@ const TEXT_CONTRAST: readonly (readonly [text: string, on: string, light: number
     ['onAccent', 'accentHover', 6.89, 8.36],
     ['onWarningFill', 'warningFill', 12.64, 12.64],
     ['onErrorFill', 'errorFill', 4.76, 4.76],
+    ['axisX', 'field', 4.52, 6.95],
+    ['axisX', 'surfaceRaised', 4.52, 6.19],
+    ['axisY', 'field', 5.36, 12.97],
+    ['axisY', 'surfaceRaised', 5.36, 11.55],
+    ['axisZ', 'field', 5.85, 11.94],
+    ['axisZ', 'surfaceRaised', 5.85, 10.63],
   ]
 
 // Non-text table of ui.md 2.16.6: mark role, background role, light ratio, dark ratio.
@@ -214,6 +236,21 @@ const NON_TEXT_CONTRAST: readonly (readonly [
   ['sketchReference', 'viewportBottom', 4.39, 6.75],
   ['bed', 'viewportTop', 4.82, 5.67],
   ['bed', 'viewportBottom', 4.39, 6.75],
+  ['axisX', 'viewportTop', 4.52, 5.2],
+  ['axisX', 'viewportBottom', 4.11, 6.19],
+  ['axisX', 'surface', 4.11, 6.95],
+  ['axisX', 'hover', 3.56, 5.2],
+  ['axisX', 'selection', 3.94, 5.46],
+  ['axisY', 'viewportTop', 5.36, 9.71],
+  ['axisY', 'viewportBottom', 4.88, 11.55],
+  ['axisY', 'surface', 4.88, 12.97],
+  ['axisY', 'hover', 4.22, 9.71],
+  ['axisY', 'selection', 4.67, 10.2],
+  ['axisZ', 'viewportTop', 5.85, 8.93],
+  ['axisZ', 'viewportBottom', 5.32, 10.63],
+  ['axisZ', 'surface', 5.32, 11.94],
+  ['axisZ', 'hover', 4.61, 8.93],
+  ['axisZ', 'selection', 5.1, 9.39],
 ]
 
 // Contrast-table names that are a facet of a 2.16.3 role, as role and facet.
@@ -540,6 +577,35 @@ describe('mapping tables (U-90)', () => {
   it('U-90 ROOT_CLASSES equals 2.16.2', () => {
     expect(ROOT_CLASSES).toBe('scheme-light dark:scheme-dark')
   })
+})
+
+describe('axis roles (U-179)', () => {
+  it('U-179 AXIS_ROLES names the role of each world axis', () => {
+    expect(AXIS_ROLES).toEqual({ X: 'axisX', Y: 'axisY', Z: 'axisZ' })
+  })
+
+  it('U-179 the axis roles have a foreground and a border facet in rose, emerald or lime, and sky', () => {
+    expect(COLOR_CLASSES.axisX).toEqual({
+      foreground: 'text-rose-600 dark:text-rose-400',
+      border: 'border-rose-600 dark:border-rose-400',
+    })
+    expect(COLOR_CLASSES.axisY).toEqual({
+      foreground: 'text-emerald-700 dark:text-lime-400',
+      border: 'border-emerald-700 dark:border-lime-400',
+    })
+    expect(COLOR_CLASSES.axisZ).toEqual({
+      foreground: 'text-sky-700 dark:text-sky-300',
+      border: 'border-sky-700 dark:border-sky-300',
+    })
+  })
+
+  it.each(Object.values(AXIS_ROLES))(
+    'U-179 the viewport role %s names the steps of the interface role',
+    (role) => {
+      expect(VIEWPORT_STEPS[role]).toEqual(stepsOf(COLOR_CLASSES[role].foreground))
+      expect(VIEWPORT_STEPS[role]).toEqual(stepsOf(COLOR_CLASSES[role].border))
+    },
+  )
 })
 
 describe('color conversions', () => {

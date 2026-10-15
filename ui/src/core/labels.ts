@@ -39,6 +39,9 @@ export function nextBodyName(document: Document): string {
 /** An origin plane by its coordinates, as the protocol names it. */
 export type { OriginPlane }
 
+/** A world axis by its letter: the origin axes and the coordinates of right-handed, Z-up model space (ADR 0029). */
+export type WorldAxis = 'X' | 'Y' | 'Z'
+
 const ORIGIN_PLANE_VIEWS: Readonly<Record<OriginPlane, 'Top' | 'Front' | 'Right'>> = {
   XY: 'Top',
   XZ: 'Front',

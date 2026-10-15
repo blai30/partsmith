@@ -271,8 +271,8 @@ mod tests {
         ];
         let reference = build_profile(&stored).regions[0].reference();
         assert_eq!(
-            reference.outline.as_ref().map(ToString::to_string).as_deref(),
-            Some("e-1,e-2,e-3,~e-5,e-3,e-4")
+            reference.outline,
+            Some("e-1,e-2,e-3,~e-5,e-3,e-4".parse().expect("valid loop"))
         );
         let entities = [
             line("e-1", [0.0, 0.0], [80.0, 0.0]),

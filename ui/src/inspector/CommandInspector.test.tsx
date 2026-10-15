@@ -10,6 +10,7 @@ import { CUBE_REGION, CUBE_TOP_FRONT_EDGE, emptyDocument } from '../test/fakes/d
 import { elementItem } from '../test/fakes/selection'
 import { settle } from '../test/fakes/settle'
 import { startFeatureCommand } from '../app/actions/command'
+import { COLOR_CLASSES } from '../theme/roles'
 
 // The command inspector of the one-interface amendments (ui.md 3.7, 4.2): the inline Reverse, its
 // fixes, what "More options" hides, created bodies in their fields and where focus starts.
@@ -259,6 +260,85 @@ describe('More options shows what it hides (3.7, U-117)', () => {
     await waitFor(() => {
       expect(screen.getByRole('tooltip')).toHaveTextContent('Tip angle, Sketch, Body')
     })
+  })
+})
+
+describe('axis letters in fields (3.7, U-181)', () => {
+  const AXIS_FOREGROUNDS = {
+    X: COLOR_CLASSES.axisX.foreground,
+    Y: COLOR_CLASSES.axisY.foreground,
+    Z: COLOR_CLASSES.axisZ.foreground,
+  } as const
+
+  function letterOf(path: string): HTMLElement {
+    return within(field(path)).getByTestId('axis-letter')
+  }
+
+  it('U-181 draws X, Y and Z inside the Move body fields in the world axes’ colors', () => {
+    renderCommand(
+      command({
+        featureType: 'move_body',
+        featureId: 'f-mov9',
+        title: 'Move body',
+        params: { body: 'b-cube', translation: ['0', '0', '0'] },
+      }),
+      cubeDocumentState(),
+    )
+    for (const [index, axis] of (['X', 'Y', 'Z'] as const).entries()) {
+      const path = `translation[${String(index)}]`
+      const input = within(field(path)).getByRole('combobox', { name: `Move ${axis}` })
+      expect(input).toHaveClass('pl-6')
+      const letter = letterOf(path)
+      expect(letter).toHaveTextContent(axis)
+      expect(letter).toHaveAttribute('data-axis', axis)
+      expect(letter).toHaveAttribute('data-world', 'true')
+      expect(letter).toHaveAttribute('aria-hidden', 'true')
+      expect(letter).toHaveClass(
+        'pointer-events-none',
+        'absolute',
+        'inset-y-0',
+        'left-0',
+        'w-6',
+        'text-xs',
+        'font-semibold',
+        AXIS_FOREGROUNDS[axis],
+      )
+    }
+  })
+
+  it('U-181 mutes the Position letters of a box on the Front plane, keeping the field names', async () => {
+    const { user } = renderCommand(
+      command({
+        featureType: 'box',
+        featureId: 'f-box9',
+        title: 'Box',
+        params: {
+          size: ['20 mm', '20 mm', '20 mm'],
+          op: 'new',
+          plane: { kind: 'origin', plane: 'XZ' },
+          position: ['0', '0', '0'],
+          body: 'b-new',
+        },
+        newBody: 'b-new',
+      }),
+      cubeDocumentState(),
+    )
+    await user.click(within(inspector()).getByTestId('inspector-more'))
+    const input = within(field('position[0]')).getByRole('combobox', { name: 'Position X' })
+    expect(input).toHaveClass('pl-6')
+    for (const path of ['position[0]', 'position[1]', 'position[2]']) {
+      const letter = letterOf(path)
+      expect(letter).toHaveAttribute('data-world', 'false')
+      expect(letter).toHaveClass(COLOR_CLASSES.textMuted.foreground)
+      expect(letter).not.toHaveClass(AXIS_FOREGROUNDS.X)
+    }
+  })
+
+  it('U-181 gives a field without an axis no letter and no letter padding', () => {
+    renderCommand(command({}), cubeDocumentState())
+    const distance = field('extent.expr')
+    expect(within(distance).queryByTestId('axis-letter')).toBeNull()
+    expect(within(distance).getByRole('combobox', { name: 'Distance' })).not.toHaveClass('pl-6')
   })
 })
 

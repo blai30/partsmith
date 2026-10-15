@@ -1,3 +1,4 @@
+import type { WorldAxis } from '../core/labels'
 import type { Settings } from '../settings/settings'
 import type { EncodedRgb, Rgb, ViewportTheme } from '../viewport/backend'
 
@@ -44,11 +45,17 @@ export const PALETTE_HEX = {
   'red-600': '#e7000b',
   'red-700': '#c10007',
   'red-950': '#460809',
+  'rose-400': '#ff637e',
+  'rose-600': '#ec003f',
+  'lime-400': '#9ae600',
   'green-400': '#05df72',
   'green-600': '#00a63e',
   'green-700': '#008236',
+  'emerald-700': '#007a55',
   'teal-600': '#009689',
   'sky-200': '#b8e6fe',
+  'sky-300': '#74d4ff',
+  'sky-700': '#0069a8',
   'blue-400': '#51a2ff',
   'blue-500': '#2b7fff',
   'blue-600': '#155dfc',
@@ -105,9 +112,28 @@ export const COLOR_CLASSES = {
   warningFill: { background: 'bg-yellow-400', foreground: 'text-zinc-950' },
   successMark: { foreground: 'text-green-700 dark:text-green-400' },
   analysis: { background: 'bg-linear-to-r/srgb from-sky-200 to-violet-700' },
+  axisX: {
+    foreground: 'text-rose-600 dark:text-rose-400',
+    border: 'border-rose-600 dark:border-rose-400',
+  },
+  axisY: {
+    foreground: 'text-emerald-700 dark:text-lime-400',
+    border: 'border-emerald-700 dark:border-lime-400',
+  },
+  axisZ: {
+    foreground: 'text-sky-700 dark:text-sky-300',
+    border: 'border-sky-700 dark:border-sky-300',
+  },
 } as const satisfies Readonly<Record<string, Readonly<Partial<Record<Facet, string>>>>>
 
 export type ColorRole = keyof typeof COLOR_CLASSES
+
+/** The role of each world axis, in the interface (ui.md 2.16.3) and in the viewport (2.16.4). */
+export const AXIS_ROLES = {
+  X: 'axisX',
+  Y: 'axisY',
+  Z: 'axisZ',
+} as const satisfies Readonly<Record<WorldAxis, ColorRole>>
 
 export type ViewportRole =
   | 'viewportTop'
@@ -128,6 +154,9 @@ export type ViewportRole =
   | 'grid'
   | 'analysisLow'
   | 'analysisHigh'
+  | 'axisX'
+  | 'axisY'
+  | 'axisZ'
 
 /** Palette step of each viewport role per theme (ui.md 2.16.4). */
 export const VIEWPORT_STEPS: Readonly<
@@ -151,6 +180,9 @@ export const VIEWPORT_STEPS: Readonly<
   grid: { light: 'zinc-300', dark: 'zinc-600' },
   analysisLow: { light: 'sky-200', dark: 'sky-200' },
   analysisHigh: { light: 'violet-700', dark: 'violet-700' },
+  axisX: { light: 'rose-600', dark: 'rose-400' },
+  axisY: { light: 'emerald-700', dark: 'lime-400' },
+  axisZ: { light: 'sky-700', dark: 'sky-300' },
 }
 
 function viewportColorsOf(theme: ThemeName): Readonly<Record<ViewportRole, string>> {

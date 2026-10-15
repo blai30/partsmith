@@ -388,6 +388,68 @@ describe('controls for other schema shapes', () => {
   })
 })
 
+describe('axis fields (U-180)', () => {
+  const MOVE_BODY = testFeature('move_body')
+  const BOX = testFeature('box')
+
+  function axisOf(
+    feature: CatalogFeature,
+    params: Readonly<Record<string, unknown>>,
+    path: string,
+  ): InspectorField['axis'] {
+    return field(buildInspectorModel({ feature, params, errors: {} }), path).axis
+  }
+
+  it('U-180 gives Move body’s translation the world axes X, Y and Z', () => {
+    const params = { body: 'b-cube', translation: ['0', '0', '0'] }
+    expect(axisOf(MOVE_BODY, params, 'translation[0]')).toEqual({ letter: 'X', world: true })
+    expect(axisOf(MOVE_BODY, params, 'translation[1]')).toEqual({ letter: 'Y', world: true })
+    expect(axisOf(MOVE_BODY, params, 'translation[2]')).toEqual({ letter: 'Z', world: true })
+  })
+
+  it('U-180 gives a box’s position world axes on the origin XY plane', () => {
+    const params = { position: ['0', '0', '0'], plane: { kind: 'origin', plane: 'XY' } }
+    expect(axisOf(BOX, params, 'position[1]')).toEqual({ letter: 'Y', world: true })
+  })
+
+  it('U-180 gives a box’s position the axes of its own plane on another plane', () => {
+    const onFront = { position: ['0', '0', '0'], plane: { kind: 'origin', plane: 'XZ' } }
+    const onDatum = { position: ['0', '0', '0'], plane: { kind: 'datum', feature: 'f-dp1' } }
+    expect(axisOf(BOX, onFront, 'position[1]')).toEqual({ letter: 'Y', world: false })
+    expect(axisOf(BOX, onDatum, 'position[0]')).toEqual({ letter: 'X', world: false })
+  })
+
+  it('U-180 gives no axis to other length fields', () => {
+    expect(field(extrudeModel(DISTANCE_PARAMS), 'extent.expr').axis).toBeNull()
+    const sizes = buildInspectorModel({ feature: BOX, params: {}, errors: {} })
+    for (const size of ['size[0]', 'size[1]', 'size[2]']) {
+      expect(field(sizes, size).axis).toBeNull()
+    }
+    const offset = customFeature(
+      { offset: { $ref: '#/$defs/Expr' } },
+      ['offset'],
+      [{ path: 'offset', label: 'Offset X', essential: true, unit: 'length' }],
+    )
+    expect(axisOf(offset, { offset: '5 mm' }, 'offset')).toBeNull()
+  })
+
+  it('gives no axis to an indexed field whose label names another axis or none', () => {
+    const offsets = customFeature(
+      { offsets: { type: 'array', items: { $ref: '#/$defs/Expr' } } },
+      ['offsets'],
+      [
+        { path: 'offsets[0]', label: 'Offset Y', essential: true, unit: 'length' },
+        { path: 'offsets[1]', label: 'Offset', essential: true, unit: 'length' },
+        { path: 'offsets[2]', label: 'Turn Z', essential: true, unit: 'angle' },
+      ],
+    )
+    const params = { offsets: ['1', '2', '3'] }
+    expect(axisOf(offsets, params, 'offsets[0]')).toBeNull()
+    expect(axisOf(offsets, params, 'offsets[1]')).toBeNull()
+    expect(axisOf(offsets, params, 'offsets[2]')).toBeNull()
+  })
+})
+
 describe('defaultParams', () => {
   it('U-33 gives extrude a distance extent of 10 mm and op new without bodies with geometry', () => {
     const params = defaultParams(EXTRUDE, NO_BODIES)

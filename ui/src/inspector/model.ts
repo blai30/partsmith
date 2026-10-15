@@ -1,3 +1,4 @@
+import type { WorldAxis } from '../core/labels'
 import type {
   Body,
   Document,
@@ -60,6 +61,8 @@ export type InspectorField = {
   readonly error: string | null
   /** For an inline toggle, the path of the field whose row it sits on; otherwise null. */
   readonly attachedTo: string | null
+  /** The coordinate an X, Y or Z field holds (its letter, and whether it runs along that world axis), else null. */
+  readonly axis: { readonly letter: WorldAxis; readonly world: boolean } | null
 }
 
 export type InspectorModel = {
@@ -297,6 +300,39 @@ function missing(field: InspectorField, params: Params, feature: CatalogFeature)
   )
 }
 
+/** The axis letter of each coordinate index of a length triple. */
+const COORDINATE_AXES: readonly WorldAxis[] = ['X', 'Y', 'Z']
+
+/** The origin XY plane, the one plane whose own axes are the world's X and Y. */
+function isOriginXyPlane(plane: unknown): boolean {
+  return isRecord(plane) && plane['kind'] === 'origin' && plane['plane'] === 'XY'
+}
+
+/**
+ * The coordinate a field holds (2.12): a length expression at index 0, 1 or 2 whose label ends in
+ * the matching " X", " Y" or " Z". It runs along that world axis unless the params place the
+ * feature on a plane other than the origin XY plane, whose own axes it then follows.
+ */
+function axisOf(
+  path: string,
+  label: string,
+  control: FieldControl,
+  params: Params,
+): InspectorField['axis'] {
+  const index = /\[(\d+)\]$/.exec(path)?.[1]
+  const letter = index === undefined ? undefined : COORDINATE_AXES[Number(index)]
+  if (
+    control.type !== 'expression' ||
+    control.unit !== 'length' ||
+    letter === undefined ||
+    !label.endsWith(` ${letter}`)
+  ) {
+    return null
+  }
+  const plane = params['plane']
+  return { letter, world: plane === undefined || plane === null || isOriginXyPlane(plane) }
+}
+
 /** Extent variants in which the feature ignores Reverse (features/extrude.md open issue 1). */
 const REVERSE_IGNORED: ReadonlySet<string> = new Set(['symmetric', 'full'])
 
@@ -405,6 +441,7 @@ export function buildInspectorModel(input: {
     if (targetRule === 'op' && hint.path === 'target' && params['op'] !== 'new') {
       continue
     }
+    const control = controlFor(hint, located, root)
     const field: InspectorField = {
       path: hint.path,
       label: hint.label,
@@ -412,10 +449,11 @@ export function buildInspectorModel(input: {
       help: fieldHelp(feature.type, hint.path),
       essential: hint.essential ?? false,
       required: located.required,
-      control: controlFor(hint, located, root),
+      control,
       value: getParam(params, hint.path),
       error: input.errors[hint.path] ?? null,
       attachedTo: null,
+      axis: axisOf(hint.path, hint.label, control, params),
     }
     if (field.essential) {
       essentialFields.push(field)
