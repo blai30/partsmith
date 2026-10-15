@@ -5,6 +5,7 @@ import type { Vector2 } from './geometry'
 import {
   axisLabelPosition,
   arrowheadPath,
+  besideAxis,
   circlePath,
   drawInputsPlacement,
   entitiesInBox,
@@ -186,6 +187,26 @@ const SHIFTED_LEFT: Projector = (point) => PROJECT([point[0] - 10, point[1]])
 const SHIFTED_UP: Projector = (point) => PROJECT([point[0], point[1] + 9])
 /** PROJECT, with the points past x = 3 behind the eye. */
 const BEHIND_PAST_THREE: Projector = (point) => (point[0] > 3 ? null : PROJECT(point))
+
+/** PROJECT, with the points below the sketch's X axis behind the eye. */
+const NEGATIVE_Y_BEHIND: Projector = (point) => (point[1] < 0 ? null : PROJECT(point))
+
+describe('besideAxis (3.16.2)', () => {
+  const AREA = { left: 20, top: 30, right: 180, bottom: 170 }
+
+  it('moves an X axis label below the axis and a Y axis label left of it', () => {
+    expect(besideAxis(PROJECT, [1, 0], [180, 100], AREA, 12)).toEqual([180, 112])
+    expect(besideAxis(PROJECT, [0, 1], [100, 30], AREA, 12)).toEqual([88, 30])
+  })
+
+  it('keeps the moved label inside the area', () => {
+    expect(besideAxis(PROJECT, [1, 0], [180, 165], AREA, 12)).toEqual([180, 170])
+  })
+
+  it('leaves the label on the axis while its negative side cannot be projected', () => {
+    expect(besideAxis(NEGATIVE_Y_BEHIND, [1, 0], [180, 100], AREA, 12)).toEqual([180, 100])
+  })
+})
 
 describe('axisLabelPosition (3.16.2)', () => {
   // PROJECT puts the sketch origin at (100, 100), 10 pixels per millimeter, +Y up.

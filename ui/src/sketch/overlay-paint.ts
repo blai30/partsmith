@@ -12,6 +12,7 @@ import { ownerOf, pointPosition, solvedEntity } from './operands'
 import { isAxis, ORIGIN_POINT } from './refs'
 import {
   axisLabelPosition,
+  besideAxis,
   circlePath,
   dimensionPaths,
   drawInputsPlacement,
@@ -42,6 +43,11 @@ const INFERENCE_OFFSET_PIXELS = 16
 const DRAW_INPUT_OFFSET_PIXELS = 12
 /** Axis labels sit this many CSS pixels (times the UI scale), 1rem, inside the free area (3.16.2). */
 const AXIS_LABEL_INSET_PIXELS = 16
+/**
+ * Sketch axis labels sit this many CSS pixels (times the UI scale), 0.75rem, beside their axis:
+ * half a chip and 0.25rem, so the chip clears the dashed line and what touches it (3.16.2).
+ */
+const AXIS_LABEL_OFFSET_PIXELS = 12
 /** Draw inputs and the dimension editor keep this many CSS pixels (times the UI scale), 0.5rem, inside the free area (3.12). */
 const TYPING_INSET_PIXELS = 8
 
@@ -312,8 +318,8 @@ export function chromePositions(
 
 /**
  * The labels of a sketch's axes on an origin plane (3.16.2): each world axis's letter where the
- * axis's positive half leaves the free area, 1rem inside its edge, or hidden while that half does
- * not cross it; none on a datum plane or a face.
+ * axis's positive half leaves the free area, 1rem inside its edge, moved 0.75rem off the axis to
+ * its negative side, or hidden while that half does not cross it; none on a datum plane or a face.
  */
 export function axisLabelLayer(snapshot: PaintSnapshot): OverlayPaint['axisLabels'] {
   const labels = new Map<WorldAxis, Vector2 | null>()
@@ -327,10 +333,17 @@ export function axisLabelLayer(snapshot: PaintSnapshot): OverlayPaint['axisLabel
     [alongX, [1, 0], center[0]],
     [alongY, [0, 1], center[1]],
   ]
+  const offset = AXIS_LABEL_OFFSET_PIXELS * snapshot.uiScale
   for (const [axis, direction, middle] of directions) {
+    const onAxis = axisLabelPosition(
+      snapshot.project,
+      direction,
+      [middle - reach, middle + reach],
+      area,
+    )
     labels.set(
       axis,
-      axisLabelPosition(snapshot.project, direction, [middle - reach, middle + reach], area),
+      onAxis === null ? null : besideAxis(snapshot.project, direction, onAxis, area, offset),
     )
   }
   return labels

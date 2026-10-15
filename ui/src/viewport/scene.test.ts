@@ -22,10 +22,12 @@ import {
 import { createFakeBackend, type FakeBackend } from '../test/fakes/backend'
 import {
   CUBE_DOCUMENT,
+  CUBE_FRONT_FACE,
   featuresOf,
   RECT_SKETCH_SOLUTION,
   TWO_BODIES_DOCUMENT,
 } from '../test/fakes/documents'
+import { elementItem } from '../test/fakes/selection'
 import { acceptsTarget } from '../inspector/selection-values'
 import { CUBE_BOUNDS, meshSummary, PEG_BOUNDS } from '../test/fakes/state'
 import { linearFromHex, VIEWPORT_COLORS, viewportTheme } from '../theme/roles'
@@ -571,6 +573,27 @@ describe('screenRectangle', () => {
     )
     expect(rectangle?.x).toBeCloseTo(300, 6)
     expect(rectangle?.y).toBeCloseTo(50, 6)
+    expect(rectangle?.width).toBeCloseTo(400, 6)
+    expect(rectangle?.height).toBeCloseTo(400, 6)
+  })
+
+  it('covers the whole of a selected flat face, so the inspector opens beside it (3.7)', () => {
+    const fixture = cubeScene()
+    render(fixture, cubeState())
+    const camera: Camera = {
+      ...DEFAULT_CAMERA,
+      rotation: standardViewRotation('front'),
+      target: [0, 0, 10],
+      projection: 'orthographic',
+      orthographicHeight: 25,
+    }
+    const rectangle = fixture.scene.screenRectangle(
+      [elementItem(CUBE_FRONT_FACE, 'Cube')],
+      camera,
+      wholeCanvas({ width: 1000, height: 500 }),
+    )
+    // The front face is the body's front: 400 by 400 pixels, not the point of its centroid.
+    expect(rectangle?.x).toBeCloseTo(300, 6)
     expect(rectangle?.width).toBeCloseTo(400, 6)
     expect(rectangle?.height).toBeCloseTo(400, 6)
   })

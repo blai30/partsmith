@@ -1,4 +1,5 @@
 import { clsx } from 'clsx/lite'
+import { ChevronDown } from 'lucide-react'
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { setCommandField } from '../../app/actions/command'
 import { useApp } from '../../app/AppProvider'
@@ -126,27 +127,38 @@ export function ChoiceField({ field, options, presentation, trailing = null }: C
         </label>
       </HelpLabel>
       <div className="flex min-w-0 items-center gap-2">
-        <select
-          id={id}
-          value={value}
-          aria-describedby={help === null ? undefined : helpId}
-          onChange={(event) => {
-            setCommandField(app, field.path, event.currentTarget.value)
-          }}
-          className={clsx(
-            'h-8 w-full rounded-md border px-2 text-sm',
-            COLOR_CLASSES.field.background,
-            COLOR_CLASSES.text.foreground,
-            COLOR_CLASSES.borderControl.border,
-            COLOR_CLASSES.focusRing.outline,
-          )}
-        >
-          {options.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
+        {/* The browser's arrow ignores the UI scale, so the select draws its own (3.7). */}
+        <div className="relative flex min-w-0 flex-1 items-center">
+          <select
+            id={id}
+            value={value}
+            aria-describedby={help === null ? undefined : helpId}
+            onChange={(event) => {
+              setCommandField(app, field.path, event.currentTarget.value)
+            }}
+            className={clsx(
+              'h-8 w-full appearance-none rounded-md border pr-8 pl-2 text-sm',
+              COLOR_CLASSES.field.background,
+              COLOR_CLASSES.text.foreground,
+              COLOR_CLASSES.borderControl.border,
+              COLOR_CLASSES.focusRing.outline,
+            )}
+          >
+            {options.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+          <ChevronDown
+            aria-hidden="true"
+            strokeWidth={1.75}
+            className={clsx(
+              'pointer-events-none absolute right-2 size-4',
+              COLOR_CLASSES.textMuted.foreground,
+            )}
+          />
+        </div>
         {trailing}
       </div>
     </div>

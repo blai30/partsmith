@@ -9,13 +9,13 @@ use std::sync::Arc;
 use common::{
     Harness, all_features, assert_relative, assert_volume, bodies, bodies_before_ids, body_report,
     chain_json, datum_height, doc_a, doc_a_json, document, error_code, face_count, feature_report,
-    final_state, first_message, key, keys, load, message_texts, not_reused, output_update, owned,
-    record, record_position, records, reused, severity_name, shape, state_before, status, statuses,
-    suppressed, test_block, test_datum, test_datum_on, test_history, test_node, test_on_body,
-    test_probe, upstream, with_action,
+    final_state, first_message, id, key, keys, load, message_texts, not_reused, output_update,
+    owned, record, record_position, records, reused, severity_name, shape, state_before, status,
+    statuses, suppressed, test_block, test_datum, test_datum_on, test_history, test_node,
+    test_on_body, test_probe, upstream, with_action,
 };
 use partsmith_occt_sys::{Plane, StepBody, SubShapeKind, make_box, write_step};
-use partsmith_recompute::Report;
+use partsmith_recompute::{Fix, Report};
 use serde_json::{Value, json};
 
 /// Asserts the statuses of several features.
@@ -177,7 +177,25 @@ fn t021_features_that_read_a_failed_output_report_upstream_failed() {
         message_texts(&report, "f-ext1"),
         owned(&["'Sketch 1' has an error, so this extrude cannot use it. Fix 'Sketch 1' first."])
     );
+    let extrude = first_message(&report, "f-ext1");
+    assert_eq!(
+        extrude.fixes,
+        [Fix::Show {
+            feature: id("f-sk1"),
+            entity: None
+        }]
+    );
+    assert_eq!(extrude.root, Some(id("f-sk1")));
+    // f-ext1 failed, so b-1 is still empty; the root is the first feature of the chain whose
+    // error is its own (section 3.10).
     assert_eq!(error_code(&report, "f-fil1"), "body_empty");
+    assert_eq!(
+        message_texts(&report, "f-fil1"),
+        owned(&[
+            "Body 'Body 1' is empty here because 'Extrude 1', which makes it, failed. Fix 'Extrude 1' first."
+        ])
+    );
+    assert_eq!(first_message(&report, "f-fil1").root, Some(id("f-sk1")));
     assert_statuses(&report, &[("f-box2", "ok"), ("f-dp1", "ok")]);
 }
 
@@ -271,13 +289,13 @@ fn t027_an_undeclared_update_is_not_applied() {
     assert_volume(shape(final_state(&report, "b-2")), 1000.0);
 }
 
-/// The detail of the internal error `feature` reported (features.md section 4.1).
+/// The detail of the message of the internal error `feature` reported (recompute.md section 2,
+/// `Message::detail`; features.md section 4.1).
 fn panic_detail(report: &Report, feature_id: &str) -> String {
-    feature_report(report, feature_id)
-        .error
-        .as_ref()
-        .and_then(|error| error.detail())
-        .unwrap_or_else(|| panic!("{feature_id} has no error detail"))
+    first_message(report, feature_id)
+        .detail
+        .clone()
+        .unwrap_or_else(|| panic!("the message of {feature_id} has no detail"))
 }
 
 #[test]

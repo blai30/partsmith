@@ -664,6 +664,8 @@ export function Timeline() {
     <section
       aria-label="Timeline"
       data-testid="timeline"
+      // A one-row island: the menus and tooltips of its controls keep clear of it (3.2).
+      data-bar=""
       // A frame island (3.2) that does not clip, so the drag ghost can rise above it; under
       // 2.5rem tall when collapsed, where it is `rounded-lg`.
       className={clsx(

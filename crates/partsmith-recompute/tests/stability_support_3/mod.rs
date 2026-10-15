@@ -22,13 +22,12 @@ pub use stability_common::*;
 
 use std::collections::BTreeSet;
 use std::f64::consts::PI;
-use std::sync::Arc;
 
 use feature_support::{Assets, Run};
 use partsmith_features::{BodyState, Repair};
 use partsmith_model::Document;
 use partsmith_naming::score;
-use partsmith_occt_sys::{ElementGeometry, GeometryKind, Plane, Point, Shape};
+use partsmith_occt_sys::{ElementGeometry, GeometryKind, Shape};
 use serde_json::{Value, json};
 
 // Numbers and references.
@@ -258,46 +257,6 @@ pub fn slot(x0: f64, x1: f64) -> Vec<Value> {
     features
 }
 
-// STEP assets.
-
-/// An asset name made of one repeated hex digit, as the hash-named asset of a file revision.
-pub fn asset_name(digit: char) -> String {
-    format!("{}.step", digit.to_string().repeat(64))
-}
-
-/// STEP bytes of a plate 40 x 20 x 5 at x 0..40, y 0..20, z 0..5 with through holes of radius 3
-/// at each `(x, y)` of `holes`, written with the kernel.
-pub fn plate_bytes(holes: &[[f64; 2]]) -> Arc<[u8]> {
-    let plate = partsmith_occt_sys::make_box(&Plane::XY, 40.0, 20.0, 5.0)
-        .expect("the kernel makes the plate")
-        .shape;
-    let tools: Vec<Shape> = holes
-        .iter()
-        .map(|[x, y]| {
-            let placement = Plane {
-                origin: Point::new(*x, *y, -1.0),
-                ..Plane::XY
-            };
-            partsmith_occt_sys::make_cylinder(&placement, 3.0, 7.0)
-                .expect("the kernel makes the hole tool")
-                .shape
-        })
-        .collect();
-    let shape = if tools.is_empty() {
-        plate
-    } else {
-        partsmith_occt_sys::cut(&plate, &tools)
-            .expect("the kernel cuts the holes")
-            .shape
-    };
-    let bodies = [partsmith_occt_sys::StepBody {
-        shape,
-        name: "Plate".to_owned(),
-        color: None,
-    }];
-    Arc::from(partsmith_occt_sys::write_step(&bodies).expect("the kernel writes STEP"))
-}
-
 // Documents and runs.
 
 /// The `.ptsm` text of a document in `units` with these parameter records, bodies as `(id, name)`
@@ -515,9 +474,10 @@ pub fn repair_candidates(run: &Run, feature: &str) -> Vec<String> {
     run.feature(feature)
         .messages
         .iter()
-        .filter_map(|message| match &message.repair {
-            Some(Repair::Element { loss, .. }) => Some(&loss.candidates),
-            _ => None,
+        .flat_map(|message| &message.repairs)
+        .filter_map(|repair| match repair {
+            Repair::Element { loss, .. } => Some(&loss.candidates),
+            Repair::Region { .. } => None,
         })
         .flatten()
         .map(|candidate| candidate.reference.query.as_str().to_owned())

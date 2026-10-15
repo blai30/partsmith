@@ -79,6 +79,11 @@ vec3 encodeSrgb(vec3 linear) {
 vec3 decodeSrgb(vec3 encoded) {
   return mix(encoded / 12.92, pow((encoded + 0.055) / 1.055, vec3(2.4)), step(0.04045, encoded));
 }
+
+// Mixes two linear colors as their sRGB encodings mix, so a tint keeps its hue on screen (3.12).
+vec3 mixEncoded(vec3 linear, vec3 target, float amount) {
+  return decodeSrgb(mix(encodeSrgb(linear), encodeSrgb(target), amount));
+}
 `
 
 const COLOR_OUTPUT = `
@@ -170,12 +175,12 @@ void main() {
   }
   uint state = elementState(v_elementId);
   if ((state & STATE_PROBLEM) != 0u) {
-    color = mix(color, u_problem, 0.5);
+    color = mixEncoded(color, u_problem, 0.5);
   }
   if ((state & STATE_SELECTED) != 0u) {
-    color = mix(color, u_highlight, 0.35);
+    color = mixEncoded(color, u_highlight, 0.35);
   } else if ((state & STATE_HOVER) != 0u) {
-    color = mix(color, u_highlight, 0.2);
+    color = mixEncoded(color, u_highlight, 0.2);
   }
   o_color = vec4(encodeSrgb(color), u_opacity);
 }

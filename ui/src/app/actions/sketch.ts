@@ -15,6 +15,7 @@ import { MESSAGES } from '../../messages'
 import type { SolvedSketch } from '../../core/api'
 import {
   CONSTRAINT_TITLES,
+  constraintReferences,
   constraintTitle,
   constraintsFor,
   joinTitles,
@@ -24,6 +25,7 @@ import {
 import { drawnPointItems, regionSelectionItem } from '../../sketch/hit'
 import { findingPoints, outlineProblems } from '../../sketch/issues'
 import { worldBounds } from '../../sketch/placement'
+import { isReservedReference } from '../../sketch/refs'
 import type { IdSource } from '../../sketch/recipes'
 import type { SketchChange, SketchCommitResult, SketchToolId } from '../../sketch/session'
 import { constraintTool } from '../../sketch/tools'
@@ -246,15 +248,22 @@ async function addSketchOn(
   }
 }
 
-/** The 2D extent of a solution's entities in sketch coordinates, or null without entities. */
+/**
+ * The 2D extent of a solution's entities in sketch coordinates, with the sketch origin when
+ * `withOrigin`, or null without entities.
+ */
 function sketchExtent(
   solution: SketchSolution,
+  withOrigin = false,
 ): { min: [number, number]; max: [number, number] } | null {
   const xs: number[] = []
   const ys: number[] = []
   function include(x: number, y: number): void {
     xs.push(x)
     ys.push(y)
+  }
+  if (withOrigin && solution.entities.length > 0) {
+    include(0, 0)
   }
   for (const entity of solution.entities) {
     switch (entity.type) {
@@ -279,8 +288,18 @@ function sketchExtent(
   return { min: [Math.min(...xs), Math.min(...ys)], max: [Math.max(...xs), Math.max(...ys)] }
 }
 
-/** Looks at the sketch plane from its front and frames the sketch's entities (3.16.1). */
-function lookAtSketch(app: App, solution: SketchSolution): void {
+/** Whether a sketch's constraints refer to its origin or an axis (sketch.md's reserved names). */
+function refersToOrigin(constraints: readonly SketchConstraint[]): boolean {
+  return constraints.some((constraint) =>
+    constraintReferences(constraint).some((reference) => isReservedReference(reference)),
+  )
+}
+
+/**
+ * Looks at the sketch plane from its front and frames the sketch's entities, with its origin when
+ * a constraint refers to the origin or an axis, so that axis and the dimension to it show (3.16.1).
+ */
+function lookAtSketch(app: App, sketchId: string, solution: SketchSolution): void {
   const viewport = app.viewport()
   if (viewport === null) {
     return
@@ -288,7 +307,8 @@ function lookAtSketch(app: App, solution: SketchSolution): void {
   const { origin, x_axis: xAxis, normal } = solution.placement
   const yAxis = cross(normal, xAxis)
   viewport.lookAlong(normal, yAxis, origin)
-  const extent = sketchExtent(solution)
+  const constraints = storedSketchParams(app.store.getState(), sketchId)?.constraints ?? []
+  const extent = sketchExtent(solution, refersToOrigin(constraints))
   if (extent === null) {
     return
   }
@@ -359,7 +379,7 @@ export async function enterSketch(app: App, sketchId: string): Promise<void> {
     }
   }
   if (solution !== null) {
-    lookAtSketch(app, solution)
+    lookAtSketch(app, sketchId, solution)
   }
   // Set after the camera moved onto the sketch, so the history starts with the camera from before.
   sessionRecords.set(app.store, {

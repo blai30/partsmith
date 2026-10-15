@@ -1,13 +1,29 @@
 /// <reference lib="dom" />
 import { expect, test, type Page } from '@playwright/test'
-import { bodyRow, canvas, dropFile, fitView, inspector, openApp, runCommand, timelineItem, toScreen } from './helpers'
+import {
+  bodyRow,
+  canvas,
+  dropFile,
+  fitView,
+  inspector,
+  openApp,
+  runCommand,
+  timelineItem,
+  toScreen,
+} from './helpers'
 import { editSketchFromTimeline } from './support/sketch'
 
 // Temporary probe of the fixer pass; deleted before the pass ends.
 
 const OUT = 'test-results/fixer/'
 
-async function open(page: Page, scheme: 'light' | 'dark', scale: number, width = 1280, height = 800): Promise<void> {
+async function open(
+  page: Page,
+  scheme: 'light' | 'dark',
+  scale: number,
+  width = 1280,
+  height = 800,
+): Promise<void> {
   await page.setViewportSize({ width, height })
   if (scale !== 1) {
     await page.addInitScript((value) => {
@@ -111,4 +127,42 @@ test('tooltip', async ({ page }) => {
   await page.getByTestId('theme-toggle').hover()
   await expect(page.getByRole('tooltip')).toBeVisible()
   await shot(page, 'tooltip-light-1')
+})
+
+test('cube 300', async ({ page }) => {
+  await open(page, 'light', 3, 1920, 1080)
+  await dropFile(page, 'cube.ptsm')
+  await page.getByRole('button', { name: 'Home view', exact: true }).click()
+  await park(page)
+  await shot(page, 'cube-light-3')
+})
+
+test('palette empty 200', async ({ page }) => {
+  await open(page, 'light', 2)
+  await page.keyboard.press('Control+k')
+  await page.waitForTimeout(300)
+  await shot(page, 'palette-empty-light-2')
+})
+
+test('crashed status bar', async ({ page }) => {
+  await open(page, 'light', 1)
+  const result = await page.evaluate(() => {
+    const bar = document.querySelector('[data-testid="status-bar"]')
+    return bar === null ? null : bar.getBoundingClientRect().height
+  })
+  console.log('status bar height', result)
+})
+
+test('tooltip export', async ({ page }) => {
+  await open(page, 'light', 1)
+  await page.getByRole('button', { name: 'Export' }).hover()
+  await expect(page.getByRole('tooltip')).toBeVisible()
+  await shot(page, 'tooltip-export-light-1')
+})
+
+test('menu document', async ({ page }) => {
+  await open(page, 'dark', 1)
+  await page.getByTestId('document-name').click()
+  await page.waitForTimeout(300)
+  await shot(page, 'menu-dark-1')
 })

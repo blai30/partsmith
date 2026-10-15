@@ -310,6 +310,12 @@ describe('the command inspector (3.7)', () => {
           .getAllByRole('option')
           .map((option) => option.textContent),
       ).toEqual(['Distance', 'Symmetric', 'Two sides', 'Through all'])
+      // Its own chevron follows the UI scale, where the browser's arrow would not (3.7).
+      expect(select).toHaveClass('appearance-none', 'pr-8')
+      const chevron = select.nextElementSibling
+      expect(chevron?.tagName.toLowerCase()).toBe('svg')
+      expect(chevron).toHaveAttribute('aria-hidden', 'true')
+      expect(chevron).toHaveClass('pointer-events-none', 'absolute', 'right-2', 'size-4')
       await user.selectOptions(select, 'Through all')
       expect(app.store.getState().command?.params.extent).toMatchObject({ kind: 'through_all' })
     } finally {
@@ -912,6 +918,11 @@ describe('the selection inspector (3.8)', () => {
   })
 })
 
+/** The inspector's runtime translate (3.12), read from its style attribute. */
+function translate(): string {
+  return /^translate: ([^;]+);?$/.exec(inspector().getAttribute('style') ?? '')?.[1] ?? ''
+}
+
 describe('placement in the free-area layer (3.7, U-187)', () => {
   // The free-area layer of a 1280 by 720 window with the browser open, in page pixels.
   const LAYER: Rectangle = { x: 280, y: 64, width: 992, height: 548 }
@@ -982,10 +993,6 @@ describe('placement in the free-area layer (3.7, U-187)', () => {
       </div>,
     )
     return test
-  }
-
-  function translate(): string {
-    return inspector().style.translate
   }
 
   it('U-187 opens right of the viewport controls with nothing preselected', () => {

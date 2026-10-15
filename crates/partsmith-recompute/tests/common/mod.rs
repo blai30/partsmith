@@ -509,6 +509,7 @@ pub fn message_texts(report: &Report, feature_id: &str) -> Vec<String> {
 /// The snake_case name of a severity.
 pub fn severity_name(severity: &Severity) -> &'static str {
     match severity {
+        Severity::Info => "info",
         Severity::Warning => "warning",
         Severity::Error => "error",
     }

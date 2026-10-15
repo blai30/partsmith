@@ -138,9 +138,17 @@ describe('shaderSources', () => {
     expect(fragment).toContain('color = base * lighting + 0.06 * pow(1.0 - facing, 3.0);')
     expect(fragment).toContain('encodeSrgb(base * 0.55)')
     expect(fragment).toContain('color = mix(color, ramp * lighting, 0.85);')
-    expect(fragment).toContain('color = mix(color, u_problem, 0.5);')
-    expect(fragment).toContain('color = mix(color, u_highlight, 0.35);')
-    expect(fragment).toContain('color = mix(color, u_highlight, 0.2);')
+    expect(fragment).toContain('color = mixEncoded(color, u_problem, 0.5);')
+    expect(fragment).toContain('color = mixEncoded(color, u_highlight, 0.35);')
+    expect(fragment).toContain('color = mixEncoded(color, u_highlight, 0.2);')
+  })
+
+  it('tints face states in sRGB, so a selected face keeps the accent hue on screen (3.12)', () => {
+    const fragment = shaderSources('triangles', 'color').fragment
+    expect(fragment).toContain(
+      'return decodeSrgb(mix(encodeSrgb(linear), encodeSrgb(target), amount));',
+    )
+    expect(fragment).not.toContain('mix(color, u_highlight')
   })
 
   it('interpolates the screen distances of line quads linearly on screen, not perspective-correctly', () => {

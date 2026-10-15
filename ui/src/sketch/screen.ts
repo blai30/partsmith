@@ -403,6 +403,37 @@ export function axisLabelPosition(
   return inside === null ? null : add(from, scale(subtract(to, from), inside[1]))
 }
 
+/**
+ * A sketch axis label's position moved `distance` canvas pixels off its axis, toward the axis's
+ * negative side (below the X axis, left of the Y axis), where geometry drawn from the origin into
+ * the positive quadrant never is, and kept inside `area` (3.16.2). `direction` is the axis's
+ * positive direction in sketch millimeters; the position stays put while that side cannot be
+ * projected.
+ */
+export function besideAxis(
+  project: Projector,
+  direction: Vector2,
+  position: Vector2,
+  area: ScreenBox,
+  distance: number,
+): Vector2 {
+  const origin = project([0, 0])
+  const away = project([-direction[1], -direction[0]])
+  if (origin === null || away === null) {
+    return position
+  }
+  const offset = subtract(away, origin)
+  const size = length(offset)
+  if (size === 0) {
+    return position
+  }
+  const [x, y] = add(position, scale(offset, distance / size))
+  return [
+    Math.min(Math.max(x, area.left), area.right),
+    Math.min(Math.max(y, area.top), area.bottom),
+  ]
+}
+
 /** The box spanned by two canvas pixels. */
 export function screenBox(start: Vector2, end: Vector2): ScreenBox {
   return {

@@ -310,6 +310,8 @@ export function StatusBar() {
   return (
     <footer
       data-testid="status-bar"
+      // A one-row island: the menus and tooltips of its controls keep clear of it (3.2).
+      data-bar=""
       className={clsx(
         'relative z-10 col-span-3 row-start-4 mt-2 flex h-7 min-w-0 items-center gap-3 overflow-x-auto rounded-lg border px-2 text-xs shadow-md',
         COLOR_CLASSES.surface.background,

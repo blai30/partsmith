@@ -110,6 +110,16 @@ describe('islands (U-174)', () => {
     expect(header).toHaveClass(...classesOf(COLOR_CLASSES.divider.border))
   })
 
+  it('U-174 marks the top bar, the timeline and the status bar as one-row bars', () => {
+    renderIslands()
+    for (const id of ['top-bar', 'timeline', 'status-bar']) {
+      expect(screen.getByTestId(id)).toHaveAttribute('data-bar')
+    }
+    for (const id of ['browser', 'side-panel']) {
+      expect(screen.getByTestId(id)).not.toHaveAttribute('data-bar')
+    }
+  })
+
   it('U-174 makes the collapsed timeline rounded-lg', () => {
     renderIslands()
     fireEvent.click(screen.getByRole('button', { name: 'Collapse timeline' }))

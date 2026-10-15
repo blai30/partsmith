@@ -15,13 +15,14 @@
 #![allow(dead_code)]
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use partsmith_features::{BodyState, OutputData, Repair};
 use partsmith_model::Document;
 use partsmith_naming::{
     ElementKind, ElementName, ElementSet, MatchMethod, Reference, Resolution, resolve,
 };
-use partsmith_occt_sys::{ElementGeometry, GeometryKind, SubShapeKind};
+use partsmith_occt_sys::{ElementGeometry, GeometryKind, Plane, Point, Shape, SubShapeKind};
 use partsmith_recompute::Status;
 use serde_json::{Map, Value, json};
 
@@ -333,6 +334,46 @@ pub fn edited(
             }
         })
         .collect()
+}
+
+// STEP assets.
+
+/// An asset name made of one repeated hex digit, as the hash-named asset of a file revision.
+pub fn asset_name(digit: char) -> String {
+    format!("{}.step", digit.to_string().repeat(64))
+}
+
+/// STEP bytes of a plate 40 x 20 x 5 at x 0..40, y 0..20, z 0..5 with through holes of radius 3
+/// at each `(x, y)` of `holes`, written with the kernel.
+pub fn plate_bytes(holes: &[[f64; 2]]) -> Arc<[u8]> {
+    let plate = partsmith_occt_sys::make_box(&Plane::XY, 40.0, 20.0, 5.0)
+        .expect("the kernel makes the plate")
+        .shape;
+    let tools: Vec<Shape> = holes
+        .iter()
+        .map(|[x, y]| {
+            let placement = Plane {
+                origin: Point::new(*x, *y, -1.0),
+                ..Plane::XY
+            };
+            partsmith_occt_sys::make_cylinder(&placement, 3.0, 7.0)
+                .expect("the kernel makes the hole tool")
+                .shape
+        })
+        .collect();
+    let shape = if tools.is_empty() {
+        plate
+    } else {
+        partsmith_occt_sys::cut(&plate, &tools)
+            .expect("the kernel cuts the holes")
+            .shape
+    };
+    let bodies = [partsmith_occt_sys::StepBody {
+        shape,
+        name: "Plate".to_owned(),
+        color: None,
+    }];
+    Arc::from(partsmith_occt_sys::write_step(&bodies).expect("the kernel writes STEP"))
 }
 
 // Picked references (the corpus's "Picked references" rule).
@@ -847,11 +888,9 @@ pub fn repair_pointers(run: &Run, feature: &str) -> Vec<String> {
     run.feature(feature)
         .messages
         .iter()
-        .filter_map(|message| match &message.repair {
-            Some(Repair::Element { pointer, .. }) | Some(Repair::Region { pointer, .. }) => {
-                Some(pointer.clone())
-            }
-            None => None,
+        .flat_map(|message| &message.repairs)
+        .map(|repair| match repair {
+            Repair::Element { pointer, .. } | Repair::Region { pointer, .. } => pointer.clone(),
         })
         .collect()
 }

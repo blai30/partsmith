@@ -329,9 +329,9 @@ fn t036_lost_references_carry_repair_data() {
     assert_eq!(fillet_messages.len(), 1);
     let message = &fillet_messages[0];
     assert_eq!(message.pointer.as_deref(), Some("/edges/0"));
-    match &message.repair {
-        Some(Repair::Element { body, .. }) => assert_eq!(body.as_str(), "b-1"),
-        other => panic!("expected element repair data, got {other:?}"),
+    match message.repairs.as_slice() {
+        [Repair::Element { body, .. }] => assert_eq!(body.as_str(), "b-1"),
+        other => panic!("expected one element repair, got {other:?}"),
     }
 }
 
@@ -641,7 +641,7 @@ fn messages_carry_code_severity_pointer_and_no_suggestion_for_these_problems() {
     assert_eq!(severity_name(&warning.severity), "warning");
     assert_eq!(warning.pointer, None);
     assert_eq!(warning.suggestion, None);
-    assert!(warning.repair.is_none());
+    assert!(warning.repairs.is_empty());
     let error = first_message(&report, "f-z");
     assert_eq!(error.code, "unknown_body");
     assert_eq!(severity_name(&error.severity), "error");

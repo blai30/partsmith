@@ -319,14 +319,15 @@ describe('SketchOverlay axis labels (3.16.2, U-183)', () => {
     expect(y).toHaveClass(COLOR_CLASSES.axisY.foreground)
   })
 
-  it('places each label where its positive half leaves the view, 1rem inside its edge', async () => {
+  it('places each label where its positive half leaves the view, 1rem inside its edge and 0.75rem beside it', async () => {
     const harness = sketchHarness({ entities: [BASE] })
     renderOverlay(harness)
     await nextFrame()
     const [x, y] = labels()
-    // The origin is at the canvas center (512, 512); +X runs right and +Y up.
-    expect(translateOf(x)).toMatch(/^translate: 1008px 512px;?$/)
-    expect(translateOf(y)).toMatch(/^translate: 512px 16px;?$/)
+    // The origin is at the canvas center (512, 512); +X runs right and +Y up. Each label sits on
+    // the negative side of its axis, away from geometry drawn from the origin: X below, Y left.
+    expect(translateOf(x)).toMatch(/^translate: 1008px 524px;?$/)
+    expect(translateOf(y)).toMatch(/^translate: 500px 16px;?$/)
     expect(x?.parentElement).toHaveAttribute('data-positioned')
     expect(x).toHaveClass('-translate-x-1/2', '-translate-y-1/2')
   })
@@ -356,7 +357,7 @@ describe('SketchOverlay axis labels (3.16.2, U-183)', () => {
     const [x, z] = labels()
     expect([x?.dataset['axis'], z?.dataset['axis']]).toEqual(['X', 'Z'])
     expect(z).toHaveClass(COLOR_CLASSES.axisZ.foreground)
-    expect(translateOf(z)).toMatch(/^translate: 512px 16px;?$/)
+    expect(translateOf(z)).toMatch(/^translate: 500px 16px;?$/)
   })
 
   it('U-183 labels no axis of a sketch on a datum plane', () => {

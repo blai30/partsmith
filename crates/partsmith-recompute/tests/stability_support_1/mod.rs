@@ -394,19 +394,23 @@ pub fn texts(report: &FeatureReport) -> Vec<&str> {
         .collect()
 }
 
-/// The element repair data a message carries: its pointer and the names of its loss's candidates (features.md
-/// section 4.2: an element repair carries the loss).
-pub fn element_repair(message: &Message) -> Option<(String, Vec<ElementName>)> {
-    match &message.repair {
-        Some(Repair::Element { pointer, loss, .. }) => Some((
-            pointer.clone(),
-            loss.candidates
-                .iter()
-                .map(|candidate| candidate.reference.query.clone())
-                .collect(),
-        )),
-        _ => None,
-    }
+/// The element repair data a message carries, one per loss: each repair's pointer and the names of its loss's
+/// candidates (features.md section 4.2: an element repair carries the loss).
+pub fn element_repairs(message: &Message) -> Vec<(String, Vec<ElementName>)> {
+    message
+        .repairs
+        .iter()
+        .filter_map(|repair| match repair {
+            Repair::Element { pointer, loss, .. } => Some((
+                pointer.clone(),
+                loss.candidates
+                    .iter()
+                    .map(|candidate| candidate.reference.query.clone())
+                    .collect(),
+            )),
+            Repair::Region { .. } => None,
+        })
+        .collect()
 }
 
 /// Every feature's status and messages, one per line.
@@ -843,7 +847,7 @@ impl Expectations {
         let found = report
             .messages
             .iter()
-            .filter_map(element_repair)
+            .flat_map(element_repairs)
             .find(|(at, _)| at == pointer);
         match found {
             Some((_, candidates)) => candidates,
@@ -854,7 +858,7 @@ impl Expectations {
                     report
                         .messages
                         .iter()
-                        .map(|message| (&message.text, &message.repair))
+                        .map(|message| (&message.text, &message.repairs))
                         .collect::<Vec<_>>()
                 ));
                 Vec::new()

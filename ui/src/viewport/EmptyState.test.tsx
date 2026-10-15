@@ -48,15 +48,11 @@ describe('the empty-document first step (3.2)', () => {
   it('keeps each gesture on one line, never broken at its hyphen', () => {
     renderEmpty()
     const legend = screen.getByText(/^Orbit:/)
-    const kept = Array.from(legend.querySelectorAll('span.whitespace-nowrap'), (span) =>
-      span.textContent,
+    const kept = Array.from(
+      legend.querySelectorAll('span.whitespace-nowrap'),
+      (span) => span.textContent,
     )
-    expect(kept).toEqual([
-      'Shift+middle-drag,',
-      'right-drag',
-      'middle-drag',
-      'Shift+right-drag.',
-    ])
+    expect(kept).toEqual(['Shift+middle-drag,', 'right-drag', 'middle-drag', 'Shift+right-drag.'])
   })
 
   it('follows the navigation setting and the platform', () => {

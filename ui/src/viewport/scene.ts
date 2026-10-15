@@ -50,6 +50,7 @@ import {
   millimetersPerPixelAtTarget,
   type GridSegments,
 } from './grid'
+import { elementExtentPoints } from './element-extent'
 import { boundsCenter, boundsCorners, boundsDiagonal, extendBounds, type Bounds } from './math'
 import type { PickClass, PickResult, SelectionItemKind } from './picking'
 import {
@@ -1562,7 +1563,9 @@ export function createScene(backend: RenderBackend): Scene {
       return box === undefined ? [] : boundsCorners(box)
     }
     if (item.element !== null) {
-      return [item.element.centroid]
+      const { body } = item.element
+      const model = Array.from(models.values()).find((entry) => entry.body === body)
+      return elementExtentPoints(item.element, model?.data ?? null)
     }
     const reference = item.sketchItem
     const solution =

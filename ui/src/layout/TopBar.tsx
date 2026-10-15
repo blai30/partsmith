@@ -210,6 +210,8 @@ export function TopBar() {
   return (
     <header
       data-testid="top-bar"
+      // A one-row island: the menus and tooltips of its controls keep clear of it (3.2).
+      data-bar=""
       className={clsx(
         '@container relative z-10 col-span-3 row-start-1 mb-2 flex h-12 min-w-0 items-center gap-2 rounded-xl border px-2 shadow-md',
         COLOR_CLASSES.surface.background,

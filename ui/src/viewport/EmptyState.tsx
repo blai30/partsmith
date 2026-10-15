@@ -1,4 +1,5 @@
 import { clsx } from 'clsx/lite'
+import type { ReactNode } from 'react'
 import { useApp, useAppState } from '../app/AppProvider'
 import { runCommand } from '../commands/registry'
 import { formatShortcut } from '../commands/shortcuts'
@@ -17,18 +18,22 @@ const FIRST_STEPS: readonly string[] = ['feature.sketch', 'feature.box']
 
 /** Text whose hyphenated words, the gestures ("Shift+right-drag"), never break at the hyphen. */
 function KeepGestures({ text }: { readonly text: string }) {
-  // Splitting on a capture group puts each hyphenated word at an odd index.
-  return text
-    .split(/(\S*-\S*)/)
-    .map((part, index) =>
-      index % 2 === 1 ? (
-        <span key={index} className="whitespace-nowrap">
+  const parts: ReactNode[] = []
+  let offset = 0
+  // Splitting on a capture group keeps the hyphenated words; only they hold a hyphen.
+  for (const part of text.split(/(\S*-\S*)/)) {
+    parts.push(
+      part.includes('-') ? (
+        <span key={offset} className="whitespace-nowrap">
           {part}
         </span>
       ) : (
         part
       ),
     )
+    offset += part.length
+  }
+  return parts
 }
 
 /** The first-step card while `selectEmptyState` holds; nothing otherwise. */

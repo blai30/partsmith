@@ -7,8 +7,10 @@ import {
   startWithDocument,
 } from '../../test/fakes/app'
 import { coreErrorFor, createFakeCoreApi } from '../../test/fakes/core-api'
+import type { Document, SketchSolution } from '../../generated/protocol'
 import {
   CUBE_DOCUMENT,
+  CUBE_SKETCH,
   CUBE_SKETCH_SOLUTION,
   RECT_SKETCH_SOLUTION,
 } from '../../test/fakes/documents'
@@ -68,19 +70,42 @@ function recordingViewport(start: Camera): RecordingViewport {
 const BEFORE = orbit(DEFAULT_CAMERA, 30, 10, [0, 0, 0])
 const LATER = orbit(BEFORE, 50, 0, [0, 0, 0])
 
-function sketchApp() {
+function sketchApp(
+  recipe: Document = CUBE_DOCUMENT,
+  solution: SketchSolution = CUBE_SKETCH_SOLUTION,
+) {
   const core = createFakeCoreApi()
   const viewport = recordingViewport(BEFORE)
   const app = createTestApp({
     core,
     viewport,
     store: createAppStore({
-      document: documentStateFor(CUBE_DOCUMENT, {
-        sketches: { 'f-sk1': { solution: CUBE_SKETCH_SOLUTION, display: null } },
+      document: documentStateFor(recipe, {
+        sketches: { 'f-sk1': { solution, display: null } },
       }),
     }),
   })
   return { app, core, viewport }
+}
+
+/** An entity of the cube's sketch 30 mm further right. */
+function shiftedRight(
+  entity: SketchSolution['entities'][number],
+): SketchSolution['entities'][number] {
+  if (entity.type !== 'line') {
+    return entity
+  }
+  return {
+    ...entity,
+    start: [entity.start[0] + 30, entity.start[1]],
+    end: [entity.end[0] + 30, entity.end[1]],
+  }
+}
+
+/** The cube's sketch solved 30 mm to the right of the origin, so its entities leave it out. */
+const SHIFTED_SOLUTION: SketchSolution = {
+  ...CUBE_SKETCH_SOLUTION,
+  entities: CUBE_SKETCH_SOLUTION.entities.map(shiftedRight),
 }
 
 describe('entering a sketch', () => {
@@ -92,6 +117,28 @@ describe('entering a sketch', () => {
       { min: [-10, -10, 0], max: [10, 10, 0] },
       0.1,
     )
+  })
+})
+
+describe('framing an entered sketch (3.16.1)', () => {
+  it('frames the sketch origin too when a constraint refers to it, so a dimension to it shows', async () => {
+    // The cube's sketch places its corner by distances from the origin.
+    const { app, viewport } = sketchApp(CUBE_DOCUMENT, SHIFTED_SOLUTION)
+    await enterSketch(app, 'f-sk1')
+    expect(viewport.zoomToBounds).toHaveBeenCalledWith({ min: [0, -10, 0], max: [40, 10, 0] }, 0.1)
+  })
+
+  it('frames only the entities when no constraint refers to the origin or an axis', async () => {
+    const constraints = (CUBE_SKETCH['constraints'] as readonly { readonly type: string }[]).filter(
+      (constraint) => constraint.type === 'coincident' || constraint.type === 'horizontal',
+    )
+    const recipe: Document = {
+      ...CUBE_DOCUMENT,
+      features: [{ ...CUBE_SKETCH, constraints }, ...(CUBE_DOCUMENT.features ?? []).slice(1)],
+    }
+    const { app, viewport } = sketchApp(recipe, SHIFTED_SOLUTION)
+    await enterSketch(app, 'f-sk1')
+    expect(viewport.zoomToBounds).toHaveBeenCalledWith({ min: [20, -10, 0], max: [40, 10, 0] }, 0.1)
   })
 })
 

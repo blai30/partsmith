@@ -52,6 +52,37 @@ describe('placeNextTo', () => {
     expect(declarations(element)).toEqual(['translate: 100px 78px'])
   })
 
+  it('keeps the gap from the outline of the bar island its anchor sits in (3.2)', () => {
+    setWindowSize(800, 600)
+    const bar = document.createElement('header')
+    bar.dataset['bar'] = ''
+    const anchor = document.createElement('button')
+    bar.append(anchor)
+    document.body.append(bar)
+    const element = document.createElement('div')
+    withBounds(bar, 8, 8, 784, 48)
+    withBounds(anchor, 100, 16, 40, 32)
+    withBounds(element, 0, 0, 120, 60)
+    placeNextTo(element, anchor, 'below')
+    // 0.25rem under the island's bottom edge at 56, not under the button's at 48.
+    expect(declarations(element)).toEqual(['translate: 100px 60px'])
+  })
+
+  it('places an element of a bar at the window bottom above the bar, clear of it', () => {
+    setWindowSize(800, 600)
+    const bar = document.createElement('footer')
+    bar.dataset['bar'] = ''
+    const anchor = document.createElement('button')
+    bar.append(anchor)
+    document.body.append(bar)
+    const element = document.createElement('div')
+    withBounds(bar, 8, 564, 784, 28)
+    withBounds(anchor, 100, 566, 40, 24)
+    withBounds(element, 0, 0, 120, 60)
+    placeNextTo(element, anchor, 'below')
+    expect(declarations(element)).toEqual(['translate: 100px 500px'])
+  })
+
   it('centers the element in the window without an anchor', () => {
     setWindowSize(800, 600)
     const element = document.createElement('div')

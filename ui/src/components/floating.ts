@@ -71,6 +71,21 @@ export function usePopoverVisibility(
   }, [element, open, source])
 }
 
+/**
+ * The box a floating element is placed against: its anchor's, spanning the whole height of the
+ * one-row island (`data-bar`: top bar, timeline, status bar) the anchor sits in, so a menu or
+ * tooltip of a bar's control keeps the gap from the island's outline instead of touching it (3.2).
+ */
+function anchorBox(anchor: Element): DOMRect {
+  const box = anchor.getBoundingClientRect()
+  const bar = anchor.closest('[data-bar]')
+  if (bar === null) {
+    return box
+  }
+  const island = bar.getBoundingClientRect()
+  return DOMRect.fromRect({ x: box.x, y: island.y, width: box.width, height: island.height })
+}
+
 /** Moves a floating element next to its anchor (centered in the window without one). */
 export function placeNextTo(
   element: HTMLElement,
@@ -80,7 +95,7 @@ export function placeNextTo(
   const document = element.ownerDocument
   const rem = remPixels(document)
   const position = placeFloating(
-    anchor?.getBoundingClientRect() ?? null,
+    anchor === null ? null : anchorBox(anchor),
     element.getBoundingClientRect(),
     {
       width: document.documentElement.clientWidth,

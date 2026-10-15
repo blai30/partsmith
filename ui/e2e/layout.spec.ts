@@ -1,6 +1,7 @@
 /// <reference lib="dom" />
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import {
+  bodyRow,
   boxOf,
   canvas,
   dropFile,
@@ -136,6 +137,8 @@ async function expectHeaderClear(page: Page): Promise<Box> {
   for (const corner of await viewCubeCornerBoxes(page)) {
     expect(intersects(headerBox, corner), 'the header and a cube corner').toBe(false)
   }
+  const home = await boxOf(page.getByRole('button', { name: 'Home view', exact: true }))
+  expect(intersects(headerBox, home), 'the header and Home view').toBe(false)
   return { ...headerBox, y: headerBox.y - area.y }
 }
 
@@ -370,6 +373,12 @@ test.describe('layout', () => {
     page,
   }) => {
     await openAtScale(page, 2)
+    // The top bar under 48rem: the document name whole beside the context switcher.
+    const name = page.getByTestId('document-name')
+    const nameBox = await boxOf(name)
+    const switcher = await boxOf(page.getByRole('radiogroup', { name: 'Context' }))
+    expect(nameBox.x + nameBox.width).toBeLessThanOrEqual(switcher.x + TOLERANCE_PIXELS)
+    expect(await name.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true)
     const browser = page.getByTestId('browser')
     await expect(browser).toBeHidden()
     const area = await boxOf(viewport(page))
@@ -417,6 +426,41 @@ test.describe('layout', () => {
     for (const corner of await viewCubeCornerBoxes(page)) {
       expect(intersects(legend, corner), 'the legend and a cube corner').toBe(false)
     }
+  })
+
+  test('E-142 an inspector dragged to the right edge comes back into the free area when a side panel docks (3.7)', async ({
+    page,
+  }) => {
+    await openApp(page)
+    await dropFile(page, 'cube.ptsm')
+    await bodyRow(page, 'Cube').click()
+    const card = page.getByTestId('inspector')
+    await expect(card).toBeVisible()
+    const header = await boxOf(card.getByText('Selection', { exact: true }))
+    await page.mouse.move(header.x + header.width / 2, header.y + header.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(header.x + 2000, header.y + header.height / 2, { steps: 5 })
+    await page.mouse.up()
+    const dragged = await boxOf(card)
+    expect(dragged.x + dragged.width).toBeCloseTo(1272, 0)
+    await runCommand(page, 'Parameters')
+    await expect(page.getByTestId('side-panel')).toBeVisible()
+    const area = await boxOf(viewport(page))
+    await expect
+      .poll(async () => (await boxOf(card)).x + 320)
+      .toBeLessThanOrEqual(area.x + area.width + 1)
+    expectInside(await boxOf(card), area, 'the inspector')
+    // Its close button is hit by a click, not covered by the side panel.
+    const close = await boxOf(card.getByRole('button', { name: 'Clear selection' }))
+    const hit = await page.evaluate(
+      ([x, y]) =>
+        document
+          .elementFromPoint(x ?? 0, y ?? 0)
+          ?.closest('[data-testid]')
+          ?.getAttribute('data-testid') ?? null,
+      [close.x + close.width / 2, close.y + close.height / 2],
+    )
+    expect(hit).toBe('inspector')
   })
 
   test('E-141 the viewport menu opens at the pointer, in canvas pixels (2.11, 3.13)', async ({
