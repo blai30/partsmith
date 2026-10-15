@@ -46,25 +46,29 @@ export function placeInspector(input: {
 
 /**
  * The bounds the inspector opens in (3.7): the free area, with its left side moved to the right
- * edge of the viewport controls and its top side to the bottom of the top-center slot's content,
- * each only where that still leaves the panel's size plus two gaps. All rectangles are in the
- * free-area layer's coordinates; `controls` and `slot` are null when not shown.
+ * edge of the viewport controls, its right side to the left edge of the view cube's reach and its
+ * top side to the bottom of the top-center slot's content, each only where that still leaves the
+ * panel's size plus two gaps. All rectangles are in the free-area layer's coordinates; `controls`,
+ * `cube` and `slot` are null when not shown.
  */
 export function inspectorBounds(input: {
   readonly area: Rectangle
   readonly controls: Rectangle | null
+  readonly cube: Rectangle | null
   readonly slot: Rectangle | null
   readonly panel: { readonly width: number; readonly height: number }
   readonly gap?: number
 }): Rectangle {
-  const { area, controls, slot, panel } = input
+  const { area, controls, cube, slot, panel } = input
   const gap = input.gap ?? DEFAULT_GAP
-  const right = area.x + area.width
   const bottom = area.y + area.height
   const left =
-    controls !== null && right - (controls.x + controls.width) >= panel.width + 2 * gap
+    controls !== null &&
+    area.x + area.width - (controls.x + controls.width) >= panel.width + 2 * gap
       ? controls.x + controls.width
       : area.x
+  const right =
+    cube !== null && cube.x - left >= panel.width + 2 * gap ? cube.x : area.x + area.width
   const top =
     slot !== null && bottom - (slot.y + slot.height) >= panel.height + 2 * gap
       ? slot.y + slot.height

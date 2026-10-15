@@ -279,11 +279,14 @@ describe('the top bar (3.2)', () => {
     const toolbar = screen.getByRole('toolbar', { name: 'Sketch tools' })
     expect(within(toolbar).queryByRole('button', { name: 'Rectangle' })).toBeNull()
     expect(within(toolbar).queryByRole('button', { name: 'Constrain' })).toBeNull()
+    // With no control on either side, the separator before Finish sketch goes too (3.3).
+    expect(toolbar.querySelector('hr')).toBeNull()
     cleanup()
     renderApp({ context: 'sketch', sketch: EDITING_SKETCH })
     const editing = screen.getByRole('toolbar', { name: 'Sketch tools' })
     expect(within(editing).getByRole('button', { name: 'Rectangle' })).toBeInTheDocument()
     expect(within(editing).getByRole('button', { name: 'Constrain' })).toBeInTheDocument()
+    expect(editing.querySelectorAll('hr')).toHaveLength(1)
   })
 
   it('marks disabled toolbar commands with aria-disabled', () => {
@@ -332,6 +335,26 @@ describe('the top bar (3.2)', () => {
     await user.click(button)
     expect(app.store.getState().panels.paletteOpen).toBe(true)
     expect(screen.getByTestId('palette')).toBeInTheDocument()
+  })
+
+  it('keeps the document name at least 5rem wide, truncated inside it (3.2)', () => {
+    renderApp()
+    const name = screen.getByTestId('document-name')
+    expect(name).toHaveClass('min-w-0', 'truncate')
+    expect(name.parentElement).toHaveClass('min-w-20')
+  })
+
+  it('shows Search and Export as icons in a top bar under 48rem, named by their hidden labels (3.2)', async () => {
+    const { user, topBar } = renderApp()
+    const search = screen.getByTestId('palette-button')
+    expect(within(search).getByText('Search')).toHaveClass('@max-3xl:sr-only')
+    expect(search).toHaveAccessibleName(/^Search/)
+    const exportButton = within(topBar).getByRole('button', { name: 'Export' })
+    expect(within(exportButton).getByText('Export')).toHaveClass('@max-3xl:sr-only')
+    expect(exportButton).toHaveClass('@max-3xl:px-2')
+    // The icon-only Search names itself in its tooltip.
+    await user.hover(search)
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('Search')
   })
 
   it('opens the export popover with the Export button', async () => {

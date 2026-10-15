@@ -220,12 +220,13 @@ export function ViewCube({ rotorRef, onChooseView, onHome, onOrbit }: ViewCubePr
           ))}
         </div>
       </div>
+      {/* Outside the cube's top-left corner, so it covers no face, edge or corner target. */}
       <button
         type="button"
         tabIndex={-1}
         aria-label="Home view"
         className={clsx(
-          'absolute top-0 left-0 z-10 flex size-6 cursor-pointer items-center justify-center rounded-md border transition-colors duration-150 motion-reduce:transition-none',
+          'absolute -top-7 -left-7 z-10 flex size-6 cursor-pointer items-center justify-center rounded-md border transition-colors duration-150 motion-reduce:transition-none',
           COLOR_CLASSES.surfaceRaised.background,
           COLOR_CLASSES.border.border,
           COLOR_CLASSES.textMuted.foreground,

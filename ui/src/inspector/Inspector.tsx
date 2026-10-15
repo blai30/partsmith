@@ -29,6 +29,18 @@ import { itemsFromValue } from './selection-values'
 
 type Position = { readonly x: number; readonly y: number }
 
+/**
+ * A position moved into the free-area layer so the whole panel lies inside it (3.7): a stored or
+ * dragged position, or the current one after the layer shrank or the panel grew.
+ */
+function clampedInto(layer: HTMLElement, panel: HTMLElement, position: Position): Position {
+  const box = layer.getBoundingClientRect()
+  return {
+    x: Math.min(Math.max(position.x, 0), Math.max(0, box.width - panel.offsetWidth)),
+    y: Math.min(Math.max(position.y, 0), Math.max(0, box.height - panel.offsetHeight)),
+  }
+}
+
 /** An element's box relative to the free-area layer's box. */
 function boxIn(element: Element, layer: DOMRect): Rectangle {
   const box = element.getBoundingClientRect()
@@ -36,9 +48,35 @@ function boxIn(element: Element, layer: DOMRect): Rectangle {
 }
 
 /**
+ * The view cube's reach in the free-area layer `layer`: its box widened to its Home view button,
+ * which lies outside the cube's top-left corner, clear of the turned cube (3.14).
+ */
+function cubeReach(layer: HTMLElement, layerBox: DOMRect): Rectangle | null {
+  const cube = layer.querySelector('[data-testid="view-cube"]')
+  if (cube === null) {
+    return null
+  }
+  const box = boxIn(cube, layerBox)
+  const home = cube.querySelector('button[aria-label="Home view"]')
+  if (home === null) {
+    return box
+  }
+  const homeBox = boxIn(home, layerBox)
+  const x = Math.min(box.x, homeBox.x)
+  const y = Math.min(box.y, homeBox.y)
+  return {
+    x,
+    y,
+    width: Math.max(box.x + box.width, homeBox.x + homeBox.width) - x,
+    height: Math.max(box.y + box.height, homeBox.y + homeBox.height) - y,
+  }
+}
+
+/**
  * Where an opening inspector goes in the free-area layer `layer` (3.7): beside the items it is
  * about, whose canvas rectangle moves by the free area's offset in the canvas, inside the free
- * area clear of the viewport controls and of the top-center slot's content where it fits.
+ * area clear of the viewport controls, the view cube and the top-center slot's content where it
+ * fits.
  */
 function openingPosition(app: App, layer: HTMLElement, panel: HTMLElement): Position {
   const layerBox = layer.getBoundingClientRect()
@@ -57,6 +95,7 @@ function openingPosition(app: App, layer: HTMLElement, panel: HTMLElement): Posi
   const bounds = inspectorBounds({
     area: { x: 0, y: 0, width: layerBox.width, height: layerBox.height },
     controls: controls === null ? null : boxIn(controls, layerBox),
+    cube: cubeReach(layer, layerBox),
     slot,
     panel: size,
   })
@@ -89,6 +128,7 @@ type PanelProps = {
   readonly preview?: string
   readonly closeLabel: string
   readonly onClose: () => void
+  /** What goes under the header: a scrolling body, and a footer that stays in view. */
   readonly children: ReactNode
 }
 
@@ -113,17 +153,34 @@ function Panel({
     readonly from: Position
   } | null>(null)
 
-  // Placed once when it opens; it then stays put while open (3.7).
+  // Placed once when it opens; it then stays put while open, inside the free area (3.7).
   useLayoutEffect(() => {
     const element = panel.current
     const layer = element?.parentElement ?? null
     if (element === null || layer === null) {
-      return
+      return undefined
     }
-    const placed =
-      app.store.getState().panels.inspectorPosition ?? openingPosition(app, layer, element)
-    position.current = placed
-    positionElement(element, placed.x, placed.y)
+    const place = (wanted: Position): void => {
+      const placed = clampedInto(layer, element, wanted)
+      position.current = placed
+      positionElement(element, placed.x, placed.y)
+    }
+    place(app.store.getState().panels.inspectorPosition ?? openingPosition(app, layer, element))
+    if (typeof ResizeObserver !== 'function') {
+      return undefined
+    }
+    // A free area that shrinks under the card (a docked island opens, the window narrows) or a
+    // card that grows moves it back inside, so it never ends up under an island.
+    const observer = new ResizeObserver(() => {
+      if (drag.current === null) {
+        place(position.current)
+      }
+    })
+    observer.observe(layer)
+    observer.observe(element)
+    return () => {
+      observer.disconnect()
+    }
   }, [app])
 
   // A command's inspector takes focus when it opens and gives it back when it closes (3.24).
@@ -176,14 +233,15 @@ function Panel({
     if (current === null || element === null || current.pointerId !== event.pointerId) {
       return
     }
-    // The free-area layer bounds the drag (3.7).
-    const layer = element.parentElement?.getBoundingClientRect()
-    const maximumX = Math.max(0, (layer?.width ?? 0) - element.offsetWidth)
-    const maximumY = Math.max(0, (layer?.height ?? 0) - element.offsetHeight)
-    const next = {
-      x: Math.min(Math.max(current.from.x + event.clientX - current.startX, 0), maximumX),
-      y: Math.min(Math.max(current.from.y + event.clientY - current.startY, 0), maximumY),
+    const layer = element.parentElement
+    if (layer === null) {
+      return
     }
+    // The free-area layer bounds the drag (3.7).
+    const next = clampedInto(layer, element, {
+      x: current.from.x + event.clientX - current.startX,
+      y: current.from.y + event.clientY - current.startY,
+    })
     position.current = next
     positionElement(element, next.x, next.y)
   }
@@ -216,8 +274,9 @@ function Panel({
       data-inspector=""
       data-mode={mode}
       data-preview={preview}
+      // The card never scrolls as a whole: its content's body does, under the header (3.2).
       className={clsx(
-        'pointer-events-auto absolute top-0 left-0 z-20 flex max-h-[calc(100%-2rem)] w-80 flex-col gap-4 overflow-y-auto rounded-xl border p-4 text-sm shadow-lg transition-opacity duration-150 ease-out starting:opacity-0 motion-reduce:transition-none',
+        'pointer-events-auto absolute top-0 left-0 z-20 flex max-h-[calc(100%-2rem)] w-80 flex-col overflow-hidden rounded-xl border text-sm shadow-lg transition-opacity duration-150 ease-out starting:opacity-0 motion-reduce:transition-none',
         COLOR_CLASSES.surfaceRaised.background,
         COLOR_CLASSES.border.border,
         COLOR_CLASSES.elevation.shadow,
@@ -225,7 +284,7 @@ function Panel({
       )}
     >
       <div
-        className="-m-1 flex cursor-move touch-none items-center gap-2 p-1"
+        className="m-3 mb-0 flex shrink-0 cursor-move touch-none items-center gap-2 p-1"
         onPointerDown={onHeaderPointerDown}
         onPointerMove={onHeaderPointerMove}
         onPointerUp={onHeaderPointerUp}
@@ -335,7 +394,9 @@ export function Inspector() {
         clearSelection(app)
       }}
     >
-      <SelectionInspector items={items} />
+      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 pt-3 pb-4">
+        <SelectionInspector items={items} />
+      </div>
     </Panel>
   )
 }

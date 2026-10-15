@@ -86,6 +86,7 @@ export function App() {
     >
       <RegionBoundary
         region="top bar"
+        bar
         fallbackClassName="relative z-10 col-span-3 row-start-1 mb-2 h-12 rounded-xl border shadow-md"
       >
         <TopBar />
@@ -111,6 +112,7 @@ export function App() {
       </RegionBoundary>
       <RegionBoundary
         region="timeline"
+        bar
         fallbackClassName="relative z-10 col-span-3 row-start-3 mt-2 h-14 rounded-xl border shadow-md"
       >
         <Timeline />
@@ -123,6 +125,7 @@ export function App() {
       </RegionBoundary>
       <RegionBoundary
         region="status bar"
+        bar
         fallbackClassName="relative z-10 col-span-3 row-start-4 mt-2 h-7 rounded-lg border shadow-md"
       >
         <StatusBar />

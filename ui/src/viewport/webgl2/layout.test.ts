@@ -6,6 +6,7 @@ import {
   POINT_ATTRIBUTES,
   POINT_CORNERS,
   SURFACE_ATTRIBUTES,
+  devicePixelSizes,
   elementTextureSize,
   geometryLengthProblem,
   lineStartDistances,
@@ -152,5 +153,34 @@ describe('geometryLengthProblem', () => {
     expect(
       geometryLengthProblem({ kind: 'lines', positions: segment, elementIds: new Uint32Array(2) }),
     ).toBe('lines need 6 position floats and one element id per segment')
+  })
+})
+
+describe('devicePixelSizes (3.6, 3.12)', () => {
+  it('takes a draw size that already carries the UI scale only times the pixel ratio', () => {
+    // An edge 1.25 CSS pixels wide at 100 percent, which the scene draws 2.5 wide at 200 percent.
+    const sizes = devicePixelSizes({ size: 2.5, pickSize: 14 }, 2, 1)
+    expect(sizes.size).toBe(2.5)
+    expect(sizes.pickSize).toBe(14)
+    expect(devicePixelSizes({ size: 2.5, pickSize: 14 }, 2, 2).size).toBe(5)
+  })
+
+  it('scales the emphasis and the dashes by the UI scale and the pixel ratio', () => {
+    expect(devicePixelSizes({ size: 1, pickSize: 1 }, 3, 2)).toMatchObject({
+      emphasisWidth: 15,
+      emphasisSize: 42,
+      dashLength: 36,
+      dashPeriod: 60,
+    })
+  })
+
+  it('keeps hovered and selected axes and plane outlines thicker than at rest at every UI scale', () => {
+    for (const uiScale of [1, 1.25, 1.5, 2, 3]) {
+      // The scene's origin axes are 1.25 and plane outlines 1 CSS pixel wide, times the UI scale.
+      for (const restingWidth of [1.25, 1]) {
+        const sizes = devicePixelSizes({ size: restingWidth * uiScale, pickSize: 7 }, uiScale, 2)
+        expect(sizes.emphasisWidth).toBeGreaterThan(sizes.size)
+      }
+    }
   })
 })

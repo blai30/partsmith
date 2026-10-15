@@ -443,7 +443,10 @@ type ToolbarItem =
       readonly movable: number | null
     }
 
-/** The toolbar's controls: shown commands and groups with a shown command, numbered as they may move. */
+/**
+ * The toolbar's controls: shown commands and groups with a shown command, numbered as they may
+ * move, and the separators between them.
+ */
 function toolbarItems(
   entries: readonly ToolbarEntry[],
   views: ReadonlyMap<string, CommandView>,
@@ -478,7 +481,15 @@ function toolbarItems(
       movable: primary ? null : movable++,
     })
   })
-  return items
+  // A separator stands only between two controls, as while a plane is picked for a new sketch,
+  // when the Sketch toolbar shows none (3.3).
+  return items.filter(
+    (item, index) =>
+      item.kind !== 'separator' ||
+      (items.slice(0, index).some((other) => other.kind !== 'separator') &&
+        items.slice(index + 1).some((other) => other.kind !== 'separator') &&
+        items[index + 1]?.kind !== 'separator'),
+  )
 }
 
 /** The More tools menu entry of a control moved there: a command item (a toggle as a checkbox) or a group's submenu. */

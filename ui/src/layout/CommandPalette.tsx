@@ -16,6 +16,7 @@ import { useApp, useAppState } from '../app/AppProvider'
 import type { App } from '../app/createApp'
 import { rankPaletteItems, recentItems, type PaletteItem } from '../commands/fuzzy'
 import { featureIcon } from '../commands/icons'
+import { formatShortcut } from '../commands/shortcuts'
 import { paletteItems } from '../commands/palette'
 import { parseSelectionKey } from '../inspector/selection-values'
 import { measureTiming, TIMING_NAMES } from '../performance/marks'
@@ -177,6 +178,9 @@ function OpenPalette() {
   }, [app])
 
   const activeItem = ranked[active]
+  const description = activeItem?.description ?? null
+  const enterKey = formatShortcut('Enter', app.platform)
+  const escapeKey = formatShortcut('Escape', app.platform)
   const activeId = activeItem === undefined ? undefined : `${optionPrefix}-${String(active)}`
 
   useEffect(() => {
@@ -251,7 +255,9 @@ function OpenPalette() {
   }
 
   return (
-    <div className="pointer-events-none fixed inset-x-4 top-1/6 z-50 flex justify-center">
+    // The layer ends 1rem above the window's bottom, so a tall list scrolls inside the palette
+    // instead of running off the window at a large UI scale (3.2, 3.4).
+    <div className="pointer-events-none fixed inset-x-4 top-1/6 bottom-4 z-50 flex items-start justify-center">
       <div
         ref={palette}
         // The spec names the dialog role on this element (ui.md 3.4, 6.1); a native dialog element
@@ -261,9 +267,10 @@ function OpenPalette() {
         aria-label="Command palette"
         data-testid="palette"
         className={clsx(
-          'pointer-events-auto flex w-140 max-w-full flex-col overflow-hidden rounded-xl border shadow-lg transition-opacity duration-150 ease-out starting:opacity-0 motion-reduce:transition-none',
+          'pointer-events-auto flex max-h-full w-140 max-w-full flex-col overflow-hidden rounded-xl border shadow-lg transition-opacity duration-150 ease-out starting:opacity-0 motion-reduce:transition-none',
           COLOR_CLASSES.surfaceRaised.background,
           COLOR_CLASSES.border.border,
+          COLOR_CLASSES.elevation.shadow,
           COLOR_CLASSES.text.foreground,
         )}
       >
@@ -304,7 +311,7 @@ function OpenPalette() {
           // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role, jsx-a11y/no-noninteractive-element-to-interactive-role
           role="listbox"
           aria-label="Results"
-          className="relative max-h-96 overflow-y-auto p-1"
+          className="relative max-h-96 min-h-0 flex-1 overflow-y-auto p-1"
         >
           {ranked.length === 0 && query.trim() !== '' ? (
             // The one row of an empty result is not an option (3.4).
@@ -349,11 +356,14 @@ function OpenPalette() {
             COLOR_CLASSES.textMuted.foreground,
           )}
         >
-          <p
-            id={descriptionId}
-            hidden={footer !== '' || (activeItem?.description ?? null) === null}
-          >
-            {activeItem?.description ?? ''}
+          <p id={descriptionId} hidden={footer !== '' || description === null}>
+            {description ?? ''}
+          </p>
+          {/* Without a description or a reason the footer names the keys, never an empty strip. */}
+          <p aria-hidden="true" hidden={footer !== '' || description !== null}>
+            {activeItem === undefined
+              ? `${escapeKey} to close`
+              : `${enterKey} to run, ${escapeKey} to close`}
           </p>
           <output className="block empty:hidden">{footer}</output>
         </div>

@@ -1,4 +1,4 @@
-//! Helpers for the last third of the reference stability corpus, R45 to R65 of
+//! Helpers for the last third of the reference stability corpus, R45 to R66 of
 //! docs/design/reference-stability-corpus.md, used by `reference_stability_3.rs`.
 //!
 //! Documents are written as `.ptsm` JSON records and run with `Registry::with_builtins()` through
@@ -351,25 +351,35 @@ pub fn document_of(bodies: &[&str], features: &[Value]) -> Document {
     document_in("mm", bodies, features)
 }
 
-/// Runs a millimeter document with these test bodies and feature records.
+/// Runs the setup made of these test bodies and feature records, with its references picked as
+/// the corpus's "Picked references" rule says (`run_picked`).
 pub fn run(bodies: &[&str], features: &[Value]) -> Run {
-    Run::new(document_of(bodies, features))
+    run_with_assets(bodies, features, &Assets::new())
 }
 
-/// Runs a millimeter document with these asset bytes.
+/// Runs the setup made of these test bodies and feature records with these asset bytes, with its
+/// references picked (`run_picked`).
 pub fn run_with_assets(bodies: &[&str], features: &[Value], assets: &Assets) -> Run {
-    Run::with_assets(document_of(bodies, features), assets)
+    run_picked(document_of(bodies, features), assets)
 }
 
-/// Replaces the document of `run` and runs it again on the same recompute, as an edit in an open
-/// session does: results of the earlier runs stay in its cache.
+/// Runs the edit of `setup` made of these test bodies and feature records on a new recompute, with
+/// the picks of `setup` carried over (`with_picks`).
+pub fn run_edited(setup: &Run, bodies: &[&str], features: &[Value]) -> Run {
+    Run::new(with_picks(&setup.document, &document_of(bodies, features)))
+}
+
+/// Replaces the document of `run` by the edit made of these test bodies and feature records, with
+/// the picks of `run`'s document carried over, and runs it again on the same recompute, as an edit
+/// in an open session does: results of the earlier runs stay in its cache.
 pub fn edit(run: &mut Run, bodies: &[&str], features: &[Value]) {
     edit_document(run, document_of(bodies, features), &Assets::new());
 }
 
-/// Replaces the document of `run` and runs it again on the same recompute with these assets.
+/// Replaces the document of `run` by the edit `document`, with the picks of `run`'s document
+/// carried over, and runs it again on the same recompute with these assets.
 pub fn edit_document(run: &mut Run, document: Document, assets: &Assets) {
-    run.document = document;
+    run.document = with_picks(&run.document, &document);
     run.rerun(assets);
 }
 

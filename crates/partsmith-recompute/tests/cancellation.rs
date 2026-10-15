@@ -160,7 +160,7 @@ fn canceling_during_a_build_keeps_the_finished_features_and_stops() {
     assert!(report.canceled);
     assert_volume(shape(final_state(&report, "b-1")), 1000.0);
     assert!(final_state(&report, "b-2").is_empty());
-    assert!(common::feature(&report, "f-w1").output.is_none());
+    assert!(common::feature_report(&report, "f-w1").output.is_none());
 }
 
 #[test]

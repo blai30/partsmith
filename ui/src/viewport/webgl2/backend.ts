@@ -1,9 +1,5 @@
 import type { DrawCall, Geometry, PickSample, RenderBackend, RenderFrame, Rgb } from '../backend'
 import {
-  DASH_GAP,
-  DASH_LENGTH,
-  EMPHASIS_LINE_WIDTH,
-  EMPHASIS_POINT_SIZE,
   FLOAT_BYTES,
   LINE_ATTRIBUTES,
   LINE_CORNERS,
@@ -12,6 +8,7 @@ import {
   POSITION_BYTES,
   SEGMENT_BYTES,
   SURFACE_ATTRIBUTES,
+  devicePixelSizes,
   elementTextureSize,
   geometryLengthProblem,
   lineStartDistances,
@@ -512,23 +509,23 @@ export function createWebGl2Backend(canvas: HTMLCanvasElement): RenderBackend | 
     gl.uniform1i(uniform('u_elementColors'), COLOR_TEXTURE_UNIT)
     gl.uniform1i(uniform('u_hasElementColors'), drawCall.elementColors === null ? 0 : 1)
     setRgb(uniform('u_color'), drawCall.color)
-    const devicePixels = frame.uiScale * pixelRatioOf(frame)
+    const sizes = devicePixelSizes(drawCall, frame.uiScale, pixelRatioOf(frame))
     if (pass === 'id') {
       gl.uniform1ui(uniform('u_pickBase'), drawCall.pickBase ?? 0)
-      gl.uniform1f(uniform('u_width'), drawCall.pickSize * devicePixels)
-      gl.uniform1f(uniform('u_size'), drawCall.pickSize * devicePixels)
+      gl.uniform1f(uniform('u_width'), sizes.pickSize)
+      gl.uniform1f(uniform('u_size'), sizes.pickSize)
     } else {
       setRgb(uniform('u_highlight'), frame.theme.highlight)
       gl.uniform1f(uniform('u_hoverHighlight'), hoverHighlight(drawCall))
       setRgb(uniform('u_problem'), frame.theme.problem)
       gl.uniform1f(uniform('u_opacity'), drawCall.opacity)
-      gl.uniform1f(uniform('u_width'), drawCall.size * devicePixels)
-      gl.uniform1f(uniform('u_emphasisWidth'), EMPHASIS_LINE_WIDTH * devicePixels)
-      gl.uniform1f(uniform('u_size'), drawCall.size * devicePixels)
-      gl.uniform1f(uniform('u_emphasisSize'), EMPHASIS_POINT_SIZE * devicePixels)
+      gl.uniform1f(uniform('u_width'), sizes.size)
+      gl.uniform1f(uniform('u_emphasisWidth'), sizes.emphasisWidth)
+      gl.uniform1f(uniform('u_size'), sizes.size)
+      gl.uniform1f(uniform('u_emphasisSize'), sizes.emphasisSize)
       gl.uniform1i(uniform('u_dashed'), drawCall.dashed ? 1 : 0)
-      gl.uniform1f(uniform('u_dashLength'), DASH_LENGTH * devicePixels)
-      gl.uniform1f(uniform('u_dashPeriod'), (DASH_LENGTH + DASH_GAP) * devicePixels)
+      gl.uniform1f(uniform('u_dashLength'), sizes.dashLength)
+      gl.uniform1f(uniform('u_dashPeriod'), sizes.dashPeriod)
       gl.uniform1i(uniform('u_matcap'), drawCall.shading === 'matcap' ? 1 : 0)
       gl.uniform1i(uniform('u_sectionCaps'), section === null ? 0 : 1)
       const analysis = drawCall.analysis && geometry.scalars !== null ? frame.analysis : null

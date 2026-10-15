@@ -51,6 +51,19 @@ describe('Button', () => {
     expect(screen.getByTestId('inspector-ok')).toHaveAttribute('aria-disabled', 'true')
   })
 
+  it('is 2rem tall by default and 1.5rem tall with extra-small text when compact', () => {
+    render(
+      <>
+        <Button>Cancel</Button>
+        <Button size="compact">Reload</Button>
+      </>,
+    )
+    expect(screen.getByRole('button', { name: 'Cancel' })).toHaveClass('h-8', 'px-3', 'text-sm')
+    const compact = screen.getByRole('button', { name: 'Reload' })
+    expect(compact).toHaveClass('h-6', 'px-2', 'text-xs')
+    expect(compact).not.toHaveClass('h-8')
+  })
+
   it('carries the focus ring', () => {
     render(<Button>Cancel</Button>)
     expect(screen.getByRole('button', { name: 'Cancel' })).toHaveClass(

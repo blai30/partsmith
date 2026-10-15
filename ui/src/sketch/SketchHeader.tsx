@@ -123,18 +123,21 @@ function PlanePicking() {
       <legend className="float-left min-w-0 font-medium">
         Pick a plane or a flat face to draw on
       </legend>
-      {ORIGIN_PLANES.map((plane, index) => (
-        <Button
-          key={plane}
-          ref={index === 0 ? first : undefined}
-          aria-label={`Sketch on ${originPlaneName(plane)}`}
-          onClick={() => {
-            createSketchOn(app, originItem(plane)).catch(reportFailure('Creating the sketch'))
-          }}
-        >
-          {originPlaneView(plane)}
-        </Button>
-      ))}
+      {/* The three plane buttons wrap together, so they never split across lines. */}
+      <div className="flex gap-2">
+        {ORIGIN_PLANES.map((plane, index) => (
+          <Button
+            key={plane}
+            ref={index === 0 ? first : undefined}
+            aria-label={`Sketch on ${originPlaneName(plane)}`}
+            onClick={() => {
+              createSketchOn(app, originItem(plane)).catch(reportFailure('Creating the sketch'))
+            }}
+          >
+            {originPlaneView(plane)}
+          </Button>
+        ))}
+      </div>
     </fieldset>
   )
 }

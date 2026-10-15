@@ -266,7 +266,10 @@ export type CommandInspectorProps = {
   readonly feature: CatalogFeature
 }
 
-/** The command inspector's fields and footer; the panel around it is the Inspector's. */
+/**
+ * The command inspector's body of fields, which scrolls, and its footer, which stays in view under
+ * it (3.7); the panel around them is the Inspector's.
+ */
 export function CommandInspector({ command, feature }: CommandInspectorProps) {
   const app = useApp()
   const status = useAppState((state) => state.document?.featureStatus[command.featureId])
@@ -330,46 +333,53 @@ export function CommandInspector({ command, feature }: CommandInspectorProps) {
 
   return (
     <>
-      <StatusBanner
-        messages={messages}
-        fieldOf={fieldOf}
-        toggle={toggles[0] ?? null}
-        params={command.params}
-      />
-      <div className="flex flex-col gap-3">{model.essential.map(renderField)}</div>
-      {model.more.length === 0 ? null : (
-        <div className="flex flex-col gap-3">
-          {/* The tooltip lists what More holds, so nothing is hidden out of reach (3.7). */}
-          <Tooltip label={model.more.map((field) => field.label).join(', ')}>
-            <button
-              type="button"
-              data-testid="inspector-more"
-              aria-expanded={moreOpen}
-              onClick={() => {
-                const settings = app.store.getState().settings
-                updateSettings(app, {
-                  moreExpanded: { ...settings.moreExpanded, [command.featureType]: !moreOpen },
-                })
-              }}
-              className={clsx(
-                'inline-flex h-8 max-w-full min-w-0 items-center gap-1 self-start rounded-md px-1 text-left text-sm font-medium',
-                COLOR_CLASSES.textMuted.foreground,
-                COLOR_CLASSES.hover.background,
-                COLOR_CLASSES.focusRing.outline,
-              )}
-            >
-              {moreOpen ? (
-                <ChevronDown aria-hidden="true" strokeWidth={1.75} className="size-4 shrink-0" />
-              ) : (
-                <ChevronRight aria-hidden="true" strokeWidth={1.75} className="size-4 shrink-0" />
-              )}
-              <span className="truncate">{moreOpen ? 'Fewer options' : moreLabel}</span>
-            </button>
-          </Tooltip>
-          {moreOpen ? model.more.map(renderField) : null}
-        </div>
-      )}
-      <div className={clsx('flex justify-end gap-2 border-t pt-4', COLOR_CLASSES.divider.border)}>
+      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 pt-3 pb-4">
+        <StatusBanner
+          messages={messages}
+          fieldOf={fieldOf}
+          toggle={toggles[0] ?? null}
+          params={command.params}
+        />
+        <div className="flex flex-col gap-3">{model.essential.map(renderField)}</div>
+        {model.more.length === 0 ? null : (
+          <div className="flex flex-col gap-3">
+            {/* The tooltip lists what More holds, so nothing is hidden out of reach (3.7). */}
+            <Tooltip label={model.more.map((field) => field.label).join(', ')}>
+              <button
+                type="button"
+                data-testid="inspector-more"
+                aria-expanded={moreOpen}
+                onClick={() => {
+                  const settings = app.store.getState().settings
+                  updateSettings(app, {
+                    moreExpanded: { ...settings.moreExpanded, [command.featureType]: !moreOpen },
+                  })
+                }}
+                className={clsx(
+                  'inline-flex h-8 max-w-full min-w-0 items-center gap-1 self-start rounded-md px-1 text-left text-sm font-medium',
+                  COLOR_CLASSES.textMuted.foreground,
+                  COLOR_CLASSES.hover.background,
+                  COLOR_CLASSES.focusRing.outline,
+                )}
+              >
+                {moreOpen ? (
+                  <ChevronDown aria-hidden="true" strokeWidth={1.75} className="size-4 shrink-0" />
+                ) : (
+                  <ChevronRight aria-hidden="true" strokeWidth={1.75} className="size-4 shrink-0" />
+                )}
+                <span className="truncate">{moreOpen ? 'Fewer options' : moreLabel}</span>
+              </button>
+            </Tooltip>
+            {moreOpen ? model.more.map(renderField) : null}
+          </div>
+        )}
+      </div>
+      <div
+        className={clsx(
+          'flex shrink-0 justify-end gap-2 border-t px-4 py-3',
+          COLOR_CLASSES.divider.border,
+        )}
+      >
         <Tooltip label="Cancel" shortcut={formatShortcut('Escape', app.platform)}>
           <Button
             onClick={() => {

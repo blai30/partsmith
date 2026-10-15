@@ -273,6 +273,7 @@ mod tests {
                 ambiguous: false,
                 lost: Lost::default(),
                 candidates: Vec::new(),
+                matches: 0,
             },
         }));
 

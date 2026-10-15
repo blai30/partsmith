@@ -295,10 +295,13 @@ describe('ExpressionInput', () => {
     expect(screen.getByTestId('field-error').textContent).toBe('')
   })
 
-  it('shows no result while the text is empty', async () => {
+  it('shows no result while the text is empty, hidden so it takes no room in the row', async () => {
     setUp({ initial: '', optional: true })
     await settle()
-    expect(screen.getByTestId('expression-result').textContent).toBe('')
+    const result = screen.getByTestId('expression-result')
+    expect(result.textContent).toBe('')
+    expect(result).toHaveClass('empty:hidden')
+    expect(result.childNodes).toHaveLength(0)
   })
 
   it('explains a value of the wrong dimension for its unit', async () => {

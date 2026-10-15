@@ -53,11 +53,22 @@ fn shared_registry() -> &'static Registry {
 
 /// The timeline of `document` prepared without a stop point, over a fresh validation memo.
 pub(crate) fn prepared(document: &Document) -> Timeline<'_> {
+    prepared_with(document, None)
+}
+
+/// The timeline of `document` prepared to stop after `stop`, over a fresh validation memo.
+pub(crate) fn prepared_until<'a>(document: &'a Document, stop: &Id) -> Timeline<'a> {
+    prepared_with(document, Some(stop))
+}
+
+/// The timeline of `document` prepared over the registry of [`registry`] and a fresh validation
+/// memo, stopping after `stop` when it is set.
+fn prepared_with<'a>(document: &'a Document, stop: Option<&Id>) -> Timeline<'a> {
     Timeline::prepare(
         shared_registry(),
         &mut Validations::default(),
         document,
-        None,
+        stop,
     )
 }
 

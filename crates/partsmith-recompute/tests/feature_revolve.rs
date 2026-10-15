@@ -10,8 +10,8 @@ use feature_support::{
     Run, absent_faces, assert_bounding_box, assert_empty, assert_error_field,
     assert_examples_canonical, assert_face_area, assert_face_count, assert_face_in_plane,
     assert_face_kind, assert_face_radius, assert_has_face, assert_median_build_within,
-    assert_messages_pass_lint, assert_no_face, assert_unchanged, assert_volume, face, link_ids,
-    load_example, message, output_body, successions,
+    assert_messages_pass_lint, assert_no_face, assert_unchanged, assert_volume, face,
+    face_names_with_prefix, link_ids, load_example, message, output_body, successions,
 };
 use partsmith_features::{Diagnosis, FeatureWarning, Fix};
 use partsmith_naming::Follow;
@@ -494,19 +494,56 @@ fn t027_a_quarter_turn_records_nothing_absent() {
 /// `P-RING-V2`: the region of `SK-RING` as a pick stores it since file format version 2.
 const RING_PROFILE_V2: &str = r#"{"sketch": "f-sk1", "regions": [{"key": "e-1,e-2,e-3,e-4", "fp": "c=15,15|a=300", "outline": "e-1,e-2,e-3,e-4"}]}"#;
 
-/// The ring of test 31 after its edit: `e-2` deleted and `e-9` drawn in its place, turned all the way round, with the
-/// fillet of radius 2 on the outer top rim as stored before the edit.
-fn redrawn_outer_side() -> Run {
-    let sketch = r#"{"id": "f-sk1", "type": "sketch", "plane": {"kind": "origin", "plane": "XZ"}, "entities": [{"id": "e-1", "type": "line", "start": [10, 0], "end": [20, 0]}, {"id": "e-3", "type": "line", "start": [20, 30], "end": [10, 30]}, {"id": "e-4", "type": "line", "start": [10, 30], "end": [10, 0]}, {"id": "e-9", "type": "line", "start": [20, 0], "end": [20, 30]}]}"#;
-    let fillet = r#"{"id": "f-fil1", "type": "fillet", "body": "b-1", "edges": [{"q": "edge(f-rev1/lateral/e-2|f-rev1/lateral/e-3)", "fp": "circle|n=0,0,1|c=0,0,30|l=125.663706|r=20|adj=2,1"}], "radius": "2"}"#;
+/// A line entity of a sketch.
+fn line(entity: &str, start: [i32; 2], end: [i32; 2]) -> String {
+    format!(
+        r#"{{"id": "{entity}", "type": "line", "start": [{}, {}], "end": [{}, {}]}}"#,
+        start[0], start[1], end[0], end[1]
+    )
+}
+
+/// `SK-RING` without the line `e-2`, followed by `added` in its place.
+fn ring_sketch_without_outer_side(added: &[String]) -> String {
+    let lines: Vec<String> = [
+        line("e-1", [10, 0], [20, 0]),
+        line("e-3", [20, 30], [10, 30]),
+        line("e-4", [10, 30], [10, 0]),
+    ]
+    .into_iter()
+    .chain(added.iter().cloned())
+    .collect();
+    format!(
+        r#"{{"id": "f-sk1", "type": "sketch", "plane": {{"kind": "origin", "plane": "XZ"}}, "entities": [{}]}}"#,
+        lines.join(", ")
+    )
+}
+
+/// `REV(AXIS-Z, extent, "new")` of the edited `sketch` with `P-RING-V2`, followed by `other`.
+fn ring_run(sketch: &str, extent: &str, other: &str) -> Run {
     Run::records(
         &["b-1"],
         &[
             sketch,
-            &revolve(RING_PROFILE_V2, AXIS_Z, FULL, "new"),
-            fillet,
+            &revolve(RING_PROFILE_V2, AXIS_Z, extent, "new"),
+            other,
         ],
     )
+}
+
+/// The ring of test 31 after its edit: `e-2` deleted and `e-9` drawn in its place, turned by `extent`, with the
+/// fillet of radius 2 on the outer top rim as stored before the edit.
+fn redrawn_outer_side_turned(extent: &str) -> Run {
+    let fillet = r#"{"id": "f-fil1", "type": "fillet", "body": "b-1", "edges": [{"q": "edge(f-rev1/lateral/e-2|f-rev1/lateral/e-3)", "fp": "circle|n=0,0,1|c=0,0,30|l=125.663706|r=20|adj=2,1"}], "radius": "2"}"#;
+    ring_run(
+        &ring_sketch_without_outer_side(&[line("e-9", [20, 0], [20, 30])]),
+        extent,
+        fillet,
+    )
+}
+
+/// Test 31's document, turned all the way round.
+fn redrawn_outer_side() -> Run {
+    redrawn_outer_side_turned(FULL)
 }
 
 #[test]
@@ -560,4 +597,179 @@ fn t031_the_fillet_stays_on_the_outer_top_rim() {
         "f-fil1/fillet/edge(f-rev1/lateral/e-3|f-rev1/lateral/e-9)",
     );
     assert_volume(run.shape("b-1"), 28168.872718);
+}
+
+#[test]
+fn t032_the_follow_lasts_through_the_next_edit() {
+    let after_first_edit = redrawn_outer_side();
+    after_first_edit.assert_notices("f-fil1", &["reference_followed"]);
+
+    let run = redrawn_outer_side_turned(&angle("180 deg"));
+
+    run.assert_ok("f-rev1");
+    run.assert_notices("f-fil1", &["reference_followed"]);
+    assert_eq!(
+        run.messages("f-fil1"),
+        after_first_edit.messages("f-fil1"),
+        "the same notice as after the first edit"
+    );
+    assert_eq!(
+        face_names_with_prefix(run.body("b-1"), "f-fil1/"),
+        ["f-fil1/fillet/edge(f-rev1/lateral/e-3|f-rev1/lateral/e-9)"],
+        "the bottom outer rim stays sharp"
+    );
+    assert_bounding_box(run.shape("b-1"), [-20.0, 0.0, 0.0], [20.0, 20.0, 30.0]);
+    assert_volume(run.shape("b-1"), 14084.436359);
+}
+
+/// The outer side of `SK-RING` turned all the way round, as a pick stores it before the edits of tests 33 and 34.
+const OUTER_SIDE: &str =
+    r#"{"q": "f-rev1/lateral/e-2", "fp": "cylinder|n=0,0,1|c=0,0,15|a=3769.911184|r=20|adj=2,3"}"#;
+
+/// The shell `f-sh1` of thickness 2 in `b-1` that removes the outer side.
+fn shell_without_outer_side() -> String {
+    format!(
+        r#"{{"id": "f-sh1", "type": "shell", "body": "b-1", "thickness": "2", "remove_faces": [{OUTER_SIDE}]}}"#
+    )
+}
+
+/// The ring with `e-2` ending at (20, 15) and `e-6` continuing it on its line (corpus R49 for revolve), turned all
+/// the way round, and the shell opening the outer side as stored before the edit.
+fn split_outer_side() -> Run {
+    ring_run(
+        &ring_sketch_without_outer_side(&[
+            line("e-2", [20, 0], [20, 15]),
+            line("e-6", [20, 15], [20, 30]),
+        ]),
+        FULL,
+        &shell_without_outer_side(),
+    )
+}
+
+#[test]
+fn t033_a_side_line_split_by_a_collinear_line_keeps_the_whole_opening() {
+    let run = split_outer_side();
+
+    run.assert_ok("f-rev1");
+    let after_revolve = output_body(&run, "f-rev1", "b-1");
+    assert_eq!(
+        successions(&after_revolve),
+        [(
+            "f-rev1/lateral/e-2".to_string(),
+            vec![
+                "f-rev1/lateral/e-2".to_string(),
+                "f-rev1/lateral/e-6".to_string()
+            ]
+        )],
+    );
+    for side in ["f-rev1/lateral/e-2", "f-rev1/lateral/e-6"] {
+        let geometry = face(&after_revolve, side);
+        assert_cylinder(&geometry, 20.0);
+        assert_face_area(&geometry, 1884.955592);
+    }
+    run.assert_notices("f-sh1", &["reference_followed"]);
+    assert!(matches!(
+        run.warning("f-sh1", "reference_followed"),
+        FeatureWarning::ReferenceFollowed {
+            follow: Follow::Extended,
+            ..
+        }
+    ));
+    assert_eq!(
+        message(&run, "f-sh1", "reference_followed")
+            .pointer
+            .as_deref(),
+        Some("/remove_faces/0"),
+    );
+    let shelled = run.body("b-1");
+    assert_no_face(shelled, "f-rev1/lateral/e-2");
+    assert_no_face(shelled, "f-rev1/lateral/e-6");
+    assert_volume(run.shape("b-1"), 7363.893180);
+    assert_messages_pass_lint(&run, "f-sh1");
+}
+
+/// The lines of a notch drawn in place of `e-2` (corpus R66 for revolve): a groove 4 deep between z = 10 and 20.
+fn notch_lines() -> Vec<String> {
+    vec![
+        line("e-9", [20, 0], [20, 10]),
+        line("e-10", [20, 10], [16, 10]),
+        line("e-11", [16, 10], [16, 20]),
+        line("e-12", [16, 20], [20, 20]),
+        line("e-13", [20, 20], [20, 30]),
+    ]
+}
+
+/// The ring with `e-2` replaced by the notch, turned all the way round, and the shell opening the outer side as stored
+/// before the edit.
+fn notched_outer_side() -> Run {
+    ring_run(
+        &ring_sketch_without_outer_side(&notch_lines()),
+        FULL,
+        &shell_without_outer_side(),
+    )
+}
+
+/// The faces made from the lines of the notch, in profile order.
+const NOTCH_FACES: [&str; 5] = [
+    "f-rev1/lateral/e-9",
+    "f-rev1/lateral/e-10",
+    "f-rev1/lateral/e-11",
+    "f-rev1/lateral/e-12",
+    "f-rev1/lateral/e-13",
+];
+
+#[test]
+fn t034_a_side_line_replaced_by_a_notch_widens_the_face() {
+    let run = notched_outer_side();
+
+    run.assert_ok("f-rev1");
+    let after_revolve = output_body(&run, "f-rev1", "b-1");
+    assert_eq!(
+        successions(&after_revolve),
+        [(
+            "f-rev1/lateral/e-2".to_string(),
+            NOTCH_FACES
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+        )],
+    );
+    assert_volume(
+        after_revolve.shape().expect("the ring has a solid"),
+        23750.440461,
+    );
+    run.assert_warnings("f-sh1", &["reference_widened"]);
+    assert_eq!(
+        message(&run, "f-sh1", "reference_widened")
+            .pointer
+            .as_deref(),
+        Some("/remove_faces/0"),
+    );
+    let shelled = run.body("b-1");
+    for notch_face in NOTCH_FACES {
+        assert_no_face(shelled, notch_face);
+    }
+    assert_volume(run.shape("b-1"), 7363.893180);
+    assert_messages_pass_lint(&run, "f-sh1");
+}
+
+#[test]
+fn t034_the_widened_face_offers_keep_all_use_only_the_first_line_and_pick() {
+    let run = notched_outer_side();
+
+    assert_eq!(
+        run.warning_fixes("f-sh1", "reference_widened", &Diagnosis::default()),
+        [
+            Fix::KeepMatch {
+                pointer: "/remove_faces/0".to_string()
+            },
+            Fix::UseReferences {
+                pointer: "/remove_faces/0".to_string(),
+                references: vec![run.picked_before("f-sh1", "b-1", "f-rev1/lateral/e-9")],
+            },
+            Fix::Pick {
+                pointer: "/remove_faces/0".to_string()
+            },
+        ],
+    );
 }

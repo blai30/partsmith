@@ -4,8 +4,8 @@
 //! `test_peek`, `test_stray`). The others are small features that let the runner be exercised
 //! without the built-in feature pipelines: datum outputs (`test_datum`), bodies that hold a real
 //! kernel solid (`test_block`), body readers (`test_probe`), a node with arbitrary links
-//! (`test_node`), an asset reader (`test_asset`) and a feature that updates one body twice
-//! (`test_twice`).
+//! (`test_node`), an asset reader (`test_asset`), a feature that updates one body twice
+//! (`test_twice`) and a reader of a body's writer chain (`test_history`).
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -85,6 +85,9 @@ pub fn register_runner_features(registry: &mut Registry) {
     registry
         .register::<TestTwice>()
         .expect("test_twice registers");
+    registry
+        .register::<TestHistory>()
+        .expect("test_history registers");
 }
 
 /// A test manifest with `label`, category create, version 1 and these field hints.
@@ -665,5 +668,66 @@ impl Feature for TestTwice {
             measured: Measurements::default(),
         };
         Ok(output(OutputData::Bodies(vec![update.clone(), update])))
+    }
+}
+
+/// Params of `test_history`.
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+pub struct TestHistoryParams {
+    /// The body whose writer chain is read.
+    pub body: Id,
+    /// The writers the chain must name, in timeline order.
+    pub writers: Vec<Id>,
+}
+
+/// `test_history`: declares `bodies_read [body]` and reads the body's writer chain
+/// (`BuildContext::body_history`, recompute.md section 3.5).
+///
+/// When the chain names exactly `writers`, in order, it outputs a datum plane at the height of the
+/// sum of the body's volumes just before each writer (an empty body counts 0), so the states of
+/// the chain show in the output; otherwise it fails with an `Internal` error that names the
+/// chain's writers.
+pub struct TestHistory;
+
+impl Feature for TestHistory {
+    const TYPE: &'static str = "test_history";
+    type Params = TestHistoryParams;
+
+    fn manifest() -> FeatureManifest {
+        manifest(
+            "Test history",
+            "test-history",
+            vec![body_hint(), hint("writers", "Writers", None, None)],
+        )
+    }
+
+    fn dependencies(params: &TestHistoryParams) -> Dependencies {
+        Dependencies {
+            bodies_read: vec![link(&params.body, "body")],
+            ..no_dependencies()
+        }
+    }
+
+    fn build(
+        params: &TestHistoryParams,
+        context: &BuildContext<'_>,
+    ) -> Result<FeatureOutput, FeatureError> {
+        let chain = context.body_history(&params.body)?;
+        let writers: Vec<&Id> = chain.iter().map(|(writer, _)| writer).collect();
+        if writers.iter().copied().ne(params.writers.iter()) {
+            return Err(FeatureError::internal(format!(
+                "the writer chain of {} is {writers:?}",
+                params.body
+            )));
+        }
+        let mut height = 0.0;
+        for (_, state) in chain {
+            if let Some(shape) = state.shape() {
+                height += shape
+                    .volume()
+                    .map_err(|error| FeatureError::Kernel { error })?;
+            }
+        }
+        Ok(output(datum_at(height)))
     }
 }

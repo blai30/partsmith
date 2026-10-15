@@ -426,10 +426,14 @@ impl FaceReader<'_, '_> {
         match maker.kind() {
             Some("box") => match name.role {
                 "front" | "back" | "left" | "right" => format!("the {} side of {owner}", name.role),
-                role => format!("the {role} of {owner}"),
+                "top" | "bottom" => format!("the {} of {owner}", name.role),
+                _ => format!("a face of {owner}"),
             },
-            Some("cylinder" | "sphere" | "cone" | "torus") => {
+            Some("cylinder" | "cone") if matches!(name.role, "top" | "bottom" | "side") => {
                 format!("the {} of {owner}", name.role)
+            }
+            Some("sphere" | "torus") if name.role == "surface" => {
+                format!("the surface of {owner}")
             }
             Some("extrude" | "revolve") => self.sweep_face_text(name, facts, fingerprint),
             Some("fillet") => match name.role {
@@ -529,8 +533,10 @@ impl FaceReader<'_, '_> {
         }
     }
 
-    /// `the left part of ` for a piece of a face with two pieces in the state (by the axis along which their
-    /// centroids differ most), `a part of ` for another piece, nothing for a whole face.
+    /// `the left part of ` for a piece of a face with two pieces in the state, `a part of ` for another piece,
+    /// nothing for a whole face. The axis is the one along which the two pieces' centroids differ most, and the side
+    /// that of the described centroid against their middle, so a stored shape that now fits the sibling reads as the
+    /// sibling's side.
     fn piece_prefix(&self, name: &FaceName<'_>, fingerprint: Option<&Fingerprint>) -> &'static str {
         if !name.piece {
             return "";
@@ -543,29 +549,29 @@ impl FaceReader<'_, '_> {
         let [first, second] = siblings else {
             return "a part of ";
         };
-        let other = if first == name.text {
-            second
-        } else if second == name.text {
-            first
-        } else {
+        if first != name.text && second != name.text {
             return "a part of ";
-        };
-        let (Some(own), Some(other)) = (
-            fingerprint.and_then(|fingerprint| fingerprint.centroid),
+        }
+        let centroid = |name: &str| {
             self.faces
-                .fingerprint_of(other)
-                .and_then(|fingerprint| fingerprint.centroid),
+                .fingerprint_of(name)
+                .and_then(|fingerprint| fingerprint.centroid)
+        };
+        let (Some(own), Some(first), Some(second)) = (
+            fingerprint.and_then(|fingerprint| fingerprint.centroid),
+            centroid(first),
+            centroid(second),
         ) else {
             return "a part of ";
         };
         let axis = (0..3)
             .max_by(|&a, &b| {
-                (own[a] - other[a])
+                (first[a] - second[a])
                     .abs()
-                    .total_cmp(&(own[b] - other[b]).abs())
+                    .total_cmp(&(first[b] - second[b]).abs())
             })
             .unwrap_or(0);
-        let lower = own[axis] < other[axis];
+        let lower = own[axis] < (first[axis] + second[axis]) / 2.0;
         match (axis, lower) {
             (0, true) => "the left part of ",
             (0, false) => "the right part of ",

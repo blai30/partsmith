@@ -1,7 +1,9 @@
 //! Reference stability corpus, scenarios R01 to R22 (docs/design/reference-stability-corpus.md): the
 //! first third of the corpus by id. Each test builds the scenario's setup as a document, runs it
-//! with the built-in registry (every setup feature must be ok), applies the scenario's edit to the
-//! document, runs it again on the same recompute, and checks the "Expect" of the scenario by
+//! with the built-in registry with its references picked as the corpus's "Picked references" rule
+//! says (`run_picked`; every setup feature must be ok), applies the scenario's edit to the document
+//! (which keeps those picks, `with_picks`), runs it again on the same recompute, and checks the
+//! "Expect" of the scenario by
 //! geometry (centroids, normals, axes, lengths, volumes) and by the feature's status and messages.
 //! A scenario with variants has one test per variant; sizes that must behave alike are variants too.
 //!
@@ -29,15 +31,16 @@ use stability_support_1::{
     coordinates, cube20, cube20_front_top, datum_on_face, datum_plane, diagnose, diagnose_region,
     distance, document, document_with_parameters, extrude, face_plane, faces_with_prefix, fillet,
     line, linear_pattern, names, origin_plane, parameter, rectangle, rectangle_region, reference,
-    region_with_fingerprint, reversed, shell, sketch, slot, slot_setup, split_body, summary,
-    suppressed, symmetric, through_all, top_datum, volume,
+    region_with_fingerprint, reversed, run_picked, shell, sketch, slot, slot_setup, split_body,
+    stored, summary, suppressed, symmetric, through_all, top_datum, volume, with_picks,
 };
 
 // Running scenarios.
 
-/// Runs a setup document; every feature must be ok, as in the corpus's setups.
+/// Runs a setup document with its references picked as the corpus's "Picked references" rule
+/// says (`run_picked`); every feature must be ok, as in the corpus's setups.
 fn setup(document: Document) -> Run {
-    let run = Run::new(document);
+    let run = run_picked(document, &Assets::new());
     let mut checks = Expectations::new();
     for feature in &run.report.features {
         checks.clean(feature);
@@ -47,9 +50,11 @@ fn setup(document: Document) -> Run {
     run
 }
 
-/// Runs the edited `document` on the recompute of the run before the edit, as an app does after
-/// an edit: unchanged features come from its cache.
+/// Runs the edited `document`, with the picks of the run before the edit carried over
+/// (`with_picks`), on the recompute of that run, as an app does after an edit: unchanged features
+/// come from its cache.
 fn edit(before: Run, document: Document) -> Run {
+    let document = with_picks(&before.document, &document);
     let mut recompute = before.recompute;
     let report = run_document(&mut recompute, &document, &Assets::new());
     Run {
@@ -411,14 +416,22 @@ fn r02(outline: Vec<Value>, face_count: usize, area: f64, new_faces: &[&str]) {
     }
     checks.clean(run.feature("f-fil1"));
     if let Some(state) = b1_before(&run, "f-fil1") {
-        checks.resolves_exactly("the fillet's edge", state, &front_top());
+        checks.resolves_exactly(
+            "the fillet's edge",
+            state,
+            &stored(&run, "f-fil1", &front_top()),
+        );
     }
     if let Some(filleted) = state_after(&run, "f-fil1", "b-1") {
         checks.fillets_along_x(&filleted, "f-fil1/fillet/", 2.0, 2.0, 28.0, &[(0.0, 80.0)]);
     }
     checks.clean(run.feature("f-cha1"));
     if let Some(state) = b1_before(&run, "f-cha1") {
-        checks.resolves_exactly("the chamfer's edge", state, &front_right_vertical());
+        checks.resolves_exactly(
+            "the chamfer's edge",
+            state,
+            &stored(&run, "f-cha1", &front_right_vertical()),
+        );
     }
     let body = run.body("b-1");
     if let Some(chamfer) = checks.element(
@@ -604,7 +617,11 @@ fn r04_circle_across_the_outline_keeps_every_piece_of_the_region() {
     }
     checks.clean(run.feature("f-fil1"));
     if let Some(state) = b1_before(&run, "f-fil1") {
-        checks.resolves_exactly("the fillet's edge", state, &back_top());
+        checks.resolves_exactly(
+            "the fillet's edge",
+            state,
+            &stored(&run, "f-fil1", &back_top()),
+        );
     }
     checks.volume("final volume", run.body("b-1"), 119931.327412);
     checks.finish();
@@ -1477,7 +1494,7 @@ fn r14(radius: &str) {
     checks.note(diagnosis(&run, "f-fil2", &r14_arc()));
     checks.clean(run.feature("f-fil2"));
     if let Some(state) = b1_before(&run, "f-fil2") {
-        checks.resolves_exactly("the arc", state, &r14_arc());
+        checks.resolves_exactly("the arc", state, &stored(&run, "f-fil2", &r14_arc()));
     }
     let faces = faces_with_prefix(run.body("b-1"), "f-fil2/fillet/");
     checks.expect(faces.len() == 8, || {
@@ -1543,7 +1560,7 @@ fn r15a_fillet_inserted_under_a_face_sketch_keeps_the_sketch() {
         checks.clean(feature);
     }
     if let Some(state) = b1_before(&run, "f-sk2") {
-        checks.resolves_exactly("the sketch face", state, &face);
+        checks.resolves_exactly("the sketch face", state, &stored(&run, "f-sk2", &face));
     }
     check_placement(
         &mut checks,

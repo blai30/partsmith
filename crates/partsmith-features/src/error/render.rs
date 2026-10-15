@@ -249,18 +249,21 @@ impl<'a> Renderer<'a> {
         }
     }
 
-    /// `now matches {n} {kind}s{after}` of an ambiguous loss.
+    /// `now matches {n} {kind}s{after}` of an ambiguous loss (section 4.2): `{n}` counts every element that fits,
+    /// also those the fixes leave out; one that fits only in part reads `1 {kind} only in part`, and a loss built
+    /// without the count `several {kind}s`.
     pub(crate) fn ambiguity(&self, loss: &Loss) -> String {
         let after = self
             .explanation(loss.position)
             .and_then(|explanation| explanation.after.as_ref())
             .map(|feature| format!(" after {} changed", self.quoted_feature(feature)))
             .unwrap_or_default();
-        format!(
-            "now matches {} {}{after}",
-            loss.candidates.len(),
-            plural(loss.kind)
-        )
+        let matches = match loss.matches.max(loss.candidates.len()) {
+            0 => format!("several {}", plural(loss.kind)),
+            1 => format!("1 {} only in part", loss.kind),
+            count => format!("{count} {}", plural(loss.kind)),
+        };
+        format!("now matches {matches}{after}")
     }
 
     /// ` Fix '{root}' first.` when the loss is explained as upstream, else nothing (section 4).

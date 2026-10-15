@@ -8,7 +8,11 @@ import { createAppStore, INITIAL_STATE, type AppState } from '../state/store'
 import { bodyItem } from '../test/fakes/selection'
 import { checkResult, finding, printReport } from '../test/fakes/state'
 import { COLOR_CLASSES } from '../theme/roles'
-import { cubeDocumentState, rectSketchDocumentState } from './fixtures.testing'
+import {
+  cubeDocumentState,
+  FILLET_EDGES_COMMAND,
+  rectSketchDocumentState,
+} from './fixtures.testing'
 import { renderModelApp, stubMatchMedia } from './test-app.testing'
 
 // The floating islands over a full-window viewport (ui.md 3.2, 3.14, 3.23; ADR 0030).
@@ -94,6 +98,16 @@ describe('islands (U-174)', () => {
       expect(missingIslandClasses(screen.getByTestId(id), 'rounded-xl')).toEqual([])
     }
     expect(missingIslandClasses(screen.getByTestId('status-bar'), 'rounded-lg')).toEqual([])
+  })
+
+  it('U-174 rules a side panel header off its body with a divider hairline', () => {
+    renderIslands()
+    const title = within(screen.getByTestId('side-panel')).getByRole('heading', {
+      name: 'Parameters',
+    })
+    const header = title.parentElement
+    expect(header).toHaveClass('h-12', 'px-4', 'border-b')
+    expect(header).toHaveClass(...classesOf(COLOR_CLASSES.divider.border))
   })
 
   it('U-174 makes the collapsed timeline rounded-lg', () => {
@@ -330,7 +344,12 @@ describe('shapes of the shell (U-188)', () => {
     act(() => {
       notify(app, { severity: 'info', message: 'Saved.', actions: [] })
     })
-    for (const card of [screen.getByTestId('inspector'), screen.getByTestId('notification')]) {
+    // The inspector card never scrolls as a whole; its body under the header does.
+    const inspector = screen.getByTestId('inspector')
+    expect(inspector).toHaveClass('flex', 'flex-col', 'overflow-hidden')
+    expect(inspector.lastElementChild).toHaveClass('min-h-0', 'flex-1', 'overflow-y-auto')
+    expect(inspector.lastElementChild).toContainElement(screen.getByTestId('selection-title'))
+    for (const card of [inspector, screen.getByTestId('notification')]) {
       expect(card).toHaveClass('rounded-xl', 'border', 'shadow-lg')
       for (const name of classesOf(COLOR_CLASSES.elevation.shadow)) {
         expect(card).toHaveClass(name)
@@ -338,9 +357,43 @@ describe('shapes of the shell (U-188)', () => {
     }
   })
 
+  it('U-188 keeps the command footer in view under the scrolling body of the inspector (3.7)', () => {
+    renderModelApp({ state: { command: FILLET_EDGES_COMMAND } })
+    const inspector = screen.getByTestId('inspector')
+    const footer = screen.getByTestId('inspector-ok').closest('div.border-t')
+    expect(footer?.parentElement).toBe(inspector)
+    expect(footer).toBe(inspector.lastElementChild)
+    expect(footer).toHaveClass('shrink-0', ...classesOf(COLOR_CLASSES.divider.border))
+    const body = footer?.previousElementSibling
+    expect(body).toHaveClass('min-h-0', 'flex-1', 'overflow-y-auto')
+    expect(body).toContainElement(screen.getAllByTestId('inspector-field')[0] ?? null)
+  })
+
   it('U-188 gives the palette dialog the card shape', () => {
     renderModelApp({ state: { panels: { ...INITIAL_STATE.panels, paletteOpen: true } } })
-    expect(screen.getByTestId('palette')).toHaveClass('rounded-xl', 'border', 'shadow-lg')
+    const palette = screen.getByTestId('palette')
+    expect(palette).toHaveClass('rounded-xl', 'border', 'shadow-lg')
+    expect(palette).toHaveClass(...classesOf(COLOR_CLASSES.elevation.shadow))
+  })
+
+  it('U-188 gives every rendered shadow the elevation role, so it shows in the dark theme too', () => {
+    const { app } = renderModelApp({
+      state: {
+        selection: [bodyItem('b-cube', 'Cube')],
+        panels: { ...INITIAL_STATE.panels, paletteOpen: true, side: 'parameters' },
+      },
+    })
+    act(() => {
+      notify(app, { severity: 'info', message: 'Saved.', actions: [] })
+    })
+    const shadowed = Array.from(
+      document.querySelectorAll('[class*="shadow-md"], [class*="shadow-lg"]'),
+    )
+    // The frame islands, the inspector, the notification, the palette and the viewport controls.
+    expect(shadowed.length).toBeGreaterThanOrEqual(8)
+    for (const element of shadowed) {
+      expect(element).toHaveClass(...classesOf(COLOR_CLASSES.elevation.shadow))
+    }
   })
 
   it('U-188 draws the focus rings of the status bar and the collapsed timeline inside their controls', () => {

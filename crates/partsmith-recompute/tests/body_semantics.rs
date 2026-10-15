@@ -7,8 +7,8 @@ mod common;
 use common::feature_support::{Run, body_update};
 use common::{
     Harness, all_element_names, assert_bounding_box, assert_solid_count, assert_volume, bodies,
-    document, error_code, face_count, feature, final_state, first_message, message_texts, owned,
-    shape, state_before, status, suppressed, warning_codes,
+    document, error_code, face_count, feature_report, final_state, first_message, message_texts,
+    owned, shape, state_before, status, suppressed, warning_codes,
 };
 use partsmith_features::topology_info;
 use partsmith_model::Document;
@@ -215,7 +215,7 @@ fn t009_a_feature_on_an_undeclared_body_fails() {
     let report = harness.run(&document);
 
     assert_eq!(error_code(&report, "f-fil1"), "unknown_body");
-    let error = feature(&report, "f-fil1")
+    let error = feature_report(&report, "f-fil1")
         .error
         .as_ref()
         .expect("f-fil1 has an error");

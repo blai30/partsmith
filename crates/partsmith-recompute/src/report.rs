@@ -75,9 +75,9 @@ impl FeatureReport {
 /// Status of one feature.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Status {
-    /// Built or reused with no warnings.
+    /// Built or reused with no warnings, or with info notices only (section 3.5 step 11).
     Ok,
-    /// Built or reused with warnings.
+    /// Built or reused with a warning of severity warning.
     Warning,
     /// Failed; its bodies are unchanged.
     Error,

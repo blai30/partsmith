@@ -9,7 +9,7 @@ mod common;
 use std::collections::BTreeMap;
 
 use common::lint::{assert_passes_lint, lint_failures};
-use common::records::{cube20, fillet, reference};
+use common::records::{block, cube20, fillet, reference, shell, slot};
 use common::timeline::{Timeline, stored};
 use common::{LabelNames, field, id, render_context};
 use partsmith_features::{
@@ -72,6 +72,7 @@ fn front_top_loss(timeline: &Timeline, ambiguous: bool) -> Loss {
             }
         },
         candidates: candidates_a_b_c(timeline),
+        matches: if ambiguous { 3 } else { 0 },
     }
 }
 
@@ -241,6 +242,85 @@ fn t003_an_ambiguous_loss_says_how_many_match_and_after_what() {
         ),
         "The front top edge of 'Box 1' selected for Edges now matches 3 edges after 'Box 1' changed, so it was skipped. Pick the one you mean."
     );
+}
+
+#[test]
+fn an_ambiguous_loss_counts_every_element_that_fits() {
+    // Section 4.2: `{n}` counts the elements that fit, also those section 3.8 drops from the fixes because another
+    // entry resolves to them; one that fits only in part and a loss built without the count say so.
+    let timeline = cube_with_fillet();
+    let mut loss = front_top_loss(&timeline, true);
+    let render = |loss: &Loss| {
+        render_on_fillet(
+            &timeline,
+            &FeatureWarning::ReferenceLost {
+                field: field("edges[0]", "Edges"),
+                loss: loss.clone(),
+            },
+            &Diagnosis::default(),
+        )
+    };
+
+    loss.candidates.truncate(1);
+    loss.matches = 2;
+    assert_eq!(
+        render(&loss),
+        "The front top edge of 'Box 1' selected for Edges now matches 2 edges, so it was skipped. Pick the one you mean."
+    );
+    loss.matches = 1;
+    assert_eq!(
+        render(&loss),
+        "The front top edge of 'Box 1' selected for Edges now matches 1 edge only in part, so it was skipped. Pick the one you mean."
+    );
+    loss.candidates.clear();
+    loss.matches = 0;
+    assert_eq!(
+        render(&loss),
+        "The front top edge of 'Box 1' selected for Edges now matches several edges, so it was skipped. Pick the one you mean."
+    );
+}
+
+/// The top of `BLOCK` split by `SLOT(30, 50)` into a left piece `#1` (x 0..30) and a right piece `#2` (x 50..80).
+const LEFT_TOP: &str = "plane|n=0,0,1|c=15,25,30|a=1500|adj=4,4";
+const RIGHT_TOP: &str = "plane|n=0,0,1|c=65,25,30|a=1500|adj=4,4";
+
+/// `BLOCK` with `SLOT(30, 50)` and a shell `f-sh1` removing `faces`.
+fn slotted_block_with_shell(faces: Vec<serde_json::Value>) -> Timeline {
+    let mut features = block();
+    features.extend(slot(30.0, 50.0));
+    features.push(shell("2", faces));
+    Timeline::run(&["b-1"], &features)
+}
+
+#[test]
+fn a_guess_whose_alternative_another_entry_uses_still_says_the_piece_was_kept() {
+    // Section 4.2: both pieces stored without anchors under each other's shapes. Each named piece is kept and the
+    // sibling that fits better is dropped from the alternatives because the other entry uses it (section 3.8), so the
+    // text names `another part` and never says the piece no longer exists. Each stored piece reads by the side its
+    // stored shape lies on (section 3.12).
+    let timeline = slotted_block_with_shell(vec![
+        reference("f-ext1/end-cap#1", RIGHT_TOP),
+        reference("f-ext1/end-cap#2", LEFT_TOP),
+    ]);
+    let warnings = timeline.warnings("f-sh1");
+    let codes: Vec<&str> = warnings.iter().map(FeatureWarning::code).collect();
+    assert_eq!(codes, ["reference_guessed", "reference_guessed"]);
+    for (index, side) in ["right", "left"].into_iter().enumerate() {
+        let FeatureWarning::ReferenceGuessed { alternatives, .. } = &warnings[index] else {
+            panic!("expected a guess, got {:?}", warnings[index]);
+        };
+        assert!(alternatives.is_empty(), "{alternatives:?}");
+
+        let text = timeline.render_warning("f-sh1", index, &Diagnosis::default());
+
+        assert_eq!(
+            text,
+            format!(
+                "The {side} part of the top of 'Extrude 1' selected for Faces to remove was taken by its position among the parts of the top of 'Extrude 1', but another part now fits its shape better. Check which one you mean."
+            )
+        );
+        assert_passes_lint(&text);
+    }
 }
 
 /// `CUBE20` and `f-fil1` with the two references of section 6.5 test 4, neither of whose features is in the document.
@@ -921,6 +1001,7 @@ fn sample_errors() -> Vec<(FeatureError, &'static str)> {
             ..Lost::default()
         },
         candidates: Vec::new(),
+        matches: if ambiguous { 2 } else { 0 },
     };
     vec![
         (
@@ -1046,6 +1127,7 @@ fn sample_warnings() -> Vec<(FeatureWarning, &'static str)> {
                         ..Lost::default()
                     },
                     candidates: Vec::new(),
+                    matches: 0,
                 },
             },
             "f-fil1",
@@ -1061,6 +1143,7 @@ fn sample_warnings() -> Vec<(FeatureWarning, &'static str)> {
                     ambiguous: true,
                     lost: Lost::default(),
                     candidates: Vec::new(),
+                    matches: 2,
                 },
             },
             "f-fil1",
@@ -1087,6 +1170,25 @@ fn sample_warnings() -> Vec<(FeatureWarning, &'static str)> {
                     distance: 5.0,
                     score: 0.9,
                 }],
+                score: 0.7,
+            },
+            "f-fil1",
+        ),
+        (
+            FeatureWarning::ReferenceGuessed {
+                field: field("edges[0]", "Edges"),
+                position: 0,
+                body: id("b-1"),
+                reference: stored(
+                    "edge(f-box1/front|f-box1/top#1)",
+                    "line|n=1,0,0|c=0,-10,20|l=10",
+                ),
+                elements: vec![stored(
+                    "edge(f-box1/front|f-box1/top#1)",
+                    "line|n=1,0,0|c=-5,-10,20|l=10",
+                )],
+                alternatives: Vec::new(),
+                score: 0.7,
             },
             "f-fil1",
         ),
@@ -1104,6 +1206,7 @@ fn sample_warnings() -> Vec<(FeatureWarning, &'static str)> {
                     "line|n=1,0,0|c=5,-10,20|l=10",
                 )],
                 alternatives: Vec::new(),
+                score: 0.9,
             },
             "f-fil1",
         ),
@@ -1169,6 +1272,24 @@ fn sample_warnings() -> Vec<(FeatureWarning, &'static str)> {
     }
     samples.push((followed(Follow::Continued, &top), "f-fil1"));
     samples.push((followed(Follow::Continued, &vertex), "f-fil1"));
+    for matches in [0, 1] {
+        samples.push((
+            FeatureWarning::ReferenceLost {
+                field: field("edges[0]", "Edges"),
+                loss: Loss {
+                    position: 0,
+                    body: id("b-1"),
+                    reference: reference.clone(),
+                    kind: ElementKind::Edge,
+                    ambiguous: true,
+                    lost: Lost::default(),
+                    candidates: Vec::new(),
+                    matches,
+                },
+            },
+            "f-fil1",
+        ));
+    }
     samples
 }
 
@@ -1282,6 +1403,40 @@ fn t011_every_loss_is_in_the_detail() {
             "{}; {}",
             loss_detail("edges[0]", &losses[0]),
             loss_detail("edges[1]", &losses[1])
+        )
+    );
+}
+
+#[test]
+fn t011_a_guess_writes_its_score_and_its_alternatives_in_the_detail() {
+    let warning = FeatureWarning::ReferenceGuessed {
+        field: field("edges[0]", "Edges"),
+        position: 0,
+        body: id("b-1"),
+        reference: stored(
+            "edge(f-box1/front|f-box1/top#1)",
+            "line|n=1,0,0|c=0,-10,20|l=10",
+        ),
+        elements: vec![stored(
+            "edge(f-box1/front|f-box1/top#1)",
+            "line|n=1,0,0|c=-5,-10,20|l=10",
+        )],
+        alternatives: vec![LossCandidate {
+            reference: stored(
+                "edge(f-box1/front|f-box1/top#2)",
+                "line|n=1,0,0|c=5,-10,20|l=10",
+            ),
+            meaning: true,
+            distance: 5.0,
+            score: 0.9,
+        }],
+        score: 0.7,
+    };
+
+    assert_eq!(
+        warning.detail().as_deref(),
+        Some(
+            "edges[0] q=edge(f-box1/front|f-box1/top#1) guess=0.700000 candidates=edge(f-box1/front|f-box1/top#2):0.900000"
         )
     );
 }

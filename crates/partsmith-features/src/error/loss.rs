@@ -22,6 +22,9 @@ pub struct Loss {
     pub lost: Lost,
     /// Possible replacements in candidate order (naming.md section 3.1), never applied automatically.
     pub candidates: Vec<LossCandidate>,
+    /// For an ambiguous loss, how many elements fit: the resolver's candidates, before section 3.8 drops those the
+    /// field cannot use or another entry resolves to. Messages give it as `{n}` (section 4.2). 0 when none fits.
+    pub matches: usize,
 }
 
 /// A possible replacement, with the reference that would store it.

@@ -116,6 +116,14 @@ describe('ViewCube', () => {
     expect(screen.getByRole('button', { name: 'Home view' })).toHaveClass('rounded-md')
   })
 
+  it('places the Home view button outside the cube, above and left of its box (3.14)', () => {
+    setUp()
+    const home = screen.getByRole('button', { name: 'Home view' })
+    expect(home).toHaveClass('absolute', '-top-7', '-left-7', 'size-6')
+    expect(home).not.toHaveClass('top-0')
+    expect(home).not.toHaveClass('left-0')
+  })
+
   it('labels its faces Top, Bottom, Front, Back, Left and Right', () => {
     const { cube } = setUp()
     for (const label of ['Top', 'Bottom', 'Front', 'Back', 'Left', 'Right']) {

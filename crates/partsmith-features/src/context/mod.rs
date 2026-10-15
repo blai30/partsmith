@@ -882,6 +882,15 @@ mod tests {
         assert_eq!(loss.position, 0);
         assert!(loss.ambiguous);
         assert_eq!(loss.candidates.len(), 5);
+        // Section 4.2: the message counts all six faces that fit, the one the second entry uses included.
+        assert_eq!(loss.matches, 6);
+        assert!(
+            resolved.warnings[0]
+                .to_string()
+                .contains(" now matches 6 faces, so it was skipped."),
+            "{}",
+            resolved.warnings[0]
+        );
         assert_eq!(field.pointer(), "/remove_faces/0");
     }
 

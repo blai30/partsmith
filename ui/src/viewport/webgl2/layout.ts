@@ -27,13 +27,47 @@ export const POINT_CORNERS = new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1])
 /** Element textures hold one texel per element, row by row, this many texels wide. */
 export const ELEMENT_TEXTURE_WIDTH = 1024
 
-/** Width and line widths in CSS pixels, multiplied by the UI scale and the pixel ratio when drawn (3.6, 3.12). */
+/** Width and line widths in CSS pixels at 100 percent UI scale, multiplied by the UI scale and the pixel ratio when drawn (3.6, 3.12). */
 export const EMPHASIS_LINE_WIDTH = 2.5
 export const EMPHASIS_POINT_SIZE = 7
 export const DASH_LENGTH = 6
 export const DASH_GAP = 4
 /** Width of the anti-aliasing smoothstep falloff in device pixels (3.12 pass 4). */
 export const ANTIALIAS_WIDTH = 1
+
+/** The stroke and point sizes of one draw in device pixels. */
+export type DevicePixelSizes = {
+  /** The draw's line width and point size in the color pass. */
+  readonly size: number
+  /** The draw's pick footprint in the ID pass. */
+  readonly pickSize: number
+  readonly emphasisWidth: number
+  readonly emphasisSize: number
+  readonly dashLength: number
+  readonly dashPeriod: number
+}
+
+/**
+ * A draw's sizes in device pixels. Its own `size` and `pickSize` are CSS pixels that already carry
+ * the UI scale (the scene multiplies them), so they take only the pixel ratio; the emphasis and
+ * dash constants above are at 100 percent and take the UI scale too. Hovered and selected lines
+ * and points therefore stay thicker than their resting draw at every UI scale (3.6, 3.24).
+ */
+export function devicePixelSizes(
+  draw: { readonly size: number; readonly pickSize: number },
+  uiScale: number,
+  pixelRatio: number,
+): DevicePixelSizes {
+  const scaled = uiScale * pixelRatio
+  return {
+    size: draw.size * pixelRatio,
+    pickSize: draw.pickSize * pixelRatio,
+    emphasisWidth: EMPHASIS_LINE_WIDTH * scaled,
+    emphasisSize: EMPHASIS_POINT_SIZE * scaled,
+    dashLength: DASH_LENGTH * scaled,
+    dashPeriod: (DASH_LENGTH + DASH_GAP) * scaled,
+  }
+}
 
 /** Texture size for one texel per element; at least one row so empty geometry still has a valid texture. */
 export function elementTextureSize(elementCount: number): {

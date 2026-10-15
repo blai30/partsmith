@@ -81,31 +81,51 @@ describe('inspectorBounds (U-187)', () => {
   const panel = { width: 320, height: 300 }
 
   it('U-187 starts right of the viewport controls, so an inspector in the corner leaves them free', () => {
-    const bounds = inspectorBounds({ area, controls, slot: null, panel })
+    const bounds = inspectorBounds({ area, controls, cube: null, slot: null, panel })
     expect(bounds).toEqual({ x: 58, y: 0, width: 934, height: 548 })
     expect(placeInspector({ anchor: null, panel, bounds })).toEqual({ x: 74, y: 16 })
   })
 
   it('U-187 places an anchored inspector by placeInspector inside those bounds', () => {
-    const bounds = inspectorBounds({ area, controls, slot: null, panel })
+    const bounds = inspectorBounds({ area, controls, cube: null, slot: null, panel })
     const moved = anchor(600 - 280, 200 - 64, 40, 40)
     expect(placeInspector({ anchor: moved, panel, bounds })).toEqual({ x: 376, y: 136 })
   })
 
   it('U-187 starts under the top-center slot content where the panel fits under it', () => {
-    const bounds = inspectorBounds({ area, controls, slot, panel })
+    const bounds = inspectorBounds({ area, controls, cube: null, slot, panel })
     expect(placeInspector({ anchor: null, panel, bounds })).toEqual({ x: 74, y: 112 })
   })
 
   it('U-187 keeps the free area top for a panel too tall to fit under the slot content', () => {
     const tall = { width: 320, height: 450 }
-    const bounds = inspectorBounds({ area, controls, slot, panel: tall })
+    const bounds = inspectorBounds({ area, controls, cube: null, slot, panel: tall })
     expect(placeInspector({ anchor: null, panel: tall, bounds })).toEqual({ x: 74, y: 16 })
+  })
+
+  it('U-187 ends left of the view cube and its Home button where the panel fits there', () => {
+    // The Home view button reaches 10rem from the free area's right edge (3.14).
+    const cube: Rectangle = { x: 832, y: 16, width: 124, height: 124 }
+    const bounds = inspectorBounds({ area, controls, cube, slot: null, panel })
+    expect(bounds).toEqual({ x: 58, y: 0, width: 774, height: 548 })
+    // Right of an anchor at 520 the panel would reach the cube, so it opens left of the anchor.
+    expect(placeInspector({ anchor: anchor(520, 136, 40, 40), panel, bounds })).toEqual({
+      x: 184,
+      y: 136,
+    })
+  })
+
+  it('U-187 keeps the free area right side where left of the cube is too narrow', () => {
+    const narrow: Rectangle = { x: 0, y: 0, width: 384, height: 548 }
+    const cube: Rectangle = { x: 224, y: 16, width: 124, height: 124 }
+    expect(inspectorBounds({ area: narrow, controls: null, cube, slot: null, panel }).width).toBe(
+      384,
+    )
   })
 
   it('U-187 keeps the free area left side where right of the controls is too narrow', () => {
     const narrow: Rectangle = { x: 0, y: 0, width: 384, height: 548 }
-    const bounds = inspectorBounds({ area: narrow, controls, slot: null, panel })
+    const bounds = inspectorBounds({ area: narrow, controls, cube: null, slot: null, panel })
     expect(bounds.x).toBe(0)
     expect(placeInspector({ anchor: null, panel, bounds })).toEqual({ x: 16, y: 16 })
   })

@@ -488,10 +488,11 @@ export function ExpressionInput({
             </ul>
           ) : null}
         </div>
+        {/* Hidden while empty, so it takes no gap and the input spans the row. */}
         <span
           data-testid="expression-result"
           className={clsx(
-            'shrink-0 text-sm whitespace-nowrap',
+            'shrink-0 text-sm whitespace-nowrap empty:hidden',
             FONT_CLASSES.values,
             COLOR_CLASSES.textMuted.foreground,
           )}

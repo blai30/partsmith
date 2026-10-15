@@ -119,10 +119,10 @@ impl EntryResolver<'_> {
             Resolution::Resolved {
                 elements,
                 method,
+                confidence,
                 follow,
                 via,
                 alternatives,
-                ..
             } => {
                 let sub_shapes = self.sub_shapes(elements)?;
                 for sub_shape in &sub_shapes {
@@ -139,6 +139,7 @@ impl EntryResolver<'_> {
                         reference: reference.clone(),
                         elements: self.picked(elements),
                         alternatives: self.candidates(position, alternatives)?,
+                        score: *confidence,
                     });
                     return Ok(());
                 }
@@ -163,7 +164,7 @@ impl EntryResolver<'_> {
                             reference: reference.clone(),
                             elements: self.picked(elements),
                             via: via.clone(),
-                            first: self.first_of_succession(elements, via),
+                            first: self.first_of_succession(elements, via)?,
                         });
                     }
                     Follow::Merged if self.every_merged_part_picked(position, elements) => {}
@@ -228,6 +229,7 @@ impl EntryResolver<'_> {
             ambiguous,
             lost,
             candidates: self.candidates(position, candidates)?,
+            matches: if ambiguous { candidates.len() } else { 0 },
         })
     }
 
@@ -268,8 +270,13 @@ impl EntryResolver<'_> {
     }
 
     /// The element made from the first entity of the succession of the first `via` key alone (section 3.8): the
-    /// element that is, or touches, the first face of that succession; the first element when none does.
-    fn first_of_succession(&self, elements: &[ElementName], via: &[ElementName]) -> Reference {
+    /// element that is, or touches, the first face of that succession; the first element when none does. Elements
+    /// without an element info, which a resolution of the same set cannot give, are `Internal`.
+    fn first_of_succession(
+        &self,
+        elements: &[ElementName],
+        via: &[ElementName],
+    ) -> Result<Reference, FeatureError> {
         let successions = &self.set.names().successions().0;
         let first_face = via
             .iter()
@@ -284,10 +291,12 @@ impl EntryResolver<'_> {
                 })
             })
             .or_else(|| elements.first());
-        chosen.and_then(|name| self.infos.get(name)).map_or_else(
-            || self.references[0].clone(),
-            |info| Reference::from_element(info, self.set),
-        )
+        chosen
+            .and_then(|name| self.infos.get(name))
+            .map(|info| Reference::from_element(info, self.set))
+            .ok_or_else(|| {
+                FeatureError::internal("a widened reference resolved to no known element")
+            })
     }
 
     /// True when the elements lie on one carrier (section 3.8): one element; lines on one line; circles on one
@@ -484,6 +493,10 @@ fn distance_to_line(point: Point, through: Point, direction: Vector) -> f64 {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
+    use partsmith_naming::Successions;
+
     use super::*;
 
     fn line(direction: [f64; 3], centroid: [f64; 3]) -> ElementGeometry {
@@ -511,6 +524,38 @@ mod tests {
             line([1.0, 0.0, 0.0], [20.0, 50.0, 30.0]),
             line([1.0, 0.0, 0.0], [40.0, 40.0, 30.0]),
         ]));
+    }
+
+    #[test]
+    fn a_widened_element_without_an_element_info_is_internal() {
+        // An element the set has no info for cannot come from a resolution of that set; "Use only" never falls back
+        // to another entry's reference.
+        let set = ElementSet::new(
+            Arc::from(Vec::new()),
+            Aliases::default(),
+            Successions::default(),
+        )
+        .expect("an empty element set");
+        let state = BodyState::empty();
+        let body = Id::new("b-1").expect("a valid id");
+        let usable = |_: &ElementInfo| Ok(true);
+        let resolver = EntryResolver {
+            body: &body,
+            state: &state,
+            set: &set,
+            infos: HashMap::new(),
+            references: &[],
+            resolutions: &[],
+            usable: &usable,
+        };
+        let element = ElementName::parse("edge(f-ext1/end-cap|f-ext1/lateral/e-9)")
+            .expect("a valid edge name");
+
+        let error = resolver
+            .first_of_succession(&[element], &[])
+            .expect_err("no element info");
+
+        assert!(matches!(error, FeatureError::Internal { .. }), "{error:?}");
     }
 
     #[test]

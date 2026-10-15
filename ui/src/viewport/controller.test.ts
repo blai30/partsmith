@@ -1568,6 +1568,59 @@ describe('framing in the free area (U-177)', () => {
   })
 })
 
+describe('framing beside an inspector under an island (2.11)', () => {
+  const CUBE: BoundingBox = { min: [-10, -10, 0], max: [10, 10, 20] }
+  const FRONT = withProjection(
+    { ...DEFAULT_CAMERA, rotation: standardViewRotation('front') },
+    'orthographic',
+  )
+
+  function setUpBesideSidePanel(inspectorBox: {
+    readonly x: number
+    readonly y: number
+    readonly width: number
+    readonly height: number
+  }) {
+    // 1280 by 720 with the browser and the Parameters panel docked: the free area is 624 wide.
+    const fixture = setUp({
+      size: { width: 1280, height: 720 },
+      free: { x: 280, y: 64, width: 624, height: 548 },
+      state: { selection: [bodyItem('b-cube', 'Cube')] },
+    })
+    fixture.controller.setCamera(FRONT)
+    const inspector = document.createElement('div')
+    inspector.dataset['testid'] = 'inspector'
+    fixture.freeArea.append(inspector)
+    stubBox(inspector, inspectorBox)
+    return fixture
+  }
+
+  it('frames the whole free area when the card lies entirely under the side panel', () => {
+    const fixture = setUpBesideSidePanel({ x: 952, y: 80, width: 320, height: 400 })
+    fixture.controller.fit(CUBE)
+    fixture.frames.flush()
+    const drawn = drawnBox(fixture, CUBE, { width: 1280, height: 720 })
+    expect(drawn.x + drawn.width / 2).toBeCloseTo(280 + 624 / 2, 1)
+  })
+
+  it('frames the whole free area when the card lies entirely under the browser', () => {
+    const fixture = setUpBesideSidePanel({ x: 280 - 400, y: 80, width: 320, height: 400 })
+    fixture.controller.fit(CUBE)
+    fixture.frames.flush()
+    const drawn = drawnBox(fixture, CUBE, { width: 1280, height: 720 })
+    expect(drawn.x + drawn.width / 2).toBeCloseTo(280 + 624 / 2, 1)
+  })
+
+  it('frames beside the part of a card that reaches into the free area', () => {
+    // The card spans 500 to 820 in the free area, so 500 to 624 of it is inside: frame left of it.
+    const fixture = setUpBesideSidePanel({ x: 280 + 500, y: 80, width: 320, height: 400 })
+    fixture.controller.fit(CUBE)
+    fixture.frames.flush()
+    const drawn = drawnBox(fixture, CUBE, { width: 1280, height: 720 })
+    expect(drawn.x + drawn.width / 2).toBeCloseTo(280 + 250, 1)
+  })
+})
+
 describe('islands above the canvas (U-178)', () => {
   it('U-178 ends the hover when the pointer leaves the canvas for an island, which takes no wheel or click', () => {
     const fixture = setUp()
@@ -1627,7 +1680,10 @@ describe('framing as the inspector closes (2.11)', () => {
     const canvasSize = { width: 1280, height: 720 }
     const fixture = setUp({ size: canvasSize, free: { x: 280, y: 64, width: 992, height: 548 } })
     fixture.controller.setCamera(
-      withProjection({ ...DEFAULT_CAMERA, rotation: standardViewRotation('front') }, 'orthographic'),
+      withProjection(
+        { ...DEFAULT_CAMERA, rotation: standardViewRotation('front') },
+        'orthographic',
+      ),
     )
     // The selection inspector of a selection that was just cleared, still in the DOM.
     const stale = document.createElement('div')
@@ -1638,5 +1694,29 @@ describe('framing as the inspector closes (2.11)', () => {
     fixture.frames.flush()
     const viewport = fixture.canvas.closest('[data-testid="viewport"]')
     expect(viewport).toHaveAttribute('data-camera-target', '0,0,10')
+  })
+})
+
+describe('Look at beside the inspector (3.14)', () => {
+  it('puts the target at the center of the part of the free area beside an open inspector', () => {
+    const fixture = setUp({
+      size: { width: 1280, height: 720 },
+      free: { x: 280, y: 64, width: 992, height: 548 },
+      state: { selection: [bodyItem('b-cube', 'Cube')] },
+    })
+    const inspector = document.createElement('div')
+    inspector.dataset['testid'] = 'inspector'
+    fixture.freeArea.append(inspector)
+    stubBox(inspector, { x: 280 + 74, y: 64 + 16, width: 320, height: 400 })
+    fixture.controller.lookAlong([0, -1, 0], [0, 0, 1], [0, 0, 10])
+    fixture.frames.flush()
+    const frame = fixture.backend.lastFrame()
+    const clip = apply(
+      frame?.projection ?? new Float32Array(16),
+      apply(frame?.view ?? new Float32Array(16), [0, 0, 10, 1]),
+    )
+    const homogeneous = clip[3] ?? 1
+    expect((((clip[0] ?? 0) / homogeneous + 1) / 2) * 1280).toBeCloseTo(973, 1)
+    expect(((1 - (clip[1] ?? 0) / homogeneous) / 2) * 720).toBeCloseTo(338, 1)
   })
 })

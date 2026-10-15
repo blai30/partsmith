@@ -49,8 +49,10 @@ function DocumentTitle() {
   const edited = useAppState(selectUnsaved)
   const anchor = useRef<HTMLButtonElement>(null)
   const [open, setOpen] = useState(false)
+  // The name keeps at least 5rem and truncates inside it, so it never collapses under the context
+  // switcher in a narrow top bar (3.2).
   return (
-    <div className="flex min-w-0 shrink items-center gap-2">
+    <div className="flex min-w-20 shrink items-center gap-2">
       <button
         ref={anchor}
         type="button"
@@ -62,7 +64,7 @@ function DocumentTitle() {
           setOpen((current) => !current)
         }}
         className={clsx(
-          'h-8 max-w-60 truncate rounded-md px-2 text-sm font-semibold transition-colors duration-150 motion-reduce:transition-none',
+          'h-8 max-w-60 min-w-0 truncate rounded-md px-2 text-sm font-semibold transition-colors duration-150 motion-reduce:transition-none',
           COLOR_CLASSES.hover.background,
           COLOR_CLASSES.focusRing.outline,
           COLOR_CLASSES.accent.outline,
@@ -106,28 +108,31 @@ function ContextSwitcher() {
 function PaletteButton() {
   const app = useApp()
   const hint = formatShortcut('Mod+K', app.platform)
+  // In a top bar under 48rem the label is visually hidden, keeping the accessible name (3.2).
   return (
-    <button
-      type="button"
-      data-testid="palette-button"
-      aria-keyshortcuts={ariaKeyShortcut('Mod+K', app.platform)}
-      onClick={() => {
-        setPaletteOpen(app, true)
-      }}
-      className={clsx(
-        'inline-flex h-8 shrink-0 items-center gap-2 rounded-md border px-2 text-sm transition-colors duration-150 motion-reduce:transition-none',
-        COLOR_CLASSES.field.background,
-        COLOR_CLASSES.border.border,
-        COLOR_CLASSES.textMuted.foreground,
-        COLOR_CLASSES.hover.background,
-        COLOR_CLASSES.focusRing.outline,
-        COLOR_CLASSES.accent.outline,
-      )}
-    >
-      <Search aria-hidden="true" strokeWidth={1.75} className="size-4" />
-      <span>Search</span>
-      <span className="hidden text-xs @3xl:inline">{hint}</span>
-    </button>
+    <Tooltip label="Search" shortcut={hint}>
+      <button
+        type="button"
+        data-testid="palette-button"
+        aria-keyshortcuts={ariaKeyShortcut('Mod+K', app.platform)}
+        onClick={() => {
+          setPaletteOpen(app, true)
+        }}
+        className={clsx(
+          'inline-flex h-8 shrink-0 items-center gap-2 rounded-md border px-2 text-sm transition-colors duration-150 motion-reduce:transition-none',
+          COLOR_CLASSES.field.background,
+          COLOR_CLASSES.border.border,
+          COLOR_CLASSES.textMuted.foreground,
+          COLOR_CLASSES.hover.background,
+          COLOR_CLASSES.focusRing.outline,
+          COLOR_CLASSES.accent.outline,
+        )}
+      >
+        <Search aria-hidden="true" strokeWidth={1.75} className="size-4" />
+        <span className="@max-3xl:sr-only">Search</span>
+        <span className="hidden text-xs @3xl:inline">{hint}</span>
+      </button>
+    </Tooltip>
   )
 }
 
@@ -161,7 +166,7 @@ function ExportButton() {
             }
           }}
           className={clsx(
-            'inline-flex h-8 shrink-0 items-center gap-2 rounded-md border px-3 text-sm font-medium whitespace-nowrap transition-colors duration-150 motion-reduce:transition-none',
+            'inline-flex h-8 shrink-0 items-center gap-2 rounded-md border px-3 text-sm font-medium whitespace-nowrap transition-colors duration-150 @max-3xl:px-2 motion-reduce:transition-none',
             COLOR_CLASSES.border.border,
             COLOR_CLASSES.focusRing.outline,
             COLOR_CLASSES.accent.outline,
@@ -172,7 +177,7 @@ function ExportButton() {
           )}
         >
           <Download aria-hidden="true" strokeWidth={1.75} className="size-4" />
-          Export
+          <span className="@max-3xl:sr-only">Export</span>
         </button>
       </Tooltip>
       {open && reason === null ? (

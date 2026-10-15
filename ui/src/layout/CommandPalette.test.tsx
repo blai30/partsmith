@@ -286,6 +286,32 @@ describe('the command palette (3.4)', () => {
     expect(description).not.toHaveAttribute('role')
   })
 
+  it('names the keys in the footer when the active option has no description', async () => {
+    const { user } = renderApp()
+    await openPalette(user)
+    await user.type(screen.getByTestId('palette-input'), 'Cube')
+    expect(activeOption()).toHaveAttribute('data-kind', 'body')
+    const footer = screen.getByTestId('palette-footer')
+    expect(footer).toHaveTextContent(/^Enter to run, Esc to close$/)
+    await user.clear(screen.getByTestId('palette-input'))
+    await user.type(screen.getByTestId('palette-input'), 'zzz')
+    expect(footer).toHaveTextContent(/^Esc to close$/)
+  })
+
+  it('keeps the palette inside the window, its list scrolling, at any UI scale (3.2)', async () => {
+    const { user } = renderApp()
+    const palette = await openPalette(user)
+    expect(palette.parentElement).toHaveClass('fixed', 'inset-x-4', 'top-1/6', 'bottom-4')
+    expect(palette.parentElement).toHaveClass('items-start')
+    expect(palette).toHaveClass('max-h-full', 'flex', 'flex-col', 'overflow-hidden')
+    expect(within(palette).getByRole('listbox')).toHaveClass(
+      'max-h-96',
+      'min-h-0',
+      'flex-1',
+      'overflow-y-auto',
+    )
+  })
+
   it('shows another app’s name that matched as the detail', async () => {
     const { user } = renderApp()
     await openPalette(user)

@@ -1,8 +1,10 @@
 //! Reference stability corpus, second third: scenarios R23 to R44 of
 //! docs/design/reference-stability-corpus.md. Each test builds the scenario's setup as `.ptsm`
-//! records, runs it with `Registry::with_builtins()`, applies the edit, runs again and checks the
-//! corpus's "Expect" by geometry (names of generated faces, centroids, axes, volumes, bounding
-//! boxes) and by the rendered messages. A scenario with variants is one test per variant.
+//! records, runs it with `Registry::with_builtins()` with its references picked as the corpus's
+//! "Picked references" rule says (`run`, through `run_picked`), applies the edit (which keeps those
+//! picks, `with_picks`), runs again and checks the corpus's "Expect" by geometry (names of
+//! generated faces, centroids, axes, volumes, bounding boxes) and by the rendered messages. A
+//! scenario with variants is one test per variant.
 //!
 //! Failing checks are collected, so a failure lists every difference together with what the
 //! resolver did with the reference under test (method, picked elements and the best fingerprint
@@ -169,7 +171,8 @@ fn r23a_suppressing_one_peg_does_not_move_its_fillet_to_the_other_peg() {
 #[test]
 fn r23b_deleting_one_peg_does_not_move_its_fillet_to_the_other_peg() {
     let mut checks = Checks::new();
-    let after = run(&["b-1"], &without(&pegs(), &["f-sk1", "f-ext1"]));
+    let setup = run(&["b-1"], &pegs());
+    let after = run_edited(&setup, &["b-1"], &without(&pegs(), &["f-sk1", "f-ext1"]));
     checks.note(diagnose(&after, "f-fil1", "b-1", &peg_a_rim()));
     checks.status(&after, "f-fil1", "error");
     let body = final_state(&after, "b-1");
@@ -215,7 +218,11 @@ fn r24a_slot_rim_fillet_when_the_slot_is_suppressed() {
         1,
     );
 
-    let after = run(&["b-1"], &edited(&slotted_cube(), "f-box2", suppressed));
+    let after = run_edited(
+        &before,
+        &["b-1"],
+        &edited(&slotted_cube(), "f-box2", suppressed),
+    );
     checks.note(diagnose(&after, "f-fil1", "b-1", &slot_right_rim()));
     checks.status(&after, "f-box2", "suppressed");
     checks.status(&after, "f-fil1", "error");
@@ -231,7 +238,9 @@ fn r24a_slot_rim_fillet_when_the_slot_is_suppressed() {
 #[test]
 fn r24b_slot_rim_fillet_dragged_above_the_slot() {
     let mut checks = Checks::new();
-    let after = run(
+    let setup = run(&["b-1"], &slotted_cube());
+    let after = run_edited(
+        &setup,
         &["b-1"],
         &move_before(&slotted_cube(), &["f-fil1"], "f-box2"),
     );
@@ -415,7 +424,8 @@ fn r27_removing_an_upstream_move_keeps_the_reference_on_its_piece() {
     checks.axis_through(body, fillet_face, [6.0, -9.5, 19.5], POSITION_TOLERANCE);
     checks.centroid_at(body, fillet_face, [6.0, -9.5, 19.5], 0.5);
 
-    let after = run(
+    let after = run_edited(
+        &before,
         &["b-1"],
         &edited(&moved_slotted_cube(), "f-mv1", suppressed),
     );
@@ -562,7 +572,7 @@ fn r29_swapping_two_independent_slot_cuts_does_not_widen_a_reference() {
     checks.faces_along_x(body, "f-fil1/fillet/", &[35.0, 70.0], ABOUT_TOLERANCE);
     let original_volume = volume_of(&before, "b-1");
 
-    let after = run(&["b-1"], &two_slots(true));
+    let after = run_edited(&before, &["b-1"], &two_slots(true));
     checks.note(diagnose(&after, "f-cha1", "b-1", &leftmost_front_edge()));
     let slotted = required_state_before(&after, "f-cha1", "b-1");
     for (name, x) in [
@@ -634,7 +644,7 @@ fn r30a_a_join_changed_to_a_cut_does_not_retarget_its_rim_fillet() {
         true,
     );
 
-    let after = run(&["b-1"], &symmetric_boss("cut"));
+    let after = run_edited(&before, &["b-1"], &symmetric_boss("cut"));
     checks.note(diagnose(&after, "f-fil1", "b-1", &boss_top_rim()));
     checks.status(&after, "f-fil1", "error");
     checks.faces_count(final_state(&after, "b-1"), "f-fil1/fillet/", 0);
@@ -679,7 +689,7 @@ fn r30b_a_boolean_join_changed_to_a_cut_does_not_retarget_its_fillet() {
     let before = run(&["b-1", "b-2"], &boolean_boss("join"));
     checks.all_ok(&before);
 
-    let after = run(&["b-1", "b-2"], &boolean_boss("cut"));
+    let after = run_edited(&before, &["b-1", "b-2"], &boolean_boss("cut"));
     checks.note(diagnose(&after, "f-fil1", "b-1", &box2_front_top_edge()));
     checks.status(&after, "f-fil1", "error");
     checks.faces_count(final_state(&after, "b-1"), "f-fil1/fillet/", 0);
@@ -721,7 +731,8 @@ fn r31a_a_split_inserted_upstream_moves_the_chamfered_edge_to_the_other_body() {
     let before = run(&["b-1", "b-2"], &original);
     checks.all_ok(&before);
 
-    let after = run(
+    let after = run_edited(
+        &before,
         &["b-1", "b-2"],
         &insert_before(
             &original,
@@ -772,7 +783,7 @@ fn r31b_flipping_a_split_moves_the_filleted_edge_to_the_other_body() {
         1,
     );
 
-    let after = run(&["b-1", "b-2"], &split_then_fillet(true));
+    let after = run_edited(&before, &["b-1", "b-2"], &split_then_fillet(true));
     checks.note(diagnose(&after, "f-fil1", "b-1", &upper_front_top_edge()));
     checks.status(&after, "f-fil1", "error");
     checks.faces_count(final_state(&after, "b-1"), "f-fil1/fillet/", 0);
@@ -827,7 +838,7 @@ fn check_plate_hole_follows_the_face(inserted: Vec<Value>, x: f64, y: f64) {
         POSITION_TOLERANCE,
     );
 
-    let after = run(&["b-1"], &plate_with_hole(inserted));
+    let after = run_edited(&before, &["b-1"], &plate_with_hole(inserted));
     checks.note(diagnose(&after, "f-sk2", "b-1", &plate_top()));
     checks.all_ok(&after);
     checks.axis_through(
@@ -895,7 +906,7 @@ fn r32b_a_sketch_keeps_its_place_on_a_face_that_turns_over() {
         POSITION_TOLERANCE,
     );
 
-    let after = run(&["b-1"], &block_with_hole_on_end_cap(true));
+    let after = run_edited(&before, &["b-1"], &block_with_hole_on_end_cap(true));
     checks.note(diagnose(&after, "f-sk2", "b-1", &block_top()));
     checks.all_ok(&after);
     let body = final_state(&after, "b-1");
@@ -1054,7 +1065,6 @@ fn r34_a_shell_inserted_under_a_sketch_does_not_drop_it_onto_the_floor() {
 fn r35_a_slot_splits_the_face_a_sketch_is_on() {
     let mut checks = Checks::new();
     let mut features = block();
-    features.extend(slot(30.0, 50.0));
     features.push(sketch(
         "f-sk3",
         top_face_plane("b-1", block_top(), 30.0),
@@ -1079,7 +1089,12 @@ fn r35_a_slot_splits_the_face_a_sketch_is_on() {
         distance("10"),
         "join",
     ));
-    let after = run(&["b-1"], &features);
+    let setup = run(&["b-1"], &features);
+    let after = run_edited(
+        &setup,
+        &["b-1"],
+        &insert_before(&features, "f-sk3", slot(30.0, 50.0)),
+    );
     checks.note(diagnose(&after, "f-sk3", "b-1", &block_top()));
     checks.all_ok(&after);
     checks.resolves(
@@ -1221,7 +1236,7 @@ fn r36_a_sketch_on_the_inside_floor_follows_a_shell_thickness_change() {
     let mut checks = Checks::new();
     let before = run(&["b-1"], &tray_with_standoff("2", tray_box_top()));
     check_standoff(&mut checks, &before, 2.0);
-    let after = run(&["b-1"], &tray_with_standoff("3", tray_box_top()));
+    let after = run_edited(&before, &["b-1"], &tray_with_standoff("3", tray_box_top()));
     check_standoff(&mut checks, &after, 3.0);
     checks.finish();
 }
@@ -1230,7 +1245,8 @@ fn r36_a_sketch_on_the_inside_floor_follows_a_shell_thickness_change() {
 fn r36_variant_a_sketch_on_the_inside_floor_follows_a_change_of_removed_face() {
     let mut checks = Checks::new();
     let front = reference("f-box1/front", "plane|n=0,-1,0|c=0,-25,15|a=2400|adj=4,4");
-    let after = run(&["b-1"], &tray_with_standoff("2", front));
+    let setup = run(&["b-1"], &tray_with_standoff("2", tray_box_top()));
+    let after = run_edited(&setup, &["b-1"], &tray_with_standoff("2", front));
     check_standoff(&mut checks, &after, 2.0);
     checks.finish();
 }
@@ -1270,7 +1286,8 @@ fn r37_a_datum_on_a_chamfer_face_survives_an_upstream_merge() {
     checks.all_ok(&before);
     check_datum_on_chamfer(&mut checks, &before);
 
-    let after = run(
+    let after = run_edited(
+        &before,
         &["b-1"],
         &datum_on_chamfer(vec![box_record(
             "f-a1",
@@ -1346,7 +1363,7 @@ fn check_pattern_keeps_its_side(corner_x: f64) {
     checks.all_ok(&before);
     checks.bounding_box(&before, "b-1", [0.0, 0.0, 0.0], [40.0, 50.0, 10.0]);
 
-    let after = run(&["b-1"], &leaning_block(corner_x));
+    let after = run_edited(&before, &["b-1"], &leaning_block(corner_x));
     checks.note(diagnose(&after, "f-lp1", "b-1", &left_wall_bottom_edge()));
     checks.all_ok(&after);
     // The wall runs from (corner_x, 20) to (0, 0); the stored direction n=0,1,0 picks the sense
@@ -1427,11 +1444,12 @@ fn r39a_a_revolve_axis_on_an_edge_that_a_notch_splits() {
         "edge(f-box1/front|f-box1/left)#1",
         "edge(f-box1/front|f-box1/left)#2",
     ];
+    let setup = run(&["b-1", "b-2"], &revolve_about_box_edge(Vec::new()));
     for (inserted, method, expected) in [
         (Vec::new(), MatchMethod::Exact, whole),
         (vec![notch], MatchMethod::History, pieces),
     ] {
-        let after = run(&["b-1", "b-2"], &revolve_about_box_edge(inserted));
+        let after = run_edited(&setup, &["b-1", "b-2"], &revolve_about_box_edge(inserted));
         checks.note(diagnose(&after, "f-rev1", "b-2", &box_corner_edge()));
         checks.all_ok(&after);
         checks.resolves(
@@ -1501,11 +1519,12 @@ fn r39b_a_revolve_axis_on_a_round_face_that_a_groove_splits() {
     ];
     let whole: &[&str] = &["f-cyl1/side"];
     let pieces: &[&str] = &["f-cyl1/side#1", "f-cyl1/side#2"];
+    let setup = run(&["b-1"], &grooved_cylinder(Vec::new()));
     for (inserted, removed_ring_height, method, expected) in [
         (Vec::new(), 4.0, MatchMethod::Exact, whole),
         (first_groove, 6.0, MatchMethod::History, pieces),
     ] {
-        let after = run(&["b-1"], &grooved_cylinder(inserted));
+        let after = run_edited(&setup, &["b-1"], &grooved_cylinder(inserted));
         checks.note(diagnose(&after, "f-rev1", "b-1", &cylinder_side()));
         checks.all_ok(&after);
         checks.resolves(&after, "f-rev1", "b-1", &cylinder_side(), method, expected);
@@ -1571,7 +1590,7 @@ fn r39c_a_rotation_axis_on_an_edge_that_an_upstream_fillet_shortens() {
         ],
         "1",
     );
-    for inserted in [None, Some(rounded)] {
+    let hinged = |inserted: Option<Value>| {
         let mut features = vec![cube10()];
         features.extend(inserted);
         features.push(rotate(
@@ -1579,7 +1598,11 @@ fn r39c_a_rotation_axis_on_an_edge_that_an_upstream_fillet_shortens() {
             json!({"kind": "edge", "body": "b-1", "edge": hinge_edge()}),
             "180 deg",
         ));
-        let after = run(&["b-1"], &features);
+        features
+    };
+    let setup = run(&["b-1"], &hinged(None));
+    for inserted in [None, Some(rounded)] {
+        let after = run_edited(&setup, &["b-1"], &hinged(inserted));
         checks.note(diagnose(&after, "f-mv1", "b-1", &hinge_edge()));
         checks.all_ok(&after);
         checks.resolves(
@@ -1634,7 +1657,7 @@ fn check_patterned_cubes(pattern: Value, solids: usize, cubes: f64) {
     let before = run(&["b-1"], &patterned_cubes(linear_pattern("X", "3", "20")));
     checks.all_ok(&before);
 
-    let after = run(&["b-1"], &patterned_cubes(pattern));
+    let after = run_edited(&before, &["b-1"], &patterned_cubes(pattern));
     checks.note(diagnose(&after, "f-fil1", "b-1", &third_cube_front_edge()));
     checks.note(diagnose(&after, "f-cha1", "b-1", &second_cube_front_edge()));
     checks.all_ok(&after);
@@ -1700,7 +1723,7 @@ fn r40c_raising_the_first_count_of_a_grid_keeps_the_grid_position() {
     let before = run(&["b-1"], &grid("3"));
     checks.all_ok(&before);
 
-    let after = run(&["b-1"], &grid("4"));
+    let after = run_edited(&before, &["b-1"], &grid("4"));
     checks.note(diagnose(&after, "f-fil1", "b-1", &edge));
     checks.all_ok(&after);
     checks.resolves(
@@ -1757,7 +1780,7 @@ fn r40d_raising_a_circular_pattern_count_keeps_the_copy_number() {
         ABOUT_TOLERANCE,
     );
 
-    let after = run(&["b-1"], &ring("8"));
+    let after = run_edited(&before, &["b-1"], &ring("8"));
     checks.note(diagnose(&after, "f-cha1", "b-1", &edge));
     checks.all_ok(&after);
     checks.resolves(
@@ -1808,7 +1831,7 @@ fn r41_lowering_a_pattern_count_says_which_copy_is_gone() {
     let before = run(&["b-1"], &cubes("3"));
     checks.all_ok(&before);
 
-    let after = run(&["b-1"], &cubes("2"));
+    let after = run_edited(&before, &["b-1"], &cubes("2"));
     checks.note(diagnose(&after, "f-fil1", "b-1", &edges[1]));
     checks.status(&after, "f-fil1", "warning");
     checks.check(
@@ -1837,14 +1860,15 @@ fn r41_lowering_a_pattern_count_says_which_copy_is_gone() {
 fn r41_variant_only_the_lost_copy_referenced() {
     let mut checks = Checks::new();
     let [_, third] = second_and_third_cube_right_edges();
-    let after = run(
-        &["b-1"],
-        &[
+    let cubes = |count: &str| {
+        vec![
             cube10(),
-            linear_pattern("X", "2", "20"),
+            linear_pattern("X", count, "20"),
             fillet("f-fil1", "b-1", vec![third.clone()], "1"),
-        ],
-    );
+        ]
+    };
+    let setup = run(&["b-1"], &cubes("3"));
+    let after = run_edited(&setup, &["b-1"], &cubes("2"));
     checks.note(diagnose(&after, "f-fil1", "b-1", &third));
     checks.status(&after, "f-fil1", "error");
     checks.faces_count(final_state(&after, "b-1"), "f-fil1/fillet/", 0);
@@ -1895,7 +1919,7 @@ fn check_chamfer_on_p1(entities: Vec<Value>, points: &[&str], x: f64, y: f64) {
     );
     checks.all_ok(&before);
 
-    let after = run(&["b-1"], &chamfered_holes(entities, points));
+    let after = run_edited(&before, &["b-1"], &chamfered_holes(entities, points));
     checks.note(diagnose(&after, "f-cha1", "b-1", &hole_p1_rim()));
     checks.all_ok(&after);
     checks.resolves(
@@ -2016,7 +2040,7 @@ fn r43a_a_hole_point_removed_from_points_does_not_move_the_chamfer() {
     let before = run(&["b-1"], &two_holes(points_p1_p2(), &["e-p1", "e-p2"]));
     checks.all_ok(&before);
 
-    let after = run(&["b-1"], &two_holes(points_p1_p2(), &["e-p1"]));
+    let after = run_edited(&before, &["b-1"], &two_holes(points_p1_p2(), &["e-p1"]));
     check_hole_point_removed(&mut checks, &after);
     checks.message_names(&after, "f-cha1", &["'Hole 1'"]);
     checks.finish();
@@ -2025,7 +2049,9 @@ fn r43a_a_hole_point_removed_from_points_does_not_move_the_chamfer() {
 #[test]
 fn r43b_a_hole_point_deleted_from_the_sketch_does_not_move_the_chamfer() {
     let mut checks = Checks::new();
-    let after = run(
+    let setup = run(&["b-1"], &two_holes(points_p1_p2(), &["e-p1", "e-p2"]));
+    let after = run_edited(
+        &setup,
         &["b-1"],
         &two_holes(vec![point("e-p1", [0.0, 0.0])], &["e-p1", "e-p2"]),
     );
@@ -2056,7 +2082,8 @@ fn r44_fillets_inserted_before_a_shell() {
         fillet("f-fil1", "b-1", edges, "5"),
         shell("f-sh1", "b-1", "2", vec![tray_box_top()]),
     ];
-    let after = run(&["b-1"], &features);
+    let setup = run(&["b-1"], &without(&features, &["f-fil1"]));
+    let after = run_edited(&setup, &["b-1"], &features);
     checks.note(diagnose(&after, "f-sh1", "b-1", &tray_box_top()));
     checks.all_ok(&after);
     checks.resolves(

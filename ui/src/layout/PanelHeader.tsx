@@ -1,10 +1,12 @@
+import { clsx } from 'clsx/lite'
 import { X } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { closeSidePanel } from '../app/actions/panels'
 import { useApp } from '../app/AppProvider'
 import { IconButton } from '../components/IconButton'
+import { COLOR_CLASSES } from '../theme/roles'
 
-/** The header of a side panel: its title, optional actions and a close button (3.2). */
+/** The header of a side panel over a `divider` rule: its title, optional actions and a close button (3.2). */
 export function PanelHeader({
   title,
   titleId,
@@ -16,7 +18,12 @@ export function PanelHeader({
 }) {
   const app = useApp()
   return (
-    <div className="flex h-12 shrink-0 items-center gap-2 px-4">
+    <div
+      className={clsx(
+        'flex h-12 shrink-0 items-center gap-2 border-b px-4',
+        COLOR_CLASSES.divider.border,
+      )}
+    >
       <h2 id={titleId} className="min-w-0 flex-1 truncate text-base font-semibold">
         {title}
       </h2>

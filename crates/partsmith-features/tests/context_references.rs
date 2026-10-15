@@ -22,7 +22,7 @@ use partsmith_features::{
     BodyState, FeatureError, FeatureWarning, FieldRef, Fix, Loss, PlaneRef, Repair, Resolved,
     Severity,
 };
-use partsmith_naming::{ElementKind, Follow, Lost, Reference};
+use partsmith_naming::{ElementKind, Follow, Lost, Reference, Resolution};
 use serde_json::{Value, json};
 
 /// The back top edge of `BLOCK`, as the corpus stores it (R07, R66).
@@ -518,6 +518,24 @@ fn a_name_without_anchors_that_a_sibling_fits_better_is_a_guess() {
     };
     assert_eq!(*position, 0);
     assert_eq!(queries(elements), ["f-ext1/end-cap#1"]);
+    let Resolution::Resolved { confidence, .. } =
+        partsmith_naming::resolve(&guessed_top(), &timeline.element_set("b-1"))
+    else {
+        panic!("the guess resolves");
+    };
+    assert!(
+        matches!(warning, FeatureWarning::ReferenceGuessed { score, .. } if *score == confidence),
+        "the guess keeps the resolver's confidence {confidence}: {warning:?}"
+    );
+    assert!(
+        warning
+            .detail()
+            .is_some_and(|detail| detail.starts_with(&format!(
+                "remove_faces[0] q=f-ext1/end-cap#1 guess={confidence:.6} candidates=f-ext1/end-cap#2:"
+            ))),
+        "{:?}",
+        warning.detail()
+    );
     let picked_right = timeline.picked("b-1", "f-ext1/end-cap#2");
     assert_eq!(
         alternatives
@@ -787,7 +805,53 @@ fn an_ambiguous_entry_is_skipped_with_its_candidates() {
     };
     assert!(loss.ambiguous);
     assert_eq!(loss.candidates.len(), 2);
+    assert_eq!(loss.matches, 2);
     assert_candidates_as_picked(&timeline, loss);
+}
+
+#[test]
+fn an_ambiguous_entry_counts_the_match_another_entry_resolves_to() {
+    // Section 3.8 drops the new mouth from the fixes of the old mouth because the first entry resolves to it, but the
+    // message still counts both matches (section 4.2, `{n}`).
+    let timeline = box_with_holes(
+        vec![point("e-p1", [0.0, 0.0]), point("e-p2", [10.0, 10.0])],
+        &["e-p1", "e-p2"],
+        json!({"hole_type": {"kind": "counterbore", "diameter": "11", "depth": "4"}}),
+    );
+    let mouth = stored(
+        "edge(f-box1/top|f-hole1/bore/e-p2)",
+        "circle|n=0,0,1|c=10,10,0|l=18.849556|r=3|adj=2,1",
+    );
+    let fixture = timeline.fixture("f-cha1", "chamfer");
+    let resolve = |references: &[Reference]| {
+        fixture
+            .context()
+            .resolve_all("edges", &id("b-1"), references, ElementKind::Edge)
+    };
+    let alone = resolve(std::slice::from_ref(&mouth));
+    let Err(FeatureError::ReferencesNotFound { losses, .. }) = &alone else {
+        panic!("expected the old mouth alone to resolve to nothing, got {alone:?}");
+    };
+    let [first, second] = losses[0].candidates.as_slice() else {
+        panic!("expected two candidates, got {:?}", losses[0].candidates);
+    };
+
+    let resolved = resolve(&[first.reference.clone(), mouth]).expect("the first entry resolves");
+
+    let [warning] = resolved.warnings.as_slice() else {
+        panic!("expected one warning, got {:?}", resolved.warnings);
+    };
+    let FeatureWarning::ReferenceLost { loss, .. } = warning else {
+        panic!("expected a lost reference, got {warning:?}");
+    };
+    assert_eq!(loss.candidates, std::slice::from_ref(second));
+    assert_eq!(loss.matches, 2);
+    assert!(
+        warning
+            .to_string()
+            .contains(" now matches 2 edges, so it was skipped."),
+        "{warning}"
+    );
 }
 
 #[test]

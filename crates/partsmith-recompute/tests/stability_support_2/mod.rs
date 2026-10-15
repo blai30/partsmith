@@ -126,15 +126,23 @@ pub fn document_of(bodies: &[&str], features: &[Value]) -> Document {
     feature_support::parse_document(&feature_support::document_text("mm", &[], bodies, &records))
 }
 
-/// Runs a millimeter document with these test bodies and feature records.
+/// Runs the setup made of these test bodies and feature records, with its references picked as
+/// the corpus's "Picked references" rule says (`run_picked`).
 pub fn run(bodies: &[&str], features: &[Value]) -> Run {
-    Run::new(document_of(bodies, features))
+    run_picked(document_of(bodies, features), &Assets::new())
 }
 
-/// Replaces the document of `run` and runs it again on the same recompute, as an edit in an open
-/// session does: results of the earlier runs stay in its cache.
+/// Runs the edit of `setup` made of these test bodies and feature records on a new recompute, with
+/// the picks of `setup` carried over (`with_picks`).
+pub fn run_edited(setup: &Run, bodies: &[&str], features: &[Value]) -> Run {
+    Run::new(with_picks(&setup.document, &document_of(bodies, features)))
+}
+
+/// Replaces the document of `run` by the edit made of these test bodies and feature records, with
+/// the picks of `run`'s document carried over, and runs it again on the same recompute, as an edit
+/// in an open session does: results of the earlier runs stay in its cache.
 pub fn edit(run: &mut Run, bodies: &[&str], features: &[Value]) {
-    run.document = document_of(bodies, features);
+    run.document = with_picks(&run.document, &document_of(bodies, features));
     run.rerun(&Assets::new());
 }
 

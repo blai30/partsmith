@@ -1,9 +1,10 @@
-//! Reference stability corpus, last third: scenarios R45 to R65 of
+//! Reference stability corpus, last third: scenarios R45 to R66 of
 //! docs/design/reference-stability-corpus.md. Each test builds the scenario's setup as `.ptsm`
-//! records, runs it with `Registry::with_builtins()`, applies the edit, runs again and checks the
-//! corpus's "Expect" by geometry (names of generated faces, centroids, axes, areas, volumes,
-//! bounding boxes) and by the rendered messages and repair data. A scenario with variants is one
-//! test per variant.
+//! records, runs it with `Registry::with_builtins()` with its references picked as the corpus's
+//! "Picked references" rule says (`run_picked`), applies the edit (which keeps those picks,
+//! `with_picks`), runs again and checks the corpus's "Expect" by geometry (names of generated
+//! faces, centroids, axes, areas, volumes, bounding boxes) and by the rendered messages, fixes and
+//! repair data. A scenario with variants is one test per variant.
 //!
 //! Failing checks are collected, so a failure lists every difference together with what the
 //! resolver did with the reference under test (method, picked elements and the best fingerprint
@@ -15,9 +16,12 @@ mod stability_support_3;
 
 use std::f64::consts::{FRAC_PI_2, PI, SQRT_2};
 
+use partsmith_features::Fix;
 use partsmith_naming::MatchMethod;
 use serde_json::{Value, json};
-use stability_support_3::feature_support::{Assets, Run, datum_placement, sketch_result};
+use stability_support_3::feature_support::{
+    Assets, Run, datum_placement, face_names, picked_in, sketch_result, successions,
+};
 use stability_support_3::*;
 
 /// The fingerprint of BLOCK's top as stored when the user picked it.
@@ -441,7 +445,7 @@ fn r49_splitting_a_side_line_keeps_the_whole_shell_opening() {
             ),
         ],
     ));
-    let both_run = run(&["b-1"], &both);
+    let both_run = Run::new(document_of(&["b-1"], &both));
     checks.note(format!(
         "with both pieces removed: {}, area left in x = 80 {}, volume {}",
         describe_messages(&both_run, "f-sh1"),
@@ -580,7 +584,7 @@ fn note_with_repicked_profile(
         record["profile"]["regions"] = json!(regions);
         record
     });
-    let fixed = run(&["b-1"], &repicked);
+    let fixed = Run::new(document_of(&["b-1"], &repicked));
     checks.note(format!(
         "with the profile re-picked: {}",
         describe_messages(&fixed, "f-ext1")
@@ -593,6 +597,131 @@ fn note_with_repicked_profile(
         "with the profile re-picked: {}",
         describe_messages(&fixed, feature)
     ));
+}
+
+/// R66: the back top edge of BLOCK.
+fn block_back_top() -> Value {
+    reference(
+        "edge(f-ext1/end-cap|f-ext1/lateral/e-3)",
+        "line|n=1,0,0|c=40,50,30|l=80|adj=2,2",
+    )
+}
+
+/// R66: the top edges of the five lines that replace `e-3`, from (80, 50) to (0, 50).
+const NOTCH_TOP_EDGES: [&str; 5] = [
+    "edge(f-ext1/end-cap|f-ext1/lateral/e-9)",
+    "edge(f-ext1/end-cap|f-ext1/lateral/e-10)",
+    "edge(f-ext1/end-cap|f-ext1/lateral/e-11)",
+    "edge(f-ext1/end-cap|f-ext1/lateral/e-12)",
+    "edge(f-ext1/end-cap|f-ext1/lateral/e-13)",
+];
+
+/// R66: BLOCK's outline with `e-3` replaced by the five lines `e-9` to `e-13` of a 20 x 10 notch.
+fn notched_back_outline() -> Vec<Value> {
+    vec![
+        line("e-1", [0.0, 0.0], [80.0, 0.0]),
+        line("e-2", [80.0, 0.0], [80.0, 50.0]),
+        line("e-4", [0.0, 50.0], [0.0, 0.0]),
+        line("e-9", [80.0, 50.0], [50.0, 50.0]),
+        line("e-10", [50.0, 50.0], [50.0, 40.0]),
+        line("e-11", [50.0, 40.0], [30.0, 40.0]),
+        line("e-12", [30.0, 40.0], [30.0, 50.0]),
+        line("e-13", [30.0, 50.0], [0.0, 50.0]),
+    ]
+}
+
+#[test]
+fn r66_a_side_line_replaced_by_a_notch_widens_the_fillet_with_a_warning() {
+    let mut checks = Checks::new();
+    let mut features = block();
+    features.push(fillet("f-fil1", "b-1", vec![block_back_top()], "1"));
+    let mut session = run(&["b-1"], &features);
+    checks.all_ok(&session);
+
+    let mut notched = block_from_outline(notched_back_outline());
+    notched.push(fillet("f-fil1", "b-1", vec![block_back_top()], "1"));
+    edit(&mut session, &["b-1"], &notched);
+    checks.note(describe_messages(&session, "f-ext1"));
+    checks.note(diagnose(&session, "f-fil1", "b-1", &block_back_top()));
+    checks.note(describe_messages(&session, "f-fil1"));
+
+    checks.status(&session, "f-ext1", "ok");
+    checks.check(
+        codes(&session, "f-ext1").is_empty(),
+        format!(
+            "f-ext1 has messages: {}",
+            describe_messages(&session, "f-ext1")
+        ),
+    );
+    let Some(block) = state_before(&session, "f-fil1", "b-1") else {
+        checks.check(false, "f-fil1 has no state of b-1 before it");
+        checks.finish();
+        return;
+    };
+    let replacements: Vec<String> = ["e-9", "e-10", "e-11", "e-12", "e-13"]
+        .iter()
+        .map(|entity| format!("f-ext1/lateral/{entity}"))
+        .collect();
+    let recorded = successions(block);
+    checks.check(
+        recorded == [("f-ext1/lateral/e-3".to_owned(), replacements.clone())],
+        format!("the successions after Extrude 1 are {recorded:?}"),
+    );
+    let names = face_names(block);
+    checks.check(
+        names.len() == 10 && replacements.iter().all(|name| names.contains(name)),
+        format!("the faces after Extrude 1 are {names:?}"),
+    );
+    if let Some(shape) = block.shape() {
+        let volume = shape.volume().expect("the kernel measures the volume");
+        checks.relative("volume after Extrude 1", volume, 114000.0, VOLUME_TOLERANCE);
+    }
+
+    checks.status(&session, "f-fil1", "warning");
+    let messages = &session.feature("f-fil1").messages;
+    checks.check(
+        messages.len() == 1,
+        format!(
+            "f-fil1 should have one message: {}",
+            describe_messages(&session, "f-fil1")
+        ),
+    );
+    if let Some(message) = messages.first() {
+        checks.check(
+            message.code == "reference_widened" && message.pointer.as_deref() == Some("/edges/0"),
+            format!(
+                "f-fil1's message is {} at {:?}",
+                message.code, message.pointer
+            ),
+        );
+        checks.check(
+            message.text
+                == "The back top edge of 'Extrude 1' selected for Edges now covers 5 edges, because the line it was made from was replaced by 5 lines in 'Sketch 1'. Keep all of them, or use only one.",
+            format!("f-fil1's message reads {:?}", message.text),
+        );
+        let expected = vec![
+            Fix::KeepMatch {
+                pointer: "/edges/0".to_owned(),
+            },
+            Fix::UseReferences {
+                pointer: "/edges/0".to_owned(),
+                references: vec![picked_in(block, NOTCH_TOP_EDGES[0])],
+            },
+            Fix::Pick {
+                pointer: "/edges/0".to_owned(),
+            },
+        ];
+        checks.check(
+            message.fixes == expected,
+            format!("f-fil1's fixes are {:?}", message.fixes),
+        );
+    }
+    let body = final_state(&session, "b-1");
+    for edge in NOTCH_TOP_EDGES {
+        checks.faces_count(body, &format!("f-fil1/fillet/{edge}"), 1);
+    }
+    checks.faces_count(body, "f-fil1/fillet/", 5);
+    checks.finish();
 }
 
 #[test]

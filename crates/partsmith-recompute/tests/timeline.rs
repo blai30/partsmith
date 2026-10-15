@@ -1,18 +1,18 @@
-//! Rollback, stop points, suppression, failures, pre-build checks and assets (recompute.md
-//! sections 3.1, 3.3 and 3.5): tests 17 to 28 and 38 to 40 of section 6, plus runner tests over
-//! test-only features.
+//! Rollback, stop points, suppression, failures, pre-build checks, assets and writer chains
+//! (recompute.md sections 3.1, 3.3 and 3.5): tests 17 to 28 and 38 to 40 of section 6, plus runner
+//! tests over test-only features.
 
 mod common;
 
 use std::sync::Arc;
 
 use common::{
-    Harness, all_features, assert_relative, assert_volume, bodies, bodies_before_ids, body,
-    chain_json, datum_height, doc_a, doc_a_json, document, error_code, face_count, feature,
+    Harness, all_features, assert_relative, assert_volume, bodies, bodies_before_ids, body_report,
+    chain_json, datum_height, doc_a, doc_a_json, document, error_code, face_count, feature_report,
     final_state, first_message, key, keys, load, message_texts, not_reused, output_update, owned,
     record, record_position, records, reused, severity_name, shape, state_before, status, statuses,
-    suppressed, test_block, test_datum, test_datum_on, test_node, test_on_body, test_probe,
-    upstream, with_action,
+    suppressed, test_block, test_datum, test_datum_on, test_history, test_node, test_on_body,
+    test_probe, upstream, with_action,
 };
 use partsmith_occt_sys::{Plane, StepBody, SubShapeKind, make_box, write_step};
 use partsmith_recompute::Report;
@@ -31,7 +31,7 @@ fn assert_statuses(report: &Report, expected: &[(&str, &str)]) {
 
 /// The id of the feature that last wrote a body, if any.
 fn last_feature(report: &Report, body_id: &str) -> Option<String> {
-    body(report, body_id)
+    body_report(report, body_id)
         .last_feature
         .as_ref()
         .map(|id| id.to_string())
@@ -273,7 +273,7 @@ fn t027_an_undeclared_update_is_not_applied() {
 
 /// The detail of the internal error `feature` reported (features.md section 4.1).
 fn panic_detail(report: &Report, feature_id: &str) -> String {
-    feature(report, feature_id)
+    feature_report(report, feature_id)
         .error
         .as_ref()
         .and_then(|error| error.detail())
@@ -299,7 +299,7 @@ fn t028_a_panic_is_an_internal_error_and_is_never_cached() {
     );
     assert!(panic_detail(&first, "f-t3").contains("boom"));
     assert_statuses(&first, &[("f-fil1", "ok"), ("f-dp1", "ok")]);
-    assert!(!feature(&second, "f-t3").timing.from_cache);
+    assert!(!feature_report(&second, "f-t3").timing.from_cache);
     assert_eq!(error_code(&second, "f-t3"), "internal");
     assert_eq!(
         message_texts(&second, "f-t3"),
@@ -403,7 +403,7 @@ fn rollback_rolls_back_the_marker_record_and_every_later_one() {
     for feature_id in ["f-b", "f-c", "f-p"] {
         assert_eq!(key(&report, feature_id), None, "key of {feature_id}");
         assert!(
-            feature(&report, feature_id).output.is_none(),
+            feature_report(&report, feature_id).output.is_none(),
             "output of {feature_id}"
         );
         assert!(
@@ -413,9 +413,9 @@ fn rollback_rolls_back_the_marker_record_and_every_later_one() {
     }
     assert_volume(shape(final_state(&report, "b-1")), 8.0);
     assert_eq!(last_feature(&report, "b-1").as_deref(), Some("f-a"));
-    assert_eq!(body(&report, "b-1").key, key(&report, "f-a"));
+    assert_eq!(body_report(&report, "b-1").key, key(&report, "f-a"));
     assert!(final_state(&report, "b-2").is_empty());
-    assert_eq!(body(&report, "b-2").key, None);
+    assert_eq!(body_report(&report, "b-2").key, None);
     assert_eq!(last_feature(&report, "b-2"), None);
 }
 
@@ -530,7 +530,7 @@ fn suppressed_features_do_nothing_and_leave_their_bodies_empty() {
 
     assert_eq!(status(&report, "f-a"), "suppressed");
     assert_eq!(key(&report, "f-a"), None);
-    assert!(feature(&report, "f-a").output.is_none());
+    assert!(feature_report(&report, "f-a").output.is_none());
     assert!(bodies_before_ids(&report, "f-a").is_empty());
     assert_eq!(error_code(&report, "f-b"), "body_empty");
     // features.md section 4.1, `body_empty` without a diagnosis; recompute.md section 3.10 adds why the body is empty.
@@ -587,7 +587,7 @@ fn an_unknown_type_is_an_error_without_key_that_writes_nothing() {
         ])
     );
     assert_eq!(key(&report, "f-g"), None);
-    assert!(feature(&report, "f-g").output.is_none());
+    assert!(feature_report(&report, "f-g").output.is_none());
     assert_volume(shape(state_before(&report, "f-p", "b-1")), 8.0);
     assert_eq!(last_feature(&report, "b-1").as_deref(), Some("f-a"));
 }
@@ -632,7 +632,7 @@ fn a_link_to_an_unknown_feature_fails_with_its_field() {
         message.text,
         "Feature 'f-nope' does not exist in this document. Pick another one for Base."
     );
-    assert!(feature(&report, "f-d1").output.is_none());
+    assert!(feature_report(&report, "f-d1").output.is_none());
 }
 
 #[test]
@@ -796,7 +796,7 @@ fn a_feature_that_fails_its_checks_still_provides_its_bodies() {
     assert_eq!(upstream(&graph, "f-p"), owned(&["body b-1 f-z"]));
     assert_volume(shape(state_before(&report, "f-p", "b-1")), 8.0);
     assert_eq!(last_feature(&report, "b-1").as_deref(), Some("f-z"));
-    assert_eq!(body(&report, "b-1").key, key(&report, "f-z"));
+    assert_eq!(body_report(&report, "b-1").key, key(&report, "f-z"));
 }
 
 #[test]
@@ -814,7 +814,7 @@ fn features_after_a_failed_writer_build_on_the_state_before_it() {
     let report = harness.run(&document);
 
     assert_eq!(error_code(&report, "f-b"), "body_not_empty");
-    assert!(feature(&report, "f-b").output.is_none());
+    assert!(feature_report(&report, "f-b").output.is_none());
     assert_eq!(status(&report, "f-p"), "warning");
     assert_volume(shape(state_before(&report, "f-p", "b-1")), 8.0);
     assert_volume(shape(final_state(&report, "b-1")), 8.0);
@@ -834,7 +834,7 @@ fn reading_a_body_no_feature_wrote_sees_an_empty_body() {
     assert_eq!(error_code(&report, "f-p"), "body_empty");
     assert!(state_before(&report, "f-p", "b-1").is_empty());
     assert!(final_state(&report, "b-1").is_empty());
-    assert_eq!(body(&report, "b-1").key, None);
+    assert_eq!(body_report(&report, "b-1").key, None);
     assert_eq!(last_feature(&report, "b-1"), None);
 }
 
@@ -871,7 +871,7 @@ fn an_update_of_a_body_that_is_not_written_is_rejected_and_not_applied() {
     let report = harness.run(&document);
 
     assert_eq!(error_code(&report, "f-t2"), "undeclared_dependency");
-    assert!(feature(&report, "f-t2").output.is_none());
+    assert!(feature_report(&report, "f-t2").output.is_none());
     assert_volume(shape(state_before(&report, "f-p", "b-1")), 8.0);
     assert_volume(shape(final_state(&report, "b-1")), 8.0);
     assert_eq!(last_feature(&report, "b-1").as_deref(), Some("f-a"));
@@ -958,7 +958,7 @@ fn bodies_before_is_recorded_for_reused_results_too() {
 
     let report = harness.run(&document);
 
-    assert!(feature(&report, "f-p").timing.from_cache);
+    assert!(feature_report(&report, "f-p").timing.from_cache);
     assert_eq!(bodies_before_ids(&report, "f-p"), owned(&["b-1"]));
     assert_volume(shape(state_before(&report, "f-p", "b-1")), 16.0);
     assert!(bodies_before_ids(&report, "f-d1").is_empty());
@@ -978,10 +978,10 @@ fn outputs_are_reported_for_ok_and_warning_and_not_for_errors() {
 
     let report = harness.run(&document);
 
-    assert!(feature(&report, "f-a").output.is_some());
-    assert!(feature(&report, "f-p").output.is_some());
-    assert!(feature(&report, "f-e").output.is_none());
-    assert!(feature(&report, "f-e").warnings.is_empty());
+    assert!(feature_report(&report, "f-a").output.is_some());
+    assert!(feature_report(&report, "f-p").output.is_some());
+    assert!(feature_report(&report, "f-e").output.is_none());
+    assert!(feature_report(&report, "f-e").warnings.is_empty());
 }
 
 #[test]
@@ -1018,5 +1018,167 @@ fn feature_reports_follow_timeline_order() {
     assert_eq!(
         all_features(&report),
         owned(&["f-d1", "f-d2", "f-a", "f-b", "f-c", "f-p"])
+    );
+}
+
+// Writer chains (section 3.5): `test_history` checks the writers of the chain it reads and places
+// its datum at the sum of the body's volumes just before each of them.
+
+/// The height of the datum of the `test_history` record `feature_id`: the sum of the body's
+/// volumes just before each writer of its chain. Fails the test when the chain named other
+/// writers than the record expects.
+fn history_height(report: &Report, feature_id: &str) -> f64 {
+    if let Some(error) = &feature_report(report, feature_id).error {
+        panic!(
+            "{feature_id} failed: {}",
+            error.detail().unwrap_or_else(|| error.to_string())
+        );
+    }
+    datum_height(report, feature_id)
+}
+
+#[test]
+fn a_build_reads_the_writer_chain_of_a_declared_body() {
+    let mut harness = Harness::test_features();
+    let document = document(json!({
+        "bodies": bodies(1),
+        "features": [
+            test_block("f-a", "b-1", "2", "new"),
+            test_block("f-b", "b-1", "1", "join"),
+            test_history("f-h", "b-1", &["f-a", "f-b"])
+        ]
+    }));
+
+    let report = harness.run(&document);
+
+    // Empty before f-a, the 8 mm3 cube before f-b.
+    assert_relative(
+        "volumes before each writer",
+        history_height(&report, "f-h"),
+        8.0,
+    );
+}
+
+#[test]
+fn writers_that_failed_stay_in_the_chain_with_the_state_before_them() {
+    let mut harness = Harness::test_features();
+    let document = document(json!({
+        "bodies": bodies(1),
+        "features": [
+            test_block("f-x", "b-1", "1", "join"),
+            test_block("f-a", "b-1", "2", "new"),
+            test_node("f-n", &["f-nope"], &[], &["b-1"], &[]),
+            test_history("f-h", "b-1", &["f-x", "f-a", "f-n"])
+        ]
+    }));
+
+    let report = harness.run(&document);
+
+    assert_eq!(error_code(&report, "f-x"), "body_empty");
+    assert_eq!(error_code(&report, "f-n"), "unknown_feature");
+    // Empty before f-x and f-a, the 8 mm3 cube before f-n.
+    assert_relative(
+        "volumes before each writer",
+        history_height(&report, "f-h"),
+        8.0,
+    );
+}
+
+#[test]
+fn suppressed_and_invalid_records_are_not_in_the_chain() {
+    let mut harness = Harness::test_features();
+    let document = document(json!({
+        "bodies": bodies(1),
+        "features": [
+            test_block("f-a", "b-1", "2", "new"),
+            suppressed(test_block("f-b", "b-1", "1", "join")),
+            {"id": "f-c", "type": "test_block", "body": "b-1", "size": "1", "op": "bogus"},
+            test_history("f-h", "b-1", &["f-a"])
+        ]
+    }));
+
+    let report = harness.run(&document);
+
+    assert_eq!(status(&report, "f-b"), "suppressed");
+    assert_eq!(error_code(&report, "f-c"), "invalid_params");
+    assert_relative(
+        "volumes before each writer",
+        history_height(&report, "f-h"),
+        0.0,
+    );
+}
+
+#[test]
+fn the_chain_holds_only_earlier_writers_of_the_body() {
+    let mut harness = Harness::test_features();
+    let document = document(json!({
+        "bodies": bodies(2),
+        "features": [
+            test_block("f-a", "b-1", "2", "new"),
+            test_block("f-z", "b-2", "3", "new"),
+            test_probe("f-p", "b-1"),
+            test_history("f-h", "b-1", &["f-a"]),
+            test_block("f-b", "b-1", "1", "join")
+        ]
+    }));
+
+    let report = harness.run(&document);
+
+    assert_relative(
+        "volumes before each writer",
+        history_height(&report, "f-h"),
+        0.0,
+    );
+}
+
+#[test]
+fn writers_reused_from_the_cache_are_in_the_chain() {
+    let mut harness = Harness::test_features();
+    let writers = [
+        test_block("f-a", "b-1", "2", "new"),
+        test_block("f-b", "b-1", "1", "join"),
+    ];
+    harness.run(&document(json!({"bodies": bodies(1), "features": writers})));
+    let mut features = writers.to_vec();
+    features.push(test_history("f-h", "b-1", &["f-a", "f-b"]));
+
+    let report = harness.run(&document(
+        json!({"bodies": bodies(1), "features": features}),
+    ));
+
+    assert_eq!(reused(&report), owned(&["f-a", "f-b"]));
+    assert_relative(
+        "volumes before each writer",
+        history_height(&report, "f-h"),
+        8.0,
+    );
+}
+
+#[test]
+fn a_build_that_reads_the_chain_is_reused_until_an_earlier_writer_changes() {
+    let mut harness = Harness::test_features();
+    let features = |size: &str, unrelated: bool| {
+        let mut features = vec![
+            test_block("f-a", "b-1", size, "new"),
+            test_block("f-b", "b-1", "1", "join"),
+        ];
+        if unrelated {
+            features.push(test_block("f-z", "b-2", "3", "new"));
+        }
+        features.push(test_history("f-h", "b-1", &["f-a", "f-b"]));
+        document(json!({"bodies": bodies(2), "features": features}))
+    };
+    let first = harness.run(&features("2", false));
+
+    let unrelated = harness.run(&features("2", true));
+    let earlier = harness.run(&features("3", true));
+
+    assert!(feature_report(&unrelated, "f-h").timing.from_cache);
+    assert_eq!(key(&unrelated, "f-h"), key(&first, "f-h"));
+    assert!(!feature_report(&earlier, "f-h").timing.from_cache);
+    assert_relative(
+        "volumes before each writer",
+        history_height(&earlier, "f-h"),
+        27.0,
     );
 }

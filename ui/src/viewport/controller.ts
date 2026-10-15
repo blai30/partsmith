@@ -473,19 +473,23 @@ export function createViewportController(options: {
     if (inspector === null) {
       return whole
     }
+    // Only the part of the card inside the free area counts; a card under an island covers none.
     const box = inspector.getBoundingClientRect()
-    const left = box.left - freeArea.getBoundingClientRect().left
-    const right = left + box.width
+    const offset = box.left - freeArea.getBoundingClientRect().left
+    const left = Math.min(Math.max(offset, 0), area.width)
+    const right = Math.min(Math.max(offset + box.width, 0), area.width)
+    if (right <= left) {
+      return whole
+    }
     const part =
-      left + box.width / 2 < area.width / 2
+      (left + right) / 2 < area.width / 2
         ? { x: right, width: area.width - right }
         : { x: 0, width: left }
     return part.width < area.width / 2 ? whole : part
   }
 
-  /** Moves a camera so the point at its target's screen position goes to the framing part's center. */
-  function centeredInPart(next: Camera): Camera {
-    const part = framingPart()
+  /** Pans a camera so what it shows at the free area's center goes to the center of `part`. */
+  function centeredIn(part: { readonly x: number; readonly width: number }, next: Camera): Camera {
     const offset = part.x + part.width / 2 - framedArea(viewWindow()).width / 2
     return offset === 0 ? next : pan(next, offset, 0, freeHeight())
   }
@@ -494,7 +498,7 @@ export function createViewportController(options: {
   function framing(start: Camera, bounds: BoundingBox, margin: number): Camera {
     const part = framingPart()
     const partAspect = aspectOf({ width: part.width, height: freeHeight() })
-    return centeredInPart(fitBounds(start, bounds, partAspect, margin))
+    return centeredIn(part, fitBounds(start, bounds, partAspect, margin))
   }
 
   /** Frames bounds as a user camera change, and remembers them for a new free area. */
@@ -1239,7 +1243,7 @@ export function createViewportController(options: {
     lookAlong(normal, upHint, target) {
       const goal = goalCamera()
       const rotation = rotationLookingAlong(scale(normal, -1), upHint)
-      moveCamera(centeredInPart({ ...goal, target, rotation }))
+      moveCamera(centeredIn(framingPart(), { ...goal, target, rotation }))
     },
     zoomToBounds: frameBounds,
     screenRectangle(items) {

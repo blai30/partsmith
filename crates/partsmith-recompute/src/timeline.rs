@@ -369,16 +369,9 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::test_support::{datum, document, document_with, id, prepared, registry, writer};
-
-    /// The timeline of `document` prepared to stop after `stop`.
-    fn prepared_until<'a>(
-        registry: &'a Registry,
-        document: &'a Document,
-        stop: &Id,
-    ) -> Timeline<'a> {
-        Timeline::prepare(registry, &mut Validations::default(), document, Some(stop))
-    }
+    use crate::test_support::{
+        datum, document, document_with, id, prepared, prepared_until, writer,
+    };
 
     fn kinds(timeline: &Timeline<'_>) -> Vec<&'static str> {
         timeline
@@ -430,28 +423,26 @@ mod tests {
 
     #[test]
     fn a_stop_point_includes_its_record_and_overrides_the_rollback() {
-        let registry = registry();
         let document = document_with(json!({
             "features": [datum("f-1", "1"), datum("f-2", "1"), datum("f-3", "1")],
             "rollback": "f-1"
         }));
         let stop = id("f-2");
 
-        let timeline = prepared_until(&registry, &document, &stop);
+        let timeline = prepared_until(&document, &stop);
 
         assert_eq!(kinds(&timeline), ["active", "active", "rolled_back"]);
     }
 
     #[test]
     fn an_unknown_stop_point_falls_back_to_the_rollback_with_a_warning() {
-        let registry = registry();
         let document = document_with(json!({
             "features": [datum("f-1", "1"), datum("f-2", "1")],
             "rollback": "f-2"
         }));
         let stop = id("f-nope");
 
-        let timeline = prepared_until(&registry, &document, &stop);
+        let timeline = prepared_until(&document, &stop);
 
         assert_eq!(kinds(&timeline), ["active", "rolled_back"]);
         let messages: Vec<(&str, &str)> = timeline
@@ -470,11 +461,10 @@ mod tests {
 
     #[test]
     fn an_unknown_stop_point_without_a_rollback_runs_every_record() {
-        let registry = registry();
         let document = document(json!([datum("f-1", "1"), datum("f-2", "1")]));
         let stop = id("f-nope");
 
-        let timeline = prepared_until(&registry, &document, &stop);
+        let timeline = prepared_until(&document, &stop);
 
         assert_eq!(kinds(&timeline), ["active", "active"]);
         let texts: Vec<&str> = timeline

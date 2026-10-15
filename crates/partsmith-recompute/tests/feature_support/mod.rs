@@ -177,7 +177,7 @@ impl Run {
 
     /// The report of `feature`.
     pub fn feature(&self, feature: &str) -> &FeatureReport {
-        self::feature(&self.report, feature)
+        feature_report(&self.report, feature)
     }
 
     /// The output of `feature`; fails the test when it has none.
@@ -281,7 +281,7 @@ impl Run {
 // Reading reports, shared with `tests/common`.
 
 /// The report of `feature`.
-pub fn feature<'r>(report: &'r Report, feature: &str) -> &'r FeatureReport {
+pub fn feature_report<'r>(report: &'r Report, feature: &str) -> &'r FeatureReport {
     report
         .features
         .iter()
@@ -290,7 +290,7 @@ pub fn feature<'r>(report: &'r Report, feature: &str) -> &'r FeatureReport {
 }
 
 /// The end-of-run report of `body`.
-pub fn body<'r>(report: &'r Report, body: &str) -> &'r BodyReport {
+pub fn body_report<'r>(report: &'r Report, body: &str) -> &'r BodyReport {
     report
         .bodies
         .iter()
@@ -300,13 +300,13 @@ pub fn body<'r>(report: &'r Report, body: &str) -> &'r BodyReport {
 
 /// The state of `body` at the end of the run.
 pub fn final_state<'r>(report: &'r Report, body: &str) -> &'r BodyState {
-    &self::body(report, body).state
+    &body_report(report, body).state
 }
 
 /// The state of `body` just before `feature` (its `bodies_before`, which holds the bodies it
 /// declares).
 pub fn state_before<'r>(report: &'r Report, feature: &str, body: &str) -> &'r BodyState {
-    self::feature(report, feature)
+    feature_report(report, feature)
         .bodies_before
         .iter()
         .find(|(id, _)| id.as_str() == body)
@@ -321,7 +321,7 @@ pub fn state_before<'r>(report: &'r Report, feature: &str, body: &str) -> &'r Bo
 
 /// The output of `feature`; fails the test when it has none.
 pub fn output<'r>(report: &'r Report, feature: &str) -> &'r FeatureOutput {
-    self::feature(report, feature)
+    feature_report(report, feature)
         .output
         .as_deref()
         .unwrap_or_else(|| panic!("{feature} has no output; {}", summary(report)))

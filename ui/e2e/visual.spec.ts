@@ -62,15 +62,15 @@ async function expectWebFonts(page: Page): Promise<void> {
 }
 
 /**
- * Moves the pointer onto the status bar's empty middle, where nothing hovers or shows a tooltip,
- * and waits until no tooltip is open.
+ * Moves the pointer onto the status bar's left padding, where nothing hovers or shows a tooltip at
+ * any UI scale, and waits until no tooltip is open.
  */
 async function parkPointer(page: Page): Promise<void> {
   const bar = await page.getByTestId('status-bar').boundingBox()
   if (bar === null) {
     throw new Error('The status bar is not visible.')
   }
-  await page.mouse.move(bar.x + bar.width / 2, bar.y + bar.height / 2)
+  await page.mouse.move(bar.x + 4, bar.y + bar.height / 2)
   await expect(page.getByRole('tooltip')).toHaveCount(0)
 }
 

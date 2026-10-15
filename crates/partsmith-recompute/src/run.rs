@@ -339,11 +339,7 @@ impl Runner<'_> {
                 keys: step.valid.unknown_keys.clone(),
             });
         }
-        let status = match (&error, warnings.is_empty()) {
-            (Some(_), _) => Status::Error,
-            (None, false) => Status::Warning,
-            (None, true) => Status::Ok,
-        };
+        let status = status(error.as_ref(), &warnings);
         let messages = self.messages(&record.id, error.as_ref(), &warnings, &bodies_before);
         FeatureReport {
             feature: record.id.clone(),
@@ -404,6 +400,21 @@ fn check_updates(output: &FeatureOutput, written: &[Link]) -> Result<(), Feature
     Ok(())
 }
 
+/// The status of a feature that ran (recompute.md section 3.5 step 11): `Error` with an error, `Warning` with a
+/// warning of severity `Warning`, otherwise `Ok`, also when its only warnings are info notices.
+fn status(error: Option<&FeatureError>, warnings: &[FeatureWarning]) -> Status {
+    if error.is_some() {
+        Status::Error
+    } else if warnings
+        .iter()
+        .any(|warning| warning.severity() == partsmith_features::Severity::Warning)
+    {
+        Status::Warning
+    } else {
+        Status::Ok
+    }
+}
+
 /// The message of a panic payload, or `unknown panic` when it is not text.
 fn panic_message(payload: &(dyn Any + Send)) -> String {
     if let Some(message) = payload.downcast_ref::<&str>() {
@@ -417,7 +428,7 @@ fn panic_message(payload: &(dyn Any + Send)) -> String {
 
 #[cfg(test)]
 mod tests {
-    use partsmith_features::{BodyChange, BodyUpdate, DatumResult, Measurements};
+    use partsmith_features::{BodyChange, BodyUpdate, DatumResult, FieldRef, Measurements};
     use partsmith_sketch::OriginPlane;
 
     use super::*;
@@ -519,5 +530,51 @@ mod tests {
         assert_eq!(panic_message(static_text.as_ref()), "boom");
         assert_eq!(panic_message(owned_text.as_ref()), "bang");
         assert_eq!(panic_message(number.as_ref()), "unknown panic");
+    }
+
+    /// The `region_split` notice of a profile region split in two (features.md section 4.2), severity info.
+    fn region_split() -> FeatureWarning {
+        FeatureWarning::RegionSplit {
+            field: FieldRef {
+                path: "profile.regions[0]".to_string(),
+                label: "Profile".to_string(),
+            },
+            position: 0,
+            sketch: id("f-sk1"),
+            region: serde_json::from_value(
+                serde_json::json!({"key": "e-1,e-2,e-3,e-4", "fp": "c=40,25|a=4000"}),
+            )
+            .expect("the region reference is valid"),
+            count: 2,
+        }
+    }
+
+    /// `UnknownParams`, a warning of severity warning.
+    fn unknown_params() -> FeatureWarning {
+        FeatureWarning::UnknownParams {
+            keys: vec!["thin".to_string()],
+        }
+    }
+
+    #[test]
+    fn info_notices_leave_the_status_ok() {
+        assert_eq!(status(None, &[]), Status::Ok);
+        assert_eq!(status(None, &[region_split(), region_split()]), Status::Ok);
+    }
+
+    #[test]
+    fn a_warning_beside_notices_makes_the_status_warning() {
+        assert_eq!(
+            status(None, &[region_split(), unknown_params()]),
+            Status::Warning
+        );
+    }
+
+    #[test]
+    fn an_error_makes_the_status_error_whatever_the_warnings() {
+        let error = FeatureError::internal("boom");
+
+        assert_eq!(status(Some(&error), &[]), Status::Error);
+        assert_eq!(status(Some(&error), &[region_split()]), Status::Error);
     }
 }

@@ -220,12 +220,17 @@ describe('plane picking header (3.16.1)', () => {
     // It wraps inside the slot rather than overflowing the viewport at 200 percent UI scale.
     expect(header).toHaveClass('max-w-full', 'flex-wrap', 'min-h-10')
     expect(header).not.toHaveClass('whitespace-nowrap', 'h-10')
-    for (const name of [
+    const buttons = [
       'Sketch on Top plane (XY)',
       'Sketch on Front plane (XZ)',
       'Sketch on Right plane (YZ)',
-    ]) {
-      expect(screen.getByRole('button', { name })).toBeInTheDocument()
+    ].map((name) => screen.getByRole('button', { name }))
+    // The three buttons are one flex item of the header, so they wrap onto a line together.
+    const group = buttons[0]?.parentElement
+    expect(group).toHaveClass('flex', 'gap-2')
+    expect(group?.parentElement).toBe(header)
+    for (const button of buttons) {
+      expect(button.parentElement).toBe(group)
     }
     const error = vi.spyOn(console, 'error').mockImplementation(() => undefined)
     await userEvent.click(screen.getByRole('button', { name: 'Sketch on Top plane (XY)' }))

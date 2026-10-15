@@ -9,12 +9,12 @@ use std::time::Duration;
 
 use common::{
     AXIS_TOLERANCE, Harness, all_element_names, all_features, assert_coordinates, assert_volume,
-    bodies, body, body_record, builtin_registry, chain_json, datum_height, datum_origin, doc_a,
-    doc_a_json, document, document_json, error_code, face_count, feature, final_state,
-    first_message, key, keys, load, message_texts, messages, not_reused, owned, parameter_record,
-    parameter_value, record, record_position, records, reused, severity_name, shape, status,
-    statuses, test_block, test_datum, test_datum_on, test_probe, test_registry, volume,
-    warning_codes, with_action,
+    bodies, body_record, body_report, builtin_registry, chain_json, datum_height, datum_origin,
+    doc_a, doc_a_json, document, document_json, error_code, face_count, feature_report,
+    final_state, first_message, key, keys, load, message_texts, messages, not_reused, owned,
+    parameter_record, parameter_value, record, record_position, records, reused, severity_name,
+    shape, status, statuses, test_block, test_datum, test_datum_on, test_probe, test_registry,
+    volume, warning_codes, with_action,
 };
 use partsmith_features::Repair;
 use partsmith_model::Quantity;
@@ -233,7 +233,7 @@ fn t016_cached_warnings_render_with_current_names() {
             "This feature does not change body 'Body 2'. Check its position, size and direction."
         ])
     );
-    assert!(feature(&second, "f-box9").timing.from_cache);
+    assert!(feature_report(&second, "f-box9").timing.from_cache);
     assert_eq!(
         message_texts(&second, "f-box9"),
         owned(&[
@@ -369,13 +369,13 @@ fn body_reports_name_the_last_writer_and_its_key() {
 
     let report = harness.run(&load(&chain_json()));
 
-    let bracket = body(&report, "b-1");
+    let bracket = body_report(&report, "b-1");
     assert_eq!(
         bracket.last_feature.as_ref().map(|id| id.as_str()),
         Some("f-b")
     );
     assert_eq!(bracket.key, key(&report, "f-b"));
-    let lid = body(&report, "b-2");
+    let lid = body_report(&report, "b-2");
     assert_eq!(lid.last_feature.as_ref().map(|id| id.as_str()), Some("f-c"));
     assert_eq!(lid.key, key(&report, "f-c"));
     let order: Vec<&str> = report
@@ -506,7 +506,7 @@ fn feature_errors_are_cached_and_rendered_again() {
     assert_eq!(reused(&second), owned(&["f-e"]));
     assert_eq!(error_code(&second, "f-e"), "expression");
     assert_eq!(message_texts(&second, "f-e"), message_texts(&first, "f-e"));
-    assert!(feature(&second, "f-e").output.is_none());
+    assert!(feature_report(&second, "f-e").output.is_none());
 }
 
 #[test]

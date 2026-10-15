@@ -4,10 +4,12 @@ use std::collections::BTreeMap;
 use std::fmt;
 
 use partsmith_model::{Id, Units};
-use partsmith_naming::{ElementName, Follow, Lost, Reference};
+use partsmith_naming::{ElementKind, ElementName, Follow, Lost, Reference};
 use partsmith_sketch::{RegionLoss, RegionRef, SolveIssue};
 
-use super::describe::{describe_face, made_from_line, new_faces_are_flat};
+use super::describe::{
+    describe_face, made_from_line, new_faces_are_flat, piece_free_text, rim_generator,
+};
 use super::field::FieldRef;
 use super::fix::Fix;
 use super::loss::{Loss, LossCandidate, Repair, Severity};
@@ -45,6 +47,8 @@ pub enum FeatureWarning {
         elements: Vec<Reference>,
         /// The other elements that could be meant, in candidate order.
         alternatives: Vec<LossCandidate>,
+        /// The fingerprint score of the elements used (the resolver's confidence), for the detail only.
+        score: f64,
     },
     /// A reference followed a change that keeps its meaning: a replaced or extended sketch entity, merged faces, the
     /// rim that continues a removed face, or a relative. Severity info.
@@ -240,14 +244,10 @@ impl FeatureWarning {
                 ..
             } => {
                 let element = described_selected(renderer, &field.label, body, reference, &[]).0;
-                let line = if made_from_line(reference) { "line" } else { "curve" };
-                let lines =
-                    match new_faces_are_flat(reference, elements, renderer.bodies_of(body)) {
-                        Some(true) => "lines",
-                        Some(false) => "curves",
-                        None if made_from_line(reference) => "lines",
-                        None => "curves",
-                    };
+                let line = line_or_curve(reference);
+                let flat = new_faces_are_flat(reference, elements, renderer.bodies_of(body))
+                    .unwrap_or_else(|| made_from_line(reference));
+                let lines = if flat { "lines" } else { "curves" };
                 let count = elements.len();
                 format!(
                     "{element} now covers {count} {kinds}, because the {line} it was made from was replaced by {count} {lines} in {by}. Keep all of them, or use only one.",
@@ -464,9 +464,10 @@ impl FeatureWarning {
                 field,
                 reference,
                 alternatives,
+                score,
                 ..
             } => {
-                let mut detail = format!("{} q={} resolution=guess", field.path, reference.query);
+                let mut detail = format!("{} q={} guess={score:.6}", field.path, reference.query);
                 if !alternatives.is_empty() {
                     detail.push_str(&format!(" candidates={}", candidate_detail(alternatives)));
                 }
@@ -527,6 +528,7 @@ impl FeatureWarning {
                     ambiguous: *reason == FallbackReason::Ambiguous,
                     lost: Lost::default(),
                     candidates: Vec::new(),
+                    matches: 0,
                 },
             )),
             FeatureWarning::RegionSplit { sketch, region, .. }
@@ -570,7 +572,8 @@ impl fmt::Display for FeatureWarning {
     }
 }
 
-/// The loss repair mode shows for a reference that is still used: ambiguous, with nothing lost and these candidates.
+/// The loss repair mode shows for a reference that is still used: ambiguous, with nothing lost and these candidates,
+/// each of which fits.
 fn still_used(
     position: usize,
     body: &Id,
@@ -584,6 +587,7 @@ fn still_used(
         kind: reference.query.kind(),
         ambiguous: true,
         lost: Lost::default(),
+        matches: candidates.len(),
         candidates,
     }
 }
@@ -616,6 +620,15 @@ fn described_selected(
     (element, texts)
 }
 
+/// `{line or curve}` of a followed or widened reference (section 4.2): what the entity of the stored face was.
+fn line_or_curve(reference: &Reference) -> &'static str {
+    if made_from_line(reference) {
+        "line"
+    } else {
+        "curve"
+    }
+}
+
 /// `'{by}'` of a followed or widened reference, or `default` without a diagnosis.
 fn followed_by(renderer: &Renderer<'_>, default: &str) -> String {
     renderer
@@ -625,7 +638,8 @@ fn followed_by(renderer: &Renderer<'_>, default: &str) -> String {
         .map_or_else(|| default.to_string(), |by| renderer.quoted_feature(by))
 }
 
-/// The text of a guessed reference (section 4.2, `reference_guessed`).
+/// The text of a guessed reference (section 4.2, `reference_guessed`): the named piece kept, with the first
+/// alternative or `another part` when section 3.8 dropped every alternative, or the named piece gone.
 fn guessed_text(
     renderer: &Renderer<'_>,
     label: &str,
@@ -638,18 +652,22 @@ fn guessed_text(
     let kept = elements
         .iter()
         .all(|element| element.query == *query || element.query.is_split_descendant_of(query));
-    if kept && let Some(alternative) = alternatives.first() {
-        let (element, others) =
-            described_selected(renderer, label, body, reference, &[&alternative.reference]);
+    if kept {
+        let alternative: Vec<&Reference> = alternatives
+            .iter()
+            .take(1)
+            .map(|alternative| &alternative.reference)
+            .collect();
+        let (element, others) = described_selected(renderer, label, body, reference, &alternative);
         let face = describe_face(
             &ordered_part(query),
             renderer.bodies_of(body),
             renderer.names(),
             renderer.units(),
         );
+        let better = others.first().map_or("another part", String::as_str);
         return format!(
-            "{element} was taken by its position among the parts of {face}, but {} now fits its shape better. Check which one you mean.",
-            others[0]
+            "{element} was taken by its position among the parts of {face}, but {better} now fits its shape better. Check which one you mean."
         );
     }
     let used: Vec<&Reference> = elements.iter().collect();
@@ -668,7 +686,7 @@ fn ordered_part(query: &ElementName) -> String {
         .iter()
         .find(|term| term.is_order_dependent())
         .map_or_else(|| query.as_str().to_string(), ToString::to_string);
-    super::describe::piece_free_text(&part)
+    piece_free_text(&part)
 }
 
 /// The text of a followed reference (section 4.2, `reference_followed`).
@@ -690,11 +708,7 @@ fn followed_text(
     };
     let (element, others) = described_selected(renderer, label, body, reference, &new);
     let new = joined(&others);
-    let line = if made_from_line(reference) {
-        "line"
-    } else {
-        "curve"
-    };
+    let line = line_or_curve(reference);
     let before = format!("a feature before {}", renderer.this());
     match follow {
         Follow::Replaced => format!(
@@ -711,32 +725,31 @@ fn followed_text(
         ),
         Follow::Continued => {
             let by = followed_by(renderer, &before);
+            let face = || {
+                continued_part(query, elements).map_or_else(
+                    || "a face that was removed".to_string(),
+                    |part| {
+                        describe_face(
+                            &part,
+                            renderer.bodies_of(body),
+                            renderer.names(),
+                            renderer.units(),
+                        )
+                    },
+                )
+            };
             match query.kind() {
-                partsmith_naming::ElementKind::Face => format!(
+                ElementKind::Face => format!(
                     "{element} was removed by {by}, which left its rim in the same place, so the rim is used."
                 ),
-                kind => {
-                    let face = continued_part(query, elements).map_or_else(
-                        || "a face that was removed".to_string(),
-                        |part| {
-                            describe_face(
-                                &part,
-                                renderer.bodies_of(body),
-                                renderer.names(),
-                                renderer.units(),
-                            )
-                        },
-                    );
-                    if kind == partsmith_naming::ElementKind::Edge {
-                        format!(
-                            "{element} now runs along the rim that {by} left in place of {face}, so that edge is used."
-                        )
-                    } else {
-                        format!(
-                            "{element} now lies on the rim that {by} left in place of {face}, so that corner is used."
-                        )
-                    }
-                }
+                ElementKind::Edge => format!(
+                    "{element} now runs along the rim that {by} left in place of {}, so that edge is used.",
+                    face()
+                ),
+                ElementKind::Vertex => format!(
+                    "{element} now lies on the rim that {by} left in place of {}, so that corner is used.",
+                    face()
+                ),
             }
         }
         Follow::Related => format!(
@@ -752,20 +765,19 @@ fn continued_part(query: &ElementName, elements: &[Reference]) -> Option<String>
     let rims: Vec<String> = elements
         .iter()
         .flat_map(|element| element.query.face_terms())
-        .filter_map(|face| super::describe::rim_generator(face.as_str()))
-        .map(|generator| super::describe::piece_free_text(&generator))
+        .filter_map(|face| rim_generator(face.as_str()))
+        .map(|generator| piece_free_text(&generator))
         .collect();
     query
         .face_terms()
         .iter()
         .map(ToString::to_string)
-        .find(|term| rims.contains(&super::describe::piece_free_text(term)))
+        .find(|term| rims.contains(&piece_free_text(term)))
 }
 
 #[cfg(test)]
 mod tests {
     use partsmith_model::FeatureRecord;
-    use partsmith_naming::ElementKind;
     use serde_json::json;
 
     use super::*;
@@ -803,6 +815,7 @@ mod tests {
             ambiguous,
             lost: Lost::default(),
             candidates: Vec::new(),
+            matches: 0,
         }
     }
 

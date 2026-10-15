@@ -147,7 +147,7 @@ function PlaneLabels({ scene }: { readonly scene: Scene }) {
  * A card centered in the free area on the `surfaceRaised` role (3.24: text over the view sits on a
  * card), in a layer above the inspector so the core's panels and their buttons stay uncovered (4.4).
  */
-function OverlayChip({ children }: { readonly children: ReactNode }) {
+function OverlayCard({ children }: { readonly children: ReactNode }) {
   return (
     <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center p-4">
       <div
@@ -187,7 +187,7 @@ function StillWorking() {
   const app = useApp()
   const stoppable = canStopRunningCore(app)
   return (
-    <OverlayChip>
+    <OverlayCard>
       <div data-testid="core-working" role="alert" className="flex flex-col gap-3">
         <p>
           {stoppable
@@ -207,7 +207,7 @@ function StillWorking() {
           </div>
         )}
       </div>
-    </OverlayChip>
+    </OverlayCard>
   )
 }
 
@@ -220,18 +220,18 @@ function CoreStatus({ restoring }: { readonly restoring: boolean }) {
   const stillWorking = useAppState((state) => state.core.stillWorking)
   if (status === 'loading') {
     return (
-      <OverlayChip>
+      <OverlayCard>
         <output data-testid="core-overlay" className="flex items-center gap-3">
           <Spinner />
           Loading the geometry core
         </output>
-      </OverlayChip>
+      </OverlayCard>
     )
   }
   if (status === 'failed') {
     const reason = fatal ?? ''
     return (
-      <OverlayChip>
+      <OverlayCard>
         <div data-testid="core-fatal" role="alert" className="flex flex-col gap-3">
           <p>{started ? MESSAGES.core_stopped(reason) : MESSAGES.core_load_failed(reason)}</p>
           <div className="flex justify-end">
@@ -256,7 +256,7 @@ function CoreStatus({ restoring }: { readonly restoring: boolean }) {
             )}
           </div>
         </div>
-      </OverlayChip>
+      </OverlayCard>
     )
   }
   if (stillWorking) {
@@ -264,7 +264,7 @@ function CoreStatus({ restoring }: { readonly restoring: boolean }) {
   }
   if (restoring) {
     return (
-      <OverlayChip>
+      <OverlayCard>
         <div
           // ui.md 3.12 names the status role of this overlay.
           // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
@@ -274,7 +274,7 @@ function CoreStatus({ restoring }: { readonly restoring: boolean }) {
           <Spinner />
           Restoring the 3D view
         </div>
-      </OverlayChip>
+      </OverlayCard>
     )
   }
   return null

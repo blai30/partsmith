@@ -38,9 +38,13 @@ import {
   regionItem,
   sketchPointItem,
 } from '../test/fakes/selection'
+import { stubResizeObserver } from '../test/fakes/resize-observer'
 import { settle } from '../test/fakes/settle'
 import { CUBE_BOUNDS, meshSummary } from '../test/fakes/state'
+import { createFakeViewport } from '../test/fakes/viewport'
 import { COLOR_CLASSES, FONT_CLASSES } from '../theme/roles'
+import { Inspector } from './Inspector'
+import type { Rectangle } from './placement'
 
 beforeEach(installPopoverPolyfill)
 
@@ -905,5 +909,149 @@ describe('the selection inspector (3.8)', () => {
     const positioned = panel.closest('[data-positioned]') ?? panel
     expect(positioned).toHaveAttribute('data-positioned')
     expect(positioned.getAttribute('style')).toMatch(/^translate: [-\d.]+px [-\d.]+px;?$/)
+  })
+})
+
+describe('placement in the free-area layer (3.7, U-187)', () => {
+  // The free-area layer of a 1280 by 720 window with the browser open, in page pixels.
+  const LAYER: Rectangle = { x: 280, y: 64, width: 992, height: 548 }
+  let boxes = new Map<string, Rectangle>()
+
+  /** A rectangle given in the layer's coordinates, in page pixels. */
+  function inLayer(x: number, y: number, width: number, height: number): Rectangle {
+    return { x: LAYER.x + x, y: LAYER.y + y, width, height }
+  }
+
+  beforeEach(() => {
+    boxes = new Map([
+      ['layer', LAYER],
+      ['viewport-controls', inLayer(16, 16, 42, 150)],
+      // An empty slot holds only a hidden live region.
+      ['top-center-slot', inLayer(176, 16, 640, 0)],
+    ])
+    // Elements are found by their test id, or by their accessible name when they have none.
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function box(
+      this: Element,
+    ) {
+      const testId = this instanceof HTMLElement ? this.dataset['testid'] : undefined
+      const key = testId ?? this.getAttribute('aria-label') ?? ''
+      return DOMRect.fromRect(boxes.get(key) ?? { x: 0, y: 0, width: 0, height: 0 })
+    })
+    vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockImplementation(function width(
+      this: HTMLElement,
+    ) {
+      return this.dataset['testid'] === 'inspector' ? 320 : 0
+    })
+    vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockImplementation(function height(
+      this: HTMLElement,
+    ) {
+      return this.dataset['testid'] === 'inspector' ? 300 : 0
+    })
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  /**
+   * Renders the inspector in a free-area layer beside the viewport controls, the view cube and the
+   * top-center slot, with a viewport whose free area lies at (280, 64) in the canvas and whose
+   * items project to `items` in canvas pixels.
+   */
+  function renderInLayer(
+    state: Partial<AppState>,
+    document: DocumentState = cubeDocumentState(),
+    items: Rectangle = { x: 600, y: 200, width: 40, height: 40 },
+  ) {
+    const test = createModelApp({ state: readyState(document, state) })
+    const viewport = createFakeViewport()
+    viewport.viewWindow.mockReturnValue({ width: 1280, height: 720, free: LAYER })
+    viewport.screenRectangle.mockImplementation((selected) =>
+      selected.length === 0 ? null : items,
+    )
+    test.app.attachViewport(viewport)
+    renderWithApp(
+      test.app,
+      <div data-testid="layer">
+        <div data-testid="viewport-controls" />
+        <fieldset data-testid="view-cube">
+          <button type="button" aria-label="Home view" />
+        </fieldset>
+        <div data-testid="top-center-slot" />
+        <Inspector />
+      </div>,
+    )
+    return test
+  }
+
+  function translate(): string {
+    return inspector().style.translate
+  }
+
+  it('U-187 opens right of the viewport controls with nothing preselected', () => {
+    renderInLayer({ command: NEW_EXTRUDE }, rectSketchDocumentState())
+    expect(translate()).toBe('74px 16px')
+  })
+
+  it('U-187 opens beside its items, moved from canvas to free-area coordinates', () => {
+    renderInLayer({ selection: [bodyItem('b-cube', 'Cube')] })
+    expect(translate()).toBe('376px 136px')
+  })
+
+  it('U-187 opens under the top-center slot content where it fits', () => {
+    boxes.set('top-center-slot', inLayer(176, 16, 640, 80))
+    renderInLayer({ command: NEW_EXTRUDE }, rectSketchDocumentState())
+    expect(translate()).toBe('74px 112px')
+  })
+
+  it('U-187 opens left of its items where right of them would reach the view cube', () => {
+    // The cube at top-11 right-9, its Home view button 10rem from the free area's right edge.
+    boxes.set('view-cube', inLayer(860, 44, 96, 96))
+    boxes.set('Home view', inLayer(832, 16, 24, 24))
+    // Items at (520, 136) in the free area: right of them the card would end at 912, past 832.
+    renderInLayer({ selection: [bodyItem('b-cube', 'Cube')] }, cubeDocumentState(), {
+      x: 800,
+      y: 200,
+      width: 40,
+      height: 40,
+    })
+    expect(translate()).toBe('184px 136px')
+  })
+
+  it('U-187 opens at the free area corner where right of the controls is too narrow', () => {
+    boxes.set('layer', { ...LAYER, width: 384 })
+    renderInLayer({ command: NEW_EXTRUDE }, rectSketchDocumentState())
+    expect(translate()).toBe('16px 16px')
+  })
+
+  it('clamps a dragged position kept from an earlier inspector into the free area', () => {
+    const { app } = renderInLayer({})
+    act(() => {
+      app.store.setState((state) => ({
+        panels: { ...state.panels, inspectorPosition: { x: 900, y: 400 } },
+        selection: [bodyItem('b-cube', 'Cube')],
+      }))
+    })
+    // 992 - 320 and 548 - 300: the whole card stays in the free area.
+    expect(translate()).toBe('672px 248px')
+    expect(app.store.getState().panels.inspectorPosition).toEqual({ x: 900, y: 400 })
+  })
+
+  it('moves an open card back into a free area that shrinks under it', () => {
+    const observers = stubResizeObserver()
+    const { app } = renderInLayer({})
+    act(() => {
+      app.store.setState((state) => ({
+        panels: { ...state.panels, inspectorPosition: { x: 672, y: 16 } },
+        selection: [bodyItem('b-cube', 'Cube')],
+      }))
+    })
+    expect(translate()).toBe('672px 16px')
+    // A docked side panel opens: the free area is 624 pixels wide.
+    boxes.set('layer', { ...LAYER, width: 624 })
+    act(() => {
+      observers.fire()
+    })
+    expect(translate()).toBe('304px 16px')
   })
 })

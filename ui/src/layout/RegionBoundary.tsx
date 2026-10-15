@@ -13,6 +13,11 @@ export type RegionBoundaryProps = {
   readonly region: string
   /** Layout and shape classes for the fallback, so it keeps the region's place and island shape in the window (3.2). */
   readonly fallbackClassName?: string
+  /**
+   * The region is a one-row bar (top bar, timeline, status bar): its fallback is one row whose
+   * message truncates before a compact Reload, so both fit a bar as slim as the status bar.
+   */
+  readonly bar?: boolean
   readonly children: ReactNode
 }
 
@@ -33,11 +38,13 @@ export class RegionBoundary extends Component<RegionBoundaryProps, RegionBoundar
     if (!this.state.crashed) {
       return this.props.children
     }
+    const bar = this.props.bar === true
+    // An island never scrolls as a whole: its body does (3.2).
     return (
       <div
         role="alert"
         className={clsx(
-          'flex min-h-0 min-w-0 flex-col items-start gap-3 overflow-hidden p-4 text-sm',
+          'flex min-h-0 min-w-0 flex-col overflow-hidden',
           COLOR_CLASSES.surface.background,
           COLOR_CLASSES.border.border,
           COLOR_CLASSES.elevation.shadow,
@@ -45,14 +52,23 @@ export class RegionBoundary extends Component<RegionBoundaryProps, RegionBoundar
           this.props.fallbackClassName,
         )}
       >
-        <p>{MESSAGES.region_crashed()}</p>
-        <Button
-          onClick={() => {
-            location.reload()
-          }}
+        <div
+          className={clsx(
+            'flex min-h-0 flex-1',
+            bar && 'items-center gap-3 overflow-hidden px-3 text-xs',
+            !bar && 'flex-col items-start gap-3 overflow-y-auto p-4 text-sm',
+          )}
         >
-          Reload
-        </Button>
+          <p className={clsx(bar && 'min-w-0 truncate')}>{MESSAGES.region_crashed()}</p>
+          <Button
+            size={bar ? 'compact' : 'default'}
+            onClick={() => {
+              location.reload()
+            }}
+          >
+            Reload
+          </Button>
+        </div>
       </div>
     )
   }

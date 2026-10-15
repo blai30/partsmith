@@ -32,8 +32,8 @@ use serde_json::{Value, json};
 pub use feature_support::{
     AXIS_TOLERANCE, LENGTH_TOLERANCE, MEASURE_TOLERANCE, assert_absolute, assert_bounding_box,
     assert_coordinates, assert_face_normal, assert_face_position, assert_relative,
-    assert_solid_count, assert_volume, body, datum_plane, element_names, face, face_names, feature,
-    final_state, output, output_update, state_before,
+    assert_solid_count, assert_volume, body_report, datum_plane, element_names, face, face_names,
+    feature_report, final_state, output, output_update, state_before,
 };
 
 // Ids and documents.
@@ -269,6 +269,12 @@ pub fn test_node(
     record
 }
 
+/// A `test_history` record reading the writer chain of `body`, which must name `writers` in
+/// timeline order.
+pub fn test_history(feature: &str, body: &str, writers: &[&str]) -> Value {
+    json!({"id": feature, "type": "test_history", "body": body, "writers": writers})
+}
+
 /// A record of one of the body-only test features (`test_peek`, `test_stray`, `test_twice`).
 pub fn test_on_body(feature: &str, kind: &str, body: &str) -> Value {
     json!({"id": feature, "type": kind, "body": body})
@@ -406,7 +412,7 @@ impl Harness {
 
 /// The ids in a feature's `bodies_before`, in order.
 pub fn bodies_before_ids(report: &Report, feature_id: &str) -> Vec<String> {
-    feature(report, feature_id)
+    feature_report(report, feature_id)
         .bodies_before
         .iter()
         .map(|(body, _)| body.to_string())
@@ -450,7 +456,7 @@ pub fn status_name(status: &Status) -> &'static str {
 
 /// The status of one feature, as a snake_case name.
 pub fn status(report: &Report, feature_id: &str) -> &'static str {
-    status_name(&feature(report, feature_id).status)
+    status_name(&feature_report(report, feature_id).status)
 }
 
 /// Every feature with its status, in report order.
@@ -464,7 +470,7 @@ pub fn statuses(report: &Report) -> Vec<(String, &'static str)> {
 
 /// The error code of a feature that failed.
 pub fn error_code(report: &Report, feature_id: &str) -> &'static str {
-    feature(report, feature_id)
+    feature_report(report, feature_id)
         .error
         .as_ref()
         .unwrap_or_else(|| panic!("{feature_id} has no error"))
@@ -473,7 +479,7 @@ pub fn error_code(report: &Report, feature_id: &str) -> &'static str {
 
 /// The warning codes of a feature, in order.
 pub fn warning_codes(report: &Report, feature_id: &str) -> Vec<&'static str> {
-    feature(report, feature_id)
+    feature_report(report, feature_id)
         .warnings
         .iter()
         .map(|warning| warning.code())
@@ -482,7 +488,7 @@ pub fn warning_codes(report: &Report, feature_id: &str) -> Vec<&'static str> {
 
 /// The rendered messages of a feature.
 pub fn messages<'r>(report: &'r Report, feature_id: &str) -> &'r [Message] {
-    &feature(report, feature_id).messages
+    &feature_report(report, feature_id).messages
 }
 
 /// The first rendered message of a feature.
@@ -510,7 +516,7 @@ pub fn severity_name(severity: &Severity) -> &'static str {
 
 /// The cache key of a feature.
 pub fn key(report: &Report, feature_id: &str) -> Option<CacheKey> {
-    feature(report, feature_id).key
+    feature_report(report, feature_id).key
 }
 
 /// Every feature with its key, in report order.

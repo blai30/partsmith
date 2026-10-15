@@ -608,6 +608,49 @@ fn t001_pieces_of_a_split_face() {
 }
 
 #[test]
+fn t001_a_stored_piece_reads_by_the_side_its_stored_shape_lies_on() {
+    // A piece stored without anchors under its sibling's shape (a guess, section 3.8) reads by where that shape lies
+    // along the axis on which the two pieces differ, never by an axis they share.
+    let mut features = block();
+    features.extend(slot(30.0, 50.0));
+    let run = run_features(&["b-1"], &features);
+
+    assert_eq!(
+        describe_stored(
+            &run,
+            "b-1",
+            "f-ext1/end-cap#1",
+            "plane|n=0,0,1|c=65,25,30|a=1500|adj=4,4"
+        ),
+        "the right part of the top of 'Extrude 1'"
+    );
+    assert_eq!(
+        describe_stored(
+            &run,
+            "b-1",
+            "f-ext1/end-cap#2",
+            "plane|n=0,0,1|c=15,25,30|a=1500|adj=4,4"
+        ),
+        "the left part of the top of 'Extrude 1'"
+    );
+}
+
+#[test]
+fn t001_a_role_a_primitive_never_makes_reads_as_a_face_of_it() {
+    let cube = run_features(&["b-1"], &[cube20()]);
+
+    assert_eq!(
+        describe_stored(
+            &cube,
+            "b-1",
+            "f-box1/nothing",
+            "plane|n=0,0,1|c=500,500,500|a=1"
+        ),
+        "a face of 'Box 1'"
+    );
+}
+
+#[test]
 fn t001_faces_of_dress_ups_and_splits() {
     // features/fillet.md test 1, features/shell.md test 1 and features/split_body.md test 1.
     let filleted = run_features(

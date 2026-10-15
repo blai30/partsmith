@@ -1168,6 +1168,7 @@ mod tests {
             ambiguous,
             lost: Lost::default(),
             candidates: vec![candidate; count],
+            matches: if ambiguous { count } else { 0 },
         }
     }
 
