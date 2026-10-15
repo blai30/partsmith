@@ -39,8 +39,8 @@ function hovers(event: PointerEvent): boolean {
 
 /**
  * Describes its trigger with a label and shortcut, and a description on a second line: shown after 500 ms of hover and at once on
- * keyboard focus; closed by Esc, by pressing the trigger, and when both the pointer and keyboard
- * focus have left (ui.md 3.24). The tooltip stays in the DOM, referenced by the trigger's
+ * keyboard focus, except focus that follows an Esc; closed by Esc, by pressing the trigger, and
+ * when both the pointer and keyboard focus have left (ui.md 3.24). The tooltip stays in the DOM, referenced by the trigger's
  * aria-describedby. Trigger and tooltip share a `display: contents` wrapper that takes their
  * pointer and focus events, so the trigger lays out as a direct child of its container (use
  * `gap` there rather than `space-*` or `divide-*`, which style the wrapper).
@@ -51,7 +51,9 @@ export function Tooltip({ label, shortcut = null, description = null, children }
   const tooltip = useRef<HTMLSpanElement>(null)
   const trigger = useRef<Element | null>(null)
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
-  // Whether the last interaction was a key press, so the next focus counts as keyboard focus.
+  // Whether the last interaction was a key press other than Esc, so the next focus counts as
+  // keyboard focus. Esc never opens a tooltip: the browser gives focus back to the trigger of the
+  // popover an Esc closes while it is still closing it, and showing a tooltip then throws (3.24).
   const keyboardInteraction = useRef(false)
   // Whether the trigger has keyboard focus, which keeps the tooltip open when the pointer leaves.
   const keyboardFocus = useRef(false)
@@ -80,8 +82,9 @@ export function Tooltip({ label, shortcut = null, description = null, children }
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
-      keyboardInteraction.current = true
-      if (event.key === 'Escape') {
+      const escape = event.key === 'Escape'
+      keyboardInteraction.current = !escape
+      if (escape) {
         hideNow()
       }
     }

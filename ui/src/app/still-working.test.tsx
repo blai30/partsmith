@@ -168,7 +168,11 @@ describe('still working (3.21, 4.4)', () => {
       return { result: { type: 'pick_reference', element: CUBE_TOP_FACE } }
     })
     // Request A at 0 ms.
-    const first = fake.app.core.pickReference(documentHandle, { mesh_id: 1, kind: 'face', index: 0 })
+    const first = fake.app.core.pickReference(documentHandle, {
+      mesh_id: 1,
+      kind: 'face',
+      index: 0,
+    })
     await settle()
     await advance(5_000)
     // Request B at 5,000 ms, never answered.
@@ -231,7 +235,8 @@ const BACKGROUND_REQUESTS: readonly CoreRequest[] = [
   },
   {
     type: 'measure',
-    send: (app, documentHandle) => app.core.measure(documentHandle, { kind: 'body', body: 'b-cube' }),
+    send: (app, documentHandle) =>
+      app.core.measure(documentHandle, { kind: 'body', body: 'b-cube' }),
   },
   { type: 'evaluate', send: (app, documentHandle) => app.core.evaluate(documentHandle, '1 mm') },
 ]
@@ -246,16 +251,23 @@ const WAITED_ON_REQUESTS: readonly CoreRequest[] = [
     type: 'open_document',
     send: (app) => app.core.openDocument(JSON.stringify(TWO_BODIES_DOCUMENT, null, 2)),
   },
-  { type: 'export', send: (app, documentHandle) => app.core.exportBodies(documentHandle, 'stl') },
+  {
+    type: 'export',
+    send: (app, documentHandle) => app.core.exportBodies(documentHandle, { kind: '3mf' }),
+  },
   {
     type: 'pick_reference',
     send: (app, documentHandle) =>
       app.core.pickReference(documentHandle, { mesh_id: 1, kind: 'face', index: 0 }),
   },
-  { type: 'solve_sketch', send: (app, documentHandle) => app.core.solveSketch(documentHandle, 'f-sk1') },
+  {
+    type: 'solve_sketch',
+    send: (app, documentHandle) => app.core.solveSketch(documentHandle, 'f-sk1'),
+  },
   {
     type: 'drag_sketch',
-    send: (app, documentHandle) => app.core.dragSketch(documentHandle, 'f-sk1', 'e-1/start', [5, 5]),
+    send: (app, documentHandle) =>
+      app.core.dragSketch(documentHandle, 'f-sk1', 'e-1/start', [5, 5]),
   },
 ]
 
@@ -366,6 +378,7 @@ describe('only waited-on requests count (2.5, 3.21, 4.4)', () => {
     await advance(1_000)
     sendIgnored(fake.app, requestOf(BACKGROUND_REQUESTS, 'analyze_print'))
     await act(() => settle())
+    expect(fake.transport.commandTypes()).toEqual(['apply_edits', 'analyze_print'])
 
     await advance(57_000)
     expectNotStillWorking(fake.app)
@@ -398,10 +411,7 @@ describe('only waited-on requests count (2.5, 3.21, 4.4)', () => {
     fake.transport.handle('apply_edits', neverAnswer)
     const { documentHandle } = currentDocument(fake.app)
     // The analysis at 0 ms, answered at 8,000 ms.
-    const analysis = requestOf(BACKGROUND_REQUESTS, 'analyze_print').send(
-      fake.app,
-      documentHandle,
-    )
+    const analysis = requestOf(BACKGROUND_REQUESTS, 'analyze_print').send(fake.app, documentHandle)
     await settle()
     await advance(1_000)
     // The edit at 1,000 ms, never answered.
@@ -422,9 +432,9 @@ describe('only waited-on requests count (2.5, 3.21, 4.4)', () => {
 })
 
 /** Sets the still-working state as the app does after 10 s without an answer (4.4). */
-function setStillWorking(app: App, stillWorking: boolean): void {
+function setStillWorking(app: App, working: boolean): void {
   act(() => {
-    app.store.setState((state) => ({ core: { ...state.core, stillWorking } }))
+    app.store.setState((state) => ({ core: { ...state.core, stillWorking: working } }))
   })
 }
 

@@ -405,10 +405,14 @@ mod tests {
 
     #[test]
     fn documents_reject_unknown_keys() {
-        let result = serde_json::from_value::<Document>(json!({
-            "format": "partsmith", "format_version": 1, "units": "mm", "extra": 1
-        }));
+        let mut value = json!({"format": FORMAT, "format_version": FORMAT_VERSION, "units": "mm"});
+        let known = serde_json::from_value::<Document>(value.clone());
+        value["extra"] = json!(1);
 
-        assert!(result.is_err());
+        let error = serde_json::from_value::<Document>(value)
+            .expect_err("an unknown root key is rejected");
+
+        assert_eq!(known.ok(), Some(Document::new(Units::Mm)));
+        assert!(error.to_string().contains("extra"), "{error}");
     }
 }

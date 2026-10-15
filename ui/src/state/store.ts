@@ -59,7 +59,7 @@ export type CoreState = {
   readonly fatal: string | null
   /** Mutating requests sent and not yet answered. */
   readonly pendingMutations: number
-  /** True while the core has answered nothing for `STILL_WORKING_SECONDS` with a request waiting (4.4); false at start. */
+  /** True while the core has answered nothing for `STILL_WORKING_SECONDS` with a waited-on request waiting (4.4; background requests never count); false at start. */
   readonly stillWorking: boolean
 }
 

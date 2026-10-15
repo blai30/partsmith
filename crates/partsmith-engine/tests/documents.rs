@@ -6,7 +6,7 @@ use common::{
     GEOMETRY_TOLERANCE, assert_bounding_box, assert_near, doc_handle, fixture, get_document,
     new_doc, open, open_text, reindent, replace_once, saved_text, send, session,
 };
-use partsmith_model::Dimension;
+use partsmith_model::{Dimension, FORMAT_VERSION};
 use pretty_assertions::assert_eq;
 use serde_json::json;
 
@@ -34,7 +34,7 @@ fn t001_new_document_emits_document_changed_then_recomputed() {
     assert!(changed.get("undo").is_none(), "no undo label: {changed}");
     assert_eq!(
         changed["document"],
-        json!({"format": "partsmith", "format_version": 1, "units": "mm", "parameters": [], "bodies": [], "features": []})
+        json!({"format": "partsmith", "format_version": FORMAT_VERSION, "units": "mm", "parameters": [], "bodies": [], "features": []})
     );
     let recomputed = &sent.events[1];
     assert_eq!(recomputed["features"], json!([]));
@@ -230,7 +230,7 @@ fn t010_newer_format_version_is_unsupported() {
     let mut session = session();
     let text = replace_once(
         &fixture("box.ptsm"),
-        r#""format_version": 1,"#,
+        &format!(r#""format_version": {FORMAT_VERSION},"#),
         r#""format_version": 99,"#,
     );
 

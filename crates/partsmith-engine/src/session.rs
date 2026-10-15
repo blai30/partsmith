@@ -400,7 +400,7 @@ mod tests {
 
         assert_eq!(info.kernel, format!("OCCT {OCCT_VERSION}"));
         assert_eq!(info.protocol_version, PROTOCOL_VERSION);
-        assert_eq!(info.format_version, 1);
+        assert_eq!(info.format_version, FORMAT_VERSION);
     }
 
     #[test]

@@ -20,6 +20,7 @@ import {
   dragOnCanvas,
   expectCurrentReport,
   expectTargetChanged,
+  exportButton,
   exportFromPopover,
   exportStatusText,
   healthBadge,
@@ -33,8 +34,11 @@ import {
   wheelAt,
 } from './support/print'
 
-// Viewport navigation and picking (ui.md 3.12 to 3.15), the Print context (3.17) and export
-// (3.18) against the production build and the real core (6.5).
+// Viewport navigation and picking (ui.md 3.12 to 3.15), the Print context (3.17), export (3.18)
+// and the tooltips of their controls after Esc (3.24) against the production build and the real
+// core (6.5).
+
+const REGION_CRASHED = 'This part of the window hit a problem. Reload to restore it.'
 
 /** Expects the viewport's classified view (ui.md 3.13). */
 async function expectView(page: Page, view: string): Promise<void> {
@@ -432,5 +436,37 @@ test.describe('Print and export', () => {
     await expect(page.getByTestId('export-popover')).toBeHidden()
     await layOnFace.click()
     await expect(layOnFace).toHaveAttribute('aria-pressed', 'false')
+  })
+})
+
+test.describe('Tooltips after Esc', () => {
+  test('E-132 Esc gives focus back without a tooltip', async ({ page }) => {
+    await openApp(page)
+    await dropFile(page, 'cube.ptsm')
+    const exporting = exportButton(page)
+    const popover = await openExportPopover(page)
+    await page.keyboard.press('Escape')
+    await expect(popover).toBeHidden()
+    await expect(exporting).toBeFocused()
+    const tooltips = page.getByRole('tooltip')
+    await expect(tooltips).toHaveCount(0)
+    await expect(page.getByTestId('top-bar')).toBeVisible()
+    await expect(page.getByText(REGION_CRASHED, { exact: true })).toHaveCount(0)
+    // Keyboard focus that follows another key shows the tooltip again.
+    await page.keyboard.press('Shift+Tab')
+    await page.keyboard.press('Tab')
+    await expect(exporting).toBeFocused()
+    await expect(tooltips).toHaveCount(1)
+    await expect(tooltips).toContainText('Export')
+
+    await fitView(page, 'Front')
+    await page.keyboard.press('Shift+X')
+    const section = page.getByTestId('section-popover')
+    await expect(section).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(section).toBeHidden()
+    await expect(page.getByRole('button', { name: 'Fit to view', exact: true })).toBeFocused()
+    await expect(tooltips).toHaveCount(0)
+    await expect(viewport(page)).toBeVisible()
   })
 })

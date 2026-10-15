@@ -1037,9 +1037,13 @@ fn resolved_with(element: ElementName, method: MatchMethod, confidence: f64) -> 
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use partsmith_model::Id;
 
     use super::*;
+    use crate::aliases::{Aliases, Successions};
+    use crate::element_info::ElementInfo;
     use crate::fingerprint::Fingerprint;
     use crate::name_set::testing::{name, set_of};
     use crate::reference::Merged;
@@ -1152,6 +1156,59 @@ mod tests {
         assert_eq!(top_two(&[(0.9, 1), (0.8, 2), (0.1, 3)]), (0.9, 0.8));
         assert_eq!(top_two(&[(0.9, 1)]), (0.9, 0.0));
         assert_eq!(top_two(&[]), (0.0, 0.0));
+    }
+
+    /// An element info named `text` with an unspecific fingerprint of its kind; an edge lists the
+    /// face terms of its name as its adjacency.
+    fn element(text: &str) -> ElementInfo {
+        let name = name(text);
+        let kind = name.kind();
+        let fingerprint = match kind {
+            ElementKind::Face => "plane|n=0,0,1|c=0,0,0",
+            ElementKind::Edge => "line|n=0,0,1|c=0,0,0",
+            ElementKind::Vertex => "point|c=0,0,0",
+        };
+        ElementInfo {
+            adjacency: name.face_terms(),
+            kind,
+            fingerprint: Fingerprint::parse(fingerprint).expect("valid fingerprint"),
+            name,
+            vertices: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn a_one_face_edge_follows_a_relative_of_its_only_face() {
+        // A counterbore hole that became a simple hole: the seam of its counterbore is gone, and
+        // the seam of its bore, made from the same point, is its relative (section 3.9 step 4).
+        let set = ElementSet::new(
+            Arc::from(vec![
+                element("f-hole1/bore/e-p1"),
+                element("edge(f-hole1/bore/e-p1)"),
+            ]),
+            Aliases::default(),
+            Successions::default(),
+        )
+        .expect("distinct names");
+        let reference = Reference::new(
+            name("edge(f-hole1/counterbore/e-p1)"),
+            Fingerprint::parse("line|n=0,0,1|c=0,0,0").expect("valid fingerprint"),
+        )
+        .expect("the kinds agree");
+
+        let resolution = Resolver::new(&reference, &set).resolve();
+
+        assert_eq!(
+            resolution,
+            Resolution::Resolved {
+                elements: vec![name("edge(f-hole1/bore/e-p1)")],
+                method: MatchMethod::Related,
+                confidence: 1.0,
+                follow: Some(Follow::Related),
+                via: Vec::new(),
+                alternatives: Vec::new(),
+            }
+        );
     }
 
     #[test]

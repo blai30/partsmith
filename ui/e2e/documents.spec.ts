@@ -27,6 +27,14 @@ import {
   storedRecoveries,
   timelineItems,
 } from './support/documents'
+import {
+  chooseContext,
+  dragOnCanvas,
+  expectCurrentReport,
+  healthBadge,
+  printTool,
+  printToolbar,
+} from './support/print'
 
 // Documents, files, recovery, undo and redo, notifications, the status bar and a stuck core
 // (ui.md 3.1, 3.19 to 3.22, 4.4): the E-tests of ui.md 6.5 that exercise them, against the real
@@ -58,6 +66,21 @@ async function expectCubeOpened(page: Page): Promise<void> {
   await expect(bodyRow(page, 'Cube')).toBeVisible()
   await expect(page.getByTestId('status-recompute')).toHaveText(/^Rebuilt in \d+(\.\d)? (ms|s)$/)
   await expect(page.getByTestId('document-name')).toHaveAttribute('data-dirty', 'false')
+}
+
+/**
+ * Starts renaming a body as `renameBody` does (click its row, F2, type, Enter), without waiting
+ * for the core to answer. Returns the time Enter was pressed, which sends the rename.
+ */
+async function sendRename(page: Page, from: string, to: string): Promise<number> {
+  await bodyRow(page, from).click()
+  await page.keyboard.press('F2')
+  const field = page.getByTestId('browser').getByRole('textbox', { name: 'Name', exact: true })
+  await expect(field).toBeFocused()
+  await page.keyboard.type(to)
+  const sentAt = Date.now()
+  await page.keyboard.press('Enter')
+  return sentAt
 }
 
 /** The data-grid-spacing of the viewport as a number, or NaN when it is not a number. */
@@ -305,13 +328,7 @@ test.describe('Recovery sessions and a stuck core', () => {
     await expectStoredRecovery(page, '"name": "Box"')
 
     // The core never answers this rename, so the row keeps its name.
-    await bodyRow(page, 'Box').click()
-    await page.keyboard.press('F2')
-    const field = page.getByTestId('browser').getByRole('textbox', { name: 'Name', exact: true })
-    await expect(field).toBeFocused()
-    await page.keyboard.type('Stall here')
-    const stalledAt = Date.now()
-    await page.keyboard.press('Enter')
+    const stalledAt = await sendRename(page, 'Box', 'Stall here')
     const status = page.getByTestId('status-core')
     await expect(status).toHaveText('Rebuilding', { timeout: 1_000 })
     // A change that waits behind the rename.
@@ -353,6 +370,82 @@ test.describe('Recovery sessions and a stuck core', () => {
     await expect(offers).not.toContainText('other document')
     await offers.getByRole('button', { name: 'Open', exact: true }).click()
     await expect(bodyRow(page, 'Lid')).toBeVisible()
+  })
+})
+
+test.describe('A core that is still working, continued', () => {
+  test('E-130 a slow print check is not a stuck core', async ({ page }) => {
+    test.setTimeout(60_000)
+    // Only the print analysis request contains this marker.
+    await stallCore(page, 'analyze_print')
+    await openApp(page)
+    await dropFile(page, 'cube.ptsm')
+    await chooseContext(page, 'Print')
+    const badge = healthBadge(page)
+    await expect(badge).toHaveAttribute('data-state', 'running')
+    await expect(badge).toHaveText('Checking')
+
+    await page.waitForTimeout(14_000)
+    const working = page.getByTestId('core-working')
+    const status = page.getByTestId('status-core')
+    await expect(working).toBeHidden()
+    await expect(status).toBeHidden()
+    await expect(badge).toHaveAttribute('data-state', 'running')
+    await expect(page.getByTestId('viewport')).toBeVisible()
+    await expect(printToolbar(page)).toBeVisible()
+    await expect(page.getByRole('radiogroup', { name: 'Context' })).toBeVisible()
+
+    // The core takes the rename only after the stuck analysis.
+    const renamedAt = await sendRename(page, 'Cube', 'Box')
+    await expect(status).toHaveText('Rebuilding', { timeout: 1_000 })
+    await page.waitForTimeout(Math.max(0, renamedAt + 8_000 - Date.now()))
+    await expect(working).toBeHidden()
+    await expect(working).toBeVisible({ timeout: Math.max(0, renamedAt + 14_000 - Date.now()) })
+    await working.getByRole('button', { name: 'Stop and restart core', exact: true }).click()
+    // The warning comes once the document is open again in the new core.
+    await expect(notification(page, 'warning', CHANGES_NOT_APPLIED)).toBeVisible()
+    await expectReady(page)
+    await expect(bodyRow(page, 'Cube')).toBeVisible()
+  })
+
+  test('E-131 the still-working panel leaves the model and the window usable', async ({ page }) => {
+    test.setTimeout(60_000)
+    await stallCore(page, 'Stall here')
+    await openApp(page)
+    await dropFile(page, 'cube.ptsm')
+    await chooseContext(page, 'Print')
+    // The report is in, so no analysis is left for the core to run before the rename.
+    await expectCurrentReport(page)
+
+    const stalledAt = await sendRename(page, 'Cube', 'Stall here')
+    const view = page.getByTestId('viewport')
+    const working = view.getByTestId('core-working')
+    await expect(working).toBeVisible({ timeout: Math.max(0, stalledAt + 14_000 - Date.now()) })
+    await expect(view).toBeVisible()
+    await expect(view.locator('canvas')).toBeVisible()
+    const overhangMap = printTool(page, 'Overhang map')
+    await expect(overhangMap).toBeVisible()
+    await expect(printTool(page, 'Lay on face')).toBeVisible()
+    await expect(
+      page
+        .getByRole('radiogroup', { name: 'Context' })
+        .getByRole('radio', { name: 'Print', exact: true }),
+    ).toBeChecked()
+
+    await overhangMap.click()
+    await expect(overhangMap).toHaveAttribute('aria-pressed', 'false')
+    // Below the panel, where the overhang legend was.
+    const { cx, cy, H } = await canvas(page)
+    const from = { x: cx, y: cy + 0.4 * H }
+    await dragOnCanvas(page, from, { x: from.x + 100, y: from.y }, ['right'])
+    await expect(view).toHaveAttribute('data-view', 'custom')
+    await chooseContext(page, 'Model')
+    await expect(page.getByRole('toolbar', { name: 'Model tools' })).toBeVisible()
+    await expect(working).toBeVisible()
+
+    await working.getByRole('button', { name: 'Stop and restart core', exact: true }).click()
+    await expect(working).toBeHidden()
+    await expectReady(page)
   })
 })
 

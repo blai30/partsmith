@@ -4,15 +4,17 @@
 
 mod feature_support;
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use feature_support::{
-    AXIS_TOLERANCE, Run, assert_coordinates, assert_error_field, assert_examples_canonical,
+    AXIS_TOLERANCE, Assets, Run, assert_coordinates, assert_error_field, assert_examples_canonical,
     assert_median_build_within, assert_placement, assert_relative, document_text, expression_uses,
     link_ids, load_example, message, parse_document, sketch_result,
 };
 use partsmith_features::{FallbackReason, FeatureError, FeatureWarning, Registry, Repair};
 use partsmith_model::{FeatureInspector, FieldUnit};
+use partsmith_occt_sys::{Plane, StepBody, make_box, write_step};
 use partsmith_sketch::{Placement, PointRef, SketchError};
 
 /// The four lines of `RECT(0, 0, 80, 50)` (features.md section 6.1).
@@ -198,13 +200,40 @@ fn t005_face_lost() {
     );
 }
 
+/// The name of the STEP asset of `face_ambiguous`.
+fn cube_asset_name() -> String {
+    format!("{}.step", "0".repeat(64))
+}
+
+/// A STEP file holding one 10 mm cube with its corner at the origin.
+fn cube_step() -> Assets {
+    let cube = make_box(&Plane::XY, 10.0, 10.0, 10.0).expect("the kernel makes a valid box");
+    let bodies = [StepBody {
+        shape: cube.shape,
+        name: "Cube".to_owned(),
+        color: None,
+    }];
+    let bytes: Arc<[u8]> = Arc::from(write_step(&bodies).expect("the kernel writes STEP"));
+    Assets::from([(cube_asset_name(), bytes)])
+}
+
 #[test]
 fn face_ambiguous() {
     // Section 3.3: a face reference that now matches several faces keeps the fallback placement.
-    // The query names no face and its partial fingerprint fits all six faces of the cube equally.
-    let run = Run::example("sketch/face-ambiguous.ptsm");
+    // Imported faces have fallback names, `f-imp1/face#1` to `#6`, which the resolver confirms by
+    // their fingerprint alone (naming.md section 3.9 step 1). The face named here is gone and its
+    // partial fingerprint fits all six faces of the cube equally.
+    let import = format!(
+        r#"{{"id": "f-imp1", "type": "import", "body": "b-1", "asset": "{}", "op": "new"}}"#,
+        cube_asset_name()
+    );
+    let sketch = format!(
+        r#"{{"id": "f-sk1", "type": "sketch", "plane": {{"kind": "face", "body": "b-1", "face": {{"q": "f-imp1/face#9", "fp": "plane|a=100"}}, "fallback": {{"origin": [3, 4, 0], "x_axis": [1, 0, 0], "normal": [0, 0, 1]}}}}, "entities": {RECTANGLE_ENTITIES}}}"#
+    );
+    let document = parse_document(&document_text("mm", &[], &["b-1"], &[&import, &sketch]));
+    let run = Run::with_assets(document, &cube_step());
 
-    run.assert_ok("f-box1");
+    run.assert_ok("f-imp1");
     let reason = plane_fallback_reason(&run);
     assert!(
         matches!(reason, FallbackReason::Ambiguous),

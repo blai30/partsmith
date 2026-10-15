@@ -118,13 +118,18 @@ mod tests {
 
     #[test]
     fn opposite_plane_normals_disagree_but_opposite_axes_agree() {
+        // Parsing canonicalizes axes, so the opposite axis is written into the struct directly.
+        let upward = fingerprint("cylinder|n=0,0,1");
+        let downward = Fingerprint {
+            direction: Some([0.0, 0.0, -1.0]),
+            ..upward.clone()
+        };
+
         assert!(!direction_agrees(
             &fingerprint("plane|n=0,0,1"),
             &fingerprint("plane|n=0,0,-1")
         ));
-        assert!(direction_agrees(
-            &fingerprint("cylinder|n=0,0,1"),
-            &fingerprint("cylinder|n=0,0,1")
-        ));
+        assert!(direction_agrees(&upward, &downward));
+        assert!(!direction_agrees(&upward, &fingerprint("cylinder|n=1,0,0")));
     }
 }

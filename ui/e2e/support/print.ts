@@ -3,9 +3,9 @@ import { expect, type Locator, type Page } from '@playwright/test'
 import { download, viewport, type Download, type PagePoint } from '../helpers'
 
 // Helpers for the viewport navigation, picking, Print context and export end-to-end tests
-// (ui.md 6.5 E-41 to E-55, E-65, E-95, E-97 and E-100): camera gestures, and locators for the
-// Print toolbar, the print check badge and panel, and the export popover. The shared helpers of
-// 6.3 are in ../helpers.ts.
+// (ui.md 6.5 E-41 to E-55, E-65, E-95, E-97, E-100 and E-130 to E-132): camera gestures, and
+// locators for the Print toolbar, the print check badge and panel, and the export popover. The
+// shared helpers of 6.3 are in ../helpers.ts.
 
 /** How long a print analysis may take: the core meshes and checks every body. */
 const ANALYSIS_TIMEOUT_MILLISECONDS = 20_000
@@ -155,14 +155,18 @@ export async function openPrintCheck(page: Page): Promise<void> {
   await expect(page.getByTestId('health-list')).toBeVisible()
 }
 
-/** Opens the export popover with the top bar's Export button (ui.md 3.18). */
-export async function openExportPopover(page: Page): Promise<Locator> {
+/** The top bar's Export button, which opens the export popover (ui.md 3.18). */
+export function exportButton(page: Page): Locator {
   const topBar = page.getByTestId('top-bar')
   // In Print the context toolbar, also in the top bar, has an "Export" group button of its own.
-  await topBar
+  return topBar
     .getByRole('button', { name: 'Export', exact: true })
     .and(topBar.locator('xpath=.//button[not(ancestor::*[@role="toolbar"])]'))
-    .click()
+}
+
+/** Opens the export popover with the top bar's Export button (ui.md 3.18). */
+export async function openExportPopover(page: Page): Promise<Locator> {
+  await exportButton(page).click()
   const popover = page.getByTestId('export-popover')
   await expect(popover).toBeVisible()
   return popover

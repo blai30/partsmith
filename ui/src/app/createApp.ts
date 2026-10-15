@@ -32,8 +32,8 @@ import { measureToNextFrame } from './timing'
 // The app object every action takes (ui.md 2.9): the store, the core API, the mutation queue, the
 // command registry and the host services. createApp wires core events into the store, counts and
 // times the requests that rebuild a document, notices a core that has answered nothing for a long
-// time, keeps a recovery copy of unsaved work, and restarts the core after a fatal error or when
-// the user stops a core that is still working (4.4).
+// time while the user waits on it, keeps a recovery copy of unsaved work, and restarts the core
+// after a fatal error or when the user stops a core that is still working (4.4).
 
 export { onCoreEvent } from './connection'
 
@@ -76,24 +76,48 @@ type Reopening = {
   readonly recoveryId: string
 }
 
-/** How long the core may answer nothing while a request waits before it is still working (4.4). */
+/** How long the core may answer nothing while a waited-on request waits before it is still working (4.4). */
 export const STILL_WORKING_SECONDS = 10
+
+/**
+ * The commands of background requests: those the UI sends on its own to keep what it shows
+ * current, which nobody waits on, so they never make the core still working (4.4). `list_uses`
+ * (protocol.md 2.5) joins the generated command types once the protocol schema is regenerated.
+ */
+export const BACKGROUND_COMMANDS: ReadonlySet<Command['type'] | 'list_uses'> = new Set([
+  'analyze_print',
+  'list_elements',
+  'resolve_references',
+  'measure',
+  'evaluate',
+  'list_uses',
+])
+
+/** Whether the user waits on a request: every one but a background request (4.4). */
+function isWaitedOn(command: Command): boolean {
+  return !BACKGROUND_COMMANDS.has(command.type)
+}
 
 /** Notes the requests sent to one core and how they end, for the still-working state (4.4). */
 type ResponseWatch = {
-  /** Notes a request sent; the returned function notes its end, `answered` false when no response came. */
-  sent(): (answered: boolean) => void
+  /**
+   * Notes a request sent, which the user waits on unless `waitedOn` is false; the returned
+   * function notes its end, `answered` false when no response came.
+   */
+  sent(waitedOn: boolean): (answered: boolean) => void
   /** Forgets the requests in flight, whose core is gone, and leaves the still-working state. */
   reset(): void
 }
 
 /**
  * Sets `core.stillWorking` once the core has answered nothing for `STILL_WORKING_SECONDS` while a
- * request waits, counted from the later of the oldest waiting request's sending and the latest
- * response, which the core gives in request order. The next response clears it.
+ * waited-on request waits, counted from the later of the oldest such request's sending and the
+ * latest response to any request, which the core gives in request order. A background request
+ * starts no count, but its response clears the state and counts again, as any response does.
  */
 function watchResponses(store: AppStore): ResponseWatch {
-  let waiting = 0
+  // Waited-on requests sent and not yet ended.
+  let waitedOnRequests = 0
   // Requests sent before a reset end without touching the count.
   let generation = 0
   let timer: ReturnType<typeof setTimeout> | null = null
@@ -104,13 +128,13 @@ function watchResponses(store: AppStore): ResponseWatch {
     }
   }
 
-  // Counts the time without a response from now, while a request waits.
+  // Counts the time without a response from now, while a waited-on request waits.
   function countFromNow(): void {
     if (timer !== null) {
       clearTimeout(timer)
       timer = null
     }
-    if (waiting > 0) {
+    if (waitedOnRequests > 0) {
       timer = setTimeout(() => {
         timer = null
         setStillWorking(true)
@@ -119,28 +143,32 @@ function watchResponses(store: AppStore): ResponseWatch {
   }
 
   return {
-    sent() {
+    sent(waitedOn) {
       const sentIn = generation
-      waiting += 1
-      if (waiting === 1) {
-        countFromNow()
+      if (waitedOn) {
+        waitedOnRequests += 1
+        if (waitedOnRequests === 1) {
+          countFromNow()
+        }
       }
       return (answered) => {
         if (sentIn !== generation) {
           return
         }
-        waiting -= 1
+        if (waitedOn) {
+          waitedOnRequests -= 1
+        }
         if (answered) {
           setStillWorking(false)
         }
-        if (answered || waiting === 0) {
+        if (answered || waitedOnRequests === 0) {
           countFromNow()
         }
       }
     },
     reset() {
       generation += 1
-      waiting = 0
+      waitedOnRequests = 0
       countFromNow()
       setStillWorking(false)
     },
@@ -211,13 +239,13 @@ export function createApp(options: CreateAppOptions): App {
   }
 
   /**
-   * Sends a command to the running core and watches for its response (4.4). A command that
-   * rebuilds a document counts in `pendingMutations` until it is answered, and its time from
-   * sending to the applied response is the document's rebuild time (3.21) and `ps:rebuild` once
-   * the viewport drew it (2.18).
+   * Sends a command to the running core and watches for its response: only a waited-on request
+   * left unanswered makes the core still working (4.4). A command that rebuilds a document counts in
+   * `pendingMutations` until it is answered, and its time from sending to the applied response is
+   * the document's rebuild time (3.21) and `ps:rebuild` once the viewport drew it (2.18).
    */
   async function request(command: Command): Promise<Reply> {
-    const ended = responses.sent()
+    const ended = responses.sent(isWaitedOn(command))
     const rebuilds = rebuildsDocument(command)
     const started = performance.now()
     if (rebuilds) {
