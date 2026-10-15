@@ -319,7 +319,7 @@ describe('axis letters in fields (3.7, U-181)', () => {
           position: ['0', '0', '0'],
           body: 'b-new',
         },
-        newBody: 'b-new',
+        newBody: { id: 'b-new', name: 'Body 1', path: 'body' },
       }),
       cubeDocumentState(),
     )

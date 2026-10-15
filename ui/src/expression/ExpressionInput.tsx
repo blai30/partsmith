@@ -11,10 +11,12 @@ import {
 } from 'react'
 import { useApp, useAppState } from '../app/AppProvider'
 import { openSidePanel } from '../app/actions/panels'
+import { AxisLetter } from '../components/AxisLetter'
 import { Button } from '../components/Button'
 import { describedBy } from '../components/described-by'
 import { HelpLabel } from '../components/HelpLabel'
 import type { Dimension, FieldUnit, Units } from '../generated/protocol'
+import type { InspectorField } from '../inspector/model'
 import { requestUi } from '../layout/requests'
 import { COLOR_CLASSES, FONT_CLASSES } from '../theme/roles'
 import {
@@ -67,6 +69,8 @@ export type ExpressionInputProps = {
   readonly completion?: boolean
   /** Controls at the end of the input's row, such as an inline Reverse toggle (3.7). */
   readonly trailing?: ReactNode
+  /** The coordinate the field holds (2.12): its letter is drawn inside the input's start (3.7). */
+  readonly axis?: InspectorField['axis']
   /** Called with the text on every edit, and again when the state of the text changes. */
   readonly onChange: (value: string, state: ExpressionState) => void
   readonly onCommit?: (value: string, state: ExpressionState) => void
@@ -146,6 +150,7 @@ export function ExpressionInput({
   offerParameter = false,
   completion = true,
   trailing = null,
+  axis = null,
   onChange,
   onCommit,
   onCancel,
@@ -420,6 +425,7 @@ export function ExpressionInput({
             }}
             className={clsx(
               'h-8 w-full min-w-0 rounded-sm border px-2 text-sm',
+              axis !== null && 'pl-6',
               FONT_CLASSES.values,
               COLOR_CLASSES.field.background,
               COLOR_CLASSES.text.foreground,
@@ -427,6 +433,14 @@ export function ExpressionInput({
               message !== '' ? COLOR_CLASSES.errorMark.border : COLOR_CLASSES.borderControl.border,
             )}
           />
+          {axis === null ? null : (
+            <AxisLetter
+              axis={axis.letter}
+              world={axis.world}
+              decorative
+              className="pointer-events-none absolute inset-y-0 left-0 flex w-6 items-center justify-center text-xs"
+            />
+          )}
           {completion ? (
             <ul
               id={listId}

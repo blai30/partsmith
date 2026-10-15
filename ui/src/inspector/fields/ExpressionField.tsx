@@ -40,6 +40,7 @@ export function ExpressionField({
       help={field.help}
       offerParameter
       trailing={trailing}
+      axis={field.axis}
       onFocus={() => {
         noteFieldFocused(app, field.path)
       }}
