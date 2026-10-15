@@ -12,12 +12,13 @@
 #[path = "../tests/common/mod.rs"]
 mod common;
 
+use std::collections::BTreeMap;
 use std::path::Path;
 use std::process::ExitCode;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use common::{Harness, bodies, document, statuses, test_datum, test_datum_on};
+use common::{Harness, bodies, document, feature_report, statuses, test_datum, test_datum_on};
 use partsmith_budgets::{median, median_time};
 use partsmith_features::{CancelToken, FieldRef};
 use partsmith_model::{Document, FieldUnit, Id, Parameter};
@@ -44,6 +45,13 @@ const EDIT_PARAMETER_ID: &str = "p-bench-edit";
 
 /// Name of the parameter the bench50 edit adds and changes.
 const EDIT_PARAMETER: &str = "bench_edit";
+
+/// Number of lost references of the bench50 run whose reasons are memoized (recompute.md section 5).
+const LOST_REFERENCES: usize = 5;
+
+/// Id of the datum plane after the lost references, which the cold diagnosis budget rolls back
+/// and forward to change the rollback marker every memoized reason observed.
+const TAIL_DATUM: &str = "f-bench-tail";
 
 /// How long after `run` starts the cancellation budget cancels.
 const CANCEL_DELAY: Duration = Duration::from_millis(50);
@@ -268,6 +276,139 @@ fn edit_run_time(harness: &mut Harness, bench: &Document) -> Duration {
     })
 }
 
+/// The body of `bench` with the longest writer chain (the most active records that write it, the
+/// last such body in id order on ties) and its first writer in timeline order.
+fn longest_writer_chain(harness: &Harness, bench: &Document) -> (Id, Id) {
+    let registry = harness.recompute.registry();
+    let graph = harness.graph(bench);
+    let mut writers: BTreeMap<Id, Vec<Id>> = BTreeMap::new();
+    for record in &bench.features {
+        let active = graph
+            .node(&record.id)
+            .is_some_and(|node| node.state == NodeState::Active);
+        if !active {
+            continue;
+        }
+        let dependencies = registry
+            .dependencies(record)
+            .unwrap_or_else(|error| panic!("{} is invalid: {error}", record.id));
+        for link in dependencies.bodies_written {
+            writers.entry(link.id).or_default().push(record.id.clone());
+        }
+    }
+    writers
+        .into_iter()
+        .max_by_key(|(_, chain)| chain.len())
+        .map(|(body, chain)| (body, chain[0].clone()))
+        .expect("bench50 writes a body")
+}
+
+/// Bench50 with `count` datum planes `f-bench-lost<i>` appended, then the datum plane
+/// `TAIL_DATUM`, rolled back when `tail_rolled_back`. Each appended datum stands on a face its
+/// body's first writer never made (`<writer>/gone-<i>`), in the body with the longest writer chain,
+/// so its reference is lost and the diagnosis finds that writer as the remover only after walking
+/// the body's whole writer chain (recompute.md section 3.10, rule 7).
+fn with_lost_references(
+    harness: &Harness,
+    bench: &Document,
+    count: usize,
+    tail_rolled_back: bool,
+) -> Document {
+    let (body, first_writer) = longest_writer_chain(harness, bench);
+    let text = partsmith_model::save(bench).expect("bench50 saves");
+    let mut value: Value = serde_json::from_str(&text).expect("a saved document is JSON");
+    let records = value["features"]
+        .as_array_mut()
+        .expect("a saved document has features");
+    for i in 1..=count {
+        records.push(json!({
+            "id": format!("f-bench-lost{i}"),
+            "type": "datum_plane",
+            "base": {
+                "kind": "face",
+                "body": body.as_str(),
+                "face": {"q": format!("{first_writer}/gone-{i}"), "fp": "plane|n=0,0,1|c=0,0,0|a=1"}
+            },
+            "offset": "0"
+        }));
+    }
+    records.push(json!({
+        "id": TAIL_DATUM,
+        "type": "datum_plane",
+        "base": {"kind": "origin", "plane": "XY"},
+        "offset": "1"
+    }));
+    if tail_rolled_back {
+        value["rollback"] = json!(TAIL_DATUM);
+    }
+    partsmith_model::load(&value.to_string())
+        .unwrap_or_else(|error| panic!("bench50 with lost references does not load: {error}"))
+        .document
+}
+
+/// Asserts that a run of a document of [`with_lost_references`] reused every result and explained
+/// each of its `count` lost references.
+fn assert_lost_and_explained(report: &Report, count: usize) {
+    assert!(rebuilt(report).is_empty(), "every result is cached");
+    for i in 1..=count {
+        let feature = format!("f-bench-lost{i}");
+        let message = feature_report(report, &feature)
+            .messages
+            .iter()
+            .find(|message| message.code == "reference_not_found")
+            .unwrap_or_else(|| panic!("{feature} keeps its lost reference"));
+        assert!(
+            message.reason.is_some(),
+            "the loss of {feature} is explained"
+        );
+    }
+}
+
+/// The time the diagnosis of one lost reference on bench50 takes with nothing memoized, on a
+/// harness that has run bench50: a cached run whose reason must be computed again, because the
+/// rollback marker it observed changed (recompute.md section 3.10, memoization), less a cached run
+/// whose reason comes from the memo.
+fn cold_diagnosis_time(harness: &mut Harness, bench: &Document) -> Duration {
+    let documents = [
+        with_lost_references(harness, bench, 1, false),
+        with_lost_references(harness, bench, 1, true),
+    ];
+    for document in &documents {
+        harness.run(document);
+    }
+    let memoized = median(RUNS, |_| {
+        let start = Instant::now();
+        let report = harness.run(&documents[1]);
+        let time = start.elapsed();
+        assert_lost_and_explained(&report, 1);
+        time
+    });
+    let mut current = 1;
+    let cold = median(RUNS, |_| {
+        current = 1 - current;
+        let start = Instant::now();
+        let report = harness.run(&documents[current]);
+        let time = start.elapsed();
+        assert_lost_and_explained(&report, 1);
+        time
+    });
+    cold.saturating_sub(memoized)
+}
+
+/// The median time of a run of bench50 with `LOST_REFERENCES` lost references and every result
+/// cached, on a harness that has run bench50: every reason comes from the memo.
+fn memoized_losses_time(harness: &mut Harness, bench: &Document) -> Duration {
+    let document = with_lost_references(harness, bench, LOST_REFERENCES, false);
+    harness.run(&document);
+    median(RUNS, |_| {
+        let start = Instant::now();
+        let report = harness.run(&document);
+        let time = start.elapsed();
+        assert_lost_and_explained(&report, LOST_REFERENCES);
+        time
+    })
+}
+
 fn main() -> ExitCode {
     let mut budgets = partsmith_budgets::Report::from_arguments();
 
@@ -318,6 +459,8 @@ fn main() -> ExitCode {
         "run of bench50 with every result cached",
         "run of bench50 from an empty cache",
         "run after a parameter edit that affects the last 5 features of bench50",
+        "diagnosis of one lost reference on bench50, nothing memoized, the remover found by walking the whole writer chain of its body",
+        "run of bench50 with every result cached and 5 lost references",
     ];
     let selected: Vec<&str> = bench50_operations
         .into_iter()
@@ -344,6 +487,12 @@ fn main() -> ExitCode {
                 });
                 budgets.measure(bench50_operations[2], Duration::from_millis(60), || {
                     edit_run_time(&mut harness, &bench)
+                });
+                budgets.measure(bench50_operations[3], Duration::from_millis(1), || {
+                    cold_diagnosis_time(&mut harness, &bench)
+                });
+                budgets.measure(bench50_operations[4], Duration::from_millis(5), || {
+                    memoized_losses_time(&mut harness, &bench)
                 });
             }
             None => {

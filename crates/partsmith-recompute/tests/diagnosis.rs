@@ -1552,14 +1552,17 @@ fn t052_r16_an_edge_a_cut_took_away_offers_its_neighbors_by_meaning() {
         error.text,
         "The front top edge of 'Box 1' selected for Edges was cut away by 'Extrude 1', which comes before this fillet."
     );
+    // Equally far and both keeping a face of the lost edge, so in name order (naming.md section 3.1).
     let outer_edges = [
-        use_picked(&session, "f-fil1", "b-1", "/edges/0", RABBET_TOP_EDGE),
         use_picked(&session, "f-fil1", "b-1", "/edges/0", RABBET_FRONT_EDGE),
+        use_picked(&session, "f-fil1", "b-1", "/edges/0", RABBET_TOP_EDGE),
     ];
-    assert!(error.fixes.len() > 2, "{:?}", error.fixes);
-    for fix in &outer_edges {
-        assert!(error.fixes[..2].contains(fix), "{:?}", error.fixes);
-    }
+    assert_eq!(
+        error.fixes.get(..2),
+        Some(&outer_edges[..]),
+        "{:?}",
+        error.fixes
+    );
     for (query, meaning, distance) in repair_candidates(error, "/edges/0") {
         if query == RABBET_TOP_EDGE || query == RABBET_FRONT_EDGE {
             assert!(meaning, "{query} keeps a face of the lost edge");
