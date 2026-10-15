@@ -238,7 +238,7 @@ fn assert_all_clean(run: &Run) {
     }
 }
 
-/// Asserts that `feature` left no face named `f-xxx/...` after it in the final state of `body`.
+/// Asserts that the final state of `body` has no face whose name starts with `feature`'s id, such as a fillet face.
 fn assert_no_faces_of(run: &Run, body: &str, feature: &str) {
     let faces = face_names_with_prefix(run.body(body), &format!("{feature}/"));
     assert!(faces.is_empty(), "{feature} left faces {faces:?} in {body}");
