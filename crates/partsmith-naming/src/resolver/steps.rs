@@ -648,7 +648,7 @@ impl<'a> Resolver<'a> {
             .filter(|&position| !self.faces[position].is_present())
             .collect();
         match absent.as_slice() {
-            [missing] if self.faces.len() > 1 => {
+            [missing] => {
                 let allowed: Vec<&[u32]> = self
                     .faces
                     .iter()

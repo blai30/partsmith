@@ -4,9 +4,14 @@ import { installPopoverPolyfill } from '../components/popover-polyfill.testing'
 import { createWorkerTransport } from '../core/transport'
 import { createMemoryRecentFiles } from '../files/recent'
 import { createMemoryRecovery, type RecoveryStore } from '../files/recovery'
-import type { Document, Edit } from '../generated/protocol'
+import type { Command, DocHandle, Document, Edit } from '../generated/protocol'
 import { StatusBar } from '../layout/StatusBar'
-import { renderWithApp, stubElementSize, stubMatchMedia } from '../layout/test-app.testing'
+import {
+  renderModelApp,
+  renderWithApp,
+  stubElementSize,
+  stubMatchMedia,
+} from '../layout/test-app.testing'
 import { currentDocument, LINUX_WEB, startWithDocument, WINDOWS_DESKTOP } from '../test/fakes/app'
 import { createFakeCoreWorkers, type FakeCoreWorkers } from '../test/fakes/core-worker'
 import { deferred } from '../test/fakes/deferred'
@@ -14,6 +19,7 @@ import {
   CUBE_DOCUMENT,
   CUBE_REGION,
   CUBE_SKETCH_SOLUTION,
+  CUBE_TOP_FACE,
   documentFile,
   TWO_BODIES_DOCUMENT,
 } from '../test/fakes/documents'
@@ -28,10 +34,11 @@ import { settle } from '../test/fakes/settle'
 import { Viewport } from '../viewport/Viewport'
 import { renameBody, setBodyVisible } from './actions/bodies'
 import { editFeature, startFeatureCommand } from './actions/command'
+import { setContext } from './actions/context'
 import { applyEdits, newDocument, openFile, save, startCore } from './actions/document'
 import { exportModel } from './actions/export'
 import { select } from './actions/selection'
-import { createApp, type App } from './createApp'
+import { BACKGROUND_COMMANDS, createApp, type App } from './createApp'
 
 // A core that has answered nothing for 10 s (ui.md 3.21, 4.4): the still-working state, its
 // status text and panel, and "Stop and restart core", which terminates the worker, drops the
@@ -103,6 +110,11 @@ function stillWorking(app: App): boolean {
   return app.store.getState().core.stillWorking
 }
 
+/** A core that never answers, as one stuck in the kernel. */
+function neverAnswer(): Promise<never> {
+  return new Promise<never>(() => undefined)
+}
+
 /** The still-working panel, which the viewport shows. */
 function workingPanel(): HTMLElement {
   return within(screen.getByTestId('viewport')).getByTestId('core-working')
@@ -147,20 +159,22 @@ describe('still working (3.21, 4.4)', () => {
     const fake = await startWithDocument('cube.ptsm', CUBE_DOCUMENT)
     const { documentHandle } = currentDocument(fake.app)
     const firstAnswer = deferred<void>()
-    fake.transport.handle('evaluate', async (command, core) => {
-      if (command.expr !== '1 mm') {
+    fake.transport.handle('pick_reference', async (command) => {
+      if (command.pick.index !== 0) {
         // The second request is never answered.
-        return new Promise<never>(() => undefined)
+        return neverAnswer()
       }
       await firstAnswer.promise
-      return core.reply(command)
+      return { result: { type: 'pick_reference', element: CUBE_TOP_FACE } }
     })
     // Request A at 0 ms.
-    const first = fake.app.core.evaluate(documentHandle, '1 mm')
+    const first = fake.app.core.pickReference(documentHandle, { mesh_id: 1, kind: 'face', index: 0 })
     await settle()
     await advance(5_000)
     // Request B at 5,000 ms, never answered.
-    void fake.app.core.evaluate(documentHandle, '2 mm').catch(() => undefined)
+    void fake.app.core
+      .pickReference(documentHandle, { mesh_id: 1, kind: 'face', index: 1 })
+      .catch(() => undefined)
     await settle()
     await advance(1_000)
     // A is answered at 6,000 ms.
@@ -179,7 +193,7 @@ describe('still working (3.21, 4.4)', () => {
       platform: WINDOWS_DESKTOP,
     })
     renderCoreViews(fake.app)
-    fake.transport.handle('apply_edits', () => new Promise<never>(() => undefined))
+    fake.transport.handle('apply_edits', neverAnswer)
     void applyEdits(fake.app, 'Rename', RENAME_TO_BOX)
     await act(() => settle())
     await advance(10_000)
@@ -188,6 +202,278 @@ describe('still working (3.21, 4.4)', () => {
     const panel = workingPanel()
     expect(panel).toHaveTextContent(STILL_WORKING_DESKTOP)
     expect(within(panel).queryByRole('button')).toBeNull()
+  })
+})
+
+/** A request one command sends through `app.core` for the open document. */
+type CoreRequest = {
+  readonly type: Command['type']
+  readonly send: (app: App, documentHandle: DocHandle) => Promise<unknown>
+}
+
+/** One request of each command the UI sends on its own to keep what it shows current (4.4). */
+const BACKGROUND_REQUESTS: readonly CoreRequest[] = [
+  {
+    type: 'analyze_print',
+    send: (app, documentHandle) =>
+      app.core.analyzePrint(documentHandle, { orientation: { kind: 'as_modeled' } }),
+  },
+  {
+    type: 'list_elements',
+    send: (app, documentHandle) => app.core.listElements(documentHandle, 'b-cube', 'edge'),
+  },
+  {
+    type: 'resolve_references',
+    send: (app, documentHandle) =>
+      app.core.resolveReferences(documentHandle, [
+        { body: 'b-cube', reference: CUBE_TOP_FACE.reference },
+      ]),
+  },
+  {
+    type: 'measure',
+    send: (app, documentHandle) => app.core.measure(documentHandle, { kind: 'body', body: 'b-cube' }),
+  },
+  { type: 'evaluate', send: (app, documentHandle) => app.core.evaluate(documentHandle, '1 mm') },
+]
+
+/** One request of each of the commands U-171 names that the user waits on (4.4). */
+const WAITED_ON_REQUESTS: readonly CoreRequest[] = [
+  {
+    type: 'apply_edits',
+    send: (app, documentHandle) => app.core.applyEdits(documentHandle, 'Rename', RENAME_TO_BOX),
+  },
+  {
+    type: 'open_document',
+    send: (app) => app.core.openDocument(JSON.stringify(TWO_BODIES_DOCUMENT, null, 2)),
+  },
+  { type: 'export', send: (app, documentHandle) => app.core.exportBodies(documentHandle, 'stl') },
+  {
+    type: 'pick_reference',
+    send: (app, documentHandle) =>
+      app.core.pickReference(documentHandle, { mesh_id: 1, kind: 'face', index: 0 }),
+  },
+  { type: 'solve_sketch', send: (app, documentHandle) => app.core.solveSketch(documentHandle, 'f-sk1') },
+  {
+    type: 'drag_sketch',
+    send: (app, documentHandle) => app.core.dragSketch(documentHandle, 'f-sk1', 'e-1/start', [5, 5]),
+  },
+]
+
+/** Sends a request whose rejection, if any, no test needs. */
+function sendIgnored(app: App, request: CoreRequest): void {
+  request.send(app, currentDocument(app).documentHandle).catch(() => undefined)
+}
+
+/** Expects the core not to be still working: no state, no status text and no panel. */
+function expectNotStillWorking(app: App): void {
+  expect(stillWorking(app)).toBe(false)
+  expect(screen.queryByTestId('status-core')).toBeNull()
+  expect(screen.queryByTestId('core-working')).toBeNull()
+}
+
+function requestOf(requests: readonly CoreRequest[], type: Command['type']): CoreRequest {
+  const request = requests.find((candidate) => candidate.type === type)
+  if (request === undefined) {
+    throw new Error(`No request of ${type}.`)
+  }
+  return request
+}
+
+describe('only waited-on requests count (2.5, 3.21, 4.4)', () => {
+  it('U-171 BACKGROUND_COMMANDS holds exactly the commands the UI sends on its own', () => {
+    expect([...BACKGROUND_COMMANDS].toSorted()).toEqual([
+      'analyze_print',
+      'evaluate',
+      'list_elements',
+      'list_uses',
+      'measure',
+      'resolve_references',
+    ])
+  })
+
+  it.each(BACKGROUND_REQUESTS)(
+    'U-171 a $type sent alone and never answered never shows that the core is still working',
+    async (request) => {
+      const fake = await startWithDocument('cube.ptsm', CUBE_DOCUMENT)
+      renderCoreViews(fake.app)
+      fake.transport.handle(request.type, neverAnswer)
+      sendIgnored(fake.app, request)
+      await act(() => settle())
+      expect(fake.transport.commandTypes()).toEqual([request.type])
+
+      await advance(30_000)
+      expectNotStillWorking(fake.app)
+    },
+  )
+
+  it('U-171 in Print, an analysis that never ends keeps the badge checking and shows no panel', async () => {
+    const fake = await startWithDocument('cube.ptsm', CUBE_DOCUMENT)
+    renderCoreViews(fake.app)
+    fake.transport.handle('analyze_print', neverAnswer)
+    await act(() => setContext(fake.app, 'print'))
+    await act(() => settle())
+    expect(fake.transport.commandTypes()).toEqual(['analyze_print'])
+    const badge = screen.getByTestId('health-badge')
+    function expectChecking(): void {
+      expect(badge).toHaveAttribute('data-state', 'running')
+      expect(badge).toHaveTextContent(/^Checking$/)
+      expectNotStillWorking(fake.app)
+    }
+
+    expectChecking()
+    await advance(10_000)
+    expectChecking()
+    await advance(20_000)
+    expectChecking()
+  })
+
+  it.each(WAITED_ON_REQUESTS)(
+    'U-171 a $type sent alone and never answered makes the core still working at 10,000 ms',
+    async (request) => {
+      const fake = await startWithDocument('cube.ptsm', CUBE_DOCUMENT)
+      fake.transport.handle(request.type, neverAnswer)
+      sendIgnored(fake.app, request)
+      await settle()
+      expect(fake.transport.commandTypes()).toEqual([request.type])
+
+      await advance(9_999)
+      expect(stillWorking(fake.app)).toBe(false)
+      await advance(1)
+      expect(stillWorking(fake.app)).toBe(true)
+    },
+  )
+
+  it('U-171 a background request sent after the waited-on ones were answered starts no count', async () => {
+    const fake = await startWithDocument('cube.ptsm', CUBE_DOCUMENT)
+    renderCoreViews(fake.app)
+    const answer = deferred<void>()
+    fake.transport.handle('apply_edits', async (command, core) => {
+      await answer.promise
+      return core.reply(command)
+    })
+    fake.transport.handle('analyze_print', neverAnswer)
+    const { documentHandle } = currentDocument(fake.app)
+    // The edit at 0 ms, answered at 2,000 ms.
+    const edit = fake.app.core.applyEdits(documentHandle, 'Rename', RENAME_TO_BOX)
+    await settle()
+    await advance(2_000)
+    answer.resolve()
+    await act(async () => {
+      await edit
+      await settle()
+    })
+    // The analysis at 3,000 ms, never answered.
+    await advance(1_000)
+    sendIgnored(fake.app, requestOf(BACKGROUND_REQUESTS, 'analyze_print'))
+    await act(() => settle())
+
+    await advance(57_000)
+    expectNotStillWorking(fake.app)
+  })
+
+  it('U-171 a waited-on request sent behind a stuck background one counts from its own sending', async () => {
+    const fake = await startWithDocument('cube.ptsm', CUBE_DOCUMENT)
+    fake.transport.handle('analyze_print', neverAnswer)
+    // The analysis at 0 ms, never answered.
+    sendIgnored(fake.app, requestOf(BACKGROUND_REQUESTS, 'analyze_print'))
+    await settle()
+    await advance(5_000)
+    // The edit at 5,000 ms, which the core would take only after the analysis.
+    sendIgnored(fake.app, requestOf(WAITED_ON_REQUESTS, 'apply_edits'))
+    await settle()
+
+    await advance(9_999)
+    expect(stillWorking(fake.app)).toBe(false)
+    await advance(1)
+    expect(stillWorking(fake.app)).toBe(true)
+  })
+
+  it("U-171 a background request's response counts as the core's latest response", async () => {
+    const fake = await startWithDocument('cube.ptsm', CUBE_DOCUMENT)
+    const answer = deferred<void>()
+    fake.transport.handle('analyze_print', async (command, core) => {
+      await answer.promise
+      return core.reply(command)
+    })
+    fake.transport.handle('apply_edits', neverAnswer)
+    const { documentHandle } = currentDocument(fake.app)
+    // The analysis at 0 ms, answered at 8,000 ms.
+    const analysis = requestOf(BACKGROUND_REQUESTS, 'analyze_print').send(
+      fake.app,
+      documentHandle,
+    )
+    await settle()
+    await advance(1_000)
+    // The edit at 1,000 ms, never answered.
+    sendIgnored(fake.app, requestOf(WAITED_ON_REQUESTS, 'apply_edits'))
+    await settle()
+    await advance(7_000)
+    answer.resolve()
+    await act(async () => {
+      await analysis
+      await settle()
+    })
+
+    await advance(9_999)
+    expect(stillWorking(fake.app)).toBe(false)
+    await advance(1)
+    expect(stillWorking(fake.app)).toBe(true)
+  })
+})
+
+/** Sets the still-working state as the app does after 10 s without an answer (4.4). */
+function setStillWorking(app: App, stillWorking: boolean): void {
+  act(() => {
+    app.store.setState((state) => ({ core: { ...state.core, stillWorking } }))
+  })
+}
+
+describe('the still-working panel over the model (4.4)', () => {
+  it('U-172 leaves the canvas, the view chrome, the Print toolbar and the context switch in place and usable', async () => {
+    const { app } = renderModelApp({ state: { context: 'print' } })
+    const view = screen.getByTestId('viewport')
+    const canvasElement = view.querySelector('canvas')
+    expect(canvasElement).not.toBeNull()
+
+    setStillWorking(app, true)
+    const panel = within(view).getByTestId('core-working')
+    const chip = panel.closest('.pointer-events-auto')
+    const layer = chip?.parentElement
+    expect(layer).toHaveClass('pointer-events-none', 'absolute', 'inset-0')
+    expect(layer?.parentElement).toBe(view)
+    // Between the panel and the viewport only the chip takes pointer events.
+    const taking: Element[] = []
+    for (let element: Element | null = panel; element !== view; element = element.parentElement) {
+      if (element === null) {
+        throw new Error('The panel is not inside the viewport.')
+      }
+      if (element.classList.contains('pointer-events-auto')) {
+        taking.push(element)
+      }
+    }
+    expect(taking).toEqual([chip])
+    expect(view.querySelector('canvas')).toBe(canvasElement)
+    expect(within(view).getByTestId('view-cube')).toBeVisible()
+    expect(within(view).getByTestId('viewport-controls')).toBeVisible()
+    const toolbar = screen.getByRole('toolbar', { name: 'Print tools' })
+    const overhangMap = within(toolbar).getByRole('button', { name: 'Overhang map' })
+    expect(within(toolbar).getByRole('button', { name: 'Lay on face' })).toBeVisible()
+    const contexts = screen.getByRole('radiogroup', { name: 'Context' })
+    expect(within(contexts).getByRole('radio', { name: 'Print' })).toBeChecked()
+
+    fireEvent.click(overhangMap)
+    expect(overhangMap).toHaveAttribute('aria-pressed', 'false')
+    await act(async () => {
+      fireEvent.click(within(contexts).getByRole('radio', { name: 'Model' }))
+      await settle()
+    })
+    expect(screen.getByTestId('app')).toHaveAttribute('data-context', 'model')
+    expect(screen.getByRole('toolbar', { name: 'Model tools' })).toBeVisible()
+    expect(within(view).getByTestId('core-working')).toBeVisible()
+
+    setStillWorking(app, false)
+    expect(screen.queryByTestId('core-working')).toBeNull()
+    expect(view.querySelector('canvas')).toBe(canvasElement)
   })
 })
 

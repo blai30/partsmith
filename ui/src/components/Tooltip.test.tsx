@@ -1,7 +1,9 @@
-import { act, cleanup, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { useRef, useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { COLOR_CLASSES } from '../theme/roles'
+import { Popover } from './Popover'
 import { installPopoverPolyfill } from './popover-polyfill.testing'
 import { Tooltip } from './Tooltip'
 
@@ -277,5 +279,66 @@ describe('Tooltip whose label goes away while shown', () => {
     await user.hover(trigger)
     advance(500)
     expect(shownTooltip()).toHaveTextContent('Edit Sketch 1')
+  })
+})
+
+/** An "Export" button with a tooltip that opens a popover, as the top bar's Export (3.18). */
+function ExportWithPopover() {
+  const anchor = useRef<HTMLButtonElement>(null)
+  const [open, setOpen] = useState(false)
+  return (
+    <>
+      <Tooltip label="Export" shortcut="Ctrl+Shift+E">
+        <button ref={anchor} type="button" onClick={() => setOpen(true)}>
+          Export
+        </button>
+      </Tooltip>
+      <Popover label="Export options" open={open} anchor={anchor} onOpenChange={setOpen}>
+        <button type="button">Export STL</button>
+      </Popover>
+    </>
+  )
+}
+
+describe('Tooltip after Esc (3.24)', () => {
+  it('U-173 opens on focus after another key, but not after Escape', () => {
+    render(
+      <Tooltip label="Export">
+        <button type="button">Export</button>
+      </Tooltip>,
+    )
+    const trigger = screen.getByRole('button', { name: 'Export' })
+    fireEvent.keyDown(document, { key: 'Escape' })
+    act(() => {
+      trigger.focus()
+    })
+    expect(trigger).toHaveFocus()
+    expect(shownTooltip()).toBeNull()
+
+    fireEvent.keyDown(document, { key: 'Tab' })
+    act(() => {
+      trigger.blur()
+      trigger.focus()
+    })
+    expect(shownTooltip()).toHaveTextContent('Export')
+  })
+
+  it('U-173 Escape in a popover returns focus to its trigger with the tooltip closed', async () => {
+    const user = userEvent.setup({
+      advanceTimers: (delay) => {
+        vi.advanceTimersByTime(delay)
+      },
+    })
+    render(<ExportWithPopover />)
+    const trigger = screen.getByRole('button', { name: 'Export' })
+    await user.click(trigger)
+    expect(screen.getByRole('dialog', { name: 'Export options' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Export STL' })).toHaveFocus()
+
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('dialog', { name: 'Export options' })).toBeNull()
+    expect(trigger).toHaveFocus()
+    advance(1000)
+    expect(shownTooltip()).toBeNull()
   })
 })
